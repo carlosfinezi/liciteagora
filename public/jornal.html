@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jornal de Licitacoes | PNCP</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      color: #1a1a2e;
+    }
+
+    .app-container {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 250px;
+      background: #2c3e50;
+      padding: 0;
+      position: fixed;
+      height: 100vh;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+      z-index: 1000;
+    }
+
+    .sidebar-header {
+      padding: 25px 20px;
+      background: #1a252f;
+      border-bottom: 1px solid #34495e;
+    }
+
+    .sidebar-logo {
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-logo span { font-size: 24px; }
+
+    .sidebar-menu { padding: 15px 0; }
+
+    .menu-section {
+      padding: 10px 20px 5px;
+      color: #7f8c8d;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      color: #bdc3c7;
+      text-decoration: none;
+      transition: all 0.3s;
+      border-left: 3px solid transparent;
+    }
+
+    .menu-item:hover {
+      background: #34495e;
+      color: white;
+      border-left-color: #667eea;
+    }
+
+    .menu-item.active {
+      background: #34495e;
+      color: white;
+      border-left-color: #667eea;
+    }
+
+    .menu-item .icon {
+      font-size: 18px;
+      width: 24px;
+      text-align: center;
+    }
+
+    .main-content {
+      flex: 1;
+      margin-left: 250px;
+      padding: 0;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; }
+    }
+
+    .header {
+      background: linear-gradient(135deg, #1a5f7a 0%, #0d3d4d 100%);
+      color: white;
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .header h1 { font-size: 1.5rem; font-weight: 600; }
+    .header .subtitle { opacity: 0.8; font-size: 0.9rem; margin-top: 4px; }
+
+    .header-actions { display: flex; gap: 10px; }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary { background: #4CAF50; color: white; }
+    .btn-primary:hover { background: #388E3C; }
+    .btn-secondary { background: rgba(255,255,255,0.2); color: white; }
+    .btn-secondary:hover { background: rgba(255,255,255,0.3); }
+    .btn-warning { background: #FF9800; color: white; }
+    .btn-warning:hover { background: #F57C00; }
+    .btn-outline { background: transparent; border: 1px solid #ddd; color: #666; }
+    .btn-outline:hover { background: #f5f5f5; }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 30px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 20px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card-header h2 {
+      font-size: 1.2rem;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-body { padding: 20px; }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #333;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: #1a5f7a;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+    }
+
+    .switch-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .switch {
+      position: relative;
+      width: 50px;
+      height: 26px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.4s;
+      border-radius: 26px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: #4CAF50;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(24px);
+    }
+
+    .grupos-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 12px;
+    }
+
+    .grupo-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border: 2px solid #eee;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .grupo-item:hover {
+      border-color: #1a5f7a;
+    }
+
+    .grupo-item.selected {
+      border-color: #4CAF50;
+      background: #E8F5E9;
+    }
+
+    .grupo-item input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+
+    .grupo-cor {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+    }
+
+    .grupo-info {
+      flex: 1;
+    }
+
+    .grupo-nome {
+      font-weight: 500;
+      color: #333;
+    }
+
+    .grupo-palavras {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-badge.ativo {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+
+    .status-badge.inativo {
+      background: #FFEBEE;
+      color: #C62828;
+    }
+
+    .preview-container {
+      background: #f9f9f9;
+      border-radius: 8px;
+      padding: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .preview-grupo {
+      margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .preview-grupo:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .preview-grupo-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .preview-grupo-header h4 {
+      font-size: 1rem;
+      color: #333;
+    }
+
+    .preview-licitacao {
+      background: white;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      border-left: 3px solid #1a5f7a;
+    }
+
+    .preview-licitacao h5 {
+      font-size: 0.9rem;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .preview-licitacao p {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .preview-licitacao .meta {
+      display: flex;
+      gap: 15px;
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    .historico-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .historico-table th,
+    .historico-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+
+    .historico-table th {
+      background: #f5f5f5;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .historico-table tr:hover {
+      background: #f9f9f9;
+    }
+
+    .status-sucesso { color: #2E7D32; }
+    .status-erro { color: #C62828; }
+    .status-vazio { color: #F57C00; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #888;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #333;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 1002;
+    }
+
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #4CAF50; }
+    .toast.error { background: #f44336; }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    
+
+    <main class="main-content">
+      <header class="header">
+        <div>
+          <h1>📰 Jornal de Licitacoes</h1>
+          <div class="subtitle">Receba diariamente as licitacoes dos seus grupos de interesse</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary" onclick="carregarPreview()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            Preview
+          </button>
+          <button class="btn btn-warning" onclick="executarAgora()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Enviar Agora
+          </button>
+        </div>
+      </header>
+
+      <div class="container">
+        <!-- Configuracao -->
+        <div class="card">
+          <div class="card-header">
+            <h2>⚙️ Configuracao</h2>
+            <div id="statusBadge" class="status-badge inativo">
+              <span>●</span> Inativo
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Status do Jornal</label>
+                <div class="switch-container">
+                  <label class="switch">
+                    <input type="checkbox" id="jornalAtivo">
+                    <span class="slider"></span>
+                  </label>
+                  <span id="statusTexto">Desativado</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="horario">Horario de Envio</label>
+                <input type="time" id="horario" value="08:00">
+              </div>
+
+              <div class="form-group">
+                <label for="diasAntecedencia">Dias de Antecedencia</label>
+                <select id="diasAntecedencia">
+                  <option value="3">3 dias</option>
+                  <option value="5">5 dias</option>
+                  <option value="7" selected>7 dias</option>
+                  <option value="14">14 dias</option>
+                  <option value="30">30 dias</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="enviarTelegram" checked>
+                Enviar notificacao no Telegram
+              </label>
+            </div>
+
+            <button class="btn btn-primary" onclick="salvarConfiguracao()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+                <polyline points="7 3 7 8 15 8"/>
+              </svg>
+              Salvar Configuracao
+            </button>
+          </div>
+        </div>
+
+        <!-- Grupos -->
+        <div class="card">
+          <div class="card-header">
+            <h2>🏷️ Grupos de Palavras</h2>
+            <a href="/grupos-palavras.html" class="btn btn-outline">Gerenciar Grupos</a>
+          </div>
+          <div class="card-body">
+            <p style="margin-bottom: 15px; color: #666;">Selecione os grupos que deseja monitorar no jornal:</p>
+            <div id="gruposList" class="grupos-list">
+              <div class="loading">Carregando grupos...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview -->
+        <div class="card" id="previewCard" style="display: none;">
+          <div class="card-header">
+            <h2>👁️ Preview do Jornal</h2>
+            <span id="previewInfo"></span>
+          </div>
+          <div class="card-body">
+            <div id="previewContainer" class="preview-container">
+            </div>
+          </div>
+        </div>
+
+        <!-- Historico -->
+        <div class="card">
+          <div class="card-header">
+            <h2>📜 Historico de Envios</h2>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <table class="historico-table">
+              <thead>
+                <tr>
+                  <th>Data/Hora</th>
+                  <th>Licitacoes</th>
+                  <th>Grupos</th>
+                  <th>Status</th>
+                  <th>Mensagem</th>
+                </tr>
+              </thead>
+              <tbody id="historicoBody">
+                <tr>
+                  <td colspan="5" class="empty-state">Carregando...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let config = {};
+    let grupos = [];
+    let gruposSelecionados = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      carregarConfiguracao();
+      carregarGrupos();
+      carregarHistorico();
+
+      document.getElementById('jornalAtivo').addEventListener('change', (e) => {
+        const ativo = e.target.checked;
+        document.getElementById('statusTexto').textContent = ativo ? 'Ativado' : 'Desativado';
+        atualizarBadge(ativo);
+      });
+    });
+
+    function atualizarBadge(ativo) {
+      const badge = document.getElementById('statusBadge');
+      if (ativo) {
+        badge.className = 'status-badge ativo';
+        badge.innerHTML = '<span>●</span> Ativo';
+      } else {
+        badge.className = 'status-badge inativo';
+        badge.innerHTML = '<span>●</span> Inativo';
+      }
+    }
+
+    async function carregarConfiguracao() {
+      try {
+        const res = await fetch('/api/jornal/config');
+        const data = await res.json();
+
+        if (data.success) {
+          config = data.data;
+
+          document.getElementById('jornalAtivo').checked = config.ativo === 1;
+          document.getElementById('horario').value = config.horario || '08:00';
+          document.getElementById('diasAntecedencia').value = config.diasAntecedencia || 7;
+          document.getElementById('enviarTelegram').checked = config.enviarTelegram === 1;
+
+          document.getElementById('statusTexto').textContent = config.ativo === 1 ? 'Ativado' : 'Desativado';
+          atualizarBadge(config.ativo === 1);
+
+          if (config.gruposAtivos) {
+            gruposSelecionados = config.gruposAtivos.map(g => g.grupoId);
+          }
+        }
+      } catch (error) {
+        showToast('Erro ao carregar configuracao', 'error');
+      }
+    }
+
+    async function carregarGrupos() {
+      try {
+        const res = await fetch('/api/grupos-palavras');
+        const data = await res.json();
+
+        if (data.success) {
+          grupos = data.data;
+          renderizarGrupos();
+        }
+      } catch (error) {
+        showToast('Erro ao carregar grupos', 'error');
+      }
+    }
+
+    function renderizarGrupos() {
+      const container = document.getElementById('gruposList');
+
+      if (grupos.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state" style="grid-column: 1 / -1;">
+            <p>Nenhum grupo criado</p>
+            <a href="/grupos-palavras.html" class="btn btn-primary" style="margin-top: 10px;">Criar Grupos</a>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = grupos.map(grupo => {
+        const selecionado = gruposSelecionados.includes(grupo.id);
+        return `
+          <div class="grupo-item ${selecionado ? 'selected' : ''}" onclick="toggleGrupo(${grupo.id}, this)">
+            <input type="checkbox" ${selecionado ? 'checked' : ''} onclick="event.stopPropagation()">
+            <div class="grupo-cor" style="background: ${grupo.cor || '#1a5f7a'}">
+              ${grupo.nome.charAt(0).toUpperCase()}
+            </div>
+            <div class="grupo-info">
+              <div class="grupo-nome">${grupo.nome}</div>
+              <div class="grupo-palavras">${grupo.palavras ? grupo.palavras.length : 0} palavras</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function toggleGrupo(id, element) {
+      const checkbox = element.querySelector('input[type="checkbox"]');
+      checkbox.checked = !checkbox.checked;
+
+      if (checkbox.checked) {
+        gruposSelecionados.push(id);
+        element.classList.add('selected');
+      } else {
+        gruposSelecionados = gruposSelecionados.filter(g => g !== id);
+        element.classList.remove('selected');
+      }
+    }
+
+    async function salvarConfiguracao() {
+      try {
+        const dados = {
+          ativo: document.getElementById('jornalAtivo').checked,
+          horario: document.getElementById('horario').value,
+          diasAntecedencia: parseInt(document.getElementById('diasAntecedencia').value),
+          enviarTelegram: document.getElementById('enviarTelegram').checked,
+          gruposIds: gruposSelecionados
+        };
+
+        const res = await fetch('/api/jornal/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dados)
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          showToast('Configuracao salva!', 'success');
+        } else {
+          showToast(data.error || 'Erro ao salvar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao salvar configuracao', 'error');
+      }
+    }
+
+    async function carregarPreview() {
+      document.getElementById('previewCard').style.display = 'block';
+      document.getElementById('previewContainer').innerHTML = '<div class="loading">Gerando preview...</div>';
+
+      try {
+        const res = await fetch('/api/jornal/preview');
+        const data = await res.json();
+
+        if (data.success) {
+          renderizarPreview(data.data);
+        } else {
+          document.getElementById('previewContainer').innerHTML = `<div class="empty-state">${data.error}</div>`;
+        }
+      } catch (error) {
+        document.getElementById('previewContainer').innerHTML = `<div class="empty-state">Erro ao gerar preview</div>`;
+      }
+    }
+
+    function renderizarPreview(preview) {
+      const container = document.getElementById('previewContainer');
+      const info = document.getElementById('previewInfo');
+
+      info.textContent = `${preview.totalLicitacoes} licitacoes | Periodo: ${preview.periodo.dataInicial} a ${preview.periodo.dataFinal}`;
+
+      if (preview.grupos.length === 0) {
+        container.innerHTML = '<div class="empty-state">Nenhuma licitacao encontrada no periodo</div>';
+        return;
+      }
+
+      container.innerHTML = preview.grupos.map(grupo => `
+        <div class="preview-grupo">
+          <div class="preview-grupo-header">
+            <div class="grupo-cor" style="background: ${grupo.cor}; width: 28px; height: 28px; font-size: 14px;">
+              ${grupo.grupo.charAt(0)}
+            </div>
+            <h4>${grupo.grupo}</h4>
+            <span style="color: #888; font-size: 13px;">(${grupo.total} licitacoes)</span>
+          </div>
+          ${grupo.licitacoes.slice(0, 3).map(lic => `
+            <div class="preview-licitacao">
+              <h5>${lic.nomeUnidade}</h5>
+              <p>${lic.objetoCompra?.substring(0, 150)}${lic.objetoCompra?.length > 150 ? '...' : ''}</p>
+              <div class="meta">
+                <span>💰 ${lic.valorTotalEstimado ? 'R$ ' + Number(lic.valorTotalEstimado).toLocaleString('pt-BR') : 'Nao informado'}</span>
+                <span>📅 ${new Date(lic.dataEncerramentoProposta).toLocaleDateString('pt-BR')}</span>
+                <span>📍 ${lic.ufSigla}</span>
+              </div>
+            </div>
+          `).join('')}
+          ${grupo.total > 3 ? `<p style="color: #888; font-size: 13px; text-align: center;">...e mais ${grupo.total - 3} licitacoes</p>` : ''}
+        </div>
+      `).join('');
+    }
+
+    async function carregarHistorico() {
+      try {
+        const res = await fetch('/api/jornal/historico');
+        const data = await res.json();
+
+        if (data.success) {
+          renderizarHistorico(data.data);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar historico:', error);
+      }
+    }
+
+    function renderizarHistorico(historico) {
+      const tbody = document.getElementById('historicoBody');
+
+      if (historico.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum envio registrado</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = historico.map(h => {
+        const data = new Date(h.dataEnvio).toLocaleString('pt-BR');
+        const grupos = h.gruposProcessados ? JSON.parse(h.gruposProcessados).join(', ') : '-';
+        const statusClass = h.status === 'sucesso' ? 'status-sucesso' : (h.status === 'erro' ? 'status-erro' : 'status-vazio');
+
+        return `
+          <tr>
+            <td>${data}</td>
+            <td>${h.totalLicitacoes}</td>
+            <td>${grupos}</td>
+            <td class="${statusClass}">${h.status}</td>
+            <td>${h.mensagem || '-'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function executarAgora() {
+      if (!confirm('Deseja enviar o jornal agora?')) return;
+
+      showToast('Enviando jornal...', '');
+
+      try {
+        const res = await fetch('/api/jornal/executar', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(`Jornal enviado! ${data.data.totalLicitacoes} licitacoes`, 'success');
+          carregarHistorico();
+        } else {
+          showToast(data.error || 'Erro ao enviar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao executar jornal', 'error');
+      }
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast show ' + type;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('jornal');</script>
+</body>
+</html>

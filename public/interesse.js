@@ -1,0 +1,167 @@
+async function carregarInteresses() {
+    const loadingContainer = document.getElementById('loadingContainer');
+    const interessesContainer = document.getElementById('interessesContainer');
+    const emptyState = document.getElementById('emptyState');
+    const totalInfo = document.getElementById('totalInfo');
+
+    try {
+        const response = await fetch('/api/interesse');
+        const result = await response.json();
+        const interesses = result.data || [];
+
+        loadingContainer.style.display = 'none';
+
+        if (interesses.length === 0) {
+            emptyState.style.display = 'block';
+            return;
+        }
+
+        // Agrupar por licitação
+        const licitacoesMap = new Map();
+
+        interesses.forEach(item => {
+            const key = item.cnpj + '-' + item.ano + '-' + item.sequencial;
+            if (!licitacoesMap.has(key)) {
+                licitacoesMap.set(key, {
+                    cnpj: item.cnpj,
+                    ano: item.ano,
+                    sequencial: item.sequencial,
+                    numeroCompra: item.numeroCompra || '',
+                    objetoCompra: item.objetoCompra || 'Objeto não disponível',
+                    nomeOrgao: item.nomeOrgao || 'Órgão não disponível',
+                    codigoUnidadeCompradora: item.codigoUnidadeCompradora || '',
+                    linkSistemaOrigem: item.linkSistemaOrigem || '',
+                    itens: []
+                });
+            }
+            licitacoesMap.get(key).itens.push({
+                id: item.id,
+                numeroItem: item.numeroItem,
+                descricao: item.descricao || 'Item ' + item.numeroItem,
+                valorUnitarioEstimado: item.valorUnitarioEstimado || 0,
+                quantidade: item.quantidade || 1
+            });
+        });
+
+        // Calcular totais
+        let totalLicitacoes = licitacoesMap.size;
+        let totalItens = interesses.length;
+        let valorTotal = 0;
+
+        interesses.forEach(item => {
+            const valor = parseFloat(item.valorUnitarioEstimado) || 0;
+            const qtd = parseFloat(item.quantidade) || 1;
+            valorTotal += valor * qtd;
+        });
+
+        // Exibir totais
+        document.getElementById('totalLicitacoes').textContent = totalLicitacoes;
+        document.getElementById('totalItens').textContent = totalItens;
+        document.getElementById('valorTotal').textContent = formatarValor(valorTotal);
+        totalInfo.style.display = 'flex';
+
+        // Renderizar cards
+        interessesContainer.innerHTML = '';
+
+        licitacoesMap.forEach((licitacao, key) => {
+            const valorLicitacao = licitacao.itens.reduce((sum, item) => {
+                return sum + (parseFloat(item.valorUnitarioEstimado) || 0) * (parseFloat(item.quantidade) || 1);
+            }, 0);
+
+            const card = document.createElement('div');
+            card.className = 'interesse-card';
+            card.innerHTML = `
+                <div class="interesse-header">
+                    <div class="interesse-titulo">${licitacao.objetoCompra}</div>
+                </div>
+                <div class="interesse-info">
+                    <div class="info-item">
+                        <span class="info-label">Órgão</span>
+                        <span class="info-value">${licitacao.nomeOrgao}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">UASG</span>
+                        <span class="info-value">${licitacao.codigoUnidadeCompradora}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Licitação</span>
+                        <span class="info-value">${licitacao.numeroCompra || licitacao.sequencial}/${licitacao.ano}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Valor Total</span>
+                        <span class="info-value" style="color: #4caf50;">${formatarValor(valorLicitacao)}</span>
+                    </div>
+                </div>
+                <div class="itens-lista">
+                    <h4>Itens de Interesse (${licitacao.itens.length})</h4>
+                    ${licitacao.itens.map(item => `
+                        <div class="item-interesse">
+                            <div class="item-info">
+                                <span class="item-numero">Item ${item.numeroItem}</span>
+                                <span class="item-descricao">${item.descricao}</span>
+                            </div>
+                            <span class="item-valor">${formatarValor(item.valorUnitarioEstimado * item.quantidade)}</span>
+                            <button class="btn-remover" onclick="removerInteresse(${item.id})">Remover</button>
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="interesse-footer">
+                    ${licitacao.linkSistemaOrigem ?
+                        `<a href="${licitacao.linkSistemaOrigem.startsWith('http') ? licitacao.linkSistemaOrigem : 'https://' + licitacao.linkSistemaOrigem}" target="_blank" class="btn-detalhes">Abrir no Sistema</a>` :
+                        `<a href="https://pncp.gov.br/app/editais/${licitacao.cnpj}/${licitacao.ano}/${licitacao.sequencial}" target="_blank" class="btn-detalhes">Ver no PNCP</a>`
+                    }
+                </div>
+            `;
+            interessesContainer.appendChild(card);
+        });
+
+    } catch (error) {
+        console.error('Erro ao carregar interesses:', error);
+        loadingContainer.innerHTML = '<h3 style="color: #f44336;">Erro ao carregar interesses</h3>';
+    }
+}
+
+async function removerInteresse(id) {
+    if (!confirm('Deseja remover este item de interesse?')) return;
+
+    try {
+        const response = await fetch('/api/interesse/' + id, { method: 'DELETE' });
+        if (response.ok) {
+            carregarInteresses();
+        } else {
+            alert('Erro ao remover interesse');
+        }
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao remover interesse');
+    }
+}
+
+function formatarValor(valor) {
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    }).format(valor);
+}
+
+async function excluirTodosInteresses() {
+    if (!confirm('Tem certeza que deseja EXCLUIR TODOS os interesses?\n\nEsta ação não pode ser desfeita!')) return;
+
+    try {
+        const response = await fetch('/api/interesse', { method: 'DELETE' });
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`${result.removidos} interesse(s) removido(s) com sucesso!`);
+            carregarInteresses();
+        } else {
+            alert('Erro ao excluir interesses: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao excluir interesses');
+    }
+}
+
+// Carregar ao iniciar
+document.addEventListener('DOMContentLoaded', carregarInteresses);

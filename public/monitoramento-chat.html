@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Mensagens - PNCP</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        .layout { display: flex; min-height: 100vh; }
+
+        /* Sidebar */
+        .sidebar {
+            width: 220px;
+            background: #16213e;
+            padding: 0;
+            border-right: 1px solid #0f3460;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #4dabf7;
+            text-decoration: none;
+            font-size: 1.3em;
+            font-weight: 700;
+        }
+        .sidebar-menu { padding: 15px 0; flex: 1; }
+        .menu-section {
+            color: #666;
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 10px 20px 5px;
+            margin-top: 10px;
+        }
+        .menu-section:first-child { margin-top: 0; }
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            color: #adb5bd;
+            text-decoration: none;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .menu-item:hover { background: #0f3460; color: #4dabf7; }
+        .menu-item.active { background: #0f3460; color: #4dabf7; border-left-color: #4dabf7; }
+        .menu-item .icon { font-size: 1.1em; }
+
+        /* Main Content */
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+        h1 { color: #4dabf7; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+        .subtitle { color: #888; margin-bottom: 30px; }
+
+        /* Panels */
+        .panel {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        .panel h3 {
+            color: #4dabf7;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #0f3460;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Status Cards */
+        .status-bar { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px; }
+        .status-item {
+            background: #16213e;
+            padding: 15px 25px;
+            border-radius: 12px;
+            text-align: center;
+            min-width: 130px;
+        }
+        .status-item .numero { font-size: 24px; font-weight: bold; color: #4dabf7; }
+        .status-item .label { color: #888; font-size: 12px; margin-top: 5px; }
+        .status-item.ativo { border: 2px solid #2ecc71; }
+        .status-item.ativo .numero { color: #2ecc71; }
+        .status-item.inativo { border: 2px solid #e74c3c; }
+        .status-item.inativo .numero { color: #e74c3c; }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #0f3460;
+            padding-bottom: 0;
+        }
+        .tab {
+            padding: 12px 25px;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: #4dabf7; }
+        .tab.active {
+            color: #4dabf7;
+            border-bottom-color: #4dabf7;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Filtros Avancados */
+        .filtros-container {
+            background: #0f3460;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .filtros-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .filtro-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .filtro-group label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .filtro-group select,
+        .filtro-group input {
+            background: #1a1a2e;
+            border: 1px solid #16213e;
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: #fff;
+            font-size: 13px;
+            min-width: 180px;
+        }
+        .filtro-group select:focus,
+        .filtro-group input:focus {
+            outline: none;
+            border-color: #4dabf7;
+        }
+        .filtro-group input::placeholder { color: #555; }
+        .btn-filtrar {
+            padding: 10px 20px;
+            background: #4dabf7;
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .btn-filtrar:hover { background: #74c0fc; }
+        .btn-limpar {
+            padding: 10px 20px;
+            background: transparent;
+            color: #888;
+            border: 1px solid #555;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .btn-limpar:hover { color: #fff; border-color: #888; }
+
+        /* Visualizacao Toggle */
+        .view-toggle {
+            display: flex;
+            gap: 5px;
+            margin-left: auto;
+        }
+        .view-btn {
+            padding: 8px 15px;
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            color: #888;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .view-btn.active {
+            background: #4dabf7;
+            color: #000;
+            border-color: #4dabf7;
+        }
+
+        /* Licitacao Group (Accordion) */
+        .licitacao-group {
+            background: #0f3460;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        .licitacao-header {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            cursor: pointer;
+            background: #0f3460;
+            transition: background 0.2s;
+        }
+        .licitacao-header:hover { background: #16213e; }
+        .licitacao-header .chevron {
+            margin-right: 15px;
+            transition: transform 0.3s;
+            color: #4dabf7;
+        }
+        .licitacao-header.expanded .chevron { transform: rotate(90deg); }
+        .licitacao-title {
+            flex: 1;
+        }
+        .licitacao-title .numero {
+            color: #4dabf7;
+            font-weight: 600;
+            font-size: 15px;
+        }
+        .licitacao-title .orgao {
+            color: #888;
+            font-size: 12px;
+            margin-top: 3px;
+        }
+        .licitacao-meta {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .licitacao-meta .badge {
+            background: #16213e;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            color: #4dabf7;
+        }
+        .licitacao-meta .badge.alerta {
+            background: #f39c12;
+            color: #000;
+        }
+        .licitacao-meta .badge.cnpj {
+            background: #e74c3c;
+            color: #fff;
+        }
+        .licitacao-mensagens {
+            display: none;
+            padding: 0 20px 20px;
+            background: #16213e;
+        }
+        .licitacao-mensagens.expanded { display: block; }
+
+        /* Mensagens */
+        .mensagem-item {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            border-left: 3px solid #4dabf7;
+        }
+        .mensagem-item.alerta { border-left-color: #f39c12; }
+        .mensagem-item.cnpj { border-left-color: #e74c3c; }
+        .mensagem-item.nao-lido { background: #1e2a4a; }
+        .mensagem-item.nao-lido::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 10px;
+            height: 10px;
+            background: #4dabf7;
+            border-radius: 50%;
+        }
+        .mensagem-item { position: relative; }
+        .mensagem-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .mensagem-remetente {
+            color: #2ecc71;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .mensagem-hora {
+            color: #666;
+            font-size: 11px;
+        }
+        .mensagem-texto {
+            color: #ddd;
+            line-height: 1.6;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .mensagem-texto mark {
+            background: linear-gradient(135deg, #f39c12, #e74c3c);
+            color: #fff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(243, 156, 18, 0.4);
+            animation: pulse-highlight 2s ease-in-out infinite;
+        }
+        @keyframes pulse-highlight {
+            0%, 100% { box-shadow: 0 2px 4px rgba(243, 156, 18, 0.4); }
+            50% { box-shadow: 0 2px 8px rgba(231, 76, 60, 0.6); }
+        }
+        .mensagem-tags {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .tag {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .tag.palavra { background: #f39c12; color: #000; }
+        .tag.cnpj { background: #e74c3c; color: #fff; }
+
+        /* Lista Simples (sem agrupamento) */
+        .mensagem-card {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid #4dabf7;
+        }
+        .mensagem-card.alerta { border-left-color: #f39c12; }
+        .mensagem-card.cnpj { border-left-color: #e74c3c; background: #2a1a1e; }
+        .mensagem-card.nao-lido { background: #1a2a4e; position: relative; }
+        .mensagem-card.nao-lido::after {
+            content: 'Nova';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #4dabf7;
+            color: #000;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        .btn-lido {
+            background: transparent;
+            border: 1px solid #4dabf7;
+            color: #4dabf7;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 10px;
+        }
+        .btn-lido:hover { background: #4dabf7; color: #000; }
+        .btn-marcar-todas {
+            background: #4dabf7;
+            color: #000;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .btn-marcar-todas:hover { background: #74c0fc; }
+        .mensagem-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .mensagem-licitacao {
+            background: #16213e;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #4dabf7;
+        }
+
+        /* Palavras-chave */
+        .palavras-lista { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+        .palavra-tag {
+            background: #0f3460;
+            color: #4dabf7;
+            padding: 8px 15px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+        .palavra-tag .remover {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .palavra-tag .remover:hover { background: #c0392b; }
+        .add-palavra { display: flex; gap: 10px; }
+        .add-palavra input {
+            flex: 1;
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            padding: 12px 15px;
+            color: #fff;
+            font-size: 14px;
+        }
+        .add-palavra input:focus { outline: none; border-color: #4dabf7; }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary { background: #4dabf7; color: #000; }
+        .btn-primary:hover { background: #74c0fc; }
+
+        .loading { color: #888; padding: 20px; text-align: center; }
+        .sem-mensagens {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .sem-mensagens .icon { font-size: 48px; margin-bottom: 15px; }
+
+        /* Stats inline */
+        .stats-inline {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 20px;
+            padding: 15px 20px;
+            background: #0f3460;
+            border-radius: 8px;
+        }
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .stat-item .value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #4dabf7;
+        }
+        .stat-item .label {
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* Logs */
+        .logs-container {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #0f3460;
+            color: #adb5bd;
+        }
+        .log-entry:last-child { border-bottom: none; }
+        .log-entry.error { color: #e74c3c; }
+        .log-entry.success { color: #2ecc71; }
+
+        /* Alert */
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .alert-success { background: #27ae60; color: white; }
+        .alert-error { background: #e74c3c; color: white; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .filtros-row { flex-direction: column; }
+            .filtro-group select,
+            .filtro-group input { min-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        
+
+        <main class="main-content">
+            <h1>
+                <span>💬</span>
+                Monitor de Mensagens
+            </h1>
+            <p class="subtitle">Mensagens capturadas do chat das licitações no Comprasnet</p>
+
+            <div id="alertContainer"></div>
+
+            <!-- Status Bar -->
+            <div class="stats-inline">
+                <div class="stat-item">
+                    <span class="value" id="totalMensagens">0</span>
+                    <span class="label">Mensagens</span>
+                </div>
+                <div class="stat-item">
+                    <span class="value" id="totalLicitacoes">0</span>
+                    <span class="label">Licitações</span>
+                </div>
+                <div class="stat-item">
+                    <span class="value" id="totalAlertas">0</span>
+                    <span class="label">Com Alerta</span>
+                </div>
+                <div class="stat-item">
+                    <span class="value" id="totalCnpj">0</span>
+                    <span class="label">Com meu CNPJ</span>
+                </div>
+                <div class="stat-item" style="border: 2px solid #4dabf7;">
+                    <span class="value" id="totalNaoLidas">0</span>
+                    <span class="label">Não Lidas</span>
+                </div>
+                <div class="stat-item" style="border: 2px solid #2ecc71;">
+                    <span class="value" id="totalMonitoradas">0</span>
+                    <span class="label">Monitoradas</span>
+                </div>
+                <div style="margin-left: auto;">
+                    <button class="btn-marcar-todas" onclick="marcarTodasLidas()">✓ Marcar todas como lidas</button>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="mensagens">Mensagens</button>
+                <button class="tab" data-tab="monitoradas">Monitoradas</button>
+                <button class="tab" data-tab="config">Configurações</button>
+                <button class="tab" data-tab="logs">Logs</button>
+            </div>
+
+            <!-- Tab: Mensagens -->
+            <div class="tab-content active" id="tab-mensagens">
+                <!-- Filtros -->
+                <div class="filtros-container">
+                    <div class="filtros-row">
+                        <div class="filtro-group">
+                            <label>Órgão</label>
+                            <select id="filtroOrgao" style="min-width: 250px;">
+                                <option value="">Todos os órgãos</option>
+                            </select>
+                        </div>
+                        <div class="filtro-group">
+                            <label>UASG</label>
+                            <input type="text" id="filtroUasg" placeholder="Código UASG..." style="min-width: 120px;">
+                        </div>
+                        <div class="filtro-group">
+                            <label>Licitação</label>
+                            <select id="filtroLicitacao">
+                                <option value="">Todas as licitações</option>
+                            </select>
+                        </div>
+                        <div class="filtro-group">
+                            <label>Tipo</label>
+                            <select id="filtroTipo">
+                                <option value="">Todos</option>
+                                <option value="alerta">Com palavra-chave</option>
+                                <option value="cnpj">Com meu CNPJ</option>
+                            </select>
+                        </div>
+                        <div class="filtro-group">
+                            <label>Data</label>
+                            <select id="filtroData">
+                                <option value="">Qualquer data</option>
+                                <option value="hoje">Hoje</option>
+                                <option value="7dias">Últimos 7 dias</option>
+                                <option value="30dias">Últimos 30 dias</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="filtros-row" style="margin-top: 15px;">
+                        <div class="filtro-group" style="flex: 1;">
+                            <label>Buscar</label>
+                            <input type="text" id="filtroBusca" placeholder="Texto na mensagem..." style="width: 100%;">
+                        </div>
+                        <button class="btn-filtrar" onclick="carregarMensagens()">Filtrar</button>
+                        <button class="btn-limpar" onclick="limparFiltros()">Limpar</button>
+                        <div class="view-toggle">
+                            <button class="view-btn active" data-view="agrupado" onclick="setView('agrupado')">Agrupar</button>
+                            <button class="view-btn" data-view="lista" onclick="setView('lista')">Lista</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mensagens -->
+                <div id="mensagensContainer">
+                    <div class="loading">Carregando mensagens...</div>
+                </div>
+            </div>
+
+            <!-- Tab: Monitoradas -->
+            <div class="tab-content" id="tab-monitoradas">
+                <div class="panel">
+                    <h3><span>📡</span> Licitações Monitoradas pelo Polling</h3>
+                    <p style="color: #888; margin-bottom: 15px; font-size: 13px;">
+                        CompraIds mapeados automaticamente. O polling verifica novas mensagens a cada 1 minuto.
+                    </p>
+                    <div id="monitoradasContainer">
+                        <div class="loading">Carregando...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Configurações -->
+            <div class="tab-content" id="tab-config">
+                <!-- Telegram -->
+                <div class="panel">
+                    <h3>
+                        <span>📱</span>
+                        Alertas via Telegram
+                    </h3>
+                    <p style="color: #888; margin-bottom: 20px; font-size: 14px;">
+                        Configure seu bot do Telegram para receber alertas de novas mensagens importantes.
+                    </p>
+
+                    <div id="telegramStatus" style="margin-bottom: 20px;">
+                        <div class="loading">Verificando configuração...</div>
+                    </div>
+
+                    <div id="telegramForm">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div class="filtro-group">
+                                <label>Token do Bot</label>
+                                <input type="text" id="telegramToken" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                            </div>
+                            <div class="filtro-group">
+                                <label>Chat ID</label>
+                                <input type="text" id="telegramChatId" placeholder="-1001234567890">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="salvarTelegram()">Salvar Configuração</button>
+                            <button class="btn" style="background: #2ecc71; color: #fff;" onclick="testarTelegram()">Enviar Teste</button>
+                            <button class="btn" style="background: #e74c3c; color: #fff;" onclick="desativarTelegram()">Desativar</button>
+                        </div>
+                    </div>
+
+                    <div style="background: #0f3460; padding: 15px; border-radius: 8px; margin-top: 20px;">
+                        <p style="color: #4dabf7; font-weight: 600; margin-bottom: 10px;">Como configurar:</p>
+                        <ol style="color: #adb5bd; font-size: 13px; line-height: 1.8; padding-left: 20px;">
+                            <li>Abra o Telegram e busque por <strong>@BotFather</strong></li>
+                            <li>Envie <code>/newbot</code> e siga as instruções</li>
+                            <li>Copie o token gerado e cole acima</li>
+                            <li>Crie um grupo e adicione o bot</li>
+                            <li>Envie uma mensagem no grupo</li>
+                            <li>Acesse: <code>https://api.telegram.org/bot[TOKEN]/getUpdates</code></li>
+                            <li>Copie o "chat id" (número negativo) e cole acima</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <!-- Palavras-chave -->
+                <div class="panel">
+                    <h3>
+                        <span>🔑</span>
+                        Palavras-chave de Alerta
+                    </h3>
+                    <p style="color: #888; margin-bottom: 20px; font-size: 14px;">
+                        Mensagens com estas palavras serão destacadas e enviam alerta no Telegram.
+                    </p>
+
+                    <div class="palavras-lista" id="palavrasLista">
+                        <div class="loading">Carregando...</div>
+                    </div>
+
+                    <div class="add-palavra">
+                        <input type="text" id="novaPalavra" placeholder="Nova palavra-chave..." onkeypress="if(event.key==='Enter') adicionarPalavra()">
+                        <button class="btn btn-primary" onclick="adicionarPalavra()">+ Adicionar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Logs -->
+            <div class="tab-content" id="tab-logs">
+                <div class="panel">
+                    <h3>
+                        <span>📋</span>
+                        Logs do Monitor
+                        <button class="btn btn-primary" style="margin-left: auto; font-size: 12px;" onclick="carregarLogs()">Atualizar</button>
+                    </h3>
+                    <div class="logs-container" id="logsContainer">
+                        <div class="loading">Carregando logs...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const API_URL = '';
+        let viewMode = 'agrupado';
+        let todasMensagens = [];
+        let palavrasChave = [];
+
+        // Tabs
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        function setView(mode) {
+            viewMode = mode;
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === mode);
+            });
+            renderMensagens();
+        }
+
+        function showAlert(message, type = 'info') {
+            const container = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = `<span>${type === 'success' ? '✓' : '✗'}</span> ${message}`;
+            container.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        // Dados dos órgãos (para mapeamento de código -> nome)
+        let dadosOrgaos = [];
+        let dadosLicitacoes = [];
+
+        // Carregar filtros
+        async function carregarFiltros() {
+            try {
+                // Carregar órgãos com nomes
+                const resOrgaos = await fetch(`${API_URL}/api/chat/mensagens/orgaos`);
+                const dataOrgaos = await resOrgaos.json();
+                dadosOrgaos = dataOrgaos.data || [];
+
+                // Carregar licitações
+                const resLic = await fetch(`${API_URL}/api/chat/mensagens/licitacoes`);
+                const dataLic = await resLic.json();
+                dadosLicitacoes = dataLic.data || [];
+
+                const selectOrgao = document.getElementById('filtroOrgao');
+                const selectLic = document.getElementById('filtroLicitacao');
+
+                // Preencher órgãos com nomes
+                selectOrgao.innerHTML = '<option value="">Todos os órgãos</option>';
+                dadosOrgaos.forEach(org => {
+                    const opt = document.createElement('option');
+                    opt.value = org.cnpjOrgao;
+                    // Mostrar nome do órgão se disponível, senão o código
+                    const nomeExibicao = org.nomeOrgao
+                        ? `${org.nomeOrgao} (${org.totalLicitacoes} licitações)`
+                        : `Código ${org.cnpjOrgao} (${org.totalLicitacoes} licitações)`;
+                    opt.textContent = nomeExibicao;
+                    opt.dataset.uasg = org.uasg || org.cnpjOrgao;
+                    selectOrgao.appendChild(opt);
+                });
+
+                // Preencher licitações com nomes do órgão
+                selectLic.innerHTML = '<option value="">Todas as licitações</option>';
+                dadosLicitacoes.forEach(l => {
+                    const opt = document.createElement('option');
+                    opt.value = `${l.cnpjOrgao}|${l.ano}|${l.sequencial}`;
+                    const nomeOrgao = l.nomeOrgao ? l.nomeOrgao.substring(0, 30) : l.cnpjOrgao;
+                    opt.textContent = `${l.sequencial}/${l.ano} - ${nomeOrgao} (${l.totalMensagens} msgs)`;
+                    opt.dataset.orgao = l.cnpjOrgao;
+                    opt.dataset.uasg = l.uasg || l.cnpjOrgao;
+                    selectLic.appendChild(opt);
+                });
+
+                document.getElementById('totalLicitacoes').textContent = dadosLicitacoes.length || 0;
+            } catch (e) {
+                console.error('Erro ao carregar filtros:', e);
+            }
+        }
+
+        function formatCNPJ(cnpj) {
+            if (!cnpj || cnpj.length !== 14) return cnpj;
+            return cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        }
+
+        // Obter nome do órgão pelo código
+        function getNomeOrgao(cnpjOrgao) {
+            const orgao = dadosOrgaos.find(o => o.cnpjOrgao === cnpjOrgao);
+            if (orgao && orgao.nomeOrgao) return orgao.nomeOrgao;
+
+            const lic = dadosLicitacoes.find(l => l.cnpjOrgao === cnpjOrgao);
+            if (lic && lic.nomeOrgao) return lic.nomeOrgao;
+
+            return null;
+        }
+
+        function limparFiltros() {
+            document.getElementById('filtroOrgao').value = '';
+            document.getElementById('filtroUasg').value = '';
+            document.getElementById('filtroLicitacao').value = '';
+            document.getElementById('filtroTipo').value = '';
+            document.getElementById('filtroData').value = '';
+            document.getElementById('filtroBusca').value = '';
+            carregarMensagens();
+        }
+
+        // Carregar mensagens
+        async function carregarMensagens() {
+            const container = document.getElementById('mensagensContainer');
+            container.innerHTML = '<div class="loading">Carregando mensagens...</div>';
+
+            try {
+                // Obter filtros
+                const orgao = document.getElementById('filtroOrgao').value;
+                const uasg = document.getElementById('filtroUasg').value.trim();
+                const lic = document.getElementById('filtroLicitacao').value;
+                const tipo = document.getElementById('filtroTipo').value;
+                const data = document.getElementById('filtroData').value;
+                const busca = document.getElementById('filtroBusca').value;
+
+                let url = `${API_URL}/api/chat/mensagens?limit=6000`;
+
+                if (lic) {
+                    const [cnpjOrgao, ano, sequencial] = lic.split('|');
+                    url += `&cnpjOrgao=${cnpjOrgao}&ano=${ano}&sequencial=${sequencial}`;
+                } else if (uasg) {
+                    // Filtrar por UASG (busca no cnpjOrgao que contém o código)
+                    url += `&cnpjOrgao=${uasg}`;
+                } else if (orgao) {
+                    url += `&cnpjOrgao=${orgao}`;
+                }
+
+                if (tipo) url += `&tipo=${tipo}`;
+                if (data) url += `&data=${data}`;
+                if (busca) url += `&busca=${encodeURIComponent(busca)}`;
+
+                const res = await fetch(url);
+                const result = await res.json();
+
+                todasMensagens = result.data || [];
+
+                // Atualizar stats
+                document.getElementById('totalMensagens').textContent = todasMensagens.length;
+                document.getElementById('totalAlertas').textContent = todasMensagens.filter(m => m.palavrasChaveEncontradas).length;
+                document.getElementById('totalCnpj').textContent = todasMensagens.filter(m => m.temCnpjFornecedor).length;
+                document.getElementById('totalNaoLidas').textContent = todasMensagens.filter(m => !m.lido).length;
+
+                // Contar licitações únicas a partir das mensagens
+                const licitacoesUnicas = new Set(todasMensagens.map(m => `${m.cnpjOrgao}|${m.ano}|${m.sequencial}`));
+                document.getElementById('totalLicitacoes').textContent = licitacoesUnicas.size;
+
+                // Carregar palavras-chave
+                await carregarPalavrasChave();
+
+                renderMensagens();
+            } catch (e) {
+                console.error('Erro ao carregar mensagens:', e);
+                container.innerHTML = '<div class="sem-mensagens"><div class="icon">❌</div><p>Erro ao carregar mensagens</p></div>';
+            }
+        }
+
+        async function carregarPalavrasChave() {
+            try {
+                const res = await fetch(`${API_URL}/api/chat/palavras-chave`);
+                const data = await res.json();
+                palavrasChave = data.data ? data.data.map(p => p.palavra.toLowerCase()) : [];
+            } catch (e) {
+                palavrasChave = [];
+            }
+        }
+
+        function renderMensagens() {
+            const container = document.getElementById('mensagensContainer');
+
+            if (todasMensagens.length === 0) {
+                container.innerHTML = `
+                    <div class="sem-mensagens">
+                        <div class="icon">📭</div>
+                        <p>Nenhuma mensagem encontrada</p>
+                        <p style="font-size: 13px; margin-top: 10px;">Use a extensão do Chrome para capturar mensagens do Comprasnet</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (viewMode === 'agrupado') {
+                renderAgrupado(container);
+            } else {
+                renderLista(container);
+            }
+        }
+
+        function renderAgrupado(container) {
+            // Agrupar por licitação
+            const grupos = new Map();
+            todasMensagens.forEach(msg => {
+                const key = `${msg.cnpjOrgao}|${msg.ano}|${msg.sequencial}`;
+                if (!grupos.has(key)) {
+                    grupos.set(key, {
+                        cnpjOrgao: msg.cnpjOrgao,
+                        ano: msg.ano,
+                        sequencial: msg.sequencial,
+                        mensagens: [],
+                        temAlerta: false,
+                        temCnpj: false
+                    });
+                }
+                const grupo = grupos.get(key);
+                grupo.mensagens.push(msg);
+                if (msg.palavrasChaveEncontradas) grupo.temAlerta = true;
+                if (msg.temCnpjFornecedor) grupo.temCnpj = true;
+            });
+
+            let html = '';
+            grupos.forEach((grupo, key) => {
+                const badges = [];
+                badges.push(`<span class="badge">${grupo.mensagens.length} msgs</span>`);
+                if (grupo.temAlerta) badges.push(`<span class="badge alerta">Alerta</span>`);
+                if (grupo.temCnpj) badges.push(`<span class="badge cnpj">CNPJ</span>`);
+
+                // Buscar nome do órgão
+                const nomeOrgao = getNomeOrgao(grupo.cnpjOrgao);
+                const exibicaoOrgao = nomeOrgao
+                    ? `${nomeOrgao}`
+                    : `UASG: ${grupo.cnpjOrgao}`;
+
+                html += `
+                    <div class="licitacao-group">
+                        <div class="licitacao-header" onclick="toggleGrupo(this)">
+                            <span class="chevron">▶</span>
+                            <div class="licitacao-title">
+                                <div class="numero">Pregão ${grupo.sequencial}/${grupo.ano}</div>
+                                <div class="orgao">${escapeHtml(exibicaoOrgao)}</div>
+                            </div>
+                            <div class="licitacao-meta">
+                                ${badges.join('')}
+                            </div>
+                        </div>
+                        <div class="licitacao-mensagens">
+                            ${grupo.mensagens.map(msg => renderMensagemItem(msg)).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function renderLista(container) {
+            container.innerHTML = todasMensagens.map(msg => {
+                let cardClass = 'mensagem-card';
+                if (msg.temCnpjFornecedor) cardClass += ' cnpj';
+                else if (msg.palavrasChaveEncontradas) cardClass += ' alerta';
+                if (!msg.lido) cardClass += ' nao-lido';
+
+                const dataMsg = msg.dataHoraMensagem || msg.dataCaptura;
+                const dataFormatada = dataMsg ? new Date(dataMsg).toLocaleString('pt-BR') : '-';
+
+                let texto = escapeHtml(msg.mensagem || '');
+                palavrasChave.forEach(palavra => {
+                    const regex = new RegExp(`(${escapeRegex(palavra)})`, 'gi');
+                    texto = texto.replace(regex, '<mark>$1</mark>');
+                });
+
+                let tags = '';
+                if (msg.palavrasChaveEncontradas) {
+                    const palavras = msg.palavrasChaveEncontradas.split(',').filter(p => p);
+                    tags += palavras.map(p => `<span class="tag palavra">${escapeHtml(p.trim())}</span>`).join('');
+                }
+                if (msg.temCnpjFornecedor) {
+                    tags += '<span class="tag cnpj">Meu CNPJ</span>';
+                }
+
+                const btnLido = !msg.lido
+                    ? `<button class="btn-lido" onclick="marcarComoLida(${msg.id}, this)">✓ Lida</button>`
+                    : '';
+
+                return `
+                    <div class="${cardClass}" id="msg-${msg.id}">
+                        <div class="mensagem-header">
+                            <span class="mensagem-licitacao">📋 ${msg.sequencial || 'N/A'}/${msg.ano || 'N/A'}</span>
+                            <span class="mensagem-hora">${dataFormatada} ${btnLido}</span>
+                        </div>
+                        <div class="mensagem-remetente">👤 ${escapeHtml(msg.remetente || 'Sistema')}</div>
+                        <div class="mensagem-texto">${texto}</div>
+                        ${tags ? `<div class="mensagem-tags">${tags}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderMensagemItem(msg) {
+            let itemClass = 'mensagem-item';
+            if (msg.temCnpjFornecedor) itemClass += ' cnpj';
+            else if (msg.palavrasChaveEncontradas) itemClass += ' alerta';
+            if (!msg.lido) itemClass += ' nao-lido';
+
+            const dataMsg = msg.dataHoraMensagem || msg.dataCaptura;
+            const dataFormatada = dataMsg ? new Date(dataMsg).toLocaleString('pt-BR') : '-';
+
+            let texto = escapeHtml(msg.mensagem || '');
+            palavrasChave.forEach(palavra => {
+                const regex = new RegExp(`(${escapeRegex(palavra)})`, 'gi');
+                texto = texto.replace(regex, '<mark>$1</mark>');
+            });
+
+            let tags = '';
+            if (msg.palavrasChaveEncontradas) {
+                const palavras = msg.palavrasChaveEncontradas.split(',').filter(p => p);
+                tags += palavras.map(p => `<span class="tag palavra">${escapeHtml(p.trim())}</span>`).join('');
+            }
+            if (msg.temCnpjFornecedor) {
+                tags += '<span class="tag cnpj">Meu CNPJ</span>';
+            }
+
+            const btnLido = !msg.lido
+                ? `<button class="btn-lido" onclick="marcarComoLida(${msg.id}, this)">✓ Marcar lida</button>`
+                : `<span style="color: #2ecc71; font-size: 11px;">✓ Lida</span>`;
+
+            return `
+                <div class="${itemClass}" id="msg-${msg.id}">
+                    <div class="mensagem-top">
+                        <span class="mensagem-remetente">👤 ${escapeHtml(msg.remetente || 'Sistema')}</span>
+                        <span class="mensagem-hora">${dataFormatada} ${btnLido}</span>
+                    </div>
+                    <div class="mensagem-texto">${texto}</div>
+                    ${tags ? `<div class="mensagem-tags">${tags}</div>` : ''}
+                </div>
+            `;
+        }
+
+        function toggleGrupo(header) {
+            header.classList.toggle('expanded');
+            header.nextElementSibling.classList.toggle('expanded');
+        }
+
+        // Marcar mensagem como lida
+        async function marcarComoLida(id, btn) {
+            try {
+                const res = await fetch(`${API_URL}/api/chat/leitura/marcar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+
+                if (res.ok) {
+                    // Atualizar visualmente
+                    const msgEl = document.getElementById(`msg-${id}`);
+                    if (msgEl) {
+                        msgEl.classList.remove('nao-lido');
+                        btn.outerHTML = '<span style="color: #2ecc71; font-size: 11px;">✓ Lida</span>';
+                    }
+
+                    // Atualizar array local
+                    const msg = todasMensagens.find(m => m.id === id);
+                    if (msg) msg.lido = 1;
+
+                    // Atualizar contador
+                    const naoLidas = todasMensagens.filter(m => !m.lido).length;
+                    document.getElementById('totalNaoLidas').textContent = naoLidas;
+                }
+            } catch (e) {
+                console.error('Erro ao marcar como lida:', e);
+            }
+        }
+
+        // Marcar todas como lidas
+        async function marcarTodasLidas() {
+            if (!confirm('Marcar todas as mensagens como lidas?')) return;
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat/leitura/marcar-todas`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                if (res.ok) {
+                    showAlert('Todas as mensagens marcadas como lidas!', 'success');
+                    carregarMensagens(); // Recarregar lista
+                }
+            } catch (e) {
+                showAlert('Erro ao marcar mensagens', 'error');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Palavras-chave
+        async function carregarPalavras() {
+            try {
+                const res = await fetch(`${API_URL}/api/chat/palavras-chave`);
+                const data = await res.json();
+
+                const lista = document.getElementById('palavrasLista');
+
+                if (!data.data || data.data.length === 0) {
+                    lista.innerHTML = '<p style="color: #666;">Nenhuma palavra-chave cadastrada</p>';
+                    return;
+                }
+
+                lista.innerHTML = data.data.map(p => `
+                    <div class="palavra-tag">
+                        ${p.palavra}
+                        <button class="remover" onclick="removerPalavra(${p.id})" title="Remover">×</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Erro ao carregar palavras:', e);
+            }
+        }
+
+        async function adicionarPalavra() {
+            const input = document.getElementById('novaPalavra');
+            const palavra = input.value.trim();
+
+            if (!palavra || palavra.length < 2) {
+                showAlert('Palavra deve ter pelo menos 2 caracteres', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat/palavras-chave`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ palavra })
+                });
+
+                if (res.ok) {
+                    input.value = '';
+                    carregarPalavras();
+                    showAlert('Palavra-chave adicionada!', 'success');
+                }
+            } catch (e) {
+                showAlert('Erro ao adicionar palavra', 'error');
+            }
+        }
+
+        async function removerPalavra(id) {
+            if (!confirm('Remover esta palavra-chave?')) return;
+
+            try {
+                await fetch(`${API_URL}/api/chat/palavras-chave/${id}`, { method: 'DELETE' });
+                carregarPalavras();
+                showAlert('Palavra-chave removida', 'success');
+            } catch (e) {
+                showAlert('Erro ao remover palavra', 'error');
+            }
+        }
+
+        // Logs
+        async function carregarLogs() {
+            try {
+                const res = await fetch(`${API_URL}/api/chat/monitor-status`);
+                const data = await res.json();
+
+                const container = document.getElementById('logsContainer');
+                if (data.logs && data.logs.length > 0) {
+                    container.innerHTML = data.logs.map(log => {
+                        let className = 'log-entry';
+                        if (log.toLowerCase().includes('erro')) className += ' error';
+                        if (log.toLowerCase().includes('sucesso')) className += ' success';
+                        return `<div class="${className}">${log}</div>`;
+                    }).reverse().join('');
+                } else {
+                    container.innerHTML = '<div class="log-entry">Nenhum log disponível</div>';
+                }
+            } catch (e) {
+                console.error('Erro ao carregar logs:', e);
+            }
+        }
+
+        // Filtro por órgão atualiza as licitações disponíveis
+        document.getElementById('filtroOrgao').addEventListener('change', async function() {
+            const orgao = this.value;
+            const selectLic = document.getElementById('filtroLicitacao');
+
+            if (!orgao) {
+                await carregarFiltros();
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat/mensagens/licitacoes`);
+                const data = await res.json();
+
+                selectLic.innerHTML = '<option value="">Todas as licitações</option>';
+                if (data.data) {
+                    data.data
+                        .filter(l => l.cnpjOrgao === orgao)
+                        .forEach(l => {
+                            const opt = document.createElement('option');
+                            opt.value = `${l.cnpjOrgao}|${l.ano}|${l.sequencial}`;
+                            opt.textContent = `${l.sequencial}/${l.ano} (${l.totalMensagens} msgs)`;
+                            selectLic.appendChild(opt);
+                        });
+                }
+            } catch (e) {
+                console.error('Erro ao filtrar licitações:', e);
+            }
+        });
+
+        // Enter para buscar
+        document.getElementById('filtroBusca').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') carregarMensagens();
+        });
+
+        // ========== TELEGRAM ==========
+        async function carregarTelegramStatus() {
+            const statusDiv = document.getElementById('telegramStatus');
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/status`);
+                const data = await res.json();
+
+                if (data.ativo) {
+                    statusDiv.innerHTML = `
+                        <div style="background: #27ae60; color: white; padding: 12px 20px; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 20px;">✓</span>
+                            <div>
+                                <strong>Telegram Configurado</strong>
+                                <div style="font-size: 12px; opacity: 0.9;">Chat ID: ${data.chatId}</div>
+                            </div>
+                        </div>
+                    `;
+                    // Preencher campos com valores atuais
+                    document.getElementById('telegramChatId').value = data.chatId || '';
+                } else {
+                    statusDiv.innerHTML = `
+                        <div style="background: #e74c3c; color: white; padding: 12px 20px; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 20px;">⚠</span>
+                            <div>
+                                <strong>Telegram Não Configurado</strong>
+                                <div style="font-size: 12px; opacity: 0.9;">Configure abaixo para receber alertas</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                statusDiv.innerHTML = `
+                    <div style="background: #95a5a6; color: white; padding: 12px 20px; border-radius: 8px;">
+                        Erro ao verificar status do Telegram
+                    </div>
+                `;
+            }
+        }
+
+        async function salvarTelegram() {
+            const token = document.getElementById('telegramToken').value.trim();
+            const chatId = document.getElementById('telegramChatId').value.trim();
+
+            if (!token || !chatId) {
+                showAlert('Preencha o Token e o Chat ID', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ botToken: token, chatId })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    showAlert('Telegram configurado com sucesso!', 'success');
+                    document.getElementById('telegramToken').value = '';
+                    carregarTelegramStatus();
+                } else {
+                    showAlert(data.error || 'Erro ao configurar Telegram', 'error');
+                }
+            } catch (e) {
+                showAlert('Erro ao salvar configuração', 'error');
+            }
+        }
+
+        async function testarTelegram() {
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/testar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    showAlert('Mensagem de teste enviada! Verifique o Telegram.', 'success');
+                } else {
+                    showAlert(data.error || 'Erro ao enviar teste', 'error');
+                }
+            } catch (e) {
+                showAlert('Erro ao enviar teste', 'error');
+            }
+        }
+
+        async function desativarTelegram() {
+            if (!confirm('Desativar notificações do Telegram?')) return;
+
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/config`, {
+                    method: 'DELETE'
+                });
+
+                if (res.ok) {
+                    showAlert('Telegram desativado', 'success');
+                    document.getElementById('telegramToken').value = '';
+                    document.getElementById('telegramChatId').value = '';
+                    carregarTelegramStatus();
+                }
+            } catch (e) {
+                showAlert('Erro ao desativar', 'error');
+            }
+        }
+
+        // Carregar licitações monitoradas
+        async function carregarMonitoradas() {
+            const container = document.getElementById('monitoradasContainer');
+            try {
+                const res = await fetch(`${API_URL}/api/chat/monitoramentos`);
+                const data = await res.json();
+                const lics = data.data || [];
+
+                document.getElementById('totalMonitoradas').textContent = lics.length;
+
+                if (lics.length === 0) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #888;">
+                            <div style="font-size: 48px; margin-bottom: 15px;">📡</div>
+                            <p>Nenhuma licitação mapeada ainda</p>
+                            <p style="font-size: 13px; margin-top: 10px;">Abra o Comprasnet com a extensão para mapear automaticamente</p>
+                        </div>`;
+                    return;
+                }
+
+                container.innerHTML = `
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid #0f3460; text-align: left;">
+                                <th style="padding: 10px; color: #4dabf7;">#</th>
+                                <th style="padding: 10px; color: #4dabf7;">CompraId</th>
+                                <th style="padding: 10px; color: #4dabf7;">CNPJ/UASG</th>
+                                <th style="padding: 10px; color: #4dabf7;">Seq/Ano</th>
+                                <th style="padding: 10px; color: #4dabf7;">Órgão</th>
+                                <th style="padding: 10px; color: #4dabf7;">Situação</th>
+                                <th style="padding: 10px; color: #4dabf7;">Atualização</th>
+                                <th style="padding: 10px; color: #4dabf7;">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${lics.map((lic, i) => `
+                                <tr style="border-bottom: 1px solid #0f3460;">
+                                    <td style="padding: 8px 10px; color: #888;">${i + 1}</td>
+                                    <td style="padding: 8px 10px;">
+                                        ${lic.compraId}
+                                        <button onclick="copiarLinkCompra('${lic.compraId}')"
+                                                style="background: none; border: 1px solid #4dabf7; color: #4dabf7; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-left: 6px;"
+                                                title="Copiar link (cole numa aba logada no Comprasnet)">
+                                            Copiar link
+                                        </button>
+                                    </td>
+                                    <td style="padding: 8px 10px; color: #ccc;">${lic.cnpj || '-'}</td>
+                                    <td style="padding: 8px 10px; color: #ccc;">${lic.sequencial || '-'}/${lic.ano || '-'}</td>
+                                    <td style="padding: 8px 10px; color: #ccc; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${lic.nomeOrgao || '-'}</td>
+                                    <td style="padding: 8px 10px; color: #ccc;">${lic.situacao || '-'}</td>
+                                    <td style="padding: 8px 10px; color: #888; font-size: 12px;">${lic.dataSessao || '-'}</td>
+                                    <td style="padding: 8px 10px;">
+                                        <button onclick="desativarMonitorada('${lic.compraId}')"
+                                                style="background: #e74c3c; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                                            Remover
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>`;
+            } catch (e) {
+                console.error('Erro ao carregar monitoradas:', e);
+                container.innerHTML = '<div style="color: #e74c3c; padding: 20px;">Erro ao carregar licitações monitoradas</div>';
+            }
+        }
+
+        function copiarLink(url) {
+            navigator.clipboard.writeText(url).then(() => {
+                showAlert('Link copiado! Cole na barra de endereço de uma aba logada no Comprasnet.', 'success');
+            }).catch(() => {
+                prompt('Copie o link:', url);
+            });
+        }
+
+        function copiarLinkCompra(compraId) {
+            const url = 'https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/acompanhamento-compra?compra=' + compraId;
+            navigator.clipboard.writeText(url).then(() => {
+                showAlert('Link copiado! Cole na barra de endereço de uma aba logada no Comprasnet.', 'success');
+            }).catch(() => {
+                prompt('Copie o link:', url);
+            });
+        }
+
+        async function desativarMonitorada(compraId) {
+            if (!confirm('Remover esta licitação do monitoramento?')) return;
+            try {
+                const res = await fetch(`${API_URL}/api/chat/monitoramento/desativar/${compraId}`, { method: 'POST' });
+                if (res.ok) {
+                    showAlert('Licitação removida do monitoramento', 'success');
+                    carregarMonitoradas();
+                }
+            } catch (e) {
+                showAlert('Erro ao remover', 'error');
+            }
+        }
+
+        // Inicialização
+        carregarFiltros();
+        carregarMensagens();
+        carregarMonitoradas();
+        carregarPalavras();
+        carregarLogs();
+        carregarTelegramStatus();
+
+        // Auto-refresh a cada 30 segundos
+        setInterval(() => {
+            carregarMensagens();
+            carregarMonitoradas();
+        }, 30000);
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('monitoramento-chat');</script>
+</body>
+</html>

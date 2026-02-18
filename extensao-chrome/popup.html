@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitor Comprasnet</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      width: 360px;
+      background: #f5f5f5;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #1a5f7a 0%, #0d3d4d 100%);
+      color: white;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .header h1 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .header .subtitle { font-size: 11px; opacity: 0.8; }
+
+    .content { padding: 16px; }
+
+    .status-card {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+    }
+
+    .status-label { font-size: 12px; color: #666; }
+    .status-value { font-size: 12px; font-weight: 600; color: #333; }
+
+    .status-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    .status-indicator.online { background: #4CAF50; }
+    .status-indicator.offline { background: #F44336; }
+    .status-indicator.monitoring {
+      background: #2196F3;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 8px;
+    }
+
+    .btn-primary { background: #1a5f7a; color: white; }
+    .btn-primary:hover { background: #0d3d4d; }
+    .btn-success { background: #4CAF50; color: white; }
+    .btn-success:hover { background: #388E3C; }
+    .btn-danger { background: #F44336; color: white; }
+    .btn-danger:hover { background: #D32F2F; }
+    .btn-secondary { background: #e0e0e0; color: #333; }
+    .btn-secondary:hover { background: #d0d0d0; }
+    .btn-warning { background: #FF9800; color: white; }
+    .btn-warning:hover { background: #F57C00; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .stat-box {
+      background: white;
+      border-radius: 6px;
+      padding: 12px;
+      text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .stat-number { font-size: 24px; font-weight: bold; color: #1a5f7a; }
+    .stat-label { font-size: 10px; color: #666; text-transform: uppercase; }
+
+    .info-box {
+      background: #e3f2fd;
+      border-left: 3px solid #2196F3;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #1565C0;
+      margin-top: 12px;
+    }
+
+    .warning-box {
+      background: #fff3e0;
+      border-left: 3px solid #FF9800;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #E65100;
+      margin-bottom: 12px;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 12px;
+      font-size: 10px;
+      color: #999;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .hidden { display: none; }
+
+    #resultado {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    #resultado.success { background: #e8f5e9; color: #2e7d32; }
+    #resultado.error { background: #ffebee; color: #c62828; }
+
+    .divider {
+      height: 1px;
+      background: #e0e0e0;
+      margin: 12px 0;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* Estilos para configuracao avancada */
+    .config-panel {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .config-panel h3 {
+      font-size: 13px;
+      color: #333;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .config-row {
+      margin-bottom: 10px;
+    }
+
+    .config-row label {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .config-row select,
+    .config-row input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 12px;
+      background: white;
+    }
+
+    .config-row select:focus,
+    .config-row input:focus {
+      border-color: #1a5f7a;
+      outline: none;
+    }
+
+    .config-row input[type="number"] {
+      width: 80px;
+    }
+
+    .config-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .config-buttons .btn {
+      flex: 1;
+      margin-bottom: 0;
+    }
+
+    .toggle-config {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #1a5f7a;
+      margin-bottom: 8px;
+    }
+
+    .toggle-config:hover {
+      text-decoration: underline;
+    }
+
+    .toggle-icon {
+      transition: transform 0.2s;
+    }
+
+    .toggle-icon.open {
+      transform: rotate(90deg);
+    }
+
+    .status-preview {
+      background: #f5f5f5;
+      border-radius: 4px;
+      padding: 8px;
+      margin-top: 8px;
+      font-size: 11px;
+    }
+
+    .status-preview .item {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+    }
+
+    .status-preview .item span:last-child {
+      font-weight: 600;
+      color: #1a5f7a;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #ddd;
+      border-top-color: #1a5f7a;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Monitor Comprasnet</h1>
+    <div class="subtitle">Captura automatica de mensagens v5.4</div>
+  </div>
+
+  <div class="content">
+    <div class="status-card">
+      <div class="status-row">
+        <span class="status-label">Servidor Local</span>
+        <span class="status-value">
+          <span id="serverIndicator" class="status-indicator offline"></span>
+          <span id="serverStatus">Verificando...</span>
+        </span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Login Comprasnet</span>
+        <span class="status-value">
+          <span id="loginIndicator" class="status-indicator offline"></span>
+          <span id="loginStatus">Verificando...</span>
+        </span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Monitoramento</span>
+        <span class="status-value">
+          <span id="monitorIndicator" class="status-indicator offline"></span>
+          <span id="monitorStatus">Inativo</span>
+        </span>
+      </div>
+    </div>
+
+    <div id="avisoLogin" class="warning-box hidden">
+      <strong>Atencao:</strong> Faca login no Comprasnet primeiro, depois clique em "Iniciar Monitoramento".
+    </div>
+
+    <div class="stats">
+      <div class="stat-box">
+        <div id="msgCount" class="stat-number">0</div>
+        <div class="stat-label">Mensagens</div>
+      </div>
+      <div class="stat-box">
+        <div id="licCount" class="stat-number">0</div>
+        <div class="stat-label">Licitacoes</div>
+      </div>
+    </div>
+
+    <!-- Configuracao Avancada -->
+    <div class="toggle-config" id="toggleConfig">
+      <span class="toggle-icon" id="toggleIcon">&#9654;</span>
+      <span>Configuracao Avancada</span>
+    </div>
+
+    <div id="configPanel" class="config-panel hidden">
+      <h3>Iniciar a partir de:</h3>
+
+      <div class="config-row">
+        <label for="selectStatus">Status da Licitacao:</label>
+        <select id="selectStatus">
+          <option value="">Carregando...</option>
+        </select>
+      </div>
+
+      <div class="config-row">
+        <label for="inputPagina">Pagina Inicial:</label>
+        <input type="number" id="inputPagina" value="1" min="1" max="100">
+      </div>
+
+      <div class="config-row">
+        <label for="inputIndice">Licitacao na pagina (1 = primeira):</label>
+        <input type="number" id="inputIndice" value="1" min="1" max="20">
+      </div>
+
+      <div id="statusPreview" class="status-preview hidden">
+        <div class="item">
+          <span>Status:</span>
+          <span id="previewStatus">-</span>
+        </div>
+        <div class="item">
+          <span>Pagina:</span>
+          <span id="previewPagina">1</span>
+        </div>
+        <div class="item">
+          <span>Posicao:</span>
+          <span id="previewIndice">1</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <button id="btnCarregarStatus" class="btn btn-secondary" style="font-size: 11px; padding: 8px;">
+          Atualizar Lista de Status
+        </button>
+      </div>
+    </div>
+
+    <div class="section-title">Monitoramento Automatico</div>
+
+    <button id="btnIniciar" class="btn btn-success">
+      Iniciar Monitoramento (do inicio)
+    </button>
+
+    <button id="btnIniciarCustom" class="btn btn-warning hidden">
+      Iniciar a partir do ponto selecionado
+    </button>
+
+    <button id="btnParar" class="btn btn-danger hidden">
+      Parar Monitoramento
+    </button>
+
+    <div class="divider"></div>
+
+    <button id="btnAbrir" class="btn btn-secondary">
+      Abrir Painel de Mensagens
+    </button>
+
+    <div id="resultado" class="hidden"></div>
+
+    <div class="info-box">
+      <strong>Dica:</strong> Use a "Configuracao Avancada" para iniciar de um ponto especifico (status/pagina).
+    </div>
+  </div>
+
+  <div class="footer">
+    Monitor Comprasnet v5.4 - Multi-Status
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

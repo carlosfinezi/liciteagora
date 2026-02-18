@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kanban - PNCP</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px;
+            background: #16213e;
+            padding: 20px 0;
+            border-right: 1px solid #0f3460;
+            flex-shrink: 0;
+        }
+        .sidebar h2 {
+            color: #4dabf7;
+            padding: 0 20px 20px;
+            border-bottom: 1px solid #0f3460;
+            margin-bottom: 10px;
+        }
+        .sidebar a {
+            display: block;
+            color: #adb5bd;
+            text-decoration: none;
+            padding: 12px 20px;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            background: #0f3460;
+            color: #4dabf7;
+            border-left: 3px solid #4dabf7;
+        }
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-x: auto;
+        }
+        h1 { color: #4dabf7; margin-bottom: 10px; }
+        .subtitle { color: #888; margin-bottom: 30px; }
+
+        .kanban-board {
+            display: flex;
+            gap: 20px;
+            min-height: calc(100vh - 180px);
+        }
+        .kanban-column {
+            flex: 1;
+            min-width: 300px;
+            background: #16213e;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+        }
+        .column-header {
+            padding: 20px;
+            border-bottom: 1px solid #0f3460;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .column-title {
+            font-weight: 600;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .column-count {
+            background: #0f3460;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+        .column-header.analise { border-left: 4px solid #ffd43b; }
+        .column-header.proposta { border-left: 4px solid #4dabf7; }
+        .column-header.enviada { border-left: 4px solid #51cf66; }
+        .column-header.vencida { border-left: 4px solid #868e96; }
+
+        .column-cards {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            min-height: 200px;
+        }
+        .column-cards.drag-over {
+            background: rgba(77, 171, 247, 0.1);
+        }
+
+        .kanban-card {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 12px;
+            cursor: grab;
+            border: 1px solid #0f3460;
+            transition: all 0.2s;
+        }
+        .kanban-card:hover {
+            border-color: #4dabf7;
+            transform: translateY(-2px);
+        }
+        .kanban-card.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+        .card-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #fff;
+            font-size: 0.95em;
+            line-height: 1.4;
+        }
+        .card-info {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 0.8em;
+            color: #888;
+            margin-bottom: 10px;
+        }
+        .card-info span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .card-date {
+            color: #4dabf7;
+        }
+        .card-date.urgente {
+            color: #ff6b6b;
+            font-weight: 600;
+        }
+        .card-date.hoje {
+            color: #ffd43b;
+            font-weight: 600;
+        }
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .card-btn {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.2s;
+        }
+        .card-btn.abrir { background: #ff9800; color: #000; }
+        .card-btn.abrir:hover { background: #ffa726; }
+        .card-btn.proposta { background: #0f3460; color: #4dabf7; }
+        .card-btn.proposta:hover { background: #4dabf7; color: #000; }
+        .card-btn.remover { background: #495057; color: #fff; }
+        .card-btn.remover:hover { background: #f44336; }
+
+        .card-obs {
+            margin-top: 10px;
+            padding: 10px;
+            background: #0f3460;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: #adb5bd;
+        }
+        .card-obs-input {
+            width: 100%;
+            background: #0f3460;
+            border: 1px solid #4dabf7;
+            color: #fff;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            resize: none;
+        }
+
+        .empty-column {
+            text-align: center;
+            color: #555;
+            padding: 40px 20px;
+        }
+
+        .loading { text-align: center; padding: 60px; color: #888; }
+
+        .add-from-interesse {
+            padding: 15px;
+            border-top: 1px solid #0f3460;
+        }
+        .add-from-interesse button {
+            width: 100%;
+            padding: 12px;
+            background: #0f3460;
+            color: #4dabf7;
+            border: 1px dashed #4dabf7;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .add-from-interesse button:hover {
+            background: #4dabf7;
+            color: #000;
+            border-style: solid;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal.show { display: flex; }
+        .modal-content {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal h3 { color: #4dabf7; margin-bottom: 20px; }
+        .interesse-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .interesse-item {
+            padding: 15px;
+            background: #1a1a2e;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            border: 1px solid #0f3460;
+        }
+        .interesse-item:hover { border-color: #4dabf7; }
+        .interesse-item.added { opacity: 0.5; pointer-events: none; }
+        .interesse-item h4 { color: #fff; margin-bottom: 5px; font-size: 0.95em; }
+        .interesse-item p { color: #888; font-size: 0.85em; }
+        .modal-close {
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #495057;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+        }
+    
+        .sidebar {
+            width: 220px;
+            background: #16213e;
+            padding: 0;
+            border-right: 1px solid #0f3460;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #4dabf7;
+            text-decoration: none;
+            font-size: 1.3em;
+            font-weight: 700;
+        }
+        .sidebar-menu {
+            padding: 15px 0;
+            flex: 1;
+        }
+        .menu-section {
+            color: #666;
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 10px 20px 5px;
+            margin-top: 10px;
+        }
+        .menu-section:first-child {
+            margin-top: 0;
+        }
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            color: #adb5bd;
+            text-decoration: none;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .menu-item:hover {
+            background: #0f3460;
+            color: #4dabf7;
+        }
+        .menu-item.active {
+            background: #0f3460;
+            color: #4dabf7;
+            border-left-color: #4dabf7;
+        }
+        .menu-item .icon {
+            font-size: 1.1em;
+        }
+        </style>
+</head>
+<body>
+    <div class="layout">
+        
+
+        <main class="main-content">
+            <h1>Kanban de Licitações</h1>
+            <p class="subtitle">Arraste os cards para gerenciar o status das suas licitações de interesse</p>
+
+            <div class="kanban-board" id="kanbanBoard">
+                <div class="kanban-column" data-status="analise">
+                    <div class="column-header analise">
+                        <span class="column-title">Em Análise</span>
+                        <span class="column-count" id="count-analise">0</span>
+                    </div>
+                    <div class="column-cards" id="cards-analise"
+                         ondragover="allowDrop(event)" ondrop="drop(event, 'analise')">
+                    </div>
+                    <div class="add-from-interesse">
+                        <button onclick="abrirModalInteresses()">+ Adicionar do Interesse</button>
+                    </div>
+                </div>
+
+                <div class="kanban-column" data-status="proposta">
+                    <div class="column-header proposta">
+                        <span class="column-title">Preparando Proposta</span>
+                        <span class="column-count" id="count-proposta">0</span>
+                    </div>
+                    <div class="column-cards" id="cards-proposta"
+                         ondragover="allowDrop(event)" ondrop="drop(event, 'proposta')">
+                    </div>
+                </div>
+
+                <div class="kanban-column" data-status="enviada">
+                    <div class="column-header enviada">
+                        <span class="column-title">Proposta Enviada</span>
+                        <span class="column-count" id="count-enviada">0</span>
+                    </div>
+                    <div class="column-cards" id="cards-enviada"
+                         ondragover="allowDrop(event)" ondrop="drop(event, 'enviada')">
+                    </div>
+                </div>
+
+                <div class="kanban-column" data-status="vencida">
+                    <div class="column-header vencida">
+                        <span class="column-title">Encerradas</span>
+                        <span class="column-count" id="count-vencida">0</span>
+                    </div>
+                    <div class="column-cards" id="cards-vencida"
+                         ondragover="allowDrop(event)" ondrop="drop(event, 'vencida')">
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal" id="interesseModal">
+        <div class="modal-content">
+            <h3>Adicionar Licitação ao Kanban</h3>
+            <div class="interesse-list" id="interesseList">
+                <!-- Lista de interesses -->
+            </div>
+            <button class="modal-close" onclick="fecharModal()">Fechar</button>
+        </div>
+    </div>
+
+    <script src="kanban.js"></script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('kanban');</script>
+</body>
+</html>

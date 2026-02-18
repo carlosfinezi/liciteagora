@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grupos de Palavras-Chave | PNCP</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      color: #1a1a2e;
+    }
+
+    .app-container {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 250px;
+      background: #2c3e50;
+      padding: 0;
+      position: fixed;
+      height: 100vh;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+      z-index: 1000;
+    }
+
+    .sidebar-header {
+      padding: 25px 20px;
+      background: #1a252f;
+      border-bottom: 1px solid #34495e;
+    }
+
+    .sidebar-logo {
+      color: white;
+      font-size: 20px;
+      font-weight: 700;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-logo span {
+      font-size: 24px;
+    }
+
+    .sidebar-menu {
+      padding: 15px 0;
+    }
+
+    .menu-section {
+      padding: 10px 20px 5px;
+      color: #7f8c8d;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      color: #bdc3c7;
+      text-decoration: none;
+      transition: all 0.3s;
+      border-left: 3px solid transparent;
+    }
+
+    .menu-item:hover {
+      background: #34495e;
+      color: white;
+      border-left-color: #667eea;
+    }
+
+    .menu-item.active {
+      background: #34495e;
+      color: white;
+      border-left-color: #667eea;
+    }
+
+    .menu-item .icon {
+      font-size: 18px;
+      width: 24px;
+      text-align: center;
+    }
+
+    .main-content {
+      flex: 1;
+      margin-left: 250px;
+      padding: 0;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s;
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .main-content {
+        margin-left: 0;
+      }
+    }
+
+    .header {
+      background: linear-gradient(135deg, #1a5f7a 0%, #0d3d4d 100%);
+      color: white;
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .header h1 { font-size: 1.5rem; font-weight: 600; }
+    .header .subtitle { opacity: 0.8; font-size: 0.9rem; margin-top: 4px; }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-primary { background: #4CAF50; color: white; }
+    .btn-primary:hover { background: #388E3C; }
+    .btn-secondary { background: rgba(255,255,255,0.2); color: white; }
+    .btn-secondary:hover { background: rgba(255,255,255,0.3); }
+    .btn-danger { background: #f44336; color: white; }
+    .btn-danger:hover { background: #d32f2f; }
+    .btn-outline { background: transparent; border: 1px solid #ddd; color: #666; }
+    .btn-outline:hover { background: #f5f5f5; }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 30px;
+    }
+
+    .page-title {
+      margin-bottom: 30px;
+    }
+
+    .page-title h2 {
+      font-size: 1.5rem;
+      color: #1a5f7a;
+      margin-bottom: 8px;
+    }
+
+    .page-title p {
+      color: #666;
+      font-size: 0.95rem;
+    }
+
+    .grupos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 20px;
+    }
+
+    .grupo-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .grupo-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    }
+
+    .grupo-header {
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+    }
+
+    .grupo-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .grupo-cor {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 1.2rem;
+    }
+
+    .grupo-nome {
+      font-weight: 600;
+      font-size: 1.1rem;
+      color: #333;
+    }
+
+    .grupo-descricao {
+      font-size: 0.85rem;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    .grupo-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .grupo-actions button {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      background: #f5f5f5;
+      color: #666;
+    }
+
+    .grupo-actions button:hover {
+      background: #e0e0e0;
+    }
+
+    .grupo-actions button.delete:hover {
+      background: #ffebee;
+      color: #f44336;
+    }
+
+    .grupo-body {
+      padding: 16px 20px;
+    }
+
+    .palavras-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .palavra-tag {
+      background: #e3f2fd;
+      color: #1565C0;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .palavra-tag .remove {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.1);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .palavra-tag .remove:hover {
+      background: #f44336;
+      color: white;
+    }
+
+    .add-palavra {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+    }
+
+    .add-palavra input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .add-palavra input:focus {
+      outline: none;
+      border-color: #1a5f7a;
+    }
+
+    .add-palavra button {
+      padding: 8px 16px;
+      background: #1a5f7a;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .add-palavra button:hover {
+      background: #0d3d4d;
+    }
+
+    .grupo-footer {
+      padding: 12px 20px;
+      background: #f9f9f9;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      color: #888;
+    }
+
+    .grupo-footer .pesquisar-btn {
+      background: #1a5f7a;
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .grupo-footer .pesquisar-btn:hover {
+      background: #0d3d4d;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1001;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      transform: translateY(-20px);
+      transition: transform 0.3s;
+    }
+
+    .modal-overlay.active .modal {
+      transform: translateY(0);
+    }
+
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h3 {
+      font-size: 1.2rem;
+      color: #333;
+    }
+
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: #f5f5f5;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 18px;
+      color: #666;
+    }
+
+    .modal-close:hover {
+      background: #e0e0e0;
+    }
+
+    .modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      max-height: 55vh;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      color: #333;
+      font-size: 14px;
+    }
+
+    .form-group input,
+    .form-group textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    .form-group input:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #1a5f7a;
+    }
+
+    .form-group textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    .form-group .hint {
+      font-size: 12px;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    .color-picker {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .color-option {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 3px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .color-option:hover {
+      transform: scale(1.1);
+    }
+
+    .color-option.selected {
+      border-color: #333;
+    }
+
+    .modal-footer {
+      padding: 16px 20px;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .empty-state svg {
+      width: 80px;
+      height: 80px;
+      color: #ccc;
+      margin-bottom: 20px;
+    }
+
+    .empty-state h3 {
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .empty-state p {
+      color: #999;
+      margin-bottom: 20px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #333;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 1002;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success { background: #4CAF50; }
+    .toast.error { background: #f44336; }
+
+    .exclusao-checkboxes {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 150px;
+      overflow-y: auto;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .exclusao-checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .exclusao-checkbox-item:hover {
+      background: #f0f0f0;
+    }
+
+    .exclusao-checkbox-item input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .exclusao-checkbox-item .exclusao-cor {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .exclusao-checkbox-item .exclusao-nome {
+      flex: 1;
+      font-size: 14px;
+    }
+
+    .exclusao-checkbox-item .exclusao-count {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .grupo-exclusoes-vinculadas {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+    }
+
+    .exclusao-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: #fff0f0;
+      border: 1px solid #ffcdd2;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #c62828;
+    }
+
+    .exclusao-badge .badge-cor {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    
+
+    <main class="main-content">
+      <header class="header">
+        <div>
+          <h1>Grupos de Palavras-Chave</h1>
+          <div class="subtitle">Configure grupos para pesquisa rapida de licitacoes</div>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-primary" onclick="abrirModalNovo('pesquisa')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Novo Grupo de Pesquisa
+          </button>
+        </div>
+      </header>
+
+      <div class="container">
+        <!-- Grupos de Pesquisa -->
+        <div class="page-title">
+          <h2>🔍 Grupos de Pesquisa</h2>
+          <p>Palavras-chave para encontrar licitacoes de interesse</p>
+        </div>
+
+        <div id="gruposPesquisaContainer" class="grupos-grid">
+          <div class="loading">Carregando grupos...</div>
+        </div>
+
+        <!-- Grupos de Exclusão -->
+        <div class="page-title" style="margin-top: 50px;">
+          <h2>🚫 Grupos de Exclusao</h2>
+          <p>Palavras-chave para excluir licitacoes indesejadas dos resultados</p>
+          <button class="btn btn-danger" style="margin-top: 10px;" onclick="abrirModalNovo('exclusao')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Novo Grupo de Exclusao
+          </button>
+        </div>
+
+        <div id="gruposExclusaoContainer" class="grupos-grid">
+          <div class="loading">Carregando grupos...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Novo/Editar Grupo -->
+  <div id="modalGrupo" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitulo">Novo Grupo</h3>
+        <button class="modal-close" onclick="fecharModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="grupoId">
+        <input type="hidden" id="grupoTipo" value="pesquisa">
+
+        <div class="form-group">
+          <label for="grupoNome">Nome do Grupo *</label>
+          <input type="text" id="grupoNome" placeholder="Ex: Tecnologia">
+        </div>
+
+        <div class="form-group">
+          <label for="grupoDescricao">Descricao</label>
+          <input type="text" id="grupoDescricao" placeholder="Ex: Equipamentos e suprimentos de TI">
+        </div>
+
+        <div class="form-group">
+          <label>Cor</label>
+          <div class="color-picker">
+            <div class="color-option selected" style="background: #2196F3" data-cor="#2196F3"></div>
+            <div class="color-option" style="background: #4CAF50" data-cor="#4CAF50"></div>
+            <div class="color-option" style="background: #FF9800" data-cor="#FF9800"></div>
+            <div class="color-option" style="background: #9C27B0" data-cor="#9C27B0"></div>
+            <div class="color-option" style="background: #f44336" data-cor="#f44336"></div>
+            <div class="color-option" style="background: #00BCD4" data-cor="#00BCD4"></div>
+            <div class="color-option" style="background: #795548" data-cor="#795548"></div>
+            <div class="color-option" style="background: #607D8B" data-cor="#607D8B"></div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="grupoPalavras">Palavras-chave</label>
+          <textarea id="grupoPalavras" placeholder="Digite as palavras separadas por virgula ou enter&#10;Ex: computador, notebook, monitor, teclado, mouse"></textarea>
+          <div class="hint">Separe as palavras por virgula ou linha</div>
+        </div>
+
+        <div class="form-group" id="vinculoExclusaoContainer" style="display: none;">
+          <label>Vincular Grupos de Exclusao</label>
+          <div id="gruposExclusaoCheckboxes" class="exclusao-checkboxes">
+            <!-- Checkboxes serão inseridos via JavaScript -->
+          </div>
+          <div class="hint">Selecione os grupos de exclusao que serao aplicados automaticamente nas buscas</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="fecharModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarGrupo()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const API_URL = '';
+    let gruposPesquisa = [];
+    let gruposExclusao = [];
+    let corSelecionada = '#2196F3';
+
+    // Inicializar
+    document.addEventListener('DOMContentLoaded', () => {
+      carregarGrupos();
+      configurarColorPicker();
+    });
+
+    function configurarColorPicker() {
+      document.querySelectorAll('.color-option').forEach(el => {
+        el.addEventListener('click', () => {
+          document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
+          el.classList.add('selected');
+          corSelecionada = el.dataset.cor;
+        });
+      });
+    }
+
+    async function carregarGrupos() {
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras`);
+        const data = await res.json();
+
+        if (data.success) {
+          gruposPesquisa = data.data.filter(g => !g.tipo || g.tipo === 'pesquisa');
+          gruposExclusao = data.data.filter(g => g.tipo === 'exclusao');
+          console.log('[Debug] Grupos carregados - Pesquisa:', gruposPesquisa.length, 'Exclusao:', gruposExclusao.length);
+          renderizarGrupos();
+        }
+      } catch (error) {
+        showToast('Erro ao carregar grupos', 'error');
+      }
+    }
+
+    function renderizarGrupos() {
+      renderizarGruposPorTipo('gruposPesquisaContainer', gruposPesquisa, 'pesquisa');
+      renderizarGruposPorTipo('gruposExclusaoContainer', gruposExclusao, 'exclusao');
+    }
+
+    function renderizarGruposPorTipo(containerId, grupos, tipo) {
+      const container = document.getElementById(containerId);
+      const isExclusao = tipo === 'exclusao';
+
+      if (grupos.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state" style="grid-column: 1 / -1;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+            </svg>
+            <h3>Nenhum grupo ${isExclusao ? 'de exclusao' : ''} criado</h3>
+            <p>${isExclusao ? 'Crie grupos para filtrar licitacoes indesejadas' : 'Crie seu primeiro grupo de palavras-chave para facilitar suas pesquisas'}</p>
+            <button class="btn ${isExclusao ? 'btn-danger' : 'btn-primary'}" onclick="abrirModalNovo('${tipo}')">Criar Grupo</button>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = grupos.map(grupo => `
+        <div class="grupo-card" data-id="${grupo.id}">
+          <div class="grupo-header">
+            <div class="grupo-info">
+              <div class="grupo-cor" style="background: ${grupo.cor || '#1a5f7a'}">
+                ${grupo.nome.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div class="grupo-nome">${grupo.nome}</div>
+                ${grupo.descricao ? `<div class="grupo-descricao">${grupo.descricao}</div>` : ''}
+              </div>
+            </div>
+            <div class="grupo-actions">
+              <button onclick="editarGrupo(${grupo.id})" title="Editar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+              <button class="delete" onclick="excluirGrupo(${grupo.id})" title="Excluir">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="grupo-body">
+            <div class="palavras-list">
+              ${grupo.palavras && grupo.palavras.length > 0
+                ? grupo.palavras.map(p => `
+                    <span class="palavra-tag" style="background: ${grupo.cor}22; color: ${grupo.cor}">
+                      ${p}
+                      <button class="remove" onclick="removerPalavra(${grupo.id}, '${p}')">&times;</button>
+                    </span>
+                  `).join('')
+                : '<span style="color: #999; font-size: 0.9rem;">Nenhuma palavra configurada</span>'
+              }
+            </div>
+            <div class="add-palavra">
+              <input type="text" id="novaPalavra${grupo.id}" placeholder="Adicionar palavra..."
+                onkeypress="if(event.key==='Enter') adicionarPalavra(${grupo.id})">
+              <button onclick="adicionarPalavra(${grupo.id})">+</button>
+            </div>
+          </div>
+          ${!isExclusao && grupo.gruposExclusaoVinculados && grupo.gruposExclusaoVinculados.length > 0 ? `
+            <div class="grupo-exclusoes-vinculadas">
+              ${grupo.gruposExclusaoVinculados.map(ge => `
+                <span class="exclusao-badge">
+                  <span class="badge-cor" style="background: ${ge.cor || '#f44336'}"></span>
+                  ${ge.nome}
+                </span>
+              `).join('')}
+            </div>
+          ` : ''}
+          <div class="grupo-footer">
+            <span>${grupo.palavras ? grupo.palavras.length : 0} palavra(s)</span>
+            <button class="pesquisar-btn" onclick="pesquisarGrupo(${grupo.id})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21l-4.35-4.35"/>
+              </svg>
+              Pesquisar
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderizarCheckboxesExclusao(gruposVinculadosIds = []) {
+      const container = document.getElementById('gruposExclusaoCheckboxes');
+
+      console.log('[Debug] Grupos de exclusao disponiveis:', gruposExclusao.length, gruposExclusao);
+
+      if (!gruposExclusao || gruposExclusao.length === 0) {
+        container.innerHTML = '<span style="color: #999; font-size: 13px;">Nenhum grupo de exclusao disponivel. Crie um grupo de exclusao primeiro.</span>';
+        return;
+      }
+
+      container.innerHTML = gruposExclusao.map(ge => `
+        <label class="exclusao-checkbox-item">
+          <input type="checkbox" value="${ge.id}" ${gruposVinculadosIds.includes(ge.id) ? 'checked' : ''}>
+          <span class="exclusao-cor" style="background: ${ge.cor || '#f44336'}"></span>
+          <span class="exclusao-nome">${ge.nome}</span>
+          <span class="exclusao-count">${ge.palavras ? ge.palavras.length : 0} palavras</span>
+        </label>
+      `).join('');
+    }
+
+    function abrirModalNovo(tipo = 'pesquisa') {
+      const isExclusao = tipo === 'exclusao';
+      document.getElementById('modalTitulo').textContent = isExclusao ? 'Novo Grupo de Exclusao' : 'Novo Grupo de Pesquisa';
+      document.getElementById('grupoId').value = '';
+      document.getElementById('grupoTipo').value = tipo;
+      document.getElementById('grupoNome').value = '';
+      document.getElementById('grupoDescricao').value = '';
+      document.getElementById('grupoPalavras').value = '';
+
+      // Reset cor - vermelho para exclusão, azul para pesquisa
+      document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
+      const corPadrao = isExclusao ? '#f44336' : '#2196F3';
+      const corEl = document.querySelector(`.color-option[data-cor="${corPadrao}"]`);
+      if (corEl) corEl.classList.add('selected');
+      corSelecionada = corPadrao;
+
+      // Mostrar/esconder container de grupos de exclusão
+      const exclusaoContainer = document.getElementById('vinculoExclusaoContainer');
+      if (isExclusao) {
+        exclusaoContainer.style.display = 'none';
+      } else {
+        exclusaoContainer.style.display = 'block';
+        renderizarCheckboxesExclusao([]);
+      }
+
+      document.getElementById('modalGrupo').classList.add('active');
+    }
+
+    function editarGrupo(id) {
+      const grupo = [...gruposPesquisa, ...gruposExclusao].find(g => g.id === id);
+      if (!grupo) return;
+
+      const isExclusao = grupo.tipo === 'exclusao';
+      document.getElementById('modalTitulo').textContent = isExclusao ? 'Editar Grupo de Exclusao' : 'Editar Grupo de Pesquisa';
+      document.getElementById('grupoId').value = id;
+      document.getElementById('grupoTipo').value = grupo.tipo || 'pesquisa';
+      document.getElementById('grupoNome').value = grupo.nome;
+      document.getElementById('grupoDescricao').value = grupo.descricao || '';
+      document.getElementById('grupoPalavras').value = grupo.palavras ? grupo.palavras.join(', ') : '';
+
+      // Selecionar cor
+      document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
+      const corEl = document.querySelector(`.color-option[data-cor="${grupo.cor}"]`);
+      if (corEl) {
+        corEl.classList.add('selected');
+        corSelecionada = grupo.cor;
+      }
+
+      // Mostrar/esconder container de grupos de exclusão e carregar vínculos
+      const exclusaoContainer = document.getElementById('vinculoExclusaoContainer');
+      if (isExclusao) {
+        exclusaoContainer.style.display = 'none';
+      } else {
+        exclusaoContainer.style.display = 'block';
+        const vinculadosIds = grupo.gruposExclusaoVinculados
+          ? grupo.gruposExclusaoVinculados.map(g => g.id)
+          : [];
+        renderizarCheckboxesExclusao(vinculadosIds);
+      }
+
+      document.getElementById('modalGrupo').classList.add('active');
+    }
+
+    function fecharModal() {
+      document.getElementById('modalGrupo').classList.remove('active');
+    }
+
+    async function salvarGrupo() {
+      const id = document.getElementById('grupoId').value;
+      const tipo = document.getElementById('grupoTipo').value;
+      const nome = document.getElementById('grupoNome').value.trim();
+      const descricao = document.getElementById('grupoDescricao').value.trim();
+      const palavrasText = document.getElementById('grupoPalavras').value;
+
+      if (!nome) {
+        showToast('Nome e obrigatorio', 'error');
+        return;
+      }
+
+      // Parse palavras (separadas por virgula ou linha)
+      const palavras = palavrasText
+        .split(/[,\n]/)
+        .map(p => p.trim().toLowerCase())
+        .filter(p => p.length > 0);
+
+      // Coletar grupos de exclusão selecionados (apenas para grupos de pesquisa)
+      let gruposExclusaoIds = [];
+      if (tipo === 'pesquisa') {
+        const checkboxes = document.querySelectorAll('#gruposExclusaoCheckboxes input[type="checkbox"]:checked');
+        gruposExclusaoIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+      }
+
+      const dados = {
+        nome,
+        descricao,
+        cor: corSelecionada,
+        palavras,
+        tipo,
+        gruposExclusaoIds
+      };
+
+      try {
+        const url = id ? `${API_URL}/api/grupos-palavras/${id}` : `${API_URL}/api/grupos-palavras`;
+        const method = id ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dados)
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(id ? 'Grupo atualizado!' : 'Grupo criado!', 'success');
+          fecharModal();
+          carregarGrupos();
+        } else {
+          showToast(data.error || 'Erro ao salvar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao salvar grupo', 'error');
+      }
+    }
+
+    async function excluirGrupo(id) {
+      const grupo = [...gruposPesquisa, ...gruposExclusao].find(g => g.id === id);
+      if (!grupo || !confirm(`Excluir o grupo "${grupo.nome}"?`)) return;
+
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast('Grupo excluido!', 'success');
+          carregarGrupos();
+        } else {
+          showToast(data.error || 'Erro ao excluir', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao excluir grupo', 'error');
+      }
+    }
+
+    async function adicionarPalavra(grupoId) {
+      const input = document.getElementById(`novaPalavra${grupoId}`);
+      const palavra = input.value.trim().toLowerCase();
+
+      if (!palavra) return;
+
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras/${grupoId}/palavras`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ palavra })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          input.value = '';
+          carregarGrupos();
+        } else {
+          showToast(data.error || 'Erro ao adicionar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao adicionar palavra', 'error');
+      }
+    }
+
+    async function removerPalavra(grupoId, palavra) {
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras/${grupoId}/palavras/${encodeURIComponent(palavra)}`, {
+          method: 'DELETE'
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          carregarGrupos();
+        }
+      } catch (error) {
+        showToast('Erro ao remover palavra', 'error');
+      }
+    }
+
+    function pesquisarGrupo(id) {
+      // Redireciona para a pagina principal com o grupo selecionado
+      window.location.href = `/?grupo=${id}`;
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast show ' + type;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('grupos-palavras');</script>
+</body>
+</html>

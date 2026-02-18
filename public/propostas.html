@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preparar Propostas - PNCP</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        .layout {
+            display: flex;
+            min-height: 100vh;
+        }
+        .sidebar {
+            width: 220px;
+            background: #16213e;
+            padding: 20px 0;
+            border-right: 1px solid #0f3460;
+        }
+        .sidebar h2 {
+            color: #4dabf7;
+            padding: 0 20px 20px;
+            border-bottom: 1px solid #0f3460;
+            margin-bottom: 10px;
+        }
+        .sidebar a {
+            display: block;
+            color: #adb5bd;
+            text-decoration: none;
+            padding: 12px 20px;
+            transition: all 0.3s;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            background: #0f3460;
+            color: #4dabf7;
+            border-left: 3px solid #4dabf7;
+        }
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        h1 {
+            color: #4dabf7;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 30px;
+        }
+        .steps-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        .step {
+            flex: 1;
+            background: #16213e;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            opacity: 0.5;
+            transition: all 0.3s;
+        }
+        .step.active {
+            opacity: 1;
+            border: 2px solid #4dabf7;
+        }
+        .step.completed {
+            opacity: 1;
+            border: 2px solid #4caf50;
+        }
+        .step-number {
+            width: 30px;
+            height: 30px;
+            background: #0f3460;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .step.active .step-number {
+            background: #4dabf7;
+            color: #000;
+        }
+        .step.completed .step-number {
+            background: #4caf50;
+            color: #fff;
+        }
+        .panel {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+        .panel h3 {
+            color: #4dabf7;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .licitacao-group {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border: 1px solid #0f3460;
+        }
+        .licitacao-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+        .licitacao-titulo {
+            font-weight: 600;
+            color: #fff;
+            flex: 1;
+            margin-right: 15px;
+        }
+        .licitacao-orgao {
+            color: #888;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        .btn-comprasnet {
+            background: #ff9800;
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-comprasnet:hover {
+            background: #ffa726;
+        }
+        .itens-proposta {
+            margin-top: 15px;
+        }
+        .item-proposta {
+            display: grid;
+            grid-template-columns: 40px 1fr 120px 120px 200px 100px;
+            gap: 12px;
+            align-items: center;
+            padding: 15px;
+            background: #16213e;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .item-proposta.selecionado {
+            border: 1px solid #4caf50;
+        }
+        .item-extras {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .item-extras input {
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+        .item-extras input:focus {
+            outline: none;
+            border-color: #4dabf7;
+        }
+        .item-extras input::placeholder {
+            color: #666;
+        }
+        .item-checkbox {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+        }
+        .item-descricao {
+            font-size: 0.95em;
+        }
+        .item-numero {
+            color: #4dabf7;
+            font-weight: 600;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+        .item-valor-ref {
+            color: #888;
+            font-size: 0.9em;
+        }
+        .item-valor-ref span {
+            color: #4caf50;
+        }
+        .item-input {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .item-input label {
+            font-size: 0.8em;
+            color: #888;
+        }
+        .item-input input {
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 4px;
+            width: 100%;
+        }
+        .item-input input:focus {
+            outline: none;
+            border-color: #4dabf7;
+        }
+        .item-total {
+            text-align: right;
+            font-weight: 600;
+            color: #4caf50;
+        }
+        .item-actions {
+            text-align: center;
+        }
+        .btn-copiar {
+            background: #0f3460;
+            color: #4dabf7;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        .btn-copiar:hover {
+            background: #4dabf7;
+            color: #000;
+        }
+        .resumo-proposta {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .resumo-proposta h4 {
+            color: #4dabf7;
+            margin-bottom: 15px;
+        }
+        .resumo-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #0f3460;
+        }
+        .resumo-total {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 0;
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #4caf50;
+        }
+        .btn-primary {
+            background: #4dabf7;
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+        }
+        .btn-primary:hover {
+            background: #74c0fc;
+        }
+        .btn-secondary {
+            background: #0f3460;
+            color: #4dabf7;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+        }
+        .btn-secondary:hover {
+            background: #16213e;
+        }
+        .btn-pdf {
+            background: #e53935;
+            color: #fff;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-pdf:hover {
+            background: #f44336;
+        }
+        .btn-pdf-assinado {
+            background: #2e7d32;
+            color: #fff;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1em;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-pdf-assinado:hover {
+            background: #388e3c;
+        }
+        .actions-bar {
+            display: flex;
+            gap: 15px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px;
+            color: #888;
+        }
+        .empty-state h3 {
+            color: #4dabf7;
+            margin-bottom: 15px;
+        }
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #888;
+        }
+        .textarea-copiar {
+            width: 100%;
+            height: 200px;
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.9em;
+            resize: vertical;
+        }
+        .desconto-info {
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+        .desconto-positivo {
+            color: #4caf50;
+        }
+        .desconto-negativo {
+            color: #f44336;
+        }
+        .select-all-container {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #0f3460;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .select-all-container label {
+            cursor: pointer;
+        }
+        .badge-qtd {
+            background: #4dabf7;
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+        .filtros-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
+        }
+        .filtro-grupo {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .filtro-grupo label {
+            font-size: 0.85em;
+            color: #888;
+        }
+        .filtro-grupo input,
+        .filtro-grupo select {
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            color: #fff;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 0.95em;
+        }
+        .filtro-grupo input:focus,
+        .filtro-grupo select:focus {
+            outline: none;
+            border-color: #4dabf7;
+        }
+        .filtro-grupo select {
+            cursor: pointer;
+        }
+        .btn-limpar-filtros {
+            background: #0f3460;
+            color: #4dabf7;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            white-space: nowrap;
+        }
+        .btn-limpar-filtros:hover {
+            background: #4dabf7;
+            color: #000;
+        }
+        .filtro-resultado {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #888;
+        }
+        .licitacao-group.filtro-oculto {
+            display: none;
+        }
+        .licitacao-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #0f3460;
+            justify-content: flex-end;
+        }
+        .btn-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+        .btn-action:hover {
+            transform: translateY(-1px);
+        }
+        .btn-action.btn-csv {
+            background: #0f3460;
+            color: #4dabf7;
+        }
+        .btn-action.btn-csv:hover {
+            background: #4dabf7;
+            color: #000;
+        }
+        .btn-action.btn-pdf {
+            background: #2e7d32;
+            color: #fff;
+        }
+        .btn-action.btn-pdf:hover {
+            background: #388e3c;
+        }
+        .btn-action.btn-enviar {
+            background: #ff9800;
+            color: #000;
+        }
+        .btn-action.btn-enviar:hover {
+            background: #ffa726;
+        }
+
+        .sidebar {
+            width: 220px;
+            background: #16213e;
+            padding: 0;
+            border-right: 1px solid #0f3460;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #4dabf7;
+            text-decoration: none;
+            font-size: 1.3em;
+            font-weight: 700;
+        }
+        .sidebar-menu {
+            padding: 15px 0;
+            flex: 1;
+        }
+        .menu-section {
+            color: #666;
+            font-size: 0.75em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 10px 20px 5px;
+            margin-top: 10px;
+        }
+        .menu-section:first-child {
+            margin-top: 0;
+        }
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            color: #adb5bd;
+            text-decoration: none;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .menu-item:hover {
+            background: #0f3460;
+            color: #4dabf7;
+        }
+        .menu-item.active {
+            background: #0f3460;
+            color: #4dabf7;
+            border-left-color: #4dabf7;
+        }
+        .menu-item .icon {
+            font-size: 1.1em;
+        }
+        </style>
+</head>
+<body>
+    <div class="layout">
+        
+
+        <main class="main-content">
+            <h1>Preparar Propostas</h1>
+            <p class="subtitle">Selecione os itens de interesse e defina seus valores para preparar a proposta</p>
+
+            <div class="steps-container">
+                <div class="step active" id="step1">
+                    <div class="step-number">1</div>
+                    <div>Selecionar Itens</div>
+                </div>
+                <div class="step" id="step2">
+                    <div class="step-number">2</div>
+                    <div>Definir Valores</div>
+                </div>
+                <div class="step" id="step3">
+                    <div class="step-number">3</div>
+                    <div>Enviar no Comprasnet</div>
+                </div>
+            </div>
+
+            <div id="loadingContainer" class="loading">
+                <h3>Carregando itens de interesse...</h3>
+            </div>
+
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <h3>Nenhum item de interesse</h3>
+                <p>Adicione itens de interesse na tela de consulta para preparar propostas.</p>
+                <br>
+                <a href="index.html" class="btn-primary" style="text-decoration: none;">Ir para Consulta</a>
+            </div>
+
+            <!-- Filtros -->
+            <div id="filtrosContainer" class="panel" style="display: none;">
+                <div class="filtros-grid">
+                    <div class="filtro-grupo">
+                        <label>Buscar</label>
+                        <input type="text" id="filtroTexto" placeholder="Objeto, órgão ou UASG..." onkeyup="aplicarFiltros()">
+                    </div>
+                    <div class="filtro-grupo">
+                        <label>Modalidade</label>
+                        <select id="filtroModalidade" onchange="aplicarFiltros()">
+                            <option value="">Todas</option>
+                        </select>
+                    </div>
+                    <div class="filtro-grupo">
+                        <label>Status</label>
+                        <select id="filtroStatus" onchange="aplicarFiltros()">
+                            <option value="">Todos</option>
+                            <option value="comValor">Com valor preenchido</option>
+                            <option value="semValor">Sem valor preenchido</option>
+                        </select>
+                    </div>
+                    <div class="filtro-grupo">
+                        <button class="btn-limpar-filtros" onclick="limparFiltros()">Limpar Filtros</button>
+                    </div>
+                </div>
+                <div id="filtroResultado" class="filtro-resultado"></div>
+            </div>
+
+            <div id="propostasContainer" style="display: none;">
+                <!-- Licitações serão renderizadas aqui -->
+            </div>
+
+            <div id="resumoGeral" class="panel" style="display: none;">
+                <h3>Resumo Geral</h3>
+                <div id="resumoConteudo"></div>
+                <div class="actions-bar">
+                    <button class="btn-secondary" onclick="copiarResumo()">Copiar Resumo</button>
+                    <button class="btn-secondary" onclick="exportarCSV()">Exportar Todos (CSV)</button>
+                </div>
+            </div>
+
+            <!-- Configurações de Credenciais -->
+            <div class="panel" style="margin-top: 20px;">
+                <h3>Configurações do Comprasnet</h3>
+                <div id="statusCredenciais" style="margin-bottom: 15px;">
+                    Verificando credenciais...
+                </div>
+                <button class="btn-secondary" onclick="abrirModalCredenciais()">
+                    Configurar Credenciais
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal de Credenciais -->
+    <div id="modalCredenciais" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Credenciais do Comprasnet</h3>
+                <button class="btn-fechar" onclick="fecharModalCredenciais()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: #888; margin-bottom: 20px;">
+                    Informe suas credenciais de acesso ao Comprasnet (gov.br)
+                </p>
+                <div class="form-group">
+                    <label for="inputUsuario">CPF/CNPJ</label>
+                    <input type="text" id="inputUsuario" placeholder="Digite seu CPF ou CNPJ">
+                </div>
+                <div class="form-group">
+                    <label for="inputSenha">Senha</label>
+                    <input type="password" id="inputSenha" placeholder="Digite sua senha">
+                </div>
+                <p style="color: #ff9800; font-size: 0.85em; margin-top: 15px;">
+                    Suas credenciais são armazenadas localmente e usadas apenas para automação do envio de propostas.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="fecharModalCredenciais()">Cancelar</button>
+                <button class="btn-primary" onclick="salvarCredenciais()">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Envio -->
+    <div id="modalEnvio" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Enviar Proposta</h3>
+                <button class="btn-fechar" onclick="fecharModalEnvio()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="envioLicitacaoInfo"></div>
+                <div id="envioStatus" style="margin-top: 20px;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                    <p id="envioMensagem" style="margin-top: 10px; color: #888;"></p>
+                </div>
+                <div id="envioLog" style="margin-top: 15px; max-height: 200px; overflow-y: auto; background: #1a1a2e; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.85em;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="fecharModalEnvio()">Fechar</button>
+                <button class="btn-primary" onclick="iniciarEnvio()" id="btnIniciarEnvio">Iniciar Envio</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #16213e;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .modal-header h3 {
+            color: #4dabf7;
+            margin: 0;
+        }
+        .btn-fechar {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.5em;
+            cursor: pointer;
+        }
+        .btn-fechar:hover {
+            color: #fff;
+        }
+        .modal-body {
+            padding: 20px;
+        }
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid #0f3460;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            color: #888;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 1em;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #4dabf7;
+        }
+        .progress-bar {
+            height: 8px;
+            background: #0f3460;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #4dabf7;
+            transition: width 0.3s ease;
+        }
+        .credenciais-ok {
+            color: #4caf50;
+        }
+        .credenciais-pendente {
+            color: #ff9800;
+        }
+    </style>
+
+    <!-- Biblioteca jsPDF para geração de PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
+    <script src="propostas.js"></script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('propostas');</script>
+</body>
+</html>
