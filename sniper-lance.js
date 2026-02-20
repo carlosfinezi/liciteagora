@@ -43,12 +43,19 @@ class SniperLance {
     try {
       const antes = Date.now();
 
-      const resultado = await this.monitor.page.evaluate(async (baseUrl) => {
+      const bearerToken = await this.monitor._obterBearerToken();
+
+      const resultado = await this.monitor.page.evaluate(async (baseUrl, authToken) => {
         const resp = await fetch(`${baseUrl}/comprasnet-disputa/v1/datahorabrasilia`, {
           credentials: 'include',
+          headers: {
+            'Authorization': authToken,
+            'x-device-platform': 'web',
+            'x-version-number': '5.5.2',
+          },
         });
         return await resp.text();
-      }, BASE_URL);
+      }, BASE_URL, bearerToken);
 
       const depois = Date.now();
       const latencia = depois - antes;
