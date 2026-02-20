@@ -71,6 +71,9 @@ class MonitorV2 {
     this.ativo = false;
     this.intervalo = null;
     this.logs = [];
+    this.bearerToken = null;
+    this.bearerTokenTimestamp = 0;
+    this.cdpClient = null;
 
     // Status
     this.status = {
@@ -245,6 +248,9 @@ class MonitorV2 {
       // Encontrar aba do Comprasnet
       await this._encontrarAbaComprasnet();
 
+      // Interceptar Bearer token via CDP
+      await this._iniciarCapturaBearerToken();
+
       // Monitorar desconexão
       this.browser.on('disconnected', () => {
         this.log('⚠️ Chrome desconectou');
@@ -324,6 +330,96 @@ class MonitorV2 {
     this.log('❌ Não foi possível reconectar após 3 tentativas');
     await this.enviarTelegram('❌ <b>LiciteAgora:</b> Não foi possível conectar ao Chrome. Verifique se está aberto com Remote Debugging.');
     return false;
+  }
+
+  // ==================== BEARER TOKEN ====================
+
+  /**
+   * Intercepta requisições do Angular via CDP para capturar o Bearer token.
+   * O Angular guarda o JWT em memória e adiciona via HTTP interceptor.
+   * Nós capturamos esse token das requisições que o Angular faz naturalmente.
+   */
+  async _iniciarCapturaBearerToken() {
+    try {
+      const client = await this.page.target().createCDPSession();
+      await client.send('Network.enable');
+
+      client.on('Network.requestWillBeSent', (params) => {
+        const auth = params.request.headers['Authorization'] || params.request.headers['authorization'];
+        if (auth && auth.startsWith('Bearer ')) {
+          this.bearerToken = auth;
+          this.bearerTokenTimestamp = Date.now();
+        }
+      });
+
+      this.cdpClient = client;
+      this.log('🔑 Interceptação de Bearer token ativada via CDP');
+
+      // Forçar captura inicial: recarregar dados para Angular fazer uma requisição
+      await this._forcarCapturaBearerToken();
+
+    } catch (e) {
+      this.log(`⚠️ Erro ao configurar captura de Bearer: ${e.message}`);
+    }
+  }
+
+  /**
+   * Força o Angular a fazer uma requisição para capturar o Bearer token.
+   * Navega para a página de compras, que automaticamente chama APIs.
+   */
+  async _forcarCapturaBearerToken() {
+    if (this.bearerToken) return; // já temos
+
+    try {
+      this.log('🔑 Forçando captura do Bearer token...');
+
+      // Clicar em algo que force o Angular a fazer uma API call
+      // Ou simplesmente recarregar a página de compras
+      const url = this.page.url();
+      if (!url.includes('/compras')) {
+        await this.page.goto(`${BASE_URL}/comprasnet-web/seguro/fornecedor/compras`, {
+          waitUntil: 'networkidle2',
+          timeout: 30000,
+        });
+      } else {
+        // Já está na página — forçar reload
+        await this.page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
+      }
+
+      // Aguardar o Angular fazer suas requisições
+      await this._aguardar(3000);
+
+      if (this.bearerToken) {
+        this.log(`🔑 Bearer token capturado! (${this.bearerToken.substring(0, 30)}...)`);
+      } else {
+        this.log('⚠️ Bearer token não capturado — sessão pode estar expirada');
+      }
+    } catch (e) {
+      this.log(`⚠️ Erro ao forçar captura Bearer: ${e.message}`);
+    }
+  }
+
+  /**
+   * Retorna o Bearer token atual. Se expirado (>8 min), tenta recapturar.
+   * O JWT expira a cada 10 minutos.
+   */
+  async _obterBearerToken() {
+    const TOKEN_MAX_AGE_MS = 8 * 60 * 1000; // 8 minutos (margem de 2 min)
+
+    if (this.bearerToken && (Date.now() - this.bearerTokenTimestamp) < TOKEN_MAX_AGE_MS) {
+      return this.bearerToken;
+    }
+
+    // Token expirado ou inexistente — forçar recaptura
+    this.log('🔑 Bearer token expirado ou inexistente, recapturando...');
+    this.bearerToken = null;
+    await this._forcarCapturaBearerToken();
+
+    if (!this.bearerToken) {
+      throw new Error('Não foi possível obter Bearer token — sessão pode estar expirada');
+    }
+
+    return this.bearerToken;
   }
 
   // ==================== hCAPTCHA ====================
@@ -411,15 +507,17 @@ class MonitorV2 {
     this.log('Sincronizando participações...');
 
     const token = await this.gerarTokenCaptcha();
+    const bearerToken = await this._obterBearerToken();
     const url = `${BASE_URL}/comprasnet-fase-externa/v1/compras/participacoes?captcha=${token}&filtro=5&tamanhoPagina=50&pagina=0`;
 
     // Fazer a chamada via page.evaluate para usar cookies da sessão
-    const resultado = await this.page.evaluate(async (apiUrl) => {
+    const resultado = await this.page.evaluate(async (apiUrl, authToken) => {
       try {
         const resp = await fetch(apiUrl, {
           credentials: 'include',
           headers: {
             'Accept': 'application/json, text/plain, */*',
+            'Authorization': authToken,
             'x-device-platform': 'web',
             'x-version-number': '5.5.2',
             'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
@@ -430,7 +528,7 @@ class MonitorV2 {
       } catch (e) {
         return { status: 0, ok: false, body: e.message };
       }
-    }, url);
+    }, url, bearerToken);
 
     this.log(`API participações: HTTP ${resultado.status} (${resultado.body.length} bytes)`);
 
@@ -563,16 +661,18 @@ class MonitorV2 {
     while (true) {
       // Gerar novo token para cada página
       const token = await this.gerarTokenCaptcha();
+      const bearerToken = await this._obterBearerToken();
       const url = `${BASE_URL}/comprasnet-mensagem/v2/chat/${compraId}?size=${this.tamanhoPagina}&page=${pagina}&legadoAsp=false&captcha=${token}`;
 
       let mensagens;
       try {
-        const resultado = await this.page.evaluate(async (apiUrl) => {
+        const resultado = await this.page.evaluate(async (apiUrl, authToken) => {
           try {
             const resp = await fetch(apiUrl, {
               credentials: 'include',
               headers: {
                 'Accept': 'application/json, text/plain, */*',
+                'Authorization': authToken,
                 'x-device-platform': 'web',
                 'x-version-number': '5.5.2',
                 'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
@@ -583,7 +683,7 @@ class MonitorV2 {
           } catch (e) {
             return { status: 0, body: e.message };
           }
-        }, url);
+        }, url, bearerToken);
 
         if (resultado.status !== 200 && resultado.status !== 206) {
           // Logar só na primeira falha por compraId para não spammar
