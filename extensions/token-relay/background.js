@@ -159,6 +159,7 @@ async function comprasnetGet(path, bearer, captcha) {
   const url = COMPRASNET + path + (captcha ? sep + 'captcha=' + captcha : '');
 
   const resp = await fetch(url, {
+    credentials: 'include',
     headers: {
       'Accept': 'application/json, text/plain, */*',
       'Authorization': bearer,
