@@ -28,6 +28,8 @@ class SniperLance {
     this.bearerToken = null;          // "Bearer eyJ..."
     this.tokenRecebidoEm = null;      // timestamp
     this.tokenSource = null;           // 'extension' | 'manual' | 'monitor'
+    this.captchaToken = null;          // "P1_eyJ..." — hCaptcha token
+    this.captchaRecebidoEm = null;     // timestamp
 
     this.agendamentos = new Map();     // id -> { timer, config }
     this.historico = [];               // últimos 50 lances
@@ -56,16 +58,22 @@ class SniperLance {
    */
   setToken(token, source = 'manual') {
     if (!token) return;
-    // Normalizar
     this.bearerToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
     this.tokenRecebidoEm = new Date().toISOString();
     this.tokenSource = source;
-    this.log(`🔑 Token recebido (${source}): ${this.bearerToken.substring(0, 30)}...`);
+    this.log(`🔑 Bearer recebido (${source}): ${this.bearerToken.substring(0, 30)}...`);
   }
 
   /**
-   * Retorna o Bearer token atual ou lança erro.
+   * Recebe e armazena o hCaptcha token.
    */
+  setCaptchaToken(captchaToken) {
+    if (!captchaToken) return;
+    this.captchaToken = captchaToken;
+    this.captchaRecebidoEm = new Date().toISOString();
+    this.log(`🛡️ Captcha recebido: ${captchaToken.substring(0, 20)}...`);
+  }
+
   getToken() {
     if (!this.bearerToken) {
       throw new Error('Sem Bearer token. Abra o Comprasnet no Chrome com a extensão Token Relay.');
@@ -73,25 +81,35 @@ class SniperLance {
     return this.bearerToken;
   }
 
-  /**
-   * Verifica se tem token válido.
-   */
+  getCaptchaToken() {
+    if (!this.captchaToken) {
+      throw new Error('Sem captcha token. Navegue no Comprasnet para gerar um.');
+    }
+    return this.captchaToken;
+  }
+
   temToken() {
     return !!this.bearerToken;
   }
 
-  /**
-   * Idade do token em segundos.
-   */
+  temCaptcha() {
+    return !!this.captchaToken;
+  }
+
   idadeTokenSegundos() {
     if (!this.tokenRecebidoEm) return Infinity;
     return (Date.now() - new Date(this.tokenRecebidoEm).getTime()) / 1000;
   }
 
+  idadeCaptchaSegundos() {
+    if (!this.captchaRecebidoEm) return Infinity;
+    return (Date.now() - new Date(this.captchaRecebidoEm).getTime()) / 1000;
+  }
+
   // ==================== HTTP HELPERS ====================
 
   /**
-   * Faz uma requisição GET autenticada ao Comprasnet.
+   * GET autenticada (só Bearer, sem captcha).
    */
   async apiGet(path) {
     const token = this.getToken();
@@ -99,13 +117,30 @@ class SniperLance {
     const resp = await axios.get(url, {
       headers: { ...API_HEADERS, Authorization: token },
       timeout: 10000,
-      validateStatus: () => true, // não lançar em 4xx/5xx
+      validateStatus: () => true,
     });
     return { status: resp.status, data: resp.data };
   }
 
   /**
-   * Faz uma requisição POST autenticada ao Comprasnet.
+   * GET autenticada COM captcha token (para /mensagem/ e /fase-externa/).
+   * Adiciona ?captcha=TOKEN ou &captcha=TOKEN à URL.
+   */
+  async apiGetCaptcha(path) {
+    const token = this.getToken();
+    const captcha = this.getCaptchaToken();
+    const sep = path.includes('?') ? '&' : '?';
+    const url = `${BASE_URL}${path}${sep}captcha=${captcha}`;
+    const resp = await axios.get(url, {
+      headers: { ...API_HEADERS, Authorization: token },
+      timeout: 15000,
+      validateStatus: () => true,
+    });
+    return { status: resp.status, data: resp.data };
+  }
+
+  /**
+   * POST autenticada (só Bearer).
    */
   async apiPost(path, body) {
     const token = this.getToken();
@@ -337,10 +372,26 @@ class SniperLance {
 
   /**
    * Consulta os itens em seleção/disputa de uma compra específica.
+   * Tenta com captcha primeiro (fase-externa), depois sem (disputa).
    */
   async consultarItens(compraId) {
     this.log(`🔍 Consultando itens da disputa ${compraId}...`);
 
+    // Se tem captcha, tentar fase-externa (mais detalhes)
+    if (this.temCaptcha()) {
+      try {
+        const { status, data } = await this.apiGetCaptcha(
+          `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`
+        );
+        if (status === 200 || status === 206) {
+          const itens = Array.isArray(data) ? data : [data];
+          this.log(`✅ ${itens.length} itens (fase-externa+captcha)`);
+          return { success: true, itens, endpoint: 'fase-externa' };
+        }
+      } catch (e) {}
+    }
+
+    // Fallback: tentar sem captcha
     const endpoints = [
       `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`,
       `/comprasnet-disputa/v1/compras/${compraId}/itens`,
@@ -349,17 +400,12 @@ class SniperLance {
     for (const path of endpoints) {
       try {
         const { status, data } = await this.apiGet(path);
-
         if (status === 200 || status === 206) {
           const itens = Array.isArray(data) ? data : [data];
-          this.log(`✅ Consulta OK: ${itens.length} itens (${path.includes('fase-externa') ? 'fase-externa' : 'disputa'})`);
+          this.log(`✅ ${itens.length} itens (${path.includes('fase-externa') ? 'fase-externa' : 'disputa'})`);
           return { success: true, itens, endpoint: path };
-        } else {
-          this.log(`⚠️ ${path.split('/v1/')[1]?.substring(0, 40)} → HTTP ${status}`);
         }
-      } catch (e) {
-        this.log(`⚠️ Erro em ${path}: ${e.message}`);
-      }
+      } catch (e) {}
     }
 
     throw new Error('Nenhum endpoint retornou dados válidos');
@@ -408,12 +454,173 @@ class SniperLance {
           }
         }
       } catch (e) {
-        // Silently skip — not all participações are in disputa
+        // Silently skip
       }
     }
 
     this.log(`✅ ${disputasAtivas.length} disputas ativas encontradas`);
     return disputasAtivas;
+  }
+
+  // ==================== SYNC PARTICIPAÇÕES (HTTP direto) ====================
+
+  /**
+   * Sincroniza participações via API Comprasnet → banco local.
+   * Requer Bearer + Captcha token.
+   */
+  async syncParticipacoes(db) {
+    if (!this.temCaptcha()) {
+      throw new Error('Sem captcha token. Navegue no Comprasnet para gerar um.');
+    }
+
+    this.log('📋 Sincronizando participações via HTTP...');
+    let totalSync = 0;
+    let pagina = 0;
+
+    while (true) {
+      const { status, data } = await this.apiGetCaptcha(
+        `/comprasnet-fase-externa/v1/compras/participacoes?filtro=5&tamanhoPagina=50&pagina=${pagina}`
+      );
+
+      if (status !== 200 && status !== 206) {
+        this.log(`⚠️ Participações página ${pagina}: HTTP ${status}`);
+        break;
+      }
+
+      const items = Array.isArray(data) ? data : [];
+      if (items.length === 0) break;
+
+      for (const item of items) {
+        const compra = item.compra || item;
+        const compraId = compra.compraId || `${compra.numeroUasg || ''}${compra.ano || ''}${compra.numero || ''}`;
+        if (!compraId) continue;
+
+        const existe = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
+
+        if (existe) {
+          db.prepare(`UPDATE participacoes_comprasnet SET
+            situacao = COALESCE(?, situacao),
+            faseCompra = COALESCE(?, faseCompra),
+            objeto = COALESCE(?, objeto),
+            dataAtualizacao = CURRENT_TIMESTAMP
+            WHERE compraId = ?`).run(
+            compra.situacaoCompraFaseExterna || compra.situacao || null,
+            compra.faseCompraFaseExterna || compra.faseCompra || null,
+            compra.objetoCompra || compra.objeto || null,
+            compraId,
+          );
+        } else {
+          db.prepare(`INSERT INTO participacoes_comprasnet
+            (compraId, cnpj, ano, sequencial, orgao, objeto, situacao, faseCompra, ativo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+            compraId,
+            compra.numeroUasg || compra.cnpj || '',
+            compra.ano || 0,
+            compra.numero || compra.sequencial || 0,
+            compra.nomeOrgao || compra.nomeUasg || compra.orgao || '',
+            compra.objetoCompra || compra.objeto || '',
+            compra.situacaoCompraFaseExterna || compra.situacao || '',
+            compra.faseCompraFaseExterna || compra.faseCompra || '',
+          );
+        }
+        totalSync++;
+      }
+
+      pagina++;
+      if (items.length < 50) break;
+    }
+
+    this.log(`✅ ${totalSync} participações sincronizadas (${pagina} páginas)`);
+    return { total: totalSync, paginas: pagina };
+  }
+
+  // ==================== MENSAGENS (HTTP direto) ====================
+
+  /**
+   * Captura mensagens de uma licitação via HTTP.
+   * Requer Bearer + Captcha token.
+   */
+  async capturarMensagens(compraId, db) {
+    if (!this.temCaptcha()) {
+      throw new Error('Sem captcha token');
+    }
+
+    let pagina = 0;
+    let totalNovas = 0;
+
+    while (true) {
+      const { status, data } = await this.apiGetCaptcha(
+        `/comprasnet-mensagem/v2/chat/${compraId}?size=20&page=${pagina}&legadoAsp=false`
+      );
+
+      if (status !== 200 && status !== 206) {
+        if (pagina === 0) this.log(`⚠️ Mensagens ${compraId}: HTTP ${status}`);
+        break;
+      }
+
+      const mensagens = Array.isArray(data) ? data : [];
+      if (mensagens.length === 0) break;
+
+      for (const msg of mensagens) {
+        const id = msg.id || msg.identificador;
+        if (!id) continue;
+
+        const existe = db.prepare('SELECT id FROM chat_mensagens WHERE mensagemId = ?').get(String(id));
+        if (existe) continue;
+
+        try {
+          db.prepare(`INSERT INTO chat_mensagens
+            (compraId, mensagemId, cnpjOrgao, ano, sequencial, dataHoraMensagem,
+             remetente, conteudo, tipo, notificado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+            compraId,
+            String(id),
+            msg.cnpjOrgao || '',
+            msg.ano || 0,
+            msg.sequencial || 0,
+            msg.dataHora || msg.dataHoraMensagem || new Date().toISOString(),
+            msg.remetente || msg.nomeRemetente || '',
+            msg.mensagem || msg.conteudo || '',
+            msg.tipo || 'MSG',
+          );
+          totalNovas++;
+        } catch (e) {
+          // Duplicate or schema mismatch — skip
+        }
+      }
+
+      pagina++;
+      if (mensagens.length < 20) break;
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    if (totalNovas > 0) {
+      this.log(`💬 ${compraId}: ${totalNovas} novas mensagens`);
+    }
+    return totalNovas;
+  }
+
+  /**
+   * Captura mensagens de TODAS as participações ativas.
+   */
+  async capturarTodasMensagens(db) {
+    const participacoes = db.prepare(
+      'SELECT compraId FROM participacoes_comprasnet WHERE ativo = 1'
+    ).all();
+
+    this.log(`💬 Capturando mensagens de ${participacoes.length} participações...`);
+    let total = 0;
+
+    for (const p of participacoes) {
+      try {
+        total += await this.capturarMensagens(p.compraId, db);
+      } catch (e) {
+        // Skip silently
+      }
+    }
+
+    this.log(`✅ Total: ${total} novas mensagens de ${participacoes.length} licitações`);
+    return total;
   }
 
   // ==================== STATUS ====================
@@ -425,6 +632,9 @@ class SniperLance {
       tokenSource: this.tokenSource,
       tokenIdade: this.tokenRecebidoEm ? Math.floor(this.idadeTokenSegundos()) + 's' : null,
       tokenRecebidoEm: this.tokenRecebidoEm,
+      temCaptcha: this.temCaptcha(),
+      captchaIdade: this.captchaRecebidoEm ? Math.floor(this.idadeCaptchaSegundos()) + 's' : null,
+      captchaRecebidoEm: this.captchaRecebidoEm,
       agendamentosAtivos: [...this.agendamentos.values()].filter(a => !a.executado).length,
       agendamentosTotal: this.agendamentos.size,
       ultimaCalibracao: this.ultimaCalibracao,

@@ -27,13 +27,18 @@ function registrarRotasSniper(app, monitorGetter, db) {
    */
   app.post('/api/auth/token', (req, res) => {
     try {
-      const { token, source } = req.body;
+      const { token, captchaToken, source } = req.body;
       if (!token) {
         return res.status(400).json({ success: false, error: 'Token obrigatório' });
       }
       sniper.setToken(token, source || 'api');
 
-      // Também repassar ao MonitorV2 se disponível (backward compat)
+      // Captcha token (hCaptcha) — para APIs de mensagem/fase-externa
+      if (captchaToken) {
+        sniper.setCaptchaToken(captchaToken);
+      }
+
+      // Backward compat: MonitorV2
       try {
         const monitor = typeof monitorGetter === 'function' ? monitorGetter() : monitorGetter;
         if (monitor && typeof monitor.setBearerToken === 'function') {
@@ -43,8 +48,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       res.json({
         success: true,
-        message: 'Token recebido',
+        message: 'Token recebido' + (captchaToken ? ' + captcha' : ''),
         tokenAge: sniper.idadeTokenSegundos(),
+        temCaptcha: sniper.temCaptcha(),
       });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -209,6 +215,52 @@ function registrarRotasSniper(app, monitorGetter, db) {
     try {
       const disputas = await sniper.buscarDisputasAtivas(db);
       res.json({ success: true, disputas });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ==================== SYNC & MENSAGENS ====================
+
+  /**
+   * POST /api/sniper/sync-participacoes
+   * Sincroniza participações da API Comprasnet → banco local.
+   * Requer Bearer + Captcha.
+   */
+  app.post('/api/sniper/sync-participacoes', async (req, res) => {
+    try {
+      const result = await sniper.syncParticipacoes(db);
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sniper/capturar-mensagens
+   * Captura mensagens de uma licitação específica.
+   */
+  app.post('/api/sniper/capturar-mensagens', async (req, res) => {
+    try {
+      const { compraId } = req.body;
+      if (!compraId) {
+        return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      }
+      const novas = await sniper.capturarMensagens(compraId, db);
+      res.json({ success: true, novasMensagens: novas });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sniper/capturar-todas-mensagens
+   * Captura mensagens de TODAS as participações ativas.
+   */
+  app.post('/api/sniper/capturar-todas-mensagens', async (req, res) => {
+    try {
+      const total = await sniper.capturarTodasMensagens(db);
+      res.json({ success: true, novasMensagens: total });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
