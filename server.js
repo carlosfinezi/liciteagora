@@ -14,7 +14,7 @@ puppeteer.use(StealthPlugin());
 const { criarVerificador } = require('./verificacao-lacunas');
 const crypto = require('crypto');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
-const { registrarRotasSniper, getOrCreateSniper } = require('./sniper-lance-routes');
+const { registrarRotasSniper, getSniper } = require('./sniper-lance-routes');
 
 // Armazenar instâncias de monitoramento ativas
 const monitoramentosAtivos = new Map();

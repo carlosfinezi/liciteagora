@@ -1,41 +1,61 @@
 /**
  * sniper-lance-routes.js — Endpoints REST para o Sniper de Lances
  * 
+ * O sniper agora funciona de forma autônoma:
+ * - Recebe Bearer token via POST /api/auth/token (da extensão Chrome)
+ * - Faz chamadas HTTP diretas ao Comprasnet (sem Puppeteer)
+ * 
  * Uso no server.js:
- *   const { registrarRotasSniper, inicializarSniper } = require('./sniper-lance-routes');
- *   registrarRotasSniper(app, monitorV2);
- *   // Após server.listen():
- *   inicializarSniper();
+ *   const { registrarRotasSniper } = require('./sniper-lance-routes');
+ *   registrarRotasSniper(app, db);
  */
 
 const SniperLance = require('./sniper-lance');
 
-let sniper = null;
-let _monitorRef = null;
+// Singleton — sempre inicializado
+const sniper = new SniperLance();
+console.log('[Sniper] Inicializado (aguardando Bearer token da extensão)');
 
-function registrarRotasSniper(app, monitorGetter, dbRef) {
-  _monitorRef = monitorGetter;
-  const db = dbRef;
+function registrarRotasSniper(app, monitorGetter, db) {
 
-  // Lazy init do sniper - cria quando o monitor estiver disponível
-  function getSniper() {
-    if (sniper) return sniper;
-    const monitor = typeof _monitorRef === 'function' ? _monitorRef() : _monitorRef;
-    if (monitor && monitor.page) {
-      sniper = new SniperLance(monitor);
-      console.log('[Sniper] Inicializado com MonitorV2');
+  // ==================== AUTH / TOKEN ====================
+
+  /**
+   * POST /api/auth/token
+   * Recebe Bearer token da extensão Chrome (Token Relay).
+   * Também aceita envio manual.
+   */
+  app.post('/api/auth/token', (req, res) => {
+    try {
+      const { token, source } = req.body;
+      if (!token) {
+        return res.status(400).json({ success: false, error: 'Token obrigatório' });
+      }
+      sniper.setToken(token, source || 'api');
+
+      // Também repassar ao MonitorV2 se disponível (backward compat)
+      try {
+        const monitor = typeof monitorGetter === 'function' ? monitorGetter() : monitorGetter;
+        if (monitor && typeof monitor.setBearerToken === 'function') {
+          monitor.setBearerToken(token);
+        }
+      } catch (e) {}
+
+      res.json({
+        success: true,
+        message: 'Token recebido',
+        tokenAge: sniper.idadeTokenSegundos(),
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
     }
-    return sniper;
-  }
+  });
 
   // ==================== STATUS ====================
 
   app.get('/api/sniper/status', (req, res) => {
     try {
-      const s = getSniper(); if (!s) {
-        return res.json({ success: true, ativo: false, message: 'Sniper não inicializado' });
-      }
-      res.json({ success: true, ativo: true, ...s.getStatus() });
+      res.json({ success: true, ...sniper.getStatus() });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -43,8 +63,7 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
 
   app.get('/api/sniper/logs', (req, res) => {
     try {
-      const s = getSniper();
-      res.json({ success: true, logs: s ? s.logs : [] });
+      res.json({ success: true, logs: sniper.logs });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -54,91 +73,61 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
 
   app.post('/api/sniper/calibrar', async (req, res) => {
     try {
-      const s = getSniper(); if (!s) return res.status(400).json({ success: false, error: 'Sniper não inicializado' });
-      const resultado = await s.calibrarTempo();
+      const resultado = await sniper.calibrarTempo();
       res.json({ success: true, ...resultado });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
   });
 
-  // ==================== LANCE IMEDIATO ====================
+  // ==================== LANCE ====================
 
-  /**
-   * POST /api/sniper/lance
-   * Body: { compraId, itemNumero, valor, faseItem? }
-   * 
-   * Envia um lance AGORA (para testes ou uso manual)
-   */
   app.post('/api/sniper/lance', async (req, res) => {
     try {
-      const s = getSniper(); if (!s) return res.status(400).json({ success: false, error: 'Sniper não inicializado' });
-
-      const { compraId, itemNumero, valor, faseItem } = req.body || {};
-
-      if (!compraId || !itemNumero || !valor) {
-        return res.status(400).json({
-          success: false,
-          error: 'Parâmetros obrigatórios: compraId, itemNumero, valor',
-          exemplo: { compraId: '93119906000012026', itemNumero: 1, valor: 1745.00 },
-        });
+      const { compraId, itemNumero, valor, faseItem } = req.body;
+      if (!compraId || !itemNumero || valor == null) {
+        return res.status(400).json({ success: false, error: 'compraId, itemNumero e valor obrigatórios' });
       }
 
-      const resultado = await s.enviarLance(compraId, itemNumero, valor, faseItem || 'LA');
-      res.json({ success: resultado.sucesso, lance: resultado });
+      const lance = await sniper.enviarLance(compraId, itemNumero, valor, faseItem || 'LA');
+
+      if (lance.sucesso) {
+        res.json({ success: true, lance });
+      } else {
+        res.json({ success: false, lance, error: `HTTP ${lance.status}` });
+      }
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
   });
 
-  // ==================== AGENDAMENTO SNIPER ====================
+  // ==================== AGENDAMENTO ====================
 
-  /**
-   * POST /api/sniper/agendar
-   * Body: {
-   *   compraId: "93119906000012026",
-   *   itemNumero: 1,
-   *   valor: 1700.00,
-   *   horarioAlvo: "2026-02-20T17:00:00.000Z",  // UTC
-   *   antecedenciaMs: 500,       // opcional, ms antes do alvo
-   *   tentativas: 3,              // opcional
-   *   intervaloTentativasMs: 200   // opcional
-   * }
-   */
   app.post('/api/sniper/agendar', (req, res) => {
     try {
-      const s = getSniper(); if (!s) return res.status(400).json({ success: false, error: 'Sniper não inicializado' });
-
-      const body = req.body || {};
-      const { compraId, itemNumero, valor, horarioAlvo, antecedenciaMs, tentativas, intervaloTentativasMs, faseItem } = body;
-
+      const { compraId, itemNumero, valor, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloTentativasMs } = req.body;
       if (!compraId || !itemNumero || !valor || !horarioAlvo) {
+        return res.status(400).json({ success: false, error: 'compraId, itemNumero, valor e horarioAlvo obrigatórios' });
+      }
+
+      if (!sniper.temToken()) {
         return res.status(400).json({
           success: false,
-          error: 'Parâmetros obrigatórios: compraId, itemNumero, valor, horarioAlvo',
-          exemplo: {
-            compraId: '93119906000012026',
-            itemNumero: 1,
-            valor: 1700.00,
-            horarioAlvo: '2026-02-20T17:00:00.000Z',
-            antecedenciaMs: 500,
-            tentativas: 3,
-          },
+          error: 'Sem Bearer token! Abra o Comprasnet com a extensão Token Relay ativa.',
         });
       }
 
       const id = `sniper-${compraId}-${itemNumero}-${Date.now()}`;
-
-      const resultado = s.agendar({
+      const resultado = sniper.agendar({
         id,
         compraId,
         itemNumero,
-        valor: parseFloat(valor),
+        valor,
         faseItem: faseItem || 'LA',
         horarioAlvo,
-        antecedenciaMs: antecedenciaMs || 500,
-        tentativas: tentativas || 3,
-        intervaloTentativasMs: intervaloTentativasMs || 200,
+        antecedenciaMs: antecedenciaMs || 300,
+        tentativas: tentativas || 5,
+        intervaloTentativasMs: intervaloTentativasMs || 50,
       });
 
       res.json(resultado);
@@ -147,13 +136,10 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
     }
   });
 
-  // ==================== CANCELAR ====================
-
   app.post('/api/sniper/cancelar/:id', (req, res) => {
     try {
-      const s = getSniper(); if (!s) return res.status(400).json({ success: false, error: 'Sniper não inicializado' });
-      const ok = s.cancelar(req.params.id);
-      res.json({ success: ok, message: ok ? 'Cancelado' : 'Agendamento não encontrado' });
+      const ok = sniper.cancelar(req.params.id);
+      res.json({ success: true, cancelado: ok });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -161,10 +147,12 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
 
   app.post('/api/sniper/cancelar-todos', (req, res) => {
     try {
-      const s = getSniper(); if (!s) return res.status(400).json({ success: false, error: 'Sniper não inicializado' });
       let cancelados = 0;
-      for (const [id] of s.agendamentos) {
-        if (s.cancelar(id)) cancelados++;
+      for (const [id, ag] of sniper.agendamentos) {
+        if (!ag.executado) {
+          sniper.cancelar(id);
+          cancelados++;
+        }
       }
       res.json({ success: true, cancelados });
     } catch (e) {
@@ -172,12 +160,9 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
     }
   });
 
-  // ==================== LISTAR ====================
-
   app.get('/api/sniper/agendamentos', (req, res) => {
     try {
-      const s = getSniper(); if (!s) return res.json({ success: true, agendamentos: [] });
-      res.json({ success: true, agendamentos: s.listarAgendamentos() });
+      res.json({ success: true, agendamentos: sniper.listarAgendamentos() });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -185,8 +170,7 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
 
   app.get('/api/sniper/historico', (req, res) => {
     try {
-      const s = getSniper(); if (!s) return res.json({ success: true, historico: [] });
-      res.json({ success: true, historico: s.historico });
+      res.json({ success: true, historico: sniper.historico });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -194,11 +178,6 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
 
   // ==================== CONSULTA DE DISPUTA ====================
 
-  /**
-   * GET /api/sniper/participacoes
-   * Lista todas as participações ativas do banco, com filtro opcional.
-   * Query: ?busca=texto
-   */
   app.get('/api/sniper/participacoes', (req, res) => {
     try {
       const busca = req.query.busca || '';
@@ -217,31 +196,18 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
     }
   });
 
-  /**
-   * GET /api/sniper/consultar/:compraId
-   * Consulta o estado real dos itens de uma disputa via API do Comprasnet.
-   */
   app.get('/api/sniper/consultar/:compraId', async (req, res) => {
     try {
-      const s = getSniper();
-      if (!s) return res.status(503).json({ success: false, error: 'Sniper não inicializado (Chrome desconectado?)' });
-      const result = await s.consultarItens(req.params.compraId);
+      const result = await sniper.consultarItens(req.params.compraId);
       res.json(result);
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
   });
 
-  /**
-   * GET /api/sniper/disputas-ativas
-   * Verifica TODAS as participações no banco para encontrar disputas em andamento.
-   * LENTO — consulta cada participação na API do Comprasnet.
-   */
   app.get('/api/sniper/disputas-ativas', async (req, res) => {
     try {
-      const s = getSniper();
-      if (!s) return res.status(503).json({ success: false, error: 'Sniper não inicializado' });
-      const disputas = await s.buscarDisputasAtivas(db);
+      const disputas = await sniper.buscarDisputasAtivas(db);
       res.json({ success: true, disputas });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -249,17 +215,8 @@ function registrarRotasSniper(app, monitorGetter, dbRef) {
   });
 }
 
-function inicializarSniper() {
-  // Será chamado depois que o MonitorV2 estiver disponível
-  // O sniper precisa do monitor para o Bearer token
-}
-
-function getOrCreateSniper(monitor) {
-  if (!sniper && monitor) {
-    sniper = new SniperLance(monitor);
-    console.log('[Sniper] Inicializado');
-  }
+function getSniper() {
   return sniper;
 }
 
-module.exports = { registrarRotasSniper, inicializarSniper, getOrCreateSniper };
+module.exports = { registrarRotasSniper, getSniper };

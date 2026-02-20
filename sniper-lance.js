@@ -1,8 +1,9 @@
 /**
  * sniper-lance.js — Sistema de lance sniper para Comprasnet
  * 
- * Envia lance nos últimos milissegundos antes do encerramento.
- * Usa Bearer token capturado pelo MonitorV2 via CDP.
+ * Envia lances via chamadas HTTP diretas usando Bearer token.
+ * O token é recebido da extensão Chrome (Token Relay).
+ * NÃO depende de Puppeteer, CDP ou túnel SSH.
  * 
  * API Comprasnet:
  *   POST /comprasnet-disputa/v1/compras/{compraId}/itens/{itemNumero}/lances
@@ -10,17 +11,30 @@
  *   Headers: Authorization: Bearer ..., x-device-platform: web, x-version-number: 5.5.2
  */
 
+const axios = require('axios');
+
 const BASE_URL = 'https://cnetmobile.estaleiro.serpro.gov.br';
 
+const API_HEADERS = {
+  'Accept': 'application/json, text/plain, */*',
+  'Content-Type': 'application/json',
+  'x-device-platform': 'web',
+  'x-version-number': '5.5.2',
+  'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
+};
+
 class SniperLance {
-  constructor(monitorV2) {
-    this.monitor = monitorV2; // referência ao MonitorV2 para Bearer token
-    this.agendamentos = new Map(); // id -> { timer, config }
-    this.historico = []; // últimos 50 lances
+  constructor() {
+    this.bearerToken = null;          // "Bearer eyJ..."
+    this.tokenRecebidoEm = null;      // timestamp
+    this.tokenSource = null;           // 'extension' | 'manual' | 'monitor'
+
+    this.agendamentos = new Map();     // id -> { timer, config }
+    this.historico = [];               // últimos 50 lances
     this.logs = [];
     this.maxLogs = 100;
 
-    // Offset de tempo servidor vs local (calibrado via API)
+    // Offset de tempo servidor vs local
     this.offsetServidorMs = 0;
     this.ultimaCalibracao = null;
   }
@@ -33,52 +47,110 @@ class SniperLance {
     console.log(`[Sniper] ${entry}`);
   }
 
+  // ==================== TOKEN ====================
+
+  /**
+   * Recebe e armazena o Bearer token (da extensão, manual, ou monitor).
+   * @param {string} token - "Bearer eyJ..." ou apenas "eyJ..."
+   * @param {string} source - origem do token
+   */
+  setToken(token, source = 'manual') {
+    if (!token) return;
+    // Normalizar
+    this.bearerToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    this.tokenRecebidoEm = new Date().toISOString();
+    this.tokenSource = source;
+    this.log(`🔑 Token recebido (${source}): ${this.bearerToken.substring(0, 30)}...`);
+  }
+
+  /**
+   * Retorna o Bearer token atual ou lança erro.
+   */
+  getToken() {
+    if (!this.bearerToken) {
+      throw new Error('Sem Bearer token. Abra o Comprasnet no Chrome com a extensão Token Relay.');
+    }
+    return this.bearerToken;
+  }
+
+  /**
+   * Verifica se tem token válido.
+   */
+  temToken() {
+    return !!this.bearerToken;
+  }
+
+  /**
+   * Idade do token em segundos.
+   */
+  idadeTokenSegundos() {
+    if (!this.tokenRecebidoEm) return Infinity;
+    return (Date.now() - new Date(this.tokenRecebidoEm).getTime()) / 1000;
+  }
+
+  // ==================== HTTP HELPERS ====================
+
+  /**
+   * Faz uma requisição GET autenticada ao Comprasnet.
+   */
+  async apiGet(path) {
+    const token = this.getToken();
+    const url = `${BASE_URL}${path}`;
+    const resp = await axios.get(url, {
+      headers: { ...API_HEADERS, Authorization: token },
+      timeout: 10000,
+      validateStatus: () => true, // não lançar em 4xx/5xx
+    });
+    return { status: resp.status, data: resp.data };
+  }
+
+  /**
+   * Faz uma requisição POST autenticada ao Comprasnet.
+   */
+  async apiPost(path, body) {
+    const token = this.getToken();
+    const url = `${BASE_URL}${path}`;
+    const resp = await axios.post(url, body, {
+      headers: { ...API_HEADERS, Authorization: token },
+      timeout: 10000,
+      validateStatus: () => true,
+    });
+    return { status: resp.status, data: resp.data };
+  }
+
   // ==================== CALIBRAÇÃO DE TEMPO ====================
 
   /**
    * Calibra o offset entre o relógio local e o do servidor Comprasnet.
-   * Usa o endpoint /comprasnet-disputa/v1/datahorabrasilia
    */
   async calibrarTempo() {
     try {
       const antes = Date.now();
 
-      const bearerToken = await this.monitor._obterBearerToken();
-
-      const resultado = await this.monitor.page.evaluate(async (baseUrl, authToken) => {
-        const resp = await fetch(`${baseUrl}/comprasnet-disputa/v1/datahorabrasilia`, {
-          credentials: 'include',
-          headers: {
-            'Authorization': authToken,
-            'x-device-platform': 'web',
-            'x-version-number': '5.5.2',
-          },
-        });
-        return await resp.text();
-      }, BASE_URL, bearerToken);
+      const { status, data } = await this.apiGet('/comprasnet-disputa/v1/datahorabrasilia');
 
       const depois = Date.now();
       const latencia = depois - antes;
       const meioLatencia = Math.floor(latencia / 2);
 
-      this.log(`🕐 Resposta raw: ${resultado}`);
+      if (status !== 200) {
+        throw new Error(`HTTP ${status}: ${JSON.stringify(data).substring(0, 100)}`);
+      }
 
-      // Tentar vários formatos
+      const raw = typeof data === 'string' ? data.replace(/"/g, '').trim() : String(data);
+      this.log(`🕐 Resposta raw: ${raw}`);
+
       let tempoServidor;
-      const limpo = resultado.replace(/"/g, '').trim();
-
-      // Formato epoch (número)
-      if (/^\d{13}$/.test(limpo)) {
-        tempoServidor = parseInt(limpo);
-      } else if (/^\d{10}$/.test(limpo)) {
-        tempoServidor = parseInt(limpo) * 1000;
+      if (/^\d{13}$/.test(raw)) {
+        tempoServidor = parseInt(raw);
+      } else if (/^\d{10}$/.test(raw)) {
+        tempoServidor = parseInt(raw) * 1000;
       } else {
-        // Formato ISO ou outro
-        tempoServidor = new Date(limpo).getTime();
+        tempoServidor = new Date(raw).getTime();
       }
 
       if (isNaN(tempoServidor)) {
-        throw new Error(`Formato não reconhecido: ${limpo}`);
+        throw new Error(`Formato não reconhecido: ${raw}`);
       }
 
       const tempoLocal = antes + meioLatencia;
@@ -86,20 +158,13 @@ class SniperLance {
       this.ultimaCalibracao = new Date().toISOString();
 
       this.log(`🕐 Calibração: offset=${this.offsetServidorMs}ms, latência=${latencia}ms`);
-      return {
-        offset: this.offsetServidorMs,
-        latencia,
-        tempoServidor: new Date(tempoServidor).toISOString(),
-      };
+      return { offset: this.offsetServidorMs, latencia, tempoServidor: new Date(tempoServidor).toISOString() };
     } catch (e) {
       this.log(`⚠️ Erro calibração: ${e.message}`);
       throw e;
     }
   }
 
-  /**
-   * Retorna o tempo atual do servidor (estimado)
-   */
   tempoServidorAgora() {
     return Date.now() + this.offsetServidorMs;
   }
@@ -107,54 +172,29 @@ class SniperLance {
   // ==================== ENVIO DE LANCE ====================
 
   /**
-   * Envia um lance imediatamente via API.
-   * 
-   * @param {string} compraId - ex: "93119906000012026"
-   * @param {number} itemNumero - ex: 1
-   * @param {number} valor - ex: 1745.00
-   * @param {string} faseItem - ex: "LA" (lance aberto)
-   * @returns {Object} resultado
+   * Envia um lance imediatamente via API HTTP direta.
    */
   async enviarLance(compraId, itemNumero, valor, faseItem = 'LA') {
-    const bearerToken = await this.monitor._obterBearerToken();
-    const url = `${BASE_URL}/comprasnet-disputa/v1/compras/${compraId}/itens/${itemNumero}/lances`;
-
     const inicio = Date.now();
 
-    const resultado = await this.monitor.page.evaluate(async (apiUrl, authToken, body) => {
-      try {
-        const resp = await fetch(apiUrl, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'Content-Type': 'application/json',
-            'Authorization': authToken,
-            'x-device-platform': 'web',
-            'x-version-number': '5.5.2',
-            'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
-          },
-          body: JSON.stringify(body),
-        });
-        const text = await resp.text();
-        return { status: resp.status, body: text };
-      } catch (e) {
-        return { status: 0, body: e.message };
-      }
-    }, url, bearerToken, { valorInformado: valor, faseItem });
+    const { status, data } = await this.apiPost(
+      `/comprasnet-disputa/v1/compras/${compraId}/itens/${itemNumero}/lances`,
+      { valorInformado: valor, faseItem }
+    );
 
     const tempoMs = Date.now() - inicio;
+    const resposta = typeof data === 'string' ? data : JSON.stringify(data);
 
     const lance = {
       compraId,
       itemNumero,
       valor,
       faseItem,
-      status: resultado.status,
-      resposta: resultado.body.substring(0, 500),
+      status,
+      resposta: resposta.substring(0, 500),
       tempoMs,
       timestamp: new Date().toISOString(),
-      sucesso: resultado.status === 200 || resultado.status === 201,
+      sucesso: status === 200 || status === 201,
     };
 
     this.historico.unshift(lance);
@@ -163,7 +203,7 @@ class SniperLance {
     if (lance.sucesso) {
       this.log(`🎯 LANCE ENVIADO! R$ ${valor.toFixed(2)} item ${itemNumero} (${tempoMs}ms)`);
     } else {
-      this.log(`❌ Lance falhou: HTTP ${resultado.status} - ${resultado.body.substring(0, 100)} (${tempoMs}ms)`);
+      this.log(`❌ Lance falhou: HTTP ${status} - ${resposta.substring(0, 100)} (${tempoMs}ms)`);
     }
 
     return lance;
@@ -171,20 +211,6 @@ class SniperLance {
 
   // ==================== AGENDAMENTO SNIPER ====================
 
-  /**
-   * Agenda um lance para ser disparado em um horário exato.
-   * 
-   * @param {Object} config
-   * @param {string} config.id - ID único do agendamento
-   * @param {string} config.compraId - ID da compra
-   * @param {number} config.itemNumero - número do item
-   * @param {number} config.valor - valor do lance
-   * @param {string} config.faseItem - fase do item (default "LA")
-   * @param {string} config.horarioAlvo - ISO timestamp de quando disparar
-   * @param {number} config.antecedenciaMs - ms antes do horário alvo (default 500)
-   * @param {number} config.tentativas - quantas tentativas em sequência (default 3)
-   * @param {number} config.intervaloTentativasMs - ms entre tentativas (default 200)
-   */
   agendar(config) {
     const {
       id,
@@ -198,7 +224,6 @@ class SniperLance {
       intervaloTentativasMs = 200,
     } = config;
 
-    // Cancelar agendamento anterior se existir
     if (this.agendamentos.has(id)) {
       this.cancelar(id);
     }
@@ -220,11 +245,15 @@ class SniperLance {
     const timer = setTimeout(async () => {
       this.log(`🚀 SNIPER DISPARANDO! Alvo: ${horarioAlvo}`);
 
-      // Calibrar Bearer token antes de disparar
-      try {
-        await this.monitor._obterBearerToken();
-      } catch (e) {
-        this.log(`⚠️ Erro ao obter Bearer antes do disparo: ${e.message}`);
+      if (!this.temToken()) {
+        this.log(`❌ ABORTANDO — sem Bearer token no momento do disparo!`);
+        const agendamento = this.agendamentos.get(id);
+        if (agendamento) {
+          agendamento.resultados = [{ sucesso: false, error: 'Sem Bearer token' }];
+          agendamento.executado = true;
+          agendamento.executadoEm = new Date().toISOString();
+        }
+        return;
       }
 
       const resultados = [];
@@ -236,7 +265,7 @@ class SniperLance {
 
           if (resultado.sucesso) {
             this.log(`✅ Tentativa ${t + 1}/${tentativas}: SUCESSO em ${resultado.tempoMs}ms`);
-            break; // Sucesso, não precisa mais tentativas
+            break;
           } else {
             this.log(`⚠️ Tentativa ${t + 1}/${tentativas}: falhou (${resultado.status})`);
           }
@@ -250,14 +279,12 @@ class SniperLance {
         }
       }
 
-      // Salvar resultado
       const agendamento = this.agendamentos.get(id);
       if (agendamento) {
         agendamento.resultados = resultados;
         agendamento.executado = true;
         agendamento.executadoEm = new Date().toISOString();
       }
-
     }, delayMs);
 
     this.agendamentos.set(id, {
@@ -278,9 +305,6 @@ class SniperLance {
     };
   }
 
-  /**
-   * Cancela um agendamento.
-   */
   cancelar(id) {
     const agendamento = this.agendamentos.get(id);
     if (agendamento && agendamento.timer) {
@@ -292,9 +316,6 @@ class SniperLance {
     return false;
   }
 
-  /**
-   * Lista todos os agendamentos ativos.
-   */
   listarAgendamentos() {
     const lista = [];
     for (const [id, ag] of this.agendamentos) {
@@ -316,57 +337,28 @@ class SniperLance {
 
   /**
    * Consulta os itens em seleção/disputa de uma compra específica.
-   * Tenta múltiplos endpoints até encontrar um que funcione.
    */
   async consultarItens(compraId) {
-    if (!this.monitor?.page) {
-      throw new Error('Chrome não conectado');
-    }
-
-    const bearerToken = await this.monitor._obterBearerToken();
     this.log(`🔍 Consultando itens da disputa ${compraId}...`);
 
-    // Tenta endpoint de disputa primeiro (Bearer), depois fase-externa (cookies da sessão)
     const endpoints = [
-      `${BASE_URL}/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`,
-      `${BASE_URL}/comprasnet-disputa/v1/compras/${compraId}/itens`,
+      `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`,
+      `/comprasnet-disputa/v1/compras/${compraId}/itens`,
     ];
 
-    for (const apiUrl of endpoints) {
+    for (const path of endpoints) {
       try {
-        const resultado = await this.monitor.page.evaluate(async (url, authToken) => {
-          try {
-            const resp = await fetch(url, {
-              method: 'GET',
-              credentials: 'include',
-              headers: {
-                'Accept': 'application/json, text/plain, */*',
-                'Authorization': authToken,
-                'x-device-platform': 'web',
-                'x-version-number': '5.5.2',
-                'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
-              },
-            });
-            const text = await resp.text();
-            return { status: resp.status, body: text, url };
-          } catch (e) {
-            return { status: 0, body: e.message, url };
-          }
-        }, apiUrl, bearerToken);
+        const { status, data } = await this.apiGet(path);
 
-        if (resultado.status === 200 || resultado.status === 206) {
-          try {
-            const itens = JSON.parse(resultado.body);
-            this.log(`✅ Consulta OK: ${Array.isArray(itens) ? itens.length : '?'} itens (${apiUrl.includes('fase-externa') ? 'fase-externa' : 'disputa'})`);
-            return { success: true, itens: Array.isArray(itens) ? itens : [itens], endpoint: apiUrl };
-          } catch (e) {
-            this.log(`⚠️ Resposta não-JSON de ${apiUrl}: ${resultado.body.substring(0, 100)}`);
-          }
+        if (status === 200 || status === 206) {
+          const itens = Array.isArray(data) ? data : [data];
+          this.log(`✅ Consulta OK: ${itens.length} itens (${path.includes('fase-externa') ? 'fase-externa' : 'disputa'})`);
+          return { success: true, itens, endpoint: path };
         } else {
-          this.log(`⚠️ ${apiUrl.split('/v1/')[1]?.substring(0,40)} → HTTP ${resultado.status}`);
+          this.log(`⚠️ ${path.split('/v1/')[1]?.substring(0, 40)} → HTTP ${status}`);
         }
       } catch (e) {
-        this.log(`⚠️ Erro em ${apiUrl}: ${e.message}`);
+        this.log(`⚠️ Erro em ${path}: ${e.message}`);
       }
     }
 
@@ -374,16 +366,9 @@ class SniperLance {
   }
 
   /**
-   * Busca disputas ativas entre as participações do banco de dados.
-   * Consulta cada participação via API para verificar se está em fase de lance.
-   * @param {object} db - instância do better-sqlite3
-   * @returns {Array} lista de disputas ativas com detalhes dos itens
+   * Busca disputas ativas entre as participações do banco.
    */
   async buscarDisputasAtivas(db) {
-    if (!this.monitor?.page) {
-      throw new Error('Chrome não conectado');
-    }
-
     const participacoes = db.prepare(
       `SELECT compraId, cnpj, ano, sequencial, orgao, objeto, etapa, situacao, faseCompra, dataSessao
        FROM participacoes_comprasnet WHERE ativo = 1 ORDER BY dataAtualizacao DESC`
@@ -396,7 +381,6 @@ class SniperLance {
       try {
         const result = await this.consultarItens(p.compraId);
         if (result.success && result.itens?.length > 0) {
-          // Verifica se algum item tem fase de lance ativo
           const itensAtivos = result.itens.filter(item => {
             const fase = item.fase || '';
             return fase === 'LA' || fase === 'D1' || fase === 'D2' || item.podeEnviarLances;
@@ -424,7 +408,7 @@ class SniperLance {
           }
         }
       } catch (e) {
-        // Silently skip - not all participações are in disputa
+        // Silently skip — not all participações are in disputa
       }
     }
 
@@ -432,11 +416,15 @@ class SniperLance {
     return disputasAtivas;
   }
 
-  /**
-   * Retorna status geral do sniper.
-   */
+  // ==================== STATUS ====================
+
   getStatus() {
     return {
+      ativo: true,
+      temToken: this.temToken(),
+      tokenSource: this.tokenSource,
+      tokenIdade: this.tokenRecebidoEm ? Math.floor(this.idadeTokenSegundos()) + 's' : null,
+      tokenRecebidoEm: this.tokenRecebidoEm,
       agendamentosAtivos: [...this.agendamentos.values()].filter(a => !a.executado).length,
       agendamentosTotal: this.agendamentos.size,
       ultimaCalibracao: this.ultimaCalibracao,

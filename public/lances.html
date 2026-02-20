@@ -73,21 +73,21 @@
 </head>
 <body>
     <h1>🎯 Sniper de Lances</h1>
-    <p class="subtitle">Monitoramento e envio de lances em disputas do Comprasnet</p>
+    <p class="subtitle">Envio automatizado via API — Token da extensão Chrome</p>
 
     <div class="status-bar">
-        <div class="status-item"><div class="label">Chrome</div><div class="value" id="statusChrome">--</div></div>
-        <div class="status-item"><div class="label">Bearer Token</div><div class="value" id="statusBearer">--</div></div>
+        <div class="status-item"><div class="label">Bearer Token</div><div class="value" id="statusToken">--</div></div>
+        <div class="status-item"><div class="label">Origem</div><div class="value" id="statusOrigem">--</div></div>
         <div class="status-item"><div class="label">Hora Brasília</div><div class="value azul" id="horaServidor">--:--:--</div></div>
         <div class="status-item"><div class="label">Offset</div><div class="value" id="statusOffset">--</div></div>
         <div class="status-item"><div class="label">Agendamentos</div><div class="value azul" id="statusAgendamentos">0</div></div>
-        <div class="status-item"><div class="label">Lances Enviados</div><div class="value azul" id="statusLances">0</div></div>
+        <div class="status-item"><div class="label">Lances</div><div class="value azul" id="statusLances">0</div></div>
     </div>
 
     <div class="btn-group mb-10">
-        <button class="btn btn-primary" onclick="conectar()">🔌 Conectar Chrome</button>
         <button class="btn btn-outline" onclick="calibrar()">🕐 Calibrar Relógio</button>
         <button class="btn btn-outline" onclick="atualizarTudo()">🔄 Atualizar</button>
+        <button class="btn btn-outline" onclick="enviarTokenManual()">🔑 Colar Token Manual</button>
     </div>
 
     <!-- Painel de Seleção de Licitação -->
@@ -177,22 +177,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function atualizarTudo() {
     try {
-        const [sniper, monitor] = await Promise.all([
-            fetch(`${API}/api/sniper/status`).then(r=>r.json()).catch(()=>({})),
-            fetch(`${API}/api/monitor-v2/status`).then(r=>r.json()).catch(()=>({})),
-        ]);
-        const st = monitor.status || monitor || {};
-        const chromeEl = document.getElementById('statusChrome');
-        chromeEl.textContent = st.chromeConectado ? '✅ Conectado' : '❌ Desconectado';
-        chromeEl.className = 'value ' + (st.chromeConectado ? 'verde' : 'vermelho');
+        const sniper = await fetch(`${API}/api/sniper/status`).then(r=>r.json()).catch(()=>({}));
 
-        const bearerEl = document.getElementById('statusBearer');
-        if (st.ultimoToken) {
-            const age = (Date.now() - new Date(st.ultimoToken).getTime()) / 1000;
-            bearerEl.textContent = age < 600 ? '✅ ' + Math.floor(age) + 's' : '⚠️ Velho';
-            bearerEl.className = 'value ' + (age < 600 ? 'verde' : 'amarelo');
-        } else { bearerEl.textContent = '❌'; bearerEl.className = 'value vermelho'; }
+        // Token status
+        const tokenEl = document.getElementById('statusToken');
+        if (sniper.temToken) {
+            tokenEl.textContent = '✅ ' + (sniper.tokenIdade || 'OK');
+            tokenEl.className = 'value verde';
+        } else {
+            tokenEl.textContent = '❌ Sem token';
+            tokenEl.className = 'value vermelho';
+        }
 
+        // Origem
+        const origemEl = document.getElementById('statusOrigem');
+        origemEl.textContent = sniper.tokenSource || '--';
+        origemEl.className = 'value ' + (sniper.tokenSource ? 'azul' : 'text-muted');
+
+        // Offset / Agendamentos / Lances
         if (sniper.ativo) {
             const off = sniper.offsetServidorMs;
             document.getElementById('statusOffset').textContent = off != null ? off + 'ms' : '--';
@@ -310,12 +312,19 @@ async function buscarDisputasAtivas() {
     }
 }
 
-async function conectar() {
+async function enviarTokenManual() {
+    const token = prompt('Cole o Bearer token aqui:\n\n(Abra o Comprasnet no Chrome, F12 > Network > qualquer requisição > copie o header Authorization)');
+    if (!token) return;
     try {
-        const r = await fetch(`${API}/api/monitor-v2/conectar`,{method:'POST'});
+        const r = await fetch(`${API}/api/auth/token`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ token: token.trim(), source: 'manual' }),
+        });
         const d = await r.json();
-        alert(d.success ? '✅ Chrome conectado!' : '❌ '+d.error);
-    } catch(e) { alert('❌ '+e.message); }
+        if (d.success) alert('✅ Token recebido!');
+        else alert('❌ ' + d.error);
+    } catch(e) { alert('❌ ' + e.message); }
     atualizarTudo();
 }
 

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 320px; font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
+  h2 { color: #4dabf7; font-size: 1.1em; margin-bottom: 12px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 0.8em; color: #888; margin-bottom: 3px; }
+  .field input { width: 100%; padding: 6px 10px; border-radius: 5px; border: 1px solid #333; background: #16213e; color: #eee; font-size: 0.9em; }
+  .field input:focus { outline: none; border-color: #4dabf7; }
+  .btn { width: 100%; padding: 8px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 0.85em; margin-bottom: 6px; }
+  .btn-primary { background: #4dabf7; color: #000; }
+  .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; }
+  .status { background: #16213e; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 0.8em; }
+  .status-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .status-row .val { font-weight: 600; }
+  .verde { color: #4caf50; } .vermelho { color: #f44336; } .azul { color: #4dabf7; }
+  .msg { font-size: 0.8em; padding: 6px; border-radius: 4px; margin-top: 6px; text-align: center; }
+  .msg-ok { background: #4caf5020; color: #4caf50; }
+  .msg-erro { background: #f4433620; color: #f44336; }
+</style>
+</head>
+<body>
+  <h2>🎯 LiciteAgora Token</h2>
+
+  <div class="status" id="statusPanel">
+    <div class="status-row"><span>Token</span><span class="val" id="sToken">--</span></div>
+    <div class="status-row"><span>Último envio</span><span class="val" id="sEnvio">--</span></div>
+    <div class="status-row"><span>Capturados</span><span class="val azul" id="sCap">0</span></div>
+    <div class="status-row"><span>Enviados</span><span class="val verde" id="sEnv">0</span></div>
+    <div class="status-row"><span>Erros</span><span class="val vermelho" id="sErr">0</span></div>
+  </div>
+
+  <div class="field">
+    <label>Servidor LiciteAgora</label>
+    <input type="text" id="inputServer" placeholder="https://liciteagora.com.br">
+  </div>
+
+  <button class="btn btn-primary" id="btnSalvar">💾 Salvar Servidor</button>
+  <button class="btn btn-outline" id="btnSync">🔄 Enviar Token Agora</button>
+
+  <div id="msgArea"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+
+  function atualizarStatus() {
+    chrome.runtime.sendMessage({ type: 'getStatus' }, (res) => {
+      if (!res) return;
+      $('sToken').textContent = res.ultimoToken || '❌ Nenhum';
+      $('sToken').className = 'val ' + (res.ultimoToken ? 'verde' : 'vermelho');
+      $('sEnvio').textContent = res.ultimoEnvio || '--';
+      $('sCap').textContent = res.stats?.capturados || 0;
+      $('sEnv').textContent = res.stats?.enviados || 0;
+      $('sErr').textContent = res.stats?.erros || 0;
+      if (res.serverUrl) $('inputServer').value = res.serverUrl;
+    });
+  }
+
+  function showMsg(text, ok) {
+    $('msgArea').innerHTML = `<div class="msg ${ok ? 'msg-ok' : 'msg-erro'}">${text}</div>`;
+    setTimeout(() => $('msgArea').innerHTML = '', 3000);
+  }
+
+  $('btnSalvar').addEventListener('click', () => {
+    const url = $('inputServer').value.trim();
+    if (!url) return showMsg('Digite a URL do servidor', false);
+    chrome.runtime.sendMessage({ type: 'setServer', url }, (res) => {
+      if (res?.ok) showMsg('✅ Servidor salvo!', true);
+      else showMsg('Erro ao salvar', false);
+      atualizarStatus();
+    });
+  });
+
+  $('btnSync').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'forceSync' }, (res) => {
+      if (res?.ok) showMsg('✅ Token enviado!', true);
+      else showMsg(res?.error || 'Erro', false);
+      setTimeout(atualizarStatus, 1000);
+    });
+  });
+
+  atualizarStatus();
+  setInterval(atualizarStatus, 3000);
+</script>
+</body>
+</html>

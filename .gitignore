@@ -55,3 +55,4 @@ server-*.txt
 # Evidências e debug
 evidencias/
 debug-*.json
+*.bak
