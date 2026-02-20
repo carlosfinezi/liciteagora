@@ -102,7 +102,7 @@ function registrarRotasMonitorV2(app, db, options = {}) {
    */
   app.post('/api/monitor-v2/iniciar', async (req, res) => {
     try {
-      const intervalo = req.body.intervaloMinutos || 3;
+      const intervalo = (req.body && req.body.intervaloMinutos) || 3;
       monitor.intervaloMinutos = intervalo;
       const result = await monitor.iniciar();
       res.json(result);

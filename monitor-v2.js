@@ -338,47 +338,65 @@ class MonitorV2 {
     }
 
     try {
+      // Primeiro verificar se hcaptcha está carregado
+      const hcaptchaDisponivel = await this.page.evaluate(() => {
+        return typeof hcaptcha !== 'undefined';
+      });
+
+      if (!hcaptchaDisponivel) {
+        this.log('hCaptcha não carregado, navegando para página de compras...');
+        await this.page.goto(`${BASE_URL}/comprasnet-web/seguro/fornecedor/compras`, {
+          waitUntil: 'networkidle2',
+          timeout: 30000,
+        });
+        await this._aguardar(3000);
+      }
+
       const token = await this.page.evaluate(async (siteKey) => {
-        // Verificar se hcaptcha está carregado
         if (typeof hcaptcha === 'undefined') {
           throw new Error('hcaptcha não está carregado na página');
         }
 
-        // Tentar encontrar widget existente
-        const widgetEl = document.querySelector('[data-hcaptcha-widget-id]');
-        let widgetId;
+        // Estratégia 1: execute com sitekey direto
+        try {
+          const result = await hcaptcha.execute({ sitekey: siteKey, async: true });
+          if (result && result.response) return result.response;
+        } catch (e) { /* tentar próxima */ }
 
-        if (widgetEl) {
-          widgetId = widgetEl.getAttribute('data-hcaptcha-widget-id');
-        } else {
-          // Buscar o primeiro widget registrado
-          // hcaptcha mantém widgets internamente
-          const frames = document.querySelectorAll('iframe[src*="hcaptcha"]');
-          if (frames.length > 0) {
-            // Widget existe mas sem atributo — tentar execute com sitekey
-            const result = await hcaptcha.execute({ sitekey: siteKey, async: true });
-            return result.response;
+        // Estratégia 2: buscar widget pelo atributo
+        try {
+          const widgetEl = document.querySelector('[data-hcaptcha-widget-id]');
+          if (widgetEl) {
+            const widgetId = widgetEl.getAttribute('data-hcaptcha-widget-id');
+            const result = await hcaptcha.execute(widgetId, { async: true });
+            if (result && result.response) return result.response;
           }
-          throw new Error('Nenhum widget hCaptcha encontrado na página');
-        }
+        } catch (e) { /* tentar próxima */ }
 
-        const result = await hcaptcha.execute(widgetId, { async: true });
-        return result.response;
+        // Estratégia 3: getResponse de widget já resolvido
+        try {
+          const response = hcaptcha.getResponse();
+          if (response) return response;
+        } catch (e) { /* falhou tudo */ }
+
+        throw new Error('Nenhuma estratégia de hCaptcha funcionou');
       }, HCAPTCHA_SITE_KEY);
 
-      if (!token || !token.startsWith('P1_')) {
-        throw new Error(`Token inválido: ${(token || '').substring(0, 20)}`);
+      if (!token) {
+        throw new Error('Token vazio retornado');
       }
 
       this.status.ultimoToken = new Date().toISOString();
+      this.log(`✅ Token hCaptcha gerado (${token.substring(0, 20)}...)`);
       return token;
     } catch (e) {
-      // Se falhar, pode ser que a sessão expirou
-      const url = this.page.url();
-      if (url.includes('acesso-nao-autorizado') || url.includes('login')) {
-        this.status.sessaoAtiva = false;
-        throw new Error('Sessão expirada — necessário login manual');
-      }
+      try {
+        const url = this.page.url();
+        if (url.includes('acesso-nao-autorizado') || url.includes('login') || url.includes('sso.acesso.gov.br')) {
+          this.status.sessaoAtiva = false;
+          throw new Error('Sessão expirada — necessário login manual');
+        }
+      } catch (urlErr) { /* ignore */ }
       throw new Error(`Falha ao gerar token hCaptcha: ${e.message}`);
     }
   }
