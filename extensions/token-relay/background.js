@@ -13,6 +13,7 @@
 const SERVER_URL = 'http://217.216.85.37:8080';
 const COMPRASNET = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const SYNC_INTERVAL_MIN = 3; // sync a cada 3 minutos
+let syncAgendado = false;
 
 console.log('[LiciteAgora] Service worker v3.0 carregado!');
 
@@ -109,10 +110,11 @@ async function onTokensCapturados(bearer, captcha) {
     await enviarTokens(atual.bearer || bearer, atual.captcha || captcha, atual.stats || stats);
   }
 
-  // Se captcha novo, triggar sync imediato
-  if (captcha && captcha !== data.captcha) {
-    console.log('[LiciteAgora] Captcha novo → sync imediato');
-    setTimeout(() => executarSync(), 2000);
+  // Sync imediato somente uma vez por sessão do service worker
+  if (bearer && !syncAgendado) {
+    syncAgendado = true;
+    console.log('[LiciteAgora] Bearer capturado → sync em 3s');
+    setTimeout(() => executarSync(), 3000);
   }
 }
 
@@ -160,16 +162,31 @@ async function findComprasnetTab() {
 
 /**
  * Executa fetch DENTRO da aba do Comprasnet (usa cookies da sessão).
+ * Gera captcha FRESCO via hcaptcha.execute() a cada chamada.
  */
-async function comprasnetFetch(tabId, path, bearer, captcha) {
-  const sep = path.includes('?') ? '&' : '?';
-  const fullUrl = COMPRASNET + path + (captcha ? sep + 'captcha=' + captcha : '');
-
+async function comprasnetFetch(tabId, path, bearer) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
-    func: async (url, authHeader) => {
+    func: async (apiPath, authHeader, baseUrl) => {
       try {
-        const resp = await fetch(url, {
+        // 1. Gerar captcha fresco
+        var captchaToken = '';
+        try {
+          if (typeof hcaptcha !== 'undefined') {
+            var result = await hcaptcha.execute({ async: true });
+            captchaToken = result.response || '';
+          }
+        } catch (e) {
+          // Se hcaptcha não estiver na página, tenta sem
+          console.log('[LiciteAgora] hcaptcha indisponível:', e.message);
+        }
+
+        // 2. Montar URL
+        var sep = apiPath.includes('?') ? '&' : '?';
+        var url = baseUrl + apiPath + (captchaToken ? sep + 'captcha=' + captchaToken : '');
+
+        // 3. Fazer fetch
+        var resp = await fetch(url, {
           credentials: 'include',
           headers: {
             'Accept': 'application/json, text/plain, */*',
@@ -179,15 +196,16 @@ async function comprasnetFetch(tabId, path, bearer, captcha) {
             'Cache-Control': 'no-cache',
           },
         });
-        const text = await resp.text();
-        let data = null;
+
+        var text = await resp.text();
+        var data = null;
         try { data = JSON.parse(text); } catch (e) {}
-        return { status: resp.status, data };
+        return { status: resp.status, data: data, hasCaptcha: !!captchaToken };
       } catch (e) {
         return { status: 0, error: e.message };
       }
     },
-    args: [fullUrl, bearer],
+    args: [path, bearer, COMPRASNET],
   });
 
   return results[0]?.result || { status: 0, error: 'No result' };
@@ -214,8 +232,8 @@ async function serverPost(path, body) {
  */
 async function executarSync() {
   const data = await load();
-  if (!data.bearer || !data.captcha) {
-    console.log('[LiciteAgora] Sync pulado — falta bearer ou captcha');
+  if (!data.bearer) {
+    console.log('[LiciteAgora] Sync pulado — falta bearer');
     return;
   }
 
@@ -230,11 +248,11 @@ async function executarSync() {
 
   try {
     // 1. Buscar participações
-    const participacoes = await syncParticipacoes(tab.id, data.bearer, data.captcha);
+    const participacoes = await syncParticipacoes(tab.id, data.bearer);
 
     // 2. Buscar mensagens das participações
     if (participacoes.length > 0) {
-      await syncMensagens(tab.id, participacoes, data.bearer, data.captcha);
+      await syncMensagens(tab.id, participacoes, data.bearer);
     }
 
     stats.syncs = (stats.syncs || 0) + 1;
@@ -246,7 +264,7 @@ async function executarSync() {
   }
 }
 
-async function syncParticipacoes(tabId, bearer, captcha) {
+async function syncParticipacoes(tabId, bearer) {
   console.log('[LiciteAgora] Buscando participações...');
   let todas = [];
   let pagina = 0;
@@ -255,11 +273,11 @@ async function syncParticipacoes(tabId, bearer, captcha) {
     try {
       const result = await comprasnetFetch(tabId,
         '/comprasnet-fase-externa/v1/compras/participacoes?filtro=5&tamanhoPagina=50&pagina=' + pagina,
-        bearer, captcha
+        bearer
       );
 
       if (result.status !== 200 && result.status !== 206) {
-        console.log('[LiciteAgora] Participações pág ' + pagina + ': HTTP ' + result.status);
+        console.log('[LiciteAgora] Participações pág ' + pagina + ': HTTP ' + result.status + (result.hasCaptcha ? ' (com captcha)' : ' (SEM captcha!)'));
         break;
       }
       if (!result.data || !Array.isArray(result.data) || result.data.length === 0) break;
@@ -286,7 +304,7 @@ async function syncParticipacoes(tabId, bearer, captcha) {
   return todas;
 }
 
-async function syncMensagens(tabId, participacoes, bearer, captcha) {
+async function syncMensagens(tabId, participacoes, bearer) {
   const compraIds = [];
   for (const p of participacoes) {
     const compra = p.compra || p;
@@ -301,7 +319,7 @@ async function syncMensagens(tabId, participacoes, bearer, captcha) {
     try {
       const result = await comprasnetFetch(tabId,
         '/comprasnet-mensagem/v2/chat/' + compraId + '?size=20&page=0&legadoAsp=false',
-        bearer, captcha
+        bearer
       );
 
       if ((result.status === 200 || result.status === 206) && Array.isArray(result.data) && result.data.length > 0) {
