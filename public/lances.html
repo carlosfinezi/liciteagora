@@ -6,121 +6,82 @@
     <title>Sniper de Lances - LiciteAgora</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1a1a2e; color: #eee; min-height: 100vh; padding: 20px;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; padding: 20px; }
         h1 { color: #4dabf7; margin-bottom: 5px; }
         .subtitle { color: #888; margin-bottom: 20px; }
         .status-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-        .status-item {
-            background: #16213e; padding: 12px 16px; border-radius: 8px;
-            flex: 1; min-width: 110px; text-align: center;
-        }
+        .status-item { background: #16213e; padding: 12px 16px; border-radius: 8px; flex: 1; min-width: 110px; text-align: center; }
         .status-item .label { color: #888; font-size: 0.8em; margin-bottom: 4px; }
         .status-item .value { font-size: 1.1em; font-weight: 600; }
-        .verde { color: #4caf50; } .vermelho { color: #f44336; }
-        .amarelo { color: #ff9800; } .azul { color: #4dabf7; }
-        .panel {
-            background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 16px;
-        }
-        .panel h3 {
-            color: #4dabf7; margin-bottom: 15px;
-            padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em;
-        }
+        .verde { color: #4caf50; } .vermelho { color: #f44336; } .amarelo { color: #ff9800; } .azul { color: #4dabf7; }
+        .panel { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+        .panel h3 { color: #4dabf7; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
         .form-group { margin-bottom: 12px; }
         .form-group label { display: block; color: #aaa; font-size: 0.85em; margin-bottom: 4px; }
-        .form-group input, .form-group select {
-            width: 100%; padding: 8px 12px; border-radius: 6px;
-            border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.95em;
-        }
-        .form-group input:focus { outline: none; border-color: #4dabf7; }
+        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.95em; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4dabf7; }
         .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
         .form-row .form-group { flex: 1; min-width: 120px; }
-        .btn {
-            padding: 8px 16px; border-radius: 6px; border: none;
-            cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s;
-        }
-        .btn-primary { background: #4dabf7; color: #000; }
-        .btn-primary:hover { background: #339af0; }
-        .btn-danger { background: #f44336; color: #fff; }
-        .btn-danger:hover { background: #d32f2f; }
-        .btn-success { background: #4caf50; color: #fff; }
-        .btn-success:hover { background: #388e3c; }
-        .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; }
-        .btn-outline:hover { background: #4dabf710; }
-        .btn-sm { padding: 5px 10px; font-size: 0.8em; }
-        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
-        .result-card {
-            background: #1a1a2e; border-radius: 8px; padding: 12px;
-            margin-top: 10px; border-left: 3px solid #4dabf7;
-        }
-        .result-card.sucesso { border-left-color: #4caf50; }
-        .result-card.erro { border-left-color: #f44336; }
+        .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #4dabf7; color: #000; } .btn-primary:hover { background: #339af0; }
+        .btn-danger { background: #f44336; color: #fff; } .btn-danger:hover { background: #d32f2f; }
+        .btn-success { background: #4caf50; color: #fff; } .btn-success:hover { background: #388e3c; }
+        .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; } .btn-outline:hover { background: #4dabf722; }
+        .btn-sm { padding: 4px 10px; font-size: 0.8em; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
         table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
-        th {
-            background: #0f3460; color: #4dabf7; padding: 8px 10px;
-            text-align: left; font-weight: 600; font-size: 0.85em;
-        }
-        td { padding: 8px 10px; border-bottom: 1px solid #0f3460; }
-        tr:hover { background: #1a1a2e; }
-        .log-container {
-            background: #0d1117; border-radius: 6px; padding: 10px;
-            max-height: 300px; overflow-y: auto; font-family: monospace;
-            font-size: 0.8em; line-height: 1.6;
-        }
-        .log-info { color: #8b949e; } .log-ok { color: #4caf50; }
-        .log-erro { color: #f44336; } .log-alerta { color: #ff9800; }
-        .log-sniper { color: #e040fb; }
-        .agendamento-card {
-            background: #1a1a2e; border-radius: 8px; padding: 12px;
-            margin-bottom: 8px; border-left: 3px solid #ff9800;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .agendamento-card.executado { border-left-color: #4caf50; opacity: 0.7; }
-        .badge {
-            display: inline-block; padding: 2px 8px; border-radius: 4px;
-            font-size: 0.75em; font-weight: 600;
-        }
-        .badge-ok { background: #4caf5030; color: #4caf50; }
-        .badge-erro { background: #f4433630; color: #f44336; }
-        .badge-aguardando { background: #ff980030; color: #ff9800; }
+        th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #0f3460; }
+        th { color: #4dabf7; font-size: 0.85em; text-transform: uppercase; }
+        tr:hover { background: #0f346044; }
+        .result-card { padding: 10px; border-radius: 6px; margin-top: 10px; font-size: 0.9em; }
+        .result-card.sucesso { background: #1b5e20; } .result-card.erro { background: #b71c1c; }
+        .log-container { max-height: 200px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.8em; background: #0d1117; border-radius: 6px; padding: 10px; }
+        .log-ok { color: #4caf50; } .log-erro { color: #f44336; } .log-alerta { color: #ff9800; } .log-info { color: #888; } .log-sniper { color: #e040fb; font-weight: 600; }
+        .agendamento-card { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-radius: 6px; background: #0f346055; margin-bottom: 8px; }
+        .agendamento-card.executado { opacity: 0.7; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; font-weight: 600; }
+        .badge-ok { background: #1b5e20; color: #4caf50; } .badge-erro { background: #b71c1c; color: #f44336; } .badge-aguardando { background: #e65100; color: #ff9800; }
+        .lic-card { padding: 10px; border-radius: 6px; background: #0f346055; margin-bottom: 6px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+        .lic-card:hover { background: #0f3460; } .lic-card.selecionado { border-color: #4dabf7; background: #0f3460; }
+        .lic-card .orgao { font-size: 0.85em; color: #aaa; }
+        .lic-card .objeto { font-size: 0.8em; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lic-list { max-height: 300px; overflow-y: auto; }
+        .info-msg { padding: 10px; color: #888; text-align: center; font-size: 0.9em; }
         .mt-10 { margin-top: 10px; } .mb-10 { margin-bottom: 10px; }
-        .text-center { text-align: center; }
-        .text-muted { color: #666; } .text-sm { font-size: 0.85em; }
+        .text-center { text-align: center; } .text-muted { color: #666; } .text-sm { font-size: 0.85em; }
+        .part-card {
+            background: #1a1a2e; border-radius: 8px; padding: 10px 14px;
+            margin-bottom: 6px; cursor: pointer; transition: all 0.2s;
+            border-left: 3px solid #333; display: flex; justify-content: space-between; align-items: center;
+        }
+        .part-card:hover { background: #0f3460; border-left-color: #4dabf7; }
+        .part-card.selecionada { background: #0f3460; border-left-color: #4dabf7; }
+        .part-card.em-disputa { border-left-color: #4caf50; background: #16213e; }
+        .part-card .part-obj { font-size: 0.85em; max-width: 550px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .part-card .part-org { font-size: 0.75em; color: #888; margin-top: 2px; }
+        .part-card .part-id { font-size: 0.75em; color: #4dabf7; font-family: monospace; }
+        .part-card .part-right { text-align: right; white-space: nowrap; }
+        .part-card .part-fase { font-size: 0.75em; padding: 2px 6px; border-radius: 3px; }
+        .disputa-badge { background: #4caf5030; color: #4caf50; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
+        .disputa-itens { margin-top: 4px; font-size: 0.8em; color: #aaa; }
+        .disputa-itens .item-val { color: #4caf50; font-weight: 600; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #4dabf7; border-top: 2px solid transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
     <h1>🎯 Sniper de Lances</h1>
-    <p class="subtitle">Envio automatizado de lances nos últimos milissegundos da disputa</p>
+    <p class="subtitle">Monitoramento e envio de lances em disputas do Comprasnet</p>
 
     <div class="status-bar">
-        <div class="status-item">
-            <div class="label">Chrome</div>
-            <div class="value" id="statusChrome">--</div>
-        </div>
-        <div class="status-item">
-            <div class="label">Bearer Token</div>
-            <div class="value" id="statusBearer">--</div>
-        </div>
-        <div class="status-item">
-            <div class="label">Hora Servidor</div>
-            <div class="value azul" id="horaServidor">--:--:--</div>
-        </div>
-        <div class="status-item">
-            <div class="label">Latência</div>
-            <div class="value" id="statusLatencia">--</div>
-        </div>
-        <div class="status-item">
-            <div class="label">Agendamentos</div>
-            <div class="value azul" id="statusAgendamentos">0</div>
-        </div>
-        <div class="status-item">
-            <div class="label">Lances Enviados</div>
-            <div class="value azul" id="statusLances">0</div>
-        </div>
+        <div class="status-item"><div class="label">Chrome</div><div class="value" id="statusChrome">--</div></div>
+        <div class="status-item"><div class="label">Bearer Token</div><div class="value" id="statusBearer">--</div></div>
+        <div class="status-item"><div class="label">Hora Brasília</div><div class="value azul" id="horaServidor">--:--:--</div></div>
+        <div class="status-item"><div class="label">Offset</div><div class="value" id="statusOffset">--</div></div>
+        <div class="status-item"><div class="label">Agendamentos</div><div class="value azul" id="statusAgendamentos">0</div></div>
+        <div class="status-item"><div class="label">Lances Enviados</div><div class="value azul" id="statusLances">0</div></div>
     </div>
 
     <div class="btn-group mb-10">
@@ -129,116 +90,100 @@
         <button class="btn btn-outline" onclick="atualizarTudo()">🔄 Atualizar</button>
     </div>
 
+    <!-- Painel de Seleção de Licitação -->
+    <div class="panel">
+        <h3>📋 Selecionar Licitação</h3>
+        <div class="form-row" style="align-items:flex-end">
+            <div class="form-group" style="flex:3">
+                <label>Buscar (objeto, órgão ou compraId)</label>
+                <input type="text" id="buscaParticipacao" placeholder="Digite para filtrar..." oninput="filtrarParticipacoes()">
+            </div>
+            <div class="form-group" style="flex:0">
+                <button class="btn btn-outline" onclick="carregarParticipacoes()">Atualizar Lista</button>
+            </div>
+            <div class="form-group" style="flex:0">
+                <button class="btn btn-primary" onclick="buscarDisputasAtivas()" id="btnDisputas">🔥 Buscar em Disputa</button>
+            </div>
+        </div>
+        <div id="listaParticipacoes" style="max-height:300px; overflow-y:auto;">
+            <p class="text-muted text-center">Carregando...</p>
+        </div>
+    </div>
+
+    <!-- Seletor de Licitação -->
     <div class="grid-2">
         <div>
-            <!-- Lance Manual -->
             <div class="panel">
                 <h3>🚀 Enviar Lance</h3>
                 <div class="form-row">
-                    <div class="form-group" style="flex:2">
-                        <label>CompraId</label>
-                        <input type="text" id="compraId" placeholder="93119906000012026">
-                    </div>
-                    <div class="form-group">
-                        <label>Item</label>
-                        <input type="number" id="itemNumero" value="1" min="1">
-                    </div>
-                    <div class="form-group">
-                        <label>Valor (R$)</label>
-                        <input type="number" id="valorLance" step="0.01" min="0" placeholder="1600.00">
-                    </div>
+                    <div class="form-group" style="flex:2"><label>CompraId</label><input type="text" id="compraId" placeholder="93119906000012026"></div>
+                    <div class="form-group"><label>Item</label><input type="number" id="itemNumero" value="1" min="1"></div>
+                    <div class="form-group"><label>Valor (R$)</label><input type="number" id="valorLance" step="0.01" min="0" placeholder="1600.00"></div>
                 </div>
-                <div class="btn-group">
-                    <button class="btn btn-success" onclick="enviarLanceAgora()">⚡ Enviar Agora</button>
-                </div>
+                <div class="btn-group"><button class="btn btn-success" onclick="enviarLanceAgora()">⚡ Enviar Agora</button></div>
                 <div id="resultadoLance"></div>
             </div>
-
-            <!-- Agendamento Sniper -->
             <div class="panel">
                 <h3>⏱️ Agendar Sniper</h3>
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>Horário Alvo (Brasília)</label>
-                        <input type="time" id="horarioAlvo" step="1" value="16:00:00">
-                    </div>
-                    <div class="form-group">
-                        <label>Data</label>
-                        <input type="date" id="dataAlvo">
-                    </div>
+                    <div class="form-group"><label>Horário Alvo (Brasília)</label><input type="time" id="horarioAlvo" step="1" value="16:00:00"></div>
+                    <div class="form-group"><label>Data</label><input type="date" id="dataAlvo"></div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>Antecedência (ms)</label>
-                        <input type="number" id="antecedenciaMs" value="300" min="50" max="5000">
-                    </div>
-                    <div class="form-group">
-                        <label>Tentativas</label>
-                        <input type="number" id="tentativas" value="5" min="1" max="20">
-                    </div>
-                    <div class="form-group">
-                        <label>Intervalo (ms)</label>
-                        <input type="number" id="intervaloMs" value="50" min="10" max="1000">
-                    </div>
+                    <div class="form-group"><label>Antecedência (ms)</label><input type="number" id="antecedenciaMs" value="300" min="50" max="5000"></div>
+                    <div class="form-group"><label>Tentativas</label><input type="number" id="tentativas" value="5" min="1" max="20"></div>
+                    <div class="form-group"><label>Intervalo (ms)</label><input type="number" id="intervaloMs" value="50" min="10" max="2000"></div>
                 </div>
-                <p class="text-sm text-muted mb-10">Usa CompraId, Item e Valor acima.</p>
                 <div class="btn-group">
-                    <button class="btn btn-primary" onclick="agendarSniper()">🎯 Agendar Sniper</button>
+                    <button class="btn btn-primary" onclick="agendarSniper()">⏱️ Agendar</button>
                     <button class="btn btn-danger" onclick="cancelarTodos()">🛑 Cancelar Todos</button>
                 </div>
-            </div>
-
-            <!-- Agendamentos Ativos -->
-            <div class="panel">
-                <h3>📋 Agendamentos</h3>
-                <div id="listaAgendamentos">
-                    <p class="text-muted text-center">Nenhum agendamento</p>
-                </div>
+                <div id="listaAgendamentos"></div>
             </div>
         </div>
-
         <div>
-            <!-- Histórico -->
-            <div class="panel">
-                <h3>📊 Histórico de Lances</h3>
-                <div id="historicoLances">
-                    <p class="text-muted text-center">Nenhum lance enviado</p>
-                </div>
-            </div>
-
-            <!-- Logs -->
-            <div class="panel">
-                <h3>📝 Logs</h3>
-                <div class="log-container" id="logsContainer">
-                    <div class="text-muted">Aguardando...</div>
-                </div>
-            </div>
+            <div class="panel"><h3>📊 Histórico de Lances</h3><div id="historicoLances"><p class="text-muted text-center">Nenhum</p></div></div>
+            <div class="panel"><h3>📝 Logs do Sniper</h3><div class="log-container" id="logsContainer"><div class="text-muted">Sem logs</div></div></div>
         </div>
     </div>
 
 <script>
 const API = '';
-let offsetMs = 0;
-let ultimaLatencia = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('dataAlvo').value = new Date().toISOString().split('T')[0];
     atualizarTudo();
+    carregarParticipacoes();
     setInterval(atualizarTudo, 5000);
-    setInterval(atualizarRelogio, 500);
+    setInterval(() => {
+        // Relógio Brasília simples
+        document.getElementById('horaServidor').textContent =
+            new Date().toLocaleTimeString('pt-BR', {timeZone:'America/Sao_Paulo'});
+        // Countdowns
+        document.querySelectorAll('[data-countdown]').forEach(el => {
+            const alvo = el.getAttribute('data-alvo');
+            if (!alvo) return;
+            const diff = new Date(alvo).getTime() - Date.now();
+            if (diff <= 0) { el.textContent = '🔥 AGORA'; el.style.color = '#f44336'; }
+            else {
+                const min = Math.floor(diff/60000);
+                const sec = Math.floor((diff%60000)/1000);
+                el.textContent = min + 'm ' + sec + 's';
+                el.style.color = diff < 60000 ? '#f44336' : '#ff9800';
+            }
+        });
+    }, 500);
 });
-
-// ==================== STATUS ====================
 
 async function atualizarTudo() {
     try {
         const [sniper, monitor] = await Promise.all([
-            fetch(`${API}/api/sniper/status`).then(r => r.json()).catch(() => ({})),
-            fetch(`${API}/api/monitor-v2/status`).then(r => r.json()).catch(() => ({})),
+            fetch(`${API}/api/sniper/status`).then(r=>r.json()).catch(()=>({})),
+            fetch(`${API}/api/monitor-v2/status`).then(r=>r.json()).catch(()=>({})),
         ]);
-        const st = monitor.status || {};
+        const st = monitor.status || monitor || {};
         const chromeEl = document.getElementById('statusChrome');
-        chromeEl.textContent = st.chromeConectado ? '✅ OK' : '❌ Off';
+        chromeEl.textContent = st.chromeConectado ? '✅ Conectado' : '❌ Desconectado';
         chromeEl.className = 'value ' + (st.chromeConectado ? 'verde' : 'vermelho');
 
         const bearerEl = document.getElementById('statusBearer');
@@ -246,137 +191,191 @@ async function atualizarTudo() {
             const age = (Date.now() - new Date(st.ultimoToken).getTime()) / 1000;
             bearerEl.textContent = age < 600 ? '✅ ' + Math.floor(age) + 's' : '⚠️ Velho';
             bearerEl.className = 'value ' + (age < 600 ? 'verde' : 'amarelo');
-        } else {
-            bearerEl.textContent = '❌'; bearerEl.className = 'value vermelho';
-        }
+        } else { bearerEl.textContent = '❌'; bearerEl.className = 'value vermelho'; }
 
         if (sniper.ativo) {
-            offsetMs = sniper.offsetServidorMs || 0;
+            const off = sniper.offsetServidorMs;
+            document.getElementById('statusOffset').textContent = off != null ? off + 'ms' : '--';
             document.getElementById('statusAgendamentos').textContent = sniper.agendamentosAtivos || 0;
             document.getElementById('statusLances').textContent = sniper.lancesEnviados || 0;
         }
-        if (ultimaLatencia) document.getElementById('statusLatencia').textContent = ultimaLatencia + 'ms';
-    } catch (e) {}
+    } catch(e){}
     carregarAgendamentos();
     carregarHistorico();
     carregarLogs();
 }
 
-function atualizarRelogio() {
-    const agora = new Date(Date.now() + offsetMs);
-    const h = String(agora.getUTCHours()).padStart(2,'0');
-    const m = String(agora.getUTCMinutes()).padStart(2,'0');
-    const s = String(agora.getUTCSeconds()).padStart(2,'0');
-    document.getElementById('horaServidor').textContent = h+':'+m+':'+s;
-    document.querySelectorAll('[data-countdown]').forEach(el => {
-        const alvo = el.getAttribute('data-alvo');
-        if (!alvo) return;
-        const diff = new Date(alvo).getTime() - Date.now();
-        if (diff <= 0) { el.textContent = '🔥 AGORA'; el.style.color = '#f44336'; }
-        else {
-            const min = Math.floor(diff/60000);
-            const seg = Math.floor((diff%60000)/1000);
-            el.textContent = 'em ' + min + 'm ' + seg + 's';
-            el.style.color = diff < 60000 ? '#f44336' : '#ff9800';
-        }
-    });
+let todasParticipacoes = [];
+let disputasAtivas = []; // cache de disputas ativas
+
+async function carregarParticipacoes() {
+    const div = document.getElementById('listaParticipacoes');
+    div.innerHTML = '<p class="info-msg"><span class="spinner"></span> Carregando...</p>';
+    try {
+        const r = await fetch(`${API}/api/sniper/participacoes`);
+        const d = await r.json();
+        if (!d.success) { div.innerHTML = '<div class="result-card erro">❌ '+esc(d.error||'Erro')+'</div>'; return; }
+        todasParticipacoes = d.participacoes || [];
+        renderParticipacoes(todasParticipacoes);
+    } catch(e) { div.innerHTML = '<div class="result-card erro">❌ '+esc(e.message)+'</div>'; }
 }
 
-// ==================== CONEXÃO ====================
+function filtrarParticipacoes() {
+    const busca = document.getElementById('buscaParticipacao').value.toLowerCase().trim();
+    if (!busca) { renderParticipacoes(todasParticipacoes); return; }
+    const filtradas = todasParticipacoes.filter(p =>
+        (p.objeto||'').toLowerCase().includes(busca) ||
+        (p.orgao||'').toLowerCase().includes(busca) ||
+        (p.compraId||'').toLowerCase().includes(busca)
+    );
+    renderParticipacoes(filtradas);
+}
+
+function renderParticipacoes(lista) {
+    const div = document.getElementById('listaParticipacoes');
+    if (!lista.length) { div.innerHTML = '<p class="info-msg">Nenhuma participação encontrada</p>'; return; }
+
+    div.innerHTML = lista.map(p => {
+        const dispAtiva = disputasAtivas.find(d => d.compraId === p.compraId);
+        const clsDisputa = dispAtiva ? ' em-disputa' : '';
+        const sel = document.getElementById('compraId')?.value === p.compraId ? ' selecionada' : '';
+
+        let infoDisputa = '';
+        if (dispAtiva) {
+            infoDisputa = '<div class="disputa-itens">' +
+                dispAtiva.itens.map(i =>
+                    '▸ Item ' + i.numero + ': <span class="item-val">R$ ' + fmtVal(i.melhorValor) + '</span>' +
+                    (i.podeEnviar ? ' ✅' : ' 🔒') +
+                    (i.fimContagem ? ' ⏰' + i.fimContagem.substring(11,16) : '')
+                ).join('<br>') +
+                '</div>';
+        }
+
+        let faseBadge = '';
+        if (dispAtiva) faseBadge = '<span class="disputa-badge">🔥 EM DISPUTA</span>';
+        else if (p.faseCompra) faseBadge = '<span class="text-sm text-muted">' + esc(p.faseCompra) + '</span>';
+
+        return '<div class="part-card' + clsDisputa + sel + '" onclick="selecionarLic(\'' + p.compraId + '\')">'
+            + '<div style="flex:1;min-width:0">'
+            + '<div class="part-id">' + p.compraId + ' ' + faseBadge + '</div>'
+            + '<div class="part-obj" title="' + esc(p.objeto||'') + '">' + esc(p.objeto||'(sem objeto)') + '</div>'
+            + '<div class="part-org">' + esc(p.orgao||'') + '</div>'
+            + infoDisputa
+            + '</div>'
+            + '<div class="part-right">'
+            + (p.dataSessao ? '<div class="text-sm text-muted">' + p.dataSessao.substring(0,10) + '</div>' : '')
+            + '</div></div>';
+    }).join('');
+}
+
+function selecionarLic(id) {
+    document.querySelectorAll('.part-card.selecionada').forEach(el=>el.classList.remove('selecionada'));
+    document.getElementById('compraId').value = id;
+    // Re-render para marcar seleção
+    const el = document.querySelector('.part-card[onclick*="'+id+'"]');
+    if (el) el.classList.add('selecionada');
+}
+
+async function buscarDisputasAtivas() {
+    const btn = document.getElementById('btnDisputas');
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Buscando...';
+
+    try {
+        const r = await fetch(`${API}/api/sniper/disputas-ativas`);
+        const d = await r.json();
+        if (d.success) {
+            disputasAtivas = d.disputas || [];
+            if (disputasAtivas.length === 0) {
+                alert('Nenhuma disputa ativa encontrada.');
+            } else {
+                alert('🔥 ' + disputasAtivas.length + ' disputa(s) ativa(s) encontrada(s)!');
+                // Ordenar: disputas ativas primeiro
+                todasParticipacoes.sort((a,b) => {
+                    const aAtiva = disputasAtivas.some(d=>d.compraId===a.compraId) ? 0 : 1;
+                    const bAtiva = disputasAtivas.some(d=>d.compraId===b.compraId) ? 0 : 1;
+                    return aAtiva - bAtiva;
+                });
+            }
+            renderParticipacoes(todasParticipacoes);
+        } else {
+            alert('❌ ' + (d.error || 'Erro'));
+        }
+    } catch(e) {
+        alert('❌ Erro: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+    }
+}
 
 async function conectar() {
     try {
-        const r = await fetch(`${API}/api/monitor-v2/conectar`, {method:'POST'});
+        const r = await fetch(`${API}/api/monitor-v2/conectar`,{method:'POST'});
         const d = await r.json();
-        alert(d.success ? '✅ Chrome conectado!' : '❌ ' + d.error);
-    } catch(e) { alert('❌ ' + e.message); }
+        alert(d.success ? '✅ Chrome conectado!' : '❌ '+d.error);
+    } catch(e) { alert('❌ '+e.message); }
     atualizarTudo();
 }
 
 async function calibrar() {
     try {
-        const r = await fetch(`${API}/api/sniper/calibrar`, {method:'POST'});
+        const r = await fetch(`${API}/api/sniper/calibrar`,{method:'POST'});
         const d = await r.json();
         if (d.success) {
-            offsetMs = d.offset;
-            ultimaLatencia = d.latencia;
-            alert('✅ Calibrado!\nOffset: '+d.offset+'ms\nLatência: '+d.latencia+'ms');
-        } else alert('❌ ' + d.error);
-    } catch(e) { alert('❌ ' + e.message); }
+            document.getElementById('statusOffset').textContent = d.offset+'ms';
+            alert('✅ Calibrado!\nHora servidor: '+d.tempoServidor+'\nOffset: '+d.offset+'ms\nLatência: '+d.latencia+'ms');
+        } else alert('❌ '+d.error);
+    } catch(e) { alert('❌ '+e.message); }
     atualizarTudo();
 }
-
-// ==================== LANCE ====================
 
 function getForm() {
     return {
         compraId: document.getElementById('compraId').value.trim(),
-        itemNumero: parseInt(document.getElementById('itemNumero').value) || 1,
-        valor: parseFloat(document.getElementById('valorLance').value) || 0,
+        itemNumero: parseInt(document.getElementById('itemNumero').value)||1,
+        valor: parseFloat(document.getElementById('valorLance').value)||0,
     };
 }
 
 async function enviarLanceAgora() {
-    const {compraId, itemNumero, valor} = getForm();
-    if (!compraId || !valor) return alert('Preencha CompraId e Valor!');
+    const {compraId,itemNumero,valor} = getForm();
+    if (!compraId||!valor) return alert('Preencha CompraId e Valor!');
     if (!confirm('Enviar R$ '+valor.toFixed(2)+' no item '+itemNumero+'?')) return;
-
     const div = document.getElementById('resultadoLance');
-    div.innerHTML = '<div class="result-card">⏳ Enviando...</div>';
+    div.innerHTML = '<div class="result-card" style="background:#333">⏳ Enviando...</div>';
     try {
-        const r = await fetch(`${API}/api/sniper/lance`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({compraId, itemNumero, valor}),
-        });
+        const r = await fetch(`${API}/api/sniper/lance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId,itemNumero,valor})});
         const data = await r.json();
-        if (data.success) {
+        if (data.success && data.lance) {
             const l = data.lance;
-            let info = '';
-            try {
-                const resp = JSON.parse(l.resposta);
-                if (Array.isArray(resp) && resp[0]) {
-                    info = '<br>Melhor geral: <strong class="verde">R$ '+fmtVal(resp[0].melhorValorGeral?.valorInformado)+'</strong>';
-                    info += '<br>Nosso: <strong class="azul">R$ '+fmtVal(resp[0].melhorValorFornecedor?.valorInformado)+'</strong>';
-                }
-            } catch(e){}
-            div.innerHTML = '<div class="result-card sucesso">✅ Lance aceito! R$ '+valor.toFixed(2)+' em '+l.tempoMs+'ms'+info+'</div>';
-        } else {
-            div.innerHTML = '<div class="result-card erro">❌ '+(data.error||'Erro')+'</div>';
-        }
-    } catch(e) {
-        div.innerHTML = '<div class="result-card erro">❌ '+e.message+'</div>';
-    }
+            let extra = '';
+            try { const p=JSON.parse(l.resposta); if(Array.isArray(p)&&p[0]){ extra='<br>Melhor geral: R$ '+fmtVal(p[0].melhorValorGeral?.valorInformado)+'<br>Nosso: R$ '+fmtVal(p[0].melhorValorFornecedor?.valorInformado); } } catch(e){}
+            div.innerHTML = '<div class="result-card sucesso">✅ Lance enviado! R$ '+l.valor.toFixed(2)+' em '+l.tempoMs+'ms'+extra+'</div>';
+        } else div.innerHTML = '<div class="result-card erro">❌ '+(data.error||'Erro')+'</div>';
+    } catch(e) { div.innerHTML = '<div class="result-card erro">❌ '+e.message+'</div>'; }
     atualizarTudo();
 }
 
-// ==================== AGENDAMENTO ====================
-
 async function agendarSniper() {
-    const {compraId, itemNumero, valor} = getForm();
-    if (!compraId || !valor) return alert('Preencha CompraId e Valor!');
-
+    const {compraId,itemNumero,valor} = getForm();
+    if (!compraId||!valor) return alert('Preencha CompraId e Valor!');
     const data = document.getElementById('dataAlvo').value;
     const hora = document.getElementById('horarioAlvo').value;
-    if (!data || !hora) return alert('Preencha Data e Horário!');
-
+    if (!data||!hora) return alert('Preencha Data e Horário!');
     const localDate = new Date(data+'T'+hora);
-    const utcDate = new Date(localDate.getTime() + 3*3600000);
+    const utcDate = new Date(localDate.getTime()+3*3600000);
     const horarioAlvoUTC = utcDate.toISOString();
     const minutos = Math.floor((utcDate.getTime()-Date.now())/60000);
-
     const antecedenciaMs = parseInt(document.getElementById('antecedenciaMs').value)||300;
     const tentativas = parseInt(document.getElementById('tentativas').value)||5;
     const intervaloMs = parseInt(document.getElementById('intervaloMs').value)||50;
-
-    if (!confirm('Agendar sniper:\n\nCompra: '+compraId+'\nItem: '+itemNumero+'\nValor: R$ '+valor.toFixed(2)+'\nAlvo: '+hora+' BRT (em '+minutos+' min)\nAntecedência: '+antecedenciaMs+'ms\nTentativas: '+tentativas+' x '+intervaloMs+'ms')) return;
-
+    if (!confirm('Agendar sniper:\n\nCompra: '+compraId+'\nItem: '+itemNumero+'\nValor: R$ '+valor.toFixed(2)+'\nAlvo: '+hora+' BRT (em ~'+minutos+' min)\nAntecedência: '+antecedenciaMs+'ms\nTentativas: '+tentativas+' x '+intervaloMs+'ms')) return;
     try {
-        const r = await fetch(`${API}/api/sniper/agendar`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({compraId, itemNumero, valor, horarioAlvo:horarioAlvoUTC, antecedenciaMs, tentativas, intervaloTentativasMs:intervaloMs}),
-        });
+        const r = await fetch(`${API}/api/sniper/agendar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId,itemNumero,valor,horarioAlvo:horarioAlvoUTC,antecedenciaMs,tentativas,intervaloTentativasMs:intervaloMs})});
         const d = await r.json();
-        if (d.success) alert('✅ Agendado!\nDisparo: '+d.disparoEm+'\nEm '+d.delaySegundos+'s');
+        if (d.success) alert('✅ Agendado!\nDisparo: '+fmtHoraBRT(d.disparoEm)+' BRT\nEm '+d.delaySegundos+'s');
         else alert('❌ '+d.error);
     } catch(e) { alert('❌ '+e.message); }
     atualizarTudo();
@@ -384,11 +383,7 @@ async function agendarSniper() {
 
 async function cancelarTodos() {
     if (!confirm('Cancelar TODOS?')) return;
-    try {
-        const r = await fetch(`${API}/api/sniper/cancelar-todos`,{method:'POST'});
-        const d = await r.json();
-        alert('Cancelados: '+(d.cancelados||0));
-    } catch(e) { alert(e.message); }
+    try { const d=await fetch(`${API}/api/sniper/cancelar-todos`,{method:'POST'}).then(r=>r.json()); alert('Cancelados: '+(d.cancelados||0)); } catch(e){ alert(e.message); }
     atualizarTudo();
 }
 
@@ -397,17 +392,14 @@ async function cancelarUm(id) {
     atualizarTudo();
 }
 
-// ==================== LISTAS ====================
-
 async function carregarAgendamentos() {
     try {
         const d = await fetch(`${API}/api/sniper/agendamentos`).then(r=>r.json());
         const div = document.getElementById('listaAgendamentos');
-        if (!d.agendamentos?.length) { div.innerHTML='<p class="text-muted text-center">Nenhum</p>'; return; }
+        if (!d.agendamentos?.length) { div.innerHTML='<p class="text-muted text-center mt-10">Nenhum agendamento</p>'; return; }
         div.innerHTML = d.agendamentos.map(ag => {
-            const exec = ag.executado;
-            const ok = ag.resultados?.some(r=>r.sucesso);
-            const badge = exec ? (ok?'<span class="badge badge-ok">✅ OK</span>':'<span class="badge badge-erro">❌ Falhou</span>') : '<span class="badge badge-aguardando">⏳</span>';
+            const exec=ag.executado, ok=ag.resultados?.some(r=>r.sucesso);
+            const badge = exec?(ok?'<span class="badge badge-ok">✅</span>':'<span class="badge badge-erro">❌</span>'):'<span class="badge badge-aguardando">⏳</span>';
             return '<div class="agendamento-card'+(exec?' executado':'')+'"><div>'
                 +'<strong>Item '+ag.item+'</strong> — R$ '+(ag.valor?.toFixed(2)||'?')+'<br>'
                 +'<span class="text-sm text-muted">'+ag.compraId+'</span><br>'
@@ -426,13 +418,8 @@ async function carregarHistorico() {
         const div = document.getElementById('historicoLances');
         if (!d.historico?.length) { div.innerHTML='<p class="text-muted text-center">Nenhum</p>'; return; }
         div.innerHTML = '<table><thead><tr><th>Hora</th><th>Item</th><th>Valor</th><th>Status</th><th>Ms</th></tr></thead><tbody>'
-            + d.historico.slice(0,20).map(l => {
-                const hora = new Date(l.timestamp).toLocaleTimeString('pt-BR');
-                return '<tr><td>'+hora+'</td><td>'+l.itemNumero+'</td><td>R$ '+l.valor?.toFixed(2)+'</td>'
-                    +'<td class="'+(l.sucesso?'verde':'vermelho')+'">'+(l.sucesso?'✅':'❌ '+l.status)+'</td>'
-                    +'<td>'+l.tempoMs+'</td></tr>';
-            }).join('')
-            + '</tbody></table>';
+            +d.historico.slice(0,20).map(l=>'<tr><td>'+fmtHoraBRT(l.timestamp)+'</td><td>'+l.itemNumero+'</td><td>R$ '+fmtVal(l.valor)+'</td><td class="'+(l.sucesso?'verde':'vermelho')+'">'+(l.sucesso?'✅':'❌ '+l.status)+'</td><td>'+l.tempoMs+'</td></tr>').join('')
+            +'</tbody></table>';
     } catch(e){}
 }
 
@@ -441,22 +428,17 @@ async function carregarLogs() {
         const d = await fetch(`${API}/api/sniper/logs`).then(r=>r.json());
         const div = document.getElementById('logsContainer');
         if (!d.logs?.length) { div.innerHTML='<div class="text-muted">Sem logs</div>'; return; }
-        div.innerHTML = d.logs.slice(-30).map(log => {
-            let cls = 'log-info';
-            if (log.includes('✅')) cls='log-ok';
-            else if (log.includes('❌')||log.includes('Erro')) cls='log-erro';
-            else if (log.includes('⚠️')) cls='log-alerta';
-            else if (log.includes('🎯')||log.includes('🚀')) cls='log-sniper';
-            return '<div class="'+cls+'">'+esc(log)+'</div>';
+        div.innerHTML = d.logs.slice(-30).map(log=>{
+            let c='log-info'; if(log.includes('✅'))c='log-ok'; else if(log.includes('❌')||log.includes('Erro'))c='log-erro'; else if(log.includes('⚠️'))c='log-alerta'; else if(log.includes('🎯')||log.includes('🚀'))c='log-sniper';
+            return '<div class="'+c+'">'+esc(log)+'</div>';
         }).join('');
         div.scrollTop = div.scrollHeight;
     } catch(e){}
 }
 
-// ==================== UTILS ====================
-function fmtVal(v) { return v==null?'--':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function fmtHoraBRT(iso) { if(!iso)return'--'; const d=new Date(iso); return d.toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'}); }
-function esc(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+function fmtVal(v){return v==null?'--':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtHoraBRT(iso){if(!iso)return'--';return new Date(iso).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});}
+function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
 </script>
 </body>
 </html>

@@ -2985,7 +2985,7 @@ registrarRotasMonitorV2(app, db, {
 });
 
 // ==================== SNIPER DE LANCES ====================
-registrarRotasSniper(app, getMonitor);
+registrarRotasSniper(app, getMonitor, db);
 
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {

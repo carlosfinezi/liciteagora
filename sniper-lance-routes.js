@@ -13,8 +13,9 @@ const SniperLance = require('./sniper-lance');
 let sniper = null;
 let _monitorRef = null;
 
-function registrarRotasSniper(app, monitorGetter) {
+function registrarRotasSniper(app, monitorGetter, dbRef) {
   _monitorRef = monitorGetter;
+  const db = dbRef;
 
   // Lazy init do sniper - cria quando o monitor estiver disponível
   function getSniper() {
@@ -186,6 +187,62 @@ function registrarRotasSniper(app, monitorGetter) {
     try {
       const s = getSniper(); if (!s) return res.json({ success: true, historico: [] });
       res.json({ success: true, historico: s.historico });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ==================== CONSULTA DE DISPUTA ====================
+
+  /**
+   * GET /api/sniper/participacoes
+   * Lista todas as participações ativas do banco, com filtro opcional.
+   * Query: ?busca=texto
+   */
+  app.get('/api/sniper/participacoes', (req, res) => {
+    try {
+      const busca = req.query.busca || '';
+      let query = 'SELECT compraId, cnpj, ano, sequencial, orgao, objeto, etapa, situacao, faseCompra, dataSessao, dataAtualizacao FROM participacoes_comprasnet WHERE ativo = 1';
+      const params = [];
+      if (busca) {
+        query += ' AND (objeto LIKE ? OR orgao LIKE ? OR compraId LIKE ?)';
+        const like = `%${busca}%`;
+        params.push(like, like, like);
+      }
+      query += ' ORDER BY dataAtualizacao DESC';
+      const lista = db.prepare(query).all(...params);
+      res.json({ success: true, participacoes: lista });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/consultar/:compraId
+   * Consulta o estado real dos itens de uma disputa via API do Comprasnet.
+   */
+  app.get('/api/sniper/consultar/:compraId', async (req, res) => {
+    try {
+      const s = getSniper();
+      if (!s) return res.status(503).json({ success: false, error: 'Sniper não inicializado (Chrome desconectado?)' });
+      const result = await s.consultarItens(req.params.compraId);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/disputas-ativas
+   * Verifica TODAS as participações no banco para encontrar disputas em andamento.
+   * LENTO — consulta cada participação na API do Comprasnet.
+   */
+  app.get('/api/sniper/disputas-ativas', async (req, res) => {
+    try {
+      const s = getSniper();
+      if (!s) return res.status(503).json({ success: false, error: 'Sniper não inicializado' });
+      const disputas = await s.buscarDisputasAtivas(db);
+      res.json({ success: true, disputas });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }

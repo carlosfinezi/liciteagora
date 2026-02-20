@@ -312,6 +312,126 @@ class SniperLance {
     return lista;
   }
 
+  // ==================== CONSULTA DE DISPUTA ====================
+
+  /**
+   * Consulta os itens em seleção/disputa de uma compra específica.
+   * Tenta múltiplos endpoints até encontrar um que funcione.
+   */
+  async consultarItens(compraId) {
+    if (!this.monitor?.page) {
+      throw new Error('Chrome não conectado');
+    }
+
+    const bearerToken = await this.monitor._obterBearerToken();
+    this.log(`🔍 Consultando itens da disputa ${compraId}...`);
+
+    // Tenta endpoint de disputa primeiro (Bearer), depois fase-externa (cookies da sessão)
+    const endpoints = [
+      `${BASE_URL}/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`,
+      `${BASE_URL}/comprasnet-disputa/v1/compras/${compraId}/itens`,
+    ];
+
+    for (const apiUrl of endpoints) {
+      try {
+        const resultado = await this.monitor.page.evaluate(async (url, authToken) => {
+          try {
+            const resp = await fetch(url, {
+              method: 'GET',
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'Authorization': authToken,
+                'x-device-platform': 'web',
+                'x-version-number': '5.5.2',
+                'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
+              },
+            });
+            const text = await resp.text();
+            return { status: resp.status, body: text, url };
+          } catch (e) {
+            return { status: 0, body: e.message, url };
+          }
+        }, apiUrl, bearerToken);
+
+        if (resultado.status === 200 || resultado.status === 206) {
+          try {
+            const itens = JSON.parse(resultado.body);
+            this.log(`✅ Consulta OK: ${Array.isArray(itens) ? itens.length : '?'} itens (${apiUrl.includes('fase-externa') ? 'fase-externa' : 'disputa'})`);
+            return { success: true, itens: Array.isArray(itens) ? itens : [itens], endpoint: apiUrl };
+          } catch (e) {
+            this.log(`⚠️ Resposta não-JSON de ${apiUrl}: ${resultado.body.substring(0, 100)}`);
+          }
+        } else {
+          this.log(`⚠️ ${apiUrl.split('/v1/')[1]?.substring(0,40)} → HTTP ${resultado.status}`);
+        }
+      } catch (e) {
+        this.log(`⚠️ Erro em ${apiUrl}: ${e.message}`);
+      }
+    }
+
+    throw new Error('Nenhum endpoint retornou dados válidos');
+  }
+
+  /**
+   * Busca disputas ativas entre as participações do banco de dados.
+   * Consulta cada participação via API para verificar se está em fase de lance.
+   * @param {object} db - instância do better-sqlite3
+   * @returns {Array} lista de disputas ativas com detalhes dos itens
+   */
+  async buscarDisputasAtivas(db) {
+    if (!this.monitor?.page) {
+      throw new Error('Chrome não conectado');
+    }
+
+    const participacoes = db.prepare(
+      `SELECT compraId, cnpj, ano, sequencial, orgao, objeto, etapa, situacao, faseCompra, dataSessao
+       FROM participacoes_comprasnet WHERE ativo = 1 ORDER BY dataAtualizacao DESC`
+    ).all();
+
+    this.log(`🔎 Verificando ${participacoes.length} participações...`);
+    const disputasAtivas = [];
+
+    for (const p of participacoes) {
+      try {
+        const result = await this.consultarItens(p.compraId);
+        if (result.success && result.itens?.length > 0) {
+          // Verifica se algum item tem fase de lance ativo
+          const itensAtivos = result.itens.filter(item => {
+            const fase = item.fase || '';
+            return fase === 'LA' || fase === 'D1' || fase === 'D2' || item.podeEnviarLances;
+          });
+
+          if (itensAtivos.length > 0) {
+            disputasAtivas.push({
+              compraId: p.compraId,
+              orgao: p.orgao,
+              objeto: p.objeto,
+              dataSessao: p.dataSessao,
+              totalItens: result.itens.length,
+              itensAtivos: itensAtivos.length,
+              itens: itensAtivos.map(i => ({
+                numero: i.numero || i.identificador,
+                descricao: (i.descricao || '').substring(0, 80),
+                fase: i.fase,
+                situacao: i.situacao,
+                melhorValor: i.melhorValorGeral?.valorInformado || null,
+                nossoValor: i.melhorValorFornecedor?.valorInformado || null,
+                podeEnviar: i.podeEnviarLances || false,
+                fimContagem: i.dataHoraFimContagem || null,
+              })),
+            });
+          }
+        }
+      } catch (e) {
+        // Silently skip - not all participações are in disputa
+      }
+    }
+
+    this.log(`✅ ${disputasAtivas.length} disputas ativas encontradas`);
+    return disputasAtivas;
+  }
+
   /**
    * Retorna status geral do sniper.
    */
