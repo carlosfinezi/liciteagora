@@ -54,8 +54,26 @@ class SniperLance {
       const latencia = depois - antes;
       const meioLatencia = Math.floor(latencia / 2);
 
-      // resultado é timestamp do servidor
-      const tempoServidor = new Date(resultado.replace(/"/g, '')).getTime();
+      this.log(`🕐 Resposta raw: ${resultado}`);
+
+      // Tentar vários formatos
+      let tempoServidor;
+      const limpo = resultado.replace(/"/g, '').trim();
+
+      // Formato epoch (número)
+      if (/^\d{13}$/.test(limpo)) {
+        tempoServidor = parseInt(limpo);
+      } else if (/^\d{10}$/.test(limpo)) {
+        tempoServidor = parseInt(limpo) * 1000;
+      } else {
+        // Formato ISO ou outro
+        tempoServidor = new Date(limpo).getTime();
+      }
+
+      if (isNaN(tempoServidor)) {
+        throw new Error(`Formato não reconhecido: ${limpo}`);
+      }
+
       const tempoLocal = antes + meioLatencia;
       this.offsetServidorMs = tempoServidor - tempoLocal;
       this.ultimaCalibracao = new Date().toISOString();
