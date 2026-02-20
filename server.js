@@ -13,6 +13,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const { criarVerificador } = require('./verificacao-lacunas');
 const crypto = require('crypto');
+const { registrarRotasMonitorV2, inicializarMonitorV2 } = require('./monitor-v2-routes');
 
 // Armazenar instâncias de monitoramento ativas
 const monitoramentosAtivos = new Map();
@@ -2974,6 +2975,13 @@ app.delete('/api/telegram/config', (req, res) => {
 });
 
 // ==================== CREDENCIAIS GOV.BR ====================
+
+// ==================== MONITOR V2 (API direta Comprasnet) ====================
+registrarRotasMonitorV2(app, db, {
+  enviarTelegram: enviarTelegram,
+  getConfigValue: getConfigValue,
+  intervaloMinutos: 3,
+});
 
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
@@ -9147,4 +9155,7 @@ app.listen(PORT, () => {
 
   // Agendar Jornal de Licitações
   agendarJornal();
+
+  // Iniciar MonitorV2 (conecta ao Chrome se disponível)
+  inicializarMonitorV2();
 });
