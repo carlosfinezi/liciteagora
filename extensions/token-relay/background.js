@@ -293,6 +293,8 @@ async function syncParticipacoes(tabId, bearer) {
   }
 
   if (todas.length > 0) {
+    // Debug: mostrar estrutura do primeiro item
+    console.log('[LiciteAgora] Estrutura participação[0]:', JSON.stringify(todas[0]).substring(0, 500));
     console.log('[LiciteAgora] ' + todas.length + ' participações encontradas, enviando ao servidor...');
     const resp = await serverPost('/api/sync/participacoes', { participacoes: todas });
     if (resp) {
