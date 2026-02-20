@@ -18,7 +18,7 @@
   .status { background: #16213e; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 0.8em; line-height: 1.8; }
   .row { display: flex; justify-content: space-between; }
   .row .v { font-weight: 600; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-  .verde { color: #4caf50; } .vermelho { color: #f44336; } .azul { color: #4dabf7; } .amarelo { color: #ff9800; }
+  .verde { color: #4caf50; } .vermelho { color: #f44336; } .azul { color: #4dabf7; }
   .msg { font-size: 0.8em; padding: 8px; border-radius: 4px; margin-top: 8px; text-align: center; word-break: break-all; }
   .msg-ok { background: #4caf5020; color: #4caf50; }
   .msg-erro { background: #f4433620; color: #f44336; }
@@ -39,7 +39,7 @@
   </div>
 
   <div class="field">
-    <label>URL do servidor (API)</label>
+    <label>URL do servidor (porta da API, ex: 3000)</label>
     <input type="text" id="inputServer" placeholder="http://217.216.85.37:3000">
   </div>
 
@@ -49,96 +49,11 @@
   <div id="msgArea"></div>
 
   <div class="help">
-    <strong>Como usar:</strong><br>
     1. Configure a URL do servidor acima<br>
     2. Navegue no Comprasnet normalmente<br>
-    3. O token é capturado e enviado automaticamente<br>
-    <br>
-    <strong>Porta correta:</strong> use a porta da API (ex: 3000), não do site.
+    3. Token é capturado e enviado automaticamente
   </div>
 
-<script>
-  const $ = id => document.getElementById(id);
-
-  function atualizarStatus() {
-    chrome.runtime.sendMessage({ type: 'getStatus' }, (res) => {
-      if (chrome.runtime.lastError) {
-        showMsg('Service worker inativo: ' + chrome.runtime.lastError.message, false);
-        return;
-      }
-      if (!res) {
-        showMsg('Sem resposta do service worker', false);
-        return;
-      }
-
-      $('sToken').textContent = res.ultimoToken || '❌ Nenhum';
-      $('sToken').className = 'v ' + (res.ultimoToken ? 'verde' : 'vermelho');
-
-      $('sServer').textContent = res.serverUrl || '❌ Não configurado';
-      $('sServer').className = 'v ' + (res.serverUrl ? 'azul' : 'vermelho');
-
-      $('sEnvio').textContent = res.ultimoEnvio || '--';
-      $('sCap').textContent = res.stats?.capturados || 0;
-      $('sEnv').textContent = res.stats?.enviados || 0;
-      $('sErr').textContent = res.stats?.erros || 0;
-
-      if (res.ultimoErro) {
-        $('rowErro').style.display = 'flex';
-        $('sUltErro').textContent = res.ultimoErro;
-      } else {
-        $('rowErro').style.display = 'none';
-      }
-
-      if (res.serverUrl) {
-        $('inputServer').value = res.serverUrl;
-      }
-    });
-  }
-
-  function showMsg(text, ok) {
-    $('msgArea').innerHTML = '<div class="msg ' + (ok ? 'msg-ok' : 'msg-erro') + '">' + text + '</div>';
-    if (ok) setTimeout(() => $('msgArea').innerHTML = '', 4000);
-  }
-
-  $('btnSalvar').addEventListener('click', () => {
-    const url = $('inputServer').value.trim();
-    if (!url) return showMsg('Digite a URL do servidor', false);
-    if (!url.startsWith('http')) return showMsg('URL deve começar com http:// ou https://', false);
-
-    showMsg('Salvando...', true);
-
-    chrome.runtime.sendMessage({ type: 'setServer', url }, (res) => {
-      if (chrome.runtime.lastError) {
-        showMsg('Erro: ' + chrome.runtime.lastError.message, false);
-        return;
-      }
-      if (res?.ok) {
-        const extra = res.enviou ? ' Token enviado!' : ' (navegue no Comprasnet para capturar token)';
-        showMsg('✅ Servidor salvo!' + extra, true);
-      } else {
-        showMsg('Erro: ' + (res?.error || 'desconhecido'), false);
-      }
-      setTimeout(atualizarStatus, 500);
-    });
-  });
-
-  $('btnSync').addEventListener('click', () => {
-    showMsg('Enviando...', true);
-
-    chrome.runtime.sendMessage({ type: 'forceSync' }, (res) => {
-      if (chrome.runtime.lastError) {
-        showMsg('Erro: ' + chrome.runtime.lastError.message, false);
-        return;
-      }
-      if (res?.ok) showMsg('✅ Token enviado ao servidor!', true);
-      else showMsg(res?.error || 'Falha ao enviar', false);
-      setTimeout(atualizarStatus, 500);
-    });
-  });
-
-  // Inicial + refresh periódico
-  atualizarStatus();
-  setInterval(atualizarStatus, 3000);
-</script>
+  <script src="popup.js"></script>
 </body>
 </html>
