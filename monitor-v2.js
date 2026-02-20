@@ -411,7 +411,7 @@ class MonitorV2 {
     this.log('Sincronizando participações...');
 
     const token = await this.gerarTokenCaptcha();
-    const url = `${BASE_URL}/comprasnet-fase-externa/v1/compras/participacoes?captcha=${token}`;
+    const url = `${BASE_URL}/comprasnet-fase-externa/v1/compras/participacoes?captcha=${token}&filtro=5&tamanhoPagina=50&pagina=0`;
 
     // Fazer a chamada via page.evaluate para usar cookies da sessão
     const resultado = await this.page.evaluate(async (apiUrl) => {
