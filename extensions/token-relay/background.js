@@ -1,17 +1,17 @@
 /**
  * LiciteAgora Token Relay — Background Service Worker (MV3)
- * v1.2 — Simplificado e defensivo
+ * v2.0 — Totalmente automático, sem configuração manual
  */
 
-console.log('[TokenRelay] Service worker carregado!');
+const SERVER_URL = 'http://217.216.85.37:8080';
+
+console.log('[TokenRelay] Service worker carregado! Servidor:', SERVER_URL);
 
 // ==================== STORAGE ====================
 
 async function loadStorage() {
   return new Promise(resolve => {
-    chrome.storage.local.get(null, data => {
-      resolve(data || {});
-    });
+    chrome.storage.local.get(null, data => resolve(data || {}));
   });
 }
 
@@ -24,12 +24,10 @@ async function save(obj) {
 // ==================== INTERCEPTAÇÃO ====================
 
 try {
-  // onSendHeaders — lê headers DEPOIS de enviados (read-only, mais confiável)
   chrome.webRequest.onSendHeaders.addListener(
     async (details) => {
       try {
         if (!details.requestHeaders) return;
-
         for (const h of details.requestHeaders) {
           if (h.name.toLowerCase() === 'authorization' && h.value && h.value.startsWith('Bearer ')) {
             await onTokenCapturado(h.value);
@@ -46,7 +44,6 @@ try {
   console.log('[TokenRelay] Listener webRequest registrado OK');
 } catch (e) {
   console.error('[TokenRelay] FALHA ao registrar listener:', e);
-  // Tentar sem extraHeaders como fallback
   try {
     chrome.webRequest.onSendHeaders.addListener(
       async (details) => {
@@ -81,27 +78,20 @@ async function onTokenCapturado(token) {
     await save({ ultimoToken: token, stats });
     console.log('[TokenRelay] NOVO token capturado:', token.substring(0, 30) + '...');
 
-    chrome.action.setBadgeText({ text: '✓' });
-    chrome.action.setBadgeBackgroundColor({ color: '#4caf50' });
+    chrome.action.setBadgeText({ text: '...' });
+    chrome.action.setBadgeBackgroundColor({ color: '#ff9800' });
 
-    if (data.serverUrl) {
-      await enviarParaServidor(token, data.serverUrl, stats);
-    }
-  } else if (data.serverUrl && agora - (data.ultimoEnvio || 0) > 60000) {
+    await enviarParaServidor(token, stats);
+  } else if (agora - (data.ultimoEnvio || 0) > 60000) {
     // Mesmo token mas >60s — reenviar
-    await enviarParaServidor(token, data.serverUrl, stats);
+    await enviarParaServidor(token, stats);
   }
 }
 
 // ==================== ENVIO ====================
 
-async function enviarParaServidor(token, serverUrl, stats) {
-  if (!serverUrl) {
-    console.log('[TokenRelay] Sem servidor configurado');
-    return false;
-  }
-
-  const url = serverUrl.replace(/\/+$/, '') + '/api/auth/token';
+async function enviarParaServidor(token, stats) {
+  const url = SERVER_URL + '/api/auth/token';
   console.log('[TokenRelay] Enviando token para:', url);
 
   try {
@@ -117,8 +107,8 @@ async function enviarParaServidor(token, serverUrl, stats) {
 
     if (resp.ok) {
       stats.enviados++;
-      await save({ stats, ultimoEnvio: Date.now() });
-      console.log('[TokenRelay] ✅ Token enviado com sucesso');
+      await save({ stats, ultimoEnvio: Date.now(), ultimoErro: null });
+      console.log('[TokenRelay] Token enviado com sucesso');
       chrome.action.setBadgeText({ text: '✓' });
       chrome.action.setBadgeBackgroundColor({ color: '#4caf50' });
       return true;
@@ -126,7 +116,7 @@ async function enviarParaServidor(token, serverUrl, stats) {
       const body = await resp.text().catch(() => '');
       stats.erros++;
       await save({ stats, ultimoErro: `HTTP ${resp.status}: ${body.substring(0, 100)}` });
-      console.error('[TokenRelay] ❌ Servidor respondeu:', resp.status, body.substring(0, 100));
+      console.error('[TokenRelay] Servidor respondeu:', resp.status, body.substring(0, 100));
       chrome.action.setBadgeText({ text: String(resp.status) });
       chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
       return false;
@@ -134,7 +124,7 @@ async function enviarParaServidor(token, serverUrl, stats) {
   } catch (e) {
     stats.erros++;
     await save({ stats, ultimoErro: e.message });
-    console.error('[TokenRelay] ❌ Erro de rede:', e.message);
+    console.error('[TokenRelay] Erro de rede:', e.message);
     chrome.action.setBadgeText({ text: '!' });
     chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
     return false;
@@ -144,14 +134,10 @@ async function enviarParaServidor(token, serverUrl, stats) {
 // ==================== MENSAGENS DO POPUP ====================
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  console.log('[TokenRelay] Mensagem recebida:', msg.type);
-
   handleMessage(msg).then(sendResponse).catch(e => {
-    console.error('[TokenRelay] Erro handler:', e);
     sendResponse({ ok: false, error: e.message });
   });
-
-  return true; // manter canal aberto
+  return true;
 });
 
 async function handleMessage(msg) {
@@ -160,38 +146,12 @@ async function handleMessage(msg) {
   switch (msg.type) {
     case 'getStatus':
       return {
-        serverUrl: data.serverUrl || '',
+        serverUrl: SERVER_URL,
         ultimoToken: data.ultimoToken ? data.ultimoToken.substring(0, 40) + '...' : null,
         ultimoEnvio: data.ultimoEnvio ? new Date(data.ultimoEnvio).toLocaleTimeString() : null,
         ultimoErro: data.ultimoErro || null,
         stats: data.stats || { capturados: 0, enviados: 0, erros: 0 },
       };
-
-    case 'setServer': {
-      const url = (msg.url || '').trim().replace(/\/+$/, '');
-      await save({ serverUrl: url });
-      console.log('[TokenRelay] Servidor salvo:', url);
-
-      // Enviar token existente
-      if (data.ultimoToken && url) {
-        const stats = data.stats || { capturados: 0, enviados: 0, erros: 0 };
-        const ok = await enviarParaServidor(data.ultimoToken, url, stats);
-        return { ok: true, enviou: ok };
-      }
-      return { ok: true, enviou: false };
-    }
-
-    case 'forceSync': {
-      if (!data.ultimoToken) {
-        return { ok: false, error: 'Nenhum token capturado. Navegue no Comprasnet primeiro.' };
-      }
-      if (!data.serverUrl) {
-        return { ok: false, error: 'Servidor não configurado.' };
-      }
-      const stats = data.stats || { capturados: 0, enviados: 0, erros: 0 };
-      const ok = await enviarParaServidor(data.ultimoToken, data.serverUrl, stats);
-      return { ok };
-    }
 
     case 'resetStats':
       await save({ stats: { capturados: 0, enviados: 0, erros: 0 }, ultimoErro: null });

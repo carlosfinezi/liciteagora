@@ -4,9 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sniper de Lances - LiciteAgora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; padding: 20px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .main-content { background: #1a1a2e; padding: 20px; }
         h1 { color: #4dabf7; margin-bottom: 5px; }
         .subtitle { color: #888; margin-bottom: 20px; }
         .status-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -72,6 +74,8 @@
     </style>
 </head>
 <body>
+<div class="app-container">
+<main class="main-content">
     <h1>🎯 Sniper de Lances</h1>
     <p class="subtitle">Envio automatizado via API — Token da extensão Chrome</p>
 
@@ -449,5 +453,10 @@ function fmtVal(v){return v==null?'--':Number(v).toLocaleString('pt-BR',{minimum
 function fmtHoraBRT(iso){if(!iso)return'--';return new Date(iso).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});}
 function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
 </script>
+</main>
+</div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('lances');</script>
 </body>
 </html>
