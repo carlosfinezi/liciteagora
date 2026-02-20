@@ -32,7 +32,7 @@ const axios = require('axios');
 
 const BASE_URL = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const HCAPTCHA_SITE_KEY = 'b8bbded1-9d04-4ace-9952-b67cde081a7b';
-const DEBUGGING_PORT = 9222;
+const DEBUGGING_PORT = parseInt(process.env.CHROME_DEBUG_PORT || '9223');
 
 // Mapeamento de categorias para alertas
 const CATEGORIAS = {
