@@ -414,16 +414,34 @@ class MonitorV2 {
     const url = `${BASE_URL}/comprasnet-fase-externa/v1/compras/participacoes?captcha=${token}`;
 
     // Fazer a chamada via page.evaluate para usar cookies da sessão
-    const dados = await this.page.evaluate(async (apiUrl) => {
-      const resp = await fetch(apiUrl, {
-        credentials: 'include',
-        headers: { 'Accept': 'application/json' },
-      });
-      if (!resp.ok && resp.status !== 206) {
-        throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+    const resultado = await this.page.evaluate(async (apiUrl) => {
+      try {
+        const resp = await fetch(apiUrl, {
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' },
+        });
+        const text = await resp.text();
+        return { status: resp.status, ok: resp.ok, body: text };
+      } catch (e) {
+        return { status: 0, ok: false, body: e.message };
       }
-      return resp.json();
     }, url);
+
+    this.log(`API participações: HTTP ${resultado.status} (${resultado.body.length} bytes)`);
+
+    if (!resultado.ok && resultado.status !== 206) {
+      const preview = resultado.body.substring(0, 200);
+      this.log(`⚠️ Resposta: ${preview}`);
+      throw new Error(`HTTP ${resultado.status}: ${preview}`);
+    }
+
+    let dados;
+    try {
+      dados = JSON.parse(resultado.body);
+    } catch (e) {
+      this.log(`⚠️ JSON inválido: ${resultado.body.substring(0, 200)}`);
+      throw new Error('Resposta não é JSON válido');
+    }
 
     if (!Array.isArray(dados)) {
       this.log(`⚠️ Resposta inesperada da API de participações: ${typeof dados}`);
@@ -544,16 +562,35 @@ class MonitorV2 {
 
       let mensagens;
       try {
-        mensagens = await this.page.evaluate(async (apiUrl) => {
-          const resp = await fetch(apiUrl, {
-            credentials: 'include',
-            headers: { 'Accept': 'application/json' },
-          });
-          if (!resp.ok && resp.status !== 206) {
-            throw new Error(`HTTP ${resp.status}`);
+        const resultado = await this.page.evaluate(async (apiUrl) => {
+          try {
+            const resp = await fetch(apiUrl, {
+              credentials: 'include',
+              headers: { 'Accept': 'application/json' },
+            });
+            const text = await resp.text();
+            return { status: resp.status, body: text };
+          } catch (e) {
+            return { status: 0, body: e.message };
           }
-          return resp.json();
         }, url);
+
+        if (resultado.status !== 200 && resultado.status !== 206) {
+          // Logar só na primeira falha por compraId para não spammar
+          if (pagina === 0) {
+            this.log(`⚠️ ${compraId} página ${pagina}: HTTP ${resultado.status} - ${resultado.body.substring(0, 100)}`);
+          }
+          break;
+        }
+
+        try {
+          mensagens = JSON.parse(resultado.body);
+        } catch (e) {
+          if (pagina === 0) {
+            this.log(`⚠️ ${compraId}: JSON inválido (${resultado.body.substring(0, 100)})`);
+          }
+          break;
+        }
       } catch (e) {
         this.log(`⚠️ Erro ao buscar página ${pagina}: ${e.message}`);
         break;
