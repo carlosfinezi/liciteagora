@@ -67,15 +67,24 @@
   $('btnSalvar').addEventListener('click', () => {
     const url = $('inputServer').value.trim();
     if (!url) return showMsg('Digite a URL do servidor', false);
+    if (!url.startsWith('http')) return showMsg('URL deve começar com http:// ou https://', false);
     chrome.runtime.sendMessage({ type: 'setServer', url }, (res) => {
-      if (res?.ok) showMsg('✅ Servidor salvo!', true);
+      if (chrome.runtime.lastError) {
+        showMsg('Erro: ' + chrome.runtime.lastError.message, false);
+        return;
+      }
+      if (res?.ok) showMsg('✅ Servidor salvo! Token será enviado automaticamente.', true);
       else showMsg('Erro ao salvar', false);
-      atualizarStatus();
+      setTimeout(atualizarStatus, 1000);
     });
   });
 
   $('btnSync').addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'forceSync' }, (res) => {
+      if (chrome.runtime.lastError) {
+        showMsg('Erro: ' + chrome.runtime.lastError.message, false);
+        return;
+      }
       if (res?.ok) showMsg('✅ Token enviado!', true);
       else showMsg(res?.error || 'Erro', false);
       setTimeout(atualizarStatus, 1000);

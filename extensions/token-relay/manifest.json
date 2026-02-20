@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
   "name": "LiciteAgora Token Relay",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Captura Bearer token do Comprasnet e envia ao servidor LiciteAgora",
   "permissions": [
     "webRequest",
     "storage"
   ],
   "host_permissions": [
-    "https://cnetmobile.estaleiro.serpro.gov.br/*"
+    "https://cnetmobile.estaleiro.serpro.gov.br/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"
