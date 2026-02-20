@@ -418,7 +418,12 @@ class MonitorV2 {
       try {
         const resp = await fetch(apiUrl, {
           credentials: 'include',
-          headers: { 'Accept': 'application/json' },
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'x-device-platform': 'web',
+            'x-version-number': '5.5.2',
+            'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
+          },
         });
         const text = await resp.text();
         return { status: resp.status, ok: resp.ok, body: text };
@@ -566,7 +571,12 @@ class MonitorV2 {
           try {
             const resp = await fetch(apiUrl, {
               credentials: 'include',
-              headers: { 'Accept': 'application/json' },
+              headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'x-device-platform': 'web',
+                'x-version-number': '5.5.2',
+                'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
+              },
             });
             const text = await resp.text();
             return { status: resp.status, body: text };
