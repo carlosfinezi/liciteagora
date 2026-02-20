@@ -85,10 +85,10 @@ class MonitorV2 {
       participacoesAtivas: 0,
     };
 
+    // Executar migrações ANTES de preparar statements (colunas novas precisam existir)
+    this._executarMigracoes();
     // Preparar statements do banco
     this._prepararStatements();
-    // Executar migrações
-    this._executarMigracoes();
   }
 
   // ==================== BANCO DE DADOS ====================
