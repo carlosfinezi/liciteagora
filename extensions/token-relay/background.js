@@ -167,6 +167,7 @@ async function findComprasnetTab() {
 async function comprasnetFetch(tabId, path, bearer) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
+    world: 'MAIN',
     func: async (apiPath, authHeader, baseUrl) => {
       try {
         // 1. Gerar captcha fresco
