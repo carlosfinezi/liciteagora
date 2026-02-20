@@ -1,21 +1,20 @@
-const $ = id => document.getElementById(id);
+var $ = function(id) { return document.getElementById(id); };
 
-function atualizarStatus() {
-  chrome.runtime.sendMessage({ type: 'getStatus' }, (res) => {
-    if (chrome.runtime.lastError) return;
-    if (!res) return;
+function atualizar() {
+  chrome.runtime.sendMessage({ type: 'getStatus' }, function(res) {
+    if (chrome.runtime.lastError || !res) return;
 
-    $('sToken').textContent = res.ultimoToken || '-- aguardando';
-    $('sToken').className = 'v ' + (res.ultimoToken ? 'verde' : 'vermelho');
+    $('sBearer').textContent = res.bearer || '❌ aguardando';
+    $('sBearer').className = 'v ' + (res.bearer ? 'verde' : 'vermelho');
 
-    $('sCaptcha').textContent = res.ultimoCaptcha ? res.ultimoCaptcha + ' (' + (res.captchaIdade || '?') + ')' : '-- aguardando';
-    $('sCaptcha').className = 'v ' + (res.ultimoCaptcha ? 'verde' : 'vermelho');
+    $('sCaptcha').textContent = res.captcha ? res.captcha + ' (' + (res.captchaIdade || '?') + ')' : '❌ aguardando';
+    $('sCaptcha').className = 'v ' + (res.captcha ? 'verde' : 'vermelho');
 
-    $('sServer').textContent = res.serverUrl || '--';
+    $('sSync').textContent = res.ultimoSync || '--';
     $('sEnvio').textContent = res.ultimoEnvio || '--';
-    $('sCap').textContent = res.stats?.capturados || 0;
-    $('sEnv').textContent = res.stats?.enviados || 0;
-    $('sErr').textContent = res.stats?.erros || 0;
+    $('sSyncs').textContent = res.stats ? res.stats.syncs || 0 : 0;
+    $('sEnv').textContent = res.stats ? res.stats.enviados || 0 : 0;
+    $('sErr').textContent = res.stats ? res.stats.erros || 0 : 0;
 
     if (res.ultimoErro) {
       $('rowErro').style.display = 'flex';
@@ -26,5 +25,21 @@ function atualizarStatus() {
   });
 }
 
-atualizarStatus();
-setInterval(atualizarStatus, 3000);
+function showMsg(text, ok) {
+  $('msgArea').innerHTML = '<div class="msg ' + (ok ? 'msg-ok' : 'msg-erro') + '">' + text + '</div>';
+  if (ok) setTimeout(function() { $('msgArea').innerHTML = ''; }, 3000);
+}
+
+$('btnSync').addEventListener('click', function() {
+  chrome.runtime.sendMessage({ type: 'forceSync' }, function(res) {
+    if (chrome.runtime.lastError) {
+      showMsg('Erro: ' + chrome.runtime.lastError.message, false);
+      return;
+    }
+    if (res && res.ok) showMsg('✅ Sync iniciado!', true);
+    else showMsg(res ? res.error : 'Erro', false);
+  });
+});
+
+atualizar();
+setInterval(atualizar, 3000);

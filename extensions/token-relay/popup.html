@@ -4,32 +4,46 @@
 <meta charset="UTF-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { width: 300px; font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
-  h2 { color: #4dabf7; font-size: 1.1em; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-  .status { background: #16213e; border-radius: 6px; padding: 10px; margin-bottom: 10px; font-size: 0.8em; line-height: 1.8; }
+  body { width: 300px; font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 14px; }
+  h2 { color: #4dabf7; font-size: 1em; margin-bottom: 10px; }
+  .status { background: #16213e; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 0.78em; line-height: 1.7; }
   .row { display: flex; justify-content: space-between; }
-  .row .v { font-weight: 600; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
-  .verde { color: #4caf50; } .vermelho { color: #f44336; } .azul { color: #4dabf7; }
-  .help { font-size: 0.75em; color: #555; line-height: 1.5; }
+  .row .v { font-weight: 600; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .verde { color: #4caf50; } .vermelho { color: #f44336; } .azul { color: #4dabf7; } .amarelo { color: #ff9800; }
+  .btn { width: 100%; padding: 7px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 0.82em; margin-bottom: 5px; background: transparent; color: #4dabf7; border: 1px solid #4dabf7; }
+  .btn:hover { background: #4dabf710; }
+  .msg { font-size: 0.78em; padding: 6px; border-radius: 4px; margin-top: 6px; text-align: center; }
+  .msg-ok { background: #4caf5020; color: #4caf50; }
+  .msg-erro { background: #f4433620; color: #f44336; }
+  .help { font-size: 0.7em; color: #555; line-height: 1.4; margin-top: 6px; }
+  .section { font-size: 0.72em; color: #888; margin: 6px 0 3px; text-transform: uppercase; letter-spacing: 0.5px; }
 </style>
 </head>
 <body>
-  <h2>🎯 Token Relay</h2>
+  <h2>🎯 LiciteAgora v3</h2>
 
+  <div class="section">Tokens</div>
   <div class="status">
-    <div class="row"><span>Token</span><span class="v" id="sToken">--</span></div>
+    <div class="row"><span>Bearer</span><span class="v" id="sBearer">--</span></div>
     <div class="row"><span>Captcha</span><span class="v" id="sCaptcha">--</span></div>
-    <div class="row"><span>Servidor</span><span class="v azul" id="sServer">--</span></div>
-    <div class="row"><span>Último envio</span><span class="v" id="sEnvio">--</span></div>
-    <div class="row"><span>Capturados</span><span class="v azul" id="sCap">0</span></div>
-    <div class="row"><span>Enviados</span><span class="v verde" id="sEnv">0</span></div>
-    <div class="row"><span>Erros</span><span class="v vermelho" id="sErr">0</span></div>
-    <div class="row" id="rowErro" style="display:none"><span>Último erro</span><span class="v vermelho" id="sUltErro">--</span></div>
   </div>
 
+  <div class="section">Sync</div>
+  <div class="status">
+    <div class="row"><span>Último sync</span><span class="v" id="sSync">--</span></div>
+    <div class="row"><span>Último envio</span><span class="v" id="sEnvio">--</span></div>
+    <div class="row"><span>Syncs</span><span class="v azul" id="sSyncs">0</span></div>
+    <div class="row"><span>Tokens enviados</span><span class="v verde" id="sEnv">0</span></div>
+    <div class="row"><span>Erros</span><span class="v vermelho" id="sErr">0</span></div>
+    <div class="row" id="rowErro" style="display:none"><span>Erro</span><span class="v vermelho" id="sUltErro">--</span></div>
+  </div>
+
+  <button class="btn" id="btnSync">🔄 Sync Agora</button>
+
+  <div id="msgArea"></div>
+
   <div class="help">
-    Navegue no Comprasnet normalmente.<br>
-    O token é capturado e enviado automaticamente.
+    Navega no Comprasnet → tokens capturados → dados sincronizados automaticamente a cada 3 min.
   </div>
 
   <script src="popup.js"></script>

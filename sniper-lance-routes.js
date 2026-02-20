@@ -223,9 +223,117 @@ function registrarRotasSniper(app, monitorGetter, db) {
   // ==================== SYNC & MENSAGENS ====================
 
   /**
-   * POST /api/sniper/sync-participacoes
-   * Sincroniza participações da API Comprasnet → banco local.
-   * Requer Bearer + Captcha.
+   * POST /api/sync/participacoes
+   * Recebe participações em bulk da extensão Chrome.
+   * A extensão busca direto da API Comprasnet (mesmo IP = captcha válido).
+   */
+  app.post('/api/sync/participacoes', (req, res) => {
+    try {
+      const { participacoes } = req.body;
+      if (!Array.isArray(participacoes)) {
+        return res.status(400).json({ success: false, error: 'participacoes deve ser array' });
+      }
+
+      let inseridas = 0, atualizadas = 0;
+
+      for (const item of participacoes) {
+        const compra = item.compra || item;
+        const compraId = compra.compraId;
+        if (!compraId) continue;
+
+        const existe = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
+
+        if (existe) {
+          db.prepare(`UPDATE participacoes_comprasnet SET
+            situacao = COALESCE(?, situacao),
+            faseCompra = COALESCE(?, faseCompra),
+            objeto = COALESCE(?, objeto),
+            orgao = COALESCE(?, orgao),
+            dataAtualizacao = CURRENT_TIMESTAMP
+            WHERE compraId = ?`).run(
+            compra.situacaoCompraFaseExterna || compra.situacao || null,
+            compra.faseCompraFaseExterna || compra.faseCompra || null,
+            compra.objetoCompra || compra.objeto || null,
+            compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
+            compraId,
+          );
+          atualizadas++;
+        } else {
+          db.prepare(`INSERT INTO participacoes_comprasnet
+            (compraId, cnpj, ano, sequencial, orgao, objeto, situacao, faseCompra, ativo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+            compraId,
+            compra.numeroUasg || compra.cnpj || '',
+            compra.ano || 0,
+            compra.numero || compra.sequencial || 0,
+            compra.nomeOrgao || compra.nomeUasg || compra.orgao || '',
+            compra.objetoCompra || compra.objeto || '',
+            compra.situacaoCompraFaseExterna || compra.situacao || '',
+            compra.faseCompraFaseExterna || compra.faseCompra || '',
+          );
+          inseridas++;
+        }
+      }
+
+      console.log(`[Sync] Participações: ${inseridas} novas, ${atualizadas} atualizadas (de ${participacoes.length} recebidas)`);
+      res.json({ success: true, inseridas, atualizadas, total: participacoes.length });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sync/mensagens
+   * Recebe mensagens de uma licitação em bulk da extensão Chrome.
+   */
+  app.post('/api/sync/mensagens', (req, res) => {
+    try {
+      const { compraId, mensagens } = req.body;
+      if (!compraId || !Array.isArray(mensagens)) {
+        return res.status(400).json({ success: false, error: 'compraId e mensagens[] obrigatórios' });
+      }
+
+      let novas = 0;
+
+      for (const msg of mensagens) {
+        const id = msg.id || msg.identificador;
+        if (!id) continue;
+
+        const existe = db.prepare('SELECT id FROM chat_mensagens WHERE mensagemId = ?').get(String(id));
+        if (existe) continue;
+
+        try {
+          db.prepare(`INSERT INTO chat_mensagens
+            (compraId, mensagemId, cnpjOrgao, ano, sequencial, dataHoraMensagem,
+             remetente, conteudo, tipo, notificado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+            compraId,
+            String(id),
+            msg.cnpjOrgao || '',
+            msg.ano || 0,
+            msg.sequencial || 0,
+            msg.dataHora || msg.dataHoraMensagem || new Date().toISOString(),
+            msg.remetente || msg.nomeRemetente || '',
+            msg.mensagem || msg.conteudo || '',
+            msg.tipo || 'MSG',
+          );
+          novas++;
+        } catch (e) {
+          // Duplicate — skip
+        }
+      }
+
+      if (novas > 0) {
+        console.log(`[Sync] Mensagens ${compraId}: ${novas} novas (de ${mensagens.length})`);
+      }
+      res.json({ success: true, novas, total: mensagens.length });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sniper/sync-participacoes — legacy (server-side, requer captcha IP)
    */
   app.post('/api/sniper/sync-participacoes', async (req, res) => {
     try {
@@ -236,16 +344,10 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
-  /**
-   * POST /api/sniper/capturar-mensagens
-   * Captura mensagens de uma licitação específica.
-   */
   app.post('/api/sniper/capturar-mensagens', async (req, res) => {
     try {
       const { compraId } = req.body;
-      if (!compraId) {
-        return res.status(400).json({ success: false, error: 'compraId obrigatório' });
-      }
+      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
       const novas = await sniper.capturarMensagens(compraId, db);
       res.json({ success: true, novasMensagens: novas });
     } catch (e) {
@@ -253,10 +355,6 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
-  /**
-   * POST /api/sniper/capturar-todas-mensagens
-   * Captura mensagens de TODAS as participações ativas.
-   */
   app.post('/api/sniper/capturar-todas-mensagens', async (req, res) => {
     try {
       const total = await sniper.capturarTodasMensagens(db);
