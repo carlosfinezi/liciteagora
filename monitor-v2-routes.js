@@ -328,4 +328,5 @@ function registrarRotasMonitorV2(app, db, options = {}) {
 module.exports = {
   registrarRotasMonitorV2,
   inicializarMonitorV2,
+  getMonitor: () => monitor,
 };

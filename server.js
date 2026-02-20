@@ -13,7 +13,8 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const { criarVerificador } = require('./verificacao-lacunas');
 const crypto = require('crypto');
-const { registrarRotasMonitorV2, inicializarMonitorV2 } = require('./monitor-v2-routes');
+const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
+const { registrarRotasSniper, getOrCreateSniper } = require('./sniper-lance-routes');
 
 // Armazenar instâncias de monitoramento ativas
 const monitoramentosAtivos = new Map();
@@ -2982,6 +2983,9 @@ registrarRotasMonitorV2(app, db, {
   getConfigValue: getConfigValue,
   intervaloMinutos: 3,
 });
+
+// ==================== SNIPER DE LANCES ====================
+registrarRotasSniper(app, getMonitor);
 
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
