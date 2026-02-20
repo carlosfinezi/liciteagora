@@ -238,8 +238,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       for (const item of participacoes) {
         const compra = item.compra || item;
-        const compraId = compra.compraId;
-        if (!compraId) continue;
+
+        // Construir compraId: {uasg:06}{modalidade:02}{numero:05}{ano:04}
+        const uasg = String(compra.numeroUasg || '').padStart(6, '0');
+        const mod = String(compra.modalidade || '').padStart(2, '0');
+        const num = String(compra.numero || '').padStart(5, '0');
+        const ano = String(compra.ano || '');
+        const compraId = compra.compraId || (uasg + mod + num + ano);
+        if (!compraId || compraId.length < 10) continue;
 
         const existe = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
 

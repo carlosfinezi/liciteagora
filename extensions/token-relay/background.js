@@ -293,8 +293,6 @@ async function syncParticipacoes(tabId, bearer) {
   }
 
   if (todas.length > 0) {
-    // Debug: mostrar estrutura do primeiro item
-    console.log('[LiciteAgora] Estrutura participação[0]:', JSON.stringify(todas[0]).substring(0, 500));
     console.log('[LiciteAgora] ' + todas.length + ' participações encontradas, enviando ao servidor...');
     const resp = await serverPost('/api/sync/participacoes', { participacoes: todas });
     if (resp) {
@@ -311,7 +309,15 @@ async function syncMensagens(tabId, participacoes, bearer) {
   const compraIds = [];
   for (const p of participacoes) {
     const compra = p.compra || p;
-    const id = compra.compraId;
+    // Construir compraId: {uasg:06}{modalidade:02}{numero:05}{ano:04}
+    var id = compra.compraId;
+    if (!id && compra.numeroUasg) {
+      var uasg = String(compra.numeroUasg).padStart(6, '0');
+      var mod = String(compra.modalidade || 0).padStart(2, '0');
+      var num = String(compra.numero || 0).padStart(5, '0');
+      var ano = String(compra.ano || '');
+      id = uasg + mod + num + ano;
+    }
     if (id && !compraIds.includes(id)) compraIds.push(id);
   }
 
