@@ -1,92 +1,111 @@
 /**
  * LiciteAgora Token Relay — Background Service Worker (MV3)
- * 
- * Intercepta requisições ao Comprasnet, captura o Bearer token
- * e envia ao servidor LiciteAgora automaticamente.
- * 
- * NOTA MV3: Service worker pode ser encerrado a qualquer momento.
- * Todo estado deve ser persistido em chrome.storage.local.
+ * v1.2 — Simplificado e defensivo
  */
 
-const COMPRASNET_PATTERNS = [
-  'https://cnetmobile.estaleiro.serpro.gov.br/*'
-];
+console.log('[TokenRelay] Service worker carregado!');
 
-// ==================== STORAGE HELPERS ====================
+// ==================== STORAGE ====================
 
-async function getState() {
+async function loadStorage() {
   return new Promise(resolve => {
-    chrome.storage.local.get(
-      ['serverUrl', 'ultimoToken', 'ultimoEnvio', 'stats'],
-      (data) => resolve({
-        serverUrl: data.serverUrl || '',
-        ultimoToken: data.ultimoToken || null,
-        ultimoEnvio: data.ultimoEnvio || 0,
-        stats: data.stats || { capturados: 0, enviados: 0, erros: 0 },
-      })
-    );
+    chrome.storage.local.get(null, data => {
+      resolve(data || {});
+    });
   });
 }
 
-async function saveState(partial) {
+async function save(obj) {
   return new Promise(resolve => {
-    chrome.storage.local.set(partial, resolve);
+    chrome.storage.local.set(obj, resolve);
   });
 }
 
 // ==================== INTERCEPTAÇÃO ====================
 
-chrome.webRequest.onBeforeSendHeaders.addListener(
-  (details) => {
-    const authHeader = details.requestHeaders?.find(
-      h => h.name.toLowerCase() === 'authorization'
+try {
+  // onSendHeaders — lê headers DEPOIS de enviados (read-only, mais confiável)
+  chrome.webRequest.onSendHeaders.addListener(
+    async (details) => {
+      try {
+        if (!details.requestHeaders) return;
+
+        for (const h of details.requestHeaders) {
+          if (h.name.toLowerCase() === 'authorization' && h.value && h.value.startsWith('Bearer ')) {
+            await onTokenCapturado(h.value);
+            break;
+          }
+        }
+      } catch (e) {
+        console.error('[TokenRelay] Erro no listener:', e);
+      }
+    },
+    { urls: ['https://cnetmobile.estaleiro.serpro.gov.br/*'] },
+    ['requestHeaders', 'extraHeaders']
+  );
+  console.log('[TokenRelay] Listener webRequest registrado OK');
+} catch (e) {
+  console.error('[TokenRelay] FALHA ao registrar listener:', e);
+  // Tentar sem extraHeaders como fallback
+  try {
+    chrome.webRequest.onSendHeaders.addListener(
+      async (details) => {
+        try {
+          if (!details.requestHeaders) return;
+          for (const h of details.requestHeaders) {
+            if (h.name.toLowerCase() === 'authorization' && h.value && h.value.startsWith('Bearer ')) {
+              await onTokenCapturado(h.value);
+              break;
+            }
+          }
+        } catch (e) {
+          console.error('[TokenRelay] Erro no listener:', e);
+        }
+      },
+      { urls: ['https://cnetmobile.estaleiro.serpro.gov.br/*'] },
+      ['requestHeaders']
     );
-
-    if (authHeader && authHeader.value?.startsWith('Bearer ')) {
-      const token = authHeader.value;
-      handleToken(token);
-    }
-  },
-  { urls: COMPRASNET_PATTERNS },
-  ['requestHeaders', 'extraHeaders']  // extraHeaders é OBRIGATÓRIO no MV3 para ver Authorization
-);
-
-async function handleToken(token) {
-  const state = await getState();
-
-  if (token !== state.ultimoToken) {
-    // Novo token
-    state.stats.capturados++;
-    await saveState({
-      ultimoToken: token,
-      stats: state.stats,
-    });
-    console.log('[TokenRelay] Novo Bearer capturado:', token.substring(0, 30) + '...');
-    
-    chrome.action.setBadgeText({ text: '✓' });
-    chrome.action.setBadgeBackgroundColor({ color: '#4caf50' });
-
-    await enviarToken(token, state.serverUrl, state.stats);
-  } else {
-    // Mesmo token — reenviar se passou mais de 60s
-    if (Date.now() - state.ultimoEnvio > 60000) {
-      await enviarToken(token, state.serverUrl, state.stats);
-    }
+    console.log('[TokenRelay] Listener registrado SEM extraHeaders (fallback)');
+  } catch (e2) {
+    console.error('[TokenRelay] FALHA total no listener:', e2);
   }
 }
 
-// ==================== ENVIO AO SERVIDOR ====================
+async function onTokenCapturado(token) {
+  const data = await loadStorage();
+  const agora = Date.now();
+  const stats = data.stats || { capturados: 0, enviados: 0, erros: 0 };
 
-async function enviarToken(token, serverUrl, stats) {
+  if (token !== data.ultimoToken) {
+    stats.capturados++;
+    await save({ ultimoToken: token, stats });
+    console.log('[TokenRelay] NOVO token capturado:', token.substring(0, 30) + '...');
+
+    chrome.action.setBadgeText({ text: '✓' });
+    chrome.action.setBadgeBackgroundColor({ color: '#4caf50' });
+
+    if (data.serverUrl) {
+      await enviarParaServidor(token, data.serverUrl, stats);
+    }
+  } else if (data.serverUrl && agora - (data.ultimoEnvio || 0) > 60000) {
+    // Mesmo token mas >60s — reenviar
+    await enviarParaServidor(token, data.serverUrl, stats);
+  }
+}
+
+// ==================== ENVIO ====================
+
+async function enviarParaServidor(token, serverUrl, stats) {
   if (!serverUrl) {
-    console.log('[TokenRelay] Servidor não configurado — token armazenado localmente');
-    chrome.action.setBadgeText({ text: '⚙' });
-    chrome.action.setBadgeBackgroundColor({ color: '#ff9800' });
-    return;
+    console.log('[TokenRelay] Sem servidor configurado');
+    return false;
   }
 
+  const url = serverUrl.replace(/\/+$/, '') + '/api/auth/token';
+  console.log('[TokenRelay] Enviando token para:', url);
+
   try {
-    const response = await fetch(`${serverUrl}/api/auth/token`, {
+    const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -96,81 +115,89 @@ async function enviarToken(token, serverUrl, stats) {
       }),
     });
 
-    if (response.ok) {
+    if (resp.ok) {
       stats.enviados++;
-      await saveState({ stats, ultimoEnvio: Date.now() });
-      console.log('[TokenRelay] Token enviado ao servidor ✅');
+      await save({ stats, ultimoEnvio: Date.now() });
+      console.log('[TokenRelay] ✅ Token enviado com sucesso');
       chrome.action.setBadgeText({ text: '✓' });
       chrome.action.setBadgeBackgroundColor({ color: '#4caf50' });
+      return true;
     } else {
-      const text = await response.text().catch(() => '');
+      const body = await resp.text().catch(() => '');
       stats.erros++;
-      await saveState({ stats });
-      console.error('[TokenRelay] Servidor rejeitou:', response.status, text.substring(0, 100));
-      chrome.action.setBadgeText({ text: '!' });
+      await save({ stats, ultimoErro: `HTTP ${resp.status}: ${body.substring(0, 100)}` });
+      console.error('[TokenRelay] ❌ Servidor respondeu:', resp.status, body.substring(0, 100));
+      chrome.action.setBadgeText({ text: String(resp.status) });
       chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+      return false;
     }
   } catch (e) {
     stats.erros++;
-    await saveState({ stats });
-    console.error('[TokenRelay] Erro ao enviar:', e.message);
+    await save({ stats, ultimoErro: e.message });
+    console.error('[TokenRelay] ❌ Erro de rede:', e.message);
     chrome.action.setBadgeText({ text: '!' });
     chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+    return false;
   }
 }
 
 // ==================== MENSAGENS DO POPUP ====================
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // Tudo async — retorna true pra manter canal aberto
-  (async () => {
-    try {
-      if (msg.type === 'getStatus') {
-        const state = await getState();
-        sendResponse({
-          serverUrl: state.serverUrl,
-          ultimoToken: state.ultimoToken ? state.ultimoToken.substring(0, 40) + '...' : null,
-          ultimoEnvio: state.ultimoEnvio ? new Date(state.ultimoEnvio).toLocaleTimeString() : null,
-          stats: state.stats,
-        });
-      }
+  console.log('[TokenRelay] Mensagem recebida:', msg.type);
 
-      else if (msg.type === 'setServer') {
-        const url = (msg.url || '').replace(/\/+$/, '');
-        await saveState({ serverUrl: url });
-        console.log('[TokenRelay] Servidor configurado:', url);
-        sendResponse({ ok: true });
+  handleMessage(msg).then(sendResponse).catch(e => {
+    console.error('[TokenRelay] Erro handler:', e);
+    sendResponse({ ok: false, error: e.message });
+  });
 
-        // Se já tem token, enviar agora
-        const state = await getState();
-        if (state.ultimoToken && url) {
-          await enviarToken(state.ultimoToken, url, state.stats);
-        }
-      }
-
-      else if (msg.type === 'forceSync') {
-        const state = await getState();
-        if (state.ultimoToken) {
-          await enviarToken(state.ultimoToken, state.serverUrl, state.stats);
-          sendResponse({ ok: true });
-        } else {
-          sendResponse({ ok: false, error: 'Nenhum token capturado. Navegue no Comprasnet primeiro.' });
-        }
-      }
-
-      else if (msg.type === 'resetStats') {
-        await saveState({ stats: { capturados: 0, enviados: 0, erros: 0 } });
-        sendResponse({ ok: true });
-      }
-
-      else {
-        sendResponse({ ok: false, error: 'Tipo desconhecido: ' + msg.type });
-      }
-    } catch (e) {
-      console.error('[TokenRelay] Erro no handler:', e);
-      sendResponse({ ok: false, error: e.message });
-    }
-  })();
-
-  return true; // Mantém canal aberto para async
+  return true; // manter canal aberto
 });
+
+async function handleMessage(msg) {
+  const data = await loadStorage();
+
+  switch (msg.type) {
+    case 'getStatus':
+      return {
+        serverUrl: data.serverUrl || '',
+        ultimoToken: data.ultimoToken ? data.ultimoToken.substring(0, 40) + '...' : null,
+        ultimoEnvio: data.ultimoEnvio ? new Date(data.ultimoEnvio).toLocaleTimeString() : null,
+        ultimoErro: data.ultimoErro || null,
+        stats: data.stats || { capturados: 0, enviados: 0, erros: 0 },
+      };
+
+    case 'setServer': {
+      const url = (msg.url || '').trim().replace(/\/+$/, '');
+      await save({ serverUrl: url });
+      console.log('[TokenRelay] Servidor salvo:', url);
+
+      // Enviar token existente
+      if (data.ultimoToken && url) {
+        const stats = data.stats || { capturados: 0, enviados: 0, erros: 0 };
+        const ok = await enviarParaServidor(data.ultimoToken, url, stats);
+        return { ok: true, enviou: ok };
+      }
+      return { ok: true, enviou: false };
+    }
+
+    case 'forceSync': {
+      if (!data.ultimoToken) {
+        return { ok: false, error: 'Nenhum token capturado. Navegue no Comprasnet primeiro.' };
+      }
+      if (!data.serverUrl) {
+        return { ok: false, error: 'Servidor não configurado.' };
+      }
+      const stats = data.stats || { capturados: 0, enviados: 0, erros: 0 };
+      const ok = await enviarParaServidor(data.ultimoToken, data.serverUrl, stats);
+      return { ok };
+    }
+
+    case 'resetStats':
+      await save({ stats: { capturados: 0, enviados: 0, erros: 0 }, ultimoErro: null });
+      return { ok: true };
+
+    default:
+      return { ok: false, error: 'Tipo desconhecido: ' + msg.type };
+  }
+}
