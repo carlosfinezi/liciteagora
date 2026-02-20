@@ -6,7 +6,9 @@
   "permissions": [
     "webRequest",
     "storage",
-    "alarms"
+    "alarms",
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "https://cnetmobile.estaleiro.serpro.gov.br/*",

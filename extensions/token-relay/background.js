@@ -148,40 +148,65 @@ async function enviarTokens(bearer, captcha, stats) {
   }
 }
 
-// ==================== DATA SYNC (browser → Comprasnet API → server) ====================
+// ==================== DATA SYNC (via tab injection — same cookies) ====================
 
 /**
- * Faz GET autenticado ao Comprasnet direto do browser.
- * Vantagem: mesmo IP = captcha válido.
+ * Encontra uma aba aberta no Comprasnet.
  */
-async function comprasnetGet(path, bearer, captcha) {
-  const sep = path.includes('?') ? '&' : '?';
-  const url = COMPRASNET + path + (captcha ? sep + 'captcha=' + captcha : '');
+async function findComprasnetTab() {
+  const tabs = await chrome.tabs.query({ url: 'https://cnetmobile.estaleiro.serpro.gov.br/*' });
+  return tabs.length > 0 ? tabs[0] : null;
+}
 
-  const resp = await fetch(url, {
-    credentials: 'include',
-    headers: {
-      'Accept': 'application/json, text/plain, */*',
-      'Authorization': bearer,
-      'x-device-platform': 'web',
-      'x-version-number': '5.5.2',
-      'Cache-Control': 'no-cache',
+/**
+ * Executa fetch DENTRO da aba do Comprasnet (usa cookies da sessão).
+ */
+async function comprasnetFetch(tabId, path, bearer, captcha) {
+  const sep = path.includes('?') ? '&' : '?';
+  const fullUrl = COMPRASNET + path + (captcha ? sep + 'captcha=' + captcha : '');
+
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (url, authHeader) => {
+      try {
+        const resp = await fetch(url, {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Authorization': authHeader,
+            'x-device-platform': 'web',
+            'x-version-number': '5.5.2',
+            'Cache-Control': 'no-cache',
+          },
+        });
+        const text = await resp.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch (e) {}
+        return { status: resp.status, data };
+      } catch (e) {
+        return { status: 0, error: e.message };
+      }
     },
+    args: [fullUrl, bearer],
   });
 
-  return { status: resp.status, data: resp.status === 200 || resp.status === 206 ? await resp.json() : null };
+  return results[0]?.result || { status: 0, error: 'No result' };
 }
 
 /**
  * Envia dados ao servidor LiciteAgora.
  */
 async function serverPost(path, body) {
-  const resp = await fetch(SERVER_URL + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return resp.ok ? await resp.json() : null;
+  try {
+    const resp = await fetch(SERVER_URL + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return resp.ok ? await resp.json() : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
@@ -194,21 +219,26 @@ async function executarSync() {
     return;
   }
 
+  const tab = await findComprasnetTab();
+  if (!tab) {
+    console.log('[LiciteAgora] Sync pulado — nenhuma aba do Comprasnet aberta');
+    return;
+  }
+
   const stats = data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 };
-  console.log('[LiciteAgora] ═══ Início sync ═══');
+  console.log('[LiciteAgora] ═══ Início sync (tab ' + tab.id + ') ═══');
 
   try {
     // 1. Buscar participações
-    const participacoes = await syncParticipacoes(data.bearer, data.captcha);
+    const participacoes = await syncParticipacoes(tab.id, data.bearer, data.captcha);
 
-    // 2. Buscar mensagens das participações ativas
+    // 2. Buscar mensagens das participações
     if (participacoes.length > 0) {
-      await syncMensagens(participacoes, data.bearer, data.captcha);
+      await syncMensagens(tab.id, participacoes, data.bearer, data.captcha);
     }
 
     stats.syncs = (stats.syncs || 0) + 1;
     await save({ stats, ultimoSync: Date.now() });
-
     console.log('[LiciteAgora] ═══ Sync completo ═══');
   } catch (e) {
     console.error('[LiciteAgora] Erro no sync:', e.message);
@@ -216,27 +246,27 @@ async function executarSync() {
   }
 }
 
-async function syncParticipacoes(bearer, captcha) {
+async function syncParticipacoes(tabId, bearer, captcha) {
   console.log('[LiciteAgora] Buscando participações...');
   let todas = [];
   let pagina = 0;
 
   while (true) {
     try {
-      const { status, data } = await comprasnetGet(
-        `/comprasnet-fase-externa/v1/compras/participacoes?filtro=5&tamanhoPagina=50&pagina=${pagina}`,
+      const result = await comprasnetFetch(tabId,
+        '/comprasnet-fase-externa/v1/compras/participacoes?filtro=5&tamanhoPagina=50&pagina=' + pagina,
         bearer, captcha
       );
 
-      if (status !== 200 && status !== 206) {
-        console.log('[LiciteAgora] Participações pág ' + pagina + ': HTTP ' + status);
+      if (result.status !== 200 && result.status !== 206) {
+        console.log('[LiciteAgora] Participações pág ' + pagina + ': HTTP ' + result.status);
         break;
       }
-      if (!data || !Array.isArray(data) || data.length === 0) break;
+      if (!result.data || !Array.isArray(result.data) || result.data.length === 0) break;
 
-      todas = todas.concat(data);
+      todas = todas.concat(result.data);
       pagina++;
-      if (data.length < 50) break;
+      if (result.data.length < 50) break;
     } catch (e) {
       console.error('[LiciteAgora] Erro participações:', e.message);
       break;
@@ -245,7 +275,10 @@ async function syncParticipacoes(bearer, captcha) {
 
   if (todas.length > 0) {
     console.log('[LiciteAgora] ' + todas.length + ' participações encontradas, enviando ao servidor...');
-    await serverPost('/api/sync/participacoes', { participacoes: todas });
+    const resp = await serverPost('/api/sync/participacoes', { participacoes: todas });
+    if (resp) {
+      console.log('[LiciteAgora] Servidor: ' + (resp.inseridas || 0) + ' novas, ' + (resp.atualizadas || 0) + ' atualizadas');
+    }
   } else {
     console.log('[LiciteAgora] Nenhuma participação retornada');
   }
@@ -253,8 +286,7 @@ async function syncParticipacoes(bearer, captcha) {
   return todas;
 }
 
-async function syncMensagens(participacoes, bearer, captcha) {
-  // Extrair compraIds únicos
+async function syncMensagens(tabId, participacoes, bearer, captcha) {
   const compraIds = [];
   for (const p of participacoes) {
     const compra = p.compra || p;
@@ -267,19 +299,19 @@ async function syncMensagens(participacoes, bearer, captcha) {
 
   for (const compraId of compraIds) {
     try {
-      const { status, data } = await comprasnetGet(
-        `/comprasnet-mensagem/v2/chat/${compraId}?size=20&page=0&legadoAsp=false`,
+      const result = await comprasnetFetch(tabId,
+        '/comprasnet-mensagem/v2/chat/' + compraId + '?size=20&page=0&legadoAsp=false',
         bearer, captcha
       );
 
-      if ((status === 200 || status === 206) && Array.isArray(data) && data.length > 0) {
-        const result = await serverPost('/api/sync/mensagens', {
+      if ((result.status === 200 || result.status === 206) && Array.isArray(result.data) && result.data.length > 0) {
+        const resp = await serverPost('/api/sync/mensagens', {
           compraId,
-          mensagens: data,
+          mensagens: result.data,
         });
-        if (result && result.novas > 0) {
-          totalNovas += result.novas;
-          console.log('[LiciteAgora] ' + compraId + ': ' + result.novas + ' novas');
+        if (resp && resp.novas > 0) {
+          totalNovas += resp.novas;
+          console.log('[LiciteAgora] ' + compraId + ': ' + resp.novas + ' novas');
         }
       }
     } catch (e) {
