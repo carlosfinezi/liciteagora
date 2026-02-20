@@ -3,919 +3,460 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lances Automáticos - PNCP</title>
-    <link rel="stylesheet" href="/css/sidebar.css">
+    <title>Sniper de Lances - LiciteAgora</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
-            min-height: 100vh;
+            background: #1a1a2e; color: #eee; min-height: 100vh; padding: 20px;
         }
-        .layout {
-            display: flex;
-            min-height: 100vh;
+        h1 { color: #4dabf7; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 20px; }
+        .status-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .status-item {
+            background: #16213e; padding: 12px 16px; border-radius: 8px;
+            flex: 1; min-width: 110px; text-align: center;
         }
-        .sidebar {
-            width: 220px;
-            background: #16213e;
-            padding: 0;
-            border-right: 1px solid #0f3460;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-        }
-        .sidebar-header {
-            padding: 20px;
-            border-bottom: 1px solid #0f3460;
-        }
-        .sidebar-logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #4dabf7;
-            text-decoration: none;
-            font-size: 1.3em;
-            font-weight: 700;
-        }
-        .sidebar-menu {
-            padding: 15px 0;
-            flex: 1;
-        }
-        .menu-section {
-            color: #666;
-            font-size: 0.75em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            padding: 10px 20px 5px;
-            margin-top: 10px;
-        }
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 20px;
-            color: #adb5bd;
-            text-decoration: none;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-        .menu-item:hover {
-            background: #0f3460;
-            color: #4dabf7;
-        }
-        .menu-item.active {
-            background: #0f3460;
-            color: #4dabf7;
-            border-left-color: #4dabf7;
-        }
-        .main-content {
-            flex: 1;
-            padding: 30px;
-            overflow-y: auto;
-        }
-        h1 {
-            color: #4dabf7;
-            margin-bottom: 10px;
-        }
-        .subtitle {
-            color: #888;
-            margin-bottom: 30px;
-        }
+        .status-item .label { color: #888; font-size: 0.8em; margin-bottom: 4px; }
+        .status-item .value { font-size: 1.1em; font-weight: 600; }
+        .verde { color: #4caf50; } .vermelho { color: #f44336; }
+        .amarelo { color: #ff9800; } .azul { color: #4dabf7; }
         .panel {
-            background: #16213e;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 20px;
+            background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 16px;
         }
         .panel h3 {
-            color: #4dabf7;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #0f3460;
+            color: #4dabf7; margin-bottom: 15px;
+            padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em;
         }
-        .status-bar {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 20px;
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; color: #aaa; font-size: 0.85em; margin-bottom: 4px; }
+        .form-group input, .form-group select {
+            width: 100%; padding: 8px 12px; border-radius: 6px;
+            border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.95em;
         }
-        .status-item {
-            background: #1a1a2e;
-            padding: 15px 20px;
-            border-radius: 8px;
-            flex: 1;
-            text-align: center;
+        .form-group input:focus { outline: none; border-color: #4dabf7; }
+        .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .form-row .form-group { flex: 1; min-width: 120px; }
+        .btn {
+            padding: 8px 16px; border-radius: 6px; border: none;
+            cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s;
         }
-        .status-item .label {
-            color: #888;
-            font-size: 0.85em;
-            margin-bottom: 5px;
+        .btn-primary { background: #4dabf7; color: #000; }
+        .btn-primary:hover { background: #339af0; }
+        .btn-danger { background: #f44336; color: #fff; }
+        .btn-danger:hover { background: #d32f2f; }
+        .btn-success { background: #4caf50; color: #fff; }
+        .btn-success:hover { background: #388e3c; }
+        .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; }
+        .btn-outline:hover { background: #4dabf710; }
+        .btn-sm { padding: 5px 10px; font-size: 0.8em; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .result-card {
+            background: #1a1a2e; border-radius: 8px; padding: 12px;
+            margin-top: 10px; border-left: 3px solid #4dabf7;
         }
-        .status-item .value {
-            font-size: 1.5em;
-            font-weight: 600;
+        .result-card.sucesso { border-left-color: #4caf50; }
+        .result-card.erro { border-left-color: #f44336; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th {
+            background: #0f3460; color: #4dabf7; padding: 8px 10px;
+            text-align: left; font-weight: 600; font-size: 0.85em;
         }
-        .status-item .value.verde { color: #4caf50; }
-        .status-item .value.amarelo { color: #ff9800; }
-        .status-item .value.vermelho { color: #f44336; }
-        .status-item .value.azul { color: #4dabf7; }
-
-        /* Tabela de itens em disputa */
-        .tabela-lances {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .tabela-lances th {
-            background: #0f3460;
-            color: #4dabf7;
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            font-size: 0.9em;
-        }
-        .tabela-lances td {
-            padding: 12px;
-            border-bottom: 1px solid #0f3460;
-            vertical-align: middle;
-        }
-        .tabela-lances tr:hover {
-            background: #1a1a2e;
-        }
-        .item-numero {
-            color: #4dabf7;
-            font-weight: 600;
-        }
-        .item-descricao {
-            max-width: 300px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .valor-atual {
-            font-weight: 600;
-            color: #4caf50;
-        }
-        .meu-lance {
-            color: #4dabf7;
-        }
-        .posicao {
-            text-align: center;
-        }
-        .posicao-1 {
-            color: #4caf50;
-            font-weight: 600;
-        }
-        .posicao-outro {
-            color: #ff9800;
-        }
-
-        /* Configuração de lance */
-        .config-lance {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        .config-lance input {
-            width: 100px;
-            padding: 8px 10px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            color: #fff;
-            font-size: 0.9em;
-        }
-        .config-lance input:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
-        .config-lance select {
-            padding: 8px 10px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            color: #fff;
-            cursor: pointer;
-        }
-        .btn-lance {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 0.85em;
-            transition: all 0.2s;
-        }
-        .btn-cobrir {
-            background: #4caf50;
-            color: #fff;
-        }
-        .btn-cobrir:hover {
-            background: #66bb6a;
-        }
-        .btn-cobrir:disabled {
-            background: #555;
-            cursor: not-allowed;
-        }
-        .btn-auto {
-            background: #ff9800;
-            color: #000;
-        }
-        .btn-auto:hover {
-            background: #ffa726;
-        }
-        .btn-auto.ativo {
-            background: #f44336;
-            color: #fff;
-        }
-        .btn-parar {
-            background: #f44336;
-            color: #fff;
-        }
-
-        /* Configurações gerais */
-        .config-geral {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-        .config-grupo {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .config-grupo label {
-            color: #888;
-            font-size: 0.85em;
-        }
-        .config-grupo input,
-        .config-grupo select {
-            padding: 10px 12px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            color: #fff;
-            font-size: 0.95em;
-        }
-        .config-grupo input:focus,
-        .config-grupo select:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
-
-        /* Log de lances */
+        td { padding: 8px 10px; border-bottom: 1px solid #0f3460; }
+        tr:hover { background: #1a1a2e; }
         .log-container {
-            max-height: 300px;
-            overflow-y: auto;
-            background: #1a1a2e;
-            border-radius: 8px;
-            padding: 15px;
-            font-family: monospace;
-            font-size: 0.85em;
+            background: #0d1117; border-radius: 6px; padding: 10px;
+            max-height: 300px; overflow-y: auto; font-family: monospace;
+            font-size: 0.8em; line-height: 1.6;
         }
-        .log-item {
-            padding: 5px 0;
-            border-bottom: 1px solid #0f3460;
+        .log-info { color: #8b949e; } .log-ok { color: #4caf50; }
+        .log-erro { color: #f44336; } .log-alerta { color: #ff9800; }
+        .log-sniper { color: #e040fb; }
+        .agendamento-card {
+            background: #1a1a2e; border-radius: 8px; padding: 12px;
+            margin-bottom: 8px; border-left: 3px solid #ff9800;
+            display: flex; justify-content: space-between; align-items: center;
         }
-        .log-item:last-child {
-            border-bottom: none;
+        .agendamento-card.executado { border-left-color: #4caf50; opacity: 0.7; }
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 0.75em; font-weight: 600;
         }
-        .log-sucesso { color: #4caf50; }
-        .log-erro { color: #f44336; }
-        .log-info { color: #4dabf7; }
-        .log-aviso { color: #ff9800; }
-
-        /* Botões principais */
-        .btn-primary {
-            background: #4dabf7;
-            color: #000;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 1em;
-        }
-        .btn-primary:hover {
-            background: #74c0fc;
-        }
-        .btn-secondary {
-            background: #0f3460;
-            color: #4dabf7;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        .btn-secondary:hover {
-            background: #16213e;
-        }
-
-        /* Alerta de conexão */
-        .alerta-conexao {
-            background: #f44336;
-            color: #fff;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        .alerta-conexao.visivel {
-            display: block;
-        }
-
-        /* Empty state */
-        .empty-state {
-            text-align: center;
-            padding: 60px;
-            color: #888;
-        }
-        .empty-state h3 {
-            color: #4dabf7;
-            margin-bottom: 15px;
-        }
-
-        /* Toggle switch */
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .toggle {
-            position: relative;
-            width: 50px;
-            height: 26px;
-            background: #0f3460;
-            border-radius: 13px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        .toggle.ativo {
-            background: #4caf50;
-        }
-        .toggle::after {
-            content: '';
-            position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 20px;
-            height: 20px;
-            background: #fff;
-            border-radius: 50%;
-            transition: left 0.3s;
-        }
-        .toggle.ativo::after {
-            left: 27px;
-        }
-
-        /* Licitação header */
-        .licitacao-info {
-            background: #1a1a2e;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .licitacao-info h2 {
-            color: #fff;
-            font-size: 1.1em;
-            margin-bottom: 10px;
-        }
-        .licitacao-info .orgao {
-            color: #888;
-            font-size: 0.9em;
-        }
-        .licitacao-info .badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.8em;
-            font-weight: 600;
-            margin-top: 10px;
-        }
-        .badge-disputa {
-            background: #4caf50;
-            color: #fff;
-        }
-        .badge-aguardando {
-            background: #ff9800;
-            color: #000;
-        }
-        .badge-encerrada {
-            background: #f44336;
-            color: #fff;
-        }
-
-        .actions-bar {
-            display: flex;
-            gap: 15px;
-            margin-top: 20px;
-        }
+        .badge-ok { background: #4caf5030; color: #4caf50; }
+        .badge-erro { background: #f4433630; color: #f44336; }
+        .badge-aguardando { background: #ff980030; color: #ff9800; }
+        .mt-10 { margin-top: 10px; } .mb-10 { margin-bottom: 10px; }
+        .text-center { text-align: center; }
+        .text-muted { color: #666; } .text-sm { font-size: 0.85em; }
     </style>
 </head>
 <body>
-    <div class="layout">
-        
+    <h1>🎯 Sniper de Lances</h1>
+    <p class="subtitle">Envio automatizado de lances nos últimos milissegundos da disputa</p>
 
-        <main class="main-content">
-            <h1>🎯 Lances Automáticos</h1>
-            <p class="subtitle">Gerencie lances em disputas do Comprasnet</p>
-
-            <div id="alertaConexao" class="alerta-conexao">
-                <strong>⚠️ Extensão não conectada!</strong> Certifique-se de que a extensão de lances está instalada e ativa no navegador do Comprasnet.
-            </div>
-
-            <!-- Status geral -->
-            <div class="status-bar">
-                <div class="status-item">
-                    <div class="label">Status</div>
-                    <div class="value azul" id="statusGeral">Aguardando</div>
-                </div>
-                <div class="status-item">
-                    <div class="label">Itens em Disputa</div>
-                    <div class="value" id="itensDisputa">0</div>
-                </div>
-                <div class="status-item">
-                    <div class="label">Melhor Posição</div>
-                    <div class="value verde" id="melhorPosicao">-</div>
-                </div>
-                <div class="status-item">
-                    <div class="label">Lances Enviados</div>
-                    <div class="value" id="lancesEnviados">0</div>
-                </div>
-            </div>
-
-            <!-- Selecionar Licitação -->
-            <div class="panel" id="panelSelecao">
-                <h3>Selecionar Licitação em Disputa</h3>
-                <div id="listaLicitacoes" class="empty-state">
-                    <h3>Carregando licitações...</h3>
-                    <p>Buscando licitações com propostas enviadas</p>
-                </div>
-            </div>
-
-            <!-- Licitação Ativa -->
-            <div class="panel" id="panelLicitacao" style="display: none;">
-                <div class="licitacao-info">
-                    <h2 id="licitacaoTitulo">-</h2>
-                    <div class="orgao" id="licitacaoOrgao">-</div>
-                    <span class="badge badge-aguardando" id="licitacaoStatus">Aguardando</span>
-                    <a href="#" target="_blank" id="linkComprasnet" class="btn-secondary" style="float: right; padding: 8px 16px; text-decoration: none; font-size: 0.85em;">
-                        Abrir no Comprasnet
-                    </a>
-                </div>
-            </div>
-
-            <!-- Configurações de Lance -->
-            <div class="panel" id="panelConfig" style="display: none;">
-                <h3>Configurações de Lance Automático</h3>
-                <div class="config-geral">
-                    <div class="config-grupo">
-                        <label>Modo de Cobertura</label>
-                        <select id="modoCobertura">
-                            <option value="valor">Cobrir por Valor (R$)</option>
-                            <option value="percentual">Cobrir por Percentual (%)</option>
-                        </select>
-                    </div>
-                    <div class="config-grupo">
-                        <label>Valor/Percentual de Cobertura</label>
-                        <input type="number" id="valorCobertura" value="0.01" step="0.01" min="0.01" placeholder="0,01">
-                    </div>
-                    <div class="config-grupo">
-                        <label>Valor Mínimo (não ir abaixo)</label>
-                        <input type="number" id="valorMinimo" value="" step="0.01" min="0" placeholder="Opcional">
-                    </div>
-                    <div class="config-grupo">
-                        <label>Intervalo entre Lances (seg)</label>
-                        <input type="number" id="intervaloLances" value="3" min="1" max="60">
-                    </div>
-                </div>
-                <div class="actions-bar">
-                    <div class="toggle-container">
-                        <div class="toggle" id="toggleAuto" onclick="toggleAutomatico()"></div>
-                        <span id="labelAuto">Lances Automáticos: DESLIGADO</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Itens em Disputa -->
-            <div class="panel" id="panelItens" style="display: none;">
-                <h3>Itens em Disputa</h3>
-                <table class="tabela-lances">
-                    <thead>
-                        <tr>
-                            <th>Item</th>
-                            <th>Descrição</th>
-                            <th>Menor Lance</th>
-                            <th>Meu Lance</th>
-                            <th>Posição</th>
-                            <th>Limite</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabelaItens">
-                        <!-- Itens serão inseridos aqui -->
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Log de Atividades -->
-            <div class="panel" id="panelLog" style="display: none;">
-                <h3>Log de Atividades</h3>
-                <div class="log-container" id="logContainer">
-                    <div class="log-item log-info">[Sistema] Aguardando início da disputa...</div>
-                </div>
-            </div>
-        </main>
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="label">Chrome</div>
+            <div class="value" id="statusChrome">--</div>
+        </div>
+        <div class="status-item">
+            <div class="label">Bearer Token</div>
+            <div class="value" id="statusBearer">--</div>
+        </div>
+        <div class="status-item">
+            <div class="label">Hora Servidor</div>
+            <div class="value azul" id="horaServidor">--:--:--</div>
+        </div>
+        <div class="status-item">
+            <div class="label">Latência</div>
+            <div class="value" id="statusLatencia">--</div>
+        </div>
+        <div class="status-item">
+            <div class="label">Agendamentos</div>
+            <div class="value azul" id="statusAgendamentos">0</div>
+        </div>
+        <div class="status-item">
+            <div class="label">Lances Enviados</div>
+            <div class="value azul" id="statusLances">0</div>
+        </div>
     </div>
 
-    <script>
-        // Estado global
-        let licitacaoAtiva = null;
-        let itensDisputa = [];
-        let lancesAutomaticos = false;
-        let conexaoExtensao = false;
-        let contadorLances = 0;
+    <div class="btn-group mb-10">
+        <button class="btn btn-primary" onclick="conectar()">🔌 Conectar Chrome</button>
+        <button class="btn btn-outline" onclick="calibrar()">🕐 Calibrar Relógio</button>
+        <button class="btn btn-outline" onclick="atualizarTudo()">🔄 Atualizar</button>
+    </div>
 
-        // Configurações
-        let config = {
-            modo: 'valor',
-            cobertura: 0.01,
-            minimo: null,
-            intervalo: 3
-        };
-
-        // ==================== FUNÇÕES AUXILIARES ====================
-
-        function formatarValor(valor) {
-            return new Intl.NumberFormat('pt-BR', {
-                style: 'currency',
-                currency: 'BRL'
-            }).format(valor);
-        }
-
-        function adicionarLog(mensagem, tipo = 'info') {
-            const container = document.getElementById('logContainer');
-            const timestamp = new Date().toLocaleTimeString();
-            const div = document.createElement('div');
-            div.className = `log-item log-${tipo}`;
-            div.textContent = `[${timestamp}] ${mensagem}`;
-            container.insertBefore(div, container.firstChild);
-
-            // Limitar a 100 itens
-            while (container.children.length > 100) {
-                container.removeChild(container.lastChild);
-            }
-        }
-
-        // ==================== CARREGAR LICITAÇÕES ====================
-
-        async function carregarLicitacoes() {
-            try {
-                // Busca licitações com status "enviada" no kanban
-                const response = await fetch('/api/kanban');
-                const result = await response.json();
-
-                if (!result.success) {
-                    document.getElementById('listaLicitacoes').innerHTML = `
-                        <div class="empty-state">
-                            <h3>Erro ao carregar</h3>
-                            <p>${result.error || 'Tente novamente'}</p>
-                        </div>
-                    `;
-                    return;
-                }
-
-                // Filtra apenas licitações com proposta enviada
-                const licitacoesEnviadas = result.data.filter(lic =>
-                    lic.status === 'enviada' || lic.status === 'disputa'
-                );
-
-                if (licitacoesEnviadas.length === 0) {
-                    document.getElementById('listaLicitacoes').innerHTML = `
-                        <div class="empty-state">
-                            <h3>Nenhuma licitação em disputa</h3>
-                            <p>Envie propostas primeiro na página de Propostas</p>
-                            <br>
-                            <a href="/propostas.html" class="btn-primary" style="text-decoration: none;">Ir para Propostas</a>
-                        </div>
-                    `;
-                    return;
-                }
-
-                // Renderiza lista de licitações
-                let html = '<div style="display: flex; flex-direction: column; gap: 15px;">';
-                licitacoesEnviadas.forEach(lic => {
-                    html += `
-                        <div class="licitacao-info" style="cursor: pointer;" onclick="selecionarLicitacao('${lic.cnpj}', ${lic.ano}, ${lic.sequencial})">
-                            <h2>${lic.objetoCompra || 'Objeto não disponível'}</h2>
-                            <div class="orgao">${lic.nomeOrgao || 'Órgão'} - UASG: ${lic.codigoUnidadeCompradora || 'N/A'}</div>
-                            <span class="badge ${lic.status === 'disputa' ? 'badge-disputa' : 'badge-aguardando'}">
-                                ${lic.status === 'disputa' ? 'Em Disputa' : 'Proposta Enviada'}
-                            </span>
-                        </div>
-                    `;
-                });
-                html += '</div>';
-
-                document.getElementById('listaLicitacoes').innerHTML = html;
-
-            } catch (error) {
-                console.error('Erro ao carregar licitações:', error);
-                document.getElementById('listaLicitacoes').innerHTML = `
-                    <div class="empty-state">
-                        <h3>Erro de conexão</h3>
-                        <p>${error.message}</p>
+    <div class="grid-2">
+        <div>
+            <!-- Lance Manual -->
+            <div class="panel">
+                <h3>🚀 Enviar Lance</h3>
+                <div class="form-row">
+                    <div class="form-group" style="flex:2">
+                        <label>CompraId</label>
+                        <input type="text" id="compraId" placeholder="93119906000012026">
                     </div>
-                `;
-            }
+                    <div class="form-group">
+                        <label>Item</label>
+                        <input type="number" id="itemNumero" value="1" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Valor (R$)</label>
+                        <input type="number" id="valorLance" step="0.01" min="0" placeholder="1600.00">
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-success" onclick="enviarLanceAgora()">⚡ Enviar Agora</button>
+                </div>
+                <div id="resultadoLance"></div>
+            </div>
+
+            <!-- Agendamento Sniper -->
+            <div class="panel">
+                <h3>⏱️ Agendar Sniper</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Horário Alvo (Brasília)</label>
+                        <input type="time" id="horarioAlvo" step="1" value="16:00:00">
+                    </div>
+                    <div class="form-group">
+                        <label>Data</label>
+                        <input type="date" id="dataAlvo">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Antecedência (ms)</label>
+                        <input type="number" id="antecedenciaMs" value="300" min="50" max="5000">
+                    </div>
+                    <div class="form-group">
+                        <label>Tentativas</label>
+                        <input type="number" id="tentativas" value="5" min="1" max="20">
+                    </div>
+                    <div class="form-group">
+                        <label>Intervalo (ms)</label>
+                        <input type="number" id="intervaloMs" value="50" min="10" max="1000">
+                    </div>
+                </div>
+                <p class="text-sm text-muted mb-10">Usa CompraId, Item e Valor acima.</p>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="agendarSniper()">🎯 Agendar Sniper</button>
+                    <button class="btn btn-danger" onclick="cancelarTodos()">🛑 Cancelar Todos</button>
+                </div>
+            </div>
+
+            <!-- Agendamentos Ativos -->
+            <div class="panel">
+                <h3>📋 Agendamentos</h3>
+                <div id="listaAgendamentos">
+                    <p class="text-muted text-center">Nenhum agendamento</p>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <!-- Histórico -->
+            <div class="panel">
+                <h3>📊 Histórico de Lances</h3>
+                <div id="historicoLances">
+                    <p class="text-muted text-center">Nenhum lance enviado</p>
+                </div>
+            </div>
+
+            <!-- Logs -->
+            <div class="panel">
+                <h3>📝 Logs</h3>
+                <div class="log-container" id="logsContainer">
+                    <div class="text-muted">Aguardando...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+const API = '';
+let offsetMs = 0;
+let ultimaLatencia = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('dataAlvo').value = new Date().toISOString().split('T')[0];
+    atualizarTudo();
+    setInterval(atualizarTudo, 5000);
+    setInterval(atualizarRelogio, 500);
+});
+
+// ==================== STATUS ====================
+
+async function atualizarTudo() {
+    try {
+        const [sniper, monitor] = await Promise.all([
+            fetch(`${API}/api/sniper/status`).then(r => r.json()).catch(() => ({})),
+            fetch(`${API}/api/monitor-v2/status`).then(r => r.json()).catch(() => ({})),
+        ]);
+        const st = monitor.status || {};
+        const chromeEl = document.getElementById('statusChrome');
+        chromeEl.textContent = st.chromeConectado ? '✅ OK' : '❌ Off';
+        chromeEl.className = 'value ' + (st.chromeConectado ? 'verde' : 'vermelho');
+
+        const bearerEl = document.getElementById('statusBearer');
+        if (st.ultimoToken) {
+            const age = (Date.now() - new Date(st.ultimoToken).getTime()) / 1000;
+            bearerEl.textContent = age < 600 ? '✅ ' + Math.floor(age) + 's' : '⚠️ Velho';
+            bearerEl.className = 'value ' + (age < 600 ? 'verde' : 'amarelo');
+        } else {
+            bearerEl.textContent = '❌'; bearerEl.className = 'value vermelho';
         }
 
-        // ==================== SELECIONAR LICITAÇÃO ====================
-
-        async function selecionarLicitacao(cnpj, ano, sequencial) {
-            try {
-                // Busca detalhes da licitação
-                const response = await fetch(`/api/licitacoes/${cnpj}/${sequencial}/${ano}`);
-                const result = await response.json();
-
-                if (!result.success) {
-                    alert('Erro ao carregar licitação: ' + (result.error || 'Desconhecido'));
-                    return;
-                }
-
-                licitacaoAtiva = result.data;
-                licitacaoAtiva.cnpj = cnpj;
-                licitacaoAtiva.ano = ano;
-                licitacaoAtiva.sequencial = sequencial;
-
-                // Atualiza interface
-                document.getElementById('licitacaoTitulo').textContent = licitacaoAtiva.objetoCompra || 'Licitação';
-                document.getElementById('licitacaoOrgao').textContent =
-                    `${licitacaoAtiva.nomeOrgao || 'Órgão'} - UASG: ${licitacaoAtiva.codigoUnidadeCompradora || 'N/A'}`;
-
-                // Monta link do Comprasnet
-                const compraId = `${cnpj.replace(/\D/g, '').padStart(14, '0').substring(0, 6)}${String(sequencial).padStart(5, '0')}${ano}`;
-                document.getElementById('linkComprasnet').href =
-                    `https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/compras`;
-
-                // Mostra painéis
-                document.getElementById('panelSelecao').style.display = 'none';
-                document.getElementById('panelLicitacao').style.display = 'block';
-                document.getElementById('panelConfig').style.display = 'block';
-                document.getElementById('panelItens').style.display = 'block';
-                document.getElementById('panelLog').style.display = 'block';
-
-                adicionarLog(`Licitação selecionada: ${licitacaoAtiva.objetoCompra?.substring(0, 50)}...`, 'info');
-
-                // Carrega itens da proposta
-                await carregarItensDisputa();
-
-            } catch (error) {
-                console.error('Erro ao selecionar licitação:', error);
-                alert('Erro ao selecionar licitação: ' + error.message);
-            }
+        if (sniper.ativo) {
+            offsetMs = sniper.offsetServidorMs || 0;
+            document.getElementById('statusAgendamentos').textContent = sniper.agendamentosAtivos || 0;
+            document.getElementById('statusLances').textContent = sniper.lancesEnviados || 0;
         }
+        if (ultimaLatencia) document.getElementById('statusLatencia').textContent = ultimaLatencia + 'ms';
+    } catch (e) {}
+    carregarAgendamentos();
+    carregarHistorico();
+    carregarLogs();
+}
 
-        // ==================== CARREGAR ITENS ====================
-
-        async function carregarItensDisputa() {
-            if (!licitacaoAtiva) return;
-
-            try {
-                // Busca itens de interesse desta licitação
-                const response = await fetch('/api/interesse');
-                const result = await response.json();
-
-                if (!result.success) return;
-
-                // Filtra itens desta licitação
-                const itensLicitacao = result.data.filter(item =>
-                    item.cnpj === licitacaoAtiva.cnpj &&
-                    item.ano === licitacaoAtiva.ano &&
-                    item.sequencial === licitacaoAtiva.sequencial
-                );
-
-                itensDisputa = itensLicitacao.map(item => ({
-                    numero: item.numeroItem,
-                    descricao: item.descricao || `Item ${item.numeroItem}`,
-                    menorLance: null,
-                    meuLance: item.valorUnitarioEstimado || 0,
-                    posicao: '-',
-                    limite: null,
-                    autoAtivo: true
-                }));
-
-                renderizarItens();
-                document.getElementById('itensDisputa').textContent = itensDisputa.length;
-
-            } catch (error) {
-                console.error('Erro ao carregar itens:', error);
-            }
+function atualizarRelogio() {
+    const agora = new Date(Date.now() + offsetMs);
+    const h = String(agora.getUTCHours()).padStart(2,'0');
+    const m = String(agora.getUTCMinutes()).padStart(2,'0');
+    const s = String(agora.getUTCSeconds()).padStart(2,'0');
+    document.getElementById('horaServidor').textContent = h+':'+m+':'+s;
+    document.querySelectorAll('[data-countdown]').forEach(el => {
+        const alvo = el.getAttribute('data-alvo');
+        if (!alvo) return;
+        const diff = new Date(alvo).getTime() - Date.now();
+        if (diff <= 0) { el.textContent = '🔥 AGORA'; el.style.color = '#f44336'; }
+        else {
+            const min = Math.floor(diff/60000);
+            const seg = Math.floor((diff%60000)/1000);
+            el.textContent = 'em ' + min + 'm ' + seg + 's';
+            el.style.color = diff < 60000 ? '#f44336' : '#ff9800';
         }
+    });
+}
 
-        // ==================== RENDERIZAR ITENS ====================
+// ==================== CONEXÃO ====================
 
-        function renderizarItens() {
-            const tbody = document.getElementById('tabelaItens');
-            tbody.innerHTML = '';
+async function conectar() {
+    try {
+        const r = await fetch(`${API}/api/monitor-v2/conectar`, {method:'POST'});
+        const d = await r.json();
+        alert(d.success ? '✅ Chrome conectado!' : '❌ ' + d.error);
+    } catch(e) { alert('❌ ' + e.message); }
+    atualizarTudo();
+}
 
-            itensDisputa.forEach((item, index) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td class="item-numero">${item.numero}</td>
-                    <td class="item-descricao" title="${item.descricao}">${item.descricao.substring(0, 50)}${item.descricao.length > 50 ? '...' : ''}</td>
-                    <td class="valor-atual">${item.menorLance ? formatarValor(item.menorLance) : '-'}</td>
-                    <td class="meu-lance">${item.meuLance ? formatarValor(item.meuLance) : '-'}</td>
-                    <td class="posicao ${item.posicao === 1 ? 'posicao-1' : 'posicao-outro'}">${item.posicao}</td>
-                    <td>
-                        <input type="number" class="limite-input" value="${item.limite || ''}"
-                               placeholder="Sem limite" style="width: 80px; padding: 5px; background: #1a1a2e; border: 1px solid #0f3460; color: #fff; border-radius: 4px;"
-                               onchange="atualizarLimite(${index}, this.value)">
-                    </td>
-                    <td>
-                        <button class="btn-lance btn-cobrir" onclick="cobrirLance(${index})" ${!item.menorLance ? 'disabled' : ''}>
-                            Cobrir
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
+async function calibrar() {
+    try {
+        const r = await fetch(`${API}/api/sniper/calibrar`, {method:'POST'});
+        const d = await r.json();
+        if (d.success) {
+            offsetMs = d.offset;
+            ultimaLatencia = d.latencia;
+            alert('✅ Calibrado!\nOffset: '+d.offset+'ms\nLatência: '+d.latencia+'ms');
+        } else alert('❌ ' + d.error);
+    } catch(e) { alert('❌ ' + e.message); }
+    atualizarTudo();
+}
 
-        // ==================== AÇÕES DE LANCE ====================
+// ==================== LANCE ====================
 
-        function atualizarLimite(index, valor) {
-            itensDisputa[index].limite = valor ? parseFloat(valor) : null;
-            adicionarLog(`Limite do Item ${itensDisputa[index].numero} definido: ${valor ? formatarValor(valor) : 'Sem limite'}`, 'info');
-        }
+function getForm() {
+    return {
+        compraId: document.getElementById('compraId').value.trim(),
+        itemNumero: parseInt(document.getElementById('itemNumero').value) || 1,
+        valor: parseFloat(document.getElementById('valorLance').value) || 0,
+    };
+}
 
-        async function cobrirLance(index) {
-            const item = itensDisputa[index];
-            if (!item.menorLance) {
-                adicionarLog(`Item ${item.numero}: Sem lance para cobrir`, 'aviso');
-                return;
-            }
+async function enviarLanceAgora() {
+    const {compraId, itemNumero, valor} = getForm();
+    if (!compraId || !valor) return alert('Preencha CompraId e Valor!');
+    if (!confirm('Enviar R$ '+valor.toFixed(2)+' no item '+itemNumero+'?')) return;
 
-            const modo = document.getElementById('modoCobertura').value;
-            const cobertura = parseFloat(document.getElementById('valorCobertura').value) || 0.01;
-
-            let novoLance;
-            if (modo === 'valor') {
-                novoLance = item.menorLance - cobertura;
-            } else {
-                novoLance = item.menorLance * (1 - cobertura / 100);
-            }
-
-            // Verifica limite
-            if (item.limite && novoLance < item.limite) {
-                adicionarLog(`Item ${item.numero}: Lance ${formatarValor(novoLance)} abaixo do limite ${formatarValor(item.limite)}`, 'aviso');
-                return;
-            }
-
-            // Verifica mínimo global
-            const minimoGlobal = parseFloat(document.getElementById('valorMinimo').value);
-            if (minimoGlobal && novoLance < minimoGlobal) {
-                adicionarLog(`Item ${item.numero}: Lance ${formatarValor(novoLance)} abaixo do mínimo global ${formatarValor(minimoGlobal)}`, 'aviso');
-                return;
-            }
-
-            // Envia lance via API
-            try {
-                const response = await fetch('/api/lance/enviar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        item: item.numero,
-                        valor: novoLance,
-                        licitacao: licitacaoAtiva
-                    })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    item.meuLance = novoLance;
-                    contadorLances++;
-                    document.getElementById('lancesEnviados').textContent = contadorLances;
-                    adicionarLog(`Item ${item.numero}: Lance enviado ${formatarValor(novoLance)}`, 'sucesso');
-                    renderizarItens();
-                } else {
-                    adicionarLog(`Item ${item.numero}: Erro - ${result.error}`, 'erro');
-                }
-
-            } catch (error) {
-                adicionarLog(`Item ${item.numero}: Erro de conexão - ${error.message}`, 'erro');
-            }
-        }
-
-        // ==================== MODO AUTOMÁTICO ====================
-
-        function toggleAutomatico() {
-            lancesAutomaticos = !lancesAutomaticos;
-            const toggle = document.getElementById('toggleAuto');
-            const label = document.getElementById('labelAuto');
-
-            if (lancesAutomaticos) {
-                toggle.classList.add('ativo');
-                label.textContent = 'Lances Automáticos: LIGADO';
-                adicionarLog('Modo automático ATIVADO', 'sucesso');
-                document.getElementById('statusGeral').textContent = 'Automático';
-                document.getElementById('statusGeral').className = 'value verde';
-            } else {
-                toggle.classList.remove('ativo');
-                label.textContent = 'Lances Automáticos: DESLIGADO';
-                adicionarLog('Modo automático DESATIVADO', 'aviso');
-                document.getElementById('statusGeral').textContent = 'Manual';
-                document.getElementById('statusGeral').className = 'value amarelo';
-            }
-
-            // Salva preferência
-            localStorage.setItem('lancesAutomaticos', lancesAutomaticos);
-        }
-
-        // ==================== POLLING / ATUALIZAÇÃO ====================
-
-        async function atualizarDados() {
-            if (!licitacaoAtiva) return;
-
-            try {
-                // Busca dados atuais da disputa via API
-                const response = await fetch('/api/lance/status');
-                const result = await response.json();
-
-                if (result.success && result.itens) {
-                    // Atualiza itens com dados do Comprasnet
-                    result.itens.forEach(itemServer => {
-                        const itemLocal = itensDisputa.find(i => i.numero === itemServer.numero);
-                        if (itemLocal) {
-                            itemLocal.menorLance = itemServer.menorLance;
-                            itemLocal.posicao = itemServer.posicao;
-                        }
-                    });
-
-                    renderizarItens();
-                    atualizarMelhorPosicao();
-
-                    // Se automático, tenta cobrir lances
-                    if (lancesAutomaticos) {
-                        await processarLancesAutomaticos();
-                    }
-                }
-
-            } catch (error) {
-                // Ignora erros de polling
-            }
-        }
-
-        function atualizarMelhorPosicao() {
-            const posicoes = itensDisputa
-                .filter(i => i.posicao && i.posicao !== '-')
-                .map(i => parseInt(i.posicao));
-
-            if (posicoes.length > 0) {
-                const melhor = Math.min(...posicoes);
-                document.getElementById('melhorPosicao').textContent = melhor + 'º';
-                document.getElementById('melhorPosicao').className = melhor === 1 ? 'value verde' : 'value amarelo';
-            }
-        }
-
-        async function processarLancesAutomaticos() {
-            const intervalo = parseInt(document.getElementById('intervaloLances').value) * 1000;
-
-            for (const item of itensDisputa) {
-                if (!item.autoAtivo) continue;
-                if (!item.menorLance) continue;
-                if (item.posicao === 1) continue; // Já em primeiro
-
-                // Verifica se pode cobrir
-                await cobrirLance(itensDisputa.indexOf(item));
-                await new Promise(resolve => setTimeout(resolve, intervalo));
-            }
-        }
-
-        // ==================== INICIALIZAÇÃO ====================
-
-        document.addEventListener('DOMContentLoaded', () => {
-            carregarLicitacoes();
-
-            // Restaura preferência
-            lancesAutomaticos = localStorage.getItem('lancesAutomaticos') === 'true';
-            if (lancesAutomaticos) {
-                document.getElementById('toggleAuto').classList.add('ativo');
-                document.getElementById('labelAuto').textContent = 'Lances Automáticos: LIGADO';
-            }
-
-            // Polling a cada 5 segundos
-            setInterval(atualizarDados, 5000);
+    const div = document.getElementById('resultadoLance');
+    div.innerHTML = '<div class="result-card">⏳ Enviando...</div>';
+    try {
+        const r = await fetch(`${API}/api/sniper/lance`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({compraId, itemNumero, valor}),
         });
-    </script>
-    <script src="/js/menu-config.js"></script>
-    <script src="/js/sidebar.js"></script>
-    <script>initSidebar('lances');</script>
+        const data = await r.json();
+        if (data.success) {
+            const l = data.lance;
+            let info = '';
+            try {
+                const resp = JSON.parse(l.resposta);
+                if (Array.isArray(resp) && resp[0]) {
+                    info = '<br>Melhor geral: <strong class="verde">R$ '+fmtVal(resp[0].melhorValorGeral?.valorInformado)+'</strong>';
+                    info += '<br>Nosso: <strong class="azul">R$ '+fmtVal(resp[0].melhorValorFornecedor?.valorInformado)+'</strong>';
+                }
+            } catch(e){}
+            div.innerHTML = '<div class="result-card sucesso">✅ Lance aceito! R$ '+valor.toFixed(2)+' em '+l.tempoMs+'ms'+info+'</div>';
+        } else {
+            div.innerHTML = '<div class="result-card erro">❌ '+(data.error||'Erro')+'</div>';
+        }
+    } catch(e) {
+        div.innerHTML = '<div class="result-card erro">❌ '+e.message+'</div>';
+    }
+    atualizarTudo();
+}
+
+// ==================== AGENDAMENTO ====================
+
+async function agendarSniper() {
+    const {compraId, itemNumero, valor} = getForm();
+    if (!compraId || !valor) return alert('Preencha CompraId e Valor!');
+
+    const data = document.getElementById('dataAlvo').value;
+    const hora = document.getElementById('horarioAlvo').value;
+    if (!data || !hora) return alert('Preencha Data e Horário!');
+
+    const localDate = new Date(data+'T'+hora);
+    const utcDate = new Date(localDate.getTime() + 3*3600000);
+    const horarioAlvoUTC = utcDate.toISOString();
+    const minutos = Math.floor((utcDate.getTime()-Date.now())/60000);
+
+    const antecedenciaMs = parseInt(document.getElementById('antecedenciaMs').value)||300;
+    const tentativas = parseInt(document.getElementById('tentativas').value)||5;
+    const intervaloMs = parseInt(document.getElementById('intervaloMs').value)||50;
+
+    if (!confirm('Agendar sniper:\n\nCompra: '+compraId+'\nItem: '+itemNumero+'\nValor: R$ '+valor.toFixed(2)+'\nAlvo: '+hora+' BRT (em '+minutos+' min)\nAntecedência: '+antecedenciaMs+'ms\nTentativas: '+tentativas+' x '+intervaloMs+'ms')) return;
+
+    try {
+        const r = await fetch(`${API}/api/sniper/agendar`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({compraId, itemNumero, valor, horarioAlvo:horarioAlvoUTC, antecedenciaMs, tentativas, intervaloTentativasMs:intervaloMs}),
+        });
+        const d = await r.json();
+        if (d.success) alert('✅ Agendado!\nDisparo: '+d.disparoEm+'\nEm '+d.delaySegundos+'s');
+        else alert('❌ '+d.error);
+    } catch(e) { alert('❌ '+e.message); }
+    atualizarTudo();
+}
+
+async function cancelarTodos() {
+    if (!confirm('Cancelar TODOS?')) return;
+    try {
+        const r = await fetch(`${API}/api/sniper/cancelar-todos`,{method:'POST'});
+        const d = await r.json();
+        alert('Cancelados: '+(d.cancelados||0));
+    } catch(e) { alert(e.message); }
+    atualizarTudo();
+}
+
+async function cancelarUm(id) {
+    await fetch(`${API}/api/sniper/cancelar/${id}`,{method:'POST'}).catch(()=>{});
+    atualizarTudo();
+}
+
+// ==================== LISTAS ====================
+
+async function carregarAgendamentos() {
+    try {
+        const d = await fetch(`${API}/api/sniper/agendamentos`).then(r=>r.json());
+        const div = document.getElementById('listaAgendamentos');
+        if (!d.agendamentos?.length) { div.innerHTML='<p class="text-muted text-center">Nenhum</p>'; return; }
+        div.innerHTML = d.agendamentos.map(ag => {
+            const exec = ag.executado;
+            const ok = ag.resultados?.some(r=>r.sucesso);
+            const badge = exec ? (ok?'<span class="badge badge-ok">✅ OK</span>':'<span class="badge badge-erro">❌ Falhou</span>') : '<span class="badge badge-aguardando">⏳</span>';
+            return '<div class="agendamento-card'+(exec?' executado':'')+'"><div>'
+                +'<strong>Item '+ag.item+'</strong> — R$ '+(ag.valor?.toFixed(2)||'?')+'<br>'
+                +'<span class="text-sm text-muted">'+ag.compraId+'</span><br>'
+                +badge+' <span class="text-sm" data-countdown data-alvo="'+ag.alvo+'"></span>'
+                +'</div><div style="text-align:right">'
+                +'<div class="text-sm text-muted">Alvo: '+fmtHoraBRT(ag.alvo)+'</div>'
+                +(!exec?'<button class="btn btn-danger btn-sm mt-10" onclick="cancelarUm(\''+ag.id+'\')">Cancelar</button>':'')
+                +'</div></div>';
+        }).join('');
+    } catch(e){}
+}
+
+async function carregarHistorico() {
+    try {
+        const d = await fetch(`${API}/api/sniper/historico`).then(r=>r.json());
+        const div = document.getElementById('historicoLances');
+        if (!d.historico?.length) { div.innerHTML='<p class="text-muted text-center">Nenhum</p>'; return; }
+        div.innerHTML = '<table><thead><tr><th>Hora</th><th>Item</th><th>Valor</th><th>Status</th><th>Ms</th></tr></thead><tbody>'
+            + d.historico.slice(0,20).map(l => {
+                const hora = new Date(l.timestamp).toLocaleTimeString('pt-BR');
+                return '<tr><td>'+hora+'</td><td>'+l.itemNumero+'</td><td>R$ '+l.valor?.toFixed(2)+'</td>'
+                    +'<td class="'+(l.sucesso?'verde':'vermelho')+'">'+(l.sucesso?'✅':'❌ '+l.status)+'</td>'
+                    +'<td>'+l.tempoMs+'</td></tr>';
+            }).join('')
+            + '</tbody></table>';
+    } catch(e){}
+}
+
+async function carregarLogs() {
+    try {
+        const d = await fetch(`${API}/api/sniper/logs`).then(r=>r.json());
+        const div = document.getElementById('logsContainer');
+        if (!d.logs?.length) { div.innerHTML='<div class="text-muted">Sem logs</div>'; return; }
+        div.innerHTML = d.logs.slice(-30).map(log => {
+            let cls = 'log-info';
+            if (log.includes('✅')) cls='log-ok';
+            else if (log.includes('❌')||log.includes('Erro')) cls='log-erro';
+            else if (log.includes('⚠️')) cls='log-alerta';
+            else if (log.includes('🎯')||log.includes('🚀')) cls='log-sniper';
+            return '<div class="'+cls+'">'+esc(log)+'</div>';
+        }).join('');
+        div.scrollTop = div.scrollHeight;
+    } catch(e){}
+}
+
+// ==================== UTILS ====================
+function fmtVal(v) { return v==null?'--':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtHoraBRT(iso) { if(!iso)return'--'; const d=new Date(iso); return d.toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'}); }
+function esc(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+</script>
 </body>
 </html>
