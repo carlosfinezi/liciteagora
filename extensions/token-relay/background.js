@@ -303,7 +303,7 @@ async function syncParticipacoes(tabId, bearer) {
 
   if (syncCompleto) {
     console.log('[LiciteAgora] Sync COMPLETO (todos os filtros)...');
-    return await syncParticipacoesFiltros(tabId, bearer, [5, 1, 2, 3, 4, 6]);
+    return await syncParticipacoesFiltros(tabId, bearer, [5, 2, 6]);
   } else {
     console.log('[LiciteAgora] Sync rápido (em andamento)...');
     return await syncParticipacoesFiltros(tabId, bearer, [5]);
