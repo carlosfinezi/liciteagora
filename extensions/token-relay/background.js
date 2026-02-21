@@ -393,6 +393,7 @@ async function syncMensagens(tabId, participacoes, bearer) {
 
   console.log('[LiciteAgora] Buscando mensagens de ' + compraIds.length + ' licitações...');
   let totalNovas = 0;
+  let ok200 = 0, empty = 0, erros = 0, semDados = 0;
 
   for (const compraId of compraIds) {
     try {
@@ -402,23 +403,26 @@ async function syncMensagens(tabId, participacoes, bearer) {
       );
 
       if ((result.status === 200 || result.status === 206) && Array.isArray(result.data) && result.data.length > 0) {
+        ok200++;
         const resp = await serverPost('/api/sync/mensagens', {
           compraId,
           mensagens: result.data,
         });
         if (resp && resp.novas > 0) {
           totalNovas += resp.novas;
-          console.log('[LiciteAgora] ' + compraId + ': ' + resp.novas + ' novas');
         }
+      } else if (result.status === 200 || result.status === 206) {
+        empty++;
+      } else {
+        erros++;
+        if (erros <= 3) console.log('[LiciteAgora] Msg ' + compraId + ': HTTP ' + result.status + ' ' + (result.error || ''));
       }
     } catch (e) {
-      // Skip silently
+      erros++;
     }
   }
 
-  if (totalNovas > 0) {
-    console.log('[LiciteAgora] Total: ' + totalNovas + ' novas mensagens');
-  }
+  console.log('[LiciteAgora] Mensagens: ' + ok200 + ' com dados, ' + empty + ' vazias, ' + erros + ' erros. ' + totalNovas + ' novas salvas.');
 }
 
 // ==================== PERIODIC SYNC via chrome.alarms ====================
