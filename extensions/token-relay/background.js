@@ -14,6 +14,7 @@ const SERVER_URL = 'http://217.216.85.37:8080';
 const COMPRASNET = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const SYNC_INTERVAL_MIN = 3; // sync a cada 3 minutos
 let syncAgendado = false;
+let syncEmExecucao = false;
 
 console.log('[LiciteAgora] Service worker v3.0 carregado!');
 
@@ -232,15 +233,23 @@ async function serverPost(path, body) {
  * Sync completo: participações + mensagens.
  */
 async function executarSync() {
+  if (syncEmExecucao) {
+    console.log('[LiciteAgora] Sync já em execução, pulando');
+    return;
+  }
+  syncEmExecucao = true;
+
   const data = await load();
   if (!data.bearer) {
     console.log('[LiciteAgora] Sync pulado — falta bearer');
+    syncEmExecucao = false;
     return;
   }
 
   const tab = await findComprasnetTab();
   if (!tab) {
     console.log('[LiciteAgora] Sync pulado — nenhuma aba do Comprasnet aberta');
+    syncEmExecucao = false;
     return;
   }
 
@@ -251,9 +260,20 @@ async function executarSync() {
     // 1. Buscar participações
     const participacoes = await syncParticipacoes(tab.id, data.bearer);
 
-    // 2. Buscar mensagens das participações
-    if (participacoes.length > 0) {
-      await syncMensagens(tab.id, participacoes, data.bearer);
+    // 2. Buscar mensagens apenas das participações EM ANDAMENTO (não de todas 402!)
+    // Filtra as que vieram do filtro=5 ou que têm situação ativa
+    const ativas = participacoes.filter(function(p) {
+      const compra = p.compra || p;
+      const sit = compra.situacaoCompraFaseExterna || compra.situacao || '';
+      // PD = publicada/divulgada, FR = em fase de recursos, AB = aberta
+      return sit === 'PD' || sit === 'FR' || sit === 'AB' || sit === '';
+    });
+
+    if (ativas.length > 0) {
+      console.log('[LiciteAgora] ' + ativas.length + ' participações ativas (de ' + participacoes.length + ' total) — buscando mensagens...');
+      await syncMensagens(tab.id, ativas, data.bearer);
+    } else {
+      console.log('[LiciteAgora] Nenhuma participação ativa para buscar mensagens');
     }
 
     stats.syncs = (stats.syncs || 0) + 1;
@@ -262,13 +282,27 @@ async function executarSync() {
   } catch (e) {
     console.error('[LiciteAgora] Erro no sync:', e.message);
     await save({ ultimoErro: 'Sync: ' + e.message });
+  } finally {
+    syncEmExecucao = false;
   }
 }
 
 async function syncParticipacoes(tabId, bearer) {
-  console.log('[LiciteAgora] Buscando participações (todos os filtros)...');
+  const data = await load();
+  const syncCount = (data.stats || {}).syncs || 0;
+  const syncCompleto = syncCount % 5 === 0; // sync completo a cada 5 ciclos
+
+  if (syncCompleto) {
+    console.log('[LiciteAgora] Sync COMPLETO (todos os filtros)...');
+    return await syncParticipacoesFiltros(tabId, bearer, [1, 2, 3, 4, 5, 6]);
+  } else {
+    console.log('[LiciteAgora] Sync rápido (em andamento)...');
+    return await syncParticipacoesFiltros(tabId, bearer, [5]);
+  }
+}
+
+async function syncParticipacoesFiltros(tabId, bearer, filtros) {
   let todas = [];
-  const filtros = [1, 2, 3, 4, 5, 6]; // todos os filtros possíveis
   const idsVistos = new Set();
 
   for (const filtro of filtros) {
@@ -285,7 +319,6 @@ async function syncParticipacoes(tabId, bearer) {
         if (result.status !== 200 && result.status !== 206) break;
         if (!result.data || !Array.isArray(result.data) || result.data.length === 0) break;
 
-        // Deduplicar por compraId construído
         for (const item of result.data) {
           const compra = item.compra || item;
           var uasg = String(compra.numeroUasg || 0).padStart(6, '0');
