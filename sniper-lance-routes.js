@@ -299,33 +299,44 @@ function registrarRotasSniper(app, monitorGetter, db) {
         return res.status(400).json({ success: false, error: 'compraId e mensagens[] obrigatórios' });
       }
 
+      // Extrair cnpjOrgao, ano, sequencial do compraId (uasg6 + mod2 + num5 + ano4)
+      // Ou usar campos da mensagem
       let novas = 0;
 
       for (const msg of mensagens) {
-        const id = msg.id || msg.identificador;
-        if (!id) continue;
+        const conteudo = msg.mensagem || msg.conteudo || msg.texto || '';
+        const remetente = msg.remetente || msg.nomeRemetente || msg.identificadorRemetente || '';
+        const dataHora = msg.dataHora || msg.dataHoraMensagem || msg.dataEnvio || new Date().toISOString();
 
-        const existe = db.prepare('SELECT id FROM chat_mensagens WHERE mensagemId = ?').get(String(id));
+        // Gerar hash para deduplicação
+        const hashMensagem = require('crypto').createHash('md5')
+          .update(compraId + '|' + dataHora + '|' + remetente + '|' + conteudo)
+          .digest('hex');
+
+        const existe = db.prepare('SELECT id FROM chat_mensagens WHERE hashMensagem = ?').get(hashMensagem);
         if (existe) continue;
 
         try {
           db.prepare(`INSERT INTO chat_mensagens
-            (compraId, mensagemId, cnpjOrgao, ano, sequencial, dataHoraMensagem,
-             remetente, conteudo, tipo, notificado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+            (compraId, cnpjOrgao, ano, sequencial, dataHoraMensagem,
+             remetente, mensagem, hashMensagem, tipoRemetente,
+             identificadorRemetente, identificadorDestinatario, notificado)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
             compraId,
-            String(id),
             msg.cnpjOrgao || '',
             msg.ano || 0,
             msg.sequencial || 0,
-            msg.dataHora || msg.dataHoraMensagem || new Date().toISOString(),
-            msg.remetente || msg.nomeRemetente || '',
-            msg.mensagem || msg.conteudo || '',
-            msg.tipo || 'MSG',
+            dataHora,
+            remetente,
+            conteudo,
+            hashMensagem,
+            msg.tipoRemetente || '',
+            msg.identificadorRemetente || '',
+            msg.identificadorDestinatario || '',
           );
           novas++;
         } catch (e) {
-          // Duplicate — skip
+          // Duplicate hash — skip
         }
       }
 
