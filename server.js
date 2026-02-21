@@ -320,6 +320,8 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_chat_mensagens_licitacao ON chat_mensagens(cnpjOrgao, ano, sequencial);
   CREATE INDEX IF NOT EXISTS idx_chat_mensagens_hash ON chat_mensagens(hashMensagem);
+  CREATE INDEX IF NOT EXISTS idx_chat_mensagens_data ON chat_mensagens(dataHoraMensagem DESC);
+  CREATE INDEX IF NOT EXISTS idx_chat_mensagens_compra ON chat_mensagens(compraId);
 
   -- Tabela para checkpoint/progresso de captura de cada licitação
   CREATE TABLE IF NOT EXISTS chat_captura_progresso (
@@ -6330,7 +6332,7 @@ app.get('/api/chat/mensagens', (req, res) => {
       params.push(buscaTermo, buscaTermo);
     }
 
-    sql += ' ORDER BY COALESCE(dataHoraMensagem, dataCaptura) DESC LIMIT ?';
+    sql += ' ORDER BY dataHoraMensagem DESC, id DESC LIMIT ?';
     params.push(parseInt(limit));
 
     const mensagens = db.prepare(sql).all(...params);

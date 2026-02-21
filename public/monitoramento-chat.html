@@ -866,7 +866,7 @@
                 const data = document.getElementById('filtroData').value;
                 const busca = document.getElementById('filtroBusca').value;
 
-                let url = `${API_URL}/api/chat/mensagens?limit=6000`;
+                let url = `${API_URL}/api/chat/mensagens?limit=500`;
 
                 if (lic) {
                     const [cnpjOrgao, ano, sequencial] = lic.split('|');

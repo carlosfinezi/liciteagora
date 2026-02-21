@@ -397,25 +397,40 @@ async function syncMensagens(tabId, participacoes, bearer) {
 
   for (const compraId of compraIds) {
     try {
-      const result = await comprasnetFetch(tabId,
-        '/comprasnet-mensagem/v2/chat/' + compraId + '?size=20&page=0&legadoAsp=false',
-        bearer
-      );
+      // Paginar para pegar TODAS as mensagens (não só as 20 primeiras)
+      let page = 0;
+      let msgCompra = [];
 
-      if ((result.status === 200 || result.status === 206) && Array.isArray(result.data) && result.data.length > 0) {
+      while (true) {
+        const result = await comprasnetFetch(tabId,
+          '/comprasnet-mensagem/v2/chat/' + compraId + '?size=50&page=' + page + '&legadoAsp=false',
+          bearer
+        );
+
+        if ((result.status === 200 || result.status === 206) && Array.isArray(result.data) && result.data.length > 0) {
+          msgCompra = msgCompra.concat(result.data);
+          page++;
+          if (result.data.length < 50) break; // última página
+        } else {
+          if (page === 0 && result.status !== 200 && result.status !== 206) {
+            erros++;
+            if (erros <= 3) console.log('[LiciteAgora] Msg ' + compraId + ': HTTP ' + result.status + ' ' + (result.error || ''));
+          } else if (page === 0) {
+            empty++;
+          }
+          break;
+        }
+      }
+
+      if (msgCompra.length > 0) {
         ok200++;
         const resp = await serverPost('/api/sync/mensagens', {
           compraId,
-          mensagens: result.data,
+          mensagens: msgCompra,
         });
         if (resp && resp.novas > 0) {
           totalNovas += resp.novas;
         }
-      } else if (result.status === 200 || result.status === 206) {
-        empty++;
-      } else {
-        erros++;
-        if (erros <= 3) console.log('[LiciteAgora] Msg ' + compraId + ': HTTP ' + result.status + ' ' + (result.error || ''));
       }
     } catch (e) {
       erros++;
