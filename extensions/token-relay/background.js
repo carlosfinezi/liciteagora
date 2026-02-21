@@ -166,7 +166,9 @@ async function findComprasnetTab() {
  * Gera captcha FRESCO via hcaptcha.execute() a cada chamada.
  */
 async function comprasnetFetch(tabId, path, bearer) {
-  const results = await chrome.scripting.executeScript({
+  try {
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 20s')), 20000));
+    const exec = chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
     func: async (apiPath, authHeader, baseUrl) => {
@@ -210,7 +212,12 @@ async function comprasnetFetch(tabId, path, bearer) {
     args: [path, bearer, COMPRASNET],
   });
 
-  return results[0]?.result || { status: 0, error: 'No result' };
+    const results = await Promise.race([exec, timeout]);
+    return results[0]?.result || { status: 0, error: 'No result from tab' };
+  } catch (e) {
+    console.error('[LiciteAgora] comprasnetFetch ERRO:', path.substring(0, 60), e.message);
+    return { status: 0, error: e.message };
+  }
 }
 
 /**
@@ -310,6 +317,7 @@ async function syncParticipacoesFiltros(tabId, bearer, filtros) {
   for (const filtro of filtros) {
     let pagina = 0;
     let countFiltro = 0;
+    console.log('[LiciteAgora] Tentando filtro=' + filtro + '...');
 
     while (true) {
       try {
@@ -318,7 +326,10 @@ async function syncParticipacoesFiltros(tabId, bearer, filtros) {
           bearer
         );
 
-        if (result.status !== 200 && result.status !== 206) break;
+        if (result.status !== 200 && result.status !== 206) {
+          console.log('[LiciteAgora] filtro=' + filtro + ' pág ' + pagina + ': HTTP ' + result.status + ' ' + (result.error || ''));
+          break;
+        }
         if (!result.data || !Array.isArray(result.data) || result.data.length === 0) break;
 
         for (const item of result.data) {
