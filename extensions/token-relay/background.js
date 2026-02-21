@@ -12,7 +12,7 @@
 
 const SERVER_URL = 'http://217.216.85.37:8080';
 const COMPRASNET = 'https://cnetmobile.estaleiro.serpro.gov.br';
-const SYNC_INTERVAL_MIN = 5; // sync a cada 5 minutos
+const SYNC_INTERVAL_MIN = 2; // sync a cada 2 minutos
 let syncAgendado = false;
 let syncEmExecucao = false;
 
