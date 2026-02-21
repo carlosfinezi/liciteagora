@@ -266,29 +266,50 @@ async function executarSync() {
 }
 
 async function syncParticipacoes(tabId, bearer) {
-  console.log('[LiciteAgora] Buscando participações...');
+  console.log('[LiciteAgora] Buscando participações (todos os filtros)...');
   let todas = [];
-  let pagina = 0;
+  const filtros = [1, 2, 3, 4, 5, 6]; // todos os filtros possíveis
+  const idsVistos = new Set();
 
-  while (true) {
-    try {
-      const result = await comprasnetFetch(tabId,
-        '/comprasnet-fase-externa/v1/compras/participacoes?filtro=5&tamanhoPagina=50&pagina=' + pagina,
-        bearer
-      );
+  for (const filtro of filtros) {
+    let pagina = 0;
+    let countFiltro = 0;
 
-      if (result.status !== 200 && result.status !== 206) {
-        console.log('[LiciteAgora] Participações pág ' + pagina + ': HTTP ' + result.status + (result.hasCaptcha ? ' (com captcha)' : ' (SEM captcha!)'));
+    while (true) {
+      try {
+        const result = await comprasnetFetch(tabId,
+          '/comprasnet-fase-externa/v1/compras/participacoes?filtro=' + filtro + '&tamanhoPagina=50&pagina=' + pagina,
+          bearer
+        );
+
+        if (result.status !== 200 && result.status !== 206) break;
+        if (!result.data || !Array.isArray(result.data) || result.data.length === 0) break;
+
+        // Deduplicar por compraId construído
+        for (const item of result.data) {
+          const compra = item.compra || item;
+          var uasg = String(compra.numeroUasg || 0).padStart(6, '0');
+          var mod = String(compra.modalidade || 0).padStart(2, '0');
+          var num = String(compra.numero || 0).padStart(5, '0');
+          var ano = String(compra.ano || '');
+          var cid = uasg + mod + num + ano;
+
+          if (!idsVistos.has(cid)) {
+            idsVistos.add(cid);
+            todas.push(item);
+            countFiltro++;
+          }
+        }
+
+        pagina++;
+        if (result.data.length < 50) break;
+      } catch (e) {
         break;
       }
-      if (!result.data || !Array.isArray(result.data) || result.data.length === 0) break;
+    }
 
-      todas = todas.concat(result.data);
-      pagina++;
-      if (result.data.length < 50) break;
-    } catch (e) {
-      console.error('[LiciteAgora] Erro participações:', e.message);
-      break;
+    if (countFiltro > 0) {
+      console.log('[LiciteAgora] filtro=' + filtro + ': ' + countFiltro + ' participações');
     }
   }
 
