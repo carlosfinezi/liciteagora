@@ -12,7 +12,7 @@
 
 const SERVER_URL = 'http://217.216.85.37:8080';
 const COMPRASNET = 'https://cnetmobile.estaleiro.serpro.gov.br';
-const SYNC_INTERVAL_MIN = 3; // sync a cada 3 minutos
+const SYNC_INTERVAL_MIN = 5; // sync a cada 5 minutos
 let syncAgendado = false;
 let syncEmExecucao = false;
 
@@ -266,20 +266,16 @@ async function executarSync() {
     // 1. Buscar participações
     const participacoes = await syncParticipacoes(tab.id, data.bearer);
 
-    // 2. Buscar mensagens apenas das participações EM ANDAMENTO (não de todas 402!)
-    // Filtra as que vieram do filtro=5 ou que têm situação ativa
-    const ativas = participacoes.filter(function(p) {
-      const compra = p.compra || p;
-      const sit = compra.situacaoCompraFaseExterna || compra.situacao || '';
-      // PD = publicada/divulgada, FR = em fase de recursos, AB = aberta
-      return sit === 'PD' || sit === 'FR' || sit === 'AB' || sit === '';
+    // 2. Buscar mensagens apenas das participações EM ANDAMENTO (filtro=5)
+    const emAndamento = participacoes.filter(function(p) {
+      return p._filtro === 5;
     });
 
-    if (ativas.length > 0) {
-      console.log('[LiciteAgora] ' + ativas.length + ' participações ativas (de ' + participacoes.length + ' total) — buscando mensagens...');
-      await syncMensagens(tab.id, ativas, data.bearer);
+    if (emAndamento.length > 0) {
+      console.log('[LiciteAgora] ' + emAndamento.length + ' em andamento (de ' + participacoes.length + ' total) — buscando mensagens...');
+      await syncMensagens(tab.id, emAndamento, data.bearer);
     } else {
-      console.log('[LiciteAgora] Nenhuma participação ativa para buscar mensagens');
+      console.log('[LiciteAgora] Nenhuma participação em andamento para mensagens');
     }
 
     stats.syncs = (stats.syncs || 0) + 1;
@@ -300,7 +296,7 @@ async function syncParticipacoes(tabId, bearer) {
 
   if (syncCompleto) {
     console.log('[LiciteAgora] Sync COMPLETO (todos os filtros)...');
-    return await syncParticipacoesFiltros(tabId, bearer, [1, 2, 3, 4, 5, 6]);
+    return await syncParticipacoesFiltros(tabId, bearer, [5, 1, 2, 3, 4, 6]);
   } else {
     console.log('[LiciteAgora] Sync rápido (em andamento)...');
     return await syncParticipacoesFiltros(tabId, bearer, [5]);
@@ -335,6 +331,7 @@ async function syncParticipacoesFiltros(tabId, bearer, filtros) {
 
           if (!idsVistos.has(cid)) {
             idsVistos.add(cid);
+            item._filtro = filtro; // marcar qual filtro trouxe
             todas.push(item);
             countFiltro++;
           }
