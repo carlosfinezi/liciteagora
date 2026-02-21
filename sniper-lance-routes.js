@@ -292,21 +292,32 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * POST /api/sync/mensagens
    * Recebe mensagens de uma licitação em bulk da extensão Chrome.
    */
-  app.post('/api/sync/mensagens', (req, res) => {
+  app.post('/api/sync/mensagens', async (req, res) => {
     try {
       const { compraId, mensagens } = req.body;
       if (!compraId || !Array.isArray(mensagens)) {
         return res.status(400).json({ success: false, error: 'compraId e mensagens[] obrigatórios' });
       }
 
-      // Extrair cnpjOrgao, ano, sequencial do compraId (uasg6 + mod2 + num5 + ano4)
-      // Ou usar campos da mensagem
+      // Obter CNPJ do fornecedor para detectar mensagens direcionadas
+      let meuCnpj = '';
+      try {
+        const fornConfig = db.prepare('SELECT cnpj FROM fornecedor WHERE id = 1').get();
+        meuCnpj = fornConfig?.cnpj || '';
+        if (!meuCnpj) {
+          const configVal = db.prepare("SELECT valor FROM config WHERE chave = 'fornecedor_cnpj'").get();
+          meuCnpj = configVal?.valor || '';
+        }
+      } catch (e) {}
+
       let novas = 0;
+      const alertas = []; // mensagens direcionadas a mim
 
       for (const msg of mensagens) {
         const conteudo = msg.mensagem || msg.conteudo || msg.texto || '';
         const remetente = msg.remetente || msg.nomeRemetente || msg.identificadorRemetente || '';
         const dataHora = msg.dataHora || msg.dataHoraMensagem || msg.dataEnvio || new Date().toISOString();
+        const destinatario = msg.identificadorDestinatario || '';
 
         // Gerar hash para deduplicação
         const hashMensagem = require('crypto').createHash('md5')
@@ -332,9 +343,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
             hashMensagem,
             msg.tipoRemetente || '',
             msg.identificadorRemetente || '',
-            msg.identificadorDestinatario || '',
+            destinatario,
           );
           novas++;
+
+          // Detectar mensagem direcionada a mim
+          if (meuCnpj && destinatario === meuCnpj) {
+            alertas.push({ conteudo, dataHora, compraId });
+          }
         } catch (e) {
           // Duplicate hash — skip
         }
@@ -343,7 +359,41 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (novas > 0) {
         console.log(`[Sync] Mensagens ${compraId}: ${novas} novas (de ${mensagens.length})`);
       }
-      res.json({ success: true, novas, total: mensagens.length });
+
+      // Enviar alertas Telegram para mensagens direcionadas
+      if (alertas.length > 0) {
+        try {
+          const telegramConfig = db.prepare('SELECT botToken, chatId FROM telegram_config WHERE id = 1 AND ativo = 1').get();
+          if (telegramConfig?.botToken && telegramConfig?.chatId) {
+            // Buscar info da participação
+            const participacao = db.prepare('SELECT orgao, objeto FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
+            const orgao = participacao?.orgao || compraId;
+            const objeto = participacao?.objeto || '';
+
+            for (const alerta of alertas) {
+              const texto = `🚨 <b>MENSAGEM DIRECIONADA A VOCÊ!</b>\n\n` +
+                `📋 <b>Compra:</b> ${compraId}\n` +
+                `🏢 <b>Órgão:</b> ${orgao}\n` +
+                (objeto ? `📝 <b>Objeto:</b> ${objeto.substring(0, 100)}...\n` : '') +
+                `⏰ <b>Hora:</b> ${alerta.dataHora}\n\n` +
+                `💬 ${alerta.conteudo}\n\n` +
+                `⚠️ <b>RESPONDA IMEDIATAMENTE — prazo pode ser de apenas 10 minutos!</b>`;
+
+              const axios = require('axios');
+              await axios.post(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
+                chat_id: telegramConfig.chatId,
+                text: texto,
+                parse_mode: 'HTML'
+              });
+              console.log(`[ALERTA] Telegram enviado: mensagem direcionada em ${compraId}`);
+            }
+          }
+        } catch (telegramErr) {
+          console.error('[ALERTA] Erro Telegram:', telegramErr.message);
+        }
+      }
+
+      res.json({ success: true, novas, total: mensagens.length, alertas: alertas.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
