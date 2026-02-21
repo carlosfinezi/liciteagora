@@ -223,8 +223,14 @@ async function serverPost(path, body) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return resp.ok ? await resp.json() : null;
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      console.error('[LiciteAgora] serverPost ' + path + ' → HTTP ' + resp.status + ': ' + text.substring(0, 100));
+      return null;
+    }
+    return await resp.json();
   } catch (e) {
+    console.error('[LiciteAgora] serverPost ' + path + ' FALHOU:', e.message);
     return null;
   }
 }
@@ -351,6 +357,8 @@ async function syncParticipacoesFiltros(tabId, bearer, filtros) {
     const resp = await serverPost('/api/sync/participacoes', { participacoes: todas });
     if (resp) {
       console.log('[LiciteAgora] Servidor: ' + (resp.inseridas || 0) + ' novas, ' + (resp.atualizadas || 0) + ' atualizadas');
+    } else {
+      console.error('[LiciteAgora] Servidor NÃO respondeu ao sync de participações!');
     }
   } else {
     console.log('[LiciteAgora] Nenhuma participação retornada');
