@@ -3260,7 +3260,6 @@ app.get('/api/chat/monitoramentos', (req, res) => {
       ORDER BY dataAtualizacao DESC
     `).all();
 
-    console.log(`[Chat] Monitoramentos: ${monitoramentos.length} licitações com compraId`);
     res.json({ success: true, data: monitoramentos });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

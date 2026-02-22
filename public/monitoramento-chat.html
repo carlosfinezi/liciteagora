@@ -580,8 +580,7 @@
             <div class="tabs">
                 <button class="tab active" data-tab="mensagens">Mensagens</button>
                 <button class="tab" data-tab="monitoradas">Monitoradas</button>
-                <button class="tab" data-tab="config">Configurações</button>
-                <button class="tab" data-tab="logs">Logs</button>
+                <button class="tab" data-tab="config">Telegram</button>
             </div>
 
             <!-- Tab: Mensagens -->
@@ -648,7 +647,7 @@
                 <div class="panel">
                     <h3><span>📡</span> Licitações Monitoradas pelo Polling</h3>
                     <p style="color: #888; margin-bottom: 15px; font-size: 13px;">
-                        CompraIds mapeados automaticamente. O polling verifica novas mensagens a cada 1 minuto.
+                        Monitoramento via extensão Chrome v3.0. Sync automático a cada 2 minutos.
                     </p>
                     <div id="monitoradasContainer">
                         <div class="loading">Carregando...</div>
@@ -703,41 +702,8 @@
                         </ol>
                     </div>
                 </div>
-
-                <!-- Palavras-chave -->
-                <div class="panel">
-                    <h3>
-                        <span>🔑</span>
-                        Palavras-chave de Alerta
-                    </h3>
-                    <p style="color: #888; margin-bottom: 20px; font-size: 14px;">
-                        Mensagens com estas palavras serão destacadas e enviam alerta no Telegram.
-                    </p>
-
-                    <div class="palavras-lista" id="palavrasLista">
-                        <div class="loading">Carregando...</div>
-                    </div>
-
-                    <div class="add-palavra">
-                        <input type="text" id="novaPalavra" placeholder="Nova palavra-chave..." onkeypress="if(event.key==='Enter') adicionarPalavra()">
-                        <button class="btn btn-primary" onclick="adicionarPalavra()">+ Adicionar</button>
-                    </div>
-                </div>
             </div>
 
-            <!-- Tab: Logs -->
-            <div class="tab-content" id="tab-logs">
-                <div class="panel">
-                    <h3>
-                        <span>📋</span>
-                        Logs do Monitor
-                        <button class="btn btn-primary" style="margin-left: auto; font-size: 12px;" onclick="carregarLogs()">Atualizar</button>
-                    </h3>
-                    <div class="logs-container" id="logsContainer">
-                        <div class="loading">Carregando logs...</div>
-                    </div>
-                </div>
-            </div>
         </main>
     </div>
 
@@ -1143,89 +1109,6 @@
         }
 
         // Palavras-chave
-        async function carregarPalavras() {
-            try {
-                const res = await fetch(`${API_URL}/api/chat/palavras-chave`);
-                const data = await res.json();
-
-                const lista = document.getElementById('palavrasLista');
-
-                if (!data.data || data.data.length === 0) {
-                    lista.innerHTML = '<p style="color: #666;">Nenhuma palavra-chave cadastrada</p>';
-                    return;
-                }
-
-                lista.innerHTML = data.data.map(p => `
-                    <div class="palavra-tag">
-                        ${p.palavra}
-                        <button class="remover" onclick="removerPalavra(${p.id})" title="Remover">×</button>
-                    </div>
-                `).join('');
-            } catch (e) {
-                console.error('Erro ao carregar palavras:', e);
-            }
-        }
-
-        async function adicionarPalavra() {
-            const input = document.getElementById('novaPalavra');
-            const palavra = input.value.trim();
-
-            if (!palavra || palavra.length < 2) {
-                showAlert('Palavra deve ter pelo menos 2 caracteres', 'error');
-                return;
-            }
-
-            try {
-                const res = await fetch(`${API_URL}/api/chat/palavras-chave`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ palavra })
-                });
-
-                if (res.ok) {
-                    input.value = '';
-                    carregarPalavras();
-                    showAlert('Palavra-chave adicionada!', 'success');
-                }
-            } catch (e) {
-                showAlert('Erro ao adicionar palavra', 'error');
-            }
-        }
-
-        async function removerPalavra(id) {
-            if (!confirm('Remover esta palavra-chave?')) return;
-
-            try {
-                await fetch(`${API_URL}/api/chat/palavras-chave/${id}`, { method: 'DELETE' });
-                carregarPalavras();
-                showAlert('Palavra-chave removida', 'success');
-            } catch (e) {
-                showAlert('Erro ao remover palavra', 'error');
-            }
-        }
-
-        // Logs
-        async function carregarLogs() {
-            try {
-                const res = await fetch(`${API_URL}/api/chat/monitor-status`);
-                const data = await res.json();
-
-                const container = document.getElementById('logsContainer');
-                if (data.logs && data.logs.length > 0) {
-                    container.innerHTML = data.logs.map(log => {
-                        let className = 'log-entry';
-                        if (log.toLowerCase().includes('erro')) className += ' error';
-                        if (log.toLowerCase().includes('sucesso')) className += ' success';
-                        return `<div class="${className}">${log}</div>`;
-                    }).reverse().join('');
-                } else {
-                    container.innerHTML = '<div class="log-entry">Nenhum log disponível</div>';
-                }
-            } catch (e) {
-                console.error('Erro ao carregar logs:', e);
-            }
-        }
-
         // Filtro por órgão atualiza as licitações disponíveis
         document.getElementById('filtroOrgao').addEventListener('change', async function() {
             const orgao = this.value;
@@ -1469,15 +1352,8 @@
         carregarFiltros();
         carregarMensagens();
         carregarMonitoradas();
-        carregarPalavras();
-        carregarLogs();
         carregarTelegramStatus();
 
-        // Auto-refresh a cada 30 segundos
-        setInterval(() => {
-            carregarMensagens();
-            carregarMonitoradas();
-        }, 30000);
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
