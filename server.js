@@ -1021,10 +1021,11 @@ app.get('/api/licitacoes', async (req, res) => {
       params.push('%' + numeroLicitacao + '%', numeroLicitacao);
     }
 
-    // Filtro por UASG
+    // Filtro por UASG (padded to 6 digits for exact match, also try without padding)
     if (uasg) {
-      conditions.push("codigoUnidade = ?");
-      params.push(uasg);
+      const uasgPadded = uasg.padStart(6, '0');
+      conditions.push("(codigoUnidade = ? OR codigoUnidade = ?)");
+      params.push(uasg, uasgPadded);
     }
 
     if (dataAberturaInicial) {

@@ -30,16 +30,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const umAnoAtras = new Date(hoje);
     umAnoAtras.setFullYear(hoje.getFullYear() - 1);
 
-    // Fim Propostas: amanhã até próximos 30 dias
-    const amanha = new Date(hoje);
-    amanha.setDate(hoje.getDate() + 1);
+    // Fim Propostas: hoje até próximos 30 dias
 
     const trintaDiasFrente = new Date(hoje);
     trintaDiasFrente.setDate(hoje.getDate() + 30);
 
     document.getElementById('dataPublicacaoInicial').valueAsDate = umAnoAtras;
     document.getElementById('dataPublicacaoFinal').valueAsDate = hoje;
-    document.getElementById('dataAberturaInicial').valueAsDate = amanha;
+    document.getElementById('dataAberturaInicial').valueAsDate = hoje;
     document.getElementById('dataAberturaFinal').valueAsDate = trintaDiasFrente;
 
     // Event listeners
@@ -323,16 +321,14 @@ function limparFiltros() {
     const umAnoAtras = new Date(hoje);
     umAnoAtras.setFullYear(hoje.getFullYear() - 1);
 
-    // Fim Propostas: amanhã até próximos 30 dias
-    const amanha = new Date(hoje);
-    amanha.setDate(hoje.getDate() + 1);
+    // Fim Propostas: hoje até próximos 30 dias
 
     const trintaDiasFrente = new Date(hoje);
     trintaDiasFrente.setDate(hoje.getDate() + 30);
 
     document.getElementById('dataPublicacaoInicial').valueAsDate = umAnoAtras;
     document.getElementById('dataPublicacaoFinal').valueAsDate = hoje;
-    document.getElementById('dataAberturaInicial').valueAsDate = amanha;
+    document.getElementById('dataAberturaInicial').valueAsDate = hoje;
     document.getElementById('dataAberturaFinal').valueAsDate = trintaDiasFrente;
 
     // Limpar resultados
