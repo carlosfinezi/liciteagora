@@ -10,14 +10,21 @@ const SENHA = 'Lombardi6392@#';
 
 async function solveHCaptcha(pageUrl) {
   console.log('  [CapSolver] Criando tarefa hCaptcha...');
-  const createRes = await axios.post('https://api.capsolver.com/createTask', {
-    clientKey: CAPSOLVER_KEY,
-    task: {
-      type: 'HCaptchaTaskProxyless',
-      websiteKey: HCAPTCHA_SITEKEY,
-      websiteURL: pageUrl
-    }
-  });
+  let createRes;
+  try {
+    createRes = await axios.post('https://api.capsolver.com/createTask', {
+      clientKey: CAPSOLVER_KEY,
+      task: {
+        type: 'HCaptchaTaskProxyless',
+        websiteKey: HCAPTCHA_SITEKEY,
+        websiteURL: pageUrl
+      }
+    });
+  } catch (err) {
+    console.log('  [CapSolver] HTTP Error:', err.response?.status, JSON.stringify(err.response?.data));
+    throw err;
+  }
+  console.log('  [CapSolver] Response:', JSON.stringify(createRes.data));
 
   if (createRes.data.errorId) {
     throw new Error(`CapSolver error: ${createRes.data.errorCode} - ${createRes.data.errorDescription}`);
