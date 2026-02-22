@@ -3,800 +3,460 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Preparar Propostas - PNCP</title>
+    <title>Propostas - LiciteAgora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
-            min-height: 100vh;
-        }
-        .layout {
-            display: flex;
-            min-height: 100vh;
-        }
-        .sidebar {
-            width: 220px;
-            background: #16213e;
-            padding: 20px 0;
-            border-right: 1px solid #0f3460;
-        }
-        .sidebar h2 {
-            color: #4dabf7;
-            padding: 0 20px 20px;
-            border-bottom: 1px solid #0f3460;
-            margin-bottom: 10px;
-        }
-        .sidebar a {
-            display: block;
-            color: #adb5bd;
-            text-decoration: none;
-            padding: 12px 20px;
-            transition: all 0.3s;
-        }
-        .sidebar a:hover, .sidebar a.active {
-            background: #0f3460;
-            color: #4dabf7;
-            border-left: 3px solid #4dabf7;
-        }
-        .main-content {
-            flex: 1;
-            padding: 30px;
-            overflow-y: auto;
-        }
-        h1 {
-            color: #4dabf7;
-            margin-bottom: 10px;
-        }
-        .subtitle {
-            color: #888;
-            margin-bottom: 30px;
-        }
-        .steps-container {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-        }
-        .step {
-            flex: 1;
-            background: #16213e;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            opacity: 0.5;
-            transition: all 0.3s;
-        }
-        .step.active {
-            opacity: 1;
-            border: 2px solid #4dabf7;
-        }
-        .step.completed {
-            opacity: 1;
-            border: 2px solid #4caf50;
-        }
-        .step-number {
-            width: 30px;
-            height: 30px;
-            background: #0f3460;
-            border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 10px;
-            font-weight: bold;
-        }
-        .step.active .step-number {
-            background: #4dabf7;
-            color: #000;
-        }
-        .step.completed .step-number {
-            background: #4caf50;
-            color: #fff;
-        }
-        .panel {
-            background: #16213e;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 20px;
-        }
-        .panel h3 {
-            color: #4dabf7;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #0f3460;
-        }
-        .licitacao-group {
-            background: #1a1a2e;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 15px;
-            border: 1px solid #0f3460;
-        }
-        .licitacao-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-        }
-        .licitacao-titulo {
-            font-weight: 600;
-            color: #fff;
-            flex: 1;
-            margin-right: 15px;
-        }
-        .licitacao-orgao {
-            color: #888;
-            font-size: 0.9em;
-            margin-top: 5px;
-        }
-        .btn-comprasnet {
-            background: #ff9800;
-            color: #000;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .btn-comprasnet:hover {
-            background: #ffa726;
-        }
-        .itens-proposta {
-            margin-top: 15px;
-        }
-        .item-proposta {
-            display: grid;
-            grid-template-columns: 40px 1fr 120px 120px 200px 100px;
-            gap: 12px;
-            align-items: center;
-            padding: 15px;
-            background: #16213e;
-            border-radius: 6px;
-            margin-bottom: 10px;
-        }
-        .item-proposta.selecionado {
-            border: 1px solid #4caf50;
-        }
-        .item-extras {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        .item-extras input {
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            color: #fff;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 0.85em;
-        }
-        .item-extras input:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
-        .item-extras input::placeholder {
-            color: #666;
-        }
-        .item-checkbox {
-            width: 24px;
-            height: 24px;
-            cursor: pointer;
-        }
-        .item-descricao {
-            font-size: 0.95em;
-        }
-        .item-numero {
-            color: #4dabf7;
-            font-weight: 600;
-            font-size: 0.85em;
-            margin-bottom: 5px;
-        }
-        .item-valor-ref {
-            color: #888;
-            font-size: 0.9em;
-        }
-        .item-valor-ref span {
-            color: #4caf50;
-        }
-        .item-input {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        .item-input label {
-            font-size: 0.8em;
-            color: #888;
-        }
-        .item-input input {
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 4px;
-            width: 100%;
-        }
-        .item-input input:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
-        .item-total {
-            text-align: right;
-            font-weight: 600;
-            color: #4caf50;
-        }
-        .item-actions {
-            text-align: center;
-        }
-        .btn-copiar {
-            background: #0f3460;
-            color: #4dabf7;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.85em;
-        }
-        .btn-copiar:hover {
-            background: #4dabf7;
-            color: #000;
-        }
-        .resumo-proposta {
-            background: #1a1a2e;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-        }
-        .resumo-proposta h4 {
-            color: #4dabf7;
-            margin-bottom: 15px;
-        }
-        .resumo-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #0f3460;
-        }
-        .resumo-total {
-            display: flex;
-            justify-content: space-between;
-            padding: 15px 0;
-            font-size: 1.2em;
-            font-weight: 600;
-            color: #4caf50;
-        }
-        .btn-primary {
-            background: #4dabf7;
-            color: #000;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 1em;
-        }
-        .btn-primary:hover {
-            background: #74c0fc;
-        }
-        .btn-secondary {
-            background: #0f3460;
-            color: #4dabf7;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 1em;
-        }
-        .btn-secondary:hover {
-            background: #16213e;
-        }
-        .btn-pdf {
-            background: #e53935;
-            color: #fff;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 1em;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .btn-pdf:hover {
-            background: #f44336;
-        }
-        .btn-pdf-assinado {
-            background: #2e7d32;
-            color: #fff;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 1em;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .btn-pdf-assinado:hover {
-            background: #388e3c;
-        }
-        .actions-bar {
-            display: flex;
-            gap: 15px;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 60px;
-            color: #888;
-        }
-        .empty-state h3 {
-            color: #4dabf7;
-            margin-bottom: 15px;
-        }
-        .loading {
-            text-align: center;
-            padding: 60px;
-            color: #888;
-        }
-        .textarea-copiar {
-            width: 100%;
-            height: 200px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            color: #fff;
-            padding: 15px;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 0.9em;
-            resize: vertical;
-        }
-        .desconto-info {
-            font-size: 0.85em;
-            margin-top: 5px;
-        }
-        .desconto-positivo {
-            color: #4caf50;
-        }
-        .desconto-negativo {
-            color: #f44336;
-        }
-        .select-all-container {
-            margin-bottom: 15px;
-            padding: 10px;
-            background: #0f3460;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .select-all-container label {
-            cursor: pointer;
-        }
-        .badge-qtd {
-            background: #4dabf7;
-            color: #000;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 0.85em;
-            margin-left: 10px;
-        }
-        .filtros-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr auto;
-            gap: 15px;
-            align-items: end;
-        }
-        .filtro-grupo {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        .filtro-grupo label {
-            font-size: 0.85em;
-            color: #888;
-        }
-        .filtro-grupo input,
-        .filtro-grupo select {
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            color: #fff;
-            padding: 10px 12px;
-            border-radius: 6px;
-            font-size: 0.95em;
-        }
-        .filtro-grupo input:focus,
-        .filtro-grupo select:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
-        .filtro-grupo select {
-            cursor: pointer;
-        }
-        .btn-limpar-filtros {
-            background: #0f3460;
-            color: #4dabf7;
-            border: none;
-            padding: 10px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9em;
-            white-space: nowrap;
-        }
-        .btn-limpar-filtros:hover {
-            background: #4dabf7;
-            color: #000;
-        }
-        .filtro-resultado {
-            margin-top: 10px;
-            font-size: 0.9em;
-            color: #888;
-        }
-        .licitacao-group.filtro-oculto {
-            display: none;
-        }
-        .licitacao-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #0f3460;
-            justify-content: flex-end;
-        }
-        .btn-action {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 14px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 0.85em;
-            transition: all 0.2s;
-        }
-        .btn-action:hover {
-            transform: translateY(-1px);
-        }
-        .btn-action.btn-csv {
-            background: #0f3460;
-            color: #4dabf7;
-        }
-        .btn-action.btn-csv:hover {
-            background: #4dabf7;
-            color: #000;
-        }
-        .btn-action.btn-pdf {
-            background: #2e7d32;
-            color: #fff;
-        }
-        .btn-action.btn-pdf:hover {
-            background: #388e3c;
-        }
-        .btn-action.btn-enviar {
-            background: #ff9800;
-            color: #000;
-        }
-        .btn-action.btn-enviar:hover {
-            background: #ffa726;
-        }
-
-        .sidebar {
-            width: 220px;
-            background: #16213e;
-            padding: 0;
-            border-right: 1px solid #0f3460;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-        }
-        .sidebar-header {
-            padding: 20px;
-            border-bottom: 1px solid #0f3460;
-        }
-        .sidebar-logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #4dabf7;
-            text-decoration: none;
-            font-size: 1.3em;
-            font-weight: 700;
-        }
-        .sidebar-menu {
-            padding: 15px 0;
-            flex: 1;
-        }
-        .menu-section {
-            color: #666;
-            font-size: 0.75em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            padding: 10px 20px 5px;
-            margin-top: 10px;
-        }
-        .menu-section:first-child {
-            margin-top: 0;
-        }
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 20px;
-            color: #adb5bd;
-            text-decoration: none;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-        .menu-item:hover {
-            background: #0f3460;
-            color: #4dabf7;
-        }
-        .menu-item.active {
-            background: #0f3460;
-            color: #4dabf7;
-            border-left-color: #4dabf7;
-        }
-        .menu-item .icon {
-            font-size: 1.1em;
-        }
-        </style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .main-content { background: #1a1a2e; padding: 20px; }
+        h1 { color: #4dabf7; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 20px; }
+        .status-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .status-item { background: #16213e; padding: 12px 16px; border-radius: 8px; flex: 1; min-width: 110px; text-align: center; }
+        .status-item .label { color: #888; font-size: 0.8em; margin-bottom: 4px; }
+        .status-item .value { font-size: 1.1em; font-weight: 600; }
+        .verde { color: #4caf50; } .vermelho { color: #f44336; } .amarelo { color: #ff9800; } .azul { color: #4dabf7; }
+        .panel { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+        .panel h3 { color: #4dabf7; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; color: #aaa; font-size: 0.85em; margin-bottom: 4px; }
+        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.95em; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4dabf7; }
+        .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #4dabf7; color: #000; } .btn-primary:hover { background: #339af0; }
+        .btn-danger { background: #f44336; color: #fff; } .btn-danger:hover { background: #d32f2f; }
+        .btn-success { background: #4caf50; color: #fff; } .btn-success:hover { background: #388e3c; }
+        .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; } .btn-outline:hover { background: #4dabf722; }
+        .btn-sm { padding: 4px 10px; font-size: 0.8em; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #0f3460; }
+        th { color: #4dabf7; font-size: 0.85em; text-transform: uppercase; }
+        tr:hover { background: #0f346044; }
+        .search-box { display: flex; gap: 8px; margin-bottom: 16px; }
+        .search-box input { flex: 1; padding: 10px 14px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.95em; }
+        .search-box input:focus { outline: none; border-color: #4dabf7; }
+        .lic-card { padding: 12px; border-radius: 6px; background: #0f346055; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+        .lic-card:hover { background: #0f3460; }
+        .lic-card.selecionado { border-color: #4dabf7; background: #0f3460; }
+        .lic-card .orgao { font-size: 0.85em; color: #aaa; }
+        .lic-card .objeto { font-size: 0.85em; color: #ccc; margin-top: 4px; }
+        .lic-card .meta { display: flex; gap: 12px; margin-top: 6px; font-size: 0.8em; color: #888; }
+        .lic-list { max-height: 400px; overflow-y: auto; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600; }
+        .badge-andamento { background: #1b5e20; color: #4caf50; }
+        .badge-encerrada { background: #4a148c; color: #ce93d8; }
+        .badge-aberta { background: #e65100; color: #ff9800; }
+        .badge-pendente { background: #0d47a1; color: #64b5f6; }
+        .item-row { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid #0f3460; }
+        .item-row:last-child { border-bottom: none; }
+        .item-num { width: 50px; font-weight: 600; color: #4dabf7; text-align: center; }
+        .item-desc { flex: 1; font-size: 0.9em; }
+        .item-valor { width: 140px; }
+        .item-valor input { width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; text-align: right; }
+        .item-add { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+        .item-add input { padding: 6px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; }
+        .item-add input[type="number"] { width: 80px; text-align: center; }
+        .result-box { padding: 12px; border-radius: 6px; margin-top: 12px; font-size: 0.9em; }
+        .result-box.sucesso { background: #1b5e2088; border: 1px solid #4caf50; }
+        .result-box.erro { background: #b71c1c44; border: 1px solid #f44336; }
+        .result-box.info { background: #0d47a144; border: 1px solid #4dabf7; }
+        .log-container { max-height: 200px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.8em; background: #0d1117; border-radius: 6px; padding: 10px; }
+        .empty-state { text-align: center; padding: 40px 20px; color: #888; }
+        .empty-state .icon { font-size: 3em; margin-bottom: 10px; }
+        .fila-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-radius: 6px; background: #0f346055; margin-bottom: 8px; }
+    </style>
 </head>
 <body>
-    <div class="layout">
-        
+<div class="layout">
+    <div class="main-content">
+        <h1>📋 Envio de Propostas</h1>
+        <p class="subtitle">Envio direto via API Comprasnet • Extensão v2.0</p>
 
-        <main class="main-content">
-            <h1>Preparar Propostas</h1>
-            <p class="subtitle">Selecione os itens de interesse e defina seus valores para preparar a proposta</p>
-
-            <div class="steps-container">
-                <div class="step active" id="step1">
-                    <div class="step-number">1</div>
-                    <div>Selecionar Itens</div>
-                </div>
-                <div class="step" id="step2">
-                    <div class="step-number">2</div>
-                    <div>Definir Valores</div>
-                </div>
-                <div class="step" id="step3">
-                    <div class="step-number">3</div>
-                    <div>Enviar no Comprasnet</div>
-                </div>
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="label">Participações Ativas</div>
+                <div class="value azul" id="totalParticipacoes">-</div>
             </div>
-
-            <div id="loadingContainer" class="loading">
-                <h3>Carregando itens de interesse...</h3>
+            <div class="status-item">
+                <div class="label">Em Andamento</div>
+                <div class="value verde" id="emAndamento">-</div>
             </div>
-
-            <div id="emptyState" class="empty-state" style="display: none;">
-                <h3>Nenhum item de interesse</h3>
-                <p>Adicione itens de interesse na tela de consulta para preparar propostas.</p>
-                <br>
-                <a href="index.html" class="btn-primary" style="text-decoration: none;">Ir para Consulta</a>
+            <div class="status-item">
+                <div class="label">Na Fila</div>
+                <div class="value amarelo" id="naFila">-</div>
             </div>
+            <div class="status-item">
+                <div class="label">Último Envio</div>
+                <div class="value" id="ultimoEnvio">-</div>
+            </div>
+        </div>
 
-            <!-- Filtros -->
-            <div id="filtrosContainer" class="panel" style="display: none;">
-                <div class="filtros-grid">
-                    <div class="filtro-grupo">
-                        <label>Buscar</label>
-                        <input type="text" id="filtroTexto" placeholder="Objeto, órgão ou UASG..." onkeyup="aplicarFiltros()">
-                    </div>
-                    <div class="filtro-grupo">
-                        <label>Modalidade</label>
-                        <select id="filtroModalidade" onchange="aplicarFiltros()">
+        <div class="grid-2">
+            <!-- Painel Esquerdo: Lista de Participações -->
+            <div>
+                <div class="panel">
+                    <h3>📑 Participações — Selecione para enviar proposta</h3>
+                    <div class="search-box">
+                        <input type="text" id="busca" placeholder="Buscar por órgão, objeto, compraId..." oninput="filtrarParticipacoes()">
+                        <select id="filtroSituacao" onchange="carregarParticipacoes()" style="width:160px; padding:10px; border-radius:6px; border:1px solid #0f3460; background:#1a1a2e; color:#eee;">
                             <option value="">Todas</option>
+                            <option value="5" selected>Em andamento</option>
+                            <option value="2">Encerradas</option>
                         </select>
                     </div>
-                    <div class="filtro-grupo">
-                        <label>Status</label>
-                        <select id="filtroStatus" onchange="aplicarFiltros()">
-                            <option value="">Todos</option>
-                            <option value="comValor">Com valor preenchido</option>
-                            <option value="semValor">Sem valor preenchido</option>
-                        </select>
-                    </div>
-                    <div class="filtro-grupo">
-                        <button class="btn-limpar-filtros" onclick="limparFiltros()">Limpar Filtros</button>
+                    <div class="lic-list" id="listaParticipacoes">
+                        <div class="empty-state">
+                            <div class="icon">⏳</div>
+                            <p>Carregando participações...</p>
+                        </div>
                     </div>
                 </div>
-                <div id="filtroResultado" class="filtro-resultado"></div>
             </div>
 
-            <div id="propostasContainer" style="display: none;">
-                <!-- Licitações serão renderizadas aqui -->
-            </div>
+            <!-- Painel Direito: Envio de Proposta -->
+            <div>
+                <!-- Proposta para compra selecionada -->
+                <div class="panel" id="panelProposta" style="display:none;">
+                    <h3>🎯 Proposta — <span id="compraIdSelecionado"></span></h3>
+                    <div id="infoCompra" style="margin-bottom:12px; font-size:0.85em; color:#aaa;"></div>
 
-            <div id="resumoGeral" class="panel" style="display: none;">
-                <h3>Resumo Geral</h3>
-                <div id="resumoConteudo"></div>
-                <div class="actions-bar">
-                    <button class="btn-secondary" onclick="copiarResumo()">Copiar Resumo</button>
-                    <button class="btn-secondary" onclick="exportarCSV()">Exportar Todos (CSV)</button>
-                </div>
-            </div>
+                    <div id="listaItens"></div>
 
-            <!-- Configurações de Credenciais -->
-            <div class="panel" style="margin-top: 20px;">
-                <h3>Configurações do Comprasnet</h3>
-                <div id="statusCredenciais" style="margin-bottom: 15px;">
-                    Verificando credenciais...
-                </div>
-                <button class="btn-secondary" onclick="abrirModalCredenciais()">
-                    Configurar Credenciais
-                </button>
-            </div>
-        </main>
-    </div>
+                    <div class="item-add">
+                        <span style="color:#aaa; font-size:0.85em;">Adicionar item:</span>
+                        <input type="number" id="novoItemNum" placeholder="Nº" min="1" style="width:60px;">
+                        <input type="number" id="novoItemValor" placeholder="Valor unitário" step="0.01" min="0.01" style="width:130px;">
+                        <button class="btn btn-sm btn-outline" onclick="adicionarItem()">+ Adicionar</button>
+                    </div>
 
-    <!-- Modal de Credenciais -->
-    <div id="modalCredenciais" class="modal" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Credenciais do Comprasnet</h3>
-                <button class="btn-fechar" onclick="fecharModalCredenciais()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <p style="color: #888; margin-bottom: 20px;">
-                    Informe suas credenciais de acesso ao Comprasnet (gov.br)
-                </p>
-                <div class="form-group">
-                    <label for="inputUsuario">CPF/CNPJ</label>
-                    <input type="text" id="inputUsuario" placeholder="Digite seu CPF ou CNPJ">
+                    <div style="margin-top: 16px; display:flex; gap:8px;">
+                        <button class="btn btn-success" onclick="enviarProposta()" id="btnEnviar">
+                            🚀 Enviar Proposta
+                        </button>
+                        <button class="btn btn-outline" onclick="limparProposta()">Limpar</button>
+                    </div>
+
+                    <div id="resultadoEnvio"></div>
                 </div>
-                <div class="form-group">
-                    <label for="inputSenha">Senha</label>
-                    <input type="password" id="inputSenha" placeholder="Digite sua senha">
+
+                <!-- Entrada direta por compraId -->
+                <div class="panel">
+                    <h3>⚡ Envio Rápido por CompraId</h3>
+                    <div class="form-group">
+                        <label>CompraId (17 dígitos)</label>
+                        <div style="display:flex; gap:8px;">
+                            <input type="text" id="compraIdDireto" placeholder="Ex: 07001206000152026" maxlength="17" style="flex:1;">
+                            <button class="btn btn-primary" onclick="selecionarPorCompraId()">Selecionar</button>
+                        </div>
+                    </div>
                 </div>
-                <p style="color: #ff9800; font-size: 0.85em; margin-top: 15px;">
-                    Suas credenciais são armazenadas localmente e usadas apenas para automação do envio de propostas.
-                </p>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="fecharModalCredenciais()">Cancelar</button>
-                <button class="btn-primary" onclick="salvarCredenciais()">Salvar</button>
+
+                <!-- Fila de Envio -->
+                <div class="panel">
+                    <h3>📤 Fila de Envio</h3>
+                    <div id="filaEnvio">
+                        <div class="empty-state" style="padding:20px;">
+                            <p style="color:#888;">Nenhuma proposta na fila</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Último Resultado -->
+                <div class="panel">
+                    <h3>📊 Status do Envio</h3>
+                    <div id="statusEnvio">
+                        <p style="color:#888; font-size:0.85em;">Nenhum envio recente</p>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Modal de Envio -->
-    <div id="modalEnvio" class="modal" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Enviar Proposta</h3>
-                <button class="btn-fechar" onclick="fecharModalEnvio()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div id="envioLicitacaoInfo"></div>
-                <div id="envioStatus" style="margin-top: 20px;">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
-                    </div>
-                    <p id="envioMensagem" style="margin-top: 10px; color: #888;"></p>
+    </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('propostas');</script>
+<script>
+// ==================== STATE ====================
+let participacoes = [];
+let compraSelecionada = null;
+let itensProposta = []; // [{numero, valor, marca, modelo}]
+
+// ==================== CARREGAR PARTICIPAÇÕES ====================
+async function carregarParticipacoes() {
+    const filtro = document.getElementById('filtroSituacao').value;
+    try {
+        const url = `/api/proposta/participacoes${filtro ? '?situacao=' + filtro : ''}`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error);
+
+        participacoes = data.data || [];
+        document.getElementById('totalParticipacoes').textContent = data.stats?.total || 0;
+        document.getElementById('emAndamento').textContent = data.stats?.emAndamento || 0;
+        renderizarParticipacoes();
+    } catch (e) {
+        document.getElementById('listaParticipacoes').innerHTML =
+            `<div class="empty-state"><div class="icon">❌</div><p>Erro: ${e.message}</p></div>`;
+    }
+}
+
+function filtrarParticipacoes() {
+    renderizarParticipacoes();
+}
+
+function renderizarParticipacoes() {
+    const busca = (document.getElementById('busca').value || '').toLowerCase();
+    const lista = document.getElementById('listaParticipacoes');
+
+    const filtradas = participacoes.filter(p => {
+        if (!busca) return true;
+        return (p.objeto || '').toLowerCase().includes(busca) ||
+               (p.orgao || '').toLowerCase().includes(busca) ||
+               (p.compraId || '').includes(busca) ||
+               (p.numero || '').includes(busca);
+    });
+
+    if (filtradas.length === 0) {
+        lista.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>Nenhuma participação encontrada</p></div>';
+        return;
+    }
+
+    lista.innerHTML = filtradas.map(p => {
+        const selecionado = compraSelecionada === p.compraId ? 'selecionado' : '';
+        const etapa = (p.etapa || p.situacao || '').toLowerCase();
+        let badgeClass = 'badge-pendente';
+        let badgeText = p.etapa || p.situacao || '?';
+        if (etapa.includes('andamento')) { badgeClass = 'badge-andamento'; badgeText = 'Em andamento'; }
+        else if (etapa.includes('encerrad')) { badgeClass = 'badge-encerrada'; badgeText = 'Encerrada'; }
+        else if (etapa.includes('aberta')) { badgeClass = 'badge-aberta'; badgeText = 'Aberta'; }
+
+        const sessao = p.dataSessao ? new Date(p.dataSessao).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+
+        return `
+            <div class="lic-card ${selecionado}" onclick="selecionarCompra('${p.compraId}')">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong>${p.tipo || ''} ${p.numero || ''}</strong>
+                    <span class="badge ${badgeClass}">${badgeText}</span>
                 </div>
-                <div id="envioLog" style="margin-top: 15px; max-height: 200px; overflow-y: auto; background: #1a1a2e; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.85em;">
+                <div class="orgao">${p.orgao || 'Órgão não informado'}</div>
+                <div class="objeto">${(p.objeto || 'Sem objeto').substring(0, 120)}${(p.objeto || '').length > 120 ? '...' : ''}</div>
+                <div class="meta">
+                    <span>🔑 ${p.compraId}</span>
+                    ${sessao ? `<span>📅 ${sessao}</span>` : ''}
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="fecharModalEnvio()">Fechar</button>
-                <button class="btn-primary" onclick="iniciarEnvio()" id="btnIniciarEnvio">Iniciar Envio</button>
+        `;
+    }).join('');
+}
+
+// ==================== SELECIONAR COMPRA ====================
+function selecionarCompra(compraId) {
+    compraSelecionada = compraId;
+    itensProposta = [];
+
+    const p = participacoes.find(x => x.compraId === compraId);
+    document.getElementById('compraIdSelecionado').textContent = compraId;
+    document.getElementById('infoCompra').innerHTML = p
+        ? `<strong>${p.orgao || ''}</strong><br>${p.objeto || ''}`
+        : `CompraId: ${compraId}`;
+
+    document.getElementById('panelProposta').style.display = 'block';
+    document.getElementById('resultadoEnvio').innerHTML = '';
+    renderizarItens();
+    renderizarParticipacoes(); // re-render para highlight
+}
+
+function selecionarPorCompraId() {
+    const compraId = document.getElementById('compraIdDireto').value.trim();
+    if (!compraId || compraId.length < 10) {
+        alert('CompraId inválido');
+        return;
+    }
+    selecionarCompra(compraId);
+}
+
+// ==================== ITENS ====================
+function adicionarItem() {
+    const num = parseInt(document.getElementById('novoItemNum').value);
+    const valor = parseFloat(document.getElementById('novoItemValor').value);
+
+    if (!num || num < 1) { alert('Número do item inválido'); return; }
+    if (!valor || valor <= 0) { alert('Valor inválido'); return; }
+
+    // Verificar duplicado
+    if (itensProposta.some(i => i.numero === num)) {
+        if (!confirm(`Item ${num} já existe. Substituir valor?`)) return;
+        itensProposta = itensProposta.filter(i => i.numero !== num);
+    }
+
+    itensProposta.push({ numero: num, valor: valor });
+    itensProposta.sort((a, b) => a.numero - b.numero);
+
+    document.getElementById('novoItemNum').value = '';
+    document.getElementById('novoItemValor').value = '';
+    document.getElementById('novoItemNum').focus();
+    renderizarItens();
+}
+
+function removerItem(numero) {
+    itensProposta = itensProposta.filter(i => i.numero !== numero);
+    renderizarItens();
+}
+
+function renderizarItens() {
+    const div = document.getElementById('listaItens');
+    if (itensProposta.length === 0) {
+        div.innerHTML = '<p style="color:#888; font-size:0.85em;">Adicione itens abaixo para compor a proposta</p>';
+        return;
+    }
+
+    div.innerHTML = itensProposta.map(item => `
+        <div class="item-row">
+            <div class="item-num">#${item.numero}</div>
+            <div class="item-desc">Item ${item.numero}</div>
+            <div class="item-valor">
+                <input type="number" value="${item.valor}" step="0.01" min="0.01"
+                    onchange="atualizarValorItem(${item.numero}, this.value)"
+                    style="text-align:right;">
             </div>
+            <button class="btn btn-sm btn-danger" onclick="removerItem(${item.numero})" title="Remover">✕</button>
         </div>
-    </div>
+    `).join('');
+}
 
-    <style>
-        .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-        .modal-content {
-            background: #16213e;
-            border-radius: 12px;
-            width: 90%;
-            max-width: 500px;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px;
-            border-bottom: 1px solid #0f3460;
-        }
-        .modal-header h3 {
-            color: #4dabf7;
-            margin: 0;
-        }
-        .btn-fechar {
-            background: none;
-            border: none;
-            color: #888;
-            font-size: 1.5em;
-            cursor: pointer;
-        }
-        .btn-fechar:hover {
-            color: #fff;
-        }
-        .modal-body {
-            padding: 20px;
-        }
-        .modal-footer {
-            padding: 20px;
-            border-top: 1px solid #0f3460;
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        .form-group label {
-            display: block;
-            color: #888;
-            margin-bottom: 5px;
-            font-size: 0.9em;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 10px 12px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            color: #fff;
-            font-size: 1em;
-        }
-        .form-group input:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
-        .progress-bar {
-            height: 8px;
-            background: #0f3460;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .progress-fill {
-            height: 100%;
-            background: #4dabf7;
-            transition: width 0.3s ease;
-        }
-        .credenciais-ok {
-            color: #4caf50;
-        }
-        .credenciais-pendente {
-            color: #ff9800;
-        }
-    </style>
+function atualizarValorItem(numero, valor) {
+    const item = itensProposta.find(i => i.numero === numero);
+    if (item) item.valor = parseFloat(valor);
+}
 
-    <!-- Biblioteca jsPDF para geração de PDF -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
-    <script src="propostas.js"></script>
-    <script src="/js/menu-config.js"></script>
-    <script src="/js/sidebar.js"></script>
-    <script>initSidebar('propostas');</script>
+function limparProposta() {
+    itensProposta = [];
+    renderizarItens();
+    document.getElementById('resultadoEnvio').innerHTML = '';
+}
+
+// ==================== ENVIAR PROPOSTA ====================
+async function enviarProposta() {
+    if (!compraSelecionada) { alert('Selecione uma compra'); return; }
+    if (itensProposta.length === 0) { alert('Adicione pelo menos um item'); return; }
+
+    const btn = document.getElementById('btnEnviar');
+    btn.disabled = true;
+    btn.textContent = '⏳ Enviando...';
+
+    const divResult = document.getElementById('resultadoEnvio');
+    divResult.innerHTML = '<div class="result-box info">Adicionando à fila de envio...</div>';
+
+    try {
+        const resp = await fetch('/api/proposta/enviar-direto', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                compraId: compraSelecionada,
+                itens: itensProposta
+            })
+        });
+        const data = await resp.json();
+
+        if (data.success) {
+            divResult.innerHTML = `
+                <div class="result-box sucesso">
+                    ✅ ${data.message}<br>
+                    <span style="font-size:0.85em; color:#aaa;">
+                        A extensão irá processar automaticamente quando o Comprasnet estiver aberto.
+                    </span>
+                </div>
+            `;
+            carregarFila();
+            carregarStatus();
+        } else {
+            throw new Error(data.error || 'Erro desconhecido');
+        }
+    } catch (e) {
+        divResult.innerHTML = `<div class="result-box erro">❌ Erro: ${e.message}</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🚀 Enviar Proposta';
+    }
+}
+
+// ==================== FILA ====================
+async function carregarFila() {
+    try {
+        const resp = await fetch('/api/proposta/fila');
+        const data = await resp.json();
+        const div = document.getElementById('filaEnvio');
+
+        if (data.success && data.hasPendente && data.data) {
+            const p = data.data;
+            div.innerHTML = `
+                <div class="fila-item">
+                    <div>
+                        <strong>${p.compraId}</strong>
+                        <div style="font-size:0.8em; color:#aaa;">${p.itens?.length || 0} itens • ${p.timestamp || ''}</div>
+                    </div>
+                    <span class="badge badge-aberta">Pendente</span>
+                </div>
+            `;
+            document.getElementById('naFila').textContent = '1';
+        } else {
+            div.innerHTML = '<p style="color:#888; font-size:0.85em; text-align:center; padding:10px;">Fila vazia</p>';
+            document.getElementById('naFila').textContent = '0';
+        }
+    } catch (e) {
+        // silencioso
+    }
+}
+
+// ==================== STATUS ====================
+async function carregarStatus() {
+    try {
+        const resp = await fetch('/api/proposta/status');
+        const data = await resp.json();
+        const div = document.getElementById('statusEnvio');
+
+        if (data.success && data.data) {
+            const s = data.data;
+            if (s.ativo) {
+                div.innerHTML = `
+                    <div class="result-box info">
+                        <strong>🔄 ${s.etapa}</strong><br>
+                        ${(s.mensagens || []).join('<br>')}
+                    </div>
+                `;
+            } else if (s.resultado) {
+                const r = s.resultado;
+                const cls = r.success ? 'sucesso' : 'erro';
+                div.innerHTML = `
+                    <div class="result-box ${cls}">
+                        <strong>${r.success ? '✅ Sucesso' : '❌ Erro'}</strong> — ${r.compraId || ''}<br>
+                        ${r.error || (s.mensagens || []).join('<br>')}
+                    </div>
+                `;
+                document.getElementById('ultimoEnvio').textContent =
+                    new Date(r.timestamp || Date.now()).toLocaleTimeString('pt-BR');
+            } else {
+                div.innerHTML = '<p style="color:#888; font-size:0.85em;">Nenhum envio recente</p>';
+            }
+        }
+    } catch (e) {
+        // silencioso
+    }
+}
+
+// ==================== INIT ====================
+carregarParticipacoes();
+carregarFila();
+carregarStatus();
+
+// Auto-refresh
+setInterval(() => { carregarFila(); carregarStatus(); }, 5000);
+</script>
 </body>
 </html>

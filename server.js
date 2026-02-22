@@ -7371,6 +7371,128 @@ app.post('/api/proposta/enviar', async (req, res) => {
 // Status do envio de proposta (para acompanhar execução)
 let statusEnvioProposta = { ativo: false, etapa: '', progresso: 0, mensagens: [] };
 
+// ==================== PROPOSTAS VIA PARTICIPAÇÕES (v2) ====================
+
+/**
+ * Lista participações em andamento disponíveis para envio de proposta
+ * Substitui o fluxo antigo: PNCP → interesse → propostas
+ * Agora: participacoes_comprasnet (extensão) → proposta direta via API
+ */
+app.get('/api/proposta/participacoes', (req, res) => {
+  try {
+    const { busca, situacao } = req.query;
+
+    let sql = `
+      SELECT compraId, cnpj, codigoUnidade, ano, sequencial, tipo, numero, orgao,
+             objeto, etapa, situacao, urlCompra, dataSessao, ativo, dataAtualizacao
+      FROM participacoes_comprasnet
+      WHERE ativo = 1
+    `;
+    const params = [];
+
+    if (situacao) {
+      sql += ` AND situacao = ?`;
+      params.push(situacao);
+    }
+
+    if (busca) {
+      sql += ` AND (objeto LIKE ? OR orgao LIKE ? OR compraId LIKE ? OR numero LIKE ?)`;
+      const termo = `%${busca}%`;
+      params.push(termo, termo, termo, termo);
+    }
+
+    sql += ` ORDER BY dataSessao DESC, dataAtualizacao DESC`;
+
+    const participacoes = db.prepare(sql).all(...params);
+
+    // Agrupar por situação para o frontend
+    const stats = {
+      total: participacoes.length,
+      emAndamento: participacoes.filter(p => (p.etapa || '').toLowerCase().includes('andamento') || p.situacao === '5').length,
+      encerradas: participacoes.filter(p => (p.etapa || '').toLowerCase().includes('encerrad')).length
+    };
+
+    res.json({ success: true, data: participacoes, stats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Enviar proposta diretamente por compraId (sem passar pelo fluxo PNCP/interesse)
+ * Recebe compraId + array de itens [{numero, valor, marca?, modelo?}]
+ * Adiciona na fila para a extensão processar via API REST
+ */
+app.post('/api/proposta/enviar-direto', (req, res) => {
+  try {
+    const { compraId, itens, declaracoes } = req.body;
+
+    if (!compraId) {
+      return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+    }
+    if (!itens || !Array.isArray(itens) || itens.length === 0) {
+      return res.status(400).json({ success: false, error: 'Array de itens obrigatório' });
+    }
+
+    // Validar itens
+    for (const item of itens) {
+      if (!item.numero || !item.valor || item.valor <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Item inválido: numero=${item.numero}, valor=${item.valor}`
+        });
+      }
+    }
+
+    // Verificar se já não está na fila
+    if (propostasPendentes.some(p => p.compraId === compraId)) {
+      return res.json({ success: true, message: 'Proposta já está na fila', jaExiste: true });
+    }
+
+    // Buscar dados da participação para enriquecer
+    const participacao = db.prepare('SELECT * FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
+
+    const uasg = compraId.substring(0, 6);
+    const proposta = {
+      compraId,
+      uasg,
+      itens: itens.map(item => ({
+        numero: parseInt(item.numero),
+        valor: parseFloat(item.valor),
+        marcaFabricante: item.marca || item.marcaFabricante || null,
+        modeloVersao: item.modelo || item.modeloVersao || null,
+        quantidade: item.quantidade || null
+      })),
+      declaracoes: declaracoes || {},
+      orgao: participacao?.orgao || '',
+      objeto: participacao?.objeto || '',
+      timestamp: new Date().toISOString()
+    };
+
+    propostasPendentes.push(proposta);
+
+    console.log(`[PROPOSTA-DIRETO] Adicionada na fila: compraId=${compraId}, ${itens.length} itens`);
+
+    // Atualiza status
+    statusEnvioProposta = {
+      ativo: true,
+      etapa: 'Aguardando extensão processar',
+      progresso: 10,
+      mensagens: [`Proposta para compra ${compraId} adicionada na fila (${itens.length} itens)`]
+    };
+
+    res.json({
+      success: true,
+      message: `Proposta adicionada: ${itens.length} itens para compra ${compraId}`,
+      compraId,
+      itensCount: itens.length
+    });
+  } catch (error) {
+    console.error('[PROPOSTA-DIRETO] Erro:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Endpoint para a extensão verificar propostas pendentes (ANTES do status)
 app.get('/api/proposta/fila', (req, res) => {
   console.log('[PROPOSTA] GET /api/proposta/fila chamado');

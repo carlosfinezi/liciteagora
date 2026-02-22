@@ -57,3 +57,5 @@ evidencias/
 debug-*.json
 *.bak
 extensao-propostas/content.js.bak-dom-v1.2
+public/propostas.html.bak-v1
+public/propostas.js.bak-v1
