@@ -6311,6 +6311,17 @@ app.get('/api/chat/mensagens', (req, res) => {
     // Filtro por tipo
     if (tipo === 'alerta') {
       sql += ' AND palavrasChaveEncontradas IS NOT NULL AND palavrasChaveEncontradas != ""';
+    } else if (tipo === 'para-mim') {
+      // Mensagens direcionadas especificamente ao fornecedor
+      let meuCnpj = '';
+      try {
+        const f = db.prepare('SELECT cnpj FROM fornecedor WHERE id = 1').get();
+        meuCnpj = f?.cnpj || '';
+      } catch(e) {}
+      if (meuCnpj) {
+        sql += ' AND identificadorDestinatario = ?';
+        params.push(meuCnpj);
+      }
     } else if (tipo === 'cnpj') {
       // Mensagens direcionadas ao fornecedor (por identificadorDestinatario ou temCnpjFornecedor)
       let meuCnpj = '';
