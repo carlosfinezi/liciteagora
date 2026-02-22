@@ -303,10 +303,10 @@ function registrarRotasSniper(app, monitorGetter, db) {
       let meuCnpj = '';
       try {
         const fornConfig = db.prepare('SELECT cnpj FROM fornecedor WHERE id = 1').get();
-        meuCnpj = fornConfig?.cnpj || '';
+        meuCnpj = (fornConfig?.cnpj || '').replace(/\D/g, '');
         if (!meuCnpj) {
           const configVal = db.prepare("SELECT valor FROM config WHERE chave = 'fornecedor_cnpj'").get();
-          meuCnpj = configVal?.valor || '';
+          meuCnpj = (configVal?.valor || '').replace(/\D/g, '');
         }
       } catch (e) {}
 

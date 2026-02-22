@@ -6316,7 +6316,7 @@ app.get('/api/chat/mensagens', (req, res) => {
       let meuCnpj = '';
       try {
         const f = db.prepare('SELECT cnpj FROM fornecedor WHERE id = 1').get();
-        meuCnpj = f?.cnpj || '';
+        meuCnpj = (f?.cnpj || '').replace(/\D/g, '');
       } catch(e) {}
       if (meuCnpj) {
         sql += ' AND identificadorDestinatario = ?';
@@ -6327,7 +6327,7 @@ app.get('/api/chat/mensagens', (req, res) => {
       let meuCnpj = '';
       try {
         const f = db.prepare('SELECT cnpj FROM fornecedor WHERE id = 1').get();
-        meuCnpj = f?.cnpj || '';
+        meuCnpj = (f?.cnpj || '').replace(/\D/g, '');
       } catch(e) {}
       if (meuCnpj) {
         sql += ' AND (temCnpjFornecedor = 1 OR identificadorDestinatario = ?)';
