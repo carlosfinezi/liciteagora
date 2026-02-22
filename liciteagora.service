@@ -1,0 +1,17 @@
+[Unit]
+Description=LiciteAgora Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/carlosfinezi/web/liciteagora.com.br/private
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/carlosfinezi/web/liciteagora.com.br/private/server.log
+StandardError=append:/home/carlosfinezi/web/liciteagora.com.br/private/server.log
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
