@@ -11,9 +11,16 @@ const SENHA = 'Lombardi6392@#';
 async function solveHCaptcha(pageUrl) {
   console.log('  [2Captcha] Enviando hCaptcha...');
   
-  // Passo 1: Enviar tarefa
-  const inUrl = `https://2captcha.com/in.php?key=${TWOCAPTCHA_KEY}&method=hcaptcha&sitekey=${HCAPTCHA_SITEKEY}&pageurl=${encodeURIComponent(pageUrl)}&json=1`;
-  const inRes = await axios.get(inUrl);
+  // Passo 1: Enviar tarefa via POST
+  const inRes = await axios.post('https://2captcha.com/in.php', null, {
+    params: {
+      key: TWOCAPTCHA_KEY,
+      method: 'hcaptcha',
+      sitekey: HCAPTCHA_SITEKEY,
+      pageurl: pageUrl,
+      json: 1
+    }
+  });
   
   if (inRes.data.status !== 1) {
     throw new Error(`2Captcha in.php error: ${JSON.stringify(inRes.data)}`);
