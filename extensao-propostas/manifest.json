@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Propostas Comprasnet",
-  "version": "1.0.0",
-  "description": "Envia propostas automaticamente para licitacoes do Comprasnet",
+  "version": "2.0.0",
+  "description": "Envia propostas via API REST para licitacoes do Comprasnet",
   "permissions": [
     "activeTab",
     "tabs",
