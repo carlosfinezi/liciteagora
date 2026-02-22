@@ -12,15 +12,19 @@ async function solveHCaptcha(pageUrl) {
   console.log('  [2Captcha] Enviando hCaptcha...');
   
   // Passo 1: Enviar tarefa via POST
-  const inRes = await axios.post('https://2captcha.com/in.php', null, {
-    params: {
-      key: TWOCAPTCHA_KEY,
-      method: 'hcaptcha',
-      sitekey: HCAPTCHA_SITEKEY,
-      pageurl: pageUrl,
-      json: 1
-    }
+  const params = {
+    key: TWOCAPTCHA_KEY,
+    method: 'hcaptcha',
+    sitekey: HCAPTCHA_SITEKEY,
+    pageurl: pageUrl,
+    json: 1
+  };
+  console.log('  [2Captcha] Params:', JSON.stringify(params));
+  
+  const inRes = await axios.post('https://2captcha.com/in.php', new URLSearchParams(params).toString(), {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
   });
+  console.log('  [2Captcha] Response:', JSON.stringify(inRes.data));
   
   if (inRes.data.status !== 1) {
     throw new Error(`2Captcha in.php error: ${JSON.stringify(inRes.data)}`);
