@@ -9162,6 +9162,6 @@ app.listen(PORT, () => {
   // Agendar Jornal de Licitações
   agendarJornal();
 
-  // Iniciar MonitorV2 (conecta ao Chrome se disponível)
-  inicializarMonitorV2();
+  // MonitorV2 desativado — agora usamos extensão Chrome v3.0 para sync
+  // inicializarMonitorV2();
 });
