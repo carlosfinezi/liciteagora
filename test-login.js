@@ -9,22 +9,27 @@ const CPF = '00602500206';
 const SENHA = 'Lombardi6392@#';
 
 async function solveHCaptcha(pageUrl) {
+  console.log('  [2Captcha] Testando saldo...');
+  try {
+    const balRes = await axios.get(`https://2captcha.com/res.php?key=${TWOCAPTCHA_KEY}&action=getbalance&json=1`);
+    console.log('  [2Captcha] Saldo:', JSON.stringify(balRes.data));
+  } catch(e) {
+    console.log('  [2Captcha] Erro saldo:', e.message);
+  }
+
   console.log('  [2Captcha] Enviando hCaptcha...');
   
-  // Passo 1: Enviar tarefa via POST
-  const params = {
-    key: TWOCAPTCHA_KEY,
-    method: 'hcaptcha',
-    sitekey: HCAPTCHA_SITEKEY,
-    pageurl: pageUrl,
-    json: 1
-  };
-  console.log('  [2Captcha] Params:', JSON.stringify(params));
-  
-  const inRes = await axios.post('https://2captcha.com/in.php', new URLSearchParams(params).toString(), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  // Passo 1: Enviar tarefa via GET (formato mais simples)
+  const inRes = await axios.get('https://2captcha.com/in.php', {
+    params: {
+      key: TWOCAPTCHA_KEY,
+      method: 'hcaptcha',
+      sitekey: HCAPTCHA_SITEKEY,
+      pageurl: pageUrl,
+      json: 1
+    }
   });
-  console.log('  [2Captcha] Response:', JSON.stringify(inRes.data));
+  console.log('  [2Captcha] in.php Response:', JSON.stringify(inRes.data));
   
   if (inRes.data.status !== 1) {
     throw new Error(`2Captcha in.php error: ${JSON.stringify(inRes.data)}`);
