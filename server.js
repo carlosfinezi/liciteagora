@@ -7390,7 +7390,11 @@ app.get('/api/proposta/participacoes', (req, res) => {
     `;
     const params = [];
 
-    if (situacao) {
+    if (situacao === 'ativas') {
+      sql += ` AND (situacao IN ('PD', 'AB', '5') OR etapa LIKE '%andamento%' OR etapa LIKE '%aberta%')`;
+    } else if (situacao === 'encerradas') {
+      sql += ` AND (situacao IN ('FR', 'EN', '2') OR etapa LIKE '%encerrad%' OR etapa LIKE '%fracass%')`;
+    } else if (situacao) {
       sql += ` AND situacao = ?`;
       params.push(situacao);
     }
@@ -7408,8 +7412,8 @@ app.get('/api/proposta/participacoes', (req, res) => {
     // Agrupar por situação para o frontend
     const stats = {
       total: participacoes.length,
-      emAndamento: participacoes.filter(p => (p.etapa || '').toLowerCase().includes('andamento') || p.situacao === '5').length,
-      encerradas: participacoes.filter(p => (p.etapa || '').toLowerCase().includes('encerrad')).length
+      emAndamento: participacoes.filter(p => ['PD','AB','5'].includes((p.situacao||'').toUpperCase()) || (p.etapa||'').toLowerCase().includes('andamento')).length,
+      encerradas: participacoes.filter(p => ['FR','EN','2'].includes((p.situacao||'').toUpperCase()) || (p.etapa||'').toLowerCase().includes('encerrad')).length
     };
 
     res.json({ success: true, data: participacoes, stats });

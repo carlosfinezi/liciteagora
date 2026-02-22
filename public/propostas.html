@@ -103,9 +103,9 @@
                     <div class="search-box">
                         <input type="text" id="busca" placeholder="Buscar por órgão, objeto, compraId..." oninput="filtrarParticipacoes()">
                         <select id="filtroSituacao" onchange="carregarParticipacoes()" style="width:160px; padding:10px; border-radius:6px; border:1px solid #0f3460; background:#1a1a2e; color:#eee;">
-                            <option value="">Todas</option>
-                            <option value="5" selected>Em andamento</option>
-                            <option value="2">Encerradas</option>
+                            <option value="" selected>Todas</option>
+                            <option value="ativas">Ativas (PD/AB)</option>
+                            <option value="encerradas">Encerradas (FR/EN)</option>
                         </select>
                     </div>
                     <div class="lic-list" id="listaParticipacoes">
@@ -229,12 +229,15 @@ function renderizarParticipacoes() {
 
     lista.innerHTML = filtradas.map(p => {
         const selecionado = compraSelecionada === p.compraId ? 'selecionado' : '';
-        const etapa = (p.etapa || p.situacao || '').toLowerCase();
+        const sit = (p.situacao || '').toUpperCase();
+        const etapa = (p.etapa || '').toLowerCase();
         let badgeClass = 'badge-pendente';
         let badgeText = p.etapa || p.situacao || '?';
-        if (etapa.includes('andamento')) { badgeClass = 'badge-andamento'; badgeText = 'Em andamento'; }
-        else if (etapa.includes('encerrad')) { badgeClass = 'badge-encerrada'; badgeText = 'Encerrada'; }
-        else if (etapa.includes('aberta')) { badgeClass = 'badge-aberta'; badgeText = 'Aberta'; }
+        if (sit === 'PD' || sit === 'AB' || etapa.includes('andamento') || etapa.includes('aberta')) {
+            badgeClass = 'badge-andamento'; badgeText = sit === 'PD' ? 'Pendente' : sit === 'AB' ? 'Aberta' : badgeText;
+        } else if (sit === 'FR' || sit === 'EN' || etapa.includes('encerrad') || etapa.includes('fracass')) {
+            badgeClass = 'badge-encerrada'; badgeText = sit === 'FR' ? 'Fracassada' : sit === 'EN' ? 'Encerrada' : badgeText;
+        }
 
         const sessao = p.dataSessao ? new Date(p.dataSessao).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
 
