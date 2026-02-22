@@ -3,26 +3,63 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const axios = require('axios');
 puppeteer.use(StealthPlugin());
 
-const TWOCAPTCHA_KEY = 'dc5cc8c6935df2f85fa329f28dd19f53';
+const ANTICAPTCHA_KEY = 'COLE_SUA_KEY_AQUI';
 const HCAPTCHA_SITEKEY = '93b08d40-d46c-400a-ba07-6f91cda815b9';
 const CPF = '00602500206';
 const SENHA = 'Lombardi6392@#';
 
-const TwoCaptcha = require('@2captcha/captcha-solver');
-const solver = new TwoCaptcha.Solver(TWOCAPTCHA_KEY);
-
 async function solveHCaptcha(pageUrl) {
-  console.log('  [2Captcha] Enviando hCaptcha via SDK...');
-  const result = await solver.hcaptcha({
-    sitekey: HCAPTCHA_SITEKEY,
-    pageurl: pageUrl,
-    invisible: 1
+  console.log('  [AntiCaptcha] Criando tarefa hCaptcha...');
+  
+  const createRes = await axios.post('https://api.anti-captcha.com/createTask', {
+    clientKey: ANTICAPTCHA_KEY,
+    task: {
+      type: 'HCaptchaTaskProxyless',
+      websiteURL: pageUrl,
+      websiteKey: HCAPTCHA_SITEKEY,
+      isInvisible: true
+    }
   });
-  console.log('  [2Captcha] Resolvido! Token:', result.data.substring(0, 30) + '...');
-  return result.data;
+  
+  if (createRes.data.errorId !== 0) {
+    throw new Error(`AntiCaptcha createTask: ${createRes.data.errorCode} - ${createRes.data.errorDescription}`);
+  }
+  
+  const taskId = createRes.data.taskId;
+  console.log('  [AntiCaptcha] TaskId:', taskId);
+  
+  await new Promise(r => setTimeout(r, 10000));
+  
+  for (let i = 0; i < 30; i++) {
+    const resultRes = await axios.post('https://api.anti-captcha.com/getTaskResult', {
+      clientKey: ANTICAPTCHA_KEY,
+      taskId: taskId
+    });
+    
+    if (resultRes.data.errorId !== 0) {
+      throw new Error(`AntiCaptcha getResult: ${resultRes.data.errorCode}`);
+    }
+    
+    if (resultRes.data.status === 'ready') {
+      const token = resultRes.data.solution.gRecaptchaResponse;
+      console.log('  [AntiCaptcha] Resolvido! Token:', token.substring(0, 30) + '...');
+      return token;
+    }
+    
+    if (i % 2 === 0) console.log('  [AntiCaptcha] Aguardando...', 10 + (i+1)*5, 's');
+    await new Promise(r => setTimeout(r, 5000));
+  }
+  throw new Error('AntiCaptcha timeout');
 }
 
 (async () => {
+  const balRes = await axios.post('https://api.anti-captcha.com/getBalance', { clientKey: ANTICAPTCHA_KEY });
+  if (balRes.data.errorId !== 0) {
+    console.log('❌ API Key inválida:', balRes.data.errorCode);
+    return;
+  }
+  console.log('Saldo AntiCaptcha: $' + balRes.data.balance);
+
   const browser = await puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--ignore-certificate-errors', '--window-size=1366,768'],
@@ -32,7 +69,6 @@ async function solveHCaptcha(pageUrl) {
   await page.setViewport({ width: 1366, height: 768 });
 
   try {
-    // === PASSO 1: Acessar SSO ===
     console.log('1. Acessando SSO gov.br...');
     await page.goto('https://sso.acesso.gov.br/authorize?response_type=code&client_id=comprasnet.gov.br&scope=openid+profile+email+phone+govbr_confiabilidades&state=F&redirect_uri=https://www.comprasnet.gov.br/seguro/landing_sso.asp', {
       waitUntil: 'networkidle2',
@@ -42,14 +78,11 @@ async function solveHCaptcha(pageUrl) {
     await new Promise(r => setTimeout(r, 3000));
     const loginUrl = page.url();
     console.log('   URL:', loginUrl);
-    
     await page.waitForSelector('#accountId', { timeout: 10000 });
 
-    // === PASSO 2: Resolver hCaptcha ===
-    console.log('2. Resolvendo hCaptcha (CPF) via 2Captcha...');
+    console.log('2. Resolvendo hCaptcha (CPF) via AntiCaptcha...');
     const captchaToken1 = await solveHCaptcha(loginUrl);
 
-    // === PASSO 3: Digitar CPF e injetar token ===
     console.log('3. Digitando CPF e injetando token...');
     await page.type('#accountId', CPF, { delay: 80 });
     await new Promise(r => setTimeout(r, 500));
@@ -59,7 +92,6 @@ async function solveHCaptcha(pageUrl) {
       document.querySelectorAll('[name="g-recaptcha-response"]').forEach(el => el.value = token);
     }, captchaToken1);
 
-    // === PASSO 4: Submeter CPF ===
     console.log('4. Submetendo CPF...');
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => console.log('   (timeout navegação)')),
@@ -79,11 +111,9 @@ async function solveHCaptcha(pageUrl) {
       return;
     }
 
-    // === PASSO 5: Senha ===
     console.log('5. Campo senha encontrado! Digitando...');
     const senhaUrl = page.url();
 
-    // Resolver captcha da senha se houver
     const temCaptcha2 = await page.evaluate(() => !!document.querySelector('iframe[src*="hcaptcha"]')).catch(() => false);
     if (temCaptcha2) {
       console.log('6. Resolvendo hCaptcha (senha)...');
@@ -97,7 +127,6 @@ async function solveHCaptcha(pageUrl) {
     await page.type('input[type=password]', SENHA, { delay: 80 });
     await new Promise(r => setTimeout(r, 500));
 
-    // === PASSO 6: Submeter senha ===
     console.log('7. Submetendo senha...');
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => console.log('   (timeout navegação)')),
