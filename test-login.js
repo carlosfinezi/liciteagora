@@ -3,7 +3,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const axios = require('axios');
 puppeteer.use(StealthPlugin());
 
-const TWOCAPTCHA_KEY = 'COLE_SUA_KEY_AQUI';
+const TWOCAPTCHA_KEY = 'dc5cc8c6935df2f85fa329f28dd19f53';
 const HCAPTCHA_SITEKEY = '93b08d40-d46c-400a-ba07-6f91cda815b9';
 const CPF = '00602500206';
 const SENHA = 'Lombardi6392@#';
