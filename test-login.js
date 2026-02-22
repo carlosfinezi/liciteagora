@@ -4,8 +4,9 @@ puppeteer.use(StealthPlugin());
 
 (async () => {
   const browser = await puppeteer.launch({ 
-    headless: 'new', 
-    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--ignore-certificate-errors', '--window-size=1366,768'] 
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--ignore-certificate-errors', '--window-size=1366,768'],
+    protocolTimeout: 60000
   });
   const page = await browser.newPage();
   await page.setViewport({ width: 1366, height: 768 });
@@ -15,55 +16,53 @@ puppeteer.use(StealthPlugin());
   
   console.log('2. Digitando CPF...');
   await page.type('#accountId', '00602500206', { delay: 100 });
+  await new Promise(r => setTimeout(r, 1000));
   
-  // Tentar resolver hcaptcha antes de clicar
-  console.log('3. Tentando hcaptcha...');
-  const captchaResult = await page.evaluate(() => {
-    return new Promise((resolve) => {
-      if (typeof hcaptcha !== 'undefined') {
-        hcaptcha.execute({ async: true }).then(r => {
-          resolve({ ok: true, token: r.response ? r.response.substring(0, 30) + '...' : 'vazio' });
-        }).catch(e => resolve({ ok: false, error: e.message }));
-      } else {
-        resolve({ ok: false, error: 'hcaptcha não encontrado' });
-      }
-    });
-  }).catch(e => ({ ok: false, error: e.message }));
-  console.log('  Captcha:', JSON.stringify(captchaResult));
+  console.log('3. Clicando Continuar...');
+  await page.click('.button-continuar');
   
-  console.log('4. Clicando Continuar...');
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => console.log('  (timeout navegação)')),
-    page.click('.button-continuar')
-  ]);
-  
-  console.log('5. URL:', page.url());
-  
-  const result = await page.evaluate(() => {
-    const pwdInput = document.querySelector('input[type=password]');
-    const errors = Array.from(document.querySelectorAll('[class*=error], [class*=alert], .msg-erro')).map(e => e.textContent.trim()).filter(t => t.length > 0);
-    return { temSenha: !!pwdInput, errors, body: document.body.innerText.substring(0, 400) };
-  });
-  console.log('Tem campo senha:', result.temSenha);
-  if (result.errors.length) console.log('Erros:', result.errors);
-  console.log('Body:', result.body.substring(0, 200));
-  
-  if (result.temSenha) {
-    console.log('6. Digitando senha...');
-    await page.type('input[type=password]', 'Lombardi6392@#', { delay: 80 });
-    
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => console.log('  (timeout navegação)')),
-      page.click('.button-continuar')
-    ]);
-    
-    console.log('7. URL:', page.url());
-    console.log('  Título:', await page.title());
-    
-    // Verificar cookies/sessão
-    const cookies = await page.cookies();
-    console.log('  Cookies:', cookies.length);
+  // Polling: esperar campo senha ou mudança
+  console.log('4. Aguardando resposta (até 30s)...');
+  let avancou = false;
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const temSenha = await page.evaluate(() => !!document.querySelector('input[type=password]')).catch(() => false);
+    if (temSenha) {
+      console.log('   Campo senha apareceu em ' + (i+1) + 's!');
+      avancou = true;
+      break;
+    }
+    if (i % 5 === 4) console.log('   ' + (i+1) + 's...');
   }
   
+  if (!avancou) {
+    console.log('BLOQUEADO - captcha não passou');
+    const body = await page.evaluate(() => document.body.innerText.substring(0, 300)).catch(() => '');
+    console.log('Body:', body);
+    await browser.close();
+    return;
+  }
+  
+  // Digitar senha
+  console.log('5. Digitando senha...');
+  await page.type('input[type=password]', 'Lombardi6392@#', { delay: 80 });
+  await new Promise(r => setTimeout(r, 500));
+  
+  console.log('6. Clicando Entrar...');
+  await page.click('.button-continuar');
+  
+  // Esperar redirecionamento
+  for (let j = 0; j < 30; j++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const url = page.url();
+    if (url.includes('comprasnet') || url.includes('intro.htm')) {
+      console.log('7. LOGIN OK! URL:', url);
+      console.log('   Título:', await page.title());
+      break;
+    }
+    if (j % 5 === 4) console.log('   ' + (j+1) + 's... URL:', url);
+  }
+  
+  console.log('URL final:', page.url());
   await browser.close();
 })().catch(e => console.log('Erro:', e.message));
