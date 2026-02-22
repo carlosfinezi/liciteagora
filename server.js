@@ -6312,7 +6312,18 @@ app.get('/api/chat/mensagens', (req, res) => {
     if (tipo === 'alerta') {
       sql += ' AND palavrasChaveEncontradas IS NOT NULL AND palavrasChaveEncontradas != ""';
     } else if (tipo === 'cnpj') {
-      sql += ' AND temCnpjFornecedor = 1';
+      // Mensagens direcionadas ao fornecedor (por identificadorDestinatario ou temCnpjFornecedor)
+      let meuCnpj = '';
+      try {
+        const f = db.prepare('SELECT cnpj FROM fornecedor WHERE id = 1').get();
+        meuCnpj = f?.cnpj || '';
+      } catch(e) {}
+      if (meuCnpj) {
+        sql += ' AND (temCnpjFornecedor = 1 OR identificadorDestinatario = ?)';
+        params.push(meuCnpj);
+      } else {
+        sql += ' AND temCnpjFornecedor = 1';
+      }
     }
 
     // Filtro por data
@@ -6344,42 +6355,24 @@ app.get('/api/chat/mensagens', (req, res) => {
 // Listar licitações distintas com mensagens (para filtro)
 app.get('/api/chat/mensagens/licitacoes', (req, res) => {
   try {
-    // Busca licitações com mensagens
     const licitacoes = db.prepare(`
       SELECT
-        cnpjOrgao,
-        ano,
-        sequencial,
-        COUNT(*) as totalMensagens
-      FROM chat_mensagens
-      GROUP BY cnpjOrgao, ano, sequencial
-      ORDER BY MAX(dataCaptura) DESC
+        cm.compraId,
+        COUNT(*) as totalMensagens,
+        MAX(cm.dataHoraMensagem) as ultimaMensagem,
+        p.orgao as nomeOrgao,
+        p.codigoUnidade as uasg,
+        p.ano,
+        p.sequencial,
+        p.cnpj as cnpjOrgao
+      FROM chat_mensagens cm
+      LEFT JOIN participacoes_comprasnet p ON cm.compraId = p.compraId
+      WHERE cm.compraId IS NOT NULL AND cm.compraId != ''
+      GROUP BY cm.compraId
+      ORDER BY ultimaMensagem DESC
     `).all();
 
-    // Tenta buscar nomes dos órgãos da tabela de licitações
-    const licitacoesComNomes = licitacoes.map(lic => {
-      try {
-        // Busca na tabela de licitações pelo ano e sequencial
-        const dados = db.prepare(`
-          SELECT razaoSocial, nomeUnidade, codigoUnidade
-          FROM licitacoes
-          WHERE anoCompra = ? AND sequencialCompra = ?
-          LIMIT 1
-        `).get(lic.ano, lic.sequencial);
-
-        if (dados) {
-          return {
-            ...lic,
-            nomeOrgao: dados.razaoSocial,
-            nomeUnidade: dados.nomeUnidade,
-            uasg: dados.codigoUnidade
-          };
-        }
-      } catch (e) {}
-      return lic;
-    });
-
-    res.json({ success: true, data: licitacoesComNomes });
+    res.json({ success: true, data: licitacoes });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -6388,52 +6381,21 @@ app.get('/api/chat/mensagens/licitacoes', (req, res) => {
 // Listar órgãos distintos com mensagens
 app.get('/api/chat/mensagens/orgaos', (req, res) => {
   try {
-    // Primeiro agrupa por cnpjOrgao e pega uma licitação de exemplo para cada
     const orgaos = db.prepare(`
       SELECT
-        cnpjOrgao,
-        MIN(ano) as ano,
-        MIN(sequencial) as sequencial,
-        COUNT(DISTINCT ano || '-' || sequencial) as totalLicitacoes,
+        p.orgao as nomeOrgao,
+        p.cnpj as cnpjOrgao,
+        p.codigoUnidade as uasg,
+        COUNT(DISTINCT cm.compraId) as totalLicitacoes,
         COUNT(*) as totalMensagens
-      FROM chat_mensagens
-      GROUP BY cnpjOrgao
+      FROM chat_mensagens cm
+      INNER JOIN participacoes_comprasnet p ON cm.compraId = p.compraId
+      WHERE cm.compraId IS NOT NULL AND cm.compraId != ''
+      GROUP BY p.cnpj
       ORDER BY totalMensagens DESC
     `).all();
 
-    // Busca nomes dos órgãos usando ano + sequencial
-    const orgaosComNomes = orgaos.map(org => {
-      try {
-        // Busca uma licitação pelo ano e sequencial para pegar o nome do órgão
-        const dados = db.prepare(`
-          SELECT razaoSocial, cnpj
-          FROM licitacoes
-          WHERE anoCompra = ? AND sequencialCompra = ?
-          LIMIT 1
-        `).get(org.ano, org.sequencial);
-
-        if (dados && dados.razaoSocial) {
-          return {
-            cnpjOrgao: org.cnpjOrgao,
-            totalLicitacoes: org.totalLicitacoes,
-            totalMensagens: org.totalMensagens,
-            nomeOrgao: dados.razaoSocial,
-            uasg: org.cnpjOrgao
-          };
-        }
-      } catch (e) {
-        console.log('[Órgãos] Erro ao buscar nome:', e.message);
-      }
-      return {
-        cnpjOrgao: org.cnpjOrgao,
-        totalLicitacoes: org.totalLicitacoes,
-        totalMensagens: org.totalMensagens,
-        nomeOrgao: null,
-        uasg: org.cnpjOrgao
-      };
-    });
-
-    res.json({ success: true, data: orgaosComNomes });
+    res.json({ success: true, data: orgaos });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

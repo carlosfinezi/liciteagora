@@ -832,7 +832,7 @@
                 const data = document.getElementById('filtroData').value;
                 const busca = document.getElementById('filtroBusca').value;
 
-                let url = `${API_URL}/api/chat/mensagens?limit=500`;
+                let url = `${API_URL}/api/chat/mensagens?limit=100`;
 
                 if (lic) {
                     const [cnpjOrgao, ano, sequencial] = lic.split('|');
@@ -856,30 +856,17 @@
                 // Atualizar stats
                 document.getElementById('totalMensagens').textContent = todasMensagens.length;
                 document.getElementById('totalAlertas').textContent = todasMensagens.filter(m => m.palavrasChaveEncontradas).length;
-                document.getElementById('totalCnpj').textContent = todasMensagens.filter(m => m.temCnpjFornecedor).length;
+                document.getElementById('totalCnpj').textContent = todasMensagens.filter(m => m.temCnpjFornecedor || m.identificadorDestinatario === '19884430000141').length;
                 document.getElementById('totalNaoLidas').textContent = todasMensagens.filter(m => !m.lido).length;
 
-                // Contar licitações únicas a partir das mensagens
-                const licitacoesUnicas = new Set(todasMensagens.map(m => `${m.cnpjOrgao}|${m.ano}|${m.sequencial}`));
+                // Contar licitações únicas
+                const licitacoesUnicas = new Set(todasMensagens.map(m => m.compraId).filter(Boolean));
                 document.getElementById('totalLicitacoes').textContent = licitacoesUnicas.size;
-
-                // Carregar palavras-chave
-                await carregarPalavrasChave();
 
                 renderMensagens();
             } catch (e) {
                 console.error('Erro ao carregar mensagens:', e);
                 container.innerHTML = '<div class="sem-mensagens"><div class="icon">❌</div><p>Erro ao carregar mensagens</p></div>';
-            }
-        }
-
-        async function carregarPalavrasChave() {
-            try {
-                const res = await fetch(`${API_URL}/api/chat/palavras-chave`);
-                const data = await res.json();
-                palavrasChave = data.data ? data.data.map(p => p.palavra.toLowerCase()) : [];
-            } catch (e) {
-                palavrasChave = [];
             }
         }
 
@@ -905,15 +892,13 @@
         }
 
         function renderAgrupado(container) {
-            // Agrupar por licitação
+            // Agrupar por licitação (compraId)
             const grupos = new Map();
             todasMensagens.forEach(msg => {
-                const key = `${msg.cnpjOrgao}|${msg.ano}|${msg.sequencial}`;
+                const key = msg.compraId || 'sem-compra';
                 if (!grupos.has(key)) {
                     grupos.set(key, {
-                        cnpjOrgao: msg.cnpjOrgao,
-                        ano: msg.ano,
-                        sequencial: msg.sequencial,
+                        compraId: msg.compraId,
                         mensagens: [],
                         temAlerta: false,
                         temCnpj: false
@@ -922,7 +907,7 @@
                 const grupo = grupos.get(key);
                 grupo.mensagens.push(msg);
                 if (msg.palavrasChaveEncontradas) grupo.temAlerta = true;
-                if (msg.temCnpjFornecedor) grupo.temCnpj = true;
+                if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') grupo.temCnpj = true;
             });
 
             let html = '';
@@ -932,19 +917,15 @@
                 if (grupo.temAlerta) badges.push(`<span class="badge alerta">Alerta</span>`);
                 if (grupo.temCnpj) badges.push(`<span class="badge cnpj">CNPJ</span>`);
 
-                // Buscar nome do órgão
-                const nomeOrgao = getNomeOrgao(grupo.cnpjOrgao);
-                const exibicaoOrgao = nomeOrgao
-                    ? `${nomeOrgao}`
-                    : `UASG: ${grupo.cnpjOrgao}`;
+                // Buscar info da licitação
+                const compraId = grupo.compraId || key;
 
                 html += `
                     <div class="licitacao-group">
                         <div class="licitacao-header" onclick="toggleGrupo(this)">
                             <span class="chevron">▶</span>
                             <div class="licitacao-title">
-                                <div class="numero">Pregão ${grupo.sequencial}/${grupo.ano}</div>
-                                <div class="orgao">${escapeHtml(exibicaoOrgao)}</div>
+                                <div class="numero">Compra ${compraId}</div>
                             </div>
                             <div class="licitacao-meta">
                                 ${badges.join('')}
@@ -963,7 +944,7 @@
         function renderLista(container) {
             container.innerHTML = todasMensagens.map(msg => {
                 let cardClass = 'mensagem-card';
-                if (msg.temCnpjFornecedor) cardClass += ' cnpj';
+                if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') cardClass += ' cnpj';
                 else if (msg.palavrasChaveEncontradas) cardClass += ' alerta';
                 if (!msg.lido) cardClass += ' nao-lido';
 
@@ -981,7 +962,7 @@
                     const palavras = msg.palavrasChaveEncontradas.split(',').filter(p => p);
                     tags += palavras.map(p => `<span class="tag palavra">${escapeHtml(p.trim())}</span>`).join('');
                 }
-                if (msg.temCnpjFornecedor) {
+                if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') {
                     tags += '<span class="tag cnpj">Meu CNPJ</span>';
                 }
 
@@ -1005,7 +986,7 @@
 
         function renderMensagemItem(msg) {
             let itemClass = 'mensagem-item';
-            if (msg.temCnpjFornecedor) itemClass += ' cnpj';
+            if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') itemClass += ' cnpj';
             else if (msg.palavrasChaveEncontradas) itemClass += ' alerta';
             if (!msg.lido) itemClass += ' nao-lido';
 
@@ -1023,7 +1004,7 @@
                 const palavras = msg.palavrasChaveEncontradas.split(',').filter(p => p);
                 tags += palavras.map(p => `<span class="tag palavra">${escapeHtml(p.trim())}</span>`).join('');
             }
-            if (msg.temCnpjFornecedor) {
+            if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') {
                 tags += '<span class="tag cnpj">Meu CNPJ</span>';
             }
 
