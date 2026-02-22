@@ -8,56 +8,18 @@ const HCAPTCHA_SITEKEY = '93b08d40-d46c-400a-ba07-6f91cda815b9';
 const CPF = '00602500206';
 const SENHA = 'Lombardi6392@#';
 
-async function solveHCaptcha(pageUrl) {
-  console.log('  [2Captcha] Testando saldo...');
-  try {
-    const balRes = await axios.get(`https://2captcha.com/res.php?key=${TWOCAPTCHA_KEY}&action=getbalance&json=1`);
-    console.log('  [2Captcha] Saldo:', JSON.stringify(balRes.data));
-  } catch(e) {
-    console.log('  [2Captcha] Erro saldo:', e.message);
-  }
+const TwoCaptcha = require('@2captcha/captcha-solver');
+const solver = new TwoCaptcha.Solver(TWOCAPTCHA_KEY);
 
-  console.log('  [2Captcha] Enviando hCaptcha...');
-  
-  // Passo 1: Enviar tarefa via JSON POST
-  const inRes = await axios.post('https://2captcha.com/in.php', {
-    key: TWOCAPTCHA_KEY,
-    method: 'hcaptcha',
+async function solveHCaptcha(pageUrl) {
+  console.log('  [2Captcha] Enviando hCaptcha via SDK...');
+  const result = await solver.hcaptcha({
     sitekey: HCAPTCHA_SITEKEY,
     pageurl: pageUrl,
-    invisible: 1,
-    json: 1
-  }, { headers: { 'Content-Type': 'application/json' } });
-  console.log('  [2Captcha] in.php Response:', JSON.stringify(inRes.data));
-  
-  if (inRes.data.status !== 1) {
-    throw new Error(`2Captcha in.php error: ${JSON.stringify(inRes.data)}`);
-  }
-  
-  const taskId = inRes.data.request;
-  console.log('  [2Captcha] TaskId:', taskId);
-  
-  // Passo 2: Polling resultado (humanos demoram 15-60s)
-  await new Promise(r => setTimeout(r, 15000)); // esperar 15s antes de começar
-  
-  for (let i = 0; i < 30; i++) {
-    const resUrl = `https://2captcha.com/res.php?key=${TWOCAPTCHA_KEY}&action=get&id=${taskId}&json=1`;
-    const resRes = await axios.get(resUrl);
-    
-    if (resRes.data.status === 1) {
-      const token = resRes.data.request;
-      console.log('  [2Captcha] Resolvido! Token:', token.substring(0, 30) + '...');
-      return token;
-    }
-    
-    if (resRes.data.request !== 'CAPCHA_NOT_READY') {
-      throw new Error(`2Captcha error: ${resRes.data.request}`);
-    }
-    
-    if (i % 3 === 0) console.log('  [2Captcha] Aguardando...', 15 + (i+1)*5, 's');
-    await new Promise(r => setTimeout(r, 5000));
-  }
-  throw new Error('2Captcha timeout');
+    invisible: 1
+  });
+  console.log('  [2Captcha] Resolvido! Token:', result.data.substring(0, 30) + '...');
+  return result.data;
 }
 
 (async () => {
