@@ -126,6 +126,17 @@ function esc(s) { var d=document.createElement('div'); d.textContent=s||''; retu
 function fmtR$(v) { return v != null && v !== '' && !isNaN(v) ? 'R$ ' + parseFloat(v).toFixed(2) : '--'; }
 function fmtHora(iso) { if(!iso)return'--'; try{return new Date(iso).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});}catch(e){return iso;} }
 
+var MOD_NOMES = {'05':'Concorrência','06':'PE','07':'Pregão','08':'Dispensa','09':'Inexigibilidade','10':'Credenciamento'};
+function fmtCompraId(cid) {
+    if(!cid || cid.length < 17) return cid||'';
+    var uasg = cid.substring(0,6);
+    var mod = cid.substring(6,8);
+    var num = cid.substring(8,13);
+    var ano = cid.substring(13,17);
+    var modNome = MOD_NOMES[mod] || 'Mod'+mod;
+    return modNome + ' ' + parseInt(num) + '/' + ano + ' — UASG ' + parseInt(uasg);
+}
+
 // ==================== STATUS ====================
 async function atualizarStatus() {
     try {
@@ -240,7 +251,7 @@ function renderLista(lista) {
             return '<div class="lic-row" id="lic-'+p.compraId+'">' +
                 '<div class="lic-header'+(isAberta?' aberta':'')+'" onclick="toggleLic(\''+p.compraId+'\')">' +
                     '<div class="lic-left">' +
-                        '<div class="lic-id">'+p.compraId+'</div>' +
+                        '<div class="lic-id">'+esc(fmtCompraId(p.compraId))+' <span style="color:#666;font-weight:400;font-size:0.85em">'+p.compraId+'</span></div>' +
                         '<div class="lic-obj" title="'+esc(p.objeto)+'">'+esc((p.objeto||'(sem objeto)').substring(0,120))+'</div>' +
                         '<div class="lic-org">'+esc(p.orgao||'')+'</div>' +
                     '</div>' +
