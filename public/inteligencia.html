@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/css/sidebar.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%); min-height: 100vh; padding: 20px; color: #e0e0e0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; }
         .container { max-width: 1400px; margin: 0 auto; }
 
         /* Header */
@@ -101,6 +101,8 @@
     </style>
 </head>
 <body>
+<div class="app-container">
+<main class="main-content" style="background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%); padding: 20px;">
     <div class="container">
         <div class="header">
             <h1>🔍 Inteligência de Negócio</h1>
@@ -662,5 +664,10 @@
         document.body.appendChild(modal);
     }
     </script>
+</main>
+</div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('inteligencia');</script>
 </body>
 </html>
