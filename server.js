@@ -964,6 +964,8 @@ app.get('/api/licitacoes', async (req, res) => {
     let {
       dataAberturaInicial,
       dataAberturaFinal,
+      dataPublicacaoInicial,
+      dataPublicacaoFinal,
       palavraChave,
       palavraExclusao,
       grupoExclusaoId,
@@ -978,6 +980,9 @@ app.get('/api/licitacoes', async (req, res) => {
     } = req.query;
 
     const usarBuscaDetalhada = buscaDetalhada === 'true';
+
+    // Limitar tamanho da página (evitar queries pesadas)
+    tamanhoPagina = Math.min(parseInt(tamanhoPagina) || 50, 100);
 
     // Configurar ordenação (NULLS LAST para colocar valores nulos no final)
     const ordenacaoValida = {
@@ -1035,6 +1040,16 @@ app.get('/api/licitacoes', async (req, res) => {
     if (dataAberturaFinal) {
       conditions.push('dataEncerramentoProposta <= ?');
       params.push(dataAberturaFinal + 'T23:59:59');
+    }
+
+    // Filtro por data de publicação
+    if (dataPublicacaoInicial) {
+      conditions.push('dataPublicacaoPncp >= ?');
+      params.push(dataPublicacaoInicial);
+    }
+    if (dataPublicacaoFinal) {
+      conditions.push('dataPublicacaoPncp <= ?');
+      params.push(dataPublicacaoFinal + 'T23:59:59');
     }
 
     if (codigoModalidadeContratacao) {

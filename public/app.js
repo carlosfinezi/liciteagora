@@ -88,7 +88,7 @@ async function buscarLicitacoes() {
         // Construir URL com parâmetros
         const params = new URLSearchParams({
             pagina: currentPage,
-            tamanhoPagina: 500
+            tamanhoPagina: 50
         });
 
         if (currentFilters.numeroLicitacao) {
