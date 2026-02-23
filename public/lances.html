@@ -366,6 +366,7 @@ function renderItens(compraId, itensLive) {
             fase: lv.fase || cfg.faseItem || '',
             melhorValor: lv.melhorValor,
             nossoValor: lv.nossoValor,
+            nossoClassificacao: lv.nossoClassificacao,
             podeEnviar: lv.podeEnviar !== undefined ? lv.podeEnviar : true,
             valorEstimado: cfg.valorEstimado || lv.valorEstimado,
             fimContagem: lv.fimContagem,
@@ -386,7 +387,7 @@ function renderItens(compraId, itensLive) {
     // Add live items not in config
     itensLive.forEach(function(il) {
         if(!seen[il.numero]) {
-            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1 });
+            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, nossoClassificacao:il.nossoClassificacao, podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1 });
         }
     });
 
@@ -405,13 +406,15 @@ function renderItens(compraId, itensLive) {
     merged.forEach(function(m) {
         var nossoClass = 'valor-nosso';
         if(m.nossoValor && m.melhorValor && m.nossoValor <= m.melhorValor) nossoClass += ' melhor';
+        var nossoLabel = fmtR$(m.nossoValor);
+        if(m.nossoClassificacao != null) nossoLabel += ' <small style="color:#888">#'+m.nossoClassificacao+'</small>';
 
         html += '<tr>' +
             '<td><strong>'+m.numero+'</strong></td>' +
             '<td class="desc-cell" title="'+esc(m.descricao)+'">'+esc((m.descricao||'').substring(0,60))+'</td>' +
             '<td><span class="lic-etapa '+(m.podeEnviar?'etapa-disputa':'etapa-outra')+'">'+esc(m.fase||'--')+'</span></td>' +
             '<td class="valor-melhor">'+fmtR$(m.melhorValor)+'</td>' +
-            '<td class="'+nossoClass+'">'+fmtR$(m.nossoValor)+'</td>' +
+            '<td class="'+nossoClass+'">'+nossoLabel+'</td>' +
             '<td style="color:#888">'+fmtR$(m.valorEstimado)+'</td>' +
             '<td><input type="number" step="0.01" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Min"></td>' +
             '<td><input type="number" step="0.1" value="'+(m.descontoMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'descontoMinimo\',this.value)" placeholder="%" style="width:65px"></td>' +
