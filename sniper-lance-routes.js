@@ -272,6 +272,87 @@ function registrarRotasSniper(app, monitorGetter, db) {
   });
 
   /**
+   * GET /api/sniper/diagnostico?compraId=XXXX
+   * Testa TODOS os endpoints possíveis e mostra o resultado bruto.
+   * Para debug quando itens não são encontrados.
+   */
+  app.get('/api/sniper/diagnostico', async (req, res) => {
+    try {
+      const { compraId } = req.query;
+      if (!compraId) return res.status(400).json({ error: 'compraId obrigatório' });
+
+      const status = sniper.getStatus();
+      const resultados = [];
+
+      const endpoints = [
+        { path: `/comprasnet-disputa/v1/compras/${compraId}/itens`, tipo: 'disputa-itens', needsCaptcha: false },
+        { path: `/comprasnet-disputa/v1/compras/${compraId}/itens/classificacao`, tipo: 'disputa-classificacao', needsCaptcha: false },
+        { path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens`, tipo: 'fase-externa-itens', needsCaptcha: false },
+        { path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`, tipo: 'fase-externa-selecao', needsCaptcha: false },
+      ];
+
+      // Com captcha
+      if (status.temCaptcha) {
+        endpoints.push(
+          { path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`, tipo: 'fase-externa-selecao+captcha', needsCaptcha: true },
+          { path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens`, tipo: 'fase-externa-itens+captcha', needsCaptcha: true },
+        );
+      }
+
+      for (const ep of endpoints) {
+        try {
+          const result = ep.needsCaptcha
+            ? await sniper.apiGetCaptcha(ep.path)
+            : await sniper.apiGet(ep.path);
+
+          const data = result.data;
+          const isArray = Array.isArray(data);
+          const itens = isArray ? data : (data ? [data] : []);
+
+          resultados.push({
+            tipo: ep.tipo,
+            status: result.status,
+            isArray,
+            totalItens: itens.length,
+            primeiroItem: itens[0] ? {
+              numero: itens[0].numero,
+              identificador: itens[0].identificador,
+              fase: itens[0].fase || itens[0].faseItem,
+              situacao: itens[0].situacao,
+              podeEnviarLances: itens[0].podeEnviarLances,
+              descricao: (itens[0].descricao || itens[0].objetoItem || '').substring(0, 80),
+              melhorValorGeral: itens[0].melhorValorGeral,
+              dataHoraFimContagem: itens[0].dataHoraFimContagem,
+              // Dump all keys
+              _keys: Object.keys(itens[0]),
+            } : null,
+            rawPreview: JSON.stringify(data).substring(0, 500),
+          });
+        } catch (e) {
+          resultados.push({
+            tipo: ep.tipo,
+            error: e.message,
+          });
+        }
+      }
+
+      // Também checar no cache
+      const cached = disputasCache.disputas.find(d => d.compraId === compraId);
+
+      res.json({
+        compraId,
+        tokenStatus: { temToken: status.temToken, temCaptcha: status.temCaptcha, tokenIdade: status.tokenIdade },
+        cacheDisputa: cached || null,
+        totalCacheDisputas: disputasCache.disputas.length,
+        cacheAtualizadoEm: disputasCache.atualizadoEm,
+        resultados,
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
    * GET /api/sniper/consultar-itens?compraId=XXXX
    * Consulta itens de UMA compra específica.
    * Tenta via servidor (disputa API, sem captcha).
