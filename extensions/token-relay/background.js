@@ -16,7 +16,7 @@ const SYNC_INTERVAL_MIN = 2; // sync a cada 2 minutos
 let syncAgendado = false;
 let syncEmExecucao = false;
 
-console.log('[LiciteAgora] Service worker v3.3.0 carregado!');
+console.log('[LiciteAgora] Service worker v3.3.1 carregado!');
 
 // ==================== STORAGE ====================
 
@@ -541,10 +541,12 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 
     // Tentar endpoints em ordem de riqueza de dados:
     // 1. classificacao (tem melhorValorGeral + melhorValorFornecedor)
-    // 2. fase-externa em-selecao (dados de seleção)
-    // 3. disputa itens (básico, sem preços)
+    // 2. melhor-lance (resumo de melhores lances por item)
+    // 3. fase-externa em-selecao (dados de seleção — sem preços de lance)
+    // 4. disputa itens (básico, sem preços)
     var endpoints = [
       '/comprasnet-disputa/v1/compras/' + compraId + '/itens/classificacao',
+      '/comprasnet-disputa/v1/compras/' + compraId + '/itens/melhor-lance',
       '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens/em-selecao-fornecedores',
       '/comprasnet-disputa/v1/compras/' + compraId + '/itens',
     ];
@@ -650,19 +652,21 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
       continue;
     }
 
-    // Debug: log keys do primeiro item para identificar campos de preço
+    // Debug: log detalhado do primeiro item para identificar campos de preço
     if (itens.length > 0 && !debugItemLogged) {
       debugItemLogged = true;
       var primeiro = itens[0];
-      var keysPreco = Object.keys(primeiro).filter(function(k) {
-        return k.toLowerCase().indexOf('valor') >= 0 || k.toLowerCase().indexOf('melhor') >= 0 ||
-               k.toLowerCase().indexOf('lance') >= 0 || k.toLowerCase().indexOf('preco') >= 0 ||
-               k.toLowerCase().indexOf('fornecedor') >= 0;
+      // Log campos que têm valores numéricos ou objetos (potenciais preços)
+      var camposRelevantes = {};
+      Object.keys(primeiro).forEach(function(k) {
+        var v = primeiro[k];
+        if (typeof v === 'number' || (typeof v === 'object' && v !== null)) {
+          camposRelevantes[k] = v;
+        }
       });
-      console.log('[LiciteAgora] 📋 Item keys (preço): ' + JSON.stringify(keysPreco));
-      console.log('[LiciteAgora] 📋 Item[0] endpoint=' + endpointUsado + ' keys=' + JSON.stringify(Object.keys(primeiro).sort()));
-      if (primeiro.melhorValorGeral) console.log('[LiciteAgora] 📋 melhorValorGeral=' + JSON.stringify(primeiro.melhorValorGeral));
-      if (primeiro.melhorLanceGeral) console.log('[LiciteAgora] 📋 melhorLanceGeral=' + JSON.stringify(primeiro.melhorLanceGeral));
+      console.log('[LiciteAgora] 📋 Item[0] endpoint=' + endpointUsado + ' camposRelevantes=' + JSON.stringify(camposRelevantes));
+      console.log('[LiciteAgora] 📋 Item[0] ALL keys=' + JSON.stringify(Object.keys(primeiro).sort()));
+      if (primeiro.propostaItem) console.log('[LiciteAgora] 📋 propostaItem=' + JSON.stringify(primeiro.propostaItem));
     }
 
     // Filtrar itens em fase de lance
@@ -673,19 +677,31 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 
     // Extrair melhor valor — tenta vários nomes de campo
     function extrairMelhorValor(item) {
+      // Campos do endpoint /classificacao
       var mv = item.melhorValorGeral || item.melhorLanceGeral || item.classificacaoGeral;
       if (mv && mv.valorInformado != null) return mv.valorInformado;
       if (mv && mv.valor != null) return mv.valor;
+      // Campos do endpoint /melhor-lance
       if (item.valorMelhorLance != null) return item.valorMelhorLance;
       if (item.melhorValor != null) return item.melhorValor;
+      if (item.valorUnitario != null) return item.valorUnitario;
+      if (item.valor != null && typeof item.valor === 'number') return item.valor;
       return null;
     }
     function extrairNossoValor(item) {
+      // Campos do endpoint /classificacao
       var nv = item.melhorValorFornecedor || item.melhorLanceFornecedor || item.classificacaoFornecedor;
       if (nv && nv.valorInformado != null) return nv.valorInformado;
       if (nv && nv.valor != null) return nv.valor;
       if (item.valorNossoLance != null) return item.valorNossoLance;
       if (item.nossoValor != null) return item.nossoValor;
+      // propostaItem do /em-selecao-fornecedores pode ter nosso lance
+      if (item.propostaItem) {
+        var pi = item.propostaItem;
+        if (pi.valorUnitario != null) return pi.valorUnitario;
+        if (pi.valor != null) return pi.valor;
+        if (pi.valorInformado != null) return pi.valorInformado;
+      }
       return null;
     }
 
