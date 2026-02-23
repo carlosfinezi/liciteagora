@@ -293,17 +293,27 @@ async function buscarDisputasAtivas() {
         const d = await r.json();
         if (d.success) {
             disputasAtivas = d.disputas || [];
-            if (disputasAtivas.length === 0) {
-                alert('Nenhuma disputa ativa encontrada.');
+            const ativas = disputasAtivas.filter(x => x.itensAtivos > 0);
+            let msg = '';
+            if (d.fonte === 'sem-dados') {
+                msg = '⚠️ Sem dados de disputas.\n\n' +
+                    'A extensão Chrome precisa estar sincronizando.\n' +
+                    'Verifique: Chrome aberto + Comprasnet logado + extensão ativa.\n\n' +
+                    'Clique "🔄 Forçar Sync" no popup da extensão.';
+            } else if (ativas.length === 0) {
+                msg = 'Nenhuma disputa com itens ativos.\n' +
+                    (d.idadeMinutos != null ? '(dados de ' + d.idadeMinutos + ' min atrás)' : '');
             } else {
-                alert('🔥 ' + disputasAtivas.length + ' disputa(s) ativa(s) encontrada(s)!');
+                msg = '🔥 ' + ativas.length + ' disputa(s) com itens ativos!' +
+                    (d.idadeMinutos != null ? '\n(dados de ' + d.idadeMinutos + ' min atrás)' : '');
                 // Ordenar: disputas ativas primeiro
                 todasParticipacoes.sort((a,b) => {
-                    const aAtiva = disputasAtivas.some(d=>d.compraId===a.compraId) ? 0 : 1;
-                    const bAtiva = disputasAtivas.some(d=>d.compraId===b.compraId) ? 0 : 1;
+                    const aAtiva = disputasAtivas.some(d=>d.compraId===a.compraId && d.itensAtivos>0) ? 0 : 1;
+                    const bAtiva = disputasAtivas.some(d=>d.compraId===b.compraId && d.itensAtivos>0) ? 0 : 1;
                     return aAtiva - bAtiva;
                 });
             }
+            alert(msg);
             renderParticipacoes(todasParticipacoes);
         } else {
             alert('❌ ' + (d.error || 'Erro'));

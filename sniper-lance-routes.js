@@ -211,10 +211,61 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
+  // ==================== DISPUTAS (dados da extensão) ====================
+
+  // Cache em memória das disputas recebidas da extensão
+  let disputasCache = { disputas: [], atualizadoEm: null };
+
+  /**
+   * POST /api/sync/disputas
+   * Recebe dados de disputas da extensão Chrome (consulta feita pelo browser).
+   */
+  app.post('/api/sync/disputas', (req, res) => {
+    try {
+      const { disputas } = req.body;
+      if (!Array.isArray(disputas)) {
+        return res.status(400).json({ success: false, error: 'disputas deve ser array' });
+      }
+      disputasCache = {
+        disputas: disputas,
+        atualizadoEm: new Date().toISOString(),
+      };
+      const ativas = disputas.filter(d => d.itensAtivos > 0);
+      console.log(`[Sync] Disputas: ${disputas.length} recebidas, ${ativas.length} com itens ativos`);
+      res.json({ success: true, recebidas: disputas.length, ativas: ativas.length });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/disputas-ativas
+   * Retorna disputas do cache (preenchido pela extensão).
+   * Não faz mais chamadas API do servidor (captcha IP-bound ao browser).
+   */
   app.get('/api/sniper/disputas-ativas', async (req, res) => {
     try {
-      const disputas = await sniper.buscarDisputasAtivas(db);
-      res.json({ success: true, disputas });
+      // Se tem cache recente (< 5 min), retorna direto
+      if (disputasCache.atualizadoEm) {
+        const idadeMs = Date.now() - new Date(disputasCache.atualizadoEm).getTime();
+        const idadeMin = Math.round(idadeMs / 60000);
+        res.json({
+          success: true,
+          disputas: disputasCache.disputas,
+          atualizadoEm: disputasCache.atualizadoEm,
+          idadeMinutos: idadeMin,
+          fonte: 'extensao',
+        });
+      } else {
+        // Sem cache — orienta o usuário
+        res.json({
+          success: true,
+          disputas: [],
+          atualizadoEm: null,
+          fonte: 'sem-dados',
+          mensagem: 'Aguardando sync da extensão. Verifique se o Chrome está aberto com Comprasnet logado.',
+        });
+      }
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }

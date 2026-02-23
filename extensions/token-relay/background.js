@@ -281,6 +281,8 @@ async function executarSync() {
     if (emAndamento.length > 0) {
       console.log('[LiciteAgora] ' + emAndamento.length + ' em andamento (de ' + participacoes.length + ' total) — buscando mensagens...');
       await syncMensagens(tab.id, emAndamento, data.bearer);
+      // Verificar disputas ativas (itens em fase de lance)
+      await syncDisputas(tab.id, emAndamento, data.bearer);
     } else {
       console.log('[LiciteAgora] Nenhuma participação em andamento para mensagens');
     }
@@ -440,6 +442,81 @@ async function syncMensagens(tabId, participacoes, bearer) {
   console.log('[LiciteAgora] Mensagens: ' + ok200 + ' com dados, ' + empty + ' vazias, ' + erros + ' erros. ' + totalNovas + ' novas salvas.');
 }
 
+// ==================== SYNC DISPUTAS (itens em disputa) ====================
+
+/**
+ * Consulta itens das participações em andamento PELO BROWSER (captcha IP OK).
+ * Envia resultado ao servidor para que GET /api/sniper/disputas-ativas funcione.
+ */
+async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
+  if (!participacoesEmAndamento || participacoesEmAndamento.length === 0) return;
+
+  console.log('[LiciteAgora] 🔥 Verificando disputas em ' + participacoesEmAndamento.length + ' participações...');
+  var disputas = [];
+
+  for (var p of participacoesEmAndamento) {
+    var compraId = p.codigoCompra || p.compraId;
+    if (!compraId) continue;
+
+    // Tentar fase-externa primeiro (mais detalhes), depois disputa
+    var endpoints = [
+      '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens/em-selecao-fornecedores',
+      '/comprasnet-disputa/v1/compras/' + compraId + '/itens',
+    ];
+
+    var itens = null;
+    for (var ep of endpoints) {
+      try {
+        var result = await comprasnetFetch(tabId, ep, bearer);
+        if (result.status === 200 || result.status === 206) {
+          itens = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
+          break;
+        }
+      } catch (e) {}
+    }
+
+    if (!itens || itens.length === 0) continue;
+
+    // Filtrar itens em fase de lance
+    var itensAtivos = itens.filter(function(item) {
+      var fase = item.fase || item.faseItem || '';
+      return fase === 'LA' || fase === 'D1' || fase === 'D2' || item.podeEnviarLances === true;
+    });
+
+    disputas.push({
+      compraId: compraId,
+      orgao: p.nomeUasg || p.orgao || '',
+      objeto: p.objeto || '',
+      dataSessao: p.dataHoraInicioSessaoPublica || p.dataSessao || '',
+      totalItens: itens.length,
+      itensAtivos: itensAtivos.length,
+      itens: itens.map(function(i) {
+        return {
+          numero: i.numero || i.identificador,
+          descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
+          fase: i.fase || i.faseItem || '',
+          situacao: i.situacao || '',
+          melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
+          nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
+          podeEnviar: i.podeEnviarLances || false,
+          fimContagem: i.dataHoraFimContagem || null,
+          valorEstimado: i.valorEstimado || null,
+          quantidadeSolicitada: i.quantidadeSolicitada || null,
+        };
+      }),
+    });
+  }
+
+  // Enviar ao servidor
+  try {
+    await serverPost('/api/sync/disputas', { disputas: disputas });
+    console.log('[LiciteAgora] 🔥 ' + disputas.length + ' disputas enviadas ao servidor (' +
+      disputas.filter(function(d) { return d.itensAtivos > 0; }).length + ' com itens ativos)');
+  } catch (e) {
+    console.error('[LiciteAgora] Erro enviando disputas:', e.message);
+  }
+}
+
 // ==================== PERIODIC SYNC via chrome.alarms ====================
 
 chrome.alarms.create('sync', { periodInMinutes: SYNC_INTERVAL_MIN });
@@ -478,6 +555,57 @@ async function handleMessage(msg) {
     case 'forceSync':
       executarSync();
       return { ok: true, message: 'Sync iniciado' };
+
+    case 'forceSyncDisputas': {
+      // Força sync de disputas agora
+      const tabD = await findComprasnetTab();
+      const dataD = await load();
+      if (!tabD) return { ok: false, error: 'Nenhuma aba Comprasnet aberta' };
+      if (!dataD.bearer) return { ok: false, error: 'Sem Bearer token' };
+      const parts = await syncParticipacoesFiltros(tabD.id, dataD.bearer, [5]);
+      await syncDisputas(tabD.id, parts, dataD.bearer);
+      return { ok: true, message: 'Disputas verificadas' };
+    }
+
+    case 'queryItens': {
+      // Consulta itens de uma compra específica
+      const tabQ = await findComprasnetTab();
+      const dataQ = await load();
+      if (!tabQ) return { ok: false, error: 'Nenhuma aba Comprasnet aberta' };
+      if (!dataQ.bearer) return { ok: false, error: 'Sem Bearer token' };
+      const compId = msg.compraId;
+      if (!compId) return { ok: false, error: 'compraId obrigatório' };
+
+      var endpoints = [
+        '/comprasnet-fase-externa/v1/compras/' + compId + '/itens/em-selecao-fornecedores',
+        '/comprasnet-disputa/v1/compras/' + compId + '/itens',
+      ];
+      for (var ep of endpoints) {
+        try {
+          var result = await comprasnetFetch(tabQ.id, ep, dataQ.bearer);
+          if (result.status === 200 || result.status === 206) {
+            var itens = Array.isArray(result.data) ? result.data : [result.data];
+            // Enviar ao servidor também
+            await serverPost('/api/sync/disputas', { disputas: [{
+              compraId: compId, itens: itens.map(function(i) {
+                return {
+                  numero: i.numero || i.identificador,
+                  descricao: (i.descricao || '').substring(0, 120),
+                  fase: i.fase || i.faseItem || '',
+                  melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
+                  nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
+                  podeEnviar: i.podeEnviarLances || false,
+                  fimContagem: i.dataHoraFimContagem || null,
+                };
+              }), totalItens: itens.length,
+              itensAtivos: itens.filter(function(i) { var f = i.fase||''; return f==='LA'||f==='D1'||f==='D2'||i.podeEnviarLances; }).length,
+            }] });
+            return { ok: true, itens: itens };
+          }
+        } catch (e) {}
+      }
+      return { ok: false, error: 'Não foi possível consultar itens' };
+    }
 
     case 'resetStats':
       await save({ stats: { capturados: 0, enviados: 0, erros: 0, syncs: 0 }, ultimoErro: null });
