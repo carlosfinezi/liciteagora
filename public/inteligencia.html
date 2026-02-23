@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inteligência de Negócio - LiciteAgora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%); min-height: 100vh; padding: 20px; color: #e0e0e0; }
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        /* Header */
+        .header { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 25px 30px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+        .header h1 { color: #4fc3f7; font-size: 24px; margin-bottom: 5px; }
+        .header p { color: #90a4ae; font-size: 13px; }
+
+        /* Search */
+        .search-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 25px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+        .search-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+        .search-row label { display: block; font-size: 12px; color: #90a4ae; margin-bottom: 5px; }
+        .search-row input, .search-row select { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 10px 14px; border-radius: 8px; font-size: 14px; }
+        .search-row input:focus, .search-row select:focus { outline: none; border-color: #4fc3f7; }
+        .search-row input[type=text] { flex: 1; min-width: 250px; }
+        .btn { padding: 10px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, #4fc3f7, #0288d1); color: white; }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(79,195,247,0.3); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: rgba(255,255,255,0.1); color: #b0bec5; }
+        .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+        .btn-success { background: linear-gradient(135deg, #66bb6a, #388e3c); color: white; }
+        .btn-success:hover { box-shadow: 0 4px 15px rgba(102,187,106,0.3); }
+        .search-hint { font-size: 12px; color: #78909c; margin-top: 8px; }
+
+        /* Stats Row */
+        .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 18px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); text-align: center; }
+        .stat-card .stat-value { font-size: 28px; font-weight: 700; color: #4fc3f7; }
+        .stat-card .stat-label { font-size: 12px; color: #78909c; margin-top: 4px; }
+
+        /* Layout 2 columns */
+        .content-grid { display: grid; grid-template-columns: 1fr 380px; gap: 20px; }
+        @media (max-width: 1000px) { .content-grid { grid-template-columns: 1fr; } }
+
+        /* Results Table */
+        .results-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; }
+        .results-header { padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; }
+        .results-header h3 { color: #b0bec5; font-size: 14px; }
+        .results-table { width: 100%; border-collapse: collapse; }
+        .results-table th { background: rgba(0,0,0,0.2); padding: 10px 14px; text-align: left; font-size: 12px; color: #78909c; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; }
+        .results-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13px; vertical-align: top; }
+        .results-table tbody tr:hover { background: rgba(79,195,247,0.05); }
+        .results-table .desc { max-width: 350px; line-height: 1.4; }
+        .results-table .valor { text-align: right; white-space: nowrap; font-family: 'Consolas', monospace; }
+        .results-table .orgao { color: #90a4ae; font-size: 11px; }
+        .results-scroll { max-height: 600px; overflow-y: auto; }
+
+        /* Winner badge */
+        .winner-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .winner-badge.homologado { background: rgba(102,187,106,0.15); color: #66bb6a; }
+        .winner-badge.pendente { background: rgba(255,183,77,0.15); color: #ffb74d; }
+        .winner-badge.sem-resultado { background: rgba(120,144,156,0.15); color: #78909c; }
+        .winner-badge.erro { background: rgba(239,83,80,0.15); color: #ef5350; }
+        .winner-info { margin-top: 4px; }
+        .winner-info .fornecedor { color: #4fc3f7; font-weight: 600; font-size: 12px; }
+        .winner-info .cnpj { color: #78909c; font-size: 11px; }
+        .winner-info .valor-h { color: #66bb6a; font-weight: 600; }
+
+        /* Sidebar panels */
+        .panel { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 15px; overflow: hidden; }
+        .panel-header { padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .panel-header h3 { color: #b0bec5; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .panel-body { padding: 14px 18px; }
+        .rank-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+        .rank-item:last-child { border: none; }
+        .rank-item .rank-name { font-size: 13px; color: #e0e0e0; flex: 1; margin-right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rank-item .rank-count { background: rgba(79,195,247,0.15); color: #4fc3f7; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; min-width: 30px; text-align: center; }
+        .rank-item .rank-valor { color: #66bb6a; font-size: 12px; font-family: 'Consolas', monospace; }
+
+        /* Progress */
+        .progress-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-top: 10px; }
+        .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #4fc3f7, #0288d1); transition: width 0.3s; }
+        .progress-text { font-size: 11px; color: #78909c; margin-top: 4px; }
+
+        /* Loading */
+        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(79,195,247,0.3); border-top-color: #4fc3f7; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Empty state */
+        .empty-state { padding: 60px 20px; text-align: center; color: #78909c; }
+        .empty-state .icon { font-size: 48px; margin-bottom: 15px; }
+        .empty-state p { font-size: 14px; }
+
+        /* Pagination */
+        .pagination { padding: 15px 20px; display: flex; justify-content: center; gap: 8px; }
+        .pagination .btn { padding: 6px 14px; font-size: 12px; }
+
+        /* Link PNCP */
+        a.pncp-link { color: #4fc3f7; text-decoration: none; font-size: 11px; }
+        a.pncp-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Inteligência de Negócio</h1>
+            <p>Pesquise itens licitados e descubra quem venceu, por quanto e quais marcas foram homologadas</p>
+        </div>
+
+        <!-- Search -->
+        <div class="search-card">
+            <form id="searchForm" onsubmit="pesquisar(event)">
+                <div class="search-row">
+                    <div style="flex:1">
+                        <label>Pesquisar item</label>
+                        <input type="text" id="txtBusca" placeholder="Ex: servidor NAS, switch 48 portas, notebook i7..." autocomplete="off">
+                    </div>
+                    <div>
+                        <label>Resultados</label>
+                        <select id="selTamanho">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="btnBuscar">Buscar Itens</button>
+                    <button type="button" class="btn btn-success" id="btnResultados" onclick="carregarTodosResultados()" disabled>Buscar Vencedores</button>
+                </div>
+            </form>
+            <div class="search-hint">💡 Pesquisa nos itens de todas as licitações do banco. Após encontrar, clique em "Buscar Vencedores" para consultar o PNCP.</div>
+            <div class="progress-bar" id="progressBar" style="display:none"><div class="fill" id="progressFill"></div></div>
+            <div class="progress-text" id="progressText"></div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row" id="statsRow" style="display:none">
+            <div class="stat-card"><div class="stat-value" id="statItens">0</div><div class="stat-label">Itens Encontrados</div></div>
+            <div class="stat-card"><div class="stat-value" id="statLicitacoes">0</div><div class="stat-label">Licitações</div></div>
+            <div class="stat-card"><div class="stat-value" id="statHomologados">0</div><div class="stat-label">Homologados</div></div>
+            <div class="stat-card"><div class="stat-value" id="statFornecedores">0</div><div class="stat-label">Fornecedores</div></div>
+            <div class="stat-card"><div class="stat-value" id="statMenorPreco">-</div><div class="stat-label">Menor Preço Unit.</div></div>
+            <div class="stat-card"><div class="stat-value" id="statMediaPreco">-</div><div class="stat-label">Preço Médio Unit.</div></div>
+        </div>
+
+        <!-- Content -->
+        <div class="content-grid" id="contentGrid" style="display:none">
+            <!-- Results table -->
+            <div class="results-card">
+                <div class="results-header">
+                    <h3 id="resultsTitle">Itens encontrados</h3>
+                    <div id="paginationTop"></div>
+                </div>
+                <div class="results-scroll">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Órgão / Licitação</th>
+                                <th>Valor Est.</th>
+                                <th>Resultado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyResults"></tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="paginationBottom"></div>
+            </div>
+
+            <!-- Side panels -->
+            <div>
+                <div class="panel" id="panelFornecedores" style="display:none">
+                    <div class="panel-header"><h3>🏆 Top Fornecedores</h3></div>
+                    <div class="panel-body" id="listFornecedores"></div>
+                </div>
+                <div class="panel" id="panelPrecos" style="display:none">
+                    <div class="panel-header"><h3>💰 Faixa de Preços Homologados</h3></div>
+                    <div class="panel-body" id="listPrecos"></div>
+                </div>
+                <div class="panel" id="panelUFs" style="display:none">
+                    <div class="panel-header"><h3>📍 Por Estado</h3></div>
+                    <div class="panel-body" id="listUFs"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Empty state -->
+        <div class="empty-state" id="emptyState">
+            <div class="icon">📊</div>
+            <p>Pesquise um item para ver análises de mercado</p>
+        </div>
+    </div>
+
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>if (typeof initSidebar === 'function') initSidebar('inteligencia');</script>
+    <script>
+    // State
+    let itensAtuais = [];
+    let resultadosMap = {}; // key: "cnpj/ano/seq/num" -> resultado
+    let paginaAtual = 1;
+    let totalPaginas = 1;
+    let totalItens = 0;
+    let buscando = false;
+
+    function formatarMoeda(v) {
+        if (v == null || isNaN(v)) return '-';
+        return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function formatarData(d) {
+        if (!d) return '-';
+        try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
+    }
+
+    function chaveItem(item) {
+        return `${item.cnpj}/${item.anoCompra}/${item.sequencialCompra}/${item.numeroItem}`;
+    }
+
+    // Search
+    async function pesquisar(e) {
+        if (e) e.preventDefault();
+        const q = document.getElementById('txtBusca').value.trim();
+        if (q.length < 3) return alert('Digite pelo menos 3 caracteres');
+
+        const tam = document.getElementById('selTamanho').value;
+        document.getElementById('btnBuscar').disabled = true;
+        document.getElementById('btnBuscar').textContent = 'Buscando...';
+        resultadosMap = {};
+
+        try {
+            const resp = await fetch(`/api/bi/pesquisar?q=${encodeURIComponent(q)}&pagina=${paginaAtual}&tamanhoPagina=${tam}`);
+            const data = await resp.json();
+
+            itensAtuais = data.itens || [];
+            totalItens = data.total || 0;
+            totalPaginas = data.totalPaginas || 1;
+
+            renderResults();
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('contentGrid').style.display = 'grid';
+            document.getElementById('statsRow').style.display = 'grid';
+            document.getElementById('btnResultados').disabled = itensAtuais.length === 0;
+
+            // Stats iniciais
+            const licitacoesUnicas = new Set(itensAtuais.map(i => i.numeroControlePNCP)).size;
+            document.getElementById('statItens').textContent = totalItens.toLocaleString();
+            document.getElementById('statLicitacoes').textContent = licitacoesUnicas;
+            document.getElementById('statHomologados').textContent = '-';
+            document.getElementById('statFornecedores').textContent = '-';
+            document.getElementById('statMenorPreco').textContent = '-';
+            document.getElementById('statMediaPreco').textContent = '-';
+
+        } catch (err) {
+            alert('Erro: ' + err.message);
+        } finally {
+            document.getElementById('btnBuscar').disabled = false;
+            document.getElementById('btnBuscar').textContent = 'Buscar Itens';
+        }
+    }
+
+    function renderResults() {
+        const tbody = document.getElementById('tbodyResults');
+        if (itensAtuais.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:#78909c">Nenhum item encontrado</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = itensAtuais.map(item => {
+            const chave = chaveItem(item);
+            const res = resultadosMap[chave];
+            let resultadoHTML = '<span class="winner-badge pendente">Não consultado</span>';
+
+            if (res === 'loading') {
+                resultadoHTML = '<span class="loading-spinner"></span>';
+            } else if (res && res.length > 0) {
+                const r = res[0]; // Primeiro resultado (vencedor)
+                resultadoHTML = `
+                    <span class="winner-badge homologado">Homologado</span>
+                    <div class="winner-info">
+                        <div class="fornecedor">${r.nomeRazaoSocialFornecedor || 'N/I'}</div>
+                        <div class="cnpj">${formatarCNPJ(r.niFornecedor)}</div>
+                        <div class="valor-h">${formatarMoeda(r.valorUnitarioHomologado)} unit.</div>
+                        <div style="color:#b0bec5;font-size:11px">${formatarMoeda(r.valorTotalHomologado)} total</div>
+                        ${r.dataResultado ? `<div style="color:#78909c;font-size:10px">${formatarData(r.dataResultado)}</div>` : ''}
+                    </div>`;
+            } else if (res !== undefined) {
+                resultadoHTML = '<span class="winner-badge sem-resultado">Sem resultado</span>';
+            }
+
+            const pncpLink = `https://pncp.gov.br/app/editais/${item.cnpj}/${item.anoCompra}/${String(item.sequencialCompra).padStart(6,'0')}`;
+
+            return `<tr>
+                <td>
+                    <div class="desc">${highlightTerms(item.itemDescricao)}</div>
+                    <div style="margin-top:4px;font-size:11px;color:#78909c">Item ${item.numeroItem} · Qtd: ${item.quantidade || '-'} ${item.unidadeMedida || ''}</div>
+                </td>
+                <td>
+                    <div style="font-weight:600;font-size:12px">${item.nomeUnidade || item.orgao}</div>
+                    <div class="orgao">${item.modalidadeNome || ''} · UASG ${item.uasg || '-'}</div>
+                    <div class="orgao">${item.ufSigla || ''}${item.municipioNome ? ' - '+item.municipioNome : ''}</div>
+                    <div class="orgao">${formatarData(item.dataPublicacaoPncp)}</div>
+                    <a href="${pncpLink}" target="_blank" class="pncp-link">Ver no PNCP ↗</a>
+                </td>
+                <td class="valor">${formatarMoeda(item.valorUnitarioEstimado)}</td>
+                <td>${resultadoHTML}</td>
+            </tr>`;
+        }).join('');
+
+        // Pagination
+        renderPagination();
+    }
+
+    function highlightTerms(text) {
+        if (!text) return '';
+        const q = document.getElementById('txtBusca').value.trim();
+        const palavras = q.split(/\s+/).filter(p => p.length >= 2);
+        let result = escapeHtml(text);
+        palavras.forEach(p => {
+            const regex = new RegExp(`(${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+            result = result.replace(regex, '<mark style="background:#4fc3f733;color:#4fc3f7;padding:0 2px;border-radius:2px">$1</mark>');
+        });
+        return result;
+    }
+
+    function escapeHtml(t) {
+        const div = document.createElement('div');
+        div.textContent = t;
+        return div.innerHTML;
+    }
+
+    function formatarCNPJ(ni) {
+        if (!ni) return '';
+        const s = ni.replace(/\D/g, '');
+        if (s.length === 14) return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+        if (s.length === 11) return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        return ni;
+    }
+
+    function renderPagination() {
+        const html = totalPaginas <= 1 ? '' : `
+            <button class="btn btn-secondary" onclick="mudarPagina(-1)" ${paginaAtual<=1?'disabled':''}>← Anterior</button>
+            <span style="padding:6px 12px;font-size:12px;color:#90a4ae">${paginaAtual} / ${totalPaginas}</span>
+            <button class="btn btn-secondary" onclick="mudarPagina(1)" ${paginaAtual>=totalPaginas?'disabled':''}>Próxima →</button>
+        `;
+        document.getElementById('paginationBottom').innerHTML = html;
+    }
+
+    function mudarPagina(delta) {
+        paginaAtual += delta;
+        if (paginaAtual < 1) paginaAtual = 1;
+        if (paginaAtual > totalPaginas) paginaAtual = totalPaginas;
+        pesquisar();
+    }
+
+    // Load results from PNCP
+    async function carregarTodosResultados() {
+        if (buscando || itensAtuais.length === 0) return;
+        buscando = true;
+
+        const btn = document.getElementById('btnResultados');
+        btn.disabled = true;
+        btn.textContent = 'Buscando...';
+
+        document.getElementById('progressBar').style.display = 'block';
+
+        const total = itensAtuais.length;
+        let carregados = 0;
+
+        // Process in batches of 10
+        for (let i = 0; i < total; i += 10) {
+            const lote = itensAtuais.slice(i, i + 10).map(item => ({
+                cnpj: item.cnpj,
+                ano: item.anoCompra,
+                sequencial: item.sequencialCompra,
+                numeroItem: item.numeroItem
+            }));
+
+            // Mark as loading
+            lote.forEach(l => { resultadosMap[`${l.cnpj}/${l.ano}/${l.sequencial}/${l.numeroItem}`] = 'loading'; });
+            renderResults();
+
+            try {
+                const resp = await fetch('/api/bi/resultados-lote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ itens: lote })
+                });
+                const data = await resp.json();
+
+                (data.resultados || []).forEach(r => {
+                    const chave = `${r.cnpj}/${r.ano}/${r.sequencial}/${r.numeroItem}`;
+                    resultadosMap[chave] = r.resultados || [];
+                });
+            } catch (err) {
+                lote.forEach(l => {
+                    resultadosMap[`${l.cnpj}/${l.ano}/${l.sequencial}/${l.numeroItem}`] = [];
+                });
+            }
+
+            carregados = Math.min(i + 10, total);
+            const pct = Math.round(carregados / total * 100);
+            document.getElementById('progressFill').style.width = pct + '%';
+            document.getElementById('progressText').textContent = `${carregados}/${total} itens consultados (${pct}%)`;
+
+            renderResults();
+        }
+
+        atualizarAggregates();
+
+        buscando = false;
+        btn.disabled = false;
+        btn.textContent = 'Buscar Vencedores';
+        document.getElementById('progressText').textContent = `✅ ${total} itens consultados`;
+    }
+
+    function atualizarAggregates() {
+        const todosResultados = [];
+        const fornecedoresMap = {};
+        const ufsMap = {};
+        const precos = [];
+
+        itensAtuais.forEach(item => {
+            const chave = chaveItem(item);
+            const res = resultadosMap[chave];
+            if (res && Array.isArray(res) && res.length > 0) {
+                res.forEach(r => {
+                    todosResultados.push({ ...r, item, uf: item.ufSigla });
+
+                    // Fornecedores
+                    const nome = r.nomeRazaoSocialFornecedor || 'N/I';
+                    if (!fornecedoresMap[nome]) fornecedoresMap[nome] = { count: 0, valorTotal: 0, cnpj: r.niFornecedor };
+                    fornecedoresMap[nome].count++;
+                    fornecedoresMap[nome].valorTotal += r.valorTotalHomologado || 0;
+
+                    // Preços unitários
+                    if (r.valorUnitarioHomologado > 0) {
+                        precos.push(r.valorUnitarioHomologado);
+                    }
+
+                    // UFs
+                    const uf = item.ufSigla || 'N/I';
+                    if (!ufsMap[uf]) ufsMap[uf] = { count: 0, valor: 0 };
+                    ufsMap[uf].count++;
+                    ufsMap[uf].valor += r.valorTotalHomologado || 0;
+                });
+            }
+        });
+
+        // Stats
+        const fornecedoresUnicos = Object.keys(fornecedoresMap).length;
+        document.getElementById('statHomologados').textContent = todosResultados.length;
+        document.getElementById('statFornecedores').textContent = fornecedoresUnicos;
+        
+        if (precos.length > 0) {
+            precos.sort((a, b) => a - b);
+            document.getElementById('statMenorPreco').textContent = formatarMoeda(precos[0]);
+            const media = precos.reduce((s, v) => s + v, 0) / precos.length;
+            document.getElementById('statMediaPreco').textContent = formatarMoeda(media);
+        }
+
+        // Top Fornecedores
+        const topFornecedores = Object.entries(fornecedoresMap)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 15);
+
+        if (topFornecedores.length > 0) {
+            document.getElementById('panelFornecedores').style.display = 'block';
+            document.getElementById('listFornecedores').innerHTML = topFornecedores.map(([nome, data]) => `
+                <div class="rank-item">
+                    <div class="rank-name" title="${nome}\n${formatarCNPJ(data.cnpj)}">${nome}</div>
+                    <div class="rank-count">${data.count}x</div>
+                    <div class="rank-valor" style="margin-left:8px">${formatarMoeda(data.valorTotal)}</div>
+                </div>
+            `).join('');
+        }
+
+        // Faixa de Preços
+        if (precos.length > 0) {
+            document.getElementById('panelPrecos').style.display = 'block';
+            const min = precos[0];
+            const max = precos[precos.length - 1];
+            const media = precos.reduce((s, v) => s + v, 0) / precos.length;
+            const mediana = precos[Math.floor(precos.length / 2)];
+            
+            document.getElementById('listPrecos').innerHTML = `
+                <div class="rank-item"><div class="rank-name">Menor</div><div class="rank-valor">${formatarMoeda(min)}</div></div>
+                <div class="rank-item"><div class="rank-name">Mediana</div><div class="rank-valor">${formatarMoeda(mediana)}</div></div>
+                <div class="rank-item"><div class="rank-name">Média</div><div class="rank-valor">${formatarMoeda(media)}</div></div>
+                <div class="rank-item"><div class="rank-name">Maior</div><div class="rank-valor">${formatarMoeda(max)}</div></div>
+                <div class="rank-item"><div class="rank-name">Amostra</div><div class="rank-count">${precos.length} preços</div></div>
+            `;
+        }
+
+        // UFs
+        const topUFs = Object.entries(ufsMap)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 10);
+
+        if (topUFs.length > 0) {
+            document.getElementById('panelUFs').style.display = 'block';
+            document.getElementById('listUFs').innerHTML = topUFs.map(([uf, data]) => `
+                <div class="rank-item">
+                    <div class="rank-name">${uf}</div>
+                    <div class="rank-count">${data.count}x</div>
+                    <div class="rank-valor" style="margin-left:8px">${formatarMoeda(data.valor)}</div>
+                </div>
+            `).join('');
+        }
+    }
+
+    // Enter to search
+    document.getElementById('txtBusca').addEventListener('keypress', e => {
+        if (e.key === 'Enter') pesquisar(e);
+    });
+
+    // Focus on load
+    document.getElementById('txtBusca').focus();
+    </script>
+</body>
+</html>

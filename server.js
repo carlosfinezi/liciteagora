@@ -9230,6 +9230,145 @@ app.get('/api/extensoes/:slug/download', (req, res) => {
 
 // ==================== FIM DOWNLOAD DE EXTENSÕES ====================
 
+// ===== INTELIGÊNCIA DE NEGÓCIO - BI =====
+
+// Pesquisar itens por palavra-chave (busca local)
+app.get('/api/bi/pesquisar', async (req, res) => {
+  try {
+    const { q, pagina = 1, tamanhoPagina = 50 } = req.query;
+    if (!q || q.trim().length < 3) {
+      return res.status(400).json({ error: 'Termo de busca deve ter pelo menos 3 caracteres' });
+    }
+
+    const palavras = q.trim().toLowerCase().split(/\s+/).filter(p => p.length >= 2);
+    if (palavras.length === 0) {
+      return res.status(400).json({ error: 'Termos de busca inválidos' });
+    }
+
+    // Buscar itens que contenham TODAS as palavras
+    const conditions = palavras.map(() => `LOWER(i.descricao) LIKE ?`).join(' AND ');
+    const params = palavras.map(p => `%${p}%`);
+
+    const offset = (parseInt(pagina) - 1) * parseInt(tamanhoPagina);
+
+    const countRow = db.prepare(`
+      SELECT COUNT(*) as total FROM itens i
+      JOIN licitacoes l ON i.licitacaoId = l.id
+      WHERE ${conditions}
+    `).get(...params);
+
+    const itens = db.prepare(`
+      SELECT 
+        i.id as itemId,
+        i.numeroItem,
+        i.descricao as itemDescricao,
+        i.quantidade,
+        i.unidadeMedida,
+        i.valorUnitarioEstimado,
+        i.valorTotal as valorTotalEstimado,
+        l.cnpj,
+        l.anoCompra,
+        l.sequencialCompra,
+        l.razaoSocial as orgao,
+        l.nomeUnidade,
+        l.codigoUnidade as uasg,
+        l.ufSigla,
+        l.municipioNome,
+        l.modalidadeNome,
+        l.objetoCompra,
+        l.situacaoCompraNome,
+        l.dataPublicacaoPncp,
+        l.dataEncerramentoProposta,
+        l.numeroControlePNCP
+      FROM itens i
+      JOIN licitacoes l ON i.licitacaoId = l.id
+      WHERE ${conditions}
+      ORDER BY l.dataPublicacaoPncp DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, parseInt(tamanhoPagina), offset);
+
+    res.json({
+      total: countRow.total,
+      pagina: parseInt(pagina),
+      tamanhoPagina: parseInt(tamanhoPagina),
+      totalPaginas: Math.ceil(countRow.total / parseInt(tamanhoPagina)),
+      itens
+    });
+
+  } catch (error) {
+    console.error('Erro BI pesquisar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Buscar resultado (vencedor) de um item específico via PNCP API
+app.get('/api/bi/resultado/:cnpj/:ano/:sequencial/:numeroItem', async (req, res) => {
+  try {
+    const { cnpj, ano, sequencial, numeroItem } = req.params;
+    const url = `${PNCP_API_ITENS}/orgaos/${cnpj}/compras/${ano}/${sequencial}/itens/${numeroItem}/resultados`;
+    
+    const response = await axios.get(url, {
+      headers: { 'Accept': 'application/json' },
+      timeout: 15000
+    });
+
+    res.json(response.data || []);
+  } catch (error) {
+    if (error.response?.status === 404) {
+      res.json([]); // Sem resultado ainda
+    } else {
+      console.error(`Erro BI resultado ${req.params.cnpj}/${req.params.ano}/${req.params.sequencial}/item${req.params.numeroItem}:`, error.message);
+      res.status(error.response?.status || 500).json({ error: error.message });
+    }
+  }
+});
+
+// Buscar resultados em lote (até 10 itens por vez)
+app.post('/api/bi/resultados-lote', async (req, res) => {
+  try {
+    const { itens } = req.body; // [{cnpj, ano, sequencial, numeroItem}]
+    if (!itens || !Array.isArray(itens) || itens.length === 0) {
+      return res.status(400).json({ error: 'Lista de itens obrigatória' });
+    }
+
+    const lote = itens.slice(0, 10); // Máximo 10 por vez
+    const resultados = [];
+
+    for (const item of lote) {
+      try {
+        const url = `${PNCP_API_ITENS}/orgaos/${item.cnpj}/compras/${item.ano}/${item.sequencial}/itens/${item.numeroItem}/resultados`;
+        const response = await axios.get(url, {
+          headers: { 'Accept': 'application/json' },
+          timeout: 10000
+        });
+        resultados.push({
+          cnpj: item.cnpj,
+          ano: item.ano,
+          sequencial: item.sequencial,
+          numeroItem: item.numeroItem,
+          resultados: response.data || []
+        });
+      } catch (err) {
+        resultados.push({
+          cnpj: item.cnpj,
+          ano: item.ano,
+          sequencial: item.sequencial,
+          numeroItem: item.numeroItem,
+          resultados: [],
+          erro: err.response?.status === 404 ? 'sem_resultado' : err.message
+        });
+      }
+      // Pequeno delay entre chamadas para não sobrecarregar PNCP
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    res.json({ resultados });
+  } catch (error) {
+    console.error('Erro BI resultados-lote:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
   console.log(`Banco de dados: ${dbPath}`);

@@ -22,7 +22,8 @@ const menuConfig = {
         {
             titulo: 'Ferramentas',
             itens: [
-                { page: 'lances', icone: '🎯', texto: 'Lances Automáticos', link: '/lances.html' }
+                { page: 'lances', icone: '🎯', texto: 'Lances Automáticos', link: '/lances.html' },
+                { page: 'inteligencia', icone: '📊', texto: 'Inteligência de Negócio', link: '/inteligencia.html' }
             ]
         },
         {
