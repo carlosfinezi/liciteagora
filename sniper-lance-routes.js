@@ -18,6 +18,9 @@ console.log('[Sniper] Inicializado (aguardando Bearer token da extensão)');
 
 function registrarRotasSniper(app, monitorGetter, db) {
 
+  // Tracking da extensão
+  let ultimoSyncExtensao = null; // timestamp do último POST da extensão
+
   // ==================== AUTH / TOKEN ====================
 
   /**
@@ -32,6 +35,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
         return res.status(400).json({ success: false, error: 'Token obrigatório' });
       }
       sniper.setToken(token, source || 'api');
+      if (source === 'extension') ultimoSyncExtensao = Date.now();
 
       // Captcha token (hCaptcha) — para APIs de mensagem/fase-externa
       if (captchaToken) {
@@ -203,10 +207,22 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Status completo da fila de lances.
    */
   app.get('/api/sniper/fila-status', (req, res) => {
+    const sniperStatus = sniper.getStatus();
+    const extensaoConectada = !!(ultimoSyncExtensao && (Date.now() - ultimoSyncExtensao) < 5 * 60 * 1000);
     res.json({
       success: true,
       fila: filaLances,
       resultados: resultadosLances.slice(0, 20),
+      totalResultados: resultadosLances.length,
+      extensaoConectada,
+      temBearer: sniperStatus.temToken,
+      bearerIdade: sniperStatus.tokenIdadeSegundos,
+      tokenExpirado: sniperStatus.tokenExpirado,
+      disputasCache: {
+        total: disputasCache.disputas.length,
+        atualizadoEm: disputasCache.atualizadoEm,
+        idadeSegundos: disputasCache.atualizadoEm ? Math.floor((Date.now() - new Date(disputasCache.atualizadoEm).getTime()) / 1000) : null,
+      },
       stats: {
         pendentes: filaLances.filter(l => l.status === 'pendente').length,
         processando: filaLances.filter(l => l.status === 'processando').length,
@@ -342,6 +358,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (!Array.isArray(disputas)) {
         return res.status(400).json({ success: false, error: 'disputas deve ser array' });
       }
+
+      ultimoSyncExtensao = Date.now();
 
       if (merge) {
         // Merge: add/update individual items without replacing full cache
@@ -558,6 +576,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
         return res.status(400).json({ success: false, error: 'participacoes deve ser array' });
       }
 
+      ultimoSyncExtensao = Date.now();
       let inseridas = 0, atualizadas = 0;
 
       for (const item of participacoes) {
@@ -607,6 +626,40 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       console.log(`[Sync] Participações: ${inseridas} novas, ${atualizadas} atualizadas (de ${participacoes.length} recebidas)`);
       res.json({ success: true, inseridas, atualizadas, total: participacoes.length });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sync/participacoes-encerradas
+   * Recebe IDs de compras que sumiram do filtro=5 por 2 ciclos consecutivos.
+   * Marca como encerradas no banco e remove do cache de disputas.
+   */
+  app.post('/api/sync/participacoes-encerradas', (req, res) => {
+    try {
+      const { compraIds } = req.body;
+      if (!Array.isArray(compraIds) || compraIds.length === 0) {
+        return res.status(400).json({ success: false, error: 'compraIds deve ser array não-vazio' });
+      }
+
+      ultimoSyncExtensao = Date.now();
+      let atualizadas = 0;
+
+      for (const compraId of compraIds) {
+        const result = db.prepare(
+          `UPDATE participacoes_comprasnet SET situacao = 'EN', faseCompra = 'encerrada', dataAtualizacao = CURRENT_TIMESTAMP
+           WHERE compraId = ? AND situacao != 'EN'`
+        ).run(compraId);
+        if (result.changes > 0) atualizadas++;
+
+        // Remover do cache de disputas em memória
+        const idx = disputasCache.disputas.findIndex(d => d.compraId === compraId);
+        if (idx >= 0) disputasCache.disputas.splice(idx, 1);
+      }
+
+      console.log(`[Sync] Encerradas: ${atualizadas} de ${compraIds.length} marcadas como EN`);
+      res.json({ success: true, atualizadas, total: compraIds.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -834,9 +887,15 @@ function registrarRotasSniper(app, monitorGetter, db) {
           valorEstimado = COALESCE(excluded.valorEstimado, valorEstimado),
           dataAtualizacao = CURRENT_TIMESTAMP`);
 
+      const numerosRecebidos = itens.map(i => i.itemNumero);
       const inserir = db.transaction((itens) => {
         for (const i of itens) {
           stmt.run(compraId, i.itemNumero, i.descricao || null, i.valorLance || null, i.faseItem || 'LA', i.ativo !== undefined ? (i.ativo ? 1 : 0) : 1, i.valorEstimado || null);
+        }
+        // Remover itens que não existem mais na fonte (evita itens fantasma)
+        if (numerosRecebidos.length > 0) {
+          const placeholders = numerosRecebidos.map(() => '?').join(',');
+          db.prepare(`DELETE FROM sniper_itens WHERE compraId = ? AND itemNumero NOT IN (${placeholders})`).run(compraId, ...numerosRecebidos);
         }
       });
       inserir(itens);
@@ -856,6 +915,66 @@ function registrarRotasSniper(app, monitorGetter, db) {
       const { compraId, itemNumero } = req.params;
       db.prepare('DELETE FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').run(compraId, parseInt(itemNumero));
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/itens-pncp?compraId=XXXX
+   * Busca itens da tabela PNCP (licitacoes + itens) para uma participação Comprasnet.
+   * Usa codigoUnidade + ano + objeto para encontrar a licitação correspondente.
+   */
+  app.get('/api/sniper/itens-pncp', (req, res) => {
+    try {
+      const { compraId } = req.query;
+      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+
+      // Extrair UASG e ano do compraId (formato: UASG6 + MOD2 + NUM5 + ANO4)
+      const participacao = db.prepare(
+        'SELECT compraId, cnpj, codigoUnidade, ano, sequencial, objeto FROM participacoes_comprasnet WHERE compraId = ?'
+      ).get(compraId);
+      if (!participacao) return res.json({ success: false, error: 'Participação não encontrada' });
+
+      // Extrair UASG do compraId (primeiros 6 dígitos)
+      const uasg = compraId.substring(0, 6);
+
+      // Buscar licitação no PNCP: codigoUnidade contém a UASG, mesmo ano, objeto similar
+      const palavrasObjeto = (participacao.objeto || '').split(/\s+/).filter(p => p.length > 4).slice(0, 3);
+      let licitacao = null;
+
+      if (palavrasObjeto.length > 0) {
+        // Tentar match por UASG + ano + palavras do objeto
+        const likeClause = palavrasObjeto.map(() => 'objetoCompra LIKE ?').join(' AND ');
+        const likeParams = palavrasObjeto.map(p => `%${p}%`);
+        licitacao = db.prepare(
+          `SELECT id, codigoUnidade, anoCompra, sequencialCompra, objetoCompra, numeroControlePNCP
+           FROM licitacoes WHERE codigoUnidade LIKE ? AND anoCompra = ? AND ${likeClause}
+           ORDER BY id DESC LIMIT 1`
+        ).get(`%${uasg}%`, participacao.ano, ...likeParams);
+      }
+
+      if (!licitacao) {
+        return res.json({ success: false, error: 'Licitação PNCP não encontrada para esta participação' });
+      }
+
+      const itens = db.prepare(
+        'SELECT numeroItem, descricao, quantidade, unidadeMedida, valorUnitarioEstimado, valorTotal FROM itens WHERE licitacaoId = ? ORDER BY numeroItem'
+      ).all(licitacao.id);
+
+      res.json({
+        success: true,
+        licitacaoId: licitacao.id,
+        numeroControlePNCP: licitacao.numeroControlePNCP,
+        itens: itens.map(i => ({
+          itemNumero: i.numeroItem,
+          descricao: i.descricao,
+          quantidade: i.quantidade,
+          unidadeMedida: i.unidadeMedida,
+          valorEstimado: i.valorUnitarioEstimado,
+          valorTotal: i.valorTotal,
+        })),
+      });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }

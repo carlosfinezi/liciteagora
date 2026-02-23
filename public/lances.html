@@ -131,9 +131,23 @@ async function atualizarStatus() {
     try {
         var r = await fetch(API+'/api/sniper/fila-status'); var d = await r.json();
         if(d.success){
-            document.getElementById('stExt').innerHTML = d.extensaoConectada?'<span class="verde">✅</span>':'<span class="vermelho">❌</span>';
-            document.getElementById('stBearer').innerHTML = d.temBearer?'<span class="verde">✅ '+((d.bearerIdade||'')+'s')+'</span>':'<span class="vermelho">❌</span>';
+            document.getElementById('stExt').innerHTML = d.extensaoConectada?'<span class="verde">OK</span>':'<span class="vermelho">OFF</span>';
+            // Bearer com cor baseada na idade
+            if(d.temBearer) {
+                var idadeS = d.bearerIdade||0;
+                var corBearer = idadeS < 300 ? 'verde' : idadeS < 600 ? 'amarelo' : 'vermelho';
+                var labelBearer = d.tokenExpirado ? 'EXPIRADO' : Math.floor(idadeS/60)+'m';
+                document.getElementById('stBearer').innerHTML = '<span class="'+corBearer+'">'+labelBearer+'</span>';
+            } else {
+                document.getElementById('stBearer').innerHTML = '<span class="vermelho">SEM</span>';
+            }
             document.getElementById('stLances').textContent = d.totalResultados||0;
+            // Disputas com idade do cache
+            if(d.disputasCache && d.disputasCache.atualizadoEm) {
+                var idadeDisp = d.disputasCache.idadeSegundos||0;
+                var corDisp = idadeDisp < 180 ? 'verde' : idadeDisp < 600 ? 'amarelo' : 'vermelho';
+                document.getElementById('stDisp').innerHTML = '<span class="'+corDisp+'">'+d.disputasCache.total+'</span>';
+            }
         }
     }catch(e){}
 }
@@ -171,10 +185,9 @@ function aplicarFiltro() {
 
     var lista = participacoes.filter(function(p) {
         if(filtro === 'disputa') {
-            var fase = (p.faseCompra||'').toLowerCase();
-            var sit = (p.situacao||'').toLowerCase();
-            // Não mostrar encerradas/fracassadas
-            if(sit === 'fr' || sit === 'en' || fase === '4' || fase === 'encerrada') return false;
+            var et = etapaInfo(p);
+            // Esconder encerradas (banco + live)
+            if(et.cls === 'etapa-encerrada') return false;
         }
         if(busca) {
             return (p.objeto||'').toLowerCase().indexOf(busca)>=0 ||
@@ -190,14 +203,27 @@ function aplicarFiltro() {
 function etapaInfo(p) {
     var fase = p.faseCompra||'';
     var live = disputasLive[p.compraId];
-    // Se tem dados live e itens ativos, é disputa
-    if(live && live.itensAtivos > 0) return { label: 'Disputa', cls: 'etapa-disputa' };
-    if(fase==='3') return { label: 'Disputa', cls: 'etapa-disputa' };
-    if(fase==='4'||fase==='encerrada') return { label: 'Encerrada', cls: 'etapa-encerrada' };
-    if(fase==='1'||fase==='2') return { label: fase==='1'?'Cadastrada':'Publicada', cls: 'etapa-outra' };
     var sit = (p.situacao||'').toUpperCase();
+
+    // Dados do banco indicam encerrada
     if(sit==='FR') return { label: 'Fracassada', cls: 'etapa-encerrada' };
     if(sit==='EN') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+    if(fase==='4'||fase==='encerrada') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+
+    // Dados live: se tem itens e NENHUM ativo → encerrada (live)
+    if(live && live.totalItens > 0 && live.itensAtivos === 0) {
+        // Verificar se algum item tem fase ativa
+        var algumAtivo = (live.itens||[]).some(function(i) {
+            var f = (i.fase||'').toUpperCase();
+            return f==='LA'||f==='D1'||f==='D2'||i.podeEnviar;
+        });
+        if(!algumAtivo) return { label: 'Encerrada (live)', cls: 'etapa-encerrada' };
+    }
+
+    // Dados live: se tem itens ativos, é disputa
+    if(live && live.itensAtivos > 0) return { label: 'Disputa', cls: 'etapa-disputa' };
+    if(fase==='3') return { label: 'Disputa', cls: 'etapa-disputa' };
+    if(fase==='1'||fase==='2') return { label: fase==='1'?'Cadastrada':'Publicada', cls: 'etapa-outra' };
     return { label: fase||sit||'Em andamento', cls: 'etapa-outra' };
 }
 
@@ -250,14 +276,32 @@ async function carregarItensLic(compraId) {
     var live = disputasLive[compraId];
     var itensLive = live ? live.itens : [];
 
-    // 2. Config salva no banco
+    // 2. Config salva no banco (sniper_itens)
     try {
         var r = await fetch(API+'/api/sniper/itens?compraId='+compraId);
         var d = await r.json();
         itensConfig[compraId] = d.success ? d.itens : [];
     } catch(e) { itensConfig[compraId] = []; }
 
-    // 3. Se tem itens live mas não no banco, criar automaticamente
+    // 3. Se não tem config, buscar itens do PNCP (tabela itens/licitacoes)
+    if(itensConfig[compraId].length === 0) {
+        try {
+            var rp = await fetch(API+'/api/sniper/itens-pncp?compraId='+compraId);
+            var dp = await rp.json();
+            if(dp.success && dp.itens && dp.itens.length > 0) {
+                // Criar sniper_itens a partir dos dados PNCP
+                var bulkPncp = dp.itens.map(function(i) {
+                    return { itemNumero: i.itemNumero, descricao: i.descricao||'', faseItem: 'LA', valorEstimado: i.valorEstimado };
+                });
+                var rbp = await fetch(API+'/api/sniper/itens/bulk', {method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({compraId:compraId, itens:bulkPncp})});
+                var dbp = await rbp.json();
+                if(dbp.success) itensConfig[compraId] = dbp.itens;
+            }
+        } catch(e){}
+    }
+
+    // 4. Se tem itens live mas não no banco, criar a partir do live
     if(itensLive.length > 0 && itensConfig[compraId].length === 0) {
         var bulk = itensLive.map(function(i) {
             return { itemNumero: i.numero||1, descricao: i.descricao||'', faseItem: i.fase||'LA', valorEstimado: i.valorEstimado };
@@ -270,7 +314,7 @@ async function carregarItensLic(compraId) {
         } catch(e){}
     }
 
-    // 4. Se sem dados, tentar consultar via extensão
+    // 5. Último recurso: consultar via extensão
     if(itensLive.length === 0 && itensConfig[compraId].length === 0) {
         try {
             var rc = await fetch(API+'/api/sniper/consultar-itens?compraId='+compraId);

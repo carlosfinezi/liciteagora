@@ -613,6 +613,28 @@ class MonitorV2 {
       }
     }
 
+    // Marcar como encerradas participações que sumiram da API (não vieram na resposta)
+    const idsRetornados = dados.map(item => this._montarCompraId(item.compra));
+    if (idsRetornados.length > 0) {
+      const ativas = this.db.prepare(
+        "SELECT compraId FROM participacoes_comprasnet WHERE ativo = 1 AND situacao NOT IN ('FR', 'EN')"
+      ).all();
+
+      let encerradas = 0;
+      for (const row of ativas) {
+        if (!idsRetornados.includes(row.compraId)) {
+          this.db.prepare(
+            "UPDATE participacoes_comprasnet SET situacao = 'EN', faseCompra = 'encerrada', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?"
+          ).run(row.compraId);
+          this.log(`🔒 Participação ${row.compraId} marcada como encerrada (não retornada pela API)`);
+          encerradas++;
+        }
+      }
+      if (encerradas > 0) {
+        this.log(`🔒 ${encerradas} participações encerradas (não constam mais na API)`);
+      }
+    }
+
     this.status.participacoesAtivas = dados.length;
     this.log(`✅ Participações: ${novas} novas, ${atualizadas} atualizadas, ${dados.length} total`);
 

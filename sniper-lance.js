@@ -14,6 +14,7 @@
 const axios = require('axios');
 
 const BASE_URL = 'https://cnetmobile.estaleiro.serpro.gov.br';
+const TOKEN_MAX_AGE_S = 600; // 10 minutos — tokens Comprasnet expiram por volta disso
 
 const API_HEADERS = {
   'Accept': 'application/json, text/plain, */*',
@@ -104,6 +105,10 @@ class SniperLance {
   idadeCaptchaSegundos() {
     if (!this.captchaRecebidoEm) return Infinity;
     return (Date.now() - new Date(this.captchaRecebidoEm).getTime()) / 1000;
+  }
+
+  tokenExpirado() {
+    return this.idadeTokenSegundos() > TOKEN_MAX_AGE_S;
   }
 
   // ==================== HTTP HELPERS ====================
@@ -659,7 +664,9 @@ class SniperLance {
       temToken: this.temToken(),
       tokenSource: this.tokenSource,
       tokenIdade: this.tokenRecebidoEm ? Math.floor(this.idadeTokenSegundos()) + 's' : null,
+      tokenIdadeSegundos: this.tokenRecebidoEm ? Math.floor(this.idadeTokenSegundos()) : null,
       tokenRecebidoEm: this.tokenRecebidoEm,
+      tokenExpirado: this.tokenExpirado(),
       temCaptcha: this.temCaptcha(),
       captchaIdade: this.captchaRecebidoEm ? Math.floor(this.idadeCaptchaSegundos()) + 's' : null,
       captchaRecebidoEm: this.captchaRecebidoEm,

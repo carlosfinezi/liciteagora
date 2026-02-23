@@ -16,7 +16,7 @@ const SYNC_INTERVAL_MIN = 2; // sync a cada 2 minutos
 let syncAgendado = false;
 let syncEmExecucao = false;
 
-console.log('[LiciteAgora] Service worker v3.2.0 carregado!');
+console.log('[LiciteAgora] Service worker v3.3.0 carregado!');
 
 // ==================== STORAGE ====================
 
@@ -320,6 +320,19 @@ async function executarSync() {
     const emAndamento = participacoes.filter(function(p) {
       return p._filtro === 5;
     });
+
+    // 2.5. Extrair IDs em andamento e detectar encerradas
+    var idsEmAndamento = [];
+    for (var ea of emAndamento) {
+      var compra = ea.compra || ea;
+      var uasgEA = String(compra.numeroUasg || ea.numeroUasg || 0).padStart(6, '0');
+      var modEA = String(compra.modalidade || ea.modalidade || 0).padStart(2, '0');
+      var numEA = String(compra.numero || ea.numero || 0).padStart(5, '0');
+      var anoEA = String(compra.ano || ea.ano || '');
+      var cidEA = compra.compraId || ea.compraId || (uasgEA + modEA + numEA + anoEA);
+      if (cidEA) idsEmAndamento.push(cidEA);
+    }
+    await detectarEncerradas(idsEmAndamento);
 
     if (emAndamento.length > 0) {
       console.log('[LiciteAgora] ' + emAndamento.length + ' em andamento (de ' + participacoes.length + ' total) — buscando mensagens...');
@@ -634,9 +647,86 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
   }
 }
 
+// ==================== KEEPALIVE (mantém token Bearer ativo) ====================
+
+async function executarKeepalive() {
+  var data = await load();
+  if (!data.bearer) {
+    console.log('[LiciteAgora] Keepalive pulado — sem bearer');
+    return;
+  }
+
+  var tab = await findComprasnetTab();
+  if (!tab) {
+    console.log('[LiciteAgora] Keepalive pulado — sem aba Comprasnet');
+    return;
+  }
+
+  console.log('[LiciteAgora] 🔄 Keepalive: chamando datahorabrasilia...');
+  var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
+
+  if (result.status === 401 || result.status === 403) {
+    console.log('[LiciteAgora] ⚠️ Keepalive: token expirado (HTTP ' + result.status + ') — recarregando aba');
+    try {
+      await chrome.tabs.reload(tab.id);
+    } catch (e) {
+      console.error('[LiciteAgora] Erro recarregando aba:', e.message);
+    }
+  } else if (result.status === 200) {
+    console.log('[LiciteAgora] ✅ Keepalive OK');
+    // Reenviar token ao servidor para manter timestamp atualizado
+    await enviarTokens(data.bearer, data.captcha, data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 });
+  } else {
+    console.log('[LiciteAgora] ⚠️ Keepalive: HTTP ' + result.status + ' ' + (result.error || ''));
+  }
+}
+
+// ==================== DETECÇÃO DE DISPUTAS ENCERRADAS ====================
+
+async function detectarEncerradas(idsEmAndamentoAtual) {
+  var data = await load();
+  var idsAnterior = data.idsEmAndamento || [];
+  var idsDesaparecidos = data.idsDesaparecidos || {}; // { compraId: contadorCiclos }
+
+  // IDs que sumiram: estavam no ciclo anterior mas não no atual
+  var setAtual = new Set(idsEmAndamentoAtual);
+  var novosDesaparecidos = {};
+
+  for (var id of idsAnterior) {
+    if (!setAtual.has(id)) {
+      // Incrementar contador de ciclos desaparecido
+      novosDesaparecidos[id] = (idsDesaparecidos[id] || 0) + 1;
+    }
+  }
+
+  // IDs confirmados como encerrados (2+ ciclos consecutivos fora do filtro=5)
+  var encerrados = [];
+  for (var cid in novosDesaparecidos) {
+    if (novosDesaparecidos[cid] >= 2) {
+      encerrados.push(cid);
+      delete novosDesaparecidos[cid]; // Já reportado, não precisa rastrear mais
+    }
+  }
+
+  // Salvar estado para próximo ciclo
+  await save({
+    idsEmAndamento: idsEmAndamentoAtual,
+    idsDesaparecidos: novosDesaparecidos,
+  });
+
+  // Enviar encerrados ao servidor
+  if (encerrados.length > 0) {
+    console.log('[LiciteAgora] 🛑 ' + encerrados.length + ' disputas encerradas detectadas: ' + encerrados.join(', '));
+    await serverPost('/api/sync/participacoes-encerradas', { compraIds: encerrados });
+  }
+
+  return encerrados;
+}
+
 // ==================== PERIODIC SYNC via chrome.alarms ====================
 
 chrome.alarms.create('sync', { periodInMinutes: SYNC_INTERVAL_MIN });
+chrome.alarms.create('keepalive', { delayInMinutes: 1, periodInMinutes: 4 });
 
 // Lance polling via setInterval (alarms have 1 min minimum)
 setInterval(function() {
@@ -647,6 +737,8 @@ setInterval(function() {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'sync') {
     executarSync();
+  } else if (alarm.name === 'keepalive') {
+    executarKeepalive();
   }
 });
 
