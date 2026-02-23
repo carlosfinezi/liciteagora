@@ -9324,6 +9324,7 @@ app.get('/api/bi/resultado/:cnpj/:ano/:sequencial/:numeroItem', async (req, res)
 });
 
 // Buscar resultados em lote (até 10 itens por vez)
+// Tenta PNCP API primeiro, depois dadosabertos.compras.gov.br para enriquecer com marca/modelo
 app.post('/api/bi/resultados-lote', async (req, res) => {
   try {
     const { itens } = req.body; // [{cnpj, ano, sequencial, numeroItem}]
@@ -9366,6 +9367,84 @@ app.post('/api/bi/resultados-lote', async (req, res) => {
   } catch (error) {
     console.error('Erro BI resultados-lote:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Buscar resultados via Dados Abertos Compras.gov.br (seção 10.7 do manual v2.0)
+// Pode retornar marca/modelo que o PNCP não tem
+app.get('/api/bi/dadosabertos/resultados', async (req, res) => {
+  try {
+    const { cnpj, ano, sequencial, pagina = 1 } = req.query;
+    
+    // Construir o numeroControlePNCP no formato esperado
+    const numControle = cnpj && ano && sequencial 
+      ? `${cnpj}-${ano}-${String(sequencial).padStart(6, '0')}`
+      : null;
+
+    const params = { pagina, tamanhoPagina: 50 };
+    if (numControle) params.numeroControlePNCP = numControle;
+
+    const url = `https://dadosabertos.compras.gov.br/modulo-contratacao/3_consultarResultadoItemContratacaoPncp14133`;
+    const response = await axios.get(url, {
+      params,
+      headers: { 'Accept': 'application/json' },
+      timeout: 15000
+    });
+
+    res.json(response.data || {});
+  } catch (error) {
+    if (error.response?.status === 404) {
+      res.json({ resultado: [], totalRegistros: 0 });
+    } else {
+      console.error('Erro BI dadosabertos:', error.message);
+      res.status(error.response?.status || 500).json({ error: error.message });
+    }
+  }
+});
+
+// Buscar itens de contratações via Dados Abertos (seção 10.6)
+// Permite pesquisa por descrição com marca/modelo nos resultados
+app.get('/api/bi/dadosabertos/itens', async (req, res) => {
+  try {
+    const { descricao, pagina = 1, tamanhoPagina = 50 } = req.query;
+    
+    const params = { pagina, tamanhoPagina: Math.min(parseInt(tamanhoPagina) || 50, 100) };
+    if (descricao) params.descricaoItem = descricao;
+
+    const url = `https://dadosabertos.compras.gov.br/modulo-contratacao/2_consultarItemContratacaoPncp14133`;
+    const response = await axios.get(url, {
+      params,
+      headers: { 'Accept': 'application/json' },
+      timeout: 15000
+    });
+
+    res.json(response.data || {});
+  } catch (error) {
+    console.error('Erro BI dadosabertos itens:', error.message);
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
+});
+
+// Pesquisa de Preço - histórico de preços praticados (tem marca/modelo)
+app.get('/api/bi/pesquisa-preco', async (req, res) => {
+  try {
+    const { descricao, codigoItem, pagina = 1, tamanhoPagina = 50 } = req.query;
+    
+    const params = { pagina, tamanhoPagina: Math.min(parseInt(tamanhoPagina) || 50, 100) };
+    if (descricao) params.descricaoItem = descricao;
+    if (codigoItem) params.codigoItemCatalogo = codigoItem;
+
+    const url = `https://dadosabertos.compras.gov.br/modulo-pesquisa-preco/1_consultarPesquisaPrecoMaterial`;
+    const response = await axios.get(url, {
+      params,
+      headers: { 'Accept': 'application/json' },
+      timeout: 15000
+    });
+
+    res.json(response.data || {});
+  } catch (error) {
+    console.error('Erro BI pesquisa-preco:', error.message);
+    res.status(error.response?.status || 500).json({ error: error.message });
   }
 });
 
