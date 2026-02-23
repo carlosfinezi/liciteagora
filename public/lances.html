@@ -209,7 +209,7 @@ function renderParticipacoes(lista) {
             var sit = p.situacao || '';
             var sitLabel = faseLabels[sit] || sit || '';
 
-            return '<div class="part-card' + (isDisputa ? ' em-disputa' : '') + sel + '" onclick="selecionarLic(\'' + p.compraId + '\',\'' + esc((p.objeto||'').replace(/'/g,'')) + '\')">'
+            return '<div class="part-card' + (isDisputa ? ' em-disputa' : '') + sel + '" onclick="selecionarLic(\'' + p.compraId + '\')">'
                 + '<div style="flex:1;min-width:0">'
                 + '<div class="part-id">' + p.compraId + ' <span style="color:'+faseColor+';font-weight:600;font-size:0.85em">' + esc(faseLabel) + '</span>'
                 + (sitLabel ? ' <span style="color:#888;font-size:0.75em">(' + esc(sitLabel) + ')</span>' : '')
@@ -224,9 +224,10 @@ function renderParticipacoes(lista) {
 }
 
 // ==================== SELECIONAR LICITAÇÃO ====================
-function selecionarLic(compraId, objeto) {
+function selecionarLic(compraId) {
     currentCompraId = compraId;
-    currentObjeto = objeto || '';
+    var p = todasParticipacoes.find(function(x) { return x.compraId === compraId; });
+    currentObjeto = p ? (p.objeto || '') : '';
     // Highlight
     document.querySelectorAll('.part-card.selecionada').forEach(function(el) { el.classList.remove('selecionada'); });
     var el = document.querySelector('.part-card[onclick*="' + compraId + '"]');
