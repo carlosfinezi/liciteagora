@@ -287,8 +287,15 @@ function registrarRotasSniper(app, monitorGetter, db) {
   app.get('/api/sniper/participacoes', (req, res) => {
     try {
       const busca = req.query.busca || '';
+      const emDisputa = req.query.emDisputa === 'true';
       let query = 'SELECT compraId, cnpj, ano, sequencial, orgao, objeto, etapa, situacao, faseCompra, dataSessao, dataAtualizacao FROM participacoes_comprasnet WHERE ativo = 1';
       const params = [];
+
+      if (emDisputa) {
+        // Filtrar apenas participações em fase ativa (não encerradas/fracassadas)
+        query += " AND situacao NOT IN ('FR', 'EN') AND (faseCompra IS NULL OR faseCompra NOT IN ('4', 'encerrada', 'ENCERRADA'))";
+      }
+
       if (busca) {
         query += ' AND (objeto LIKE ? OR orgao LIKE ? OR compraId LIKE ?)';
         const like = `%${busca}%`;
@@ -296,7 +303,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       }
       query += ' ORDER BY dataAtualizacao DESC';
       const lista = db.prepare(query).all(...params);
-      res.json({ success: true, participacoes: lista });
+      res.json({ success: true, participacoes: lista, total: lista.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }

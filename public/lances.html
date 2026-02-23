@@ -94,22 +94,19 @@
         <button class="btn btn-outline" onclick="enviarTokenManual()">🔑 Colar Token Manual</button>
     </div>
 
-    <!-- Painel de Seleção de Licitação -->
+    <!-- Painel de Licitações em Disputa -->
     <div class="panel">
-        <h3>📋 Selecionar Licitação</h3>
+        <h3>🔥 Licitações em Disputa</h3>
         <div class="form-row" style="align-items:flex-end">
             <div class="form-group" style="flex:3">
                 <label>Buscar (objeto, órgão ou compraId)</label>
                 <input type="text" id="buscaParticipacao" placeholder="Digite para filtrar..." oninput="filtrarParticipacoes()">
             </div>
             <div class="form-group" style="flex:0">
-                <button class="btn btn-outline" onclick="carregarParticipacoes()">Atualizar Lista</button>
-            </div>
-            <div class="form-group" style="flex:0">
-                <button class="btn btn-primary" onclick="buscarDisputasAtivas()" id="btnDisputas">🔥 Buscar em Disputa</button>
+                <button class="btn btn-outline" onclick="carregarParticipacoes()">🔄 Atualizar</button>
             </div>
         </div>
-        <div id="listaParticipacoes" style="max-height:300px; overflow-y:auto;">
+        <div id="listaParticipacoes" style="max-height:350px; overflow-y:auto;">
             <p class="text-muted text-center">Carregando...</p>
         </div>
     </div>
@@ -216,16 +213,19 @@ async function atualizarTudo() {
 }
 
 let todasParticipacoes = [];
-let disputasAtivas = []; // cache de disputas ativas
 
 async function carregarParticipacoes() {
     const div = document.getElementById('listaParticipacoes');
     div.innerHTML = '<p class="info-msg"><span class="spinner"></span> Carregando...</p>';
     try {
-        const r = await fetch(`${API}/api/sniper/participacoes`);
+        const r = await fetch(`${API}/api/sniper/participacoes?emDisputa=true`);
         const d = await r.json();
         if (!d.success) { div.innerHTML = '<div class="result-card erro">❌ '+esc(d.error||'Erro')+'</div>'; return; }
         todasParticipacoes = d.participacoes || [];
+        if (todasParticipacoes.length === 0) {
+            div.innerHTML = '<p class="info-msg">Nenhuma licitação em disputa no momento.<br><small style="color:#888">Participações encerradas/fracassadas são filtradas automaticamente.</small></p>';
+            return;
+        }
         renderParticipacoes(todasParticipacoes);
     } catch(e) { div.innerHTML = '<div class="result-card erro">❌ '+esc(e.message)+'</div>'; }
 }
@@ -245,32 +245,26 @@ function renderParticipacoes(lista) {
     const div = document.getElementById('listaParticipacoes');
     if (!lista.length) { div.innerHTML = '<p class="info-msg">Nenhuma participação encontrada</p>'; return; }
 
-    div.innerHTML = lista.map(p => {
-        const dispAtiva = disputasAtivas.find(d => d.compraId === p.compraId);
-        const clsDisputa = dispAtiva ? ' em-disputa' : '';
+    const faseLabels = {'1':'Cadastrada','2':'Publicada','3':'🔥 Disputa','4':'Encerrada','5':'Em andamento','PD':'Pendente','FR':'Fracassada','AB':'Aberta','EN':'Encerrada'};
+
+    div.innerHTML = '<div style="color:#888;font-size:0.8em;margin-bottom:8px">' + lista.length + ' participações ativas</div>' +
+        lista.map(p => {
         const sel = document.getElementById('compraId')?.value === p.compraId ? ' selecionada' : '';
+        const fase = p.faseCompra || '';
+        const faseLabel = faseLabels[fase] || fase || '';
+        const isDisputa = fase == '3' || faseLabel.includes('Disputa');
+        const faseColor = isDisputa ? '#4caf50' : '#ff9800';
 
-        let infoDisputa = '';
-        if (dispAtiva) {
-            infoDisputa = '<div class="disputa-itens">' +
-                dispAtiva.itens.map(i =>
-                    '▸ Item ' + i.numero + ': <span class="item-val">R$ ' + fmtVal(i.melhorValor) + '</span>' +
-                    (i.podeEnviar ? ' ✅' : ' 🔒') +
-                    (i.fimContagem ? ' ⏰' + i.fimContagem.substring(11,16) : '')
-                ).join('<br>') +
-                '</div>';
-        }
+        const sit = p.situacao || '';
+        const sitLabel = faseLabels[sit] || sit || '';
 
-        let faseBadge = '';
-        if (dispAtiva) faseBadge = '<span class="disputa-badge">🔥 EM DISPUTA</span>';
-        else if (p.faseCompra) faseBadge = '<span class="text-sm text-muted">' + esc(p.faseCompra) + '</span>';
-
-        return '<div class="part-card' + clsDisputa + sel + '" onclick="selecionarLic(\'' + p.compraId + '\')">'
+        return '<div class="part-card' + (isDisputa ? ' em-disputa' : '') + sel + '" onclick="selecionarLic(\'' + p.compraId + '\')">'
             + '<div style="flex:1;min-width:0">'
-            + '<div class="part-id">' + p.compraId + ' ' + faseBadge + '</div>'
-            + '<div class="part-obj" title="' + esc(p.objeto||'') + '">' + esc(p.objeto||'(sem objeto)') + '</div>'
+            + '<div class="part-id">' + p.compraId + ' <span style="color:'+faseColor+';font-weight:600;font-size:0.85em">' + esc(faseLabel) + '</span>'
+            + (sitLabel ? ' <span style="color:#888;font-size:0.75em">(' + esc(sitLabel) + ')</span>' : '')
+            + '</div>'
+            + '<div class="part-obj" title="' + esc(p.objeto||'') + '">' + esc((p.objeto||'(sem objeto)').substring(0,120)) + '</div>'
             + '<div class="part-org">' + esc(p.orgao||'') + '</div>'
-            + infoDisputa
             + '</div>'
             + '<div class="part-right">'
             + (p.dataSessao ? '<div class="text-sm text-muted">' + p.dataSessao.substring(0,10) + '</div>' : '')
@@ -343,50 +337,6 @@ function preencherLance(item, melhorValor) {
         document.getElementById('valorLance').value = (melhorValor - 0.01).toFixed(2);
     }
     document.getElementById('valorLance').focus();
-}
-
-async function buscarDisputasAtivas() {
-    const btn = document.getElementById('btnDisputas');
-    const oldText = btn.textContent;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Buscando...';
-
-    try {
-        const r = await fetch(`${API}/api/sniper/disputas-ativas`);
-        const d = await r.json();
-        if (d.success) {
-            disputasAtivas = d.disputas || [];
-            const ativas = disputasAtivas.filter(x => x.itensAtivos > 0);
-            let msg = '';
-            if (d.fonte === 'sem-dados') {
-                msg = '⚠️ Sem dados de disputas.\n\n' +
-                    'A extensão Chrome precisa estar sincronizando.\n' +
-                    'Verifique: Chrome aberto + Comprasnet logado + extensão ativa.\n\n' +
-                    'Clique "🔄 Forçar Sync" no popup da extensão.';
-            } else if (ativas.length === 0) {
-                msg = 'Nenhuma disputa com itens ativos.\n' +
-                    (d.idadeMinutos != null ? '(dados de ' + d.idadeMinutos + ' min atrás)' : '');
-            } else {
-                msg = '🔥 ' + ativas.length + ' disputa(s) com itens ativos!' +
-                    (d.idadeMinutos != null ? '\n(dados de ' + d.idadeMinutos + ' min atrás)' : '');
-                // Ordenar: disputas ativas primeiro
-                todasParticipacoes.sort((a,b) => {
-                    const aAtiva = disputasAtivas.some(d=>d.compraId===a.compraId && d.itensAtivos>0) ? 0 : 1;
-                    const bAtiva = disputasAtivas.some(d=>d.compraId===b.compraId && d.itensAtivos>0) ? 0 : 1;
-                    return aAtiva - bAtiva;
-                });
-            }
-            alert(msg);
-            renderParticipacoes(todasParticipacoes);
-        } else {
-            alert('❌ ' + (d.error || 'Erro'));
-        }
-    } catch(e) {
-        alert('❌ Erro: ' + e.message);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = oldText;
-    }
 }
 
 async function enviarTokenManual() {
