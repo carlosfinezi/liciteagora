@@ -488,6 +488,32 @@ try {
   console.log('[Migração] Erro:', e.message);
 }
 
+// Migração: adicionar colunas de config ao sniper_itens
+try {
+  const infoSniper = db.pragma('table_info(sniper_itens)');
+  if (infoSniper.length > 0) {
+    const cols = infoSniper.map(c => c.name);
+    if (!cols.includes('valorMinimo')) {
+      db.exec(`ALTER TABLE sniper_itens ADD COLUMN valorMinimo REAL`);
+      console.log('[Migração] sniper_itens: valorMinimo adicionado');
+    }
+    if (!cols.includes('descontoMinimo')) {
+      db.exec(`ALTER TABLE sniper_itens ADD COLUMN descontoMinimo REAL`);
+      console.log('[Migração] sniper_itens: descontoMinimo adicionado');
+    }
+    if (!cols.includes('descontoMaximo')) {
+      db.exec(`ALTER TABLE sniper_itens ADD COLUMN descontoMaximo REAL`);
+      console.log('[Migração] sniper_itens: descontoMaximo adicionado');
+    }
+    if (!cols.includes('valorEstimado')) {
+      db.exec(`ALTER TABLE sniper_itens ADD COLUMN valorEstimado REAL`);
+      console.log('[Migração] sniper_itens: valorEstimado adicionado');
+    }
+  }
+} catch (e) {
+  console.log('[Migração sniper_itens] Erro:', e.message);
+}
+
 // Statements preparados para performance
 const insertLicitacao = db.prepare(`
   INSERT OR REPLACE INTO licitacoes (

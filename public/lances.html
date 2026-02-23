@@ -11,125 +11,102 @@
         .main-content { background: #1a1a2e; padding: 20px; }
         h1 { color: #4dabf7; margin-bottom: 5px; }
         .subtitle { color: #888; margin-bottom: 20px; }
-        .status-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-        .status-item { background: #16213e; padding: 12px 16px; border-radius: 8px; flex: 1; min-width: 110px; text-align: center; }
-        .status-item .label { color: #888; font-size: 0.8em; margin-bottom: 4px; }
-        .status-item .value { font-size: 1.1em; font-weight: 600; }
+
+        /* Status bar */
+        .status-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .status-item { background: #16213e; padding: 10px 14px; border-radius: 8px; flex: 1; min-width: 100px; text-align: center; }
+        .status-item .label { color: #888; font-size: 0.75em; margin-bottom: 3px; }
+        .status-item .value { font-size: 1em; font-weight: 600; }
         .verde { color: #4caf50; } .vermelho { color: #f44336; } .amarelo { color: #ff9800; } .azul { color: #4dabf7; }
-        .panel { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
-        .panel h3 { color: #4dabf7; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em; }
-        .form-group { margin-bottom: 12px; }
-        .form-group label { display: block; color: #aaa; font-size: 0.85em; margin-bottom: 4px; }
-        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.95em; }
-        .form-group input:focus { outline: none; border-color: #4dabf7; }
-        .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-        .form-row .form-group { flex: 1; min-width: 120px; }
-        .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s; }
-        .btn-primary { background: #4dabf7; color: #000; } .btn-primary:hover { background: #339af0; }
+
+        /* Panel */
+        .panel { background: #16213e; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+        .panel h3 { color: #4dabf7; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em; }
+
+        /* Filters */
+        .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+        .filtros label { font-size: 0.85em; cursor: pointer; display: flex; align-items: center; gap: 4px; color: #ccc; }
+        .filtros label:hover { color: #4dabf7; }
+        .filtros input[type=text] { flex: 1; min-width: 200px; padding: 6px 10px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.85em; }
+        .filtros input[type=text]:focus { outline: none; border-color: #4dabf7; }
+
+        /* Licitação rows */
+        .lic-row { border: 1px solid #0f3460; border-radius: 6px; margin-bottom: 4px; overflow: hidden; }
+        .lic-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; cursor: pointer; transition: background 0.15s; }
+        .lic-header:hover { background: #0f346040; }
+        .lic-header.aberta { background: #0f346060; border-bottom: 1px solid #0f3460; }
+        .lic-left { flex: 1; min-width: 0; }
+        .lic-id { font-size: 0.85em; font-weight: 600; color: #4dabf7; }
+        .lic-obj { font-size: 0.8em; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 550px; margin-top: 2px; }
+        .lic-org { font-size: 0.72em; color: #888; margin-top: 1px; }
+        .lic-right { text-align: right; flex-shrink: 0; margin-left: 12px; }
+        .lic-etapa { font-size: 0.8em; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+        .etapa-disputa { background: #4caf5025; color: #4caf50; }
+        .etapa-encerrada { background: #88888825; color: #888; }
+        .etapa-outra { background: #ff980025; color: #ff9800; }
+        .lic-data { font-size: 0.72em; color: #888; margin-top: 3px; }
+        .lic-body { display: none; padding: 12px 14px; background: #1a1a2e; }
+        .lic-body.aberta { display: block; }
+        .lic-arrow { color: #888; font-size: 0.8em; transition: transform 0.2s; margin-left: 8px; }
+        .lic-arrow.aberta { transform: rotate(180deg); }
+
+        /* Item table */
+        .itens-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+        .itens-table th { color: #888; text-align: left; padding: 6px 8px; border-bottom: 1px solid #0f3460; font-weight: 500; white-space: nowrap; }
+        .itens-table td { padding: 6px 8px; border-bottom: 1px solid #0f346030; vertical-align: middle; }
+        .itens-table tr:hover { background: #0f346020; }
+        .itens-table input[type=number] { width: 90px; padding: 4px 6px; border-radius: 4px; border: 1px solid #0f3460; background: #16213e; color: #eee; font-size: 0.9em; }
+        .itens-table input:focus { outline: none; border-color: #4dabf7; }
+        .itens-table .desc-cell { max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .valor-melhor { color: #4caf50; font-weight: 600; }
+        .valor-nosso { color: #4dabf7; font-weight: 600; }
+        .valor-nosso.melhor { color: #ffd700; }
+
+        /* Buttons */
+        .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: all 0.2s; }
         .btn-success { background: #4caf50; color: #fff; } .btn-success:hover { background: #43a047; }
-        .btn-danger { background: #f44336; color: #fff; } .btn-danger:hover { background: #e53935; }
+        .btn-primary { background: #4dabf7; color: #000; } .btn-primary:hover { background: #339af0; }
         .btn-outline { background: transparent; border: 1px solid #4dabf7; color: #4dabf7; } .btn-outline:hover { background: #4dabf710; }
         .btn-warning { background: #ff9800; color: #000; } .btn-warning:hover { background: #f57c00; }
-        .btn-sm { padding: 4px 10px; font-size: 0.8em; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-group { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .btn-danger { background: #f44336; color: #fff; }
+        .btn-sm { padding: 3px 8px; font-size: 0.78em; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-group { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 
-        /* Participações list */
-        .part-card { display: flex; padding: 10px 12px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; margin-bottom: 4px; transition: all 0.15s; }
-        .part-card:hover { background: #0f346050; }
-        .part-card.selecionada { border-color: #4dabf7; background: #4dabf710; }
-        .part-card.em-disputa { border-left: 3px solid #4caf50; }
-        .part-id { font-size: 0.85em; font-weight: 600; color: #4dabf7; margin-bottom: 2px; }
-        .part-obj { font-size: 0.82em; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
-        .part-org { font-size: 0.75em; color: #888; margin-top: 2px; }
-        .part-right { text-align: right; flex-shrink: 0; margin-left: 10px; }
-
-        /* Item cards */
-        .item-card { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 8px; padding: 14px; margin-bottom: 10px; }
-        .item-card.ativo { border-color: #4caf50; }
-        .item-card.inativo { opacity: 0.5; }
-        .item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .item-num { font-size: 1.2em; font-weight: 700; color: #4dabf7; }
-        .item-fase { padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
-        .fase-la { background: #4caf5030; color: #4caf50; }
-        .fase-outro { background: #88888830; color: #888; }
-        .item-desc { color: #ccc; font-size: 0.88em; margin-bottom: 10px; }
-        .item-config { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
-        .item-config .form-group { margin-bottom: 0; }
-        .item-config input { width: 120px; padding: 6px 8px; font-size: 0.85em; }
-        .item-config .narrow { width: 90px; }
-        .item-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-        .item-status { font-size: 0.8em; margin-top: 6px; color: #888; }
-        .result-msg { padding: 8px 12px; border-radius: 6px; margin-top: 8px; font-size: 0.85em; }
-        .result-sucesso { background: #4caf5020; border: 1px solid #4caf50; color: #4caf50; }
-        .result-erro { background: #f4433620; border: 1px solid #f44336; color: #f44336; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
-        th { color: #888; text-align: left; padding: 6px; border-bottom: 1px solid #0f3460; }
-        td { padding: 6px; border-bottom: 1px solid #0f346030; }
-        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #4dabf740; border-top: 2px solid #4dabf7; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .result-msg { padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: 0.82em; }
+        .result-sucesso { background: #4caf5018; border: 1px solid #4caf50; color: #4caf50; }
+        .result-erro { background: #f4433618; border: 1px solid #f44336; color: #f44336; }
+        .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #4dabf740; border-top: 2px solid #4dabf7; border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
-        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; font-size: 0.9em; z-index: 999; animation: fadeIn 0.3s; color: #fff; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .info-msg { color: #888; text-align: center; padding: 12px; font-size: 0.9em; }
-        .text-muted { color: #888; } .text-sm { font-size: 0.8em; }
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 18px; border-radius: 8px; font-size: 0.85em; z-index: 999; color: #fff; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; } }
+        .info-msg { color: #888; text-align: center; padding: 12px; font-size: 0.85em; }
+        .contagem { font-size: 0.72em; color: #888; margin-top: 2px; }
     </style>
 </head>
 <body>
 <div class="app-container">
 <main class="main-content">
     <h1>🎯 Sniper de Lances</h1>
-    <p class="subtitle">Disputas ativas → selecione → configure preço por item → envie ou agende</p>
+    <p class="subtitle">Disputas ativas do Comprasnet → clique para ver itens → configure e envie</p>
 
-    <!-- Status Bar -->
     <div class="status-bar">
-        <div class="status-item"><div class="label">Extensão</div><div class="value" id="stExtensao">--</div></div>
+        <div class="status-item"><div class="label">Extensão</div><div class="value" id="stExt">--</div></div>
         <div class="status-item"><div class="label">Bearer</div><div class="value" id="stBearer">--</div></div>
-        <div class="status-item"><div class="label">Hora Brasília</div><div class="value azul" id="horaServidor">--:--:--</div></div>
-        <div class="status-item"><div class="label">Último Sync</div><div class="value" id="stSync">--</div></div>
+        <div class="status-item"><div class="label">Brasília</div><div class="value azul" id="hora">--:--:--</div></div>
+        <div class="status-item"><div class="label">Disputas</div><div class="value azul" id="stDisp">0</div></div>
         <div class="status-item"><div class="label">Lances</div><div class="value azul" id="stLances">0</div></div>
     </div>
 
-    <!-- Participações em Disputa -->
     <div class="panel">
-        <h3>🔥 Licitações em Disputa</h3>
-        <div class="form-row" style="align-items:flex-end;margin-bottom:10px">
-            <div class="form-group" style="flex:3">
-                <label>Buscar (objeto, órgão ou compraId)</label>
-                <input type="text" id="buscaParticipacao" placeholder="Digite para filtrar..." oninput="filtrarParticipacoes()">
-            </div>
-            <div class="form-group" style="flex:0">
-                <button class="btn btn-outline btn-sm" onclick="carregarParticipacoes()">🔄</button>
-            </div>
+        <h3>🔥 Compras — Minhas Participações</h3>
+        <div class="filtros">
+            <label><input type="radio" name="filtroEtapa" value="disputa" checked onchange="aplicarFiltro()"> Em Disputa</label>
+            <label><input type="radio" name="filtroEtapa" value="todas" onchange="aplicarFiltro()"> Todas</label>
+            <input type="text" id="buscaTexto" placeholder="Filtrar por objeto, órgão ou compraId..." oninput="aplicarFiltro()">
+            <button class="btn btn-outline btn-sm" onclick="recarregarDados()">🔄</button>
         </div>
-        <div id="listaParticipacoes" style="max-height:350px; overflow-y:auto;">
-            <p class="info-msg"><span class="spinner"></span> Carregando...</p>
-        </div>
-    </div>
-
-    <!-- Itens da Licitação Selecionada -->
-    <div class="panel" id="itensPanel" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;padding-bottom:8px;border-bottom:1px solid #0f3460">
-            <h3 style="border:none;margin:0;padding:0">📦 Itens — <span id="itensCompraId" class="azul"></span> <span id="itensObjeto" style="color:#888;font-size:0.8em;font-weight:400;margin-left:8px"></span></h3>
-            <div style="display:flex;gap:8px">
-                <button class="btn btn-success btn-sm" onclick="enviarTodos()">⚡ Enviar Todos</button>
-                <button class="btn btn-warning btn-sm" onclick="agendarTodos()">⏰ Agendar Todos</button>
-            </div>
-        </div>
-        <div id="itensList"></div>
-    </div>
-
-    <!-- Grid: Histórico + Logs -->
-    <div class="grid-2">
-        <div class="panel" id="historicoPanel" style="display:none">
-            <h3>📜 Histórico de Lances</h3>
-            <div id="historicoLista"></div>
-        </div>
-        <div class="panel">
-            <h3>📝 Logs</h3>
-            <div id="logsContainer" style="max-height:200px;overflow-y:auto;font-size:0.8em;color:#888">Sem logs</div>
-        </div>
+        <div id="listaCompras"><p class="info-msg"><span class="spinner"></span> Carregando participações...</p></div>
     </div>
 
     <div id="toastArea"></div>
@@ -140,415 +117,380 @@
 <script>initSidebar('lances');</script>
 <script>
 var API = '';
-var currentCompraId = '';
-var currentObjeto = '';
-var itensDB = [];
-var todasParticipacoes = [];
-var faseLabels = {'1':'Cadastrada','2':'Publicada','3':'🔥 Disputa','4':'Encerrada','5':'Em andamento','PD':'Pendente','FR':'Fracassada','AB':'Aberta','EN':'Encerrada'};
+var participacoes = [];
+var disputasLive = {};  // compraId -> { itens: [...] } from extension cache
+var itensConfig = {};   // compraId -> [sniper_itens rows] from DB
+var aberta = null;      // compraId atualmente expandida
 
-function esc(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
-function fmtVal(v) { return v != null && v !== '' ? 'R$ ' + parseFloat(v).toFixed(2) : '--'; }
-function fmtHora(iso) {
-    if (!iso) return '--';
-    try { return new Date(iso).toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit',second:'2-digit'}); } catch(e) { return iso; }
-}
+function esc(s) { var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function fmtR$(v) { return v != null && v !== '' && !isNaN(v) ? 'R$ ' + parseFloat(v).toFixed(2) : '--'; }
+function fmtHora(iso) { if(!iso)return'--'; try{return new Date(iso).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});}catch(e){return iso;} }
 
 // ==================== STATUS ====================
 async function atualizarStatus() {
     try {
-        var r = await fetch(API + '/api/sniper/fila-status');
-        var d = await r.json();
-        if (d.success) {
-            document.getElementById('stExtensao').innerHTML = d.extensaoConectada ? '<span class="verde">✅ Online</span>' : '<span class="vermelho">❌ Offline</span>';
-            document.getElementById('stBearer').innerHTML = d.temBearer ? '<span class="verde">✅ ' + (d.bearerIdade||'') + 's</span>' : '<span class="vermelho">❌</span>';
-            document.getElementById('stSync').textContent = d.ultimoSync ? fmtHora(d.ultimoSync) : '--';
-            document.getElementById('stLances').textContent = d.totalResultados || 0;
+        var r = await fetch(API+'/api/sniper/fila-status'); var d = await r.json();
+        if(d.success){
+            document.getElementById('stExt').innerHTML = d.extensaoConectada?'<span class="verde">✅</span>':'<span class="vermelho">❌</span>';
+            document.getElementById('stBearer').innerHTML = d.temBearer?'<span class="verde">✅ '+((d.bearerIdade||'')+'s')+'</span>':'<span class="vermelho">❌</span>';
+            document.getElementById('stLances').textContent = d.totalResultados||0;
         }
+    }catch(e){}
+}
+
+// ==================== LOAD DATA ====================
+async function recarregarDados() {
+    await Promise.all([carregarParticipacoes(), carregarDisputasLive()]);
+    aplicarFiltro();
+}
+
+async function carregarParticipacoes() {
+    try {
+        var r = await fetch(API+'/api/sniper/participacoes');
+        var d = await r.json();
+        participacoes = d.success ? d.participacoes : [];
+    } catch(e) { participacoes = []; }
+}
+
+async function carregarDisputasLive() {
+    try {
+        var r = await fetch(API+'/api/sniper/disputas-ativas');
+        var d = await r.json();
+        disputasLive = {};
+        if(d.success && d.disputas) {
+            d.disputas.forEach(function(disp) { disputasLive[disp.compraId] = disp; });
+        }
+        document.getElementById('stDisp').textContent = Object.keys(disputasLive).length;
     } catch(e) {}
 }
 
-// ==================== PARTICIPAÇÕES ====================
-async function carregarParticipacoes() {
-    var div = document.getElementById('listaParticipacoes');
-    div.innerHTML = '<p class="info-msg"><span class="spinner"></span> Carregando...</p>';
-    try {
-        var r = await fetch(API + '/api/sniper/participacoes?emDisputa=true');
-        var d = await r.json();
-        if (!d.success) { div.innerHTML = '<div class="result-msg result-erro">' + esc(d.error||'Erro') + '</div>'; return; }
-        todasParticipacoes = d.participacoes || [];
-        if (todasParticipacoes.length === 0) {
-            div.innerHTML = '<p class="info-msg">Nenhuma licitação em disputa.<br><small style="color:#666">Participe de licitações no Comprasnet e elas aparecerão aqui automaticamente.</small></p>';
-            return;
-        }
-        renderParticipacoes(todasParticipacoes);
-    } catch(e) { div.innerHTML = '<div class="result-msg result-erro">' + esc(e.message) + '</div>'; }
-}
+// ==================== FILTER & RENDER ====================
+function aplicarFiltro() {
+    var filtro = document.querySelector('input[name=filtroEtapa]:checked').value;
+    var busca = document.getElementById('buscaTexto').value.toLowerCase().trim();
 
-function filtrarParticipacoes() {
-    var busca = document.getElementById('buscaParticipacao').value.toLowerCase().trim();
-    if (!busca) { renderParticipacoes(todasParticipacoes); return; }
-    var filtradas = todasParticipacoes.filter(function(p) {
-        return (p.objeto||'').toLowerCase().indexOf(busca) >= 0 ||
-               (p.orgao||'').toLowerCase().indexOf(busca) >= 0 ||
-               (p.compraId||'').toLowerCase().indexOf(busca) >= 0;
+    var lista = participacoes.filter(function(p) {
+        if(filtro === 'disputa') {
+            var fase = (p.faseCompra||'').toLowerCase();
+            var sit = (p.situacao||'').toLowerCase();
+            // Não mostrar encerradas/fracassadas
+            if(sit === 'fr' || sit === 'en' || fase === '4' || fase === 'encerrada') return false;
+        }
+        if(busca) {
+            return (p.objeto||'').toLowerCase().indexOf(busca)>=0 ||
+                   (p.orgao||'').toLowerCase().indexOf(busca)>=0 ||
+                   (p.compraId||'').toLowerCase().indexOf(busca)>=0;
+        }
+        return true;
     });
-    renderParticipacoes(filtradas);
+
+    renderLista(lista);
 }
 
-function renderParticipacoes(lista) {
-    var div = document.getElementById('listaParticipacoes');
-    if (!lista.length) { div.innerHTML = '<p class="info-msg">Nenhuma participação encontrada</p>'; return; }
+function etapaInfo(p) {
+    var fase = p.faseCompra||'';
+    var live = disputasLive[p.compraId];
+    // Se tem dados live e itens ativos, é disputa
+    if(live && live.itensAtivos > 0) return { label: 'Disputa', cls: 'etapa-disputa' };
+    if(fase==='3') return { label: 'Disputa', cls: 'etapa-disputa' };
+    if(fase==='4'||fase==='encerrada') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+    if(fase==='1'||fase==='2') return { label: fase==='1'?'Cadastrada':'Publicada', cls: 'etapa-outra' };
+    var sit = (p.situacao||'').toUpperCase();
+    if(sit==='FR') return { label: 'Fracassada', cls: 'etapa-encerrada' };
+    if(sit==='EN') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+    return { label: fase||sit||'Em andamento', cls: 'etapa-outra' };
+}
 
-    div.innerHTML = '<div style="color:#888;font-size:0.8em;margin-bottom:8px">' + lista.length + ' participações ativas</div>' +
+function renderLista(lista) {
+    var div = document.getElementById('listaCompras');
+    if(!lista.length) { div.innerHTML='<p class="info-msg">Nenhuma participação encontrada.</p>'; return; }
+
+    div.innerHTML = '<div style="color:#888;font-size:0.75em;margin-bottom:6px">'+lista.length+' participações</div>' +
         lista.map(function(p) {
-            var sel = currentCompraId === p.compraId ? ' selecionada' : '';
-            var fase = p.faseCompra || '';
-            var faseLabel = faseLabels[fase] || fase || '';
-            var isDisputa = fase == '3' || (faseLabel.indexOf('Disputa') >= 0);
-            var faseColor = isDisputa ? '#4caf50' : '#ff9800';
-            var sit = p.situacao || '';
-            var sitLabel = faseLabels[sit] || sit || '';
-
-            return '<div class="part-card' + (isDisputa ? ' em-disputa' : '') + sel + '" onclick="selecionarLic(\'' + p.compraId + '\')">'
-                + '<div style="flex:1;min-width:0">'
-                + '<div class="part-id">' + p.compraId + ' <span style="color:'+faseColor+';font-weight:600;font-size:0.85em">' + esc(faseLabel) + '</span>'
-                + (sitLabel ? ' <span style="color:#888;font-size:0.75em">(' + esc(sitLabel) + ')</span>' : '')
-                + '</div>'
-                + '<div class="part-obj" title="' + esc(p.objeto||'') + '">' + esc((p.objeto||'(sem objeto)').substring(0,120)) + '</div>'
-                + '<div class="part-org">' + esc(p.orgao||'') + '</div>'
-                + '</div>'
-                + '<div class="part-right">'
-                + (p.dataSessao ? '<div class="text-sm text-muted">' + (p.dataSessao||'').substring(0,10) + '</div>' : '')
-                + '</div></div>';
+            var et = etapaInfo(p);
+            var isAberta = aberta === p.compraId;
+            return '<div class="lic-row" id="lic-'+p.compraId+'">' +
+                '<div class="lic-header'+(isAberta?' aberta':'')+'" onclick="toggleLic(\''+p.compraId+'\')">' +
+                    '<div class="lic-left">' +
+                        '<div class="lic-id">'+p.compraId+'</div>' +
+                        '<div class="lic-obj" title="'+esc(p.objeto)+'">'+esc((p.objeto||'(sem objeto)').substring(0,120))+'</div>' +
+                        '<div class="lic-org">'+esc(p.orgao||'')+'</div>' +
+                    '</div>' +
+                    '<div class="lic-right">' +
+                        '<span class="lic-etapa '+et.cls+'">'+et.label+'</span>' +
+                        (p.dataSessao?'<div class="lic-data">'+esc((p.dataSessao||'').substring(0,16))+'</div>':'') +
+                    '</div>' +
+                    '<span class="lic-arrow'+(isAberta?' aberta':'')+'">▼</span>' +
+                '</div>' +
+                '<div class="lic-body'+(isAberta?' aberta':'')+'" id="body-'+p.compraId+'">'+(isAberta?'<span class="spinner"></span>':'')+'</div>' +
+            '</div>';
         }).join('');
+
+    if(aberta) carregarItensLic(aberta);
 }
 
-// ==================== SELECIONAR LICITAÇÃO ====================
-function selecionarLic(compraId) {
-    currentCompraId = compraId;
-    var p = todasParticipacoes.find(function(x) { return x.compraId === compraId; });
-    currentObjeto = p ? (p.objeto || '') : '';
-    // Highlight
-    document.querySelectorAll('.part-card.selecionada').forEach(function(el) { el.classList.remove('selecionada'); });
-    var el = document.querySelector('.part-card[onclick*="' + compraId + '"]');
-    if (el) el.classList.add('selecionada');
-    // Carregar itens
-    carregarItens(compraId);
-}
-
-async function carregarItens(compraId) {
-    document.getElementById('itensPanel').style.display = 'block';
-    document.getElementById('itensCompraId').textContent = compraId;
-    document.getElementById('itensObjeto').textContent = currentObjeto.substring(0,80);
-    document.getElementById('itensList').innerHTML = '<p style="color:#888"><span class="spinner"></span> Carregando itens...</p>';
-
-    try {
-        // 1. Buscar do banco
-        var rDB = await fetch(API + '/api/sniper/itens?compraId=' + compraId);
-        var dDB = await rDB.json();
-        itensDB = dDB.success ? dDB.itens : [];
-
-        // 2. Se não tem no banco, tentar cache da extensão e criar automaticamente
-        if (itensDB.length === 0) {
-            var rCache = await fetch(API + '/api/sniper/consultar-itens?compraId=' + compraId);
-            var dCache = await rCache.json();
-
-            if (dCache.success && dCache.itens && dCache.itens.length > 0) {
-                // Criar no banco a partir do cache
-                var bulk = dCache.itens.map(function(i) {
-                    return { itemNumero: i.numero || 1, descricao: i.descricao || currentObjeto || '', faseItem: i.fase || 'LA' };
-                });
-                var rBulk = await fetch(API + '/api/sniper/itens/bulk', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ compraId: compraId, itens: bulk })
-                });
-                var dBulk = await rBulk.json();
-                if (dBulk.success) itensDB = dBulk.itens;
-            }
-
-            // 3. Se ainda vazio (cache não tinha dados úteis), aguardar extensão
-            if (itensDB.length === 0) {
-                document.getElementById('itensList').innerHTML = '<p style="color:#ff9800"><span class="spinner"></span> Aguardando dados da extensão... Enquanto isso, pode adicionar itens manualmente abaixo.</p>' + addItemFormHTML();
-                // Retry em 6s
-                setTimeout(function() { if (currentCompraId === compraId && itensDB.length === 0) carregarItens(compraId); }, 6000);
-                return;
-            }
-        }
-
-        renderizarItens();
-        carregarHistorico();
-    } catch(e) {
-        document.getElementById('itensList').innerHTML = '<div class="result-msg result-erro">Erro: ' + esc(e.message) + '</div>';
+// ==================== TOGGLE / EXPAND ====================
+function toggleLic(compraId) {
+    if(aberta === compraId) {
+        aberta = null;
+        aplicarFiltro();
+        return;
     }
+    aberta = compraId;
+    aplicarFiltro();
+    carregarItensLic(compraId);
 }
 
-function addItemFormHTML() {
-    return '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px dashed #0f3460">' +
-        '<div class="form-group"><label>Nº</label><input type="number" id="novoItemNum" min="1" style="width:60px"></div>' +
-        '<div class="form-group" style="flex:1"><label>Descrição</label><input type="text" id="novoItemDesc" placeholder="Descrição do item"></div>' +
-        '<div class="form-group"><label>Valor R$</label><input type="number" id="novoItemValor" step="0.01" style="width:110px"></div>' +
-        '<button class="btn btn-outline btn-sm" onclick="adicionarItem()">+ Adicionar</button></div>';
+async function carregarItensLic(compraId) {
+    var body = document.getElementById('body-'+compraId);
+    if(!body) return;
+    body.innerHTML = '<p style="color:#888;padding:8px"><span class="spinner"></span> Carregando itens...</p>';
+
+    // 1. Dados live da extensão
+    var live = disputasLive[compraId];
+    var itensLive = live ? live.itens : [];
+
+    // 2. Config salva no banco
+    try {
+        var r = await fetch(API+'/api/sniper/itens?compraId='+compraId);
+        var d = await r.json();
+        itensConfig[compraId] = d.success ? d.itens : [];
+    } catch(e) { itensConfig[compraId] = []; }
+
+    // 3. Se tem itens live mas não no banco, criar automaticamente
+    if(itensLive.length > 0 && itensConfig[compraId].length === 0) {
+        var bulk = itensLive.map(function(i) {
+            return { itemNumero: i.numero||1, descricao: i.descricao||'', faseItem: i.fase||'LA', valorEstimado: i.valorEstimado };
+        });
+        try {
+            var rb = await fetch(API+'/api/sniper/itens/bulk', {method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({compraId:compraId, itens:bulk})});
+            var db2 = await rb.json();
+            if(db2.success) itensConfig[compraId] = db2.itens;
+        } catch(e){}
+    }
+
+    // 4. Se sem dados, tentar consultar via extensão
+    if(itensLive.length === 0 && itensConfig[compraId].length === 0) {
+        try {
+            var rc = await fetch(API+'/api/sniper/consultar-itens?compraId='+compraId);
+            var dc = await rc.json();
+            if(dc.success && dc.itens && dc.itens.length > 0) {
+                itensLive = dc.itens;
+                var bulk2 = itensLive.map(function(i){return{itemNumero:i.numero||1,descricao:i.descricao||'',faseItem:i.fase||'LA',valorEstimado:i.valorEstimado};});
+                var rb2 = await fetch(API+'/api/sniper/itens/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId:compraId,itens:bulk2})});
+                var db3 = await rb2.json();
+                if(db3.success) itensConfig[compraId]=db3.itens;
+            }
+        } catch(e){}
+    }
+
+    renderItens(compraId, itensLive);
 }
 
-// ==================== RENDERIZAR ITENS ====================
-function renderizarItens() {
-    var div = document.getElementById('itensList');
-    if (itensDB.length === 0) {
-        div.innerHTML = '<p style="color:#ff9800">Nenhum item cadastrado.</p>' + addItemFormHTML();
+// ==================== RENDER ITENS TABLE ====================
+function renderItens(compraId, itensLive) {
+    var body = document.getElementById('body-'+compraId);
+    if(!body) return;
+    var config = itensConfig[compraId]||[];
+
+    // Merge: for each item, combine live data with saved config
+    var merged = [];
+    // Start with live items
+    var liveMap = {};
+    itensLive.forEach(function(il) { liveMap[il.numero] = il; });
+    // Start with config items (they have all saved data)
+    var seen = {};
+    config.forEach(function(cfg) {
+        var lv = liveMap[cfg.itemNumero] || {};
+        merged.push({
+            numero: cfg.itemNumero,
+            descricao: cfg.descricao || lv.descricao || '',
+            fase: lv.fase || cfg.faseItem || '',
+            melhorValor: lv.melhorValor,
+            nossoValor: lv.nossoValor,
+            podeEnviar: lv.podeEnviar !== undefined ? lv.podeEnviar : true,
+            valorEstimado: cfg.valorEstimado || lv.valorEstimado,
+            fimContagem: lv.fimContagem,
+            // Config salva
+            valorLance: cfg.valorLance,
+            valorMinimo: cfg.valorMinimo,
+            descontoMinimo: cfg.descontoMinimo,
+            descontoMaximo: cfg.descontoMaximo,
+            horarioAlvo: cfg.horarioAlvo,
+            antecedenciaMs: cfg.antecedenciaMs,
+            ativo: cfg.ativo,
+            ultimoResultado: cfg.ultimoResultado,
+            ultimoEnvio: cfg.ultimoEnvio,
+            status: cfg.status,
+        });
+        seen[cfg.itemNumero] = true;
+    });
+    // Add live items not in config
+    itensLive.forEach(function(il) {
+        if(!seen[il.numero]) {
+            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1 });
+        }
+    });
+
+    if(merged.length === 0) {
+        body.innerHTML = '<p class="info-msg">Sem dados de itens. Aguardando sync da extensão ou adicione manualmente.</p><div class="btn-group"><button class="btn btn-outline btn-sm" onclick="adicionarItemManual(\''+compraId+'\')">+ Adicionar Item</button></div><div id="resultado-'+compraId+'"></div>';
         return;
     }
 
-    div.innerHTML = itensDB.map(function(item) {
-        var faseClass = (item.faseItem === 'LA' || item.faseItem === 'D1' || item.faseItem === 'D2') ? 'fase-la' : 'fase-outro';
-        var ativoClass = item.ativo ? 'ativo' : 'inativo';
-        var statusHtml = item.ultimoEnvio ? '<div class="item-status">' + (item.status === 'enviado' ? '✅' : '❌') + ' ' + esc(item.ultimoResultado||'') + ' — ' + fmtHora(item.ultimoEnvio) + '</div>' : '';
+    var html = '<table class="itens-table"><thead><tr>' +
+        '<th>#</th><th>Descrição</th><th>Fase</th>' +
+        '<th>Melhor R$</th><th>Nosso R$</th><th>V.Estimado</th>' +
+        '<th>Valor Mínimo</th><th>Desc.Mín%</th><th>Desc.Máx%</th>' +
+        '<th>Valor Lance</th><th>Ações</th>' +
+        '</tr></thead><tbody>';
 
-        return '<div class="item-card ' + ativoClass + '" id="item-' + item.itemNumero + '">' +
-            '<div class="item-header">' +
-                '<div><span class="item-num">#' + item.itemNumero + '</span> <span class="item-fase ' + faseClass + '">' + esc(item.faseItem||'--') + '</span></div>' +
-                '<label style="font-size:0.8em;color:#888;cursor:pointer">' +
-                    '<input type="checkbox" ' + (item.ativo ? 'checked' : '') + ' onchange="toggleAtivo(' + item.itemNumero + ', this.checked)"> Ativo' +
-                '</label>' +
-            '</div>' +
-            '<div class="item-desc">' + esc(item.descricao || 'Sem descrição') + '</div>' +
-            '<div class="item-config">' +
-                '<div class="form-group"><label>Valor R$</label><input type="number" step="0.01" id="valor-' + item.itemNumero + '" value="' + (item.valorLance || '') + '" placeholder="0.00" onchange="salvarValor(' + item.itemNumero + ', this.value)"></div>' +
-                '<div class="form-group"><label>Horário Alvo</label><input type="time" step="1" id="hora-' + item.itemNumero + '" value="' + (item.horarioAlvo || '') + '" onchange="salvarHorario(' + item.itemNumero + ', this.value)" class="narrow"></div>' +
-                '<div class="form-group"><label>Antecedência ms</label><input type="number" id="antec-' + item.itemNumero + '" value="' + (item.antecedenciaMs || 3000) + '" class="narrow" onchange="salvarAntecedencia(' + item.itemNumero + ', this.value)"></div>' +
-            '</div>' +
-            '<div class="item-actions">' +
-                '<button class="btn btn-success btn-sm" onclick="enviarLanceItem(' + item.itemNumero + ')" ' + (!item.ativo ? 'disabled' : '') + '>⚡ Enviar</button>' +
-                '<button class="btn btn-primary btn-sm" onclick="agendarItem(' + item.itemNumero + ')" ' + (!item.ativo ? 'disabled' : '') + '>⏰ Agendar</button>' +
-                '<button class="btn btn-outline btn-sm" onclick="editarDescricao(' + item.itemNumero + ')">✏️</button>' +
-                '<button class="btn btn-danger btn-sm" onclick="removerItem(' + item.itemNumero + ')">🗑️</button>' +
-            '</div>' +
-            statusHtml +
-            '<div id="result-' + item.itemNumero + '"></div>' +
-        '</div>';
-    }).join('') + addItemFormHTML();
-}
+    merged.forEach(function(m) {
+        var nossoClass = 'valor-nosso';
+        if(m.nossoValor && m.melhorValor && m.nossoValor <= m.melhorValor) nossoClass += ' melhor';
 
-// ==================== AÇÕES POR ITEM ====================
-async function salvarCampo(itemNumero, campo, valor) {
-    try {
-        var body = { compraId: currentCompraId, itemNumero: itemNumero };
-        body[campo] = valor;
-        await fetch(API + '/api/sniper/itens', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    } catch(e) {}
-}
-function salvarValor(n, v) { salvarCampo(n, 'valorLance', parseFloat(v) || null); }
-function salvarHorario(n, v) { salvarCampo(n, 'horarioAlvo', v || null); }
-function salvarAntecedencia(n, v) { salvarCampo(n, 'antecedenciaMs', parseInt(v) || 3000); }
+        html += '<tr>' +
+            '<td><strong>'+m.numero+'</strong></td>' +
+            '<td class="desc-cell" title="'+esc(m.descricao)+'">'+esc((m.descricao||'').substring(0,60))+'</td>' +
+            '<td><span class="lic-etapa '+(m.podeEnviar?'etapa-disputa':'etapa-outra')+'">'+esc(m.fase||'--')+'</span></td>' +
+            '<td class="valor-melhor">'+fmtR$(m.melhorValor)+'</td>' +
+            '<td class="'+nossoClass+'">'+fmtR$(m.nossoValor)+'</td>' +
+            '<td style="color:#888">'+fmtR$(m.valorEstimado)+'</td>' +
+            '<td><input type="number" step="0.01" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Min"></td>' +
+            '<td><input type="number" step="0.1" value="'+(m.descontoMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'descontoMinimo\',this.value)" placeholder="%" style="width:65px"></td>' +
+            '<td><input type="number" step="0.1" value="'+(m.descontoMaximo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'descontoMaximo\',this.value)" placeholder="%" style="width:65px"></td>' +
+            '<td><input type="number" step="0.01" id="vl-'+compraId+'-'+m.numero+'" value="'+(m.valorLance||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorLance\',this.value)" placeholder="Lance"></td>' +
+            '<td style="white-space:nowrap">' +
+                '<button class="btn btn-success btn-sm" onclick="enviar(\''+compraId+'\','+m.numero+')" '+(m.podeEnviar?'':'disabled')+' title="Enviar agora">⚡</button> ' +
+                '<button class="btn btn-primary btn-sm" onclick="agendar(\''+compraId+'\','+m.numero+')" title="Agendar">⏰</button>' +
+            '</td>' +
+            '</tr>';
 
-async function toggleAtivo(itemNumero, ativo) {
-    await salvarCampo(itemNumero, 'ativo', ativo ? 1 : 0);
-    var card = document.getElementById('item-' + itemNumero);
-    if (card) card.className = 'item-card ' + (ativo ? 'ativo' : 'inativo');
-}
-
-async function enviarLanceItem(itemNumero) {
-    var valorEl = document.getElementById('valor-' + itemNumero);
-    var valor = parseFloat(valorEl ? valorEl.value : 0);
-    if (!valor || valor <= 0) { alert('Informe o valor do lance para o item ' + itemNumero); if(valorEl) valorEl.focus(); return; }
-    if (!confirm('Enviar R$ ' + valor.toFixed(2) + ' no item ' + itemNumero + '?')) return;
-
-    var resultDiv = document.getElementById('result-' + itemNumero);
-    resultDiv.innerHTML = '<div class="result-msg" style="color:#ff9800"><span class="spinner"></span> Enviando...</div>';
-
-    try {
-        var r = await fetch(API + '/api/sniper/lance', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ compraId: currentCompraId, itemNumero: itemNumero, valor: valor })
-        });
-        var d = await r.json();
-        if (!d.success) { resultDiv.innerHTML = '<div class="result-msg result-erro">' + esc(d.error) + '</div>'; return; }
-
-        var lanceId = d.id;
-        var tentativas = 0;
-        var poll = setInterval(async function() {
-            tentativas++;
-            try {
-                var rs = await fetch(API + '/api/sniper/fila-status');
-                var ds = await rs.json();
-                var lance = (ds.resultados||[]).find(function(r) { return r.id === lanceId; });
-                if (lance) {
-                    clearInterval(poll);
-                    if (lance.sucesso) {
-                        resultDiv.innerHTML = '<div class="result-msg result-sucesso">✅ ENVIADO! R$ ' + valor.toFixed(2) + ' (' + lance.tempoMs + 'ms)</div>';
-                        toast('✅ Item ' + itemNumero + ' — R$ ' + valor.toFixed(2), 'sucesso');
-                    } else {
-                        resultDiv.innerHTML = '<div class="result-msg result-erro">❌ HTTP ' + lance.status + ' (' + lance.tempoMs + 'ms)</div>';
-                    }
-                    carregarHistorico();
-                }
-            } catch(e) {}
-            if (tentativas > 30) { clearInterval(poll); resultDiv.innerHTML = '<div class="result-msg result-erro">Timeout</div>'; }
-        }, 1000);
-    } catch(e) {
-        resultDiv.innerHTML = '<div class="result-msg result-erro">' + esc(e.message) + '</div>';
-    }
-}
-
-async function agendarItem(itemNumero) {
-    var valor = parseFloat((document.getElementById('valor-' + itemNumero)||{}).value);
-    var horario = (document.getElementById('hora-' + itemNumero)||{}).value;
-    var antecedencia = parseInt((document.getElementById('antec-' + itemNumero)||{}).value) || 3000;
-    var item = itensDB.find(function(i) { return i.itemNumero === itemNumero; });
-
-    if (!valor || valor <= 0) { alert('Informe o valor'); return; }
-    if (!horario) { alert('Informe o horário alvo'); return; }
-
-    var hoje = new Date().toISOString().split('T')[0];
-    var horaLocal = new Date(hoje + 'T' + horario + '-03:00');
-    if (horaLocal <= new Date()) { alert('Horário já passou.'); return; }
-    var minutos = Math.round((horaLocal - new Date()) / 60000);
-
-    if (!confirm('Agendar:\nItem ' + itemNumero + ': R$ ' + valor.toFixed(2) + '\nAlvo: ' + horario + ' BRT (em ~' + minutos + ' min)')) return;
-
-    try {
-        var r = await fetch(API + '/api/sniper/agendar', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({
-                compraId: currentCompraId, itemNumero: itemNumero, valor: valor,
-                horarioAlvo: horaLocal.toISOString(), antecedenciaMs: antecedencia,
-                tentativas: (item && item.tentativas) || 3, intervaloTentativasMs: (item && item.intervaloMs) || 500,
-            })
-        });
-        var d = await r.json();
-        if (d.success) toast('⏰ Item ' + itemNumero + ' agendado ' + horario, 'sucesso');
-        else alert('Erro: ' + d.error);
-    } catch(e) { alert('Erro: ' + e.message); }
-}
-
-function editarDescricao(itemNumero) {
-    var item = itensDB.find(function(i) { return i.itemNumero === itemNumero; });
-    var novaDesc = prompt('Descrição do item ' + itemNumero + ':', item ? item.descricao : '');
-    if (novaDesc === null) return;
-    salvarCampo(itemNumero, 'descricao', novaDesc);
-    if (item) item.descricao = novaDesc;
-    renderizarItens();
-}
-
-async function removerItem(itemNumero) {
-    if (!confirm('Remover item ' + itemNumero + '?')) return;
-    await fetch(API + '/api/sniper/itens/' + currentCompraId + '/' + itemNumero, {method:'DELETE'});
-    itensDB = itensDB.filter(function(i) { return i.itemNumero !== itemNumero; });
-    renderizarItens();
-}
-
-async function adicionarItem() {
-    var num = parseInt(document.getElementById('novoItemNum').value);
-    var desc = document.getElementById('novoItemDesc').value.trim();
-    var valor = parseFloat(document.getElementById('novoItemValor').value) || null;
-    if (!num) { alert('Informe o número do item'); return; }
-    if (!currentCompraId) { alert('Selecione uma licitação primeiro'); return; }
-
-    var r = await fetch(API + '/api/sniper/itens', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ compraId: currentCompraId, itemNumero: num, descricao: desc || currentObjeto, valorLance: valor, faseItem: 'LA' })
-    });
-    var d = await r.json();
-    if (d.success) {
-        var rDB = await fetch(API + '/api/sniper/itens?compraId=' + currentCompraId);
-        var dDB = await rDB.json();
-        itensDB = dDB.success ? dDB.itens : itensDB;
-        renderizarItens();
-        toast('✅ Item ' + num + ' adicionado', 'sucesso');
-    }
-}
-
-// ==================== ENVIAR/AGENDAR TODOS ====================
-async function enviarTodos() {
-    var ativos = itensDB.filter(function(i) { return i.ativo && i.valorLance > 0; });
-    if (!ativos.length) { alert('Configure valor nos itens ativos primeiro'); return; }
-    var lista = ativos.map(function(i) { return '  #' + i.itemNumero + ': R$ ' + parseFloat(i.valorLance).toFixed(2); }).join('\n');
-    if (!confirm('Enviar ' + ativos.length + ' lances?\n\n' + lista)) return;
-
-    for (var j = 0; j < ativos.length; j++) {
-        await fetch(API + '/api/sniper/lance', { method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ compraId: currentCompraId, itemNumero: ativos[j].itemNumero, valor: ativos[j].valorLance }) });
-    }
-    toast('🎯 ' + ativos.length + ' lances enfileirados', 'sucesso');
-}
-
-async function agendarTodos() {
-    var ativos = itensDB.filter(function(i) { return i.ativo && i.valorLance > 0 && i.horarioAlvo; });
-    if (!ativos.length) { alert('Configure valor e horário nos itens primeiro'); return; }
-    var lista = ativos.map(function(i) { return '  #' + i.itemNumero + ': R$ ' + parseFloat(i.valorLance).toFixed(2) + ' às ' + i.horarioAlvo; }).join('\n');
-    if (!confirm('Agendar ' + ativos.length + ' lances?\n\n' + lista)) return;
-
-    for (var j = 0; j < ativos.length; j++) {
-        var it = ativos[j];
-        var hoje = new Date().toISOString().split('T')[0];
-        var horaLocal = new Date(hoje + 'T' + it.horarioAlvo + '-03:00');
-        await fetch(API + '/api/sniper/agendar', { method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ compraId: currentCompraId, itemNumero: it.itemNumero, valor: it.valorLance,
-                horarioAlvo: horaLocal.toISOString(), antecedenciaMs: it.antecedenciaMs || 3000,
-                tentativas: it.tentativas || 3, intervaloTentativasMs: it.intervaloMs || 500 }) });
-    }
-    toast('⏰ ' + ativos.length + ' agendados', 'sucesso');
-}
-
-// ==================== HISTÓRICO ====================
-async function carregarHistorico() {
-    if (!currentCompraId) return;
-    document.getElementById('historicoPanel').style.display = 'block';
-    var div = document.getElementById('historicoLista');
-    try {
-        var r = await fetch(API + '/api/sniper/historico?compraId=' + currentCompraId + '&limit=20');
-        var d = await r.json();
-        if (!d.success || !d.historico || !d.historico.length) { div.innerHTML = '<p class="text-muted">Nenhum lance ainda.</p>'; return; }
-        div.innerHTML = '<table><tr><th>Hora</th><th>Item</th><th>Valor</th><th>Status</th><th>ms</th></tr>' +
-            d.historico.map(function(h) {
-                return '<tr><td>' + fmtHora(h.timestamp) + '</td><td class="azul">#' + h.itemNumero + '</td><td>' + fmtVal(h.valor) + '</td>' +
-                    '<td class="' + (h.sucesso ? 'verde' : 'vermelho') + '">' + (h.sucesso ? '✅' : '❌') + ' ' + h.httpStatus + '</td><td>' + h.tempoMs + '</td></tr>';
-            }).join('') + '</table>';
-    } catch(e) {}
-}
-
-// ==================== LOGS ====================
-async function carregarLogs() {
-    try {
-        var r = await fetch(API + '/api/sniper/logs');
-        var d = await r.json();
-        if (d.success && d.logs && d.logs.length) {
-            document.getElementById('logsContainer').innerHTML = d.logs.slice(0,30).map(function(log) {
-                var c = 'color:#888';
-                if (log.indexOf('✅') >= 0) c = 'color:#4caf50';
-                else if (log.indexOf('❌') >= 0) c = 'color:#f44336';
-                else if (log.indexOf('🎯') >= 0) c = 'color:#4dabf7';
-                return '<div style="'+c+';padding:2px 0;border-bottom:1px solid #0f346020">' + esc(log) + '</div>';
-            }).join('');
+        if(m.ultimoEnvio) {
+            html += '<tr><td colspan="11" style="padding:2px 8px;font-size:0.75em;color:'+(m.status==='enviado'?'#4caf50':'#f44336')+'">' +
+                (m.status==='enviado'?'✅':'❌')+' '+esc(m.ultimoResultado||'')+' — '+fmtHora(m.ultimoEnvio)+'</td></tr>';
         }
-    } catch(e) {}
+    });
+
+    html += '</tbody></table>';
+    html += '<div class="btn-group">' +
+        '<button class="btn btn-success btn-sm" onclick="enviarTodos(\''+compraId+'\')">⚡ Enviar Todos</button>' +
+        '<button class="btn btn-warning btn-sm" onclick="agendarTodos(\''+compraId+'\')">⏰ Agendar Todos</button>' +
+        '<button class="btn btn-outline btn-sm" onclick="adicionarItemManual(\''+compraId+'\')">+ Item</button>' +
+        '</div>';
+    html += '<div id="resultado-'+compraId+'"></div>';
+
+    body.innerHTML = html;
+}
+
+// ==================== SAVE CONFIG ====================
+function salvar(compraId, itemNumero, campo, valor) {
+    var body = { compraId: compraId, itemNumero: itemNumero };
+    if(campo === 'valorLance' || campo === 'valorMinimo') body[campo] = parseFloat(valor)||null;
+    else if(campo === 'descontoMinimo' || campo === 'descontoMaximo') body[campo] = parseFloat(valor)||null;
+    else body[campo] = valor || null;
+    fetch(API+'/api/sniper/itens',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    // Update local cache
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+    if(cfg) cfg[campo] = body[campo];
+}
+
+// ==================== ENVIAR LANCE ====================
+function enviar(compraId, itemNumero) {
+    var el = document.getElementById('vl-'+compraId+'-'+itemNumero);
+    var valor = parseFloat(el?el.value:0);
+    if(!valor||valor<=0){alert('Informe o valor do lance para o item '+itemNumero);if(el)el.focus();return;}
+    if(!confirm('Enviar R$ '+valor.toFixed(2)+' no item '+itemNumero+'?'))return;
+
+    var resDiv = document.getElementById('resultado-'+compraId);
+    resDiv.innerHTML = '<div class="result-msg" style="color:#ff9800"><span class="spinner"></span> Enviando item '+itemNumero+'...</div>';
+
+    fetch(API+'/api/sniper/lance',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,valor:valor})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(!d.success){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(d.error)+'</div>';return;}
+        var lanceId=d.id; var tent=0;
+        var poll=setInterval(function(){
+            tent++;
+            fetch(API+'/api/sniper/fila-status').then(function(r){return r.json();}).then(function(ds){
+                var lance=(ds.resultados||[]).find(function(r){return r.id===lanceId;});
+                if(lance){clearInterval(poll);
+                    if(lance.sucesso){resDiv.innerHTML='<div class="result-msg result-sucesso">✅ Item '+itemNumero+' — R$ '+valor.toFixed(2)+' ('+lance.tempoMs+'ms)</div>';toast('✅ #'+itemNumero+' R$ '+valor.toFixed(2),'sucesso');}
+                    else resDiv.innerHTML='<div class="result-msg result-erro">❌ HTTP '+lance.status+' ('+lance.tempoMs+'ms)</div>';
+                }
+            }).catch(function(){});
+            if(tent>30){clearInterval(poll);resDiv.innerHTML='<div class="result-msg result-erro">Timeout</div>';}
+        },1000);
+    }).catch(function(e){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(e.message)+'</div>';});
+}
+
+function enviarTodos(compraId) {
+    var config = itensConfig[compraId]||[];
+    var ativos = config.filter(function(c){return c.ativo && c.valorLance>0;});
+    if(!ativos.length){alert('Configure valor nos itens primeiro');return;}
+    var lista = ativos.map(function(c){return'  #'+c.itemNumero+': R$ '+parseFloat(c.valorLance).toFixed(2);}).join('\n');
+    if(!confirm('Enviar '+ativos.length+' lances?\n\n'+lista))return;
+    ativos.forEach(function(c){
+        fetch(API+'/api/sniper/lance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId:compraId,itemNumero:c.itemNumero,valor:c.valorLance})});
+    });
+    toast('🎯 '+ativos.length+' lances enfileirados','sucesso');
+}
+
+// ==================== AGENDAR ====================
+function agendar(compraId, itemNumero) {
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+    var valor = parseFloat((document.getElementById('vl-'+compraId+'-'+itemNumero)||{}).value);
+    if(!valor||valor<=0){alert('Informe o valor');return;}
+    var horario = prompt('Horário alvo (HH:MM:SS, Brasília):', cfg&&cfg.horarioAlvo||'16:00:00');
+    if(!horario)return;
+    var hoje = new Date().toISOString().split('T')[0];
+    var horaLocal = new Date(hoje+'T'+horario+'-03:00');
+    if(horaLocal<=new Date()){alert('Horário já passou');return;}
+    fetch(API+'/api/sniper/agendar',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,valor:valor,horarioAlvo:horaLocal.toISOString(),antecedenciaMs:(cfg&&cfg.antecedenciaMs)||3000,tentativas:3,intervaloTentativasMs:500})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(d.success) toast('⏰ #'+itemNumero+' agendado '+horario,'sucesso');
+        else alert('Erro: '+d.error);
+    });
+    salvar(compraId,itemNumero,'horarioAlvo',horario);
+}
+
+function agendarTodos(compraId) {
+    var config = itensConfig[compraId]||[];
+    var ativos = config.filter(function(c){return c.ativo && c.valorLance>0;});
+    if(!ativos.length){alert('Configure valor nos itens primeiro');return;}
+    var horario = prompt('Horário alvo para todos (HH:MM:SS, Brasília):','16:00:00');
+    if(!horario)return;
+    var hoje = new Date().toISOString().split('T')[0];
+    var horaLocal = new Date(hoje+'T'+horario+'-03:00');
+    if(horaLocal<=new Date()){alert('Horário já passou');return;}
+    ativos.forEach(function(c){
+        fetch(API+'/api/sniper/agendar',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({compraId:compraId,itemNumero:c.itemNumero,valor:c.valorLance,horarioAlvo:horaLocal.toISOString(),antecedenciaMs:c.antecedenciaMs||3000,tentativas:3,intervaloTentativasMs:500})});
+    });
+    toast('⏰ '+ativos.length+' agendados '+horario,'sucesso');
+}
+
+// ==================== ADD ITEM ====================
+function adicionarItemManual(compraId) {
+    var num = prompt('Número do item:');
+    if(!num) return;
+    var desc = prompt('Descrição:','');
+    fetch(API+'/api/sniper/itens',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:parseInt(num),descricao:desc,faseItem:'LA'})
+    }).then(function(){carregarItensLic(compraId);});
 }
 
 // ==================== TOAST ====================
-function toast(msg, tipo) {
-    var div = document.createElement('div');
-    div.className = 'toast';
-    div.style.background = tipo === 'sucesso' ? '#4caf50' : tipo === 'erro' ? '#f44336' : '#4dabf7';
-    div.textContent = msg;
-    document.getElementById('toastArea').appendChild(div);
-    setTimeout(function() { div.remove(); }, 4000);
-}
+function toast(msg,tipo){var d=document.createElement('div');d.className='toast';d.style.background=tipo==='sucesso'?'#4caf50':tipo==='erro'?'#f44336':'#4dabf7';d.textContent=msg;document.getElementById('toastArea').appendChild(d);setTimeout(function(){d.remove();},4000);}
 
 // ==================== INIT ====================
-carregarParticipacoes();
+recarregarDados();
 atualizarStatus();
-carregarLogs();
-setInterval(atualizarStatus, 10000);
-setInterval(carregarLogs, 10000);
-setInterval(function() {
-    document.getElementById('horaServidor').textContent = new Date().toLocaleTimeString('pt-BR', {timeZone:'America/Sao_Paulo'});
-}, 500);
-
-// Auto-selecionar se compraId na URL
-var params = new URLSearchParams(window.location.search);
-if (params.get('compraId')) {
-    currentCompraId = params.get('compraId');
-    carregarItens(currentCompraId);
-}
+setInterval(atualizarStatus,10000);
+setInterval(function(){document.getElementById('hora').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});},500);
+// Refresh live data every 30s
+setInterval(function(){carregarDisputasLive().then(function(){if(aberta)carregarItensLic(aberta);});},30000);
 </script>
 </body>
 </html>

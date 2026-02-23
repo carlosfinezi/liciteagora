@@ -778,11 +778,13 @@ function registrarRotasSniper(app, monitorGetter, db) {
    */
   app.post('/api/sniper/itens', (req, res) => {
     try {
-      const { compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo } = req.body;
+      const { compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo,
+              antecedenciaMs, tentativas, intervaloMs, ativo,
+              valorMinimo, descontoMinimo, descontoMaximo, valorEstimado } = req.body;
       if (!compraId || !itemNumero) return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
 
-      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo, valorMinimo, descontoMinimo, descontoMaximo, valorEstimado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(compraId, itemNumero) DO UPDATE SET
           descricao = COALESCE(excluded.descricao, descricao),
           valorLance = COALESCE(excluded.valorLance, valorLance),
@@ -792,9 +794,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
           tentativas = COALESCE(excluded.tentativas, tentativas),
           intervaloMs = COALESCE(excluded.intervaloMs, intervaloMs),
           ativo = COALESCE(excluded.ativo, ativo),
+          valorMinimo = COALESCE(excluded.valorMinimo, valorMinimo),
+          descontoMinimo = COALESCE(excluded.descontoMinimo, descontoMinimo),
+          descontoMaximo = COALESCE(excluded.descontoMaximo, descontoMaximo),
+          valorEstimado = COALESCE(excluded.valorEstimado, valorEstimado),
           dataAtualizacao = CURRENT_TIMESTAMP`);
 
-      stmt.run(compraId, itemNumero, descricao || null, valorLance || null, faseItem || 'LA', horarioAlvo || null, antecedenciaMs || 3000, tentativas || 3, intervaloMs || 500, ativo !== undefined ? (ativo ? 1 : 0) : 1);
+      stmt.run(compraId, itemNumero, descricao || null, valorLance || null, faseItem || 'LA',
+               horarioAlvo || null, antecedenciaMs || 3000, tentativas || 3, intervaloMs || 500,
+               ativo !== undefined ? (ativo ? 1 : 0) : 1,
+               valorMinimo !== undefined ? valorMinimo : null,
+               descontoMinimo !== undefined ? descontoMinimo : null,
+               descontoMaximo !== undefined ? descontoMaximo : null,
+               valorEstimado !== undefined ? valorEstimado : null);
 
       const item = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, itemNumero);
       res.json({ success: true, item });
@@ -812,18 +824,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
       const { compraId, itens } = req.body;
       if (!compraId || !itens?.length) return res.status(400).json({ success: false, error: 'compraId e itens obrigatórios' });
 
-      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, ativo)
-        VALUES (?, ?, ?, ?, ?, ?)
+      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, ativo, valorEstimado)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(compraId, itemNumero) DO UPDATE SET
           descricao = COALESCE(excluded.descricao, descricao),
           valorLance = COALESCE(excluded.valorLance, valorLance),
           faseItem = COALESCE(excluded.faseItem, faseItem),
           ativo = COALESCE(excluded.ativo, ativo),
+          valorEstimado = COALESCE(excluded.valorEstimado, valorEstimado),
           dataAtualizacao = CURRENT_TIMESTAMP`);
 
       const inserir = db.transaction((itens) => {
         for (const i of itens) {
-          stmt.run(compraId, i.itemNumero, i.descricao || null, i.valorLance || null, i.faseItem || 'LA', i.ativo !== undefined ? (i.ativo ? 1 : 0) : 1);
+          stmt.run(compraId, i.itemNumero, i.descricao || null, i.valorLance || null, i.faseItem || 'LA', i.ativo !== undefined ? (i.ativo ? 1 : 0) : 1, i.valorEstimado || null);
         }
       });
       inserir(itens);
