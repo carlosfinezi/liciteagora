@@ -538,19 +538,52 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
     }
     if (!compraId) continue;
 
-    // Tentar fase-externa primeiro (mais detalhes), depois disputa
+    // Tentar endpoints em ordem de riqueza de dados:
+    // 1. classificacao (tem melhorValorGeral + melhorValorFornecedor)
+    // 2. fase-externa em-selecao (dados de seleção)
+    // 3. disputa itens (básico, sem preços)
     var endpoints = [
+      '/comprasnet-disputa/v1/compras/' + compraId + '/itens/classificacao',
       '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens/em-selecao-fornecedores',
       '/comprasnet-disputa/v1/compras/' + compraId + '/itens',
     ];
 
     var itens = null;
+    var endpointUsado = '';
     for (var ep of endpoints) {
       try {
         var result = await comprasnetFetch(tabId, ep, bearer);
         if (result.status === 200 || result.status === 206) {
-          itens = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
-          break;
+          var dados = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
+          if (dados.length > 0) {
+            itens = dados;
+            endpointUsado = ep.split('/v1/')[1] || ep;
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Se pegou itens de endpoint sem preços, tentar enriquecer com classificacao
+    if (itens && itens.length > 0 && endpointUsado.indexOf('classificacao') === -1) {
+      try {
+        var classResult = await comprasnetFetch(tabId,
+          '/comprasnet-disputa/v1/compras/' + compraId + '/itens/classificacao', bearer);
+        if (classResult.status === 200 || classResult.status === 206) {
+          var classItens = Array.isArray(classResult.data) ? classResult.data : [];
+          if (classItens.length > 0) {
+            // Criar mapa por numero para merge
+            var classMap = {};
+            classItens.forEach(function(ci) { classMap[ci.numero || ci.identificador] = ci; });
+            itens.forEach(function(it) {
+              var ci = classMap[it.numero || it.identificador];
+              if (ci) {
+                if (!it.melhorValorGeral && ci.melhorValorGeral) it.melhorValorGeral = ci.melhorValorGeral;
+                if (!it.melhorValorFornecedor && ci.melhorValorFornecedor) it.melhorValorFornecedor = ci.melhorValorFornecedor;
+                if (it.podeEnviarLances === undefined) it.podeEnviarLances = ci.podeEnviarLances;
+              }
+            });
+          }
         }
       } catch (e) {}
     }
@@ -607,11 +640,43 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
       continue;
     }
 
+    // Debug: log keys do primeiro item para identificar campos de preço
+    if (itens.length > 0 && disputas.length === 0) {
+      var primeiro = itens[0];
+      var keysPreco = Object.keys(primeiro).filter(function(k) {
+        return k.toLowerCase().indexOf('valor') >= 0 || k.toLowerCase().indexOf('melhor') >= 0 ||
+               k.toLowerCase().indexOf('lance') >= 0 || k.toLowerCase().indexOf('preco') >= 0 ||
+               k.toLowerCase().indexOf('fornecedor') >= 0;
+      });
+      console.log('[LiciteAgora] 📋 Item keys (preço): ' + JSON.stringify(keysPreco));
+      console.log('[LiciteAgora] 📋 Item[0] endpoint=' + endpointUsado + ' keys=' + JSON.stringify(Object.keys(primeiro).sort()));
+      if (primeiro.melhorValorGeral) console.log('[LiciteAgora] 📋 melhorValorGeral=' + JSON.stringify(primeiro.melhorValorGeral));
+      if (primeiro.melhorLanceGeral) console.log('[LiciteAgora] 📋 melhorLanceGeral=' + JSON.stringify(primeiro.melhorLanceGeral));
+    }
+
     // Filtrar itens em fase de lance
     var itensAtivos = itens.filter(function(item) {
       var fase = item.fase || item.faseItem || '';
       return fase === 'LA' || fase === 'D1' || fase === 'D2' || item.podeEnviarLances === true;
     });
+
+    // Extrair melhor valor — tenta vários nomes de campo
+    function extrairMelhorValor(item) {
+      var mv = item.melhorValorGeral || item.melhorLanceGeral || item.classificacaoGeral;
+      if (mv && mv.valorInformado != null) return mv.valorInformado;
+      if (mv && mv.valor != null) return mv.valor;
+      if (item.valorMelhorLance != null) return item.valorMelhorLance;
+      if (item.melhorValor != null) return item.melhorValor;
+      return null;
+    }
+    function extrairNossoValor(item) {
+      var nv = item.melhorValorFornecedor || item.melhorLanceFornecedor || item.classificacaoFornecedor;
+      if (nv && nv.valorInformado != null) return nv.valorInformado;
+      if (nv && nv.valor != null) return nv.valor;
+      if (item.valorNossoLance != null) return item.valorNossoLance;
+      if (item.nossoValor != null) return item.nossoValor;
+      return null;
+    }
 
     disputas.push({
       compraId: compraId,
@@ -626,8 +691,8 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
           descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
           fase: i.fase || i.faseItem || '',
           situacao: i.situacao || '',
-          melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
-          nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
+          melhorValor: extrairMelhorValor(i),
+          nossoValor: extrairNossoValor(i),
           podeEnviar: i.podeEnviarLances || false,
           fimContagem: i.dataHoraFimContagem || null,
           valorEstimado: i.valorEstimado || null,
@@ -830,24 +895,61 @@ async function processarFilaQueries() {
       console.log('[LiciteAgora] 🔍 Consultando itens (fila): ' + compraId);
 
       var endpoints = [
+        '/comprasnet-disputa/v1/compras/' + compraId + '/itens/classificacao',
         '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens/em-selecao-fornecedores',
         '/comprasnet-disputa/v1/compras/' + compraId + '/itens',
       ];
 
       var itens = null;
+      var qEndpoint = '';
       for (var ep of endpoints) {
         try {
           var result = await comprasnetFetch(tab.id, ep, data.bearer);
           if (result.status === 200 || result.status === 206) {
-            itens = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
-            console.log('[LiciteAgora] ✅ ' + itens.length + ' itens encontrados para ' + compraId);
-            break;
+            var dados = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
+            if (dados.length > 0) {
+              itens = dados;
+              qEndpoint = ep.split('/v1/')[1] || ep;
+              console.log('[LiciteAgora] ✅ ' + itens.length + ' itens encontrados para ' + compraId + ' (' + qEndpoint + ')');
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Enriquecer com classificacao se necessário
+      if (itens && itens.length > 0 && qEndpoint.indexOf('classificacao') === -1) {
+        try {
+          var cr = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/compras/' + compraId + '/itens/classificacao', data.bearer);
+          if (cr.status === 200 || cr.status === 206) {
+            var ci = Array.isArray(cr.data) ? cr.data : [];
+            var cm = {}; ci.forEach(function(c) { cm[c.numero || c.identificador] = c; });
+            itens.forEach(function(it) {
+              var c = cm[it.numero || it.identificador];
+              if (c) {
+                if (!it.melhorValorGeral && c.melhorValorGeral) it.melhorValorGeral = c.melhorValorGeral;
+                if (!it.melhorValorFornecedor && c.melhorValorFornecedor) it.melhorValorFornecedor = c.melhorValorFornecedor;
+              }
+            });
           }
         } catch (e) {}
       }
 
       if (itens && itens.length > 0) {
-        // Enviar ao cache do servidor (merge, não substituir)
+        // Helper extrair preços (mesma lógica do syncDisputas)
+        function qMelhor(item) {
+          var mv = item.melhorValorGeral || item.melhorLanceGeral || item.classificacaoGeral;
+          if (mv && mv.valorInformado != null) return mv.valorInformado;
+          if (mv && mv.valor != null) return mv.valor;
+          if (item.valorMelhorLance != null) return item.valorMelhorLance;
+          return null;
+        }
+        function qNosso(item) {
+          var nv = item.melhorValorFornecedor || item.melhorLanceFornecedor || item.classificacaoFornecedor;
+          if (nv && nv.valorInformado != null) return nv.valorInformado;
+          if (nv && nv.valor != null) return nv.valor;
+          return null;
+        }
         await serverPost('/api/sync/disputas', { merge: true, disputas: [{ compraId: compraId,
           totalItens: itens.length,
           itensAtivos: itens.filter(function(i) { var f = i.fase||i.faseItem||''; return f==='LA'||f==='D1'||f==='D2'||i.podeEnviarLances; }).length,
@@ -857,8 +959,8 @@ async function processarFilaQueries() {
               descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
               fase: i.fase || i.faseItem || '',
               situacao: i.situacao || '',
-              melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
-              nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
+              melhorValor: qMelhor(i),
+              nossoValor: qNosso(i),
               podeEnviar: i.podeEnviarLances || false,
               fimContagem: i.dataHoraFimContagem || null,
               valorEstimado: i.valorEstimado || null,
@@ -943,35 +1045,72 @@ async function handleMessage(msg) {
       const compId = msg.compraId;
       if (!compId) return { ok: false, error: 'compraId obrigatório' };
 
-      var endpoints = [
+      var qiEndpoints = [
+        '/comprasnet-disputa/v1/compras/' + compId + '/itens/classificacao',
         '/comprasnet-fase-externa/v1/compras/' + compId + '/itens/em-selecao-fornecedores',
         '/comprasnet-disputa/v1/compras/' + compId + '/itens',
       ];
-      for (var ep of endpoints) {
+      var qiItens = null;
+      var qiEp = '';
+      for (var ep of qiEndpoints) {
         try {
           var result = await comprasnetFetch(tabQ.id, ep, dataQ.bearer);
           if (result.status === 200 || result.status === 206) {
-            var itens = Array.isArray(result.data) ? result.data : [result.data];
-            // Enviar ao servidor também (merge)
-            await serverPost('/api/sync/disputas', { merge: true, disputas: [{
-              compraId: compId, itens: itens.map(function(i) {
-                return {
-                  numero: i.numero || i.identificador,
-                  descricao: (i.descricao || '').substring(0, 120),
-                  fase: i.fase || i.faseItem || '',
-                  melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
-                  nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
-                  podeEnviar: i.podeEnviarLances || false,
-                  fimContagem: i.dataHoraFimContagem || null,
-                };
-              }), totalItens: itens.length,
-              itensAtivos: itens.filter(function(i) { var f = i.fase||''; return f==='LA'||f==='D1'||f==='D2'||i.podeEnviarLances; }).length,
-            }] });
-            return { ok: true, itens: itens };
+            var arr = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
+            if (arr.length > 0) { qiItens = arr; qiEp = ep; break; }
           }
         } catch (e) {}
       }
-      return { ok: false, error: 'Não foi possível consultar itens' };
+      if (!qiItens) return { ok: false, error: 'Não foi possível consultar itens' };
+
+      // Enriquecer com classificacao se não veio dela
+      if (qiEp.indexOf('classificacao') === -1) {
+        try {
+          var cr = await comprasnetFetch(tabQ.id, '/comprasnet-disputa/v1/compras/' + compId + '/itens/classificacao', dataQ.bearer);
+          if (cr.status === 200 || cr.status === 206) {
+            var ci = Array.isArray(cr.data) ? cr.data : [];
+            var cm = {}; ci.forEach(function(c) { cm[c.numero || c.identificador] = c; });
+            qiItens.forEach(function(it) {
+              var c = cm[it.numero || it.identificador];
+              if (c) {
+                if (!it.melhorValorGeral && c.melhorValorGeral) it.melhorValorGeral = c.melhorValorGeral;
+                if (!it.melhorValorFornecedor && c.melhorValorFornecedor) it.melhorValorFornecedor = c.melhorValorFornecedor;
+              }
+            });
+          }
+        } catch (e) {}
+      }
+
+      // Helpers de preço
+      function qiMelhor(i) {
+        var mv = i.melhorValorGeral || i.melhorLanceGeral;
+        if (mv && mv.valorInformado != null) return mv.valorInformado;
+        if (i.valorMelhorLance != null) return i.valorMelhorLance;
+        return null;
+      }
+      function qiNosso(i) {
+        var nv = i.melhorValorFornecedor || i.melhorLanceFornecedor;
+        if (nv && nv.valorInformado != null) return nv.valorInformado;
+        return null;
+      }
+
+      await serverPost('/api/sync/disputas', { merge: true, disputas: [{
+        compraId: compId,
+        totalItens: qiItens.length,
+        itensAtivos: qiItens.filter(function(i) { var f = i.fase||i.faseItem||''; return f==='LA'||f==='D1'||f==='D2'||i.podeEnviarLances; }).length,
+        itens: qiItens.map(function(i) {
+          return {
+            numero: i.numero || i.identificador,
+            descricao: (i.descricao || '').substring(0, 120),
+            fase: i.fase || i.faseItem || '',
+            melhorValor: qiMelhor(i),
+            nossoValor: qiNosso(i),
+            podeEnviar: i.podeEnviarLances || false,
+            fimContagem: i.dataHoraFimContagem || null,
+          };
+        }),
+      }] });
+      return { ok: true, itens: qiItens };
     }
 
     case 'resetStats':
