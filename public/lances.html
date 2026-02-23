@@ -205,14 +205,15 @@ function etapaInfo(p) {
     var live = disputasLive[p.compraId];
     var sit = (p.situacao||'').toUpperCase();
 
-    // Dados do banco indicam encerrada
+    // Dados do banco indicam encerrada/inativa
     if(sit==='FR') return { label: 'Fracassada', cls: 'etapa-encerrada' };
     if(sit==='EN') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+    if(sit==='SU') return { label: 'Suspensa', cls: 'etapa-encerrada' };
     if(fase==='4'||fase==='encerrada') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+    if(fase==='99') return { label: 'Concluída', cls: 'etapa-encerrada' };
 
     // Dados live: se tem itens e NENHUM ativo → encerrada (live)
     if(live && live.totalItens > 0 && live.itensAtivos === 0) {
-        // Verificar se algum item tem fase ativa
         var algumAtivo = (live.itens||[]).some(function(i) {
             var f = (i.fase||'').toUpperCase();
             return f==='LA'||f==='D1'||f==='D2'||i.podeEnviar;
@@ -223,7 +224,8 @@ function etapaInfo(p) {
     // Dados live: se tem itens ativos, é disputa
     if(live && live.itensAtivos > 0) return { label: 'Disputa', cls: 'etapa-disputa' };
     if(fase==='3') return { label: 'Disputa', cls: 'etapa-disputa' };
-    if(fase==='1'||fase==='2') return { label: fase==='1'?'Cadastrada':'Publicada', cls: 'etapa-outra' };
+    if(fase==='1') return { label: 'Cadastrada', cls: 'etapa-outra' };
+    if(fase==='2') return { label: 'Publicada', cls: 'etapa-outra' };
     return { label: fase||sit||'Em andamento', cls: 'etapa-outra' };
 }
 

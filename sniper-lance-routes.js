@@ -317,8 +317,10 @@ function registrarRotasSniper(app, monitorGetter, db) {
       const params = [];
 
       if (emDisputa) {
-        // Filtrar apenas participações em fase ativa (não encerradas/fracassadas)
-        query += " AND situacao NOT IN ('FR', 'EN') AND (faseCompra IS NULL OR faseCompra NOT IN ('4', 'encerrada', 'ENCERRADA'))";
+        // Filtrar apenas participações realmente em disputa/ativas
+        // Exclui: FR (fracassada), EN (encerrada), SU (suspensa)
+        // Exclui fases: 4 (encerrada), 99 (concluída/desconhecida), 1 (cadastrada, ainda não abriu)
+        query += " AND situacao NOT IN ('FR', 'EN', 'SU') AND (faseCompra IS NULL OR faseCompra NOT IN ('4', '99', '1', 'encerrada', 'ENCERRADA'))";
       }
 
       if (busca) {
