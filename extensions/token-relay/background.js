@@ -521,12 +521,13 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
     // Se ambos endpoints de itens falharam (comum em Dispensas),
     // criar entrada stub a partir dos dados da participação
     if (!itens || itens.length === 0) {
-      // Verificar se participação parece ativa (faseCompra == 3 ou emDisputa)
+      // Verificar se participação parece ativa (faseCompra == 3 ou emDisputa, ou simplesmente em andamento)
       var faseCompra = p.faseCompra || p.fase || '';
       var emDisputa = p.emDisputa || (String(faseCompra) === '3');
-      var isDispensa = /dispensa/i.test(p.modalidade || p.nomeModalidade || '');
+      // filtro=5 já indica "em andamento" — criar stub para qualquer uma cujos itens falharam
+      var isEmAndamento = p._filtro === 5 || emDisputa;
       
-      if (emDisputa || isDispensa) {
+      if (isEmAndamento) {
         // Criar stub com dados da participação (sem detalhes de itens)
         var qtdItens = p.quantidadeItens || p.totalItens || 1;
         var stubItens = [];
