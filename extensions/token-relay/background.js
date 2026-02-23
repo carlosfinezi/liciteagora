@@ -499,6 +499,30 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 
   for (var p of participacoesEmAndamento) {
     var compraId = p.codigoCompra || p.compraId;
+    
+    // Debug: log primeira participação para descobrir campos
+    if (disputas.length === 0 && !compraId) {
+      var compra = p.compra || {};
+      console.log('[LiciteAgora] 📋 DEBUG participação keys:', JSON.stringify(Object.keys(p).sort()));
+      console.log('[LiciteAgora] 📋 DEBUG p.compra keys:', JSON.stringify(Object.keys(compra).sort()));
+      // Tentar extrair compraId de p.compra
+      var altId = compra.codigoCompra || compra.id || compra.identificador || '';
+      console.log('[LiciteAgora] 📋 DEBUG compraId tentativas: p.codigoCompra=' + p.codigoCompra + ' p.compraId=' + p.compraId + ' compra.codigoCompra=' + compra.codigoCompra + ' compra.id=' + compra.id);
+    }
+    
+    // Fallback: tentar extrair de p.compra ou reconstruir
+    if (!compraId) {
+      var compra = p.compra || {};
+      compraId = compra.codigoCompra || compra.id || compra.identificador || '';
+      if (!compraId) {
+        // Reconstruir como no sync de participações
+        var uasg = String(compra.numeroUasg || p.numeroUasg || 0).padStart(6, '0');
+        var mod = String(compra.modalidade || p.modalidade || 0).padStart(2, '0');
+        var num = String(compra.numero || p.numero || 0).padStart(5, '0');
+        var ano = String(compra.ano || p.ano || '');
+        if (ano) compraId = uasg + mod + num + ano;
+      }
+    }
     if (!compraId) continue;
 
     // Tentar fase-externa primeiro (mais detalhes), depois disputa
