@@ -121,6 +121,10 @@
                 <h3>🚀 Enviar Lance</h3>
                 <div class="form-row">
                     <div class="form-group" style="flex:2"><label>CompraId</label><input type="text" id="compraId" placeholder="93119906000012026"></div>
+                    <div class="form-group" style="flex:0;align-self:flex-end"><button class="btn btn-outline" onclick="consultarItens()">🔍 Consultar Itens</button></div>
+                </div>
+                <div id="itensDisputa" style="display:none; margin-bottom:12px;"></div>
+                <div class="form-row">
                     <div class="form-group"><label>Item</label><input type="number" id="itemNumero" value="1" min="1"></div>
                     <div class="form-group"><label>Valor (R$)</label><input type="number" id="valorLance" step="0.01" min="0" placeholder="1600.00"></div>
                 </div>
@@ -277,9 +281,62 @@ function renderParticipacoes(lista) {
 function selecionarLic(id) {
     document.querySelectorAll('.part-card.selecionada').forEach(el=>el.classList.remove('selecionada'));
     document.getElementById('compraId').value = id;
-    // Re-render para marcar seleção
     const el = document.querySelector('.part-card[onclick*="'+id+'"]');
     if (el) el.classList.add('selecionada');
+    consultarItens(); // auto-consultar
+}
+
+async function consultarItens() {
+    const compraId = document.getElementById('compraId').value.trim();
+    if (!compraId) { alert('Informe o CompraId'); return; }
+    const div = document.getElementById('itensDisputa');
+    div.style.display = 'block';
+    div.innerHTML = '<p style="color:#888"><span class="spinner"></span> Consultando itens de ' + compraId + '...</p>';
+
+    try {
+        const r = await fetch(`${API}/api/sniper/consultar-itens?compraId=${compraId}`);
+        const d = await r.json();
+
+        if (d.success && d.itens?.length > 0) {
+            const fonte = d.fonte || 'desconhecida';
+            const idade = d.idadeSegundos ? ` (${d.idadeSegundos}s atrás)` : '';
+            div.innerHTML = '<div style="color:#4caf50;margin-bottom:8px;font-size:0.85em">✅ ' + d.itens.length + ' itens — fonte: ' + fonte + idade + '</div>' +
+                '<table style="width:100%;border-collapse:collapse;font-size:0.85em">' +
+                '<tr style="color:#888;text-align:left;border-bottom:1px solid #0f3460"><th style="padding:4px">Item</th><th>Descrição</th><th>Fase</th><th>Melhor R$</th><th>Nosso R$</th><th>Pode Enviar</th><th></th></tr>' +
+                d.itens.map(i => {
+                    const fase = i.fase || '--';
+                    const faseColor = (fase === 'LA' || fase === 'D1' || fase === 'D2') ? '#4caf50' : '#888';
+                    const pode = i.podeEnviar ? '✅' : '🔒';
+                    const countdown = i.fimContagem ? '<div style="font-size:0.8em;color:#ff9800" data-countdown data-alvo="'+i.fimContagem+'">⏰</div>' : '';
+                    return '<tr style="border-bottom:1px solid #0f346030">' +
+                        '<td style="padding:4px;font-weight:600;color:#4dabf7">' + (i.numero || '--') + '</td>' +
+                        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(i.descricao||'')+'">' + esc((i.descricao||'').substring(0,60)) + '</td>' +
+                        '<td style="color:'+faseColor+';font-weight:600">' + fase + '</td>' +
+                        '<td style="color:#ff9800">' + fmtVal(i.melhorValor) + '</td>' +
+                        '<td style="color:#4dabf7">' + fmtVal(i.nossoValor) + '</td>' +
+                        '<td>' + pode + countdown + '</td>' +
+                        '<td><button class="btn btn-primary" style="padding:2px 8px;font-size:0.8em" onclick="preencherLance('+(i.numero||1)+','+JSON.stringify(i.melhorValor)+')">Selecionar</button></td>' +
+                        '</tr>';
+                }).join('') +
+                '</table>';
+        } else {
+            div.innerHTML = '<div style="color:#ff9800;font-size:0.9em">⚠️ Nenhum item encontrado.' +
+                (d.error ? ' ' + d.error : '') +
+                (d.dica ? '<br><small style="color:#888">' + d.dica + '</small>' : '') +
+                '<br><small style="color:#888">Cache: ' + (d.cacheDisputas?.totalNoCache || 0) + ' disputas, atualizado: ' + (d.cacheDisputas?.atualizadoEm || 'nunca') + '</small></div>';
+        }
+    } catch(e) {
+        div.innerHTML = '<div style="color:#f44336">❌ Erro: ' + esc(e.message) + '</div>';
+    }
+}
+
+function preencherLance(item, melhorValor) {
+    document.getElementById('itemNumero').value = item;
+    if (melhorValor && melhorValor > 0) {
+        // Sugerir valor 1 centavo menor
+        document.getElementById('valorLance').value = (melhorValor - 0.01).toFixed(2);
+    }
+    document.getElementById('valorLance').focus();
 }
 
 async function buscarDisputasAtivas() {

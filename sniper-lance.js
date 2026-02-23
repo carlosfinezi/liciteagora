@@ -377,38 +377,66 @@ class SniperLance {
   async consultarItens(compraId) {
     this.log(`🔍 Consultando itens da disputa ${compraId}...`);
 
-    // Se tem captcha, tentar fase-externa (mais detalhes)
-    if (this.temCaptcha()) {
+    const tentativas = [];
+
+    // 1. Tentar disputa API PRIMEIRO (não precisa captcha, mais provável funcionar do servidor)
+    const endpointsDisputa = [
+      `/comprasnet-disputa/v1/compras/${compraId}/itens`,
+      `/comprasnet-disputa/v1/compras/${compraId}/itens/classificacao`,
+    ];
+
+    for (const path of endpointsDisputa) {
       try {
-        const { status, data } = await this.apiGetCaptcha(
-          `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`
-        );
+        const { status, data } = await this.apiGet(path);
+        tentativas.push({ path: path.substring(path.lastIndexOf('/v1/')), status });
+        if (status === 200 || status === 206) {
+          const itens = Array.isArray(data) ? data : [data];
+          this.log(`✅ ${itens.length} itens (disputa) — ${path.split('/v1/')[1]}`);
+          return { success: true, itens, endpoint: 'disputa' };
+        }
+        this.log(`⚠️ disputa ${status}: ${path.split('/v1/')[1]}`);
+      } catch (e) {
+        tentativas.push({ path: path.substring(path.lastIndexOf('/v1/')), error: e.message });
+        this.log(`⚠️ disputa erro: ${e.message}`);
+      }
+    }
+
+    // 2. Tentar fase-externa com captcha (IP-bound, pode falhar do servidor)
+    if (this.temCaptcha()) {
+      const pathFE = `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`;
+      try {
+        const { status, data } = await this.apiGetCaptcha(pathFE);
+        tentativas.push({ path: 'fase-externa+captcha', status });
         if (status === 200 || status === 206) {
           const itens = Array.isArray(data) ? data : [data];
           this.log(`✅ ${itens.length} itens (fase-externa+captcha)`);
           return { success: true, itens, endpoint: 'fase-externa' };
         }
-      } catch (e) {}
+        this.log(`⚠️ fase-externa+captcha ${status}`);
+      } catch (e) {
+        tentativas.push({ path: 'fase-externa+captcha', error: e.message });
+        this.log(`⚠️ fase-externa+captcha erro: ${e.message}`);
+      }
     }
 
-    // Fallback: tentar sem captcha
-    const endpoints = [
-      `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`,
-      `/comprasnet-disputa/v1/compras/${compraId}/itens`,
-    ];
-
-    for (const path of endpoints) {
-      try {
-        const { status, data } = await this.apiGet(path);
-        if (status === 200 || status === 206) {
-          const itens = Array.isArray(data) ? data : [data];
-          this.log(`✅ ${itens.length} itens (${path.includes('fase-externa') ? 'fase-externa' : 'disputa'})`);
-          return { success: true, itens, endpoint: path };
-        }
-      } catch (e) {}
+    // 3. Tentar fase-externa sem captcha (último recurso)
+    const pathFE2 = `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`;
+    try {
+      const { status, data } = await this.apiGet(pathFE2);
+      tentativas.push({ path: 'fase-externa-sem-captcha', status });
+      if (status === 200 || status === 206) {
+        const itens = Array.isArray(data) ? data : [data];
+        this.log(`✅ ${itens.length} itens (fase-externa sem captcha)`);
+        return { success: true, itens, endpoint: 'fase-externa' };
+      }
+      this.log(`⚠️ fase-externa sem captcha ${status}`);
+    } catch (e) {
+      tentativas.push({ path: 'fase-externa-sem-captcha', error: e.message });
     }
 
-    throw new Error('Nenhum endpoint retornou dados válidos');
+    const resumo = tentativas.map(t => `${t.path}→${t.status || t.error}`).join(', ');
+    this.log(`❌ Nenhum endpoint retornou itens para ${compraId}: ${resumo}`);
+    throw new Error(`Nenhum endpoint retornou dados: ${resumo}`);
   }
 
   /**

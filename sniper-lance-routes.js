@@ -271,6 +271,75 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
+  /**
+   * GET /api/sniper/consultar-itens?compraId=XXXX
+   * Consulta itens de UMA compra específica.
+   * Tenta via servidor (disputa API, sem captcha).
+   * Se falhar, indica que precisa da extensão.
+   */
+  app.get('/api/sniper/consultar-itens', async (req, res) => {
+    try {
+      const { compraId } = req.query;
+      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+
+      // Primeiro verificar cache
+      const cached = disputasCache.disputas.find(d => d.compraId === compraId);
+      if (cached && cached.itens?.length > 0) {
+        const idadeMs = Date.now() - new Date(disputasCache.atualizadoEm).getTime();
+        return res.json({
+          success: true,
+          fonte: 'cache-extensao',
+          idadeSegundos: Math.round(idadeMs / 1000),
+          compraId,
+          ...cached,
+        });
+      }
+
+      // Tentar consulta direta via servidor
+      try {
+        const result = await sniper.consultarItens(compraId);
+        if (result.success && result.itens?.length > 0) {
+          return res.json({
+            success: true,
+            fonte: 'servidor-' + result.endpoint,
+            compraId,
+            totalItens: result.itens.length,
+            itens: result.itens.map(i => ({
+              numero: i.numero || i.identificador,
+              descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
+              fase: i.fase || i.faseItem || '',
+              situacao: i.situacao || '',
+              melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
+              nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
+              podeEnviar: i.podeEnviarLances || false,
+              fimContagem: i.dataHoraFimContagem || null,
+              valorEstimado: i.valorEstimado || null,
+              quantidadeSolicitada: i.quantidadeSolicitada || null,
+            })),
+          });
+        }
+      } catch (e) {
+        // Log mas não retornar erro ainda
+        console.log(`[Sniper] consultar-itens servidor falhou: ${e.message}`);
+      }
+
+      // Nada encontrado
+      res.json({
+        success: false,
+        fonte: 'nenhuma',
+        compraId,
+        error: 'Não foi possível consultar itens. Verifique se a extensão está sincronizando.',
+        dica: 'Abra o popup da extensão > clique sync, ou aguarde 2 min para próximo ciclo automático.',
+        cacheDisputas: {
+          totalNoCache: disputasCache.disputas.length,
+          atualizadoEm: disputasCache.atualizadoEm,
+        },
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   // ==================== SYNC & MENSAGENS ====================
 
   /**
