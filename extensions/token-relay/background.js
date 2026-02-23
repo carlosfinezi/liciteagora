@@ -221,6 +221,49 @@ async function comprasnetFetch(tabId, path, bearer) {
 }
 
 /**
+ * POST autenticado no Comprasnet VIA BROWSER (mesmo IP = token válido).
+ * Usado para enviar lances.
+ */
+async function comprasnetPost(tabId, path, bearer, body) {
+  try {
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 15s')), 15000));
+    const exec = chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: async (apiPath, authHeader, baseUrl, postBody) => {
+        try {
+          var resp = await fetch(baseUrl + apiPath, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json, text/plain, */*',
+              'Authorization': authHeader,
+              'Content-Type': 'application/json',
+              'x-device-platform': 'web',
+              'x-version-number': '5.5.2',
+            },
+            body: JSON.stringify(postBody),
+          });
+          var text = await resp.text();
+          var data = null;
+          try { data = JSON.parse(text); } catch (e) {}
+          return { status: resp.status, data: data, text: text.substring(0, 500) };
+        } catch (e) {
+          return { status: 0, error: e.message };
+        }
+      },
+      args: [path, bearer, COMPRASNET, body],
+    });
+
+    const results = await Promise.race([exec, timeout]);
+    return results[0]?.result || { status: 0, error: 'No result from tab' };
+  } catch (e) {
+    console.error('[LiciteAgora] comprasnetPost ERRO:', path.substring(0, 60), e.message);
+    return { status: 0, error: e.message };
+  }
+}
+
+/**
  * Envia dados ao servidor LiciteAgora.
  */
 async function serverPost(path, body) {
@@ -521,11 +564,149 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 
 chrome.alarms.create('sync', { periodInMinutes: SYNC_INTERVAL_MIN });
 
+// Lance polling via setInterval (alarms have 1 min minimum)
+setInterval(function() {
+  processarFilaLances();
+  processarFilaQueries();
+}, 5000);
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'sync') {
     executarSync();
   }
 });
+
+// ==================== FILA DE LANCES (via browser) ====================
+
+var lancesEmProcessamento = false;
+
+async function processarFilaLances() {
+  if (lancesEmProcessamento) return;
+  lancesEmProcessamento = true;
+
+  try {
+    // 1. Buscar fila do servidor
+    var resp = await fetch(SERVER_URL + '/api/sniper/fila-lances');
+    if (!resp.ok) { lancesEmProcessamento = false; return; }
+    var fila = await resp.json();
+    if (!fila.success || !fila.lances || fila.lances.length === 0) {
+      lancesEmProcessamento = false;
+      return;
+    }
+
+    // 2. Verificar prerequisites
+    var data = await load();
+    if (!data.bearer) {
+      console.log('[LiciteAgora] Fila de lances: sem bearer');
+      lancesEmProcessamento = false;
+      return;
+    }
+    var tab = await findComprasnetTab();
+    if (!tab) {
+      console.log('[LiciteAgora] Fila de lances: sem aba Comprasnet');
+      lancesEmProcessamento = false;
+      return;
+    }
+
+    // 3. Processar cada lance pendente
+    for (var lance of fila.lances) {
+      console.log('[LiciteAgora] 🎯 Enviando lance: compra=' + lance.compraId + ' item=' + lance.itemNumero + ' R$' + lance.valor);
+
+      var path = '/comprasnet-disputa/v1/compras/' + lance.compraId + '/itens/' + lance.itemNumero + '/lances';
+      var body = { valorInformado: lance.valor, faseItem: lance.faseItem || 'LA' };
+
+      var inicio = Date.now();
+      var result = await comprasnetPost(tab.id, path, data.bearer, body);
+      var tempoMs = Date.now() - inicio;
+
+      var sucesso = result.status === 200 || result.status === 201;
+      console.log('[LiciteAgora] 🎯 Lance resultado: HTTP ' + result.status + ' (' + tempoMs + 'ms)' + (sucesso ? ' ✅' : ' ❌'));
+
+      // 4. Reportar resultado ao servidor
+      try {
+        await serverPost('/api/sniper/resultado-lance', {
+          id: lance.id,
+          compraId: lance.compraId,
+          itemNumero: lance.itemNumero,
+          valor: lance.valor,
+          status: result.status,
+          sucesso: sucesso,
+          resposta: JSON.stringify(result.data || result.text || result.error).substring(0, 500),
+          tempoMs: tempoMs,
+        });
+      } catch (e) {
+        console.error('[LiciteAgora] Erro reportando lance:', e.message);
+      }
+    }
+  } catch (e) {
+    // Silently skip if server not reachable
+  } finally {
+    lancesEmProcessamento = false;
+  }
+}
+
+// ==================== FILA DE QUERIES (consultar itens via browser) ====================
+
+async function processarFilaQueries() {
+  try {
+    var resp = await fetch(SERVER_URL + '/api/sniper/fila-queries');
+    if (!resp.ok) return;
+    var fila = await resp.json();
+    if (!fila.success || !fila.queries || fila.queries.length === 0) return;
+
+    var data = await load();
+    if (!data.bearer) return;
+    var tab = await findComprasnetTab();
+    if (!tab) return;
+
+    for (var query of fila.queries) {
+      var compraId = query.compraId;
+      console.log('[LiciteAgora] 🔍 Consultando itens (fila): ' + compraId);
+
+      var endpoints = [
+        '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens/em-selecao-fornecedores',
+        '/comprasnet-disputa/v1/compras/' + compraId + '/itens',
+      ];
+
+      var itens = null;
+      for (var ep of endpoints) {
+        try {
+          var result = await comprasnetFetch(tab.id, ep, data.bearer);
+          if (result.status === 200 || result.status === 206) {
+            itens = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
+            console.log('[LiciteAgora] ✅ ' + itens.length + ' itens encontrados para ' + compraId);
+            break;
+          }
+        } catch (e) {}
+      }
+
+      if (itens && itens.length > 0) {
+        // Enviar ao cache do servidor (merge, não substituir)
+        await serverPost('/api/sync/disputas', { merge: true, disputas: [{
+          compraId: compraId,
+          totalItens: itens.length,
+          itensAtivos: itens.filter(function(i) { var f = i.fase||i.faseItem||''; return f==='LA'||f==='D1'||f==='D2'||i.podeEnviarLances; }).length,
+          itens: itens.map(function(i) {
+            return {
+              numero: i.numero || i.identificador,
+              descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
+              fase: i.fase || i.faseItem || '',
+              situacao: i.situacao || '',
+              melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
+              nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
+              podeEnviar: i.podeEnviarLances || false,
+              fimContagem: i.dataHoraFimContagem || null,
+              valorEstimado: i.valorEstimado || null,
+              quantidadeSolicitada: i.quantidadeSolicitada || null,
+            };
+          }),
+        }] });
+      }
+    }
+  } catch (e) {
+    // Silently skip
+  }
+}
 
 // ==================== POPUP MESSAGES ====================
 
@@ -585,8 +766,8 @@ async function handleMessage(msg) {
           var result = await comprasnetFetch(tabQ.id, ep, dataQ.bearer);
           if (result.status === 200 || result.status === 206) {
             var itens = Array.isArray(result.data) ? result.data : [result.data];
-            // Enviar ao servidor também
-            await serverPost('/api/sync/disputas', { disputas: [{
+            // Enviar ao servidor também (merge)
+            await serverPost('/api/sync/disputas', { merge: true, disputas: [{
               compraId: compId, itens: itens.map(function(i) {
                 return {
                   numero: i.numero || i.identificador,

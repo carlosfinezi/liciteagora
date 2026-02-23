@@ -286,12 +286,15 @@ function selecionarLic(id) {
     consultarItens(); // auto-consultar
 }
 
-async function consultarItens() {
+async function consultarItens(tentativa) {
+    tentativa = tentativa || 1;
     const compraId = document.getElementById('compraId').value.trim();
     if (!compraId) { alert('Informe o CompraId'); return; }
     const div = document.getElementById('itensDisputa');
     div.style.display = 'block';
-    div.innerHTML = '<p style="color:#888"><span class="spinner"></span> Consultando itens de ' + compraId + '...</p>';
+    if (tentativa === 1) {
+        div.innerHTML = '<p style="color:#888"><span class="spinner"></span> Consultando itens de ' + compraId + '...</p>';
+    }
 
     try {
         const r = await fetch(`${API}/api/sniper/consultar-itens?compraId=${compraId}`);
@@ -319,11 +322,14 @@ async function consultarItens() {
                         '</tr>';
                 }).join('') +
                 '</table>';
+        } else if (d.fonte === 'aguardando-extensao' && tentativa <= 6) {
+            // Extensão vai consultar, retry em 5s
+            div.innerHTML = '<p style="color:#ff9800"><span class="spinner"></span> Aguardando extensão consultar itens (tentativa ' + tentativa + '/6)...</p>';
+            setTimeout(() => consultarItens(tentativa + 1), 5000);
         } else {
             div.innerHTML = '<div style="color:#ff9800;font-size:0.9em">⚠️ Nenhum item encontrado.' +
                 (d.error ? ' ' + d.error : '') +
-                (d.dica ? '<br><small style="color:#888">' + d.dica + '</small>' : '') +
-                '<br><small style="color:#888">Cache: ' + (d.cacheDisputas?.totalNoCache || 0) + ' disputas, atualizado: ' + (d.cacheDisputas?.atualizadoEm || 'nunca') + '</small></div>';
+                '<br><button class="btn btn-outline" style="margin-top:8px;font-size:0.8em" onclick="consultarItens(1)">🔄 Tentar novamente</button></div>';
         }
     } catch(e) {
         div.innerHTML = '<div style="color:#f44336">❌ Erro: ' + esc(e.message) + '</div>';
@@ -422,20 +428,40 @@ function getForm() {
 async function enviarLanceAgora() {
     const {compraId,itemNumero,valor} = getForm();
     if (!compraId||!valor) return alert('Preencha CompraId e Valor!');
-    if (!confirm('Enviar R$ '+valor.toFixed(2)+' no item '+itemNumero+'?')) return;
+    if (!confirm('Enviar R$ '+valor.toFixed(2)+' no item '+itemNumero+'?\n\n(Lance será enviado pela extensão via browser)')) return;
     const div = document.getElementById('resultadoLance');
-    div.innerHTML = '<div class="result-card" style="background:#333">⏳ Enviando...</div>';
+    div.innerHTML = '<div class="result-card" style="background:#333"><span class="spinner"></span> Enviando via extensão (fila)...</div>';
     try {
         const r = await fetch(`${API}/api/sniper/lance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId,itemNumero,valor})});
         const data = await r.json();
-        if (data.success && data.lance) {
-            const l = data.lance;
-            let extra = '';
-            try { const p=JSON.parse(l.resposta); if(Array.isArray(p)&&p[0]){ extra='<br>Melhor geral: R$ '+fmtVal(p[0].melhorValorGeral?.valorInformado)+'<br>Nosso: R$ '+fmtVal(p[0].melhorValorFornecedor?.valorInformado); } } catch(e){}
-            div.innerHTML = '<div class="result-card sucesso">✅ Lance enviado! R$ '+l.valor.toFixed(2)+' em '+l.tempoMs+'ms'+extra+'</div>';
+        if (data.success) {
+            div.innerHTML = '<div class="result-card" style="background:#1a3a5c">⏳ Lance na fila (id: '+data.id+'). Extensão processará em ~5s...<br><span class="spinner"></span> Aguardando resultado...</div>';
+            // Poll for result
+            const lanceId = data.id;
+            let tentativas = 0;
+            const pollInterval = setInterval(async () => {
+                tentativas++;
+                try {
+                    const sr = await fetch(`${API}/api/sniper/fila-status`);
+                    const sd = await sr.json();
+                    const lance = sd.fila.find(l => l.id === lanceId);
+                    const resultado = sd.resultados.find(r => r.id === lanceId);
+                    if (lance && lance.status === 'sucesso') {
+                        clearInterval(pollInterval);
+                        div.innerHTML = '<div class="result-card sucesso">✅ LANCE ENVIADO! R$ '+valor.toFixed(2)+' item '+itemNumero+' ('+lance.tempoMs+'ms via browser)</div>';
+                        atualizarTudo();
+                    } else if (lance && lance.status === 'falha') {
+                        clearInterval(pollInterval);
+                        div.innerHTML = '<div class="result-card erro">❌ Lance falhou: HTTP '+(lance.httpStatus||'?')+' — '+(lance.resposta||'').substring(0,200)+'</div>';
+                        atualizarTudo();
+                    } else if (tentativas > 30) { // 30 * 2s = 60s timeout
+                        clearInterval(pollInterval);
+                        div.innerHTML = '<div class="result-card" style="background:#5c3a1a">⚠️ Timeout aguardando resultado. Verifique logs e se a extensão está rodando.</div>';
+                    }
+                } catch(e) {}
+            }, 2000);
         } else div.innerHTML = '<div class="result-card erro">❌ '+(data.error||'Erro')+'</div>';
     } catch(e) { div.innerHTML = '<div class="result-card erro">❌ '+e.message+'</div>'; }
-    atualizarTudo();
 }
 
 async function agendarSniper() {

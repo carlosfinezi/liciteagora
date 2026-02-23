@@ -88,6 +88,16 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   // ==================== LANCE ====================
 
+  // ==================== FILA DE LANCES (via extensão/browser) ====================
+
+  let filaLances = [];  // { id, compraId, itemNumero, valor, faseItem, criadoEm, status }
+  let resultadosLances = []; // últimos 50 resultados
+
+  /**
+   * POST /api/sniper/lance
+   * Adiciona lance à fila (extensão processa via browser).
+   * Também tenta enviar direto (fallback se servidor tiver acesso).
+   */
   app.post('/api/sniper/lance', async (req, res) => {
     try {
       const { compraId, itemNumero, valor, faseItem } = req.body;
@@ -95,16 +105,106 @@ function registrarRotasSniper(app, monitorGetter, db) {
         return res.status(400).json({ success: false, error: 'compraId, itemNumero e valor obrigatórios' });
       }
 
-      const lance = await sniper.enviarLance(compraId, itemNumero, valor, faseItem || 'LA');
+      const id = Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+      const lance = {
+        id,
+        compraId,
+        itemNumero: parseInt(itemNumero),
+        valor: parseFloat(valor),
+        faseItem: faseItem || 'LA',
+        criadoEm: new Date().toISOString(),
+        status: 'pendente',
+      };
 
-      if (lance.sucesso) {
-        res.json({ success: true, lance });
-      } else {
-        res.json({ success: false, lance, error: `HTTP ${lance.status}` });
-      }
+      filaLances.push(lance);
+      console.log(`[Sniper] 🎯 Lance adicionado à fila: ${compraId} item ${itemNumero} R$${valor} (id: ${id})`);
+      sniper.log(`🎯 Lance na fila: ${compraId} item ${itemNumero} R$${parseFloat(valor).toFixed(2)}`);
+
+      res.json({ success: true, id, message: 'Lance adicionado à fila. Extensão processará via browser.', fila: filaLances.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
+  });
+
+  /**
+   * GET /api/sniper/fila-lances
+   * Retorna lances pendentes (para extensão processar).
+   */
+  app.get('/api/sniper/fila-lances', (req, res) => {
+    const pendentes = filaLances.filter(l => l.status === 'pendente');
+    // Marcar como "processando"
+    pendentes.forEach(l => l.status = 'processando');
+    res.json({ success: true, lances: pendentes, total: filaLances.length });
+  });
+
+  /**
+   * POST /api/sniper/resultado-lance
+   * Recebe resultado do lance enviado pela extensão.
+   */
+  app.post('/api/sniper/resultado-lance', (req, res) => {
+    try {
+      const { id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs } = req.body;
+
+      // Atualizar na fila
+      const idx = filaLances.findIndex(l => l.id === id);
+      if (idx >= 0) {
+        filaLances[idx].status = sucesso ? 'sucesso' : 'falha';
+        filaLances[idx].httpStatus = status;
+        filaLances[idx].resposta = resposta;
+        filaLances[idx].tempoMs = tempoMs;
+        filaLances[idx].processadoEm = new Date().toISOString();
+      }
+
+      // Adicionar ao histórico
+      const resultado = {
+        id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs,
+        timestamp: new Date().toISOString(),
+        fonte: 'extensao-browser',
+      };
+      resultadosLances.unshift(resultado);
+      if (resultadosLances.length > 50) resultadosLances.pop();
+
+      // Log no sniper
+      if (sucesso) {
+        sniper.log(`🎯✅ LANCE ENVIADO (browser)! R$ ${parseFloat(valor).toFixed(2)} item ${itemNumero} (${tempoMs}ms)`);
+      } else {
+        sniper.log(`🎯❌ Lance falhou (browser): HTTP ${status} item ${itemNumero} (${tempoMs}ms) — ${(resposta||'').substring(0, 100)}`);
+      }
+
+      // Também salvar no histórico do sniper
+      sniper.historico.unshift({ compraId, itemNumero, valor, status, sucesso, tempoMs, timestamp: new Date().toISOString(), fonte: 'browser' });
+      if (sniper.historico.length > 50) sniper.historico.pop();
+
+      console.log(`[Sniper] Lance resultado: ${sucesso ? '✅' : '❌'} ${compraId} item ${itemNumero} R$${valor} HTTP ${status} (${tempoMs}ms)`);
+
+      // Limpar da fila após 30s
+      setTimeout(() => {
+        const i = filaLances.findIndex(l => l.id === id);
+        if (i >= 0) filaLances.splice(i, 1);
+      }, 30000);
+
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/fila-status
+   * Status completo da fila de lances.
+   */
+  app.get('/api/sniper/fila-status', (req, res) => {
+    res.json({
+      success: true,
+      fila: filaLances,
+      resultados: resultadosLances.slice(0, 20),
+      stats: {
+        pendentes: filaLances.filter(l => l.status === 'pendente').length,
+        processando: filaLances.filter(l => l.status === 'processando').length,
+        sucesso: filaLances.filter(l => l.status === 'sucesso').length,
+        falha: filaLances.filter(l => l.status === 'falha').length,
+      },
+    });
   });
 
   // ==================== AGENDAMENTO ====================
@@ -222,17 +322,32 @@ function registrarRotasSniper(app, monitorGetter, db) {
    */
   app.post('/api/sync/disputas', (req, res) => {
     try {
-      const { disputas } = req.body;
+      const { disputas, merge } = req.body;
       if (!Array.isArray(disputas)) {
         return res.status(400).json({ success: false, error: 'disputas deve ser array' });
       }
-      disputasCache = {
-        disputas: disputas,
-        atualizadoEm: new Date().toISOString(),
-      };
-      const ativas = disputas.filter(d => d.itensAtivos > 0);
-      console.log(`[Sync] Disputas: ${disputas.length} recebidas, ${ativas.length} com itens ativos`);
-      res.json({ success: true, recebidas: disputas.length, ativas: ativas.length });
+
+      if (merge) {
+        // Merge: add/update individual items without replacing full cache
+        for (const d of disputas) {
+          const idx = disputasCache.disputas.findIndex(c => c.compraId === d.compraId);
+          if (idx >= 0) {
+            disputasCache.disputas[idx] = d;
+          } else {
+            disputasCache.disputas.push(d);
+          }
+        }
+        disputasCache.atualizadoEm = new Date().toISOString();
+      } else {
+        // Full replace (from regular sync)
+        disputasCache = {
+          disputas: disputas,
+          atualizadoEm: new Date().toISOString(),
+        };
+      }
+      const ativas = disputasCache.disputas.filter(d => d.itensAtivos > 0);
+      console.log(`[Sync] Disputas: ${disputas.length} ${merge ? 'merged' : 'replaced'}, ${ativas.length} com itens ativos (total: ${disputasCache.disputas.length})`);
+      res.json({ success: true, recebidas: disputas.length, ativas: ativas.length, total: disputasCache.disputas.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -352,18 +467,18 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
+  let pendingItemQueries = []; // { compraId, requestedAt, status }
+
   /**
    * GET /api/sniper/consultar-itens?compraId=XXXX
-   * Consulta itens de UMA compra específica.
-   * Tenta via servidor (disputa API, sem captcha).
-   * Se falhar, indica que precisa da extensão.
+   * Retorna do cache, ou enfileira para extensão consultar.
    */
   app.get('/api/sniper/consultar-itens', async (req, res) => {
     try {
       const { compraId } = req.query;
       if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
 
-      // Primeiro verificar cache
+      // 1. Verificar cache de disputas
       const cached = disputasCache.disputas.find(d => d.compraId === compraId);
       if (cached && cached.itens?.length > 0) {
         const idadeMs = Date.now() - new Date(disputasCache.atualizadoEm).getTime();
@@ -376,41 +491,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
         });
       }
 
-      // Tentar consulta direta via servidor
-      try {
-        const result = await sniper.consultarItens(compraId);
-        if (result.success && result.itens?.length > 0) {
-          return res.json({
-            success: true,
-            fonte: 'servidor-' + result.endpoint,
-            compraId,
-            totalItens: result.itens.length,
-            itens: result.itens.map(i => ({
-              numero: i.numero || i.identificador,
-              descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
-              fase: i.fase || i.faseItem || '',
-              situacao: i.situacao || '',
-              melhorValor: (i.melhorValorGeral || {}).valorInformado || null,
-              nossoValor: (i.melhorValorFornecedor || {}).valorInformado || null,
-              podeEnviar: i.podeEnviarLances || false,
-              fimContagem: i.dataHoraFimContagem || null,
-              valorEstimado: i.valorEstimado || null,
-              quantidadeSolicitada: i.quantidadeSolicitada || null,
-            })),
-          });
-        }
-      } catch (e) {
-        // Log mas não retornar erro ainda
-        console.log(`[Sniper] consultar-itens servidor falhou: ${e.message}`);
+      // 2. Enfileirar para extensão consultar (se não já na fila)
+      const jaEnfileirado = pendingItemQueries.some(q => q.compraId === compraId && q.status === 'pendente');
+      if (!jaEnfileirado) {
+        pendingItemQueries.push({ compraId, requestedAt: new Date().toISOString(), status: 'pendente' });
+        console.log(`[Sniper] 🔍 Query enfileirada para extensão: ${compraId}`);
       }
 
-      // Nada encontrado
+      // 3. Responder que está na fila
       res.json({
         success: false,
-        fonte: 'nenhuma',
+        fonte: 'aguardando-extensao',
         compraId,
-        error: 'Não foi possível consultar itens. Verifique se a extensão está sincronizando.',
-        dica: 'Abra o popup da extensão > clique sync, ou aguarde 2 min para próximo ciclo automático.',
+        error: 'Itens enfileirados para consulta via extensão (~5s). Tente novamente em instantes.',
         cacheDisputas: {
           totalNoCache: disputasCache.disputas.length,
           atualizadoEm: disputasCache.atualizadoEm,
@@ -419,6 +512,20 @@ function registrarRotasSniper(app, monitorGetter, db) {
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
+  });
+
+  /**
+   * GET /api/sniper/fila-queries
+   * Retorna queries pendentes (extensão consulta).
+   */
+  app.get('/api/sniper/fila-queries', (req, res) => {
+    const pendentes = pendingItemQueries.filter(q => q.status === 'pendente');
+    pendentes.forEach(q => q.status = 'processando');
+    res.json({ success: true, queries: pendentes });
+    // Limpar processadas/velhas
+    pendingItemQueries = pendingItemQueries.filter(q =>
+      q.status === 'pendente' || q.status === 'processando'
+    );
   });
 
   // ==================== SYNC & MENSAGENS ====================
