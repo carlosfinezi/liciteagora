@@ -754,7 +754,6 @@ function registrarRotasSniper(app, monitorGetter, db) {
       res.status(500).json({ success: false, error: e.message });
     }
   });
-}
 
   // ==================== SNIPER ITENS (config por item no banco) ====================
 
@@ -866,6 +865,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
       res.status(500).json({ success: false, error: e.message });
     }
   });
+
+} // end registrarRotasSniper
 
 function getSniper() {
   return sniper;
