@@ -509,6 +509,7 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 
   console.log('[LiciteAgora] 🔥 Verificando disputas em ' + participacoesEmAndamento.length + ' participações...');
   var disputas = [];
+  var debugItemLogged = false;
 
   for (var p of participacoesEmAndamento) {
     var compraId = p.codigoCompra || p.compraId;
@@ -550,18 +551,27 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 
     var itens = null;
     var endpointUsado = '';
+    var epResultados = [];
     for (var ep of endpoints) {
       try {
         var result = await comprasnetFetch(tabId, ep, bearer);
+        var epNome = ep.split('/v1/')[1] || ep;
+        epResultados.push(epNome + '→' + result.status);
         if (result.status === 200 || result.status === 206) {
           var dados = Array.isArray(result.data) ? result.data : (result.data ? [result.data] : []);
           if (dados.length > 0) {
             itens = dados;
-            endpointUsado = ep.split('/v1/')[1] || ep;
+            endpointUsado = epNome;
             break;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        epResultados.push((ep.split('/v1/')[1] || ep) + '→ERR:' + e.message);
+      }
+    }
+    // Log resultado dos endpoints (apenas primeiras 5 disputas)
+    if (disputas.length < 5) {
+      console.log('[LiciteAgora] ' + compraId + ': ' + epResultados.join(' | ') + (itens ? ' ✅ ' + itens.length + ' itens' : ' ❌ stub'));
     }
 
     // Se pegou itens de endpoint sem preços, tentar enriquecer com classificacao
@@ -641,7 +651,8 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
     }
 
     // Debug: log keys do primeiro item para identificar campos de preço
-    if (itens.length > 0 && disputas.length === 0) {
+    if (itens.length > 0 && !debugItemLogged) {
+      debugItemLogged = true;
       var primeiro = itens[0];
       var keysPreco = Object.keys(primeiro).filter(function(k) {
         return k.toLowerCase().indexOf('valor') >= 0 || k.toLowerCase().indexOf('melhor') >= 0 ||
