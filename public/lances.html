@@ -61,6 +61,12 @@
         .valor-melhor { color: #4caf50; font-weight: 600; }
         .valor-nosso { color: #4dabf7; font-weight: 600; }
         .valor-nosso.melhor { color: #ffd700; }
+        .badge-sit { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 0.75em; font-weight: 600; margin-left: 4px; }
+        .badge-G { background: #4caf5030; color: #4caf50; }
+        .badge-P { background: #4dabf730; color: #4dabf7; }
+        .badge-C { background: #ff980030; color: #ff9800; }
+        .badge-D, .badge-A, .badge-F, .badge-I, .badge-R { background: #f4433630; color: #f44336; }
+        .variacao-info { font-size: 0.72em; color: #888; }
 
         /* Buttons */
         .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: all 0.2s; }
@@ -366,7 +372,8 @@ function renderItens(compraId, itensLive) {
             fase: lv.fase || cfg.faseItem || '',
             melhorValor: lv.melhorValor,
             nossoValor: lv.nossoValor,
-            nossoClassificacao: lv.nossoClassificacao,
+            situacaoParticipante: lv.situacaoParticipante || null,
+            variacaoMinima: lv.variacaoMinima != null ? lv.variacaoMinima : null,
             podeEnviar: lv.podeEnviar !== undefined ? lv.podeEnviar : true,
             valorEstimado: cfg.valorEstimado || lv.valorEstimado,
             fimContagem: lv.fimContagem,
@@ -387,7 +394,7 @@ function renderItens(compraId, itensLive) {
     // Add live items not in config
     itensLive.forEach(function(il) {
         if(!seen[il.numero]) {
-            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, nossoClassificacao:il.nossoClassificacao, podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1 });
+            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1 });
         }
     });
 
@@ -398,7 +405,7 @@ function renderItens(compraId, itensLive) {
 
     var html = '<table class="itens-table"><thead><tr>' +
         '<th>#</th><th>Descrição</th><th>Fase</th>' +
-        '<th>Melhor R$</th><th>Nosso R$</th><th>V.Estimado</th>' +
+        '<th>Melhor R$</th><th>Nosso R$</th><th>V.Estimado</th><th>Var.Min</th>' +
         '<th>Valor Mínimo</th><th>Desc.Mín%</th><th>Desc.Máx%</th>' +
         '<th>Valor Lance</th><th>Ações</th>' +
         '</tr></thead><tbody>';
@@ -407,7 +414,12 @@ function renderItens(compraId, itensLive) {
         var nossoClass = 'valor-nosso';
         if(m.nossoValor && m.melhorValor && m.nossoValor <= m.melhorValor) nossoClass += ' melhor';
         var nossoLabel = fmtR$(m.nossoValor);
-        if(m.nossoClassificacao != null) nossoLabel += ' <small style="color:#888">#'+m.nossoClassificacao+'</small>';
+        // Badge de situação: G=ganhando, P=participando, C=classificado
+        if(m.situacaoParticipante) {
+            var sitLabels = {'G':'Ganhando','P':'Participando','C':'Reafirmado','D':'Desclassif.','I':'Excluída','A':'Desclassif.','F':'Desclassif.','R':'Recusada'};
+            nossoLabel += ' <span class="badge-sit badge-'+m.situacaoParticipante+'">'+(sitLabels[m.situacaoParticipante]||m.situacaoParticipante)+'</span>';
+        }
+        var varMinLabel = m.variacaoMinima != null ? 'R$ '+parseFloat(m.variacaoMinima).toFixed(2) : '--';
 
         html += '<tr>' +
             '<td><strong>'+m.numero+'</strong></td>' +
@@ -416,6 +428,7 @@ function renderItens(compraId, itensLive) {
             '<td class="valor-melhor">'+fmtR$(m.melhorValor)+'</td>' +
             '<td class="'+nossoClass+'">'+nossoLabel+'</td>' +
             '<td style="color:#888">'+fmtR$(m.valorEstimado)+'</td>' +
+            '<td class="variacao-info">'+varMinLabel+'</td>' +
             '<td><input type="number" step="0.01" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Min"></td>' +
             '<td><input type="number" step="0.1" value="'+(m.descontoMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'descontoMinimo\',this.value)" placeholder="%" style="width:65px"></td>' +
             '<td><input type="number" step="0.1" value="'+(m.descontoMaximo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'descontoMaximo\',this.value)" placeholder="%" style="width:65px"></td>' +
@@ -427,7 +440,7 @@ function renderItens(compraId, itensLive) {
             '</tr>';
 
         if(m.ultimoEnvio) {
-            html += '<tr><td colspan="11" style="padding:2px 8px;font-size:0.75em;color:'+(m.status==='enviado'?'#4caf50':'#f44336')+'">' +
+            html += '<tr><td colspan="12" style="padding:2px 8px;font-size:0.75em;color:'+(m.status==='enviado'?'#4caf50':'#f44336')+'">' +
                 (m.status==='enviado'?'✅':'❌')+' '+esc(m.ultimoResultado||'')+' — '+fmtHora(m.ultimoEnvio)+'</td></tr>';
         }
     });
