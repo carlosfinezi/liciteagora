@@ -529,12 +529,21 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
       
       if (isEmAndamento) {
         // Criar stub com dados da participação (sem detalhes de itens)
-        var qtdItens = p.quantidadeItens || p.totalItens || 1;
+        var qtdItens = p.quantidadeItens || p.quantidadeDeItens || p.quantidadeItensCompra || p.totalItens || p.qtdItens || p.numeroItens || 1;
+        // Log campos da participação para debug (apenas primeira vez)
+        if (disputas.length === 0) {
+          var campos = Object.keys(p).filter(function(k) { return typeof p[k] !== 'object' || p[k] === null; });
+          console.log('[LiciteAgora] 📋 Campos da participação:', JSON.stringify(campos));
+          // Log campos numéricos que podem ser qtd de itens
+          var nums = {};
+          Object.keys(p).forEach(function(k) { if (typeof p[k] === 'number') nums[k] = p[k]; });
+          console.log('[LiciteAgora] 📋 Campos numéricos:', JSON.stringify(nums));
+        }
         var stubItens = [];
         for (var si = 1; si <= Math.min(qtdItens, 10); si++) {
           stubItens.push({
             numero: si,
-            descricao: (p.objeto || p.objetoCompra || 'Item ' + si).substring(0, 120),
+            descricao: (qtdItens === 1 ? (p.objeto || p.objetoCompra || 'Item ' + si) : 'Item ' + si + ' — ' + (p.objeto || p.objetoCompra || '')).substring(0, 120),
             fase: emDisputa ? 'LA' : '',
             situacao: '',
             melhorValor: null,
