@@ -16,7 +16,7 @@ const SYNC_INTERVAL_MIN = 2; // sync a cada 2 minutos
 let syncAgendado = false;
 let syncEmExecucao = false;
 
-console.log('[LiciteAgora] Service worker v3.0 carregado!');
+console.log('[LiciteAgora] Service worker v3.2.0 carregado!');
 
 // ==================== STORAGE ====================
 
@@ -518,7 +518,47 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
       } catch (e) {}
     }
 
-    if (!itens || itens.length === 0) continue;
+    // Se ambos endpoints de itens falharam (comum em Dispensas),
+    // criar entrada stub a partir dos dados da participação
+    if (!itens || itens.length === 0) {
+      // Verificar se participação parece ativa (faseCompra == 3 ou emDisputa)
+      var faseCompra = p.faseCompra || p.fase || '';
+      var emDisputa = p.emDisputa || (String(faseCompra) === '3');
+      var isDispensa = /dispensa/i.test(p.modalidade || p.nomeModalidade || '');
+      
+      if (emDisputa || isDispensa) {
+        // Criar stub com dados da participação (sem detalhes de itens)
+        var qtdItens = p.quantidadeItens || p.totalItens || 1;
+        var stubItens = [];
+        for (var si = 1; si <= Math.min(qtdItens, 10); si++) {
+          stubItens.push({
+            numero: si,
+            descricao: (p.objeto || p.objetoCompra || 'Item ' + si).substring(0, 120),
+            fase: emDisputa ? 'LA' : '',
+            situacao: '',
+            melhorValor: null,
+            nossoValor: null,
+            podeEnviar: emDisputa,
+            fimContagem: p.dataHoraFimSessaoPublica || p.dataFimLance || null,
+            valorEstimado: null,
+            quantidadeSolicitada: null,
+            stub: true,
+          });
+        }
+        disputas.push({
+          compraId: compraId,
+          orgao: p.nomeUasg || p.orgao || '',
+          objeto: p.objeto || p.objetoCompra || '',
+          dataSessao: p.dataHoraInicioSessaoPublica || p.dataSessao || '',
+          totalItens: qtdItens,
+          itensAtivos: emDisputa ? qtdItens : 0,
+          stub: true,
+          itens: stubItens,
+        });
+        console.log('[LiciteAgora] 📋 Disputa stub para ' + compraId + ' (' + qtdItens + ' itens, emDisputa=' + emDisputa + ')');
+      }
+      continue;
+    }
 
     // Filtrar itens em fase de lance
     var itensAtivos = itens.filter(function(item) {
@@ -682,8 +722,7 @@ async function processarFilaQueries() {
 
       if (itens && itens.length > 0) {
         // Enviar ao cache do servidor (merge, não substituir)
-        await serverPost('/api/sync/disputas', { merge: true, disputas: [{
-          compraId: compraId,
+        await serverPost('/api/sync/disputas', { merge: true, disputas: [{ compraId: compraId,
           totalItens: itens.length,
           itensAtivos: itens.filter(function(i) { var f = i.fase||i.faseItem||''; return f==='LA'||f==='D1'||f==='D2'||i.podeEnviarLances; }).length,
           itens: itens.map(function(i) {
@@ -700,6 +739,27 @@ async function processarFilaQueries() {
               quantidadeSolicitada: i.quantidadeSolicitada || null,
             };
           }),
+        }] });
+      } else {
+        // Endpoints de itens falharam (comum em Dispensas) — reportar stub
+        console.log('[LiciteAgora] 📋 Query stub para ' + compraId + ' (endpoints de itens falharam)');
+        await serverPost('/api/sync/disputas', { merge: true, disputas: [{ compraId: compraId,
+          totalItens: 1,
+          itensAtivos: 1,
+          stub: true,
+          itens: [{
+            numero: 1,
+            descricao: 'Item 1 (dados da API de itens indisponíveis)',
+            fase: 'LA',
+            situacao: '',
+            melhorValor: null,
+            nossoValor: null,
+            podeEnviar: true,
+            fimContagem: null,
+            valorEstimado: null,
+            quantidadeSolicitada: null,
+            stub: true,
+          }],
         }] });
       }
     }
