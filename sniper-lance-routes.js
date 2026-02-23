@@ -177,6 +177,15 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       console.log(`[Sniper] Lance resultado: ${sucesso ? '✅' : '❌'} ${compraId} item ${itemNumero} R$${valor} HTTP ${status} (${tempoMs}ms)`);
 
+      // Persistir no banco
+      try {
+        db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, itemNumero, valor, status, sucesso ? 1 : 0, tempoMs, (resposta||'').substring(0, 500), 'browser');
+        // Atualizar status do item no sniper_itens
+        db.prepare(`UPDATE sniper_itens SET status = ?, ultimoResultado = ?, ultimoEnvio = CURRENT_TIMESTAMP, dataAtualizacao = CURRENT_TIMESTAMP
+          WHERE compraId = ? AND itemNumero = ?`).run(sucesso ? 'enviado' : 'erro', `HTTP ${status} (${tempoMs}ms)`, compraId, itemNumero);
+      } catch (dbErr) { console.error('[Sniper] Erro salvando no banco:', dbErr.message); }
+
       // Limpar da fila após 30s
       setTimeout(() => {
         const i = filaLances.findIndex(l => l.id === id);
@@ -746,6 +755,117 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 }
+
+  // ==================== SNIPER ITENS (config por item no banco) ====================
+
+  /**
+   * GET /api/sniper/itens?compraId=XXXX
+   * Lista itens configurados para uma compra.
+   */
+  app.get('/api/sniper/itens', (req, res) => {
+    try {
+      const { compraId } = req.query;
+      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      const itens = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? ORDER BY itemNumero').all(compraId);
+      res.json({ success: true, itens });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sniper/itens
+   * Cria ou atualiza um item (upsert por compraId+itemNumero).
+   */
+  app.post('/api/sniper/itens', (req, res) => {
+    try {
+      const { compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo } = req.body;
+      if (!compraId || !itemNumero) return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
+
+      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(compraId, itemNumero) DO UPDATE SET
+          descricao = COALESCE(excluded.descricao, descricao),
+          valorLance = COALESCE(excluded.valorLance, valorLance),
+          faseItem = COALESCE(excluded.faseItem, faseItem),
+          horarioAlvo = COALESCE(excluded.horarioAlvo, horarioAlvo),
+          antecedenciaMs = COALESCE(excluded.antecedenciaMs, antecedenciaMs),
+          tentativas = COALESCE(excluded.tentativas, tentativas),
+          intervaloMs = COALESCE(excluded.intervaloMs, intervaloMs),
+          ativo = COALESCE(excluded.ativo, ativo),
+          dataAtualizacao = CURRENT_TIMESTAMP`);
+
+      stmt.run(compraId, itemNumero, descricao || null, valorLance || null, faseItem || 'LA', horarioAlvo || null, antecedenciaMs || 3000, tentativas || 3, intervaloMs || 500, ativo !== undefined ? (ativo ? 1 : 0) : 1);
+
+      const item = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, itemNumero);
+      res.json({ success: true, item });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sniper/itens/bulk
+   * Cria/atualiza vários itens de uma vez.
+   */
+  app.post('/api/sniper/itens/bulk', (req, res) => {
+    try {
+      const { compraId, itens } = req.body;
+      if (!compraId || !itens?.length) return res.status(400).json({ success: false, error: 'compraId e itens obrigatórios' });
+
+      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, ativo)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(compraId, itemNumero) DO UPDATE SET
+          descricao = COALESCE(excluded.descricao, descricao),
+          valorLance = COALESCE(excluded.valorLance, valorLance),
+          faseItem = COALESCE(excluded.faseItem, faseItem),
+          ativo = COALESCE(excluded.ativo, ativo),
+          dataAtualizacao = CURRENT_TIMESTAMP`);
+
+      const inserir = db.transaction((itens) => {
+        for (const i of itens) {
+          stmt.run(compraId, i.itemNumero, i.descricao || null, i.valorLance || null, i.faseItem || 'LA', i.ativo !== undefined ? (i.ativo ? 1 : 0) : 1);
+        }
+      });
+      inserir(itens);
+
+      const saved = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? ORDER BY itemNumero').all(compraId);
+      res.json({ success: true, itens: saved });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * DELETE /api/sniper/itens/:compraId/:itemNumero
+   */
+  app.delete('/api/sniper/itens/:compraId/:itemNumero', (req, res) => {
+    try {
+      const { compraId, itemNumero } = req.params;
+      db.prepare('DELETE FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').run(compraId, parseInt(itemNumero));
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/historico?compraId=XXXX
+   * Histórico de lances enviados.
+   */
+  app.get('/api/sniper/historico', (req, res) => {
+    try {
+      const { compraId, limit } = req.query;
+      let query = 'SELECT * FROM sniper_historico';
+      const params = [];
+      if (compraId) { query += ' WHERE compraId = ?'; params.push(compraId); }
+      query += ' ORDER BY timestamp DESC LIMIT ?';
+      params.push(parseInt(limit) || 50);
+      res.json({ success: true, historico: db.prepare(query).all(...params) });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
 
 function getSniper() {
   return sniper;

@@ -18,488 +18,421 @@
         .verde { color: #4caf50; } .vermelho { color: #f44336; } .amarelo { color: #ff9800; } .azul { color: #4dabf7; }
         .panel { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
         .panel h3 { color: #4dabf7; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em; }
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
         .form-group { margin-bottom: 12px; }
         .form-group label { display: block; color: #aaa; font-size: 0.85em; margin-bottom: 4px; }
         .form-group input, .form-group select { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.95em; }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4dabf7; }
-        .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .form-group input:focus { outline: none; border-color: #4dabf7; }
+        .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
         .form-row .form-group { flex: 1; min-width: 120px; }
         .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s; }
         .btn-primary { background: #4dabf7; color: #000; } .btn-primary:hover { background: #339af0; }
-        .btn-danger { background: #f44336; color: #fff; } .btn-danger:hover { background: #d32f2f; }
-        .btn-success { background: #4caf50; color: #fff; } .btn-success:hover { background: #388e3c; }
-        .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; } .btn-outline:hover { background: #4dabf722; }
+        .btn-success { background: #4caf50; color: #fff; } .btn-success:hover { background: #43a047; }
+        .btn-danger { background: #f44336; color: #fff; } .btn-danger:hover { background: #e53935; }
+        .btn-outline { background: transparent; border: 1px solid #4dabf7; color: #4dabf7; } .btn-outline:hover { background: #4dabf710; }
+        .btn-warning { background: #ff9800; color: #000; } .btn-warning:hover { background: #f57c00; }
         .btn-sm { padding: 4px 10px; font-size: 0.8em; }
-        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
-        th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #0f3460; }
-        th { color: #4dabf7; font-size: 0.85em; text-transform: uppercase; }
-        tr:hover { background: #0f346044; }
-        .result-card { padding: 10px; border-radius: 6px; margin-top: 10px; font-size: 0.9em; }
-        .result-card.sucesso { background: #1b5e20; } .result-card.erro { background: #b71c1c; }
-        .log-container { max-height: 200px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.8em; background: #0d1117; border-radius: 6px; padding: 10px; }
-        .log-ok { color: #4caf50; } .log-erro { color: #f44336; } .log-alerta { color: #ff9800; } .log-info { color: #888; } .log-sniper { color: #e040fb; font-weight: 600; }
-        .agendamento-card { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-radius: 6px; background: #0f346055; margin-bottom: 8px; }
-        .agendamento-card.executado { opacity: 0.7; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; font-weight: 600; }
-        .badge-ok { background: #1b5e20; color: #4caf50; } .badge-erro { background: #b71c1c; color: #f44336; } .badge-aguardando { background: #e65100; color: #ff9800; }
-        .lic-card { padding: 10px; border-radius: 6px; background: #0f346055; margin-bottom: 6px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
-        .lic-card:hover { background: #0f3460; } .lic-card.selecionado { border-color: #4dabf7; background: #0f3460; }
-        .lic-card .orgao { font-size: 0.85em; color: #aaa; }
-        .lic-card .objeto { font-size: 0.8em; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .lic-list { max-height: 300px; overflow-y: auto; }
-        .info-msg { padding: 10px; color: #888; text-align: center; font-size: 0.9em; }
-        .mt-10 { margin-top: 10px; } .mb-10 { margin-bottom: 10px; }
-        .text-center { text-align: center; } .text-muted { color: #666; } .text-sm { font-size: 0.85em; }
-        .part-card {
-            background: #1a1a2e; border-radius: 8px; padding: 10px 14px;
-            margin-bottom: 6px; cursor: pointer; transition: all 0.2s;
-            border-left: 3px solid #333; display: flex; justify-content: space-between; align-items: center;
-        }
-        .part-card:hover { background: #0f3460; border-left-color: #4dabf7; }
-        .part-card.selecionada { background: #0f3460; border-left-color: #4dabf7; }
-        .part-card.em-disputa { border-left-color: #4caf50; background: #16213e; }
-        .part-card .part-obj { font-size: 0.85em; max-width: 550px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .part-card .part-org { font-size: 0.75em; color: #888; margin-top: 2px; }
-        .part-card .part-id { font-size: 0.75em; color: #4dabf7; font-family: monospace; }
-        .part-card .part-right { text-align: right; white-space: nowrap; }
-        .part-card .part-fase { font-size: 0.75em; padding: 2px 6px; border-radius: 3px; }
-        .disputa-badge { background: #4caf5030; color: #4caf50; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
-        .disputa-itens { margin-top: 4px; font-size: 0.8em; color: #aaa; }
-        .disputa-itens .item-val { color: #4caf50; font-weight: 600; }
-        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #4dabf7; border-top: 2px solid transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .item-card { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+        .item-card.ativo { border-color: #4caf50; }
+        .item-card.inativo { opacity: 0.5; }
+        .item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .item-num { font-size: 1.3em; font-weight: 700; color: #4dabf7; }
+        .item-fase { padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+        .fase-la { background: #4caf5030; color: #4caf50; }
+        .fase-outro { background: #88888830; color: #888; }
+        .item-desc { color: #ccc; font-size: 0.9em; margin-bottom: 10px; }
+        .item-config { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+        .item-config .form-group { margin-bottom: 0; }
+        .item-config input { width: 120px; padding: 6px 8px; font-size: 0.85em; }
+        .item-config .narrow { width: 90px; }
+        .item-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+        .item-status { font-size: 0.8em; margin-top: 6px; }
+        .result-msg { padding: 8px 12px; border-radius: 6px; margin-top: 8px; font-size: 0.85em; }
+        .result-sucesso { background: #4caf5020; border: 1px solid #4caf50; color: #4caf50; }
+        .result-erro { background: #f4433620; border: 1px solid #f44336; color: #f44336; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        th { color: #888; text-align: left; padding: 6px; border-bottom: 1px solid #0f3460; }
+        td { padding: 6px; border-bottom: 1px solid #0f346030; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #4dabf740; border-top: 2px solid #4dabf7; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .add-item-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #0f3460; }
+        .add-item-form input { padding: 6px 8px; font-size: 0.85em; }
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; font-size: 0.9em; z-index: 999; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .bulk-actions { display: flex; gap: 8px; margin-bottom: 12px; }
     </style>
 </head>
 <body>
-<div class="app-container">
-<main class="main-content">
-    <h1>🎯 Sniper de Lances</h1>
-    <p class="subtitle">Envio automatizado via API — Token da extensão Chrome</p>
+    <div class="main-content">
+        <h1>🎯 Sniper de Lances</h1>
+        <p class="subtitle">Configuração e envio de lances por item</p>
 
-    <div class="status-bar">
-        <div class="status-item"><div class="label">Bearer Token</div><div class="value" id="statusToken">--</div></div>
-        <div class="status-item"><div class="label">Origem</div><div class="value" id="statusOrigem">--</div></div>
-        <div class="status-item"><div class="label">Hora Brasília</div><div class="value azul" id="horaServidor">--:--:--</div></div>
-        <div class="status-item"><div class="label">Offset</div><div class="value" id="statusOffset">--</div></div>
-        <div class="status-item"><div class="label">Agendamentos</div><div class="value azul" id="statusAgendamentos">0</div></div>
-        <div class="status-item"><div class="label">Lances</div><div class="value azul" id="statusLances">0</div></div>
-    </div>
-
-    <div class="btn-group mb-10">
-        <button class="btn btn-outline" onclick="calibrar()">🕐 Calibrar Relógio</button>
-        <button class="btn btn-outline" onclick="atualizarTudo()">🔄 Atualizar</button>
-        <button class="btn btn-outline" onclick="enviarTokenManual()">🔑 Colar Token Manual</button>
-    </div>
-
-    <!-- Painel de Licitações em Disputa -->
-    <div class="panel">
-        <h3>🔥 Licitações em Disputa</h3>
-        <div class="form-row" style="align-items:flex-end">
-            <div class="form-group" style="flex:3">
-                <label>Buscar (objeto, órgão ou compraId)</label>
-                <input type="text" id="buscaParticipacao" placeholder="Digite para filtrar..." oninput="filtrarParticipacoes()">
-            </div>
-            <div class="form-group" style="flex:0">
-                <button class="btn btn-outline" onclick="carregarParticipacoes()">🔄 Atualizar</button>
-            </div>
+        <div class="status-bar" id="statusBar">
+            <div class="status-item"><div class="label">Extensão</div><div class="value" id="stExtensao">--</div></div>
+            <div class="status-item"><div class="label">Bearer</div><div class="value" id="stBearer">--</div></div>
+            <div class="status-item"><div class="label">Último Sync</div><div class="value" id="stSync">--</div></div>
+            <div class="status-item"><div class="label">Lances Enviados</div><div class="value azul" id="stLances">0</div></div>
         </div>
-        <div id="listaParticipacoes" style="max-height:350px; overflow-y:auto;">
-            <p class="text-muted text-center">Carregando...</p>
-        </div>
-    </div>
 
-    <!-- Seletor de Licitação -->
-    <div class="grid-2">
-        <div>
-            <div class="panel">
-                <h3>🚀 Enviar Lance</h3>
-                <div class="form-row">
-                    <div class="form-group" style="flex:2"><label>CompraId</label><input type="text" id="compraId" placeholder="93119906000012026"></div>
-                    <div class="form-group" style="flex:0;align-self:flex-end"><button class="btn btn-outline" onclick="consultarItens()">🔍 Consultar Itens</button></div>
-                </div>
-                <div id="itensDisputa" style="display:none; margin-bottom:12px;"></div>
-                <div class="form-row">
-                    <div class="form-group"><label>Item</label><input type="number" id="itemNumero" value="1" min="1"></div>
-                    <div class="form-group"><label>Valor (R$)</label><input type="number" id="valorLance" step="0.01" min="0" placeholder="1600.00"></div>
-                </div>
-                <div class="btn-group"><button class="btn btn-success" onclick="enviarLanceAgora()">⚡ Enviar Agora</button></div>
-                <div id="resultadoLance"></div>
+        <div class="panel">
+            <h3>🔎 Selecionar Compra</h3>
+            <div class="form-row">
+                <div class="form-group" style="flex:3"><label>CompraId</label><input type="text" id="compraId" placeholder="Ex: 07001206000152026"></div>
+                <div class="form-group" style="flex:0;align-self:flex-end"><button class="btn btn-primary" onclick="carregarItens()">📋 Carregar Itens</button></div>
             </div>
-            <div class="panel">
-                <h3>⏱️ Agendar Sniper</h3>
-                <div class="form-row">
-                    <div class="form-group"><label>Horário Alvo (Brasília)</label><input type="time" id="horarioAlvo" step="1" value="16:00:00"></div>
-                    <div class="form-group"><label>Data</label><input type="date" id="dataAlvo"></div>
+            <div id="disputasAtivas" style="margin-top:10px;display:none"></div>
+        </div>
+
+        <div class="panel" id="itensPanel" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;padding-bottom:8px;border-bottom:1px solid #0f3460">
+                <h3 style="border:none;margin:0;padding:0">📦 Itens — <span id="itensCompraId" class="azul"></span></h3>
+                <div class="bulk-actions">
+                    <button class="btn btn-success btn-sm" onclick="enviarTodos()">⚡ Enviar Todos</button>
+                    <button class="btn btn-warning btn-sm" onclick="agendarTodos()">⏰ Agendar Todos</button>
                 </div>
-                <div class="form-row">
-                    <div class="form-group"><label>Antecedência (ms)</label><input type="number" id="antecedenciaMs" value="300" min="50" max="5000"></div>
-                    <div class="form-group"><label>Tentativas</label><input type="number" id="tentativas" value="5" min="1" max="20"></div>
-                    <div class="form-group"><label>Intervalo (ms)</label><input type="number" id="intervaloMs" value="50" min="10" max="2000"></div>
-                </div>
-                <div class="btn-group">
-                    <button class="btn btn-primary" onclick="agendarSniper()">⏱️ Agendar</button>
-                    <button class="btn btn-danger" onclick="cancelarTodos()">🛑 Cancelar Todos</button>
-                </div>
-                <div id="listaAgendamentos"></div>
+            </div>
+            <div id="itensList"></div>
+            <div class="add-item-form">
+                <div class="form-group"><label>Nº Item</label><input type="number" id="novoItemNum" min="1" style="width:70px"></div>
+                <div class="form-group" style="flex:1"><label>Descrição</label><input type="text" id="novoItemDesc" placeholder="Descrição do item"></div>
+                <div class="form-group"><label>Valor R$</label><input type="number" id="novoItemValor" step="0.01" style="width:110px"></div>
+                <button class="btn btn-outline btn-sm" onclick="adicionarItem()">+ Adicionar Item</button>
             </div>
         </div>
-        <div>
-            <div class="panel"><h3>📊 Histórico de Lances</h3><div id="historicoLances"><p class="text-muted text-center">Nenhum</p></div></div>
-            <div class="panel"><h3>📝 Logs do Sniper</h3><div class="log-container" id="logsContainer"><div class="text-muted">Sem logs</div></div></div>
+
+        <div class="panel" id="historicoPanel" style="display:none">
+            <h3>📜 Histórico de Lances</h3>
+            <div id="historicoLista"></div>
         </div>
+
+        <div id="toastArea"></div>
     </div>
 
 <script>
-const API = '';
+var API = window.location.origin;
+var currentCompraId = '';
+var itensDB = [];
 
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('dataAlvo').value = new Date().toISOString().split('T')[0];
-    atualizarTudo();
-    carregarParticipacoes();
-    setInterval(atualizarTudo, 5000);
-    setInterval(() => {
-        // Relógio Brasília simples
-        document.getElementById('horaServidor').textContent =
-            new Date().toLocaleTimeString('pt-BR', {timeZone:'America/Sao_Paulo'});
-        // Countdowns
-        document.querySelectorAll('[data-countdown]').forEach(el => {
-            const alvo = el.getAttribute('data-alvo');
-            if (!alvo) return;
-            const diff = new Date(alvo).getTime() - Date.now();
-            if (diff <= 0) { el.textContent = '🔥 AGORA'; el.style.color = '#f44336'; }
-            else {
-                const min = Math.floor(diff/60000);
-                const sec = Math.floor((diff%60000)/1000);
-                el.textContent = min + 'm ' + sec + 's';
-                el.style.color = diff < 60000 ? '#f44336' : '#ff9800';
-            }
-        });
-    }, 500);
-});
+function esc(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function fmtVal(v) { return v != null ? 'R$ ' + parseFloat(v).toFixed(2) : '--'; }
+function fmtHora(iso) {
+    if (!iso) return '--';
+    try { return new Date(iso).toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit',second:'2-digit'}); } catch(e) { return iso; }
+}
 
-async function atualizarTudo() {
+async function atualizarStatus() {
     try {
-        const sniper = await fetch(`${API}/api/sniper/status`).then(r=>r.json()).catch(()=>({}));
-
-        // Token status
-        const tokenEl = document.getElementById('statusToken');
-        if (sniper.temToken) {
-            tokenEl.textContent = '✅ ' + (sniper.tokenIdade || 'OK');
-            tokenEl.className = 'value verde';
-        } else {
-            tokenEl.textContent = '❌ Sem token';
-            tokenEl.className = 'value vermelho';
+        var r = await fetch(API + '/api/sniper/fila-status');
+        var d = await r.json();
+        if (d.success) {
+            document.getElementById('stExtensao').innerHTML = d.extensaoConectada ? '<span class="verde">✅ Online</span>' : '<span class="vermelho">❌ Offline</span>';
+            document.getElementById('stBearer').innerHTML = d.temBearer ? '<span class="verde">✅ ' + (d.bearerIdade||'') + 's</span>' : '<span class="vermelho">❌</span>';
+            document.getElementById('stSync').textContent = d.ultimoSync ? fmtHora(d.ultimoSync) : '--';
+            document.getElementById('stLances').textContent = d.totalResultados || 0;
         }
-
-        // Origem
-        const origemEl = document.getElementById('statusOrigem');
-        origemEl.textContent = sniper.tokenSource || '--';
-        origemEl.className = 'value ' + (sniper.tokenSource ? 'azul' : 'text-muted');
-
-        // Offset / Agendamentos / Lances
-        if (sniper.ativo) {
-            const off = sniper.offsetServidorMs;
-            document.getElementById('statusOffset').textContent = off != null ? off + 'ms' : '--';
-            document.getElementById('statusAgendamentos').textContent = sniper.agendamentosAtivos || 0;
-            document.getElementById('statusLances').textContent = sniper.lancesEnviados || 0;
-        }
-    } catch(e){}
-    carregarAgendamentos();
-    carregarHistorico();
-    carregarLogs();
+    } catch(e) {}
 }
 
-let todasParticipacoes = [];
+async function carregarItens() {
+    var compraId = document.getElementById('compraId').value.trim();
+    if (!compraId) { alert('Informe o CompraId'); return; }
+    currentCompraId = compraId;
 
-async function carregarParticipacoes() {
-    const div = document.getElementById('listaParticipacoes');
-    div.innerHTML = '<p class="info-msg"><span class="spinner"></span> Carregando...</p>';
+    document.getElementById('itensPanel').style.display = 'block';
+    document.getElementById('itensCompraId').textContent = compraId;
+    document.getElementById('itensList').innerHTML = '<p style="color:#888"><span class="spinner"></span> Carregando itens...</p>';
+
     try {
-        const r = await fetch(`${API}/api/sniper/participacoes?emDisputa=true`);
-        const d = await r.json();
-        if (!d.success) { div.innerHTML = '<div class="result-card erro">❌ '+esc(d.error||'Erro')+'</div>'; return; }
-        todasParticipacoes = d.participacoes || [];
-        if (todasParticipacoes.length === 0) {
-            div.innerHTML = '<p class="info-msg">Nenhuma licitação em disputa no momento.<br><small style="color:#888">Participações encerradas/fracassadas são filtradas automaticamente.</small></p>';
-            return;
-        }
-        renderParticipacoes(todasParticipacoes);
-    } catch(e) { div.innerHTML = '<div class="result-card erro">❌ '+esc(e.message)+'</div>'; }
+        var rDB = await fetch(API + '/api/sniper/itens?compraId=' + compraId);
+        var dDB = await rDB.json();
+        itensDB = dDB.success ? dDB.itens : [];
+        renderizarItens();
+        carregarHistorico();
+    } catch(e) {
+        document.getElementById('itensList').innerHTML = '<div class="result-msg result-erro">Erro: ' + esc(e.message) + '</div>';
+    }
 }
 
-function filtrarParticipacoes() {
-    const busca = document.getElementById('buscaParticipacao').value.toLowerCase().trim();
-    if (!busca) { renderParticipacoes(todasParticipacoes); return; }
-    const filtradas = todasParticipacoes.filter(p =>
-        (p.objeto||'').toLowerCase().includes(busca) ||
-        (p.orgao||'').toLowerCase().includes(busca) ||
-        (p.compraId||'').toLowerCase().includes(busca)
-    );
-    renderParticipacoes(filtradas);
-}
+function renderizarItens() {
+    var div = document.getElementById('itensList');
+    if (itensDB.length === 0) {
+        div.innerHTML = '<p style="color:#ff9800">Nenhum item cadastrado. Adicione itens abaixo.</p>';
+        return;
+    }
 
-function renderParticipacoes(lista) {
-    const div = document.getElementById('listaParticipacoes');
-    if (!lista.length) { div.innerHTML = '<p class="info-msg">Nenhuma participação encontrada</p>'; return; }
+    div.innerHTML = itensDB.map(function(item) {
+        var faseClass = (item.faseItem === 'LA' || item.faseItem === 'D1' || item.faseItem === 'D2') ? 'fase-la' : 'fase-outro';
+        var ativoClass = item.ativo ? 'ativo' : 'inativo';
+        var statusHtml = item.ultimoEnvio ? '<div class="item-status">' + (item.status === 'enviado' ? '✅' : '❌') + ' ' + esc(item.ultimoResultado||'') + ' — ' + fmtHora(item.ultimoEnvio) + '</div>' : '';
 
-    const faseLabels = {'1':'Cadastrada','2':'Publicada','3':'🔥 Disputa','4':'Encerrada','5':'Em andamento','PD':'Pendente','FR':'Fracassada','AB':'Aberta','EN':'Encerrada'};
-
-    div.innerHTML = '<div style="color:#888;font-size:0.8em;margin-bottom:8px">' + lista.length + ' participações ativas</div>' +
-        lista.map(p => {
-        const sel = document.getElementById('compraId')?.value === p.compraId ? ' selecionada' : '';
-        const fase = p.faseCompra || '';
-        const faseLabel = faseLabels[fase] || fase || '';
-        const isDisputa = fase == '3' || faseLabel.includes('Disputa');
-        const faseColor = isDisputa ? '#4caf50' : '#ff9800';
-
-        const sit = p.situacao || '';
-        const sitLabel = faseLabels[sit] || sit || '';
-
-        return '<div class="part-card' + (isDisputa ? ' em-disputa' : '') + sel + '" onclick="selecionarLic(\'' + p.compraId + '\')">'
-            + '<div style="flex:1;min-width:0">'
-            + '<div class="part-id">' + p.compraId + ' <span style="color:'+faseColor+';font-weight:600;font-size:0.85em">' + esc(faseLabel) + '</span>'
-            + (sitLabel ? ' <span style="color:#888;font-size:0.75em">(' + esc(sitLabel) + ')</span>' : '')
-            + '</div>'
-            + '<div class="part-obj" title="' + esc(p.objeto||'') + '">' + esc((p.objeto||'(sem objeto)').substring(0,120)) + '</div>'
-            + '<div class="part-org">' + esc(p.orgao||'') + '</div>'
-            + '</div>'
-            + '<div class="part-right">'
-            + (p.dataSessao ? '<div class="text-sm text-muted">' + p.dataSessao.substring(0,10) + '</div>' : '')
-            + '</div></div>';
+        return '<div class="item-card ' + ativoClass + '" id="item-' + item.itemNumero + '">' +
+            '<div class="item-header">' +
+                '<div><span class="item-num">#' + item.itemNumero + '</span> <span class="item-fase ' + faseClass + '">' + esc(item.faseItem||'--') + '</span></div>' +
+                '<label style="font-size:0.8em;color:#888;cursor:pointer">' +
+                    '<input type="checkbox" ' + (item.ativo ? 'checked' : '') + ' onchange="toggleAtivo(' + item.itemNumero + ', this.checked)"> Ativo' +
+                '</label>' +
+            '</div>' +
+            '<div class="item-desc">' + esc(item.descricao || 'Sem descrição') + '</div>' +
+            '<div class="item-config">' +
+                '<div class="form-group"><label>Valor R$</label>' +
+                    '<input type="number" step="0.01" id="valor-' + item.itemNumero + '" value="' + (item.valorLance || '') + '" placeholder="0.00" onchange="salvarValor(' + item.itemNumero + ', this.value)">' +
+                '</div>' +
+                '<div class="form-group"><label>Horário Alvo</label>' +
+                    '<input type="time" step="1" id="hora-' + item.itemNumero + '" value="' + (item.horarioAlvo || '') + '" onchange="salvarHorario(' + item.itemNumero + ', this.value)" class="narrow">' +
+                '</div>' +
+                '<div class="form-group"><label>Antecedência ms</label>' +
+                    '<input type="number" id="antec-' + item.itemNumero + '" value="' + (item.antecedenciaMs || 3000) + '" class="narrow" onchange="salvarAntecedencia(' + item.itemNumero + ', this.value)">' +
+                '</div>' +
+            '</div>' +
+            '<div class="item-actions">' +
+                '<button class="btn btn-success btn-sm" onclick="enviarLanceItem(' + item.itemNumero + ')" ' + (!item.ativo ? 'disabled' : '') + '>⚡ Enviar Agora</button>' +
+                '<button class="btn btn-primary btn-sm" onclick="agendarItem(' + item.itemNumero + ')" ' + (!item.ativo ? 'disabled' : '') + '>⏰ Agendar</button>' +
+                '<button class="btn btn-outline btn-sm" onclick="editarDescricao(' + item.itemNumero + ')">✏️ Editar</button>' +
+                '<button class="btn btn-danger btn-sm" onclick="removerItem(' + item.itemNumero + ')">🗑️</button>' +
+            '</div>' +
+            statusHtml +
+            '<div id="result-' + item.itemNumero + '"></div>' +
+        '</div>';
     }).join('');
 }
 
-function selecionarLic(id) {
-    document.querySelectorAll('.part-card.selecionada').forEach(el=>el.classList.remove('selecionada'));
-    document.getElementById('compraId').value = id;
-    const el = document.querySelector('.part-card[onclick*="'+id+'"]');
-    if (el) el.classList.add('selecionada');
-    consultarItens(); // auto-consultar
+async function salvarCampo(itemNumero, campo, valor) {
+    try {
+        var body = { compraId: currentCompraId, itemNumero: itemNumero };
+        body[campo] = valor;
+        await fetch(API + '/api/sniper/itens', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    } catch(e) {}
 }
 
-async function consultarItens(tentativa) {
-    tentativa = tentativa || 1;
-    const compraId = document.getElementById('compraId').value.trim();
-    if (!compraId) { alert('Informe o CompraId'); return; }
-    const div = document.getElementById('itensDisputa');
-    div.style.display = 'block';
-    if (tentativa === 1) {
-        div.innerHTML = '<p style="color:#888"><span class="spinner"></span> Consultando itens de ' + compraId + '...</p>';
-    }
+function salvarValor(n, v) { salvarCampo(n, 'valorLance', parseFloat(v) || null); }
+function salvarHorario(n, v) { salvarCampo(n, 'horarioAlvo', v || null); }
+function salvarAntecedencia(n, v) { salvarCampo(n, 'antecedenciaMs', parseInt(v) || 3000); }
+
+async function toggleAtivo(itemNumero, ativo) {
+    await salvarCampo(itemNumero, 'ativo', ativo ? 1 : 0);
+    var card = document.getElementById('item-' + itemNumero);
+    if (card) card.className = 'item-card ' + (ativo ? 'ativo' : 'inativo');
+}
+
+async function enviarLanceItem(itemNumero) {
+    var valorEl = document.getElementById('valor-' + itemNumero);
+    var valor = parseFloat(valorEl ? valorEl.value : 0);
+    if (!valor || valor <= 0) { alert('Informe o valor do lance para o item ' + itemNumero); if(valorEl) valorEl.focus(); return; }
+    if (!confirm('Enviar R$ ' + valor.toFixed(2) + ' no item ' + itemNumero + '?')) return;
+
+    var resultDiv = document.getElementById('result-' + itemNumero);
+    resultDiv.innerHTML = '<div class="result-msg" style="color:#ff9800"><span class="spinner"></span> Enviando...</div>';
 
     try {
-        const r = await fetch(`${API}/api/sniper/consultar-itens?compraId=${compraId}`);
-        const d = await r.json();
-
-        if (d.success && d.itens?.length > 0) {
-            const fonte = d.fonte || 'desconhecida';
-            const idade = d.idadeSegundos ? ` (${d.idadeSegundos}s atrás)` : '';
-            div.innerHTML = '<div style="color:#4caf50;margin-bottom:8px;font-size:0.85em">✅ ' + d.itens.length + ' itens — fonte: ' + fonte + idade + '</div>' +
-                '<table style="width:100%;border-collapse:collapse;font-size:0.85em">' +
-                '<tr style="color:#888;text-align:left;border-bottom:1px solid #0f3460"><th style="padding:4px">Item</th><th>Descrição</th><th>Fase</th><th>Melhor R$</th><th>Nosso R$</th><th>Pode Enviar</th><th></th></tr>' +
-                d.itens.map(i => {
-                    const fase = i.fase || '--';
-                    const faseColor = (fase === 'LA' || fase === 'D1' || fase === 'D2') ? '#4caf50' : '#888';
-                    const pode = i.podeEnviar ? '✅' : '🔒';
-                    const countdown = i.fimContagem ? '<div style="font-size:0.8em;color:#ff9800" data-countdown data-alvo="'+i.fimContagem+'">⏰</div>' : '';
-                    return '<tr style="border-bottom:1px solid #0f346030">' +
-                        '<td style="padding:4px;font-weight:600;color:#4dabf7">' + (i.numero || '--') + '</td>' +
-                        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(i.descricao||'')+'">' + esc((i.descricao||'').substring(0,60)) + '</td>' +
-                        '<td style="color:'+faseColor+';font-weight:600">' + fase + '</td>' +
-                        '<td style="color:#ff9800">' + fmtVal(i.melhorValor) + '</td>' +
-                        '<td style="color:#4dabf7">' + fmtVal(i.nossoValor) + '</td>' +
-                        '<td>' + pode + countdown + '</td>' +
-                        '<td><button class="btn btn-primary" style="padding:2px 8px;font-size:0.8em" onclick="preencherLance('+(i.numero||1)+','+JSON.stringify(i.melhorValor)+')">Selecionar</button></td>' +
-                        '</tr>';
-                }).join('') +
-                '</table>';
-        } else if (d.fonte === 'aguardando-extensao' && tentativa <= 6) {
-            // Extensão vai consultar, retry em 5s
-            div.innerHTML = '<p style="color:#ff9800"><span class="spinner"></span> Aguardando extensão consultar itens (tentativa ' + tentativa + '/6)...</p>';
-            setTimeout(() => consultarItens(tentativa + 1), 5000);
-        } else {
-            div.innerHTML = '<div style="color:#ff9800;font-size:0.9em">⚠️ Nenhum item encontrado.' +
-                (d.error ? ' ' + d.error : '') +
-                '<br><button class="btn btn-outline" style="margin-top:8px;font-size:0.8em" onclick="consultarItens(1)">🔄 Tentar novamente</button></div>';
-        }
-    } catch(e) {
-        div.innerHTML = '<div style="color:#f44336">❌ Erro: ' + esc(e.message) + '</div>';
-    }
-}
-
-function preencherLance(item, melhorValor) {
-    document.getElementById('itemNumero').value = item;
-    if (melhorValor && melhorValor > 0) {
-        // Sugerir valor 1 centavo menor
-        document.getElementById('valorLance').value = (melhorValor - 0.01).toFixed(2);
-    }
-    document.getElementById('valorLance').focus();
-}
-
-async function enviarTokenManual() {
-    const token = prompt('Cole o Bearer token aqui:\n\n(Abra o Comprasnet no Chrome, F12 > Network > qualquer requisição > copie o header Authorization)');
-    if (!token) return;
-    try {
-        const r = await fetch(`${API}/api/auth/token`, {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ token: token.trim(), source: 'manual' }),
+        var r = await fetch(API + '/api/sniper/lance', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ compraId: currentCompraId, itemNumero: itemNumero, valor: valor })
         });
-        const d = await r.json();
-        if (d.success) alert('✅ Token recebido!');
-        else alert('❌ ' + d.error);
-    } catch(e) { alert('❌ ' + e.message); }
-    atualizarTudo();
-}
+        var d = await r.json();
+        if (!d.success) { resultDiv.innerHTML = '<div class="result-msg result-erro">' + esc(d.error) + '</div>'; return; }
 
-async function calibrar() {
-    try {
-        const r = await fetch(`${API}/api/sniper/calibrar`,{method:'POST'});
-        const d = await r.json();
-        if (d.success) {
-            document.getElementById('statusOffset').textContent = d.offset+'ms';
-            alert('✅ Calibrado!\nHora servidor: '+d.tempoServidor+'\nOffset: '+d.offset+'ms\nLatência: '+d.latencia+'ms');
-        } else alert('❌ '+d.error);
-    } catch(e) { alert('❌ '+e.message); }
-    atualizarTudo();
-}
-
-function getForm() {
-    return {
-        compraId: document.getElementById('compraId').value.trim(),
-        itemNumero: parseInt(document.getElementById('itemNumero').value)||1,
-        valor: parseFloat(document.getElementById('valorLance').value)||0,
-    };
-}
-
-async function enviarLanceAgora() {
-    const {compraId,itemNumero,valor} = getForm();
-    if (!compraId||!valor) return alert('Preencha CompraId e Valor!');
-    if (!confirm('Enviar R$ '+valor.toFixed(2)+' no item '+itemNumero+'?\n\n(Lance será enviado pela extensão via browser)')) return;
-    const div = document.getElementById('resultadoLance');
-    div.innerHTML = '<div class="result-card" style="background:#333"><span class="spinner"></span> Enviando via extensão (fila)...</div>';
-    try {
-        const r = await fetch(`${API}/api/sniper/lance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId,itemNumero,valor})});
-        const data = await r.json();
-        if (data.success) {
-            div.innerHTML = '<div class="result-card" style="background:#1a3a5c">⏳ Lance na fila (id: '+data.id+'). Extensão processará em ~5s...<br><span class="spinner"></span> Aguardando resultado...</div>';
-            // Poll for result
-            const lanceId = data.id;
-            let tentativas = 0;
-            const pollInterval = setInterval(async () => {
-                tentativas++;
-                try {
-                    const sr = await fetch(`${API}/api/sniper/fila-status`);
-                    const sd = await sr.json();
-                    const lance = sd.fila.find(l => l.id === lanceId);
-                    const resultado = sd.resultados.find(r => r.id === lanceId);
-                    if (lance && lance.status === 'sucesso') {
-                        clearInterval(pollInterval);
-                        div.innerHTML = '<div class="result-card sucesso">✅ LANCE ENVIADO! R$ '+valor.toFixed(2)+' item '+itemNumero+' ('+lance.tempoMs+'ms via browser)</div>';
-                        atualizarTudo();
-                    } else if (lance && lance.status === 'falha') {
-                        clearInterval(pollInterval);
-                        div.innerHTML = '<div class="result-card erro">❌ Lance falhou: HTTP '+(lance.httpStatus||'?')+' — '+(lance.resposta||'').substring(0,200)+'</div>';
-                        atualizarTudo();
-                    } else if (tentativas > 30) { // 30 * 2s = 60s timeout
-                        clearInterval(pollInterval);
-                        div.innerHTML = '<div class="result-card" style="background:#5c3a1a">⚠️ Timeout aguardando resultado. Verifique logs e se a extensão está rodando.</div>';
+        var lanceId = d.id;
+        var tentativas = 0;
+        var poll = setInterval(async function() {
+            tentativas++;
+            try {
+                var rs = await fetch(API + '/api/sniper/fila-status');
+                var ds = await rs.json();
+                var lance = (ds.resultados||[]).find(function(r) { return r.id === lanceId; });
+                if (lance) {
+                    clearInterval(poll);
+                    if (lance.sucesso) {
+                        resultDiv.innerHTML = '<div class="result-msg result-sucesso">✅ LANCE ENVIADO! R$ ' + valor.toFixed(2) + ' (' + lance.tempoMs + 'ms)</div>';
+                        toast('✅ Lance item ' + itemNumero + ' enviado!', 'sucesso');
+                    } else {
+                        resultDiv.innerHTML = '<div class="result-msg result-erro">❌ Falha HTTP ' + lance.status + ' (' + lance.tempoMs + 'ms)</div>';
                     }
-                } catch(e) {}
-            }, 2000);
-        } else div.innerHTML = '<div class="result-card erro">❌ '+(data.error||'Erro')+'</div>';
-    } catch(e) { div.innerHTML = '<div class="result-card erro">❌ '+e.message+'</div>'; }
+                    carregarHistorico();
+                }
+            } catch(e) {}
+            if (tentativas > 30) { clearInterval(poll); resultDiv.innerHTML = '<div class="result-msg result-erro">Timeout aguardando resultado</div>'; }
+        }, 1000);
+    } catch(e) {
+        resultDiv.innerHTML = '<div class="result-msg result-erro">' + esc(e.message) + '</div>';
+    }
 }
 
-async function agendarSniper() {
-    const {compraId,itemNumero,valor} = getForm();
-    if (!compraId||!valor) return alert('Preencha CompraId e Valor!');
-    const data = document.getElementById('dataAlvo').value;
-    const hora = document.getElementById('horarioAlvo').value;
-    if (!data||!hora) return alert('Preencha Data e Horário!');
-    const localDate = new Date(data+'T'+hora);
-    const utcDate = new Date(localDate.getTime()+3*3600000);
-    const horarioAlvoUTC = utcDate.toISOString();
-    const minutos = Math.floor((utcDate.getTime()-Date.now())/60000);
-    const antecedenciaMs = parseInt(document.getElementById('antecedenciaMs').value)||300;
-    const tentativas = parseInt(document.getElementById('tentativas').value)||5;
-    const intervaloMs = parseInt(document.getElementById('intervaloMs').value)||50;
-    if (!confirm('Agendar sniper:\n\nCompra: '+compraId+'\nItem: '+itemNumero+'\nValor: R$ '+valor.toFixed(2)+'\nAlvo: '+hora+' BRT (em ~'+minutos+' min)\nAntecedência: '+antecedenciaMs+'ms\nTentativas: '+tentativas+' x '+intervaloMs+'ms')) return;
+async function agendarItem(itemNumero) {
+    var valor = parseFloat((document.getElementById('valor-' + itemNumero)||{}).value);
+    var horario = (document.getElementById('hora-' + itemNumero)||{}).value;
+    var antecedencia = parseInt((document.getElementById('antec-' + itemNumero)||{}).value) || 3000;
+    var item = itensDB.find(function(i) { return i.itemNumero === itemNumero; });
+
+    if (!valor || valor <= 0) { alert('Informe o valor'); return; }
+    if (!horario) { alert('Informe o horário alvo'); return; }
+
+    var hoje = new Date().toISOString().split('T')[0];
+    var horaLocal = new Date(hoje + 'T' + horario + '-03:00');
+    var agora = new Date();
+    if (horaLocal <= agora) { alert('Horário já passou.'); return; }
+    var minutos = Math.round((horaLocal - agora) / 60000);
+
+    if (!confirm('Agendar sniper:\n\nItem: ' + itemNumero + ' — ' + (item ? item.descricao : '') + '\nValor: R$ ' + valor.toFixed(2) + '\nAlvo: ' + horario + ' BRT (em ~' + minutos + ' min)\nAntecedência: ' + antecedencia + 'ms')) return;
+
     try {
-        const r = await fetch(`${API}/api/sniper/agendar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId,itemNumero,valor,horarioAlvo:horarioAlvoUTC,antecedenciaMs,tentativas,intervaloTentativasMs:intervaloMs})});
-        const d = await r.json();
-        if (d.success) alert('✅ Agendado!\nDisparo: '+fmtHoraBRT(d.disparoEm)+' BRT\nEm '+d.delaySegundos+'s');
-        else alert('❌ '+d.error);
-    } catch(e) { alert('❌ '+e.message); }
-    atualizarTudo();
+        var r = await fetch(API + '/api/sniper/agendar', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                compraId: currentCompraId, itemNumero: itemNumero, valor: valor,
+                horarioAlvo: horaLocal.toISOString(),
+                antecedenciaMs: antecedencia,
+                tentativas: item ? (item.tentativas || 3) : 3,
+                intervaloTentativasMs: item ? (item.intervaloMs || 500) : 500,
+            })
+        });
+        var d = await r.json();
+        if (d.success) { toast('⏰ Item ' + itemNumero + ' agendado para ' + horario, 'sucesso'); }
+        else { alert('Erro: ' + d.error); }
+    } catch(e) { alert('Erro: ' + e.message); }
 }
 
-async function cancelarTodos() {
-    if (!confirm('Cancelar TODOS?')) return;
-    try { const d=await fetch(`${API}/api/sniper/cancelar-todos`,{method:'POST'}).then(r=>r.json()); alert('Cancelados: '+(d.cancelados||0)); } catch(e){ alert(e.message); }
-    atualizarTudo();
+function editarDescricao(itemNumero) {
+    var item = itensDB.find(function(i) { return i.itemNumero === itemNumero; });
+    var novaDesc = prompt('Descrição do item ' + itemNumero + ':', item ? item.descricao : '');
+    if (novaDesc === null) return;
+    salvarCampo(itemNumero, 'descricao', novaDesc);
+    if (item) item.descricao = novaDesc;
+    renderizarItens();
 }
 
-async function cancelarUm(id) {
-    await fetch(`${API}/api/sniper/cancelar/${id}`,{method:'POST'}).catch(()=>{});
-    atualizarTudo();
-}
-
-async function carregarAgendamentos() {
+async function removerItem(itemNumero) {
+    if (!confirm('Remover item ' + itemNumero + '?')) return;
     try {
-        const d = await fetch(`${API}/api/sniper/agendamentos`).then(r=>r.json());
-        const div = document.getElementById('listaAgendamentos');
-        if (!d.agendamentos?.length) { div.innerHTML='<p class="text-muted text-center mt-10">Nenhum agendamento</p>'; return; }
-        div.innerHTML = d.agendamentos.map(ag => {
-            const exec=ag.executado, ok=ag.resultados?.some(r=>r.sucesso);
-            const badge = exec?(ok?'<span class="badge badge-ok">✅</span>':'<span class="badge badge-erro">❌</span>'):'<span class="badge badge-aguardando">⏳</span>';
-            return '<div class="agendamento-card'+(exec?' executado':'')+'"><div>'
-                +'<strong>Item '+ag.item+'</strong> — R$ '+(ag.valor?.toFixed(2)||'?')+'<br>'
-                +'<span class="text-sm text-muted">'+ag.compraId+'</span><br>'
-                +badge+' <span class="text-sm" data-countdown data-alvo="'+ag.alvo+'"></span>'
-                +'</div><div style="text-align:right">'
-                +'<div class="text-sm text-muted">Alvo: '+fmtHoraBRT(ag.alvo)+'</div>'
-                +(!exec?'<button class="btn btn-danger btn-sm mt-10" onclick="cancelarUm(\''+ag.id+'\')">Cancelar</button>':'')
-                +'</div></div>';
-        }).join('');
-    } catch(e){}
+        await fetch(API + '/api/sniper/itens/' + currentCompraId + '/' + itemNumero, {method:'DELETE'});
+        itensDB = itensDB.filter(function(i) { return i.itemNumero !== itemNumero; });
+        renderizarItens();
+        toast('🗑️ Item ' + itemNumero + ' removido', 'info');
+    } catch(e) {}
+}
+
+async function adicionarItem() {
+    var num = parseInt(document.getElementById('novoItemNum').value);
+    var desc = document.getElementById('novoItemDesc').value.trim();
+    var valor = parseFloat(document.getElementById('novoItemValor').value) || null;
+
+    if (!num) { alert('Informe o número do item'); return; }
+    if (!currentCompraId) { alert('Carregue uma compra primeiro'); return; }
+
+    try {
+        var r = await fetch(API + '/api/sniper/itens', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ compraId: currentCompraId, itemNumero: num, descricao: desc, valorLance: valor, faseItem: 'LA' })
+        });
+        var d = await r.json();
+        if (d.success) {
+            var rDB = await fetch(API + '/api/sniper/itens?compraId=' + currentCompraId);
+            var dDB = await rDB.json();
+            itensDB = dDB.success ? dDB.itens : itensDB;
+            renderizarItens();
+            document.getElementById('novoItemNum').value = '';
+            document.getElementById('novoItemDesc').value = '';
+            document.getElementById('novoItemValor').value = '';
+            toast('✅ Item ' + num + ' adicionado', 'sucesso');
+        } else { alert('Erro: ' + d.error); }
+    } catch(e) { alert('Erro: ' + e.message); }
+}
+
+async function enviarTodos() {
+    var ativos = itensDB.filter(function(i) { return i.ativo && i.valorLance > 0; });
+    if (ativos.length === 0) { alert('Nenhum item ativo com valor configurado'); return; }
+    var lista = ativos.map(function(i) { return '  Item ' + i.itemNumero + ': R$ ' + parseFloat(i.valorLance).toFixed(2); }).join('\n');
+    if (!confirm('Enviar ' + ativos.length + ' lances agora?\n\n' + lista)) return;
+
+    for (var j = 0; j < ativos.length; j++) {
+        try {
+            await fetch(API + '/api/sniper/lance', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ compraId: currentCompraId, itemNumero: ativos[j].itemNumero, valor: ativos[j].valorLance })
+            });
+        } catch(e) {}
+    }
+    toast('🎯 ' + ativos.length + ' lances enfileirados', 'sucesso');
+}
+
+async function agendarTodos() {
+    var ativos = itensDB.filter(function(i) { return i.ativo && i.valorLance > 0 && i.horarioAlvo; });
+    if (ativos.length === 0) { alert('Nenhum item ativo com valor e horário configurados'); return; }
+    var lista = ativos.map(function(i) { return '  Item ' + i.itemNumero + ': R$ ' + parseFloat(i.valorLance).toFixed(2) + ' às ' + i.horarioAlvo; }).join('\n');
+    if (!confirm('Agendar ' + ativos.length + ' lances?\n\n' + lista)) return;
+
+    for (var j = 0; j < ativos.length; j++) {
+        var it = ativos[j];
+        var hoje = new Date().toISOString().split('T')[0];
+        var horaLocal = new Date(hoje + 'T' + it.horarioAlvo + '-03:00');
+        try {
+            await fetch(API + '/api/sniper/agendar', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+                    compraId: currentCompraId, itemNumero: it.itemNumero, valor: it.valorLance,
+                    horarioAlvo: horaLocal.toISOString(),
+                    antecedenciaMs: it.antecedenciaMs || 3000,
+                    tentativas: it.tentativas || 3,
+                    intervaloTentativasMs: it.intervaloMs || 500,
+                })
+            });
+        } catch(e) {}
+    }
+    toast('⏰ ' + ativos.length + ' lances agendados', 'sucesso');
 }
 
 async function carregarHistorico() {
+    if (!currentCompraId) return;
+    var div = document.getElementById('historicoLista');
+    document.getElementById('historicoPanel').style.display = 'block';
     try {
-        const d = await fetch(`${API}/api/sniper/historico`).then(r=>r.json());
-        const div = document.getElementById('historicoLances');
-        if (!d.historico?.length) { div.innerHTML='<p class="text-muted text-center">Nenhum</p>'; return; }
-        div.innerHTML = '<table><thead><tr><th>Hora</th><th>Item</th><th>Valor</th><th>Status</th><th>Ms</th></tr></thead><tbody>'
-            +d.historico.slice(0,20).map(l=>'<tr><td>'+fmtHoraBRT(l.timestamp)+'</td><td>'+l.itemNumero+'</td><td>R$ '+fmtVal(l.valor)+'</td><td class="'+(l.sucesso?'verde':'vermelho')+'">'+(l.sucesso?'✅':'❌ '+l.status)+'</td><td>'+l.tempoMs+'</td></tr>').join('')
-            +'</tbody></table>';
-    } catch(e){}
+        var r = await fetch(API + '/api/sniper/historico?compraId=' + currentCompraId + '&limit=20');
+        var d = await r.json();
+        if (!d.success || !d.historico || d.historico.length === 0) { div.innerHTML = '<p style="color:#888">Nenhum lance enviado ainda.</p>'; return; }
+        div.innerHTML = '<table><tr><th>Hora</th><th>Item</th><th>Valor</th><th>Status</th><th>Tempo</th></tr>' +
+            d.historico.map(function(h) {
+                return '<tr><td>' + fmtHora(h.timestamp) + '</td><td class="azul">' + h.itemNumero + '</td><td>' + fmtVal(h.valor) + '</td>' +
+                    '<td class="' + (h.sucesso ? 'verde' : 'vermelho') + '">' + (h.sucesso ? '✅' : '❌') + ' HTTP ' + h.httpStatus + '</td>' +
+                    '<td>' + h.tempoMs + 'ms</td></tr>';
+            }).join('') + '</table>';
+    } catch(e) { div.innerHTML = '<p style="color:#f44336">Erro: ' + esc(e.message) + '</p>'; }
 }
 
-async function carregarLogs() {
+async function carregarDisputasAtivas() {
     try {
-        const d = await fetch(`${API}/api/sniper/logs`).then(r=>r.json());
-        const div = document.getElementById('logsContainer');
-        if (!d.logs?.length) { div.innerHTML='<div class="text-muted">Sem logs</div>'; return; }
-        div.innerHTML = d.logs.slice(-30).map(log=>{
-            let c='log-info'; if(log.includes('✅'))c='log-ok'; else if(log.includes('❌')||log.includes('Erro'))c='log-erro'; else if(log.includes('⚠️'))c='log-alerta'; else if(log.includes('🎯')||log.includes('🚀'))c='log-sniper';
-            return '<div class="'+c+'">'+esc(log)+'</div>';
-        }).join('');
-        div.scrollTop = div.scrollHeight;
-    } catch(e){}
+        var r = await fetch(API + '/api/sync/disputas');
+        var d = await r.json();
+        if (!d.success || !d.disputas || d.disputas.length === 0) return;
+        var ativas = d.disputas.filter(function(d) { return d.itensAtivos > 0; });
+        if (ativas.length === 0) return;
+        var div = document.getElementById('disputasAtivas');
+        div.style.display = 'block';
+        div.innerHTML = '<div style="font-size:0.85em;color:#888;margin-bottom:6px">Disputas ativas:</div>' +
+            ativas.slice(0, 10).map(function(d) {
+                return '<button class="btn btn-outline btn-sm" style="margin:2px" onclick="document.getElementById(\'compraId\').value=\'' + d.compraId + '\';carregarItens()">' +
+                    esc(d.compraId) + ' — ' + esc((d.objeto||d.orgao||'').substring(0,50)) + ' (' + d.itensAtivos + ' itens)</button>';
+            }).join('');
+    } catch(e) {}
 }
 
-function fmtVal(v){return v==null?'--':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function fmtHoraBRT(iso){if(!iso)return'--';return new Date(iso).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});}
-function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+function toast(msg, tipo) {
+    var div = document.createElement('div');
+    div.className = 'toast';
+    div.style.background = tipo === 'sucesso' ? '#4caf50' : tipo === 'erro' ? '#f44336' : '#4dabf7';
+    div.style.color = '#fff';
+    div.textContent = msg;
+    document.getElementById('toastArea').appendChild(div);
+    setTimeout(function() { div.remove(); }, 4000);
+}
+
+// Init
+var params = new URLSearchParams(window.location.search);
+if (params.get('compraId')) {
+    document.getElementById('compraId').value = params.get('compraId');
+    carregarItens();
+}
+atualizarStatus();
+setInterval(atualizarStatus, 10000);
+carregarDisputasAtivas();
 </script>
-</main>
-</div>
-<script src="/js/menu-config.js"></script>
-<script src="/js/sidebar.js"></script>
-<script>initSidebar('lances');</script>
 </body>
 </html>

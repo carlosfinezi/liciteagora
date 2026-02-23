@@ -417,6 +417,43 @@ db.exec(`
     mensagem TEXT
   );
 
+  -- Tabela de itens para o sniper de lances (configuração por item)
+  CREATE TABLE IF NOT EXISTS sniper_itens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    compraId TEXT NOT NULL,
+    itemNumero INTEGER NOT NULL,
+    descricao TEXT,
+    valorLance REAL,
+    faseItem TEXT DEFAULT 'LA',
+    horarioAlvo TEXT,
+    antecedenciaMs INTEGER DEFAULT 3000,
+    tentativas INTEGER DEFAULT 3,
+    intervaloMs INTEGER DEFAULT 500,
+    ativo INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'pendente',
+    ultimoResultado TEXT,
+    ultimoEnvio TEXT,
+    dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(compraId, itemNumero)
+  );
+  CREATE INDEX IF NOT EXISTS idx_sniper_itens_compra ON sniper_itens(compraId);
+
+  -- Histórico de lances enviados pelo sniper
+  CREATE TABLE IF NOT EXISTS sniper_historico (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    compraId TEXT NOT NULL,
+    itemNumero INTEGER NOT NULL,
+    valor REAL NOT NULL,
+    httpStatus INTEGER,
+    sucesso INTEGER,
+    tempoMs INTEGER,
+    resposta TEXT,
+    fonte TEXT DEFAULT 'browser',
+    timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_sniper_hist_compra ON sniper_historico(compraId);
+
   -- Inserir configuração padrão do jornal
   INSERT OR IGNORE INTO jornal_config (id, ativo, horario) VALUES (1, 0, '08:00');
 `);
