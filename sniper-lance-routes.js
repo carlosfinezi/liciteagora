@@ -581,50 +581,51 @@ function registrarRotasSniper(app, monitorGetter, db) {
       ultimoSyncExtensao = Date.now();
       let inseridas = 0, atualizadas = 0;
 
-      for (const item of participacoes) {
-        const compra = item.compra || item;
+      const stmtSelect = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?');
+      const stmtUpdate = db.prepare(`UPDATE participacoes_comprasnet SET
+        situacao = COALESCE(?, situacao), faseCompra = COALESCE(?, faseCompra),
+        objeto = COALESCE(?, objeto), orgao = COALESCE(?, orgao),
+        dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`);
+      const stmtInsert = db.prepare(`INSERT INTO participacoes_comprasnet
+        (compraId, cnpj, ano, sequencial, orgao, objeto, situacao, faseCompra, ativo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`);
 
-        // Construir compraId: {uasg:06}{modalidade:02}{numero:05}{ano:04}
-        const uasg = String(compra.numeroUasg || '').padStart(6, '0');
-        const mod = String(compra.modalidade || '').padStart(2, '0');
-        const num = String(compra.numero || '').padStart(5, '0');
-        const ano = String(compra.ano || '');
-        const compraId = compra.compraId || (uasg + mod + num + ano);
-        if (!compraId || compraId.length < 10) continue;
+      const syncTransaction = db.transaction((items) => {
+        for (const item of items) {
+          const compra = item.compra || item;
+          const uasg = String(compra.numeroUasg || '').padStart(6, '0');
+          const mod = String(compra.modalidade || '').padStart(2, '0');
+          const num = String(compra.numero || '').padStart(5, '0');
+          const ano = String(compra.ano || '');
+          const compraId = compra.compraId || (uasg + mod + num + ano);
+          if (!compraId || compraId.length < 10) continue;
 
-        const existe = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
-
-        if (existe) {
-          db.prepare(`UPDATE participacoes_comprasnet SET
-            situacao = COALESCE(?, situacao),
-            faseCompra = COALESCE(?, faseCompra),
-            objeto = COALESCE(?, objeto),
-            orgao = COALESCE(?, orgao),
-            dataAtualizacao = CURRENT_TIMESTAMP
-            WHERE compraId = ?`).run(
-            compra.situacaoCompraFaseExterna || compra.situacao || null,
-            compra.faseCompraFaseExterna || compra.faseCompra || null,
-            compra.objetoCompra || compra.objeto || null,
-            compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
-            compraId,
-          );
-          atualizadas++;
-        } else {
-          db.prepare(`INSERT INTO participacoes_comprasnet
-            (compraId, cnpj, ano, sequencial, orgao, objeto, situacao, faseCompra, ativo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
-            compraId,
-            compra.numeroUasg || compra.cnpj || '',
-            compra.ano || 0,
-            compra.numero || compra.sequencial || 0,
-            compra.nomeOrgao || compra.nomeUasg || compra.orgao || '',
-            compra.objetoCompra || compra.objeto || '',
-            compra.situacaoCompraFaseExterna || compra.situacao || '',
-            compra.faseCompraFaseExterna || compra.faseCompra || '',
-          );
-          inseridas++;
+          const existe = stmtSelect.get(compraId);
+          if (existe) {
+            stmtUpdate.run(
+              compra.situacaoCompraFaseExterna || compra.situacao || null,
+              compra.faseCompraFaseExterna || compra.faseCompra || null,
+              compra.objetoCompra || compra.objeto || null,
+              compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
+              compraId,
+            );
+            atualizadas++;
+          } else {
+            stmtInsert.run(
+              compraId,
+              compra.numeroUasg || compra.cnpj || '',
+              compra.ano || 0,
+              compra.numero || compra.sequencial || 0,
+              compra.nomeOrgao || compra.nomeUasg || compra.orgao || '',
+              compra.objetoCompra || compra.objeto || '',
+              compra.situacaoCompraFaseExterna || compra.situacao || '',
+              compra.faseCompraFaseExterna || compra.faseCompra || '',
+            );
+            inseridas++;
+          }
         }
-      }
+      });
+      syncTransaction(participacoes);
 
       console.log(`[Sync] Participações: ${inseridas} novas, ${atualizadas} atualizadas (de ${participacoes.length} recebidas)`);
       res.json({ success: true, inseridas, atualizadas, total: participacoes.length });
