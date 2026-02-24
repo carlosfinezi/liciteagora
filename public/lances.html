@@ -66,7 +66,24 @@
         .badge-P { background: #4dabf730; color: #4dabf7; }
         .badge-C { background: #ff980030; color: #ff9800; }
         .badge-D, .badge-A, .badge-F, .badge-I, .badge-R { background: #f4433630; color: #f44336; }
-        .variacao-info { font-size: 0.72em; color: #888; }
+
+        /* Auto-lance select */
+        .auto-select { padding: 3px 4px; border-radius: 4px; border: 1px solid #444; cursor: pointer; font-size: 0.78em; font-weight: 600; background: #1a1a2e; color: #666; appearance: auto; }
+        .auto-select.continuo { color: #4caf50; border-color: #4caf50; background: #4caf5015; }
+        .auto-select.sniper { color: #ff9800; border-color: #ff9800; background: #ff980015; }
+        .auto-select:focus { outline: none; }
+
+        /* Countdown */
+        .countdown { font-size: 0.75em; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .countdown.verde { color: #4caf50; }
+        .countdown.amarelo { color: #ff9800; }
+        .countdown.vermelho { color: #f44336; animation: pulse 1s infinite; }
+        @keyframes pulse { 50% { opacity: 0.5; } }
+
+        /* Auto-log area */
+        .auto-log-area { background: #0f0f1e; border: 1px solid #0f3460; border-radius: 6px; padding: 8px; margin-top: 8px; max-height: 200px; overflow-y: auto; font-size: 0.75em; font-family: monospace; }
+        .auto-log-area .log-entry { color: #888; padding: 1px 0; }
+        .auto-log-area .log-entry .ts { color: #555; }
 
         /* Buttons */
         .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.85em; font-weight: 500; transition: all 0.2s; }
@@ -102,6 +119,7 @@
         <div class="status-item"><div class="label">Brasília</div><div class="value azul" id="hora">--:--:--</div></div>
         <div class="status-item"><div class="label">Disputas</div><div class="value azul" id="stDisp">0</div></div>
         <div class="status-item"><div class="label">Lances</div><div class="value azul" id="stLances">0</div></div>
+        <div class="status-item" style="cursor:pointer" onclick="toggleAutoEngine()" title="Clique para ligar/desligar engine"><div class="label">Auto</div><div class="value" id="stAuto"><span class="vermelho">OFF</span></div></div>
     </div>
 
     <div class="panel">
@@ -291,9 +309,22 @@ async function carregarItensLic(compraId) {
     if(!body) return;
     body.innerHTML = '<p style="color:#888;padding:8px"><span class="spinner"></span> Carregando itens...</p>';
 
-    // 1. Dados live da extensão
+    // 1. Dados live da extensão (cache)
     var live = disputasLive[compraId];
     var itensLive = live ? live.itens : [];
+
+    // 1.5. Se não tem dados live no cache, buscar direto da API Comprasnet
+    if (itensLive.length === 0) {
+        try {
+            var rl = await fetch(API+'/api/sniper/itens-live?compraId='+compraId);
+            var dl = await rl.json();
+            if (dl.success && dl.itens && dl.itens.length > 0) {
+                itensLive = dl.itens;
+                // Salvar no cache local para não buscar de novo
+                disputasLive[compraId] = { compraId: compraId, itens: itensLive, totalItens: itensLive.length, itensAtivos: itensLive.filter(function(i){return i.podeEnviar;}).length };
+            }
+        } catch(e) {}
+    }
 
     // 2. Config salva no banco (sniper_itens)
     try {
@@ -374,6 +405,7 @@ function renderItens(compraId, itensLive) {
             nossoValor: lv.nossoValor,
             situacaoParticipante: lv.situacaoParticipante || null,
             variacaoMinima: lv.variacaoMinima != null ? lv.variacaoMinima : null,
+            tipoVariacao: lv.tipoVariacao || 'V',
             podeEnviar: lv.podeEnviar !== undefined ? lv.podeEnviar : true,
             valorEstimado: cfg.valorEstimado || lv.valorEstimado,
             fimContagem: lv.fimContagem,
@@ -385,6 +417,7 @@ function renderItens(compraId, itensLive) {
             horarioAlvo: cfg.horarioAlvo,
             antecedenciaMs: cfg.antecedenciaMs,
             ativo: cfg.ativo,
+            modoAuto: cfg.modoAuto || null,
             ultimoResultado: cfg.ultimoResultado,
             ultimoEnvio: cfg.ultimoEnvio,
             status: cfg.status,
@@ -394,7 +427,7 @@ function renderItens(compraId, itensLive) {
     // Add live items not in config
     itensLive.forEach(function(il) {
         if(!seen[il.numero]) {
-            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1 });
+            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, tipoVariacao:il.tipoVariacao||'V', podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1, modoAuto:null });
         }
     });
 
@@ -405,8 +438,9 @@ function renderItens(compraId, itensLive) {
 
     var html = '<table class="itens-table"><thead><tr>' +
         '<th>#</th><th>Descrição</th><th>Fase</th>' +
-        '<th>Melhor R$</th><th>Nosso R$</th><th>V.Estimado</th><th>Var.Min</th>' +
-        '<th>Valor Mínimo</th><th>Desc.Mín%</th><th>Desc.Máx%</th>' +
+        '<th>Melhor R$</th><th>Nosso R$</th><th>V.Estimado</th>' +
+        '<th>Contagem</th><th>Auto</th>' +
+        '<th>Valor Mínimo</th>' +
         '<th>Valor Lance</th><th>Ações</th>' +
         '</tr></thead><tbody>';
 
@@ -419,7 +453,29 @@ function renderItens(compraId, itensLive) {
             var sitLabels = {'G':'Ganhando','P':'Participando','C':'Reafirmado','D':'Desclassif.','I':'Excluída','A':'Desclassif.','F':'Desclassif.','R':'Recusada'};
             nossoLabel += ' <span class="badge-sit badge-'+m.situacaoParticipante+'">'+(sitLabels[m.situacaoParticipante]||m.situacaoParticipante)+'</span>';
         }
-        var varMinLabel = m.variacaoMinima != null ? 'R$ '+parseFloat(m.variacaoMinima).toFixed(2) : '--';
+        // Countdown
+        var contagemHtml = '--';
+        if(m.fimContagem) {
+            var segRest = Math.floor((new Date(m.fimContagem).getTime()-Date.now())/1000);
+            if(segRest>0) {
+                var min=Math.floor(segRest/60), seg=segRest%60;
+                var corCont = segRest>120?'verde':segRest>60?'amarelo':'vermelho';
+                contagemHtml = '<span class="countdown '+corCont+'">'+min+':'+String(seg).padStart(2,'0')+'</span>';
+            } else {
+                contagemHtml = '<span class="countdown vermelho">FIM</span>';
+            }
+        }
+
+        // Auto select
+        var autoClass = m.modoAuto ? m.modoAuto : '';
+        var selOpts = [['','OFF'],['continuo','Contínuo'],['sniper','Sniper']];
+        var selectHtml = '<select class="auto-select '+autoClass+'" onchange="setAuto(\''+compraId+'\','+m.numero+',this.value,this)">';
+        selOpts.forEach(function(o){ selectHtml += '<option value="'+o[0]+'"'+(m.modoAuto===o[0]||((!m.modoAuto)&&o[0]==='')?' selected':'')+'>'+o[1]+'</option>'; });
+        selectHtml += '</select>';
+        if(m.modoAuto === 'sniper') {
+            var sniperSeg = Math.round((m.antecedenciaMs || 60000) / 1000);
+            selectHtml += ' <input type="number" min="5" max="300" step="5" value="'+sniperSeg+'" style="width:45px;padding:2px 3px;border-radius:4px;border:1px solid #ff9800;background:#ff980015;color:#ff9800;font-size:0.78em;font-weight:600;text-align:center" onchange="salvarSniperSeg(\''+compraId+'\','+m.numero+',this.value)" title="Segundos antes do fim">s';
+        }
 
         html += '<tr>' +
             '<td><strong>'+m.numero+'</strong></td>' +
@@ -428,29 +484,20 @@ function renderItens(compraId, itensLive) {
             '<td class="valor-melhor">'+fmtR$(m.melhorValor)+'</td>' +
             '<td class="'+nossoClass+'">'+nossoLabel+'</td>' +
             '<td style="color:#888">'+fmtR$(m.valorEstimado)+'</td>' +
-            '<td class="variacao-info">'+varMinLabel+'</td>' +
+            '<td>'+contagemHtml+'</td>' +
+            '<td>'+selectHtml+'</td>' +
             '<td><input type="number" step="0.01" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Min"></td>' +
-            '<td><input type="number" step="0.1" value="'+(m.descontoMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'descontoMinimo\',this.value)" placeholder="%" style="width:65px"></td>' +
-            '<td><input type="number" step="0.1" value="'+(m.descontoMaximo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'descontoMaximo\',this.value)" placeholder="%" style="width:65px"></td>' +
             '<td><input type="number" step="0.01" id="vl-'+compraId+'-'+m.numero+'" value="'+(m.valorLance||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorLance\',this.value)" placeholder="Lance"></td>' +
             '<td style="white-space:nowrap">' +
                 '<button class="btn btn-success btn-sm" onclick="enviar(\''+compraId+'\','+m.numero+')" '+(m.podeEnviar?'':'disabled')+' title="Enviar agora">⚡</button> ' +
-                '<button class="btn btn-primary btn-sm" onclick="agendar(\''+compraId+'\','+m.numero+')" title="Agendar">⏰</button>' +
+                '<button class="btn btn-outline btn-sm" onclick="toggleHistorico(\''+compraId+'\')" title="Histórico">📋</button>' +
             '</td>' +
             '</tr>';
 
-        if(m.ultimoEnvio) {
-            html += '<tr><td colspan="12" style="padding:2px 8px;font-size:0.75em;color:'+(m.status==='enviado'?'#4caf50':'#f44336')+'">' +
-                (m.status==='enviado'?'✅':'❌')+' '+esc(m.ultimoResultado||'')+' — '+fmtHora(m.ultimoEnvio)+'</td></tr>';
-        }
     });
 
     html += '</tbody></table>';
-    html += '<div class="btn-group">' +
-        '<button class="btn btn-success btn-sm" onclick="enviarTodos(\''+compraId+'\')">⚡ Enviar Todos</button>' +
-        '<button class="btn btn-warning btn-sm" onclick="agendarTodos(\''+compraId+'\')">⏰ Agendar Todos</button>' +
-        '<button class="btn btn-outline btn-sm" onclick="adicionarItemManual(\''+compraId+'\')">+ Item</button>' +
-        '</div>';
+    html += '<div id="historico-'+compraId+'" style="display:none"></div>';
     html += '<div id="resultado-'+compraId+'"></div>';
 
     body.innerHTML = html;
@@ -509,41 +556,6 @@ function enviarTodos(compraId) {
     toast('🎯 '+ativos.length+' lances enfileirados','sucesso');
 }
 
-// ==================== AGENDAR ====================
-function agendar(compraId, itemNumero) {
-    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
-    var valor = parseFloat((document.getElementById('vl-'+compraId+'-'+itemNumero)||{}).value);
-    if(!valor||valor<=0){alert('Informe o valor');return;}
-    var horario = prompt('Horário alvo (HH:MM:SS, Brasília):', cfg&&cfg.horarioAlvo||'16:00:00');
-    if(!horario)return;
-    var hoje = new Date().toISOString().split('T')[0];
-    var horaLocal = new Date(hoje+'T'+horario+'-03:00');
-    if(horaLocal<=new Date()){alert('Horário já passou');return;}
-    fetch(API+'/api/sniper/agendar',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,valor:valor,horarioAlvo:horaLocal.toISOString(),antecedenciaMs:(cfg&&cfg.antecedenciaMs)||3000,tentativas:3,intervaloTentativasMs:500})
-    }).then(function(r){return r.json();}).then(function(d){
-        if(d.success) toast('⏰ #'+itemNumero+' agendado '+horario,'sucesso');
-        else alert('Erro: '+d.error);
-    });
-    salvar(compraId,itemNumero,'horarioAlvo',horario);
-}
-
-function agendarTodos(compraId) {
-    var config = itensConfig[compraId]||[];
-    var ativos = config.filter(function(c){return c.ativo && c.valorLance>0;});
-    if(!ativos.length){alert('Configure valor nos itens primeiro');return;}
-    var horario = prompt('Horário alvo para todos (HH:MM:SS, Brasília):','16:00:00');
-    if(!horario)return;
-    var hoje = new Date().toISOString().split('T')[0];
-    var horaLocal = new Date(hoje+'T'+horario+'-03:00');
-    if(horaLocal<=new Date()){alert('Horário já passou');return;}
-    ativos.forEach(function(c){
-        fetch(API+'/api/sniper/agendar',{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({compraId:compraId,itemNumero:c.itemNumero,valor:c.valorLance,horarioAlvo:horaLocal.toISOString(),antecedenciaMs:c.antecedenciaMs||3000,tentativas:3,intervaloTentativasMs:500})});
-    });
-    toast('⏰ '+ativos.length+' agendados '+horario,'sucesso');
-}
-
 // ==================== ADD ITEM ====================
 function adicionarItemManual(compraId) {
     var num = prompt('Número do item:');
@@ -554,16 +566,140 @@ function adicionarItemManual(compraId) {
     }).then(function(){carregarItensLic(compraId);});
 }
 
+// ==================== AUTO-LANCE ====================
+function setAuto(compraId, itemNumero, modo, selectEl) {
+    // Require valorMinimo before enabling
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+
+    if(modo && (!cfg || !cfg.valorMinimo)) {
+        alert('Defina o Valor Mínimo antes de ativar auto-lance no item '+itemNumero);
+        if(selectEl) selectEl.value = cfg?.modoAuto || '';
+        return;
+    }
+
+    // Save to server
+    var payload = {compraId:compraId, itemNumero:itemNumero, modoAuto: modo||null};
+    if(modo === 'sniper' && cfg && !cfg.antecedenciaMs) payload.antecedenciaMs = 60000; // default 60s
+    fetch(API+'/api/sniper/itens', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+    }).then(function(r){return r.json();}).then(function(d){
+        if(d.success) {
+            if(cfg) {
+                cfg.modoAuto = modo||null;
+                if(payload.antecedenciaMs) cfg.antecedenciaMs = payload.antecedenciaMs;
+            }
+            var labels = {continuo:'Contínuo',sniper:'Sniper'};
+            toast('Auto #'+itemNumero+': '+(modo?labels[modo]:'OFF'), modo?'sucesso':'info');
+            // Re-render to show/hide sniper seconds input
+            if(aberta) renderItens(aberta, disputasLive[aberta]?disputasLive[aberta].itens:[]);
+        }
+    });
+}
+
+function salvarSniperSeg(compraId, itemNumero, seg) {
+    var ms = Math.max(5, Math.min(300, parseInt(seg)||60)) * 1000;
+    salvar(compraId, itemNumero, 'antecedenciaMs', ms);
+    toast('Sniper #'+itemNumero+': '+Math.round(ms/1000)+'s antes do fim', 'info');
+}
+
+function toggleAutoEngine() {
+    fetch(API+'/api/sniper/auto/toggle',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+        if(d.success) {
+            toast('Auto engine: '+(d.ativo?'LIGADO':'DESLIGADO'), d.ativo?'sucesso':'info');
+            atualizarAutoStatus();
+        }
+    });
+}
+
+function atualizarAutoStatus() {
+    fetch(API+'/api/sniper/auto/status').then(function(r){return r.json();}).then(function(d){
+        if(!d.success) return;
+        var el = document.getElementById('stAuto');
+        if(d.ativo) {
+            el.innerHTML = '<span class="verde">'+d.itensMonitorados+' itens</span>';
+        } else {
+            el.innerHTML = '<span class="vermelho">OFF</span>';
+        }
+    }).catch(function(){});
+}
+
+// ==================== HISTÓRICO ====================
+async function toggleHistorico(compraId) {
+    var div = document.getElementById('historico-'+compraId);
+    if(!div) return;
+    if(div.style.display !== 'none') { div.style.display = 'none'; return; }
+
+    div.style.display = 'block';
+    div.innerHTML = '<p style="color:#888;padding:8px"><span class="spinner"></span> Carregando histórico...</p>';
+
+    var html = '';
+    // 1. Histórico de lances (banco)
+    try {
+        var r = await fetch(API+'/api/sniper/historico?compraId='+compraId+'&limit=30');
+        var d = await r.json();
+        if(d.success && d.historico && d.historico.length > 0) {
+            html += '<div style="margin-top:8px"><strong style="color:#4dabf7;font-size:0.82em">Histórico de Lances</strong>';
+            html += '<table class="itens-table" style="margin-top:4px"><thead><tr><th>Hora</th><th>Item</th><th>Valor</th><th>Resultado</th><th>Tempo</th><th>Fonte</th></tr></thead><tbody>';
+            d.historico.forEach(function(h) {
+                var cor = h.sucesso ? '#4caf50' : '#f44336';
+                html += '<tr style="color:'+cor+'">' +
+                    '<td>'+fmtHora(h.timestamp)+'</td>' +
+                    '<td>'+h.itemNumero+'</td>' +
+                    '<td>'+fmtR$(h.valor)+'</td>' +
+                    '<td>'+(h.sucesso?'✅':'❌')+' HTTP '+(h.httpStatus||'--')+'</td>' +
+                    '<td>'+(h.tempoMs||'--')+'ms</td>' +
+                    '<td>'+esc(h.fonte||'--')+'</td>' +
+                '</tr>';
+            });
+            html += '</tbody></table></div>';
+        } else {
+            html += '<div style="color:#888;font-size:0.8em;padding:6px">Nenhum lance registrado.</div>';
+        }
+    } catch(e) {
+        html += '<div style="color:#f44336;font-size:0.8em;padding:6px">Erro ao carregar histórico: '+esc(e.message)+'</div>';
+    }
+
+    // 2. Log do auto-lance (filtrado por compraId)
+    try {
+        var ra = await fetch(API+'/api/sniper/auto/status');
+        var da = await ra.json();
+        if(da.success && da.log && da.log.length > 0) {
+            var filtered = da.log.filter(function(l){ return (l.msg||'').indexOf(compraId) >= 0; });
+            if(filtered.length > 0) {
+                html += '<div style="margin-top:8px"><strong style="color:#ff9800;font-size:0.82em">Log Auto-Lance</strong>';
+                html += '<div class="auto-log-area">';
+                filtered.forEach(function(l) {
+                    html += '<div class="log-entry"><span class="ts">'+fmtHora(l.ts)+'</span> '+esc(l.msg)+'</div>';
+                });
+                html += '</div></div>';
+            }
+        }
+    } catch(e) {}
+
+    if(!html) html = '<div style="color:#888;font-size:0.8em;padding:6px">Sem dados de histórico.</div>';
+    div.innerHTML = html;
+}
+
 // ==================== TOAST ====================
 function toast(msg,tipo){var d=document.createElement('div');d.className='toast';d.style.background=tipo==='sucesso'?'#4caf50':tipo==='erro'?'#f44336':'#4dabf7';d.textContent=msg;document.getElementById('toastArea').appendChild(d);setTimeout(function(){d.remove();},4000);}
 
 // ==================== INIT ====================
 recarregarDados();
 atualizarStatus();
+atualizarAutoStatus();
 setInterval(atualizarStatus,10000);
+setInterval(atualizarAutoStatus,10000);
 setInterval(function(){document.getElementById('hora').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});},500);
-// Refresh live data every 30s
-setInterval(function(){carregarDisputasLive().then(function(){if(aberta)carregarItensLic(aberta);});},30000);
+// Refresh live data every 30s — só atualiza cache + re-renderiza (sem flash "Carregando...")
+setInterval(function(){
+    carregarDisputasLive().then(function(){
+        if(aberta) {
+            var live = disputasLive[aberta];
+            var itensLive = live ? live.itens : [];
+            if(itensLive.length > 0) renderItens(aberta, itensLive);
+        }
+    });
+},30000);
 </script>
 </body>
 </html>

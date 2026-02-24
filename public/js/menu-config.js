@@ -14,6 +14,7 @@ const menuConfig = {
                 { page: 'index', icone: '🔍', texto: 'Buscar Licitações', link: '/' },
                 { page: 'interesse', icone: '⭐', texto: 'Meus Interesses', link: '/interesse.html', badge: 'interesseCount' },
                 { page: 'propostas', icone: '📝', texto: 'Preparar Propostas', link: '/propostas.html' },
+                { page: 'propostas-api', icone: '🚀', texto: 'Propostas via API', link: '/propostas-api.html' },
                 { page: 'kanban', icone: '📋', texto: 'Kanban', link: '/kanban.html' },
                 { page: 'agenda', icone: '📅', texto: 'Agenda', link: '/agenda.html' },
                 { page: 'monitoramento-chat', icone: '💬', texto: 'Monitor de Chat', link: '/monitoramento-chat.html' }

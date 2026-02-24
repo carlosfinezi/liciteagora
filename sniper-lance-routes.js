@@ -97,6 +97,220 @@ function registrarRotasSniper(app, monitorGetter, db) {
   let filaLances = [];  // { id, compraId, itemNumero, valor, faseItem, criadoEm, status }
   let resultadosLances = []; // últimos 50 resultados
 
+  // Cache em memória das disputas recebidas da extensão (declarado aqui para uso no auto-lance)
+  let disputasCache = { disputas: [], atualizadoEm: null };
+
+  // ==================== AUTO-LANCE ENGINE ====================
+  let autoLanceAtivo = false;
+  let autoLanceTimerNormal = null;   // 15s cycle
+  let autoLanceTimerRapido = null;   // 5s cycle (fast poll for sniper/ambos)
+  let autoLancePendentes = {};       // { 'compraId-itemNumero': timestamp } cooldown 30s
+  let autoLanceComprasFast = {};     // { compraId: true } compras that need fast polling (fimContagem < 90s)
+  let autoLanceLog = [];             // últimos 100 log entries
+  let autoLanceStats = { ciclos: 0, lancesEnviados: 0, ultimoCiclo: null };
+
+  function logAuto(msg) {
+    const entry = { ts: new Date().toISOString(), msg };
+    autoLanceLog.unshift(entry);
+    if (autoLanceLog.length > 100) autoLanceLog.pop();
+    console.log(`[AutoLance] ${msg}`);
+  }
+
+  /**
+   * Core loop: checks all items with modoAuto set and enqueues bids when losing.
+   * @param {boolean} modoRapido - If true, only processes compras in autoLanceComprasFast
+   */
+  async function executarCicloAutoLance(modoRapido = false) {
+    try {
+      // Query DB for compras with auto items
+      const autoItens = db.prepare(
+        `SELECT si.compraId, si.itemNumero, si.valorMinimo, si.valorLance, si.modoAuto, si.faseItem, si.antecedenciaMs
+         FROM sniper_itens si
+         WHERE si.modoAuto IS NOT NULL AND si.modoAuto != ''`
+      ).all();
+
+      if (autoItens.length === 0) return;
+
+      // Group by compraId
+      const porCompra = {};
+      for (const item of autoItens) {
+        if (!porCompra[item.compraId]) porCompra[item.compraId] = [];
+        porCompra[item.compraId].push(item);
+      }
+
+      // In fast mode, only process compras near end
+      const compraIds = modoRapido
+        ? Object.keys(porCompra).filter(id => autoLanceComprasFast[id])
+        : Object.keys(porCompra);
+
+      if (compraIds.length === 0) return;
+
+      autoLanceStats.ciclos++;
+      autoLanceStats.ultimoCiclo = new Date().toISOString();
+
+      // Log diagnóstico a cada 20 ciclos (~5min) ou nos primeiros 3 ciclos
+      const logDiag = (autoLanceStats.ciclos <= 3 || autoLanceStats.ciclos % 20 === 0);
+
+      // Reset fast list (will be rebuilt)
+      if (!modoRapido) autoLanceComprasFast = {};
+
+      for (const compraId of compraIds) {
+        try {
+          // Usar dados do cache (populado pela extensão via POST /api/sync/disputas)
+          const cached = disputasCache.disputas.find(d => d.compraId === compraId);
+          if (!cached || !cached.itens || cached.itens.length === 0) {
+            if (logDiag) logAuto(`Cache vazio: ${compraId} (extensão não sincronizou ainda)`);
+            continue;
+          }
+
+          const itensAuto = porCompra[compraId];
+
+          for (const cfgItem of itensAuto) {
+            const liveItem = cached.itens.find(i => i.numero === cfgItem.itemNumero);
+            if (!liveItem) {
+              if (logDiag) logAuto(`Item ${cfgItem.itemNumero} não no cache de ${compraId} (${cached.itens.length} itens: ${cached.itens.slice(0,5).map(i=>i.numero).join(',')})`);
+              continue;
+            }
+
+            const melhorGeral = liveItem.melhorValor;
+            const nossoValor = liveItem.nossoValor;
+            const varMin = liveItem.variacaoMinima;
+            const tipoVar = liveItem.tipoVariacao || 'V';
+            const fimContagem = liveItem.fimContagem;
+            const podeEnviar = liveItem.podeEnviar;
+
+            if (!podeEnviar) {
+              if (logDiag) logAuto(`Item ${cfgItem.itemNumero}: podeEnviar=false fase=${liveItem.fase||'?'}`);
+              continue;
+            }
+
+            // Check countdown for sniper mode
+            let segRestantes = null;
+            if (fimContagem) {
+              segRestantes = Math.floor((new Date(fimContagem).getTime() - Date.now()) / 1000);
+            }
+
+            // Sniper mode: only act in last N seconds (configurable via antecedenciaMs, default 60s)
+            if (cfgItem.modoAuto === 'sniper') {
+              const sniperSeg = Math.round((cfgItem.antecedenciaMs || 60000) / 1000);
+              if (segRestantes == null || segRestantes > sniperSeg || segRestantes <= 0) continue;
+              // Fast polling when approaching sniper window
+              if (segRestantes < sniperSeg + 30 && segRestantes > 0) {
+                autoLanceComprasFast[compraId] = true;
+              }
+            }
+
+            // Already at best price — nothing to do
+            if (nossoValor != null && melhorGeral != null && nossoValor <= melhorGeral) continue;
+
+            // Need valorMinimo to know where to bid
+            if (cfgItem.valorMinimo == null) continue;
+
+            // Already at our floor
+            if (nossoValor != null && nossoValor <= cfgItem.valorMinimo) continue;
+
+            // Calculate: one step down from our current value (respecting varMin)
+            let novoLance;
+            if (nossoValor != null && varMin != null) {
+              if (tipoVar === 'P') {
+                novoLance = nossoValor * (1 - varMin / 100);
+              } else {
+                novoLance = nossoValor - varMin;
+              }
+              novoLance = Math.round(novoLance * 100) / 100;
+            } else if (nossoValor == null && cfgItem.valorLance != null && cfgItem.valorLance > 0) {
+              // First bid — use valorLance
+              novoLance = parseFloat(cfgItem.valorLance);
+            } else {
+              continue;
+            }
+
+            // Clamp to floor
+            if (novoLance < cfgItem.valorMinimo) novoLance = cfgItem.valorMinimo;
+
+            // Check cooldown (30s per item)
+            const pendingKey = `${compraId}-${cfgItem.itemNumero}`;
+            if (autoLancePendentes[pendingKey] && (Date.now() - autoLancePendentes[pendingKey]) < 30000) {
+              continue; // still in cooldown
+            }
+
+            // Check if already in filaLances (pendente or processando)
+            const jaEnfileirado = filaLances.some(l =>
+              l.compraId === compraId &&
+              l.itemNumero === cfgItem.itemNumero &&
+              (l.status === 'pendente' || l.status === 'processando')
+            );
+            if (jaEnfileirado) continue;
+
+            // Enqueue!
+            const id = 'auto-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+            const lance = {
+              id,
+              compraId,
+              itemNumero: cfgItem.itemNumero,
+              valor: novoLance,
+              faseItem: cfgItem.faseItem || 'LA',
+              criadoEm: new Date().toISOString(),
+              status: 'pendente',
+              fonte: 'auto-lance',
+            };
+            filaLances.push(lance);
+            autoLancePendentes[pendingKey] = Date.now();
+            autoLanceStats.lancesEnviados++;
+
+            // Atualizar cache local para o próximo ciclo não repetir o mesmo lance
+            liveItem.nossoValor = novoLance;
+
+            const logMelhor = melhorGeral != null ? `melhor R$${melhorGeral.toFixed(2)}` : 'sem melhor';
+            logAuto(`LANCE: ${compraId} item ${cfgItem.itemNumero} — ${logMelhor}, nosso R$${(nossoValor||0).toFixed(2)} → R$${novoLance.toFixed(2)} (var ${tipoVar}=${varMin}, modo=${cfgItem.modoAuto})`);
+          }
+        } catch (e) {
+          logAuto(`ERRO compra ${compraId}: ${e.message}`);
+        }
+      }
+    } catch (e) {
+      logAuto(`ERRO ciclo: ${e.message}`);
+    }
+  }
+
+  function iniciarAutoLance() {
+    if (autoLanceAtivo) return;
+    autoLanceAtivo = true;
+    logAuto('Engine LIGADO');
+
+    // Normal cycle every 15s
+    autoLanceTimerNormal = setInterval(() => executarCicloAutoLance(false), 15000);
+    // Fast cycle every 5s (for sniper/ambos near end)
+    autoLanceTimerRapido = setInterval(() => executarCicloAutoLance(true), 5000);
+    // Run immediately
+    executarCicloAutoLance(false);
+  }
+
+  function pararAutoLance() {
+    if (!autoLanceAtivo) return;
+    autoLanceAtivo = false;
+    if (autoLanceTimerNormal) { clearInterval(autoLanceTimerNormal); autoLanceTimerNormal = null; }
+    if (autoLanceTimerRapido) { clearInterval(autoLanceTimerRapido); autoLanceTimerRapido = null; }
+    autoLanceComprasFast = {};
+    logAuto('Engine DESLIGADO');
+  }
+
+  function verificarAutoLanceNecessario() {
+    try {
+      const count = db.prepare(
+        `SELECT COUNT(*) as n FROM sniper_itens WHERE modoAuto IS NOT NULL AND modoAuto != ''`
+      ).get();
+      if (count.n > 0 && !autoLanceAtivo) {
+        iniciarAutoLance();
+      } else if (count.n === 0 && autoLanceAtivo) {
+        pararAutoLance();
+      }
+    } catch (e) {}
+  }
+
+  // Auto-start on boot (after 5s to let everything initialize)
+  setTimeout(verificarAutoLanceNecessario, 5000);
+
   /**
    * POST /api/sniper/lance
    * Adiciona lance à fila (extensão processa via browser).
@@ -190,6 +404,16 @@ function registrarRotasSniper(app, monitorGetter, db) {
           WHERE compraId = ? AND itemNumero = ?`).run(sucesso ? 'enviado' : 'erro', `HTTP ${status} (${tempoMs}ms)`, compraId, itemNumero);
       } catch (dbErr) { console.error('[Sniper] Erro salvando no banco:', dbErr.message); }
 
+      // Auto-lance pending cleanup
+      const pendingKey = `${compraId}-${itemNumero}`;
+      if (sucesso) {
+        // Keep cooldown on success (prevent re-bidding immediately)
+        autoLancePendentes[pendingKey] = Date.now();
+      } else {
+        // Clear pending on failure so auto-lance can retry
+        delete autoLancePendentes[pendingKey];
+      }
+
       // Limpar da fila após 30s
       setTimeout(() => {
         const i = filaLances.findIndex(l => l.id === id);
@@ -197,6 +421,49 @@ function registrarRotasSniper(app, monitorGetter, db) {
       }, 30000);
 
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ==================== AUTO-LANCE ROUTES ====================
+
+  /**
+   * GET /api/sniper/auto/status
+   * Estado do auto-lance engine + log.
+   */
+  app.get('/api/sniper/auto/status', (req, res) => {
+    try {
+      const autoItens = db.prepare(
+        `SELECT compraId, itemNumero, modoAuto, valorMinimo FROM sniper_itens WHERE modoAuto IS NOT NULL AND modoAuto != ''`
+      ).all();
+      res.json({
+        success: true,
+        ativo: autoLanceAtivo,
+        itensMonitorados: autoItens.length,
+        itens: autoItens,
+        stats: autoLanceStats,
+        comprasFastPoll: Object.keys(autoLanceComprasFast),
+        pendentes: Object.keys(autoLancePendentes).length,
+        log: autoLanceLog.slice(0, 30),
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sniper/auto/toggle
+   * Ligar/desligar engine manualmente.
+   */
+  app.post('/api/sniper/auto/toggle', (req, res) => {
+    try {
+      if (autoLanceAtivo) {
+        pararAutoLance();
+      } else {
+        iniciarAutoLance();
+      }
+      res.json({ success: true, ativo: autoLanceAtivo });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -346,9 +613,6 @@ function registrarRotasSniper(app, monitorGetter, db) {
   });
 
   // ==================== DISPUTAS (dados da extensão) ====================
-
-  // Cache em memória das disputas recebidas da extensão
-  let disputasCache = { disputas: [], atualizadoEm: null };
 
   /**
    * POST /api/sync/disputas
@@ -545,6 +809,74 @@ function registrarRotasSniper(app, monitorGetter, db) {
           atualizadoEm: disputasCache.atualizadoEm,
         },
       });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/itens-live?compraId=XXXX
+   * Busca itens em disputa DIRETO da API Comprasnet usando Bearer token.
+   * Retorna melhorValor, nossoValor, variacaoMinima, fimContagem etc.
+   * Não depende do cache da extensão.
+   */
+  app.get('/api/sniper/itens-live', async (req, res) => {
+    try {
+      const { compraId } = req.query;
+      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      if (!sniper.temToken()) return res.json({ success: false, error: 'Sem Bearer token' });
+
+      // Tentar /itens/em-disputa primeiro (tem preços live), fallback para /itens e /itens/classificacao
+      const endpoints = [
+        `/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`,
+        `/comprasnet-disputa/v1/compras/${compraId}/itens`,
+        `/comprasnet-disputa/v1/compras/${compraId}/itens/classificacao`,
+      ];
+
+      const tentativas = [];
+      for (const path of endpoints) {
+        try {
+          const { status, data } = await sniper.apiGet(path);
+          tentativas.push({ endpoint: path.split('/v1/')[1], status, isArray: Array.isArray(data), len: Array.isArray(data) ? data.length : 0 });
+          if ((status === 200 || status === 206) && Array.isArray(data) && data.length > 0) {
+            const itens = data.map(i => ({
+              numero: i.numero || i.identificador,
+              descricao: (i.descricao || i.objetoItem || '').substring(0, 200),
+              fase: i.fase || '',
+              melhorValor: (i.melhorValorGeral || {}).valorInformado != null ? i.melhorValorGeral.valorInformado : null,
+              nossoValor: (i.melhorValorFornecedor || {}).valorInformado != null ? i.melhorValorFornecedor.valorInformado : null,
+              valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || null,
+              situacaoParticipante: i.situacaoParticipanteDisputa || null,
+              variacaoMinima: i.variacaoMinimaEntreLances != null ? i.variacaoMinimaEntreLances : null,
+              tipoVariacao: i.tipoVariacaoMinimaEntreLances || 'V',
+              podeEnviar: i.podeEnviarLances || false,
+              fimContagem: i.dataHoraFimContagem || null,
+              versaoParticipante: i.versaoParticipante || null,
+            }));
+
+            // Atualizar cache de disputas também
+            const idx = disputasCache.disputas.findIndex(d => d.compraId === compraId);
+            const disputaData = {
+              compraId,
+              totalItens: itens.length,
+              itensAtivos: itens.filter(i => i.podeEnviar || i.fase === 'LA').length,
+              itens,
+            };
+            if (idx >= 0) {
+              disputasCache.disputas[idx] = { ...disputasCache.disputas[idx], ...disputaData };
+            } else {
+              disputasCache.disputas.push(disputaData);
+            }
+            disputasCache.atualizadoEm = new Date().toISOString();
+
+            return res.json({ success: true, itens, fonte: 'api-direta', endpoint: path.split('/v1/')[1] });
+          }
+        } catch (e) {
+          // Tentar próximo endpoint
+        }
+      }
+
+      return res.json({ success: false, error: 'Nenhum endpoint retornou dados de itens', tentativas });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -836,7 +1168,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
     try {
       const { compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo,
               antecedenciaMs, tentativas, intervaloMs, ativo,
-              valorMinimo, descontoMinimo, descontoMaximo, valorEstimado } = req.body;
+              valorMinimo, descontoMinimo, descontoMaximo, valorEstimado, modoAuto } = req.body;
       if (!compraId || !itemNumero) return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
 
       const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo, valorMinimo, descontoMinimo, descontoMaximo, valorEstimado)
@@ -864,7 +1196,17 @@ function registrarRotasSniper(app, monitorGetter, db) {
                descontoMaximo !== undefined ? descontoMaximo : null,
                valorEstimado !== undefined ? valorEstimado : null);
 
+      // modoAuto: handle separately (null = explicitly clear, undefined = don't touch)
+      if ('modoAuto' in req.body) {
+        db.prepare(`UPDATE sniper_itens SET modoAuto = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ? AND itemNumero = ?`)
+          .run(modoAuto || null, compraId, itemNumero);
+      }
+
       const item = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, itemNumero);
+
+      // Check if auto-lance engine needs to start/stop
+      verificarAutoLanceNecessario();
+
       res.json({ success: true, item });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -998,6 +1340,196 @@ function registrarRotasSniper(app, monitorGetter, db) {
       res.json({ success: true, historico: db.prepare(query).all(...params) });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ==================== ENVIO DE PROPOSTA VIA API ====================
+
+  /**
+   * POST /api/proposta/enviar-api
+   * Envia proposta diretamente via API Comprasnet usando o Bearer token.
+   * Não depende da extensão para o envio — usa chamadas HTTP diretas.
+   *
+   * Body: {
+   *   compraId: string,
+   *   itens: [{ numero: number, valor: number, marca?: string, modelo?: string, fabricante?: string }]
+   * }
+   */
+  app.post('/api/proposta/enviar-api', async (req, res) => {
+    try {
+      const { compraId, itens } = req.body;
+
+      if (!compraId) {
+        return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      }
+      if (!itens || !Array.isArray(itens) || itens.length === 0) {
+        return res.status(400).json({ success: false, error: 'Array de itens obrigatório' });
+      }
+      if (!sniper.temToken()) {
+        return res.status(400).json({ success: false, error: 'Sem Bearer token. Abra o Comprasnet com a extensão Token Relay.' });
+      }
+      if (sniper.tokenExpirado()) {
+        return res.status(400).json({ success: false, error: 'Bearer token expirado. Recarregue o Comprasnet.' });
+      }
+
+      const resultados = [];
+      let sucessos = 0;
+
+      for (const item of itens) {
+        if (!item.numero || !item.valor || item.valor <= 0) {
+          resultados.push({ numero: item.numero, sucesso: false, erro: 'Valor inválido' });
+          continue;
+        }
+
+        // Tentar enviar proposta para este item
+        // Endpoint: POST /comprasnet-fase-externa/v1/compras/{compraId}/itens/{itemNumero}/proposta
+        const body = {
+          valorUnitario: parseFloat(item.valor),
+          valorInformado: parseFloat(item.valor),
+          marcaFabricante: item.marca || item.fabricante || '',
+          modeloVersao: item.modelo || '',
+          descricaoDetalhada: item.descricao || '',
+        };
+
+        const endpoints = [
+          { method: 'post', path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens/${item.numero}/proposta`, body },
+          { method: 'post', path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens/${item.numero}/proposta/fornecedor`, body },
+          { method: 'post', path: `/comprasnet-disputa/v1/compras/${compraId}/itens/${item.numero}/proposta`, body: { valorInformado: parseFloat(item.valor) } },
+        ];
+
+        let enviado = false;
+        for (const ep of endpoints) {
+          try {
+            const result = ep.method === 'post'
+              ? await sniper.apiPost(ep.path, ep.body)
+              : await sniper.apiGet(ep.path);
+
+            if (result.status >= 200 && result.status < 300) {
+              resultados.push({
+                numero: item.numero,
+                sucesso: true,
+                status: result.status,
+                endpoint: ep.path.split('/v1/')[1],
+                resposta: typeof result.data === 'string' ? result.data.substring(0, 200) : JSON.stringify(result.data).substring(0, 200)
+              });
+              sucessos++;
+              enviado = true;
+              sniper.log(`✅ Proposta item ${item.numero}: R$ ${item.valor} (${ep.path.split('/v1/')[1]})`);
+              break;
+            } else {
+              // Se não é 404/405, registrar como resultado
+              if (result.status !== 404 && result.status !== 405) {
+                resultados.push({
+                  numero: item.numero,
+                  sucesso: false,
+                  status: result.status,
+                  endpoint: ep.path.split('/v1/')[1],
+                  erro: typeof result.data === 'string' ? result.data.substring(0, 200) : JSON.stringify(result.data).substring(0, 200)
+                });
+                enviado = true; // Don't try other endpoints
+                sniper.log(`❌ Proposta item ${item.numero}: HTTP ${result.status}`);
+                break;
+              }
+            }
+          } catch (e) {
+            // Continue to next endpoint
+          }
+        }
+
+        if (!enviado) {
+          resultados.push({
+            numero: item.numero,
+            sucesso: false,
+            erro: 'Nenhum endpoint de proposta retornou resposta válida'
+          });
+        }
+      }
+
+      // Salvar no banco de participações que tentamos enviar
+      try {
+        db.prepare(`UPDATE participacoes_comprasnet SET
+          situacao = CASE WHEN ? > 0 THEN 'PE' ELSE situacao END,
+          dataAtualizacao = CURRENT_TIMESTAMP
+          WHERE compraId = ?`).run(sucessos, compraId);
+      } catch (e) {}
+
+      console.log(`[PROPOSTA-API] compraId=${compraId}: ${sucessos}/${itens.length} itens enviados`);
+
+      res.json({
+        success: sucessos > 0,
+        message: `${sucessos} de ${itens.length} itens enviados com sucesso`,
+        compraId,
+        sucessos,
+        total: itens.length,
+        resultados,
+        linkCadastroProposta: `https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/cadastro-propostas?compra=${compraId}`
+      });
+
+    } catch (error) {
+      console.error('[PROPOSTA-API] Erro:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/proposta/itens-compra/:compraId
+   * Busca itens de uma compra via API Comprasnet (usando bearer token do servidor).
+   * Tenta vários endpoints por fase.
+   */
+  app.get('/api/proposta/itens-compra/:compraId', async (req, res) => {
+    try {
+      const { compraId } = req.params;
+      if (!sniper.temToken()) {
+        return res.status(400).json({ success: false, error: 'Sem Bearer token' });
+      }
+
+      // Primeiro, verificar cache de disputas
+      const cached = disputasCache.disputas.find(d => d.compraId === compraId);
+      if (cached && cached.itens?.length > 0) {
+        return res.json({
+          success: true,
+          fonte: 'cache',
+          compraId,
+          itens: cached.itens,
+          totalItens: cached.totalItens,
+          orgao: cached.orgao,
+          objeto: cached.objeto,
+        });
+      }
+
+      // Sem cache — tentar via API
+      const result = await sniper.consultarItens(compraId);
+      if (!result.success) {
+        return res.status(404).json({ success: false, error: 'Não foi possível obter itens' });
+      }
+
+      const itens = result.itens.map(i => ({
+        numero: i.numero || i.identificador,
+        descricao: (i.descricao || '').substring(0, 200),
+        fase: i.fase || '',
+        situacao: i.situacao || '',
+        melhorValor: i.melhorValorGeral?.valorInformado || null,
+        nossoValor: i.melhorValorFornecedor?.valorInformado || null,
+        valorEstimado: i.valorEstimado || null,
+        situacaoParticipante: i.situacaoParticipanteDisputa || null,
+        variacaoMinima: i.variacaoMinimaEntreLances || null,
+        podeEnviar: i.podeEnviarLances || false,
+        fimContagem: i.dataHoraFimContagem || null,
+        quantidade: i.quantidade || 1,
+        unidadeMedida: i.unidadeMedida || 'UN',
+      }));
+
+      res.json({
+        success: true,
+        fonte: 'api',
+        compraId,
+        endpoint: result.endpoint,
+        itens,
+        totalItens: itens.length,
+      });
+
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

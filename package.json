@@ -1,6 +1,6 @@
 {
   "name": "pncp-licitacoes",
-  "version": "1.0.0",
+  "version": "3.5.0",
   "description": "Sistema de consulta de licitações do Portal Nacional de Contratações Públicas (PNCP)",
   "main": "server.js",
   "scripts": {

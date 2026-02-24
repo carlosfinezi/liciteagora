@@ -509,6 +509,10 @@ try {
       db.exec(`ALTER TABLE sniper_itens ADD COLUMN valorEstimado REAL`);
       console.log('[Migração] sniper_itens: valorEstimado adicionado');
     }
+    if (!cols.includes('modoAuto')) {
+      db.exec(`ALTER TABLE sniper_itens ADD COLUMN modoAuto TEXT`);
+      console.log('[Migração] sniper_itens: modoAuto adicionado');
+    }
   }
 } catch (e) {
   console.log('[Migração sniper_itens] Erro:', e.message);

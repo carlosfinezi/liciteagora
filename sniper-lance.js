@@ -386,6 +386,7 @@ class SniperLance {
 
     // 1. Tentar disputa API PRIMEIRO (não precisa captcha, mais provável funcionar do servidor)
     const endpointsDisputa = [
+      `/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`,
       `/comprasnet-disputa/v1/compras/${compraId}/itens`,
       `/comprasnet-disputa/v1/compras/${compraId}/itens/classificacao`,
     ];
