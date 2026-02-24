@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Propostas via API - LiciteAgora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .main-content { background: #1a1a2e; padding: 20px; }
+        h1 { color: #4dabf7; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 20px; }
+
+        /* Top bar */
+        .top-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .token-status { padding: 6px 14px; border-radius: 6px; font-size: 0.85em; font-weight: 500; }
+        .token-status.ok { background: #4caf5020; border: 1px solid #4caf50; }
+        .token-status.ok span { color: #4caf50; }
+        .token-status.warn { background: #ff980020; border: 1px solid #ff9800; }
+        .token-status.warn span { color: #ff9800; }
+        .token-status.err { background: #f4433620; border: 1px solid #f44336; }
+        .token-status.err span { color: #f44336; }
+        .stats-info { font-size: 0.82em; color: #888; margin-left: auto; }
+
+        /* Panel */
+        .panel { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+        .panel h3 { color: #4dabf7; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; font-size: 1em; }
+
+        /* Filtros */
+        .filtros-bar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+        .filtros-bar input[type=text] { flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.9em; }
+        .filtros-bar select { padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.9em; }
+        .filtros-bar input:focus, .filtros-bar select:focus { outline: none; border-color: #4dabf7; }
+        .filtro-resultado { font-size: 0.8em; color: #888; margin-bottom: 8px; }
+
+        /* Participação header */
+        .participacao-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+        .participacao-info { flex: 1; }
+        .participacao-objeto { font-size: 0.95em; font-weight: 600; color: #eee; line-height: 1.4; margin-bottom: 4px; }
+        .participacao-orgao { font-size: 0.82em; color: #888; margin-bottom: 6px; }
+        .participacao-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .participacao-acoes { flex-shrink: 0; }
+
+        .badge-compra { background: #0f346080; color: #4dabf7; padding: 2px 8px; border-radius: 4px; font-size: 0.78em; font-family: monospace; }
+        .badge-situacao { padding: 2px 8px; border-radius: 4px; font-size: 0.78em; font-weight: 600; }
+        .badge-sit-PD, .badge-sit-AB, .badge-sit-5 { background: #4dabf720; color: #4dabf7; }
+        .badge-sit-EN, .badge-sit-FR, .badge-sit-2 { background: #f4433620; color: #f44336; }
+        .badge-sit-PE { background: #4caf5020; color: #4caf50; }
+        .badge-fase { background: #ff980020; color: #ff9800; padding: 2px 8px; border-radius: 4px; font-size: 0.78em; }
+        .meta-data { color: #666; font-size: 0.78em; }
+
+        .btn-comprasnet { padding: 6px 14px; border-radius: 6px; background: #4dabf7; color: #000; text-decoration: none; font-size: 0.82em; font-weight: 600; white-space: nowrap; }
+        .btn-comprasnet:hover { background: #339af0; }
+
+        /* Select all bar */
+        .select-all-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 10px; background: #0f346030; border-radius: 6px; }
+        .select-all-bar label { color: #aaa; font-size: 0.82em; cursor: pointer; }
+        .badge-qtd { margin-left: auto; background: #4dabf730; color: #4dabf7; padding: 2px 10px; border-radius: 10px; font-size: 0.78em; font-weight: 600; }
+
+        /* Itens grid */
+        .itens-grid { }
+        .item-header-row { display: grid; grid-template-columns: 30px 1fr 90px 90px 120px 1fr 80px; gap: 6px; padding: 6px 8px; font-size: 0.75em; color: #666; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #0f3460; }
+        .item-row { display: grid; grid-template-columns: 30px 1fr 90px 90px 120px 1fr 80px; gap: 6px; align-items: center; padding: 8px 8px; border-bottom: 1px solid #0f346030; font-size: 0.85em; transition: background 0.2s; }
+        .item-row:hover { background: #0f346020; }
+        .item-row.selecionado { background: #4dabf710; border-left: 3px solid #4dabf7; }
+
+        .item-checkbox { width: 16px; height: 16px; cursor: pointer; }
+        .item-desc { min-width: 0; }
+        .item-num { font-weight: 600; color: #4dabf7; font-size: 0.82em; margin-right: 6px; }
+        .item-texto { font-size: 0.85em; color: #ccc; }
+        .item-ref { display: block; font-size: 0.78em; color: #666; margin-top: 2px; }
+        .item-valor { text-align: right; font-size: 0.85em; color: #888; }
+        .valor-ganhando { color: #4caf50 !important; font-weight: 600; }
+        .valor-participando { color: #4dabf7 !important; }
+
+        .item-input-cell input[type=number] { width: 100%; padding: 5px 6px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.88em; text-align: right; }
+        .item-input-cell input:focus { outline: none; border-color: #4dabf7; }
+
+        .item-extras-cell { display: flex; flex-direction: column; gap: 3px; }
+        .item-extras-cell input { padding: 3px 6px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.78em; }
+        .item-extras-cell input:focus { outline: none; border-color: #4dabf7; }
+
+        .badge-sit { padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
+        .badge-sit-G { background: #4caf5030; color: #4caf50; }
+        .badge-sit-P { background: #4dabf730; color: #4dabf7; }
+        .badge-sit-C { background: #ff980030; color: #ff9800; }
+        .badge-sit-D, .badge-sit-I, .badge-sit-A, .badge-sit-F, .badge-sit-R { background: #f4433620; color: #f44336; }
+
+        /* Actions */
+        .participacao-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #0f346030; flex-wrap: wrap; }
+        .btn-action { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.82em; font-weight: 500; transition: all 0.2s; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+        .btn-enviar { background: #4caf5030; color: #4caf50; border: 1px solid #4caf50; }
+        .btn-enviar:hover { background: #4caf5050; }
+        .btn-csv-action { background: #ff980030; color: #ff9800; border: 1px solid #ff9800; }
+        .btn-csv-action:hover { background: #ff980050; }
+        .btn-link-action { background: #9c27b030; color: #ce93d8; border: 1px solid #ce93d8; }
+        .btn-link-action:hover { background: #9c27b050; }
+
+        /* Loading / Empty */
+        .loading { text-align: center; padding: 40px; color: #888; }
+        .empty-state { text-align: center; padding: 40px 20px; color: #888; }
+        .empty-state .icon { font-size: 3em; margin-bottom: 10px; }
+        .itens-loading { text-align: center; padding: 16px; color: #888; font-size: 0.85em; }
+        .empty-itens { text-align: center; padding: 16px; color: #888; font-size: 0.85em; }
+
+        /* Resumo */
+        .resumo-grid { }
+        .resumo-item { display: flex; justify-content: space-between; padding: 6px 0; font-size: 0.9em; border-bottom: 1px solid #0f346030; }
+        .resumo-total { display: flex; justify-content: space-between; padding: 10px 0 0; font-size: 1.1em; font-weight: 700; color: #4caf50; }
+
+        /* Buttons */
+        .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9em; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #4dabf7; color: #000; } .btn-primary:hover { background: #339af0; }
+        .btn-success { background: #4caf50; color: #fff; } .btn-success:hover { background: #388e3c; }
+        .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; } .btn-outline:hover { background: #4dabf722; }
+        .btn-sm { padding: 4px 10px; font-size: 0.8em; }
+
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: #16213e; border-radius: 12px; padding: 24px; max-width: 650px; width: 90%; max-height: 85vh; overflow-y: auto; }
+        .modal-content h3 { color: #4dabf7; margin-bottom: 16px; }
+        .modal-close { float: right; background: none; border: none; color: #888; font-size: 1.5em; cursor: pointer; }
+        .modal-close:hover { color: #eee; }
+
+        .envio-info-box { background: #1a1a2e; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+        .envio-objeto { font-weight: 600; margin-bottom: 6px; }
+        .envio-orgao { color: #888; font-size: 0.88em; margin-bottom: 4px; }
+        .envio-meta { color: #4dabf7; font-size: 0.85em; }
+
+        .progress-bar { height: 6px; background: #0f3460; border-radius: 3px; margin: 12px 0; overflow: hidden; }
+        .progress-fill { height: 100%; background: #4caf50; border-radius: 3px; width: 0%; transition: width 0.5s; }
+
+        .envio-log { max-height: 250px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background: #0d1117; border-radius: 6px; padding: 10px; margin-top: 10px; }
+        .log-info { color: #4dabf7; margin-bottom: 4px; }
+        .log-ok { color: #4caf50; margin-bottom: 4px; }
+        .log-err { color: #f44336; margin-bottom: 4px; }
+        .log-link { margin-top: 10px; padding: 8px; background: #0f3460; border-radius: 6px; }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .item-header-row, .item-row { grid-template-columns: 30px 1fr 80px 80px; }
+            .item-extras-cell, .item-header-row > div:nth-child(6), .item-row > div:nth-child(6) { display: none; }
+            .item-header-row > div:nth-child(7), .item-row > div:nth-child(7) { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-container">
+<main class="main-content">
+    <h1>Propostas via API</h1>
+    <p class="subtitle">Participações Comprasnet &rarr; configure valores &rarr; envie direto via API do servidor</p>
+
+    <!-- Top bar -->
+    <div class="top-bar">
+        <div id="tokenStatus" class="token-status err"><span>Verificando token...</span></div>
+        <div id="statsInfo" class="stats-info"></div>
+    </div>
+
+    <!-- Filtros -->
+    <div id="filtrosContainer" style="display:none;">
+        <div class="filtros-bar">
+            <input type="text" id="filtroTexto" placeholder="Buscar objeto, orgao, compraId..." oninput="aplicarFiltros()">
+            <select id="filtroSituacao" onchange="aplicarFiltros()"><option value="">Todas situações</option></select>
+            <button class="btn btn-sm btn-outline" onclick="limparFiltros()">Limpar</button>
+        </div>
+        <div class="filtro-resultado" id="filtroResultado"></div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingContainer" class="loading">
+        <h3>Carregando participações...</h3>
+    </div>
+
+    <!-- Empty -->
+    <div id="emptyState" style="display:none;" class="empty-state">
+        <div class="icon">📭</div>
+        <p style="font-size:1.1em; margin-bottom:8px;">Nenhuma participação encontrada</p>
+        <p style="font-size:0.85em;">A extensão Token Relay sincroniza participações automaticamente quando você está logado no Comprasnet.</p>
+    </div>
+
+    <!-- Participações -->
+    <div id="participacoesContainer" style="display:none;"></div>
+
+    <!-- Resumo -->
+    <div class="panel" id="resumoGeral" style="display:none;">
+        <h3>Resumo</h3>
+        <div id="resumoConteudo"></div>
+    </div>
+
+</main>
+</div>
+
+<!-- Modal Envio -->
+<div class="modal-overlay" id="modalEnvio">
+    <div class="modal-content">
+        <button class="modal-close" onclick="fecharModalEnvio()">&times;</button>
+        <h3>Enviar Proposta via API</h3>
+        <div id="envioInfo"></div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div id="envioMsg" style="margin:10px 0; font-size:0.9em; color:#aaa;"></div>
+        <div class="envio-log" id="envioLog"></div>
+        <div style="margin-top:16px; display:flex; gap:8px;">
+            <button class="btn btn-success" id="btnEnviar">Enviar via API</button>
+            <button class="btn btn-outline" onclick="fecharModalEnvio()">Fechar</button>
+        </div>
+    </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('propostas-api');</script>
+<script src="propostas-api.js"></script>
+</body>
+</html>

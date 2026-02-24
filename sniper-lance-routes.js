@@ -116,6 +116,85 @@ function registrarRotasSniper(app, monitorGetter, db) {
     console.log(`[AutoLance] ${msg}`);
   }
 
+  // ==================== BLITZ MODE ====================
+  let blitzDisparados = {};  // { 'compraId-itemNumero': timestamp } prevent re-trigger
+  let autoLanceTimerUltra = null;  // 1s cycle for items near end
+
+  /**
+   * A7: Calcula média de tempo real por lance usando sniper_historico.
+   * Retorna tempo médio em ms (default 800ms se sem dados).
+   */
+  function calcularMediaTempoLance(compraId, itemNumero) {
+    try {
+      const rows = db.prepare(
+        `SELECT tempoMs FROM sniper_historico
+         WHERE compraId = ? AND itemNumero = ? AND sucesso = 1 AND tempoMs > 0
+         ORDER BY timestamp DESC LIMIT 20`
+      ).all(compraId, itemNumero);
+      if (rows.length === 0) return 800;
+      const soma = rows.reduce((s, r) => s + r.tempoMs, 0);
+      return Math.round(soma / rows.length);
+    } catch (e) {
+      return 800;
+    }
+  }
+
+  /**
+   * A1: Pré-calcula TODOS os degraus de lance de nossoValor até valorMinimo.
+   * Retorna array de lances prontos para enfileirar.
+   */
+  function calcularBatchLances(cfgItem, liveItem, compraId) {
+    const nossoValor = liveItem.nossoValor;
+    const varMin = liveItem.variacaoMinima;
+    const tipoVar = liveItem.tipoVariacao || 'V';
+    const valorMinimo = cfgItem.valorMinimo;
+
+    if (nossoValor == null || varMin == null || valorMinimo == null) return [];
+    if (nossoValor <= valorMinimo) return [];
+
+    const lances = [];
+    let valorAtual = nossoValor;
+    let step = 0;
+
+    while (valorAtual > valorMinimo) {
+      let novoValor;
+      if (tipoVar === 'P') {
+        novoValor = valorAtual * (1 - varMin / 100);
+      } else {
+        novoValor = valorAtual - varMin;
+      }
+      novoValor = Math.round(novoValor * 100) / 100;
+      if (novoValor < valorMinimo) novoValor = valorMinimo;
+
+      // Don't create duplicate of current value
+      if (novoValor >= valorAtual) break;
+
+      step++;
+      lances.push({
+        id: `blitz-${Date.now()}-${step}-${Math.random().toString(36).substring(2, 5)}`,
+        compraId,
+        itemNumero: cfgItem.itemNumero,
+        valor: novoValor,
+        faseItem: cfgItem.faseItem || 'LA',
+        criadoEm: new Date().toISOString(),
+        status: 'pendente',
+        fonte: 'blitz',
+        batchIndex: step - 1,
+        batchTotal: 0, // will be updated after loop
+      });
+
+      valorAtual = novoValor;
+      if (novoValor <= valorMinimo) break;
+      // Safety: max 50 steps
+      if (step >= 50) break;
+    }
+
+    // Update batchTotal
+    for (const l of lances) l.batchTotal = lances.length;
+
+    return lances;
+  }
+
   /**
    * Core loop: checks all items with modoAuto set and enqueues bids when losing.
    * @param {boolean} modoRapido - If true, only processes compras in autoLanceComprasFast
@@ -200,6 +279,15 @@ function registrarRotasSniper(app, monitorGetter, db) {
               }
             }
 
+            // A3: Ultra-fast polling when < 30s from end
+            if (segRestantes != null && segRestantes > 0 && segRestantes < 30) {
+              autoLanceComprasFast[compraId] = true;
+              if (!autoLanceTimerUltra) {
+                autoLanceTimerUltra = setInterval(() => executarCicloAutoLance(true), 1000);
+                logAuto(`ULTRA-FAST timer ativado (1s) — item ${cfgItem.itemNumero} a ${segRestantes}s do fim`);
+              }
+            }
+
             // Already at best price — nothing to do
             if (nossoValor != null && melhorGeral != null && nossoValor <= melhorGeral) continue;
 
@@ -208,6 +296,45 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
             // Already at our floor
             if (nossoValor != null && nossoValor <= cfgItem.valorMinimo) continue;
+
+            // A2: BLITZ MODE — sniper with batch pre-calculation
+            const blitzKey = `${compraId}-${cfgItem.itemNumero}`;
+            if (cfgItem.modoAuto === 'sniper' && segRestantes != null && segRestantes > 0 && !blitzDisparados[blitzKey]) {
+              // Calculate batch
+              const batchLances = calcularBatchLances(cfgItem, liveItem, compraId);
+              if (batchLances.length > 0) {
+                // Calculate timing: steps * avgBidTime + safety margin
+                const avgMs = calcularMediaTempoLance(compraId, cfgItem.itemNumero);
+                const tempoEstimadoMs = batchLances.length * avgMs;
+                const safetyMs = 3000;
+                const momentoIdealSeg = Math.ceil((tempoEstimadoMs + safetyMs) / 1000);
+
+                if (segRestantes <= momentoIdealSeg) {
+                  // DISPARA BLITZ! Enqueue ALL at once
+                  const jaEnfileirado = filaLances.some(l =>
+                    l.compraId === compraId &&
+                    l.itemNumero === cfgItem.itemNumero &&
+                    (l.status === 'pendente' || l.status === 'processando')
+                  );
+                  if (!jaEnfileirado) {
+                    for (const lance of batchLances) {
+                      filaLances.push(lance);
+                    }
+                    blitzDisparados[blitzKey] = Date.now();
+                    autoLanceStats.lancesEnviados += batchLances.length;
+                    liveItem.nossoValor = batchLances[batchLances.length - 1].valor;
+
+                    logAuto(`🚀 BLITZ: ${compraId} item ${cfgItem.itemNumero} — ${batchLances.length} lances enfileirados! ` +
+                      `R$${nossoValor.toFixed(2)} → R$${batchLances[batchLances.length - 1].valor.toFixed(2)} ` +
+                      `(avg ${avgMs}ms/lance, estimado ${Math.round(tempoEstimadoMs/1000)}s, restam ${segRestantes}s)`);
+                    continue; // blitz handled this item
+                  }
+                } else if (logDiag) {
+                  logAuto(`BLITZ aguardando: item ${cfgItem.itemNumero} — ${batchLances.length} passos, momento ideal T-${momentoIdealSeg}s, restam ${segRestantes}s`);
+                }
+                continue; // sniper waits for blitz moment
+              }
+            }
 
             // Calculate: one step down from our current value (respecting varMin)
             let novoLance;
@@ -228,7 +355,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
             // Clamp to floor
             if (novoLance < cfgItem.valorMinimo) novoLance = cfgItem.valorMinimo;
 
-            // Check cooldown (30s per item)
+            // Check cooldown (30s per item — A5: blitz lances bypass cooldown)
             const pendingKey = `${compraId}-${cfgItem.itemNumero}`;
             if (autoLancePendentes[pendingKey] && (Date.now() - autoLancePendentes[pendingKey]) < 30000) {
               continue; // still in cooldown
@@ -268,6 +395,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
           logAuto(`ERRO compra ${compraId}: ${e.message}`);
         }
       }
+      // A3: Check if ultra timer still needed (only on normal cycles)
+      if (!modoRapido) verificarUltraTimer();
     } catch (e) {
       logAuto(`ERRO ciclo: ${e.message}`);
     }
@@ -291,8 +420,32 @@ function registrarRotasSniper(app, monitorGetter, db) {
     autoLanceAtivo = false;
     if (autoLanceTimerNormal) { clearInterval(autoLanceTimerNormal); autoLanceTimerNormal = null; }
     if (autoLanceTimerRapido) { clearInterval(autoLanceTimerRapido); autoLanceTimerRapido = null; }
+    if (autoLanceTimerUltra) { clearInterval(autoLanceTimerUltra); autoLanceTimerUltra = null; }
     autoLanceComprasFast = {};
+    blitzDisparados = {};
     logAuto('Engine DESLIGADO');
+  }
+
+  // A3: Auto-cleanup ultra timer when no items near end
+  function verificarUltraTimer() {
+    if (!autoLanceTimerUltra) return;
+    // Check if any item is still < 30s from end
+    let precisaUltra = false;
+    for (const d of disputasCache.disputas) {
+      if (!d.itens) continue;
+      for (const item of d.itens) {
+        if (item.fimContagem) {
+          const seg = Math.floor((new Date(item.fimContagem).getTime() - Date.now()) / 1000);
+          if (seg > 0 && seg < 30) { precisaUltra = true; break; }
+        }
+      }
+      if (precisaUltra) break;
+    }
+    if (!precisaUltra) {
+      clearInterval(autoLanceTimerUltra);
+      autoLanceTimerUltra = null;
+      logAuto('ULTRA-FAST timer desativado (nenhum item próximo do fim)');
+    }
   }
 
   function verificarAutoLanceNecessario() {
@@ -352,7 +505,21 @@ function registrarRotasSniper(app, monitorGetter, db) {
     const pendentes = filaLances.filter(l => l.status === 'pendente');
     // Marcar como "processando"
     pendentes.forEach(l => l.status = 'processando');
-    res.json({ success: true, lances: pendentes, total: filaLances.length });
+
+    // A4: Determine poll interval based on proximity to end
+    let pollIntervalMs = 5000; // default
+    for (const d of disputasCache.disputas) {
+      if (!d.itens) continue;
+      for (const item of d.itens) {
+        if (item.fimContagem) {
+          const seg = Math.floor((new Date(item.fimContagem).getTime() - Date.now()) / 1000);
+          if (seg > 0 && seg < 60) { pollIntervalMs = 1000; break; }
+        }
+      }
+      if (pollIntervalMs === 1000) break;
+    }
+
+    res.json({ success: true, lances: pendentes, total: filaLances.length, pollIntervalMs });
   });
 
   /**
@@ -405,22 +572,129 @@ function registrarRotasSniper(app, monitorGetter, db) {
       } catch (dbErr) { console.error('[Sniper] Erro salvando no banco:', dbErr.message); }
 
       // Auto-lance pending cleanup
+      // A5: Blitz lances bypass cooldown
       const pendingKey = `${compraId}-${itemNumero}`;
+      const lanceObj = idx >= 0 ? filaLances[idx] : null;
+      const isBlitz = lanceObj && lanceObj.fonte === 'blitz';
+
       if (sucesso) {
-        // Keep cooldown on success (prevent re-bidding immediately)
-        autoLancePendentes[pendingKey] = Date.now();
+        if (isBlitz) {
+          // Blitz: no cooldown — next lance in batch comes immediately
+          delete autoLancePendentes[pendingKey];
+        } else {
+          // Normal: keep cooldown on success (prevent re-bidding immediately)
+          autoLancePendentes[pendingKey] = Date.now();
+        }
       } else {
         // Clear pending on failure so auto-lance can retry
         delete autoLancePendentes[pendingKey];
       }
 
-      // Limpar da fila após 30s
+      // Limpar da fila após 30s (or 5s for blitz to reduce clutter)
       setTimeout(() => {
         const i = filaLances.findIndex(l => l.id === id);
         if (i >= 0) filaLances.splice(i, 1);
-      }, 30000);
+      }, isBlitz ? 5000 : 30000);
+
+      // A6: Reactive trigger — after success in continuo mode, run mini-cycle immediately
+      if (sucesso && !isBlitz && autoLanceAtivo) {
+        setImmediate(() => executarCicloAutoLance(true));
+      }
 
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ==================== A8: BATCH RESULT ENDPOINT ====================
+
+  /**
+   * POST /api/sniper/resultado-lances-batch
+   * Recebe array de resultados de lances de uma vez (extensão envia batch).
+   */
+  app.post('/api/sniper/resultado-lances-batch', (req, res) => {
+    try {
+      const { resultados } = req.body;
+      if (!Array.isArray(resultados) || resultados.length === 0) {
+        return res.status(400).json({ success: false, error: 'resultados deve ser array não-vazio' });
+      }
+
+      let sucessos = 0, falhas = 0;
+
+      for (const r of resultados) {
+        const { id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs } = r;
+
+        // Update queue item
+        const idx = filaLances.findIndex(l => l.id === id);
+        if (idx >= 0) {
+          filaLances[idx].status = sucesso ? 'sucesso' : 'falha';
+          filaLances[idx].httpStatus = status;
+          filaLances[idx].resposta = resposta;
+          filaLances[idx].tempoMs = tempoMs;
+          filaLances[idx].processadoEm = new Date().toISOString();
+        }
+
+        // Add to recent results
+        resultadosLances.unshift({
+          id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs,
+          timestamp: new Date().toISOString(),
+          fonte: 'extensao-browser',
+        });
+
+        // Log
+        if (sucesso) {
+          sniper.log(`🎯✅ LANCE (batch)! R$ ${parseFloat(valor).toFixed(2)} item ${itemNumero} (${tempoMs}ms)`);
+          sucessos++;
+        } else {
+          sniper.log(`🎯❌ Lance falhou (batch): HTTP ${status} item ${itemNumero} (${tempoMs}ms)`);
+          falhas++;
+        }
+
+        // Persist to DB
+        try {
+          db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, itemNumero, valor, status, sucesso ? 1 : 0, tempoMs, (resposta||'').substring(0, 500), 'browser');
+          db.prepare(`UPDATE sniper_itens SET status = ?, ultimoResultado = ?, ultimoEnvio = CURRENT_TIMESTAMP, dataAtualizacao = CURRENT_TIMESTAMP
+            WHERE compraId = ? AND itemNumero = ?`).run(sucesso ? 'enviado' : 'erro', `HTTP ${status} (${tempoMs}ms)`, compraId, itemNumero);
+        } catch (dbErr) {}
+
+        // Sniper history
+        sniper.historico.unshift({ compraId, itemNumero, valor, status, sucesso, tempoMs, timestamp: new Date().toISOString(), fonte: 'browser' });
+
+        // Cooldown: blitz lances bypass
+        const pendingKey = `${compraId}-${itemNumero}`;
+        const lanceObj = idx >= 0 ? filaLances[idx] : null;
+        const isBlitz = lanceObj && lanceObj.fonte === 'blitz';
+        if (sucesso) {
+          if (isBlitz) {
+            delete autoLancePendentes[pendingKey];
+          } else {
+            autoLancePendentes[pendingKey] = Date.now();
+          }
+        } else {
+          delete autoLancePendentes[pendingKey];
+        }
+
+        // Clean from queue
+        setTimeout(() => {
+          const i = filaLances.findIndex(l => l.id === id);
+          if (i >= 0) filaLances.splice(i, 1);
+        }, isBlitz ? 5000 : 30000);
+      }
+
+      // Trim results history
+      if (resultadosLances.length > 50) resultadosLances.length = 50;
+      if (sniper.historico.length > 50) sniper.historico.length = 50;
+
+      console.log(`[Sniper] Batch resultado: ${sucessos} ✅ ${falhas} ❌ (${resultados.length} total)`);
+
+      // Reactive trigger after batch
+      if (sucessos > 0 && autoLanceAtivo) {
+        setImmediate(() => executarCicloAutoLance(true));
+      }
+
+      res.json({ success: true, sucessos, falhas, total: resultados.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -445,6 +719,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
         stats: autoLanceStats,
         comprasFastPoll: Object.keys(autoLanceComprasFast),
         pendentes: Object.keys(autoLancePendentes).length,
+        blitzDisparados: Object.keys(blitzDisparados),
+        ultraTimerAtivo: !!autoLanceTimerUltra,
         log: autoLanceLog.slice(0, 30),
       });
     } catch (e) {

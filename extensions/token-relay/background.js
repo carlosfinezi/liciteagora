@@ -13,10 +13,13 @@
 const SERVER_URL = 'http://217.216.85.37:8080';
 const COMPRASNET = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const SYNC_INTERVAL_MIN = 2; // sync a cada 2 minutos
+const KEEPALIVE_INTERVAL_MIN = 2; // keepalive a cada 2 minutos
+const TOKEN_MAX_AGE_MS = 540000; // 9 min (margem de segurança; Comprasnet expira em 10)
 let syncAgendado = false;
 let syncEmExecucao = false;
+let aguardandoNovoBearer = false; // flag: reload feito, esperando novo token
 
-console.log('[LiciteAgora] Service worker v3.4.0 carregado!');
+console.log('[LiciteAgora] Service worker v3.5.0 carregado!');
 
 // ==================== STORAGE ====================
 
@@ -25,6 +28,41 @@ async function load() {
 }
 async function save(obj) {
   return new Promise(r => chrome.storage.local.set(obj, r));
+}
+
+// ==================== HELPERS DE TOKEN ====================
+
+/**
+ * Verifica se o bearer token está velho demais (> 9 min).
+ * Retorna true se o token é válido e fresco.
+ */
+async function tokenEstaFresco() {
+  const data = await load();
+  if (!data.bearer || !data.ultimoEnvio) return false;
+  return (Date.now() - data.ultimoEnvio) < TOKEN_MAX_AGE_MS;
+}
+
+/**
+ * Verifica se a sessão SSO do Comprasnet ainda está ativa.
+ * Usa HEAD com redirect:manual — se redirecionar para login, sessão morreu.
+ */
+async function verificarSessaoSSO() {
+  try {
+    const response = await fetch(
+      COMPRASNET + '/comprasnet-web/seguro/fornecedor/compras',
+      { method: 'HEAD', credentials: 'include', redirect: 'manual' }
+    );
+    // opaqueredirect = redirecionou para SSO login
+    if (response.type === 'opaqueredirect' || response.status === 401 || response.status === 403) {
+      console.log('[LiciteAgora] Sessão SSO expirada (status=' + response.status + ', type=' + response.type + ')');
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.log('[LiciteAgora] Erro verificando SSO:', e.message);
+    // Em caso de erro de rede, assume ativa para não travar
+    return true;
+  }
 }
 
 // ==================== INTERCEPTAÇÃO DE TOKENS ====================
@@ -109,6 +147,16 @@ async function onTokensCapturados(bearer, captcha) {
   if (mudou || agora - (data.ultimoEnvio || 0) > 60000) {
     const atual = await load();
     await enviarTokens(atual.bearer || bearer, atual.captcha || captcha, atual.stats || stats);
+  }
+
+  // Pós-reload: novo bearer chegou, enviar imediatamente e fazer sync
+  if (bearer && aguardandoNovoBearer) {
+    aguardandoNovoBearer = false;
+    console.log('[LiciteAgora] ✅ Novo bearer recebido pós-reload → sync imediato');
+    const atual = await load();
+    await enviarTokens(atual.bearer || bearer, atual.captcha || captcha, atual.stats || stats);
+    setTimeout(() => executarSync(), 2000);
+    return;
   }
 
   // Sync imediato somente uma vez por sessão do service worker
@@ -298,6 +346,15 @@ async function executarSync() {
   const data = await load();
   if (!data.bearer) {
     console.log('[LiciteAgora] Sync pulado — falta bearer');
+    syncEmExecucao = false;
+    return;
+  }
+
+  // Verificar idade do token antes de gastar requests
+  if (!await tokenEstaFresco()) {
+    console.log('[LiciteAgora] Sync pulado — token velho (>' + (TOKEN_MAX_AGE_MS/60000) + 'min), aguardando renovação');
+    // Forçar keepalive para tentar renovar
+    executarKeepalive();
     syncEmExecucao = false;
     return;
   }
@@ -706,16 +763,49 @@ async function executarKeepalive() {
     return;
   }
 
-  console.log('[LiciteAgora] 🔄 Keepalive: chamando datahorabrasilia...');
+  // 1. Verificar se o token ainda é fresco o suficiente
+  var idadeMs = Date.now() - (data.ultimoEnvio || 0);
+  console.log('[LiciteAgora] 🔄 Keepalive: token com ' + Math.floor(idadeMs/1000) + 's, chamando datahorabrasilia...');
+
   var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
 
   if (result.status === 401 || result.status === 403) {
-    console.log('[LiciteAgora] ⚠️ Keepalive: token expirado (HTTP ' + result.status + ') — recarregando aba');
+    console.log('[LiciteAgora] ⚠️ Keepalive: token expirado (HTTP ' + result.status + ')');
+
+    // 2. Verificar se a sessão SSO ainda está viva antes de recarregar
+    var ssoOk = await verificarSessaoSSO();
+    if (!ssoOk) {
+      console.log('[LiciteAgora] ❌ Sessão SSO morta — reload não vai resolver. Aguardando login manual.');
+      chrome.action.setBadgeText({ text: 'SSO' });
+      chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+      await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
+      return;
+    }
+
+    // 3. SSO OK → reload da aba vai gerar novo bearer
+    console.log('[LiciteAgora] ✅ SSO ativo — recarregando aba para renovar bearer...');
+    aguardandoNovoBearer = true;
+    chrome.action.setBadgeText({ text: '⏳' });
+    chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+
     try {
       await chrome.tabs.reload(tab.id);
     } catch (e) {
       console.error('[LiciteAgora] Erro recarregando aba:', e.message);
+      aguardandoNovoBearer = false;
     }
+
+    // 4. Timeout de segurança: se em 30s não receber novo bearer, limpar flag
+    setTimeout(async () => {
+      if (aguardandoNovoBearer) {
+        aguardandoNovoBearer = false;
+        console.log('[LiciteAgora] ⚠️ Timeout: novo bearer não chegou após reload');
+        chrome.action.setBadgeText({ text: '!' });
+        chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+        await save({ ultimoErro: 'Bearer não renovado após reload (timeout 30s)' });
+      }
+    }, 30000);
+
   } else if (result.status === 200) {
     console.log('[LiciteAgora] ✅ Keepalive OK');
     // Reenviar token ao servidor para manter timestamp atualizado
@@ -770,13 +860,22 @@ async function detectarEncerradas(idsEmAndamentoAtual) {
 // ==================== PERIODIC SYNC via chrome.alarms ====================
 
 chrome.alarms.create('sync', { periodInMinutes: SYNC_INTERVAL_MIN });
-chrome.alarms.create('keepalive', { delayInMinutes: 1, periodInMinutes: 4 });
+chrome.alarms.create('keepalive', { delayInMinutes: 0.5, periodInMinutes: KEEPALIVE_INTERVAL_MIN });
 
-// Lance polling via setInterval (alarms have 1 min minimum)
-setInterval(function() {
-  processarFilaLances();
-  processarFilaQueries();
-}, 5000);
+// B1: Adaptive lance polling (variable interval based on server signal)
+var lancesPollInterval = 5000;  // default 5s, server can signal 1s
+var lancesPollTimer = null;
+
+function agendarProximoPoll() {
+  if (lancesPollTimer) clearTimeout(lancesPollTimer);
+  lancesPollTimer = setTimeout(function() {
+    processarFilaLances();
+    processarFilaQueries();
+  }, lancesPollInterval);
+}
+
+// Start initial poll loop
+agendarProximoPoll();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'sync') {
@@ -797,10 +896,21 @@ async function processarFilaLances() {
   try {
     // 1. Buscar fila do servidor
     var resp = await fetch(SERVER_URL + '/api/sniper/fila-lances');
-    if (!resp.ok) { lancesEmProcessamento = false; return; }
+    if (!resp.ok) { lancesEmProcessamento = false; agendarProximoPoll(); return; }
     var fila = await resp.json();
+
+    // B1: Adaptive polling — adjust interval based on server signal
+    if (fila.pollIntervalMs && fila.pollIntervalMs !== lancesPollInterval) {
+      var oldInterval = lancesPollInterval;
+      lancesPollInterval = fila.pollIntervalMs;
+      if (oldInterval !== lancesPollInterval) {
+        console.log('[LiciteAgora] Poll interval: ' + oldInterval + 'ms → ' + lancesPollInterval + 'ms');
+      }
+    }
+
     if (!fila.success || !fila.lances || fila.lances.length === 0) {
       lancesEmProcessamento = false;
+      agendarProximoPoll();
       return;
     }
 
@@ -809,18 +919,49 @@ async function processarFilaLances() {
     if (!data.bearer) {
       console.log('[LiciteAgora] Fila de lances: sem bearer');
       lancesEmProcessamento = false;
+      agendarProximoPoll();
+      return;
+    }
+    if (!await tokenEstaFresco()) {
+      console.log('[LiciteAgora] Fila de lances: token velho, forçando keepalive');
+      executarKeepalive();
+      lancesEmProcessamento = false;
+      agendarProximoPoll();
       return;
     }
     var tab = await findComprasnetTab();
     if (!tab) {
       console.log('[LiciteAgora] Fila de lances: sem aba Comprasnet');
       lancesEmProcessamento = false;
+      agendarProximoPoll();
       return;
     }
 
-    // 3. Processar cada lance pendente
+    // 3. Processar lances — B3: abort on failure per item, B4: collect batch results
+    var batchResultados = [];
+    var lancesProcessados = 0;
+    var failedItems = {};  // { 'compraId-itemNumero': true } — skip remaining lances for failed items
+
     for (var lance of fila.lances) {
-      console.log('[LiciteAgora] 🎯 Enviando lance: compra=' + lance.compraId + ' item=' + lance.itemNumero + ' R$' + lance.valor);
+      // B3: Skip remaining lances for items that already failed
+      var itemKey = lance.compraId + '-' + lance.itemNumero;
+      if (failedItems[itemKey]) {
+        console.log('[LiciteAgora] ⏭️ Pulando lance (item falhou): ' + itemKey + ' R$' + lance.valor);
+        batchResultados.push({
+          id: lance.id,
+          compraId: lance.compraId,
+          itemNumero: lance.itemNumero,
+          valor: lance.valor,
+          status: 0,
+          sucesso: false,
+          resposta: 'Skipped: previous lance for this item failed',
+          tempoMs: 0,
+        });
+        continue;
+      }
+
+      console.log('[LiciteAgora] 🎯 Enviando lance: compra=' + lance.compraId + ' item=' + lance.itemNumero + ' R$' + lance.valor +
+        (lance.fonte === 'blitz' ? ' [BLITZ ' + (lance.batchIndex+1) + '/' + lance.batchTotal + ']' : ''));
 
       var path = '/comprasnet-disputa/v1/compras/' + lance.compraId + '/itens/' + lance.itemNumero + '/lances';
       var body = { valorInformado: lance.valor, faseItem: lance.faseItem || 'LA' };
@@ -830,28 +971,60 @@ async function processarFilaLances() {
       var tempoMs = Date.now() - inicio;
 
       var sucesso = result.status === 200 || result.status === 201;
+      lancesProcessados++;
       console.log('[LiciteAgora] 🎯 Lance resultado: HTTP ' + result.status + ' (' + tempoMs + 'ms)' + (sucesso ? ' ✅' : ' ❌'));
 
-      // 4. Reportar resultado ao servidor
-      try {
-        await serverPost('/api/sniper/resultado-lance', {
-          id: lance.id,
-          compraId: lance.compraId,
-          itemNumero: lance.itemNumero,
-          valor: lance.valor,
-          status: result.status,
-          sucesso: sucesso,
-          resposta: JSON.stringify(result.data || result.text || result.error).substring(0, 500),
-          tempoMs: tempoMs,
-        });
-      } catch (e) {
-        console.error('[LiciteAgora] Erro reportando lance:', e.message);
+      var resultadoLance = {
+        id: lance.id,
+        compraId: lance.compraId,
+        itemNumero: lance.itemNumero,
+        valor: lance.valor,
+        status: result.status,
+        sucesso: sucesso,
+        resposta: JSON.stringify(result.data || result.text || result.error).substring(0, 500),
+        tempoMs: tempoMs,
+      };
+      batchResultados.push(resultadoLance);
+
+      // B3: Mark item as failed to skip remaining lances in batch
+      if (!sucesso) {
+        failedItems[itemKey] = true;
       }
+    }
+
+    // B4: Report results — try batch endpoint first, fallback to individual
+    if (batchResultados.length > 0) {
+      try {
+        var batchResp = await fetch(SERVER_URL + '/api/sniper/resultado-lances-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resultados: batchResultados }),
+        });
+        if (batchResp.ok) {
+          console.log('[LiciteAgora] Batch resultado enviado: ' + batchResultados.length + ' lances');
+        } else {
+          // Fallback: send individually
+          throw new Error('Batch endpoint returned HTTP ' + batchResp.status);
+        }
+      } catch (e) {
+        // Fallback: send results individually
+        console.log('[LiciteAgora] Batch fallback → individual (' + e.message + ')');
+        for (var r of batchResultados) {
+          try { await serverPost('/api/sniper/resultado-lance', r); } catch (e2) {}
+        }
+      }
+    }
+
+    // B2: Re-poll immediately if processed 3+ lances (might be more waiting)
+    if (lancesProcessados >= 3) {
+      console.log('[LiciteAgora] Re-poll imediato (batch ' + lancesProcessados + ' lances)');
+      setTimeout(function() { processarFilaLances(); }, 200);
     }
   } catch (e) {
     // Silently skip if server not reachable
   } finally {
     lancesEmProcessamento = false;
+    agendarProximoPoll();
   }
 }
 

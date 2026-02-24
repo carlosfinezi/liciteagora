@@ -2,6 +2,8 @@
 let licitacoesLidas = {};
 // Mapa de licitações com interesse (valor = quantidade de itens)
 let licitacoesComInteresse = {};
+// Mapa de licitações sem interesse (key → {motivo, data})
+let licitacoesSemInteresse = {};
 let todasLicitacoesAtuais = [];
 
 // Configuração da API local
@@ -171,6 +173,7 @@ function displayResults(licitacoes) {
         resultsContainer.appendChild(card);
     });
     atualizarContadorLidas();
+    aplicarFiltros();
 
     resultsContainer.style.display = 'grid';
 }
@@ -186,7 +189,8 @@ function createLicitacaoCard(licitacao) {
 
     const lidaClass = isLida(cnpj, ano, seq) ? ' lida' : '';
     const interesseClass = hasInteresse(cnpj, ano, seq) ? ' com-interesse' : '';
-    card.className = 'licitacao-card' + lidaClass + interesseClass;
+    const semInteresseClass = isSemInteresse(cnpj, ano, seq) ? ' sem-interesse' : '';
+    card.className = 'licitacao-card' + lidaClass + interesseClass + semInteresseClass;
 
     // Formatação de dados - usar modalidadeNome do banco se disponível
     const modalidade = licitacao.modalidadeNome || getModalidadeNome(licitacao.codigoModalidadeContratacao || licitacao.modalidadeId);
@@ -199,6 +203,8 @@ function createLicitacaoCard(licitacao) {
     const qtdInteresse = getQtdInteresse(cnpj, ano, seq);
     const badgeLida = isLida(cnpj, ano, seq) ? '<span class="status-badge badge-lida">✓ Lida</span>' : '';
     const badgeInteresse = qtdInteresse > 0 ? `<span class="status-badge badge-interesse">⭐ ${qtdInteresse} item(s) de interesse</span>` : '';
+    const siInfo = licitacoesSemInteresse[cnpj + '-' + ano + '-' + seq];
+    const badgeSemInteresse = siInfo ? `<span class="status-badge badge-sem-interesse" title="${siInfo.motivo || ''}">🚫 Sem interesse</span>` : '';
 
     card.innerHTML = `
         <div class="licitacao-header">
@@ -206,7 +212,7 @@ function createLicitacaoCard(licitacao) {
                 ${licitacao.objetoCompra || 'Objeto não informado'}
             </div>
             <div class="licitacao-badges">
-                ${badgeInteresse}${badgeLida}
+                ${badgeSemInteresse}${badgeInteresse}${badgeLida}
                 <span class="licitacao-badge badge-modalidade">${modalidade}</span>
             </div>
         </div>
@@ -263,6 +269,10 @@ function createLicitacaoCard(licitacao) {
                 <button class="btn-marcar-lida${isLida(licitacao.orgaoEntidade?.cnpj, licitacao.anoCompra, licitacao.sequencialCompra) ? ' lida' : ''}"
                         onclick="toggleLida('${licitacao.orgaoEntidade?.cnpj}', ${licitacao.anoCompra}, ${licitacao.sequencialCompra}, this)">
                         ${isLida(licitacao.orgaoEntidade?.cnpj, licitacao.anoCompra, licitacao.sequencialCompra) ? '✓ Lida' : '👁 Marcar lida'}
+                    </button>
+                    <button class="btn-sem-interesse${isSemInteresse(cnpj, ano, seq) ? ' marcado' : ''}"
+                        onclick="toggleSemInteresse('${cnpj}', ${ano}, ${seq}, this)">
+                        ${isSemInteresse(cnpj, ano, seq) ? '🚫 Sem interesse' : '🚫 Não tenho interesse'}
                     </button>
                     <button class="btn-ver-itens" onclick="abrirModalItens('${licitacao.orgaoEntidade?.cnpj || ''}', ${licitacao.anoCompra || 0}, ${licitacao.sequencialCompra || 0})">Ver Itens</button>
                 ${licitacao.linkSistemaOrigem ? `
@@ -910,6 +920,118 @@ function atualizarContadorLidas() {
     }
 }
 
+// ========================================
+// Funções para licitações sem interesse
+// ========================================
+
+async function carregarSemInteresse() {
+    try {
+        const response = await fetch('/api/sem-interesse');
+        const data = await response.json();
+        if (data.success) {
+            licitacoesSemInteresse = data.data;
+        }
+    } catch (error) {
+        console.error('Erro ao carregar sem interesse:', error);
+    }
+}
+
+function isSemInteresse(cnpj, ano, sequencial) {
+    return !!licitacoesSemInteresse[cnpj + '-' + ano + '-' + sequencial];
+}
+
+function toggleSemInteresse(cnpj, ano, sequencial, btn) {
+    if (isSemInteresse(cnpj, ano, sequencial)) {
+        removerSemInteresse(cnpj, ano, sequencial, btn);
+    } else {
+        abrirModalSemInteresse(cnpj, ano, sequencial);
+    }
+}
+
+function abrirModalSemInteresse(cnpj, ano, sequencial) {
+    const modal = document.getElementById('modalSemInteresse');
+    modal.dataset.cnpj = cnpj;
+    modal.dataset.ano = ano;
+    modal.dataset.sequencial = sequencial;
+    document.getElementById('motivoSemInteresse').value = '';
+    modal.style.display = 'flex';
+}
+
+function fecharModalSemInteresse() {
+    document.getElementById('modalSemInteresse').style.display = 'none';
+}
+
+async function confirmarSemInteresse() {
+    const modal = document.getElementById('modalSemInteresse');
+    const cnpj = modal.dataset.cnpj;
+    const ano = parseInt(modal.dataset.ano);
+    const sequencial = parseInt(modal.dataset.sequencial);
+    const motivo = document.getElementById('motivoSemInteresse').value.trim();
+
+    try {
+        const response = await fetch('/api/sem-interesse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cnpj, ano, sequencial, motivo: motivo || null })
+        });
+        const data = await response.json();
+        if (data.success) {
+            licitacoesSemInteresse[cnpj + '-' + ano + '-' + sequencial] = { motivo: motivo || null, data: new Date().toISOString() };
+            atualizarCardSemInteresse(cnpj, ano, sequencial, true);
+            fecharModalSemInteresse();
+            aplicarFiltros();
+        }
+    } catch (error) {
+        console.error('Erro ao marcar sem interesse:', error);
+    }
+}
+
+async function removerSemInteresse(cnpj, ano, sequencial, btn) {
+    try {
+        const response = await fetch(`/api/sem-interesse/${cnpj}/${ano}/${sequencial}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (data.success) {
+            delete licitacoesSemInteresse[cnpj + '-' + ano + '-' + sequencial];
+            atualizarCardSemInteresse(cnpj, ano, sequencial, false);
+            aplicarFiltros();
+        }
+    } catch (error) {
+        console.error('Erro ao remover sem interesse:', error);
+    }
+}
+
+function atualizarCardSemInteresse(cnpj, ano, sequencial, marcado) {
+    const cards = document.querySelectorAll('.licitacao-card');
+    cards.forEach(card => {
+        const btnSI = card.querySelector('.btn-sem-interesse');
+        if (!btnSI) return;
+        const onclick = btnSI.getAttribute('onclick') || '';
+        if (onclick.includes(cnpj) && onclick.includes(String(ano)) && onclick.includes(String(sequencial))) {
+            if (marcado) {
+                card.classList.add('sem-interesse');
+                btnSI.classList.add('marcado');
+                btnSI.textContent = '🚫 Sem interesse';
+                // Add badge
+                const badgesDiv = card.querySelector('.licitacao-badges');
+                if (badgesDiv && !badgesDiv.querySelector('.badge-sem-interesse')) {
+                    const badge = document.createElement('span');
+                    badge.className = 'status-badge badge-sem-interesse';
+                    const info = licitacoesSemInteresse[cnpj + '-' + ano + '-' + sequencial];
+                    badge.title = info?.motivo || '';
+                    badge.textContent = '🚫 Sem interesse';
+                    badgesDiv.insertBefore(badge, badgesDiv.firstChild);
+                }
+            } else {
+                card.classList.remove('sem-interesse');
+                btnSI.classList.remove('marcado');
+                btnSI.textContent = '🚫 Não tenho interesse';
+                const badge = card.querySelector('.badge-sem-interesse');
+                if (badge) badge.remove();
+            }
+        }
+    });
+}
+
 function aplicarFiltroLidas() {
     aplicarFiltros();
 }
@@ -917,6 +1039,7 @@ function aplicarFiltroLidas() {
 function aplicarFiltros() {
     const filtroNaoLidas = document.getElementById('filtroNaoLidas')?.checked;
     const filtroComInteresse = document.getElementById('filtroComInteresse')?.checked;
+    const filtroSemInteresse = document.getElementById('filtroSemInteresse')?.checked;
     const cards = document.querySelectorAll('.licitacao-card');
     let visiveis = 0;
 
@@ -933,20 +1056,26 @@ function aplicarFiltros() {
             mostrar = false;
         }
 
+        // Filtro ocultar sem interesse
+        if (filtroSemInteresse && card.classList.contains('sem-interesse')) {
+            mostrar = false;
+        }
+
         card.style.display = mostrar ? '' : 'none';
         if (mostrar) visiveis++;
     });
 
     // Atualizar contador de visíveis
     const countEl = document.getElementById('resultsCount');
-    if (countEl && (filtroNaoLidas || filtroComInteresse)) {
+    if (countEl && (filtroNaoLidas || filtroComInteresse || filtroSemInteresse)) {
         const total = cards.length;
         countEl.textContent = visiveis + ' de ' + total;
     }
 }
 
-// Carregar lidas e interesses ao iniciar
+// Carregar lidas, interesses e sem interesse ao iniciar
 document.addEventListener('DOMContentLoaded', () => {
     carregarLidas();
     carregarInteresses();
+    carregarSemInteresse();
 });

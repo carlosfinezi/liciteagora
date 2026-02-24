@@ -131,6 +131,18 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_lida_licitacao ON licitacao_lida(cnpj, ano, sequencial);
 
+  CREATE TABLE IF NOT EXISTS sem_interesse (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cnpj TEXT NOT NULL,
+    ano INTEGER NOT NULL,
+    sequencial INTEGER NOT NULL,
+    motivo TEXT,
+    dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(cnpj, ano, sequencial)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sem_interesse ON sem_interesse(cnpj, ano, sequencial);
+
   -- Tabela para configuração de lances do robô
   CREATE TABLE IF NOT EXISTS config_lances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2309,6 +2321,73 @@ app.get('/api/interesses/licitacoes', (req, res) => {
 
   } catch (error) {
     console.error('Erro ao listar interesses:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Endpoints de "Sem Interesse"
+ */
+
+// Marcar licitação como sem interesse
+app.post('/api/sem-interesse', (req, res) => {
+  try {
+    const { cnpj, ano, sequencial, motivo } = req.body;
+
+    if (!cnpj || !ano || !sequencial) {
+      return res.status(400).json({
+        success: false,
+        error: 'cnpj, ano e sequencial são obrigatórios'
+      });
+    }
+
+    db.prepare(`
+      INSERT OR REPLACE INTO sem_interesse (cnpj, ano, sequencial, motivo, dataCriacao)
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `).run(cnpj, parseInt(ano), parseInt(sequencial), motivo || null);
+
+    res.json({ success: true, message: 'Marcada como sem interesse' });
+
+  } catch (error) {
+    console.error('Erro ao marcar sem interesse:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Remover marcação de sem interesse
+app.delete('/api/sem-interesse/:cnpj/:ano/:sequencial', (req, res) => {
+  try {
+    const { cnpj, ano, sequencial } = req.params;
+
+    const result = db.prepare(
+      'DELETE FROM sem_interesse WHERE cnpj = ? AND ano = ? AND sequencial = ?'
+    ).run(cnpj, parseInt(ano), parseInt(sequencial));
+
+    res.json({
+      success: true,
+      message: result.changes > 0 ? 'Removida' : 'Não encontrada'
+    });
+
+  } catch (error) {
+    console.error('Erro ao remover sem interesse:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Listar licitações sem interesse
+app.get('/api/sem-interesse', (req, res) => {
+  try {
+    const rows = db.prepare('SELECT cnpj, ano, sequencial, motivo, dataCriacao FROM sem_interesse').all();
+
+    const mapa = {};
+    rows.forEach(r => {
+      mapa[r.cnpj + '-' + r.ano + '-' + r.sequencial] = { motivo: r.motivo, data: r.dataCriacao };
+    });
+
+    res.json({ success: true, data: mapa, total: rows.length });
+
+  } catch (error) {
+    console.error('Erro ao listar sem interesse:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
