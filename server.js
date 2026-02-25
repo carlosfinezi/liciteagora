@@ -6501,11 +6501,11 @@ app.get('/api/chat/mensagens', (req, res) => {
 
     // Filtro por data
     if (data === 'hoje') {
-      sql += ' AND date(dataCaptura) = date("now")';
+      sql += " AND date(dataCaptura) = date('now')";
     } else if (data === '7dias') {
-      sql += ' AND date(dataCaptura) >= date("now", "-7 days")';
+      sql += " AND date(dataCaptura) >= date('now', '-7 days')";
     } else if (data === '30dias') {
-      sql += ' AND date(dataCaptura) >= date("now", "-30 days")';
+      sql += " AND date(dataCaptura) >= date('now', '-30 days')";
     }
 
     // Filtro por busca de texto
