@@ -748,7 +748,43 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
   }
 }
 
-// ==================== KEEPALIVE (mantém token Bearer ativo) ====================
+// ==================== KEEPALIVE (mantém sessão SSO + token Bearer) ====================
+
+/**
+ * Pinga uma página do comprasnet-web DENTRO da aba para renovar cookies da sessão SSO.
+ * Sem isso, a sessão SSO expira mesmo que o Bearer ainda funcione.
+ */
+async function manterSessaoSSO(tabId) {
+  try {
+    var result = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: async (baseUrl) => {
+        try {
+          var resp = await fetch(baseUrl + '/comprasnet-web/seguro/fornecedor/compras', {
+            method: 'HEAD',
+            credentials: 'include',
+          });
+          return { status: resp.status, type: resp.type, ok: resp.ok };
+        } catch (e) {
+          return { status: 0, error: e.message };
+        }
+      },
+      args: [COMPRASNET],
+    });
+    var r = result[0]?.result || { status: 0 };
+    if (r.status === 200 || r.ok) {
+      console.log('[LiciteAgora] 🔒 SSO session refreshed (HTTP ' + r.status + ')');
+      return true;
+    } else {
+      console.log('[LiciteAgora] ⚠️ SSO refresh: HTTP ' + r.status + ' type=' + (r.type || '') + ' ' + (r.error || ''));
+      return r.status !== 401 && r.status !== 403 && r.type !== 'opaqueredirect';
+    }
+  } catch (e) {
+    console.log('[LiciteAgora] ⚠️ SSO refresh erro:', e.message);
+    return false;
+  }
+}
 
 async function executarKeepalive() {
   var data = await load();
@@ -763,27 +799,29 @@ async function executarKeepalive() {
     return;
   }
 
-  // 1. Verificar se o token ainda é fresco o suficiente
   var idadeMs = Date.now() - (data.ultimoEnvio || 0);
-  console.log('[LiciteAgora] 🔄 Keepalive: token com ' + Math.floor(idadeMs/1000) + 's, chamando datahorabrasilia...');
+  console.log('[LiciteAgora] 🔄 Keepalive: token com ' + Math.floor(idadeMs/1000) + 's');
 
-  var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
+  // ---- PASSO 1: Manter sessão SSO (cookies do comprasnet-web) ----
+  var ssoOk = await manterSessaoSSO(tab.id);
 
-  if (result.status === 401 || result.status === 403) {
-    console.log('[LiciteAgora] ⚠️ Keepalive: token expirado (HTTP ' + result.status + ')');
-
-    // 2. Verificar se a sessão SSO ainda está viva antes de recarregar
-    var ssoOk = await verificarSessaoSSO();
-    if (!ssoOk) {
-      console.log('[LiciteAgora] ❌ Sessão SSO morta — reload não vai resolver. Aguardando login manual.');
+  if (!ssoOk) {
+    // SSO morreu — verificar se é recuperável via service worker
+    var ssoRecuperavel = await verificarSessaoSSO();
+    if (!ssoRecuperavel) {
+      console.log('[LiciteAgora] ❌ Sessão SSO morta — aguardando login manual');
       chrome.action.setBadgeText({ text: 'SSO' });
       chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
       await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
       return;
     }
+  }
 
-    // 3. SSO OK → reload da aba vai gerar novo bearer
-    console.log('[LiciteAgora] ✅ SSO ativo — recarregando aba para renovar bearer...');
+  // ---- PASSO 2: Manter token Bearer (API comprasnet-disputa) ----
+  var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
+
+  if (result.status === 401 || result.status === 403) {
+    console.log('[LiciteAgora] ⚠️ Bearer expirado (HTTP ' + result.status + ') — recarregando aba para renovar...');
     aguardandoNovoBearer = true;
     chrome.action.setBadgeText({ text: '⏳' });
     chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
@@ -795,7 +833,7 @@ async function executarKeepalive() {
       aguardandoNovoBearer = false;
     }
 
-    // 4. Timeout de segurança: se em 30s não receber novo bearer, limpar flag
+    // Timeout de segurança: 30s para novo bearer chegar
     setTimeout(async () => {
       if (aguardandoNovoBearer) {
         aguardandoNovoBearer = false;
@@ -807,8 +845,7 @@ async function executarKeepalive() {
     }, 30000);
 
   } else if (result.status === 200) {
-    console.log('[LiciteAgora] ✅ Keepalive OK');
-    // Reenviar token ao servidor para manter timestamp atualizado
+    console.log('[LiciteAgora] ✅ Keepalive OK (SSO + Bearer)');
     await enviarTokens(data.bearer, data.captcha, data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 });
   } else {
     console.log('[LiciteAgora] ⚠️ Keepalive: HTTP ' + result.status + ' ' + (result.error || ''));
