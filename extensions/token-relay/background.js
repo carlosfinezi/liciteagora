@@ -806,22 +806,9 @@ async function executarKeepalive() {
   var ssoOk = await manterSessaoSSO(tab.id);
 
   if (!ssoOk) {
-    // SSO morreu — verificar se é recuperável via service worker
-    var ssoRecuperavel = await verificarSessaoSSO();
-    if (!ssoRecuperavel) {
-      console.log('[LiciteAgora] ❌ Sessão SSO morta — aguardando login manual');
-      chrome.action.setBadgeText({ text: 'SSO' });
-      chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
-      await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
-      return;
-    }
-  }
-
-  // ---- PASSO 2: Manter token Bearer (API comprasnet-disputa) ----
-  var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
-
-  if (result.status === 401 || result.status === 403) {
-    console.log('[LiciteAgora] ⚠️ Bearer expirado (HTTP ' + result.status + ') — recarregando aba para renovar...');
+    // Pode ser falta de permissão (aba aberta antes da extensão) ou SSO morto.
+    // Tentar recarregar a aba para ganhar acesso e renovar sessão.
+    console.log('[LiciteAgora] ⚠️ SSO falhou — recarregando aba para recuperar acesso...');
     aguardandoNovoBearer = true;
     chrome.action.setBadgeText({ text: '⏳' });
     chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
@@ -833,7 +820,43 @@ async function executarKeepalive() {
       aguardandoNovoBearer = false;
     }
 
-    // Timeout de segurança: 30s para novo bearer chegar
+    // Timeout de segurança
+    setTimeout(async () => {
+      if (aguardandoNovoBearer) {
+        aguardandoNovoBearer = false;
+        console.log('[LiciteAgora] ⚠️ Timeout: novo bearer não chegou após reload');
+        // Verificar se é problema de SSO ou apenas permissão
+        var ssoRecuperavel = await verificarSessaoSSO();
+        if (!ssoRecuperavel) {
+          chrome.action.setBadgeText({ text: 'SSO' });
+          chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+          await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
+        } else {
+          chrome.action.setBadgeText({ text: '!' });
+          chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+          await save({ ultimoErro: 'Bearer não renovado após reload (timeout 30s)' });
+        }
+      }
+    }, 30000);
+    return;
+  }
+
+  // ---- PASSO 2: Manter token Bearer (API comprasnet-disputa) ----
+  var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
+
+  if (result.status === 401 || result.status === 403) {
+    console.log('[LiciteAgora] ⚠️ Bearer expirado (HTTP ' + result.status + ') — recarregando aba...');
+    aguardandoNovoBearer = true;
+    chrome.action.setBadgeText({ text: '⏳' });
+    chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+
+    try {
+      await chrome.tabs.reload(tab.id);
+    } catch (e) {
+      console.error('[LiciteAgora] Erro recarregando aba:', e.message);
+      aguardandoNovoBearer = false;
+    }
+
     setTimeout(async () => {
       if (aguardandoNovoBearer) {
         aguardandoNovoBearer = false;
@@ -847,6 +870,30 @@ async function executarKeepalive() {
   } else if (result.status === 200) {
     console.log('[LiciteAgora] ✅ Keepalive OK (SSO + Bearer)');
     await enviarTokens(data.bearer, data.captcha, data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 });
+
+  } else if (result.status === 0 && result.error && result.error.includes('Cannot access')) {
+    // Sem permissão para injetar na aba — recarregar resolve
+    console.log('[LiciteAgora] ⚠️ Sem acesso à aba — recarregando para obter permissão...');
+    aguardandoNovoBearer = true;
+    chrome.action.setBadgeText({ text: '⏳' });
+    chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+
+    try {
+      await chrome.tabs.reload(tab.id);
+    } catch (e) {
+      console.error('[LiciteAgora] Erro recarregando aba:', e.message);
+      aguardandoNovoBearer = false;
+    }
+
+    setTimeout(async () => {
+      if (aguardandoNovoBearer) {
+        aguardandoNovoBearer = false;
+        chrome.action.setBadgeText({ text: '!' });
+        chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+        await save({ ultimoErro: 'Sem acesso à aba após reload — recarregue manualmente' });
+      }
+    }, 30000);
+
   } else {
     console.log('[LiciteAgora] ⚠️ Keepalive: HTTP ' + result.status + ' ' + (result.error || ''));
   }
