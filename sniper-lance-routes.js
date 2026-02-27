@@ -18,6 +18,27 @@ console.log('[Sniper] Inicializado (aguardando Bearer token da extensão)');
 
 function registrarRotasSniper(app, monitorGetter, db) {
 
+  // ==================== MIGRAÇÃO: colunas extras em participacoes_comprasnet ====================
+  try {
+    const infoP = db.pragma('table_info(participacoes_comprasnet)');
+    const colunasP = infoP.map(c => c.name);
+    const novasColunas = [
+      { col: 'modoDisputa',           sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN modoDisputa TEXT' },
+      { col: 'dataHoraInicioDisputa', sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN dataHoraInicioDisputa TEXT' },
+      { col: 'dataHoraFimDisputa',    sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN dataHoraFimDisputa TEXT' },
+      { col: 'linkPncp',             sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN linkPncp TEXT' },
+      { col: 'exclusivaMeEpp',       sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN exclusivaMeEpp INTEGER DEFAULT 0' },
+    ];
+    for (const m of novasColunas) {
+      if (!colunasP.includes(m.col)) {
+        db.exec(m.sql);
+        console.log(`[Sniper] Migração: coluna "${m.col}" adicionada a participacoes_comprasnet`);
+      }
+    }
+  } catch (e) {
+    console.error('[Sniper] Erro na migração:', e.message);
+  }
+
   // Tracking da extensão
   let ultimoSyncExtensao = null; // timestamp do último POST da extensão
 
@@ -145,6 +166,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
    */
   function calcularBatchLances(cfgItem, liveItem, compraId) {
     const nossoValor = liveItem.nossoValor;
+    const melhorValor = liveItem.melhorValor;
     const varMin = liveItem.variacaoMinima;
     const tipoVar = liveItem.tipoVariacao || 'V';
     const valorMinimo = cfgItem.valorMinimo;
@@ -168,6 +190,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       // Don't create duplicate of current value
       if (novoValor >= valorAtual) break;
+
+      // Skip values that match melhorValor (Comprasnet rejects duplicate values from other suppliers)
+      if (melhorValor != null && novoValor === Math.round(melhorValor * 100) / 100) {
+        valorAtual = novoValor;
+        continue;
+      }
 
       step++;
       lances.push({
@@ -193,6 +221,138 @@ function registrarRotasSniper(app, monitorGetter, db) {
     for (const l of lances) l.batchTotal = lances.length;
 
     return lances;
+  }
+
+  /**
+   * Busca itens de uma compra diretamente da API Comprasnet e popula o cache.
+   * Usado como fallback quando a extensão não sincronizou os dados.
+   * Usa /qtdes primeiro (leve) para decidir qual endpoint chamar.
+   */
+  let fetchDirectoCooldown = {}; // { compraId: timestamp } — evita spam na API
+  async function fetchItensDirecto(compraId) {
+    // Cooldown de 60s por compra
+    if (fetchDirectoCooldown[compraId] && (Date.now() - fetchDirectoCooldown[compraId]) < 60000) return null;
+    fetchDirectoCooldown[compraId] = Date.now();
+
+    if (!sniper.temToken()) return null;
+
+    // Passo 1: /qtdes para detectar fase (chamada leve)
+    let qtdes = null;
+    try {
+      const { status, data } = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/qtdes`);
+      if (status === 200 || status === 206) qtdes = data;
+    } catch (e) {}
+
+    // Se /qtdes mostra 0 itens em disputa, não vale buscar itens detalhados
+    if (qtdes && qtdes.qtdeItensEmDisputa === 0 && qtdes.qtdeItensAguardandoDisputa === 0) {
+      logAuto(`Fetch direto: ${compraId} sem itens em disputa (qtdes: disputa=${qtdes.qtdeItensEmDisputa}, encerrada=${qtdes.qtdeItensComDisputaEncerrada})`);
+      // Atualizar faseCompra no banco se tudo encerrado
+      if (qtdes.qtdeItensComDisputaEncerrada > 0 && qtdes.qtdeItensEmDisputa === 0 && qtdes.qtdeItensAguardandoDisputa === 0) {
+        try {
+          db.prepare(`UPDATE participacoes_comprasnet SET faseCompra = '4', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ? AND faseCompra = '3'`).run(compraId);
+        } catch (e) {}
+      }
+      return null;
+    }
+
+    // Passo 2: escolher endpoint baseado em /qtdes
+    const endpoints = [];
+    if (qtdes && qtdes.qtdeItensEmDisputa > 0) {
+      endpoints.push(`/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`);
+    }
+    // Fallbacks
+    endpoints.push(`/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`);
+    endpoints.push(`/comprasnet-disputa/v1/compras/${compraId}/itens`);
+
+    // Deduplica
+    const uniqueEndpoints = [...new Set(endpoints)];
+
+    for (const path of uniqueEndpoints) {
+      try {
+        const { status, data } = await sniper.apiGet(path);
+        if ((status === 200 || status === 206) && Array.isArray(data) && data.length > 0) {
+          // Buscar filtros extras (3=perdendo, 4=enc.aleatória, 5=2min)
+          const filterMeta = {};
+          if (qtdes && qtdes.qtdeItensEmDisputa > 0) {
+            const filtrosExtras = [
+              { filtro: 3, campo: 'perdendo' },
+              { filtro: 4, campo: 'encAleat' },
+              { filtro: 5, campo: 'doisMin' },
+            ];
+            const filtroNomes = { 3: 'perdendo', 4: 'enc.aleat', 5: '2min' };
+            for (const fe of filtrosExtras) {
+              try {
+                const fRes = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa?tamanhoPagina=50&pagina=0&filtro=${fe.filtro}`);
+                if ((fRes.status === 200 || fRes.status === 206) && Array.isArray(fRes.data)) {
+                  // LOG detalhado
+                  const fItens = fRes.data.map(fi => ({
+                    num: fi.numero || fi.identificador,
+                    fase: fi.fase,
+                    sit: fi.situacaoParticipanteDisputa,
+                    fimContagem: fi.dataHoraFimContagem,
+                    sitAposContagem: fi.situacaoAposContagem,
+                    melhor: (fi.melhorValorGeral || {}).valorInformado,
+                    nosso: (fi.melhorValorFornecedor || {}).valorInformado,
+                  }));
+                  logAuto(`FILTRO=${fe.filtro} (${filtroNomes[fe.filtro]}) ${compraId}: ${fRes.data.length} itens — ${JSON.stringify(fItens)}`);
+
+                  for (const fi of fRes.data) {
+                    const fNum = fi.numero || fi.identificador;
+                    if (fNum != null) {
+                      if (!filterMeta[fNum]) filterMeta[fNum] = {};
+                      filterMeta[fNum][fe.campo] = true;
+                    }
+                  }
+                } else {
+                  logAuto(`FILTRO=${fe.filtro} (${filtroNomes[fe.filtro]}) ${compraId}: HTTP ${fRes.status} (sem dados)`);
+                }
+              } catch (e) {
+                logAuto(`FILTRO=${fe.filtro} (${filtroNomes[fe.filtro]}) ${compraId}: ERRO ${e.message}`);
+              }
+            }
+          }
+
+          const itens = data.map(i => {
+            const num = i.numero || i.identificador;
+            const fm = (num != null && filterMeta[num]) ? filterMeta[num] : {};
+            return {
+              numero: num,
+              descricao: (i.descricao || i.objetoItem || '').substring(0, 200),
+              fase: i.fase || '',
+              melhorValor: (i.melhorValorGeral || {}).valorInformado != null ? i.melhorValorGeral.valorInformado : null,
+              nossoValor: (i.melhorValorFornecedor || {}).valorInformado != null ? i.melhorValorFornecedor.valorInformado : null,
+              valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || null,
+              situacaoParticipante: i.situacaoParticipanteDisputa || null,
+              variacaoMinima: i.variacaoMinimaEntreLances != null ? i.variacaoMinimaEntreLances : null,
+              tipoVariacao: i.tipoVariacaoMinimaEntreLances || 'V',
+              podeEnviar: i.podeEnviarLances || false,
+              fimContagem: i.dataHoraFimContagem || null,
+              versaoParticipante: i.versaoParticipante || null,
+              estaPerdendo: !!fm.perdendo,
+              emEncAleatoria: !!fm.encAleat,
+              nosDoisMinFinais: !!fm.doisMin,
+            };
+          });
+          const disputaData = {
+            compraId,
+            totalItens: itens.length,
+            itensAtivos: itens.filter(i => i.podeEnviar || i.fase === 'LA').length,
+            itens,
+            qtdes, // guardar dados do /qtdes no cache
+          };
+          const idx = disputasCache.disputas.findIndex(d => d.compraId === compraId);
+          if (idx >= 0) {
+            disputasCache.disputas[idx] = { ...disputasCache.disputas[idx], ...disputaData };
+          } else {
+            disputasCache.disputas.push(disputaData);
+          }
+          disputasCache.atualizadoEm = new Date().toISOString();
+          logAuto(`Fetch direto OK: ${compraId} — ${itens.length} itens (${disputaData.itensAtivos} ativos)`);
+          return disputaData;
+        }
+      } catch (e) { /* tentar próximo */ }
+    }
+    return null;
   }
 
   /**
@@ -236,10 +396,16 @@ function registrarRotasSniper(app, monitorGetter, db) {
       for (const compraId of compraIds) {
         try {
           // Usar dados do cache (populado pela extensão via POST /api/sync/disputas)
-          const cached = disputasCache.disputas.find(d => d.compraId === compraId);
+          let cached = disputasCache.disputas.find(d => d.compraId === compraId);
           if (!cached || !cached.itens || cached.itens.length === 0) {
-            if (logDiag) logAuto(`Cache vazio: ${compraId} (extensão não sincronizou ainda)`);
-            continue;
+            // Fallback: buscar direto da API Comprasnet
+            const direto = await fetchItensDirecto(compraId);
+            if (direto) {
+              cached = direto;
+            } else {
+              if (logDiag) logAuto(`Cache vazio: ${compraId} (extensão não sincronizou, fetch direto falhou ou em cooldown)`);
+              continue;
+            }
           }
 
           const itensAuto = porCompra[compraId];
@@ -258,9 +424,20 @@ function registrarRotasSniper(app, monitorGetter, db) {
             const fimContagem = liveItem.fimContagem;
             const podeEnviar = liveItem.podeEnviar;
 
+            // Filter flags do Comprasnet
+            const estaPerdendo = !!liveItem.estaPerdendo;
+            const emEncAleatoria = !!liveItem.emEncAleatoria;
+            const nosDoisMinFinais = !!liveItem.nosDoisMinFinais;
+
             if (!podeEnviar) {
               if (logDiag) logAuto(`Item ${cfgItem.itemNumero}: podeEnviar=false fase=${liveItem.fase||'?'}`);
               continue;
+            }
+
+            // Log filtros do Comprasnet quando ativos
+            if (logDiag && (estaPerdendo || emEncAleatoria || nosDoisMinFinais)) {
+              const flags = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
+              logAuto(`Item ${cfgItem.itemNumero}: [${flags}]`);
             }
 
             // Check countdown for sniper mode
@@ -270,12 +447,29 @@ function registrarRotasSniper(app, monitorGetter, db) {
             }
 
             // Sniper mode: only act in last N seconds (configurable via antecedenciaMs, default 60s)
+            // nosDoisMinFinais do Comprasnet serve como gatilho adicional (mais confiável que cálculo de clock)
             if (cfgItem.modoAuto === 'sniper') {
               const sniperSeg = Math.round((cfgItem.antecedenciaMs || 60000) / 1000);
-              if (segRestantes == null || segRestantes > sniperSeg || segRestantes <= 0) continue;
+              const dentroJanela = (segRestantes != null && segRestantes <= sniperSeg && segRestantes > 0);
+              const gatilho2min = nosDoisMinFinais && sniperSeg >= 120;
+              if (!dentroJanela && !gatilho2min) continue;
               // Fast polling when approaching sniper window
-              if (segRestantes < sniperSeg + 30 && segRestantes > 0) {
+              if ((segRestantes != null && segRestantes < sniperSeg + 30 && segRestantes > 0) || nosDoisMinFinais) {
                 autoLanceComprasFast[compraId] = true;
+              }
+            }
+
+            // nosDoisMinFinais: ativar fast polling mesmo em modo contínuo
+            if (nosDoisMinFinais) {
+              autoLanceComprasFast[compraId] = true;
+            }
+
+            // emEncAleatoria: ativar ultra-fast timer (1s) — pode fechar a qualquer momento
+            if (emEncAleatoria) {
+              autoLanceComprasFast[compraId] = true;
+              if (!autoLanceTimerUltra) {
+                autoLanceTimerUltra = setInterval(() => executarCicloAutoLance(true), 1000);
+                logAuto(`ULTRA-FAST timer ativado (1s) — item ${cfgItem.itemNumero} em ENC.ALEATÓRIA`);
               }
             }
 
@@ -289,7 +483,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
             }
 
             // Already at best price — nothing to do
-            if (nossoValor != null && melhorGeral != null && nossoValor <= melhorGeral) continue;
+            // EXCETO se Comprasnet diz que estamos perdendo (cache stale)
+            if (nossoValor != null && melhorGeral != null && nossoValor <= melhorGeral && !estaPerdendo) continue;
 
             // Need valorMinimo to know where to bid
             if (cfgItem.valorMinimo == null) continue;
@@ -336,7 +531,37 @@ function registrarRotasSniper(app, monitorGetter, db) {
               }
             }
 
-            // Calculate: one step down from our current value (respecting varMin)
+            // Check if already in filaLances (pendente or processando)
+            const jaEnfileirado = filaLances.some(l =>
+              l.compraId === compraId &&
+              l.itemNumero === cfgItem.itemNumero &&
+              (l.status === 'pendente' || l.status === 'processando')
+            );
+            if (jaEnfileirado) continue;
+
+            // MODO CONTÍNUO: batch imediato — enfileira TODOS os degraus até valorMinimo de uma vez
+            if (cfgItem.modoAuto === 'continuo') {
+              const batchLances = calcularBatchLances(cfgItem, liveItem, compraId);
+              if (batchLances.length > 0) {
+                // Marcar como fonte 'auto-continuo' (bypass cooldown igual blitz)
+                for (const lance of batchLances) {
+                  lance.fonte = 'auto-continuo';
+                  filaLances.push(lance);
+                }
+                autoLanceStats.lancesEnviados += batchLances.length;
+                // NÃO atualizar liveItem.nossoValor aqui — só o sync real do Comprasnet deve fazer isso.
+                // Atualizar otimisticamente causa inconsistência (mostra valor que nunca foi aceito).
+                // O jaEnfileirado check impede re-enfileirar enquanto lances estão pendentes.
+
+                const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
+                logAuto(`CONTÍNUO BATCH: ${compraId} item ${cfgItem.itemNumero} — ${batchLances.length} lances enfileirados! ` +
+                  `R$${(nossoValor||0).toFixed(2)} → R$${batchLances[batchLances.length - 1].valor.toFixed(2)} ` +
+                  `(modo=continuo)${flagsStr ? ' [' + flagsStr + ']' : ''}`);
+                continue;
+              }
+            }
+
+            // Fallback: lance único (primeiro lance sem nossoValor, ou caso especial)
             let novoLance;
             if (nossoValor != null && varMin != null) {
               if (tipoVar === 'P') {
@@ -346,30 +571,13 @@ function registrarRotasSniper(app, monitorGetter, db) {
               }
               novoLance = Math.round(novoLance * 100) / 100;
             } else if (nossoValor == null && cfgItem.valorLance != null && cfgItem.valorLance > 0) {
-              // First bid — use valorLance
               novoLance = parseFloat(cfgItem.valorLance);
             } else {
               continue;
             }
 
-            // Clamp to floor
             if (novoLance < cfgItem.valorMinimo) novoLance = cfgItem.valorMinimo;
 
-            // Check cooldown (30s per item — A5: blitz lances bypass cooldown)
-            const pendingKey = `${compraId}-${cfgItem.itemNumero}`;
-            if (autoLancePendentes[pendingKey] && (Date.now() - autoLancePendentes[pendingKey]) < 30000) {
-              continue; // still in cooldown
-            }
-
-            // Check if already in filaLances (pendente or processando)
-            const jaEnfileirado = filaLances.some(l =>
-              l.compraId === compraId &&
-              l.itemNumero === cfgItem.itemNumero &&
-              (l.status === 'pendente' || l.status === 'processando')
-            );
-            if (jaEnfileirado) continue;
-
-            // Enqueue!
             const id = 'auto-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
             const lance = {
               id,
@@ -382,14 +590,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
               fonte: 'auto-lance',
             };
             filaLances.push(lance);
-            autoLancePendentes[pendingKey] = Date.now();
             autoLanceStats.lancesEnviados++;
-
-            // Atualizar cache local para o próximo ciclo não repetir o mesmo lance
             liveItem.nossoValor = novoLance;
 
             const logMelhor = melhorGeral != null ? `melhor R$${melhorGeral.toFixed(2)}` : 'sem melhor';
-            logAuto(`LANCE: ${compraId} item ${cfgItem.itemNumero} — ${logMelhor}, nosso R$${(nossoValor||0).toFixed(2)} → R$${novoLance.toFixed(2)} (var ${tipoVar}=${varMin}, modo=${cfgItem.modoAuto})`);
+            const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
+            logAuto(`LANCE: ${compraId} item ${cfgItem.itemNumero} — ${logMelhor}, nosso R$${(nossoValor||0).toFixed(2)} → R$${novoLance.toFixed(2)} (var ${tipoVar}=${varMin}, modo=${cfgItem.modoAuto})${flagsStr ? ' [' + flagsStr + ']' : ''}`);
           }
         } catch (e) {
           logAuto(`ERRO compra ${compraId}: ${e.message}`);
@@ -426,14 +632,15 @@ function registrarRotasSniper(app, monitorGetter, db) {
     logAuto('Engine DESLIGADO');
   }
 
-  // A3: Auto-cleanup ultra timer when no items near end
+  // A3: Auto-cleanup ultra timer when no items near end or in encerramento aleatório
   function verificarUltraTimer() {
     if (!autoLanceTimerUltra) return;
-    // Check if any item is still < 30s from end
+    // Check if any item is still < 30s from end OR in encerramento aleatório
     let precisaUltra = false;
     for (const d of disputasCache.disputas) {
       if (!d.itens) continue;
       for (const item of d.itens) {
+        if (item.emEncAleatoria) { precisaUltra = true; break; }
         if (item.fimContagem) {
           const seg = Math.floor((new Date(item.fimContagem).getTime() - Date.now()) / 1000);
           if (seg > 0 && seg < 30) { precisaUltra = true; break; }
@@ -444,7 +651,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
     if (!precisaUltra) {
       clearInterval(autoLanceTimerUltra);
       autoLanceTimerUltra = null;
-      logAuto('ULTRA-FAST timer desativado (nenhum item próximo do fim)');
+      logAuto('ULTRA-FAST timer desativado (nenhum item próximo do fim ou em enc.aleatória)');
     }
   }
 
@@ -572,14 +779,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
       } catch (dbErr) { console.error('[Sniper] Erro salvando no banco:', dbErr.message); }
 
       // Auto-lance pending cleanup
-      // A5: Blitz lances bypass cooldown
+      // A5: Blitz and auto-continuo lances bypass cooldown
       const pendingKey = `${compraId}-${itemNumero}`;
       const lanceObj = idx >= 0 ? filaLances[idx] : null;
-      const isBlitz = lanceObj && lanceObj.fonte === 'blitz';
+      const isBatch = lanceObj && (lanceObj.fonte === 'blitz' || lanceObj.fonte === 'auto-continuo');
 
       if (sucesso) {
-        if (isBlitz) {
-          // Blitz: no cooldown — next lance in batch comes immediately
+        if (isBatch) {
+          // Batch (blitz/contínuo): no cooldown — next lance comes immediately
           delete autoLancePendentes[pendingKey];
         } else {
           // Normal: keep cooldown on success (prevent re-bidding immediately)
@@ -590,14 +797,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
         delete autoLancePendentes[pendingKey];
       }
 
-      // Limpar da fila após 30s (or 5s for blitz to reduce clutter)
+      // Limpar da fila após 30s (or 5s for batch to reduce clutter)
       setTimeout(() => {
         const i = filaLances.findIndex(l => l.id === id);
         if (i >= 0) filaLances.splice(i, 1);
-      }, isBlitz ? 5000 : 30000);
+      }, isBatch ? 5000 : 30000);
 
-      // A6: Reactive trigger — after success in continuo mode, run mini-cycle immediately
-      if (sucesso && !isBlitz && autoLanceAtivo) {
+      // A6: Reactive trigger — after success in normal mode, run mini-cycle immediately
+      if (sucesso && !isBatch && autoLanceAtivo) {
         setImmediate(() => executarCicloAutoLance(true));
       }
 
@@ -662,12 +869,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
         // Sniper history
         sniper.historico.unshift({ compraId, itemNumero, valor, status, sucesso, tempoMs, timestamp: new Date().toISOString(), fonte: 'browser' });
 
-        // Cooldown: blitz lances bypass
+        // Cooldown: blitz and auto-continuo lances bypass
         const pendingKey = `${compraId}-${itemNumero}`;
         const lanceObj = idx >= 0 ? filaLances[idx] : null;
-        const isBlitz = lanceObj && lanceObj.fonte === 'blitz';
+        const isBatch = lanceObj && (lanceObj.fonte === 'blitz' || lanceObj.fonte === 'auto-continuo');
         if (sucesso) {
-          if (isBlitz) {
+          if (isBatch) {
             delete autoLancePendentes[pendingKey];
           } else {
             autoLancePendentes[pendingKey] = Date.now();
@@ -680,7 +887,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
         setTimeout(() => {
           const i = filaLances.findIndex(l => l.id === id);
           if (i >= 0) filaLances.splice(i, 1);
-        }, isBlitz ? 5000 : 30000);
+        }, isBatch ? 5000 : 30000);
       }
 
       // Trim results history
@@ -742,6 +949,36 @@ function registrarRotasSniper(app, monitorGetter, db) {
       res.json({ success: true, ativo: autoLanceAtivo });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/auto-compras
+   * Retorna lista de compraIds com auto-lance ativo.
+   * Usado pela extensão para decidir quais compras precisam de filtros extras.
+   */
+  app.get('/api/sniper/auto-compras', (req, res) => {
+    try {
+      const rows = db.prepare(
+        `SELECT DISTINCT compraId FROM sniper_itens WHERE modoAuto IS NOT NULL AND modoAuto != ''`
+      ).all();
+      res.json({ success: true, compraIds: rows.map(r => r.compraId) });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sniper/log-filtro
+   * Recebe log de filtro da extensão para visibilidade centralizada.
+   */
+  app.post('/api/sniper/log-filtro', (req, res) => {
+    try {
+      const { compraId, filtro, nome, qtde, itens } = req.body;
+      logAuto(`[EXT] FILTRO=${filtro} (${nome}) ${compraId}: ${qtde} itens — ${JSON.stringify(itens)}`);
+      res.json({ success: true });
+    } catch (e) {
+      res.json({ success: true }); // não falhar para não atrapalhar extensão
     }
   });
 
@@ -856,14 +1093,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
     try {
       const busca = req.query.busca || '';
       const emDisputa = req.query.emDisputa === 'true';
-      let query = 'SELECT compraId, cnpj, ano, sequencial, orgao, objeto, etapa, situacao, faseCompra, dataSessao, dataAtualizacao FROM participacoes_comprasnet WHERE ativo = 1';
+      let query = 'SELECT compraId, cnpj, ano, sequencial, orgao, objeto, etapa, situacao, faseCompra, dataSessao, dataAtualizacao, modoDisputa, dataHoraFimDisputa, linkPncp, exclusivaMeEpp, criterioJulgamento FROM participacoes_comprasnet WHERE ativo = 1';
       const params = [];
 
       if (emDisputa) {
-        // Filtrar apenas participações realmente em disputa/ativas
-        // Exclui: FR (fracassada), EN (encerrada), SU (suspensa)
-        // Exclui fases: 4 (encerrada), 99 (concluída/desconhecida), 1 (cadastrada, ainda não abriu)
-        query += " AND situacao NOT IN ('FR', 'EN', 'SU') AND (faseCompra IS NULL OR faseCompra NOT IN ('4', '99', '1', 'encerrada', 'ENCERRADA'))";
+        // Filtrar apenas participações em fase de disputa (faseCompra = '3')
+        query += " AND faseCompra = '3' AND situacao NOT IN ('FR', 'EN', 'SU')";
       }
 
       if (busca) {
@@ -1189,11 +1424,17 @@ function registrarRotasSniper(app, monitorGetter, db) {
       ultimoSyncExtensao = Date.now();
       let inseridas = 0, atualizadas = 0;
 
-      const stmtSelect = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?');
+      const stmtSelect = db.prepare('SELECT id, situacao, faseCompra FROM participacoes_comprasnet WHERE compraId = ?');
       const stmtUpdate = db.prepare(`UPDATE participacoes_comprasnet SET
         situacao = COALESCE(?, situacao), faseCompra = COALESCE(?, faseCompra),
         objeto = COALESCE(?, objeto), orgao = COALESCE(?, orgao),
         dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`);
+      // Quando vem do filtro=5 (em andamento), forçar remoção do status encerrado
+      const stmtReativar = db.prepare(`UPDATE participacoes_comprasnet SET
+        situacao = CASE WHEN situacao IN ('EN', 'FR', 'SU') THEN '' ELSE situacao END,
+        faseCompra = CASE WHEN faseCompra IN ('encerrada', 'ENCERRADA', '4', '99') THEN '3' ELSE COALESCE(?, faseCompra) END,
+        objeto = COALESCE(?, objeto), orgao = COALESCE(?, orgao),
+        ativo = 1, dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`);
       const stmtInsert = db.prepare(`INSERT INTO participacoes_comprasnet
         (compraId, cnpj, ano, sequencial, orgao, objeto, situacao, faseCompra, ativo)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`);
@@ -1208,15 +1449,28 @@ function registrarRotasSniper(app, monitorGetter, db) {
           const compraId = compra.compraId || (uasg + mod + num + ano);
           if (!compraId || compraId.length < 10) continue;
 
+          const filtro = item._filtro; // 5 = em andamento
           const existe = stmtSelect.get(compraId);
           if (existe) {
-            stmtUpdate.run(
-              compra.situacaoCompraFaseExterna || compra.situacao || null,
-              compra.faseCompraFaseExterna || compra.faseCompra || null,
-              compra.objetoCompra || compra.objeto || null,
-              compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
-              compraId,
-            );
+            // Se veio do filtro=5 e está marcada como encerrada, reativar
+            if (filtro === 5 && (existe.situacao === 'EN' || existe.situacao === 'FR' || existe.situacao === 'SU' ||
+                ['encerrada', 'ENCERRADA', '4', '99'].includes(existe.faseCompra))) {
+              console.log(`[Sync] Reativando ${compraId} (estava ${existe.situacao}/${existe.faseCompra}, voltou no filtro=5)`);
+              stmtReativar.run(
+                compra.faseCompraFaseExterna || compra.faseCompra || null,
+                compra.objetoCompra || compra.objeto || null,
+                compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
+                compraId,
+              );
+            } else {
+              stmtUpdate.run(
+                compra.situacaoCompraFaseExterna || compra.situacao || null,
+                compra.faseCompraFaseExterna || compra.faseCompra || null,
+                compra.objetoCompra || compra.objeto || null,
+                compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
+                compraId,
+              );
+            }
             atualizadas++;
           } else {
             stmtInsert.run(
@@ -1271,6 +1525,70 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       console.log(`[Sync] Encerradas: ${atualizadas} de ${compraIds.length} marcadas como EN`);
       res.json({ success: true, atualizadas, total: compraIds.length });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/sync/participacao-detalhes
+   * Recebe dados detalhados da API /participacao do Comprasnet.
+   * Salva campos extras (modoDisputa, horários, linkPncp, etc.) no banco.
+   */
+  app.post('/api/sync/participacao-detalhes', (req, res) => {
+    try {
+      const {
+        compraId, modoDisputa, criterioJulgamento,
+        dataHoraInicioDisputa, dataHoraFimDisputa, dataHoraAbertura,
+        chaveCompraPncp, linkPncp, exclusivaMeEpp,
+        fundamentoLegal, situacaoCompra, faseCompra, objeto, orgao,
+      } = req.body;
+
+      if (!compraId) {
+        return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      }
+
+      const existe = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
+      if (existe) {
+        db.prepare(`UPDATE participacoes_comprasnet SET
+          modoDisputa = COALESCE(?, modoDisputa),
+          criterioJulgamento = COALESCE(?, criterioJulgamento),
+          dataHoraInicioDisputa = COALESCE(?, dataHoraInicioDisputa),
+          dataHoraFimDisputa = COALESCE(?, dataHoraFimDisputa),
+          dataSessao = COALESCE(?, dataSessao),
+          chaveCompraPncp = COALESCE(?, chaveCompraPncp),
+          linkPncp = COALESCE(?, linkPncp),
+          exclusivaMeEpp = COALESCE(?, exclusivaMeEpp),
+          fundamentoLegal = COALESCE(?, fundamentoLegal),
+          situacao = COALESCE(?, situacao),
+          faseCompra = COALESCE(?, faseCompra),
+          objeto = COALESCE(?, objeto),
+          orgao = COALESCE(?, orgao),
+          dataAtualizacao = CURRENT_TIMESTAMP
+          WHERE compraId = ?`).run(
+          modoDisputa, criterioJulgamento,
+          dataHoraInicioDisputa, dataHoraFimDisputa, dataHoraAbertura,
+          chaveCompraPncp, linkPncp, exclusivaMeEpp,
+          fundamentoLegal, situacaoCompra, faseCompra, objeto, orgao,
+          compraId,
+        );
+        console.log(`[Sync] Participação detalhes: ${compraId} atualizada (modo=${modoDisputa}, fim=${dataHoraFimDisputa})`);
+      } else {
+        // Se não existe no banco, criar registro básico
+        db.prepare(`INSERT INTO participacoes_comprasnet
+          (compraId, cnpj, ano, sequencial, orgao, objeto, situacao, faseCompra,
+           modoDisputa, criterioJulgamento, dataHoraInicioDisputa, dataHoraFimDisputa,
+           dataSessao, chaveCompraPncp, linkPncp, exclusivaMeEpp, fundamentoLegal, ativo)
+          VALUES (?, '', 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+          compraId, orgao || '', objeto || '', situacaoCompra || '', faseCompra || '',
+          modoDisputa, criterioJulgamento,
+          dataHoraInicioDisputa, dataHoraFimDisputa, dataHoraAbertura,
+          chaveCompraPncp, linkPncp, exclusivaMeEpp || 0, fundamentoLegal,
+        );
+        console.log(`[Sync] Participação detalhes: ${compraId} inserida (modo=${modoDisputa})`);
+      }
+
+      res.json({ success: true });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }

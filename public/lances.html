@@ -66,6 +66,10 @@
         .badge-P { background: #4dabf730; color: #4dabf7; }
         .badge-C { background: #ff980030; color: #ff9800; }
         .badge-D, .badge-A, .badge-F, .badge-I, .badge-R { background: #f4433630; color: #f44336; }
+        .badge-filtro { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: 0.7em; font-weight: 700; margin-left: 3px; letter-spacing: 0.3px; }
+        .badge-perd { background: #f4433630; color: #f44336; }
+        .badge-aleat { background: #e91e6330; color: #e91e63; }
+        .badge-2min { background: #9c27b030; color: #ce93d8; }
 
         /* Auto-lance select */
         .auto-select { padding: 3px 4px; border-radius: 4px; border: 1px solid #444; cursor: pointer; font-size: 0.78em; font-weight: 600; background: #1a1a2e; color: #666; appearance: auto; }
@@ -220,9 +224,13 @@ function aplicarFiltro() {
 
     var lista = participacoes.filter(function(p) {
         if(filtro === 'disputa') {
-            var et = etapaInfo(p);
-            // Esconder encerradas (banco + live)
-            if(et.cls === 'etapa-encerrada') return false;
+            // Mostrar apenas licitações em fase de disputa (faseCompra='3' ou itens ativos no live)
+            var fase = p.faseCompra||'';
+            var live = disputasLive[p.compraId];
+            var sit = (p.situacao||'').toUpperCase();
+            if(sit==='FR'||sit==='EN'||sit==='SU') return false;
+            var temDisputaLive = live && live.itensAtivos > 0;
+            if(fase !== '3' && !temDisputaLive) return false;
         }
         if(busca) {
             return (p.objeto||'').toLowerCase().indexOf(busca)>=0 ||
@@ -409,6 +417,10 @@ function renderItens(compraId, itensLive) {
             podeEnviar: lv.podeEnviar !== undefined ? lv.podeEnviar : true,
             valorEstimado: cfg.valorEstimado || lv.valorEstimado,
             fimContagem: lv.fimContagem,
+            // Filtros Comprasnet
+            estaPerdendo: !!lv.estaPerdendo,
+            emEncAleatoria: !!lv.emEncAleatoria,
+            nosDoisMinFinais: !!lv.nosDoisMinFinais,
             // Config salva
             valorLance: cfg.valorLance,
             valorMinimo: cfg.valorMinimo,
@@ -427,7 +439,7 @@ function renderItens(compraId, itensLive) {
     // Add live items not in config
     itensLive.forEach(function(il) {
         if(!seen[il.numero]) {
-            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, tipoVariacao:il.tipoVariacao||'V', podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1, modoAuto:null });
+            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, tipoVariacao:il.tipoVariacao||'V', podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, estaPerdendo:!!il.estaPerdendo, emEncAleatoria:!!il.emEncAleatoria, nosDoisMinFinais:!!il.nosDoisMinFinais, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1, modoAuto:null });
         }
     });
 
@@ -453,6 +465,10 @@ function renderItens(compraId, itensLive) {
             var sitLabels = {'G':'Ganhando','P':'Participando','C':'Reafirmado','D':'Desclassif.','I':'Excluída','A':'Desclassif.','F':'Desclassif.','R':'Recusada'};
             nossoLabel += ' <span class="badge-sit badge-'+m.situacaoParticipante+'">'+(sitLabels[m.situacaoParticipante]||m.situacaoParticipante)+'</span>';
         }
+        // Badges de filtro Comprasnet
+        if(m.estaPerdendo) nossoLabel += ' <span class="badge-filtro badge-perd">PERD</span>';
+        if(m.emEncAleatoria) nossoLabel += ' <span class="badge-filtro badge-aleat">ALEAT</span>';
+        if(m.nosDoisMinFinais) nossoLabel += ' <span class="badge-filtro badge-2min">2MIN</span>';
         // Countdown
         var contagemHtml = '--';
         if(m.fimContagem) {

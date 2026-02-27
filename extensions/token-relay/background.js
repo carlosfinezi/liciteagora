@@ -19,7 +19,7 @@ let syncAgendado = false;
 let syncEmExecucao = false;
 let aguardandoNovoBearer = false; // flag: reload feito, esperando novo token
 
-console.log('[LiciteAgora] Service worker v3.5.0 carregado!');
+console.log('[LiciteAgora] Service worker v3.6.1 carregado!');
 
 // ==================== STORAGE ====================
 
@@ -373,10 +373,29 @@ async function executarSync() {
     // 1. Buscar participações
     const participacoes = await syncParticipacoes(tab.id, data.bearer);
 
-    // 2. Buscar mensagens apenas das participações EM ANDAMENTO (filtro=5)
+    // 2. Participações em andamento (filtro=5) e em disputa (filtro=4)
     const emAndamento = participacoes.filter(function(p) {
       return p._filtro === 5;
     });
+    const emDisputa = participacoes.filter(function(p) {
+      return p._filtro === 4;
+    });
+    // Unir sem duplicar (IDs já vistos no sync são únicos)
+    const idsVistos = new Set();
+    const paraSyncDisputas = [];
+    for (var pp of emAndamento.concat(emDisputa)) {
+      var compraP = pp.compra || pp;
+      var cidP = compraP.compraId || pp.compraId || (
+        String(compraP.numeroUasg || 0).padStart(6, '0') +
+        String(compraP.modalidade || 0).padStart(2, '0') +
+        String(compraP.numero || 0).padStart(5, '0') +
+        String(compraP.ano || '')
+      );
+      if (cidP && !idsVistos.has(cidP)) {
+        idsVistos.add(cidP);
+        paraSyncDisputas.push(pp);
+      }
+    }
 
     // 2.5. Extrair IDs em andamento e detectar encerradas
     var idsEmAndamento = [];
@@ -391,11 +410,11 @@ async function executarSync() {
     }
     await detectarEncerradas(idsEmAndamento);
 
-    if (emAndamento.length > 0) {
-      console.log('[LiciteAgora] ' + emAndamento.length + ' em andamento (de ' + participacoes.length + ' total) — buscando mensagens...');
+    if (paraSyncDisputas.length > 0) {
+      console.log('[LiciteAgora] ' + emAndamento.length + ' em andamento + ' + emDisputa.length + ' em disputa (de ' + participacoes.length + ' total) — buscando mensagens...');
       await syncMensagens(tab.id, emAndamento, data.bearer);
-      // Verificar disputas ativas (itens em fase de lance)
-      await syncDisputas(tab.id, emAndamento, data.bearer);
+      // Verificar disputas ativas (itens em fase de lance) — inclui filtro=4
+      await syncDisputas(tab.id, paraSyncDisputas, data.bearer);
     } else {
       console.log('[LiciteAgora] Nenhuma participação em andamento para mensagens');
     }
@@ -418,10 +437,10 @@ async function syncParticipacoes(tabId, bearer) {
 
   if (syncCompleto) {
     console.log('[LiciteAgora] Sync COMPLETO (todos os filtros)...');
-    return await syncParticipacoesFiltros(tabId, bearer, [5, 2, 6]);
+    return await syncParticipacoesFiltros(tabId, bearer, [5, 4, 2, 6]);
   } else {
-    console.log('[LiciteAgora] Sync rápido (em andamento)...');
-    return await syncParticipacoesFiltros(tabId, bearer, [5]);
+    console.log('[LiciteAgora] Sync rápido (em andamento + em disputa)...');
+    return await syncParticipacoesFiltros(tabId, bearer, [5, 4]);
   }
 }
 
@@ -563,7 +582,7 @@ async function syncMensagens(tabId, participacoes, bearer) {
  * 2. Endpoint específico da fase (retorna preços reais)
  * 3. Fallbacks: /classificacao, /em-selecao-fornecedores
  */
-async function buscarItensCompra(tabId, compraId, bearer) {
+async function buscarItensCompra(tabId, compraId, bearer, fetchFiltros) {
   // Passo 1: detectar fase via /qtdes (1 chamada leve)
   var qtdes = null;
   try {
@@ -601,7 +620,64 @@ async function buscarItensCompra(tabId, compraId, bearer) {
     } catch (e) {}
   }
 
-  return { itens: itens, endpoint: endpointUsado, qtdes: qtdes };
+  // Passo 4: buscar filtros extras (3=perdendo, 4=enc.aleatória, 5=2min) se solicitado
+  var filterMeta = {};
+  if (fetchFiltros && itens && itens.length > 0 && qtdes && qtdes.qtdeItensEmDisputa > 0) {
+    var filtrosExtras = [
+      { filtro: 3, campo: 'perdendo' },
+      { filtro: 4, campo: 'encAleat' },
+      { filtro: 5, campo: 'doisMin' },
+    ];
+    var filtroNomes = { 3: 'perdendo', 4: 'enc.aleat', 5: '2min' };
+    for (var fe of filtrosExtras) {
+      try {
+        var fResult = await comprasnetFetch(tabId,
+          '/comprasnet-disputa/v1/compras/' + compraId + '/itens/em-disputa?tamanhoPagina=50&pagina=0&filtro=' + fe.filtro, bearer);
+        if ((fResult.status === 200 || fResult.status === 206) && Array.isArray(fResult.data)) {
+          // LOG: detalhes de cada filtro
+          var fItens = fResult.data.map(function(fi) {
+            return {
+              num: fi.numero || fi.identificador,
+              fase: fi.fase,
+              sit: fi.situacaoParticipanteDisputa,
+              fimContagem: fi.dataHoraFimContagem,
+              sitAposContagem: fi.situacaoAposContagem,
+              melhor: fi.melhorValorGeral ? fi.melhorValorGeral.valorInformado : null,
+              nosso: fi.melhorValorFornecedor ? fi.melhorValorFornecedor.valorInformado : null,
+            };
+          });
+          console.log('[LiciteAgora] FILTRO=' + fe.filtro + ' (' + filtroNomes[fe.filtro] + ') ' + compraId +
+            ': ' + fResult.data.length + ' itens — ' + JSON.stringify(fItens));
+          // Enviar log ao servidor para visibilidade centralizada
+          try {
+            await serverPost('/api/sniper/log-filtro', {
+              compraId: compraId,
+              filtro: fe.filtro,
+              nome: filtroNomes[fe.filtro],
+              qtde: fResult.data.length,
+              itens: fItens,
+            });
+          } catch (e2) {}
+
+          for (var fi of fResult.data) {
+            var fNum = fi.numero || fi.identificador;
+            if (fNum != null) {
+              if (!filterMeta[fNum]) filterMeta[fNum] = {};
+              filterMeta[fNum][fe.campo] = true;
+            }
+          }
+        } else {
+          console.log('[LiciteAgora] FILTRO=' + fe.filtro + ' (' + filtroNomes[fe.filtro] + ') ' + compraId +
+            ': HTTP ' + (fResult.status || '?') + ' (sem dados ou não-array)');
+        }
+      } catch (e) {
+        console.log('[LiciteAgora] FILTRO=' + fe.filtro + ' (' + filtroNomes[fe.filtro] + ') ' + compraId +
+          ': ERRO ' + e.message);
+      }
+    }
+  }
+
+  return { itens: itens, endpoint: endpointUsado, qtdes: qtdes, filterMeta: filterMeta };
 }
 
 /**
@@ -640,9 +716,11 @@ function extrairNossoValor(item) {
 /**
  * Mapeia item da API para formato padronizado enviado ao servidor.
  */
-function mapearItem(i) {
+function mapearItem(i, filterMeta) {
+  var num = i.numero || i.identificador;
+  var fm = (filterMeta && num != null && filterMeta[num]) ? filterMeta[num] : {};
   return {
-    numero: i.numero || i.identificador,
+    numero: num,
     descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
     fase: i.fase || i.faseItem || '',
     situacao: i.situacao || '',
@@ -654,6 +732,9 @@ function mapearItem(i) {
     podeEnviar: i.podeEnviarLances || false,
     fimContagem: i.dataHoraFimContagem || null,
     quantidadeSolicitada: i.quantidadeSolicitada || null,
+    estaPerdendo: !!fm.perdendo,
+    emEncAleatoria: !!fm.encAleat,
+    nosDoisMinFinais: !!fm.doisMin,
   };
 }
 
@@ -668,6 +749,20 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 
   console.log('[LiciteAgora] Verificando disputas em ' + participacoesEmAndamento.length + ' participações...');
   var disputas = [];
+
+  // Consultar quais compras têm auto-lance configurado (para buscar filtros extras)
+  var autoCompras = {};
+  try {
+    var autoResp = await fetch(SERVER_URL + '/api/sniper/auto-compras');
+    if (autoResp.ok) {
+      var autoData = await autoResp.json();
+      if (autoData.success && Array.isArray(autoData.compraIds)) {
+        autoData.compraIds.forEach(function(cid) { autoCompras[cid] = true; });
+      }
+    }
+  } catch (e) {
+    console.log('[LiciteAgora] auto-compras indisponível, filtros extras desabilitados');
+  }
 
   for (var p of participacoesEmAndamento) {
     // Dados reais ficam dentro de p.compra (estrutura da API: { compra: {...}, possuiDiligencia... })
@@ -694,9 +789,46 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
     var fimDisputa = compra.dataHoraFimDisputa || p.dataHoraFimSessaoPublica || null;
     var faseCompra = compra.faseCompraFaseExterna || p.faseCompra || p.fase || '';
 
+    // Buscar detalhes da participação (/participacao) para compras com auto-lance
+    if (autoCompras[compraId]) {
+      try {
+        var partResult = await comprasnetFetch(tabId,
+          '/comprasnet-fase-externa/v1/compras/' + compraId + '/participacao', bearer);
+        if ((partResult.status === 200 || partResult.status === 206) && partResult.data) {
+          var pd = partResult.data;
+          // Enviar ao servidor para salvar no banco
+          try {
+            await serverPost('/api/sync/participacao-detalhes', {
+              compraId: compraId,
+              modoDisputa: pd.modoDisputa || null,
+              criterioJulgamento: pd.criterioJulgamento || null,
+              dataHoraInicioDisputa: pd.dataHoraInicioDisputa || null,
+              dataHoraFimDisputa: pd.dataHoraFimDisputa || null,
+              dataHoraAbertura: pd.dataHoraAbertura || null,
+              chaveCompraPncp: pd.chaveCompraPncp || null,
+              linkPncp: pd.linkPncp || null,
+              exclusivaMeEpp: pd.participacaoExclusivaMeEppOuEquiparadas ? 1 : 0,
+              fundamentoLegal: pd.fundamentoLegal || null,
+              situacaoCompra: pd.situacaoCompraFaseExterna || null,
+              faseCompra: pd.faseCompraFaseExterna || null,
+              objeto: pd.objeto || null,
+              orgao: pd.nomeUasg || null,
+            });
+          } catch (e) {}
+          // Usar fimDisputa da API se não temos
+          if (!fimDisputa && pd.dataHoraFimDisputa) fimDisputa = pd.dataHoraFimDisputa;
+          if (!faseCompra && pd.faseCompraFaseExterna) faseCompra = pd.faseCompraFaseExterna;
+        }
+      } catch (e) {
+        console.log('[LiciteAgora] /participacao falhou para ' + compraId + ': ' + e.message);
+      }
+    }
+
     // Buscar itens via estratégia inteligente (/qtdes → fase → endpoint correto)
-    var resultado = await buscarItensCompra(tabId, compraId, bearer);
+    var usarFiltros = !!autoCompras[compraId];
+    var resultado = await buscarItensCompra(tabId, compraId, bearer, usarFiltros);
     var itens = resultado.itens;
+    var filterMeta = resultado.filterMeta || {};
 
     // Se endpoints falharam, criar stub
     if (!itens || itens.length === 0) {
@@ -734,7 +866,7 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
       dataSessao: dataSessao,
       totalItens: itens.length,
       itensAtivos: itensAtivos.length,
-      itens: itens.map(mapearItem),
+      itens: itens.map(function(item) { return mapearItem(item, filterMeta); }),
     });
   }
 
@@ -917,10 +1049,10 @@ async function detectarEncerradas(idsEmAndamentoAtual) {
     }
   }
 
-  // IDs confirmados como encerrados (2+ ciclos consecutivos fora do filtro=5)
+  // IDs confirmados como encerrados (4+ ciclos consecutivos fora do filtro=5)
   var encerrados = [];
   for (var cid in novosDesaparecidos) {
-    if (novosDesaparecidos[cid] >= 2) {
+    if (novosDesaparecidos[cid] >= 4) {
       encerrados.push(cid);
       delete novosDesaparecidos[cid]; // Já reportado, não precisa rastrear mais
     }
@@ -1045,7 +1177,8 @@ async function processarFilaLances() {
       }
 
       console.log('[LiciteAgora] 🎯 Enviando lance: compra=' + lance.compraId + ' item=' + lance.itemNumero + ' R$' + lance.valor +
-        (lance.fonte === 'blitz' ? ' [BLITZ ' + (lance.batchIndex+1) + '/' + lance.batchTotal + ']' : ''));
+        (lance.fonte === 'blitz' ? ' [BLITZ ' + (lance.batchIndex+1) + '/' + lance.batchTotal + ']' :
+         lance.fonte === 'auto-continuo' ? ' [CONTÍNUO ' + (lance.batchIndex+1) + '/' + lance.batchTotal + ']' : ''));
 
       var path = '/comprasnet-disputa/v1/compras/' + lance.compraId + '/itens/' + lance.itemNumero + '/lances';
       var body = { valorInformado: lance.valor, faseItem: lance.faseItem || 'LA' };
@@ -1071,8 +1204,13 @@ async function processarFilaLances() {
       batchResultados.push(resultadoLance);
 
       // B3: Mark item as failed to skip remaining lances in batch
+      // For auto-continuo: only abort on fatal errors (auth/network), not 422 (value taken by other supplier)
       if (!sucesso) {
-        failedItems[itemKey] = true;
+        var isContinuo = lance.fonte === 'auto-continuo';
+        var is422 = result.status === 422;
+        if (!isContinuo || !is422) {
+          failedItems[itemKey] = true;
+        }
       }
     }
 
