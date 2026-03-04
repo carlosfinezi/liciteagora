@@ -203,6 +203,8 @@ function createLicitacaoCard(licitacao) {
     const qtdInteresse = getQtdInteresse(cnpj, ano, seq);
     const badgeLida = isLida(cnpj, ano, seq) ? '<span class="status-badge badge-lida">✓ Lida</span>' : '';
     const badgeInteresse = qtdInteresse > 0 ? `<span class="status-badge badge-interesse">⭐ ${qtdInteresse} item(s) de interesse</span>` : '';
+    // Badge IA (carregado async após render)
+    const badgeIA = `<span class="status-badge badge-ia" id="badge-ia-${cnpj}-${ano}-${seq}" style="display:none"></span>`;
     const siInfo = licitacoesSemInteresse[cnpj + '-' + ano + '-' + seq];
     const badgeSemInteresse = siInfo ? `<span class="status-badge badge-sem-interesse" title="${siInfo.motivo || ''}">🚫 Sem interesse</span>` : '';
 
@@ -212,7 +214,7 @@ function createLicitacaoCard(licitacao) {
                 ${licitacao.objetoCompra || 'Objeto não informado'}
             </div>
             <div class="licitacao-badges">
-                ${badgeSemInteresse}${badgeInteresse}${badgeLida}
+                ${badgeSemInteresse}${badgeInteresse}${badgeLida}${badgeIA}
                 <span class="licitacao-badge badge-modalidade">${modalidade}</span>
             </div>
         </div>
@@ -275,6 +277,7 @@ function createLicitacaoCard(licitacao) {
                         ${isSemInteresse(cnpj, ano, seq) ? '🚫 Sem interesse' : '🚫 Não tenho interesse'}
                     </button>
                     <button class="btn-ver-itens" onclick="abrirModalItens('${licitacao.orgaoEntidade?.cnpj || ''}', ${licitacao.anoCompra || 0}, ${licitacao.sequencialCompra || 0})">Ver Itens</button>
+                    <button class="btn-analise-ia" id="btn-ia-${cnpj}-${ano}-${seq}" onclick="abrirAnaliseIA('${cnpj}', ${ano}, ${seq})">🤖 Análise IA</button>
                 ${licitacao.linkSistemaOrigem ? `
                     <a href="${licitacao.linkSistemaOrigem}" target="_blank">
                         <button class="btn-detalhes">Abrir no Sistema</button>
@@ -1078,4 +1081,243 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarLidas();
     carregarInteresses();
     carregarSemInteresse();
+});
+
+// ─── ANÁLISE IA ─────────────────────────────────────────────────────────────
+
+// Carrega badges de IA para os cards visíveis
+async function carregarBadgesIA() {
+    const cards = document.querySelectorAll('.licitacao-card');
+    for (const card of cards) {
+        const btnIA = card.querySelector('[id^="btn-ia-"]');
+        if (!btnIA) continue;
+        const id = btnIA.id.replace('btn-ia-', '');
+        const [cnpj, ano, seq] = id.split('-');
+        try {
+            const resp = await fetch(`/api/licitacoes/${cnpj}/${seq}/${ano}/analise`);
+            const data = await resp.json();
+            const badge = document.getElementById(`badge-ia-${cnpj}-${ano}-${seq}`);
+            if (data.analise && badge) {
+                const score = data.analise.viabilidade_score;
+                const color = score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444';
+                badge.style.display = 'inline-flex';
+                badge.style.background = color + '22';
+                badge.style.color = color;
+                badge.style.border = '1px solid ' + color + '55';
+                badge.textContent = `🤖 ${score}%`;
+                btnIA.textContent = '🤖 Ver Análise';
+                btnIA.style.background = color;
+            }
+        } catch(e) {}
+    }
+}
+
+// Modal principal de análise IA
+async function abrirAnaliseIA(cnpj, ano, seq) {
+    // Criar modal se não existir
+    let modal = document.getElementById('modal-analise-ia');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'modal-analise-ia';
+        modal.style.cssText = `
+            position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;
+            display:flex;align-items:center;justify-content:center;padding:20px;
+        `;
+        modal.innerHTML = `
+            <div style="background:#1e293b;border-radius:16px;width:100%;max-width:750px;
+                        max-height:90vh;overflow-y:auto;padding:28px;border:1px solid #334155;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                    <h2 style="color:#fff;font-size:20px;">🤖 Análise Inteligente</h2>
+                    <button onclick="document.getElementById('modal-analise-ia').style.display='none'"
+                        style="background:#334155;border:none;color:#94a3b8;padding:8px 14px;
+                               border-radius:8px;cursor:pointer;font-size:16px;">✕</button>
+                </div>
+                <div id="modal-ia-body"></div>
+            </div>`;
+        document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+
+    const body = document.getElementById('modal-ia-body');
+    body.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+        <div style="font-size:32px;margin-bottom:12px;">⏳</div>
+        <p>Carregando análise…</p>
+    </div>`;
+
+    try {
+        let resp = await fetch(`/api/licitacoes/${cnpj}/${seq}/${ano}/analise`);
+        let data = await resp.json();
+
+        // Se não há análise, solicitar
+        if (!data.analise) {
+            body.innerHTML = `<div style="text-align:center;padding:30px;color:#94a3b8;">
+                <div style="font-size:32px;margin-bottom:12px;">🔍</div>
+                <p style="margin-bottom:20px;">Esta licitação ainda não foi analisada.</p>
+                <button onclick="solicitarAnaliseIA('${cnpj}','${ano}','${seq}')"
+                    style="background:#3b82f6;color:#fff;border:none;padding:12px 28px;
+                           border-radius:10px;cursor:pointer;font-size:15px;font-weight:600;">
+                    🤖 Analisar agora
+                </button>
+            </div>`;
+            return;
+        }
+
+        renderAnaliseModal(body, data.analise, cnpj, ano, seq);
+
+    } catch(e) {
+        body.innerHTML = `<p style="color:#ef4444">Erro: ${e.message}</p>`;
+    }
+}
+
+async function solicitarAnaliseIA(cnpj, ano, seq) {
+    const body = document.getElementById('modal-ia-body');
+    body.innerHTML = `<div style="text-align:center;padding:40px;color:#94a3b8;">
+        <div style="font-size:32px;margin-bottom:12px;animation:spin 1s linear infinite">⚙️</div>
+        <p>Analisando documentos com IA…<br><small>Isso pode levar alguns segundos</small></p>
+    </div>`;
+
+    try {
+        const resp = await fetch(`/api/licitacoes/${cnpj}/${seq}/${ano}/analisar`, { method: 'POST' });
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        renderAnaliseModal(body, data.analise, cnpj, ano, seq);
+        // Atualizar badge
+        carregarBadgesIA();
+    } catch(e) {
+        body.innerHTML = `<div style="text-align:center;padding:30px;">
+            <p style="color:#ef4444;margin-bottom:16px;">⚠️ ${e.message}</p>
+            ${e.message.includes('Chave') ? `
+            <p style="color:#94a3b8;font-size:14px;">Configure sua chave Anthropic em:<br>
+            <strong style="color:#60a5fa">Configurações → Inteligência Artificial</strong></p>
+            ` : ''}
+        </div>`;
+    }
+}
+
+function renderAnaliseModal(container, a, cnpj, ano, seq) {
+    const score = a.viabilidade_score || 50;
+    const cor = score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444';
+    const label = score >= 70 ? '🟢 Alta viabilidade' : score >= 40 ? '🟡 Viabilidade média' : '🔴 Baixa viabilidade';
+
+    const badge = (txt, color = '#1e3a5f', textColor = '#93c5fd') =>
+        `<span style="background:${color};color:${textColor};padding:4px 10px;border-radius:5px;
+                     font-size:13px;display:inline-block;margin:3px;">${txt}</span>`;
+
+    const section = (title, content) => content ? `
+        <div style="margin-bottom:18px;">
+            <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;
+                       letter-spacing:.05em;margin-bottom:8px;padding-bottom:6px;
+                       border-bottom:1px solid #334155;">${title}</div>
+            ${content}
+        </div>` : '';
+
+    container.innerHTML = `
+        <!-- Score -->
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:22px;
+                    background:#0f172a;border-radius:12px;padding:16px;">
+            <div style="font-size:36px;font-weight:800;color:${cor};">${score}%</div>
+            <div>
+                <div style="font-weight:700;color:${cor};">${label}</div>
+                <div style="font-size:13px;color:#94a3b8;margin-top:4px;">${a.viabilidade_justificativa || ''}</div>
+            </div>
+        </div>
+
+        ${section('📋 Resumo', `<p style="font-size:14px;color:#cbd5e1;line-height:1.6;background:#0f172a;padding:14px;border-radius:10px;">${a.resumo || '—'}</p>`)}
+
+        ${section('📦 Itens em Destaque', (a.itens_destaque||[]).map(i => badge(i)).join(''))}
+        ${section('🏷️ Segmento', a.segmento ? badge(a.segmento, '#1e3a5f', '#93c5fd') : '')}
+
+        <!-- Info grid -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;">
+            ${infoBox('Critério', a.criterio_julgamento)}
+            ${infoBox('Prazo Entrega', a.prazo_entrega)}
+            ${infoBox('Local', a.local_entrega)}
+            ${infoBox('Complexidade', a.complexidade)}
+            ${infoBox('Vistoria Obrigatória', a.vistoria_obrigatoria ? '⚠️ Sim' : '✅ Não')}
+            ${infoBox('Exclusivo ME/EPP', a.exclusivo_mei_epp ? '✅ Sim' : 'Não')}
+        </div>
+
+        ${section('📎 Requisitos de Habilitação', (a.requisitos||[]).map(r => badge(r, '#1e293b', '#cbd5e1')).join(''))}
+        ${section('⚠️ Pontos de Atenção', (a.atencao||[]).map(p => badge(p, '#451a03', '#fbbf24')).join(''))}
+
+        ${section('📁 Arquivos Analisados', (a.arquivos_info||[]).length > 0
+            ? (a.arquivos_info||[]).map(f => badge(`📄 ${f.nome}`, '#0f172a', '#64748b')).join('')
+            : `<span style="font-size:13px;color:#64748b">Análise baseada nos dados da API PNCP (instale pdf-parse e mammoth para leitura de documentos)</span>`
+        )}
+
+        <!-- Decisão -->
+        <div style="background:#1e3a5f;border-radius:12px;padding:20px;margin-top:8px;text-align:center;">
+            <p style="color:#93c5fd;margin-bottom:16px;font-weight:600;">Deseja registrar interesse nesta licitação?</p>
+            <div style="display:flex;gap:12px;justify-content:center;" id="ia-decision-btns">
+                <button onclick="registrarInteresseIA('${cnpj}','${ano}','${seq}')"
+                    style="background:#10b981;color:#fff;border:none;padding:12px 28px;
+                           border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;">
+                    ⭐ Sim, tenho interesse
+                </button>
+                <button onclick="document.getElementById('modal-analise-ia').style.display='none'"
+                    style="background:#334155;color:#94a3b8;border:none;padding:12px 20px;
+                           border-radius:10px;cursor:pointer;font-size:15px;">
+                    Fechar
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function infoBox(label, value) {
+    if (!value) return '';
+    return `<div style="background:#0f172a;border-radius:8px;padding:12px;">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:4px;">${label}</div>
+        <div style="font-size:13px;color:#e2e8f0;">${value}</div>
+    </div>`;
+}
+
+async function registrarInteresseIA(cnpj, ano, seq) {
+    // Busca itens para registrar interesse
+    try {
+        const resp = await fetch(`/api/licitacoes/${cnpj}/${seq}/${ano}/itens`);
+        const data = await resp.json();
+        const itens = data.itens || data.data || [];
+
+        if (itens.length === 0) {
+            alert('Nenhum item encontrado para registrar interesse.');
+            return;
+        }
+
+        // Registra interesse em todos os itens
+        for (const item of itens) {
+            await fetch('/api/interesse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cnpj, ano: parseInt(ano), sequencial: parseInt(seq), numeroItem: item.numeroItem })
+            });
+        }
+
+        // Atualiza UI
+        const btns = document.getElementById('ia-decision-btns');
+        if (btns) btns.innerHTML = `<div style="color:#34d399;font-weight:700;font-size:16px;">
+            ✅ Interesse registrado em ${itens.length} item(s)!
+        </div>`;
+
+        // Atualiza card
+        await carregarInteresses();
+        document.getElementById('modal-analise-ia').style.display = 'none';
+
+    } catch(e) {
+        alert('Erro ao registrar interesse: ' + e.message);
+    }
+}
+
+// Carregar badges IA após renderizar cards
+const _originalUpdateResults = typeof updateResultsInfo === 'function' ? updateResultsInfo : null;
+// Hook: carregar badges quando página carrega resultados
+document.addEventListener('DOMContentLoaded', () => {
+    const observer = new MutationObserver(() => {
+        const cards = document.querySelectorAll('.licitacao-card:not([data-ia-checked])');
+        if (cards.length > 0) {
+            cards.forEach(c => c.setAttribute('data-ia-checked', '1'));
+            setTimeout(carregarBadgesIA, 300);
+        }
+    });
+    observer.observe(document.getElementById('resultsContainer') || document.body, { childList: true, subtree: true });
 });

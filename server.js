@@ -32,6 +32,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 const PNCP_API_BASE = 'https://pncp.gov.br/api/consulta/v1';
 const PNCP_API_ITENS = 'https://pncp.gov.br/api/pncp/v1';
 
+// Módulo de análise IA
+const { analisarLicitacao, processarFilaAnalise } = require('./analise-ia');
+
 // Banco de dados SQLite
 const dbPath = path.join(__dirname, 'pncp.db');
 let monitorMensagens = null;
@@ -468,6 +471,33 @@ db.exec(`
 
   -- Inserir configuração padrão do jornal
   INSERT OR IGNORE INTO jornal_config (id, ativo, horario) VALUES (1, 0, '08:00');
+
+  -- Tabela de análises IA das licitações
+  CREATE TABLE IF NOT EXISTS licitacao_analise (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numeroControlePNCP TEXT UNIQUE,
+    cnpj TEXT,
+    ano INTEGER,
+    sequencial INTEGER,
+    resumo TEXT,
+    segmento TEXT,
+    itens_destaque TEXT DEFAULT '[]',
+    requisitos TEXT DEFAULT '[]',
+    atencao TEXT DEFAULT '[]',
+    prazo_entrega TEXT,
+    local_entrega TEXT,
+    criterio_julgamento TEXT,
+    vistoria_obrigatoria INTEGER DEFAULT 0,
+    exclusivo_mei_epp INTEGER DEFAULT 0,
+    viabilidade_score INTEGER DEFAULT 50,
+    viabilidade_justificativa TEXT,
+    complexidade TEXT DEFAULT 'média',
+    arquivos_info TEXT DEFAULT '[]',
+    textos_extraidos INTEGER DEFAULT 0,
+    dataAnalise TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_analise_pncp ON licitacao_analise(numeroControlePNCP);
+  CREATE INDEX IF NOT EXISTS idx_analise_score ON licitacao_analise(viabilidade_score);
 `);
 
 // Migração: adicionar coluna 'tipo' na tabela grupos_palavras se não existir
@@ -821,6 +851,13 @@ async function sincronizarCompleta(diasAtras = 30, diasFrente = 7) {
     setConfigValue('lastSyncDate', dataFinal.toISOString().split('T')[0]);
 
     console.log(`[SYNC COMPLETA] Concluída: ${syncStatus.licitacoesCount} licitações, ${syncStatus.itensCount} novos itens`);
+
+    // Disparar análise IA em background (sem bloquear)
+    const anthropicKey = getConfigValue('anthropic_api_key');
+    if (anthropicKey) {
+      setImmediate(() => processarFilaAnalise(db, anthropicKey, 30));
+    }
+
     return true;
   } catch (err) {
     console.error('[SYNC COMPLETA] Erro:', err.message);
@@ -918,6 +955,12 @@ async function sincronizarIncremental() {
     // Verificar e corrigir lacunas após sync
     if (verificarECorrigirLacunas) {
       setTimeout(() => verificarECorrigirLacunas(3), 5000);
+    }
+
+    // Disparar análise IA em background (sem bloquear)
+    const anthropicKey = getConfigValue('anthropic_api_key');
+    if (anthropicKey) {
+      setImmediate(() => processarFilaAnalise(db, anthropicKey, 20));
     }
 
     return true;
@@ -9593,6 +9636,96 @@ app.get('/api/bi/pesquisa-preco', async (req, res) => {
     res.status(error.response?.status || 500).json({ error: error.message });
   }
 });
+
+// ─── ROTAS DE ANÁLISE IA ────────────────────────────────────────────────────
+
+// GET análise de uma licitação específica
+app.get('/api/licitacoes/:cnpj/:sequencial/:ano/analise', (req, res) => {
+  try {
+    const { cnpj, sequencial, ano } = req.params;
+    const analise = db.prepare(`
+      SELECT * FROM licitacao_analise
+      WHERE cnpj = ? AND ano = ? AND sequencial = ?
+    `).get(cnpj, parseInt(ano), parseInt(sequencial));
+
+    if (!analise) return res.json({ analise: null, pendente: true });
+
+    res.json({
+      analise: {
+        ...analise,
+        itens_destaque: JSON.parse(analise.itens_destaque || '[]'),
+        requisitos: JSON.parse(analise.requisitos || '[]'),
+        atencao: JSON.parse(analise.atencao || '[]'),
+        arquivos_info: JSON.parse(analise.arquivos_info || '[]'),
+      }
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST forçar análise de uma licitação
+app.post('/api/licitacoes/:cnpj/:sequencial/:ano/analisar', async (req, res) => {
+  try {
+    const { cnpj, sequencial, ano } = req.params;
+    const apiKey = getConfigValue('anthropic_api_key');
+    if (!apiKey) return res.status(400).json({ error: 'Chave Anthropic não configurada. Acesse Configurações > IA.' });
+
+    const lic = db.prepare('SELECT * FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?')
+      .get(cnpj, parseInt(ano), parseInt(sequencial));
+    if (!lic) return res.status(404).json({ error: 'Licitação não encontrada no banco' });
+
+    // Força re-análise removendo anterior
+    db.prepare('DELETE FROM licitacao_analise WHERE cnpj = ? AND ano = ? AND sequencial = ?')
+      .run(cnpj, parseInt(ano), parseInt(sequencial));
+
+    const itens = db.prepare('SELECT * FROM itens WHERE numeroControlePNCP = ?').all(lic.numeroControlePNCP);
+    const resultado = await analisarLicitacao(db, apiKey, lic, itens);
+
+    if (!resultado) return res.status(500).json({ error: 'Falha na análise. Verifique o log do servidor.' });
+
+    const analise = db.prepare('SELECT * FROM licitacao_analise WHERE cnpj = ? AND ano = ? AND sequencial = ?')
+      .get(cnpj, parseInt(ano), parseInt(sequencial));
+
+    res.json({
+      sucesso: true,
+      analise: {
+        ...analise,
+        itens_destaque: JSON.parse(analise.itens_destaque || '[]'),
+        requisitos: JSON.parse(analise.requisitos || '[]'),
+        atencao: JSON.parse(analise.atencao || '[]'),
+        arquivos_info: JSON.parse(analise.arquivos_info || '[]'),
+      }
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET/POST chave Anthropic
+app.get('/api/config/anthropic-key', (req, res) => {
+  const key = getConfigValue('anthropic_api_key');
+  res.json({ configurada: !!key, prefixo: key ? key.substring(0, 10) + '...' : null });
+});
+
+app.post('/api/config/anthropic-key', (req, res) => {
+  const { apiKey } = req.body;
+  if (!apiKey || !apiKey.startsWith('sk-ant-')) {
+    return res.status(400).json({ error: 'Chave inválida. Deve começar com sk-ant-' });
+  }
+  setConfigValue('anthropic_api_key', apiKey);
+  res.json({ sucesso: true });
+});
+
+// GET estatísticas de análise
+app.get('/api/analise/stats', (req, res) => {
+  const total = db.prepare('SELECT COUNT(*) as c FROM licitacoes WHERE dataEncerramentoProposta >= date("now")').get().c;
+  const analisadas = db.prepare('SELECT COUNT(*) as c FROM licitacao_analise la JOIN licitacoes l ON l.numeroControlePNCP = la.numeroControlePNCP WHERE l.dataEncerramentoProposta >= date("now")').get().c;
+  const alta = db.prepare('SELECT COUNT(*) as c FROM licitacao_analise la JOIN licitacoes l ON l.numeroControlePNCP = la.numeroControlePNCP WHERE l.dataEncerramentoProposta >= date("now") AND la.viabilidade_score >= 70').get().c;
+  const chaveConfigurada = !!getConfigValue('anthropic_api_key');
+  res.json({ total, analisadas, pendentes: total - analisadas, alta, chaveConfigurada });
+});
+
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
