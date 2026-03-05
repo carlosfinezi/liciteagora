@@ -109,6 +109,19 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; } }
         .info-msg { color: #888; text-align: center; padding: 12px; font-size: 0.85em; }
         .contagem { font-size: 0.72em; color: #888; margin-top: 2px; }
+
+        /* Custo / Lucro */
+        .valor-lucro { font-weight: 600; font-size: 0.9em; }
+        .valor-lucro.positivo { color: #4caf50; }
+        .valor-lucro.negativo { color: #f44336; }
+        .valor-lucro.zero { color: #888; }
+        .config-imposto { display: inline-flex; align-items: center; gap: 6px; background: #16213e; padding: 6px 12px; border-radius: 6px; font-size: 0.82em; margin-left: 12px; }
+        .config-imposto label { color: #ccc; font-weight: 500; }
+        .config-imposto input { width: 65px; padding: 3px 6px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #ff9800; font-size: 0.95em; font-weight: 600; text-align: center; }
+        .config-imposto input:focus { outline: none; border-color: #ff9800; }
+        .mv-cell { color: #888; font-size: 0.9em; }
+        .sugerido-cell { color: #4dabf7; font-weight: 600; font-size: 0.9em; cursor: pointer; }
+        .sugerido-cell:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -129,10 +142,19 @@
     <div class="panel">
         <h3>🔥 Compras — Minhas Participações</h3>
         <div class="filtros">
-            <label><input type="radio" name="filtroEtapa" value="disputa" checked onchange="aplicarFiltro()"> Em Disputa</label>
+            <label><input type="radio" name="filtroEtapa" value="ativa" checked onchange="aplicarFiltro()"> Disputa Ativa</label>
+            <label><input type="radio" name="filtroEtapa" value="disputa" onchange="aplicarFiltro()"> Em Andamento</label>
             <label><input type="radio" name="filtroEtapa" value="todas" onchange="aplicarFiltro()"> Todas</label>
             <input type="text" id="buscaTexto" placeholder="Filtrar por objeto, órgão ou compraId..." oninput="aplicarFiltro()">
             <button class="btn btn-outline btn-sm" onclick="recarregarDados()">🔄</button>
+            <span class="config-imposto">
+                <label>Imposto %</label>
+                <input type="number" id="impostoPercent" step="0.1" min="0" max="100" value="15" onchange="salvarImposto();recalcTodosLucros()" title="Percentual de imposto sobre o lance">
+            </span>
+            <span class="config-imposto">
+                <label>Margem %</label>
+                <input type="number" id="margemPercent" step="0.1" min="0" max="1000" value="20" onchange="salvarMargem();recalcTodosLucros()" title="Margem de lucro desejada sobre o custo" style="color:#4dabf7;border-color:#4dabf7">
+            </span>
         </div>
         <div id="listaCompras"><p class="info-msg"><span class="spinner"></span> Carregando participações...</p></div>
     </div>
@@ -223,12 +245,34 @@ function aplicarFiltro() {
     var busca = document.getElementById('buscaTexto').value.toLowerCase().trim();
 
     var lista = participacoes.filter(function(p) {
-        if(filtro === 'disputa') {
-            // Mostrar apenas licitações em fase de disputa (faseCompra='3' ou itens ativos no live)
-            var fase = p.faseCompra||'';
-            var live = disputasLive[p.compraId];
-            var sit = (p.situacao||'').toUpperCase();
+        var fase = p.faseCompra||'';
+        var live = disputasLive[p.compraId];
+        var sit = (p.situacao||'').toUpperCase();
+
+        if(filtro === 'ativa') {
+            // Apenas licitações com itens REALMENTE em disputa agora
             if(sit==='FR'||sit==='EN'||sit==='SU') return false;
+            if(fase==='4'||fase==='encerrada'||fase==='99') return false;
+            if(!live) return false;
+            // Precisa ter pelo menos 1 item com fase ativa
+            var algumAtivo = (live.itens||[]).some(function(i) {
+                var f = (i.fase||'').toUpperCase();
+                return f==='LA'||f==='D1'||f==='D2'||i.podeEnviar;
+            });
+            return algumAtivo;
+        }
+
+        if(filtro === 'disputa') {
+            // Em andamento: exclui encerradas/fracassadas mas inclui fase 3
+            if(sit==='FR'||sit==='EN'||sit==='SU') return false;
+            if(fase==='4'||fase==='encerrada'||fase==='99') return false;
+            if(live && live.totalItens > 0 && live.itensAtivos === 0) {
+                var algumAtivo2 = (live.itens||[]).some(function(i) {
+                    var f = (i.fase||'').toUpperCase();
+                    return f==='LA'||f==='D1'||f==='D2'||i.podeEnviar;
+                });
+                if(!algumAtivo2) return false;
+            }
             var temDisputaLive = live && live.itensAtivos > 0;
             if(fase !== '3' && !temDisputaLive) return false;
         }
@@ -407,6 +451,7 @@ function renderItens(compraId, itensLive) {
         var lv = liveMap[cfg.itemNumero] || {};
         merged.push({
             numero: cfg.itemNumero,
+            tipo: lv.tipo || null,
             descricao: cfg.descricao || lv.descricao || '',
             fase: lv.fase || cfg.faseItem || '',
             melhorValor: lv.melhorValor,
@@ -422,6 +467,8 @@ function renderItens(compraId, itensLive) {
             emEncAleatoria: !!lv.emEncAleatoria,
             nosDoisMinFinais: !!lv.nosDoisMinFinais,
             // Config salva
+            custo: cfg.custo,
+            variacaoMinima: cfg.variacaoMinima,
             valorLance: cfg.valorLance,
             valorMinimo: cfg.valorMinimo,
             descontoMinimo: cfg.descontoMinimo,
@@ -439,7 +486,7 @@ function renderItens(compraId, itensLive) {
     // Add live items not in config
     itensLive.forEach(function(il) {
         if(!seen[il.numero]) {
-            merged.push({ numero:il.numero, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, tipoVariacao:il.tipoVariacao||'V', podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, estaPerdendo:!!il.estaPerdendo, emEncAleatoria:!!il.emEncAleatoria, nosDoisMinFinais:!!il.nosDoisMinFinais, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1, modoAuto:null });
+            merged.push({ numero:il.numero, tipo:il.tipo||null, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, tipoVariacao:il.tipoVariacao||'V', podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, estaPerdendo:!!il.estaPerdendo, emEncAleatoria:!!il.emEncAleatoria, nosDoisMinFinais:!!il.nosDoisMinFinais, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1, modoAuto:null });
         }
     });
 
@@ -449,37 +496,38 @@ function renderItens(compraId, itensLive) {
     }
 
     var html = '<table class="itens-table"><thead><tr>' +
-        '<th>#</th><th>Descrição</th><th>Fase</th>' +
+        '<th>#</th><th>Descrição</th>' +
         '<th>Melhor R$</th><th>Nosso R$</th><th>V.Estimado</th>' +
-        '<th>Contagem</th><th>Auto</th>' +
-        '<th>Valor Mínimo</th>' +
+        '<th>Custo</th><th>Mín.Viável</th><th>Lucro</th><th>Sugerido</th>' +
+        '<th>Auto</th>' +
+        '<th>Valor Mínimo</th><th>Var.Mín</th>' +
         '<th>Valor Lance</th><th>Ações</th>' +
         '</tr></thead><tbody>';
 
     merged.forEach(function(m) {
+        var isGrupo = m.tipo === 'G' || m.numero < 0;
+
         var nossoClass = 'valor-nosso';
         if(m.nossoValor && m.melhorValor && m.nossoValor <= m.melhorValor) nossoClass += ' melhor';
         var nossoLabel = fmtR$(m.nossoValor);
-        // Badge de situação: G=ganhando, P=participando, C=classificado
         if(m.situacaoParticipante) {
             var sitLabels = {'G':'Ganhando','P':'Participando','C':'Reafirmado','D':'Desclassif.','I':'Excluída','A':'Desclassif.','F':'Desclassif.','R':'Recusada'};
             nossoLabel += ' <span class="badge-sit badge-'+m.situacaoParticipante+'">'+(sitLabels[m.situacaoParticipante]||m.situacaoParticipante)+'</span>';
         }
-        // Badges de filtro Comprasnet
         if(m.estaPerdendo) nossoLabel += ' <span class="badge-filtro badge-perd">PERD</span>';
         if(m.emEncAleatoria) nossoLabel += ' <span class="badge-filtro badge-aleat">ALEAT</span>';
         if(m.nosDoisMinFinais) nossoLabel += ' <span class="badge-filtro badge-2min">2MIN</span>';
-        // Countdown
-        var contagemHtml = '--';
-        if(m.fimContagem) {
-            var segRest = Math.floor((new Date(m.fimContagem).getTime()-Date.now())/1000);
-            if(segRest>0) {
-                var min=Math.floor(segRest/60), seg=segRest%60;
-                var corCont = segRest>120?'verde':segRest>60?'amarelo':'vermelho';
-                contagemHtml = '<span class="countdown '+corCont+'">'+min+':'+String(seg).padStart(2,'0')+'</span>';
-            } else {
-                contagemHtml = '<span class="countdown vermelho">FIM</span>';
-            }
+
+        // Grupo header row — sem inputs, só totais
+        if(isGrupo) {
+            html += '<tr style="background:#0f346030;border-top:2px solid #4dabf7">' +
+                '<td colspan="2"><strong style="color:#4dabf7">Grupo '+esc(m.descricao||'')+'</strong></td>' +
+                '<td class="valor-melhor">'+fmtR$(m.melhorValor)+'</td>' +
+                '<td class="'+nossoClass+'">'+nossoLabel+'</td>' +
+                '<td colspan="5" style="color:#888;font-size:0.8em">Total do grupo (lances nos sub-itens abaixo)</td>' +
+                '<td colspan="5"></td>' +
+                '</tr>';
+            return;
         }
 
         // Auto select
@@ -494,16 +542,19 @@ function renderItens(compraId, itensLive) {
         }
 
         html += '<tr>' +
-            '<td><strong>'+m.numero+'</strong></td>' +
+            '<td><strong>'+m.numero+'</strong>'+(m.tipo==='S'?' <span style="color:#4dabf7;font-size:0.7em">SUB</span>':'')+'</td>' +
             '<td class="desc-cell" title="'+esc(m.descricao)+'">'+esc((m.descricao||'').substring(0,60))+'</td>' +
-            '<td><span class="lic-etapa '+(m.podeEnviar?'etapa-disputa':'etapa-outra')+'">'+esc(m.fase||'--')+'</span></td>' +
             '<td class="valor-melhor">'+fmtR$(m.melhorValor)+'</td>' +
             '<td class="'+nossoClass+'">'+nossoLabel+'</td>' +
             '<td style="color:#888">'+fmtR$(m.valorEstimado)+'</td>' +
-            '<td>'+contagemHtml+'</td>' +
+            '<td><input type="number" step="0.01" value="'+(m.custo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'custo\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Custo" style="width:80px"></td>' +
+            '<td class="mv-cell" id="mv-'+compraId+'-'+m.numero+'">--</td>' +
+            '<td class="valor-lucro" id="lc-'+compraId+'-'+m.numero+'">--</td>' +
+            '<td class="sugerido-cell" id="sg-'+compraId+'-'+m.numero+'">--</td>' +
             '<td>'+selectHtml+'</td>' +
             '<td><input type="number" step="0.01" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Min"></td>' +
-            '<td><input type="number" step="0.01" id="vl-'+compraId+'-'+m.numero+'" value="'+(m.valorLance||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorLance\',this.value)" placeholder="Lance"></td>' +
+            '<td><input type="number" step="0.01" value="'+(m.variacaoMinima||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'variacaoMinima\',this.value)" placeholder="Var" style="width:65px" title="Variação mínima entre lances (R$)"></td>' +
+            '<td><input type="number" step="0.01" id="vl-'+compraId+'-'+m.numero+'" value="'+(m.valorLance||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorLance\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Lance"></td>' +
             '<td style="white-space:nowrap">' +
                 '<button class="btn btn-success btn-sm" onclick="enviar(\''+compraId+'\','+m.numero+')" '+(m.podeEnviar?'':'disabled')+' title="Enviar agora">⚡</button> ' +
                 '<button class="btn btn-outline btn-sm" onclick="toggleHistorico(\''+compraId+'\')" title="Histórico">📋</button>' +
@@ -517,12 +568,14 @@ function renderItens(compraId, itensLive) {
     html += '<div id="resultado-'+compraId+'"></div>';
 
     body.innerHTML = html;
+    // Recalcular lucros após render
+    setTimeout(function(){ recalcTodosLucros(); }, 0);
 }
 
 // ==================== SAVE CONFIG ====================
 function salvar(compraId, itemNumero, campo, valor) {
     var body = { compraId: compraId, itemNumero: itemNumero };
-    if(campo === 'valorLance' || campo === 'valorMinimo') body[campo] = parseFloat(valor)||null;
+    if(campo === 'valorLance' || campo === 'valorMinimo' || campo === 'custo' || campo === 'variacaoMinima') body[campo] = parseFloat(valor)||null;
     else if(campo === 'descontoMinimo' || campo === 'descontoMaximo') body[campo] = parseFloat(valor)||null;
     else body[campo] = valor || null;
     fetch(API+'/api/sniper/itens',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -675,20 +728,28 @@ async function toggleHistorico(compraId) {
         html += '<div style="color:#f44336;font-size:0.8em;padding:6px">Erro ao carregar histórico: '+esc(e.message)+'</div>';
     }
 
-    // 2. Log do auto-lance (filtrado por compraId)
+    // 2. Log do auto-lance — mostra entradas desta compra + últimas gerais
     try {
         var ra = await fetch(API+'/api/sniper/auto/status');
         var da = await ra.json();
         if(da.success && da.log && da.log.length > 0) {
-            var filtered = da.log.filter(function(l){ return (l.msg||'').indexOf(compraId) >= 0; });
-            if(filtered.length > 0) {
-                html += '<div style="margin-top:8px"><strong style="color:#ff9800;font-size:0.82em">Log Auto-Lance</strong>';
-                html += '<div class="auto-log-area">';
-                filtered.forEach(function(l) {
+            var destaCompra = da.log.filter(function(l){ return (l.msg||'').indexOf(compraId) >= 0; });
+            var gerais = da.log.slice(0, 30);
+            html += '<div style="margin-top:8px"><strong style="color:#ff9800;font-size:0.82em">Log Auto-Lance</strong>';
+            if(da.filaLances > 0) html += ' <span style="color:#f44336;font-size:0.78em">(fila: '+da.filaLances+' lances)</span>';
+            html += '<div class="auto-log-area" style="max-height:300px;overflow-y:auto">';
+            if(destaCompra.length > 0) {
+                html += '<div style="color:#4dabf7;font-size:0.78em;padding:2px 4px">— Esta compra ('+destaCompra.length+' entradas) —</div>';
+                destaCompra.forEach(function(l) {
                     html += '<div class="log-entry"><span class="ts">'+fmtHora(l.ts)+'</span> '+esc(l.msg)+'</div>';
                 });
-                html += '</div></div>';
             }
+            html += '<div style="color:#888;font-size:0.78em;padding:2px 4px;margin-top:4px">— Log geral (últimas 30) —</div>';
+            gerais.forEach(function(l) {
+                var isThis = (l.msg||'').indexOf(compraId) >= 0;
+                html += '<div class="log-entry" style="'+(isThis?'color:#4dabf7':'')+'"><span class="ts">'+fmtHora(l.ts)+'</span> '+esc(l.msg)+'</div>';
+            });
+            html += '</div></div>';
         }
     } catch(e) {}
 
@@ -699,23 +760,150 @@ async function toggleHistorico(compraId) {
 // ==================== TOAST ====================
 function toast(msg,tipo){var d=document.createElement('div');d.className='toast';d.style.background=tipo==='sucesso'?'#4caf50':tipo==='erro'?'#f44336':'#4dabf7';d.textContent=msg;document.getElementById('toastArea').appendChild(d);setTimeout(function(){d.remove();},4000);}
 
+// ==================== IMPOSTO / MARGEM / LUCRO ====================
+function carregarImposto() {
+    var saved = localStorage.getItem('lancesImpostoPercent');
+    if(saved !== null) document.getElementById('impostoPercent').value = saved;
+    var savedM = localStorage.getItem('lancesMargemPercent');
+    if(savedM !== null) document.getElementById('margemPercent').value = savedM;
+}
+function salvarImposto() {
+    localStorage.setItem('lancesImpostoPercent', document.getElementById('impostoPercent').value);
+}
+function salvarMargem() {
+    localStorage.setItem('lancesMargemPercent', document.getElementById('margemPercent').value);
+}
+function getImposto() {
+    return parseFloat(document.getElementById('impostoPercent').value) || 0;
+}
+function getMargem() {
+    return parseFloat(document.getElementById('margemPercent').value) || 0;
+}
+function usarSugerido(compraId, num) {
+    var sgEl = document.getElementById('sg-'+compraId+'-'+num);
+    if(!sgEl || sgEl.textContent === '--') return;
+    var valor = parseFloat(sgEl.textContent.replace('R$ ',''));
+    if(!valor || valor <= 0) return;
+    var vlInput = document.getElementById('vl-'+compraId+'-'+num);
+    if(vlInput) {
+        vlInput.value = valor.toFixed(2);
+        salvar(compraId, num, 'valorLance', valor);
+        recalcLucro(compraId, num);
+        toast('Lance #'+num+' → R$ '+valor.toFixed(2), 'info');
+    }
+}
+function recalcLucro(compraId, num) {
+    var imposto = getImposto();
+    var margem = getMargem();
+    // Find custo input: look in the row that has this item number
+    var custo = NaN;
+    var table = document.querySelector('#body-'+compraId+' .itens-table');
+    if(table) {
+        var rows = table.querySelectorAll('tbody tr');
+        for(var i=0;i<rows.length;i++) {
+            var strong = rows[i].querySelector('td:first-child strong');
+            if(strong && parseInt(strong.textContent) === num) {
+                var custoInput = rows[i].cells[5] ? rows[i].cells[5].querySelector('input') : null;
+                if(custoInput) custo = parseFloat(custoInput.value);
+                break;
+            }
+        }
+    }
+    var vlInput = document.getElementById('vl-'+compraId+'-'+num);
+    var valorLance = vlInput ? parseFloat(vlInput.value) : NaN;
+    var mvEl = document.getElementById('mv-'+compraId+'-'+num);
+    var lcEl = document.getElementById('lc-'+compraId+'-'+num);
+    var sgEl = document.getElementById('sg-'+compraId+'-'+num);
+    // Mín.Viável = custo / (1 - imposto/100)
+    if(mvEl) {
+        if(!isNaN(custo) && custo > 0 && imposto < 100) {
+            var mv = custo / (1 - imposto/100);
+            mvEl.textContent = 'R$ ' + mv.toFixed(2);
+        } else {
+            mvEl.textContent = '--';
+        }
+    }
+    // Lucro = valorLance - (valorLance * imposto/100) - custo
+    if(lcEl) {
+        if(!isNaN(valorLance) && valorLance > 0 && !isNaN(custo) && custo > 0) {
+            var lucro = valorLance - (valorLance * imposto/100) - custo;
+            lcEl.textContent = 'R$ ' + lucro.toFixed(2);
+            lcEl.className = 'valor-lucro ' + (lucro > 0.005 ? 'positivo' : lucro < -0.005 ? 'negativo' : 'zero');
+        } else {
+            lcEl.textContent = '--';
+            lcEl.className = 'valor-lucro';
+        }
+    }
+    // Sugerido = custo * (1 + margem/100) / (1 - imposto/100)
+    if(sgEl) {
+        if(!isNaN(custo) && custo > 0 && imposto < 100) {
+            var sg = custo * (1 + margem/100) / (1 - imposto/100);
+            sgEl.textContent = 'R$ ' + sg.toFixed(2);
+            sgEl.title = 'Clique para usar este valor como lance';
+            sgEl.onclick = function(){ usarSugerido(compraId, num); };
+        } else {
+            sgEl.textContent = '--';
+            sgEl.onclick = null;
+        }
+    }
+}
+function recalcTodosLucros() {
+    if(!aberta) return;
+    var config = itensConfig[aberta]||[];
+    config.forEach(function(c) { recalcLucro(aberta, c.itemNumero); });
+}
+
 // ==================== INIT ====================
+carregarImposto();
 recarregarDados();
 atualizarStatus();
 atualizarAutoStatus();
 setInterval(atualizarStatus,10000);
 setInterval(atualizarAutoStatus,10000);
 setInterval(function(){document.getElementById('hora').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});},500);
-// Refresh live data every 30s — só atualiza cache + re-renderiza (sem flash "Carregando...")
+// Refresh live data every 30s — atualiza valores dinâmicos sem destruir inputs
 setInterval(function(){
     carregarDisputasLive().then(function(){
         if(aberta) {
             var live = disputasLive[aberta];
             var itensLive = live ? live.itens : [];
-            if(itensLive.length > 0) renderItens(aberta, itensLive);
+            if(itensLive.length > 0) atualizarValoresLive(aberta, itensLive);
         }
     });
 },30000);
+
+// Atualiza apenas valores dinâmicos (melhor, nosso, contagem, badges) sem recriar DOM
+function atualizarValoresLive(compraId, itensLive) {
+    var table = document.querySelector('#body-'+compraId+' .itens-table');
+    if(!table) { renderItens(compraId, itensLive); return; } // fallback: render completo se não há tabela
+    var rows = table.querySelectorAll('tbody tr');
+    var liveMap = {};
+    itensLive.forEach(function(il) { liveMap[il.numero] = il; });
+    rows.forEach(function(row) {
+        var numCell = row.querySelector('td:first-child strong');
+        if(!numCell) return;
+        var num = parseInt(numCell.textContent);
+        var lv = liveMap[num];
+        if(!lv) return;
+        // Melhor valor (col 3)
+        var melhorTd = row.cells[2];
+        if(melhorTd) melhorTd.textContent = fmtR$(lv.melhorValor);
+        // Nosso valor + badges (col 4)
+        var nossoTd = row.cells[3];
+        if(nossoTd) {
+            nossoTd.className = 'valor-nosso' + (lv.nossoValor && lv.melhorValor && lv.nossoValor <= lv.melhorValor ? ' melhor' : '');
+            var nossoHtml = fmtR$(lv.nossoValor);
+            if(lv.situacaoParticipante) {
+                var sitLabels = {'G':'Ganhando','P':'Participando','C':'Reafirmado','D':'Desclassif.','I':'Excluída','A':'Desclassif.','F':'Desclassif.','R':'Recusada'};
+                nossoHtml += ' <span class="badge-sit badge-'+lv.situacaoParticipante+'">'+(sitLabels[lv.situacaoParticipante]||lv.situacaoParticipante)+'</span>';
+            }
+            if(lv.estaPerdendo) nossoHtml += ' <span class="badge-filtro badge-perd">PERD</span>';
+            if(lv.emEncAleatoria) nossoHtml += ' <span class="badge-filtro badge-aleat">ALEAT</span>';
+            if(lv.nosDoisMinFinais) nossoHtml += ' <span class="badge-filtro badge-2min">2MIN</span>';
+            nossoTd.innerHTML = nossoHtml;
+        }
+    });
+}
 </script>
 </body>
 </html>

@@ -39,6 +39,26 @@ function registrarRotasSniper(app, monitorGetter, db) {
     console.error('[Sniper] Erro na migração:', e.message);
   }
 
+  // ==================== MIGRAÇÃO: colunas extras em sniper_itens ====================
+  try {
+    const infoSI = db.pragma('table_info(sniper_itens)');
+    const colunasSI = infoSI.map(c => c.name);
+    if (!colunasSI.includes('custo')) {
+      db.exec('ALTER TABLE sniper_itens ADD COLUMN custo REAL');
+      console.log('[Sniper] Migração: coluna "custo" adicionada a sniper_itens');
+    }
+    if (!colunasSI.includes('variacaoMinima')) {
+      db.exec('ALTER TABLE sniper_itens ADD COLUMN variacaoMinima REAL');
+      console.log('[Sniper] Migração: coluna "variacaoMinima" adicionada a sniper_itens');
+    }
+    if (!colunasSI.includes('tipoVariacao')) {
+      db.exec("ALTER TABLE sniper_itens ADD COLUMN tipoVariacao TEXT DEFAULT 'V'");
+      console.log('[Sniper] Migração: coluna "tipoVariacao" adicionada a sniper_itens');
+    }
+  } catch (e) {
+    console.error('[Sniper] Erro na migração:', e.message);
+  }
+
   // Tracking da extensão
   let ultimoSyncExtensao = null; // timestamp do último POST da extensão
 
@@ -129,6 +149,17 @@ function registrarRotasSniper(app, monitorGetter, db) {
   let autoLanceComprasFast = {};     // { compraId: true } compras that need fast polling (fimContagem < 90s)
   let autoLanceLog = [];             // últimos 100 log entries
   let autoLanceStats = { ciclos: 0, lancesEnviados: 0, ultimoCiclo: null };
+
+  // Parsear timestamp de Brasília (UTC-3) para Date.
+  // Comprasnet retorna datas sem timezone suffix — são sempre horário de Brasília.
+  function parseBrasilia(dateStr) {
+    if (!dateStr) return null;
+    // Se já tem timezone suffix no final (Z, +HH:MM, -HH:MM), parsear direto
+    // NÃO usar includes('-0') pois match o mês/dia (ex: 2026-03-05)
+    if (/Z$|[+-]\d{2}:\d{2}$|[+-]\d{4}$/.test(dateStr)) return new Date(dateStr);
+    // Senão, é Brasília (UTC-3): adicionar sufixo
+    return new Date(dateStr + '-03:00');
+  }
 
   function logAuto(msg) {
     const entry = { ts: new Date().toISOString(), msg };
@@ -363,7 +394,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
     try {
       // Query DB for compras with auto items
       const autoItens = db.prepare(
-        `SELECT si.compraId, si.itemNumero, si.valorMinimo, si.valorLance, si.modoAuto, si.faseItem, si.antecedenciaMs
+        `SELECT si.compraId, si.itemNumero, si.valorMinimo, si.valorLance, si.modoAuto, si.faseItem, si.antecedenciaMs, si.variacaoMinima, si.tipoVariacao
          FROM sniper_itens si
          WHERE si.modoAuto IS NOT NULL AND si.modoAuto != ''`
       ).all();
@@ -411,10 +442,44 @@ function registrarRotasSniper(app, monitorGetter, db) {
           const itensAuto = porCompra[compraId];
 
           for (const cfgItem of itensAuto) {
-            const liveItem = cached.itens.find(i => i.numero === cfgItem.itemNumero);
+            let liveItem = cached.itens.find(i => i.numero === cfgItem.itemNumero);
             if (!liveItem) {
-              if (logDiag) logAuto(`Item ${cfgItem.itemNumero} não no cache de ${compraId} (${cached.itens.length} itens: ${cached.itens.slice(0,5).map(i=>i.numero).join(',')})`);
-              continue;
+              // Grupo fallback: sub-items (1,2,3) inherit data from grupo (-1)
+              const grupoItem = cached.itens.find(i => i.numero === -1 || i.tipo === 'G');
+              if (grupoItem) {
+                // Get last known nossoValor from successful lance history
+                let ultimoValor = null;
+                try {
+                  const lastLance = db.prepare(
+                    `SELECT valor FROM sniper_historico WHERE compraId = ? AND itemNumero = ? AND sucesso = 1 ORDER BY rowid DESC LIMIT 1`
+                  ).get(compraId, cfgItem.itemNumero);
+                  if (lastLance) ultimoValor = parseFloat(lastLance.valor);
+                } catch (e) {}
+                // Fallback: use valorLance from config
+                if (ultimoValor == null && cfgItem.valorLance != null) {
+                  ultimoValor = parseFloat(cfgItem.valorLance);
+                }
+
+                liveItem = {
+                  numero: cfgItem.itemNumero,
+                  tipo: 'S',
+                  melhorValor: null,
+                  nossoValor: ultimoValor,
+                  variacaoMinima: grupoItem.variacaoMinima,
+                  tipoVariacao: grupoItem.tipoVariacao,
+                  fimContagem: grupoItem.fimContagem,
+                  podeEnviar: grupoItem.podeEnviar,
+                  fase: grupoItem.fase,
+                  estaPerdendo: grupoItem.estaPerdendo || false,
+                  emEncAleatoria: grupoItem.emEncAleatoria || false,
+                  nosDoisMinFinais: grupoItem.nosDoisMinFinais || false,
+                  sintetico: true,
+                };
+                if (logDiag) logAuto(`Item ${cfgItem.itemNumero} sintético (grupo) nosso=${ultimoValor} var=${grupoItem.variacaoMinima}`);
+              } else {
+                if (logDiag) logAuto(`Item ${cfgItem.itemNumero} não no cache de ${compraId} (${cached.itens.length} itens: ${cached.itens.slice(0,5).map(i=>i.numero).join(',')})`);
+                continue;
+              }
             }
 
             const melhorGeral = liveItem.melhorValor;
@@ -443,7 +508,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
             // Check countdown for sniper mode
             let segRestantes = null;
             if (fimContagem) {
-              segRestantes = Math.floor((new Date(fimContagem).getTime() - Date.now()) / 1000);
+              segRestantes = Math.floor((parseBrasilia(fimContagem).getTime() - Date.now()) / 1000);
             }
 
             // Sniper mode: only act in last N seconds (configurable via antecedenciaMs, default 60s)
@@ -539,26 +604,94 @@ function registrarRotasSniper(app, monitorGetter, db) {
             );
             if (jaEnfileirado) continue;
 
-            // MODO CONTÍNUO: batch imediato — enfileira TODOS os degraus até valorMinimo de uma vez
+            // MODO CONTÍNUO: lance único reativo — envia UM degrau por vez, espera resultado, re-avalia
             if (cfgItem.modoAuto === 'continuo') {
-              const batchLances = calcularBatchLances(cfgItem, liveItem, compraId);
-              if (batchLances.length > 0) {
-                // Marcar como fonte 'auto-continuo' (bypass cooldown igual blitz)
-                for (const lance of batchLances) {
-                  lance.fonte = 'auto-continuo';
-                  filaLances.push(lance);
-                }
-                autoLanceStats.lancesEnviados += batchLances.length;
-                // NÃO atualizar liveItem.nossoValor aqui — só o sync real do Comprasnet deve fazer isso.
-                // Atualizar otimisticamente causa inconsistência (mostra valor que nunca foi aceito).
-                // O jaEnfileirado check impede re-enfileirar enquanto lances estão pendentes.
-
-                const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
-                logAuto(`CONTÍNUO BATCH: ${compraId} item ${cfgItem.itemNumero} — ${batchLances.length} lances enfileirados! ` +
-                  `R$${(nossoValor||0).toFixed(2)} → R$${batchLances[batchLances.length - 1].valor.toFixed(2)} ` +
-                  `(modo=continuo)${flagsStr ? ' [' + flagsStr + ']' : ''}`);
+              // Não enviar sem dados reais do Comprasnet (stub = extensão não sincronizou)
+              if (!cached || cached.stub) {
+                if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — aguardando sync (dados stub)`);
                 continue;
               }
+              // Não enviar se disputa já encerrou
+              if (fimContagem) {
+                const segRest = Math.floor((parseBrasilia(fimContagem).getTime() - Date.now()) / 1000);
+                if (segRest < -60) { // margem de 60s por clock drift
+                  if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — disputa encerrada há ${Math.abs(segRest)}s`);
+                  continue;
+                }
+              }
+              // Precisa de nossoValor e variacaoMinima reais para calcular degraus
+              // Fallback varMin: usar campo da config do item (sniper_itens.variacaoMinima)
+              let varMinEfetivo = varMin;
+              let tipoVarEfetivo = tipoVar;
+              if (varMinEfetivo == null && cfgItem.variacaoMinima != null) {
+                varMinEfetivo = parseFloat(cfgItem.variacaoMinima);
+                tipoVarEfetivo = cfgItem.tipoVariacao || 'V';
+              }
+
+              if (nossoValor == null || varMinEfetivo == null) {
+                // Grupo sub-item: enviar valorLance como primeiro lance (só se nossoValor desconhecido)
+                if (liveItem.sintetico && nossoValor == null && cfgItem.valorLance != null && cfgItem.valorLance > 0) {
+                  const initVal = parseFloat(cfgItem.valorLance);
+                  if (initVal >= cfgItem.valorMinimo) {
+                    const id = `cont-init-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                    filaLances.push({
+                      id, compraId, itemNumero: cfgItem.itemNumero,
+                      valor: initVal, faseItem: cfgItem.faseItem || 'LA',
+                      criadoEm: new Date().toISOString(), status: 'pendente', fonte: 'auto-continuo',
+                    });
+                    autoLanceStats.lancesEnviados++;
+                    logAuto(`CONTÍNUO INIT: ${compraId} item ${cfgItem.itemNumero} — R$${initVal.toFixed(2)} (primeiro lance grupo)`);
+                    continue;
+                  }
+                }
+                if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — dados insuficientes (nosso=${nossoValor}, var=${varMinEfetivo})`);
+                continue;
+              }
+
+              let novoValor;
+              if (nossoValor != null && varMinEfetivo != null) {
+                // Calcular próximo degrau a partir do nosso valor atual
+                if (tipoVarEfetivo === 'P') {
+                  novoValor = nossoValor * (1 - varMinEfetivo / 100);
+                } else {
+                  novoValor = nossoValor - varMinEfetivo;
+                }
+                novoValor = Math.round(novoValor * 100) / 100;
+                if (novoValor < cfgItem.valorMinimo) novoValor = cfgItem.valorMinimo;
+                if (novoValor >= nossoValor) continue; // sem espaço para baixar
+
+                // Não enviar valor igual ao melhor (Comprasnet rejeita duplicata de outro fornecedor)
+                if (melhorGeral != null && novoValor === Math.round(melhorGeral * 100) / 100) {
+                  if (tipoVarEfetivo === 'P') {
+                    novoValor = novoValor * (1 - varMinEfetivo / 100);
+                  } else {
+                    novoValor = novoValor - varMinEfetivo;
+                  }
+                  novoValor = Math.round(novoValor * 100) / 100;
+                  if (novoValor < cfgItem.valorMinimo) novoValor = cfgItem.valorMinimo;
+                }
+              }
+
+              if (novoValor <= 0) continue;
+
+              const id = `cont-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+              filaLances.push({
+                id,
+                compraId,
+                itemNumero: cfgItem.itemNumero,
+                valor: novoValor,
+                faseItem: cfgItem.faseItem || 'LA',
+                criadoEm: new Date().toISOString(),
+                status: 'pendente',
+                fonte: 'auto-continuo',
+              });
+              autoLanceStats.lancesEnviados++;
+
+              const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
+              logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — R$${(nossoValor||0).toFixed(2)} → R$${novoValor.toFixed(2)} ` +
+                `(melhor=${melhorGeral != null ? 'R$'+melhorGeral.toFixed(2) : '?'}, var ${tipoVarEfetivo}=${varMinEfetivo}, min=R$${cfgItem.valorMinimo})` +
+                `${flagsStr ? ' [' + flagsStr + ']' : ''}`);
+              continue;
             }
 
             // Fallback: lance único (primeiro lance sem nossoValor, ou caso especial)
@@ -642,7 +775,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       for (const item of d.itens) {
         if (item.emEncAleatoria) { precisaUltra = true; break; }
         if (item.fimContagem) {
-          const seg = Math.floor((new Date(item.fimContagem).getTime() - Date.now()) / 1000);
+          const seg = Math.floor((parseBrasilia(item.fimContagem).getTime() - Date.now()) / 1000);
           if (seg > 0 && seg < 30) { precisaUltra = true; break; }
         }
       }
@@ -709,9 +842,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Retorna lances pendentes (para extensão processar).
    */
   app.get('/api/sniper/fila-lances', (req, res) => {
+    // Limpar lances travados em 'processando' há mais de 30s (extensão não respondeu)
+    const agora = Date.now();
+    for (let i = filaLances.length - 1; i >= 0; i--) {
+      const l = filaLances[i];
+      if (l.status === 'processando' && l.processandoDesde && agora - l.processandoDesde > 30000) {
+        logAuto(`⚠️ Lance ${l.id} travado em processando há 30s — removendo (item ${l.itemNumero})`);
+        filaLances.splice(i, 1);
+      }
+    }
+
     const pendentes = filaLances.filter(l => l.status === 'pendente');
-    // Marcar como "processando"
-    pendentes.forEach(l => l.status = 'processando');
+    // Marcar como "processando" com timestamp
+    pendentes.forEach(l => { l.status = 'processando'; l.processandoDesde = agora; });
 
     // A4: Determine poll interval based on proximity to end
     let pollIntervalMs = 5000; // default
@@ -719,7 +862,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (!d.itens) continue;
       for (const item of d.itens) {
         if (item.fimContagem) {
-          const seg = Math.floor((new Date(item.fimContagem).getTime() - Date.now()) / 1000);
+          const seg = Math.floor((parseBrasilia(item.fimContagem).getTime() - Date.now()) / 1000);
           if (seg > 0 && seg < 60) { pollIntervalMs = 1000; break; }
         }
       }
@@ -727,6 +870,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
 
     res.json({ success: true, lances: pendentes, total: filaLances.length, pollIntervalMs });
+  });
+
+  /**
+   * POST /api/sniper/log
+   * Recebe logs da extensão (idle dialogs, erros, eventos).
+   */
+  app.post('/api/sniper/log', (req, res) => {
+    const { tipo, msg, detalhes } = req.body;
+    const entry = `[EXT:${tipo || 'info'}] ${msg || ''}`;
+    sniper.log(entry);
+    logAuto(entry);
+    console.log(`[Extensão] ${entry}`, detalhes ? JSON.stringify(detalhes).substring(0, 200) : '');
+    res.json({ success: true });
   });
 
   /**
@@ -778,6 +934,51 @@ function registrarRotasSniper(app, monitorGetter, db) {
           WHERE compraId = ? AND itemNumero = ?`).run(sucesso ? 'enviado' : 'erro', `HTTP ${status} (${tempoMs}ms)`, compraId, itemNumero);
       } catch (dbErr) { console.error('[Sniper] Erro salvando no banco:', dbErr.message); }
 
+      // Update disputasCache with nossoValor
+      if (compraId && itemNumero != null) {
+        const cachedD = disputasCache.disputas.find(d => d.compraId === compraId);
+        if (cachedD && cachedD.itens) {
+          if (sucesso) {
+            // Lance succeeded — set nossoValor to the value we sent
+            let cachedItem = cachedD.itens.find(i => i.numero === parseInt(itemNumero));
+            if (cachedItem) {
+              cachedItem.nossoValor = parseFloat(valor);
+            } else {
+              // Sub-item not in cache yet — add it with lance data
+              const grupoItem = cachedD.itens.find(i => i.numero === -1 || i.tipo === 'G');
+              if (grupoItem) {
+                cachedD.itens.push({
+                  numero: parseInt(itemNumero),
+                  tipo: 'S',
+                  melhorValor: null,
+                  nossoValor: parseFloat(valor),
+                  variacaoMinima: grupoItem.variacaoMinima,
+                  tipoVariacao: grupoItem.tipoVariacao,
+                  fimContagem: grupoItem.fimContagem,
+                  podeEnviar: grupoItem.podeEnviar,
+                  fase: grupoItem.fase,
+                  estaPerdendo: false,
+                  emEncAleatoria: grupoItem.emEncAleatoria || false,
+                  nosDoisMinFinais: grupoItem.nosDoisMinFinais || false,
+                });
+                console.log(`[Sniper] Cache: added sub-item ${itemNumero} to grupo ${compraId} nosso=R$${valor}`);
+              }
+            }
+          } else if (status === 422 && resposta && resposta.includes('melhor que seu')) {
+            // 422 "deve ser melhor que seu último lance" — our real position is already
+            // at or below the attempted value. Update nossoValor so contínuo steps down.
+            let cachedItem = cachedD.itens.find(i => i.numero === parseInt(itemNumero));
+            if (cachedItem) {
+              const tentado = parseFloat(valor);
+              if (cachedItem.nossoValor == null || tentado < cachedItem.nossoValor) {
+                console.log(`[Sniper] Cache: 422 "melhor que seu" — ajustando nossoValor item ${itemNumero} de R$${cachedItem.nossoValor} para R$${tentado} (real já é ≤ este valor)`);
+                cachedItem.nossoValor = tentado;
+              }
+            }
+          }
+        }
+      }
+
       // Auto-lance pending cleanup
       // A5: Blitz and auto-continuo lances bypass cooldown
       const pendingKey = `${compraId}-${itemNumero}`;
@@ -797,15 +998,27 @@ function registrarRotasSniper(app, monitorGetter, db) {
         delete autoLancePendentes[pendingKey];
       }
 
-      // Limpar da fila após 30s (or 5s for batch to reduce clutter)
-      setTimeout(() => {
-        const i = filaLances.findIndex(l => l.id === id);
-        if (i >= 0) filaLances.splice(i, 1);
-      }, isBatch ? 5000 : 30000);
+      // Limpar da fila imediatamente para contínuo (liberar jaEnfileirado), senão delay normal
+      const isContínuo = lanceObj && lanceObj.fonte === 'auto-continuo';
+      if (isContínuo) {
+        // Remover imediatamente para desbloquear próximo lance
+        const i2 = filaLances.findIndex(l => l.id === id);
+        if (i2 >= 0) filaLances.splice(i2, 1);
+      } else {
+        setTimeout(() => {
+          const i = filaLances.findIndex(l => l.id === id);
+          if (i >= 0) filaLances.splice(i, 1);
+        }, isBatch ? 5000 : 30000);
+      }
 
-      // A6: Reactive trigger — after success in normal mode, run mini-cycle immediately
-      if (sucesso && !isBatch && autoLanceAtivo) {
-        setImmediate(() => executarCicloAutoLance(true));
+      // A6: Reactive trigger — after result, run cycle immediately (success) or with delay (failure)
+      if (autoLanceAtivo) {
+        if (sucesso) {
+          setImmediate(() => executarCicloAutoLance(true));
+        } else if (isContínuo) {
+          // Contínuo failure: retry after 3s delay (nossoValor already adjusted above)
+          setTimeout(() => executarCicloAutoLance(true), 3000);
+        }
       }
 
       res.json({ success: true });
@@ -869,6 +1082,41 @@ function registrarRotasSniper(app, monitorGetter, db) {
         // Sniper history
         sniper.historico.unshift({ compraId, itemNumero, valor, status, sucesso, tempoMs, timestamp: new Date().toISOString(), fonte: 'browser' });
 
+        // Update disputasCache with nossoValor
+        if (compraId && itemNumero != null) {
+          const cachedD = disputasCache.disputas.find(d => d.compraId === compraId);
+          if (cachedD && cachedD.itens) {
+            if (sucesso) {
+              let cachedItem = cachedD.itens.find(i => i.numero === parseInt(itemNumero));
+              if (cachedItem) {
+                cachedItem.nossoValor = parseFloat(valor);
+              } else {
+                const grupoItem = cachedD.itens.find(i => i.numero === -1 || i.tipo === 'G');
+                if (grupoItem) {
+                  cachedD.itens.push({
+                    numero: parseInt(itemNumero), tipo: 'S', melhorValor: null,
+                    nossoValor: parseFloat(valor), variacaoMinima: grupoItem.variacaoMinima,
+                    tipoVariacao: grupoItem.tipoVariacao, fimContagem: grupoItem.fimContagem,
+                    podeEnviar: grupoItem.podeEnviar, fase: grupoItem.fase,
+                    estaPerdendo: false, emEncAleatoria: grupoItem.emEncAleatoria || false,
+                    nosDoisMinFinais: grupoItem.nosDoisMinFinais || false,
+                  });
+                }
+              }
+            } else if (status === 422 && resposta && resposta.includes('melhor que seu')) {
+              // 422 "deve ser melhor que seu último lance" — update nossoValor so contínuo steps down
+              let cachedItem = cachedD.itens.find(i => i.numero === parseInt(itemNumero));
+              if (cachedItem) {
+                const tentado = parseFloat(valor);
+                if (cachedItem.nossoValor == null || tentado < cachedItem.nossoValor) {
+                  console.log(`[Sniper] Cache batch: 422 "melhor que seu" — ajustando nossoValor item ${itemNumero} de R$${cachedItem.nossoValor} para R$${tentado}`);
+                  cachedItem.nossoValor = tentado;
+                }
+              }
+            }
+          }
+        }
+
         // Cooldown: blitz and auto-continuo lances bypass
         const pendingKey = `${compraId}-${itemNumero}`;
         const lanceObj = idx >= 0 ? filaLances[idx] : null;
@@ -883,11 +1131,17 @@ function registrarRotasSniper(app, monitorGetter, db) {
           delete autoLancePendentes[pendingKey];
         }
 
-        // Clean from queue
-        setTimeout(() => {
-          const i = filaLances.findIndex(l => l.id === id);
-          if (i >= 0) filaLances.splice(i, 1);
-        }, isBatch ? 5000 : 30000);
+        // Clean from queue — contínuo limpa imediato para liberar jaEnfileirado
+        const isContínuo = lanceObj && lanceObj.fonte === 'auto-continuo';
+        if (isContínuo) {
+          const i2 = filaLances.findIndex(l => l.id === id);
+          if (i2 >= 0) filaLances.splice(i2, 1);
+        } else {
+          setTimeout(() => {
+            const i = filaLances.findIndex(l => l.id === id);
+            if (i >= 0) filaLances.splice(i, 1);
+          }, isBatch ? 5000 : 30000);
+        }
       }
 
       // Trim results history
@@ -897,8 +1151,13 @@ function registrarRotasSniper(app, monitorGetter, db) {
       console.log(`[Sniper] Batch resultado: ${sucessos} ✅ ${falhas} ❌ (${resultados.length} total)`);
 
       // Reactive trigger after batch
-      if (sucessos > 0 && autoLanceAtivo) {
-        setImmediate(() => executarCicloAutoLance(true));
+      if (autoLanceAtivo) {
+        if (sucessos > 0) {
+          setImmediate(() => executarCicloAutoLance(true));
+        } else if (falhas > 0) {
+          // Delay on failure to avoid hammering (nossoValor already adjusted above)
+          setTimeout(() => executarCicloAutoLance(true), 3000);
+        }
       }
 
       res.json({ success: true, sucessos, falhas, total: resultados.length });
@@ -928,7 +1187,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
         pendentes: Object.keys(autoLancePendentes).length,
         blitzDisparados: Object.keys(blitzDisparados),
         ultraTimerAtivo: !!autoLanceTimerUltra,
-        log: autoLanceLog.slice(0, 30),
+        log: autoLanceLog.slice(0, 200),
+        filaLances: filaLances.length,
       });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -1449,7 +1709,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
           const compraId = compra.compraId || (uasg + mod + num + ano);
           if (!compraId || compraId.length < 10) continue;
 
-          const filtro = item._filtro; // 5 = em andamento
+          const filtro = item._filtro; // 5=em andamento, 4=em disputa, 3=proposta enviada
           const existe = stmtSelect.get(compraId);
           if (existe) {
             // Se veio do filtro=5 e está marcada como encerrada, reativar
@@ -1462,9 +1722,18 @@ function registrarRotasSniper(app, monitorGetter, db) {
                 compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
                 compraId,
               );
+            } else if (filtro === 3 && existe.situacao !== 'PE') {
+              // filtro=3 = Comprasnet confirma proposta enviada
+              console.log(`[Sync] Proposta confirmada ${compraId} (era ${existe.situacao} → PE)`);
+              stmtUpdate.run('PE',
+                compra.faseCompraFaseExterna || compra.faseCompra || null,
+                compra.objetoCompra || compra.objeto || null,
+                compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
+                compraId,
+              );
             } else {
               stmtUpdate.run(
-                compra.situacaoCompraFaseExterna || compra.situacao || null,
+                filtro === 3 ? 'PE' : (compra.situacaoCompraFaseExterna || compra.situacao || null),
                 compra.faseCompraFaseExterna || compra.faseCompra || null,
                 compra.objetoCompra || compra.objeto || null,
                 compra.nomeOrgao || compra.nomeUasg || compra.orgao || null,
@@ -1480,7 +1749,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
               compra.numero || compra.sequencial || 0,
               compra.nomeOrgao || compra.nomeUasg || compra.orgao || '',
               compra.objetoCompra || compra.objeto || '',
-              compra.situacaoCompraFaseExterna || compra.situacao || '',
+              filtro === 3 ? 'PE' : (compra.situacaoCompraFaseExterna || compra.situacao || ''),
               compra.faseCompraFaseExterna || compra.faseCompra || '',
             );
             inseridas++;
@@ -1762,11 +2031,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
     try {
       const { compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo,
               antecedenciaMs, tentativas, intervaloMs, ativo,
-              valorMinimo, descontoMinimo, descontoMaximo, valorEstimado, modoAuto } = req.body;
+              valorMinimo, descontoMinimo, descontoMaximo, valorEstimado, modoAuto, custo,
+              variacaoMinima, tipoVariacao } = req.body;
       if (!compraId || !itemNumero) return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
 
-      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo, valorMinimo, descontoMinimo, descontoMaximo, valorEstimado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo, valorMinimo, descontoMinimo, descontoMaximo, valorEstimado, custo, variacaoMinima, tipoVariacao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(compraId, itemNumero) DO UPDATE SET
           descricao = COALESCE(excluded.descricao, descricao),
           valorLance = COALESCE(excluded.valorLance, valorLance),
@@ -1780,6 +2050,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
           descontoMinimo = COALESCE(excluded.descontoMinimo, descontoMinimo),
           descontoMaximo = COALESCE(excluded.descontoMaximo, descontoMaximo),
           valorEstimado = COALESCE(excluded.valorEstimado, valorEstimado),
+          custo = COALESCE(excluded.custo, custo),
+          variacaoMinima = COALESCE(excluded.variacaoMinima, variacaoMinima),
+          tipoVariacao = COALESCE(excluded.tipoVariacao, tipoVariacao),
           dataAtualizacao = CURRENT_TIMESTAMP`);
 
       stmt.run(compraId, itemNumero, descricao || null, valorLance || null, faseItem || 'LA',
@@ -1788,7 +2061,10 @@ function registrarRotasSniper(app, monitorGetter, db) {
                valorMinimo !== undefined ? valorMinimo : null,
                descontoMinimo !== undefined ? descontoMinimo : null,
                descontoMaximo !== undefined ? descontoMaximo : null,
-               valorEstimado !== undefined ? valorEstimado : null);
+               valorEstimado !== undefined ? valorEstimado : null,
+               custo !== undefined ? custo : null,
+               variacaoMinima !== undefined ? variacaoMinima : null,
+               tipoVariacao || null);
 
       // modoAuto: handle separately (null = explicitly clear, undefined = don't touch)
       if ('modoAuto' in req.body) {
@@ -1942,125 +2218,540 @@ function registrarRotasSniper(app, monitorGetter, db) {
   /**
    * POST /api/proposta/enviar-api
    * Envia proposta diretamente via API Comprasnet usando o Bearer token.
-   * Não depende da extensão para o envio — usa chamadas HTTP diretas.
+   *
+   * Fluxo correto (HAR-verified):
+   *  1. GET  .../compras/{compraId}/participacao        → verifica status
+   *  2. POST .../compras/{compraId}/participacao        → aceita declarações (se necessário)
+   *  3. POST .../compras/{compraId}/itens/{n}/participacao → envia proposta por item
    *
    * Body: {
    *   compraId: string,
-   *   itens: [{ numero: number, valor: number, marca?: string, modelo?: string, fabricante?: string }]
+   *   itens: [{ numero, valor, quantidade?, marca?, modelo? }],
+   *   declaracoes?: { declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero }
    * }
    */
   app.post('/api/proposta/enviar-api', async (req, res) => {
     try {
-      const { compraId, itens } = req.body;
+      const { compraId, itens, declaracoes } = req.body;
 
-      if (!compraId) {
-        return res.status(400).json({ success: false, error: 'compraId obrigatório' });
-      }
-      if (!itens || !Array.isArray(itens) || itens.length === 0) {
-        return res.status(400).json({ success: false, error: 'Array de itens obrigatório' });
-      }
-      if (!sniper.temToken()) {
-        return res.status(400).json({ success: false, error: 'Sem Bearer token. Abra o Comprasnet com a extensão Token Relay.' });
-      }
-      if (sniper.tokenExpirado()) {
-        return res.status(400).json({ success: false, error: 'Bearer token expirado. Recarregue o Comprasnet.' });
-      }
+      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      if (!itens || !Array.isArray(itens) || itens.length === 0) return res.status(400).json({ success: false, error: 'Array de itens obrigatório' });
+      if (!sniper.temToken()) return res.status(400).json({ success: false, error: 'Sem Bearer token. Abra o Comprasnet com a extensão Token Relay.' });
+      if (sniper.tokenExpirado()) return res.status(400).json({ success: false, error: 'Bearer token expirado. Recarregue o Comprasnet.' });
 
+      const basePath = `/comprasnet-fase-externa/v1/compras/${compraId}`;
       const resultados = [];
       let sucessos = 0;
+      const delay = ms => new Promise(r => setTimeout(r, ms));
 
+      // Helper: POST/PUT via https nativo (axios causa 400 "Failed to read request" no Comprasnet)
+      const https = require('https');
+      const rawPost = (method, path, body) => new Promise((resolve) => {
+        const bodyStr = JSON.stringify(body);
+        const opts = {
+          hostname: 'cnetmobile.estaleiro.serpro.gov.br',
+          path, method,
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/json',
+            'Authorization': sniper.getToken(),
+            'x-device-platform': 'web',
+            'x-version-number': '6.0.0',
+            'Content-Length': Buffer.byteLength(bodyStr),
+          },
+        };
+        const r = https.request(opts, (resp) => {
+          let data = '';
+          resp.on('data', c => data += c);
+          resp.on('end', () => {
+            let parsed;
+            try { parsed = JSON.parse(data); } catch(e) { parsed = data; }
+            resolve({ status: resp.statusCode, data: parsed });
+          });
+        });
+        r.on('error', e => resolve({ status: 0, data: e.message }));
+        r.write(bodyStr);
+        r.end();
+      });
+
+      // --- Passo 1: Verificar estado da compra e garantir participação ---
+      // Primeiro GET para saber se já participa e quais declarações a compra exige
+      let jaParticipando = false;
+      let compraInfo = null;
+      try {
+        const getResp = await sniper.apiGet(`${basePath}/participacao`);
+        sniper.log(`ℹ️ GET participação: HTTP ${getResp.status}`);
+        if (getResp.status === 200 && getResp.data && typeof getResp.data === 'object') {
+          compraInfo = getResp.data;
+          // Se tem itensParticipacao ou situação indica participação ativa
+          jaParticipando = true;
+          sniper.log(`ℹ️ Compra: situacao=${compraInfo.situacaoCompraFaseExterna}, fase=${compraInfo.faseCompraFaseExterna}, exigeEquidade=${compraInfo.exigeDeclaracaoEquidadeGenero}`);
+        }
+      } catch (e) {
+        sniper.log(`⚠️ GET participação erro: ${e.message}`);
+      }
+
+      // Montar declarações respeitando exigências e tipos da API Comprasnet
+      // declaracaoEquidadeGenero: NÃO aceita boolean! Aceita: null (quando não exigido), "N" (não), 1 (sim)
+      const exigeEquidade = compraInfo?.exigeDeclaracaoEquidadeGenero === true;
+      const exigeIntegridade = compraInfo?.exigeDeclaracaoProgramasIntegridade === true;
+      const declBody = {
+        declaracaoMeEpp: declaracoes?.declaracaoMeEpp ?? false,
+        declaracaoProgramasIntegridade: declaracoes?.declaracaoProgramasIntegridade ?? false,
+        declaracaoEquidadeGenero: exigeEquidade
+          ? (declaracoes?.declaracaoEquidadeGenero ? 1 : "N")
+          : (declaracoes?.declaracaoEquidadeGenero ? 1 : null),
+      };
+      sniper.log(`ℹ️ Declarações body: ${JSON.stringify(declBody)} (exigeEquidade=${exigeEquidade}, exigeIntegridade=${exigeIntegridade})`);
+
+      try {
+        // POST via https nativo (axios causa 400 no Comprasnet)
+        let { status, data } = await rawPost('POST', `${basePath}/participacao`, declBody);
+        sniper.log(`ℹ️ POST participação (nativo): HTTP ${status} — ${JSON.stringify(data).substring(0, 300)}`);
+
+        if (status >= 200 && status < 300) {
+          resultados.push({ fase: 'declaracoes', sucesso: true, status });
+          jaParticipando = true;
+        } else if (jaParticipando) {
+          // POST falhou mas já participa — tentar PUT
+          const putResp = await rawPost('PUT', `${basePath}/participacao`, declBody);
+          sniper.log(`ℹ️ PUT participação (nativo): HTTP ${putResp.status} — ${JSON.stringify(putResp.data).substring(0, 300)}`);
+          if (putResp.status >= 200 && putResp.status < 300) {
+            resultados.push({ fase: 'declaracoes', sucesso: true, status: putResp.status, info: 'Atualizado via PUT' });
+          } else {
+            resultados.push({ fase: 'declaracoes', sucesso: true, status: 200, info: 'Já participando' });
+          }
+        } else {
+          resultados.push({ fase: 'declaracoes', sucesso: false, status, erro: JSON.stringify(data).substring(0, 300) });
+        }
+        await delay(1500);
+      } catch (e) {
+        resultados.push({ fase: 'declaracoes', sucesso: false, erro: e.message });
+      }
+
+      // --- Passo 2: GET itens para inicializar participação (fluxo igual ao Comprasnet web) ---
+      try {
+        const getItensResp = sniper.temCaptcha()
+          ? await sniper.apiGetCaptcha(`${basePath}/itens/aguardando-abertura-sessao-publica`)
+          : await sniper.apiGet(`${basePath}/itens/aguardando-abertura-sessao-publica`);
+        sniper.log(`ℹ️ GET itens aguardando: HTTP ${getItensResp.status} (${Array.isArray(getItensResp.data) ? getItensResp.data.length + ' itens' : 'não-array'})`);
+        await delay(500);
+      } catch (e) {
+        sniper.log(`⚠️ GET itens aguardando falhou: ${e.message}`);
+      }
+
+      // --- Passo 3: Enviar proposta item a item ---
       for (const item of itens) {
         if (!item.numero || !item.valor || item.valor <= 0) {
           resultados.push({ numero: item.numero, sucesso: false, erro: 'Valor inválido' });
           continue;
         }
 
-        // Tentar enviar proposta para este item
-        // Endpoint: POST /comprasnet-fase-externa/v1/compras/{compraId}/itens/{itemNumero}/proposta
-        const body = {
-          valorUnitario: parseFloat(item.valor),
-          valorInformado: parseFloat(item.valor),
-          marcaFabricante: item.marca || item.fabricante || '',
-          modeloVersao: item.modelo || '',
-          descricaoDetalhada: item.descricao || '',
+        const itemBody = {
+          quantidadeOfertada: item.quantidade || 1,
+          valor: parseFloat(item.valor),
+          marcaFabricante: item.marca || null,
+          modeloVersao: item.modelo || null,
+          codigoPaisOrigemItem: null,
+          propostaTrabalhoMre: null,
+          declaracoesMargemPreferencia: null,
+          declaracaoConteudoNacional: false,
+          modificado: true,
         };
+        sniper.log(`ℹ️ Item ${item.numero} body: ${JSON.stringify(itemBody)}`);
 
-        const endpoints = [
-          { method: 'post', path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens/${item.numero}/proposta`, body },
-          { method: 'post', path: `/comprasnet-fase-externa/v1/compras/${compraId}/itens/${item.numero}/proposta/fornecedor`, body },
-          { method: 'post', path: `/comprasnet-disputa/v1/compras/${compraId}/itens/${item.numero}/proposta`, body: { valorInformado: parseFloat(item.valor) } },
-        ];
+        const itemPath = `${basePath}/itens/${item.numero}/participacao`;
+        try {
+          // POST via https nativo
+          let { status, data } = await rawPost('POST', itemPath, itemBody);
+          sniper.log(`ℹ️ POST item ${item.numero}: HTTP ${status}`);
 
-        let enviado = false;
-        for (const ep of endpoints) {
-          try {
-            const result = ep.method === 'post'
-              ? await sniper.apiPost(ep.path, ep.body)
-              : await sniper.apiGet(ep.path);
-
-            if (result.status >= 200 && result.status < 300) {
-              resultados.push({
-                numero: item.numero,
-                sucesso: true,
-                status: result.status,
-                endpoint: ep.path.split('/v1/')[1],
-                resposta: typeof result.data === 'string' ? result.data.substring(0, 200) : JSON.stringify(result.data).substring(0, 200)
-              });
-              sucessos++;
-              enviado = true;
-              sniper.log(`✅ Proposta item ${item.numero}: R$ ${item.valor} (${ep.path.split('/v1/')[1]})`);
-              break;
-            } else {
-              // Se não é 404/405, registrar como resultado
-              if (result.status !== 404 && result.status !== 405) {
-                resultados.push({
-                  numero: item.numero,
-                  sucesso: false,
-                  status: result.status,
-                  endpoint: ep.path.split('/v1/')[1],
-                  erro: typeof result.data === 'string' ? result.data.substring(0, 200) : JSON.stringify(result.data).substring(0, 200)
-                });
-                enviado = true; // Don't try other endpoints
-                sniper.log(`❌ Proposta item ${item.numero}: HTTP ${result.status}`);
-                break;
-              }
-            }
-          } catch (e) {
-            // Continue to next endpoint
+          // Se 500, tentar PUT
+          if (status === 500) {
+            await delay(1000);
+            ({ status, data } = await rawPost('PUT', itemPath, itemBody));
+            sniper.log(`ℹ️ PUT item ${item.numero}: HTTP ${status}`);
           }
+
+          if (status >= 200 && status < 300) {
+            resultados.push({ numero: item.numero, sucesso: true, status });
+            sucessos++;
+            sniper.log(`✅ Item ${item.numero}: R$ ${item.valor} (HTTP ${status})`);
+          } else {
+            const erro = typeof data === 'string' ? data.substring(0, 500) : JSON.stringify(data).substring(0, 500);
+            resultados.push({ numero: item.numero, sucesso: false, status, erro });
+            sniper.log(`❌ Item ${item.numero}: HTTP ${status} — ${erro}`);
+          }
+        } catch (e) {
+          resultados.push({ numero: item.numero, sucesso: false, erro: e.message });
         }
 
-        if (!enviado) {
-          resultados.push({
-            numero: item.numero,
-            sucesso: false,
-            erro: 'Nenhum endpoint de proposta retornou resposta válida'
-          });
-        }
+        await delay(1500);
       }
 
-      // Salvar no banco de participações que tentamos enviar
-      try {
-        db.prepare(`UPDATE participacoes_comprasnet SET
-          situacao = CASE WHEN ? > 0 THEN 'PE' ELSE situacao END,
-          dataAtualizacao = CURRENT_TIMESTAMP
-          WHERE compraId = ?`).run(sucessos, compraId);
-      } catch (e) {}
+      // Salvar status no banco apenas se houve sucesso
+      if (sucessos > 0) {
+        try {
+          db.prepare(`UPDATE participacoes_comprasnet SET situacao = 'PE', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`).run(compraId);
+        } catch (e) {}
+      }
 
-      console.log(`[PROPOSTA-API] compraId=${compraId}: ${sucessos}/${itens.length} itens enviados`);
+      console.log(`[PROPOSTA-API] ${compraId}: ${sucessos}/${itens.length} OK`);
 
       res.json({
         success: sucessos > 0,
         message: `${sucessos} de ${itens.length} itens enviados com sucesso`,
-        compraId,
-        sucessos,
-        total: itens.length,
-        resultados,
-        linkCadastroProposta: `https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/cadastro-propostas?compra=${compraId}`
+        compraId, sucessos, total: itens.length, resultados
       });
 
     } catch (error) {
       console.error('[PROPOSTA-API] Erro:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * DELETE /api/proposta/excluir/:compraId
+   * Exclui participação e todas as propostas de itens da compra.
+   * Endpoint Comprasnet: DELETE /comprasnet-fase-externa/v1/compras/{compraId}/participacao
+   */
+  app.delete('/api/proposta/excluir/:compraId', async (req, res) => {
+    try {
+      const { compraId } = req.params;
+      if (!sniper.temToken()) return res.status(400).json({ success: false, error: 'Sem Bearer token.' });
+      if (sniper.tokenExpirado()) return res.status(400).json({ success: false, error: 'Bearer token expirado.' });
+
+      const basePath = `/comprasnet-fase-externa/v1/compras/${compraId}`;
+
+      // DELETE via https nativo (mesmo padrão do enviar-api)
+      const https = require('https');
+      const result = await new Promise((resolve) => {
+        const opts = {
+          hostname: 'cnetmobile.estaleiro.serpro.gov.br',
+          path: `${basePath}/participacao`,
+          method: 'DELETE',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Authorization': sniper.getToken(),
+            'x-device-platform': 'web',
+            'x-version-number': '6.0.0',
+          },
+        };
+        const r = https.request(opts, (resp) => {
+          let data = '';
+          resp.on('data', c => data += c);
+          resp.on('end', () => {
+            let parsed;
+            try { parsed = JSON.parse(data); } catch(e) { parsed = data; }
+            resolve({ status: resp.statusCode, data: parsed });
+          });
+        });
+        r.on('error', e => resolve({ status: 0, data: e.message }));
+        r.end();
+      });
+
+      sniper.log(`🗑️ DELETE participação ${compraId}: HTTP ${result.status}`);
+
+      if (result.status >= 200 && result.status < 300) {
+        // Atualizar banco local
+        try {
+          db.prepare(`UPDATE participacoes_comprasnet SET situacao = 'EX', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`).run(compraId);
+        } catch (e) {}
+
+        console.log(`[PROPOSTA-API] DELETE ${compraId}: OK`);
+        res.json({
+          success: true,
+          message: `Participação excluída. isFornecedorParticipante: ${result.data?.isFornecedorParticipante}`,
+        });
+      } else {
+        const erro = typeof result.data === 'string' ? result.data : JSON.stringify(result.data).substring(0, 500);
+        console.log(`[PROPOSTA-API] DELETE ${compraId}: FALHA HTTP ${result.status}`);
+        res.json({ success: false, error: `HTTP ${result.status}: ${erro}` });
+      }
+    } catch (error) {
+      console.error('[PROPOSTA-API] DELETE erro:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/proposta/diagnostico/:compraId
+   * Diagnóstico completo: testa cada chamada à API Comprasnet e retorna resultados.
+   */
+  app.get('/api/proposta/diagnostico/:compraId', async (req, res) => {
+    const https = require('https');
+    const { compraId } = req.params;
+    const token = sniper.getToken();
+    const diag = { token: !!token };
+
+    if (!token) return res.json({ success: false, error: 'Sem token', diagnostico: diag });
+
+    // Helper: request via Node https nativo (bypass axios)
+    const rawRequest = (method, path, body) => new Promise((resolve) => {
+      const bodyStr = body ? JSON.stringify(body) : null;
+      const opts = {
+        hostname: 'cnetmobile.estaleiro.serpro.gov.br',
+        path,
+        method,
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'Content-Type': 'application/json',
+          'Authorization': token,
+          'x-device-platform': 'web',
+          'x-version-number': '6.0.0',
+          ...(bodyStr ? { 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
+        },
+      };
+      const r = https.request(opts, (resp) => {
+        let data = '';
+        resp.on('data', c => data += c);
+        resp.on('end', () => resolve({ status: resp.statusCode, data: data.substring(0, 1000) }));
+      });
+      r.on('error', e => resolve({ status: 0, error: e.message }));
+      if (bodyStr) r.write(bodyStr);
+      r.end();
+    });
+
+    const delay = ms => new Promise(r => setTimeout(r, ms));
+    const basePath = `/comprasnet-fase-externa/v1/compras/${compraId}`;
+
+    // 1. GET participacao
+    diag['1_GET'] = await rawRequest('GET', `${basePath}/participacao`);
+    // Parse flags do GET completo (não do truncado)
+    let compraFull = {};
+    try {
+      const fullGet = await rawRequest('GET', `${basePath}/participacao`);
+      compraFull = typeof fullGet.data === 'string' ? JSON.parse(fullGet.data) : fullGet.data;
+    } catch(e) {}
+    diag.exigeEquidade = compraFull.exigeDeclaracaoEquidadeGenero;
+    diag.exigeIntegridade = compraFull.exigeDeclaracaoProgramasIntegridade;
+
+    // Testar tipos para declaracaoEquidadeGenero (boolean causa 400)
+    const base = { declaracaoMeEpp: true, declaracaoProgramasIntegridade: true };
+    const tests = {
+      'A_string_S': { ...base, declaracaoEquidadeGenero: "S" },
+      'B_string_N': { ...base, declaracaoEquidadeGenero: "N" },
+      'C_string_true': { ...base, declaracaoEquidadeGenero: "true" },
+      'D_number_1': { ...base, declaracaoEquidadeGenero: 1 },
+      'E_object': { ...base, declaracaoEquidadeGenero: { valor: true } },
+    };
+
+    for (const [label, body] of Object.entries(tests)) {
+      await delay(2000);
+      const r = await rawRequest('POST', `${basePath}/participacao`, body);
+      diag[label] = { status: r.status, body: JSON.stringify(body), resp: typeof r.data === 'string' ? r.data.substring(0, 250) : JSON.stringify(r.data).substring(0, 250) };
+    }
+
+    res.json({ success: true, compraId, diagnostico: diag });
+  });
+
+  /**
+   * POST /api/proposta/backfill-chave-pncp
+   * Busca chaveCompraPncp via API para participações que não a têm.
+   * Foca nos interesses sem compraId — busca nas participações por CNPJ/objeto.
+   * Requer Bearer token ativo.
+   */
+  app.post('/api/proposta/backfill-chave-pncp', async (req, res) => {
+    try {
+      if (!sniper.temToken()) {
+        return res.status(400).json({ success: false, error: 'Sem Bearer token' });
+      }
+
+      // Buscar participações sem chaveCompraPncp
+      const semChave = db.prepare(`
+        SELECT compraId FROM participacoes_comprasnet
+        WHERE (chaveCompraPncp IS NULL OR chaveCompraPncp = '') AND ativo = 1
+        ORDER BY dataAtualizacao DESC
+      `).all();
+
+      let atualizados = 0;
+      let erros = 0;
+      const maxRequests = Math.min(semChave.length, 50); // Limitar para não gastar rate limit
+
+      for (let i = 0; i < maxRequests; i++) {
+        const { compraId } = semChave[i];
+        try {
+          const { status, data } = await sniper.apiGet(
+            `/comprasnet-fase-externa/v1/compras/${compraId}/participacao`
+          );
+          if (status === 200 && data && data.chaveCompraPncp) {
+            db.prepare(`UPDATE participacoes_comprasnet SET chaveCompraPncp = ? WHERE compraId = ?`)
+              .run(data.chaveCompraPncp, compraId);
+            atualizados++;
+          } else if (status === 401 || status === 403 || status === 429) {
+            break; // Parar se rate limited ou sem acesso
+          }
+        } catch (e) {
+          erros++;
+        }
+      }
+
+      console.log(`[BACKFILL] ${atualizados}/${maxRequests} chaveCompraPncp atualizadas (${erros} erros)`);
+      res.json({ success: true, atualizados, total: semChave.length, processados: maxRequests, erros });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * POST /api/proposta/participar-e-listar/:compraId
+   * Aceita declarações de participação e depois lista itens via fase-externa.
+   * Resolve o 401 em compras na fase de propostas onde o fornecedor ainda não participou.
+   *
+   * Body (opcional): { declaracaoMeEpp?, declaracaoProgramasIntegridade?, declaracaoEquidadeGenero? }
+   */
+  app.post('/api/proposta/participar-e-listar/:compraId', async (req, res) => {
+    try {
+      const { compraId } = req.params;
+      if (!sniper.temToken()) {
+        return res.status(400).json({ success: false, error: 'Sem Bearer token' });
+      }
+      if (sniper.tokenExpirado()) {
+        return res.status(400).json({ success: false, error: 'Bearer token expirado' });
+      }
+
+      const basePath = `/comprasnet-fase-externa/v1/compras/${compraId}`;
+      const etapas = [];
+
+      // Passo 1: Verificar participação
+      let jaParticipando = false;
+      try {
+        const { status, data } = await sniper.apiGet(`${basePath}/participacao`);
+        etapas.push({ etapa: 'verificar', status, jaParticipando: status === 200 });
+        if (status === 200 && data) {
+          jaParticipando = true;
+          const preview = typeof data === 'string' ? data.substring(0, 500) : JSON.stringify(data).substring(0, 500);
+          etapas[etapas.length - 1].body = preview;
+        }
+      } catch (e) {
+        etapas.push({ etapa: 'verificar', erro: e.message });
+      }
+
+      // Passo 2: Aceitar declarações se necessário
+      if (!jaParticipando) {
+        // Verificar se compra exige equidade (da resposta do GET)
+        const compraData = etapas[0]?.body ? (() => { try { return JSON.parse(etapas[0].body); } catch(e) { return null; } })() : null;
+        const exigeEquidade = compraData?.exigeDeclaracaoEquidadeGenero === true;
+        const declBody = {
+          declaracaoMeEpp: req.body?.declaracaoMeEpp ?? false,
+          declaracaoProgramasIntegridade: req.body?.declaracaoProgramasIntegridade ?? false,
+          declaracaoEquidadeGenero: exigeEquidade
+            ? (req.body?.declaracaoEquidadeGenero ? 1 : "N")
+            : (req.body?.declaracaoEquidadeGenero ? 1 : null),
+        };
+        try {
+          const { status, data } = await sniper.apiPost(`${basePath}/participacao`, declBody);
+          etapas.push({ etapa: 'participar', status, sucesso: status >= 200 && status < 300 });
+          if (status < 200 || status >= 300) {
+            const erro = typeof data === 'string' ? data.substring(0, 300) : JSON.stringify(data).substring(0, 300);
+            return res.json({
+              success: false,
+              error: `Não foi possível aceitar participação (HTTP ${status}): ${erro}`,
+              etapas
+            });
+          }
+        } catch (e) {
+          etapas.push({ etapa: 'participar', erro: e.message });
+          return res.json({ success: false, error: `Erro ao participar: ${e.message}`, etapas });
+        }
+      }
+
+      // Passo 3: Listar itens via fase-externa (vários paths possíveis)
+      const endpointsItens = [
+        `${basePath}/itens?situacoes=1,2,3,4`,
+        `${basePath}/itens?situacoes=PD,AB,EN`,
+        `${basePath}/itens/em-selecao-fornecedores`,
+      ];
+
+      // Passo 3b: Se nenhum endpoint de lista funcionar, tentar itens individuais (1..20)
+      let tentarItensIndividuais = true;
+
+      for (const path of endpointsItens) {
+        try {
+          const { status, data } = await sniper.apiGet(path);
+          const bodyPreview = typeof data === 'string' ? data.substring(0, 300) : JSON.stringify(data).substring(0, 300);
+          etapas.push({ etapa: 'listar-itens', path: path.split('/v1/')[1], status, body: bodyPreview });
+
+          if ((status === 200 || status === 206) && data) {
+            const arr = Array.isArray(data) ? data : (data.itens || data.content || []);
+            if (arr.length > 0) {
+              const itens = arr.map(i => ({
+                numero: i.numero || i.identificador || i.sequencialItem,
+                descricao: (i.descricao || i.objetoItem || i.descricaoDetalhada || '').substring(0, 300),
+                quantidade: i.quantidadeEstimada || i.quantidadeOfertada || i.quantidade || 1,
+                unidadeMedida: i.unidadeMedida || i.siglaUnidadeMedida || '',
+                valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || i.valorUnitarioEstimado || null,
+                valorTotal: i.valorTotalEstimado || null,
+                situacao: i.situacao || i.situacaoItem || '',
+                criterioJulgamento: i.criterioJulgamento || '',
+              }));
+
+              console.log(`[PARTICIPAR-E-LISTAR] ${compraId}: ${itens.length} itens encontrados via ${path.split('/v1/')[1]}`);
+              return res.json({ success: true, compraId, itens, etapas });
+            }
+          }
+        } catch (e) {
+          etapas.push({ etapa: 'listar-itens', path: path.split('/v1/')[1], erro: e.message });
+        }
+      }
+
+      // Se fase-externa não retornou, tentar disputa como fallback
+      try {
+        const { status, data } = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens`);
+        etapas.push({ etapa: 'listar-itens-disputa', status });
+        if ((status === 200 || status === 206) && Array.isArray(data) && data.length > 0) {
+          const itens = data.map(i => ({
+            numero: i.numero || i.identificador,
+            descricao: (i.descricao || i.objetoItem || '').substring(0, 300),
+            quantidade: i.quantidadeEstimada || i.quantidade || 1,
+            unidadeMedida: i.unidadeMedida || '',
+            valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || null,
+            situacao: i.situacao || i.fase || '',
+          }));
+          return res.json({ success: true, compraId, itens, etapas, fonte: 'disputa' });
+        }
+      } catch (e) {
+        etapas.push({ etapa: 'listar-itens-disputa', erro: e.message });
+      }
+
+      // Passo 3c: Tentar buscar itens individuais (GET .../itens/1, .../itens/2, etc.)
+      // Útil quando nenhum endpoint de lista retorna itens (compras na fase PD)
+      const itensIndividuais = [];
+      for (let n = 1; n <= 30; n++) {
+        try {
+          const { status, data } = await sniper.apiGet(`${basePath}/itens/${n}/participacao`);
+          if (status === 200 && data) {
+            itensIndividuais.push({
+              numero: data.numero || data.identificador || n,
+              descricao: (data.descricao || data.objetoItem || data.descricaoDetalhada || `Item ${n}`).substring(0, 300),
+              quantidade: data.quantidadeEstimada || data.quantidadeSolicitada || data.quantidade || 1,
+              unidadeMedida: data.unidadeMedida || data.siglaUnidadeMedida || '',
+              valorEstimado: data.valorEstimadoUnitario || data.valorEstimado || data.valor || null,
+              situacao: data.situacao || data.situacaoItem || '',
+              criterioJulgamento: data.criterioJulgamento || '',
+              _raw: typeof data === 'object' ? JSON.stringify(data).substring(0, 1500) : '',
+            });
+          } else if (status === 404 || status === 400) {
+            // Não existe mais itens
+            break;
+          }
+          // 401/403/429 = parar para não gastar rate limit
+          if (status === 401 || status === 403 || status === 429) break;
+        } catch (e) {
+          break;
+        }
+      }
+
+      if (itensIndividuais.length > 0) {
+        etapas.push({ etapa: 'itens-individuais', total: itensIndividuais.length });
+        console.log(`[PARTICIPAR-E-LISTAR] ${compraId}: ${itensIndividuais.length} itens encontrados via busca individual`);
+        return res.json({ success: true, compraId, itens: itensIndividuais, etapas, fonte: 'individual' });
+      }
+
+      res.json({ success: false, error: 'Participação aceita mas não foi possível listar itens', etapas });
+
+    } catch (error) {
+      console.error('[PARTICIPAR-E-LISTAR] Erro:', error.message);
       res.status(500).json({ success: false, error: error.message });
     }
   });

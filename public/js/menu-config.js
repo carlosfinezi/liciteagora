@@ -1,10 +1,10 @@
-/* Configuração do Menu Lateral - PNCP Monitor */
+/* Configuração do Menu Lateral - Licite Agora */
 /* Adicione novas páginas aqui para que apareçam automaticamente no menu */
 
 const menuConfig = {
     logo: {
         icone: '📋',
-        texto: 'PNCP',
+        texto: 'Licite Agora',
         link: '/'
     },
     secoes: [
@@ -13,8 +13,7 @@ const menuConfig = {
             itens: [
                 { page: 'index', icone: '🔍', texto: 'Buscar Licitações', link: '/' },
                 { page: 'interesse', icone: '⭐', texto: 'Meus Interesses', link: '/interesse.html', badge: 'interesseCount' },
-                { page: 'propostas', icone: '📝', texto: 'Preparar Propostas', link: '/propostas.html' },
-                { page: 'propostas-api', icone: '🚀', texto: 'Propostas via API', link: '/propostas-api.html' },
+                { page: 'propostas-api', icone: '📝', texto: 'Preparar Propostas', link: '/propostas-api.html' },
                 { page: 'kanban', icone: '📋', texto: 'Kanban', link: '/kanban.html' },
                 { page: 'agenda', icone: '📅', texto: 'Agenda', link: '/agenda.html' },
                 { page: 'monitoramento-chat', icone: '💬', texto: 'Monitor de Chat', link: '/monitoramento-chat.html' }
@@ -24,7 +23,8 @@ const menuConfig = {
             titulo: 'Ferramentas',
             itens: [
                 { page: 'lances', icone: '🎯', texto: 'Lances Automáticos', link: '/lances.html' },
-                { page: 'inteligencia', icone: '📊', texto: 'Inteligência de Negócio', link: '/inteligencia.html' }
+                { page: 'inteligencia', icone: '📊', texto: 'Inteligência de Negócio', link: '/inteligencia.html' },
+                { page: 'nfse', icone: '🧾', texto: 'NFSe Nacional', link: '/nfse.html' }
             ]
         },
         {

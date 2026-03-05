@@ -1,300 +1,374 @@
-'use strict';
-
 /**
- * analise-ia.js
- * Módulo de análise inteligente de licitações com IA (Claude)
- * Integrado ao LiciteAgora — chamado automaticamente durante a sincronização
+ * analise-ia.js — Módulo de análise de licitações via IA
+ * Suporta Gemini (Google) e Claude (Anthropic).
+ * Prioridade: Gemini > Claude (Gemini é gratuito).
  */
 
-const axios = require('axios');
-const PNCP_ARQUIVOS = 'https://pncp.gov.br/pncp-api/v1';
+const https = require('https');
+const http = require('http');
 
-// Tenta importar pdf-parse e mammoth de forma opcional
-let pdfParse = null;
-let mammoth = null;
-let AdmZip = null;
+// Dependências opcionais para extração de texto
+let PDFParse, mammoth, AdmZip;
+try { PDFParse = require('pdf-parse').PDFParse; } catch (e) {}
+try { mammoth = require('mammoth'); } catch (e) {}
+try { AdmZip = require('adm-zip'); } catch (e) {}
 
-try { pdfParse = require('pdf-parse'); } catch(e) {}
-try { mammoth = require('mammoth'); } catch(e) {}
-try { AdmZip = require('adm-zip'); } catch(e) {}
+const PNCP_API = 'https://pncp.gov.br/pncp-api/v1';
 
-// ─── Extração de texto ───────────────────────────────────────────────────────
-
-async function extrairTextoPDF(buffer) {
-  if (!pdfParse) return null;
+/**
+ * Busca lista de arquivos de uma licitação no PNCP
+ */
+async function buscarArquivos(cnpj, ano, sequencial) {
+  const url = `${PNCP_API}/orgaos/${cnpj}/compras/${ano}/${sequencial}/arquivos`;
   try {
-    const data = await pdfParse(buffer, { max: 15 }); // max 15 páginas
-    return data.text?.trim() || null;
-  } catch(e) {
-    return null;
-  }
-}
-
-async function extrairTextoDOCX(buffer) {
-  if (!mammoth) return null;
-  try {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value?.trim() || null;
-  } catch(e) {
-    return null;
-  }
-}
-
-async function extrairTextoZIP(buffer) {
-  if (!AdmZip) return [];
-  try {
-    const zip = new AdmZip(buffer);
-    const entries = zip.getEntries();
-    const textos = [];
-    for (const entry of entries) {
-      if (entry.isDirectory) continue;
-      const nome = entry.entryName.toLowerCase();
-      const conteudo = entry.getData();
-      if (nome.endsWith('.pdf')) {
-        const t = await extrairTextoPDF(conteudo);
-        if (t) textos.push({ nome: entry.entryName, texto: t });
-      } else if (nome.endsWith('.docx')) {
-        const t = await extrairTextoDOCX(conteudo);
-        if (t) textos.push({ nome: entry.entryName, texto: t });
-      } else if (nome.endsWith('.txt')) {
-        textos.push({ nome: entry.entryName, texto: conteudo.toString('utf8') });
-      }
-    }
-    return textos;
-  } catch(e) {
+    const data = await httpGet(url);
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    console.log(`[IA] Erro ao buscar arquivos ${cnpj}/${ano}/${sequencial}: ${e.message}`);
     return [];
   }
 }
 
-async function baixarEExtrairArquivos(cnpj, ano, sequencial) {
-  const textos = [];
-  const arquivosInfo = [];
+/**
+ * Baixa e extrai texto de um arquivo
+ */
+async function extrairTexto(arquivo) {
+  const url = arquivo.url || arquivo.uri;
+  if (!url) return '';
 
-  // 1. Listar arquivos
-  let arquivos = [];
   try {
-    const resp = await axios.get(
-      `${PNCP_ARQUIVOS}/orgaos/${cnpj}/compras/${ano}/${sequencial}/arquivos`,
-      { timeout: 15000, headers: { Accept: 'application/json' } }
-    );
-    arquivos = resp.data || [];
-  } catch(e) {
-    console.log(`[ANALISE-IA] Sem arquivos para ${cnpj}/${ano}/${sequencial}: ${e.message}`);
-    return { textos, arquivosInfo };
+    const buffer = await httpGetBuffer(url);
+    const nome = (arquivo.titulo || arquivo.nomeArquivo || '').toLowerCase();
+
+    if (nome.endsWith('.pdf') || arquivo.tipoDocumento === 'pdf') {
+      return await extrairPDF(buffer);
+    } else if (nome.endsWith('.docx')) {
+      return await extrairDOCX(buffer);
+    } else if (nome.endsWith('.zip')) {
+      return await extrairZIP(buffer);
+    } else if (nome.endsWith('.txt') || nome.endsWith('.csv')) {
+      return buffer.toString('utf-8').substring(0, 50000);
+    }
+    // Tenta PDF como fallback
+    return await extrairPDF(buffer);
+  } catch (e) {
+    console.log(`[IA] Erro ao extrair texto de ${arquivo.titulo || 'arquivo'}: ${e.message}`);
+    return '';
   }
+}
 
-  if (!Array.isArray(arquivos) || arquivos.length === 0) return { textos, arquivosInfo };
+async function extrairPDF(buffer) {
+  if (!PDFParse) return '[pdf-parse não instalado]';
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  const result = await parser.getText({ first: 15 });
+  const text = result.pages ? result.pages.map(p => p.text).join('\n') : '';
+  parser.destroy();
+  return text.substring(0, 80000);
+}
 
-  // 2. Baixar e extrair (máx 5 arquivos)
-  const limite = Math.min(arquivos.length, 5);
-  for (let i = 0; i < limite; i++) {
-    const arq = arquivos[i];
-    const seqDoc = arq.sequencialDocumento || (i + 1);
-    const nome = arq.nome || arq.titulo || `arquivo_${seqDoc}`;
-    const ext = nome.split('.').pop().toLowerCase();
-    arquivosInfo.push({ nome, ext });
+async function extrairDOCX(buffer) {
+  if (!mammoth) return '[mammoth não instalado]';
+  const result = await mammoth.extractRawText({ buffer });
+  return (result.value || '').substring(0, 80000);
+}
 
+async function extrairZIP(buffer) {
+  if (!AdmZip) return '[adm-zip não instalado]';
+  const zip = new AdmZip(buffer);
+  const entries = zip.getEntries();
+  let texto = '';
+  for (const entry of entries.slice(0, 5)) {
+    const nome = entry.entryName.toLowerCase();
+    if (entry.isDirectory) continue;
     try {
-      const resp = await axios.get(
-        `${PNCP_ARQUIVOS}/orgaos/${cnpj}/compras/${ano}/${sequencial}/arquivos/${seqDoc}`,
-        { responseType: 'arraybuffer', timeout: 30000 }
-      );
-      const buffer = Buffer.from(resp.data);
-
-      if (ext === 'pdf') {
-        const t = await extrairTextoPDF(buffer);
-        if (t) textos.push({ nome, texto: t.substring(0, 12000) });
-      } else if (ext === 'docx') {
-        const t = await extrairTextoDOCX(buffer);
-        if (t) textos.push({ nome, texto: t.substring(0, 12000) });
-      } else if (ext === 'zip') {
-        const inner = await extrairTextoZIP(buffer);
-        for (const item of inner) {
-          textos.push({ nome: `${nome} → ${item.nome}`, texto: item.texto.substring(0, 8000) });
-        }
-      } else if (ext === 'txt') {
-        textos.push({ nome, texto: buffer.toString('utf8').substring(0, 12000) });
+      const buf = entry.getData();
+      if (nome.endsWith('.pdf')) {
+        texto += await extrairPDF(buf) + '\n\n';
+      } else if (nome.endsWith('.docx')) {
+        texto += await extrairDOCX(buf) + '\n\n';
+      } else if (nome.endsWith('.txt') || nome.endsWith('.csv')) {
+        texto += buf.toString('utf-8').substring(0, 30000) + '\n\n';
       }
-
-      await new Promise(r => setTimeout(r, 200));
-    } catch(e) {
-      console.log(`[ANALISE-IA] Erro ao baixar ${nome}: ${e.message}`);
-    }
+    } catch (e) {}
+    if (texto.length > 80000) break;
   }
-
-  return { textos, arquivosInfo };
+  return texto.substring(0, 80000);
 }
-
-// ─── Chamada Claude API ──────────────────────────────────────────────────────
-
-async function analisarComClaude(apiKey, licitacao, itens, textos) {
-  const itensTexto = itens.slice(0, 20).map(it =>
-    `- Item ${it.numeroItem}: ${it.descricao} | Qtd: ${it.quantidade} ${it.unidadeMedida || ''} | Valor unit. estimado: ${it.valorUnitarioEstimado ? 'R$ ' + Number(it.valorUnitarioEstimado).toFixed(2) : 'N/A'}`
-  ).join('\n');
-
-  const docsTexto = textos.slice(0, 4).map(t =>
-    `=== ${t.nome} ===\n${t.texto.substring(0, 6000)}`
-  ).join('\n\n');
-
-  const prompt = `Você é especialista em licitações públicas brasileiras. Analise esta licitação do PNCP e retorne SOMENTE um JSON válido, sem markdown nem explicações.
-
-DADOS DA LICITAÇÃO:
-- Objeto: ${licitacao.objetoCompra || 'N/A'}
-- Órgão: ${licitacao.razaoSocial || licitacao.nomeUnidade || 'N/A'} (${licitacao.municipioNome || ''} - ${licitacao.ufSigla || ''})
-- Modalidade: ${licitacao.modalidadeNome || 'N/A'}
-- Valor Estimado: ${licitacao.valorTotalEstimado ? 'R$ ' + Number(licitacao.valorTotalEstimado).toLocaleString('pt-BR') : 'Sigiloso'}
-- Abertura Propostas: ${licitacao.dataAberturaProposta || 'N/A'}
-- Encerramento: ${licitacao.dataEncerramentoProposta || 'N/A'}
-- Informações Complementares: ${(licitacao.informacaoComplementar || '').substring(0, 500)}
-
-ITENS (${itens.length} total):
-${itensTexto || 'Sem itens listados'}
-
-${docsTexto ? `DOCUMENTOS EXTRAÍDOS:\n${docsTexto}` : '(documentos não disponíveis — análise baseada nos dados da API)'}
-
-Retorne SOMENTE este JSON:
-{
-  "resumo": "resumo do objeto em 2-3 frases diretas",
-  "segmento": "segmento principal (ex: TI, Saúde, Obras, Serviços, Material de Escritório, etc.)",
-  "itens_destaque": ["item principal 1", "item principal 2"],
-  "requisitos": ["requisito de habilitação 1", "requisito 2"],
-  "atencao": ["ponto de atenção 1"],
-  "prazo_entrega": "prazo mencionado ou 'Não especificado'",
-  "local_entrega": "local mencionado ou 'Não especificado'",
-  "criterio_julgamento": "Menor Preço ou Melhor Técnica e Preço ou outro",
-  "vistoria_obrigatoria": false,
-  "exclusivo_mei_epp": false,
-  "viabilidade_score": 65,
-  "viabilidade_justificativa": "breve justificativa em 1 frase",
-  "complexidade": "baixa"
-}`;
-
-  const response = await axios.post(
-    'https://api.anthropic.com/v1/messages',
-    {
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
-      messages: [{ role: 'user', content: prompt }]
-    },
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      timeout: 30000
-    }
-  );
-
-  const raw = response.data?.content?.[0]?.text || '{}';
-  const clean = raw.replace(/```json|```/g, '').trim();
-  return JSON.parse(clean);
-}
-
-// ─── Função principal ────────────────────────────────────────────────────────
 
 /**
- * Analisa uma licitação com IA e salva no banco.
- * @param {object} db - instância better-sqlite3
- * @param {string} apiKey - chave Anthropic
- * @param {object} licitacao - dados da licitação (linha do banco)
- * @param {array}  itens     - itens da licitação
+ * Analisa uma licitação: busca documentos, extrai textos, envia à IA
  */
-async function analisarLicitacao(db, apiKey, licitacao, itens = []) {
-  const { cnpj, anoCompra: ano, sequencialCompra: sequencial, numeroControlePNCP } = licitacao;
+async function analisarLicitacao(db, cnpj, ano, sequencial, keys) {
+  const pncp = `${cnpj}/${ano}/${sequencial}`;
+  const numeroControlePNCP = `${cnpj}-${ano}-${sequencial}`;
 
-  // Verifica se já foi analisada
-  const existente = db.prepare('SELECT id FROM licitacao_analise WHERE numeroControlePNCP = ?').get(numeroControlePNCP);
-  if (existente) return null; // já processada
+  // 1. Buscar dados da licitação no banco
+  const licitacao = db.prepare(`
+    SELECT l.*, GROUP_CONCAT(i.descricao, ' | ') as itensDescricao,
+           GROUP_CONCAT(i.valorUnitarioEstimado, ',') as itensValores
+    FROM licitacoes l
+    LEFT JOIN itens i ON l.id = i.licitacaoId
+    WHERE l.cnpj = ? AND l.anoCompra = ? AND l.sequencialCompra = ?
+    GROUP BY l.id
+  `).get(cnpj, ano, sequencial);
 
-  console.log(`[ANALISE-IA] Analisando ${numeroControlePNCP}…`);
+  if (!licitacao) {
+    console.log(`[IA] Licitação ${pncp} não encontrada no banco`);
+    return null;
+  }
 
+  // 2. Buscar e extrair textos dos documentos
+  const arquivos = await buscarArquivos(cnpj, ano, sequencial);
+  let textosExtraidos = 0;
+  let textoCompleto = '';
+
+  for (const arq of arquivos.slice(0, 5)) {
+    const texto = await extrairTexto(arq);
+    if (texto && texto.length > 100) {
+      textoCompleto += `\n--- ${arq.titulo || arq.nomeArquivo || 'Documento'} ---\n${texto}\n`;
+      textosExtraidos++;
+    }
+  }
+
+  // 3. Montar prompt
+  const prompt = montarPrompt(licitacao, textoCompleto);
+
+  // 4. Chamar IA (prioridade: Gemini > Claude)
+  let analise = null;
+  let provider = null;
+  let lastError = null;
+
+  if (keys.gemini) {
+    analise = await chamarGemini(keys.gemini, prompt);
+    if (analise) provider = 'gemini';
+  }
+
+  if (!analise && keys.anthropic) {
+    analise = await chamarClaude(keys.anthropic, prompt);
+    if (analise) provider = 'claude';
+  }
+
+  if (!analise) {
+    console.log(`[IA] Nenhum provider retornou análise para ${pncp}`);
+    return null;
+  }
+
+  // 5. Salvar no banco
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO licitacao_analise
+    (numeroControlePNCP, cnpj, ano, sequencial, resumo, segmento,
+     itens_destaque, requisitos, atencao, prazo_entrega, local_entrega,
+     criterio_julgamento, vistoria_obrigatoria, exclusivo_mei_epp,
+     viabilidade_score, viabilidade_justificativa, complexidade,
+     arquivos_info, textos_extraidos, dataAnalise)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `);
+
+  stmt.run(
+    numeroControlePNCP, cnpj, ano, sequencial,
+    analise.resumo || '',
+    analise.segmento || '',
+    JSON.stringify(analise.itens_destaque || []),
+    JSON.stringify(analise.requisitos || []),
+    JSON.stringify(analise.atencao || []),
+    analise.prazo_entrega || null,
+    analise.local_entrega || null,
+    analise.criterio_julgamento || null,
+    analise.vistoria_obrigatoria ? 1 : 0,
+    analise.exclusivo_mei_epp ? 1 : 0,
+    analise.viabilidade_score || 50,
+    analise.viabilidade_justificativa || '',
+    analise.complexidade || 'média',
+    JSON.stringify(arquivos.map(a => ({ titulo: a.titulo, tipo: a.tipoDocumento }))),
+    textosExtraidos
+  );
+
+  console.log(`[IA] Análise salva (${provider}): ${pncp} — score ${analise.viabilidade_score}, ${textosExtraidos} docs`);
+  return analise;
+}
+
+function montarPrompt(licitacao, textoDocumentos) {
+  let contexto = `LICITAÇÃO:
+- Objeto: ${licitacao.objetoCompra || 'N/A'}
+- Órgão: ${licitacao.razaoSocial || licitacao.nomeUnidade || 'N/A'}
+- UASG: ${licitacao.codigoUnidade || 'N/A'}
+- Modalidade: ${licitacao.modalidadeNome || 'N/A'}
+- Valor estimado: R$ ${licitacao.valorTotalEstimado || 'N/A'}
+- Abertura: ${licitacao.dataAberturaProposta || 'N/A'}
+- Encerramento: ${licitacao.dataEncerramentoProposta || 'N/A'}
+- Situação: ${licitacao.situacaoCompraNome || 'N/A'}
+- SRP: ${licitacao.srp ? 'Sim' : 'Não'}`;
+
+  if (licitacao.itensDescricao) {
+    contexto += `\n\nITENS:\n${licitacao.itensDescricao}`;
+  }
+
+  if (textoDocumentos) {
+    contexto += `\n\nDOCUMENTOS DO EDITAL:\n${textoDocumentos.substring(0, 60000)}`;
+  }
+
+  return `Analise esta licitação pública brasileira e retorne um JSON com a seguinte estrutura exata:
+
+{
+  "resumo": "Resumo do objeto em 2-3 frases",
+  "segmento": "Segmento de mercado (ex: TI, Saúde, Construção, Alimentação, etc)",
+  "itens_destaque": ["Item 1 mais relevante", "Item 2"],
+  "requisitos": ["Requisito técnico 1", "Requisito 2"],
+  "atencao": ["Ponto de atenção 1", "Ponto 2"],
+  "prazo_entrega": "Prazo informado ou null",
+  "local_entrega": "Local informado ou null",
+  "criterio_julgamento": "Menor preço / Técnica e preço / etc",
+  "vistoria_obrigatoria": false,
+  "exclusivo_mei_epp": false,
+  "viabilidade_score": 70,
+  "viabilidade_justificativa": "Justificativa do score em 1-2 frases",
+  "complexidade": "baixa|média|alta"
+}
+
+O viabilidade_score (0-100) deve considerar: clareza do edital, complexidade dos requisitos, prazo, e se é viável para uma empresa de TI/serviços participar.
+
+Retorne APENAS o JSON, sem texto adicional.
+
+${contexto}`;
+}
+
+// ==================== PROVIDERS ====================
+
+/**
+ * Chama Google Gemini (2.0 Flash — gratuito) com retry em 429
+ */
+async function chamarGemini(apiKey, prompt, tentativa) {
+  tentativa = tentativa || 1;
   try {
-    // Tenta baixar arquivos (falha graciosamente)
-    const { textos, arquivosInfo } = await baixarEExtrairArquivos(cnpj, ano, sequencial);
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    // Chama Claude
-    const analise = await analisarComClaude(apiKey, licitacao, itens, textos);
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        maxOutputTokens: 2000,
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+      },
+    });
 
-    // Salva no banco
-    const stmt = db.prepare(`
-      INSERT OR REPLACE INTO licitacao_analise
-        (numeroControlePNCP, cnpj, ano, sequencial, resumo, segmento,
-         itens_destaque, requisitos, atencao, prazo_entrega, local_entrega,
-         criterio_julgamento, vistoria_obrigatoria, exclusivo_mei_epp,
-         viabilidade_score, viabilidade_justificativa, complexidade,
-         arquivos_info, textos_extraidos, dataAnalise)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-    `);
-
-    stmt.run(
-      numeroControlePNCP, cnpj, ano, sequencial,
-      analise.resumo || '',
-      analise.segmento || '',
-      JSON.stringify(analise.itens_destaque || []),
-      JSON.stringify(analise.requisitos || []),
-      JSON.stringify(analise.atencao || []),
-      analise.prazo_entrega || '',
-      analise.local_entrega || '',
-      analise.criterio_julgamento || '',
-      analise.vistoria_obrigatoria ? 1 : 0,
-      analise.exclusivo_mei_epp ? 1 : 0,
-      analise.viabilidade_score || 50,
-      analise.viabilidade_justificativa || '',
-      analise.complexidade || 'média',
-      JSON.stringify(arquivosInfo),
-      textos.length
-    );
-
-    console.log(`[ANALISE-IA] ✅ ${numeroControlePNCP} — score: ${analise.viabilidade_score}`);
-    return analise;
-
-  } catch(e) {
-    console.warn(`[ANALISE-IA] ⚠️ Erro ao analisar ${numeroControlePNCP}: ${e.message}`);
+    const text = result.response.text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    console.log('[IA] Gemini não retornou JSON válido');
+    return null;
+  } catch (e) {
+    const msg = e.message || '';
+    // Retry em 429 (rate limit) até 2 vezes
+    if (msg.includes('429') && tentativa <= 2) {
+      const wait = tentativa * 20000; // 20s, 40s
+      console.log(`[IA] Gemini rate limit, retry ${tentativa}/2 em ${wait/1000}s...`);
+      await new Promise(r => setTimeout(r, wait));
+      return chamarGemini(apiKey, prompt, tentativa + 1);
+    }
+    // Mensagem útil para quota zero
+    if (msg.includes('429') && msg.includes('limit: 0')) {
+      console.error('[IA] Gemini: chave sem cota free tier. Crie uma nova em https://aistudio.google.com/apikey');
+    } else {
+      console.error('[IA] Erro ao chamar Gemini:', msg.substring(0, 200));
+    }
     return null;
   }
 }
 
 /**
- * Processa fila de licitações não analisadas (chamado após sync)
- * @param {object} db - instância better-sqlite3
- * @param {string} apiKey - chave Anthropic
- * @param {number} limite - quantas analisar por vez (default 20)
+ * Chama Anthropic Claude (Haiku)
  */
-async function processarFilaAnalise(db, apiKey, limite = 20) {
-  if (!apiKey) {
-    console.log('[ANALISE-IA] API key não configurada — pulando análise automática');
-    return;
-  }
+async function chamarClaude(apiKey, prompt) {
+  try {
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
 
-  // Busca licitações sem análise (as mais recentes primeiro)
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0]?.text || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    console.log('[IA] Claude não retornou JSON válido');
+    return null;
+  } catch (e) {
+    console.error('[IA] Erro ao chamar Claude:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Processa fila de licitações sem análise
+ */
+async function processarFilaAnalise(db, keys, limite) {
   const pendentes = db.prepare(`
-    SELECT l.* FROM licitacoes l
-    LEFT JOIN licitacao_analise la ON la.numeroControlePNCP = l.numeroControlePNCP
-    WHERE la.id IS NULL
+    SELECT l.cnpj, l.anoCompra as ano, l.sequencialCompra as sequencial
+    FROM licitacoes l
+    LEFT JOIN licitacao_analise a ON l.cnpj = a.cnpj AND l.anoCompra = a.ano AND l.sequencialCompra = a.sequencial
+    WHERE a.id IS NULL
       AND l.dataEncerramentoProposta >= date('now')
-    ORDER BY l.dataPublicacaoPncp DESC
+    ORDER BY l.dataEncerramentoProposta ASC
     LIMIT ?
-  `).all(limite);
+  `).all(limite || 20);
 
-  if (pendentes.length === 0) {
-    console.log('[ANALISE-IA] Nenhuma licitação pendente de análise');
-    return;
+  if (pendentes.length === 0) return 0;
+
+  console.log(`[IA] Processando ${pendentes.length} licitações pendentes...`);
+  let processadas = 0;
+
+  for (const p of pendentes) {
+    try {
+      await analisarLicitacao(db, p.cnpj, p.ano, p.sequencial, keys);
+      processadas++;
+      // Delay entre análises (respeitar rate limits — Gemini free: 15 req/min)
+      await new Promise(r => setTimeout(r, 5000));
+    } catch (e) {
+      console.error(`[IA] Erro ao analisar ${p.cnpj}/${p.ano}/${p.sequencial}: ${e.message}`);
+    }
   }
 
-  console.log(`[ANALISE-IA] Processando ${pendentes.length} licitações na fila…`);
+  console.log(`[IA] ${processadas}/${pendentes.length} licitações analisadas`);
+  return processadas;
+}
 
-  for (const lic of pendentes) {
-    // Busca itens do banco
-    const itens = db.prepare('SELECT * FROM itens WHERE numeroControlePNCP = ?').all(lic.numeroControlePNCP);
+// HTTP helpers
+function httpGet(url) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    mod.get(url, { headers: { 'Accept': 'application/json' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return httpGet(res.headers.location).then(resolve).catch(reject);
+      }
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('JSON inválido')); }
+      });
+    }).on('error', reject);
+  });
+}
 
-    await analisarLicitacao(db, apiKey, lic, itens);
-
-    // Delay para não sobrecarregar a API
-    await new Promise(r => setTimeout(r, 500));
-  }
-
-  console.log('[ANALISE-IA] Fila processada');
+function httpGetBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    mod.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return httpGetBuffer(res.headers.location).then(resolve).catch(reject);
+      }
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    }).on('error', reject);
+  });
 }
 
 module.exports = { analisarLicitacao, processarFilaAnalise };

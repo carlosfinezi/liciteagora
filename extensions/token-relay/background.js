@@ -19,7 +19,7 @@ let syncAgendado = false;
 let syncEmExecucao = false;
 let aguardandoNovoBearer = false; // flag: reload feito, esperando novo token
 
-console.log('[LiciteAgora] Service worker v3.6.1 carregado!');
+console.log('[LiciteAgora] Service worker v3.10.0 carregado!');
 
 // ==================== STORAGE ====================
 
@@ -132,7 +132,7 @@ async function onTokensCapturados(bearer, captcha) {
 
   if (bearer && bearer !== data.bearer) {
     stats.capturados++;
-    await save({ bearer, stats });
+    await save({ bearer, stats, bearerTimestamp: agora });
     console.log('[LiciteAgora] Novo Bearer:', bearer.substring(0, 30) + '...');
     mudou = true;
   }
@@ -209,13 +209,25 @@ async function findComprasnetTab() {
   return tabs.length > 0 ? tabs[0] : null;
 }
 
+async function tabExists(tabId) {
+  try {
+    await chrome.tabs.get(tabId);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /**
  * Executa fetch DENTRO da aba do Comprasnet (usa cookies da sessão).
  * Gera captcha FRESCO via hcaptcha.execute() a cada chamada.
  */
 async function comprasnetFetch(tabId, path, bearer) {
   try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 20s')), 20000));
+    if (!await tabExists(tabId)) {
+      return { status: 0, error: 'Tab closed' };
+    }
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 30s')), 30000));
     const exec = chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -244,7 +256,7 @@ async function comprasnetFetch(tabId, path, bearer) {
             'Accept': 'application/json, text/plain, */*',
             'Authorization': authHeader,
             'x-device-platform': 'web',
-            'x-version-number': '5.5.2',
+            'x-version-number': '6.0.0',
             'Cache-Control': 'no-cache',
           },
         });
@@ -264,6 +276,11 @@ async function comprasnetFetch(tabId, path, bearer) {
     return results[0]?.result || { status: 0, error: 'No result from tab' };
   } catch (e) {
     console.error('[LiciteAgora] comprasnetFetch ERRO:', path.substring(0, 60), e.message);
+    // Aba aberta antes da extensão — recarregar para ganhar permissão
+    if (e.message && e.message.indexOf('Cannot access') >= 0) {
+      console.log('[LiciteAgora] ⚠️ Sem permissão na aba — recarregando para corrigir...');
+      try { await chrome.tabs.reload(tabId); } catch (e2) {}
+    }
     return { status: 0, error: e.message };
   }
 }
@@ -274,6 +291,9 @@ async function comprasnetFetch(tabId, path, bearer) {
  */
 async function comprasnetPost(tabId, path, bearer, body) {
   try {
+    if (!await tabExists(tabId)) {
+      return { status: 0, error: 'Tab closed' };
+    }
     const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 15s')), 15000));
     const exec = chrome.scripting.executeScript({
       target: { tabId },
@@ -288,7 +308,7 @@ async function comprasnetPost(tabId, path, bearer, body) {
               'Authorization': authHeader,
               'Content-Type': 'application/json',
               'x-device-platform': 'web',
-              'x-version-number': '5.5.2',
+              'x-version-number': '6.0.0',
             },
             body: JSON.stringify(postBody),
           });
@@ -307,6 +327,47 @@ async function comprasnetPost(tabId, path, bearer, body) {
     return results[0]?.result || { status: 0, error: 'No result from tab' };
   } catch (e) {
     console.error('[LiciteAgora] comprasnetPost ERRO:', path.substring(0, 60), e.message);
+    return { status: 0, error: e.message };
+  }
+}
+
+/**
+ * PUT retoken no Comprasnet VIA BROWSER — renova o JWT sem recarregar a aba.
+ * Endpoint: PUT /comprasnet-usuario/v2/sessao/fornecedor/retoken
+ * Retorna novo accessToken se a sessão SSO ainda estiver válida.
+ */
+async function comprasnetRetoken(tabId, bearer) {
+  try {
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 10s')), 10000));
+    const exec = chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: async (authHeader, baseUrl) => {
+        try {
+          var resp = await fetch(baseUrl + '/comprasnet-usuario/v2/sessao/fornecedor/retoken', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json, text/plain, */*',
+              'Authorization': authHeader,
+              'x-device-platform': 'web',
+              'x-version-number': '6.0.0',
+            },
+          });
+          var text = await resp.text();
+          var data = null;
+          try { data = JSON.parse(text); } catch (e) {}
+          return { status: resp.status, data: data, text: (text || '').substring(0, 500) };
+        } catch (e) {
+          return { status: 0, error: e.message };
+        }
+      },
+      args: [bearer, COMPRASNET],
+    });
+    const results = await Promise.race([exec, timeout]);
+    return results[0]?.result || { status: 0, error: 'No result from tab' };
+  } catch (e) {
+    console.error('[LiciteAgora] comprasnetRetoken ERRO:', e.message);
     return { status: 0, error: e.message };
   }
 }
@@ -437,10 +498,10 @@ async function syncParticipacoes(tabId, bearer) {
 
   if (syncCompleto) {
     console.log('[LiciteAgora] Sync COMPLETO (todos os filtros)...');
-    return await syncParticipacoesFiltros(tabId, bearer, [5, 4, 2, 6]);
+    return await syncParticipacoesFiltros(tabId, bearer, [5, 4, 3, 2, 6]);
   } else {
-    console.log('[LiciteAgora] Sync rápido (em andamento + em disputa)...');
-    return await syncParticipacoesFiltros(tabId, bearer, [5, 4]);
+    console.log('[LiciteAgora] Sync rápido (em andamento + em disputa + propostas)...');
+    return await syncParticipacoesFiltros(tabId, bearer, [5, 4, 3]);
   }
 }
 
@@ -620,6 +681,49 @@ async function buscarItensCompra(tabId, compraId, bearer, fetchFiltros) {
     } catch (e) {}
   }
 
+  // Passo 3.5: detectar grupos e buscar sub-itens com dados de disputa
+  if (itens && itens.length > 0) {
+    var temGrupo = itens.some(function(it) { return it.tipo === 'G'; });
+    console.log('[LiciteAgora] ' + compraId + ': ' + itens.length + ' itens, temGrupo=' + temGrupo + ' tipos=' + itens.map(function(it){return it.numero+':'+it.tipo;}).join(','));
+    if (temGrupo) {
+      // /em-disputa só retorna o grupo (-1) — buscar sub-itens
+      // Prioridade: disputa endpoints (dados live), depois fase-externa (definições)
+      var subEndpoints = [
+        '/comprasnet-disputa/v1/compras/' + compraId + '/itens',
+        '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens',
+        '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens/em-selecao-fornecedores',
+      ];
+      for (var sep of subEndpoints) {
+        try {
+          var subResult = await comprasnetFetch(tabId, sep, bearer);
+          console.log('[LiciteAgora] Sub-itens ' + sep.split('/v1/')[1] + ': HTTP ' + subResult.status +
+            ' isArray=' + Array.isArray(subResult.data) + ' len=' + (Array.isArray(subResult.data) ? subResult.data.length : 0));
+          if ((subResult.status === 200 || subResult.status === 206) && Array.isArray(subResult.data) && subResult.data.length > 0) {
+            var numeros = {};
+            itens.forEach(function(it) { numeros[it.numero || it.identificador] = true; });
+            var adicionados = 0;
+            subResult.data.forEach(function(si) {
+              var num = si.numero || si.identificador || si.numeroItem;
+              if (num != null && !numeros[num]) {
+                if (!si.tipo) si.tipo = 'S';
+                if (!si.numero && si.numeroItem) si.numero = si.numeroItem;
+                itens.push(si);
+                numeros[num] = true;
+                adicionados++;
+              }
+            });
+            if (adicionados > 0) {
+              console.log('[LiciteAgora] Grupo em ' + compraId + ': +' + adicionados + ' sub-itens via ' + sep.split('/v1/')[1]);
+              break;
+            }
+          }
+        } catch (e) {
+          console.log('[LiciteAgora] Sub-itens ' + sep.split('/v1/')[1] + ': ERRO ' + e.message);
+        }
+      }
+    }
+  }
+
   // Passo 4: buscar filtros extras (3=perdendo, 4=enc.aleatória, 5=2min) se solicitado
   var filterMeta = {};
   if (fetchFiltros && itens && itens.length > 0 && qtdes && qtdes.qtdeItensEmDisputa > 0) {
@@ -687,7 +791,8 @@ function extrairMelhorValor(item) {
   var mv = item.melhorValorGeral || item.melhorLanceGeral;
   if (mv && mv.valorInformado != null) return mv.valorInformado;
   if (mv && mv.valor != null) return mv.valor;
-  if (mv && mv.valorCalculado) {
+  if (mv && mv.valorCalculado != null) {
+    if (typeof mv.valorCalculado === 'number') return mv.valorCalculado;
     if (mv.valorCalculado.valorUnitario != null) return mv.valorCalculado.valorUnitario;
   }
   if (item.valorMelhorLance != null) return item.valorMelhorLance;
@@ -701,6 +806,10 @@ function extrairNossoValor(item) {
   var nv = item.melhorValorFornecedor || item.melhorLanceFornecedor;
   if (nv && nv.valorInformado != null) return nv.valorInformado;
   if (nv && nv.valor != null) return nv.valor;
+  if (nv && nv.valorCalculado != null) {
+    if (typeof nv.valorCalculado === 'number') return nv.valorCalculado;
+    if (nv.valorCalculado.valorUnitario != null) return nv.valorCalculado.valorUnitario;
+  }
   // Fallback: propostaItem.valores (de /em-selecao-fornecedores)
   if (item.propostaItem && item.propostaItem.valores) {
     var v = item.propostaItem.valores;
@@ -721,6 +830,7 @@ function mapearItem(i, filterMeta) {
   var fm = (filterMeta && num != null && filterMeta[num]) ? filterMeta[num] : {};
   return {
     numero: num,
+    tipo: i.tipo || null, // G=grupo, S=sub-item, null=item normal
     descricao: (i.descricao || i.objetoItem || '').substring(0, 120),
     fase: i.fase || i.faseItem || '',
     situacao: i.situacao || '',
@@ -732,6 +842,7 @@ function mapearItem(i, filterMeta) {
     podeEnviar: i.podeEnviarLances || false,
     fimContagem: i.dataHoraFimContagem || null,
     quantidadeSolicitada: i.quantidadeSolicitada || null,
+    disputaPorValorUnitario: !!i.disputaPorValorUnitario,
     estaPerdendo: !!fm.perdendo,
     emEncAleatoria: !!fm.encAleat,
     nosDoisMinFinais: !!fm.doisMin,
@@ -765,6 +876,12 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
   }
 
   for (var p of participacoesEmAndamento) {
+    // Verificar se tab ainda existe antes de cada compra
+    if (!await tabExists(tabId)) {
+      console.log('[LiciteAgora] Tab fechada durante syncDisputas, abortando');
+      break;
+    }
+
     // Dados reais ficam dentro de p.compra (estrutura da API: { compra: {...}, possuiDiligencia... })
     var compra = p.compra || {};
     var compraId = p.codigoCompra || p.compraId;
@@ -789,8 +906,9 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
     var fimDisputa = compra.dataHoraFimDisputa || p.dataHoraFimSessaoPublica || null;
     var faseCompra = compra.faseCompraFaseExterna || p.faseCompra || p.fase || '';
 
-    // Buscar detalhes da participação (/participacao) para compras com auto-lance
-    if (autoCompras[compraId]) {
+    // Buscar detalhes da participação (/participacao) para auto-lance e fase proposta/disputa
+    var precisaDetalhes = autoCompras[compraId] || faseCompra === '1' || faseCompra === '3' || faseCompra === 1 || faseCompra === 3;
+    if (precisaDetalhes) {
       try {
         var partResult = await comprasnetFetch(tabId,
           '/comprasnet-fase-externa/v1/compras/' + compraId + '/participacao', bearer);
@@ -919,6 +1037,11 @@ async function manterSessaoSSO(tabId) {
 }
 
 async function executarKeepalive() {
+  if (syncEmExecucao) {
+    console.log('[LiciteAgora] Keepalive pulado — sync em execução (já mantém bearer vivo)');
+    return;
+  }
+
   var data = await load();
   if (!data.bearer) {
     console.log('[LiciteAgora] Keepalive pulado — sem bearer');
@@ -931,8 +1054,8 @@ async function executarKeepalive() {
     return;
   }
 
-  var idadeMs = Date.now() - (data.ultimoEnvio || 0);
-  console.log('[LiciteAgora] 🔄 Keepalive: token com ' + Math.floor(idadeMs/1000) + 's');
+  var idadeBearerMs = Date.now() - (data.bearerTimestamp || data.ultimoEnvio || 0);
+  console.log('[LiciteAgora] 🔄 Keepalive: bearer com ' + Math.floor(idadeBearerMs/1000) + 's');
 
   // ---- PASSO 1: Manter sessão SSO (cookies do comprasnet-web) ----
   var ssoOk = await manterSessaoSSO(tab.id);
@@ -973,61 +1096,110 @@ async function executarKeepalive() {
     return;
   }
 
-  // ---- PASSO 2: Manter token Bearer (API comprasnet-disputa) ----
+  // ---- PASSO 1.5: Anti-idle — dismiss timeout dialog + simular atividade ----
+  try {
+    var antiIdleResult = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: () => {
+        var info = { dialogFound: false, dialogText: null, clicked: null, url: location.href.substring(0, 120) };
+        // 1. Procurar e clicar dialogs de ociosidade / modais
+        var btns = document.querySelectorAll('button, .btn, [role="button"], input[type="button"], .swal2-confirm, .modal .btn-primary');
+        for (var b of btns) {
+          var txt = (b.textContent || b.value || '').trim();
+          var upper = txt.toUpperCase();
+          if (upper === 'OK' || upper === 'CONTINUAR' || upper === 'PERMANECER CONECTADO' || upper === 'SIM') {
+            // Verificar se está visível
+            var rect = b.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              info.dialogFound = true;
+              info.dialogText = txt;
+              b.click();
+              info.clicked = txt;
+              break;
+            }
+          }
+        }
+        // 2. Checar se há overlay/modal visível (mesmo sem botão reconhecido)
+        var modals = document.querySelectorAll('.modal.show, .swal2-container, [role="dialog"], .modal-dialog');
+        if (modals.length > 0 && !info.dialogFound) {
+          var modal = modals[0];
+          info.dialogFound = true;
+          info.dialogText = (modal.textContent || '').substring(0, 200).trim();
+        }
+        // 3. Simular atividade para resetar timer de ociosidade
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 100 }));
+        document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Shift' }));
+        return info;
+      },
+    });
+    var idle = antiIdleResult[0]?.result;
+    if (idle && idle.dialogFound) {
+      console.log('[LiciteAgora] ⚠️ Dialog de ociosidade detectado! clicked=' + idle.clicked + ' text="' + (idle.dialogText || '').substring(0, 80) + '"');
+      // Enviar ao servidor para registro
+      try {
+        await serverPost('/api/sniper/log', {
+          tipo: 'idle-dialog',
+          msg: 'Dialog de ociosidade: ' + (idle.clicked ? 'auto-click "' + idle.clicked + '"' : 'detectado mas não clicado'),
+          detalhes: idle,
+        });
+      } catch (e2) {}
+    }
+  } catch (e) {
+    console.log('[LiciteAgora] Anti-idle erro:', e.message);
+  }
+
+  // ---- PASSO 2: Manter token Bearer (chamar API para manter vivo no servidor) ----
+  // Chamamos /datahorabrasilia com o bearer para manter a sessão ativa.
+  // Só reagimos se o servidor recusar (401/403 = bearer morto).
+  var idadeToken = Date.now() - (data.bearerTimestamp || data.ultimoEnvio || 0);
+  var stats = data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 };
+
   var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
 
-  if (result.status === 401 || result.status === 403) {
-    console.log('[LiciteAgora] ⚠️ Bearer expirado (HTTP ' + result.status + ') — recarregando aba...');
-    aguardandoNovoBearer = true;
-    chrome.action.setBadgeText({ text: '⏳' });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+  if (result.status === 200) {
+    console.log('[LiciteAgora] ✅ Keepalive OK (SSO + Bearer ' + Math.floor(idadeToken/1000) + 's)');
+    await enviarTokens(data.bearer, data.captcha, stats);
+  } else if (result.status === 401 || result.status === 403) {
+    // Bearer morto — tentar retoken antes de reload
+    console.log('[LiciteAgora] ⚠️ Bearer expirado (HTTP ' + result.status + ', ' + Math.floor(idadeToken/1000) + 's) — tentando retoken...');
+    var retokenResult = await comprasnetRetoken(tab.id, data.bearer);
 
-    try {
-      await chrome.tabs.reload(tab.id);
-    } catch (e) {
-      console.error('[LiciteAgora] Erro recarregando aba:', e.message);
-      aguardandoNovoBearer = false;
-    }
+    if (retokenResult.status === 200 && retokenResult.data && retokenResult.data.accessToken) {
+      var newBearer = 'Bearer ' + retokenResult.data.accessToken;
+      console.log('[LiciteAgora] ✅ Retoken OK! Bearer renovado');
+      await save({ bearer: newBearer, bearerTimestamp: Date.now(), ultimoEnvio: Date.now() });
+      await enviarTokens(newBearer, data.captcha, stats);
+      try { await serverPost('/api/sniper/log', { tipo: 'retoken', msg: 'Retoken OK — bearer renovado com ' + Math.floor(idadeToken/1000) + 's' }); } catch(e3){}
+    } else {
+      // Retoken também falhou — reload aba como último recurso
+      console.log('[LiciteAgora] ⚠️ Retoken falhou (HTTP ' + retokenResult.status + ') — reload aba');
+      try { await serverPost('/api/sniper/log', { tipo: 'retoken-falha', msg: 'Retoken FALHOU HTTP ' + retokenResult.status + ' — bearer ' + Math.floor(idadeToken/1000) + 's — reload' }); } catch(e3){}
+      aguardandoNovoBearer = true;
+      chrome.action.setBadgeText({ text: '⏳' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
 
-    setTimeout(async () => {
-      if (aguardandoNovoBearer) {
+      try {
+        await chrome.tabs.reload(tab.id);
+      } catch (e) {
+        console.error('[LiciteAgora] Erro recarregando aba:', e.message);
         aguardandoNovoBearer = false;
-        console.log('[LiciteAgora] ⚠️ Timeout: novo bearer não chegou após reload');
-        chrome.action.setBadgeText({ text: '!' });
-        chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
-        await save({ ultimoErro: 'Bearer não renovado após reload (timeout 30s)' });
       }
-    }, 30000);
 
-  } else if (result.status === 200) {
-    console.log('[LiciteAgora] ✅ Keepalive OK (SSO + Bearer)');
-    await enviarTokens(data.bearer, data.captcha, data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 });
-
-  } else if (result.status === 0 && result.error && result.error.includes('Cannot access')) {
-    // Sem permissão para injetar na aba — recarregar resolve
-    console.log('[LiciteAgora] ⚠️ Sem acesso à aba — recarregando para obter permissão...');
-    aguardandoNovoBearer = true;
-    chrome.action.setBadgeText({ text: '⏳' });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
-
-    try {
-      await chrome.tabs.reload(tab.id);
-    } catch (e) {
-      console.error('[LiciteAgora] Erro recarregando aba:', e.message);
-      aguardandoNovoBearer = false;
+      setTimeout(async () => {
+        if (aguardandoNovoBearer) {
+          aguardandoNovoBearer = false;
+          console.log('[LiciteAgora] ⚠️ Timeout: novo bearer não chegou após reload');
+          chrome.action.setBadgeText({ text: '!' });
+          chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+          await save({ ultimoErro: 'Bearer não renovado após reload (timeout 30s)' });
+        }
+      }, 30000);
     }
-
-    setTimeout(async () => {
-      if (aguardandoNovoBearer) {
-        aguardandoNovoBearer = false;
-        chrome.action.setBadgeText({ text: '!' });
-        chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
-        await save({ ultimoErro: 'Sem acesso à aba após reload — recarregue manualmente' });
-      }
-    }, 30000);
-
   } else {
     console.log('[LiciteAgora] ⚠️ Keepalive: HTTP ' + result.status + ' ' + (result.error || ''));
+    // Não é 401/403, pode ser timeout ou erro de rede — apenas enviar tokens
+    await enviarTokens(data.bearer, data.captcha, stats);
   }
 }
 
@@ -1190,6 +1362,27 @@ async function processarFilaLances() {
       var sucesso = result.status === 200 || result.status === 201;
       lancesProcessados++;
       console.log('[LiciteAgora] 🎯 Lance resultado: HTTP ' + result.status + ' (' + tempoMs + 'ms)' + (sucesso ? ' ✅' : ' ❌'));
+
+      // Grupo: lance response returns sub-item data — merge into server cache
+      if (sucesso && Array.isArray(result.data) && result.data.length > 0) {
+        try {
+          var itensResp = result.data.filter(function(it) { return it.numero != null; });
+          if (itensResp.length > 0) {
+            var disputaUpdate = {
+              compraId: lance.compraId,
+              itens: itensResp.map(function(it) { return mapearItem(it, {}); }),
+              itensAtivos: itensResp.filter(function(it) { return it.podeEnviarLances; }).length,
+              totalItens: itensResp.length,
+            };
+            fetch(SERVER_URL + '/api/sync/disputas', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ disputas: [disputaUpdate], merge: true }),
+            }).catch(function() {});
+            console.log('[LiciteAgora] Grupo cache update: ' + itensResp.length + ' itens merged for ' + lance.compraId);
+          }
+        } catch (e2) {}
+      }
 
       var resultadoLance = {
         id: lance.id,

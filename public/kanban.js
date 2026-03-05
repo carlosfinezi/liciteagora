@@ -109,7 +109,7 @@ function criarCard(item) {
             ${item.linkSistemaOrigem ? `
                 <button class="card-btn abrir" onclick="abrirSistema('${item.linkSistemaOrigem}')">Abrir</button>
             ` : ''}
-            <button class="card-btn proposta" onclick="window.location.href='propostas.html'">Proposta</button>
+            <button class="card-btn proposta" onclick="window.location.href='propostas-api.html'">Proposta</button>
             <button class="card-btn remover" onclick="removerDoKanban('${item.cnpj}', ${item.ano}, ${item.sequencial})">✕</button>
         </div>
     `;

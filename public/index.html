@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consulta de Licitações - PNCP</title>
+    <title>Consulta de Licitações - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <style>
         * {
@@ -694,16 +694,67 @@
             color: #1976d2;
             font-weight: 600;
         }
+
+        /* IA Analysis Badge */
+        .badge-ia {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .badge-ia:hover { transform: scale(1.05); }
+        .badge-ia.score-alto { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+        .badge-ia.score-medio { background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; }
+        .badge-ia.score-baixo { background: #fce4ec; color: #c62828; border: 1px solid #ef9a9a; }
+        .badge-ia.sem-analise { background: #f5f5f5; color: #999; border: 1px solid #e0e0e0; }
+        .btn-analisar-ia {
+            padding: 5px 10px;
+            background: #7c4dff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-analisar-ia:hover { background: #651fff; }
+        .btn-analisar-ia:disabled { background: #ccc; cursor: wait; }
+
+        /* Modal Análise IA */
+        #modalAnaliseIA { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; overflow-y: auto; padding: 20px; }
+        #modalAnaliseIA .modal-content { background: white; border-radius: 10px; max-width: 800px; margin: 30px auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        #modalAnaliseIA .modal-header { padding: 20px 25px; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        #modalAnaliseIA .modal-title { font-size: 20px; font-weight: 600; color: #333; }
+        #modalAnaliseIA .modal-body { padding: 25px; }
+        .analise-score-grande { text-align: center; margin-bottom: 20px; }
+        .analise-score-grande .score-numero { font-size: 48px; font-weight: 700; }
+        .analise-score-grande .score-label { font-size: 14px; color: #666; }
+        .analise-secao { margin-bottom: 20px; }
+        .analise-secao h4 { font-size: 14px; color: #667eea; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #e0e0e0; }
+        .analise-secao p { font-size: 14px; color: #555; line-height: 1.6; }
+        .analise-secao ul { list-style: none; padding: 0; }
+        .analise-secao ul li { padding: 6px 0; font-size: 14px; color: #555; border-bottom: 1px solid #f5f5f5; }
+        .analise-secao ul li::before { content: '•'; color: #667eea; font-weight: bold; margin-right: 8px; }
+        .analise-secao ul li.atencao::before { content: '⚠'; color: #f57c00; }
+        .analise-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .analise-meta-item { background: #f9f9f9; padding: 10px 15px; border-radius: 6px; }
+        .analise-meta-item .meta-label { font-size: 11px; color: #888; text-transform: uppercase; }
+        .analise-meta-item .meta-value { font-size: 14px; color: #333; font-weight: 500; margin-top: 3px; }
+        .complexidade-badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+        .complexidade-baixa { background: #e8f5e9; color: #2e7d32; }
+        .complexidade-media { background: #fff8e1; color: #f57f17; }
+        .complexidade-alta { background: #fce4ec; color: #c62828; }
     </style>
 </head>
 <body>
     <div class="app-container">
         <main class="main-content">
             <div class="container">
-                <header>
-                    <h1>Portal de Consulta de Licitações - PNCP</h1>
-                    <p class="subtitle">Portal Nacional de Contratações Públicas</p>
-                </header>
 
         <div class="filters-card">
             <div class="filters-title">Filtros de Busca</div>
@@ -1072,6 +1123,19 @@
 
         carregarGruposExclusao().then(() => carregarGruposPalavras());
     </script>
+
+    <!-- Modal Análise IA -->
+    <div id="modalAnaliseIA" onclick="if(event.target===this)fecharModalAnalise()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Análise IA da Licitação</div>
+                <button class="modal-close" onclick="fecharModalAnalise()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalAnaliseBody">
+                <p>Carregando análise...</p>
+            </div>
+        </div>
+    </div>
 
     <div id="modalSemInteresse" onclick="if(event.target===this)fecharModalSemInteresse()">
         <div class="modal-box">

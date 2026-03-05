@@ -15,6 +15,7 @@ const { criarVerificador } = require('./verificacao-lacunas');
 const crypto = require('crypto');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { registrarRotasSniper, getSniper } = require('./sniper-lance-routes');
+const { registrarRotasNfse } = require('./nfse-routes');
 
 // Armazenar instâncias de monitoramento ativas
 const monitoramentosAtivos = new Map();
@@ -111,6 +112,17 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_interesse_licitacao ON interesse(cnpj, ano, sequencial);
+
+  CREATE TABLE IF NOT EXISTS interesse_compra_id (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cnpj TEXT NOT NULL,
+    ano INTEGER NOT NULL,
+    sequencial INTEGER NOT NULL,
+    compraId TEXT NOT NULL,
+    verificado INTEGER DEFAULT 0,
+    dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(cnpj, ano, sequencial)
+  );
 
   CREATE TABLE IF NOT EXISTS kanban_status (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,6 +221,9 @@ db.exec(`
     tipoConta TEXT,
     logoBase64 TEXT,
     observacoes TEXT,
+    declaracaoMeEpp INTEGER DEFAULT 1,
+    declaracaoProgramasIntegridade INTEGER DEFAULT 0,
+    declaracaoEquidadeGenero INTEGER DEFAULT 0,
     dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -247,6 +262,15 @@ db.exec(`
     chatId TEXT,
     ativo INTEGER DEFAULT 1,
     dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Tabela para alertas enviados (evitar duplicatas)
+  CREATE TABLE IF NOT EXISTS alertas_enviados (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL,
+    referencia TEXT NOT NULL,
+    dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(tipo, referencia)
   );
 
   -- Tabela para monitoramento de chat do Comprasnet
@@ -468,6 +492,32 @@ db.exec(`
     timestamp TEXT DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_sniper_hist_compra ON sniper_historico(compraId);
+
+  CREATE TABLE IF NOT EXISTS licitacao_analise (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numeroControlePNCP TEXT UNIQUE,
+    cnpj TEXT,
+    ano INTEGER,
+    sequencial INTEGER,
+    resumo TEXT,
+    segmento TEXT,
+    itens_destaque TEXT DEFAULT '[]',
+    requisitos TEXT DEFAULT '[]',
+    atencao TEXT DEFAULT '[]',
+    prazo_entrega TEXT,
+    local_entrega TEXT,
+    criterio_julgamento TEXT,
+    vistoria_obrigatoria INTEGER DEFAULT 0,
+    exclusivo_mei_epp INTEGER DEFAULT 0,
+    viabilidade_score INTEGER DEFAULT 50,
+    viabilidade_justificativa TEXT,
+    complexidade TEXT DEFAULT 'média',
+    arquivos_info TEXT DEFAULT '[]',
+    textos_extraidos INTEGER DEFAULT 0,
+    dataAnalise TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_analise_pncp ON licitacao_analise(numeroControlePNCP);
+  CREATE INDEX IF NOT EXISTS idx_analise_score ON licitacao_analise(viabilidade_score);
 
   -- Inserir configuração padrão do jornal
   INSERT OR IGNORE INTO jornal_config (id, ativo, horario) VALUES (1, 0, '08:00');
@@ -776,6 +826,32 @@ async function buscarItensLicitacao(cnpj, ano, sequencial) {
 }
 
 /**
+ * Dispara análise IA em background (após sync)
+ */
+function getIAKeys() {
+  const gemini = getConfigValue('gemini_api_key');
+  const anthropic = getConfigValue('anthropic_api_key');
+  if (!gemini && !anthropic) return null;
+  return { gemini: gemini || null, anthropic: anthropic || null };
+}
+
+function dispararAnaliseIA() {
+  const keys = getIAKeys();
+  if (!keys) return;
+
+  setTimeout(async () => {
+    try {
+      const processadas = await processarFilaAnalise(db, keys, 10);
+      if (processadas > 0) {
+        console.log(`[IA] Auto-análise pós-sync: ${processadas} licitações processadas`);
+      }
+    } catch (e) {
+      console.error('[IA] Erro na auto-análise:', e.message);
+    }
+  }, 3000);
+}
+
+/**
  * Sincronização completa (primeira vez ou forçada)
  */
 async function sincronizarCompleta(diasAtras = 30, diasFrente = 7) {
@@ -852,11 +928,8 @@ async function sincronizarCompleta(diasAtras = 30, diasFrente = 7) {
 
     console.log(`[SYNC COMPLETA] Concluída: ${syncStatus.licitacoesCount} licitações, ${syncStatus.itensCount} novos itens`);
 
-    // Disparar análise IA em background (sem bloquear)
-    const anthropicKey = getConfigValue('anthropic_api_key');
-    if (anthropicKey) {
-      setImmediate(() => processarFilaAnalise(db, anthropicKey, 30));
-    }
+    // Dispara análise IA em background após sync
+    dispararAnaliseIA();
 
     return true;
   } catch (err) {
@@ -957,11 +1030,8 @@ async function sincronizarIncremental() {
       setTimeout(() => verificarECorrigirLacunas(3), 5000);
     }
 
-    // Disparar análise IA em background (sem bloquear)
-    const anthropicKey = getConfigValue('anthropic_api_key');
-    if (anthropicKey) {
-      setImmediate(() => processarFilaAnalise(db, anthropicKey, 20));
-    }
+    // Dispara análise IA em background após sync
+    dispararAnaliseIA();
 
     return true;
   } catch (err) {
@@ -1882,6 +1952,7 @@ app.get('/api/interesse', (req, res) => {
         l.razaoSocial as nomeOrgao,
         l.codigoUnidade as codigoUnidadeCompradora,
         l.valorTotalEstimado as valorTotalLicitacao,
+        l.dataAberturaProposta,
         l.dataEncerramentoProposta,
         l.linkSistemaOrigem,
         l.modalidadeNome,
@@ -1902,7 +1973,7 @@ app.get('/api/interesse', (req, res) => {
       params = [cnpj, ano, sequencial];
     }
 
-    sql += ' ORDER BY i.dataCriacao DESC';
+    sql += ' ORDER BY l.dataAberturaProposta ASC, i.dataCriacao DESC';
 
     const interesses = db.prepare(sql).all(...params);
 
@@ -2788,7 +2859,8 @@ app.post('/api/fornecedor', (req, res) => {
       telefone, celular, email, site,
       representanteLegal, cpfRepresentante, cargoRepresentante,
       banco, agencia, conta, tipoConta,
-      logoBase64, observacoes
+      logoBase64, observacoes,
+      declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero
     } = req.body;
 
     // Verificar se já existe registro
@@ -2803,7 +2875,9 @@ app.post('/api/fornecedor', (req, res) => {
           telefone = ?, celular = ?, email = ?, site = ?,
           representanteLegal = ?, cpfRepresentante = ?, cargoRepresentante = ?,
           banco = ?, agencia = ?, conta = ?, tipoConta = ?,
-          logoBase64 = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP
+          logoBase64 = ?, observacoes = ?,
+          declaracaoMeEpp = ?, declaracaoProgramasIntegridade = ?, declaracaoEquidadeGenero = ?,
+          dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = 1
       `).run(
         razaoSocial, nomeFantasia, cnpj, inscricaoEstadual, inscricaoMunicipal,
@@ -2811,7 +2885,8 @@ app.post('/api/fornecedor', (req, res) => {
         telefone, celular, email, site,
         representanteLegal, cpfRepresentante, cargoRepresentante,
         banco, agencia, conta, tipoConta,
-        logoBase64, observacoes
+        logoBase64, observacoes,
+        declaracaoMeEpp ? 1 : 0, declaracaoProgramasIntegridade ? 1 : 0, declaracaoEquidadeGenero ? 1 : 0
       );
     } else {
       // Inserir
@@ -2822,14 +2897,16 @@ app.post('/api/fornecedor', (req, res) => {
           telefone, celular, email, site,
           representanteLegal, cpfRepresentante, cargoRepresentante,
           banco, agencia, conta, tipoConta,
-          logoBase64, observacoes
+          logoBase64, observacoes,
+          declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero
         ) VALUES (
           1, ?, ?, ?, ?, ?,
           ?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?, ?,
-          ?, ?
+          ?, ?,
+          ?, ?, ?
         )
       `).run(
         razaoSocial, nomeFantasia, cnpj, inscricaoEstadual, inscricaoMunicipal,
@@ -2837,7 +2914,8 @@ app.post('/api/fornecedor', (req, res) => {
         telefone, celular, email, site,
         representanteLegal, cpfRepresentante, cargoRepresentante,
         banco, agencia, conta, tipoConta,
-        logoBase64, observacoes
+        logoBase64, observacoes,
+        declaracaoMeEpp ? 1 : 0, declaracaoProgramasIntegridade ? 1 : 0, declaracaoEquidadeGenero ? 1 : 0
       );
     }
 
@@ -3182,6 +3260,67 @@ app.delete('/api/telegram/config', (req, res) => {
   }
 });
 
+// ==================== ALERTA DISPUTA (Telegram 30 min antes) ====================
+
+/**
+ * Verifica participações em fase de proposta (faseCompra=1) cujo
+ * dataHoraInicioDisputa está a 30 min ou menos de agora.
+ * Envia alerta Telegram e registra em alertas_enviados para não duplicar.
+ */
+async function verificarAlertasDisputa() {
+  try {
+    const agora = new Date();
+    const em30min = new Date(agora.getTime() + 30 * 60 * 1000);
+
+    // Buscar participações com disputa próxima (30 min) que ainda não receberam alerta
+    const proximas = db.prepare(`
+      SELECT p.compraId, p.orgao, p.objeto, p.dataHoraInicioDisputa, p.modoDisputa, p.faseCompra
+      FROM participacoes_comprasnet p
+      LEFT JOIN alertas_enviados a ON a.tipo = 'disputa_30min' AND a.referencia = p.compraId
+      WHERE p.ativo = 1
+        AND p.dataHoraInicioDisputa IS NOT NULL
+        AND p.dataHoraInicioDisputa != ''
+        AND p.faseCompra IN ('1', '3')
+        AND a.id IS NULL
+        AND datetime(p.dataHoraInicioDisputa) > datetime('now')
+        AND datetime(p.dataHoraInicioDisputa) <= datetime('now', '+35 minutes')
+    `).all();
+
+    if (proximas.length === 0) return;
+
+    for (const p of proximas) {
+      const inicio = new Date(p.dataHoraInicioDisputa);
+      const diffMin = Math.round((inicio - agora) / 60000);
+
+      const msg = [
+        `⚔️ <b>DISPUTA EM ${diffMin} MINUTOS</b>`,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        ``,
+        `📋 <b>${(p.objeto || '').substring(0, 200)}</b>`,
+        `🏛 ${p.orgao || 'Órgão não informado'}`,
+        `🕐 Início: ${inicio.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`,
+        p.modoDisputa ? `📊 Modo: ${p.modoDisputa === 'A' ? 'Aberto' : p.modoDisputa === 'F' ? 'Fechado' : p.modoDisputa === 'AF' ? 'Aberto-Fechado' : p.modoDisputa}` : '',
+        `🔗 CompraId: ${p.compraId}`,
+        ``,
+        `<i>Prepare suas propostas!</i>`,
+      ].filter(Boolean).join('\n');
+
+      const enviou = await enviarTelegram(msg);
+      if (enviou) {
+        db.prepare('INSERT OR IGNORE INTO alertas_enviados (tipo, referencia) VALUES (?, ?)').run('disputa_30min', p.compraId);
+        console.log(`[Alerta] Telegram enviado: disputa ${p.compraId} em ${diffMin} min`);
+      }
+    }
+  } catch (e) {
+    console.error('[Alerta] Erro ao verificar disputas:', e.message);
+  }
+}
+
+// Verificar a cada 5 minutos
+setInterval(verificarAlertasDisputa, 5 * 60 * 1000);
+// Verificar também na inicialização (após 30s)
+setTimeout(verificarAlertasDisputa, 30000);
+
 // ==================== CREDENCIAIS GOV.BR ====================
 
 // ==================== MONITOR V2 (API direta Comprasnet) ====================
@@ -3193,6 +3332,9 @@ registrarRotasMonitorV2(app, db, {
 
 // ==================== SNIPER DE LANCES ====================
 registrarRotasSniper(app, getMonitor, db);
+
+// ==================== NFSE NACIONAL ====================
+registrarRotasNfse(app, db);
 
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
@@ -7628,6 +7770,244 @@ app.get('/api/proposta/participacoes', (req, res) => {
 });
 
 /**
+ * Listar licitações de interesse agrupadas, com itens incluídos.
+ * Tenta extrair compraId do linkSistemaOrigem quando disponível.
+ */
+app.get('/api/proposta/interesses', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT
+        i.id as interesseId,
+        i.cnpj, i.ano, i.sequencial, i.numeroItem,
+        l.objetoCompra, l.razaoSocial as nomeOrgao,
+        l.codigoUnidade, l.modalidadeId, l.modalidadeNome,
+        l.numeroCompra, l.linkSistemaOrigem,
+        l.dataEncerramentoProposta, l.valorTotalEstimado,
+        it.descricao, it.quantidade, it.unidadeMedida,
+        it.valorUnitarioEstimado, it.valorTotal
+      FROM interesse i
+      LEFT JOIN licitacoes l ON i.cnpj = l.cnpj
+        AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra
+      LEFT JOIN itens it ON l.id = it.licitacaoId AND i.numeroItem = it.numeroItem
+      WHERE l.dataEncerramentoProposta IS NULL
+        OR l.dataEncerramentoProposta = ''
+        OR l.dataEncerramentoProposta > datetime('now', '-3 hours')
+      ORDER BY i.dataCriacao DESC
+    `).all();
+
+    // Agrupar por licitação
+    const licitacoesMap = new Map();
+    rows.forEach(row => {
+      const key = `${row.cnpj}-${row.ano}-${row.sequencial}`;
+      if (!licitacoesMap.has(key)) {
+        // Tentar extrair compraId do linkSistemaOrigem
+        let compraId = null;
+        if (row.linkSistemaOrigem) {
+          const m = row.linkSistemaOrigem.match(/[?&]compra=(\d{14,20})/);
+          if (m) compraId = m[1];
+        }
+        // Verificar se existe compraId salvo manualmente
+        if (!compraId) {
+          const manual = db.prepare(
+            `SELECT compraId FROM interesse_compra_id WHERE cnpj = ? AND ano = ? AND sequencial = ? LIMIT 1`
+          ).get(row.cnpj, row.ano, row.sequencial);
+          if (manual) compraId = manual.compraId;
+        }
+        // Verificar se existe participação correspondente
+        if (!compraId) {
+          const part = db.prepare(
+            `SELECT compraId FROM participacoes_comprasnet WHERE cnpj = ? AND ano = ? AND sequencial = ? LIMIT 1`
+          ).get(row.cnpj?.substring(0, 8), row.ano, row.sequencial);
+          if (part) compraId = part.compraId;
+        }
+        licitacoesMap.set(key, {
+          cnpj: row.cnpj,
+          ano: row.ano,
+          sequencial: row.sequencial,
+          objetoCompra: row.objetoCompra || 'Objeto não disponível',
+          nomeOrgao: row.nomeOrgao || '',
+          codigoUnidade: row.codigoUnidade || '',
+          modalidadeNome: row.modalidadeNome || '',
+          numeroCompra: row.numeroCompra || '',
+          linkSistemaOrigem: row.linkSistemaOrigem || '',
+          dataEncerramentoProposta: row.dataEncerramentoProposta || '',
+          valorTotalEstimado: row.valorTotalEstimado || 0,
+          compraId,
+          itens: []
+        });
+      }
+      if (row.numeroItem) {
+        licitacoesMap.get(key).itens.push({
+          numero: row.numeroItem,
+          descricao: row.descricao || `Item ${row.numeroItem}`,
+          quantidade: row.quantidade || 1,
+          unidadeMedida: row.unidadeMedida || 'UN',
+          valorEstimado: row.valorUnitarioEstimado || null,
+          valorTotal: row.valorTotal || null
+        });
+      }
+    });
+
+    const data = Array.from(licitacoesMap.values());
+    res.json({ success: true, data, total: data.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Salvar compraId manual para uma licitação de interesse.
+ */
+app.post('/api/proposta/interesses/compra-id', (req, res) => {
+  try {
+    const { cnpj, ano, sequencial, compraId } = req.body;
+    if (!cnpj || !ano || !sequencial || !compraId) {
+      return res.status(400).json({ success: false, error: 'cnpj, ano, sequencial e compraId são obrigatórios' });
+    }
+    if (!/^\d{14,20}$/.test(compraId)) {
+      return res.status(400).json({ success: false, error: 'compraId deve ter 14-20 dígitos numéricos' });
+    }
+    db.prepare(`
+      INSERT INTO interesse_compra_id (cnpj, ano, sequencial, compraId)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(cnpj, ano, sequencial) DO UPDATE SET compraId = excluded.compraId, verificado = 0
+    `).run(cnpj, ano, sequencial, compraId);
+    res.json({ success: true, compraId });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Marcar compraId como verificado (após carregar itens com sucesso).
+ */
+app.put('/api/proposta/interesses/compra-id/verificar', (req, res) => {
+  try {
+    const { cnpj, ano, sequencial } = req.body;
+    db.prepare(`UPDATE interesse_compra_id SET verificado = 1 WHERE cnpj = ? AND ano = ? AND sequencial = ?`)
+      .run(cnpj, ano, sequencial);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /api/proposta/interesses/auto-compra-id
+ * Resolve automaticamente o compraId para interesses que não o têm.
+ * Estratégia: construir a chaveCompraPncp esperada e buscar no banco de participações.
+ * chaveCompraPncp = {cnpjPncp14}{seqPncp padded 6}{ano4}
+ */
+app.post('/api/proposta/interesses/auto-compra-id', async (req, res) => {
+  try {
+    const iRows = db.prepare(`
+      SELECT DISTINCT i.cnpj, i.ano, i.sequencial
+      FROM interesse i
+      LEFT JOIN interesse_compra_id ic ON i.cnpj = ic.cnpj AND i.ano = ic.ano AND i.sequencial = ic.sequencial
+      WHERE ic.compraId IS NULL
+    `).all();
+
+    // Também incluir os que têm linkSistemaOrigem com compra=
+    const licitacoes = db.prepare(`
+      SELECT l.cnpj, l.anoCompra, l.sequencialCompra, l.linkSistemaOrigem
+      FROM licitacoes l
+      INNER JOIN interesse i ON l.cnpj = i.cnpj AND l.anoCompra = i.ano AND l.sequencialCompra = i.sequencial
+      WHERE l.linkSistemaOrigem LIKE '%compra=%'
+    `).all();
+
+    const resolvidos = [];
+
+    // Método 1: Extrair compraId do linkSistemaOrigem
+    for (const lic of licitacoes) {
+      const m = lic.linkSistemaOrigem.match(/[?&]compra=(\d{14,20})/);
+      if (m) {
+        const compraId = m[1];
+        try {
+          db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
+            .run(lic.cnpj, lic.anoCompra, lic.sequencialCompra, compraId);
+          resolvidos.push({ cnpj: lic.cnpj, ano: lic.anoCompra, seq: lic.sequencialCompra, compraId, metodo: 'link' });
+        } catch (e) {}
+      }
+    }
+
+    // Método 2: Construir chaveCompraPncp esperada e buscar nas participações
+    // Formato da chave: {cnpjPncp14}{1}{seqPncp padded 6}{ano4} = 25 chars
+    for (const row of iRows) {
+      const jaResolvido = resolvidos.find(r => r.cnpj === row.cnpj && r.ano === row.ano && r.seq === row.sequencial);
+      if (jaResolvido) continue;
+
+      const seqPadded = String(row.sequencial).padStart(6, '0');
+      const chaveEsperada = `${row.cnpj}1${seqPadded}${row.ano}`;
+
+      const part = db.prepare(`SELECT compraId FROM participacoes_comprasnet WHERE chaveCompraPncp = ?`).get(chaveEsperada);
+      if (part) {
+        try {
+          db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
+            .run(row.cnpj, row.ano, row.sequencial, part.compraId);
+          resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId: part.compraId, metodo: 'chave' });
+        } catch (e) {}
+      }
+    }
+
+    // Método 3: Buscar por LIKE no início da chaveCompraPncp (cnpj match)
+    for (const row of iRows) {
+      const jaResolvido = resolvidos.find(r => r.cnpj === row.cnpj && r.ano === row.ano && r.seq === row.sequencial);
+      if (jaResolvido) continue;
+
+      const part = db.prepare(`SELECT compraId, chaveCompraPncp FROM participacoes_comprasnet WHERE chaveCompraPncp LIKE ? AND ano = ?`)
+        .get(`${row.cnpj}%`, row.ano);
+      if (part) {
+        // Extrair sequencial PNCP da chave (pos 15..21 = depois do cnpj14 + "1")
+        const seqFromChave = parseInt(part.chaveCompraPncp.substring(15, 21), 10);
+        if (seqFromChave === row.sequencial) {
+          try {
+            db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
+              .run(row.cnpj, row.ano, row.sequencial, part.compraId);
+            resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId: part.compraId, metodo: 'cnpj-match' });
+          } catch (e) {}
+        }
+      }
+    }
+
+    // Método 4: Consultar API PNCP diretamente para pendentes restantes
+    const aindaPendentes = iRows.filter(r => !resolvidos.find(x => x.cnpj === r.cnpj && x.ano === r.ano && x.seq === r.sequencial));
+    const naoComprasnet = [];
+    for (const row of aindaPendentes) {
+      try {
+        const url = `https://pncp.gov.br/api/consulta/v1/orgaos/${row.cnpj}/compras/${row.ano}/${row.sequencial}`;
+        const resp = await axios.get(url, { timeout: 8000, validateStatus: () => true });
+        if (resp.status === 200 && resp.data) {
+          const link = resp.data.linkSistemaOrigem || '';
+          // Extrair compraId do link do Comprasnet
+          const m = link.match(/[?&]compra=(\d{14,20})/);
+          if (m) {
+            const compraId = m[1];
+            db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
+              .run(row.cnpj, row.ano, row.sequencial, compraId);
+            resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId, metodo: 'pncp-api' });
+          } else {
+            // Não é do Comprasnet (sistema estadual/municipal)
+            const sistema = link ? new URL(link).hostname : 'desconhecido';
+            db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 1)`)
+              .run(row.cnpj, row.ano, row.sequencial, `NAO_COMPRASNET:${sistema}`);
+            naoComprasnet.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, sistema });
+          }
+        }
+        // Delay entre chamadas PNCP
+        await new Promise(r => setTimeout(r, 500));
+      } catch (e) {
+        console.log(`[AUTO-COMPRA-ID] Erro PNCP ${row.cnpj}/${row.ano}/${row.sequencial}: ${e.message}`);
+      }
+    }
+
+    console.log(`[AUTO-COMPRA-ID] ${resolvidos.length} resolvidos, ${naoComprasnet.length} não-Comprasnet, de ${iRows.length} pendentes`);
+    res.json({ success: true, resolvidos, naoComprasnet, pendentes: iRows.length - resolvidos.length - naoComprasnet.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * Enviar proposta diretamente por compraId (sem passar pelo fluxo PNCP/interesse)
  * Recebe compraId + array de itens [{numero, valor, marca?, modelo?}]
  * Adiciona na fila para a extensão processar via API REST
@@ -9273,27 +9653,165 @@ app.post('/api/config/server-url', (req, res) => {
 
 // ==================== FIM CONFIG URL DO SERVIDOR ====================
 
+// ==================== ANÁLISE IA ====================
+const { analisarLicitacao, processarFilaAnalise } = require('./analise-ia');
+
+// Retorna a análise IA de uma licitação específica
+app.get('/api/licitacoes/:cnpj/:ano/:sequencial/analise', (req, res) => {
+  try {
+    const { cnpj, ano, sequencial } = req.params;
+    const analise = db.prepare(`
+      SELECT * FROM licitacao_analise
+      WHERE cnpj = ? AND ano = ? AND sequencial = ?
+    `).get(cnpj, parseInt(ano), parseInt(sequencial));
+
+    if (!analise) {
+      return res.json({ success: true, analise: null });
+    }
+
+    // Parse JSON fields
+    analise.itens_destaque = JSON.parse(analise.itens_destaque || '[]');
+    analise.requisitos = JSON.parse(analise.requisitos || '[]');
+    analise.atencao = JSON.parse(analise.atencao || '[]');
+    analise.arquivos_info = JSON.parse(analise.arquivos_info || '[]');
+
+    res.json({ success: true, analise });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Força (re)análise de uma licitação específica
+app.post('/api/licitacoes/:cnpj/:ano/:sequencial/analisar', async (req, res) => {
+  try {
+    const { cnpj, ano, sequencial } = req.params;
+    const keys = getIAKeys();
+    if (!keys) {
+      return res.status(400).json({ success: false, error: 'Nenhuma chave de IA configurada. Vá em Fornecedor > Análise IA.' });
+    }
+
+    const resultado = await analisarLicitacao(db, cnpj, parseInt(ano), parseInt(sequencial), keys);
+    if (!resultado) {
+      // Verificar se a licitação existe no banco
+      const existe = db.prepare('SELECT id FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?')
+        .get(cnpj, parseInt(ano), parseInt(sequencial));
+      if (!existe) {
+        return res.status(404).json({ success: false, error: 'Licitação não encontrada no banco de dados' });
+      }
+      return res.status(502).json({ success: false, error: 'Falha nos providers de IA. Verifique as chaves em Fornecedor > Análise IA (Gemini: cota esgotada? Claude: sem créditos?)' });
+    }
+
+    res.json({ success: true, analise: resultado });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Processa fila de análises pendentes
+app.post('/api/analise/processar', async (req, res) => {
+  try {
+    const keys = getIAKeys();
+    if (!keys) {
+      return res.status(400).json({ success: false, error: 'Nenhuma chave de IA configurada' });
+    }
+    const limite = parseInt(req.body.limite) || 20;
+    const processadas = await processarFilaAnalise(db, keys, limite);
+    res.json({ success: true, processadas });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Estatísticas de análise
+app.get('/api/analise/stats', (req, res) => {
+  try {
+    const total = db.prepare('SELECT COUNT(*) as count FROM licitacao_analise').get().count;
+    const pendentes = db.prepare(`
+      SELECT COUNT(*) as count FROM licitacoes l
+      LEFT JOIN licitacao_analise a ON l.cnpj = a.cnpj AND l.anoCompra = a.ano AND l.sequencialCompra = a.sequencial
+      WHERE a.id IS NULL AND l.dataEncerramentoProposta >= date('now')
+    `).get().count;
+    const porSegmento = db.prepare(`
+      SELECT segmento, COUNT(*) as count, AVG(viabilidade_score) as avgScore
+      FROM licitacao_analise GROUP BY segmento ORDER BY count DESC LIMIT 10
+    `).all();
+    const porComplexidade = db.prepare(`
+      SELECT complexidade, COUNT(*) as count FROM licitacao_analise GROUP BY complexidade
+    `).all();
+
+    res.json({
+      success: true,
+      stats: { total, pendentes, porSegmento, porComplexidade }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Verificar chaves de IA configuradas
+app.get('/api/config/ia-keys', (req, res) => {
+  try {
+    const gemini = getConfigValue('gemini_api_key');
+    const anthropic = getConfigValue('anthropic_api_key');
+    res.json({
+      success: true,
+      gemini: { configurada: !!gemini, preview: gemini ? gemini.substring(0, 10) + '...' : null },
+      anthropic: { configurada: !!anthropic, preview: anthropic ? anthropic.substring(0, 10) + '...' : null },
+      alguma_configurada: !!(gemini || anthropic)
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Salvar chave de IA (provider: gemini ou anthropic)
+app.post('/api/config/ia-keys', (req, res) => {
+  try {
+    const { provider, key } = req.body;
+    if (provider === 'gemini') {
+      if (!key || typeof key !== 'string' || !key.startsWith('AIza')) {
+        return res.status(400).json({ success: false, error: 'Chave Gemini inválida. Deve começar com AIza...' });
+      }
+      setConfigValue('gemini_api_key', key);
+    } else if (provider === 'anthropic') {
+      if (!key || typeof key !== 'string' || !key.startsWith('sk-')) {
+        return res.status(400).json({ success: false, error: 'Chave Anthropic inválida. Deve começar com sk-...' });
+      }
+      setConfigValue('anthropic_api_key', key);
+    } else {
+      return res.status(400).json({ success: false, error: 'Provider inválido. Use "gemini" ou "anthropic".' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Remover chave de IA
+app.post('/api/config/ia-key-remove', (req, res) => {
+  try {
+    const { provider } = req.body;
+    if (provider === 'gemini') {
+      setConfigValue('gemini_api_key', '');
+    } else if (provider === 'anthropic') {
+      setConfigValue('anthropic_api_key', '');
+    } else {
+      return res.status(400).json({ success: false, error: 'Provider inválido' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== FIM ANÁLISE IA ====================
+
 // Mapa das extensões disponíveis
 const extensoesDisponiveis = {
-  'monitor-comprasnet': {
-    dir: 'extensao-chrome',
-    nome: 'Monitor Comprasnet',
-    descricao: 'Captura mensagens de licitações do Comprasnet e envia para o servidor'
-  },
-  'lances-comprasnet': {
-    dir: 'extensao-lances',
-    nome: 'Lances Comprasnet',
-    descricao: 'Automação de lances no Comprasnet'
-  },
-  'monitor-mensagens': {
-    dir: 'extensao-monitor',
-    nome: 'Monitor Mensagens',
-    descricao: 'Captura mensagens de licitações do Comprasnet e envia para o servidor local'
-  },
-  'propostas-comprasnet': {
-    dir: 'extensao-propostas',
-    nome: 'Propostas Comprasnet',
-    descricao: 'Envia propostas automaticamente para licitações do Comprasnet'
+  'token-relay': {
+    dir: 'extensions/token-relay',
+    nome: 'Licite Agora Token Relay',
+    descricao: 'Captura tokens e sincroniza dados do Comprasnet automaticamente'
   }
 };
 

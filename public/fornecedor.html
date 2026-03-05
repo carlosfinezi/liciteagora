@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configuração do Fornecedor - PNCP</title>
+    <title>Configuração do Fornecedor - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <style>
         * {
@@ -497,6 +497,111 @@
                     <input type="hidden" id="certificadoBase64" name="certificadoBase64">
                 </div>
 
+                <!-- Declarações para Licitações -->
+                <div class="panel">
+                    <h3><span>📋</span> Declarações para Licitações</h3>
+                    <p style="color: #888; font-size: 0.9em; margin-bottom: 15px;">
+                        Configure as declarações padrão que serão usadas automaticamente ao enviar propostas.
+                    </p>
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="declaracaoMeEpp" name="declaracaoMeEpp" value="1" checked
+                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                            <span>Declaro ME/EPP (microempresa ou empresa de pequeno porte)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="declaracaoProgramasIntegridade" name="declaracaoProgramasIntegridade" value="1"
+                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                            <span>Programa de Integridade</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="declaracaoEquidadeGenero" name="declaracaoEquidadeGenero" value="1"
+                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                            <span>Equidade de Gênero</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Análise IA -->
+                <div class="panel">
+                    <h3><span>🤖</span> Análise IA</h3>
+                    <p style="color: #888; font-size: 0.9em; margin-bottom: 15px;">
+                        Configure a chave de IA para análise automática de licitações.
+                        Extrai documentos do edital, identifica requisitos, pontos de atenção e calcula um score de viabilidade.
+                        <strong>Prioridade: Gemini (gratuito) > Claude.</strong>
+                    </p>
+                    <div id="statusIA" style="margin-bottom: 15px; padding: 12px; border-radius: 6px; background: #1a1a2e;">
+                        <span style="color: #ff9800;">⚠ Verificando...</span>
+                    </div>
+
+                    <!-- Gemini -->
+                    <div style="background: #1a1a2e; border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #4285f4;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <strong style="color: #4285f4;">Google Gemini</strong>
+                            <span style="background: #2e7d32; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">GRATUITO</span>
+                            <span id="statusGemini" style="margin-left: auto; font-size: 0.85em;"></span>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 10px;">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="geminiKey">Chave da API Gemini</label>
+                                <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" class="btn-primary" onclick="salvarChaveIA('gemini')" style="padding: 6px 14px; font-size: 0.9em;">
+                                Salvar
+                            </button>
+                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: #f44336; border: 1px solid #f44336; border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('gemini')">
+                                Remover
+                            </button>
+                            <a href="https://aistudio.google.com/apikey" target="_blank" style="color: #4285f4; font-size: 0.85em; align-self: center;">Obter chave gratuita</a>
+                        </div>
+                    </div>
+
+                    <!-- Claude -->
+                    <div style="background: #1a1a2e; border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #d97706;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <strong style="color: #d97706;">Anthropic Claude</strong>
+                            <span style="background: #555; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">PAGO</span>
+                            <span id="statusAnthropic" style="margin-left: auto; font-size: 0.85em;"></span>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 10px;">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="anthropicKey">Chave da API Anthropic</label>
+                                <input type="password" id="anthropicKey" placeholder="sk-ant-..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" class="btn-primary" onclick="salvarChaveIA('anthropic')" style="padding: 6px 14px; font-size: 0.9em;">
+                                Salvar
+                            </button>
+                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: #f44336; border: 1px solid #f44336; border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('anthropic')">
+                                Remover
+                            </button>
+                            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color: #d97706; font-size: 0.85em; align-self: center;">Obter chave (pago)</a>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" class="btn-primary" onclick="processarFilaIA()" id="btnProcessarIA" style="padding: 8px 16px;">
+                            Processar Fila (10 licitações)
+                        </button>
+                    </div>
+
+                    <div id="statsIA" style="margin-top: 15px; display: none;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+                            <div style="background: #1a1a2e; padding: 12px; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 24px; font-weight: 700; color: #4dabf7;" id="statTotal">0</div>
+                                <div style="font-size: 0.8em; color: #888;">Analisadas</div>
+                            </div>
+                            <div style="background: #1a1a2e; padding: 12px; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 24px; font-weight: 700; color: #ff9800;" id="statPendentes">0</div>
+                                <div style="font-size: 0.8em; color: #888;">Pendentes</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Observações -->
                 <div class="panel">
                     <h3><span>📝</span> Observações</h3>
@@ -524,6 +629,7 @@
             configurarMascaras();
             configurarUploadLogo();
             verificarCertificado();
+            verificarChaveIA();
         });
 
         async function carregarDados() {
@@ -562,6 +668,11 @@
                     elemento.value = dados[campo];
                 }
             });
+
+            // Preencher checkboxes de declarações
+            document.getElementById('declaracaoMeEpp').checked = dados.declaracaoMeEpp == 1 || dados.declaracaoMeEpp === true;
+            document.getElementById('declaracaoProgramasIntegridade').checked = dados.declaracaoProgramasIntegridade == 1 || dados.declaracaoProgramasIntegridade === true;
+            document.getElementById('declaracaoEquidadeGenero').checked = dados.declaracaoEquidadeGenero == 1 || dados.declaracaoEquidadeGenero === true;
 
             // Exibir logo se existir
             if (dados.logoBase64) {
@@ -646,6 +757,11 @@
 
             const formData = new FormData(this);
             const dados = Object.fromEntries(formData.entries());
+
+            // Checkboxes: FormData não inclui unchecked, forçar valores
+            dados.declaracaoMeEpp = document.getElementById('declaracaoMeEpp').checked;
+            dados.declaracaoProgramasIntegridade = document.getElementById('declaracaoProgramasIntegridade').checked;
+            dados.declaracaoEquidadeGenero = document.getElementById('declaracaoEquidadeGenero').checked;
 
             try {
                 const response = await fetch('/api/fornecedor', {
@@ -779,6 +895,139 @@
                 mostrarAlerta('Erro ao remover certificado', 'error');
                 console.error(error);
             }
+        }
+
+        // ==================== ANÁLISE IA ====================
+
+        async function verificarChaveIA() {
+            const statusDiv = document.getElementById('statusIA');
+            try {
+                const [keyResp, statsResp] = await Promise.all([
+                    fetch('/api/config/ia-keys'),
+                    fetch('/api/analise/stats')
+                ]);
+                const keyData = await keyResp.json();
+                const statsData = await statsResp.json();
+
+                // Status geral
+                if (keyData.success && keyData.alguma_configurada) {
+                    const providers = [];
+                    if (keyData.gemini.configurada) providers.push('Gemini');
+                    if (keyData.anthropic.configurada) providers.push('Claude');
+                    statusDiv.innerHTML = `<span style="color: #4caf50;">✓ Análise IA ativa</span>` +
+                        `<span style="color: #888; font-size: 0.85em; margin-left: 10px;">Provider: ${providers.join(' + ')}</span>`;
+                } else {
+                    statusDiv.innerHTML = '<span style="color: #ff9800;">⚠ Nenhuma chave configurada — análise IA desabilitada</span>';
+                }
+
+                // Status individual
+                const geminiStatus = document.getElementById('statusGemini');
+                const anthropicStatus = document.getElementById('statusAnthropic');
+                if (keyData.gemini.configurada) {
+                    geminiStatus.innerHTML = `<span style="color: #4caf50;">✓ ${keyData.gemini.preview}</span>`;
+                } else {
+                    geminiStatus.innerHTML = '<span style="color: #666;">Não configurada</span>';
+                }
+                if (keyData.anthropic.configurada) {
+                    anthropicStatus.innerHTML = `<span style="color: #4caf50;">✓ ${keyData.anthropic.preview}</span>`;
+                } else {
+                    anthropicStatus.innerHTML = '<span style="color: #666;">Não configurada</span>';
+                }
+
+                // Estatísticas
+                if (statsData.success) {
+                    document.getElementById('statTotal').textContent = statsData.stats.total;
+                    document.getElementById('statPendentes').textContent = statsData.stats.pendentes;
+                    document.getElementById('statsIA').style.display = 'block';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<span style="color: #f44336;">Erro ao verificar configuração IA</span>';
+                console.error('Erro ao verificar IA:', error);
+            }
+        }
+
+        async function salvarChaveIA(provider) {
+            const inputId = provider === 'gemini' ? 'geminiKey' : 'anthropicKey';
+            const input = document.getElementById(inputId);
+            const key = input.value.trim();
+            const nome = provider === 'gemini' ? 'Gemini' : 'Claude';
+
+            if (!key) {
+                mostrarAlerta(`Informe a chave da API ${nome}`, 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/config/ia-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, key })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta(`Chave ${nome} salva com sucesso!`, 'success');
+                    input.value = '';
+                    verificarChaveIA();
+                } else {
+                    mostrarAlerta('Erro: ' + result.error, 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao salvar chave', 'error');
+                console.error(error);
+            }
+        }
+
+        async function removerChaveIA(provider) {
+            const nome = provider === 'gemini' ? 'Gemini' : 'Claude';
+            if (!confirm(`Remover a chave ${nome}?`)) return;
+
+            try {
+                const response = await fetch('/api/config/ia-key-remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta(`Chave ${nome} removida.`, 'success');
+                    verificarChaveIA();
+                } else {
+                    mostrarAlerta('Erro ao remover chave', 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao remover chave', 'error');
+                console.error(error);
+            }
+        }
+
+        async function processarFilaIA() {
+            const btn = document.getElementById('btnProcessarIA');
+            btn.disabled = true;
+            btn.textContent = 'Processando...';
+
+            try {
+                const response = await fetch('/api/analise/processar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limite: 10 })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta(`${result.processadas} licitações analisadas!`, 'success');
+                    verificarChaveIA();
+                } else {
+                    mostrarAlerta('Erro: ' + result.error, 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao processar fila', 'error');
+                console.error(error);
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Processar Fila (10 licitações)';
         }
 
     </script>

@@ -1,4 +1,4 @@
-/* Sidebar Unificado - PNCP Monitor */
+/* Sidebar Unificado - Licite Agora */
 /* Menu é gerado dinamicamente a partir de menu-config.js */
 
 // Gera o HTML do menu a partir da configuração

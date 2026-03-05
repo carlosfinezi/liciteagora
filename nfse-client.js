@@ -1,0 +1,226 @@
+/**
+ * nfse-client.js — Cliente HTTP com mTLS para API do Emissor Nacional (NFS-e)
+ *
+ * Uso no nfse-routes.js:
+ *   const { NfseClient } = require('./nfse-client');
+ *   const client = new NfseClient(p12Buffer, senha, tpAmb);
+ */
+
+const https = require('https');
+const zlib = require('zlib');
+
+const URLS = {
+  1: 'https://sefin.nfse.gov.br/SefinNacional',           // Produção
+  2: 'https://sefin.producaorestrita.nfse.gov.br/SefinNacional',  // Homologação
+};
+
+// URLs alternativas (API)
+const URLS_API = {
+  1: 'https://sefin.nfse.gov.br/API/SefinNacional',
+  2: 'https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional',
+};
+
+class NfseClient {
+  /**
+   * @param {Buffer} p12Buffer - Certificado PKCS#12 como Buffer
+   * @param {string} senha - Senha do certificado
+   * @param {number} tpAmb - 1=Produção, 2=Homologação
+   */
+  constructor(p12Buffer, senha, tpAmb = 2) {
+    this.tpAmb = tpAmb;
+    this.baseUrl = URLS[tpAmb] || URLS[2];
+    this.baseUrlApi = URLS_API[tpAmb] || URLS_API[2];
+
+    this.agent = new https.Agent({
+      pfx: p12Buffer,
+      passphrase: senha,
+      rejectUnauthorized: true,
+    });
+  }
+
+  /**
+   * Faz requisição HTTPS com mTLS
+   */
+  _request(method, url, body, headers = {}) {
+    return new Promise((resolve, reject) => {
+      const parsedUrl = new URL(url);
+
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || 443,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method,
+        agent: this.agent,
+        headers: {
+          'Accept': 'application/json',
+          ...headers,
+        },
+      };
+
+      if (body) {
+        if (typeof body === 'string') {
+          options.headers['Content-Type'] = 'application/json';
+          options.headers['Content-Length'] = Buffer.byteLength(body);
+        } else if (Buffer.isBuffer(body)) {
+          options.headers['Content-Length'] = body.length;
+        }
+      }
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const rawBody = Buffer.concat(chunks);
+          const contentType = res.headers['content-type'] || '';
+
+          let parsed;
+          if (contentType.includes('application/json')) {
+            try {
+              parsed = JSON.parse(rawBody.toString('utf-8'));
+            } catch {
+              parsed = rawBody.toString('utf-8');
+            }
+          } else if (contentType.includes('application/pdf')) {
+            parsed = rawBody; // Buffer do PDF
+          } else {
+            parsed = rawBody.toString('utf-8');
+          }
+
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            data: parsed,
+          });
+        });
+      });
+
+      req.on('error', (err) => {
+        reject(new Error(`Erro na requisição SEFIN: ${err.message}`));
+      });
+
+      req.setTimeout(30000, () => {
+        req.destroy();
+        reject(new Error('Timeout na requisição SEFIN (30s)'));
+      });
+
+      if (body) {
+        req.write(typeof body === 'string' ? body : body);
+      }
+      req.end();
+    });
+  }
+
+  /**
+   * Emitir NFS-e: GZip o XML assinado, codifica em Base64, envia POST /nfse
+   * @param {string} signedXml - XML da DPS assinado
+   * @returns {Promise<Object>} Resposta da SEFIN
+   */
+  async emitirNfse(signedXml) {
+    // GZip + Base64
+    const xmlBuffer = Buffer.from(signedXml, 'utf-8');
+    const gzipped = zlib.gzipSync(xmlBuffer);
+    const dpsXmlGZipB64 = gzipped.toString('base64');
+
+    const payload = JSON.stringify({ dpsXmlGZipB64 });
+    const url = `${this.baseUrl}/nfse`;
+
+    console.log(`[NFSe] Emitindo NFS-e em ${this.tpAmb === 1 ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}`);
+    console.log(`[NFSe] URL: ${url}`);
+
+    const response = await this._request('POST', url, payload);
+
+    if (response.status >= 400) {
+      const errorMsg = typeof response.data === 'object'
+        ? JSON.stringify(response.data)
+        : response.data;
+      throw new Error(`SEFIN retornou ${response.status}: ${errorMsg}`);
+    }
+
+    return response.data;
+  }
+
+  /**
+   * Consultar NFS-e por chave de acesso
+   * @param {string} chaveAcesso - Chave de acesso da NFS-e
+   * @returns {Promise<Object>}
+   */
+  async consultarNfse(chaveAcesso) {
+    const url = `${this.baseUrl}/nfse/${chaveAcesso}`;
+    console.log(`[NFSe] Consultando NFS-e: ${chaveAcesso}`);
+
+    const response = await this._request('GET', url);
+
+    if (response.status >= 400) {
+      throw new Error(`Erro ao consultar NFS-e: ${response.status}`);
+    }
+
+    return response.data;
+  }
+
+  /**
+   * Download da DANFSE (PDF)
+   * @param {string} chaveAcesso - Chave de acesso da NFS-e
+   * @returns {Promise<Buffer>} PDF como Buffer
+   */
+  async downloadDanfse(chaveAcesso) {
+    const url = `${this.baseUrl}/danfse/${chaveAcesso}`;
+    console.log(`[NFSe] Baixando DANFSE: ${chaveAcesso}`);
+
+    const response = await this._request('GET', url, null, {
+      'Accept': 'application/pdf',
+    });
+
+    if (response.status >= 400) {
+      throw new Error(`Erro ao baixar DANFSE: ${response.status}`);
+    }
+
+    return response.data; // Buffer do PDF
+  }
+
+  /**
+   * Cancelar NFS-e
+   * @param {string} chaveAcesso - Chave de acesso
+   * @param {string} motivo - Motivo do cancelamento
+   * @returns {Promise<Object>}
+   */
+  async cancelarNfse(chaveAcesso, motivo) {
+    const url = `${this.baseUrl}/nfse/${chaveAcesso}/eventos`;
+    console.log(`[NFSe] Cancelando NFS-e: ${chaveAcesso}`);
+
+    const evento = JSON.stringify({
+      tpEvento: 'e101101', // cancelamento
+      motivoCancelamento: motivo,
+    });
+
+    const response = await this._request('POST', url, evento);
+
+    if (response.status >= 400) {
+      const errorMsg = typeof response.data === 'object'
+        ? JSON.stringify(response.data)
+        : response.data;
+      throw new Error(`Erro ao cancelar NFS-e: ${response.status} - ${errorMsg}`);
+    }
+
+    return response.data;
+  }
+
+  /**
+   * Consultar parâmetros municipais
+   * @param {string} codMunicipio - Código IBGE do município
+   * @returns {Promise<Object>}
+   */
+  async parametrosMunicipais(codMunicipio) {
+    const url = `${this.baseUrl}/parametros_municipais/${codMunicipio}/convenio`;
+    console.log(`[NFSe] Consultando parâmetros municipais: ${codMunicipio}`);
+
+    const response = await this._request('GET', url);
+
+    if (response.status >= 400) {
+      throw new Error(`Erro ao consultar parâmetros: ${response.status}`);
+    }
+
+    return response.data;
+  }
+}
+
+module.exports = { NfseClient };
