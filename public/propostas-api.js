@@ -9,8 +9,11 @@
  */
 
 let participacoesData = [];
+let interessesData = []; // licitações de interesse (vindas do PNCP)
+let interessesVisiveis = true;
 let disputasData = new Map(); // compraId → { itens, orgao, objeto, ... }
 let valoresLocais = {}; // compraId:itemNumero → { valor, marca, modelo, fabricante, selecionado }
+let fornecedorConfig = null; // dados do fornecedor (declarações, etc.)
 
 // ==================== STORAGE LOCAL ====================
 
@@ -72,48 +75,140 @@ async function atualizarTokenStatus() {
 
 // ==================== CARREGAR DADOS ====================
 
-async function carregarParticipacoes() {
+function construirParticipacoes(allParticipacoes) {
+    participacoesData = [];
+    const compraIdSet = new Set();
+    interessesData.forEach(lic => {
+        const cid = lic.compraId || `interesse-${lic.cnpj}-${lic.ano}-${lic.sequencial}`;
+        if (compraIdSet.has(cid)) return;
+        compraIdSet.add(cid);
+
+        const part = lic.compraId ? allParticipacoes.find(p => p.compraId === lic.compraId) : null;
+        const naoComprasnet = lic.compraId?.startsWith('NAO_COMPRASNET:');
+        const sistemaOrigem = naoComprasnet ? lic.compraId.replace('NAO_COMPRASNET:', '') : null;
+
+        participacoesData.push({
+            compraId: cid,
+            objeto: lic.objetoCompra || part?.objeto || 'Objeto não disponível',
+            orgao: lic.nomeOrgao || part?.orgao || '',
+            situacao: part?.situacao || '',
+            faseCompra: part?.faseCompra || '',
+            etapa: part?.etapa || '',
+            dataSessao: lic.dataEncerramentoProposta || part?.dataSessao || '',
+            semCompraId: !lic.compraId || naoComprasnet,
+            naoComprasnet,
+            sistemaOrigem,
+        });
+
+        if (lic.itens?.length > 0 && !disputasData.has(cid)) {
+            disputasData.set(cid, {
+                compraId: cid,
+                itens: lic.itens.map(it => ({
+                    numero: it.numero,
+                    descricao: it.descricao,
+                    quantidade: it.quantidade || 1,
+                    unidadeMedida: it.unidadeMedida,
+                    valorEstimado: it.valorEstimado,
+                    melhorValor: null,
+                    nossoValor: null,
+                    situacaoParticipante: null,
+                })),
+                orgao: lic.nomeOrgao,
+                objeto: lic.objetoCompra,
+                fonte: 'interesse',
+            });
+        }
+    });
+}
+
+function atualizarStats() {
+    const comCompraId = interessesData.filter(l => l.compraId && !l.compraId.startsWith('NAO_COMPRASNET:')).length;
+    const naoComprasnet = interessesData.filter(l => l.compraId?.startsWith('NAO_COMPRASNET:')).length;
+    const pendentesCompraId = interessesData.length - comCompraId - naoComprasnet;
+    document.getElementById('statsInfo').innerHTML =
+        `${interessesData.length} interesses | ${comCompraId} Comprasnet | ${naoComprasnet ? naoComprasnet + ' estadual/municipal | ' : ''}${pendentesCompraId} pendentes`;
+}
+
+function renderizarTudo(allParticipacoes) {
     const loading = document.getElementById('loadingContainer');
     const container = document.getElementById('participacoesContainer');
     const empty = document.getElementById('emptyState');
 
-    try {
-        // Carregar participações do banco
-        const resp = await fetch('/api/proposta/participacoes');
-        const result = await resp.json();
-        participacoesData = result.data || [];
+    construirParticipacoes(allParticipacoes);
+    loading.style.display = 'none';
 
-        // Carregar disputas ativas (cache da extensão)
-        try {
-            const dResp = await fetch('/api/sniper/disputas-ativas');
+    if (participacoesData.length === 0) {
+        empty.style.display = 'block';
+        return;
+    }
+
+    carregarValoresLocal();
+    disputasData.forEach((disputa, compraId) => {
+        if (disputa.fonte === 'interesse') {
+            disputa.itens.forEach(item => {
+                const dados = getValorItem(compraId, item.numero);
+                if (!dados.valor && item.valorEstimado) {
+                    setValorItem(compraId, item.numero, { valor: item.valorEstimado, selecionado: true });
+                }
+            });
+        }
+    });
+
+    renderizarParticipacoes();
+    container.style.display = 'block';
+    document.getElementById('filtrosContainer').style.display = 'block';
+    popularFiltros();
+    atualizarStats();
+}
+
+async function carregarParticipacoes() {
+    const loading = document.getElementById('loadingContainer');
+
+    try {
+        // 1. Carregar tudo em paralelo
+        const [iResp, pResp, dResp] = await Promise.all([
+            fetch('/api/proposta/interesses'),
+            fetch('/api/proposta/participacoes').catch(() => null),
+            fetch('/api/sniper/disputas-ativas').catch(() => null),
+        ]);
+
+        interessesData = ((await iResp.json()).data) || [];
+
+        let allParticipacoes = [];
+        if (pResp) try { allParticipacoes = ((await pResp.json()).data) || []; } catch (e) {}
+
+        if (dResp) try {
             const dResult = await dResp.json();
-            if (dResult.disputas) {
-                dResult.disputas.forEach(d => disputasData.set(d.compraId, d));
-            }
+            if (dResult.disputas) dResult.disputas.forEach(d => disputasData.set(d.compraId, d));
         } catch (e) {}
 
-        loading.style.display = 'none';
+        // 2. Renderizar imediatamente com o que temos
+        renderizarTudo(allParticipacoes);
 
-        if (participacoesData.length === 0) {
-            empty.style.display = 'block';
-            return;
+        // 3. Auto-resolver compraId em background (não bloqueia a tela)
+        const semCompraId = interessesData.filter(l => !l.compraId);
+        if (semCompraId.length > 0) {
+            resolverCompraIdsBackground(allParticipacoes);
         }
-
-        carregarValoresLocal();
-        renderizarParticipacoes();
-        container.style.display = 'block';
-        document.getElementById('filtrosContainer').style.display = 'block';
-        popularFiltros();
-
-        // Atualizar stats
-        const stats = result.stats || {};
-        document.getElementById('statsInfo').innerHTML =
-            `${participacoesData.length} participações | ${stats.emAndamento || 0} em andamento | ${stats.encerradas || 0} encerradas`;
 
     } catch (error) {
         console.error('Erro:', error);
         loading.innerHTML = '<h3 style="color: #f44336;">Erro ao carregar participações</h3>';
     }
+}
+
+async function resolverCompraIdsBackground(allParticipacoes) {
+    try {
+        await fetch('/api/proposta/backfill-chave-pncp', { method: 'POST' });
+        const arResp = await fetch('/api/proposta/interesses/auto-compra-id', { method: 'POST' });
+        const arResult = await arResp.json();
+        if (arResult.resolvidos?.length > 0) {
+            // Recarregar interesses atualizados e re-renderizar
+            const iResp = await fetch('/api/proposta/interesses');
+            interessesData = ((await iResp.json()).data) || [];
+            renderizarTudo(allParticipacoes);
+        }
+    } catch (e) { console.warn('Auto-resolve compraId background:', e); }
 }
 
 // ==================== FILTROS ====================
@@ -126,8 +221,13 @@ function popularFiltros() {
     const select = document.getElementById('filtroSituacao');
     select.innerHTML = '<option value="">Todas situações</option>';
     Array.from(situacoes).sort().forEach(s => {
-        select.innerHTML += `<option value="${s}">${s}</option>`;
+        select.innerHTML += `<option value="${s}">${formatarSituacao(s)} (${s})</option>`;
     });
+    // PD (Em Disputa) como padrão se existir
+    if (situacoes.has('PD')) {
+        select.value = 'PD';
+    }
+    aplicarFiltros();
 }
 
 function aplicarFiltros() {
@@ -135,6 +235,8 @@ function aplicarFiltros() {
     const situacao = document.getElementById('filtroSituacao').value;
 
     let total = 0, visiveis = 0;
+
+    // Filtrar participações
     document.querySelectorAll('#participacoesContainer .panel[data-compra-id]').forEach(panel => {
         total++;
         const compraId = panel.dataset.compraId;
@@ -147,6 +249,25 @@ function aplicarFiltros() {
             if (!t.includes(texto)) visivel = false;
         }
         if (situacao && p.situacao !== situacao) visivel = false;
+
+        panel.style.display = visivel ? '' : 'none';
+        if (visivel) visiveis++;
+    });
+
+    // Filtrar interesses
+    document.querySelectorAll('#interessesContainer .panel[data-interesse-key]').forEach(panel => {
+        total++;
+        const ikey = panel.dataset.interesseKey;
+        const lic = interessesData.find(l => interesseKey(l) === ikey);
+        if (!lic) return;
+
+        let visivel = true;
+        if (texto) {
+            const t = `${lic.objetoCompra || ''} ${lic.nomeOrgao || ''} ${lic.compraId || ''} ${lic.codigoUnidade || ''} ${lic.numeroCompra || ''} ${lic.cnpj || ''}`.toLowerCase();
+            if (!t.includes(texto)) visivel = false;
+        }
+        // Interesses não têm campo situacao do Comprasnet, ignorar filtro de situação
+        if (situacao) visivel = false;
 
         panel.style.display = visivel ? '' : 'none';
         if (visivel) visiveis++;
@@ -177,45 +298,54 @@ function renderizarParticipacoes() {
         const situacaoLabel = formatarSituacao(p.situacao);
         const faseLabel = p.faseCompra || p.etapa || '';
 
+        const compraIdDisplay = p.semCompraId
+            ? `<span class="badge-sem-compra">Sem CompraId</span>`
+            : `<span class="badge-compra">${p.compraId}</span>`;
+
+        const comprasnetLink = p.semCompraId ? '' :
+            `<a href="https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=${p.compraId}"
+               target="_blank" class="btn-comprasnet">Comprasnet</a>`;
+
         div.innerHTML = `
             <div class="participacao-header">
                 <div class="participacao-info">
                     <div class="participacao-objeto">${p.objeto || 'Objeto não disponível'}</div>
                     <div class="participacao-orgao">${p.orgao || ''}</div>
                     <div class="participacao-meta">
-                        <span class="badge-compra">${p.compraId}</span>
-                        <span class="badge-situacao badge-sit-${(p.situacao || '').toUpperCase()}">${situacaoLabel}</span>
+                        ${compraIdDisplay}
+                        ${p.situacao ? `<span class="badge-situacao badge-sit-${(p.situacao || '').toUpperCase()}">${situacaoLabel}</span>` : ''}
                         ${faseLabel ? `<span class="badge-fase">${faseLabel}</span>` : ''}
                         ${p.dataSessao ? `<span class="meta-data">${formatarData(p.dataSessao)}</span>` : ''}
                     </div>
                 </div>
                 <div class="participacao-acoes">
-                    <a href="https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=${p.compraId}"
-                       target="_blank" class="btn-comprasnet">Comprasnet</a>
+                    ${comprasnetLink}
                 </div>
             </div>
 
             <div class="itens-container" id="itens-${p.compraId}">
                 ${disputa && disputa.itens?.length > 0
                     ? renderizarItens(p.compraId, disputa.itens)
-                    : `<div class="itens-loading" id="itens-loading-${p.compraId}">
-                         <button class="btn btn-sm btn-outline" onclick="carregarItens('${p.compraId}')">
-                           Carregar itens
-                         </button>
-                       </div>`
+                    : p.semCompraId
+                        ? `<div class="empty-itens">Vincule o CompraId para carregar itens e enviar proposta</div>`
+                        : `<div class="itens-loading" id="itens-loading-${p.compraId}">
+                             <button class="btn btn-sm btn-outline" onclick="carregarItens('${p.compraId}')">
+                               Carregar itens
+                             </button>
+                           </div>`
                 }
             </div>
 
+            ${p.semCompraId ? '' : `
             <div class="participacao-actions" id="actions-${p.compraId}" ${!disputa ? 'style="display:none"' : ''}>
                 <button class="btn-action btn-enviar" onclick="enviarProposta('${p.compraId}')">
                     Enviar Proposta
                 </button>
-                <button class="btn-action btn-csv-action" onclick="exportarCSVCompra('${p.compraId}')">
-                    CSV
+                <button class="btn-action btn-excluir" onclick="excluirProposta('${p.compraId}')">
+                    Excluir Proposta
                 </button>
-                <a href="https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/cadastro-propostas?compra=${p.compraId}"
-                   target="_blank" class="btn-action btn-link-action">Cadastro Manual</a>
             </div>
+            `}
         `;
         container.appendChild(div);
     });
@@ -298,8 +428,40 @@ function renderizarItens(compraId, itens) {
 
 async function carregarItens(compraId) {
     const container = document.getElementById(`itens-${compraId}`);
-    container.innerHTML = '<div class="itens-loading">Carregando itens...</div>';
 
+    // 1. Verificar se já tem itens de interesse cruzados
+    const interesse = interessesData.find(l => l.compraId === compraId && l.itens?.length > 0);
+    if (interesse) {
+        const itens = interesse.itens.map(it => ({
+            numero: it.numero,
+            descricao: it.descricao,
+            quantidade: it.quantidade || 1,
+            unidadeMedida: it.unidadeMedida,
+            valorEstimado: it.valorEstimado,
+            melhorValor: null,
+            nossoValor: null,
+            situacaoParticipante: null,
+        }));
+        disputasData.set(compraId, {
+            compraId, itens,
+            orgao: interesse.nomeOrgao, objeto: interesse.objetoCompra,
+            fonte: 'interesse',
+        });
+        // Auto-preencher valores de referência e selecionar
+        itens.forEach(item => {
+            const dados = getValorItem(compraId, item.numero);
+            if (!dados.valor && item.valorEstimado) {
+                setValorItem(compraId, item.numero, { valor: item.valorEstimado, selecionado: true });
+            }
+        });
+        container.innerHTML = renderizarItens(compraId, itens);
+        const actions = document.getElementById(`actions-${compraId}`);
+        if (actions) actions.style.display = '';
+        return;
+    }
+
+    // 2. Buscar via API
+    container.innerHTML = '<div class="itens-loading">Carregando itens...</div>';
     try {
         const resp = await fetch(`/api/proposta/itens-compra/${compraId}`);
         const result = await resp.json();
@@ -311,14 +473,72 @@ async function carregarItens(compraId) {
                 orgao: result.orgao || '',
                 objeto: result.objeto || '',
             });
+            // Auto-preencher valor REF e selecionar
+            result.itens.forEach(item => {
+                const dados = getValorItem(compraId, item.numero);
+                if (!dados.valor && item.valorEstimado) {
+                    setValorItem(compraId, item.numero, { valor: item.valorEstimado, selecionado: true });
+                }
+            });
             container.innerHTML = renderizarItens(compraId, result.itens);
-            // Mostrar actions
             const actions = document.getElementById(`actions-${compraId}`);
             if (actions) actions.style.display = '';
         } else {
             container.innerHTML = `<div class="empty-itens">
                 ${result.error || 'Nenhum item encontrado'}
                 <br><small>Fonte: ${result.fonte || 'api'}</small>
+                <br><button class="btn btn-sm btn-outline" style="margin-top:8px;" onclick="participarEListar('${compraId}')">
+                    Participar e carregar itens
+                </button>
+            </div>`;
+        }
+    } catch (error) {
+        container.innerHTML = `<div class="empty-itens" style="color:#f44336;">
+            Erro: ${error.message}
+        </div>`;
+    }
+}
+
+async function participarEListar(compraId) {
+    const container = document.getElementById(`itens-${compraId}`);
+    container.innerHTML = '<div class="itens-loading">Aceitando declarações e carregando itens...</div>';
+
+    try {
+        const resp = await fetch(`/api/proposta/participar-e-listar/${compraId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                declaracaoMeEpp: fornecedorConfig?.declaracaoMeEpp == 1,
+                declaracaoProgramasIntegridade: fornecedorConfig?.declaracaoProgramasIntegridade == 1,
+                declaracaoEquidadeGenero: fornecedorConfig?.declaracaoEquidadeGenero == 1,
+            })
+        });
+        const result = await resp.json();
+
+        if (result.success && result.itens?.length > 0) {
+            disputasData.set(compraId, {
+                compraId,
+                itens: result.itens,
+                orgao: '',
+                objeto: '',
+            });
+            // Auto-preencher valor REF e selecionar
+            result.itens.forEach(item => {
+                const dados = getValorItem(compraId, item.numero);
+                if (!dados.valor && item.valorEstimado) {
+                    setValorItem(compraId, item.numero, { valor: item.valorEstimado, selecionado: true });
+                }
+            });
+            container.innerHTML = renderizarItens(compraId, result.itens);
+            const actions = document.getElementById(`actions-${compraId}`);
+            if (actions) actions.style.display = '';
+        } else {
+            const etapasInfo = result.etapas
+                ? result.etapas.map(e => `${e.etapa}: ${e.sucesso ? 'OK' : e.erro || 'HTTP ' + e.status}`).join(' → ')
+                : '';
+            container.innerHTML = `<div class="empty-itens">
+                ${result.error || 'Não foi possível listar itens'}
+                ${etapasInfo ? `<br><small>${etapasInfo}</small>` : ''}
             </div>`;
         }
     } catch (error) {
@@ -403,6 +623,37 @@ function atualizarResumo() {
     `;
 }
 
+// ==================== EXCLUSÃO ====================
+
+async function excluirProposta(compraId) {
+    if (!confirm(`Tem certeza que deseja EXCLUIR a proposta da compra ${compraId}?\n\nIsso remove a participação e todas as propostas de itens.`)) {
+        return;
+    }
+
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Excluindo...';
+
+    try {
+        const resp = await fetch(`/api/proposta/excluir/${compraId}`, { method: 'DELETE' });
+        const result = await resp.json();
+
+        if (result.success) {
+            alert(`Proposta excluída com sucesso.\n\n${result.message || ''}`);
+            // Recarregar a página para refletir o estado atualizado
+            location.reload();
+        } else {
+            alert(`Erro ao excluir: ${result.error || 'Erro desconhecido'}`);
+            btn.disabled = false;
+            btn.textContent = 'Excluir Proposta';
+        }
+    } catch (error) {
+        alert(`Erro de conexão: ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Excluir Proposta';
+    }
+}
+
 // ==================== ENVIO ====================
 
 async function enviarProposta(compraId) {
@@ -420,10 +671,9 @@ async function enviarProposta(compraId) {
             itensSelecionados.push({
                 numero: item.numero,
                 valor: dados.valor,
+                quantidade: item.quantidade || 1,
                 marca: dados.marca || '',
                 modelo: dados.modelo || '',
-                fabricante: dados.fabricante || '',
-                descricao: item.descricao || '',
             });
         }
     });
@@ -433,125 +683,80 @@ async function enviarProposta(compraId) {
         return;
     }
 
-    // Abrir modal de envio
-    const modal = document.getElementById('modalEnvio');
-    const info = document.getElementById('envioInfo');
-    const log = document.getElementById('envioLog');
-    const msg = document.getElementById('envioMsg');
-    const progress = document.getElementById('progressFill');
-    const btnEnviar = document.getElementById('btnEnviar');
+    // Declarações vêm da config do fornecedor (fornecedor.html)
+    const declaracoes = {
+        declaracaoMeEpp: fornecedorConfig?.declaracaoMeEpp == 1,
+        declaracaoProgramasIntegridade: fornecedorConfig?.declaracaoProgramasIntegridade == 1,
+        declaracaoEquidadeGenero: fornecedorConfig?.declaracaoEquidadeGenero == 1,
+    };
 
-    const p = participacoesData.find(x => x.compraId === compraId);
-    info.innerHTML = `
-        <div class="envio-info-box">
-            <div class="envio-objeto">${p?.objeto || disputa.objeto || ''}</div>
-            <div class="envio-orgao">${p?.orgao || disputa.orgao || ''}</div>
-            <div class="envio-meta">${compraId} | ${itensSelecionados.length} item(ns)</div>
-        </div>
-    `;
+    // Encontrar o card da compra para mostrar progresso inline
+    const card = document.querySelector(`[data-compra-id="${compraId}"]`);
+    const btnEnviar = card?.querySelector('.btn-enviar');
+    if (btnEnviar) {
+        btnEnviar.disabled = true;
+        btnEnviar.textContent = 'Enviando...';
+    }
 
-    log.innerHTML = '';
-    msg.textContent = 'Clique em "Enviar" para enviar via API';
-    progress.style.width = '0%';
-    btnEnviar.disabled = false;
-    btnEnviar.textContent = 'Enviar via API';
-    btnEnviar.onclick = () => executarEnvio(compraId, itensSelecionados);
-
-    modal.style.display = 'flex';
-}
-
-async function executarEnvio(compraId, itens) {
-    const log = document.getElementById('envioLog');
-    const msg = document.getElementById('envioMsg');
-    const progress = document.getElementById('progressFill');
-    const btn = document.getElementById('btnEnviar');
-
-    btn.disabled = true;
-    btn.textContent = 'Enviando...';
-    log.innerHTML = '<div class="log-info">Enviando proposta via API do servidor...</div>';
-    progress.style.width = '30%';
+    // Criar área de log inline no card
+    let logArea = card?.querySelector('.envio-log-inline');
+    if (!logArea && card) {
+        logArea = document.createElement('div');
+        logArea.className = 'envio-log-inline';
+        logArea.style.cssText = 'margin-top:10px; padding:10px; background:#1a1a2e; border-radius:6px; font-size:0.85em; max-height:200px; overflow-y:auto;';
+        card.appendChild(logArea);
+    }
+    if (logArea) logArea.innerHTML = '<div style="color:#aaa;">Aceitando termos e declarações...</div>';
 
     try {
         const resp = await fetch('/api/proposta/enviar-api', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ compraId, itens })
+            body: JSON.stringify({ compraId, itens: itensSelecionados, declaracoes })
         });
 
         const result = await resp.json();
-        progress.style.width = '100%';
 
-        if (result.success) {
-            msg.innerHTML = `<span style="color:#4caf50;">${result.message}</span>`;
-        } else {
-            msg.innerHTML = `<span style="color:#f44336;">${result.error || result.message}</span>`;
-        }
+        if (logArea) {
+            logArea.innerHTML = '';
 
-        // Mostrar resultados por item
-        if (result.resultados) {
-            result.resultados.forEach(r => {
-                const cls = r.sucesso ? 'log-ok' : 'log-err';
-                log.innerHTML += `<div class="${cls}">
-                    Item ${r.numero}: ${r.sucesso ? 'OK' : 'Falha'}
-                    ${r.status ? `(HTTP ${r.status})` : ''}
-                    ${r.erro ? `- ${r.erro}` : ''}
-                    ${r.endpoint ? `[${r.endpoint}]` : ''}
-                </div>`;
-            });
-        }
+            if (result.success) {
+                logArea.innerHTML += `<div style="color:#4caf50; font-weight:600; margin-bottom:6px;">${result.message}</div>`;
+            } else {
+                logArea.innerHTML += `<div style="color:#f44336; font-weight:600; margin-bottom:6px;">${result.error || result.message}</div>`;
+            }
 
-        if (result.linkCadastroProposta) {
-            log.innerHTML += `<div class="log-link">
-                <a href="${result.linkCadastroProposta}" target="_blank" class="btn btn-sm btn-primary">
-                    Abrir Cadastro de Proposta
-                </a>
-            </div>`;
+            if (result.resultados) {
+                result.resultados.forEach(r => {
+                    if (r.fase === 'declaracoes') {
+                        const cor = r.sucesso ? '#4caf50' : '#f44336';
+                        logArea.innerHTML += `<div style="color:${cor};">
+                            Declarações: ${r.sucesso ? 'OK' : 'Falha'}
+                            ${r.info ? `(${r.info})` : ''}
+                            ${r.status ? `(HTTP ${r.status})` : ''}
+                            ${r.erro ? `- ${r.erro}` : ''}
+                        </div>`;
+                    } else {
+                        const cor = r.sucesso ? '#4caf50' : '#f44336';
+                        logArea.innerHTML += `<div style="color:${cor};">
+                            Item ${r.numero}: ${r.sucesso ? 'OK' : 'Falha'}
+                            ${r.status ? `(HTTP ${r.status})` : ''}
+                            ${r.erro ? `- ${r.erro}` : ''}
+                        </div>`;
+                    }
+                });
+            }
+
         }
 
     } catch (error) {
-        msg.innerHTML = `<span style="color:#f44336;">Erro de conexão: ${error.message}</span>`;
+        if (logArea) logArea.innerHTML = `<div style="color:#f44336;">Erro de conexão: ${error.message}</div>`;
     }
 
-    btn.disabled = false;
-    btn.textContent = 'Enviar novamente';
-}
-
-function fecharModalEnvio() {
-    document.getElementById('modalEnvio').style.display = 'none';
-}
-
-// ==================== CSV EXPORT ====================
-
-function exportarCSVCompra(compraId) {
-    const disputa = disputasData.get(compraId);
-    if (!disputa || !disputa.itens) {
-        alert('Carregue os itens primeiro.');
-        return;
+    if (btnEnviar) {
+        btnEnviar.disabled = false;
+        btnEnviar.textContent = 'Enviar Proposta';
     }
-
-    const p = participacoesData.find(x => x.compraId === compraId);
-
-    let csv = 'Item;Descricao;MelhorValor;NossoValor;ValorProposta;Marca;Modelo;Situacao\n';
-
-    disputa.itens.forEach(item => {
-        const dados = getValorItem(compraId, item.numero);
-        csv += [
-            item.numero,
-            `"${(item.descricao || '').replace(/"/g, '""')}"`,
-            item.melhorValor != null ? item.melhorValor.toFixed(2).replace('.', ',') : '',
-            item.nossoValor != null ? item.nossoValor.toFixed(2).replace('.', ',') : '',
-            dados.valor ? dados.valor.toFixed(2).replace('.', ',') : '',
-            `"${dados.marca || ''}"`,
-            `"${dados.modelo || ''}"`,
-            item.situacaoParticipante || ''
-        ].join(';') + '\n';
-    });
-
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `proposta_${compraId}_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
 }
 
 // ==================== UTILS ====================
@@ -563,8 +768,9 @@ function fmtValor(valor) {
 
 function formatarSituacao(sit) {
     const map = {
-        'PD': 'Pendente', 'AB': 'Aberta', 'EN': 'Encerrada',
+        'PD': 'Em Disputa', 'AB': 'Aberta', 'EN': 'Encerrada',
         'FR': 'Fracassada', 'PE': 'Proposta Enviada',
+        'SU': 'Suspensa', 'EX': 'Excluída',
         '5': 'Em Andamento', '2': 'Encerrada',
     };
     return map[(sit || '').toUpperCase()] || sit || '-';
@@ -580,11 +786,304 @@ function formatarData(iso) {
     } catch (e) { return iso; }
 }
 
+// ==================== INTERESSES ====================
+
+function mostrarInteresses() {
+    // interessesData já está carregado — filtrar os que já aparecem como participações
+    const participacoesIds = new Set(participacoesData.map(p => p.compraId));
+    const extras = interessesData.filter(lic => !lic.compraId || !participacoesIds.has(lic.compraId));
+
+    if (extras.length === 0) return;
+
+    const section = document.getElementById('interessesSection');
+    section.style.display = 'block';
+    document.getElementById('interessesBadge').textContent = extras.length;
+
+    if (participacoesData.length > 0) {
+        document.getElementById('separadorSections').style.display = 'block';
+    }
+
+    renderizarInteresses();
+}
+
+function toggleInteresses() {
+    interessesVisiveis = !interessesVisiveis;
+    document.getElementById('interessesContainer').style.display = interessesVisiveis ? '' : 'none';
+    document.getElementById('interessesToggle').textContent = interessesVisiveis ? '▼' : '▶';
+}
+
+function interesseKey(lic) {
+    return `interesse-${lic.cnpj}-${lic.ano}-${lic.sequencial}`;
+}
+
+function renderizarInteresses() {
+    const container = document.getElementById('interessesContainer');
+    container.innerHTML = '';
+
+    interessesData.forEach(lic => {
+        const ikey = interesseKey(lic);
+        // Para itens de interesse, usar compraId se disponível, senão usar a key de interesse
+        const itemPrefix = lic.compraId || ikey;
+
+        // Pre-carregar itens no disputasData para toggleSelectAll/enviarProposta funcionar
+        if (lic.itens?.length > 0 && !disputasData.has(itemPrefix)) {
+            disputasData.set(itemPrefix, {
+                compraId: lic.compraId || null,
+                itens: lic.itens.map(it => ({
+                    numero: it.numero,
+                    descricao: it.descricao,
+                    quantidade: it.quantidade,
+                    unidadeMedida: it.unidadeMedida,
+                    valorEstimado: it.valorEstimado,
+                    melhorValor: null,
+                    nossoValor: null,
+                    situacaoParticipante: null
+                })),
+                orgao: lic.nomeOrgao,
+                objeto: lic.objetoCompra
+            });
+        }
+
+        const div = document.createElement('div');
+        div.className = 'panel interesse-panel';
+        div.dataset.interesseKey = ikey;
+        if (lic.compraId) div.dataset.compraId = lic.compraId;
+
+        const naoComprasnet = lic.compraId?.startsWith('NAO_COMPRASNET:');
+        const sistemaOrigem = naoComprasnet ? lic.compraId.replace('NAO_COMPRASNET:', '') : null;
+        const compraIdReal = lic.compraId && !naoComprasnet ? lic.compraId : null;
+
+        const compraIdHtml = naoComprasnet
+            ? `<span class="badge-sem-compra" style="background:#ff9800; color:#000;">Sistema: ${sistemaOrigem}</span>`
+            : compraIdReal
+                ? `<span class="badge-com-compra">CompraId: ${compraIdReal}</span>`
+                : `<span class="badge-sem-compra">Sem CompraId</span>`;
+
+        div.innerHTML = `
+            <div class="participacao-header">
+                <div class="participacao-info">
+                    <div class="participacao-objeto">${lic.objetoCompra}</div>
+                    <div class="participacao-orgao">${lic.nomeOrgao}</div>
+                    <div class="participacao-meta">
+                        <span class="badge-interesse">Interesse</span>
+                        ${compraIdHtml}
+                        <span class="badge-compra">${lic.numeroCompra || lic.sequencial}/${lic.ano}</span>
+                        ${lic.modalidadeNome ? `<span class="badge-fase">${lic.modalidadeNome}</span>` : ''}
+                        ${lic.dataEncerramentoProposta ? `<span class="meta-data">Encerra: ${formatarData(lic.dataEncerramentoProposta)}</span>` : ''}
+                    </div>
+                </div>
+                <div class="participacao-acoes" style="display:flex; gap:6px;">
+                    ${compraIdReal ? `<a href="https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras/acompanhamento-compra?compra=${compraIdReal}"
+                       target="_blank" class="btn-comprasnet">Comprasnet</a>` : ''}
+                    ${lic.linkSistemaOrigem ? `<a href="${lic.linkSistemaOrigem.startsWith('http') ? lic.linkSistemaOrigem : 'https://' + lic.linkSistemaOrigem}"
+                       target="_blank" class="btn-comprasnet" style="background:#ff9800;">Sistema</a>` : ''}
+                </div>
+            </div>
+
+            ${!compraIdReal && !naoComprasnet ? `
+            <div class="compra-id-bar" id="compraIdBar-${ikey}">
+                <label style="color:#aaa; font-size:0.82em; white-space:nowrap;">CompraId Comprasnet:</label>
+                <input type="text" id="compraIdInput-${ikey}" placeholder="Ex: 92687906001182026"
+                       maxlength="20" pattern="[0-9]*" inputmode="numeric">
+                <button class="btn-verificar" onclick="verificarCompraId('${ikey}')">Verificar</button>
+                <span class="status-msg" id="compraIdStatus-${ikey}"></span>
+            </div>
+            ` : ''}
+
+            <div class="itens-container" id="itens-${itemPrefix}">
+                ${lic.itens?.length > 0
+                    ? renderizarItensInteresse(itemPrefix, lic)
+                    : '<div class="empty-itens">Nenhum item de interesse</div>'
+                }
+            </div>
+
+            <div class="participacao-actions" id="actions-interesse-${ikey}">
+                ${compraIdReal ? `
+                    <button class="btn-action btn-enviar" onclick="enviarProposta('${compraIdReal}')">
+                        Enviar Proposta
+                    </button>
+                ` : naoComprasnet ? `
+                    <span style="color:#ff9800; font-size:0.82em;">Envio via API indisponivel (sistema estadual/municipal)</span>
+                ` : `
+                    <span style="color:#888; font-size:0.82em;">Resolução automática pendente</span>
+                `}
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function renderizarItensInteresse(itemPrefix, lic) {
+    const itens = lic.itens || [];
+    if (itens.length === 0) return '<div class="empty-itens">Sem itens</div>';
+
+    let html = `
+        <div class="select-all-bar">
+            <input type="checkbox" id="selectAll-${itemPrefix}" onchange="toggleSelectAll('${itemPrefix}')">
+            <label for="selectAll-${itemPrefix}">Selecionar todos</label>
+            <span class="badge-qtd">${itens.length} itens</span>
+        </div>
+        <div class="itens-grid">
+            <div class="item-header-row">
+                <div></div>
+                <div>Item / Descrição</div>
+                <div>Ref R$</div>
+                <div>Qtde</div>
+                <div>Valor Proposta</div>
+                <div>Marca / Modelo</div>
+                <div>Unid</div>
+            </div>
+    `;
+
+    itens.forEach(item => {
+        const num = item.numero;
+        const dados = getValorItem(itemPrefix, num);
+
+        html += `
+            <div class="item-row ${dados.selecionado ? 'selecionado' : ''}" id="row-${itemPrefix}-${num}">
+                <div>
+                    <input type="checkbox" class="item-checkbox"
+                           id="chk-${itemPrefix}-${num}"
+                           ${dados.selecionado ? 'checked' : ''}
+                           onchange="toggleItem('${itemPrefix}', ${num})">
+                </div>
+                <div class="item-desc">
+                    <span class="item-num">Item ${num}</span>
+                    <span class="item-texto">${item.descricao || ''}</span>
+                </div>
+                <div class="item-valor">${item.valorEstimado != null ? fmtValor(item.valorEstimado) : '-'}</div>
+                <div class="item-valor">${item.quantidade || 1}</div>
+                <div class="item-input-cell">
+                    <input type="number" step="0.01" min="0"
+                           id="val-${itemPrefix}-${num}"
+                           value="${dados.valor || ''}"
+                           placeholder="0,00"
+                           onchange="atualizarValor('${itemPrefix}', ${num}, this.value)"
+                           onfocus="autoSelect('${itemPrefix}', ${num})">
+                </div>
+                <div class="item-extras-cell">
+                    <input type="text" id="marca-${itemPrefix}-${num}" value="${dados.marca || ''}"
+                           placeholder="Marca" onchange="atualizarExtra('${itemPrefix}', ${num}, 'marca', this.value)">
+                    <input type="text" id="modelo-${itemPrefix}-${num}" value="${dados.modelo || ''}"
+                           placeholder="Modelo" onchange="atualizarExtra('${itemPrefix}', ${num}, 'modelo', this.value)">
+                </div>
+                <div style="font-size:0.78em; color:#888;">${item.unidadeMedida || 'UN'}</div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    return html;
+}
+
+async function verificarCompraId(ikey) {
+    const input = document.getElementById(`compraIdInput-${ikey}`);
+    const status = document.getElementById(`compraIdStatus-${ikey}`);
+    const compraId = input.value.trim();
+
+    if (!compraId || !/^\d{14,20}$/.test(compraId)) {
+        status.innerHTML = '<span style="color:#f44336;">Formato inválido (14-20 dígitos)</span>';
+        return;
+    }
+
+    status.innerHTML = '<span style="color:#4dabf7;">Verificando...</span>';
+
+    const lic = interessesData.find(l => interesseKey(l) === ikey);
+    if (!lic) return;
+
+    try {
+        // Salvar compraId no servidor
+        await fetch('/api/proposta/interesses/compra-id', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cnpj: lic.cnpj, ano: lic.ano, sequencial: lic.sequencial, compraId })
+        });
+
+        // Tentar carregar itens do Comprasnet para verificar
+        const resp = await fetch(`/api/proposta/itens-compra/${compraId}`);
+        const result = await resp.json();
+
+        if (result.success && result.itens?.length > 0) {
+            // Sucesso! Atualizar dados
+            lic.compraId = compraId;
+            disputasData.set(compraId, {
+                compraId,
+                itens: result.itens,
+                orgao: result.orgao || lic.nomeOrgao,
+                objeto: result.objeto || lic.objetoCompra
+            });
+
+            // Marcar como verificado
+            await fetch('/api/proposta/interesses/compra-id/verificar', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cnpj: lic.cnpj, ano: lic.ano, sequencial: lic.sequencial })
+            });
+
+            status.innerHTML = `<span style="color:#4caf50;">OK — ${result.itens.length} itens encontrados (${result.fonte || 'api'})</span>`;
+
+            // Atualizar a UI: mostrar itens do Comprasnet e habilitar ações
+            const itensContainer = document.getElementById(`itens-${compraId}`) || document.getElementById(`itens-${ikey}`);
+            if (itensContainer) {
+                itensContainer.id = `itens-${compraId}`;
+                itensContainer.innerHTML = renderizarItens(compraId, result.itens);
+            }
+
+            const actionsDiv = document.getElementById(`actions-interesse-${ikey}`);
+            if (actionsDiv) {
+                actionsDiv.innerHTML = `
+                    <button class="btn-action btn-enviar" onclick="enviarProposta('${compraId}')">
+                        Enviar Proposta
+                    </button>
+                `;
+            }
+
+            // Atualizar badge
+            const panel = document.querySelector(`[data-interesse-key="${ikey}"]`);
+            if (panel) {
+                const badgeSem = panel.querySelector('.badge-sem-compra');
+                if (badgeSem) {
+                    badgeSem.className = 'badge-com-compra';
+                    badgeSem.textContent = `CompraId: ${compraId}`;
+                }
+            }
+        } else {
+            status.innerHTML = `<span style="color:#ff9800;">CompraId salvo, mas ${result.error || 'sem itens retornados'}. Token ativo?</span>`;
+            // Mesmo sem itens, permitir usar (pode ser token expirado)
+            lic.compraId = compraId;
+            const actionsDiv = document.getElementById(`actions-interesse-${ikey}`);
+            if (actionsDiv) {
+                actionsDiv.innerHTML = `
+                    <button class="btn-action btn-enviar" onclick="enviarProposta('${compraId}')">
+                        Enviar Proposta
+                    </button>
+                `;
+            }
+        }
+    } catch (error) {
+        status.innerHTML = `<span style="color:#f44336;">Erro: ${error.message}</span>`;
+    }
+}
+
+// ==================== FORNECEDOR CONFIG ====================
+
+async function carregarFornecedorConfig() {
+    try {
+        const resp = await fetch('/api/fornecedor');
+        const result = await resp.json();
+        if (result.success && result.data) {
+            fornecedorConfig = result.data;
+        }
+    } catch (e) {
+        console.warn('Erro ao carregar config fornecedor:', e);
+    }
+}
+
 // ==================== INIT ====================
 
 document.addEventListener('DOMContentLoaded', () => {
-    carregarParticipacoes();
+    carregarFornecedorConfig();
     atualizarTokenStatus();
-    // Atualizar token status a cada 30s
+    carregarParticipacoes().then(() => mostrarInteresses());
     setInterval(atualizarTokenStatus, 30000);
 });

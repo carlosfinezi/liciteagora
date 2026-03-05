@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meus Interesses - PNCP</title>
+    <title>Meus Interesses - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -157,6 +157,27 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px;
             display: flex; justify-content: space-between; align-items: center;
         }
+        .filtro-bar {
+            background: white; padding: 15px 25px; border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px;
+            display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+        }
+        .filtro-bar label { font-size: 14px; color: #555; font-weight: 600; }
+        .filtro-bar select, .filtro-bar input[type="date"] {
+            padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px;
+            font-size: 14px; color: #333;
+        }
+        .filtro-bar .filtro-info {
+            margin-left: auto; font-size: 13px; color: #888;
+        }
+        .data-abertura-badge {
+            display: inline-block; padding: 3px 10px; border-radius: 12px;
+            font-size: 12px; font-weight: 600; margin-left: 10px;
+        }
+        .data-abertura-badge.futuro { background: #e3f2fd; color: #1565c0; }
+        .data-abertura-badge.hoje { background: #e8f5e9; color: #2e7d32; }
+        .data-abertura-badge.passado { background: #fce4ec; color: #c62828; }
+        .data-abertura-badge.sem-data { background: #f5f5f5; color: #999; }
         .total-count { font-size: 16px; color: #333; font-weight: 600; }
         .total-valor { font-size: 18px; color: #4caf50; font-weight: 700; }
         .btn-excluir-todos {
@@ -229,6 +250,22 @@
                     <h1>⭐ Meus Interesses</h1>
                     <p class="subtitle">Licitações e itens marcados para participar</p>
                 </header>
+
+                <div id="filtroBar" class="filtro-bar" style="display: none;">
+                    <label>Prazo de proposta:</label>
+                    <select id="filtroPeriodo" onchange="aplicarFiltro()">
+                        <option value="todas">Todas</option>
+                        <option value="hoje">Hoje</option>
+                        <option value="semana">Próximos 7 dias</option>
+                        <option value="mes">Próximos 30 dias</option>
+                        <option value="vencidas">Vencidas</option>
+                        <option value="personalizado">Período...</option>
+                    </select>
+                    <input type="date" id="filtroDataDe" style="display:none;" onchange="aplicarFiltro()">
+                    <span id="filtroAte" style="display:none;">até</span>
+                    <input type="date" id="filtroDataAte" style="display:none;" onchange="aplicarFiltro()">
+                    <span id="filtroInfo" class="filtro-info"></span>
+                </div>
 
                 <div id="totalInfo" class="total-info" style="display: none;">
                     <div class="total-count"><span id="totalLicitacoes">0</span> licitações com <span id="totalItens">0</span> itens de interesse</div>

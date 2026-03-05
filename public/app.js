@@ -176,6 +176,9 @@ function displayResults(licitacoes) {
     aplicarFiltros();
 
     resultsContainer.style.display = 'grid';
+
+    // Carregar análises IA em background
+    carregarAnalisesIA(licitacoes);
 }
 
 /**
@@ -1072,6 +1075,246 @@ function aplicarFiltros() {
         countEl.textContent = visiveis + ' de ' + total;
     }
 }
+
+// ========================================
+// Funções de Análise IA
+// ========================================
+
+let analisesIA = {}; // cache: key -> analise object
+
+async function carregarAnalisesIA(licitacoes) {
+    // Busca análises para todas as licitações visíveis em paralelo
+    const promises = licitacoes.map(async (l) => {
+        const cnpj = l.orgaoEntidade?.cnpj || l.cnpj;
+        const ano = l.anoCompra;
+        const seq = l.sequencialCompra;
+        const key = cnpj + '-' + ano + '-' + seq;
+
+        if (analisesIA[key] !== undefined) return; // já carregado
+
+        try {
+            const resp = await fetch(`/api/licitacoes/${cnpj}/${ano}/${seq}/analise`);
+            const data = await resp.json();
+            analisesIA[key] = data.success && data.analise ? data.analise : null;
+        } catch (e) {
+            analisesIA[key] = null;
+        }
+    });
+
+    await Promise.all(promises);
+    atualizarBadgesIA();
+}
+
+function getScoreClass(score) {
+    if (score >= 70) return 'score-alto';
+    if (score >= 40) return 'score-medio';
+    return 'score-baixo';
+}
+
+function criarBadgeIA(cnpj, ano, seq) {
+    const key = cnpj + '-' + ano + '-' + seq;
+    const analise = analisesIA[key];
+
+    if (analise) {
+        const score = analise.viabilidade_score || 0;
+        const cls = getScoreClass(score);
+        return `<span class="badge-ia ${cls}" onclick="event.stopPropagation(); abrirModalAnalise('${cnpj}', ${ano}, ${seq})" title="${analise.segmento || ''} - ${analise.complexidade || ''}">
+            IA ${score}
+        </span>`;
+    }
+    return `<button class="btn-analisar-ia" onclick="event.stopPropagation(); analisarLicitacao('${cnpj}', ${ano}, ${seq}, this)" title="Analisar com IA">IA</button>`;
+}
+
+function atualizarBadgesIA() {
+    const cards = document.querySelectorAll('.licitacao-card');
+    cards.forEach(card => {
+        const btnVerItens = card.querySelector('.btn-ver-itens');
+        if (!btnVerItens) return;
+
+        const onclick = btnVerItens.getAttribute('onclick') || '';
+        const match = onclick.match(/abrirModalItens\('([^']+)',\s*(\d+),\s*(\d+)\)/);
+        if (!match) return;
+
+        const [, cnpj, ano, seq] = match;
+        const badgesDiv = card.querySelector('.licitacao-badges');
+        if (!badgesDiv) return;
+
+        // Remove badge IA antigo se existir
+        const oldBadge = badgesDiv.querySelector('.badge-ia, .btn-analisar-ia');
+        if (oldBadge) oldBadge.remove();
+
+        // Insere novo badge
+        const badgeHTML = criarBadgeIA(cnpj, parseInt(ano), parseInt(seq));
+        badgesDiv.insertAdjacentHTML('afterbegin', badgeHTML);
+    });
+}
+
+async function analisarLicitacao(cnpj, ano, seq, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+    }
+
+    try {
+        const resp = await fetch(`/api/licitacoes/${cnpj}/${ano}/${seq}/analisar`, { method: 'POST' });
+        const data = await resp.json();
+
+        if (data.success && data.analise) {
+            const key = cnpj + '-' + ano + '-' + seq;
+            analisesIA[key] = data.analise;
+            atualizarBadgesIA();
+        } else {
+            alert(data.error || 'Erro na análise IA');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'IA';
+            }
+        }
+    } catch (e) {
+        alert('Erro ao conectar com API de análise');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'IA';
+        }
+    }
+}
+
+function abrirModalAnalise(cnpj, ano, seq) {
+    const key = cnpj + '-' + ano + '-' + seq;
+    const analise = analisesIA[key];
+    if (!analise) return;
+
+    const modal = document.getElementById('modalAnaliseIA');
+    const body = document.getElementById('modalAnaliseBody');
+
+    const score = analise.viabilidade_score || 0;
+    const cls = getScoreClass(score);
+    const complexCls = analise.complexidade === 'alta' ? 'complexidade-alta' :
+                       analise.complexidade === 'baixa' ? 'complexidade-baixa' : 'complexidade-media';
+
+    const itensDestaque = analise.itens_destaque || [];
+    const requisitos = analise.requisitos || [];
+    const atencao = analise.atencao || [];
+
+    // Parse JSON strings if needed
+    const parseArr = (v) => {
+        if (Array.isArray(v)) return v;
+        if (typeof v === 'string') { try { return JSON.parse(v); } catch(e) { return []; } }
+        return [];
+    };
+
+    body.innerHTML = `
+        <div class="analise-score-grande">
+            <div class="score-numero ${cls}" style="color: ${score >= 70 ? '#2e7d32' : score >= 40 ? '#f57f17' : '#c62828'}">${score}</div>
+            <div class="score-label">Score de Viabilidade</div>
+        </div>
+
+        <div class="analise-secao">
+            <h4>Resumo</h4>
+            <p>${analise.resumo || 'N/A'}</p>
+        </div>
+
+        <div class="analise-secao">
+            <h4>Justificativa do Score</h4>
+            <p>${analise.viabilidade_justificativa || 'N/A'}</p>
+        </div>
+
+        <div class="analise-meta">
+            <div class="analise-meta-item">
+                <div class="meta-label">Segmento</div>
+                <div class="meta-value">${analise.segmento || 'N/A'}</div>
+            </div>
+            <div class="analise-meta-item">
+                <div class="meta-label">Complexidade</div>
+                <div class="meta-value"><span class="complexidade-badge ${complexCls}">${analise.complexidade || 'N/A'}</span></div>
+            </div>
+            <div class="analise-meta-item">
+                <div class="meta-label">Critério de Julgamento</div>
+                <div class="meta-value">${analise.criterio_julgamento || 'N/A'}</div>
+            </div>
+            <div class="analise-meta-item">
+                <div class="meta-label">Prazo de Entrega</div>
+                <div class="meta-value">${analise.prazo_entrega || 'N/A'}</div>
+            </div>
+            <div class="analise-meta-item">
+                <div class="meta-label">Local de Entrega</div>
+                <div class="meta-value">${analise.local_entrega || 'N/A'}</div>
+            </div>
+            <div class="analise-meta-item">
+                <div class="meta-label">Vistoria Obrigatória</div>
+                <div class="meta-value">${analise.vistoria_obrigatoria ? 'Sim' : 'Não'}</div>
+            </div>
+            <div class="analise-meta-item">
+                <div class="meta-label">Exclusivo ME/EPP</div>
+                <div class="meta-value">${analise.exclusivo_mei_epp ? 'Sim' : 'Não'}</div>
+            </div>
+            <div class="analise-meta-item">
+                <div class="meta-label">Documentos Analisados</div>
+                <div class="meta-value">${analise.textos_extraidos || 0} doc(s)</div>
+            </div>
+        </div>
+
+        ${parseArr(itensDestaque).length > 0 ? `
+        <div class="analise-secao">
+            <h4>Itens em Destaque</h4>
+            <ul>${parseArr(itensDestaque).map(i => '<li>' + i + '</li>').join('')}</ul>
+        </div>` : ''}
+
+        ${parseArr(requisitos).length > 0 ? `
+        <div class="analise-secao">
+            <h4>Requisitos Técnicos</h4>
+            <ul>${parseArr(requisitos).map(r => '<li>' + r + '</li>').join('')}</ul>
+        </div>` : ''}
+
+        ${parseArr(atencao).length > 0 ? `
+        <div class="analise-secao">
+            <h4>Pontos de Atenção</h4>
+            <ul>${parseArr(atencao).map(a => '<li class="atencao">' + a + '</li>').join('')}</ul>
+        </div>` : ''}
+
+        <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+            <small style="color: #999;">Análise gerada em ${analise.dataAnalise ? new Date(analise.dataAnalise).toLocaleString('pt-BR') : 'N/A'}</small>
+            <br>
+            <button class="btn-analisar-ia" style="margin-top: 10px; padding: 8px 20px; font-size: 13px;" onclick="reanalisarLicitacao('${cnpj}', ${ano}, ${seq})">Reanalisar</button>
+        </div>
+    `;
+
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function fecharModalAnalise() {
+    document.getElementById('modalAnaliseIA').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+async function reanalisarLicitacao(cnpj, ano, seq) {
+    const body = document.getElementById('modalAnaliseBody');
+    body.innerHTML = '<div style="text-align: center; padding: 40px;"><h3>Analisando...</h3><p>Extraindo documentos e processando com IA...</p></div>';
+
+    try {
+        const resp = await fetch(`/api/licitacoes/${cnpj}/${ano}/${seq}/analisar`, { method: 'POST' });
+        const data = await resp.json();
+
+        if (data.success && data.analise) {
+            const key = cnpj + '-' + ano + '-' + seq;
+            analisesIA[key] = data.analise;
+            atualizarBadgesIA();
+            abrirModalAnalise(cnpj, ano, seq); // Re-render modal
+        } else {
+            body.innerHTML = `<div style="text-align: center; padding: 40px; color: #c62828;"><h3>Erro na análise</h3><p>${data.error || 'Falha ao processar'}</p></div>`;
+        }
+    } catch (e) {
+        body.innerHTML = '<div style="text-align: center; padding: 40px; color: #c62828;"><h3>Erro de conexão</h3></div>';
+    }
+}
+
+// Escape fecha modal de análise
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('modalAnaliseIA').style.display === 'block') {
+        fecharModalAnalise();
+    }
+});
 
 // Carregar lidas, interesses e sem interesse ao iniciar
 document.addEventListener('DOMContentLoaded', () => {

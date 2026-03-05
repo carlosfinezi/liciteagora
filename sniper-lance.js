@@ -20,7 +20,7 @@ const API_HEADERS = {
   'Accept': 'application/json, text/plain, */*',
   'Content-Type': 'application/json',
   'x-device-platform': 'web',
-  'x-version-number': '5.5.2',
+  'x-version-number': '6.0.0',
   'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
 };
 
@@ -35,7 +35,7 @@ class SniperLance {
     this.agendamentos = new Map();     // id -> { timer, config }
     this.historico = [];               // últimos 50 lances
     this.logs = [];
-    this.maxLogs = 100;
+    this.maxLogs = 500;
 
     // Offset de tempo servidor vs local
     this.offsetServidorMs = 0;
@@ -151,6 +151,28 @@ class SniperLance {
     const token = this.getToken();
     const url = `${BASE_URL}${path}`;
     const resp = await axios.post(url, body, {
+      headers: { ...API_HEADERS, Authorization: token },
+      timeout: 10000,
+      validateStatus: () => true,
+    });
+    return { status: resp.status, data: resp.data };
+  }
+
+  async apiPut(path, body) {
+    const token = this.getToken();
+    const url = `${BASE_URL}${path}`;
+    const resp = await axios.put(url, body, {
+      headers: { ...API_HEADERS, Authorization: token },
+      timeout: 10000,
+      validateStatus: () => true,
+    });
+    return { status: resp.status, data: resp.data };
+  }
+
+  async apiDelete(path) {
+    const token = this.getToken();
+    const url = `${BASE_URL}${path}`;
+    const resp = await axios.delete(url, {
       headers: { ...API_HEADERS, Authorization: token },
       timeout: 10000,
       validateStatus: () => true,
