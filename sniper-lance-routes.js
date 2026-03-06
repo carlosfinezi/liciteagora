@@ -869,9 +869,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Disparo manual da rajada blitz — calcula batch e enfileira lances REAIS.
    * Permite testar o modo sniper a qualquer momento, sem esperar o timer automático.
    */
+  // Blitz agendadas: { 'compraId-itemNumero': { timer, horario, compraId, itemNumero, totalLances } }
+  var blitzAgendadas = {};
+
   app.post('/api/sniper/disparar-blitz', (req, res) => {
     try {
-      const { compraId, itemNumero } = req.body;
+      const { compraId, itemNumero, horario } = req.body;
       if (!compraId || itemNumero == null) {
         return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
       }
@@ -905,29 +908,98 @@ function registrarRotasSniper(app, monitorGetter, db) {
         return res.status(409).json({ success: false, error: 'Já existem lances pendentes para este item' });
       }
 
-      // Montar liveItem com variacaoMinima (fallback de cfgItem)
+      // Função que calcula e enfileira os lances (usada tanto para imediato quanto agendado)
+      const executarBlitz = () => {
+        // Re-ler dados live no momento do disparo (podem ter mudado)
+        const cachedAgora = disputasCache.disputas.find(d => d.compraId === compraId);
+        const liveItemAgora = cachedAgora && cachedAgora.itens ? cachedAgora.itens.find(i => i.numero === parseInt(itemNumero)) : null;
+        const itemAtual = liveItemAgora || liveItem;
+
+        const itemParaCalculo = {
+          ...itemAtual,
+          variacaoMinima: itemAtual.variacaoMinima != null ? itemAtual.variacaoMinima : cfgItem.variacaoMinima,
+          tipoVariacao: itemAtual.tipoVariacao || cfgItem.tipoVariacao || 'V',
+        };
+
+        const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId);
+        if (batchLances.length === 0) {
+          console.log(`[Sniper] 🚀 BLITZ: ${compraId} item ${itemNumero} — nenhum lance (já no mínimo)`);
+          logAuto(`🚀 BLITZ: ${compraId} item ${itemNumero} — 0 lances (já no mínimo)`);
+          return 0;
+        }
+
+        for (const lance of batchLances) {
+          filaLances.push(lance);
+        }
+
+        const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
+        blitzDisparados[blitzKey] = Date.now();
+        delete blitzAgendadas[blitzKey];
+        itemAtual.nossoValor = batchLances[batchLances.length - 1].valor;
+
+        const valorInicial = itemParaCalculo.nossoValor.toFixed(2);
+        const valorFinal = batchLances[batchLances.length - 1].valor.toFixed(2);
+        console.log(`[Sniper] 🚀 BLITZ: ${compraId} item ${itemNumero} — ${batchLances.length} lances (R$${valorInicial} → R$${valorFinal})`);
+        logAuto(`🚀 BLITZ: ${compraId} item ${itemNumero} — ${batchLances.length} lances (R$${valorInicial} → R$${valorFinal})`);
+        return batchLances.length;
+      };
+
+      // Se horário foi especificado, agendar em vez de disparar imediatamente
+      if (horario) {
+        const agora = new Date();
+        const [hh, mm, ss] = horario.split(':').map(Number);
+        const alvo = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), hh, mm, ss || 0);
+        const delayMs = alvo.getTime() - agora.getTime();
+
+        if (delayMs < 0) {
+          return res.status(400).json({ success: false, error: `Horário ${horario} já passou (agora: ${agora.toTimeString().slice(0,8)})` });
+        }
+
+        const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
+
+        // Cancelar agendamento anterior se existir
+        if (blitzAgendadas[blitzKey]) {
+          clearTimeout(blitzAgendadas[blitzKey].timer);
+        }
+
+        const timer = setTimeout(() => {
+          console.log(`[Sniper] ⏰ BLITZ AGENDADA disparando: ${compraId} item ${itemNumero}`);
+          logAuto(`⏰ BLITZ AGENDADA disparando agora: ${compraId} item ${itemNumero} (horário: ${horario})`);
+          executarBlitz();
+        }, delayMs);
+
+        blitzAgendadas[blitzKey] = { timer, horario, compraId, itemNumero: parseInt(itemNumero), agendadoEm: agora.toISOString() };
+
+        console.log(`[Sniper] ⏰ BLITZ AGENDADA: ${compraId} item ${itemNumero} para ${horario} (em ${Math.round(delayMs/1000)}s)`);
+        logAuto(`⏰ BLITZ AGENDADA: ${compraId} item ${itemNumero} para ${horario} (em ${Math.round(delayMs/1000)}s)`);
+
+        return res.json({
+          success: true,
+          agendado: true,
+          horario,
+          delayMs,
+          message: `Blitz agendada para ${horario} (em ${Math.round(delayMs/1000)}s)`,
+        });
+      }
+
+      // Disparo imediato
       const itemParaCalculo = {
         ...liveItem,
         variacaoMinima: liveItem.variacaoMinima != null ? liveItem.variacaoMinima : cfgItem.variacaoMinima,
         tipoVariacao: liveItem.tipoVariacao || cfgItem.tipoVariacao || 'V',
       };
 
-      // Calcular batch
       const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId);
       if (batchLances.length === 0) {
         return res.json({ success: true, totalLances: 0, message: 'Nenhum lance a enviar (já no mínimo ou sem variação)' });
       }
 
-      // Enfileirar — lances reais com fonte 'blitz' (idêntico ao disparo automático)
       for (const lance of batchLances) {
         filaLances.push(lance);
       }
 
-      // Marcar blitz como disparado (evita re-trigger pelo auto-lance)
       const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
       blitzDisparados[blitzKey] = Date.now();
-
-      // Atualizar nossoValor no cache para o valor final do batch
       liveItem.nossoValor = batchLances[batchLances.length - 1].valor;
 
       const avgMs = calcularMediaTempoLance(compraId, parseInt(itemNumero));
@@ -945,6 +1017,31 @@ function registrarRotasSniper(app, monitorGetter, db) {
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
+  });
+
+  // Cancelar blitz agendada
+  app.post('/api/sniper/cancelar-blitz', (req, res) => {
+    const { compraId, itemNumero } = req.body;
+    const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
+    const agendada = blitzAgendadas[blitzKey];
+    if (!agendada) {
+      return res.json({ success: false, error: 'Nenhuma blitz agendada para este item' });
+    }
+    clearTimeout(agendada.timer);
+    delete blitzAgendadas[blitzKey];
+    logAuto(`❌ BLITZ CANCELADA: ${compraId} item ${itemNumero} (era para ${agendada.horario})`);
+    res.json({ success: true, message: `Blitz cancelada (era para ${agendada.horario})` });
+  });
+
+  // Status das blitz agendadas
+  app.get('/api/sniper/blitz-agendadas', (req, res) => {
+    const lista = Object.values(blitzAgendadas).map(b => ({
+      compraId: b.compraId,
+      itemNumero: b.itemNumero,
+      horario: b.horario,
+      agendadoEm: b.agendadoEm,
+    }));
+    res.json({ success: true, agendadas: lista });
   });
 
   /**
@@ -986,7 +1083,22 @@ function registrarRotasSniper(app, monitorGetter, db) {
       }
     }
 
-    res.json({ success: true, lances: pendentes, total: filaLances.length, pollIntervalMs });
+    // Incluir info de blitz agendadas para extensão criar alarms precisos
+    var proximaBlitz = null;
+    for (var bk in blitzAgendadas) {
+      var b = blitzAgendadas[bk];
+      if (b.horario) {
+        var agr = new Date();
+        var [hh, mm, ss] = b.horario.split(':').map(Number);
+        var alvo = new Date(agr.getFullYear(), agr.getMonth(), agr.getDate(), hh, mm, ss || 0);
+        var diffMs = alvo.getTime() - agr.getTime();
+        if (diffMs > 0 && (!proximaBlitz || diffMs < proximaBlitz.diffMs)) {
+          proximaBlitz = { horario: b.horario, diffMs, timestamp: alvo.getTime() };
+        }
+      }
+    }
+
+    res.json({ success: true, lances: pendentes, total: filaLances.length, pollIntervalMs, proximaBlitz });
   });
 
   /**
@@ -1185,9 +1297,11 @@ function registrarRotasSniper(app, monitorGetter, db) {
       for (const r of resultados) {
         const { id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs } = r;
 
-        // Update queue item
+        // Update queue item and recover original fonte
         const idx = filaLances.findIndex(l => l.id === id);
+        var fonteOriginal = 'browser';
         if (idx >= 0) {
+          fonteOriginal = filaLances[idx].fonte || 'browser';
           filaLances[idx].status = sucesso ? 'sucesso' : 'falha';
           filaLances[idx].httpStatus = status;
           filaLances[idx].resposta = resposta;
@@ -1199,28 +1313,29 @@ function registrarRotasSniper(app, monitorGetter, db) {
         resultadosLances.unshift({
           id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs,
           timestamp: new Date().toISOString(),
-          fonte: 'extensao-browser',
+          fonte: fonteOriginal,
         });
 
         // Log
+        var fonteTag = fonteOriginal !== 'browser' ? ' [' + fonteOriginal.toUpperCase() + ']' : '';
         if (sucesso) {
-          sniper.log(`🎯✅ LANCE (batch)! R$ ${parseFloat(valor).toFixed(2)} item ${itemNumero} (${tempoMs}ms)`);
+          sniper.log(`🎯✅ LANCE${fonteTag}! R$ ${parseFloat(valor).toFixed(2)} item ${itemNumero} HTTP ${status} (${tempoMs}ms)`);
           sucessos++;
         } else {
-          sniper.log(`🎯❌ Lance falhou (batch): HTTP ${status} item ${itemNumero} (${tempoMs}ms)`);
+          sniper.log(`🎯❌ Lance falhou${fonteTag}: HTTP ${status} item ${itemNumero} (${tempoMs}ms)`);
           falhas++;
         }
 
         // Persist to DB
         try {
           db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, itemNumero, valor, status, sucesso ? 1 : 0, tempoMs, (resposta||'').substring(0, 500), 'browser');
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, itemNumero, valor, status, sucesso ? 1 : 0, tempoMs, (resposta||'').substring(0, 500), fonteOriginal);
           db.prepare(`UPDATE sniper_itens SET status = ?, ultimoResultado = ?, ultimoEnvio = CURRENT_TIMESTAMP, dataAtualizacao = CURRENT_TIMESTAMP
             WHERE compraId = ? AND itemNumero = ?`).run(sucesso ? 'enviado' : 'erro', `HTTP ${status} (${tempoMs}ms)`, compraId, itemNumero);
         } catch (dbErr) {}
 
         // Sniper history
-        sniper.historico.unshift({ compraId, itemNumero, valor, status, sucesso, tempoMs, timestamp: new Date().toISOString(), fonte: 'browser' });
+        sniper.historico.unshift({ compraId, itemNumero, valor, status, sucesso, tempoMs, timestamp: new Date().toISOString(), fonte: fonteOriginal });
 
         // Update disputasCache with nossoValor
         if (compraId && itemNumero != null) {
@@ -1497,14 +1612,6 @@ function registrarRotasSniper(app, monitorGetter, db) {
   app.get('/api/sniper/agendamentos', (req, res) => {
     try {
       res.json({ success: true, agendamentos: sniper.listarAgendamentos() });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  app.get('/api/sniper/historico', (req, res) => {
-    try {
-      res.json({ success: true, historico: sniper.historico });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -2398,12 +2505,13 @@ function registrarRotasSniper(app, monitorGetter, db) {
   app.get('/api/sniper/historico', (req, res) => {
     try {
       const { compraId, limit } = req.query;
-      let query = 'SELECT * FROM sniper_historico';
+      let query = 'SELECT id, compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp FROM sniper_historico';
       const params = [];
       if (compraId) { query += ' WHERE compraId = ?'; params.push(compraId); }
       query += ' ORDER BY timestamp DESC LIMIT ?';
       params.push(parseInt(limit) || 50);
-      res.json({ success: true, historico: db.prepare(query).all(...params) });
+      const rows = db.prepare(query).all(...params);
+      res.json({ success: true, historico: rows });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }

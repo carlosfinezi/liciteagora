@@ -19,8 +19,9 @@ const TOKEN_MAX_AGE_MS = 540000; // 9 min (margem de segurança; Comprasnet expi
 let syncAgendado = false;
 let syncEmExecucao = false;
 let aguardandoNovoBearer = false; // flag: reload feito, esperando novo token
+let ssoMorto = false; // flag: SSO confirmado como morto, parar de tentar até novo bearer
 
-console.log('[LiciteAgora] Service worker v3.13.0 carregado!');
+console.log('[LiciteAgora] Service worker v3.15.0 carregado!');
 
 // Carregar API key do storage ao iniciar
 chrome.storage.local.get('serverApiKey', (d) => {
@@ -147,6 +148,12 @@ async function onTokensCapturados(bearer, captcha) {
     await save({ bearer, stats, bearerTimestamp: agora });
     console.log('[LiciteAgora] Novo Bearer:', bearer.substring(0, 30) + '...');
     mudou = true;
+    // Limpar flag SSO morto — novo bearer significa sessão renovada
+    if (ssoMorto) {
+      ssoMorto = false;
+      chrome.action.setBadgeText({ text: '' });
+      console.log('[LiciteAgora] ✅ SSO recuperado — novo bearer recebido');
+    }
   }
 
   if (captcha && captcha !== data.captcha) {
@@ -415,6 +422,12 @@ async function executarSync() {
     return;
   }
   syncEmExecucao = true;
+
+  if (ssoMorto) {
+    console.log('[LiciteAgora] Sync pulado — SSO morto, aguardando login manual');
+    syncEmExecucao = false;
+    return;
+  }
 
   const data = await load();
   if (!data.bearer) {
@@ -1043,93 +1056,134 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
 // ==================== KEEPALIVE (mantém sessão SSO + token Bearer) ====================
 
 /**
- * Recarrega a aba do Comprasnet e aguarda o novo Bearer ser capturado.
- * Após o reload completar, injeta um fetch a uma API leve para forçar
- * o SPA a emitir um request com Authorization header (capturado por onSendHeaders).
- * Retorna true se conseguiu, false se timeout.
+ * Navega a aba do Comprasnet para a URL de entrada e aguarda novo Bearer.
+ *
+ * Problema anterior: chrome.tabs.reload() numa aba que já perdeu a sessão
+ * vai parar em "acesso-nao-autorizado" e o token no storage é o velho.
+ *
+ * Solução: navegar para /comprasnet-web/seguro/fornecedor/compras (entry point).
+ * Se o SSO está vivo, a autenticação SSO acontece automaticamente e o SPA
+ * inicializa com token novo. onSendHeaders captura o bearer fresco.
  */
 async function reloadEAguardarBearer(tabId, motivoLog) {
   aguardandoNovoBearer = true;
   chrome.action.setBadgeText({ text: '⏳' });
   chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
 
+  // Limpar tokens velhos do storage da aba ANTES de navegar
+  // (evita que injeção posterior encontre token expirado e o confunda com novo)
   try {
-    await chrome.tabs.reload(tabId);
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: 'MAIN',
+      func: function() {
+        try { sessionStorage.clear(); } catch(e) {}
+      },
+    });
+    console.log('[LiciteAgora] Storage da aba limpo antes de navegar');
   } catch (e) {
-    console.error('[LiciteAgora] Erro recarregando aba:', e.message);
+    // Pode falhar se a aba está num estado estranho — não é crítico
+  }
+
+  // Navegar para entry point (NÃO reload) — força SSO re-auth
+  var entryUrl = COMPRASNET + '/comprasnet-web/seguro/fornecedor/compras';
+  console.log('[LiciteAgora] Navegando para entry point: ' + entryUrl + ' (' + motivoLog + ')');
+
+  try {
+    await chrome.tabs.update(tabId, { url: entryUrl });
+  } catch (e) {
+    console.error('[LiciteAgora] Erro navegando aba:', e.message);
     aguardandoNovoBearer = false;
     return false;
   }
 
-  // Esperar a aba terminar de carregar, depois provocar chamada autenticada
+  // Esperar a aba terminar de carregar (pode haver redirect SSO → SPA)
   var loadDetected = false;
-  function onTabUpdated(updatedTabId, changeInfo) {
+  var finalUrl = '';
+  function onTabUpdated(updatedTabId, changeInfo, tab) {
     if (updatedTabId === tabId && changeInfo.status === 'complete') {
       loadDetected = true;
+      finalUrl = tab ? tab.url : '';
       chrome.tabs.onUpdated.removeListener(onTabUpdated);
     }
   }
   chrome.tabs.onUpdated.addListener(onTabUpdated);
 
-  // Aguardar até 15s pela aba carregar
-  for (var waitStep = 0; waitStep < 30 && !loadDetected; waitStep++) {
+  // Aguardar até 20s pela aba carregar (SSO redirect pode demorar)
+  for (var waitStep = 0; waitStep < 40 && !loadDetected; waitStep++) {
     await new Promise(function(r) { setTimeout(r, 500); });
   }
   chrome.tabs.onUpdated.removeListener(onTabUpdated);
 
   if (!loadDetected) {
-    console.log('[LiciteAgora] ⚠️ Tab não completou load em 15s');
+    console.log('[LiciteAgora] ⚠️ Tab não completou load em 20s');
+  } else {
+    console.log('[LiciteAgora] Tab carregou: ' + (finalUrl || '?').substring(0, 120));
   }
 
-  // Se bearer já chegou via onSendHeaders durante o reload (SPA fez chamada automática)
+  // Verificar se caiu na página de login (SSO morto)
+  if (finalUrl && (finalUrl.indexOf('sso.serpro') >= 0 || finalUrl.indexOf('/login') >= 0 || finalUrl.indexOf('acesso-nao-autorizado') >= 0)) {
+    console.log('[LiciteAgora] ⚠️ Aba redirecionou para login — SSO morto, precisa login manual');
+    aguardandoNovoBearer = false;
+    chrome.action.setBadgeText({ text: 'SSO' });
+    chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+    await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
+    return false;
+  }
+
+  // Se bearer já chegou via onSendHeaders durante a navegação
   if (!aguardandoNovoBearer) {
-    console.log('[LiciteAgora] ✅ Bearer capturado durante reload');
+    console.log('[LiciteAgora] ✅ Bearer capturado durante navegação');
+    chrome.action.setBadgeText({ text: '' });
     return true;
   }
 
-  // Aba carregou mas bearer ainda não chegou — extrair token da sessão do SPA
-  // O SPA do Comprasnet armazena o accessToken em sessionStorage/localStorage.
-  // Injetamos script que: (1) procura o token no storage, (2) faz fetch com ele para
-  // provocar onSendHeaders a capturar.
-  console.log('[LiciteAgora] Aba carregou, bearer não chegou — tentando extrair token do SPA...');
+  // Aba carregou no SPA mas bearer não chegou — aguardar SPA inicializar
+  // O SPA Angular/React pode demorar alguns segundos após o DOM load
+  console.log('[LiciteAgora] Aba carregou no SPA, bearer não chegou — aguardando SPA inicializar...');
 
-  // Tentar até 3 vezes com intervalos (SPA pode demorar para gravar o token no storage)
-  for (var tentativa = 1; tentativa <= 3 && aguardandoNovoBearer; tentativa++) {
+  // Aguardar até 15s pelo bearer chegar via onSendHeaders (SPA faz chamadas ao inicializar)
+  for (var waitInit = 0; waitInit < 30 && aguardandoNovoBearer; waitInit++) {
+    await new Promise(function(r) { setTimeout(r, 500); });
+  }
+
+  if (!aguardandoNovoBearer) {
+    console.log('[LiciteAgora] ✅ Bearer capturado após SPA inicializar');
+    chrome.action.setBadgeText({ text: '' });
+    return true;
+  }
+
+  // SPA não fez chamada autenticada sozinho — forçar via injeção
+  console.log('[LiciteAgora] SPA não emitiu bearer — forçando fetch autenticado...');
+
+  for (var tentativa = 1; tentativa <= 2 && aguardandoNovoBearer; tentativa++) {
     if (tentativa > 1) {
-      // Esperar um pouco entre tentativas (SPA inicializando)
       await new Promise(function(r) { setTimeout(r, 5000); });
       if (!aguardandoNovoBearer) break;
     }
 
-    console.log('[LiciteAgora] Injeção #' + tentativa + ': extraindo token + forçando fetch...');
     try {
       var injectResult = await chrome.scripting.executeScript({
         target: { tabId: tabId },
         world: 'MAIN',
         func: function(baseUrl) {
-          // 1. Procurar accessToken no storage do SPA
+          var info = { url: location.href.substring(0, 120), tokenFound: false, sessionEndpoint: false };
+
+          // 1. Tentar pegar token novo do storage (SPA pode ter gravado após init)
           var token = null;
           try {
-            // Comprasnet guarda sessão em sessionStorage ou localStorage
-            var keys = ['auth', 'token', 'session', 'accessToken', 'user', 'authState', 'comprasnet'];
             var storages = [sessionStorage, localStorage];
             for (var s = 0; s < storages.length && !token; s++) {
-              // Varrer todas as chaves do storage
               for (var i = 0; i < storages[s].length && !token; i++) {
-                var key = storages[s].key(i);
-                var val = storages[s].getItem(key);
+                var val = storages[s].getItem(storages[s].key(i));
                 if (val && val.indexOf('eyJ') >= 0) {
-                  // Pode ser JSON com accessToken ou o token direto
                   try {
                     var parsed = JSON.parse(val);
-                    if (parsed.accessToken) { token = parsed.accessToken; break; }
-                    if (parsed.access_token) { token = parsed.access_token; break; }
-                    if (parsed.token) { token = parsed.token; break; }
-                    // Pode ser objeto aninhado
-                    if (parsed.auth && parsed.auth.accessToken) { token = parsed.auth.accessToken; break; }
-                    if (parsed.session && parsed.session.accessToken) { token = parsed.session.accessToken; break; }
+                    var t = parsed.accessToken || parsed.access_token || parsed.token ||
+                            (parsed.auth && parsed.auth.accessToken) ||
+                            (parsed.session && parsed.session.accessToken);
+                    if (t) { token = t; break; }
                   } catch (e) {
-                    // Valor não é JSON — pode ser o token diretamente
                     if (val.startsWith('eyJ') && val.length > 100) { token = val; break; }
                   }
                 }
@@ -1137,22 +1191,28 @@ async function reloadEAguardarBearer(tabId, motivoLog) {
             }
           } catch (e) {}
 
-          // 2. Fazer fetch com o token encontrado (provoca onSendHeaders)
-          var bearer = token ? ('Bearer ' + token) : null;
-          var headers = { 'Accept': 'application/json', 'x-device-platform': 'web', 'x-version-number': '6.0.0' };
-          if (bearer) headers['Authorization'] = bearer;
+          if (token) {
+            info.tokenFound = true;
+            // Fazer fetch com o token (provoca onSendHeaders)
+            fetch(baseUrl + '/comprasnet-disputa/v1/datahorabrasilia', {
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json',
+                'Authorization': 'Bearer ' + token,
+                'x-device-platform': 'web',
+                'x-version-number': '6.0.0',
+              },
+            }).catch(function() {});
+          }
 
-          fetch(baseUrl + '/comprasnet-disputa/v1/datahorabrasilia', {
-            credentials: 'include',
-            headers: headers,
-          }).catch(function() {});
-
-          // 3. Também tentar endpoint de sessão/retoken via cookies (pode retornar novo token)
+          // 2. Tentar endpoint de sessão via cookies (independente de ter token)
           fetch(baseUrl + '/comprasnet-usuario/v2/sessao/fornecedor', {
             credentials: 'include',
             headers: { 'Accept': 'application/json', 'x-device-platform': 'web', 'x-version-number': '6.0.0' },
-          }).then(function(r) { return r.json(); }).then(function(d) {
-            // Se retornou accessToken, fazer outra chamada com ele para onSendHeaders capturar
+          }).then(function(r) {
+            info.sessionEndpoint = true;
+            return r.json();
+          }).then(function(d) {
             if (d && d.accessToken) {
               fetch(baseUrl + '/comprasnet-disputa/v1/datahorabrasilia', {
                 credentials: 'include',
@@ -1166,7 +1226,7 @@ async function reloadEAguardarBearer(tabId, motivoLog) {
             }
           }).catch(function() {});
 
-          return { tokenFound: !!token, url: location.href.substring(0, 120) };
+          return info;
         },
         args: [COMPRASNET],
       });
@@ -1184,19 +1244,26 @@ async function reloadEAguardarBearer(tabId, motivoLog) {
 
     if (!aguardandoNovoBearer) {
       console.log('[LiciteAgora] ✅ Bearer capturado na tentativa #' + tentativa);
+      chrome.action.setBadgeText({ text: '' });
       return true;
     }
   }
 
   // Falhou completamente
   aguardandoNovoBearer = false;
-  console.log('[LiciteAgora] ⚠️ Timeout: bearer não chegou após reload + injeções (' + motivoLog + ')');
+  console.log('[LiciteAgora] ⚠️ Timeout: bearer não chegou após navegação + injeções (' + motivoLog + ')');
+  chrome.action.setBadgeText({ text: '!' });
+  chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
   return false;
 }
 
 /**
- * Pinga uma página do comprasnet-web DENTRO da aba para renovar cookies da sessão SSO.
- * Sem isso, a sessão SSO expira mesmo que o Bearer ainda funcione.
+ * Verifica e mantém a sessão SSO via uma chamada de API real dentro da aba.
+ *
+ * NOTA: HEAD para /comprasnet-web/seguro/* NÃO funciona como check de SSO!
+ * O servidor retorna 200 (shell do SPA) independente de autenticação.
+ * Em vez disso, chamamos /comprasnet-usuario/v2/sessao/fornecedor que retorna
+ * dados do usuário se autenticado, ou 401 se não.
  */
 async function manterSessaoSSO(tabId) {
   try {
@@ -1205,11 +1272,19 @@ async function manterSessaoSSO(tabId) {
       world: 'MAIN',
       func: async (baseUrl) => {
         try {
-          var resp = await fetch(baseUrl + '/comprasnet-web/seguro/fornecedor/compras', {
-            method: 'HEAD',
+          // 1. Chamar API de sessão (verifica SSO + cookies de sessão reais)
+          var resp = await fetch(baseUrl + '/comprasnet-usuario/v2/sessao/fornecedor', {
             credentials: 'include',
+            headers: { 'Accept': 'application/json', 'x-device-platform': 'web', 'x-version-number': '6.0.0' },
           });
-          return { status: resp.status, type: resp.type, ok: resp.ok };
+          var data = null;
+          try { data = await resp.json(); } catch (e) {}
+          return {
+            status: resp.status,
+            ok: resp.ok,
+            temToken: !!(data && data.accessToken),
+            temNome: !!(data && (data.nome || data.nomeUsuario)),
+          };
         } catch (e) {
           return { status: 0, error: e.message };
         }
@@ -1217,15 +1292,20 @@ async function manterSessaoSSO(tabId) {
       args: [COMPRASNET],
     });
     var r = result[0]?.result || { status: 0 };
-    if (r.status === 200 || r.ok) {
-      console.log('[LiciteAgora] 🔒 SSO session refreshed (HTTP ' + r.status + ')');
+    if (r.ok && (r.temToken || r.temNome)) {
+      console.log('[LiciteAgora] 🔒 SSO session OK (HTTP ' + r.status + ', token=' + r.temToken + ')');
       return true;
+    } else if (r.status === 401 || r.status === 403) {
+      console.log('[LiciteAgora] ⚠️ SSO morto: HTTP ' + r.status);
+      return false;
     } else {
-      console.log('[LiciteAgora] ⚠️ SSO refresh: HTTP ' + r.status + ' type=' + (r.type || '') + ' ' + (r.error || ''));
-      return r.status !== 401 && r.status !== 403 && r.type !== 'opaqueredirect';
+      console.log('[LiciteAgora] ⚠️ SSO check: HTTP ' + r.status + ' token=' + r.temToken + ' ' + (r.error || ''));
+      // Status desconhecido (404, 500, etc) — NÃO assumir SSO morto, pode ser endpoint indisponível
+      // Só 401/403 confirma SSO morto
+      return true;
     }
   } catch (e) {
-    console.log('[LiciteAgora] ⚠️ SSO refresh erro:', e.message);
+    console.log('[LiciteAgora] ⚠️ SSO check erro:', e.message);
     return false;
   }
 }
@@ -1233,6 +1313,12 @@ async function manterSessaoSSO(tabId) {
 async function executarKeepalive() {
   if (syncEmExecucao) {
     console.log('[LiciteAgora] Keepalive pulado — sync em execução (já mantém bearer vivo)');
+    return;
+  }
+
+  // Se SSO foi confirmado como morto, não tentar mais (aguardar login manual)
+  if (ssoMorto) {
+    console.log('[LiciteAgora] Keepalive pulado — SSO morto, aguardando login manual');
     return;
   }
 
@@ -1255,22 +1341,17 @@ async function executarKeepalive() {
   var ssoOk = await manterSessaoSSO(tab.id);
 
   if (!ssoOk) {
-    // Pode ser falta de permissão (aba aberta antes da extensão) ou SSO morto.
-    // Tentar recarregar a aba para ganhar acesso e renovar sessão.
-    console.log('[LiciteAgora] ⚠️ SSO falhou — recarregando aba para recuperar acesso...');
+    // SSO morto — tentar uma vez navegar para entry point
+    console.log('[LiciteAgora] ⚠️ SSO falhou — tentando recuperar via navegação...');
 
     var reloadOk = await reloadEAguardarBearer(tab.id, 'SSO falhou');
     if (!reloadOk) {
-      var ssoRecuperavel = await verificarSessaoSSO();
-      if (!ssoRecuperavel) {
-        chrome.action.setBadgeText({ text: 'SSO' });
-        chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
-        await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
-      } else {
-        chrome.action.setBadgeText({ text: '!' });
-        chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
-        await save({ ultimoErro: 'Bearer não renovado após reload' });
-      }
+      // Confirmar: SSO morto. Marcar flag para parar de tentar.
+      ssoMorto = true;
+      chrome.action.setBadgeText({ text: 'SSO' });
+      chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+      await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
+      console.log('[LiciteAgora] 🛑 SSO confirmado morto — aguardando login manual. Keepalive/sync pausados.');
     }
     return;
   }
@@ -1357,9 +1438,12 @@ async function executarKeepalive() {
 
       var reloadOk = await reloadEAguardarBearer(tab.id, 'retoken falhou HTTP ' + retokenResult.status);
       if (!reloadOk) {
-        chrome.action.setBadgeText({ text: '!' });
+        ssoMorto = true;
+        console.log('[LiciteAgora] 🛑 ssoMorto=true (retoken falhou + reload falhou)');
+        chrome.action.setBadgeText({ text: 'SSO' });
         chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
-        await save({ ultimoErro: 'Bearer não renovado após reload + injeção' });
+        await save({ ultimoErro: 'Bearer não renovado — SSO morto, precisa login manual' });
+        try { await serverPost('/api/sniper/log', { tipo: 'sso-morto', msg: 'SSO morto: retoken falhou + reload falhou — aguardando login manual' }); } catch(e4){}
       }
     }
   } else {
@@ -1436,6 +1520,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     executarSync();
   } else if (alarm.name === 'keepalive') {
     executarKeepalive();
+  } else if (alarm.name === 'blitz-wake') {
+    // Blitz agendada está para disparar — poll imediato com intervalo rápido
+    console.log('[LiciteAgora] ⏰ Alarm blitz-wake — poll imediato');
+    lancesPollInterval = 1000;
+    processarFilaLances();
   }
 });
 
@@ -1445,6 +1534,7 @@ var lancesEmProcessamento = false;
 
 async function processarFilaLances() {
   if (lancesEmProcessamento) return;
+  if (ssoMorto) return; // Não processar lances com SSO morto
   lancesEmProcessamento = true;
 
   try {
@@ -1453,8 +1543,23 @@ async function processarFilaLances() {
     if (!resp.ok) { lancesEmProcessamento = false; agendarProximoPoll(); return; }
     var fila = await resp.json();
 
-    // B1: Adaptive polling — adjust interval based on server signal
-    if (fila.pollIntervalMs && fila.pollIntervalMs !== lancesPollInterval) {
+    // Se há blitz agendada no servidor, criar alarm para acordar a tempo
+    var blitzIminente = false;
+    if (fila.proximaBlitz && fila.proximaBlitz.diffMs > 0) {
+      var diffSec = Math.round(fila.proximaBlitz.diffMs / 1000);
+      var alarmDelay = Math.max(0.02, (fila.proximaBlitz.diffMs - 2000) / 60000);
+      chrome.alarms.create('blitz-wake', { delayInMinutes: alarmDelay });
+      if (fila.proximaBlitz.diffMs < 30000) {
+        blitzIminente = true;
+        lancesPollInterval = 1000;
+        console.log('[LiciteAgora] ⏰ Blitz em ' + diffSec + 's — poll a cada 1s');
+      } else {
+        console.log('[LiciteAgora] ⏰ Blitz agendada em ' + diffSec + 's — alarm criado');
+      }
+    }
+
+    // B1: Adaptive polling — adjust interval based on server signal (skip if blitz imminent)
+    if (!blitzIminente && fila.pollIntervalMs && fila.pollIntervalMs !== lancesPollInterval) {
       var oldInterval = lancesPollInterval;
       lancesPollInterval = fila.pollIntervalMs;
       if (oldInterval !== lancesPollInterval) {
@@ -1495,7 +1600,6 @@ async function processarFilaLances() {
     var batchResultados = [];
     var lancesProcessados = 0;
     var failedItems = {};  // { 'compraId-itemNumero': true } — skip remaining lances for failed items
-
     for (var lance of fila.lances) {
       // B3: Skip remaining lances for items that already failed
       var itemKey = lance.compraId + '-' + lance.itemNumero;
@@ -1524,6 +1628,18 @@ async function processarFilaLances() {
       var inicio = Date.now();
       var result = await comprasnetPost(tab.id, path, data.bearer, body);
       var tempoMs = Date.now() - inicio;
+
+      // Retry on 429 (rate limit) — wait and retry up to 3 times with increasing backoff
+      if (result.status === 429) {
+        var retryDelays = [2000, 4000, 8000]; // 2s, 4s, 8s
+        for (var retryAttempt = 0; retryAttempt < retryDelays.length; retryAttempt++) {
+          console.log('[LiciteAgora] ⏳ Rate limit 429 — aguardando ' + (retryDelays[retryAttempt]/1000) + 's antes de retry ' + (retryAttempt+1) + '/3');
+          await new Promise(function(r) { setTimeout(r, retryDelays[retryAttempt]); });
+          result = await comprasnetPost(tab.id, path, data.bearer, body);
+          tempoMs = Date.now() - inicio;
+          if (result.status !== 429) break;
+        }
+      }
 
       var sucesso = result.status === 200 || result.status === 201;
       lancesProcessados++;

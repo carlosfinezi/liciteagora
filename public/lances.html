@@ -174,7 +174,7 @@ var aberta = null;      // compraId atualmente expandida
 
 function esc(s) { var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 function fmtR$(v) { return v != null && v !== '' && !isNaN(v) ? 'R$ ' + parseFloat(v).toFixed(2) : '--'; }
-function fmtHora(iso) { if(!iso)return'--'; try{return new Date(iso).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});}catch(e){return iso;} }
+function fmtHora(iso) { if(!iso)return'--'; try{var s=iso.endsWith('Z')||iso.includes('+')?iso:iso+'Z';return new Date(s).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});}catch(e){return iso;} }
 
 var MOD_NOMES = {'05':'Concorrência','06':'PE','07':'Pregão','08':'Dispensa','09':'Inexigibilidade','10':'Credenciamento'};
 function fmtCompraId(cid) {
@@ -561,6 +561,9 @@ function renderItens(compraId, itensLive) {
             '<td style="white-space:nowrap">' +
                 '<button class="btn btn-success btn-sm" onclick="enviar(\''+compraId+'\','+m.numero+')" '+(m.podeEnviar?'':'disabled')+' title="Enviar agora">⚡</button> ' +
                 '<button class="btn btn-sm" style="background:#ff6b00;color:#fff;border:none" onclick="dispararBlitz(\''+compraId+'\','+m.numero+')" title="Disparar rajada blitz agora">🚀</button> ' +
+                '<input type="time" step="1" id="blitz-hora-'+compraId+'-'+m.numero+'" style="width:90px;font-size:0.8em;padding:1px 3px" title="Horário para agendar blitz">' +
+                '<button class="btn btn-sm" style="background:#8b5cf6;color:#fff;border:none;margin-left:2px" onclick="agendarBlitz(\''+compraId+'\','+m.numero+')" title="Agendar blitz">⏰</button> ' +
+                '<span id="blitz-agendada-'+compraId+'-'+m.numero+'" style="font-size:0.8em;color:#8b5cf6"></span>' +
                 '<button class="btn btn-outline btn-sm" onclick="toggleHistorico(\''+compraId+'\')" title="Histórico">📋</button>' +
             '</td>' +
             '</tr>';
@@ -689,6 +692,45 @@ function dispararBlitz(compraId, itemNumero) {
     }).catch(function(e){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(e.message)+'</div>';});
 }
 
+// ==================== AGENDAR BLITZ ====================
+function agendarBlitz(compraId, itemNumero) {
+    var input = document.getElementById('blitz-hora-'+compraId+'-'+itemNumero);
+    var horario = input.value;
+    if(!horario) { alert('Informe o horário para agendar a blitz'); return; }
+    // Garantir formato HH:MM:SS
+    if(horario.length === 5) horario += ':00';
+
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+    if(!cfg || !cfg.valorMinimo) {
+        alert('Defina o Valor Minimo antes de agendar blitz no item '+itemNumero);
+        return;
+    }
+    if(!confirm('Agendar blitz REAL no item '+itemNumero+' para '+horario+'?\n\nLances reais serao enviados ao Comprasnet.')) return;
+
+    var spanEl = document.getElementById('blitz-agendada-'+compraId+'-'+itemNumero);
+    spanEl.innerHTML = '<span class="spinner"></span>';
+
+    fetch(API+'/api/sniper/disparar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,horario:horario})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(!d.success){spanEl.innerHTML='<span style="color:#ff6b6b">'+esc(d.error)+'</span>';return;}
+        spanEl.innerHTML = '<span style="color:#8b5cf6">Agendado '+d.horario+' </span>' +
+            '<button class="btn btn-sm" style="background:#ff6b6b;color:#fff;border:none;font-size:0.75em;padding:1px 5px" ' +
+            'onclick="cancelarBlitz(\''+compraId+'\','+itemNumero+')">X</button>';
+        toast('Blitz #'+itemNumero+' agendada para '+d.horario, 'sucesso');
+    }).catch(function(e){spanEl.innerHTML='<span style="color:#ff6b6b">Erro</span>';});
+}
+
+function cancelarBlitz(compraId, itemNumero) {
+    fetch(API+'/api/sniper/cancelar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero})
+    }).then(function(r){return r.json();}).then(function(d){
+        var spanEl = document.getElementById('blitz-agendada-'+compraId+'-'+itemNumero);
+        spanEl.innerHTML = '';
+        toast(d.message || 'Blitz cancelada', d.success?'sucesso':'erro');
+    });
+}
+
 // ==================== ADD ITEM ====================
 function adicionarItemManual(compraId) {
     var num = prompt('Número do item:');
@@ -779,7 +821,7 @@ async function toggleHistorico(compraId) {
                     '<td>'+fmtHora(h.timestamp)+'</td>' +
                     '<td>'+h.itemNumero+'</td>' +
                     '<td>'+fmtR$(h.valor)+'</td>' +
-                    '<td>'+(h.sucesso?'✅':'❌')+' HTTP '+(h.httpStatus||'--')+'</td>' +
+                    '<td>'+(h.sucesso?'✅':'❌')+' HTTP '+(h.httpStatus||h.status||'--')+'</td>' +
                     '<td>'+(h.tempoMs||'--')+'ms</td>' +
                     '<td>'+esc(h.fonte||'--')+'</td>' +
                 '</tr>';
