@@ -168,6 +168,10 @@ function construirDPS(dados) {
   // regTrib é obrigatório no prestador
   xml += `<regTrib>`;
   xml += `<opSimpNac>${prestador.opSimpNac || 1}</opSimpNac>`;
+  // regApTribSN obrigatório para optantes SN (opSimpNac=3)
+  if ((prestador.opSimpNac || 1) == 3 || (prestador.opSimpNac || 1) == 2) {
+    xml += `<regApTribSN>${prestador.regApTribSN || 1}</regApTribSN>`;
+  }
   xml += `<regEspTrib>${prestador.regEspTrib || 0}</regEspTrib>`;
   xml += `</regTrib>`;
   xml += `</prest>`;
@@ -236,7 +240,15 @@ function construirDPS(dados) {
 
   // totTrib (obrigatório)
   xml += `<totTrib>`;
-  xml += `<indTotTrib>0</indTotTrib>`; // 0 = Não informar valor estimado
+  if ((prestador.opSimpNac || 1) >= 2 && dados.pTotTribSN) {
+    // Optante SN: informar alíquota SN em vez de indTotTrib
+    xml += `<pTotTribSN>${Number(dados.pTotTribSN).toFixed(2)}</pTotTribSN>`;
+  } else if ((prestador.opSimpNac || 1) >= 2) {
+    // Optante SN sem alíquota informada
+    xml += `<indTotTrib>0</indTotTrib>`; // 0 = Não informar valor estimado
+  } else {
+    xml += `<indTotTrib>0</indTotTrib>`; // 0 = Não informar valor estimado
+  }
   xml += `</totTrib>`;
 
   xml += `</trib>`;

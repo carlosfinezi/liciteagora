@@ -457,7 +457,6 @@ function renderItens(compraId, itensLive) {
             melhorValor: lv.melhorValor,
             nossoValor: lv.nossoValor,
             situacaoParticipante: lv.situacaoParticipante || null,
-            variacaoMinima: lv.variacaoMinima != null ? lv.variacaoMinima : null,
             tipoVariacao: lv.tipoVariacao || 'V',
             podeEnviar: lv.podeEnviar !== undefined ? lv.podeEnviar : true,
             valorEstimado: cfg.valorEstimado || lv.valorEstimado,
@@ -468,7 +467,7 @@ function renderItens(compraId, itensLive) {
             nosDoisMinFinais: !!lv.nosDoisMinFinais,
             // Config salva
             custo: cfg.custo,
-            variacaoMinima: cfg.variacaoMinima,
+            variacaoMinima: cfg.variacaoMinima != null ? cfg.variacaoMinima : (lv.variacaoMinima != null ? lv.variacaoMinima : null),
             valorLance: cfg.valorLance,
             valorMinimo: cfg.valorMinimo,
             descontoMinimo: cfg.descontoMinimo,
@@ -487,6 +486,10 @@ function renderItens(compraId, itensLive) {
     itensLive.forEach(function(il) {
         if(!seen[il.numero]) {
             merged.push({ numero:il.numero, tipo:il.tipo||null, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, tipoVariacao:il.tipoVariacao||'V', podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, estaPerdendo:!!il.estaPerdendo, emEncAleatoria:!!il.emEncAleatoria, nosDoisMinFinais:!!il.nosDoisMinFinais, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1, modoAuto:null });
+            // Auto-salvar variacaoMinima do live no servidor
+            if(il.variacaoMinima != null) {
+                salvar(compraId, il.numero, 'variacaoMinima', il.variacaoMinima);
+            }
         }
     });
 
@@ -552,11 +555,12 @@ function renderItens(compraId, itensLive) {
             '<td class="valor-lucro" id="lc-'+compraId+'-'+m.numero+'">--</td>' +
             '<td class="sugerido-cell" id="sg-'+compraId+'-'+m.numero+'">--</td>' +
             '<td>'+selectHtml+'</td>' +
-            '<td><input type="number" step="0.01" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Min"></td>' +
+            '<td><input type="number" step="0.01" id="vm-'+compraId+'-'+m.numero+'" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Min"></td>' +
             '<td><input type="number" step="0.01" value="'+(m.variacaoMinima||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'variacaoMinima\',this.value)" placeholder="Var" style="width:65px" title="Variação mínima entre lances (R$)"></td>' +
             '<td><input type="number" step="0.01" id="vl-'+compraId+'-'+m.numero+'" value="'+(m.valorLance||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorLance\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Lance"></td>' +
             '<td style="white-space:nowrap">' +
                 '<button class="btn btn-success btn-sm" onclick="enviar(\''+compraId+'\','+m.numero+')" '+(m.podeEnviar?'':'disabled')+' title="Enviar agora">⚡</button> ' +
+                '<button class="btn btn-sm" style="background:#ff6b00;color:#fff;border:none" onclick="dispararBlitz(\''+compraId+'\','+m.numero+')" title="Disparar rajada blitz agora">🚀</button> ' +
                 '<button class="btn btn-outline btn-sm" onclick="toggleHistorico(\''+compraId+'\')" title="Histórico">📋</button>' +
             '</td>' +
             '</tr>';
@@ -623,6 +627,66 @@ function enviarTodos(compraId) {
         fetch(API+'/api/sniper/lance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId:compraId,itemNumero:c.itemNumero,valor:c.valorLance})});
     });
     toast('🎯 '+ativos.length+' lances enfileirados','sucesso');
+}
+
+// ==================== DISPARAR BLITZ MANUAL ====================
+function dispararBlitz(compraId, itemNumero) {
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+    if(!cfg || !cfg.valorMinimo) {
+        alert('Defina o Valor Minimo antes de disparar blitz no item '+itemNumero);
+        return;
+    }
+    if(!confirm('Disparar rajada blitz REAL no item '+itemNumero+'?\n\nLances reais serao enviados ao Comprasnet ate R$ '+parseFloat(cfg.valorMinimo).toFixed(2)))return;
+
+    var resDiv = document.getElementById('resultado-'+compraId);
+    resDiv.innerHTML = '<div class="result-msg" style="color:#ff6b00"><span class="spinner"></span> Calculando blitz item '+itemNumero+'...</div>';
+
+    fetch(API+'/api/sniper/disparar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(!d.success){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(d.error||d.message||'Erro')+'</div>';return;}
+        if(d.totalLances===0){resDiv.innerHTML='<div class="result-msg" style="color:#888">Nenhum lance a enviar (ja no minimo ou sem variacao)</div>';return;}
+
+        var primeiro = d.lances[0], ultimo = d.lances[d.lances.length-1];
+        resDiv.innerHTML = '<div class="result-msg" style="color:#ff6b00;border:1px solid #ff6b0030;padding:8px;border-radius:6px">' +
+            '<strong>Blitz:</strong> '+d.totalLances+' lances, R$ '+primeiro.valor.toFixed(2)+' &rarr; R$ '+ultimo.valor.toFixed(2)+
+            ' (~'+(d.estimativaMs/1000).toFixed(1)+'s)' +
+            '<div id="blitz-progress-'+compraId+'-'+itemNumero+'" style="margin-top:6px;font-size:0.85em;color:#aaa"></div></div>';
+
+        // Poll fila-status para mostrar progresso lance a lance
+        var lanceIds = d.lances.map(function(l){return l.id;});
+        var concluidos = 0;
+        var progDiv = document.getElementById('blitz-progress-'+compraId+'-'+itemNumero);
+        var tent = 0;
+        var poll = setInterval(function(){
+            tent++;
+            fetch(API+'/api/sniper/fila-status').then(function(r){return r.json();}).then(function(ds){
+                var resultados = ds.resultados || [];
+                var novosConcluidos = 0;
+                var tempoTotal = 0;
+                var sucessos = 0;
+                var falhas = 0;
+                for(var i=0;i<lanceIds.length;i++){
+                    var r = resultados.find(function(x){return x.id===lanceIds[i];});
+                    if(r){novosConcluidos++;tempoTotal+=(r.tempoMs||0);if(r.sucesso)sucessos++;else falhas++;}
+                }
+                if(novosConcluidos > concluidos) {
+                    concluidos = novosConcluidos;
+                    var pct = Math.round(concluidos/d.totalLances*100);
+                    progDiv.innerHTML = concluidos+'/'+d.totalLances+' ('+pct+'%) — '+tempoTotal+'ms total' +
+                        (falhas?' <span style="color:#ff6b6b">'+falhas+' falha(s)</span>':'');
+                }
+                if(concluidos >= d.totalLances) {
+                    clearInterval(poll);
+                    var cor = falhas ? '#ff6b6b' : '#51cf66';
+                    progDiv.innerHTML = '<span style="color:'+cor+'">Concluido: '+sucessos+'/'+d.totalLances+' OK em '+tempoTotal+'ms (media '+(tempoTotal/d.totalLances).toFixed(0)+'ms/lance)</span>';
+                    toast('Blitz #'+itemNumero+': '+sucessos+'/'+d.totalLances+' OK', falhas?'erro':'sucesso');
+                    setTimeout(function(){carregarItensLic(compraId);},2000);
+                }
+            }).catch(function(){});
+            if(tent>120){clearInterval(poll);progDiv.innerHTML='<span style="color:#ff6b6b">Timeout no acompanhamento</span>';}
+        },500);
+    }).catch(function(e){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(e.message)+'</div>';});
 }
 
 // ==================== ADD ITEM ====================
@@ -784,12 +848,12 @@ function usarSugerido(compraId, num) {
     if(!sgEl || sgEl.textContent === '--') return;
     var valor = parseFloat(sgEl.textContent.replace('R$ ',''));
     if(!valor || valor <= 0) return;
-    var vlInput = document.getElementById('vl-'+compraId+'-'+num);
-    if(vlInput) {
-        vlInput.value = valor.toFixed(2);
-        salvar(compraId, num, 'valorLance', valor);
+    var vmInput = document.getElementById('vm-'+compraId+'-'+num);
+    if(vmInput) {
+        vmInput.value = valor.toFixed(2);
+        salvar(compraId, num, 'valorMinimo', valor);
         recalcLucro(compraId, num);
-        toast('Lance #'+num+' → R$ '+valor.toFixed(2), 'info');
+        toast('Mínimo #'+num+' → R$ '+valor.toFixed(2), 'info');
     }
 }
 function recalcLucro(compraId, num) {

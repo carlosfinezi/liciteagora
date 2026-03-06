@@ -13,9 +13,15 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const { criarVerificador } = require('./verificacao-lacunas');
 const crypto = require('crypto');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
+const { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth } = require('./auth');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { registrarRotasSniper, getSniper } = require('./sniper-lance-routes');
 const { registrarRotasNfse } = require('./nfse-routes');
+const { registrarRotasFinanceiro, agendarPollingBoletos } = require('./financeiro-routes');
+const { registrarRotasRecorrencia } = require('./recorrencia-routes');
+const { agendarRecorrencias } = require('./recorrencia-scheduler');
 
 // Armazenar instâncias de monitoramento ativas
 const monitoramentosAtivos = new Map();
@@ -27,7 +33,9 @@ const PORT = 3000;
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Login page (público, antes do auth)
+app.use(express.static(path.join(__dirname, 'public', 'auth')));
 
 // Configuração da API do PNCP
 const PNCP_API_BASE = 'https://pncp.gov.br/api/consulta/v1';
@@ -1102,6 +1110,71 @@ function iniciarWatchdogSync() {
 
   console.log('[WATCHDOG] Monitoramento de sincronização ativo (alerta se parar por >15min)');
 }
+
+// ==================== AUTENTICAÇÃO ====================
+criarUsuarioInicial(db);
+const sessionSecret = getSessionSecret(db);
+const apiKey = getApiKey(db);
+
+// Session middleware (antes de tudo que precisa de sessão)
+app.use(session({
+  store: createSessionStore(session, db),
+  secret: sessionSecret,
+  name: 'liciteagora.sid',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: false }
+}));
+
+// Login (público)
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.json({ success: false, error: 'Informe usuário e senha' });
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+    return res.json({ success: false, error: 'Usuário ou senha incorretos' });
+  }
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  res.json({ success: true, username: user.username });
+});
+
+// Logout (público)
+app.post('/api/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy(() => {
+      res.clearCookie('liciteagora.sid');
+      res.json({ success: true });
+    });
+  } else {
+    res.json({ success: true });
+  }
+});
+
+// Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
+app.use(requireAuth(apiKey));
+
+// Alterar senha (protegido)
+app.post('/api/change-password', (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Informe senha atual e nova' });
+  if (newPassword.length < 4) return res.status(400).json({ error: 'Senha deve ter pelo menos 4 caracteres' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
+    return res.status(400).json({ error: 'Senha atual incorreta' });
+  }
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.prepare('UPDATE users SET passwordHash = ? WHERE id = ?').run(hash, user.id);
+  res.json({ success: true });
+});
+
+// API key para extensão (protegido)
+app.get('/api/auth/api-key', (req, res) => {
+  res.json({ apiKey });
+});
+
+// Arquivos estáticos protegidos (APÓS rotas de API para que não intercepte)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== ROTAS DE LEITURA DE MENSAGENS ====================
 // Definidas no início para funcionar corretamente com Express 5
@@ -3335,6 +3408,12 @@ registrarRotasSniper(app, getMonitor, db);
 
 // ==================== NFSE NACIONAL ====================
 registrarRotasNfse(app, db);
+
+// ==================== FINANCEIRO (Pessoas, Contas a Receber, Boletos, MercadoPago) ====================
+registrarRotasFinanceiro(app, db);
+
+// ==================== RECORRENCIAS NFSE ====================
+registrarRotasRecorrencia(app, db);
 
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
@@ -7986,11 +8065,28 @@ app.post('/api/proposta/interesses/auto-compra-id', async (req, res) => {
               .run(row.cnpj, row.ano, row.sequencial, compraId);
             resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId, metodo: 'pncp-api' });
           } else {
-            // Não é do Comprasnet (sistema estadual/municipal)
-            const sistema = link ? new URL(link).hostname : 'desconhecido';
-            db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 1)`)
-              .run(row.cnpj, row.ano, row.sequencial, `NAO_COMPRASNET:${sistema}`);
-            naoComprasnet.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, sistema });
+            // Link não contém compra= — tentar construir compraId via UASG+modalidade+numero
+            const licLocal = db.prepare(
+              `SELECT codigoUnidade, modalidadeId, numeroCompra FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?`
+            ).get(row.cnpj, row.ano, row.sequencial);
+
+            if (licLocal && licLocal.codigoUnidade && licLocal.numeroCompra) {
+              const mapMod = { 1:'01', 2:'02', 3:'03', 4:'04', 5:'05', 6:'05', 7:'05', 8:'06', 9:'09' };
+              const uasg = String(licLocal.codigoUnidade).padStart(6, '0');
+              const modComprasnet = mapMod[licLocal.modalidadeId] || '05';
+              const numCompra = String(licLocal.numeroCompra).padStart(5, '0');
+              const compraIdConstruido = `${uasg}${modComprasnet}${numCompra}${row.ano}`;
+              db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
+                .run(row.cnpj, row.ano, row.sequencial, compraIdConstruido);
+              resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId: compraIdConstruido, metodo: 'construido-uasg' });
+              console.log(`[AUTO-COMPRA-ID] Construído via UASG: ${compraIdConstruido} (UASG=${uasg}, mod=${modComprasnet}, num=${numCompra})`);
+            } else {
+              // Realmente não é do Comprasnet (sistema estadual/municipal)
+              const sistema = link ? new URL(link).hostname : 'desconhecido';
+              db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 1)`)
+                .run(row.cnpj, row.ano, row.sequencial, `NAO_COMPRASNET:${sistema}`);
+              naoComprasnet.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, sistema });
+            }
           }
         }
         // Delay entre chamadas PNCP
@@ -9958,14 +10054,17 @@ app.get('/api/bi/pesquisar', async (req, res) => {
 
     const offset = (parseInt(pagina) - 1) * parseInt(tamanhoPagina);
 
+    // Só licitações com proposta já encerrada
+    const filtroEncerrada = `AND l.dataEncerramentoProposta < datetime('now')`;
+
     const countRow = db.prepare(`
       SELECT COUNT(*) as total FROM itens i
       JOIN licitacoes l ON i.licitacaoId = l.id
-      WHERE ${conditions}
+      WHERE ${conditions} ${filtroEncerrada}
     `).get(...params);
 
     const itens = db.prepare(`
-      SELECT 
+      SELECT
         i.id as itemId,
         i.numeroItem,
         i.descricao as itemDescricao,
@@ -9989,7 +10088,7 @@ app.get('/api/bi/pesquisar', async (req, res) => {
         l.numeroControlePNCP
       FROM itens i
       JOIN licitacoes l ON i.licitacaoId = l.id
-      WHERE ${conditions}
+      WHERE ${conditions} ${filtroEncerrada}
       ORDER BY l.dataPublicacaoPncp DESC
       LIMIT ? OFFSET ?
     `).all(...params, parseInt(tamanhoPagina), offset);
@@ -10249,6 +10348,7 @@ app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
   console.log(`Banco de dados: ${dbPath}`);
   console.log(`API do PNCP: ${PNCP_API_BASE}`);
+  console.log(`API Key extensão: ${apiKey}`);
 
   const stats = {
     licitacoes: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
@@ -10290,6 +10390,12 @@ app.listen(PORT, () => {
 
   // Agendar Jornal de Licitações
   agendarJornal();
+
+  // Agendar Recorrências NFSe
+  agendarRecorrencias(db);
+
+  // Polling boletos MercadoPago (a cada 30 min)
+  agendarPollingBoletos(db);
 
   // MonitorV2 desativado — agora usamos extensão Chrome v3.0 para sync
   // inicializarMonitorV2();

@@ -9,30 +9,42 @@ const menuConfig = {
     },
     secoes: [
         {
-            titulo: 'Principal',
+            titulo: 'Licitações',
+            colapsavel: false,
             itens: [
-                { page: 'index', icone: '🔍', texto: 'Buscar Licitações', link: '/' },
-                { page: 'interesse', icone: '⭐', texto: 'Meus Interesses', link: '/interesse.html', badge: 'interesseCount' },
-                { page: 'propostas-api', icone: '📝', texto: 'Preparar Propostas', link: '/propostas-api.html' },
+                { page: 'index', icone: '🔍', texto: 'Buscar', link: '/' },
+                { page: 'interesse', icone: '⭐', texto: 'Interesses', link: '/interesse.html', badge: 'interesseCount' },
                 { page: 'kanban', icone: '📋', texto: 'Kanban', link: '/kanban.html' },
-                { page: 'agenda', icone: '📅', texto: 'Agenda', link: '/agenda.html' },
-                { page: 'monitoramento-chat', icone: '💬', texto: 'Monitor de Chat', link: '/monitoramento-chat.html' }
+                { page: 'agenda', icone: '📅', texto: 'Agenda', link: '/agenda.html' }
             ]
         },
         {
-            titulo: 'Ferramentas',
+            titulo: 'Operacional',
+            colapsavel: true,
             itens: [
+                { page: 'propostas-api', icone: '📝', texto: 'Propostas', link: '/propostas-api.html' },
                 { page: 'lances', icone: '🎯', texto: 'Lances Automáticos', link: '/lances.html' },
-                { page: 'inteligencia', icone: '📊', texto: 'Inteligência de Negócio', link: '/inteligencia.html' },
-                { page: 'nfse', icone: '🧾', texto: 'NFSe Nacional', link: '/nfse.html' }
+                { page: 'monitoramento-chat', icone: '💬', texto: 'Monitor de Chat', link: '/monitoramento-chat.html' },
+                { page: 'inteligencia', icone: '📊', texto: 'Inteligência', link: '/inteligencia.html' }
+            ]
+        },
+        {
+            titulo: 'Financeiro',
+            colapsavel: true,
+            itens: [
+                { page: 'pessoas', icone: '👥', texto: 'Clientes', link: '/pessoas.html' },
+                { page: 'financeiro', icone: '💰', texto: 'Contas', link: '/financeiro.html' },
+                { page: 'nfse', icone: '🧾', texto: 'NFSe', link: '/nfse.html' },
+                { page: 'recorrencias', icone: '🔄', texto: 'Recorrências', link: '/recorrencias.html' }
             ]
         },
         {
             titulo: 'Configurações',
+            colapsavel: true,
             itens: [
-                { page: 'jornal', icone: '📰', texto: 'Jornal', link: '/jornal.html' },
+                { page: 'fornecedor', icone: '🏢', texto: 'Fornecedor', link: '/fornecedor.html' },
                 { page: 'grupos-palavras', icone: '🏷️', texto: 'Grupos de Palavras', link: '/grupos-palavras.html' },
-                { page: 'fornecedor', icone: '🏢', texto: 'Dados do Fornecedor', link: '/fornecedor.html' },
+                { page: 'jornal', icone: '📰', texto: 'Jornal', link: '/jornal.html' },
                 { page: 'status', icone: '📊', texto: 'Status', link: '/status.html' },
                 { page: 'versoes', icone: '💾', texto: 'Versões', link: '/versoes.html' }
             ]
@@ -56,7 +68,10 @@ const menuConfig = {
  * 4. Adicione a entrada no array 'itens' da seção apropriada acima:
  *    { page: 'nome-da-pagina', icone: '🔧', texto: 'Título no Menu', link: '/nome-da-pagina.html' }
  *
- * Opções disponíveis para cada item:
+ * Opções de seção:
+ *   - colapsavel: true/false — se true, o grupo pode ser retraído/expandido
+ *
+ * Opções de item:
  *   - page: identificador único (deve ser o mesmo passado para initSidebar)
  *   - icone: emoji ou ícone
  *   - texto: texto exibido no menu

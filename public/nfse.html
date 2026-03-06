@@ -247,9 +247,10 @@
                 <div class="panel">
                     <h3>Tomador do Servico</h3>
                     <div class="form-row">
-                        <div class="form-group">
+                        <div class="form-group autocomplete-wrapper" style="position: relative;">
                             <label>CPF/CNPJ *</label>
-                            <input type="text" id="tomaCpfCnpj" placeholder="CPF ou CNPJ do tomador">
+                            <input type="text" id="tomaCpfCnpj" placeholder="CPF ou CNPJ do tomador" oninput="buscarTomadorAutocomplete(this.value)">
+                            <div id="tomadorAutocompleteLista" style="position:absolute;top:100%;left:0;right:0;background:#0f3460;border:1px solid #4dabf7;border-radius:0 0 6px 6px;max-height:200px;overflow-y:auto;z-index:100;display:none;"></div>
                         </div>
                         <div class="form-group">
                             <label>Razao Social / Nome *</label>
@@ -338,6 +339,23 @@
                         <div class="form-group">
                             <label>Data Competencia</label>
                             <input type="date" id="servCompetencia">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cobranca -->
+                <div class="panel" id="panelCobranca">
+                    <h3>Cobranca</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="gerarBoleto" onchange="document.getElementById('divVencimentoBoleto').style.display = this.checked ? '' : 'none'">
+                                Gerar boleto bancario (Stone)
+                            </label>
+                        </div>
+                        <div class="form-group" id="divVencimentoBoleto" style="display: none;">
+                            <label>Data de Vencimento do Boleto</label>
+                            <input type="date" id="dataVencimentoBoleto">
                         </div>
                     </div>
                 </div>
@@ -668,6 +686,8 @@
                     codigoMunicipioPrestacao: document.getElementById('servMunPrestacao').value.trim() || undefined,
                 },
                 competencia: document.getElementById('servCompetencia').value || undefined,
+                gerarBoleto: document.getElementById('gerarBoleto').checked,
+                dataVencimentoBoleto: document.getElementById('dataVencimentoBoleto').value || undefined,
             };
 
             try {
@@ -696,6 +716,58 @@
                 btn.textContent = 'Emitir NFSe';
             }
         }
+
+        // ==================== AUTOCOMPLETE TOMADOR ====================
+        let tomaAutoTimeout = null;
+        function buscarTomadorAutocomplete(q) {
+            clearTimeout(tomaAutoTimeout);
+            const lista = document.getElementById('tomadorAutocompleteLista');
+            const limpo = (q || '').replace(/\D/g, '');
+            const busca = limpo.length >= 2 ? limpo : q;
+            if (busca.length < 2) { lista.style.display = 'none'; return; }
+
+            tomaAutoTimeout = setTimeout(async () => {
+                try {
+                    const resp = await fetch('/api/pessoas/autocomplete?q=' + encodeURIComponent(busca));
+                    const data = await resp.json();
+                    if (!data.success || !data.pessoas.length) { lista.style.display = 'none'; return; }
+
+                    lista.innerHTML = data.pessoas.map(p => {
+                        const doc = p.cpfCnpj.replace(/\D/g, '');
+                        const docFmt = doc.length === 11 ? doc.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') :
+                                       doc.length === 14 ? doc.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : doc;
+                        return `<div style="padding:10px 12px;cursor:pointer;font-size:0.9em;border-bottom:1px solid #16213e;" onmouseover="this.style.background='#16213e'" onmouseout="this.style.background=''" onclick="preencherTomador(${JSON.stringify(p).replace(/"/g, '&quot;')})">
+                            <strong>${p.razaoSocial}</strong><br><small style="color:#888">${docFmt}</small>
+                        </div>`;
+                    }).join('');
+                    lista.style.display = 'block';
+                } catch { lista.style.display = 'none'; }
+            }, 400);
+        }
+
+        function preencherTomador(p) {
+            document.getElementById('tomaCpfCnpj').value = p.cpfCnpj;
+            document.getElementById('tomaRazaoSocial').value = p.razaoSocial || '';
+            document.getElementById('tomaEmail').value = p.email || '';
+            if (p.inscricaoMunicipal) {
+                const imEl = document.getElementById('tomaInscricaoMunicipal');
+                if (imEl) imEl.value = p.inscricaoMunicipal;
+            }
+            if (p.endereco) document.getElementById('tomaLogradouro').value = p.endereco;
+            if (p.numero) document.getElementById('tomaNumero').value = p.numero;
+            if (p.complemento) document.getElementById('tomaComplemento').value = p.complemento;
+            if (p.bairro) document.getElementById('tomaBairro').value = p.bairro;
+            if (p.codigoMunicipio) document.getElementById('tomaCodMunicipio').value = p.codigoMunicipio;
+            if (p.uf) document.getElementById('tomaUF').value = p.uf;
+            if (p.cep) document.getElementById('tomaCEP').value = p.cep;
+            document.getElementById('tomadorAutocompleteLista').style.display = 'none';
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.autocomplete-wrapper')) {
+                document.getElementById('tomadorAutocompleteLista').style.display = 'none';
+            }
+        });
 
         // ==================== HISTORICO ====================
         async function carregarHistorico() {

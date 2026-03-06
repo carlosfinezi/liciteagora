@@ -475,6 +475,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
                   nosDoisMinFinais: grupoItem.nosDoisMinFinais || false,
                   sintetico: true,
                 };
+                // Persist synthetic sub-item to cache so resultado-lance can find and update it
+                cached.itens.push(liveItem);
                 if (logDiag) logAuto(`Item ${cfgItem.itemNumero} sintético (grupo) nosso=${ultimoValor} var=${grupoItem.variacaoMinima}`);
               } else {
                 if (logDiag) logAuto(`Item ${cfgItem.itemNumero} não no cache de ${compraId} (${cached.itens.length} itens: ${cached.itens.slice(0,5).map(i=>i.numero).join(',')})`);
@@ -648,49 +650,74 @@ function registrarRotasSniper(app, monitorGetter, db) {
                 continue;
               }
 
-              let novoValor;
-              if (nossoValor != null && varMinEfetivo != null) {
-                // Calcular próximo degrau a partir do nosso valor atual
+              // Não dar lance se estamos GANHANDO — só desce preço quando estiver perdendo
+              if (!estaPerdendo) {
+                if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — ganhando, aguardando (nosso=R$${nossoValor.toFixed(2)})`);
+                continue;
+              }
+
+              // Batch sizing inteligente: calcular quantos passos até superar melhorGeral
+              let stepsNeeded;
+              if (melhorGeral != null && nossoValor > melhorGeral) {
+                let vCalc = nossoValor;
+                stepsNeeded = 0;
+                while (vCalc >= melhorGeral && stepsNeeded < 50) {
+                  vCalc = (tipoVarEfetivo === 'P') ? vCalc * (1 - varMinEfetivo / 100) : vCalc - varMinEfetivo;
+                  vCalc = Math.round(vCalc * 100) / 100;
+                  stepsNeeded++;
+                }
+                stepsNeeded += 2; // margem de segurança
+              } else {
+                stepsNeeded = 5; // melhorGeral desconhecido → batch pequeno
+              }
+              const BATCH_SIZE = Math.min(Math.max(stepsNeeded, 3), 50);
+              let v = nossoValor;
+              let batchCount = 0;
+              const melhorGeralRound = melhorGeral != null ? Math.round(melhorGeral * 100) / 100 : null;
+
+              while (batchCount < BATCH_SIZE) {
+                let novoValor;
                 if (tipoVarEfetivo === 'P') {
-                  novoValor = nossoValor * (1 - varMinEfetivo / 100);
+                  novoValor = v * (1 - varMinEfetivo / 100);
                 } else {
-                  novoValor = nossoValor - varMinEfetivo;
+                  novoValor = v - varMinEfetivo;
                 }
                 novoValor = Math.round(novoValor * 100) / 100;
                 if (novoValor < cfgItem.valorMinimo) novoValor = cfgItem.valorMinimo;
-                if (novoValor >= nossoValor) continue; // sem espaço para baixar
+                if (novoValor >= v) break; // sem espaço para baixar
 
-                // Não enviar valor igual ao melhor (Comprasnet rejeita duplicata de outro fornecedor)
-                if (melhorGeral != null && novoValor === Math.round(melhorGeral * 100) / 100) {
-                  if (tipoVarEfetivo === 'P') {
-                    novoValor = novoValor * (1 - varMinEfetivo / 100);
-                  } else {
-                    novoValor = novoValor - varMinEfetivo;
-                  }
-                  novoValor = Math.round(novoValor * 100) / 100;
-                  if (novoValor < cfgItem.valorMinimo) novoValor = cfgItem.valorMinimo;
+                // Pular valor igual ao melhor geral (Comprasnet rejeita)
+                if (melhorGeralRound != null && novoValor === melhorGeralRound) {
+                  v = novoValor;
+                  continue; // skip this value but keep going
                 }
+
+                if (novoValor <= 0) break;
+
+                const id = `cont-${Date.now()}-${batchCount}-${Math.random().toString(36).substring(2, 6)}`;
+                filaLances.push({
+                  id,
+                  compraId,
+                  itemNumero: cfgItem.itemNumero,
+                  valor: novoValor,
+                  faseItem: cfgItem.faseItem || 'LA',
+                  criadoEm: new Date().toISOString(),
+                  status: 'pendente',
+                  fonte: 'auto-continuo',
+                });
+                autoLanceStats.lancesEnviados++;
+                batchCount++;
+                v = novoValor;
+                if (novoValor <= cfgItem.valorMinimo) break; // atingiu mínimo
               }
 
-              if (novoValor <= 0) continue;
-
-              const id = `cont-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-              filaLances.push({
-                id,
-                compraId,
-                itemNumero: cfgItem.itemNumero,
-                valor: novoValor,
-                faseItem: cfgItem.faseItem || 'LA',
-                criadoEm: new Date().toISOString(),
-                status: 'pendente',
-                fonte: 'auto-continuo',
-              });
-              autoLanceStats.lancesEnviados++;
-
-              const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
-              logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — R$${(nossoValor||0).toFixed(2)} → R$${novoValor.toFixed(2)} ` +
-                `(melhor=${melhorGeral != null ? 'R$'+melhorGeral.toFixed(2) : '?'}, var ${tipoVarEfetivo}=${varMinEfetivo}, min=R$${cfgItem.valorMinimo})` +
-                `${flagsStr ? ' [' + flagsStr + ']' : ''}`);
+              if (batchCount > 0) {
+                const primeiro = Math.round((nossoValor - varMinEfetivo) * 100) / 100;
+                const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
+                logAuto(`CONTÍNUO BATCH: ${compraId} item ${cfgItem.itemNumero} — ${batchCount} lances R$${primeiro.toFixed(2)}→R$${v.toFixed(2)} ` +
+                  `(nosso=R$${nossoValor.toFixed(2)}, var ${tipoVarEfetivo}=${varMinEfetivo}, min=R$${cfgItem.valorMinimo})` +
+                  `${flagsStr ? ' [' + flagsStr + ']' : ''}`);
+              }
               continue;
             }
 
@@ -838,6 +865,89 @@ function registrarRotasSniper(app, monitorGetter, db) {
   });
 
   /**
+   * POST /api/sniper/disparar-blitz
+   * Disparo manual da rajada blitz — calcula batch e enfileira lances REAIS.
+   * Permite testar o modo sniper a qualquer momento, sem esperar o timer automático.
+   */
+  app.post('/api/sniper/disparar-blitz', (req, res) => {
+    try {
+      const { compraId, itemNumero } = req.body;
+      if (!compraId || itemNumero == null) {
+        return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
+      }
+
+      // Ler config do item
+      const cfgItem = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, parseInt(itemNumero));
+      if (!cfgItem || !cfgItem.valorMinimo) {
+        return res.status(400).json({ success: false, error: 'Item sem valorMinimo configurado' });
+      }
+
+      // Ler dados live do cache de disputas
+      const cached = disputasCache.disputas.find(d => d.compraId === compraId);
+      if (!cached || !cached.itens) {
+        return res.status(400).json({ success: false, error: 'Sem dados de disputa no cache. Aguarde sync da extensão.' });
+      }
+      const liveItem = cached.itens.find(i => i.numero === parseInt(itemNumero));
+      if (!liveItem) {
+        return res.status(400).json({ success: false, error: `Item ${itemNumero} não encontrado no cache de disputas` });
+      }
+      if (liveItem.nossoValor == null) {
+        return res.status(400).json({ success: false, error: 'nossoValor desconhecido para este item' });
+      }
+
+      // Verificar se já tem lances pendentes para este item
+      const jaEnfileirado = filaLances.some(l =>
+        l.compraId === compraId &&
+        l.itemNumero === parseInt(itemNumero) &&
+        (l.status === 'pendente' || l.status === 'processando')
+      );
+      if (jaEnfileirado) {
+        return res.status(409).json({ success: false, error: 'Já existem lances pendentes para este item' });
+      }
+
+      // Montar liveItem com variacaoMinima (fallback de cfgItem)
+      const itemParaCalculo = {
+        ...liveItem,
+        variacaoMinima: liveItem.variacaoMinima != null ? liveItem.variacaoMinima : cfgItem.variacaoMinima,
+        tipoVariacao: liveItem.tipoVariacao || cfgItem.tipoVariacao || 'V',
+      };
+
+      // Calcular batch
+      const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId);
+      if (batchLances.length === 0) {
+        return res.json({ success: true, totalLances: 0, message: 'Nenhum lance a enviar (já no mínimo ou sem variação)' });
+      }
+
+      // Enfileirar — lances reais com fonte 'blitz' (idêntico ao disparo automático)
+      for (const lance of batchLances) {
+        filaLances.push(lance);
+      }
+
+      // Marcar blitz como disparado (evita re-trigger pelo auto-lance)
+      const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
+      blitzDisparados[blitzKey] = Date.now();
+
+      // Atualizar nossoValor no cache para o valor final do batch
+      liveItem.nossoValor = batchLances[batchLances.length - 1].valor;
+
+      const avgMs = calcularMediaTempoLance(compraId, parseInt(itemNumero));
+      const estimativaMs = batchLances.length * avgMs;
+
+      console.log(`[Sniper] 🚀 BLITZ MANUAL: ${compraId} item ${itemNumero} — ${batchLances.length} lances (R$${itemParaCalculo.nossoValor.toFixed(2)} → R$${batchLances[batchLances.length - 1].valor.toFixed(2)})`);
+      logAuto(`🚀 BLITZ MANUAL: ${compraId} item ${itemNumero} — ${batchLances.length} lances (avg ${avgMs}ms, estimado ${Math.round(estimativaMs / 1000)}s)`);
+
+      res.json({
+        success: true,
+        totalLances: batchLances.length,
+        estimativaMs,
+        lances: batchLances.map(l => ({ id: l.id, valor: l.valor, batchIndex: l.batchIndex })),
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
    * GET /api/sniper/fila-lances
    * Retorna lances pendentes (para extensão processar).
    */
@@ -846,9 +956,11 @@ function registrarRotasSniper(app, monitorGetter, db) {
     const agora = Date.now();
     for (let i = filaLances.length - 1; i >= 0; i--) {
       const l = filaLances[i];
-      if (l.status === 'processando' && l.processandoDesde && agora - l.processandoDesde > 30000) {
-        logAuto(`⚠️ Lance ${l.id} travado em processando há 30s — removendo (item ${l.itemNumero})`);
-        filaLances.splice(i, 1);
+      if (l.status === 'processando' && l.processandoDesde) {
+        const timeout = l.fonte === 'auto-continuo' ? 10000 : 30000;
+        if (agora - l.processandoDesde > timeout) {
+          filaLances.splice(i, 1);
+        }
       }
     }
 
@@ -856,17 +968,22 @@ function registrarRotasSniper(app, monitorGetter, db) {
     // Marcar como "processando" com timestamp
     pendentes.forEach(l => { l.status = 'processando'; l.processandoDesde = agora; });
 
-    // A4: Determine poll interval based on proximity to end
+    // A4: Determine poll interval — fast when contínuo has pending lances
     let pollIntervalMs = 5000; // default
-    for (const d of disputasCache.disputas) {
-      if (!d.itens) continue;
-      for (const item of d.itens) {
-        if (item.fimContagem) {
-          const seg = Math.floor((parseBrasilia(item.fimContagem).getTime() - Date.now()) / 1000);
-          if (seg > 0 && seg < 60) { pollIntervalMs = 1000; break; }
+    const temContinuoPendente = filaLances.some(l => l.fonte === 'auto-continuo' && (l.status === 'pendente' || l.status === 'processando'));
+    if (temContinuoPendente || pendentes.some(l => l.fonte === 'auto-continuo')) {
+      pollIntervalMs = 200; // tight loop for contínuo bursts
+    } else {
+      for (const d of disputasCache.disputas) {
+        if (!d.itens) continue;
+        for (const item of d.itens) {
+          if (item.fimContagem) {
+            const seg = Math.floor((parseBrasilia(item.fimContagem).getTime() - Date.now()) / 1000);
+            if (seg > 0 && seg < 60) { pollIntervalMs = 1000; break; }
+          }
         }
+        if (pollIntervalMs === 1000) break;
       }
-      if (pollIntervalMs === 1000) break;
     }
 
     res.json({ success: true, lances: pendentes, total: filaLances.length, pollIntervalMs });
@@ -967,14 +1084,37 @@ function registrarRotasSniper(app, monitorGetter, db) {
           } else if (status === 422 && resposta && resposta.includes('melhor que seu')) {
             // 422 "deve ser melhor que seu último lance" — our real position is already
             // at or below the attempted value. Update nossoValor so contínuo steps down.
+            const tentado = parseFloat(valor);
             let cachedItem = cachedD.itens.find(i => i.numero === parseInt(itemNumero));
             if (cachedItem) {
-              const tentado = parseFloat(valor);
               if (cachedItem.nossoValor == null || tentado < cachedItem.nossoValor) {
-                console.log(`[Sniper] Cache: 422 "melhor que seu" — ajustando nossoValor item ${itemNumero} de R$${cachedItem.nossoValor} para R$${tentado} (real já é ≤ este valor)`);
+                console.log(`[Sniper] Cache: 422 "melhor que seu" — ajustando nossoValor item ${itemNumero} de R$${cachedItem.nossoValor} para R$${tentado}`);
                 cachedItem.nossoValor = tentado;
               }
+            } else {
+              // Sub-item not in cache — create it so next cycle uses correct nossoValor
+              const grupoItem = cachedD.itens.find(i => i.numero === -1 || i.tipo === 'G');
+              if (grupoItem) {
+                cachedD.itens.push({
+                  numero: parseInt(itemNumero), tipo: 'S', melhorValor: null,
+                  nossoValor: tentado, variacaoMinima: grupoItem.variacaoMinima,
+                  tipoVariacao: grupoItem.tipoVariacao, fimContagem: grupoItem.fimContagem,
+                  podeEnviar: grupoItem.podeEnviar, fase: grupoItem.fase,
+                  estaPerdendo: false, emEncAleatoria: grupoItem.emEncAleatoria || false,
+                  nosDoisMinFinais: grupoItem.nosDoisMinFinais || false,
+                });
+                console.log(`[Sniper] Cache: 422 — criado sub-item ${itemNumero} com nosso=R$${tentado}`);
+              }
             }
+          }
+        }
+
+        // Propagar estaPerdendo reactivamente após lance bem-sucedido
+        if (sucesso) {
+          const grupoItem = cachedD.itens.find(i => i.numero === -1 || i.tipo === 'G');
+          if (grupoItem && grupoItem.melhorValor != null && grupoItem.nossoValor != null) {
+            const ganhando = grupoItem.nossoValor <= grupoItem.melhorValor;
+            cachedD.itens.forEach(i => { i.estaPerdendo = !ganhando; });
           }
         }
       }
@@ -1105,14 +1245,37 @@ function registrarRotasSniper(app, monitorGetter, db) {
               }
             } else if (status === 422 && resposta && resposta.includes('melhor que seu')) {
               // 422 "deve ser melhor que seu último lance" — update nossoValor so contínuo steps down
+              const tentado = parseFloat(valor);
               let cachedItem = cachedD.itens.find(i => i.numero === parseInt(itemNumero));
               if (cachedItem) {
-                const tentado = parseFloat(valor);
                 if (cachedItem.nossoValor == null || tentado < cachedItem.nossoValor) {
                   console.log(`[Sniper] Cache batch: 422 "melhor que seu" — ajustando nossoValor item ${itemNumero} de R$${cachedItem.nossoValor} para R$${tentado}`);
                   cachedItem.nossoValor = tentado;
                 }
+              } else {
+                // Sub-item not in cache — create it
+                const grupoItem = cachedD.itens.find(i => i.numero === -1 || i.tipo === 'G');
+                if (grupoItem) {
+                  cachedD.itens.push({
+                    numero: parseInt(itemNumero), tipo: 'S', melhorValor: null,
+                    nossoValor: tentado, variacaoMinima: grupoItem.variacaoMinima,
+                    tipoVariacao: grupoItem.tipoVariacao, fimContagem: grupoItem.fimContagem,
+                    podeEnviar: grupoItem.podeEnviar, fase: grupoItem.fase,
+                    estaPerdendo: false, emEncAleatoria: grupoItem.emEncAleatoria || false,
+                    nosDoisMinFinais: grupoItem.nosDoisMinFinais || false,
+                  });
+                  console.log(`[Sniper] Cache batch: 422 — criado sub-item ${itemNumero} com nosso=R$${tentado}`);
+                }
               }
+            }
+          }
+
+          // Propagar estaPerdendo reactivamente após lance bem-sucedido
+          if (sucesso) {
+            const grupoItem = cachedD.itens.find(i => i.numero === -1 || i.tipo === 'G');
+            if (grupoItem && grupoItem.melhorValor != null && grupoItem.nossoValor != null) {
+              const ganhando = grupoItem.nossoValor <= grupoItem.melhorValor;
+              cachedD.itens.forEach(i => { i.estaPerdendo = !ganhando; });
             }
           }
         }
@@ -1398,19 +1561,52 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       ultimoSyncExtensao = Date.now();
 
+      // Helper: preserve accumulated sub-items when sync only brings grupo (-1)
+      function mergeDisputa(existing, incoming) {
+        if (!existing || !existing.itens || !incoming.itens) return incoming;
+        // Derivar estaPerdendo quando ausente (merge de resposta de lance não traz filtros)
+        for (const item of incoming.itens) {
+          if (item.estaPerdendo === undefined || item.estaPerdendo === null) {
+            if (item.melhorValor != null && item.nossoValor != null) {
+              item.estaPerdendo = item.nossoValor > item.melhorValor;
+            } else {
+              const existItem = existing.itens.find(e => e.numero === item.numero);
+              if (existItem) item.estaPerdendo = existItem.estaPerdendo;
+            }
+          }
+        }
+        // Find sub-items in existing cache that are NOT in incoming data
+        const incomingNums = new Set(incoming.itens.map(i => i.numero));
+        const preservados = existing.itens.filter(i =>
+          i.tipo === 'S' && !incomingNums.has(i.numero)
+        );
+        if (preservados.length > 0) {
+          incoming.itens = incoming.itens.concat(preservados);
+        }
+        return incoming;
+      }
+
       if (merge) {
         // Merge: add/update individual items without replacing full cache
         for (const d of disputas) {
           const idx = disputasCache.disputas.findIndex(c => c.compraId === d.compraId);
           if (idx >= 0) {
-            disputasCache.disputas[idx] = d;
+            disputasCache.disputas[idx] = mergeDisputa(disputasCache.disputas[idx], d);
           } else {
             disputasCache.disputas.push(d);
           }
         }
         disputasCache.atualizadoEm = new Date().toISOString();
       } else {
-        // Full replace (from regular sync)
+        // Full replace — but preserve sub-items for groups
+        const oldMap = {};
+        for (const d of disputasCache.disputas) {
+          if (d.compraId) oldMap[d.compraId] = d;
+        }
+        for (let i = 0; i < disputas.length; i++) {
+          const old = oldMap[disputas[i].compraId];
+          if (old) disputas[i] = mergeDisputa(old, disputas[i]);
+        }
         disputasCache = {
           disputas: disputas,
           atualizadoEm: new Date().toISOString(),

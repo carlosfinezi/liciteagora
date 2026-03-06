@@ -8,7 +8,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; }
-        .container { max-width: 1400px; margin: 0 auto; }
+        .container { max-width: 1800px; margin: 0 auto; }
 
         /* Header */
         .header { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 25px 30px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
@@ -38,9 +38,9 @@
         .stat-card .stat-value { font-size: 28px; font-weight: 700; color: #4fc3f7; }
         .stat-card .stat-label { font-size: 12px; color: #78909c; margin-top: 4px; }
 
-        /* Layout 2 columns */
-        .content-grid { display: grid; grid-template-columns: 1fr 380px; gap: 20px; }
-        @media (max-width: 1000px) { .content-grid { grid-template-columns: 1fr; } }
+        /* Layout full width */
+        .content-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        .panels-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
 
         /* Results Table */
         .results-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; }
@@ -50,7 +50,7 @@
         .results-table th { background: rgba(0,0,0,0.2); padding: 10px 14px; text-align: left; font-size: 12px; color: #78909c; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; }
         .results-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13px; vertical-align: top; }
         .results-table tbody tr:hover { background: rgba(79,195,247,0.05); }
-        .results-table .desc { max-width: 350px; line-height: 1.4; }
+        .results-table .desc { max-width: 450px; line-height: 1.4; }
         .results-table .valor { text-align: right; white-space: nowrap; font-family: 'Consolas', monospace; }
         .results-table .orgao { color: #90a4ae; font-size: 11px; }
         .results-scroll { max-height: 600px; overflow-y: auto; }
@@ -126,14 +126,10 @@
                         </select>
                     </div>
                     <button type="submit" class="btn btn-primary" id="btnBuscar">Buscar Itens</button>
-                    <button type="button" class="btn btn-success" id="btnResultados" onclick="carregarTodosResultados()" disabled>Buscar Vencedores</button>
+                    <button type="button" class="btn btn-success" id="btnResultados" onclick="carregarTodosResultados()" disabled style="display:none">Buscar Vencedores</button>
                 </div>
             </form>
-            <div class="search-hint">💡 Pesquisa nos itens de todas as licitações do banco. Após encontrar, clique em "Buscar Vencedores" para consultar o PNCP.</div>
-            <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
-                <button type="button" class="btn btn-secondary" onclick="buscarPesquisaPreco()" id="btnPesquisaPreco">💰 Pesquisa de Preço (Dados Abertos)</button>
-                <button type="button" class="btn btn-secondary" onclick="buscarDadosAbertos()" id="btnDadosAbertos">📋 Itens Contratações (Lei 14.133)</button>
-            </div>
+            <div class="search-hint">💡 Pesquisa nos itens de todas as licitações encerradas. Os vencedores são consultados automaticamente no PNCP.</div>
             <div class="progress-bar" id="progressBar" style="display:none"><div class="fill" id="progressFill"></div></div>
             <div class="progress-text" id="progressText"></div>
         </div>
@@ -142,8 +138,8 @@
         <div class="stats-row" id="statsRow" style="display:none">
             <div class="stat-card"><div class="stat-value" id="statItens">0</div><div class="stat-label">Itens Encontrados</div></div>
             <div class="stat-card"><div class="stat-value" id="statLicitacoes">0</div><div class="stat-label">Licitações</div></div>
-            <div class="stat-card"><div class="stat-value" id="statHomologados">0</div><div class="stat-label">Homologados</div></div>
-            <div class="stat-card"><div class="stat-value" id="statFornecedores">0</div><div class="stat-label">Fornecedores</div></div>
+            <div class="stat-card" id="cardHomologados" style="cursor:pointer" onclick="mostrarHomologados()" title="Clique para ver todos"><div class="stat-value" id="statHomologados">0</div><div class="stat-label">Homologados ▸</div></div>
+            <div class="stat-card" id="cardFornecedores" style="cursor:pointer" onclick="mostrarFornecedores()" title="Clique para ver todos"><div class="stat-value" id="statFornecedores">0</div><div class="stat-label">Fornecedores ▸</div></div>
             <div class="stat-card"><div class="stat-value" id="statMenorPreco">-</div><div class="stat-label">Menor Preço Unit.</div></div>
             <div class="stat-card"><div class="stat-value" id="statMediaPreco">-</div><div class="stat-label">Preço Médio Unit.</div></div>
         </div>
@@ -164,6 +160,9 @@
                                 <th>Órgão / Licitação</th>
                                 <th>Valor Est.</th>
                                 <th>Resultado</th>
+                                <th>Fornecedor</th>
+                                <th>Marca</th>
+                                <th>Valor Homol.</th>
                             </tr>
                         </thead>
                         <tbody id="tbodyResults"></tbody>
@@ -172,8 +171,8 @@
                 <div class="pagination" id="paginationBottom"></div>
             </div>
 
-            <!-- Side panels -->
-            <div>
+            <!-- Panels abaixo da tabela -->
+            <div class="panels-row">
                 <div class="panel" id="panelFornecedores" style="display:none">
                     <div class="panel-header"><h3>🏆 Top Fornecedores</h3></div>
                     <div class="panel-body" id="listFornecedores"></div>
@@ -208,6 +207,8 @@
     let itensAtuais = [];
     let resultadosMap = {}; // key: "cnpj/ano/seq/num" -> resultado
     let paginaAtual = 1;
+    let ultimoFornecedoresMap = {};
+    let ultimoHomologados = [];
     let totalPaginas = 1;
     let totalItens = 0;
     let buscando = false;
@@ -260,6 +261,10 @@
             document.getElementById('statMenorPreco').textContent = '-';
             document.getElementById('statMediaPreco').textContent = '-';
 
+            if (itensAtuais.length > 0) {
+                carregarTodosResultados();
+            }
+
         } catch (err) {
             alert('Erro: ' + err.message);
         } finally {
@@ -271,33 +276,36 @@
     function renderResults() {
         const tbody = document.getElementById('tbodyResults');
         if (itensAtuais.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:#78909c">Nenhum item encontrado</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#78909c">Nenhum item encontrado</td></tr>';
             return;
         }
 
         tbody.innerHTML = itensAtuais.map(item => {
             const chave = chaveItem(item);
             const res = resultadosMap[chave];
-            let resultadoHTML = '<span class="winner-badge pendente">Não consultado</span>';
+            let statusHTML = '<span class="winner-badge pendente">Não consultado</span>';
+            let fornecedorHTML = '-';
+            let marcaHTML = '-';
+            let valorHomolHTML = '-';
 
             if (res === 'loading') {
-                resultadoHTML = '<span class="loading-spinner"></span>';
+                statusHTML = '<span class="loading-spinner"></span>';
             } else if (res && res.length > 0) {
-                const r = res[0]; // Primeiro resultado (vencedor)
-                resultadoHTML = `
-                    <span class="winner-badge homologado">Homologado</span>
-                    <div class="winner-info">
-                        <div class="fornecedor">${r.nomeRazaoSocialFornecedor || 'N/I'}</div>
-                        <div class="cnpj">${formatarCNPJ(r.niFornecedor)}</div>
-                        ${r.marcaFabricante ? `<div style="color:#ffb74d;font-size:12px">🏭 ${r.marcaFabricante}</div>` : ''}
-                        ${r.modeloVersao ? `<div style="color:#ffb74d;font-size:11px">📦 ${r.modeloVersao}</div>` : ''}
-                        ${r.marca ? `<div style="color:#ffb74d;font-size:12px">🏭 ${r.marca}</div>` : ''}
-                        <div class="valor-h">${formatarMoeda(r.valorUnitarioHomologado)} unit.</div>
-                        <div style="color:#b0bec5;font-size:11px">${formatarMoeda(r.valorTotalHomologado)} total</div>
-                        ${r.dataResultado ? `<div style="color:#78909c;font-size:10px">${formatarData(r.dataResultado)}</div>` : ''}
-                    </div>`;
+                const r = res[0];
+                statusHTML = `<span class="winner-badge homologado">Homologado</span>
+                    ${r.dataResultado ? `<div style="color:#78909c;font-size:10px;margin-top:3px">${formatarData(r.dataResultado)}</div>` : ''}`;
+                fornecedorHTML = `<div class="fornecedor" style="font-size:12px">${r.nomeRazaoSocialFornecedor || 'N/I'}</div>
+                    <div class="cnpj" style="font-size:11px;color:#78909c">${formatarCNPJ(r.niFornecedor)}</div>`;
+                const marca = r.marcaFabricante || r.marca || '';
+                const modelo = r.modeloVersao || '';
+                if (marca || modelo) {
+                    marcaHTML = `${marca ? `<div style="color:#ffb74d;font-weight:600;font-size:12px">${marca}</div>` : ''}
+                        ${modelo ? `<div style="color:#b0bec5;font-size:11px">${modelo}</div>` : ''}`;
+                }
+                valorHomolHTML = `<div class="valor-h" style="font-weight:600">${formatarMoeda(r.valorUnitarioHomologado)}</div>
+                    <div style="color:#b0bec5;font-size:11px">${formatarMoeda(r.valorTotalHomologado)} total</div>`;
             } else if (res !== undefined) {
-                resultadoHTML = '<span class="winner-badge sem-resultado">Sem resultado</span>';
+                statusHTML = '<span class="winner-badge sem-resultado">Sem resultado</span>';
             }
 
             const pncpLink = `https://pncp.gov.br/app/editais/${item.cnpj}/${item.anoCompra}/${String(item.sequencialCompra).padStart(6,'0')}`;
@@ -315,7 +323,10 @@
                     <a href="${pncpLink}" target="_blank" class="pncp-link">Ver no PNCP ↗</a>
                 </td>
                 <td class="valor">${formatarMoeda(item.valorUnitarioEstimado)}</td>
-                <td>${resultadoHTML}</td>
+                <td>${statusHTML}</td>
+                <td>${fornecedorHTML}</td>
+                <td>${marcaHTML}</td>
+                <td class="valor">${valorHomolHTML}</td>
             </tr>`;
         }).join('');
 
@@ -469,6 +480,8 @@
         });
 
         // Stats
+        ultimoHomologados = todosResultados;
+        ultimoFornecedoresMap = fornecedoresMap;
         const fornecedoresUnicos = Object.keys(fornecedoresMap).length;
         document.getElementById('statHomologados').textContent = todosResultados.length;
         document.getElementById('statFornecedores').textContent = fornecedoresUnicos;
@@ -553,6 +566,113 @@
 
     // Focus on load
     document.getElementById('txtBusca').focus();
+
+    function mostrarHomologados() {
+        if (ultimoHomologados.length === 0) { alert('Aguarde a busca de vencedores finalizar.'); return; }
+
+        const old = document.getElementById('modalHomologados');
+        if (old) old.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'modalHomologados';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.8);overflow-y:auto;padding:30px';
+        modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+        const rows = ultimoHomologados.map((r, i) => {
+            const marca = r.marcaFabricante || r.marca || '';
+            const modelo = r.modeloVersao || '';
+            const marcaTxt = [marca, modelo].filter(Boolean).join(' · ') || '-';
+            const item = r.item || {};
+            const pncpLink = `https://pncp.gov.br/app/editais/${item.cnpj}/${item.anoCompra}/${String(item.sequencialCompra || '').padStart(6,'0')}`;
+            return `
+            <tr>
+                <td style="text-align:center;color:#78909c">${i + 1}</td>
+                <td style="font-size:12px">
+                    <div>${item.nomeUnidade || item.orgao || '-'}</div>
+                    <div style="color:#78909c;font-size:11px">UASG ${item.uasg || '-'} · ${item.numeroControlePNCP || ''}</div>
+                    <a href="${pncpLink}" target="_blank" style="color:#4fc3f7;font-size:11px;text-decoration:none">Ver no PNCP ↗</a>
+                </td>
+                <td style="font-size:12px">${item.itemDescricao || '-'}</td>
+                <td style="color:#4fc3f7;font-size:12px">${r.nomeRazaoSocialFornecedor || 'N/I'}<br><span style="color:#78909c;font-size:11px">${formatarCNPJ(r.niFornecedor)}</span></td>
+                <td style="color:#ffb74d;font-size:12px">${marcaTxt}</td>
+                <td style="text-align:right">${formatarMoeda(r.valorUnitarioHomologado)}</td>
+                <td style="text-align:right">${formatarMoeda(r.valorTotalHomologado)}</td>
+                <td style="color:#78909c;font-size:11px">${formatarData(r.dataResultado)}</td>
+            </tr>`;
+        }).join('');
+
+        modal.innerHTML = `
+            <div style="max-width:1200px;margin:0 auto;background:rgba(15,32,39,0.95);border-radius:12px;border:1px solid rgba(255,255,255,0.1);padding:25px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+                    <h3 style="color:#4fc3f7;margin:0">Itens Homologados (${ultimoHomologados.length})</h3>
+                    <button onclick="document.getElementById('modalHomologados').remove()" class="btn btn-secondary">✕ Fechar</button>
+                </div>
+                <div style="overflow-x:auto">
+                    <table class="results-table">
+                        <thead><tr>
+                            <th style="width:40px">#</th>
+                            <th>Licitação</th>
+                            <th>Descrição</th>
+                            <th>Fornecedor</th>
+                            <th>Marca/Modelo</th>
+                            <th style="text-align:right">Valor Unit.</th>
+                            <th style="text-align:right">Valor Total</th>
+                            <th>Data</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        document.body.appendChild(modal);
+    }
+
+    function mostrarFornecedores() {
+        const entries = Object.entries(ultimoFornecedoresMap);
+        if (entries.length === 0) { alert('Aguarde a busca de vencedores finalizar.'); return; }
+
+        entries.sort((a, b) => b[1].count - a[1].count);
+
+        const old = document.getElementById('modalFornecedores');
+        if (old) old.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'modalFornecedores';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.8);overflow-y:auto;padding:30px';
+        modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+        const rows = entries.map(([nome, d], i) => `
+            <tr>
+                <td style="text-align:center;color:#78909c">${i + 1}</td>
+                <td style="color:#4fc3f7">${nome}</td>
+                <td style="color:#90a4ae">${formatarCNPJ(d.cnpj)}</td>
+                <td style="text-align:center">${d.count}</td>
+                <td style="text-align:right">${formatarMoeda(d.valorTotal)}</td>
+            </tr>
+        `).join('');
+
+        modal.innerHTML = `
+            <div style="max-width:900px;margin:0 auto;background:rgba(15,32,39,0.95);border-radius:12px;border:1px solid rgba(255,255,255,0.1);padding:25px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+                    <h3 style="color:#4fc3f7;margin:0">Fornecedores (${entries.length})</h3>
+                    <button onclick="document.getElementById('modalFornecedores').remove()" class="btn btn-secondary">✕ Fechar</button>
+                </div>
+                <div style="overflow-x:auto">
+                    <table class="results-table">
+                        <thead><tr>
+                            <th style="width:40px">#</th>
+                            <th>Fornecedor</th>
+                            <th>CNPJ/CPF</th>
+                            <th style="text-align:center">Itens</th>
+                            <th style="text-align:right">Valor Total</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        document.body.appendChild(modal);
+    }
 
     // Pesquisa de Preço via Dados Abertos
     async function buscarPesquisaPreco() {

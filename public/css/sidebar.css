@@ -60,6 +60,28 @@
     font-weight: 600;
 }
 
+.menu-section-toggle {
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+    transition: color 0.2s;
+}
+
+.menu-section-toggle:hover {
+    color: #4dabf7;
+}
+
+.menu-chevron {
+    font-size: 0.9em;
+    transition: transform 0.2s;
+}
+
+.menu-group {
+    overflow: hidden;
+}
+
 .menu-item {
     display: flex;
     align-items: center;

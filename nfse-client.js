@@ -170,11 +170,26 @@ class NfseClient {
       'Accept': 'application/pdf',
     });
 
-    if (response.status >= 400) {
-      throw new Error(`Erro ao baixar DANFSE: ${response.status}`);
+    if (response.status < 400) {
+      return response.data; // Buffer do PDF oficial
     }
 
-    return response.data; // Buffer do PDF
+    // Fallback: gerar PDF a partir do XML da NFSe
+    console.log(`[NFSe] DANFSE indisponivel (${response.status}), gerando PDF do XML...`);
+    const xmlUrl = `${this.baseUrl}/nfse/${chaveAcesso}`;
+    const xmlResp = await this._request('GET', xmlUrl, null, { 'Accept': 'application/json' });
+
+    if (xmlResp.status >= 400) {
+      throw new Error(`Erro ao consultar NFSe para gerar DANFSE: ${xmlResp.status}`);
+    }
+
+    const data = typeof xmlResp.data === 'string' ? JSON.parse(xmlResp.data) : xmlResp.data;
+    if (!data.nfseXmlGZipB64) {
+      throw new Error('XML da NFSe nao disponivel para gerar DANFSE');
+    }
+
+    const { gerarDanfseDeGzipB64 } = require('./danfse-pdf');
+    return gerarDanfseDeGzipB64(data.nfseXmlGZipB64);
   }
 
   /**

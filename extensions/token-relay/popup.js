@@ -41,5 +41,19 @@ $('btnSync').addEventListener('click', function() {
   });
 });
 
+// API Key
+chrome.storage.local.get('serverApiKey', function(d) {
+  if (d.serverApiKey) $('apiKeyInput').value = d.serverApiKey;
+});
+
+$('btnSaveKey').addEventListener('click', function() {
+  var key = $('apiKeyInput').value.trim();
+  chrome.storage.local.set({ serverApiKey: key }, function() {
+    showMsg(key ? '✅ API Key salva!' : '✅ API Key removida!', true);
+    // Atualizar no background
+    chrome.runtime.sendMessage({ type: 'updateApiKey', key: key });
+  });
+});
+
 atualizar();
 setInterval(atualizar, 3000);
