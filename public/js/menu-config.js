@@ -15,7 +15,8 @@ const menuConfig = {
                 { page: 'index', icone: '🔍', texto: 'Buscar', link: '/' },
                 { page: 'interesse', icone: '⭐', texto: 'Interesses', link: '/interesse.html', badge: 'interesseCount' },
                 { page: 'kanban', icone: '📋', texto: 'Kanban', link: '/kanban.html' },
-                { page: 'agenda', icone: '📅', texto: 'Agenda', link: '/agenda.html' }
+                { page: 'agenda', icone: '📅', texto: 'Agenda', link: '/agenda.html' },
+                { page: 'sem-interesse', icone: '🚫', texto: 'Sem Interesse', link: '/sem-interesse.html' }
             ]
         },
         {
@@ -25,7 +26,8 @@ const menuConfig = {
                 { page: 'propostas-api', icone: '📝', texto: 'Propostas', link: '/propostas-api.html' },
                 { page: 'lances', icone: '🎯', texto: 'Lances Automáticos', link: '/lances.html' },
                 { page: 'monitoramento-chat', icone: '💬', texto: 'Monitor de Chat', link: '/monitoramento-chat.html' },
-                { page: 'inteligencia', icone: '📊', texto: 'Inteligência', link: '/inteligencia.html' }
+                { page: 'inteligencia', icone: '📊', texto: 'Inteligência', link: '/inteligencia.html' },
+                { page: 'analises-ia', icone: '🤖', texto: 'Análises IA', link: '/analises-ia.html' }
             ]
         },
         {
@@ -33,7 +35,7 @@ const menuConfig = {
             colapsavel: true,
             itens: [
                 { page: 'pessoas', icone: '👥', texto: 'Clientes', link: '/pessoas.html' },
-                { page: 'financeiro', icone: '💰', texto: 'Contas', link: '/financeiro.html' },
+                { page: 'financeiro', icone: '💰', texto: 'Contas a Receber', link: '/financeiro.html' },
                 { page: 'nfse', icone: '🧾', texto: 'NFSe', link: '/nfse.html' },
                 { page: 'recorrencias', icone: '🔄', texto: 'Recorrências', link: '/recorrencias.html' }
             ]
@@ -42,6 +44,7 @@ const menuConfig = {
             titulo: 'Configurações',
             colapsavel: true,
             itens: [
+                { page: 'conexoes', icone: '🔗', texto: 'Conexões', link: '/conexoes.html' },
                 { page: 'fornecedor', icone: '🏢', texto: 'Fornecedor', link: '/fornecedor.html' },
                 { page: 'grupos-palavras', icone: '🏷️', texto: 'Grupos de Palavras', link: '/grupos-palavras.html' },
                 { page: 'jornal', icone: '📰', texto: 'Jornal', link: '/jornal.html' },

@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conexões - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .main-content { background: #1a1a2e; padding: 30px; }
+        h1 { color: #4dabf7; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 30px; }
+
+        .panel { background: #16213e; border-radius: 12px; padding: 25px; margin-bottom: 20px; }
+        .panel h2 { color: #4dabf7; font-size: 1.1em; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #0f3460; }
+
+        /* Status cards */
+        .status-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .status-card { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 8px; padding: 16px; text-align: center; transition: border-color 0.3s; }
+        .status-card.ok { border-color: #4caf50; }
+        .status-card.erro { border-color: #f44336; }
+        .status-card.aviso { border-color: #ff9800; }
+        .status-card.testando { border-color: #4dabf7; }
+        .status-card .card-icon { font-size: 1.8em; margin-bottom: 6px; }
+        .status-card .card-label { color: #888; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .status-card .card-value { font-size: 1em; font-weight: 600; }
+        .verde { color: #4caf50; } .vermelho { color: #f44336; } .amarelo { color: #ff9800; } .azul { color: #4dabf7; } .cinza { color: #666; }
+
+        /* Steps */
+        .step { display: flex; align-items: flex-start; gap: 14px; padding: 14px 0; border-bottom: 1px solid #0f346030; }
+        .step:last-child { border-bottom: none; }
+        .step-icon { font-size: 1.5em; flex-shrink: 0; width: 36px; text-align: center; }
+        .step-content { flex: 1; }
+        .step-title { font-weight: 600; margin-bottom: 4px; }
+        .step-desc { color: #888; font-size: 0.85em; line-height: 1.4; }
+        .step-result { margin-top: 8px; padding: 8px 12px; border-radius: 6px; font-size: 0.85em; display: none; }
+        .step-result.sucesso { display: block; background: #4caf5015; border: 1px solid #4caf5040; color: #4caf50; }
+        .step-result.erro { display: block; background: #f4433615; border: 1px solid #f4433640; color: #f44336; }
+        .step-result.aviso { display: block; background: #ff980015; border: 1px solid #ff980040; color: #ff9800; }
+        .step-result.info { display: block; background: #4dabf715; border: 1px solid #4dabf740; color: #4dabf7; }
+
+        /* Buttons */
+        .btn { padding: 8px 18px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9em; font-weight: 600; transition: all 0.2s; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-primary { background: #4dabf7; color: #000; } .btn-primary:hover:not(:disabled) { background: #339af0; }
+        .btn-success { background: #4caf50; color: #fff; } .btn-success:hover:not(:disabled) { background: #43a047; }
+        .btn-warning { background: #ff9800; color: #000; } .btn-warning:hover:not(:disabled) { background: #f57c00; }
+        .btn-outline { background: transparent; border: 1px solid #4dabf7; color: #4dabf7; } .btn-outline:hover:not(:disabled) { background: #4dabf710; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #4dabf740; border-top: 2px solid #4dabf7; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Input */
+        .input-group { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+        .input-group label { color: #aaa; font-size: 0.85em; white-space: nowrap; }
+        .input-group input[type=text] { padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.9em; font-family: monospace; min-width: 260px; }
+        .input-group input:focus { outline: none; border-color: #4dabf7; }
+
+        /* Logs */
+        .log-area { background: #0f0f1e; border: 1px solid #0f3460; border-radius: 6px; padding: 12px; margin-top: 12px; max-height: 250px; overflow-y: auto; font-size: 0.8em; font-family: monospace; display: none; }
+        .log-area.visivel { display: block; }
+        .log-entry { color: #888; padding: 2px 0; }
+        .log-entry .ts { color: #555; }
+        .log-entry.ok { color: #4caf50; }
+        .log-entry.erro { color: #f44336; }
+        .log-entry.aviso { color: #ff9800; }
+        .log-entry.info { color: #4dabf7; }
+
+        /* Resumo */
+        .resumo-final { margin-top: 16px; padding: 16px; border-radius: 8px; font-size: 0.95em; display: none; }
+        .resumo-final.sucesso { display: block; background: #4caf5015; border: 1px solid #4caf50; color: #4caf50; }
+        .resumo-final.falha { display: block; background: #f4433615; border: 1px solid #f44336; color: #f44336; }
+
+        /* Tabela de testes */
+        .testes-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85em; }
+        .testes-table th { color: #888; text-align: left; padding: 8px; border-bottom: 1px solid #0f3460; font-weight: 500; }
+        .testes-table td { padding: 8px; border-bottom: 1px solid #0f346030; }
+        .testes-table .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+        .badge-ok { background: #4caf5025; color: #4caf50; }
+        .badge-falha { background: #f4433625; color: #f44336; }
+        .badge-http { background: #0f346080; color: #4dabf7; font-family: monospace; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+<main class="main-content">
+    <h1>Conexões</h1>
+    <p class="subtitle">Diagnóstico e validação das conexões do sistema</p>
+
+    <!-- ===== SEÇÃO 1: CONEXÃO AO SERVIDOR ===== -->
+    <div class="panel">
+        <h2>Conexão ao Servidor</h2>
+
+        <div class="status-cards" id="cardsServidor">
+            <div class="status-card" id="cardServidor">
+                <div class="card-icon">🖥️</div>
+                <div class="card-label">Servidor API</div>
+                <div class="card-value cinza" id="valServidor">Aguardando...</div>
+            </div>
+            <div class="status-card" id="cardExtensao">
+                <div class="card-icon">🔌</div>
+                <div class="card-label">Extensão Chrome</div>
+                <div class="card-value cinza" id="valExtensao">Aguardando...</div>
+            </div>
+            <div class="status-card" id="cardPuppeteer">
+                <div class="card-icon">🤖</div>
+                <div class="card-label">Puppeteer</div>
+                <div class="card-value cinza" id="valPuppeteer">Aguardando...</div>
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button class="btn btn-primary" id="btnTestarServidor" onclick="testarServidor()">Testar Conexão ao Servidor</button>
+            <span id="statusServidor" style="font-size:0.85em;color:#888"></span>
+        </div>
+
+        <div id="resultServidor" class="step-result"></div>
+    </div>
+
+    <!-- ===== SEÇÃO 2: CONEXÃO COM O COMPRASNET ===== -->
+    <div class="panel">
+        <h2>Conexão com o Comprasnet</h2>
+
+        <div class="status-cards" id="cardsComprasnet">
+            <div class="status-card" id="cardBearer">
+                <div class="card-icon">🔑</div>
+                <div class="card-label">Bearer Token</div>
+                <div class="card-value cinza" id="valBearer">Aguardando...</div>
+            </div>
+            <div class="status-card" id="cardIdade">
+                <div class="card-icon">⏱️</div>
+                <div class="card-label">Idade do Token</div>
+                <div class="card-value cinza" id="valIdade">--</div>
+            </div>
+            <div class="status-card" id="cardCaptcha">
+                <div class="card-icon">🛡️</div>
+                <div class="card-label">hCaptcha</div>
+                <div class="card-value cinza" id="valCaptcha">Aguardando...</div>
+            </div>
+            <div class="status-card" id="cardComprasnet">
+                <div class="card-icon">🌐</div>
+                <div class="card-label">API Comprasnet</div>
+                <div class="card-value cinza" id="valComprasnet">Aguardando teste</div>
+            </div>
+        </div>
+
+        <p style="color:#888;font-size:0.85em;margin-bottom:14px">
+            O teste de conectividade verifica se o Bearer token é válido consultando a API do Comprasnet.
+            Opcionalmente, informe um CompraId para verificar se é possível ler dados de participação dessa compra.
+        </p>
+
+        <div class="input-group">
+            <label for="inputCompraId">CompraId (opcional):</label>
+            <input type="text" id="inputCompraId" placeholder="Ex: 00394521000122025">
+        </div>
+
+        <div class="btn-group" style="margin-top:14px">
+            <button class="btn btn-success" id="btnTestarComprasnet" onclick="testarComprasnet()">Testar Conexão com Comprasnet</button>
+            <button class="btn btn-outline" id="btnTestarTudo" onclick="testarTudo()">Testar Tudo</button>
+            <span id="statusComprasnet" style="font-size:0.85em;color:#888"></span>
+        </div>
+
+        <!-- Log de testes -->
+        <div class="log-area" id="logArea"></div>
+
+        <!-- Tabela de resultados -->
+        <table class="testes-table" id="tabelaTestes" style="display:none">
+            <thead>
+                <tr>
+                    <th>Teste</th>
+                    <th>Status</th>
+                    <th>Tempo</th>
+                    <th>Resultado</th>
+                </tr>
+            </thead>
+            <tbody id="tbodyTestes"></tbody>
+        </table>
+
+        <!-- Resumo final -->
+        <div class="resumo-final" id="resumoFinal"></div>
+    </div>
+
+    <!-- ===== SEÇÃO 3: TESTE FUNCIONAL (PROPOSTA) ===== -->
+    <div class="panel">
+        <h2>Teste Funcional — Envio de Proposta</h2>
+        <p style="color:#888;font-size:0.85em;margin-bottom:14px;line-height:1.5">
+            Para validar o sistema de ponta a ponta (sniper de lances e monitor de chat),
+            este teste envia uma proposta real em uma compra do Comprasnet.
+            <strong style="color:#ff9800">Atenção:</strong> isso cria uma participação real na compra informada.
+            Use uma compra de teste ou uma onde você já participa.
+        </p>
+
+        <div class="step">
+            <div class="step-icon">1️⃣</div>
+            <div class="step-content">
+                <div class="step-title">Informar CompraId</div>
+                <div class="step-desc">Informe o ID da compra para testar. Deve ser uma compra em fase de propostas.</div>
+                <div class="input-group">
+                    <label for="inputCompraIdProposta">CompraId:</label>
+                    <input type="text" id="inputCompraIdProposta" placeholder="Ex: 00394521000122025">
+                </div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-icon">2️⃣</div>
+            <div class="step-content">
+                <div class="step-title">Verificar Itens da Compra</div>
+                <div class="step-desc">Busca os itens disponíveis na compra para selecionar qual enviar proposta.</div>
+                <div class="btn-group" style="margin-top:8px">
+                    <button class="btn btn-primary btn-sm" id="btnBuscarItens" onclick="buscarItensCompra()">Buscar Itens</button>
+                </div>
+                <div id="resultItens" class="step-result"></div>
+                <div id="listaItens" style="margin-top:8px"></div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-icon">3️⃣</div>
+            <div class="step-content">
+                <div class="step-title">Enviar Proposta de Teste</div>
+                <div class="step-desc">Envia uma proposta no item selecionado com valor alto (não competitivo, apenas para validação).</div>
+                <div class="input-group">
+                    <label for="inputItemNumero">Item:</label>
+                    <input type="text" id="inputItemNumero" placeholder="1" style="min-width:60px;width:60px">
+                    <label for="inputValorProposta">Valor (R$):</label>
+                    <input type="text" id="inputValorProposta" placeholder="999999.99" style="min-width:120px;width:120px">
+                </div>
+                <div class="btn-group" style="margin-top:8px">
+                    <button class="btn btn-warning" id="btnEnviarProposta" onclick="enviarPropostaTeste()" disabled>Enviar Proposta de Teste</button>
+                </div>
+                <div id="resultProposta" class="step-result"></div>
+            </div>
+        </div>
+
+        <!-- Log do teste funcional -->
+        <div class="log-area" id="logProposta"></div>
+    </div>
+
+</main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('conexoes');</script>
+
+<script>
+const API = '';
+
+// ==================== HELPERS ====================
+function setCard(id, cls, valor) {
+    const card = document.getElementById(id);
+    const val = document.getElementById(id.replace('card', 'val'));
+    card.className = 'status-card ' + cls;
+    val.className = 'card-value ' + (cls === 'ok' ? 'verde' : cls === 'erro' ? 'vermelho' : cls === 'aviso' ? 'amarelo' : cls === 'testando' ? 'azul' : 'cinza');
+    val.textContent = valor;
+}
+
+function addLog(areaId, msg, cls = '') {
+    const area = document.getElementById(areaId);
+    area.classList.add('visivel');
+    const ts = new Date().toLocaleTimeString('pt-BR');
+    area.innerHTML += `<div class="log-entry ${cls}"><span class="ts">[${ts}]</span> ${msg}</div>`;
+    area.scrollTop = area.scrollHeight;
+}
+
+function setResult(id, cls, msg) {
+    const el = document.getElementById(id);
+    el.className = 'step-result ' + cls;
+    el.innerHTML = msg;
+}
+
+// ==================== TESTE SERVIDOR ====================
+async function testarServidor() {
+    const btn = document.getElementById('btnTestarServidor');
+    const status = document.getElementById('statusServidor');
+    btn.disabled = true;
+    status.innerHTML = '<span class="spinner"></span> Testando...';
+
+    setCard('cardServidor', 'testando', 'Testando...');
+    setCard('cardExtensao', 'testando', 'Testando...');
+    setCard('cardPuppeteer', 'testando', 'Testando...');
+
+    try {
+        const resp = await fetch(`${API}/api/conexao/status`);
+        const data = await resp.json();
+
+        if (data.success) {
+            // Servidor
+            setCard('cardServidor', 'ok', 'Online');
+
+            // Extensão
+            if (data.extensao.conectada) {
+                setCard('cardExtensao', 'ok', `Conectada (${data.extensao.idadeSegundos}s)`);
+            } else {
+                setCard('cardExtensao', 'erro', 'Desconectada');
+            }
+
+            // Puppeteer
+            if (data.puppeteer.loggedIn) {
+                setCard('cardPuppeteer', 'ok', 'Logado');
+            } else if (data.puppeteer.state === 'idle') {
+                setCard('cardPuppeteer', 'cinza', 'Inativo');
+            } else {
+                setCard('cardPuppeteer', 'aviso', data.puppeteer.state);
+            }
+
+            // Bearer (preenche cards do Comprasnet também)
+            if (data.bearer.presente && !data.bearer.expirado) {
+                setCard('cardBearer', 'ok', 'Ativo');
+                setCard('cardIdade', 'ok', data.bearer.idade || '--');
+            } else if (data.bearer.presente && data.bearer.expirado) {
+                setCard('cardBearer', 'aviso', 'Expirado');
+                setCard('cardIdade', 'aviso', data.bearer.idade || '--');
+            } else {
+                setCard('cardBearer', 'erro', 'Ausente');
+                setCard('cardIdade', '', '--');
+            }
+
+            // Captcha
+            if (data.captcha.presente) {
+                setCard('cardCaptcha', 'ok', `Ativo (${data.captcha.idade})`);
+            } else {
+                setCard('cardCaptcha', 'cinza', 'Ausente');
+            }
+
+            status.innerHTML = '<span class="verde">Servidor respondeu com sucesso</span>';
+            setResult('resultServidor', 'sucesso', `Servidor online em ${data.servidor.timestamp}`);
+        } else {
+            throw new Error(data.error || 'Resposta inesperada');
+        }
+    } catch (e) {
+        setCard('cardServidor', 'erro', 'Offline');
+        setCard('cardExtensao', 'erro', '?');
+        setCard('cardPuppeteer', 'erro', '?');
+        status.innerHTML = `<span class="vermelho">Erro: ${e.message}</span>`;
+        setResult('resultServidor', 'erro', `Não foi possível conectar ao servidor: ${e.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== HELPER: CRIAR E AGUARDAR TAREFA ====================
+async function criarEAguardarTarefa(tipo, dados, timeoutMs = 30000) {
+    // 1. Criar tarefa na fila
+    const criarResp = await fetch(`${API}/api/tarefas/criar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo, dados }),
+    });
+    const criar = await criarResp.json();
+    if (!criar.success) throw new Error(criar.error || 'Erro ao criar tarefa');
+
+    const tarefaId = criar.id;
+
+    // 2. Poll resultado a cada 1.5s
+    const inicio = Date.now();
+    while (Date.now() - inicio < timeoutMs) {
+        await new Promise(r => setTimeout(r, 1500));
+        const pollResp = await fetch(`${API}/api/tarefas/${tarefaId}`);
+        const poll = await pollResp.json();
+        if (!poll.success) throw new Error(poll.error || 'Tarefa não encontrada');
+
+        const t = poll.tarefa;
+        if (t.status === 'concluida' || t.status === 'falha') {
+            return t;
+        }
+        // Still pendente or processando — continue polling
+    }
+    throw new Error('Timeout: a extensão não processou a tarefa em ' + (timeoutMs/1000) + 's. Verifique se a extensão está ativa e há uma aba do Comprasnet aberta.');
+}
+
+// ==================== TESTE COMPRASNET (via fila de tarefas → extensão) ====================
+async function testarComprasnet() {
+    const btn = document.getElementById('btnTestarComprasnet');
+    const status = document.getElementById('statusComprasnet');
+    const logArea = document.getElementById('logArea');
+    const tabela = document.getElementById('tabelaTestes');
+    const tbody = document.getElementById('tbodyTestes');
+    const resumo = document.getElementById('resumoFinal');
+
+    btn.disabled = true;
+    status.innerHTML = '<span class="spinner"></span> Testando via extensão...';
+    logArea.innerHTML = '';
+    tbody.innerHTML = '';
+    tabela.style.display = 'none';
+    resumo.className = 'resumo-final';
+    resumo.style.display = 'none';
+
+    setCard('cardComprasnet', 'testando', 'Testando...');
+    addLog('logArea', 'Criando tarefa de teste para a extensão processar via browser...', 'info');
+
+    const compraId = document.getElementById('inputCompraId').value.trim();
+    const testes = [];
+
+    try {
+        // Teste 1: testar-conexao (GET /datahorabrasilia via browser)
+        addLog('logArea', 'Aguardando extensão executar teste de conexão...', 'info');
+        const t1 = await criarEAguardarTarefa('testar-conexao', {});
+        const r1 = t1.resultado || {};
+        testes.push({
+            nome: 'Data/Hora Brasília (via browser)',
+            status: r1.status,
+            sucesso: t1.status === 'concluida' && r1.status === 200,
+            tempoMs: t1.tempoMs,
+            resposta: r1.data,
+            erro: t1.erro,
+        });
+
+        // Teste 2: Se compraId fornecido, testar participação
+        if (compraId) {
+            addLog('logArea', `Testando participação na compra ${compraId}...`, 'info');
+            const t2 = await criarEAguardarTarefa('testar-participacao', { compraId });
+            const r2 = t2.resultado || {};
+            testes.push({
+                nome: `Participação (${compraId})`,
+                status: r2.status,
+                sucesso: t2.status === 'concluida' && (r2.status === 200),
+                tempoMs: t2.tempoMs,
+                resumo: r2.resumo,
+                erro: t2.erro,
+            });
+        }
+
+        // Mostrar resultados
+        tabela.style.display = '';
+        for (const teste of testes) {
+            const statusCls = teste.sucesso ? 'badge-ok' : 'badge-falha';
+            const statusTxt = teste.sucesso ? 'OK' : 'FALHA';
+            const httpBadge = teste.status ? `<span class="badge badge-http">HTTP ${teste.status}</span>` : '';
+            const tempo = teste.tempoMs ? `${teste.tempoMs}ms` : '--';
+            let detalhe = '';
+            if (teste.sucesso && teste.resposta) {
+                detalhe = typeof teste.resposta === 'string' ? teste.resposta : JSON.stringify(teste.resposta);
+                if (detalhe.length > 80) detalhe = detalhe.substring(0, 80) + '...';
+            } else if (teste.sucesso && teste.resumo) {
+                detalhe = `Situação: ${teste.resumo.situacao}, Fase: ${teste.resumo.fase}, Itens: ${teste.resumo.itens ?? '?'}`;
+            } else if (teste.erro) {
+                detalhe = teste.erro;
+                if (detalhe.length > 100) detalhe = detalhe.substring(0, 100) + '...';
+            }
+
+            tbody.innerHTML += `<tr>
+                <td>${teste.nome}</td>
+                <td><span class="badge ${statusCls}">${statusTxt}</span> ${httpBadge}</td>
+                <td>${tempo}</td>
+                <td style="color:${teste.sucesso ? '#4caf50' : '#f44336'};font-size:0.85em">${detalhe}</td>
+            </tr>`;
+
+            addLog('logArea', `${teste.sucesso ? 'OK' : 'FALHA'} — ${teste.nome} (${tempo})`, teste.sucesso ? 'ok' : 'erro');
+        }
+
+        const todosSucesso = testes.every(t => t.sucesso);
+        if (todosSucesso) {
+            setCard('cardComprasnet', 'ok', 'Conectado');
+            status.innerHTML = '<span class="verde">Comprasnet conectado e funcional (via browser)</span>';
+            resumo.className = 'resumo-final sucesso';
+            resumo.innerHTML = '<strong>Conexão OK!</strong> A extensão executou o teste via browser (mesmo IP/cookies) e o Comprasnet respondeu com sucesso.';
+            resumo.style.display = 'block';
+            addLog('logArea', 'Todos os testes passaram! Sistema operacional.', 'ok');
+        } else {
+            setCard('cardComprasnet', 'erro', 'Falha');
+            const tem401 = testes.some(t => t.status === 401);
+            const tem403 = testes.some(t => t.status === 403);
+            let diagnostico = '';
+            if (tem401) {
+                diagnostico = '<strong>HTTP 401 — Token rejeitado pelo Comprasnet.</strong><br>' +
+                    'O Bearer token foi invalidado. Recarregue a página do Comprasnet para capturar um novo token.';
+            } else if (tem403) {
+                diagnostico = '<strong>HTTP 403 — Acesso negado.</strong><br>' +
+                    'O Comprasnet recusou a requisição. Verifique se o login SSO está ativo.';
+            } else {
+                diagnostico = '<strong>Falha na conexão.</strong> Verifique os resultados acima.';
+            }
+            status.innerHTML = '<span class="vermelho">Falha em um ou mais testes</span>';
+            resumo.className = 'resumo-final falha';
+            resumo.innerHTML = diagnostico;
+            resumo.style.display = 'block';
+            addLog('logArea', 'Um ou mais testes falharam.', 'erro');
+        }
+    } catch (e) {
+        addLog('logArea', `Erro: ${e.message}`, 'erro');
+        setCard('cardComprasnet', 'erro', 'Erro');
+        status.innerHTML = `<span class="vermelho">Erro: ${e.message}</span>`;
+        resumo.className = 'resumo-final falha';
+        resumo.innerHTML = `<strong>Erro:</strong> ${e.message}`;
+        resumo.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== TESTAR TUDO ====================
+async function testarTudo() {
+    const btn = document.getElementById('btnTestarTudo');
+    btn.disabled = true;
+    await testarServidor();
+    await testarComprasnet();
+    btn.disabled = false;
+}
+
+// ==================== TESTE FUNCIONAL: BUSCAR ITENS (via fila de tarefas → extensão) ====================
+async function buscarItensCompra() {
+    const compraId = document.getElementById('inputCompraIdProposta').value.trim();
+    if (!compraId) {
+        setResult('resultItens', 'aviso', 'Informe um CompraId para buscar os itens.');
+        return;
+    }
+
+    const btn = document.getElementById('btnBuscarItens');
+    btn.disabled = true;
+    setResult('resultItens', 'info', '<span class="spinner"></span> Buscando itens via extensão...');
+    addLog('logProposta', `Criando tarefa para buscar participação da compra ${compraId} via browser...`, 'info');
+
+    try {
+        const tarefa = await criarEAguardarTarefa('testar-participacao', { compraId }, 30000);
+
+        if (tarefa.status === 'concluida' && tarefa.resultado) {
+            const resumo = tarefa.resultado.resumo;
+            if (resumo && resumo.itens > 0) {
+                setResult('resultItens', 'sucesso',
+                    `Participação encontrada! Situação: ${resumo.situacao}, Fase: ${resumo.fase}, Itens: ${resumo.itens}. ` +
+                    `Informe o número do item e valor abaixo para enviar proposta.`);
+                addLog('logProposta', `Participação OK: ${resumo.situacao}, ${resumo.fase}, ${resumo.itens} itens (${tarefa.tempoMs}ms)`, 'ok');
+                document.getElementById('btnEnviarProposta').disabled = false;
+            } else if (resumo) {
+                setResult('resultItens', 'aviso', `Participação encontrada mas sem itens. Situação: ${resumo.situacao}, Fase: ${resumo.fase}`);
+                addLog('logProposta', 'Participação sem itens.', 'aviso');
+            } else {
+                setResult('resultItens', 'sucesso', 'Consulta executada com sucesso pelo browser.');
+                addLog('logProposta', 'Consulta OK.', 'ok');
+                document.getElementById('btnEnviarProposta').disabled = false;
+            }
+        } else {
+            setResult('resultItens', 'erro', `Falha: ${tarefa.erro || 'Erro desconhecido'}`);
+            addLog('logProposta', `Erro: ${tarefa.erro}`, 'erro');
+        }
+    } catch (e) {
+        setResult('resultItens', 'erro', `Erro: ${e.message}`);
+        addLog('logProposta', `Erro: ${e.message}`, 'erro');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+let quantidadeSelecionada = 1;
+
+function selecionarItem(numero, valorRef, quantidade) {
+    document.getElementById('inputItemNumero').value = numero;
+    quantidadeSelecionada = quantidade || 1;
+    // Valor alto para não competir
+    const valorAlto = Math.max(valorRef * 10, 999999.99);
+    document.getElementById('inputValorProposta').value = valorAlto.toFixed(2);
+    document.getElementById('btnEnviarProposta').disabled = false;
+    addLog('logProposta', `Item ${numero} selecionado. Qtd: ${quantidadeSelecionada}. Valor sugerido: R$ ${valorAlto.toFixed(2)} (não competitivo)`, 'info');
+}
+
+// ==================== TESTE FUNCIONAL: ENVIAR PROPOSTA (via fila de tarefas → extensão) ====================
+async function enviarPropostaTeste() {
+    const compraId = document.getElementById('inputCompraIdProposta').value.trim();
+    const itemNumero = parseInt(document.getElementById('inputItemNumero').value.trim());
+    const valor = parseFloat(document.getElementById('inputValorProposta').value.trim());
+
+    if (!compraId || !itemNumero || !valor) {
+        setResult('resultProposta', 'aviso', 'Preencha CompraId, item e valor.');
+        return;
+    }
+
+    if (!confirm(`Enviar proposta de R$ ${valor.toFixed(2)} no item ${itemNumero} da compra ${compraId}?\n\nISTO É UMA AÇÃO REAL no Comprasnet.\nA proposta será enviada via extensão Chrome (browser).`)) {
+        return;
+    }
+
+    const btn = document.getElementById('btnEnviarProposta');
+    btn.disabled = true;
+    setResult('resultProposta', 'info', '<span class="spinner"></span> Enviando proposta via extensão...');
+    addLog('logProposta', `Criando tarefa de envio: CompraId=${compraId}, Item=${itemNumero}, Valor=R$ ${valor.toFixed(2)}`, 'info');
+
+    try {
+        const tarefa = await criarEAguardarTarefa('enviar-proposta', {
+            compraId,
+            itens: [{ numero: itemNumero, valor, quantidade: quantidadeSelecionada }],
+        }, 60000); // 60s timeout para proposta (pode ser mais lento)
+
+        if (tarefa.status === 'concluida' && tarefa.resultado) {
+            const r = tarefa.resultado;
+            setResult('resultProposta', 'sucesso',
+                `<strong>Proposta enviada com sucesso via browser!</strong><br>` +
+                `Resultados: ${r.sucessos} sucesso(s) de ${r.total} etapa(s). Tempo: ${tarefa.tempoMs}ms<br>` +
+                `<span style="font-size:0.85em;color:#888">${JSON.stringify(r.resultados || [])}</span>`
+            );
+            addLog('logProposta', `SUCESSO! Proposta enviada via browser. ${r.sucessos} etapa(s) OK.`, 'ok');
+            document.getElementById('logProposta').classList.add('visivel');
+        } else {
+            const erroMsg = tarefa.erro || 'Erro desconhecido';
+            let erroDetalhe = '';
+            if (tarefa.resultado && tarefa.resultado.resultados) {
+                for (const r of tarefa.resultado.resultados) {
+                    if (!r.sucesso && r.resposta) {
+                        try {
+                            const msg = typeof r.resposta === 'string' ? JSON.parse(r.resposta).message : r.resposta.message;
+                            if (msg) { erroDetalhe = msg; break; }
+                        } catch(e) {}
+                    }
+                }
+            }
+            setResult('resultProposta', 'erro',
+                `<strong>Falha no envio:</strong> ${erroMsg}<br>` +
+                (erroDetalhe ? `<strong>Comprasnet:</strong> ${erroDetalhe}<br>` : '') +
+                (tarefa.resultado ? `<span style="font-size:0.82em;color:#888">${JSON.stringify(tarefa.resultado)}</span>` : '')
+            );
+            addLog('logProposta', `FALHA: ${erroDetalhe || erroMsg}`, 'erro');
+        }
+    } catch (e) {
+        setResult('resultProposta', 'erro', `Erro: ${e.message}`);
+        addLog('logProposta', `Erro: ${e.message}`, 'erro');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== AUTO-REFRESH ====================
+let refreshInterval = null;
+
+async function autoRefresh() {
+    try {
+        const resp = await fetch(`${API}/api/conexao/status`);
+        const data = await resp.json();
+        if (!data.success) return;
+
+        // Servidor sempre OK se chegou aqui
+        setCard('cardServidor', 'ok', 'Online');
+
+        // Extensão
+        if (data.extensao.conectada) {
+            setCard('cardExtensao', 'ok', `Conectada (${data.extensao.idadeSegundos}s)`);
+        } else {
+            setCard('cardExtensao', 'erro', 'Desconectada');
+        }
+
+        // Bearer
+        if (data.bearer.presente && !data.bearer.expirado) {
+            setCard('cardBearer', 'ok', 'Ativo');
+            setCard('cardIdade', data.bearer.idadeSegundos < 480 ? 'ok' : 'aviso', data.bearer.idade || '--');
+        } else if (data.bearer.presente) {
+            setCard('cardBearer', 'aviso', 'Expirado');
+            setCard('cardIdade', 'aviso', data.bearer.idade || '--');
+        } else {
+            setCard('cardBearer', 'erro', 'Ausente');
+            setCard('cardIdade', '', '--');
+        }
+
+        // Captcha
+        if (data.captcha.presente) {
+            setCard('cardCaptcha', 'ok', `Ativo (${data.captcha.idade})`);
+        } else {
+            setCard('cardCaptcha', 'cinza', 'Ausente');
+        }
+
+        // Puppeteer
+        if (data.puppeteer.loggedIn) {
+            setCard('cardPuppeteer', 'ok', 'Logado');
+        } else if (data.puppeteer.state === 'idle') {
+            setCard('cardPuppeteer', 'cinza', 'Inativo');
+        } else {
+            setCard('cardPuppeteer', 'aviso', data.puppeteer.state);
+        }
+    } catch (e) {
+        setCard('cardServidor', 'erro', 'Offline');
+    }
+}
+
+// Iniciar auto-refresh a cada 10s
+refreshInterval = setInterval(autoRefresh, 10000);
+// E executa imediatamente
+autoRefresh();
+</script>
+</body>
+</html>

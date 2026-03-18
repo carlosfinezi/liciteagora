@@ -122,8 +122,9 @@
             <!-- ABA CONTAS A RECEBER -->
             <div id="tab-contas" class="tab-content active">
                 <div class="filtros">
+                    <input type="text" id="filtBusca" placeholder="Cliente, CPF/CNPJ ou descrição..." style="min-width:220px;" onkeydown="if(event.key==='Enter')carregarContas()">
                     <select id="filtStatus" onchange="carregarContas()">
-                        <option value="">Todos</option>
+                        <option value="">Todos os status</option>
                         <option value="aberta">Abertas</option>
                         <option value="vencida">Vencidas</option>
                         <option value="paga">Pagas</option>
@@ -131,6 +132,8 @@
                     </select>
                     <input type="date" id="filtDataInicio" onchange="carregarContas()" title="Vencimento de">
                     <input type="date" id="filtDataFim" onchange="carregarContas()" title="Vencimento até">
+                    <button class="btn-primary" style="padding:8px 16px; font-size:0.85em;" onclick="carregarContas()">Filtrar</button>
+                    <button class="btn-secondary" style="padding:8px 12px; font-size:0.85em;" onclick="limparFiltros()">Limpar</button>
                 </div>
 
                 <div class="panel">
@@ -282,6 +285,24 @@
         </div>
     </div>
 
+    <div id="modalVencimento" class="modal-overlay" onclick="if(event.target===this)fecharModalVencimento()">
+        <div class="modal">
+            <button class="modal-close" onclick="fecharModalVencimento()">&times;</button>
+            <h3>Alterar Data de Vencimento</h3>
+            <input type="hidden" id="vencimentoContaId">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Nova Data de Vencimento</label>
+                    <input type="date" id="novaDataVencimento">
+                </div>
+            </div>
+            <div class="actions-bar">
+                <button class="btn-secondary" onclick="fecharModalVencimento()">Cancelar</button>
+                <button class="btn-primary" onclick="confirmarAlterarVencimento()">Salvar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
     <script>initSidebar('financeiro');</script>
@@ -325,6 +346,42 @@
         document.getElementById('modalBaixar').classList.remove('active');
     }
 
+    function abrirAlterarVencimento(contaId, dataAtual) {
+        document.getElementById('vencimentoContaId').value = contaId;
+        document.getElementById('novaDataVencimento').value = dataAtual;
+        document.getElementById('modalVencimento').classList.add('active');
+    }
+
+    function fecharModalVencimento() {
+        document.getElementById('modalVencimento').classList.remove('active');
+    }
+
+    async function confirmarAlterarVencimento() {
+        const contaId = document.getElementById('vencimentoContaId').value;
+        const dataVencimento = document.getElementById('novaDataVencimento').value;
+        if (!dataVencimento) return alert('Informe a nova data de vencimento');
+        const btnSalvar = document.querySelector('#modalVencimento .btn-primary');
+        if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.textContent = 'Salvando...'; }
+        try {
+            const resp = await fetch(`/api/contas-a-receber/${contaId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataVencimento })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            fecharModalVencimento();
+            if (data.boletoRecriado) {
+                alert('Vencimento alterado e boleto recriado com a nova data.');
+            }
+            carregarContas();
+        } catch (err) {
+            alert('Erro: ' + err.message);
+        } finally {
+            if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = 'Salvar'; }
+        }
+    }
+
     // ==================== RESUMO ====================
     async function carregarResumo() {
         try {
@@ -357,9 +414,11 @@
     async function carregarContas() {
         try {
             const params = new URLSearchParams();
+            const busca = document.getElementById('filtBusca').value.trim();
             const status = document.getElementById('filtStatus').value;
             const dataInicio = document.getElementById('filtDataInicio').value;
             const dataFim = document.getElementById('filtDataFim').value;
+            if (busca) params.set('busca', busca);
             if (status) params.set('status', status);
             if (dataInicio) params.set('dataInicio', dataInicio);
             if (dataFim) params.set('dataFim', dataFim);
@@ -375,6 +434,14 @@
         }
     }
 
+    function limparFiltros() {
+        document.getElementById('filtBusca').value = '';
+        document.getElementById('filtStatus').value = '';
+        document.getElementById('filtDataInicio').value = '';
+        document.getElementById('filtDataFim').value = '';
+        carregarContas();
+    }
+
     function renderContas() {
         const tbody = document.getElementById('tabelaContas');
         const empty = document.getElementById('emptyContas');
@@ -388,6 +455,7 @@
 
         tbody.innerHTML = contasCache.map(c => {
             const st = c.statusReal || c.status;
+            const boletoAtivo = c.boletoId && !['cancelado','pago'].includes(c.boletoStatus);
             let boletoHtml = '-';
             if (c.boletoId) {
                 boletoHtml = `<span class="badge ${c.boletoStatus}">${c.boletoStatus}</span>`;
@@ -401,16 +469,24 @@
                         boletoHtml += ` <button class="btn-secondary btn-sm" onclick="copiarLinhaDigitavel('${c.writableLine}')" title="Copiar linha digitável">Copiar</button>`;
                     }
                     boletoHtml += ` <button class="btn-secondary btn-sm" onclick="enviarBoletoEmail(${c.boletoId})" title="Enviar por email">✉</button>`;
+                    boletoHtml += ` <button class="btn-sm" onclick="enviarBoletoWhatsApp(${c.boletoId})" title="Enviar por WhatsApp" style="background:#25d366;color:#fff;border:none;cursor:pointer;font-weight:600;padding:6px 12px;border-radius:6px;font-size:0.8em;">W</button>`;
                     boletoHtml += ` <button class="btn-secondary btn-sm" onclick="consultarBoleto(${c.boletoId})" title="Atualizar status">↻</button>`;
                 } else if (c.boletoStatus === 'pago') {
                     boletoHtml = `<span class="badge paga">pago</span>`;
                 }
             }
+            // Botão gerar boleto para contas abertas/vencidas sem boleto ativo
+            if ((st === 'aberta' || st === 'vencida') && !boletoAtivo) {
+                boletoHtml += ` <button class="btn-primary btn-sm" onclick="gerarBoleto(${c.id})" title="Gerar boleto MercadoPago">Gerar Boleto</button>`;
+            }
 
             let acoes = '';
             if (st === 'aberta' || st === 'vencida') {
                 acoes += `<button class="btn-success btn-sm" onclick="abrirBaixa(${c.id}, ${c.valor})">Baixar</button> `;
+                acoes += `<button class="btn-secondary btn-sm" onclick="abrirAlterarVencimento(${c.id}, '${c.dataVencimento}')" title="Alterar data de vencimento">Vencimento</button> `;
                 acoes += `<button class="btn-danger btn-sm" onclick="cancelarConta(${c.id})">Cancelar</button>`;
+            } else if (st === 'cancelada') {
+                acoes += `<button class="btn-secondary btn-sm" onclick="reabrirConta(${c.id})">Reabrir</button>`;
             }
 
             return `<tr>
@@ -465,6 +541,20 @@
             const data = await resp.json();
             if (!data.success) throw new Error(data.error);
             showAlert('Conta cancelada');
+            carregarContas();
+            carregarResumo();
+        } catch (err) {
+            showAlert('Erro: ' + err.message, 'error');
+        }
+    }
+
+    async function reabrirConta(id) {
+        if (!confirm('Deseja reabrir esta conta a receber?')) return;
+        try {
+            const resp = await fetch(`/api/contas-a-receber/${id}/reabrir`, { method: 'POST' });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            showAlert('Conta reaberta!');
             carregarContas();
             carregarResumo();
         } catch (err) {
@@ -595,6 +685,34 @@
             const data = await resp.json();
             if (!data.success) throw new Error(data.error);
             showAlert(data.message);
+        } catch (err) {
+            showAlert('Erro: ' + err.message, 'error');
+        }
+    }
+
+    async function gerarBoleto(contaId) {
+        try {
+            const resp = await fetch(`/api/contas-a-receber/${contaId}/gerar-boleto`, { method: 'POST' });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+            showAlert(`Boleto ${data.boleto.status === 'registrado' ? 'emitido' : 'criado'}!`);
+            carregarContas();
+        } catch (err) {
+            showAlert('Erro: ' + err.message, 'error');
+        }
+    }
+
+    async function enviarBoletoWhatsApp(boletoId) {
+        try {
+            const resp = await fetch(`/api/boletos/${boletoId}/compartilhar`);
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+
+            let telefone = (data.telefone || '').replace(/\D/g, '');
+            if (telefone && !telefone.startsWith('55')) telefone = '55' + telefone;
+
+            const url = `https://wa.me/${telefone}?text=${encodeURIComponent(data.texto)}`;
+            window.open(url, '_blank');
         } catch (err) {
             showAlert('Erro: ' + err.message, 'error');
         }

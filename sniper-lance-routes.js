@@ -11,6 +11,7 @@
  */
 
 const SniperLance = require('./sniper-lance');
+const { getPuppeteerSession } = require('./puppeteer-session');
 
 // Singleton — sempre inicializado
 const sniper = new SniperLance();
@@ -137,6 +138,10 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   let filaLances = [];  // { id, compraId, itemNumero, valor, faseItem, criadoEm, status }
   let resultadosLances = []; // últimos 50 resultados
+
+  // ==================== FILA DE TAREFAS GENÉRICA (via extensão/browser) ====================
+  let filaTarefas = [];  // { id, tipo, dados, status, criadoEm, processadoEm, resultado }
+  let tarefaIdCounter = 0;
 
   // Cache em memória das disputas recebidas da extensão (declarado aqui para uso no auto-lance)
   let disputasCache = { disputas: [], atualizadoEm: null };
@@ -843,22 +848,25 @@ function registrarRotasSniper(app, monitorGetter, db) {
         return res.status(400).json({ success: false, error: 'compraId, itemNumero e valor obrigatórios' });
       }
 
-      const id = Date.now() + '-' + Math.random().toString(36).substring(2, 6);
-      const lance = {
-        id,
-        compraId,
-        itemNumero: parseInt(itemNumero),
-        valor: parseFloat(valor),
-        faseItem: faseItem || 'LA',
-        criadoEm: new Date().toISOString(),
-        status: 'pendente',
-      };
+      // Tentar enviar via Puppeteer primeiro
+      const result = await executarLanceDireto(compraId, parseInt(itemNumero), parseFloat(valor), faseItem || 'LA', 'browser');
 
-      filaLances.push(lance);
-      console.log(`[Sniper] 🎯 Lance adicionado à fila: ${compraId} item ${itemNumero} R$${valor} (id: ${id})`);
+      if (result.direto) {
+        console.log(`[Sniper] 🎯 Lance direto via Puppeteer: ${compraId} item ${itemNumero} R$${valor}`);
+        sniper.log(`🎯 Lance direto (Puppeteer): ${compraId} item ${itemNumero} R$${parseFloat(valor).toFixed(2)}`);
+        return res.json({
+          success: true,
+          via: 'puppeteer',
+          resultado: result.resultado,
+          message: 'Lance enviado diretamente via Puppeteer',
+        });
+      }
+
+      // Fallback: enfileirado para extensão
+      console.log(`[Sniper] 🎯 Lance na fila: ${compraId} item ${itemNumero} R$${valor} (id: ${result.lanceId})`);
       sniper.log(`🎯 Lance na fila: ${compraId} item ${itemNumero} R$${parseFloat(valor).toFixed(2)}`);
 
-      res.json({ success: true, id, message: 'Lance adicionado à fila. Extensão processará via browser.', fila: filaLances.length });
+      res.json({ success: true, id: result.lanceId, via: 'extensao', message: 'Lance adicionado à fila. Extensão processará via browser.', fila: filaLances.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -994,6 +1002,47 @@ function registrarRotasSniper(app, monitorGetter, db) {
         return res.json({ success: true, totalLances: 0, message: 'Nenhum lance a enviar (já no mínimo ou sem variação)' });
       }
 
+      // Tentar enviar via Puppeteer (direto, sem fila)
+      const ps = getPuppeteerSession();
+      const usarPuppeteer = ps.state === 'logged_in' && ps.tokenEstaFresco();
+
+      if (usarPuppeteer) {
+        // Puppeteer: enviar sequencialmente, direto
+        console.log(`[Sniper] 🚀 BLITZ PUPPETEER: ${compraId} item ${itemNumero} — ${batchLances.length} lances`);
+        logAuto(`🚀 BLITZ PUPPETEER: ${compraId} item ${itemNumero} — ${batchLances.length} lances diretos`);
+
+        const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
+        blitzDisparados[blitzKey] = Date.now();
+
+        // Executar em background (não bloquear response)
+        const resultados = [];
+        setImmediate(async () => {
+          for (const lance of batchLances) {
+            try {
+              const r = await executarLanceDireto(compraId, lance.itemNumero, lance.valor, lance.faseItem, 'blitz-puppeteer');
+              resultados.push({ valor: lance.valor, ...r });
+              if (r.direto && r.resultado && !r.resultado.sucesso && r.resultado.httpStatus === 429) {
+                // Rate limit — esperar antes do próximo
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
+            } catch (e) {
+              resultados.push({ valor: lance.valor, error: e.message });
+            }
+          }
+          liveItem.nossoValor = batchLances[batchLances.length - 1].valor;
+          console.log(`[Sniper] 🚀 BLITZ PUPPETEER concluída: ${resultados.length} lances processados`);
+        });
+
+        return res.json({
+          success: true,
+          totalLances: batchLances.length,
+          via: 'puppeteer',
+          estimativaMs: batchLances.length * 500, // ~500ms direto
+          lances: batchLances.map(l => ({ id: l.id, valor: l.valor, batchIndex: l.batchIndex })),
+        });
+      }
+
+      // Fallback: enfileirar para extensão
       for (const lance of batchLances) {
         filaLances.push(lance);
       }
@@ -1011,6 +1060,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       res.json({
         success: true,
         totalLances: batchLances.length,
+        via: 'extensao',
         estimativaMs,
         lances: batchLances.map(l => ({ id: l.id, valor: l.valor, batchIndex: l.batchIndex })),
       });
@@ -1527,6 +1577,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
   app.get('/api/sniper/fila-status', (req, res) => {
     const sniperStatus = sniper.getStatus();
     const extensaoConectada = !!(ultimoSyncExtensao && (Date.now() - ultimoSyncExtensao) < 5 * 60 * 1000);
+    const ps = getPuppeteerSession();
     res.json({
       success: true,
       fila: filaLances,
@@ -1536,6 +1587,13 @@ function registrarRotasSniper(app, monitorGetter, db) {
       temBearer: sniperStatus.temToken,
       bearerIdade: sniperStatus.tokenIdadeSegundos,
       tokenExpirado: sniperStatus.tokenExpirado,
+      puppeteer: {
+        state: ps.state,
+        loggedIn: ps.state === 'logged_in',
+        bearerFresh: ps.tokenEstaFresco(),
+        bearerAge: ps.bearerTimestamp ? ps.tokenIdadeSegundos() : null,
+        uptime: ps.launchedAt ? Math.floor((Date.now() - new Date(ps.launchedAt).getTime()) / 1000) : null,
+      },
       disputasCache: {
         total: disputasCache.disputas.length,
         atualizadoEm: disputasCache.atualizadoEm,
@@ -3122,10 +3180,314 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
+  // ==================== PUPPETEER SESSION ====================
+
+  const pSession = getPuppeteerSession();
+
+  // Callback: quando Puppeteer captura um Bearer, atualizar o sniper também
+  pSession.onBearerCaptured = (bearer) => {
+    sniper.setToken(bearer, 'puppeteer');
+    console.log('[Sniper] Bearer recebido do Puppeteer');
+  };
+
+  /**
+   * Executa lance diretamente via Puppeteer (sem fila).
+   * Fallback: enfileira para extensão se Puppeteer não estiver disponível.
+   * @returns {{ direto: boolean, resultado?: object, lanceId?: string }}
+   */
+  async function executarLanceDireto(compraId, itemNumero, valor, faseItem, fonte) {
+    const ps = getPuppeteerSession();
+
+    if (ps.state === 'logged_in' && ps.tokenEstaFresco()) {
+      // Execução direta via Puppeteer
+      const inicio = Date.now();
+      try {
+        const resultado = ps.enviarLance(compraId, parseInt(itemNumero), valor, faseItem || 'LA');
+        // Aguardar resultado (pode ser Promise)
+        const res = await resultado;
+        const tempoMs = Date.now() - inicio;
+
+        // Gravar no histórico do banco
+        try {
+          db.prepare(`INSERT INTO sniper_historico
+            (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(compraId, parseInt(itemNumero), valor,
+              res.httpStatus, res.sucesso ? 1 : 0, tempoMs,
+              (res.resposta || '').substring(0, 500),
+              (fonte || 'puppeteer'));
+        } catch (e) { /* ok se tabela não existir */ }
+
+        return { direto: true, resultado: res };
+      } catch (e) {
+        console.log(`[Sniper] Puppeteer lance falhou: ${e.message} — fallback para fila`);
+      }
+    }
+
+    // Fallback: enfileirar para extensão
+    const id = `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const lance = {
+      id, compraId, itemNumero: parseInt(itemNumero),
+      valor: parseFloat(valor), faseItem: faseItem || 'LA',
+      criadoEm: new Date().toISOString(), status: 'pendente',
+      fonte: fonte || 'browser',
+    };
+    filaLances.push(lance);
+    return { direto: false, lanceId: id };
+  }
+
+  // --- Rotas Puppeteer ---
+
+  app.get('/api/puppeteer/status', (req, res) => {
+    try {
+      res.json({ success: true, ...pSession.getStatus() });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post('/api/puppeteer/launch', async (req, res) => {
+    try {
+      const { headless } = req.body || {};
+      const result = await pSession.launch({ headless: headless !== false });
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post('/api/puppeteer/login', async (req, res) => {
+    try {
+      const result = await pSession.login();
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post('/api/puppeteer/close', async (req, res) => {
+    try {
+      const result = await pSession.close();
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.get('/api/puppeteer/logs', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 50;
+      const logs = pSession.logs.slice(-limit);
+      res.json({ success: true, logs });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ==================== TESTE DE CONEXÃO ====================
+
+  /**
+   * GET /api/conexao/status
+   * Retorna status completo de todas as conexões: servidor, extensão, bearer, Comprasnet.
+   */
+  app.get('/api/conexao/status', (req, res) => {
+    try {
+      const sniperStatus = sniper.getStatus();
+      const extensaoConectada = !!(ultimoSyncExtensao && (Date.now() - ultimoSyncExtensao) < 5 * 60 * 1000);
+      const ps = getPuppeteerSession();
+      res.json({
+        success: true,
+        servidor: { online: true, timestamp: new Date().toISOString() },
+        extensao: {
+          conectada: extensaoConectada,
+          ultimoSync: ultimoSyncExtensao ? new Date(ultimoSyncExtensao).toISOString() : null,
+          idadeSegundos: ultimoSyncExtensao ? Math.floor((Date.now() - ultimoSyncExtensao) / 1000) : null,
+        },
+        bearer: {
+          presente: sniperStatus.temToken,
+          fonte: sniperStatus.tokenSource,
+          idade: sniperStatus.tokenIdade,
+          idadeSegundos: sniperStatus.tokenIdadeSegundos,
+          expirado: sniperStatus.tokenExpirado,
+          recebidoEm: sniperStatus.tokenRecebidoEm,
+        },
+        captcha: {
+          presente: sniperStatus.temCaptcha,
+          idade: sniperStatus.captchaIdade,
+        },
+        puppeteer: {
+          state: ps.state,
+          loggedIn: ps.state === 'logged_in',
+        },
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/conexao/testar-comprasnet
+   * Testa a conectividade real com o Comprasnet fazendo um GET /datahorabrasilia.
+   * Opcionalmente testa GET participação de uma compra específica.
+   * Body: { compraId?: string }
+   */
+  app.post('/api/conexao/testar-comprasnet', async (req, res) => {
+    try {
+      if (!sniper.temToken()) {
+        return res.json({ success: false, erro: 'sem_bearer', mensagem: 'Sem Bearer token. Abra o Comprasnet com a extensão Token Relay ativa.' });
+      }
+      if (sniper.tokenExpirado()) {
+        return res.json({ success: false, erro: 'bearer_expirado', mensagem: 'Bearer token expirado. Recarregue o Comprasnet.' });
+      }
+
+      const testes = [];
+
+      // Teste 1: GET /datahorabrasilia (não requer captcha)
+      try {
+        const inicio = Date.now();
+        const { status, data } = await sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia');
+        const tempoMs = Date.now() - inicio;
+        testes.push({
+          nome: 'Data/Hora Brasília',
+          endpoint: '/comprasnet-disputa/v1/datahorabrasilia',
+          status,
+          sucesso: status === 200,
+          tempoMs,
+          resposta: status === 200 ? data : null,
+        });
+      } catch (e) {
+        testes.push({ nome: 'Data/Hora Brasília', sucesso: false, erro: e.message });
+      }
+
+      // Teste 2: Se compraId fornecido, testa GET participação
+      const { compraId } = req.body || {};
+      if (compraId) {
+        try {
+          const inicio = Date.now();
+          const path = `/comprasnet-fase-externa/v1/compras/${compraId}/participacao`;
+          const { status, data } = await sniper.apiGet(path);
+          const tempoMs = Date.now() - inicio;
+          const resumo = status === 200 && data
+            ? { situacao: data.situacaoCompraFaseExterna, fase: data.faseCompraFaseExterna, itens: data.itensParticipacao?.length }
+            : null;
+          testes.push({
+            nome: `Participação (${compraId})`,
+            endpoint: path,
+            status,
+            sucesso: status === 200,
+            tempoMs,
+            resumo,
+            erro: status !== 200 ? (typeof data === 'string' ? data.substring(0, 200) : JSON.stringify(data).substring(0, 200)) : null,
+          });
+        } catch (e) {
+          testes.push({ nome: `Participação (${compraId})`, sucesso: false, erro: e.message });
+        }
+      }
+
+      const todosSucesso = testes.every(t => t.sucesso);
+      res.json({
+        success: true,
+        conectado: todosSucesso,
+        bearerIdade: sniper.idadeTokenSegundos() + 's',
+        testes,
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // ==================== FILA DE TAREFAS GENÉRICA ====================
+
+  /**
+   * POST /api/tarefas/criar
+   * Cria uma tarefa na fila para a extensão executar no browser.
+   * Body: { tipo: 'testar-conexao'|'testar-participacao'|'enviar-proposta', dados: {...} }
+   */
+  app.post('/api/tarefas/criar', (req, res) => {
+    try {
+      const { tipo, dados } = req.body;
+      if (!tipo) return res.status(400).json({ success: false, error: 'tipo obrigatório' });
+
+      const tiposValidos = ['testar-conexao', 'testar-participacao', 'enviar-proposta'];
+      if (!tiposValidos.includes(tipo)) {
+        return res.status(400).json({ success: false, error: `Tipo inválido. Válidos: ${tiposValidos.join(', ')}` });
+      }
+
+      const tarefa = {
+        id: ++tarefaIdCounter,
+        tipo,
+        dados: dados || {},
+        status: 'pendente',
+        criadoEm: new Date().toISOString(),
+        processadoEm: null,
+        resultado: null,
+      };
+      filaTarefas.push(tarefa);
+
+      // Limpar tarefas antigas (> 5 min, já concluídas/falhas)
+      const cincoMinAtras = Date.now() - 5 * 60 * 1000;
+      filaTarefas = filaTarefas.filter(t =>
+        t.status === 'pendente' || t.status === 'processando' ||
+        new Date(t.criadoEm).getTime() > cincoMinAtras
+      );
+
+      console.log(`[Tarefas] Criada tarefa #${tarefa.id} tipo=${tipo}`);
+      res.json({ success: true, id: tarefa.id, status: 'pendente' });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/tarefas/pendentes
+   * Extensão busca tarefas pendentes (como fila-lances).
+   * Marca como 'processando' ao entregar.
+   */
+  app.get('/api/tarefas/pendentes', (req, res) => {
+    const pendentes = filaTarefas.filter(t => t.status === 'pendente');
+    pendentes.forEach(t => { t.status = 'processando'; });
+    res.json({ success: true, tarefas: pendentes, total: filaTarefas.length });
+  });
+
+  /**
+   * POST /api/tarefas/resultado
+   * Extensão reporta resultado de uma tarefa.
+   * Body: { id, sucesso, resultado, erro, tempoMs }
+   */
+  app.post('/api/tarefas/resultado', (req, res) => {
+    try {
+      const { id, sucesso, resultado, erro, tempoMs } = req.body;
+      const tarefa = filaTarefas.find(t => t.id === id);
+      if (!tarefa) return res.status(404).json({ success: false, error: 'Tarefa não encontrada' });
+
+      tarefa.status = sucesso ? 'concluida' : 'falha';
+      tarefa.resultado = resultado || null;
+      tarefa.erro = erro || null;
+      tarefa.tempoMs = tempoMs || null;
+      tarefa.processadoEm = new Date().toISOString();
+
+      console.log(`[Tarefas] Resultado tarefa #${id}: ${tarefa.status} (${tempoMs}ms)`);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/tarefas/:id
+   * Página consulta resultado de uma tarefa.
+   */
+  app.get('/api/tarefas/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const tarefa = filaTarefas.find(t => t.id === id);
+    if (!tarefa) return res.status(404).json({ success: false, error: 'Tarefa não encontrada' });
+    res.json({ success: true, tarefa });
+  });
+
 } // end registrarRotasSniper
 
 function getSniper() {
   return sniper;
 }
 
-module.exports = { registrarRotasSniper, getSniper };
+module.exports = { registrarRotasSniper, getSniper, getPuppeteerSession };

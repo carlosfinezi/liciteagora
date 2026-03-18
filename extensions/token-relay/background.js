@@ -21,7 +21,7 @@ let syncEmExecucao = false;
 let aguardandoNovoBearer = false; // flag: reload feito, esperando novo token
 let ssoMorto = false; // flag: SSO confirmado como morto, parar de tentar até novo bearer
 
-console.log('[LiciteAgora] Service worker v3.15.0 carregado!');
+console.log('[LiciteAgora] Service worker v3.16.0 carregado!');
 
 // Carregar API key do storage ao iniciar
 chrome.storage.local.get('serverApiKey', (d) => {
@@ -1283,6 +1283,7 @@ async function manterSessaoSSO(tabId) {
             status: resp.status,
             ok: resp.ok,
             temToken: !!(data && data.accessToken),
+            accessToken: data && data.accessToken ? data.accessToken : null,
             temNome: !!(data && (data.nome || data.nomeUsuario)),
           };
         } catch (e) {
@@ -1294,19 +1295,29 @@ async function manterSessaoSSO(tabId) {
     var r = result[0]?.result || { status: 0 };
     if (r.ok && (r.temToken || r.temNome)) {
       console.log('[LiciteAgora] 🔒 SSO session OK (HTTP ' + r.status + ', token=' + r.temToken + ')');
-      return true;
+      // Se o endpoint retornou um accessToken, capturar como bearer fresco!
+      if (r.accessToken) {
+        var newBearer = 'Bearer ' + r.accessToken;
+        var data = await load();
+        var stats = data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 };
+        await save({ bearer: newBearer, bearerTimestamp: Date.now(), ultimoEnvio: Date.now() });
+        console.log('[LiciteAgora] 🔑 Bearer renovado via /sessao/fornecedor (proativo)');
+        await enviarTokens(newBearer, data.captcha, stats);
+        try { await serverPost('/api/sniper/log', { tipo: 'sso-retoken', msg: 'Bearer renovado via /sessao/fornecedor (proativo)' }); } catch(e2){}
+      }
+      return { ok: true, bearerRenovado: !!r.accessToken };
     } else if (r.status === 401 || r.status === 403) {
       console.log('[LiciteAgora] ⚠️ SSO morto: HTTP ' + r.status);
-      return false;
+      return { ok: false };
     } else {
       console.log('[LiciteAgora] ⚠️ SSO check: HTTP ' + r.status + ' token=' + r.temToken + ' ' + (r.error || ''));
       // Status desconhecido (404, 500, etc) — NÃO assumir SSO morto, pode ser endpoint indisponível
       // Só 401/403 confirma SSO morto
-      return true;
+      return { ok: true, bearerRenovado: false };
     }
   } catch (e) {
     console.log('[LiciteAgora] ⚠️ SSO check erro:', e.message);
-    return false;
+    return { ok: false };
   }
 }
 
@@ -1338,9 +1349,10 @@ async function executarKeepalive() {
   console.log('[LiciteAgora] 🔄 Keepalive: bearer com ' + Math.floor(idadeBearerMs/1000) + 's');
 
   // ---- PASSO 1: Manter sessão SSO (cookies do comprasnet-web) ----
-  var ssoOk = await manterSessaoSSO(tab.id);
+  // manterSessaoSSO agora retorna { ok, bearerRenovado } e já salva o bearer se obteve accessToken
+  var ssoResult = await manterSessaoSSO(tab.id);
 
-  if (!ssoOk) {
+  if (!ssoResult.ok) {
     // SSO morto — tentar uma vez navegar para entry point
     console.log('[LiciteAgora] ⚠️ SSO falhou — tentando recuperar via navegação...');
 
@@ -1353,6 +1365,12 @@ async function executarKeepalive() {
       await save({ ultimoErro: 'Sessão SSO expirada — faça login no Comprasnet' });
       console.log('[LiciteAgora] 🛑 SSO confirmado morto — aguardando login manual. Keepalive/sync pausados.');
     }
+    return;
+  }
+
+  // Se o SSO já renovou o bearer proativamente, pular o teste de bearer
+  if (ssoResult.bearerRenovado) {
+    console.log('[LiciteAgora] ✅ Keepalive OK (bearer renovado proativamente via SSO)');
     return;
   }
 
@@ -1410,11 +1428,29 @@ async function executarKeepalive() {
   }
 
   // ---- PASSO 2: Manter token Bearer (chamar API para manter vivo no servidor) ----
-  // Chamamos /datahorabrasilia com o bearer para manter a sessão ativa.
-  // Só reagimos se o servidor recusar (401/403 = bearer morto).
+  // Recarregar data pois manterSessaoSSO pode ter atualizado o bearer
+  data = await load();
   var idadeToken = Date.now() - (data.bearerTimestamp || data.ultimoEnvio || 0);
   var stats = data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 };
 
+  // Retoken proativo: se bearer tem mais de 5 min, renovar ANTES que expire
+  if (idadeToken > 300000) { // 5 min
+    console.log('[LiciteAgora] 🔄 Bearer com ' + Math.floor(idadeToken/1000) + 's — retoken proativo');
+    var proactiveRetoken = await comprasnetRetoken(tab.id, data.bearer);
+    if (proactiveRetoken.status === 200 && proactiveRetoken.data && proactiveRetoken.data.accessToken) {
+      var newBearer = 'Bearer ' + proactiveRetoken.data.accessToken;
+      await save({ bearer: newBearer, bearerTimestamp: Date.now(), ultimoEnvio: Date.now() });
+      console.log('[LiciteAgora] ✅ Retoken proativo OK! Bearer renovado');
+      await enviarTokens(newBearer, data.captcha, stats);
+      try { await serverPost('/api/sniper/log', { tipo: 'retoken-proativo', msg: 'Retoken proativo OK — bearer renovado com ' + Math.floor(idadeToken/1000) + 's' }); } catch(e3){}
+      return;
+    } else {
+      console.log('[LiciteAgora] ⚠️ Retoken proativo falhou (HTTP ' + proactiveRetoken.status + ') — continuando com bearer atual');
+    }
+  }
+
+  // Chamamos /datahorabrasilia com o bearer para manter a sessão ativa.
+  // Só reagimos se o servidor recusar (401/403 = bearer morto).
   var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
 
   if (result.status === 200) {
@@ -1509,6 +1545,7 @@ function agendarProximoPoll() {
   lancesPollTimer = setTimeout(function() {
     processarFilaLances();
     processarFilaQueries();
+    processarFilaTarefas();
   }, lancesPollInterval);
 }
 
@@ -1799,6 +1836,156 @@ async function processarFilaQueries() {
   } catch (e) {
     // Silently skip
   }
+}
+
+// ==================== FILA DE TAREFAS GENÉRICA (testar conexão, participação, proposta) ====================
+
+var tarefasEmProcessamento = false;
+
+async function processarFilaTarefas() {
+  if (tarefasEmProcessamento) return;
+  tarefasEmProcessamento = true;
+
+  try {
+    var resp = await fetch(SERVER_URL + '/api/tarefas/pendentes', { headers: serverHeaders() });
+    if (!resp.ok) { tarefasEmProcessamento = false; return; }
+    var fila = await resp.json();
+    if (!fila.success || !fila.tarefas || fila.tarefas.length === 0) { tarefasEmProcessamento = false; return; }
+
+    var data = await load();
+    if (!data.bearer) {
+      // Reportar erro para todas as tarefas
+      for (var t of fila.tarefas) {
+        await serverPost('/api/tarefas/resultado', { id: t.id, sucesso: false, erro: 'Sem Bearer token na extensão' });
+      }
+      tarefasEmProcessamento = false;
+      return;
+    }
+
+    var tab = await findComprasnetTab();
+    if (!tab) {
+      for (var t of fila.tarefas) {
+        await serverPost('/api/tarefas/resultado', { id: t.id, sucesso: false, erro: 'Nenhuma aba do Comprasnet encontrada' });
+      }
+      tarefasEmProcessamento = false;
+      return;
+    }
+
+    for (var tarefa of fila.tarefas) {
+      console.log('[LiciteAgora] Processando tarefa #' + tarefa.id + ' tipo=' + tarefa.tipo);
+      var inicio = Date.now();
+
+      try {
+        if (tarefa.tipo === 'testar-conexao') {
+          var result = await comprasnetFetch(tab.id, '/comprasnet-disputa/v1/datahorabrasilia', data.bearer);
+          var tempoMs = Date.now() - inicio;
+          var sucesso = result.status === 200;
+          await serverPost('/api/tarefas/resultado', {
+            id: tarefa.id,
+            sucesso: sucesso,
+            resultado: { status: result.status, data: result.data, hasCaptcha: result.hasCaptcha },
+            erro: sucesso ? null : ('HTTP ' + result.status + (result.error ? ': ' + result.error : '')),
+            tempoMs: tempoMs,
+          });
+
+        } else if (tarefa.tipo === 'testar-participacao') {
+          var compraId = tarefa.dados.compraId;
+          if (!compraId) {
+            await serverPost('/api/tarefas/resultado', { id: tarefa.id, sucesso: false, erro: 'compraId não informado' });
+            continue;
+          }
+          var result = await comprasnetFetch(tab.id, '/comprasnet-fase-externa/v1/compras/' + compraId + '/participacao', data.bearer);
+          var tempoMs = Date.now() - inicio;
+          var sucesso = result.status === 200;
+          var resumo = null;
+          if (sucesso && result.data) {
+            resumo = {
+              situacao: result.data.situacaoCompraFaseExterna,
+              fase: result.data.faseCompraFaseExterna,
+              itens: result.data.itensParticipacao ? result.data.itensParticipacao.length : null,
+            };
+          }
+          await serverPost('/api/tarefas/resultado', {
+            id: tarefa.id,
+            sucesso: sucesso,
+            resultado: { status: result.status, resumo: resumo, data: sucesso ? undefined : result.data },
+            erro: sucesso ? null : ('HTTP ' + result.status + (result.error ? ': ' + result.error : '')),
+            tempoMs: tempoMs,
+          });
+
+        } else if (tarefa.tipo === 'enviar-proposta') {
+          var compraId = tarefa.dados.compraId;
+          var itens = tarefa.dados.itens; // [{ numero, valor, quantidade }]
+          if (!compraId || !itens || itens.length === 0) {
+            await serverPost('/api/tarefas/resultado', { id: tarefa.id, sucesso: false, erro: 'compraId e itens obrigatórios' });
+            continue;
+          }
+
+          var resultados = [];
+          var todosSucesso = true;
+
+          // Step 1: Declarações (equidade de gênero, etc.) — POST participação
+          try {
+            var declPath = '/comprasnet-fase-externa/v1/compras/' + compraId + '/participacao';
+            var declBody = { declaracaoEquidadeGenero: null };
+            var declResult = await comprasnetPost(tab.id, declPath, data.bearer, declBody);
+            resultados.push({ etapa: 'declaracao', status: declResult.status, sucesso: declResult.status === 200 || declResult.status === 201 });
+            if (declResult.status !== 200 && declResult.status !== 201) {
+              // Pode ser que já existe participação — tentar PUT
+              var declResult2 = await comprasnetFetch(tab.id, declPath, data.bearer);
+              if (declResult2.status !== 200) {
+                todosSucesso = false;
+              }
+            }
+          } catch (e) {
+            resultados.push({ etapa: 'declaracao', erro: e.message, sucesso: false });
+            todosSucesso = false;
+          }
+
+          // Step 2: Enviar proposta para cada item
+          for (var item of itens) {
+            try {
+              var itemPath = '/comprasnet-fase-externa/v1/compras/' + compraId + '/itens/' + item.numero + '/proposta';
+              var itemBody = {
+                valorUnitario: item.valor,
+                quantidade: item.quantidade || 1,
+              };
+              var itemResult = await comprasnetPost(tab.id, itemPath, data.bearer, itemBody);
+              var itemSucesso = itemResult.status === 200 || itemResult.status === 201;
+              resultados.push({
+                etapa: 'proposta-item-' + item.numero,
+                status: itemResult.status,
+                sucesso: itemSucesso,
+                resposta: itemResult.data,
+              });
+              if (!itemSucesso) todosSucesso = false;
+            } catch (e) {
+              resultados.push({ etapa: 'proposta-item-' + item.numero, erro: e.message, sucesso: false });
+              todosSucesso = false;
+            }
+          }
+
+          var tempoMs = Date.now() - inicio;
+          await serverPost('/api/tarefas/resultado', {
+            id: tarefa.id,
+            sucesso: todosSucesso,
+            resultado: { resultados: resultados, sucessos: resultados.filter(function(r) { return r.sucesso; }).length, total: resultados.length },
+            erro: todosSucesso ? null : 'Uma ou mais etapas falharam',
+            tempoMs: tempoMs,
+          });
+
+        } else {
+          await serverPost('/api/tarefas/resultado', { id: tarefa.id, sucesso: false, erro: 'Tipo desconhecido: ' + tarefa.tipo });
+        }
+      } catch (e) {
+        console.error('[LiciteAgora] Erro na tarefa #' + tarefa.id + ':', e.message);
+        await serverPost('/api/tarefas/resultado', { id: tarefa.id, sucesso: false, erro: e.message, tempoMs: Date.now() - inicio });
+      }
+    }
+  } catch (e) {
+    // Silently skip if server not reachable
+  }
+  tarefasEmProcessamento = false;
 }
 
 // ==================== POPUP MESSAGES ====================

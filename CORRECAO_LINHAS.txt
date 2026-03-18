@@ -1,0 +1,35 @@
+===============================================
+CORREÇÃO URGENTE - Linhas 50-51 estão corrompidas
+===============================================
+
+PROBLEMA ATUAL (linhas 50-51):
+        const cpfField = await page. || await page.;
+        const senhaField = await page. || await page.;
+
+SUBSTITUIR POR:
+
+        // Tentar múltiplos seletores para CPF
+        let cpfField = null;
+        const cpfSelectors = ['input#login-certificate', 'input[name="cpf"]', 'input#cpf', 'input[type="text"]'];
+        for (const sel of cpfSelectors) {
+            cpfField = await page.$(sel);
+            if (cpfField) break;
+        }
+
+        // Tentar múltiplos seletores para senha
+        let senhaField = null;
+        const senhaSelectors = ['input#login-password', 'input[name="password"]', 'input[type="password"]'];
+        for (const sel of senhaSelectors) {
+            senhaField = await page.$(sel);
+            if (senhaField) break;
+        }
+
+NOTA: Remover a barra invertida antes do $ quando copiar!
+O correto é: await page.$(sel)  →  await page.
+
+===============================================
+
+ARQUIVO COMPLETO DE REFERÊNCIA:
+Ver: C:\Users\Carlos Eduardo\comprasnet-login-routes-NEW.js
+
+===============================================

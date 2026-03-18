@@ -17,11 +17,12 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth } = require('./auth');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
-const { registrarRotasSniper, getSniper } = require('./sniper-lance-routes');
+const { registrarRotasSniper, getSniper, getPuppeteerSession } = require('./sniper-lance-routes');
 const { registrarRotasNfse } = require('./nfse-routes');
 const { registrarRotasFinanceiro, agendarPollingBoletos } = require('./financeiro-routes');
 const { registrarRotasRecorrencia } = require('./recorrencia-routes');
 const { agendarRecorrencias } = require('./recorrencia-scheduler');
+const comprasnetLoginRoutes = require('./comprasnet-login-routes');
 
 // Armazenar instâncias de monitoramento ativas
 const monitoramentosAtivos = new Map();
@@ -936,8 +937,8 @@ async function sincronizarCompleta(diasAtras = 30, diasFrente = 7) {
 
     console.log(`[SYNC COMPLETA] Concluída: ${syncStatus.licitacoesCount} licitações, ${syncStatus.itensCount} novos itens`);
 
-    // Dispara análise IA em background após sync
-    dispararAnaliseIA();
+    // Auto-análise desabilitada — apenas sob demanda via botão na UI
+    // dispararAnaliseIA();
 
     return true;
   } catch (err) {
@@ -1038,8 +1039,8 @@ async function sincronizarIncremental() {
       setTimeout(() => verificarECorrigirLacunas(3), 5000);
     }
 
-    // Dispara análise IA em background após sync
-    dispararAnaliseIA();
+    // Auto-análise desabilitada — apenas sob demanda via botão na UI
+    // dispararAnaliseIA();
 
     return true;
   } catch (err) {
@@ -1149,6 +1150,65 @@ app.post('/api/logout', (req, res) => {
   } else {
     res.json({ success: true });
   }
+});
+
+// ==================== DOWNLOAD PÚBLICO (antes do auth) ====================
+app.get('/download/:file', (req, res) => {
+  const allowed = ['LiciteAgora-Browser-win.zip'];
+  if (!allowed.includes(req.params.file)) return res.status(404).end();
+  const filePath = path.join(__dirname, 'electron-standalone', 'dist', req.params.file);
+  if (!require('fs').existsSync(filePath)) return res.status(404).json({ error: 'Arquivo não encontrado' });
+  res.download(filePath);
+});
+
+// ==================== COMPRASNET AUTO-LOGIN (Público - antes do auth) ====================
+app.use('/api/comprasnet', comprasnetLoginRoutes);
+// ─── Endpoint para Electron remoto buscar credenciais ──────────────────────
+app.get('/api/electron/credentials', (req, res) => {
+  try {
+    const cpf = db.prepare("SELECT valor FROM config WHERE chave = 'govbr_cpf'").get();
+    const senha = db.prepare("SELECT valor FROM config WHERE chave = 'govbr_senha'").get();
+    const key = db.prepare("SELECT valor FROM config WHERE chave = 'api_key'").get();
+    if (!cpf || !senha) return res.json({ error: 'Credenciais não configuradas' });
+    res.json({ cpf: cpf.valor, senha: senha.valor, apiKey: key ? key.valor : null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Logs do Electron remoto (tempo real) ──────────────────────────────────
+const electronState = { logs: [], state: 'offline', bearerAge: null, lastSeen: null };
+const ELECTRON_LOG_MAX = 500;
+
+app.post('/api/electron/logs', (req, res) => {
+  const key = req.headers['x-api-key'];
+  if (key !== apiKey) return res.status(401).json({ error: 'API key inválida' });
+  const { logs, state: elState, bearerAge } = req.body || {};
+  if (Array.isArray(logs)) {
+    electronState.logs.push(...logs);
+    if (electronState.logs.length > ELECTRON_LOG_MAX) {
+      electronState.logs = electronState.logs.slice(-ELECTRON_LOG_MAX);
+    }
+  }
+  if (elState) electronState.state = elState;
+  if (bearerAge !== undefined) electronState.bearerAge = bearerAge;
+  electronState.lastSeen = new Date().toISOString();
+  res.json({ ok: true });
+});
+
+app.get('/api/electron/status', (req, res) => {
+  const key = req.headers['x-api-key'];
+  if (key !== apiKey) return res.status(401).json({ error: 'API key inválida' });
+  const since = req.query.since ? new Date(req.query.since).toISOString() : null;
+  let logs = electronState.logs;
+  if (since) logs = logs.filter(l => l.time > since);
+  res.json({
+    state: electronState.state,
+    bearerAge: electronState.bearerAge,
+    lastSeen: electronState.lastSeen,
+    logCount: electronState.logs.length,
+    logs,
+  });
 });
 
 // Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
@@ -2579,6 +2639,24 @@ app.get('/api/sem-interesse', (req, res) => {
   }
 });
 
+// Listar licitações sem interesse com dados completos
+app.get('/api/sem-interesse/detalhado', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT s.cnpj, s.ano, s.sequencial, s.motivo, s.dataCriacao,
+        l.objetoCompra, l.nomeUnidade, l.razaoSocial, l.ufSigla, l.municipioNome,
+        l.valorTotalEstimado, l.dataEncerramentoProposta, l.modalidadeNome,
+        l.situacaoCompraNome, l.linkSistemaOrigem, l.numeroCompra
+      FROM sem_interesse s
+      LEFT JOIN licitacoes l ON s.cnpj = l.cnpj AND s.ano = l.anoCompra AND s.sequencial = l.sequencialCompra
+      ORDER BY s.dataCriacao DESC
+    `).all();
+    res.json({ success: true, licitacoes: rows, total: rows.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 /**
  * Endpoints do Robô de Lances
  */
@@ -3414,7 +3492,6 @@ registrarRotasFinanceiro(app, db);
 
 // ==================== RECORRENCIAS NFSE ====================
 registrarRotasRecorrencia(app, db);
-
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
@@ -9749,8 +9826,7 @@ app.post('/api/config/server-url', (req, res) => {
 
 // ==================== FIM CONFIG URL DO SERVIDOR ====================
 
-// ==================== ANÁLISE IA ====================
-const { analisarLicitacao, processarFilaAnalise } = require('./analise-ia');
+// ==================== ANÁLISE IA (rotas) ====================
 
 // Retorna a análise IA de uma licitação específica
 app.get('/api/licitacoes/:cnpj/:ano/:sequencial/analise', (req, res) => {
@@ -9758,7 +9834,7 @@ app.get('/api/licitacoes/:cnpj/:ano/:sequencial/analise', (req, res) => {
     const { cnpj, ano, sequencial } = req.params;
     const analise = db.prepare(`
       SELECT * FROM licitacao_analise
-      WHERE cnpj = ? AND ano = ? AND sequencial = ?
+      WHERE cnpj = ? AND ano = ? AND sequencial = ? AND resumo != 'ignorada'
     `).get(cnpj, parseInt(ano), parseInt(sequencial));
 
     if (!analise) {
@@ -10262,7 +10338,7 @@ app.get('/api/licitacoes/:cnpj/:sequencial/:ano/analise', (req, res) => {
     const { cnpj, sequencial, ano } = req.params;
     const analise = db.prepare(`
       SELECT * FROM licitacao_analise
-      WHERE cnpj = ? AND ano = ? AND sequencial = ?
+      WHERE cnpj = ? AND ano = ? AND sequencial = ? AND resumo != 'ignorada'
     `).get(cnpj, parseInt(ano), parseInt(sequencial));
 
     if (!analise) return res.json({ analise: null, pendente: true });
@@ -10285,8 +10361,10 @@ app.get('/api/licitacoes/:cnpj/:sequencial/:ano/analise', (req, res) => {
 app.post('/api/licitacoes/:cnpj/:sequencial/:ano/analisar', async (req, res) => {
   try {
     const { cnpj, sequencial, ano } = req.params;
-    const apiKey = getConfigValue('anthropic_api_key');
-    if (!apiKey) return res.status(400).json({ error: 'Chave Anthropic não configurada. Acesse Configurações > IA.' });
+    const anthropicKey = getConfigValue('anthropic_api_key');
+    const geminiKey = getConfigValue('gemini_api_key');
+    if (!anthropicKey && !geminiKey) return res.status(400).json({ error: 'Nenhuma chave de IA configurada. Acesse Configurações > IA.' });
+    const keys = { anthropic: anthropicKey, gemini: geminiKey };
 
     const lic = db.prepare('SELECT * FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?')
       .get(cnpj, parseInt(ano), parseInt(sequencial));
@@ -10296,8 +10374,7 @@ app.post('/api/licitacoes/:cnpj/:sequencial/:ano/analisar', async (req, res) => 
     db.prepare('DELETE FROM licitacao_analise WHERE cnpj = ? AND ano = ? AND sequencial = ?')
       .run(cnpj, parseInt(ano), parseInt(sequencial));
 
-    const itens = db.prepare('SELECT * FROM itens WHERE numeroControlePNCP = ?').all(lic.numeroControlePNCP);
-    const resultado = await analisarLicitacao(db, apiKey, lic, itens);
+    const resultado = await analisarLicitacao(db, cnpj, parseInt(ano), parseInt(sequencial), keys);
 
     if (!resultado) return res.status(500).json({ error: 'Falha na análise. Verifique o log do servidor.' });
 
@@ -10343,6 +10420,75 @@ app.get('/api/analise/stats', (req, res) => {
   res.json({ total, analisadas, pendentes: total - analisadas, alta, chaveConfigurada });
 });
 
+
+// Lista todas as análises IA com dados da licitação
+app.get('/api/analise/lista', (req, res) => {
+  try {
+    const { segmento, complexidade, scoreMin, scoreMax, busca, ordem, pagina = 1, limite = 50 } = req.query;
+    const params = [];
+    const where = ["a.resumo != 'ignorada'"];
+
+    if (segmento) { where.push('a.segmento = ?'); params.push(segmento); }
+    if (complexidade) { where.push('a.complexidade = ?'); params.push(complexidade); }
+    if (scoreMin) { where.push('a.viabilidade_score >= ?'); params.push(Number(scoreMin)); }
+    if (scoreMax) { where.push('a.viabilidade_score <= ?'); params.push(Number(scoreMax)); }
+    if (busca) { where.push('(a.resumo LIKE ? OR l.objetoCompra LIKE ? OR l.nomeUnidade LIKE ?)'); params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`); }
+
+    const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    let orderBy = 'a.dataAnalise DESC';
+    if (ordem === 'score_desc') orderBy = 'a.viabilidade_score DESC';
+    if (ordem === 'score_asc') orderBy = 'a.viabilidade_score ASC';
+    if (ordem === 'data_asc') orderBy = 'a.dataAnalise ASC';
+    if (ordem === 'encerramento') orderBy = 'l.dataEncerramentoProposta ASC';
+    if (ordem === 'valor_desc') orderBy = 'l.valorTotalEstimado DESC';
+
+    const offset = (Number(pagina) - 1) * Number(limite);
+
+    const totalRow = db.prepare(`
+      SELECT COUNT(*) as total FROM licitacao_analise a
+      LEFT JOIN licitacoes l ON a.cnpj = l.cnpj AND a.ano = l.anoCompra AND a.sequencial = l.sequencialCompra
+      ${whereClause}
+    `).get(...params);
+
+    const rows = db.prepare(`
+      SELECT
+        a.*,
+        l.objetoCompra, l.nomeUnidade, l.ufSigla, l.municipioNome,
+        l.valorTotalEstimado, l.dataEncerramentoProposta, l.dataPublicacaoPncp,
+        l.modalidadeNome, l.situacaoCompraNome, l.linkSistemaOrigem,
+        l.numeroControlePNCP
+      FROM licitacao_analise a
+      LEFT JOIN licitacoes l ON a.cnpj = l.cnpj AND a.ano = l.anoCompra AND a.sequencial = l.sequencialCompra
+      ${whereClause}
+      ORDER BY ${orderBy}
+      LIMIT ? OFFSET ?
+    `).all(...params, Number(limite), offset);
+
+    // Parse JSON fields
+    for (const r of rows) {
+      try { r.itens_destaque = JSON.parse(r.itens_destaque || '[]'); } catch { r.itens_destaque = []; }
+      try { r.requisitos = JSON.parse(r.requisitos || '[]'); } catch { r.requisitos = []; }
+      try { r.atencao = JSON.parse(r.atencao || '[]'); } catch { r.atencao = []; }
+      try { r.arquivos_info = JSON.parse(r.arquivos_info || '[]'); } catch { r.arquivos_info = []; }
+    }
+
+    // Segmentos distintos para filtro
+    const segmentos = db.prepare('SELECT DISTINCT segmento FROM licitacao_analise WHERE segmento IS NOT NULL ORDER BY segmento').all().map(r => r.segmento);
+
+    res.json({
+      success: true,
+      total: totalRow.total,
+      pagina: Number(pagina),
+      limite: Number(limite),
+      segmentos,
+      analises: rows
+    });
+  } catch (error) {
+    console.error('[API] Erro ao listar análises:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);

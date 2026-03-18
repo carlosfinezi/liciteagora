@@ -1,0 +1,93 @@
+============================================================
+  LiciteAgora Electron Browser — Teste de hCaptcha
+============================================================
+
+OBJETIVO:
+  Testar se o hCaptcha passa automaticamente (invisible)
+  quando rodando de um IP residencial vs IP de datacenter.
+
+REQUISITOS:
+  - Node.js 18+ instalado (https://nodejs.org)
+  - Windows 10/11, macOS ou Linux com interface grafica
+
+============================================================
+  INSTALACAO (rodar no terminal/cmd)
+============================================================
+
+  1. Copiar esta pasta para seu computador
+
+  2. Abrir terminal na pasta e instalar:
+     npm install
+
+  3. Executar:
+     npm start
+
+============================================================
+  O QUE VAI ACONTECER
+============================================================
+
+  - Abre uma janela de navegador (Chromium/Electron)
+  - Navega automaticamente para o portal Comprasnet
+  - Voce pode navegar manualmente pela barra de URL
+
+============================================================
+  TESTE DO hCAPTCHA
+============================================================
+
+  TESTE MANUAL (mais simples):
+    1. Na barra de URL, va para:
+       https://comprasnet.gov.br/seguro/loginPortal.asp
+    2. Clique "Fornecedor Brasileiro"
+    3. Clique "Entrar com Gov.br"
+    4. Digite seu CPF e clique "Continuar"
+    5. OBSERVE: o hCaptcha aparece como challenge visual
+       (selecionar imagens) ou passa automaticamente?
+
+  TESTE VIA API (automatizado):
+    Com o Electron aberto, abra OUTRO terminal e execute:
+
+    curl -X POST http://localhost:9500/login ^
+      -H "Content-Type: application/json" ^
+      -d "{\"cpf\":\"SEU_CPF_AQUI\",\"senha\":\"SUA_SENHA\"}"
+
+    Acompanhe o progresso:
+    curl http://localhost:9500/status
+
+============================================================
+  RESULTADOS ESPERADOS
+============================================================
+
+  SE hCaptcha PASSAR AUTOMATICO (sem challenge visual):
+    -> Problema confirmado: IP do servidor esta sendo
+       bloqueado pelo hCaptcha. Solucao: proxy residencial
+       ou AntiCaptcha.
+
+  SE hCaptcha MOSTRAR CHALLENGE (selecionar imagens):
+    -> Problema NAO e so o IP. O hCaptcha detecta algo
+       no Electron tambem. Solucao: AntiCaptcha.
+
+============================================================
+  ENDPOINTS DA API LOCAL (porta 9500)
+============================================================
+
+  GET  /status     — estado da sessao
+  GET  /bearer     — token atual
+  GET  /api-log    — ultimas requisicoes
+  POST /login      — login automatico {cpf, senha}
+  POST /navigate   — navegar para URL {url}
+  POST /fetch      — executar fetch no contexto do browser
+  POST /exec       — executar JS no webview {js}
+  POST /reload     — recarregar pagina
+
+============================================================
+  NOTAS
+============================================================
+
+  - O Electron roda como Chromium REAL (nao headless)
+  - Sem navigator.webdriver, sem flags de automacao
+  - Perfil persistente em .electron-profile/
+  - Se fechar e abrir de novo, cookies sao mantidos
+  - Bearer token e capturado automaticamente quando logado
+  - Keepalive automatico a cada 60s apos login
+
+============================================================

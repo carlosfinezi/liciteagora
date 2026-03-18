@@ -214,9 +214,7 @@ function construirDPS(dados) {
   xml += `</locPrest>`;
   xml += `<cServ>`;
   xml += `<cTribNac>${escapeXml(servico.codigoTributacaoNacional)}</cTribNac>`;
-  if (servico.codigoListaServico) {
-    xml += `<cTribMun>${escapeXml(servico.codigoListaServico)}</cTribMun>`;
-  }
+  xml += `<cTribMun>${escapeXml(servico.codigoListaServico || '001')}</cTribMun>`;
   xml += `<xDescServ>${escapeXml(servico.descricao)}</xDescServ>`;
   xml += `</cServ>`;
   xml += `</serv>`;
@@ -238,14 +236,16 @@ function construirDPS(dados) {
   xml += `<tpRetISSQN>${servico.tpRetISSQN || 1}</tpRetISSQN>`; // 1=Não retido
   xml += `</tribMun>`;
 
+  // tribFed (PIS/COFINS para Simples Nacional)
+  if ((prestador.opSimpNac || 1) >= 2) {
+    xml += `<tribFed><piscofins><CST>00</CST></piscofins></tribFed>`;
+  }
+
   // totTrib (obrigatório)
   xml += `<totTrib>`;
-  if ((prestador.opSimpNac || 1) >= 2 && dados.pTotTribSN) {
-    // Optante SN: informar alíquota SN em vez de indTotTrib
-    xml += `<pTotTribSN>${Number(dados.pTotTribSN).toFixed(2)}</pTotTribSN>`;
-  } else if ((prestador.opSimpNac || 1) >= 2) {
-    // Optante SN sem alíquota informada
-    xml += `<indTotTrib>0</indTotTrib>`; // 0 = Não informar valor estimado
+  if ((prestador.opSimpNac || 1) >= 2) {
+    // Optante SN: informar alíquota SN (indTotTrib não permitido para ME/EPP)
+    xml += `<pTotTribSN>${Number(dados.pTotTribSN || 6.00).toFixed(2)}</pTotTribSN>`;
   } else {
     xml += `<indTotTrib>0</indTotTrib>`; // 0 = Não informar valor estimado
   }

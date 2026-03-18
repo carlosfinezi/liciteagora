@@ -1,0 +1,62 @@
+===========================================
+GUIA DE IMPLEMENTAÇÃO - ComprasNet Auto-Login
+===========================================
+
+MUDANÇAS NECESSÁRIAS:
+
+1. Mudar URL de login (linha ~11):
+   ANTES: const COMPRASNET_LOGIN_URL = 'https://cnetmobile.estaleiro.serpro.gov.br/...';
+   DEPOIS: const SSO_LOGIN_URL = 'https://sso.acesso.gov.br/login?client_id=comprasnet.gov.br';
+
+2. Mudar headless mode (linha ~97):
+   ANTES: headless: true,
+   DEPOIS: headless: 'new',
+
+3. Atualizar referência da URL (linha ~112):
+   ANTES: await page.goto(COMPRASNET_LOGIN_URL, {
+   DEPOIS: await page.goto(SSO_LOGIN_URL, {
+
+4. ADICIONAR após page.goto (linha ~112):
+   // hCaptcha invisible bypass
+   console.log('[Login] Waiting for hCaptcha invisible bypass...');
+   try {
+       await page.waitForFunction(() => {
+           return window.hcaptcha !== undefined;
+       }, { timeout: 15000 });
+       console.log('[Login] ✅ hCaptcha detected and ready');
+   } catch (e) {
+       console.log('[Login] hCaptcha not found or already passed');
+   }
+   await new Promise(resolve => setTimeout(resolve, 5000));
+   console.log('[Login] ✅ hCaptcha should have auto-resolved');
+
+5. Atualizar seletores CPF (opcional):
+   const cpfSelectors = [
+       'input#login-certificate',    // SSO Gov.br
+       'input[name="cpf"]',
+       'input#cpf',
+       'input[type="text"]'
+   ];
+
+6. Atualizar seletores senha (opcional):
+   const senhaSelectors = [
+       'input#login-password',        // SSO Gov.br
+       'input[name="senha"]',
+       'input[name="password"]',
+       'input[type="password"]'
+   ];
+
+COMO EDITAR:
+1. Fazer backup: cp comprasnet-login-routes.js comprasnet-login-routes.js.backup
+2. Editar: nano comprasnet-login-routes.js
+3. Verificar sintaxe: node -c comprasnet-login-routes.js
+4. Restart: pkill -f 'node.*server.js' && cd /home/carlosfinezi/web/liciteagora.com.br/private && nohup node server.js > server.log 2>&1 &
+
+TESTAR:
+curl -X POST http://localhost:3333/api/comprasnet/auto-login -H 'Content-Type: application/json' -d '{"cpf":"19884430000","senha":"Lombardi6392"}' -v
+
+VER LOGS:
+tail -f /home/carlosfinezi/web/liciteagora.com.br/private/server.log
+
+Arquivo completo de referência disponível em:
+C:\Users\Carlos Eduardo\comprasnet-login-routes-NEW.js

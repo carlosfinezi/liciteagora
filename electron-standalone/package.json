@@ -1,0 +1,39 @@
+{
+  "name": "liciteagora-electron",
+  "version": "1.0.0",
+  "description": "Browser CEF para Comprasnet — login + sync + lances",
+  "main": "electron-browser.js",
+  "scripts": {
+    "start": "electron --no-sandbox electron-browser.js",
+    "build:win": "electron-builder --win --x64",
+    "build:linux": "electron-builder --linux --x64"
+  },
+  "build": {
+    "appId": "com.liciteagora.electron",
+    "productName": "LiciteAgora Browser",
+    "files": [
+      "electron-browser.js",
+      "electron-nav.html",
+      "token-manager.js",
+      "store.js",
+      "comprasnet-api.js",
+      "server-sync.js",
+      "lance-processor.js",
+      "INSTRUCOES.txt"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "portable": {
+      "artifactName": "LiciteAgora-Browser.exe"
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^41.0.2",
+    "electron-builder": "^26.0.0"
+  }
+}

@@ -298,14 +298,14 @@ function registrarRotasFinanceiro(app, db) {
 
   app.get('/api/contas-a-receber', (req, res) => {
     try {
-      const { status, pessoaId, dataInicio, dataFim } = req.query;
+      const { status, pessoaId, dataInicio, dataFim, busca } = req.query;
       let sql = `SELECT c.*,
         CASE WHEN c.status='aberta' AND c.dataVencimento < date('now') THEN 'vencida' ELSE c.status END AS statusReal,
         p.razaoSocial AS pessoaNome, p.cpfCnpj AS pessoaCpfCnpj,
         b.id AS boletoId, b.status AS boletoStatus, b.barcode, b.writableLine, b.externalUrl
         FROM contas_a_receber c
         JOIN pessoas p ON p.id = c.pessoaId
-        LEFT JOIN boletos b ON b.contaReceberId = c.id
+        LEFT JOIN boletos b ON b.contaReceberId = c.id AND b.id = (SELECT MAX(b2.id) FROM boletos b2 WHERE b2.contaReceberId = c.id)
         WHERE 1=1`;
       const params = [];
 
@@ -320,6 +320,7 @@ function registrarRotasFinanceiro(app, db) {
       if (pessoaId) { sql += ' AND c.pessoaId = ?'; params.push(pessoaId); }
       if (dataInicio) { sql += ' AND c.dataVencimento >= ?'; params.push(dataInicio); }
       if (dataFim) { sql += ' AND c.dataVencimento <= ?'; params.push(dataFim); }
+      if (busca) { sql += ' AND (p.razaoSocial LIKE ? OR p.cpfCnpj LIKE ? OR c.descricao LIKE ?)'; params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`); }
 
       sql += ' ORDER BY c.dataVencimento ASC';
       const contas = db.prepare(sql).all(...params);
@@ -403,7 +404,7 @@ function registrarRotasFinanceiro(app, db) {
     }
   });
 
-  app.put('/api/contas-a-receber/:id', (req, res) => {
+  app.put('/api/contas-a-receber/:id', async (req, res) => {
     try {
       const { descricao, valor, dataVencimento, formaPagamento, observacoes } = req.body;
       const existing = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
@@ -412,17 +413,51 @@ function registrarRotasFinanceiro(app, db) {
         return res.status(400).json({ success: false, error: 'Conta ja finalizada, nao pode ser editada' });
       }
 
+      const novaData = dataVencimento || existing.dataVencimento;
+
       db.prepare(`UPDATE contas_a_receber SET descricao = ?, valor = ?, dataVencimento = ?,
         formaPagamento = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
       ).run(
         descricao || existing.descricao, valor || existing.valor,
-        dataVencimento || existing.dataVencimento,
+        novaData,
         formaPagamento ?? existing.formaPagamento, observacoes ?? existing.observacoes,
         req.params.id
       );
 
+      // Se mudou a data de vencimento e há boleto registrado no MercadoPago, recria o boleto
+      let boletoRecriado = false;
+      if (dataVencimento && dataVencimento !== existing.dataVencimento) {
+        const boleto = db.prepare(`SELECT * FROM boletos WHERE contaReceberId = ? AND status IN ('pendente','registrado') ORDER BY id DESC LIMIT 1`).get(req.params.id);
+        if (boleto) {
+          const mpConfig = loadMPConfig(db);
+          if (mpConfig) {
+            const mp = new MercadoPagoClient(mpConfig);
+
+            // Cancela o boleto antigo no MercadoPago (se tiver mpId)
+            if (boleto.mpId) {
+              try { await mp.cancelarBoleto(boleto.mpId); } catch (e) { console.log('[Boleto] Erro ao cancelar antigo:', e.message); }
+            }
+            db.prepare(`UPDATE boletos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(boleto.id);
+
+            // Cria novo boleto com a data correta
+            const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(existing.pessoaId);
+            const novoBoletoId = db.prepare(`INSERT INTO boletos (contaReceberId, amount, expirationDate, status, customerDocument, customerName) VALUES (?, ?, ?, 'pendente', ?, ?)`).run(
+              req.params.id, boleto.amount, dataVencimento, boleto.customerDocument, boleto.customerName
+            ).lastInsertRowid;
+
+            const novoBoleto = db.prepare('SELECT * FROM boletos WHERE id = ?').get(novoBoletoId);
+            try {
+              await emitirBoletoMP(db, novoBoleto, pessoa, true);
+              boletoRecriado = true;
+            } catch (e) {
+              console.error('[Boleto] Erro ao emitir novo boleto:', e.message);
+            }
+          }
+        }
+      }
+
       const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      res.json({ success: true, conta });
+      res.json({ success: true, conta, boletoRecriado });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -463,6 +498,54 @@ function registrarRotasFinanceiro(app, db) {
         WHERE contaReceberId = ? AND status IN ('pendente', 'registrado')`).run(req.params.id);
 
       res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Reabrir conta cancelada
+  app.post('/api/contas-a-receber/:id/reabrir', (req, res) => {
+    try {
+      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
+      if (!conta) return res.status(404).json({ success: false, error: 'Conta nao encontrada' });
+      if (conta.status !== 'cancelada') return res.status(400).json({ success: false, error: 'Somente contas canceladas podem ser reabertas' });
+
+      db.prepare(`UPDATE contas_a_receber SET status = 'aberta', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(req.params.id);
+
+      const updated = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
+      res.json({ success: true, conta: updated });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Gerar novo boleto para conta existente
+  app.post('/api/contas-a-receber/:id/gerar-boleto', async (req, res) => {
+    try {
+      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
+      if (!conta) return res.status(404).json({ success: false, error: 'Conta nao encontrada' });
+      if (conta.status !== 'aberta') return res.status(400).json({ success: false, error: 'Conta precisa estar aberta' });
+
+      // Verificar se ja tem boleto ativo
+      const boletoAtivo = db.prepare(`SELECT * FROM boletos WHERE contaReceberId = ? AND status IN ('pendente','registrado') ORDER BY id DESC LIMIT 1`).get(req.params.id);
+      if (boletoAtivo) return res.status(400).json({ success: false, error: 'Ja existe boleto ativo para esta conta' });
+
+      const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(conta.pessoaId);
+      if (!pessoa) return res.status(400).json({ success: false, error: 'Pessoa nao encontrada' });
+
+      const amountCentavos = Math.round(conta.valor * 100);
+      const boletoId = db.prepare(`INSERT INTO boletos (contaReceberId, amount, expirationDate, customerDocument, customerName) VALUES (?, ?, ?, ?, ?)`)
+        .run(req.params.id, amountCentavos, conta.dataVencimento, pessoa.cpfCnpj, pessoa.razaoSocial).lastInsertRowid;
+
+      let boleto = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
+      await emitirBoletoMP(db, boleto, pessoa);
+      boleto = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
+
+      // Atualizar forma de pagamento
+      db.prepare(`UPDATE contas_a_receber SET formaPagamento = 'boleto', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
+
+      res.json({ success: true, boleto });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -581,22 +664,54 @@ function registrarRotasFinanceiro(app, db) {
 
       if (!pessoa?.email) return res.status(400).json({ success: false, error: 'Cliente nao possui email cadastrado' });
 
-      const { enviarEmailNfse, loadSmtpConfig } = require('./email-client');
+      const { enviarEmailBoleto, loadSmtpConfig } = require('./email-client');
       const smtpConfig = loadSmtpConfig(db);
       if (!smtpConfig) return res.status(400).json({ success: false, error: 'SMTP nao configurado. Configure em Recorrencias > Config. Email' });
 
-      await enviarEmailNfse(db, {
+      await enviarEmailBoleto(db, {
         to: pessoa.email,
-        subject: `Boleto - ${conta?.descricao || 'Cobrança'}`,
-        nfseNumero: '',
         descricao: conta?.descricao || 'Cobrança',
         valor: (boleto.amount / 100).toFixed(2),
-        competencia: boleto.expirationDate,
+        vencimento: boleto.expirationDate,
+        clienteNome: pessoa.razaoSocial,
         boletoWritableLine: boleto.writableLine,
         boletoUrl: boleto.externalUrl,
       });
 
       res.json({ success: true, message: `Email enviado para ${pessoa.email}` });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Dados do boleto para compartilhamento (WhatsApp, etc)
+  app.get('/api/boletos/:id/compartilhar', (req, res) => {
+    try {
+      const boleto = db.prepare('SELECT * FROM boletos WHERE id = ?').get(req.params.id);
+      if (!boleto) return res.status(404).json({ success: false, error: 'Boleto nao encontrado' });
+
+      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(boleto.contaReceberId);
+      const pessoa = db.prepare(`
+        SELECT p.* FROM pessoas p
+        JOIN contas_a_receber c ON c.pessoaId = p.id
+        WHERE c.id = ?
+      `).get(boleto.contaReceberId);
+
+      const valorFmt = 'R$ ' + Number((boleto.amount / 100).toFixed(2)).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+      const vencFmt = boleto.expirationDate ? boleto.expirationDate.split('-').reverse().join('/') : '';
+
+      let texto = `*Cobrança - ${conta?.descricao || 'Boleto'}*\n`;
+      texto += `Valor: *${valorFmt}*\n`;
+      texto += `Vencimento: ${vencFmt}\n`;
+      if (boleto.writableLine) texto += `\nLinha Digitável:\n${boleto.writableLine}\n`;
+      if (boleto.externalUrl) texto += `\nBoleto PDF:\n${boleto.externalUrl}\n`;
+
+      res.json({
+        success: true,
+        texto,
+        telefone: pessoa?.telefone || '',
+        pessoaNome: pessoa?.razaoSocial || '',
+      });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }

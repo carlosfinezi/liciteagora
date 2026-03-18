@@ -341,6 +341,12 @@ function renderizarParticipacoes() {
                 <button class="btn-action btn-enviar" onclick="enviarProposta('${p.compraId}')">
                     Enviar Proposta
                 </button>
+                <button class="btn-action btn-pdf" onclick="gerarPDFParticipacao('${p.compraId}', false)">
+                    PDF Orçamento
+                </button>
+                <button class="btn-action btn-pdf-assinado" onclick="gerarPDFParticipacao('${p.compraId}', true)">
+                    PDF Assinado
+                </button>
                 <button class="btn-action btn-excluir" onclick="excluirProposta('${p.compraId}')">
                     Excluir Proposta
                 </button>
@@ -902,6 +908,12 @@ function renderizarInteresses() {
                     <button class="btn-action btn-enviar" onclick="enviarProposta('${compraIdReal}')">
                         Enviar Proposta
                     </button>
+                    <button class="btn-action btn-pdf" onclick="gerarPDFParticipacao('${compraIdReal}', false)">
+                        PDF Orçamento
+                    </button>
+                    <button class="btn-action btn-pdf-assinado" onclick="gerarPDFParticipacao('${compraIdReal}', true)">
+                        PDF Assinado
+                    </button>
                 ` : naoComprasnet ? `
                     <span style="color:#ff9800; font-size:0.82em;">Envio via API indisponivel (sistema estadual/municipal)</span>
                 ` : `
@@ -1076,6 +1088,249 @@ async function carregarFornecedorConfig() {
         }
     } catch (e) {
         console.warn('Erro ao carregar config fornecedor:', e);
+    }
+}
+
+// ==================== INIT ====================
+
+// ==================== GERAÇÃO DE PDF / ORÇAMENTO ====================
+
+function formatarValorPDF(valor) {
+    return 'R$ ' + valor.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+async function gerarPDFParticipacao(compraId, assinar = false) {
+    const disputa = disputasData.get(compraId);
+    if (!disputa || !disputa.itens?.length) {
+        alert('Carregue os itens antes de gerar o PDF.');
+        return;
+    }
+
+    const p = participacoesData.find(x => x.compraId === compraId);
+    if (!p) {
+        alert('Participação não encontrada.');
+        return;
+    }
+
+    // Coletar itens selecionados com valores
+    const itensPDF = [];
+    disputa.itens.forEach(item => {
+        const dados = getValorItem(compraId, item.numero);
+        if (!dados.selecionado) return;
+        const valor = dados.valor ? parseFloat(dados.valor) : (item.valorEstimado || 0);
+        itensPDF.push({
+            numeroItem: item.numero,
+            descricao: item.descricao || '',
+            quantidade: item.quantidade || 1,
+            unidadeMedida: item.unidadeMedida || 'UN',
+            valorProposta: valor,
+            totalProposta: valor * (item.quantidade || 1),
+            marca: dados.marca || '',
+            modelo: dados.modelo || '',
+            fabricante: dados.fabricante || '',
+        });
+    });
+
+    if (itensPDF.length === 0) {
+        alert('Selecione ao menos um item com valor para gerar o PDF.');
+        return;
+    }
+
+    // Extrair info do compraId: {uasg:06}{modalidade:02}{numero:05}{ano:04}
+    const cid = compraId.replace(/\D/g, '');
+    const ano = cid.length >= 4 ? cid.slice(-4) : '';
+    const numero = cid.length >= 9 ? cid.slice(-9, -4) : '';
+
+    const licitacaoParaPDF = {
+        nomeOrgao: p.orgao || '',
+        codigoUnidadeCompradora: cid.length >= 6 ? cid.slice(0, 6) : '',
+        numeroCompra: numero,
+        ano: ano,
+        sequencial: '',
+        modalidadeNome: 'Pregão Eletrônico',
+        objetoCompra: p.objeto || '',
+        itensParaPDF: itensPDF,
+    };
+
+    await gerarPDFIndividual(licitacaoParaPDF, assinar);
+}
+
+async function gerarPDFIndividual(licitacao, assinar = false) {
+    const { jsPDF } = window.jspdf;
+
+    let fornecedor = fornecedorConfig || null;
+    if (!fornecedor) {
+        try {
+            const response = await fetch('/api/fornecedor');
+            const result = await response.json();
+            if (result.success && result.data) fornecedor = result.data;
+        } catch (e) { /* ignore */ }
+    }
+
+    const doc = new jsPDF();
+    let y = 20;
+    doc.setFont('helvetica');
+
+    // === CABEÇALHO ===
+    if (fornecedor && fornecedor.logoBase64) {
+        try {
+            doc.addImage(fornecedor.logoBase64, 'PNG', 15, y - 5, 45, 22);
+            doc.setFontSize(18);
+            doc.setTextColor(0, 51, 102);
+            doc.text('PROPOSTA COMERCIAL', 130, y + 8, { align: 'center' });
+            y += 25;
+        } catch (e) {
+            doc.setFontSize(18); doc.setTextColor(0, 51, 102);
+            doc.text('PROPOSTA COMERCIAL', 105, y, { align: 'center' });
+            y += 15;
+        }
+    } else {
+        doc.setFontSize(18); doc.setTextColor(0, 51, 102);
+        doc.text('PROPOSTA COMERCIAL', 105, y, { align: 'center' });
+        y += 15;
+    }
+
+    doc.setDrawColor(0, 51, 102); doc.setLineWidth(0.5);
+    doc.line(15, y, 195, y); y += 10;
+
+    // === DADOS DO FORNECEDOR ===
+    doc.setFontSize(11); doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DADOS DO FORNECEDOR', 15, y); y += 7;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+
+    if (fornecedor && fornecedor.razaoSocial) {
+        doc.text(`Razão Social: ${fornecedor.razaoSocial}`, 15, y); y += 6;
+        doc.text(`CNPJ: ${fornecedor.cnpj || 'N/A'}    Inscrição Estadual: ${fornecedor.inscricaoEstadual || 'N/A'}`, 15, y); y += 6;
+        const enderecoCompleto = [fornecedor.endereco, fornecedor.numero ? `nº ${fornecedor.numero}` : '', fornecedor.complemento, fornecedor.bairro].filter(Boolean).join(', ');
+        doc.text(`Endereço: ${enderecoCompleto || 'N/A'}`, 15, y); y += 6;
+        doc.text(`Cidade: ${fornecedor.cidade || 'N/A'}    UF: ${fornecedor.uf || 'N/A'}    CEP: ${fornecedor.cep || 'N/A'}`, 15, y); y += 6;
+        doc.text(`Telefone: ${fornecedor.telefone || fornecedor.celular || 'N/A'}    E-mail: ${fornecedor.email || 'N/A'}`, 15, y); y += 12;
+    } else {
+        doc.text('Razão Social: ________________________________________________________', 15, y); y += 6;
+        doc.text('CNPJ: ___________________________ Inscrição Estadual: _________________', 15, y); y += 6;
+        doc.text('Endereço: ___________________________________________________________', 15, y); y += 6;
+        doc.text('Cidade: _________________________ UF: ______ CEP: ___________________', 15, y); y += 6;
+        doc.text('Telefone: ______________________ E-mail: ____________________________', 15, y); y += 12;
+    }
+
+    // === DADOS DA LICITAÇÃO ===
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('DADOS DA LICITAÇÃO', 15, y); y += 7;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.text(`Órgão: ${licitacao.nomeOrgao}`, 15, y); y += 6;
+    doc.text(`UASG: ${licitacao.codigoUnidadeCompradora || 'N/A'}`, 15, y); y += 6;
+    doc.text(`Número: ${licitacao.numeroCompra || 'N/A'}/${licitacao.ano}`, 15, y); y += 6;
+    doc.text(`Modalidade: ${licitacao.modalidadeNome || 'Pregão Eletrônico'}`, 15, y); y += 12;
+
+    // === TABELA DE ITENS ===
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('ITENS DA PROPOSTA', 15, y); y += 5;
+
+    const tableData = licitacao.itensParaPDF.map(item => [
+        item.numeroItem,
+        item.descricao,
+        item.marca || '-',
+        item.modelo || '-',
+        item.fabricante || '-',
+        `${item.quantidade} ${item.unidadeMedida}`,
+        formatarValorPDF(item.valorProposta),
+        formatarValorPDF(item.totalProposta)
+    ]);
+
+    const totalGeral = licitacao.itensParaPDF.reduce((sum, item) => sum + item.totalProposta, 0);
+    tableData.push(['', '', '', '', '', '', { content: 'TOTAL:', styles: { fontStyle: 'bold', halign: 'right' } },
+                   { content: formatarValorPDF(totalGeral), styles: { fontStyle: 'bold' } }]);
+
+    doc.autoTable({
+        startY: y,
+        head: [['Item', 'Descrição', 'Marca', 'Modelo', 'Fabricante', 'Qtd', 'Valor Unit.', 'Valor Total']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [0, 51, 102], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+        bodyStyles: { fontSize: 7 },
+        columnStyles: {
+            0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 'auto' },
+            2: { cellWidth: 22 }, 3: { cellWidth: 22 }, 4: { cellWidth: 22 },
+            5: { cellWidth: 18, halign: 'center' }, 6: { cellWidth: 22, halign: 'right' }, 7: { cellWidth: 22, halign: 'right' }
+        },
+        styles: { overflow: 'linebreak', cellPadding: 2 },
+        margin: { left: 10, right: 10 }
+    });
+
+    y = doc.lastAutoTable.finalY + 15;
+
+    // === OBSERVAÇÕES ===
+    if (fornecedor && fornecedor.observacoes && fornecedor.observacoes.trim()) {
+        if (y > 240) { doc.addPage(); y = 20; }
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+        doc.text('OBSERVAÇÕES', 15, y); y += 6;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+        const obsLines = doc.splitTextToSize(fornecedor.observacoes, 180);
+        doc.text(obsLines, 15, y);
+        y += obsLines.length * 4 + 8;
+    }
+
+    // === ASSINATURA ===
+    if (y > 250) { doc.addPage(); y = 20; }
+    const dataAtual = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    doc.setFontSize(10);
+    if (fornecedor && fornecedor.cidade) {
+        doc.text(`${fornecedor.cidade}/${fornecedor.uf || ''}, ${dataAtual}`, 15, y);
+    } else {
+        doc.text(`Local e Data: _________________________, ${dataAtual}`, 15, y);
+    }
+    y += 20;
+
+    doc.line(40, y, 170, y); y += 5;
+    doc.setFontSize(9);
+    if (fornecedor && fornecedor.representanteLegal) {
+        doc.text(fornecedor.representanteLegal, 105, y, { align: 'center' }); y += 4;
+        const infoRepr = [
+            fornecedor.cpfRepresentante ? `CPF: ${fornecedor.cpfRepresentante}` : '',
+            fornecedor.cargoRepresentante || ''
+        ].filter(Boolean).join(' - ');
+        doc.text(infoRepr || 'Representante Legal', 105, y, { align: 'center' });
+    } else {
+        doc.text('Assinatura do Representante Legal', 105, y, { align: 'center' }); y += 4;
+        doc.text('(Nome, CPF e Cargo)', 105, y, { align: 'center' });
+    }
+
+    // === RODAPÉ ===
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i); doc.setFontSize(8); doc.setTextColor(128, 128, 128);
+        doc.text(`Página ${i} de ${pageCount}`, 195, 290, { align: 'right' });
+    }
+
+    const nomeArquivo = `proposta_${licitacao.numeroCompra || 'orcamento'}_${licitacao.ano}_${new Date().toISOString().split('T')[0]}${assinar ? '_assinado' : ''}.pdf`;
+
+    if (assinar) {
+        const pdfBase64 = doc.output('datauristring').split(',')[1];
+        try {
+            const response = await fetch('/api/pdf/assinar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pdfBase64 })
+            });
+            const result = await response.json();
+            if (result.success) {
+                const link = document.createElement('a');
+                link.href = 'data:application/pdf;base64,' + result.pdfAssinado;
+                link.download = nomeArquivo;
+                link.click();
+                alert('PDF assinado gerado com sucesso!');
+            } else {
+                alert('Erro ao assinar: ' + result.error + '\nGerando PDF sem assinatura.');
+                doc.save(nomeArquivo.replace('_assinado', ''));
+            }
+        } catch (error) {
+            alert('Erro ao assinar PDF. Gerando versão sem assinatura.');
+            doc.save(nomeArquivo.replace('_assinado', ''));
+        }
+    } else {
+        doc.save(nomeArquivo);
+        alert('PDF gerado com sucesso!');
     }
 }
 

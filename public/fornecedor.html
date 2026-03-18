@@ -424,6 +424,26 @@
                     </div>
                 </div>
 
+                <!-- Credenciais Gov.br -->
+                <div class="panel">
+                    <h3><span>🔐</span> Login Gov.br (Comprasnet)</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="govbrCpf">CPF</label>
+                            <input type="text" id="govbrCpf" placeholder="00000000000" maxlength="11">
+                        </div>
+                        <div class="form-group">
+                            <label for="govbrSenha">Senha</label>
+                            <input type="password" id="govbrSenha" placeholder="Senha do gov.br" autocomplete="off">
+                        </div>
+                        <div class="form-group" style="display:flex; align-items:flex-end;">
+                            <button type="button" id="btnSalvarGovBr" class="btn-primary" style="height:38px; padding:0 20px;">Salvar</button>
+                            <button type="button" id="btnTestarLogin" class="btn-secondary" style="height:38px; padding:0 20px; margin-left:8px;">Testar Login</button>
+                        </div>
+                    </div>
+                    <div id="govbrStatus" style="margin-top:8px; font-size:13px; color:#666;"></div>
+                </div>
+
                 <!-- Dados Bancários -->
                 <div class="panel">
                     <h3><span>🏦</span> Dados Bancários</h3>
@@ -630,6 +650,7 @@
             configurarUploadLogo();
             verificarCertificado();
             verificarChaveIA();
+            carregarGovBr();
         });
 
         async function carregarDados() {
@@ -1029,6 +1050,88 @@
             btn.disabled = false;
             btn.textContent = 'Processar Fila (10 licitações)';
         }
+
+        // ─── Gov.br Login ─────────────────────────────────────────────────
+
+        async function carregarGovBr() {
+            try {
+                const resp = await fetch('/api/govbr/status');
+                const data = await resp.json();
+                const cpfEl = document.getElementById('govbrCpf');
+                const statusEl = document.getElementById('govbrStatus');
+
+                if (data.configurado) {
+                    cpfEl.value = data.cpf || '';
+                    document.getElementById('govbrSenha').placeholder = '(salva)';
+                    statusEl.textContent = 'Credenciais configuradas';
+                    statusEl.style.color = '#2a2';
+                } else {
+                    statusEl.textContent = 'Credenciais não configuradas';
+                    statusEl.style.color = '#c33';
+                }
+            } catch (e) {
+                console.error('Erro ao carregar gov.br:', e);
+            }
+        }
+
+        document.getElementById('btnSalvarGovBr').addEventListener('click', async function() {
+            const cpf = document.getElementById('govbrCpf').value.replace(/\D/g, '');
+            const senha = document.getElementById('govbrSenha').value;
+            const statusEl = document.getElementById('govbrStatus');
+
+            if (!cpf || cpf.length !== 11) {
+                statusEl.textContent = 'CPF deve ter 11 dígitos';
+                statusEl.style.color = '#c33';
+                return;
+            }
+            if (!senha) {
+                statusEl.textContent = 'Informe a senha';
+                statusEl.style.color = '#c33';
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/govbr/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cpf, senha }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    statusEl.textContent = 'Credenciais salvas com sucesso!';
+                    statusEl.style.color = '#2a2';
+                    document.getElementById('govbrSenha').value = '';
+                    document.getElementById('govbrSenha').placeholder = '(salva)';
+                } else {
+                    statusEl.textContent = data.error || 'Erro ao salvar';
+                    statusEl.style.color = '#c33';
+                }
+            } catch (e) {
+                statusEl.textContent = 'Erro: ' + e.message;
+                statusEl.style.color = '#c33';
+            }
+        });
+
+        document.getElementById('btnTestarLogin').addEventListener('click', async function() {
+            const statusEl = document.getElementById('govbrStatus');
+            statusEl.textContent = 'Testando login...';
+            statusEl.style.color = '#666';
+
+            try {
+                const resp = await fetch('/api/govbr/test-login', { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    statusEl.textContent = 'Login OK! ' + (data.message || '');
+                    statusEl.style.color = '#2a2';
+                } else {
+                    statusEl.textContent = 'Falha: ' + (data.message || data.error || 'Erro desconhecido');
+                    statusEl.style.color = '#c33';
+                }
+            } catch (e) {
+                statusEl.textContent = 'Erro: ' + e.message;
+                statusEl.style.color = '#c33';
+            }
+        });
 
     </script>
     <script src="/js/menu-config.js"></script>

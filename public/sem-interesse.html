@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sem Interesse - LiciteAgora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; }
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        .header { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 25px 30px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header div h1 { color: #f44336; font-size: 22px; margin-bottom: 4px; }
+        .header div p { color: #90a4ae; font-size: 13px; }
+        .header .total-badge { background: rgba(244,67,54,0.15); color: #f44336; padding: 8px 20px; border-radius: 8px; font-size: 20px; font-weight: 700; }
+
+        .filtros { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .filtros input, .filtros select { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 9px 12px; border-radius: 8px; font-size: 13px; }
+        .filtros input:focus, .filtros select:focus { outline: none; border-color: #4fc3f7; }
+        .filtros input[type=text] { min-width: 250px; }
+        .btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, #4fc3f7, #0288d1); color: white; }
+        .btn-secondary { background: rgba(255,255,255,0.1); color: #b0bec5; }
+        .btn-danger { background: rgba(244,67,54,0.15); color: #f44336; border: 1px solid #f44336; }
+        .btn-danger:hover { background: rgba(244,67,54,0.3); }
+        .btn-success { background: rgba(76,175,80,0.15); color: #66bb6a; border: 1px solid #66bb6a; }
+        .btn-success:hover { background: rgba(76,175,80,0.3); }
+
+        .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 16px 18px; margin-bottom: 10px; transition: all 0.2s; }
+        .card:hover { background: rgba(255,255,255,0.06); }
+        .card-top { display: flex; gap: 14px; align-items: flex-start; }
+        .card-info { flex: 1; min-width: 0; }
+        .card-objeto { font-size: 14px; color: #e0e0e0; line-height: 1.4; margin-bottom: 6px; }
+        .card-orgao { font-size: 12px; color: #78909c; margin-bottom: 6px; }
+        .card-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .tag { font-size: 11px; padding: 3px 8px; border-radius: 6px; }
+        .tag-motivo { background: rgba(244,67,54,0.12); color: #ef5350; }
+        .tag-data { background: rgba(255,255,255,0.06); color: #90a4ae; }
+        .tag-modalidade { background: rgba(79,195,247,0.1); color: #4fc3f7; }
+        .tag-uf { background: rgba(255,255,255,0.06); color: #b0bec5; }
+        .tag-valor { background: rgba(102,187,106,0.1); color: #66bb6a; font-family: 'Consolas', monospace; }
+        .tag-encerrada { background: rgba(239,83,80,0.1); color: #e57373; }
+        .tag-aberta { background: rgba(102,187,106,0.1); color: #81c784; }
+        .card-right { display: flex; gap: 6px; flex-shrink: 0; }
+
+        .empty-state { text-align: center; padding: 60px; color: #78909c; }
+        .empty-state .emoji { font-size: 48px; margin-bottom: 12px; }
+        .loading { text-align: center; padding: 60px; color: #78909c; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="main-content">
+            <div class="container">
+                <div class="header">
+                    <div>
+                        <h1>Licitações Sem Interesse</h1>
+                        <p>Licitações marcadas como "Sem interesse" na busca</p>
+                    </div>
+                    <div class="total-badge" id="totalBadge">-</div>
+                </div>
+
+                <div class="filtros">
+                    <input type="text" id="filtBusca" placeholder="Buscar objeto, orgao, motivo..." onkeydown="if(event.key==='Enter')filtrar()">
+                    <button class="btn btn-primary" onclick="filtrar()">Filtrar</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('filtBusca').value='';filtrar()">Limpar</button>
+                </div>
+
+                <div id="lista">
+                    <div class="loading">Carregando...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('sem-interesse');</script>
+    <script>
+        let dadosCache = [];
+
+        async function carregar() {
+            try {
+                const resp = await fetch('/api/sem-interesse/detalhado');
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                dadosCache = data.licitacoes;
+                document.getElementById('totalBadge').textContent = data.total;
+                filtrar();
+            } catch (err) {
+                document.getElementById('lista').innerHTML = `<div class="empty-state"><div class="emoji">error</div><p>${err.message}</p></div>`;
+            }
+        }
+
+        function filtrar() {
+            const busca = document.getElementById('filtBusca').value.trim().toLowerCase();
+            const filtrados = busca
+                ? dadosCache.filter(l => [l.objetoCompra, l.nomeUnidade, l.razaoSocial, l.motivo, l.municipioNome].filter(Boolean).join(' ').toLowerCase().includes(busca))
+                : dadosCache;
+            renderizar(filtrados);
+        }
+
+        function renderizar(lista) {
+            if (!lista.length) {
+                document.getElementById('lista').innerHTML = '<div class="empty-state"><div class="emoji">🔍</div><p>Nenhuma licitação sem interesse encontrada</p></div>';
+                return;
+            }
+
+            const html = lista.map(l => {
+                const encerrada = l.dataEncerramentoProposta && new Date(l.dataEncerramentoProposta) < new Date();
+                const fmtData = d => { if (!d) return '-'; try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; } };
+                const fmtValor = v => v ? Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
+
+                return `<div class="card">
+                    <div class="card-top">
+                        <div class="card-info">
+                            <div class="card-objeto">${esc(l.objetoCompra || 'Objeto não disponível')}</div>
+                            <div class="card-orgao">${esc(l.nomeUnidade || l.razaoSocial || '')} ${l.municipioNome ? '- ' + esc(l.municipioNome) : ''}${l.ufSigla ? '/' + l.ufSigla : ''}</div>
+                            <div class="card-meta">
+                                ${l.motivo ? `<span class="tag tag-motivo">${esc(l.motivo)}</span>` : '<span class="tag tag-motivo">Sem motivo informado</span>'}
+                                <span class="tag tag-data">Marcado em ${fmtData(l.dataCriacao)}</span>
+                                ${l.modalidadeNome ? `<span class="tag tag-modalidade">${esc(l.modalidadeNome)}</span>` : ''}
+                                ${l.valorTotalEstimado ? `<span class="tag tag-valor">${fmtValor(l.valorTotalEstimado)}</span>` : ''}
+                                ${l.dataEncerramentoProposta ? `<span class="tag ${encerrada ? 'tag-encerrada' : 'tag-aberta'}">${encerrada ? 'Encerrada' : 'Aberta'} ${fmtData(l.dataEncerramentoProposta)}</span>` : ''}
+                                ${l.numeroCompra ? `<span class="tag tag-uf">Nº ${esc(l.numeroCompra)}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="card-right">
+                            <button class="btn btn-success btn-sm" onclick="removerSemInteresse('${l.cnpj}', ${l.ano}, ${l.sequencial}, this)" title="Restaurar interesse">Restaurar</button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            document.getElementById('lista').innerHTML = html;
+        }
+
+        async function removerSemInteresse(cnpj, ano, seq, btn) {
+            if (!confirm('Restaurar interesse nesta licitação?')) return;
+            btn.disabled = true; btn.textContent = '...';
+            try {
+                const resp = await fetch(`/api/sem-interesse/${cnpj}/${ano}/${seq}`, { method: 'DELETE' });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                dadosCache = dadosCache.filter(l => !(l.cnpj === cnpj && l.ano === ano && l.sequencial === seq));
+                document.getElementById('totalBadge').textContent = dadosCache.length;
+                filtrar();
+            } catch (err) {
+                alert('Erro: ' + err.message);
+                btn.disabled = false; btn.textContent = 'Restaurar';
+            }
+        }
+
+        function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+        carregar();
+    </script>
+</body>
+</html>

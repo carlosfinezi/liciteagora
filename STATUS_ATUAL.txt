@@ -1,0 +1,97 @@
+================================================================
+STATUS ATUAL - ComprasNet Auto-Login Implementation
+================================================================
+Data: 17/03/2026 - 17:40
+
+✅ ARQUIVOS CRIADOS NO SERVIDOR:
+  1. GUIA_IMPLEMENTACAO.txt  (2.3KB) - Guia completo de implementação
+  2. CORRECAO_LINHAS.txt     (1.3KB) - Correção das linhas corrompidas
+  3. STATUS_ATUAL.txt        (este arquivo)
+
+✅ ARQUIVO LOCAL DE REFERÊNCIA:
+  C:\Users\Carlos Eduardo\comprasnet-login-routes-NEW.js (347 linhas)
+  - Este arquivo está COMPLETO e FUNCIONANDO
+  - Use como referência para corrigir o arquivo no servidor
+
+================================================================
+PROBLEMA ATUAL:
+================================================================
+
+O arquivo comprasnet-login-routes.js no servidor está QUASE correto,
+mas tem 2 linhas CORROMPIDAS (linhas 50-51) que impedem o servidor
+de iniciar:
+
+LINHA 50: const cpfField = await page.1304("input#login-certificate...
+LINHA 51: const senhaField = await page.817("input#login-password...
+
+Devem ser:  await page.$( ...  não  await page.1304( ou page.817(
+
+================================================================
+SOLUÇÃO RÁPIDA:
+================================================================
+
+Opção 1 - COPIAR ARQUIVO COMPLETO DO WINDOWS:
+---------------------------------------------
+1. Abrir WinSCP ou FileZilla
+2. Conectar em: 217.216.85.37 (user: root)
+3. Baixar backup atual:
+   /home/carlosfinezi/web/liciteagora.com.br/private/comprasnet-login-routes.js
+   → Salvar como: comprasnet-login-routes.js.backup-20260317
+4. Fazer upload do arquivo local:
+   C:\Users\Carlos Eduardo\comprasnet-login-routes-NEW.js
+   → Para: /home/carlosfinezi/web/liciteagora.com.br/private/comprasnet-login-routes.js
+5. Verificar: node -c comprasnet-login-routes.js
+6. Restart: pkill -f node.*server && nohup node server.js > server.log 2>&1 &
+
+Opção 2 - EDITAR MANUALMENTE VIA SSH:
+-------------------------------------
+1. ssh root@217.216.85.37
+2. cd /home/carlosfinezi/web/liciteagora.com.br/private
+3. cp comprasnet-login-routes.js comprasnet-login-routes.js.backup
+4. nano comprasnet-login-routes.js
+5. Ir para linhas 50-51 (Ctrl+_ depois digitar 50)
+6. Ver arquivo: CORRECAO_LINHAS.txt para código correto
+7. Salvar: Ctrl+O, Enter, Ctrl+X
+8. Verificar: node -c comprasnet-login-routes.js
+9. Restart: pkill -f node.*server && nohup node server.js > server.log 2>&1 &
+
+================================================================
+VERIFICAR APÓS CORREÇÃO:
+================================================================
+
+1. Verificar sintaxe:
+   node -c comprasnet-login-routes.js
+
+2. Verificar processo:
+   ps aux | grep "node.*server.js"
+
+3. Ver logs:
+   tail -f server.log
+
+4. Testar API:
+   curl -X POST http://localhost:3333/api/comprasnet/auto-login \
+     -H Content-Type: application/json \
+     -d {"cpf":"19884430000","senha":"Lombardi6392"} \
+     -v
+
+================================================================
+O QUE JÁ ESTÁ IMPLEMENTADO:
+================================================================
+
+✅ URL mudada para SSO Gov.br
+✅ headless: new (modo difícil de detectar)
+✅ StealthPlugin configurado
+✅ navigator.webdriver removido
+✅ Aguarda hCaptcha carregar
+✅ 5 segundos de espera para bypass automático
+✅ Múltiplos seletores para campos (CPF e senha)
+✅ Token extraction e gestão
+
+================================================================
+APENAS FALTA: CORRIGIR LINHAS 50-51!
+================================================================
+
+Arquivo de referência completo:
+C:\Users\Carlos Eduardo\comprasnet-login-routes-NEW.js
+
+================================================================

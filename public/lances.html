@@ -132,11 +132,29 @@
 
     <div class="status-bar">
         <div class="status-item"><div class="label">Extensão</div><div class="value" id="stExt">--</div></div>
+        <div class="status-item"><div class="label">Puppeteer</div><div class="value" id="stPuppeteer">--</div></div>
         <div class="status-item"><div class="label">Bearer</div><div class="value" id="stBearer">--</div></div>
         <div class="status-item"><div class="label">Brasília</div><div class="value azul" id="hora">--:--:--</div></div>
         <div class="status-item"><div class="label">Disputas</div><div class="value azul" id="stDisp">0</div></div>
         <div class="status-item"><div class="label">Lances</div><div class="value azul" id="stLances">0</div></div>
         <div class="status-item" style="cursor:pointer" onclick="toggleAutoEngine()" title="Clique para ligar/desligar engine"><div class="label">Auto</div><div class="value" id="stAuto"><span class="vermelho">OFF</span></div></div>
+    </div>
+
+    <!-- Puppeteer Controls (collapsible) -->
+    <div class="panel" id="panelPuppeteer" style="display:none">
+        <h3 style="cursor:pointer" onclick="document.getElementById('puppeteerBody').style.display=document.getElementById('puppeteerBody').style.display==='none'?'block':'none'">
+            🤖 Sessão Puppeteer <span style="font-weight:normal;font-size:0.85em;color:#888">(clique para expandir)</span>
+        </h3>
+        <div id="puppeteerBody">
+            <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+                <button class="btn btn-sm" style="background:#4caf50;color:#fff" onclick="puppeteerAction('launch')">Iniciar Chrome</button>
+                <button class="btn btn-sm" style="background:#4dabf7;color:#fff" onclick="puppeteerAction('login')">Login</button>
+                <button class="btn btn-sm" style="background:#f44336;color:#fff" onclick="puppeteerAction('close')">Fechar</button>
+                <span id="puppeteerInfo" style="font-size:0.82em;color:#888;margin-left:8px"></span>
+            </div>
+            <div id="puppeteerLogs" style="max-height:150px;overflow-y:auto;font-family:monospace;font-size:0.75em;color:#aaa;background:#111;padding:6px;border-radius:4px;display:none"></div>
+            <button class="btn btn-outline btn-sm" style="margin-top:6px;font-size:0.75em" onclick="togglePuppeteerLogs()">Ver logs</button>
+        </div>
     </div>
 
     <div class="panel">
@@ -959,13 +977,95 @@ function recalcTodosLucros() {
     config.forEach(function(c) { recalcLucro(aberta, c.itemNumero); });
 }
 
+// ==================== PUPPETEER ====================
+
+function atualizarPuppeteerStatus() {
+    fetch(API+'/api/puppeteer/status')
+        .then(function(r){return r.json()})
+        .then(function(d) {
+            if(!d.success) return;
+            var el = document.getElementById('stPuppeteer');
+            var panel = document.getElementById('panelPuppeteer');
+            var info = document.getElementById('puppeteerInfo');
+
+            // Sempre mostrar o painel
+            panel.style.display = 'block';
+
+            if (d.state === 'logged_in') {
+                var fresh = d.bearerFresh;
+                el.innerHTML = '<span class="'+(fresh?'verde':'amarelo')+'">ATIVO</span>';
+                var uptimeStr = d.uptime ? Math.floor(d.uptime/60)+'m' : '';
+                var bearerStr = d.bearerAge != null ? d.bearerAge+'s' : '--';
+                info.innerHTML = 'Bearer: '+bearerStr+' | Uptime: '+uptimeStr+' | Keepalive: '+(d.lastKeepaliveOk?'OK':'--');
+            } else if (d.state === 'connected') {
+                el.innerHTML = '<span class="amarelo">CONECTADO</span>';
+                info.innerHTML = 'Chrome rodando — faca login';
+            } else if (d.state === 'launching') {
+                el.innerHTML = '<span class="amarelo">INICIANDO...</span>';
+                info.innerHTML = '';
+            } else if (d.state === 'error') {
+                el.innerHTML = '<span class="vermelho">ERRO</span>';
+                info.innerHTML = '';
+            } else {
+                el.innerHTML = '<span style="color:#666">OFF</span>';
+                info.innerHTML = '';
+            }
+        })
+        .catch(function() {
+            document.getElementById('stPuppeteer').innerHTML = '<span style="color:#666">--</span>';
+        });
+}
+
+function puppeteerAction(action) {
+    var btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '...';
+    fetch(API+'/api/puppeteer/'+action, { method: 'POST', headers:{'Content-Type':'application/json'}, body:'{}' })
+        .then(function(r){return r.json()})
+        .then(function(d) {
+            if(d.success) {
+                toast('Puppeteer '+action+': OK', 'sucesso');
+            } else {
+                toast('Puppeteer '+action+': '+(d.error||d.message||'erro'), 'erro');
+            }
+            atualizarPuppeteerStatus();
+        })
+        .catch(function(e) { toast('Puppeteer '+action+': '+e.message, 'erro'); })
+        .finally(function() { btn.disabled = false; btn.textContent = action==='launch'?'Iniciar Chrome':action==='login'?'Login':'Fechar'; });
+}
+
+var puppeteerLogsVisible = false;
+function togglePuppeteerLogs() {
+    puppeteerLogsVisible = !puppeteerLogsVisible;
+    var el = document.getElementById('puppeteerLogs');
+    el.style.display = puppeteerLogsVisible ? 'block' : 'none';
+    if (puppeteerLogsVisible) carregarPuppeteerLogs();
+}
+
+function carregarPuppeteerLogs() {
+    fetch(API+'/api/puppeteer/logs?limit=50')
+        .then(function(r){return r.json()})
+        .then(function(d) {
+            if(!d.success) return;
+            var el = document.getElementById('puppeteerLogs');
+            el.innerHTML = d.logs.map(function(l) {
+                return '<div>['+l.ts+'] '+l.msg+'</div>';
+            }).join('');
+            el.scrollTop = el.scrollHeight;
+        })
+        .catch(function(){});
+}
+
 // ==================== INIT ====================
 carregarImposto();
 recarregarDados();
 atualizarStatus();
 atualizarAutoStatus();
+atualizarPuppeteerStatus();
 setInterval(atualizarStatus,10000);
 setInterval(atualizarAutoStatus,10000);
+setInterval(atualizarPuppeteerStatus,10000);
+setInterval(function(){ if(puppeteerLogsVisible) carregarPuppeteerLogs(); }, 5000);
 setInterval(function(){document.getElementById('hora').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});},500);
 // Refresh live data every 30s — atualiza valores dinâmicos sem destruir inputs
 setInterval(function(){

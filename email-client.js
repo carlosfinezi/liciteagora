@@ -182,4 +182,76 @@ async function enviarEmailTeste(db, toEmail) {
   console.log(`[Email] Teste enviado para ${toEmail}`);
 }
 
-module.exports = { loadSmtpConfig, enviarEmailNfse, enviarEmailTeste };
+/**
+ * Envia email de cobrança com dados do boleto (sem NFSe)
+ */
+async function enviarEmailBoleto(db, { to, descricao, valor, vencimento, clienteNome, boletoWritableLine, boletoUrl }) {
+  const cfg = loadSmtpConfig(db);
+  if (!cfg) throw new Error('SMTP nao configurado');
+
+  const transport = criarTransport(cfg);
+
+  const valorFmt = Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const vencFmt = vencimento ? vencimento.split('-').reverse().join('/') : '';
+
+  let boletoHtml = '';
+  if (boletoWritableLine) {
+    boletoHtml = `
+      <tr><td style="padding:8px 10px;color:#666;">Linha Digitável</td><td style="padding:8px 10px;font-family:monospace;font-size:13px;word-break:break-all;">${boletoWritableLine}</td></tr>`;
+  }
+  if (boletoUrl) {
+    boletoHtml += `
+      <tr><td style="padding:8px 10px;color:#666;">Boleto</td><td style="padding:8px 10px;"><a href="${boletoUrl}" style="color:#fff;background:#4dabf7;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Visualizar / Imprimir Boleto</a></td></tr>`;
+  }
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#1a1a2e;color:#fff;padding:20px;text-align:center;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;">Cobrança</h2>
+      </div>
+      <div style="background:#fff;padding:20px;border:1px solid #ddd;">
+        <p>Prezado(a) ${clienteNome || ''},</p>
+        <p>Segue abaixo os dados para pagamento:</p>
+        <table style="width:100%;border-collapse:collapse;margin:15px 0;">
+          <tr><td style="padding:8px 10px;color:#666;width:140px;">Descrição</td><td style="padding:8px 10px;">${descricao}</td></tr>
+          <tr><td style="padding:8px 10px;color:#666;">Valor</td><td style="padding:8px 10px;font-weight:bold;font-size:16px;">${valorFmt}</td></tr>
+          <tr><td style="padding:8px 10px;color:#666;">Vencimento</td><td style="padding:8px 10px;">${vencFmt}</td></tr>
+          ${boletoHtml}
+        </table>
+      </div>
+      <div style="background:#f5f5f5;padding:10px;text-align:center;font-size:12px;color:#999;border-radius:0 0 8px 8px;">
+        Email enviado automaticamente.
+      </div>
+    </div>
+  `;
+
+  const subject = `Cobrança - ${descricao} - ${valorFmt}`;
+  try {
+    const info = await transport.sendMail({
+      from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
+      to,
+      subject,
+      html,
+    });
+
+    registrarLog(db, {
+      tipo: 'boleto', to, subject,
+      descricao, valor, competencia: vencimento,
+      temBoleto: !!boletoWritableLine,
+      messageId: info.messageId, status: 'enviado',
+    });
+
+    console.log(`[Email] Boleto enviado para ${to} (messageId: ${info.messageId})`);
+    return info;
+  } catch (err) {
+    registrarLog(db, {
+      tipo: 'boleto', to, subject,
+      descricao, valor, competencia: vencimento,
+      temBoleto: !!boletoWritableLine,
+      status: 'erro', erro: err.message,
+    });
+    throw err;
+  }
+}
+
+module.exports = { loadSmtpConfig, enviarEmailNfse, enviarEmailBoleto, enviarEmailTeste };

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, sans-serif; }
+  #navbar {
+    display: flex; align-items: center; gap: 4px;
+    background: #f0f0f0; padding: 4px 8px; border-bottom: 1px solid #ccc;
+    height: 36px; flex-shrink: 0;
+  }
+  #navbar button {
+    background: none; border: 1px solid #ccc; border-radius: 4px;
+    cursor: pointer; padding: 2px 8px; font-size: 14px; height: 28px;
+  }
+  #navbar button:hover { background: #ddd; }
+  #urlbar {
+    flex: 1; border: 1px solid #ccc; border-radius: 4px;
+    padding: 4px 8px; font-size: 13px; height: 28px;
+    font-family: monospace;
+  }
+  #status {
+    font-size: 11px; color: #666; padding: 0 4px;
+    white-space: nowrap;
+  }
+  #status.logado { color: #2a2; font-weight: bold; }
+  webview {
+    flex: 1; border: none;
+  }
+</style>
+</head>
+<body>
+  <div id="navbar">
+    <button id="back" title="Voltar">&#9664;</button>
+    <button id="fwd" title="Avançar">&#9654;</button>
+    <button id="reload" title="Recarregar">&#8635;</button>
+    <input id="urlbar" type="text" value="" />
+    <span id="status">...</span>
+  </div>
+  <webview id="wv" src="" allowpopups></webview>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const wv = document.getElementById('wv');
+    const urlbar = document.getElementById('urlbar');
+    const status = document.getElementById('status');
+
+    // Receber URL inicial do main process
+    ipcRenderer.on('set-url', (e, url) => {
+      wv.src = url;
+      urlbar.value = url;
+    });
+
+    // Navegação
+    document.getElementById('back').onclick = () => { if (wv.canGoBack()) wv.goBack(); };
+    document.getElementById('fwd').onclick = () => { if (wv.canGoForward()) wv.goForward(); };
+    document.getElementById('reload').onclick = () => wv.reload();
+
+    urlbar.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        let url = urlbar.value.trim();
+        if (!url.startsWith('http')) url = 'https://' + url;
+        wv.src = url;
+      }
+    });
+
+    // Atualizar URL bar
+    wv.addEventListener('did-navigate', (e) => {
+      urlbar.value = e.url;
+      ipcRenderer.send('webview-navigated', e.url);
+    });
+    wv.addEventListener('did-navigate-in-page', (e) => {
+      urlbar.value = e.url;
+      ipcRenderer.send('webview-navigated', e.url);
+    });
+
+    // Status updates
+    ipcRenderer.on('status-update', (e, data) => {
+      if (data.loggedIn) {
+        status.textContent = 'Logado | Bearer ' + (data.bearerAge || '?') + 's';
+        status.className = 'logado';
+      } else {
+        status.textContent = data.state || '...';
+        status.className = '';
+      }
+    });
+
+    // Título
+    wv.addEventListener('page-title-updated', (e) => {
+      document.title = e.title + ' — Electron Browser';
+    });
+  </script>
+</body>
+</html>

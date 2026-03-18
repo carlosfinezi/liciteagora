@@ -38,6 +38,7 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.5.0",
     "cors": "^2.8.5",
+    "electron": "^41.0.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "mammoth": "^1.11.0",

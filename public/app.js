@@ -1125,7 +1125,8 @@ function criarBadgeIA(cnpj, ano, seq) {
             IA ${score}
         </span>`;
     }
-    return `<button class="btn-analisar-ia" onclick="event.stopPropagation(); analisarLicitacao('${cnpj}', ${ano}, ${seq}, this)" title="Analisar com IA">IA</button>`;
+    // Sem análise ainda — não mostra badge duplicado (o botão "🤖 Análise IA" no footer já cumpre essa função)
+    return '';
 }
 
 function atualizarBadgesIA() {
