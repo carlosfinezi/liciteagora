@@ -31,12 +31,15 @@ const KEEPALIVE_INTERVAL_MS = 120000; // 2 min
 
 // ─── Init ───────────────────────────────────────────────────────────────────
 
+let _getCookies = null;
+
 function init(opts) {
   API_KEY = opts.apiKey;
   _getBearer = opts.getBearer;
   _getBearerTimestamp = opts.getBearerTimestamp;
   _onSSODead = opts.onSSODead || (() => {});
   _onNewBearer = opts.onNewBearer || (() => {});
+  _getCookies = opts.getCookies || null;
   _log = opts.log || console.log;
 }
 
@@ -282,20 +285,34 @@ async function detectarEncerradas(participacoesAtuais) {
 
 // ─── Retoken via HTTP direto (Node.js, sem browser/CORS) ────────────────────
 
-function retokenHTTP(currentBearer) {
+async function retokenHTTP(currentBearer) {
+  // Obter cookies da session do Electron (necessário para auth)
+  let cookieHeader = '';
+  if (_getCookies) {
+    try {
+      const cookies = await _getCookies('https://cnetmobile.estaleiro.serpro.gov.br');
+      cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    } catch (e) {
+      _log(`[Retoken] Erro ao obter cookies: ${e.message}`);
+    }
+  }
+
   return new Promise((resolve) => {
+    const headers = {
+      'Authorization': currentBearer,
+      'Accept': 'application/json, text/plain, */*',
+      'Content-Type': 'application/json',
+      'x-device-platform': 'web',
+      'x-version-number': '6.0.0',
+    };
+    if (cookieHeader) headers['Cookie'] = cookieHeader;
+
     const options = {
       method: 'PUT',
       hostname: 'cnetmobile.estaleiro.serpro.gov.br',
       path: '/comprasnet-usuario/v2/sessao/fornecedor/retoken',
       timeout: 15000,
-      headers: {
-        'Authorization': currentBearer,
-        'Accept': 'application/json, text/plain, */*',
-        'Content-Type': 'application/json',
-        'x-device-platform': 'web',
-        'x-version-number': '6.0.0',
-      },
+      headers,
     };
 
     const req = https.request(options, (res) => {

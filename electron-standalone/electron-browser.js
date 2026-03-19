@@ -431,7 +431,25 @@ function startServerIntegration() {
       bearerToken = newToken.startsWith('Bearer ') ? newToken : `Bearer ${newToken}`;
       bearerTimestamp = Date.now();
       saveBearer(bearerToken);
-      log(`Bearer renovado via servidor: ${bearerToken.substring(0, 40)}...`);
+      log(`Bearer renovado: ${bearerToken.substring(0, 40)}...`);
+    },
+    getCookies: async (url) => {
+      // Buscar cookies de TODAS as sessions (webview guest + popups)
+      const sessions = [session.defaultSession];
+      if (webviewContents && webviewContents.session) sessions.push(webviewContents.session);
+      const popups = global.__popupWindows || new Map();
+      for (const [, nwc] of popups) {
+        try { if (nwc.session) sessions.push(nwc.session); } catch {}
+      }
+      // Coletar cookies únicos de todas as sessions
+      const allCookies = new Map();
+      for (const ses of sessions) {
+        try {
+          const cookies = await ses.cookies.get({ url });
+          for (const c of cookies) allCookies.set(c.name, c);
+        } catch {}
+      }
+      return [...allCookies.values()];
     },
   });
 
