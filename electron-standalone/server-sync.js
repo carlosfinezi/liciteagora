@@ -280,6 +280,47 @@ async function detectarEncerradas(participacoesAtuais) {
   }
 }
 
+// ─── Retoken via HTTP direto (Node.js, sem browser/CORS) ────────────────────
+
+function retokenHTTP(currentBearer) {
+  return new Promise((resolve) => {
+    const options = {
+      method: 'PUT',
+      hostname: 'cnetmobile.estaleiro.serpro.gov.br',
+      path: '/comprasnet-usuario/v2/sessao/fornecedor/retoken',
+      timeout: 15000,
+      headers: {
+        'Authorization': currentBearer,
+        'Accept': 'application/json, text/plain, */*',
+        'Content-Type': 'application/json',
+        'x-device-platform': 'web',
+        'x-version-number': '6.0.0',
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (res.statusCode === 200 && json.accessToken) {
+            resolve({ ok: true, status: 200, token: json.accessToken });
+          } else {
+            resolve({ ok: false, status: res.statusCode, error: data.substring(0, 200) });
+          }
+        } catch (e) {
+          resolve({ ok: false, status: res.statusCode, error: data.substring(0, 200) });
+        }
+      });
+    });
+
+    req.on('error', e => resolve({ ok: false, status: 0, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
+    req.end();
+  });
+}
+
 // ─── Keepalive (SSO + bearer renewal + anti-idle) ───────────────────────────
 
 async function executarKeepalive() {
@@ -296,20 +337,20 @@ async function executarKeepalive() {
       await serverLog('idle-dialog', { action: idleResult });
     }
 
-    // 2. Retoken proativo (se bearer > 5 min)
+    // 2. Retoken proativo (se bearer > 5 min) — via HTTP direto
     const bearerTs = _getBearerTimestamp();
     if (bearerTs && (Date.now() - bearerTs) > 300000) {
-      _log('[Keepalive] Bearer > 5 min — tentando retoken proativo...');
-      const rt = await cnet.retoken();
-      if (rt.ok && rt.data?.accessToken) {
-        _log('[Keepalive] Retoken OK — novo bearer obtido');
-        _onNewBearer(rt.data.accessToken);
+      _log('[Keepalive] Bearer > 5 min — retoken HTTP direto...');
+      const rt = await retokenHTTP(bearer);
+      if (rt.ok && rt.token) {
+        _log('[Keepalive] Retoken OK — novo Bearer obtido');
+        _onNewBearer(rt.token);
         await enviarBearer();
-        await serverLog('retoken-proativo', { ok: true });
-        return; // Bearer renovado, não precisa keepalive adicional
+        await serverLog('retoken-http', { ok: true });
+        return;
       } else {
-        _log(`[Keepalive] Retoken falhou: ${rt.status}`);
-        await serverLog('retoken-proativo', { ok: false, status: rt.status });
+        _log(`[Keepalive] Retoken HTTP falhou: ${rt.status} ${rt.error || ''}`);
+        await serverLog('retoken-http', { ok: false, status: rt.status, error: rt.error });
       }
     }
 
@@ -319,19 +360,18 @@ async function executarKeepalive() {
       if (syncCount % 5 === 0) _log(`[Keepalive] OK — ${ka.data || ''}`);
       await enviarBearer();
     } else if (ka.status === 401 || ka.status === 403) {
-      _log(`[Keepalive] Sessão expirada (${ka.status}) — tentando retoken...`);
-
-      const rt = await cnet.retoken();
-      if (rt.ok && rt.data?.accessToken) {
+      _log(`[Keepalive] Sessão expirada (${ka.status}) — retoken HTTP...`);
+      const rt = await retokenHTTP(bearer);
+      if (rt.ok && rt.token) {
         _log('[Keepalive] Retoken OK após expiração');
-        _onNewBearer(rt.data.accessToken);
+        _onNewBearer(rt.token);
         await enviarBearer();
-        await serverLog('retoken', { ok: true });
+        await serverLog('retoken-http', { ok: true, after: ka.status });
       } else {
-        _log('[Keepalive] Retoken falhou — SSO morto');
+        _log(`[Keepalive] Retoken falhou (${rt.status}) — SSO morto`);
         ssoMorto = true;
         _onSSODead();
-        await serverLog('sso-morto', { status: ka.status });
+        await serverLog('sso-morto', { status: ka.status, retokenStatus: rt.status });
       }
     }
 
