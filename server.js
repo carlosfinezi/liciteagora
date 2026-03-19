@@ -1163,6 +1163,52 @@ app.get('/download/:file', (req, res) => {
 
 // ==================== COMPRASNET AUTO-LOGIN (Público - antes do auth) ====================
 app.use('/api/comprasnet', comprasnetLoginRoutes);
+// ─── Download do Electron para Windows ─────────────────────────────────────
+app.get('/api/electron/download', (req, res) => {
+  const paths = [
+    path.join(__dirname, 'electron-standalone', 'dist', 'LiciteAgora-v2.zip'),
+    path.join(__dirname, '..', 'public_html', 'LiciteAgora-v2.zip'),
+  ];
+  const filePath = paths.find(p => fs.existsSync(p));
+  if (!filePath) return res.status(404).json({ error: 'Build não encontrado' });
+  res.setHeader('Content-Disposition', 'attachment; filename=LiciteAgora-Electron.zip');
+  res.sendFile(filePath);
+});
+
+// ─── Erros do Electron remoto (sem auth) ───────────────────────────────────
+const electronErrors = [];
+app.post('/api/electron/error', (req, res) => {
+  const err = req.body || {};
+  err.receivedAt = new Date().toISOString();
+  electronErrors.push(err);
+  if (electronErrors.length > 100) electronErrors.shift();
+  console.error('[Electron Error] ' + (err.context || '') + ': ' + (err.error || ''));
+  res.json({ ok: true });
+});
+app.get('/api/electron/errors', (req, res) => { res.json(electronErrors); });
+
+// ─── Status/Logs do Electron remoto ────────────────────────────────────────
+const electronState = { logs: [], state: 'offline', bearerAge: null, lastSeen: null };
+app.post('/api/electron/logs', (req, res) => {
+  const key = req.headers['x-api-key'];
+  if (key !== apiKey) return res.status(401).json({ error: 'API key inválida' });
+  const { logs, state: elState, bearerAge } = req.body || {};
+  if (Array.isArray(logs)) {
+    electronState.logs.push(...logs);
+    if (electronState.logs.length > 500) electronState.logs = electronState.logs.slice(-500);
+  }
+  if (elState) electronState.state = elState;
+  if (bearerAge !== undefined) electronState.bearerAge = bearerAge;
+  electronState.lastSeen = new Date().toISOString();
+  res.json({ ok: true });
+});
+app.get('/api/electron/status', (req, res) => {
+  const since = req.query.since ? new Date(req.query.since).toISOString() : null;
+  let logs = electronState.logs;
+  if (since) logs = logs.filter(l => l.time > since);
+  res.json({ state: electronState.state, bearerAge: electronState.bearerAge, lastSeen: electronState.lastSeen, logCount: electronState.logs.length, logs });
+});
+
 // ─── Endpoint para Electron remoto buscar credenciais ──────────────────────
 app.get('/api/electron/credentials', (req, res) => {
   try {
@@ -1174,41 +1220,6 @@ app.get('/api/electron/credentials', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-});
-
-// ─── Logs do Electron remoto (tempo real) ──────────────────────────────────
-const electronState = { logs: [], state: 'offline', bearerAge: null, lastSeen: null };
-const ELECTRON_LOG_MAX = 500;
-
-app.post('/api/electron/logs', (req, res) => {
-  const key = req.headers['x-api-key'];
-  if (key !== apiKey) return res.status(401).json({ error: 'API key inválida' });
-  const { logs, state: elState, bearerAge } = req.body || {};
-  if (Array.isArray(logs)) {
-    electronState.logs.push(...logs);
-    if (electronState.logs.length > ELECTRON_LOG_MAX) {
-      electronState.logs = electronState.logs.slice(-ELECTRON_LOG_MAX);
-    }
-  }
-  if (elState) electronState.state = elState;
-  if (bearerAge !== undefined) electronState.bearerAge = bearerAge;
-  electronState.lastSeen = new Date().toISOString();
-  res.json({ ok: true });
-});
-
-app.get('/api/electron/status', (req, res) => {
-  const key = req.headers['x-api-key'];
-  if (key !== apiKey) return res.status(401).json({ error: 'API key inválida' });
-  const since = req.query.since ? new Date(req.query.since).toISOString() : null;
-  let logs = electronState.logs;
-  if (since) logs = logs.filter(l => l.time > since);
-  res.json({
-    state: electronState.state,
-    bearerAge: electronState.bearerAge,
-    lastSeen: electronState.lastSeen,
-    logCount: electronState.logs.length,
-    logs,
-  });
 });
 
 // Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
