@@ -23,8 +23,7 @@
 const { app, BrowserWindow, session, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { saveBearer, tryRetoken, keepaliveAPI, keepaliveLegacy,
-        isTokenValid, isTokenExpiringSoon, tokenTTL, loadToken, clearToken, parseJWT } = require('./token-manager');
+const { saveBearer, isTokenValid, tokenTTL, loadToken, clearToken, parseJWT } = require('./token-manager');
 const { saveToken } = require('./store');
 const cnet = require('./comprasnet-api');
 const serverSync = require('./server-sync');
@@ -45,8 +44,6 @@ const USER_DATA_DIR = IS_PACKAGED
   : path.join(__dirname, '.electron-profile');
 const RECORDINGS_DIR = path.join(USER_DATA_DIR, 'recordings');
 const TOKEN_MAX_AGE_MS = 540000; // 9 min
-const KEEPALIVE_INTERVAL_MS = 60000; // 60s
-const API_BASE = 'https://cnetmobile.estaleiro.serpro.gov.br';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -54,7 +51,6 @@ let mainWindow = null;
 let webviewContents = null;
 let bearerToken = null;
 let bearerTimestamp = null;
-let keepaliveTimer = null;
 let state = 'idle'; // idle | connected | logged_in | error
 let loginAt = null;
 const apiLog = [];
@@ -198,6 +194,7 @@ app.whenReady().then(async () => {
       const auth = details.requestHeaders['Authorization'] || details.requestHeaders['authorization'];
       if (auth && auth.startsWith('Bearer ') && details.url.includes('cnetmobile.estaleiro.serpro.gov.br')) {
         const agora = Date.now();
+        serverSync.resetAguardando();
         if (auth !== bearerToken || !bearerTimestamp || (agora - bearerTimestamp) > 30000) {
           bearerToken = auth;
           bearerTimestamp = agora;
@@ -211,7 +208,6 @@ app.whenReady().then(async () => {
             state = 'logged_in';
             loginAt = new Date().toISOString();
             log('Estado → logged_in');
-            startKeepalive();
             startServerIntegration();
           }
 
@@ -221,6 +217,7 @@ app.whenReady().then(async () => {
       }
       callback({ requestHeaders: details.requestHeaders });
     });
+
   }
 
   // Registrar na session default (main window)
@@ -238,7 +235,6 @@ app.whenReady().then(async () => {
       state = 'logged_in';
       loginAt = new Date().toISOString();
       log('Login detectado! Estado → logged_in');
-      startKeepalive();
     }
   });
 
@@ -310,8 +306,7 @@ app.whenReady().then(async () => {
 
     // Se já tem sessão válida, iniciar keepalive direto. Senão, auto-login.
     if (state === 'logged_in') {
-      log('Sessão anterior válida — iniciando keepalive...');
-      startKeepalive();
+      log('Sessão anterior válida — iniciando server integration...');
       startServerIntegration();
       wvContents.loadURL('https://comprasnet.gov.br/seguro/loginPortal.asp');
     } else {
@@ -337,74 +332,6 @@ app.whenReady().then(async () => {
   log('');
 });
 
-// ─── Keepalive ───────────────────────────────────────────────────────────────
-
-let keepaliveCount = 0;
-let lastRetokenAt = 0;
-
-function startKeepalive() {
-  if (keepaliveTimer) clearInterval(keepaliveTimer);
-  keepaliveCount = 0;
-  keepaliveTimer = setInterval(keepaliveStep, KEEPALIVE_INTERVAL_MS);
-  log(`Keepalive ativo (cada ${KEEPALIVE_INTERVAL_MS / 1000}s)`);
-}
-
-async function keepaliveStep() {
-  if (!webviewContents || state !== 'logged_in') return;
-  keepaliveCount++;
-  const wv = webviewContents;
-
-  try {
-    // 1. Keepalive API (datahorabrasilia)
-    const result = await keepaliveAPI(wv, bearerToken);
-
-    if (result.ok) {
-      if (keepaliveCount % 5 === 0) {
-        const ttl = tokenTTL(loadToken());
-        log(`Keepalive #${keepaliveCount} OK — TTL: ${ttl}s — ${result.body || ''}`);
-      }
-    } else if (result.status === 401 || result.status === 403) {
-      log(`Keepalive: sessão expirada (${result.status}) — tentando retoken...`);
-      const retokenOk = await tryRetoken(wv, bearerToken);
-      if (!retokenOk) {
-        log('Retoken falhou. Sessão perdida.');
-        state = 'connected';
-        if (mainWindow) mainWindow.webContents.send('token-expired');
-      }
-    } else {
-      log(`Keepalive: status ${result.status} — ${result.error || ''}`);
-    }
-
-    // 2. Keepalive legado (main.asp) — a cada 2 ciclos (~2 min)
-    if (keepaliveCount % 2 === 0) {
-      await keepaliveLegacy(wv);
-    }
-
-    // 3. Retoken preventivo — quando token está perto de expirar
-    const savedToken = loadToken();
-    if (savedToken && isTokenExpiringSoon(savedToken)) {
-      const timeSinceLastRetoken = Date.now() - lastRetokenAt;
-      if (timeSinceLastRetoken > 300000) { // Máx 1 a cada 5 min
-        const ttl = tokenTTL(savedToken);
-        log(`Token expira em ${ttl}s — retoken preventivo...`);
-        const ok = await tryRetoken(wv, bearerToken);
-        if (ok) lastRetokenAt = Date.now();
-      }
-    }
-
-    // 4. Notificar renderer sobre estado do token
-    if (mainWindow && savedToken) {
-      const ttl = tokenTTL(savedToken);
-      if (ttl < 600 && ttl > 0) { // < 10 min
-        mainWindow.webContents.send('token-expiring-soon', { minutesLeft: Math.floor(ttl / 60) });
-      }
-    }
-
-  } catch (e) {
-    log(`Keepalive erro: ${e.message}`);
-  }
-}
-
 // ─── Integração com Servidor LiciteAgora ────────────────────────────────────
 
 let serverIntegrationStarted = false;
@@ -414,7 +341,7 @@ function startServerIntegration() {
   if (!webviewContents) { log('[Integração] Webview não pronto, adiando...'); return; }
   serverIntegrationStarted = true;
 
-  // Inicializar módulo comprasnet-api
+  // Inicializar módulo comprasnet-api (Node.js https, sem session)
   cnet.init(webviewContents, () => bearerToken);
 
   // Inicializar server-sync
@@ -432,6 +359,34 @@ function startServerIntegration() {
       bearerTimestamp = Date.now();
       saveBearer(bearerToken);
       log(`Bearer renovado via servidor: ${bearerToken.substring(0, 40)}...`);
+    },
+    onNeedReload: () => {
+      log('[Reload] Abrindo janela oculta para renovar bearer (webview principal intacto)...');
+      const wvSession = webviewContents ? webviewContents.session : session.defaultSession;
+      const hidden = new BrowserWindow({
+        show: false,
+        webPreferences: { session: wvSession },
+      });
+      hidden.loadURL('https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/compras');
+      hidden.webContents.on('did-navigate', (event, url) => {
+        log(`[Reload] Janela oculta navegou: ${url.substring(0, 120)}`);
+        if (url.includes('acesso.gov.br')) {
+          serverSync.resetAguardando();
+          try { hidden.destroy(); } catch {}
+          if (tokenFresco()) {
+            log('[Reload] Janela oculta foi ao Gov.br mas Bearer ainda fresco — ignorando, sem re-login');
+          } else {
+            log('[Reload] REDIRECIONADO ao Gov.br SSO — sessão expirou, iniciando re-login');
+            attemptAutoRelogin();
+          }
+        } else {
+          // Aguarda 10s para o interceptor capturar o Bearer antes de fechar
+          setTimeout(() => {
+            serverSync.resetAguardando();
+            try { hidden.destroy(); } catch {}
+          }, 10000);
+        }
+      });
     },
   });
 
@@ -455,6 +410,7 @@ function startServerIntegration() {
 }
 
 // ─── Fetch no contexto da página (para uso externo via IPC) ──────────────────
+const CNET_BASE = 'https://cnetmobile.estaleiro.serpro.gov.br';
 
 async function comprasnetFetch(apiPath, method = 'GET', body = null) {
   if (!webviewContents) throw new Error('Webview não disponível');
@@ -479,7 +435,7 @@ async function comprasnetFetch(apiPath, method = 'GET', body = null) {
         };
         ${body ? `opts.body = '${bodyStr.replace(/'/g, "\\'")}';` : ''}
 
-        const resp = await fetch('${API_BASE}${apiPath}', opts);
+        const resp = await fetch('${CNET_BASE}${apiPath}', opts);
         const ct = resp.headers.get('content-type') || '';
         let data;
         if (ct.includes('json')) {
@@ -641,7 +597,6 @@ async function autoLogin(cpf, senha) {
       log('Já está logado! (sessão anterior válida)');
       state = 'logged_in';
       loginAt = new Date().toISOString();
-      startKeepalive();
       return { success: true, message: 'Sessão anterior válida' };
     }
 
@@ -789,7 +744,6 @@ async function autoLogin(cpf, senha) {
         log('Redirecionou direto ao Comprasnet (SSO válido)!');
         state = 'logged_in';
         loginAt = new Date().toISOString();
-        startKeepalive();
         return { success: true, message: 'SSO válido, login automático' };
       }
 
@@ -895,7 +849,6 @@ async function autoLogin(cpf, senha) {
       state = 'logged_in';
       loginAt = new Date().toISOString();
       log('══ LOGIN CONCLUÍDO COM SUCESSO! (Bearer detectado) ══');
-      startKeepalive();
       startServerIntegration();
       return { success: true, message: 'Login OK' };
     }
@@ -1038,6 +991,50 @@ async function autoLoginFromDB() {
   }
 }
 
+// ─── Auto Re-login ───────────────────────────────────────────────────────────
+
+let reloginInProgress = false;
+let lastReloginAt = 0;
+const RELOGIN_COOLDOWN_MS = 120000; // 2 min entre tentativas
+
+async function attemptAutoRelogin() {
+  if (reloginInProgress) return;
+  if (state === 'logged_in') return;
+  if (Date.now() - lastReloginAt < RELOGIN_COOLDOWN_MS) {
+    log('Relogin: cooldown ativo, aguardando...');
+    return;
+  }
+
+  reloginInProgress = true;
+  lastReloginAt = Date.now();
+
+  try {
+    let creds = readCredentialsFromDB();
+    if (!creds) creds = await readCredentialsFromServer();
+    if (!creds) {
+      log('Relogin: sem credenciais. Aguardando login manual.');
+      return;
+    }
+
+    log('═══ RE-LOGIN AUTOMÁTICO ═══');
+    await sleep(3000);
+
+    const result = await autoLogin(creds.cpf, creds.senha);
+    if (result.success) {
+      log('Re-login: SUCESSO — sessão restaurada');
+      serverSync.reviverSSO();
+    } else {
+      log(`Re-login: FALHA — ${result.message}`);
+      serverSync.marcarSSOmorto();
+    }
+  } catch (e) {
+    log(`Re-login erro: ${e.message}`);
+    serverSync.marcarSSOmorto();
+  } finally {
+    reloginInProgress = false;
+  }
+}
+
 // ─── API Server (para integrar com o server.js existente) ────────────────────
 
 const http = require('http');
@@ -1066,7 +1063,6 @@ const apiServer = http.createServer(async (req, res) => {
         tokenTTL: ttl,
         tokenSavedToDisk: !!saved,
         loginAt,
-        keepaliveCount,
         serverIntegration: serverIntegrationStarted,
         syncCount: serverSync.syncCount,
         ssoMorto: serverSync.isSSODead(),
@@ -1188,6 +1184,36 @@ const apiServer = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /reload-popup  { id: 4 }  — F5 em popup específico
+    if (url.pathname === '/reload-popup' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { id } = JSON.parse(body);
+      const popups = global.__popupWindows || new Map();
+      const nwc = popups.get(id);
+      if (!nwc) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Popup não encontrado', available: [...popups.keys()] }));
+        return;
+      }
+      nwc.reload();
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, id, url: nwc.getURL() }));
+      return;
+    }
+
+    // POST /reload-all  — F5 em todas as janelas abertas
+    if (url.pathname === '/reload-all' && req.method === 'POST') {
+      const popups = global.__popupWindows || new Map();
+      const reloaded = [];
+      for (const [id, nwc] of popups) {
+        try { nwc.reload(); reloaded.push({ id, url: nwc.getURL() }); } catch {}
+      }
+      if (webviewContents) { webviewContents.reload(); reloaded.push({ id: 'webview', url: webviewContents.getURL() }); }
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, reloaded }));
+      return;
+    }
+
     // POST /login  { cpf: "00602500206", senha: "..." }
     if (url.pathname === '/login' && req.method === 'POST') {
       const body = await readBody(req);
@@ -1257,12 +1283,12 @@ function saveRecording() {
 
 function cleanupAll() {
   saveRecording();
-  if (keepaliveTimer) clearInterval(keepaliveTimer);
   serverSync.stop();
   lanceProcessor.stop();
 }
 
 app.on('window-all-closed', () => {
+  log('[App] Fechando aplicação...');
   cleanupAll();
   app.quit();
 });

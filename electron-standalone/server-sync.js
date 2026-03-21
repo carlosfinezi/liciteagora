@@ -24,10 +24,15 @@ let _getBearer = null;
 let _getBearerTimestamp = null;
 let _onSSODead = null;
 let _onNewBearer = null;
+let _onNeedReload = null;
 let _log = console.log;
+let reloginEmAndamento = false;
+let aguardandoNovoBearer = false;
+let aguardandoDesde = 0;
+const AGUARDANDO_TIMEOUT_MS = 90000; // 30s timeout
 
 const SYNC_INTERVAL_MS = 120000;    // 2 min
-const KEEPALIVE_INTERVAL_MS = 120000; // 2 min
+const KEEPALIVE_INTERVAL_MS = 60000;  // 60s (único keepalive do sistema)
 
 // ─── Init ───────────────────────────────────────────────────────────────────
 
@@ -37,11 +42,12 @@ function init(opts) {
   _getBearerTimestamp = opts.getBearerTimestamp;
   _onSSODead = opts.onSSODead || (() => {});
   _onNewBearer = opts.onNewBearer || (() => {});
+  _onNeedReload = opts.onNeedReload || null;
   _log = opts.log || console.log;
 }
 
 function start() {
-  _log('[Sync] Iniciando sync a cada 2 min + keepalive a cada 2 min');
+  _log('[Sync] Iniciando sync a cada 2 min + keepalive a cada 60s');
   // Sync imediato (3s delay)
   setTimeout(() => executarSync(), 3000);
   syncTimer = setInterval(() => executarSync(), SYNC_INTERVAL_MS);
@@ -130,6 +136,7 @@ async function enviarBearer() {
 async function executarSync() {
   if (syncRunning) return;
   if (ssoMorto) { _log('[Sync] SSO morto — skip sync'); return; }
+  if (reloginEmAndamento) { _log('[Sync] Re-login em andamento — skip sync'); return; }
 
   const bearer = _getBearer();
   if (!bearer) { _log('[Sync] Sem bearer — skip sync'); return; }
@@ -280,13 +287,18 @@ async function detectarEncerradas(participacoesAtuais) {
   }
 }
 
-// ─── Keepalive (SSO + bearer renewal + anti-idle) ───────────────────────────
+// ─── Keepalive (SSO + bearer renewal + anti-idle + legado) ──────────────────
+
+let keepaliveCount = 0;
 
 async function executarKeepalive() {
   if (ssoMorto) return;
+  if (reloginEmAndamento) return;
 
   const bearer = _getBearer();
   if (!bearer) return;
+
+  keepaliveCount++;
 
   try {
     // 1. Anti-idle (clicar botões de sessão)
@@ -296,43 +308,40 @@ async function executarKeepalive() {
       await serverLog('idle-dialog', { action: idleResult });
     }
 
-    // 2. Retoken proativo (se bearer > 5 min)
-    const bearerTs = _getBearerTimestamp();
-    if (bearerTs && (Date.now() - bearerTs) > 300000) {
-      _log('[Keepalive] Bearer > 5 min — tentando retoken proativo...');
-      const rt = await cnet.retoken();
-      if (rt.ok && rt.data?.accessToken) {
-        _log('[Keepalive] Retoken OK — novo bearer obtido');
-        _onNewBearer(rt.data.accessToken);
-        await enviarBearer();
-        await serverLog('retoken-proativo', { ok: true });
-        return; // Bearer renovado, não precisa keepalive adicional
-      } else {
-        _log(`[Keepalive] Retoken falhou: ${rt.status}`);
-        await serverLog('retoken-proativo', { ok: false, status: rt.status });
-      }
+    // 2. Keepalive legado (main.asp) — a cada 2 ciclos (~2 min)
+    if (keepaliveCount % 2 === 0) {
+      try {
+        const wv = cnet._getWV();
+        if (wv) {
+          await wv.executeJavaScript(`
+            fetch('https://www.comprasnet.gov.br/main.asp?login=keepalive', {
+              credentials: 'include', mode: 'no-cors'
+            }).catch(() => {});
+          `);
+        }
+      } catch {}
     }
 
-    // 3. Keepalive via datahorabrasilia
-    const ka = await cnet.datahorabrasilia();
-    if (ka.ok) {
-      if (syncCount % 5 === 0) _log(`[Keepalive] OK — ${ka.data || ''}`);
-      await enviarBearer();
-    } else if (ka.status === 401 || ka.status === 403) {
-      _log(`[Keepalive] Sessão expirada (${ka.status}) — tentando retoken...`);
-
-      const rt = await cnet.retoken();
-      if (rt.ok && rt.data?.accessToken) {
-        _log('[Keepalive] Retoken OK após expiração');
-        _onNewBearer(rt.data.accessToken);
-        await enviarBearer();
-        await serverLog('retoken', { ok: true });
-      } else {
-        _log('[Keepalive] Retoken falhou — SSO morto');
+    // 3. Se aguardando novo bearer após reload, verificar timeout
+    if (aguardandoNovoBearer) {
+      if (Date.now() - aguardandoDesde > AGUARDANDO_TIMEOUT_MS) {
+        _log('[Keepalive] Timeout aguardando novo bearer após reload — SSO morto');
+        aguardandoNovoBearer = false;
         ssoMorto = true;
         _onSSODead();
-        await serverLog('sso-morto', { status: ka.status });
+        await serverLog('reload-timeout-sso-morto', {});
       }
+      return;
+    }
+
+    // 4. Reload do webview (sempre, a cada 60s — mantém SSO vivo + renova bearer)
+    if (_onNeedReload) {
+      _log(`[Keepalive] #${keepaliveCount} Recarregando webview para manter SSO...`);
+      aguardandoNovoBearer = true;
+      aguardandoDesde = Date.now();
+      await serverLog('reload-keepalive', {});
+      _onNeedReload();
+      return;
     }
 
   } catch (e) {
@@ -342,13 +351,27 @@ async function executarKeepalive() {
 
 // ─── Reviver SSO (chamado quando novo bearer chega após SSO morto) ──────────
 
+function resetAguardando() {
+  aguardandoNovoBearer = false;
+  aguardandoDesde = 0;
+}
+
 function reviverSSO() {
+  reloginEmAndamento = false;
+  resetAguardando();
   if (ssoMorto) {
     ssoMorto = false;
     _log('[Sync] SSO revivido — retomando sync');
     // Sync imediato
     setTimeout(() => executarSync(), 2000);
   }
+}
+
+function marcarSSOmorto() {
+  reloginEmAndamento = false;
+  ssoMorto = true;
+  _log('[Sync] Re-login falhou — SSO morto');
+  _onSSODead();
 }
 
 // ─── Server log ─────────────────────────────────────────────────────────────
@@ -369,6 +392,8 @@ module.exports = {
   executarSync,
   executarKeepalive,
   reviverSSO,
+  resetAguardando,
+  marcarSSOmorto,
   isSSODead,
   serverRequest,
   serverLog,
