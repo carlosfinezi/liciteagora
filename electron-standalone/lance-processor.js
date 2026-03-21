@@ -15,6 +15,8 @@ let _log = console.log;
 let _onNeedKeepalive = null;
 
 const TOKEN_MAX_AGE_MS = 540000;
+const KEEPALIVE_DEBOUNCE_MS = 60000; // Máx 1 chamada de keepalive por minuto
+let lastKeepaliveCall = 0;
 
 // Stats
 let lancesProcessados = 0;
@@ -61,7 +63,10 @@ async function poll() {
   // Token fresco?
   const ts = _getBearerTimestamp();
   if (ts && (Date.now() - ts) > TOKEN_MAX_AGE_MS) {
-    _onNeedKeepalive();
+    if (Date.now() - lastKeepaliveCall > KEEPALIVE_DEBOUNCE_MS) {
+      lastKeepaliveCall = Date.now();
+      _onNeedKeepalive();
+    }
     return;
   }
 

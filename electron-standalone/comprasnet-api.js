@@ -1,5 +1,7 @@
-// comprasnet-api.js — Chamadas à API Comprasnet via webview (mesmo IP/cookies)
+// comprasnet-api.js — Chamadas à API Comprasnet via Node.js https (sem CORS)
 'use strict';
+
+const https = require('https');
 
 const COMPRASNET = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const HEADERS_BASE = {
@@ -10,8 +12,8 @@ const HEADERS_BASE = {
   'Cache-Control': 'no-cache',
 };
 
-// Referência ao webviewContents — setada externamente
-let _wv = null;
+// Referências externas
+let _wv = null;       // webviewContents (só para antiIdle)
 let _getBearer = null;
 
 function init(webviewContents, getBearerFn) {
@@ -30,128 +32,62 @@ function bearer() {
   return b;
 }
 
-// ─── Fetch genérico via injeção no webview ──────────────────────────────────
+// ─── Fetch genérico via Node.js https (sem CORS) ────────────────────────────
+
+async function comprasnetFetch(method, apiPath, body, timeoutMs = 30000) {
+  const b = bearer();
+  return new Promise((resolve) => {
+    const url = new URL(apiPath, COMPRASNET);
+    const headers = { ...HEADERS_BASE, Authorization: b };
+    if (body) {
+      headers['Content-Length'] = Buffer.byteLength(JSON.stringify(body));
+    }
+    const opts = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method,
+      headers,
+      timeout: timeoutMs,
+    };
+    const req = https.request(opts, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data: parsed });
+        } catch {
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data });
+        }
+      });
+    });
+    req.on('error', e => resolve({ ok: false, status: 0, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
 
 async function comprasnetGet(apiPath, timeoutMs = 30000) {
-  const b = bearer();
-  const result = await wv().executeJavaScript(`
-    (async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), ${timeoutMs});
-      try {
-        const resp = await fetch('${COMPRASNET}${apiPath}', {
-          method: 'GET',
-          credentials: 'include',
-          signal: ctrl.signal,
-          headers: ${JSON.stringify({ ...HEADERS_BASE, Authorization: b })},
-        });
-        clearTimeout(timer);
-        const ct = resp.headers.get('content-type') || '';
-        let data;
-        if (ct.includes('json')) { data = await resp.json(); } else { data = await resp.text(); }
-        return { ok: resp.ok, status: resp.status, data };
-      } catch (e) {
-        clearTimeout(timer);
-        return { ok: false, status: 0, error: e.message };
-      }
-    })()
-  `);
-  return result;
+  return comprasnetFetch('GET', apiPath, null, timeoutMs);
 }
 
 async function comprasnetPost(apiPath, body, timeoutMs = 15000) {
-  const b = bearer();
-  const bodyStr = JSON.stringify(body).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  const result = await wv().executeJavaScript(`
-    (async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), ${timeoutMs});
-      try {
-        const resp = await fetch('${COMPRASNET}${apiPath}', {
-          method: 'POST',
-          credentials: 'include',
-          signal: ctrl.signal,
-          headers: ${JSON.stringify({ ...HEADERS_BASE, Authorization: b })},
-          body: '${bodyStr}',
-        });
-        clearTimeout(timer);
-        const ct = resp.headers.get('content-type') || '';
-        let data;
-        if (ct.includes('json')) { data = await resp.json(); } else { data = await resp.text(); }
-        return { ok: resp.ok, status: resp.status, data };
-      } catch (e) {
-        clearTimeout(timer);
-        return { ok: false, status: 0, error: e.message };
-      }
-    })()
-  `);
-  return result;
+  return comprasnetFetch('POST', apiPath, body, timeoutMs);
 }
 
 async function comprasnetPut(apiPath, body = null, timeoutMs = 10000) {
-  const b = bearer();
-  const bodyPart = body ? `body: '${JSON.stringify(body).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'` : '';
-  const result = await wv().executeJavaScript(`
-    (async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), ${timeoutMs});
-      try {
-        const resp = await fetch('${COMPRASNET}${apiPath}', {
-          method: 'PUT',
-          credentials: 'include',
-          signal: ctrl.signal,
-          headers: ${JSON.stringify({ ...HEADERS_BASE, Authorization: b })},
-          ${bodyPart}
-        });
-        clearTimeout(timer);
-        const ct = resp.headers.get('content-type') || '';
-        let data;
-        if (ct.includes('json')) { data = await resp.json(); } else { data = await resp.text(); }
-        return { ok: resp.ok, status: resp.status, data };
-      } catch (e) {
-        clearTimeout(timer);
-        return { ok: false, status: 0, error: e.message };
-      }
-    })()
-  `);
-  return result;
+  return comprasnetFetch('PUT', apiPath, body, timeoutMs);
 }
 
 async function comprasnetDelete(apiPath, timeoutMs = 10000) {
-  const b = bearer();
-  const result = await wv().executeJavaScript(`
-    (async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), ${timeoutMs});
-      try {
-        const resp = await fetch('${COMPRASNET}${apiPath}', {
-          method: 'DELETE',
-          credentials: 'include',
-          signal: ctrl.signal,
-          headers: ${JSON.stringify({ ...HEADERS_BASE, Authorization: b })},
-        });
-        clearTimeout(timer);
-        const ct = resp.headers.get('content-type') || '';
-        let data;
-        if (ct.includes('json')) { data = await resp.json(); } else { data = await resp.text(); }
-        return { ok: resp.ok, status: resp.status, data };
-      } catch (e) {
-        clearTimeout(timer);
-        return { ok: false, status: 0, error: e.message };
-      }
-    })()
-  `);
-  return result;
+  return comprasnetFetch('DELETE', apiPath, null, timeoutMs);
 }
 
 // ─── API específicas do Comprasnet ──────────────────────────────────────────
 
 async function datahorabrasilia() {
   return comprasnetGet('/comprasnet-disputa/v1/datahorabrasilia');
-}
-
-async function retoken() {
-  return comprasnetPut('/comprasnet-usuario/v2/sessao/fornecedor/retoken');
 }
 
 async function sessaoFornecedor() {
@@ -357,7 +293,6 @@ module.exports = {
   comprasnetPut,
   comprasnetDelete,
   datahorabrasilia,
-  retoken,
   sessaoFornecedor,
   fetchParticipacoes,
   fetchMensagens,
@@ -368,4 +303,5 @@ module.exports = {
   enviarProposta,
   antiIdle,
   COMPRASNET,
+  _getWV: () => _wv,
 };

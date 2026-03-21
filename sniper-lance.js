@@ -37,6 +37,10 @@ class SniperLance {
     this.logs = [];
     this.maxLogs = 500;
 
+    // Cache de validação de token
+    this._lastValidatedToken = null;
+    this._lastValidatedAt = null;
+
     // Offset de tempo servidor vs local
     this.offsetServidorMs = 0;
     this.ultimaCalibracao = null;
@@ -59,7 +63,29 @@ class SniperLance {
    */
   setToken(token, source = 'manual') {
     if (!token) return;
-    this.bearerToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    const newToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+
+    // Prioridade: electron > extension > manual
+    // Se já tem token fresco, só aceitar de fonte igual ou superior
+    if (this.bearerToken && this.tokenRecebidoEm) {
+      const idade = this.idadeTokenSegundos();
+      const prioridade = { electron: 3, puppeteer: 2, extension: 1, manual: 0, api: 0 };
+      const prioAtual = prioridade[this.tokenSource] || 0;
+      const prioNovo = prioridade[source] || 0;
+
+      // Token atual ainda válido e fonte nova tem prioridade menor → rejeitar
+      if (idade < 540 && prioNovo < prioAtual) {
+        return; // Silencioso — não poluir log
+      }
+
+      // Mesmo token → só atualizar timestamp se mudou
+      if (newToken === this.bearerToken && prioNovo <= prioAtual) {
+        this.tokenRecebidoEm = new Date().toISOString();
+        return;
+      }
+    }
+
+    this.bearerToken = newToken;
     this.tokenRecebidoEm = new Date().toISOString();
     this.tokenSource = source;
     this.log(`🔑 Bearer recebido (${source}): ${this.bearerToken.substring(0, 30)}...`);
@@ -73,6 +99,53 @@ class SniperLance {
     this.captchaToken = captchaToken;
     this.captchaRecebidoEm = new Date().toISOString();
     this.log(`🛡️ Captcha recebido: ${captchaToken.substring(0, 20)}...`);
+  }
+
+  /**
+   * Valida um token contra o endpoint datahorabrasilia do Comprasnet.
+   * @param {string} token - "Bearer eyJ..."
+   * @returns {{ valid: boolean, status: number|null, cached: boolean }}
+   */
+  async validateToken(token) {
+    // Cache: se mesmo token validado nos últimos 60s, pular
+    if (this._lastValidatedToken === token && this._lastValidatedAt) {
+      const age = Date.now() - this._lastValidatedAt;
+      if (age < 60000) {
+        return { valid: true, status: 200, cached: true };
+      }
+    }
+
+    try {
+      const url = `${BASE_URL}/comprasnet-disputa/v1/datahorabrasilia`;
+      const resp = await axios.get(url, {
+        headers: { ...API_HEADERS, Authorization: token },
+        timeout: 8000,
+        validateStatus: () => true,
+      });
+
+      const valid = resp.status === 200;
+      if (valid) {
+        this._lastValidatedToken = token;
+        this._lastValidatedAt = Date.now();
+      }
+
+      this.log(`🔍 Validação token: HTTP ${resp.status} → ${valid ? 'VÁLIDO' : 'INVÁLIDO'}`);
+      return { valid, status: resp.status, cached: false };
+    } catch (e) {
+      // Timeout/erro de rede → aceitar otimisticamente
+      this.log(`⚠️ Validação token: erro rede (${e.message}) → aceito otimisticamente`);
+      return { valid: true, status: null, cached: false };
+    }
+  }
+
+  /**
+   * Força expiração do token (marca como recebido há 10 min).
+   */
+  forceExpireToken() {
+    if (this.tokenRecebidoEm) {
+      this.tokenRecebidoEm = new Date(Date.now() - TOKEN_MAX_AGE_S * 1000).toISOString();
+      this.log('⏰ Token marcado como expirado (health check falhou)');
+    }
   }
 
   getToken() {
@@ -690,6 +763,7 @@ class SniperLance {
       tokenIdadeSegundos: this.tokenRecebidoEm ? Math.floor(this.idadeTokenSegundos()) : null,
       tokenRecebidoEm: this.tokenRecebidoEm,
       tokenExpirado: this.tokenExpirado(),
+      needsToken: !this.temToken() || this.tokenExpirado(),
       temCaptcha: this.temCaptcha(),
       captchaIdade: this.captchaRecebidoEm ? Math.floor(this.idadeCaptchaSegundos()) + 's' : null,
       captchaRecebidoEm: this.captchaRecebidoEm,

@@ -70,12 +70,30 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Recebe Bearer token da extensão Chrome (Token Relay).
    * Também aceita envio manual.
    */
-  app.post('/api/auth/token', (req, res) => {
+  app.post('/api/auth/token', async (req, res) => {
     try {
       const { token, captchaToken, source } = req.body;
       if (!token) {
         return res.status(400).json({ success: false, error: 'Token obrigatório' });
       }
+
+      const normalizedToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+
+      // Validar token contra Comprasnet antes de aceitar
+      const validation = await sniper.validateToken(normalizedToken);
+
+      if (!validation.valid) {
+        sniper.log(`🚫 Token REJEITADO de ${source || 'api'} (HTTP ${validation.status})`);
+        return res.json({
+          success: false,
+          validated: false,
+          error: `Token inválido (Comprasnet retornou ${validation.status})`,
+          needsToken: !sniper.temToken() || sniper.tokenExpirado(),
+          tokenSource: sniper.tokenSource,
+          tokenAge: sniper.tokenRecebidoEm ? Math.floor(sniper.idadeTokenSegundos()) : null,
+        });
+      }
+
       sniper.setToken(token, source || 'api');
       if (source === 'extension') ultimoSyncExtensao = Date.now();
 
@@ -94,8 +112,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       res.json({
         success: true,
+        validated: !validation.cached,
+        cached: validation.cached,
         message: 'Token recebido' + (captchaToken ? ' + captcha' : ''),
-        tokenAge: sniper.idadeTokenSegundos(),
+        needsToken: false,
+        tokenSource: sniper.tokenSource,
+        tokenAge: Math.floor(sniper.idadeTokenSegundos()),
         temCaptcha: sniper.temCaptcha(),
       });
     } catch (e) {
@@ -3483,6 +3505,29 @@ function registrarRotasSniper(app, monitorGetter, db) {
     if (!tarefa) return res.status(404).json({ success: false, error: 'Tarefa não encontrada' });
     res.json({ success: true, tarefa });
   });
+
+  // ==================== HEALTH CHECK PERIÓDICO DO TOKEN ====================
+
+  const HEALTH_CHECK_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
+
+  setInterval(async () => {
+    if (!sniper.temToken() || sniper.tokenExpirado()) return;
+
+    try {
+      const validation = await sniper.validateToken(sniper.bearerToken);
+      if (!validation.valid && !validation.cached) {
+        sniper.log(`💀 Health check: token inválido (HTTP ${validation.status}) — marcando expirado`);
+        sniper.forceExpireToken();
+        // Limpar cache de validação para que o próximo token não seja cached
+        sniper._lastValidatedToken = null;
+        sniper._lastValidatedAt = null;
+      }
+    } catch (e) {
+      sniper.log(`⚠️ Health check erro: ${e.message}`);
+    }
+  }, HEALTH_CHECK_INTERVAL_MS);
+
+  sniper.log('🏥 Health check de token ativado (a cada 2 min)');
 
 } // end registrarRotasSniper
 

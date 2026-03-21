@@ -48,6 +48,7 @@ const menuConfig = {
                 { page: 'fornecedor', icone: '🏢', texto: 'Fornecedor', link: '/fornecedor.html' },
                 { page: 'grupos-palavras', icone: '🏷️', texto: 'Grupos de Palavras', link: '/grupos-palavras.html' },
                 { page: 'jornal', icone: '📰', texto: 'Jornal', link: '/jornal.html' },
+                { page: 'electron-logs', icone: '🖥️', texto: 'Electron Logs', link: '/electron-logs.html' },
                 { page: 'status', icone: '📊', texto: 'Status', link: '/status.html' },
                 { page: 'versoes', icone: '💾', texto: 'Versões', link: '/versoes.html' }
             ]
