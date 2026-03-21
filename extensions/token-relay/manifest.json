@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LiciteAgora Token Relay",
-  "version": "3.16.0",
+  "version": "3.16.1",
   "description": "Captura tokens e sincroniza dados do Comprasnet automaticamente",
   "permissions": [
     "webRequest",

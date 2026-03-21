@@ -1123,6 +1123,20 @@ async function reloadEAguardarBearer(tabId, motivoLog) {
 
   // Verificar se caiu na página de login (SSO morto)
   if (finalUrl && (finalUrl.indexOf('sso.serpro') >= 0 || finalUrl.indexOf('/login') >= 0 || finalUrl.indexOf('acesso-nao-autorizado') >= 0)) {
+    // Verificar se Bearer fresco chegou durante a navegacao antes de declarar SSO morto
+    if (!aguardandoNovoBearer) {
+      console.log('[LiciteAgora] ✅ Aba foi para login mas Bearer fresco chegou durante navegacao — SSO OK');
+      chrome.action.setBadgeText({ text: '' });
+      return true;
+    }
+    var dataAtual = await load();
+    var idadeAtual = Date.now() - (dataAtual.bearerTimestamp || dataAtual.ultimoEnvio || 0);
+    if (idadeAtual < 30000) {
+      console.log('[LiciteAgora] ✅ Bearer renovado recentemente (' + Math.floor(idadeAtual/1000) + 's) — ignorando redirect SSO');
+      aguardandoNovoBearer = false;
+      chrome.action.setBadgeText({ text: '' });
+      return true;
+    }
     console.log('[LiciteAgora] ⚠️ Aba redirecionou para login — SSO morto, precisa login manual');
     aguardandoNovoBearer = false;
     chrome.action.setBadgeText({ text: 'SSO' });
