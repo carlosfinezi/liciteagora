@@ -19,6 +19,7 @@ console.log('[Sniper] Inicializado (aguardando Bearer token da extensão)');
 
 function registrarRotasSniper(app, monitorGetter, db) {
 
+  sniper.initDb(db);
   // ==================== MIGRAÇÃO: colunas extras em participacoes_comprasnet ====================
   try {
     const infoP = db.pragma('table_info(participacoes_comprasnet)');

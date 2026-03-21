@@ -61,6 +61,40 @@ class SniperLance {
    * @param {string} token - "Bearer eyJ..." ou apenas "eyJ..."
    * @param {string} source - origem do token
    */
+  initDb(db) {
+    this.db = db;
+    try {
+      const row = db.prepare("SELECT valor FROM config WHERE chave = 'bearer_token'").get();
+      const src = db.prepare("SELECT valor FROM config WHERE chave = 'bearer_source'").get();
+      const ts  = db.prepare("SELECT valor FROM config WHERE chave = 'bearer_timestamp'").get();
+      if (row && row.valor && ts && ts.valor) {
+        const idade = (Date.now() - new Date(ts.valor).getTime()) / 1000;
+        if (idade < 540) {
+          this.bearerToken = row.valor;
+          this.tokenRecebidoEm = ts.valor;
+          this.tokenSource = src ? src.valor : 'db';
+          this.log('Bearer restaurado do banco (' + Math.floor(idade) + 's, fonte: ' + this.tokenSource + ')');
+        } else {
+          this.log('Bearer no banco expirado (' + Math.floor(idade) + 's) - aguardando novo envio');
+        }
+      }
+    } catch (e) {
+      this.log('Erro ao carregar bearer do banco: ' + e.message);
+    }
+  }
+
+  _persistirToken() {
+    if (!this.db || !this.bearerToken) return;
+    try {
+      const ts = this.tokenRecebidoEm || new Date().toISOString();
+      this.db.prepare("INSERT OR REPLACE INTO config (chave, valor) VALUES ('bearer_token', ?)").run(this.bearerToken);
+      this.db.prepare("INSERT OR REPLACE INTO config (chave, valor) VALUES ('bearer_source', ?)").run(this.tokenSource || 'unknown');
+      this.db.prepare("INSERT OR REPLACE INTO config (chave, valor) VALUES ('bearer_timestamp', ?)").run(ts);
+    } catch (e) {
+      this.log('Erro ao persistir bearer: ' + e.message);
+    }
+  }
+
   setToken(token, source = 'manual') {
     if (!token) return;
     const newToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
@@ -80,6 +114,7 @@ class SniperLance {
 
       // Mesmo token → só atualizar timestamp se mudou
       if (newToken === this.bearerToken && prioNovo <= prioAtual) {
+        this._persistirToken();
         this.tokenRecebidoEm = new Date().toISOString();
         return;
       }
@@ -89,6 +124,7 @@ class SniperLance {
     this.tokenRecebidoEm = new Date().toISOString();
     this.tokenSource = source;
     this.log(`🔑 Bearer recebido (${source}): ${this.bearerToken.substring(0, 30)}...`);
+    this._persistirToken();
   }
 
   /**
