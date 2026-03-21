@@ -361,32 +361,19 @@ function startServerIntegration() {
       log(`Bearer renovado via servidor: ${bearerToken.substring(0, 40)}...`);
     },
     onNeedReload: () => {
-      log('[Reload] Abrindo janela oculta para renovar bearer (webview principal intacto)...');
-      const wvSession = webviewContents ? webviewContents.session : session.defaultSession;
-      const hidden = new BrowserWindow({
-        show: false,
-        webPreferences: { session: wvSession },
-      });
-      hidden.loadURL('https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/compras');
-      hidden.webContents.on('did-navigate', (event, url) => {
-        log(`[Reload] Janela oculta navegou: ${url.substring(0, 120)}`);
-        if (url.includes('acesso.gov.br')) {
-          serverSync.resetAguardando();
-          try { hidden.destroy(); } catch {}
-          if (tokenFresco()) {
-            log('[Reload] Janela oculta foi ao Gov.br mas Bearer ainda fresco — ignorando, sem re-login');
-          } else {
-            log('[Reload] REDIRECIONADO ao Gov.br SSO — sessão expirou, iniciando re-login');
-            attemptAutoRelogin();
-          }
-        } else {
-          // Aguarda 10s para o interceptor capturar o Bearer antes de fechar
-          setTimeout(() => {
-            serverSync.resetAguardando();
-            try { hidden.destroy(); } catch {}
-          }, 10000);
-        }
-      });
+      log('[Reload] Disparando fetch no popup para renovar bearer...');
+      const popups = global.__popupWindows || new Map();
+      let targetWC = null;
+      for (const [id, nwc] of popups) {
+        const url = nwc.getURL();
+        if (url.includes('cnetmobile')) { targetWC = nwc; break; }
+      }
+      if (!targetWC && webviewContents) targetWC = webviewContents;
+      if (!targetWC) { log('[Reload] Nenhum contexto disponivel para renovar bearer'); return; }
+
+      log('[Reload] Recarregando popup cnetmobile para renovar Bearer...');
+      targetWC.reload();
+      setTimeout(() => serverSync.resetAguardando(), 10000);
     },
   });
 
@@ -999,7 +986,7 @@ const RELOGIN_COOLDOWN_MS = 120000; // 2 min entre tentativas
 
 async function attemptAutoRelogin() {
   if (reloginInProgress) return;
-  if (state === 'logged_in') return;
+  if (state === 'logged_in' && tokenFresco()) return;
   if (Date.now() - lastReloginAt < RELOGIN_COOLDOWN_MS) {
     log('Relogin: cooldown ativo, aguardando...');
     return;
