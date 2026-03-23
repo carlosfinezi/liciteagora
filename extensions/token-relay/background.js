@@ -146,6 +146,14 @@ async function onTokensCapturados(bearer, captcha) {
   if (bearer && bearer !== data.bearer) {
     stats.capturados++;
     await save({ bearer, stats, bearerTimestamp: agora });
+    // Salvar compras-id da aba ativa para renovacao futura
+    try {
+      var tabs = await chrome.tabs.query({ url: "https://cnetmobile.estaleiro.serpro.gov.br/*" });
+      if (tabs.length > 0) {
+        var m = tabs[0].url && tabs[0].url.match(/compras-id=([a-f0-9-]{36})/i);
+        if (m) { await save({ comprasId: m[1] }); console.log("[LiciteAgora] compras-id salvo: " + m[1].substring(0,8) + "..."); }
+      }
+    } catch(e3) {}
     console.log('[LiciteAgora] Novo Bearer:', bearer.substring(0, 30) + '...');
     mudou = true;
     // Limpar flag SSO morto — novo bearer significa sessão renovada
@@ -357,26 +365,29 @@ async function comprasnetPost(tabId, path, bearer, body) {
  */
 async function comprasnetRetoken(tabId, bearer) {
   try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout 10s')), 10000));
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout 10s")), 10000));
     const exec = chrome.scripting.executeScript({
       target: { tabId },
-      world: 'MAIN',
-      func: async (authHeader, baseUrl) => {
+      world: "MAIN",
+      func: async (accessToken, baseUrl) => {
         try {
-          var resp = await fetch(baseUrl + '/comprasnet-usuario/v2/sessao/fornecedor/retoken', {
-            method: 'PUT',
-            credentials: 'include',
+          // O SPA envia o refreshToken (nao o accessToken) no header do retoken
+          var refreshToken = sessionStorage.getItem("refreshToken");
+          var authHeader = refreshToken ? ("Bearer " + refreshToken) : accessToken;
+          var resp = await fetch(baseUrl + "/comprasnet-usuario/v2/sessao/fornecedor/retoken", {
+            method: "PUT",
+            credentials: "include",
             headers: {
-              'Accept': 'application/json, text/plain, */*',
-              'Authorization': authHeader,
-              'x-device-platform': 'web',
-              'x-version-number': '6.0.0',
+              "Accept": "application/json, text/plain, */*",
+              "Authorization": authHeader,
+              "x-device-platform": "web",
+              "x-version-number": "6.0.0",
             },
           });
           var text = await resp.text();
           var data = null;
           try { data = JSON.parse(text); } catch (e) {}
-          return { status: resp.status, data: data, text: (text || '').substring(0, 500) };
+          return { status: resp.status, data: data, usouRefreshToken: !!refreshToken };
         } catch (e) {
           return { status: 0, error: e.message };
         }
@@ -384,9 +395,11 @@ async function comprasnetRetoken(tabId, bearer) {
       args: [bearer, COMPRASNET],
     });
     const results = await Promise.race([exec, timeout]);
-    return results[0]?.result || { status: 0, error: 'No result from tab' };
+    var r = results[0]?.result || { status: 0, error: "No result from tab" };
+    if (r.usouRefreshToken) console.log("[LiciteAgora] comprasnetRetoken usou refreshToken do sessionStorage");
+    return r;
   } catch (e) {
-    console.error('[LiciteAgora] comprasnetRetoken ERRO:', e.message);
+    console.error("[LiciteAgora] comprasnetRetoken ERRO:", e.message);
     return { status: 0, error: e.message };
   }
 }
@@ -1077,7 +1090,7 @@ async function reloadEAguardarBearer(tabId, motivoLog) {
       target: { tabId: tabId },
       world: 'MAIN',
       func: function() {
-        try { sessionStorage.clear(); } catch(e) {}
+        try { var rt = sessionStorage.getItem("refreshToken"); sessionStorage.clear(); if (rt) sessionStorage.setItem("refreshToken", rt); } catch(e) {}
       },
     });
     console.log('[LiciteAgora] Storage da aba limpo antes de navegar');
@@ -1131,7 +1144,7 @@ async function reloadEAguardarBearer(tabId, motivoLog) {
     }
     var dataAtual = await load();
     var idadeAtual = Date.now() - (dataAtual.bearerTimestamp || dataAtual.ultimoEnvio || 0);
-    if (idadeAtual < 30000) {
+    if (idadeAtual < 120000) {
       console.log('[LiciteAgora] ✅ Bearer renovado recentemente (' + Math.floor(idadeAtual/1000) + 's) — ignorando redirect SSO');
       aguardandoNovoBearer = false;
       chrome.action.setBadgeText({ text: '' });
@@ -1335,9 +1348,101 @@ async function manterSessaoSSO(tabId) {
   }
 }
 
+
+async function renovarTokenViaSessao(tabId, tabUrl) {
+  try {
+    var match = tabUrl && tabUrl.match(/compras-id=([a-f0-9-]{36})/i);
+    var uuid = match ? match[1] : null;
+    if (!uuid) {
+      var storedData = await load();
+      if (storedData.comprasId) {
+        uuid = storedData.comprasId;
+        console.log("[LiciteAgora] UUID do storage da extensao: " + uuid.substring(0,8) + "...");
+      }
+    }
+    if (!uuid) {
+      try {
+        var sr = await chrome.scripting.executeScript({
+          target: { tabId: tabId }, world: "MAIN",
+          func: () => {
+            var all = Object.keys(sessionStorage).concat(Object.keys(localStorage));
+            for (var k of all) {
+              try {
+                var v = sessionStorage.getItem(k) || localStorage.getItem(k);
+                var m = v && v.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+                if (m) return m[0];
+              } catch(e) {}
+            }
+            var links = document.querySelectorAll("a[href*=compras-id]");
+            if (links.length > 0) { var lm = links[0].href.match(/compras-id=([a-f0-9-]{36})/i); if (lm) return lm[1]; }
+            return null;
+          }
+        });
+        uuid = sr && sr[0] && sr[0].result;
+      } catch(e2) {}
+    }
+    if (!uuid) {
+      console.log("[LiciteAgora] renovarTokenViaSessao: UUID nao encontrado em nenhuma fonte");
+      return false;
+    }
+    console.log("[LiciteAgora] Renovando token via /sessao/token/" + uuid.substring(0,8) + "...");
+    var result = await chrome.scripting.executeScript({
+      target: { tabId: tabId }, world: "MAIN",
+      func: async (baseUrl, uuid) => {
+        try {
+          var resp = await fetch(baseUrl + "/comprasnet-usuario/v2/sessao/fornecedor/usuario/token/" + uuid, {
+            credentials: "include",
+            headers: { "Accept": "application/json", "x-device-platform": "web", "x-version-number": "6.0.0" }
+          });
+          var data = null;
+          try { data = await resp.json(); } catch(e) {}
+          return { status: resp.status, accessToken: data && data.accessToken ? data.accessToken : null };
+        } catch(e) { return { status: 0, error: e.message }; }
+      },
+      args: [COMPRASNET, uuid]
+    });
+    var r = result && result[0] && result[0].result;
+    if (r && r.status === 200 && r.accessToken) {
+      var newBearer = "Bearer " + r.accessToken;
+      var data = await load();
+      var stats = data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 };
+      await save({ bearer: newBearer, bearerTimestamp: Date.now(), ultimoEnvio: Date.now() });
+      aguardandoNovoBearer = false;
+      console.log("[LiciteAgora] Bearer renovado via /sessao/token OK");
+      await enviarTokens(newBearer, data.captcha, stats);
+      return true;
+    }
+    console.log("[LiciteAgora] renovarTokenViaSessao: HTTP " + (r && r.status) + " — sem accessToken");
+    return false;
+  } catch(e) {
+    console.log("[LiciteAgora] renovarTokenViaSessao erro: " + e.message);
+    return false;
+  }
+}
+
 async function executarKeepalive() {
   if (syncEmExecucao) {
-    console.log('[LiciteAgora] Keepalive pulado — sync em execução (já mantém bearer vivo)');
+    // Sync em execucao — apenas renovar Bearer se necessario, pular o resto
+    var dataKp = await load();
+    var idadeKp = Date.now() - (dataKp.bearerTimestamp || dataKp.ultimoEnvio || 0);
+    if (idadeKp > 120000 && dataKp.comprasId) {
+      var tabsKp = await chrome.tabs.query({ url: "https://cnetmobile.estaleiro.serpro.gov.br/*" });
+      if (tabsKp.length > 0) {
+        console.log("[LiciteAgora] Renovando Bearer durante sync via /sessao/token...");
+        await renovarTokenViaSessao(tabsKp[0].id, tabsKp[0].url || ("?compras-id=" + dataKp.comprasId));
+      }
+    }
+    if (!tabsKp || !tabsKp.length) return;
+    // Fallback: retoken com refreshToken do sessionStorage
+    var retokenDuringSync = await comprasnetRetoken(tabsKp[0].id, dataKp.bearer);
+    if (retokenDuringSync.status === 200 && retokenDuringSync.data && retokenDuringSync.data.accessToken) {
+      var nb = "Bearer " + retokenDuringSync.data.accessToken;
+      await save({ bearer: nb, bearerTimestamp: Date.now(), ultimoEnvio: Date.now() });
+      console.log("[LiciteAgora] Bearer renovado durante sync via retoken (refreshToken)");
+      await enviarTokens(nb, dataKp.captcha, dataKp.stats || {});
+    } else {
+      console.log("[LiciteAgora] Retoken durante sync: HTTP " + retokenDuringSync.status);
+    }
     return;
   }
 
@@ -1361,6 +1466,7 @@ async function executarKeepalive() {
 
   var idadeBearerMs = Date.now() - (data.bearerTimestamp || data.ultimoEnvio || 0);
   console.log('[LiciteAgora] 🔄 Keepalive: bearer com ' + Math.floor(idadeBearerMs/1000) + 's');
+  console.log("[LiciteAgora] Keepalive tab.url: " + (tab.url || "?").substring(0, 120));
 
   // ---- PASSO 1: Manter sessão SSO (cookies do comprasnet-web) ----
   // manterSessaoSSO agora retorna { ok, bearerRenovado } e já salva o bearer se obteve accessToken
@@ -1448,7 +1554,29 @@ async function executarKeepalive() {
   var stats = data.stats || { capturados: 0, enviados: 0, erros: 0, syncs: 0 };
 
   // Retoken proativo: se bearer tem mais de 5 min, renovar ANTES que expire
-  if (idadeToken > 300000) { // 5 min
+  // ---- PASSO 1.8: Renovar token via /sessao/fornecedor/usuario/token/{uuid} ----
+  // Essa e a forma mais confiavel — usa o UUID da URL da aba, sem precisar de Bearer valido
+  // Renovar Bearer a cada keepalive via retoken (refreshToken) — sem reload
+  if (idadeToken > 60000) { // 1 min — renovar proativamente
+    console.log("[LiciteAgora] Retoken proativo (bearer com " + Math.floor(idadeToken/1000) + "s)...");
+    var retokenProativo = await comprasnetRetoken(tab.id, data.bearer);
+    if (retokenProativo.status === 200 && retokenProativo.data && retokenProativo.data.accessToken) {
+      var nb = "Bearer " + retokenProativo.data.accessToken;
+      await save({ bearer: nb, bearerTimestamp: Date.now(), ultimoEnvio: Date.now() });
+      console.log("[LiciteAgora] Keepalive OK — Bearer renovado via retoken proativo (refreshToken)");
+      await enviarTokens(nb, data.captcha, stats);
+      return;
+    }
+    console.log("[LiciteAgora] Retoken proativo falhou (HTTP " + retokenProativo.status + ") — tentando reload...");
+    var reloadOk = await reloadEAguardarBearer(tab.id, "keepalive-proativo");
+    if (reloadOk) {
+      console.log("[LiciteAgora] Keepalive OK — Bearer renovado via reload proativo");
+      return;
+    }
+    console.log("[LiciteAgora] Reload proativo também falhou — continuando...");
+  }
+
+  if (idadeToken > 180000) { // 3 min
     console.log('[LiciteAgora] 🔄 Bearer com ' + Math.floor(idadeToken/1000) + 's — retoken proativo');
     var proactiveRetoken = await comprasnetRetoken(tab.id, data.bearer);
     if (proactiveRetoken.status === 200 && proactiveRetoken.data && proactiveRetoken.data.accessToken) {
