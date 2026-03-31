@@ -50,8 +50,9 @@
 
   // ─── 4. navigator.hardwareConcurrency ────────────────────────────────────────
   try {
+    const __FP_CORES__ = 4; // replaced by fingerprint-generator
     Object.defineProperty(Object.getPrototypeOf(navigator), 'hardwareConcurrency', {
-      get: () => 4,
+      get: () => __FP_CORES__,
       configurable: true,
     });
   } catch (e) {}
@@ -252,8 +253,8 @@
   // ─── 10. WebGL vendor/renderer ───────────────────────────────────────────────
   // Override UNMASKED_VENDOR_WEBGL e UNMASKED_RENDERER_WEBGL para esconder SwiftShader
   try {
-    const VENDOR = 'Intel Inc.';
-    const RENDERER = 'Intel Iris OpenGL Engine';
+    const VENDOR = '__FP_GPU_VENDOR__';   // replaced by fingerprint-generator
+    const RENDERER = '__FP_GPU_RENDERER__'; // replaced by fingerprint-generator
 
     const getParameterProxyHandler = {
       apply: function(target, thisArg, args) {
@@ -423,8 +424,9 @@
 
   // ─── 17. Platform/OS consistency ─────────────────────────────────────────────
   try {
+    const __FP_PLATFORM__ = 'Win32'; // replaced by fingerprint-generator
     Object.defineProperty(Object.getPrototypeOf(navigator), 'platform', {
-      get: () => 'Linux x86_64',
+      get: () => __FP_PLATFORM__,
       configurable: true,
     });
   } catch (e) {}
@@ -437,6 +439,41 @@
         get: () => 50,
         configurable: true,
       });
+    }
+  } catch (e) {}
+
+  // ─── 19. Canvas fingerprint noise ───────────────────────────────────────────
+  // Adiciona ruído imperceptível para variar canvas fingerprint entre sessões
+  try {
+    const __FP_CANVAS_SEED__ = 0; // replaced by fingerprint-generator
+
+    if (__FP_CANVAS_SEED__) {
+      const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL = function() {
+        try {
+          const ctx = this.getContext('2d');
+          if (ctx && this.width > 0 && this.height > 0) {
+            const x = __FP_CANVAS_SEED__ % Math.max(1, this.width);
+            const y = (__FP_CANVAS_SEED__ >> 8) % Math.max(1, this.height);
+            const imgData = ctx.getImageData(x, y, 1, 1);
+            imgData.data[3] = imgData.data[3] ^ (__FP_CANVAS_SEED__ & 1);
+            ctx.putImageData(imgData, x, y);
+          }
+        } catch (e) {}
+        return origToDataURL.apply(this, arguments);
+      };
+
+      const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+      CanvasRenderingContext2D.prototype.getImageData = function() {
+        const data = origGetImageData.apply(this, arguments);
+        try {
+          if (data.data.length >= 4) {
+            // Flip 1 bit no primeiro pixel baseado no seed
+            data.data[0] = data.data[0] ^ (__FP_CANVAS_SEED__ & 1);
+          }
+        } catch (e) {}
+        return data;
+      };
     }
   } catch (e) {}
 

@@ -130,6 +130,9 @@ function requireAuth(apiKey) {
     // Bypass: webhook MercadoPago
     if (req.path === '/api/webhooks/mercadopago') return next();
 
+    // Bypass: endpoints públicos do Electron (auto-update, erros, logs)
+    if (req.path.startsWith('/api/electron/')) return next();
+
     // Bypass: extensão Chrome via X-Api-Key
     const headerKey = req.headers['x-api-key'];
     if (headerKey && headerKey === apiKey) return next();

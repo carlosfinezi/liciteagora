@@ -226,10 +226,10 @@ async function emitirNfseInterno(db, params) {
       WHERE id = ?
     `).run(chaveAcesso, nNFSe, status, JSON.stringify(resposta), nfseId);
 
-    // Integracao Financeiro: gerar pessoa + conta a receber + boleto
+    // Integracao Financeiro: sempre gerar pessoa + conta a receber; boleto so se pedido
     let contaCriada = null;
     let boletoCriado = null;
-    if (status === 'autorizada' && gerarBoleto) {
+    if (status === 'autorizada') {
       try {
         const cpfLimpo = tomador.cpfCnpj.replace(/\D/g, '');
         const tipoPessoa = cpfLimpo.length <= 11 ? 'PF' : 'PJ';
@@ -254,49 +254,54 @@ async function emitirNfseInterno(db, params) {
         const dataVenc = dataVencimentoBoleto || dataBrasilia();
         const descConta = `NFSe ${nNFSe || nDPS} - ${servico.descricao}`.substring(0, 200);
 
-        // Criar conta a receber
+        // Criar conta a receber (sempre)
+        const formaPgto = gerarBoleto ? 'boleto' : 'outros';
         const contaId = db.prepare(`INSERT INTO contas_a_receber
           (pessoaId, nfseId, descricao, valor, dataEmissao, dataVencimento, formaPagamento)
-          VALUES (?, ?, ?, ?, ?, ?, 'boleto')`
-        ).run(pessoa.id, nfseId, descConta, valor, dataBrasilia(), dataVenc).lastInsertRowid;
-
-        // Criar boleto (pendente)
-        const amountCentavos = Math.round(valor * 100);
-        const boletoId = db.prepare(`INSERT INTO boletos
-          (contaReceberId, amount, expirationDate, customerDocument, customerName)
-          VALUES (?, ?, ?, ?, ?)`
-        ).run(contaId, amountCentavos, dataVenc, cpfLimpo, tomador.razaoSocial).lastInsertRowid;
+          VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(pessoa.id, nfseId, descConta, valor, dataBrasilia(), dataVenc, formaPgto).lastInsertRowid;
 
         contaCriada = { id: contaId };
-        boletoCriado = { id: boletoId, status: 'pendente' };
+        console.log(`[NFSe->Financeiro] Conta #${contaId} criada para NFSe #${nfseId}`);
 
-        // Tenta emitir no MercadoPago (nao-fatal)
-        const mpConfig = loadMPConfig(db);
-        if (mpConfig) {
-          try {
-            const mpClient = new MercadoPagoClient(mpConfig);
-            const mpResp = await mpClient.criarBoleto({
-              amount: valor, expirationDate: dataVenc,
-              customerDocument: cpfLimpo, customerName: tomador.razaoSocial,
-              customerEmail: tomador.email || 'pagador@email.com',
-              description: descConta,
-              address: { cep: pessoa.cep, endereco: pessoa.endereco, numero: pessoa.numero, bairro: pessoa.bairro, cidade: pessoa.cidade, uf: pessoa.uf },
-              nfseNumero: nNFSe || nDPS, competencia,
-            });
-            db.prepare(`UPDATE boletos SET mpId = ?, barcode = ?, writableLine = ?,
-              externalUrl = ?, status = 'registrado', mpResponse = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
-            ).run(mpResp.id, mpResp.barcode, mpResp.writable_line, mpResp.external_resource_url, JSON.stringify(mpResp.raw), boletoId);
-            boletoCriado.status = 'registrado';
-          } catch (mpErr) {
-            console.error('[NFSe->Boleto] Erro MercadoPago (nao-fatal):', mpErr.message);
-            db.prepare('UPDATE boletos SET erroMensagem = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
-              .run(mpErr.message, boletoId);
+        // Criar boleto apenas se solicitado
+        if (gerarBoleto) {
+          const amountCentavos = Math.round(valor * 100);
+          const boletoId = db.prepare(`INSERT INTO boletos
+            (contaReceberId, amount, expirationDate, customerDocument, customerName)
+            VALUES (?, ?, ?, ?, ?)`
+          ).run(contaId, amountCentavos, dataVenc, cpfLimpo, tomador.razaoSocial).lastInsertRowid;
+
+          boletoCriado = { id: boletoId, status: 'pendente' };
+
+          // Tenta emitir no MercadoPago (nao-fatal)
+          const mpConfig = loadMPConfig(db);
+          if (mpConfig) {
+            try {
+              const mpClient = new MercadoPagoClient(mpConfig);
+              const mpResp = await mpClient.criarBoleto({
+                amount: valor, expirationDate: dataVenc,
+                customerDocument: cpfLimpo, customerName: tomador.razaoSocial,
+                customerEmail: tomador.email || 'pagador@email.com',
+                description: descConta,
+                address: { cep: pessoa.cep, endereco: pessoa.endereco, numero: pessoa.numero, bairro: pessoa.bairro, cidade: pessoa.cidade, uf: pessoa.uf },
+                nfseNumero: nNFSe || nDPS, competencia,
+              });
+              db.prepare(`UPDATE boletos SET mpId = ?, barcode = ?, writableLine = ?,
+                externalUrl = ?, status = 'registrado', mpResponse = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
+              ).run(mpResp.id, mpResp.barcode, mpResp.writable_line, mpResp.external_resource_url, JSON.stringify(mpResp.raw), boletoId);
+              boletoCriado.status = 'registrado';
+            } catch (mpErr) {
+              console.error('[NFSe->Boleto] Erro MercadoPago (nao-fatal):', mpErr.message);
+              db.prepare('UPDATE boletos SET erroMensagem = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
+                .run(mpErr.message, boletoId);
+            }
           }
-        }
 
-        console.log(`[NFSe->Boleto] Conta #${contaId} + Boleto #${boletoId} criados para NFSe #${nfseId}`);
+          console.log(`[NFSe->Boleto] Boleto #${boletoId} criado para Conta #${contaId}`);
+        }
       } catch (finErr) {
-        console.error('[NFSe->Boleto] Erro ao criar financeiro (nao-fatal):', finErr.message);
+        console.error('[NFSe->Financeiro] Erro ao criar financeiro (nao-fatal):', finErr.message);
       }
     }
 

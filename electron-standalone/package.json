@@ -19,6 +19,11 @@
       "comprasnet-api.js",
       "server-sync.js",
       "lance-processor.js",
+      "session-timers.js",
+      "auto-updater.js",
+      "fingerprint-generator.js",
+      "stealth-preload.js",
+      "webview-preload.js",
       "INSTRUCOES.txt"
     ],
     "win": {

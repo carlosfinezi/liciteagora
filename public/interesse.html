@@ -165,7 +165,7 @@
         .filtro-bar label { font-size: 14px; color: #555; font-weight: 600; }
         .filtro-bar select, .filtro-bar input[type="date"] {
             padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px;
-            font-size: 14px; color: #333;
+            font-size: 14px; color: #333; max-width: 220px;
         }
         .filtro-bar .filtro-info {
             margin-left: auto; font-size: 13px; color: #888;
@@ -252,7 +252,7 @@
                 </header>
 
                 <div id="filtroBar" class="filtro-bar" style="display: none;">
-                    <label>Prazo de proposta:</label>
+                    <label>Prazo:</label>
                     <select id="filtroPeriodo" onchange="aplicarFiltro()">
                         <option value="todas">Todas</option>
                         <option value="hoje">Hoje</option>
@@ -264,6 +264,17 @@
                     <input type="date" id="filtroDataDe" style="display:none;" onchange="aplicarFiltro()">
                     <span id="filtroAte" style="display:none;">até</span>
                     <input type="date" id="filtroDataAte" style="display:none;" onchange="aplicarFiltro()">
+                    <select id="filtroOrgao" onchange="aplicarFiltro()"><option value="">Todos os órgãos</option></select>
+                    <select id="filtroGrupo" onchange="aplicarFiltro()"><option value="">Todos os grupos</option></select>
+                    <label>Ordenar:</label>
+                    <select id="ordenacao" onchange="aplicarFiltro()">
+                        <option value="encerramento-asc">Encerramento (mais próximo)</option>
+                        <option value="encerramento-desc">Encerramento (mais distante)</option>
+                        <option value="valor-desc">Maior valor</option>
+                        <option value="valor-asc">Menor valor</option>
+                        <option value="orgao-asc">Órgão (A-Z)</option>
+                        <option value="recente">Adicionado recentemente</option>
+                    </select>
                     <span id="filtroInfo" class="filtro-info"></span>
                 </div>
 

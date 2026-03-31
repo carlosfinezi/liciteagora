@@ -172,7 +172,6 @@ function displayResults(licitacoes) {
         const card = createLicitacaoCard(licitacao);
         resultsContainer.appendChild(card);
     });
-    atualizarContadorLidas();
     aplicarFiltros();
 
     resultsContainer.style.display = 'grid';
@@ -689,7 +688,8 @@ async function salvarInteresse() {
                 cnpj: currentLicitacao.cnpj,
                 ano: currentLicitacao.ano,
                 sequencial: currentLicitacao.sequencial,
-                itens: Array.from(itensSelecionados)
+                itens: Array.from(itensSelecionados),
+                grupoId: document.getElementById('grupoPalavras')?.value || null
             })
         });
 
@@ -872,8 +872,7 @@ async function toggleLida(cnpj, ano, sequencial, btn) {
             btn.classList.add('lida');
             btn.closest('.licitacao-card').classList.add('lida');
         }
-        atualizarContadorLidas();
-        aplicarFiltroLidas();
+        aplicarFiltros();
     } catch (error) {
         console.error('Erro ao alternar lida:', error);
     }
@@ -908,21 +907,32 @@ async function marcarComoLida(cnpj, ano, sequencial) {
             }
         });
 
-        atualizarContadorLidas();
+        aplicarFiltros();
     } catch (error) {
         console.error('Erro ao marcar como lida:', error);
     }
 }
 
 function atualizarContadorLidas() {
-    const total = todasLicitacoesAtuais.length;
-    const lidas = todasLicitacoesAtuais.filter(l =>
+    // Contar apenas licitações visíveis (respeitando filtros ativos)
+    const filtroSemInteresse = document.getElementById('filtroSemInteresse')?.checked;
+    const visiveis = todasLicitacoesAtuais.filter(l => {
+        const cnpj = l.orgaoEntidade?.cnpj;
+        const ano = l.anoCompra;
+        const seq = l.sequencialCompra;
+        if (filtroSemInteresse && isSemInteresse(cnpj, ano, seq)) return false;
+        return true;
+    });
+    const total = visiveis.length;
+    const lidas = visiveis.filter(l =>
         isLida(l.orgaoEntidade?.cnpj, l.anoCompra, l.sequencialCompra)
     ).length;
 
     const el = document.getElementById('lidasCount');
     if (el && total > 0) {
         el.textContent = '(' + lidas + ' lidas, ' + (total - lidas) + ' não lidas)';
+    } else if (el) {
+        el.textContent = '';
     }
 }
 
@@ -1048,6 +1058,7 @@ function aplicarFiltros() {
     const filtroSemInteresse = document.getElementById('filtroSemInteresse')?.checked;
     const cards = document.querySelectorAll('.licitacao-card');
     let visiveis = 0;
+    const algumFiltroAtivo = filtroNaoLidas || filtroComInteresse || filtroSemInteresse;
 
     cards.forEach(card => {
         let mostrar = true;
@@ -1073,10 +1084,16 @@ function aplicarFiltros() {
 
     // Atualizar contador de visíveis
     const countEl = document.getElementById('resultsCount');
-    if (countEl && (filtroNaoLidas || filtroComInteresse || filtroSemInteresse)) {
-        const total = cards.length;
-        countEl.textContent = visiveis + ' de ' + total;
+    if (countEl) {
+        if (algumFiltroAtivo) {
+            countEl.textContent = visiveis + ' de ' + cards.length;
+        } else {
+            countEl.textContent = cards.length;
+        }
     }
+
+    // Atualizar contador de lidas/não lidas (respeitando filtros)
+    atualizarContadorLidas();
 }
 
 // ========================================
@@ -1533,7 +1550,7 @@ async function registrarInteresseIA(cnpj, ano, seq) {
             await fetch('/api/interesse', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cnpj, ano: parseInt(ano), sequencial: parseInt(seq), numeroItem: item.numeroItem })
+                body: JSON.stringify({ cnpj, ano: parseInt(ano), sequencial: parseInt(seq), numeroItem: item.numeroItem, grupoId: document.getElementById('grupoPalavras')?.value || null })
             });
         }
 

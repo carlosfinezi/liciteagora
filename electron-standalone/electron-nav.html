@@ -24,6 +24,17 @@
     white-space: nowrap;
   }
   #status.logado { color: #2a2; font-weight: bold; }
+  #chat-badge {
+    display: none; background: #e53e3e; color: white; border-radius: 10px;
+    padding: 1px 7px; font-size: 11px; font-weight: bold; cursor: pointer;
+    animation: pulse 1.5s infinite;
+  }
+  #update-btn {
+    display: none; background: #3182ce; color: white; border: none; border-radius: 4px;
+    padding: 2px 10px; font-size: 11px; cursor: pointer; height: 24px;
+  }
+  #update-btn:hover { background: #2c5282; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
   webview {
     flex: 1; border: none;
   }
@@ -35,6 +46,8 @@
     <button id="fwd" title="Avançar">&#9654;</button>
     <button id="reload" title="Recarregar">&#8635;</button>
     <input id="urlbar" type="text" value="" />
+    <span id="chat-badge" title="Mensagens urgentes!">CHAT</span>
+    <button id="update-btn" title="Atualização disponível">Atualizar</button>
     <span id="status">...</span>
   </div>
   <webview id="wv" src="" allowpopups></webview>
@@ -88,6 +101,41 @@
     // Título
     wv.addEventListener('page-title-updated', (e) => {
       document.title = e.title + ' — Electron Browser';
+    });
+
+    // Chat alerts
+    const chatBadge = document.getElementById('chat-badge');
+    let chatCount = 0;
+    ipcRenderer.on('chat-alert', (e, mensagens) => {
+      chatCount += mensagens.length;
+      chatBadge.textContent = 'CHAT ' + chatCount;
+      chatBadge.style.display = 'inline';
+      chatBadge.title = mensagens.map(m => (m.titulo || '') + ': ' + (m.texto || '').substring(0, 80)).join('\n');
+    });
+    chatBadge.onclick = () => {
+      chatCount = 0;
+      chatBadge.style.display = 'none';
+    };
+
+    // Auto-update
+    const updateBtn = document.getElementById('update-btn');
+    let pendingUpdate = null;
+    ipcRenderer.on('update-available', (e, update) => {
+      pendingUpdate = update;
+      updateBtn.textContent = 'Atualizar v' + update.version;
+      updateBtn.style.display = 'inline';
+    });
+    updateBtn.onclick = async () => {
+      if (!pendingUpdate) return;
+      updateBtn.textContent = 'Baixando...';
+      updateBtn.disabled = true;
+      ipcRenderer.send('apply-update');
+    };
+    ipcRenderer.on('update-progress', (e, pct) => {
+      updateBtn.textContent = 'Baixando ' + pct + '%';
+    });
+    ipcRenderer.on('update-applying', () => {
+      updateBtn.textContent = 'Reiniciando...';
     });
   </script>
 </body>

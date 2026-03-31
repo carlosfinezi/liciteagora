@@ -502,6 +502,19 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_sniper_hist_compra ON sniper_historico(compraId);
 
+  -- Histórico do estado do mercado (mudanças detectadas pelo guard mode)
+  CREATE TABLE IF NOT EXISTS sniper_classificacao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    compraId TEXT NOT NULL,
+    itemNumero INTEGER NOT NULL,
+    melhorGeral REAL,
+    nossoValor REAL,
+    situacao TEXT,
+    fonte TEXT,
+    timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_sniper_class_compra ON sniper_classificacao(compraId, itemNumero);
+
   CREATE TABLE IF NOT EXISTS licitacao_analise (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     numeroControlePNCP TEXT UNIQUE,
@@ -587,6 +600,36 @@ try {
   }
 } catch (e) {
   console.log('[Migração] Erro:', e.message);
+}
+
+// Migração: adicionar colunas para sync de mensagens via API v1 global
+try {
+  const infoMsg2 = db.pragma('table_info(chat_mensagens)');
+  const colsMsg = infoMsg2.map(c => c.name);
+  const novasCols = [
+    ['mensagemIdComprasnet', 'INTEGER'],
+    ['titulo', 'TEXT'],
+    ['origemMensagem', 'TEXT'],
+    ['lidaComprasnet', 'INTEGER DEFAULT 0'],
+    ['tipoCompra', 'TEXT'],
+    ['excluida', 'INTEGER DEFAULT 0'],
+    ['vinculadaADiligencia', 'INTEGER DEFAULT 0'],
+    ['descricaoModalidade', 'TEXT'],
+    ['numeroCompraFormatado', 'TEXT'],
+    ['origemCaptura', "TEXT DEFAULT 'servidor'"],
+  ];
+  for (const [nome, tipo] of novasCols) {
+    if (!colsMsg.includes(nome)) {
+      db.exec(`ALTER TABLE chat_mensagens ADD COLUMN ${nome} ${tipo}`);
+      console.log(`[Migração] Coluna "${nome}" adicionada à chat_mensagens`);
+    }
+  }
+  // Índice para dedup por ID do Comprasnet
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_mensagens_comprasnet_id ON chat_mensagens(mensagemIdComprasnet) WHERE mensagemIdComprasnet IS NOT NULL`);
+  } catch (e) {}
+} catch (e) {
+  console.log('[Migração] Erro colunas mensagens v1:', e.message);
 }
 
 // Migração: adicionar colunas de config ao sniper_itens
@@ -1186,6 +1229,28 @@ app.post('/api/electron/error', (req, res) => {
   res.json({ ok: true });
 });
 app.get('/api/electron/errors', (req, res) => { res.json(electronErrors); });
+
+// ─── Versão do Electron (para auto-update, sem auth) ────────────────────────
+const ELECTRON_VERSION = '1.1.0'; // Incrementar ao publicar nova versão
+app.get('/api/electron/check-version', (req, res) => {
+  const downloadUrl = (req.protocol + '://' + req.get('host')) + '/api/electron/download-exe';
+  res.json({
+    version: ELECTRON_VERSION,
+    downloadUrl,
+    releaseNotes: 'Session timers, mensagens v1 global, auto-update',
+  });
+});
+
+app.get('/api/electron/download-exe', (req, res) => {
+  const paths = [
+    path.join(__dirname, 'electron-standalone', 'dist', 'LiciteAgora-Browser.exe'),
+    path.join(__dirname, '..', 'public_html', 'downloads', 'LiciteAgora-Browser.exe'),
+  ];
+  const filePath = paths.find(p => fs.existsSync(p));
+  if (!filePath) return res.status(404).json({ error: 'Exe não encontrado' });
+  res.setHeader('Content-Disposition', 'attachment; filename=LiciteAgora-Browser.exe');
+  res.sendFile(filePath);
+});
 
 // ─── Status/Logs do Electron remoto ────────────────────────────────────────
 const electronState = { logs: [], state: 'offline', bearerAge: null, lastSeen: null };
@@ -2032,7 +2097,7 @@ app.post('/api/licitacoes/:cnpj/:sequencial/:ano/sync-itens', async (req, res) =
  */
 app.post('/api/interesse', (req, res) => {
   try {
-    const { cnpj, ano, sequencial, itens } = req.body;
+    const { cnpj, ano, sequencial, itens, grupoId } = req.body;
 
     if (!cnpj || !ano || !sequencial || !itens || !Array.isArray(itens)) {
       return res.status(400).json({
@@ -2042,8 +2107,8 @@ app.post('/api/interesse', (req, res) => {
     }
 
     const insertInteresse = db.prepare(`
-      INSERT OR REPLACE INTO interesse (cnpj, ano, sequencial, numeroItem, dataCriacao)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT OR REPLACE INTO interesse (cnpj, ano, sequencial, numeroItem, grupoId, dataCriacao)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
 
     // Adicionar automaticamente ao Kanban
@@ -2052,9 +2117,11 @@ app.post('/api/interesse', (req, res) => {
       VALUES (?, ?, ?, 'analise', CURRENT_TIMESTAMP)
     `);
 
+    const parsedGrupoId = grupoId ? parseInt(grupoId) : null;
+
     const transaction = db.transaction(() => {
       for (const numeroItem of itens) {
-        insertInteresse.run(cnpj, ano, sequencial, numeroItem);
+        insertInteresse.run(cnpj, ano, sequencial, numeroItem, parsedGrupoId);
       }
       // Adiciona ao kanban (ignora se já existir)
       insertKanban.run(cnpj, ano, sequencial);
@@ -2092,6 +2159,8 @@ app.get('/api/interesse', (req, res) => {
         i.sequencial,
         i.numeroItem,
         i.dataCriacao,
+        i.grupoId,
+        g.nome as grupoNome,
         l.objetoCompra,
         l.razaoSocial as nomeOrgao,
         l.codigoUnidade as codigoUnidadeCompradora,
@@ -2107,6 +2176,7 @@ app.get('/api/interesse', (req, res) => {
         it.valorUnitarioEstimado,
         it.valorTotal
       FROM interesse i
+      LEFT JOIN grupos_palavras g ON g.id = i.grupoId
       LEFT JOIN licitacoes l ON i.cnpj = l.cnpj AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra
       LEFT JOIN itens it ON l.id = it.licitacaoId AND i.numeroItem = it.numeroItem
     `;
@@ -7946,6 +8016,8 @@ app.get('/api/proposta/interesses', (req, res) => {
       SELECT
         i.id as interesseId,
         i.cnpj, i.ano, i.sequencial, i.numeroItem,
+        i.grupoId,
+        g.nome as grupoNome,
         l.objetoCompra, l.razaoSocial as nomeOrgao,
         l.codigoUnidade, l.modalidadeId, l.modalidadeNome,
         l.numeroCompra, l.linkSistemaOrigem,
@@ -7953,6 +8025,7 @@ app.get('/api/proposta/interesses', (req, res) => {
         it.descricao, it.quantidade, it.unidadeMedida,
         it.valorUnitarioEstimado, it.valorTotal
       FROM interesse i
+      LEFT JOIN grupos_palavras g ON g.id = i.grupoId
       LEFT JOIN licitacoes l ON i.cnpj = l.cnpj
         AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra
       LEFT JOIN itens it ON l.id = it.licitacaoId AND i.numeroItem = it.numeroItem
@@ -8000,6 +8073,7 @@ app.get('/api/proposta/interesses', (req, res) => {
           dataEncerramentoProposta: row.dataEncerramentoProposta || '',
           valorTotalEstimado: row.valorTotalEstimado || 0,
           compraId,
+          grupoNome: row.grupoNome || '',
           itens: []
         });
       }

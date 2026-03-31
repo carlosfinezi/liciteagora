@@ -30,7 +30,7 @@
         /* Filtros */
         .filtros-bar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
         .filtros-bar input[type=text] { flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.9em; }
-        .filtros-bar select { padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.9em; }
+        .filtros-bar select { padding: 8px 12px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #eee; font-size: 0.9em; max-width: 220px; }
         .filtros-bar input:focus, .filtros-bar select:focus { outline: none; border-color: #4dabf7; }
         .filtro-resultado { font-size: 0.8em; color: #888; margin-bottom: 8px; }
 
@@ -60,8 +60,8 @@
 
         /* Itens grid */
         .itens-grid { }
-        .item-header-row { display: grid; grid-template-columns: 30px 1fr 90px 90px 120px 1fr 80px; gap: 6px; padding: 6px 8px; font-size: 0.75em; color: #666; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #0f3460; }
-        .item-row { display: grid; grid-template-columns: 30px 1fr 90px 90px 120px 1fr 80px; gap: 6px; align-items: center; padding: 8px 8px; border-bottom: 1px solid #0f346030; font-size: 0.85em; transition: background 0.2s; }
+        .item-header-row { display: grid; grid-template-columns: 30px 1fr 70px 120px 1fr; gap: 6px; padding: 6px 8px; font-size: 0.75em; color: #666; font-weight: 600; text-transform: uppercase; border-bottom: 1px solid #0f3460; }
+        .item-row { display: grid; grid-template-columns: 30px 1fr 70px 120px 1fr; gap: 6px; align-items: center; padding: 8px 8px; border-bottom: 1px solid #0f346030; font-size: 0.85em; transition: background 0.2s; }
         .item-row:hover { background: #0f346020; }
         .item-row.selecionado { background: #4dabf710; border-left: 3px solid #4dabf7; }
 
@@ -153,9 +153,9 @@
 
         /* Responsive */
         @media (max-width: 900px) {
-            .item-header-row, .item-row { grid-template-columns: 30px 1fr 80px 80px; }
-            .item-extras-cell, .item-header-row > div:nth-child(6), .item-row > div:nth-child(6) { display: none; }
-            .item-header-row > div:nth-child(7), .item-row > div:nth-child(7) { display: none; }
+            .item-header-row, .item-row { grid-template-columns: 30px 1fr 120px; }
+            .item-header-row > div:nth-child(3), .item-row > div:nth-child(3) { display: none; }
+            .item-extras-cell, .item-header-row > div:nth-child(5), .item-row > div:nth-child(5) { display: none; }
         }
     </style>
 </head>
@@ -174,8 +174,18 @@
     <!-- Filtros -->
     <div id="filtrosContainer" style="display:none;">
         <div class="filtros-bar">
-            <input type="text" id="filtroTexto" placeholder="Buscar objeto, orgao, compraId..." oninput="aplicarFiltros()">
-            <select id="filtroSituacao" onchange="aplicarFiltros()"><option value="">Todas situações</option></select>
+            <input type="text" id="filtroTexto" placeholder="Filtrar por nome, órgão ou número da compra..." oninput="aplicarFiltros()">
+            <select id="filtroSituacao" onchange="aplicarFiltros()"><option value="">Todas as licitações</option></select>
+            <select id="filtroOrgao" onchange="aplicarFiltros()"><option value="">Todos os órgãos</option></select>
+            <select id="filtroData" onchange="aplicarFiltros()">
+                <option value="">Qualquer data</option>
+                <option value="hoje">Encerram hoje</option>
+                <option value="amanha">Encerram amanhã</option>
+                <option value="7dias">Próximos 7 dias</option>
+                <option value="vencidas">Já vencidas</option>
+                <option value="sem-data">Sem data</option>
+            </select>
+            <select id="filtroGrupo" onchange="aplicarFiltros()"><option value="">Todos os grupos</option></select>
             <button class="btn btn-sm btn-outline" onclick="limparFiltros()">Limpar</button>
         </div>
         <div class="filtro-resultado" id="filtroResultado"></div>
@@ -226,6 +236,6 @@
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script>initSidebar('propostas-api');</script>
-<script src="propostas-api.js"></script>
+<script src="propostas-api.js?v=20260330"></script>
 </body>
 </html>

@@ -28,6 +28,9 @@ const { saveToken } = require('./store');
 const cnet = require('./comprasnet-api');
 const serverSync = require('./server-sync');
 const lanceProcessor = require('./lance-processor');
+const sessionTimers = require('./session-timers');
+const autoUpdater = require('./auto-updater');
+const fingerprintGenerator = require('./fingerprint-generator');
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -115,8 +118,63 @@ app.on('certificate-error', (event, webContents, url, error, certificate, callba
 });
 
 app.whenReady().then(async () => {
-  log(`Electron ${process.versions.electron} / Chrome ${process.versions.chrome}`);
+  // Auto-update: handle --replace-old (cleanup da versão anterior)
+  const replaceIdx = process.argv.indexOf('--replace-old');
+  if (replaceIdx !== -1 && process.argv[replaceIdx + 1]) {
+    autoUpdater.handleReplaceOld(process.argv[replaceIdx + 1]);
+  }
+
+  const appVersion = require('./package.json').version;
+  log(`Electron ${process.versions.electron} / Chrome ${process.versions.chrome} / App v${appVersion}`);
   log(`Modo: ${headless ? 'headless' : 'headed'}`);
+
+  // Auto-update: iniciar verificação periódica
+  autoUpdater.init({
+    log,
+    version: appVersion,
+    onUpdateAvailable: (update) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-available', update);
+      }
+    },
+  });
+  autoUpdater.startPeriodicCheck();
+
+  // ─── Fingerprint: gerar valores aleatórios para esta sessão ───────────
+  const sessionFingerprint = fingerprintGenerator.generate();
+  log(`[Fingerprint] GPU: ${sessionFingerprint.gpu.vendor} / ${sessionFingerprint.gpu.renderer}`);
+  log(`[Fingerprint] Cores: ${sessionFingerprint.cores} | Platform: ${sessionFingerprint.platform} | Canvas seed: ${sessionFingerprint.canvasSeed}`);
+
+  // Ler stealth-preload.js e substituir placeholders com valores desta sessão
+  let stealthCode;
+  try {
+    stealthCode = fs.readFileSync(path.join(__dirname, 'stealth-preload.js'), 'utf8');
+    stealthCode = stealthCode
+      .replace("'__FP_GPU_VENDOR__'", JSON.stringify(sessionFingerprint.gpu.vendor))
+      .replace("'__FP_GPU_RENDERER__'", JSON.stringify(sessionFingerprint.gpu.renderer))
+      .replace('__FP_CORES__ = 4;', `__FP_CORES__ = ${sessionFingerprint.cores};`)
+      .replace("__FP_PLATFORM__ = 'Win32';", `__FP_PLATFORM__ = ${JSON.stringify(sessionFingerprint.platform)};`)
+      .replace('__FP_CANVAS_SEED__ = 0;', `__FP_CANVAS_SEED__ = ${sessionFingerprint.canvasSeed};`);
+    log('[Stealth] Preload carregado e personalizado com fingerprint da sessão');
+  } catch (e) {
+    log(`[Stealth] ERRO ao carregar stealth-preload.js: ${e.message}`);
+    stealthCode = null;
+  }
+
+  // ─── Device ID Salt: rotacionar a cada startup ────────────────────────
+  try {
+    const prefsPath = path.join(USER_DATA_DIR, 'Preferences');
+    if (fs.existsSync(prefsPath)) {
+      const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+      if (!prefs.electron) prefs.electron = {};
+      if (!prefs.electron.media) prefs.electron.media = {};
+      prefs.electron.media.device_id_salt = sessionFingerprint.deviceIdSalt;
+      fs.writeFileSync(prefsPath, JSON.stringify(prefs));
+      log(`[Fingerprint] Device ID salt rotacionado`);
+    }
+  } catch (e) {
+    // Primeira execução — arquivo não existe ainda, normal
+  }
 
   // Verificar sessão salva em disco
   const savedToken = loadToken();
@@ -229,6 +287,24 @@ app.whenReady().then(async () => {
   log(`Navegando para ${urlArg}...`);
 
   // Receber notificações de navegação do webview
+  // IPC: aplicar update do navbar
+  ipcMain.on('apply-update', async () => {
+    try {
+      const update = await autoUpdater.checkForUpdate();
+      if (!update.available) return;
+
+      mainWindow.webContents.send('update-progress', 0);
+      const result = await autoUpdater.downloadUpdate(update.downloadUrl, (pct) => {
+        mainWindow.webContents.send('update-progress', pct);
+      });
+
+      mainWindow.webContents.send('update-applying');
+      await autoUpdater.applyUpdate(result.path, update.checksum);
+    } catch (e) {
+      log(`[Update] Erro: ${e.message}`);
+    }
+  });
+
   ipcMain.on('webview-navigated', (event, url) => {
     log(`Navegação: ${url}`);
     if (url.includes('cnetmobile') && !url.includes('acesso-nao-autorizado') && state !== 'logged_in' && bearerToken) {
@@ -263,6 +339,14 @@ app.whenReady().then(async () => {
     // ─── Registrar interceptor na session do webview (guest session) ────
     registerBearerInterceptor(wvContents.session, 'webview-guest');
 
+    // ─── Injetar stealth-preload em cada navegação do webview ──────────
+    if (stealthCode) {
+      wvContents.on('did-start-navigation', (event, url) => {
+        wvContents.executeJavaScript(stealthCode).catch(() => {});
+      });
+      log('[Stealth] Injeção configurada para webview principal');
+    }
+
     // ─── Permitir popups e monitorar Bearer em TODAS as janelas ──────
     wvContents.setWindowOpenHandler(({ url }) => {
       log(`Nova janela: ${url.substring(0, 80)}`);
@@ -276,6 +360,14 @@ app.whenReady().then(async () => {
       log(`Popup aberto (id: ${nwc.id})`);
       popupWindows.set(nwc.id, nwc);
       registerBearerInterceptor(nwc.session, `popup-${nwc.id}`);
+
+      // Injetar stealth nos popups também
+      if (stealthCode) {
+        nwc.on('did-start-navigation', () => {
+          nwc.executeJavaScript(stealthCode).catch(() => {});
+        });
+      }
+
       nwc.on('did-navigate', (event, url) => {
         log(`Popup navegou: ${url.substring(0, 80)}`);
       });
@@ -385,10 +477,34 @@ function startServerIntegration() {
     onNeedKeepalive: () => serverSync.executarKeepalive(),
   });
 
+  // Inicializar session-timers
+  sessionTimers.init({
+    webviewContents,
+    getBearer: () => bearerToken,
+    getBearerTimestamp: () => bearerTimestamp,
+    getActiveCompraIds: () => serverSync.getActiveCompraIds(),
+    isLanceProcessing: () => lanceProcessor.stats().processing,
+    log,
+    onSessionExpired: () => {
+      log('[Timers] Sessão expirada — tentando re-login');
+      attemptAutoRelogin();
+    },
+    onNeedRelogin: () => {
+      log('[Timers] Token próximo de expirar — re-login proativo');
+      attemptAutoRelogin();
+    },
+    onChatAlert: (mensagens) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('chat-alert', mensagens);
+      }
+    },
+  });
+
   // Iniciar tudo
   serverSync.start();
   lanceProcessor.start();
-  log('[Integração] Server sync + Lance processor ATIVOS');
+  sessionTimers.start();
+  log('[Integração] Server sync + Lance processor + Session timers ATIVOS');
   if (apiKeyArg) {
     log(`[Integração] API Key: ${apiKeyArg.substring(0, 8)}...`);
   } else {
@@ -1217,6 +1333,50 @@ const apiServer = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /check-update — verificar nova versão
+    if (method === 'POST' && url === '/check-update') {
+      const update = await autoUpdater.checkForUpdate();
+      res.writeHead(200, CT);
+      res.end(JSON.stringify(update));
+      return;
+    }
+
+    // POST /download-update — baixar atualização
+    if (method === 'POST' && url === '/download-update') {
+      try {
+        const update = await autoUpdater.checkForUpdate();
+        if (!update.available) {
+          res.writeHead(200, CT);
+          res.end(JSON.stringify({ ok: false, message: 'Já está na versão mais recente' }));
+          return;
+        }
+        const result = await autoUpdater.downloadUpdate(update.downloadUrl, (pct) => {
+          log(`[Update] Progresso: ${pct}%`);
+        });
+        res.writeHead(200, CT);
+        res.end(JSON.stringify({ ok: true, ...result, version: update.version, checksum: update.checksum }));
+      } catch (e) {
+        res.writeHead(500, CT);
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    // POST /apply-update — aplicar atualização baixada
+    if (method === 'POST' && url === '/apply-update') {
+      const dp = autoUpdater.downloadedPath;
+      if (!dp) {
+        res.writeHead(400, CT);
+        res.end(JSON.stringify({ ok: false, error: 'Nenhum download pendente. Use /download-update primeiro.' }));
+        return;
+      }
+      res.writeHead(200, CT);
+      res.end(JSON.stringify({ ok: true, message: 'Aplicando update...' }));
+      // Apply após responder
+      setTimeout(() => autoUpdater.applyUpdate(dp).catch(e => log(`[Update] Erro ao aplicar: ${e.message}`)), 500);
+      return;
+    }
+
     res.writeHead(404);
     res.end(JSON.stringify({ error: 'Not found' }));
   } catch (e) {
@@ -1270,8 +1430,10 @@ function saveRecording() {
 
 function cleanupAll() {
   saveRecording();
+  sessionTimers.stop();
   serverSync.stop();
   lanceProcessor.stop();
+  autoUpdater.stopPeriodicCheck();
 }
 
 app.on('window-all-closed', () => {

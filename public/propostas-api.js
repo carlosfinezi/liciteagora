@@ -95,6 +95,7 @@ function construirParticipacoes(allParticipacoes) {
             faseCompra: part?.faseCompra || '',
             etapa: part?.etapa || '',
             dataSessao: lic.dataEncerramentoProposta || part?.dataSessao || '',
+            grupoNome: lic.grupoNome || '',
             semCompraId: !lic.compraId || naoComprasnet,
             naoComprasnet,
             sistemaOrigem,
@@ -214,25 +215,117 @@ async function resolverCompraIdsBackground(allParticipacoes) {
 // ==================== FILTROS ====================
 
 function popularFiltros() {
-    const situacoes = new Set();
+    // Contar ocorrências por situação
+    const contagem = {};
     participacoesData.forEach(p => {
-        if (p.situacao) situacoes.add(p.situacao);
+        if (p.situacao) contagem[p.situacao] = (contagem[p.situacao] || 0) + 1;
     });
+
+    const total = participacoesData.length;
+    const qtdPE = contagem['PE'] || 0;
+    const qtdSemPE = total - qtdPE;
+
     const select = document.getElementById('filtroSituacao');
-    select.innerHTML = '<option value="">Todas situações</option>';
-    Array.from(situacoes).sort().forEach(s => {
-        select.innerHTML += `<option value="${s}">${formatarSituacao(s)} (${s})</option>`;
-    });
-    // PD (Em Disputa) como padrão se existir
-    if (situacoes.has('PD')) {
-        select.value = 'PD';
+    select.innerHTML = '';
+
+    // Filtros principais
+    select.innerHTML += `<option value="SEM_PROPOSTA">Sem proposta enviada (${qtdSemPE})</option>`;
+    select.innerHTML += `<option value="PE">Com proposta enviada (${qtdPE})</option>`;
+    select.innerHTML += `<option disabled>────────────</option>`;
+    select.innerHTML += `<option value="">Todas as licitações (${total})</option>`;
+
+    // Situações individuais
+    const ordemAtivas = ['PD', 'AB', '5', 'SU'];
+    const ordemEncerradas = ['EN', '2', 'FR', 'EX'];
+
+    const adicionarOpcoes = (lista, grupo) => {
+        const existentes = lista.filter(s => contagem[s]);
+        if (existentes.length === 0) return;
+        select.innerHTML += `<option disabled>── ${grupo} ──</option>`;
+        existentes.forEach(s => {
+            select.innerHTML += `<option value="${s}">${formatarSituacao(s)} (${contagem[s]})</option>`;
+        });
+    };
+
+    adicionarOpcoes(ordemAtivas, 'Por situação');
+    adicionarOpcoes(ordemEncerradas, 'Encerradas');
+
+    // Situações não mapeadas
+    const mapeadas = new Set([...ordemAtivas, ...ordemEncerradas, 'PE']);
+    const extras = Object.keys(contagem).filter(s => !mapeadas.has(s));
+    if (extras.length > 0) {
+        select.innerHTML += `<option disabled>── Outras ──</option>`;
+        extras.sort().forEach(s => {
+            select.innerHTML += `<option value="${s}">${formatarSituacao(s)} (${contagem[s]})</option>`;
+        });
     }
+
+    // Popular filtro de Órgão
+    const orgaos = {};
+    participacoesData.forEach(p => {
+        if (p.orgao) orgaos[p.orgao] = (orgaos[p.orgao] || 0) + 1;
+    });
+    const selectOrgao = document.getElementById('filtroOrgao');
+    selectOrgao.innerHTML = `<option value="">Todos os órgãos (${Object.keys(orgaos).length})</option>`;
+    Object.entries(orgaos).sort((a, b) => b[1] - a[1]).forEach(([org, qtd]) => {
+        const label = org.length > 40 ? org.substring(0, 40) + '…' : org;
+        selectOrgao.innerHTML += `<option value="${org}" title="${org}">${label} (${qtd})</option>`;
+    });
+
+    // Popular filtro de Grupo de palavras-chave
+    const grupos = {};
+    participacoesData.forEach(p => {
+        if (p.grupoNome) grupos[p.grupoNome] = (grupos[p.grupoNome] || 0) + 1;
+    });
+    const selectGrupo = document.getElementById('filtroGrupo');
+    selectGrupo.innerHTML = `<option value="">Todos os grupos</option>`;
+    const semGrupo = participacoesData.filter(p => !p.grupoNome).length;
+    Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0])).forEach(([g, qtd]) => {
+        selectGrupo.innerHTML += `<option value="${g}">${g} (${qtd})</option>`;
+    });
+    if (semGrupo > 0) {
+        selectGrupo.innerHTML += `<option value="SEM_GRUPO">Sem grupo (${semGrupo})</option>`;
+    }
+
+    // Padrão: sem proposta enviada
+    select.value = 'SEM_PROPOSTA';
     aplicarFiltros();
+}
+
+function filtroDataPermite(dataSessao, filtroData) {
+    if (!filtroData) return true;
+    if (filtroData === 'sem-data') return !dataSessao;
+    if (!dataSessao) return false;
+
+    // Extrair apenas a parte da data (YYYY-MM-DD) para comparar sem fuso horário
+    const dStr = dataSessao.substring(0, 10); // "2026-02-27"
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dStr)) return false;
+
+    const agora = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const hojeStr = `${agora.getFullYear()}-${pad(agora.getMonth() + 1)}-${pad(agora.getDate())}`;
+
+    const addDias = (baseStr, dias) => {
+        const dt = new Date(baseStr + 'T12:00:00');
+        dt.setDate(dt.getDate() + dias);
+        return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+    };
+
+    switch (filtroData) {
+        case 'hoje': return dStr === hojeStr;
+        case 'amanha': return dStr === addDias(hojeStr, 1);
+        case '7dias': return dStr >= hojeStr && dStr <= addDias(hojeStr, 7);
+        case 'vencidas': return dStr < hojeStr;
+        default: return true;
+    }
 }
 
 function aplicarFiltros() {
     const texto = document.getElementById('filtroTexto').value.toLowerCase().trim();
     const situacao = document.getElementById('filtroSituacao').value;
+    const filtroData = (document.getElementById('filtroData') || {}).value || '';
+    const orgao = (document.getElementById('filtroOrgao') || {}).value || '';
+    const grupo = (document.getElementById('filtroGrupo') || {}).value || '';
 
     let total = 0, visiveis = 0;
 
@@ -248,7 +341,15 @@ function aplicarFiltros() {
             const t = `${p.objeto || ''} ${p.orgao || ''} ${p.compraId || ''}`.toLowerCase();
             if (!t.includes(texto)) visivel = false;
         }
-        if (situacao && p.situacao !== situacao) visivel = false;
+        if (situacao === 'SEM_PROPOSTA') {
+            if (p.situacao === 'PE') visivel = false;
+        } else if (situacao && p.situacao !== situacao) visivel = false;
+
+        if (!filtroDataPermite(p.dataSessao, filtroData)) visivel = false;
+        if (orgao && p.orgao !== orgao) visivel = false;
+        if (grupo === 'SEM_GRUPO') {
+            if (p.grupoNome) visivel = false;
+        } else if (grupo && p.grupoNome !== grupo) visivel = false;
 
         panel.style.display = visivel ? '' : 'none';
         if (visivel) visiveis++;
@@ -266,20 +367,34 @@ function aplicarFiltros() {
             const t = `${lic.objetoCompra || ''} ${lic.nomeOrgao || ''} ${lic.compraId || ''} ${lic.codigoUnidade || ''} ${lic.numeroCompra || ''} ${lic.cnpj || ''}`.toLowerCase();
             if (!t.includes(texto)) visivel = false;
         }
-        // Interesses não têm campo situacao do Comprasnet, ignorar filtro de situação
-        if (situacao) visivel = false;
+        // Interesses não têm situacao — mostrar em SEM_PROPOSTA e em "Todas", ocultar nos demais
+        if (situacao && situacao !== 'SEM_PROPOSTA') visivel = false;
+
+        if (!filtroDataPermite(lic.dataEncerramentoProposta, filtroData)) visivel = false;
+
+        // Filtro de órgão para interesses
+        if (orgao && (lic.nomeOrgao || '') !== orgao) visivel = false;
+
+        // Filtro de grupo para interesses
+        if (grupo === 'SEM_GRUPO') {
+            if (lic.grupoNome) visivel = false;
+        } else if (grupo && (lic.grupoNome || '') !== grupo) visivel = false;
 
         panel.style.display = visivel ? '' : 'none';
         if (visivel) visiveis++;
     });
 
     const resultado = document.getElementById('filtroResultado');
-    resultado.textContent = (texto || situacao) ? `Exibindo ${visiveis} de ${total}` : '';
+    const temFiltroAtivo = texto || (situacao && situacao !== 'SEM_PROPOSTA') || filtroData || orgao || grupo;
+    resultado.textContent = temFiltroAtivo ? `Exibindo ${visiveis} de ${total}` : '';
 }
 
 function limparFiltros() {
     document.getElementById('filtroTexto').value = '';
-    document.getElementById('filtroSituacao').value = '';
+    document.getElementById('filtroSituacao').value = 'SEM_PROPOSTA';
+    document.getElementById('filtroOrgao').value = '';
+    document.getElementById('filtroData').value = '';
+    document.getElementById('filtroGrupo').value = '';
     aplicarFiltros();
 }
 
@@ -367,14 +482,12 @@ function renderizarItens(compraId, itens) {
             <span class="badge-qtd">${itens.length} itens</span>
         </div>
         <div class="itens-grid">
-            <div class="item-header-row">
+            <div class="item-header-row" style="grid-template-columns: 30px 1fr 70px 120px 1fr;">
                 <div></div>
                 <div>Item / Descrição</div>
-                <div>Melhor R$</div>
-                <div>Nosso R$</div>
+                <div>Qtde</div>
                 <div>Valor Proposta</div>
                 <div>Marca / Modelo</div>
-                <div>Situação</div>
             </div>
     `;
 
@@ -389,7 +502,7 @@ function renderizarItens(compraId, itens) {
         }[sit] || sit || '-';
 
         html += `
-            <div class="item-row ${dados.selecionado ? 'selecionado' : ''}" id="row-${compraId}-${num}">
+            <div class="item-row ${dados.selecionado ? 'selecionado' : ''}" id="row-${compraId}-${num}" style="grid-template-columns: 30px 1fr 70px 120px 1fr;">
                 <div>
                     <input type="checkbox" class="item-checkbox"
                            id="chk-${compraId}-${num}"
@@ -401,9 +514,12 @@ function renderizarItens(compraId, itens) {
                     <span class="item-texto">${item.descricao || ''}</span>
                     ${item.valorEstimado ? `<span class="item-ref">Ref: ${fmtValor(item.valorEstimado)}</span>` : ''}
                 </div>
-                <div class="item-valor">${item.melhorValor != null ? fmtValor(item.melhorValor) : '-'}</div>
-                <div class="item-valor ${sit === 'G' ? 'valor-ganhando' : sit === 'P' ? 'valor-participando' : ''}">
-                    ${item.nossoValor != null ? fmtValor(item.nossoValor) : '-'}
+                <div class="item-input-cell">
+                    <input type="number" step="1" min="1"
+                           id="qtd-${compraId}-${num}"
+                           value="${dados.quantidade || item.quantidade || 1}"
+                           style="width:60px; text-align:center"
+                           onchange="atualizarExtra('${compraId}', ${num}, 'quantidade', this.value)">
                 </div>
                 <div class="item-input-cell">
                     <input type="number" step="0.01" min="0"
@@ -418,9 +534,6 @@ function renderizarItens(compraId, itens) {
                            placeholder="Marca" onchange="atualizarExtra('${compraId}', ${num}, 'marca', this.value)">
                     <input type="text" id="modelo-${compraId}-${num}" value="${dados.modelo || ''}"
                            placeholder="Modelo" onchange="atualizarExtra('${compraId}', ${num}, 'modelo', this.value)">
-                </div>
-                <div>
-                    <span class="badge-sit badge-sit-${sit}">${sitLabel}</span>
                 </div>
             </div>
         `;
@@ -810,6 +923,7 @@ function mostrarInteresses() {
     }
 
     renderizarInteresses();
+    aplicarFiltros();
 }
 
 function toggleInteresses() {
@@ -964,7 +1078,13 @@ function renderizarItensInteresse(itemPrefix, lic) {
                     <span class="item-texto">${item.descricao || ''}</span>
                 </div>
                 <div class="item-valor">${item.valorEstimado != null ? fmtValor(item.valorEstimado) : '-'}</div>
-                <div class="item-valor">${item.quantidade || 1}</div>
+                <div class="item-input-cell">
+                    <input type="number" step="1" min="1"
+                           id="qtd-${itemPrefix}-${num}"
+                           value="${item.quantidade || 1}"
+                           style="width:60px; text-align:center"
+                           onchange="atualizarExtra('${itemPrefix}', ${num}, 'quantidade', this.value)">
+                </div>
                 <div class="item-input-cell">
                     <input type="number" step="0.01" min="0"
                            id="val-${itemPrefix}-${num}"
@@ -1118,13 +1238,14 @@ async function gerarPDFParticipacao(compraId, assinar = false) {
         const dados = getValorItem(compraId, item.numero);
         if (!dados.selecionado) return;
         const valor = dados.valor ? parseFloat(dados.valor) : (item.valorEstimado || 0);
+        const qtd = dados.quantidade ? parseInt(dados.quantidade) : (item.quantidade || 1);
         itensPDF.push({
             numeroItem: item.numero,
             descricao: item.descricao || '',
-            quantidade: item.quantidade || 1,
+            quantidade: qtd,
             unidadeMedida: item.unidadeMedida || 'UN',
             valorProposta: valor,
-            totalProposta: valor * (item.quantidade || 1),
+            totalProposta: valor * qtd,
             marca: dados.marca || '',
             modelo: dados.modelo || '',
             fabricante: dados.fabricante || '',

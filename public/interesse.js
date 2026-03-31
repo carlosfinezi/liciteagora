@@ -37,6 +37,7 @@ async function carregarInteresses() {
                     linkSistemaOrigem: item.linkSistemaOrigem || '',
                     dataAberturaProposta: item.dataAberturaProposta || null,
                     dataEncerramentoProposta: item.dataEncerramentoProposta || null,
+                    grupoNome: item.grupoNome || '',
                     itens: []
                 });
             }
@@ -51,11 +52,66 @@ async function carregarInteresses() {
 
         todasLicitacoes = Array.from(licitacoesMap.values());
         filtroBar.style.display = 'flex';
+        popularFiltrosDinamicos();
         aplicarFiltro();
 
     } catch (error) {
         console.error('Erro ao carregar interesses:', error);
         loadingContainer.innerHTML = '<h3 style="color: #f44336;">Erro ao carregar interesses</h3>';
+    }
+}
+
+function dataStr(iso) {
+    // Extrai YYYY-MM-DD da string ISO sem conversão de fuso
+    if (!iso || iso.length < 10) return null;
+    const s = iso.substring(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function hojeStr() {
+    const n = new Date();
+    const pad = x => String(x).padStart(2, '0');
+    return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+}
+
+function somarDias(baseStr, dias) {
+    const dt = new Date(baseStr + 'T12:00:00');
+    dt.setDate(dt.getDate() + dias);
+    const pad = x => String(x).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
+function popularFiltrosDinamicos() {
+    // Órgão
+    const orgaos = {};
+    todasLicitacoes.forEach(l => {
+        if (l.nomeOrgao) orgaos[l.nomeOrgao] = (orgaos[l.nomeOrgao] || 0) + 1;
+    });
+    const selectOrgao = document.getElementById('filtroOrgao');
+    if (selectOrgao) {
+        selectOrgao.innerHTML = `<option value="">Todos os órgãos (${Object.keys(orgaos).length})</option>`;
+        Object.entries(orgaos).sort((a, b) => b[1] - a[1]).forEach(([org, qtd]) => {
+            const label = org.length > 40 ? org.substring(0, 40) + '…' : org;
+            selectOrgao.innerHTML += `<option value="${org}" title="${org}">${label} (${qtd})</option>`;
+        });
+    }
+
+    // Grupo de palavras-chave
+    const grupos = {};
+    let semGrupo = 0;
+    todasLicitacoes.forEach(l => {
+        if (l.grupoNome) grupos[l.grupoNome] = (grupos[l.grupoNome] || 0) + 1;
+        else semGrupo++;
+    });
+    const selectGrupo = document.getElementById('filtroGrupo');
+    if (selectGrupo) {
+        selectGrupo.innerHTML = `<option value="">Todos os grupos</option>`;
+        Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0])).forEach(([g, qtd]) => {
+            selectGrupo.innerHTML += `<option value="${g}">${g} (${qtd})</option>`;
+        });
+        if (semGrupo > 0) {
+            selectGrupo.innerHTML += `<option value="SEM_GRUPO">Sem grupo (${semGrupo})</option>`;
+        }
     }
 }
 
@@ -65,62 +121,101 @@ function aplicarFiltro() {
     const dataAte = document.getElementById('filtroDataAte');
     const ateLabel = document.getElementById('filtroAte');
     const personalizado = periodo === 'personalizado';
+    const orgao = (document.getElementById('filtroOrgao') || {}).value || '';
+    const grupo = (document.getElementById('filtroGrupo') || {}).value || '';
 
     dataDe.style.display = personalizado ? '' : 'none';
     dataAte.style.display = personalizado ? '' : 'none';
     ateLabel.style.display = personalizado ? '' : 'none';
 
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
+    const hoje = hojeStr();
 
     let filtradas = todasLicitacoes;
 
+    // Filtro de data
     if (periodo === 'hoje') {
-        const amanha = new Date(hoje);
-        amanha.setDate(amanha.getDate() + 1);
-        filtradas = todasLicitacoes.filter(l => {
-            if (!l.dataEncerramentoProposta) return false;
-            const d = new Date(l.dataEncerramentoProposta);
-            return d >= hoje && d < amanha;
-        });
+        filtradas = filtradas.filter(l => dataStr(l.dataEncerramentoProposta) === hoje);
     } else if (periodo === 'semana') {
-        const fim = new Date(hoje);
-        fim.setDate(fim.getDate() + 7);
-        filtradas = todasLicitacoes.filter(l => {
-            if (!l.dataEncerramentoProposta) return false;
-            const d = new Date(l.dataEncerramentoProposta);
-            return d >= hoje && d < fim;
+        const fim = somarDias(hoje, 7);
+        filtradas = filtradas.filter(l => {
+            const d = dataStr(l.dataEncerramentoProposta);
+            return d && d >= hoje && d <= fim;
         });
     } else if (periodo === 'mes') {
-        const fim = new Date(hoje);
-        fim.setDate(fim.getDate() + 30);
-        filtradas = todasLicitacoes.filter(l => {
-            if (!l.dataEncerramentoProposta) return false;
-            const d = new Date(l.dataEncerramentoProposta);
-            return d >= hoje && d < fim;
+        const fim = somarDias(hoje, 30);
+        filtradas = filtradas.filter(l => {
+            const d = dataStr(l.dataEncerramentoProposta);
+            return d && d >= hoje && d <= fim;
         });
     } else if (periodo === 'vencidas') {
-        filtradas = todasLicitacoes.filter(l => {
-            if (!l.dataEncerramentoProposta) return false;
-            const d = new Date(l.dataEncerramentoProposta);
-            return d < hoje;
+        filtradas = filtradas.filter(l => {
+            const d = dataStr(l.dataEncerramentoProposta);
+            return d && d < hoje;
         });
     } else if (periodo === 'personalizado') {
-        const de = dataDe.value ? new Date(dataDe.value + 'T00:00:00') : null;
-        const ate = dataAte.value ? new Date(dataAte.value + 'T23:59:59') : null;
-        filtradas = todasLicitacoes.filter(l => {
-            if (!l.dataEncerramentoProposta) return false;
-            const d = new Date(l.dataEncerramentoProposta);
+        const de = dataDe.value || null;
+        const ate = dataAte.value || null;
+        filtradas = filtradas.filter(l => {
+            const d = dataStr(l.dataEncerramentoProposta);
+            if (!d) return false;
             if (de && d < de) return false;
             if (ate && d > ate) return false;
             return true;
         });
     }
 
+    // Filtro de órgão
+    if (orgao) {
+        filtradas = filtradas.filter(l => l.nomeOrgao === orgao);
+    }
+
+    // Filtro de grupo
+    if (grupo === 'SEM_GRUPO') {
+        filtradas = filtradas.filter(l => !l.grupoNome);
+    } else if (grupo) {
+        filtradas = filtradas.filter(l => l.grupoNome === grupo);
+    }
+
+    // Ordenação
+    const ordenacao = (document.getElementById('ordenacao') || {}).value || 'encerramento-asc';
+    filtradas.sort((a, b) => {
+        switch (ordenacao) {
+            case 'encerramento-asc': {
+                const da = dataStr(a.dataEncerramentoProposta) || '9999-12-31';
+                const db = dataStr(b.dataEncerramentoProposta) || '9999-12-31';
+                return da.localeCompare(db);
+            }
+            case 'encerramento-desc': {
+                const da = dataStr(a.dataEncerramentoProposta) || '0000-01-01';
+                const db = dataStr(b.dataEncerramentoProposta) || '0000-01-01';
+                return db.localeCompare(da);
+            }
+            case 'valor-desc': {
+                const va = a.itens.reduce((s, i) => s + (parseFloat(i.valorUnitarioEstimado) || 0) * (parseFloat(i.quantidade) || 1), 0);
+                const vb = b.itens.reduce((s, i) => s + (parseFloat(i.valorUnitarioEstimado) || 0) * (parseFloat(i.quantidade) || 1), 0);
+                return vb - va;
+            }
+            case 'valor-asc': {
+                const va = a.itens.reduce((s, i) => s + (parseFloat(i.valorUnitarioEstimado) || 0) * (parseFloat(i.quantidade) || 1), 0);
+                const vb = b.itens.reduce((s, i) => s + (parseFloat(i.valorUnitarioEstimado) || 0) * (parseFloat(i.quantidade) || 1), 0);
+                return va - vb;
+            }
+            case 'orgao-asc':
+                return (a.nomeOrgao || '').localeCompare(b.nomeOrgao || '');
+            case 'recente': {
+                const ia = Math.max(...a.itens.map(i => i.id));
+                const ib = Math.max(...b.itens.map(i => i.id));
+                return ib - ia;
+            }
+            default: return 0;
+        }
+    });
+
     renderizarLicitacoes(filtradas);
 
     const info = document.getElementById('filtroInfo');
-    if (periodo === 'todas') {
+    const temFiltro = periodo !== 'todas' || orgao || grupo;
+    if (!temFiltro) {
         info.textContent = '';
     } else {
         info.textContent = `Mostrando ${filtradas.length} de ${todasLicitacoes.length} licitações`;
@@ -133,21 +228,21 @@ function formatarData(dataStr) {
     return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function badgeEncerramento(dataStr) {
-    if (!dataStr) return '<span class="data-abertura-badge sem-data">Sem prazo</span>';
-    const d = new Date(dataStr);
-    const agora = new Date();
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-    const amanha = new Date(hoje);
-    amanha.setDate(amanha.getDate() + 1);
+function badgeEncerramento(dataIso) {
+    if (!dataIso) return '<span class="data-abertura-badge sem-data">Sem prazo</span>';
+    const dStr = dataStr(dataIso);
+    if (!dStr) return '<span class="data-abertura-badge sem-data">Sem prazo</span>';
+    const hoje = hojeStr();
 
-    if (d < agora) {
+    if (dStr < hoje) {
         return `<span class="data-abertura-badge passado">Prazo encerrado</span>`;
-    } else if (d < amanha) {
-        return `<span class="data-abertura-badge hoje">Hoje ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>`;
+    } else if (dStr === hoje) {
+        const hora = dataIso.length >= 16 ? dataIso.substring(11, 16) : '';
+        return `<span class="data-abertura-badge hoje">Hoje${hora ? ' ' + hora : ''}</span>`;
     } else {
-        const dias = Math.ceil((d - hoje) / 86400000);
+        const hDt = new Date(hoje + 'T12:00:00');
+        const dDt = new Date(dStr + 'T12:00:00');
+        const dias = Math.round((dDt - hDt) / 86400000);
         return `<span class="data-abertura-badge futuro">Faltam ${dias} dia${dias > 1 ? 's' : ''}</span>`;
     }
 }

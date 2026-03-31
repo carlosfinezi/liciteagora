@@ -33,6 +33,7 @@ const AGUARDANDO_TIMEOUT_MS = 90000; // 30s timeout
 
 const SYNC_INTERVAL_MS = 120000;    // 2 min
 const KEEPALIVE_INTERVAL_MS = 60000;  // 60s (único keepalive do sistema)
+let lastParticipacoes = [];          // último sync — usada pelo motor timer
 
 // ─── Init ───────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,7 @@ async function executarSync() {
     _log(`[Sync] #${syncCount} Buscando participações (filtros: ${filtros.join(',')})...`);
 
     const participacoes = await cnet.fetchParticipacoes(filtros);
+    lastParticipacoes = participacoes;
     _log(`[Sync] ${participacoes.length} participações encontradas`);
 
     if (participacoes.length > 0) {
@@ -172,17 +174,40 @@ async function executarSync() {
     // Detectar encerradas
     await detectarEncerradas(participacoes);
 
-    // 2. Mensagens (para participações em andamento, filtro=5)
-    const emAndamento = participacoes.filter(p => p._filtro === 5);
-    for (const p of emAndamento) {
-      const compraId = p.compraId || p.id;
-      try {
-        const msgs = await cnet.fetchMensagens(compraId);
-        if (msgs.length > 0) {
-          await serverRequest('POST', '/api/sync/mensagens', { compraId, mensagens: msgs });
+    // 2. Mensagens — v1 global primeiro, fallback v2 por compra
+    let mensagensOk = false;
+    try {
+      const globalResult = await cnet.fetchMensagensGlobal();
+      if (globalResult.ok && globalResult.mensagens.length > 0) {
+        const r = await serverRequest('POST', '/api/sync/mensagens-global', {
+          mensagens: globalResult.mensagens,
+        });
+        if (r.ok) {
+          _log(`[Sync] Mensagens v1 global: ${globalResult.mensagens.length} enviadas, ${r.data?.novas || 0} novas`);
+          mensagensOk = true;
         }
-      } catch (e) {
-        _log(`[Sync] Erro mensagens ${compraId}: ${e.message}`);
+      } else if (globalResult.ok) {
+        mensagensOk = true;
+        _log('[Sync] Mensagens v1 global: 0 mensagens');
+      }
+    } catch (e) {
+      _log(`[Sync] Mensagens v1 falhou: ${e.message}`);
+    }
+
+    // Fallback v2 por compra se v1 falhou
+    if (!mensagensOk) {
+      _log('[Sync] Fallback mensagens v2 por compra...');
+      const emAndamento = participacoes.filter(p => p._filtro === 5);
+      for (const p of emAndamento) {
+        const compraId = p.compraId || p.id;
+        try {
+          const msgs = await cnet.fetchMensagens(compraId);
+          if (msgs.length > 0) {
+            await serverRequest('POST', '/api/sync/mensagens', { compraId, mensagens: msgs });
+          }
+        } catch (e) {
+          _log(`[Sync] Erro mensagens v2 ${compraId}: ${e.message}`);
+        }
       }
     }
 
@@ -398,4 +423,10 @@ module.exports = {
   serverRequest,
   serverLog,
   get syncCount() { return syncCount; },
+  getActiveCompraIds() {
+    return lastParticipacoes
+      .filter(p => p._filtro === 5 || p._filtro === 4)
+      .map(p => p.compraId || p.id)
+      .filter(Boolean);
+  },
 };

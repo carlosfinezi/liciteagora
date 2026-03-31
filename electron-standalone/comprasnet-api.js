@@ -144,6 +144,40 @@ async function fetchMensagens(compraId) {
   return todas;
 }
 
+// ─── Mensagens globais via API v1 (todas do usuário) ────────────────────────
+
+async function fetchMensagensGlobal() {
+  const todas = [];
+  let page = 0;
+
+  while (true) {
+    const r = await comprasnetGet(
+      `/comprasnet-mensagem/v1/mensagens?size=50&page=${page}`
+    );
+    // API retorna 206 Partial Content com paginação
+    if ((r.ok || r.status === 206) && Array.isArray(r.data) && r.data.length > 0) {
+      todas.push(...r.data);
+      if (r.data.length < 50) break;
+      page++;
+    } else {
+      if (page === 0 && !r.ok && r.status !== 206) {
+        return { ok: false, mensagens: [], error: r.status };
+      }
+      break;
+    }
+  }
+
+  return { ok: true, mensagens: todas };
+}
+
+async function fetchMensagensGlobalPage0() {
+  const r = await comprasnetGet('/comprasnet-mensagem/v1/mensagens?size=50&page=0');
+  if ((r.ok || r.status === 206) && Array.isArray(r.data)) {
+    return { ok: true, mensagens: r.data };
+  }
+  return { ok: false, mensagens: [], error: r.status };
+}
+
 // ─── Itens de disputa (estratégia multi-endpoint) ───────────────────────────
 
 async function fetchItensCompra(compraId, autoCompraIds = []) {
@@ -296,6 +330,8 @@ module.exports = {
   sessaoFornecedor,
   fetchParticipacoes,
   fetchMensagens,
+  fetchMensagensGlobal,
+  fetchMensagensGlobalPage0,
   fetchItensCompra,
   enviarLance,
   fetchParticipacao,

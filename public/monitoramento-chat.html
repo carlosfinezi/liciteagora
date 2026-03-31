@@ -231,8 +231,10 @@
             margin-right: 15px;
             transition: transform 0.3s;
             color: #4dabf7;
+            font-size: 12px;
         }
         .licitacao-header.expanded .chevron { transform: rotate(90deg); }
+        .licitacao-header:active { background: #1a1a2e; }
         .licitacao-title {
             flex: 1;
         }
@@ -567,10 +569,6 @@
                     <span class="value" id="totalNaoLidas">0</span>
                     <span class="label">Não Lidas</span>
                 </div>
-                <div class="stat-item" style="border: 2px solid #2ecc71;">
-                    <span class="value" id="totalMonitoradas">0</span>
-                    <span class="label">Monitoradas</span>
-                </div>
                 <div style="margin-left: auto;">
                     <button class="btn-marcar-todas" onclick="marcarTodasLidas()">✓ Marcar todas como lidas</button>
                 </div>
@@ -579,7 +577,6 @@
             <!-- Tabs -->
             <div class="tabs">
                 <button class="tab active" data-tab="mensagens">Mensagens</button>
-                <button class="tab" data-tab="monitoradas">Monitoradas</button>
                 <button class="tab" data-tab="config">Telegram</button>
             </div>
 
@@ -640,19 +637,6 @@
                 <!-- Mensagens -->
                 <div id="mensagensContainer">
                     <div class="loading">Carregando mensagens...</div>
-                </div>
-            </div>
-
-            <!-- Tab: Monitoradas -->
-            <div class="tab-content" id="tab-monitoradas">
-                <div class="panel">
-                    <h3><span>📡</span> Licitações Monitoradas pelo Polling</h3>
-                    <p style="color: #888; margin-bottom: 15px; font-size: 13px;">
-                        Monitoramento via extensão Chrome v3.0. Sync automático a cada 2 minutos.
-                    </p>
-                    <div id="monitoradasContainer">
-                        <div class="loading">Carregando...</div>
-                    </div>
                 </div>
             </div>
 
@@ -900,33 +884,43 @@
                 if (!grupos.has(key)) {
                     grupos.set(key, {
                         compraId: msg.compraId,
+                        cnpjOrgao: msg.cnpjOrgao,
+                        sequencial: msg.sequencial,
+                        ano: msg.ano,
                         mensagens: [],
                         temAlerta: false,
-                        temCnpj: false
+                        temCnpj: false,
+                        naoLidas: 0
                     });
                 }
                 const grupo = grupos.get(key);
                 grupo.mensagens.push(msg);
                 if (msg.palavrasChaveEncontradas) grupo.temAlerta = true;
                 if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') grupo.temCnpj = true;
+                if (!msg.lido) grupo.naoLidas++;
             });
 
             let html = '';
             grupos.forEach((grupo, key) => {
                 const badges = [];
                 badges.push(`<span class="badge">${grupo.mensagens.length} msgs</span>`);
+                if (grupo.naoLidas > 0) badges.push(`<span class="badge" style="background: #4dabf7; color: #000;">${grupo.naoLidas} novas</span>`);
                 if (grupo.temAlerta) badges.push(`<span class="badge alerta">Alerta</span>`);
                 if (grupo.temCnpj) badges.push(`<span class="badge cnpj">CNPJ</span>`);
 
-                // Buscar info da licitação
                 const compraId = grupo.compraId || key;
+                const nomeOrgao = getNomeOrgao(grupo.cnpjOrgao);
+                const orgaoHtml = nomeOrgao
+                    ? `<div class="orgao">${escapeHtml(nomeOrgao)}</div>`
+                    : (grupo.sequencial ? `<div class="orgao">${grupo.sequencial}/${grupo.ano}</div>` : '');
 
                 html += `
                     <div class="licitacao-group">
-                        <div class="licitacao-header" onclick="toggleGrupo(this)">
+                        <div class="licitacao-header" data-toggle="grupo">
                             <span class="chevron">▶</span>
                             <div class="licitacao-title">
-                                <div class="numero">Compra ${compraId}</div>
+                                <div class="numero">Compra ${escapeHtml(String(compraId))}</div>
+                                ${orgaoHtml}
                             </div>
                             <div class="licitacao-meta">
                                 ${badges.join('')}
@@ -940,6 +934,14 @@
             });
 
             container.innerHTML = html;
+
+            // Event delegation para expandir/colapsar grupos
+            container.querySelectorAll('[data-toggle="grupo"]').forEach(header => {
+                header.addEventListener('click', function() {
+                    this.classList.toggle('expanded');
+                    this.nextElementSibling.classList.toggle('expanded');
+                });
+            });
         }
 
         function renderLista(container) {
@@ -1023,11 +1025,6 @@
                     ${tags ? `<div class="mensagem-tags">${tags}</div>` : ''}
                 </div>
             `;
-        }
-
-        function toggleGrupo(header) {
-            header.classList.toggle('expanded');
-            header.nextElementSibling.classList.toggle('expanded');
         }
 
         // Marcar mensagem como lida
@@ -1233,107 +1230,9 @@
             }
         }
 
-        // Carregar licitações monitoradas
-        async function carregarMonitoradas() {
-            const container = document.getElementById('monitoradasContainer');
-            try {
-                const res = await fetch(`${API_URL}/api/chat/monitoramentos`);
-                const data = await res.json();
-                const lics = data.data || [];
-
-                document.getElementById('totalMonitoradas').textContent = lics.length;
-
-                if (lics.length === 0) {
-                    container.innerHTML = `
-                        <div style="text-align: center; padding: 40px; color: #888;">
-                            <div style="font-size: 48px; margin-bottom: 15px;">📡</div>
-                            <p>Nenhuma licitação mapeada ainda</p>
-                            <p style="font-size: 13px; margin-top: 10px;">Abra o Comprasnet com a extensão para mapear automaticamente</p>
-                        </div>`;
-                    return;
-                }
-
-                container.innerHTML = `
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="border-bottom: 2px solid #0f3460; text-align: left;">
-                                <th style="padding: 10px; color: #4dabf7;">#</th>
-                                <th style="padding: 10px; color: #4dabf7;">CompraId</th>
-                                <th style="padding: 10px; color: #4dabf7;">CNPJ/UASG</th>
-                                <th style="padding: 10px; color: #4dabf7;">Seq/Ano</th>
-                                <th style="padding: 10px; color: #4dabf7;">Órgão</th>
-                                <th style="padding: 10px; color: #4dabf7;">Situação</th>
-                                <th style="padding: 10px; color: #4dabf7;">Atualização</th>
-                                <th style="padding: 10px; color: #4dabf7;">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${lics.map((lic, i) => `
-                                <tr style="border-bottom: 1px solid #0f3460;">
-                                    <td style="padding: 8px 10px; color: #888;">${i + 1}</td>
-                                    <td style="padding: 8px 10px;">
-                                        ${lic.compraId}
-                                        <button onclick="copiarLinkCompra('${lic.compraId}')"
-                                                style="background: none; border: 1px solid #4dabf7; color: #4dabf7; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-left: 6px;"
-                                                title="Copiar link (cole numa aba logada no Comprasnet)">
-                                            Copiar link
-                                        </button>
-                                    </td>
-                                    <td style="padding: 8px 10px; color: #ccc;">${lic.cnpj || '-'}</td>
-                                    <td style="padding: 8px 10px; color: #ccc;">${lic.sequencial || '-'}/${lic.ano || '-'}</td>
-                                    <td style="padding: 8px 10px; color: #ccc; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${lic.nomeOrgao || '-'}</td>
-                                    <td style="padding: 8px 10px; color: #ccc;">${lic.situacao || '-'}</td>
-                                    <td style="padding: 8px 10px; color: #888; font-size: 12px;">${lic.dataSessao || '-'}</td>
-                                    <td style="padding: 8px 10px;">
-                                        <button onclick="desativarMonitorada('${lic.compraId}')"
-                                                style="background: #e74c3c; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                                            Remover
-                                        </button>
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>`;
-            } catch (e) {
-                console.error('Erro ao carregar monitoradas:', e);
-                container.innerHTML = '<div style="color: #e74c3c; padding: 20px;">Erro ao carregar licitações monitoradas</div>';
-            }
-        }
-
-        function copiarLink(url) {
-            navigator.clipboard.writeText(url).then(() => {
-                showAlert('Link copiado! Cole na barra de endereço de uma aba logada no Comprasnet.', 'success');
-            }).catch(() => {
-                prompt('Copie o link:', url);
-            });
-        }
-
-        function copiarLinkCompra(compraId) {
-            const url = 'https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/acompanhamento-compra?compra=' + compraId;
-            navigator.clipboard.writeText(url).then(() => {
-                showAlert('Link copiado! Cole na barra de endereço de uma aba logada no Comprasnet.', 'success');
-            }).catch(() => {
-                prompt('Copie o link:', url);
-            });
-        }
-
-        async function desativarMonitorada(compraId) {
-            if (!confirm('Remover esta licitação do monitoramento?')) return;
-            try {
-                const res = await fetch(`${API_URL}/api/chat/monitoramento/desativar/${compraId}`, { method: 'POST' });
-                if (res.ok) {
-                    showAlert('Licitação removida do monitoramento', 'success');
-                    carregarMonitoradas();
-                }
-            } catch (e) {
-                showAlert('Erro ao remover', 'error');
-            }
-        }
-
         // Inicialização
         carregarFiltros();
         carregarMensagens();
-        carregarMonitoradas();
         carregarTelegramStatus();
 
     </script>

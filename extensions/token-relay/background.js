@@ -358,6 +358,53 @@ async function comprasnetPost(tabId, path, bearer, body) {
   }
 }
 
+// Envia múltiplos lances em paralelo numa única injeção de tab
+// lances: [{ path, body }] — retorna [{ status, data, text }] na mesma ordem
+async function comprasnetPostParalelo(tabId, lances, bearer) {
+  if (!lances || lances.length === 0) return [];
+  try {
+    if (!await tabExists(tabId)) {
+      return lances.map(function() { return { status: 0, error: 'Tab closed' }; });
+    }
+    var timeout = new Promise(function(_, rej) { setTimeout(function() { rej(new Error('Timeout 15s')); }, 15000); });
+    var exec = chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      world: 'MAIN',
+      func: async function(lancesData, authHeader, baseUrl) {
+        var resultados = await Promise.all(lancesData.map(async function(l) {
+          try {
+            var resp = await fetch(baseUrl + l.path, {
+              method: 'POST',
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'Authorization': authHeader,
+                'Content-Type': 'application/json',
+                'x-device-platform': 'web',
+                'x-version-number': '6.0.0',
+              },
+              body: JSON.stringify(l.body),
+            });
+            var text = await resp.text();
+            var data = null;
+            try { data = JSON.parse(text); } catch (e) {}
+            return { status: resp.status, data: data, text: text.substring(0, 500) };
+          } catch (e) {
+            return { status: 0, error: e.message };
+          }
+        }));
+        return resultados;
+      },
+      args: [lances.map(function(l) { return { path: l.path, body: l.body }; }), bearer, COMPRASNET],
+    });
+    var results = await Promise.race([exec, timeout]);
+    return results[0] && results[0].result ? results[0].result : lances.map(function() { return { status: 0, error: 'No result' }; });
+  } catch (e) {
+    console.error('[LiciteAgora] comprasnetPostParalelo ERRO:', e.message);
+    return lances.map(function() { return { status: 0, error: e.message }; });
+  }
+}
+
 /**
  * PUT retoken no Comprasnet VIA BROWSER — renova o JWT sem recarregar a aba.
  * Endpoint: PUT /comprasnet-usuario/v2/sessao/fornecedor/retoken
@@ -524,7 +571,12 @@ async function executarSync() {
 
     if (paraSyncDisputas.length > 0) {
       console.log('[LiciteAgora] ' + emAndamento.length + ' em andamento + ' + emDisputa.length + ' em disputa (de ' + participacoes.length + ' total) — buscando mensagens...');
-      await syncMensagens(tab.id, emAndamento, data.bearer);
+      // Tentar API v1 global primeiro, fallback para v2 por compra
+      const v1ok = await syncMensagensGlobal(tab.id, data.bearer);
+      if (!v1ok) {
+        console.log('[LiciteAgora] Fallback: buscando mensagens via v2/chat por compra...');
+        await syncMensagens(tab.id, emAndamento, data.bearer);
+      }
       // Verificar disputas ativas (itens em fase de lance) — inclui filtro=4
       await syncDisputas(tab.id, paraSyncDisputas, data.bearer);
     } else {
@@ -684,6 +736,61 @@ async function syncMensagens(tabId, participacoes, bearer) {
   }
 
   console.log('[LiciteAgora] Mensagens: ' + ok200 + ' com dados, ' + empty + ' vazias, ' + erros + ' erros. ' + totalNovas + ' novas salvas.');
+}
+
+// ==================== SYNC MENSAGENS GLOBAL (API v1) ====================
+
+/**
+ * Busca TODAS as mensagens do usuário via endpoint global /comprasnet-mensagem/v1/mensagens.
+ * Retorna true se teve sucesso, false se falhou (para fallback ao v2).
+ */
+async function syncMensagensGlobal(tabId, bearer) {
+  console.log('[LiciteAgora] Buscando mensagens via API v1 global...');
+  let todasMensagens = [];
+  let page = 0;
+  let erros = 0;
+
+  while (true) {
+    const result = await comprasnetFetch(tabId,
+      '/comprasnet-mensagem/v1/mensagens?size=50&page=' + page,
+      bearer
+    );
+
+    if ((result.status === 200 || result.status === 206) && Array.isArray(result.data) && result.data.length > 0) {
+      todasMensagens = todasMensagens.concat(result.data);
+      page++;
+      if (result.data.length < 50) break; // última página
+    } else {
+      if (page === 0) {
+        if (result.status !== 200 && result.status !== 206) {
+          console.log('[LiciteAgora] Mensagens v1 falhou: HTTP ' + result.status + ' ' + (result.error || ''));
+          return false; // sinaliza falha para fallback
+        }
+        // 200 mas sem dados — sem mensagens
+        console.log('[LiciteAgora] Mensagens v1: nenhuma mensagem');
+      }
+      break;
+    }
+  }
+
+  if (todasMensagens.length === 0) {
+    console.log('[LiciteAgora] Mensagens v1: 0 mensagens encontradas');
+    return true; // sucesso, mas sem dados
+  }
+
+  console.log('[LiciteAgora] Mensagens v1: ' + todasMensagens.length + ' mensagens em ' + page + ' páginas, enviando ao servidor...');
+
+  const resp = await serverPost('/api/sync/mensagens-global', {
+    mensagens: todasMensagens,
+  });
+
+  if (resp && resp.success) {
+    console.log('[LiciteAgora] Mensagens v1: ' + (resp.novas || 0) + ' novas salvas (de ' + todasMensagens.length + ')');
+    return true;
+  } else {
+    console.error('[LiciteAgora] Mensagens v1: servidor não aceitou');
+    return false;
+  }
 }
 
 // ==================== HELPERS: BUSCA INTELIGENTE DE ITENS ====================
@@ -1775,121 +1882,141 @@ async function processarFilaLances() {
       return;
     }
 
-    // 3. Processar lances — B3: abort on failure per item, B4: collect batch results
+    // 3. Processar lances — round-robin paralelo por item
     var batchResultados = [];
     var lancesProcessados = 0;
-    var failedItems = {};  // { 'compraId-itemNumero': true } — skip remaining lances for failed items
-    for (var lance of fila.lances) {
-      // B3: Skip remaining lances for items that already failed
-      var itemKey = lance.compraId + '-' + lance.itemNumero;
-      if (failedItems[itemKey]) {
-        console.log('[LiciteAgora] ⏭️ Pulando lance (item falhou): ' + itemKey + ' R$' + lance.valor);
-        batchResultados.push({
-          id: lance.id,
-          compraId: lance.compraId,
-          itemNumero: lance.itemNumero,
-          valor: lance.valor,
-          status: 0,
-          sucesso: false,
-          resposta: 'Skipped: previous lance for this item failed',
-          tempoMs: 0,
+    var failedItems = {};  // { 'compraId-itemNumero': true }
+    var abortAll = false;  // 401 → parar tudo
+
+    // Agrupar lances por item
+    var grupos = {};
+    for (var li = 0; li < fila.lances.length; li++) {
+      var l = fila.lances[li];
+      var gKey = l.compraId + '-' + l.itemNumero;
+      if (!grupos[gKey]) grupos[gKey] = [];
+      grupos[gKey].push(l);
+    }
+    var grupoKeys = Object.keys(grupos);
+    var indices = {};
+    grupoKeys.forEach(function(k) { indices[k] = 0; });
+
+    var numItens = grupoKeys.length;
+    console.log('[LiciteAgora] 🎯 Processando ' + fila.lances.length + ' lances de ' + numItens + ' item(ns)' + (numItens > 1 ? ' [PARALELO]' : ''));
+
+    // Round-robin: cada rodada envia 1 lance por item em paralelo
+    while (!abortAll) {
+      // Coletar próximo lance de cada grupo ativo
+      var rodada = [];
+      for (var gi = 0; gi < grupoKeys.length; gi++) {
+        var gk = grupoKeys[gi];
+        if (failedItems[gk]) continue;
+        if (indices[gk] >= grupos[gk].length) continue;
+        var lance = grupos[gk][indices[gk]];
+        rodada.push({
+          path: '/comprasnet-disputa/v1/compras/' + lance.compraId + '/itens/' + lance.itemNumero + '/lances',
+          body: { valorInformado: lance.valor, faseItem: lance.faseItem || 'LA' },
+          lance: lance,
+          itemKey: gk,
         });
-        continue;
+        indices[gk]++;
       }
+      if (rodada.length === 0) break;
 
-      console.log('[LiciteAgora] 🎯 Enviando lance: compra=' + lance.compraId + ' item=' + lance.itemNumero + ' R$' + lance.valor +
-        (lance.fonte === 'blitz' ? ' [BLITZ ' + (lance.batchIndex+1) + '/' + lance.batchTotal + ']' :
-         lance.fonte === 'auto-continuo' ? ' [CONTÍNUO]' : ''));
+      // Log da rodada
+      var rodadaDesc = rodada.map(function(r) { return 'item' + r.lance.itemNumero + '=R$' + r.lance.valor; }).join(' + ');
+      console.log('[LiciteAgora] 🎯 Rodada: ' + rodadaDesc + (rodada.length > 1 ? ' [PARALELO]' : ''));
 
-      var path = '/comprasnet-disputa/v1/compras/' + lance.compraId + '/itens/' + lance.itemNumero + '/lances';
-      var body = { valorInformado: lance.valor, faseItem: lance.faseItem || 'LA' };
-
+      // Enviar: paralelo se múltiplos itens, sequencial se único
       var inicio = Date.now();
-      var result = await comprasnetPost(tab.id, path, data.bearer, body);
+      var resultados;
+      if (rodada.length > 1) {
+        resultados = await comprasnetPostParalelo(tab.id, rodada, data.bearer);
+      } else {
+        var singleResult = await comprasnetPost(tab.id, rodada[0].path, data.bearer, rodada[0].body);
+        resultados = [singleResult];
+      }
       var tempoMs = Date.now() - inicio;
 
-      // Retry on 429 (rate limit) — wait and retry up to 3 times with increasing backoff
-      if (result.status === 429) {
-        var retryDelays = [2000, 4000, 8000]; // 2s, 4s, 8s
-        for (var retryAttempt = 0; retryAttempt < retryDelays.length; retryAttempt++) {
-          console.log('[LiciteAgora] ⏳ Rate limit 429 — aguardando ' + (retryDelays[retryAttempt]/1000) + 's antes de retry ' + (retryAttempt+1) + '/3');
-          await new Promise(function(r) { setTimeout(r, retryDelays[retryAttempt]); });
-          result = await comprasnetPost(tab.id, path, data.bearer, body);
-          tempoMs = Date.now() - inicio;
-          if (result.status !== 429) break;
+      // Processar resultados de cada lance da rodada
+      for (var ri = 0; ri < rodada.length; ri++) {
+        var rLance = rodada[ri].lance;
+        var rResult = resultados[ri] || { status: 0, error: 'No result' };
+        var rKey = rodada[ri].itemKey;
+        var rSucesso = rResult.status === 200 || rResult.status === 201;
+        lancesProcessados++;
+
+        console.log('[LiciteAgora] 🎯 item' + rLance.itemNumero + ' R$' + rLance.valor + ': HTTP ' + rResult.status + ' (' + tempoMs + 'ms)' + (rSucesso ? ' ✅' : ' ❌') +
+          (rLance.fonte === 'blitz' ? ' [BLITZ ' + (rLance.batchIndex+1) + '/' + rLance.batchTotal + ']' :
+           rLance.fonte === 'auto-continuo' || rLance.fonte === 'guard' ? ' [' + rLance.fonte.toUpperCase() + ']' : ''));
+
+        // Grupo cache update
+        if (rSucesso && Array.isArray(rResult.data) && rResult.data.length > 0) {
+          try {
+            var itensResp = rResult.data.filter(function(it) { return it.numero != null; });
+            if (itensResp.length > 0) {
+              fetch(SERVER_URL + '/api/sync/disputas', {
+                method: 'POST',
+                headers: serverHeaders(),
+                body: JSON.stringify({ disputas: [{ compraId: rLance.compraId, itens: itensResp.map(function(it) { return mapearItem(it, {}); }), itensAtivos: itensResp.filter(function(it) { return it.podeEnviarLances; }).length, totalItens: itensResp.length }], merge: true }),
+              }).catch(function() {});
+            }
+          } catch (e2) {}
         }
-      }
 
-      var sucesso = result.status === 200 || result.status === 201;
-      lancesProcessados++;
-      console.log('[LiciteAgora] 🎯 Lance resultado: HTTP ' + result.status + ' (' + tempoMs + 'ms)' + (sucesso ? ' ✅' : ' ❌'));
-
-      // Grupo: lance response returns sub-item data — merge into server cache
-      if (sucesso && Array.isArray(result.data) && result.data.length > 0) {
-        try {
-          var itensResp = result.data.filter(function(it) { return it.numero != null; });
-          if (itensResp.length > 0) {
-            var disputaUpdate = {
-              compraId: lance.compraId,
-              itens: itensResp.map(function(it) { return mapearItem(it, {}); }),
-              itensAtivos: itensResp.filter(function(it) { return it.podeEnviarLances; }).length,
-              totalItens: itensResp.length,
-            };
-            fetch(SERVER_URL + '/api/sync/disputas', {
-              method: 'POST',
-              headers: serverHeaders(),
-              body: JSON.stringify({ disputas: [disputaUpdate], merge: true }),
-            }).catch(function() {});
-            console.log('[LiciteAgora] Grupo cache update: ' + itensResp.length + ' itens merged for ' + lance.compraId);
-          }
-        } catch (e2) {}
-      }
-
-      // Mid-batch abort: se ganhando após lance contínuo, parar imediatamente
-      if (sucesso && lance.fonte === 'auto-continuo' && Array.isArray(result.data)) {
-        if (checarGanhandoNaResposta(result.data, lance.compraId, lance.itemNumero)) {
-          console.log('[LiciteAgora] ✅ GANHANDO após R$' + lance.valor + ' — parando batch');
-          // Marcar TODOS os itens desta compra como skip (grupo inteiro ganhou)
-          for (var fl of fila.lances) {
-            if (fl.compraId === lance.compraId) {
-              failedItems[fl.compraId + '-' + fl.itemNumero] = true;
+        // Mid-batch abort: ganhando após contínuo
+        if (rSucesso && rLance.fonte === 'auto-continuo' && Array.isArray(rResult.data)) {
+          if (checarGanhandoNaResposta(rResult.data, rLance.compraId, rLance.itemNumero)) {
+            console.log('[LiciteAgora] ✅ GANHANDO item' + rLance.itemNumero + ' após R$' + rLance.valor + ' — parando grupo');
+            for (var fli = 0; fli < fila.lances.length; fli++) {
+              if (fila.lances[fli].compraId === rLance.compraId) {
+                failedItems[fila.lances[fli].compraId + '-' + fila.lances[fli].itemNumero] = true;
+              }
             }
           }
         }
+
+        // Registrar resultado
+        batchResultados.push({
+          id: rLance.id,
+          compraId: rLance.compraId,
+          itemNumero: rLance.itemNumero,
+          valor: rLance.valor,
+          status: rResult.status,
+          sucesso: rSucesso,
+          resposta: JSON.stringify(rResult.data || rResult.text || rResult.error).substring(0, 500),
+          tempoMs: tempoMs,
+        });
+
+        // Handle failures
+        if (!rSucesso) {
+          var rIsContinuo = rLance.fonte === 'auto-continuo' || rLance.fonte === 'guard';
+
+          if (rIsContinuo && rResult.status === 401) {
+            console.log('[LiciteAgora] ⚠️ 401 — parando para keepalive');
+            executarKeepalive();
+            abortAll = true;
+            break;
+          }
+
+          if (rIsContinuo && rResult.status === 422) {
+            failedItems[rKey] = true;
+          } else if (!rIsContinuo) {
+            failedItems[rKey] = true;
+          }
+        }
       }
+    }
 
-      var resultadoLance = {
-        id: lance.id,
-        compraId: lance.compraId,
-        itemNumero: lance.itemNumero,
-        valor: lance.valor,
-        status: result.status,
-        sucesso: sucesso,
-        resposta: JSON.stringify(result.data || result.text || result.error).substring(0, 500),
-        tempoMs: tempoMs,
-      };
-      batchResultados.push(resultadoLance);
-
-      // B3: Handle failures
-      if (!sucesso) {
-        var isContinuo = lance.fonte === 'auto-continuo';
-        var is422 = result.status === 422;
-        var is401 = result.status === 401;
-
-        if (isContinuo && is401) {
-          // 401 during contínuo batch: bearer expired — stop batch immediately,
-          // remaining lances will be re-queued by server after keepalive
-          console.log('[LiciteAgora] ⚠️ 401 durante batch contínuo — parando para keepalive');
-          executarKeepalive();
-          break; // don't process remaining lances, report what we have
-        }
-
-        if (isContinuo && is422) {
-          // 422 for contínuo: value rejected, skip remaining for this item only
-          failedItems[itemKey] = true;
-        } else if (!isContinuo) {
-          failedItems[itemKey] = true;
-        }
+    // Marcar lances restantes de itens falhos como skipped
+    for (var ski = 0; ski < grupoKeys.length; ski++) {
+      var skKey = grupoKeys[ski];
+      for (var skj = indices[skKey]; skj < grupos[skKey].length; skj++) {
+        var skLance = grupos[skKey][skj];
+        batchResultados.push({
+          id: skLance.id, compraId: skLance.compraId, itemNumero: skLance.itemNumero,
+          valor: skLance.valor, status: 0, sucesso: false,
+          resposta: 'Skipped: item failed or aborted', tempoMs: 0,
+        });
       }
     }
 
