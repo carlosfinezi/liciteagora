@@ -719,8 +719,8 @@ function lerHorarioAgendamento(compraId, itemNumero) {
     var input = document.getElementById('agendar-hora-'+compraId+'-'+itemNumero);
     var horario = (input?input.value:'').trim();
     if(!horario) return null;
-    if(horario.length === 5) horario += ':00.500';
-    else if(horario.length === 8) horario += '.500';
+    if(horario.length === 5) horario += ':00.700';
+    else if(horario.length === 8) horario += '.700';
     return horario;
 }
 

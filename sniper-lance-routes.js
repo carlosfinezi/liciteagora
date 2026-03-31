@@ -1787,7 +1787,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       let sucessos = 0, falhas = 0;
 
       for (const r of resultados) {
-        const { id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs } = r;
+        const { id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs, enviadoMs, recebidoMs } = r;
 
         // Update queue item and recover original fonte
         const idx = filaLances.findIndex(l => l.id === id);
@@ -1810,18 +1810,22 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
         // Log
         var fonteTag = fonteOriginal !== 'browser' ? ' [' + fonteOriginal.toUpperCase() + ']' : '';
+        var envIso = enviadoMs ? new Date(enviadoMs).toISOString().substring(11,23) : '?';
+        var recIso = recebidoMs ? new Date(recebidoMs).toISOString().substring(11,23) : '?';
         if (sucesso) {
-          sniper.log(`🎯✅ LANCE${fonteTag}! R$ ${parseFloat(valor).toFixed(2)} item ${itemNumero} HTTP ${status} (${tempoMs}ms)`);
+          sniper.log(`🎯✅ LANCE${fonteTag}! R$ ${parseFloat(valor).toFixed(2)} item ${itemNumero} HTTP ${status} (${tempoMs}ms) env=${envIso} rec=${recIso}`);
           sucessos++;
         } else {
-          sniper.log(`🎯❌ Lance falhou${fonteTag}: HTTP ${status} item ${itemNumero} (${tempoMs}ms)`);
+          sniper.log(`🎯❌ Lance falhou${fonteTag}: HTTP ${status} item ${itemNumero} (${tempoMs}ms) env=${envIso} rec=${recIso}`);
           falhas++;
         }
 
         // Persist to DB
         try {
-          db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, itemNumero, valor, status, sucesso ? 1 : 0, tempoMs, (resposta||'').substring(0, 500), fonteOriginal, new Date().toISOString());
+          db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp, enviadoEm, recebidoEm)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, itemNumero, valor, status, sucesso ? 1 : 0, tempoMs, (resposta||'').substring(0, 500), fonteOriginal, new Date().toISOString(),
+            enviadoMs ? new Date(enviadoMs).toISOString() : null,
+            recebidoMs ? new Date(recebidoMs).toISOString() : null);
           db.prepare(`UPDATE sniper_itens SET status = ?, ultimoResultado = ?, ultimoEnvio = CURRENT_TIMESTAMP, dataAtualizacao = CURRENT_TIMESTAMP
             WHERE compraId = ? AND itemNumero = ?`).run(sucesso ? 'enviado' : 'erro', `HTTP ${status} (${tempoMs}ms)`, compraId, itemNumero);
         } catch (dbErr) {}

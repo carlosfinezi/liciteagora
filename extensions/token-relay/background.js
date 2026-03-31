@@ -327,6 +327,7 @@ async function comprasnetPost(tabId, path, bearer, body) {
       world: 'MAIN',
       func: async (apiPath, authHeader, baseUrl, postBody) => {
         try {
+          var t0 = Date.now();
           var resp = await fetch(baseUrl + apiPath, {
             method: 'POST',
             credentials: 'include',
@@ -339,12 +340,13 @@ async function comprasnetPost(tabId, path, bearer, body) {
             },
             body: JSON.stringify(postBody),
           });
+          var t1 = Date.now();
           var text = await resp.text();
           var data = null;
           try { data = JSON.parse(text); } catch (e) {}
-          return { status: resp.status, data: data, text: text.substring(0, 500) };
+          return { status: resp.status, data: data, text: text.substring(0, 500), enviadoMs: t0, recebidoMs: t1 };
         } catch (e) {
-          return { status: 0, error: e.message };
+          return { status: 0, error: e.message, enviadoMs: Date.now() };
         }
       },
       args: [path, bearer, COMPRASNET, body],
@@ -373,6 +375,7 @@ async function comprasnetPostParalelo(tabId, lances, bearer) {
       func: async function(lancesData, authHeader, baseUrl) {
         var resultados = await Promise.all(lancesData.map(async function(l) {
           try {
+            var t0 = Date.now();
             var resp = await fetch(baseUrl + l.path, {
               method: 'POST',
               credentials: 'include',
@@ -385,12 +388,13 @@ async function comprasnetPostParalelo(tabId, lances, bearer) {
               },
               body: JSON.stringify(l.body),
             });
+            var t1 = Date.now();
             var text = await resp.text();
             var data = null;
             try { data = JSON.parse(text); } catch (e) {}
-            return { status: resp.status, data: data, text: text.substring(0, 500) };
+            return { status: resp.status, data: data, text: text.substring(0, 500), enviadoMs: t0, recebidoMs: t1 };
           } catch (e) {
-            return { status: 0, error: e.message };
+            return { status: 0, error: e.message, enviadoMs: Date.now() };
           }
         }));
         return resultados;
@@ -1807,9 +1811,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   } else if (alarm.name === 'keepalive') {
     executarKeepalive();
   } else if (alarm.name === 'blitz-wake') {
-    // Blitz agendada está para disparar — poll imediato com intervalo rápido
-    console.log('[LiciteAgora] ⏰ Alarm blitz-wake — poll imediato');
-    lancesPollInterval = 1000;
+    // Agendamento está para disparar — poll imediato com intervalo rápido
+    console.log('[LiciteAgora] ⏰ Alarm blitz-wake — poll 100ms');
+    lancesPollInterval = 100;
     processarFilaLances();
   }
 });
@@ -1829,18 +1833,41 @@ async function processarFilaLances() {
     if (!resp.ok) { lancesEmProcessamento = false; agendarProximoPoll(); return; }
     var fila = await resp.json();
 
-    // Se há blitz agendada no servidor, criar alarm para acordar a tempo
+    // Se há blitz ou lance agendado no servidor, preparar wake preciso
     var blitzIminente = false;
-    if (fila.proximaBlitz && fila.proximaBlitz.diffMs > 0) {
-      var diffSec = Math.round(fila.proximaBlitz.diffMs / 1000);
-      var alarmDelay = Math.max(0.02, (fila.proximaBlitz.diffMs - 2000) / 60000);
-      chrome.alarms.create('blitz-wake', { delayInMinutes: alarmDelay });
-      if (fila.proximaBlitz.diffMs < 30000) {
+    var proximoAgendado = null;
+    // Pegar o mais próximo entre blitz e lance agendado
+    if (fila.proximaBlitz && fila.proximaBlitz.diffMs > 0) proximoAgendado = fila.proximaBlitz;
+    if (fila.proximoLanceAgendado && fila.proximoLanceAgendado.diffMs > 0) {
+      if (!proximoAgendado || fila.proximoLanceAgendado.diffMs < proximoAgendado.diffMs) {
+        proximoAgendado = fila.proximoLanceAgendado;
+      }
+    }
+    if (proximoAgendado && proximoAgendado.diffMs > 0) {
+      var diffSec = Math.round(proximoAgendado.diffMs / 1000);
+      if (proximoAgendado.diffMs < 5000) {
+        // Últimos 5s: polling ultra-rápido 100ms
         blitzIminente = true;
-        lancesPollInterval = 1000;
-        console.log('[LiciteAgora] ⏰ Blitz em ' + diffSec + 's — poll a cada 1s');
+        lancesPollInterval = 100;
+        console.log('[LiciteAgora] ⏰ Agendamento em ' + diffSec + 's — poll 100ms');
+      } else if (proximoAgendado.diffMs < 30000) {
+        // Últimos 30s: polling rápido 500ms
+        blitzIminente = true;
+        lancesPollInterval = 500;
+        console.log('[LiciteAgora] ⏰ Agendamento em ' + diffSec + 's — poll 500ms');
+        // Criar setTimeout preciso para 2s antes do disparo → switch para 100ms
+        if (proximoAgendado.diffMs > 7000) {
+          setTimeout(function() {
+            lancesPollInterval = 100;
+            console.log('[LiciteAgora] ⏰ Wake preciso — poll 100ms');
+            processarFilaLances();
+          }, proximoAgendado.diffMs - 5000);
+        }
       } else {
-        console.log('[LiciteAgora] ⏰ Blitz agendada em ' + diffSec + 's — alarm criado');
+        // >30s: criar alarm para acordar 30s antes
+        var alarmDelay = Math.max(0.02, (proximoAgendado.diffMs - 30000) / 60000);
+        chrome.alarms.create('blitz-wake', { delayInMinutes: alarmDelay });
+        console.log('[LiciteAgora] ⏰ Agendamento em ' + diffSec + 's — alarm criado');
       }
     }
 
@@ -1854,6 +1881,16 @@ async function processarFilaLances() {
     }
 
     if (!fila.success || !fila.lances || fila.lances.length === 0) {
+      // Pré-aquecer: verificar bearer e tab quando agendamento iminente
+      if (blitzIminente) {
+        var preData = await load();
+        if (preData.bearer) {
+          var preTab = await findComprasnetTab();
+          if (preTab) {
+            console.log('[LiciteAgora] ⏰ Pré-aquecido: bearer OK, tab ' + preTab.id);
+          }
+        }
+      }
       lancesEmProcessamento = false;
       agendarProximoPoll();
       return;
@@ -1945,9 +1982,13 @@ async function processarFilaLances() {
         var rSucesso = rResult.status === 200 || rResult.status === 201;
         lancesProcessados++;
 
-        console.log('[LiciteAgora] 🎯 item' + rLance.itemNumero + ' R$' + rLance.valor + ': HTTP ' + rResult.status + ' (' + tempoMs + 'ms)' + (rSucesso ? ' ✅' : ' ❌') +
+        var envTs = rResult.enviadoMs ? new Date(rResult.enviadoMs).toISOString().substring(11,23) : '?';
+        var recTs = rResult.recebidoMs ? new Date(rResult.recebidoMs).toISOString().substring(11,23) : '?';
+        var fetchMs = rResult.enviadoMs && rResult.recebidoMs ? (rResult.recebidoMs - rResult.enviadoMs) : tempoMs;
+        console.log('[LiciteAgora] 🎯 item' + rLance.itemNumero + ' R$' + rLance.valor + ': HTTP ' + rResult.status + ' (' + fetchMs + 'ms) env=' + envTs + ' rec=' + recTs + (rSucesso ? ' ✅' : ' ❌') +
           (rLance.fonte === 'blitz' ? ' [BLITZ ' + (rLance.batchIndex+1) + '/' + rLance.batchTotal + ']' :
-           rLance.fonte === 'auto-continuo' || rLance.fonte === 'guard' ? ' [' + rLance.fonte.toUpperCase() + ']' : ''));
+           rLance.fonte === 'auto-continuo' || rLance.fonte === 'guard' ? ' [' + rLance.fonte.toUpperCase() + ']' :
+           rLance.fonte === 'agendado' ? ' [AGENDADO]' : ''));
 
         // Grupo cache update
         if (rSucesso && Array.isArray(rResult.data) && rResult.data.length > 0) {
@@ -1984,7 +2025,9 @@ async function processarFilaLances() {
           status: rResult.status,
           sucesso: rSucesso,
           resposta: JSON.stringify(rResult.data || rResult.text || rResult.error).substring(0, 500),
-          tempoMs: tempoMs,
+          tempoMs: fetchMs,
+          enviadoMs: rResult.enviadoMs || null,
+          recebidoMs: rResult.recebidoMs || null,
         });
 
         // Handle failures
