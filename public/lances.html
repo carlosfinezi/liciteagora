@@ -580,6 +580,7 @@ function renderItens(compraId, itensLive) {
                 '<div class="blitz-row">' +
                     '<input type="time" step="1" id="agendar-hora-'+compraId+'-'+m.numero+'" style="font-size:0.75em;padding:1px 3px;font-family:monospace;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:3px;width:90px" title="Horário agendamento">' +
                     '<input type="number" min="1" max="50" id="max-lances-'+compraId+'-'+m.numero+'" value="'+(m.maxLances||5)+'" style="width:36px;font-size:0.75em;padding:1px 2px;border:1px solid #ff6b00;background:#1a1a2e;color:#ff6b00;border-radius:3px;text-align:center" title="Máx lances na rajada" onchange="salvar(\''+compraId+'\','+m.numero+',\'maxLances\',this.value)">' +
+                    '<select id="modo-blitz-'+compraId+'-'+m.numero+'" style="font-size:0.7em;padding:1px 2px;border:1px solid #0f3460;background:#1a1a2e;color:#ccc;border-radius:3px" title="Modo da rajada"><option value="cobrir">Cobrir</option><option value="sequencial">Sequencial</option></select>' +
                     '<button class="btn btn-sm" style="background:#8b5cf6;color:#fff;border:none;padding:2px 4px;font-size:0.75em" onclick="agendarLanceUnico(\''+compraId+'\','+m.numero+')" title="Agendar lance único">⏰⚡</button>' +
                     '<button class="btn btn-sm" style="background:#ff6b00;color:#fff;border:none;padding:2px 4px;font-size:0.75em" onclick="agendarBlitz(\''+compraId+'\','+m.numero+')" title="Agendar blitz (rajada)">⏰🚀</button>' +
                 '</div>' +
@@ -666,8 +667,10 @@ function dispararBlitz(compraId, itemNumero) {
 
     var maxEl = document.getElementById('max-lances-'+compraId+'-'+itemNumero);
     var maxLances = maxEl ? parseInt(maxEl.value)||50 : 50;
+    var modoEl = document.getElementById('modo-blitz-'+compraId+'-'+itemNumero);
+    var modoBlitz = modoEl ? modoEl.value : 'cobrir';
     fetch(API+'/api/sniper/disparar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,maxLances:maxLances})
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,maxLances:maxLances,modoBlitz:modoBlitz})
     }).then(function(r){return r.json();}).then(function(d){
         if(!d.success){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(d.error||d.message||'Erro')+'</div>';return;}
         if(d.totalLances===0){resDiv.innerHTML='<div class="result-msg" style="color:#888">Nenhum lance a enviar (ja no minimo ou sem variacao)</div>';return;}
@@ -775,11 +778,14 @@ function agendarBlitz(compraId, itemNumero) {
 
     var maxEl = document.getElementById('max-lances-'+compraId+'-'+itemNumero);
     var maxLances = maxEl ? parseInt(maxEl.value)||50 : 50;
+    var modoEl = document.getElementById('modo-blitz-'+compraId+'-'+itemNumero);
+    var modoBlitz = modoEl ? modoEl.value : 'cobrir';
     fetch(API+'/api/sniper/disparar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,horario:horario,maxLances:maxLances})
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,horario:horario,maxLances:maxLances,modoBlitz:modoBlitz})
     }).then(function(r){return r.json();}).then(function(d){
         if(!d.success){spanEl.innerHTML='<span style="color:#ff6b6b">'+esc(d.error)+'</span>';return;}
-        spanEl.innerHTML = '<span style="color:#ff6b00">🚀 Blitz '+(d.maxLances||d.totalLances)+'x às '+d.horario+' </span>' +
+        var modoLabel = modoBlitz==='sequencial'?' seq':'';
+        spanEl.innerHTML = '<span style="color:#ff6b00">🚀 Blitz '+(d.maxLances||d.totalLances)+'x'+modoLabel+' às '+d.horario+' </span>' +
             '<button class="btn btn-sm" style="background:#ff6b6b;color:#fff;border:none;font-size:0.75em;padding:1px 5px" ' +
             'onclick="cancelarBlitz(\''+compraId+'\','+itemNumero+')">X</button>';
         toast('Blitz #'+itemNumero+' agendada para '+d.horario, 'sucesso');

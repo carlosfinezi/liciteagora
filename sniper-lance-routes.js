@@ -229,7 +229,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Se estamos perdendo, começa de melhorGeral - varMin (pula direto para cobrir).
    * Retorna array de lances prontos para enfileirar.
    */
-  function calcularBatchLances(cfgItem, liveItem, compraId, maxSteps = 50) {
+  function calcularBatchLances(cfgItem, liveItem, compraId, maxSteps = 50, modo = 'cobrir') {
     const nossoValor = liveItem.nossoValor;
     const melhorValor = liveItem.melhorValor;
     const varMin = liveItem.variacaoMinima != null ? liveItem.variacaoMinima : cfgItem.variacaoMinima;
@@ -239,6 +239,35 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
     if (nossoValor == null || varMin == null || valorMinimo == null) return [];
     if (nossoValor <= valorMinimo) return [];
+
+    // Modo sequencial: descer do nossoValor, ignorando concorrente e situação
+    if (modo === 'sequencial') {
+      const lances = [];
+      let valorAtual = nossoValor;
+      let step = 0;
+      while (valorAtual > valorMinimo && step < maxSteps) {
+        let novoValor;
+        if (tipoVar === 'P') {
+          novoValor = valorAtual * (1 - varMin / 100);
+        } else {
+          novoValor = valorAtual - varMin;
+        }
+        novoValor = Math.round(novoValor * 100) / 100;
+        if (novoValor < valorMinimo) novoValor = valorMinimo;
+        if (novoValor >= valorAtual) break;
+        step++;
+        lances.push({
+          id: `blitz-${Date.now()}-${step}-${Math.random().toString(36).substring(2, 5)}`,
+          compraId, itemNumero: cfgItem.itemNumero, valor: novoValor,
+          faseItem: cfgItem.faseItem || 'LA', criadoEm: new Date().toISOString(),
+          status: 'pendente', fonte: 'blitz', batchIndex: step - 1, batchTotal: 0,
+        });
+        valorAtual = novoValor;
+        if (novoValor <= valorMinimo) break;
+      }
+      for (const l of lances) l.batchTotal = lances.length;
+      return lances;
+    }
 
     // Se estamos ganhando (melhorGeral é nosso), não dar lance
     if (melhorValor != null && nossoValor <= melhorValor) return [];
@@ -1157,7 +1186,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   app.post('/api/sniper/disparar-blitz', (req, res) => {
     try {
-      const { compraId, itemNumero, horario, maxLances } = req.body;
+      const { compraId, itemNumero, horario, maxLances, modoBlitz } = req.body;
       if (!compraId || itemNumero == null) {
         return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
       }
@@ -1213,9 +1242,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
           tipoVariacao: itemAtual.tipoVariacao || cfgItem.tipoVariacao || 'V',
         };
 
-        const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, maxLances || 50);
+        const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, maxLances || 50, modoBlitz || 'cobrir');
         if (batchLances.length === 0) {
-          const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${cfgItem.valorMinimo} sit=${itemParaCalculo.situacaoParticipante}`;
+          const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${cfgItem.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${modoBlitz||'cobrir'}`;
           console.log(`[Sniper] 🚀 BLITZ: ${compraId} item ${itemNumero} — 0 lances (${dbg})`);
           logAuto(`🚀 BLITZ: ${compraId} item ${itemNumero} — 0 lances (${dbg})`);
           return 0;
@@ -1296,7 +1325,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
         tipoVariacao: liveItem.tipoVariacao || cfgItem.tipoVariacao || 'V',
       };
 
-      const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, maxLances || 50);
+      const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, maxLances || 50, modoBlitz || 'cobrir');
       if (batchLances.length === 0) {
         return res.json({ success: true, totalLances: 0, message: 'Nenhum lance a enviar (já no mínimo ou sem variação)' });
       }
