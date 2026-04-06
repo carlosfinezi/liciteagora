@@ -166,6 +166,7 @@
             <input type="date" id="filtroData" onchange="aplicarFiltro()" title="Filtrar por data da sessão" style="padding:4px 6px;border-radius:6px;border:1px solid #0f3460;background:#1a1a2e;color:#eee;font-size:0.85em">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('filtroData').value='';aplicarFiltro()" title="Limpar filtro de data" style="padding:4px 6px;font-size:0.75em">X</button>
             <button class="btn btn-outline btn-sm" onclick="recarregarDados()">🔄</button>
+            <button class="btn btn-outline btn-sm" id="btnRefreshPart" onclick="refreshParticipacoes()" title="Buscar participações diretamente da API Comprasnet">⬇ Sync API</button>
             <span class="config-imposto">
                 <label>Imposto %</label>
                 <input type="number" id="impostoPercent" step="0.1" min="0" max="100" value="15" onchange="salvarImposto();recalcTodosLucros()" title="Percentual de imposto sobre o lance">
@@ -236,6 +237,24 @@ async function atualizarStatus() {
 async function recarregarDados() {
     await Promise.all([carregarParticipacoes(), carregarDisputasLive()]);
     aplicarFiltro();
+}
+
+async function refreshParticipacoes() {
+    var btn = document.getElementById('btnRefreshPart');
+    btn.disabled = true; btn.textContent = '⬇ Sincronizando...';
+    try {
+        var r = await fetch(API+'/api/sniper/refresh-participacoes', { method: 'POST' });
+        var d = await r.json();
+        if(d.success) {
+            btn.textContent = '✓ ' + d.message;
+            await recarregarDados();
+        } else {
+            btn.textContent = '✗ ' + (d.error || 'Erro');
+        }
+    } catch(e) {
+        btn.textContent = '✗ ' + e.message;
+    }
+    setTimeout(function() { btn.disabled = false; btn.textContent = '⬇ Sync API'; }, 5000);
 }
 
 async function carregarParticipacoes() {

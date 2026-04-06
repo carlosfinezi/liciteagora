@@ -582,8 +582,13 @@ async function carregarItens(compraId) {
     // 2. Buscar via API
     container.innerHTML = '<div class="itens-loading">Carregando itens...</div>';
     try {
-        const resp = await fetch(`/api/proposta/itens-compra/${compraId}`);
+        // Buscar itens e valores salvos em paralelo
+        const [resp, valoresResp] = await Promise.all([
+            fetch(`/api/proposta/itens-compra/${compraId}`),
+            fetch(`/api/proposta/valores-compra/${compraId}`).catch(() => null),
+        ]);
         const result = await resp.json();
+        const valoresDB = valoresResp ? (await valoresResp.json()).valores || {} : {};
 
         if (result.success && result.itens?.length > 0) {
             disputasData.set(compraId, {
@@ -592,10 +597,19 @@ async function carregarItens(compraId) {
                 orgao: result.orgao || '',
                 objeto: result.objeto || '',
             });
-            // Auto-preencher valor REF e selecionar
+            // Preencher com valores do banco (marca, modelo, valor) e depois com REF
             result.itens.forEach(item => {
+                const dbVal = valoresDB[item.numero];
                 const dados = getValorItem(compraId, item.numero);
-                if (!dados.valor && item.valorEstimado) {
+                if (dbVal) {
+                    // DB tem prioridade se localStorage não tem valor
+                    if (!dados.valor && dbVal.valor) setValorItem(compraId, item.numero, { valor: dbVal.valor, selecionado: true });
+                    if (!dados.marca && dbVal.marca) setValorItem(compraId, item.numero, { marca: dbVal.marca });
+                    if (!dados.modelo && dbVal.modelo) setValorItem(compraId, item.numero, { modelo: dbVal.modelo });
+                }
+                // Fallback: valor estimado como referência
+                const dadosAtual = getValorItem(compraId, item.numero);
+                if (!dadosAtual.valor && item.valorEstimado) {
                     setValorItem(compraId, item.numero, { valor: item.valorEstimado, selecionado: true });
                 }
             });
@@ -864,6 +878,22 @@ async function enviarProposta(compraId) {
                         </div>`;
                     }
                 });
+            }
+
+            // Atualizar UI local para refletir que proposta foi enviada
+            if (result.success) {
+                const p = participacoesData.find(x => x.compraId === compraId);
+                if (p) p.situacao = 'PE';
+
+                // Atualizar badge de situação no card
+                const badgeSit = card?.querySelector('.badge-situacao');
+                if (badgeSit) {
+                    badgeSit.className = 'badge-situacao badge-sit-PE';
+                    badgeSit.textContent = 'Proposta Enviada';
+                }
+
+                // Atualizar contadores no filtro de situação
+                popularFiltros();
             }
 
         }
@@ -1456,6 +1486,25 @@ async function gerarPDFIndividual(licitacao, assinar = false) {
 }
 
 // ==================== INIT ====================
+
+async function refreshParticipacoes() {
+    const btn = document.getElementById('btnRefreshPart');
+    btn.disabled = true; btn.textContent = '⬇ Sincronizando...';
+    try {
+        const r = await fetch('/api/sniper/refresh-participacoes', { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            btn.textContent = '✓ ' + d.message;
+            await carregarParticipacoes();
+            mostrarInteresses();
+        } else {
+            btn.textContent = '✗ ' + (d.error || 'Erro');
+        }
+    } catch (e) {
+        btn.textContent = '✗ ' + e.message;
+    }
+    setTimeout(() => { btn.disabled = false; btn.textContent = '⬇ Sync API'; }, 5000);
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     carregarFornecedorConfig();

@@ -2219,6 +2219,103 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
+  /**
+   * POST /api/sniper/refresh-participacoes
+   * Atualiza participações consultando a API Comprasnet diretamente do servidor.
+   * Usa GET /compras/{compraId}/participacao (funciona sem captcha) para cada compra ativa.
+   * Também verifica compraIds de interesses que ainda não estão em participacoes_comprasnet.
+   */
+  app.post('/api/sniper/refresh-participacoes', async (req, res) => {
+    try {
+      if (!sniper.temToken()) return res.status(400).json({ success: false, error: 'Sem Bearer token.' });
+      if (sniper.tokenExpirado()) return res.status(400).json({ success: false, error: 'Bearer token expirado.' });
+
+      // 1. Coletar compraIds para verificar (prioridade: em disputa/ativas recentes)
+      const comprasDB = db.prepare(`
+        SELECT compraId, cnpj, ano, sequencial, situacao, faseCompra
+        FROM participacoes_comprasnet
+        WHERE ativo = 1 AND situacao NOT IN ('FR', 'EN', 'EX')
+          AND (faseCompra IN ('1', '2', '3') OR situacao IN ('PD', 'AB', 'PE', '5', 'SU', '')
+               OR dataAtualizacao > datetime('now', '-7 days'))
+        ORDER BY CASE WHEN faseCompra = '3' THEN 0 WHEN situacao IN ('PD', 'PE') THEN 1 ELSE 2 END,
+                 dataAtualizacao DESC
+        LIMIT 80
+      `).all();
+
+      const interesseCompras = db.prepare(`
+        SELECT ic.compraId, ic.cnpj, ic.ano, ic.sequencial
+        FROM interesse_compra_id ic
+        WHERE ic.compraId IS NOT NULL AND ic.compraId != ''
+          AND ic.compraId NOT LIKE 'NAO_COMPRASNET:%'
+          AND NOT EXISTS (SELECT 1 FROM participacoes_comprasnet p WHERE p.compraId = ic.compraId)
+      `).all();
+
+      const todosCompraIds = new Map();
+      for (const c of comprasDB) todosCompraIds.set(c.compraId, c);
+      for (const c of interesseCompras) if (!todosCompraIds.has(c.compraId)) todosCompraIds.set(c.compraId, c);
+
+      if (todosCompraIds.size === 0) {
+        return res.json({ success: true, message: 'Nenhuma participação ativa para verificar', total: 0 });
+      }
+
+      let atualizadas = 0, inseridas = 0, erros = 0;
+      const delay = ms => new Promise(r => setTimeout(r, ms));
+
+      const stmtSelect = db.prepare('SELECT id, situacao, faseCompra FROM participacoes_comprasnet WHERE compraId = ?');
+      const stmtUpdate = db.prepare(`UPDATE participacoes_comprasnet SET
+        situacao = ?, faseCompra = ?,
+        objeto = COALESCE(?, objeto), orgao = COALESCE(?, orgao),
+        ativo = 1, dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`);
+      const stmtInsert = db.prepare(`INSERT INTO participacoes_comprasnet
+        (compraId, cnpj, ano, sequencial, orgao, objeto, situacao, faseCompra, ativo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`);
+
+      for (const [compraId, info] of todosCompraIds) {
+        try {
+          const basePath = `/comprasnet-fase-externa/v1/compras/${compraId}`;
+          const { status, data } = await sniper.apiGet(`${basePath}/participacao`);
+
+          if (status === 200 && data && typeof data === 'object') {
+            const sit = data.situacaoCompraFaseExterna || '';
+            const fase = data.faseCompraFaseExterna || '';
+            const objeto = data.objetoCompra || '';
+            const orgao = data.nomeOrgao || data.nomeUasg || '';
+
+            const existe = stmtSelect.get(compraId);
+            if (existe) {
+              // Só atualizar se mudou algo
+              if (existe.situacao !== sit || existe.faseCompra !== fase) {
+                stmtUpdate.run(sit, fase, objeto || null, orgao || null, compraId);
+                atualizadas++;
+                console.log(`[REFRESH] ${compraId}: ${existe.situacao}/${existe.faseCompra} → ${sit}/${fase}`);
+              }
+            } else {
+              // Nova participação descoberta via interesse
+              stmtInsert.run(compraId, info.cnpj || '', info.ano || 0, info.sequencial || 0, orgao, objeto, sit, fase);
+              inseridas++;
+              console.log(`[REFRESH] ${compraId}: NOVA (${sit}/${fase})`);
+            }
+          }
+          // Não sobrecarregar a API
+          await delay(300);
+        } catch (e) {
+          erros++;
+        }
+      }
+
+      const total = atualizadas + inseridas;
+      console.log(`[REFRESH] ${total} atualizadas de ${todosCompraIds.size} verificadas (${inseridas} novas, ${atualizadas} alteradas, ${erros} erros)`);
+      res.json({
+        success: true,
+        message: `${todosCompraIds.size} compras verificadas: ${atualizadas} atualizadas, ${inseridas} novas`,
+        verificadas: todosCompraIds.size, atualizadas, inseridas, erros,
+      });
+    } catch (e) {
+      console.error('[REFRESH] Erro:', e.message);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   app.get('/api/sniper/consultar/:compraId', async (req, res) => {
     try {
       const result = await sniper.consultarItens(req.params.compraId);
@@ -2637,6 +2734,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       syncTransaction(participacoes);
 
       console.log(`[Sync] Participações: ${inseridas} novas, ${atualizadas} atualizadas (de ${participacoes.length} recebidas)`);
+
       res.json({ success: true, inseridas, atualizadas, total: participacoes.length });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -3410,11 +3508,38 @@ function registrarRotasSniper(app, monitorGetter, db) {
         await delay(1500);
       }
 
-      // Salvar status no banco apenas se houve sucesso
+      // Salvar status e valores no banco apenas se houve sucesso
       if (sucessos > 0) {
         try {
           db.prepare(`UPDATE participacoes_comprasnet SET situacao = 'PE', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`).run(compraId);
         } catch (e) {}
+
+        // Salvar valores enviados (marca, modelo, etc.) em valores_proposta
+        try {
+          const participacao = db.prepare(
+            'SELECT cnpj, ano, sequencial FROM participacoes_comprasnet WHERE compraId = ?'
+          ).get(compraId);
+          if (participacao) {
+            const stmtVP = db.prepare(`
+              INSERT OR REPLACE INTO valores_proposta
+              (cnpj, ano, sequencial, numeroItem, valorUnitario, marca, modelo, fabricante, selecionado, dataAtualizacao)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            `);
+            for (const r of resultados) {
+              if (r.sucesso && r.numero) {
+                const item = itens.find(i => i.numero === r.numero);
+                if (item) {
+                  stmtVP.run(
+                    participacao.cnpj, participacao.ano, participacao.sequencial,
+                    item.numero, item.valor, item.marca || null, item.modelo || null, null
+                  );
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[PROPOSTA-API] Erro ao salvar valores_proposta:', e.message);
+        }
       }
 
       console.log(`[PROPOSTA-API] ${compraId}: ${sucessos}/${itens.length} OK`);
@@ -3773,6 +3898,37 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
     } catch (error) {
       console.error('[PARTICIPAR-E-LISTAR] Erro:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/proposta/valores-compra/:compraId
+   * Retorna valores salvos em valores_proposta para um compraId (marca, modelo, valor).
+   */
+  app.get('/api/proposta/valores-compra/:compraId', (req, res) => {
+    try {
+      const { compraId } = req.params;
+      const participacao = db.prepare(
+        'SELECT cnpj, ano, sequencial FROM participacoes_comprasnet WHERE compraId = ?'
+      ).get(compraId);
+      if (!participacao) return res.json({ success: true, valores: {} });
+
+      const rows = db.prepare(`
+        SELECT numeroItem, valorUnitario, marca, modelo, fabricante, selecionado
+        FROM valores_proposta
+        WHERE cnpj = ? AND ano = ? AND sequencial = ?
+      `).all(participacao.cnpj, participacao.ano, participacao.sequencial);
+
+      const valores = {};
+      for (const v of rows) {
+        valores[v.numeroItem] = {
+          valor: v.valorUnitario, marca: v.marca || '', modelo: v.modelo || '',
+          fabricante: v.fabricante || '', selecionado: v.selecionado === 1,
+        };
+      }
+      res.json({ success: true, valores });
+    } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
   });

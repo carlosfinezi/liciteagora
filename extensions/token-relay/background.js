@@ -1054,18 +1054,14 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
     console.log('[LiciteAgora] auto-compras indisponível, filtros extras desabilitados');
   }
 
-  for (var p of participacoesEmAndamento) {
-    // Verificar se tab ainda existe antes de cada compra
-    if (!await tabExists(tabId)) {
-      console.log('[LiciteAgora] Tab fechada durante syncDisputas, abortando');
-      break;
-    }
+  // Processar participações em batches paralelos de 4 (muito mais rápido que sequencial)
+  var BATCH_SIZE = 4;
+  async function processarParticipacao(p) {
+    if (!await tabExists(tabId)) return null;
 
-    // Dados reais ficam dentro de p.compra (estrutura da API: { compra: {...}, possuiDiligencia... })
     var compra = p.compra || {};
     var compraId = p.codigoCompra || p.compraId;
 
-    // Reconstruir compraId: {uasg:06}{modalidade:02}{numero:05}{ano:04}
     if (!compraId) {
       compraId = compra.codigoCompra || compra.id || compra.identificador || '';
       if (!compraId) {
@@ -1076,16 +1072,14 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
         if (ano) compraId = uasg + mod + num + ano;
       }
     }
-    if (!compraId) continue;
+    if (!compraId) return null;
 
-    // Extrair metadados da compra (campos estão em compra.*, não em p.*)
     var orgao = compra.nomeUasg || compra.nomeOrgao || p.nomeUasg || '';
     var objeto = compra.objetoCompra || p.objeto || '';
     var dataSessao = compra.dataHoraAbertura || p.dataHoraInicioSessaoPublica || '';
     var fimDisputa = compra.dataHoraFimDisputa || p.dataHoraFimSessaoPublica || null;
     var faseCompra = compra.faseCompraFaseExterna || p.faseCompra || p.fase || '';
 
-    // Buscar detalhes da participação (/participacao) para auto-lance e fase proposta/disputa
     var precisaDetalhes = autoCompras[compraId] || faseCompra === '1' || faseCompra === '3' || faseCompra === 1 || faseCompra === 3;
     if (precisaDetalhes) {
       try {
@@ -1093,7 +1087,6 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
           '/comprasnet-fase-externa/v1/compras/' + compraId + '/participacao', bearer);
         if ((partResult.status === 200 || partResult.status === 206) && partResult.data) {
           var pd = partResult.data;
-          // Enviar ao servidor para salvar no banco
           try {
             await serverPost('/api/sync/participacao-detalhes', {
               compraId: compraId,
@@ -1112,7 +1105,6 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
               orgao: pd.nomeUasg || null,
             });
           } catch (e) {}
-          // Usar fimDisputa da API se não temos
           if (!fimDisputa && pd.dataHoraFimDisputa) fimDisputa = pd.dataHoraFimDisputa;
           if (!faseCompra && pd.faseCompraFaseExterna) faseCompra = pd.faseCompraFaseExterna;
         }
@@ -1121,42 +1113,39 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
       }
     }
 
-    // Buscar itens via estratégia inteligente (/qtdes → fase → endpoint correto)
     var usarFiltros = !!autoCompras[compraId];
     var resultado = await buscarItensCompra(tabId, compraId, bearer, usarFiltros);
     var itens = resultado.itens;
     var filterMeta = resultado.filterMeta || {};
 
-    // Se endpoints falharam, criar stub
     if (!itens || itens.length === 0) {
       var emDisputa = String(faseCompra) === '3';
       var isEmAndamento = p._filtro === 5 || emDisputa;
       if (isEmAndamento) {
-        var stubItens = [{
-          numero: 1,
-          descricao: (objeto || 'Item 1').substring(0, 120),
-          fase: emDisputa ? 'LA' : '', situacao: '',
-          melhorValor: null, nossoValor: null,
-          situacaoParticipante: null, variacaoMinima: null,
-          podeEnviar: emDisputa, fimContagem: fimDisputa,
-          valorEstimado: null, quantidadeSolicitada: null, stub: true,
-        }];
-        disputas.push({
+        return {
           compraId: compraId, orgao: orgao, objeto: objeto,
           dataSessao: dataSessao,
-          totalItens: 1, itensAtivos: emDisputa ? 1 : 0, stub: true, itens: stubItens,
-        });
+          totalItens: 1, itensAtivos: emDisputa ? 1 : 0, stub: true,
+          itens: [{
+            numero: 1,
+            descricao: (objeto || 'Item 1').substring(0, 120),
+            fase: emDisputa ? 'LA' : '', situacao: '',
+            melhorValor: null, nossoValor: null,
+            situacaoParticipante: null, variacaoMinima: null,
+            podeEnviar: emDisputa, fimContagem: fimDisputa,
+            valorEstimado: null, quantidadeSolicitada: null, stub: true,
+          }],
+        };
       }
-      continue;
+      return null;
     }
 
-    // Filtrar itens em fase de lance
     var itensAtivos = itens.filter(function(item) {
       var fase = item.fase || item.faseItem || '';
       return fase === 'LA' || fase === 'D1' || fase === 'D2' || item.podeEnviarLances === true;
     });
 
-    disputas.push({
+    return {
       compraId: compraId,
       orgao: orgao,
       objeto: objeto,
@@ -1164,7 +1153,18 @@ async function syncDisputas(tabId, participacoesEmAndamento, bearer) {
       totalItens: itens.length,
       itensAtivos: itensAtivos.length,
       itens: itens.map(function(item) { return mapearItem(item, filterMeta); }),
-    });
+    };
+  }
+
+  // Executar em batches paralelos
+  for (var bi = 0; bi < participacoesEmAndamento.length; bi += BATCH_SIZE) {
+    if (!await tabExists(tabId)) {
+      console.log('[LiciteAgora] Tab fechada durante syncDisputas, abortando');
+      break;
+    }
+    var batch = participacoesEmAndamento.slice(bi, bi + BATCH_SIZE);
+    var resultados = await Promise.all(batch.map(processarParticipacao));
+    resultados.forEach(function(r) { if (r) disputas.push(r); });
   }
 
   // Enviar ao servidor
