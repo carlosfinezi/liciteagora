@@ -296,40 +296,50 @@ class SniperLance {
    */
   async calibrarTempo() {
     try {
-      const antes = Date.now();
+      const endpoint = '/comprasnet-disputa/v1/datahorabrasilia';
 
-      const { status, data } = await this.apiGet('/comprasnet-disputa/v1/datahorabrasilia');
+      const parseResposta = (data) => {
+        const raw = typeof data === 'string' ? data.replace(/"/g, '').trim() : String(data);
+        if (/^\d{13}$/.test(raw)) return parseInt(raw);
+        if (/^\d{10}$/.test(raw)) return parseInt(raw) * 1000;
+        const ts = new Date(raw).getTime();
+        if (isNaN(ts)) throw new Error(`Formato não reconhecido: ${raw}`);
+        return ts;
+      };
 
-      const depois = Date.now();
-      const latencia = depois - antes;
-      const meioLatencia = Math.floor(latencia / 2);
+      // 1. Warmup — descarta (aquece TLS/conexão)
+      await this.apiGet(endpoint);
 
-      if (status !== 200) {
-        throw new Error(`HTTP ${status}: ${JSON.stringify(data).substring(0, 100)}`);
+      // 2. Fazer 5 medições reais
+      const amostras = [];
+      for (let i = 0; i < 5; i++) {
+        const antes = Date.now();
+        const { status, data } = await this.apiGet(endpoint);
+        const depois = Date.now();
+        if (status !== 200) continue;
+        const latencia = depois - antes;
+        const tempoServidor = parseResposta(data);
+        const tempoLocal = antes + Math.floor(latencia / 2);
+        const offset = tempoServidor - tempoLocal;
+        amostras.push({ offset, latencia });
       }
 
-      const raw = typeof data === 'string' ? data.replace(/"/g, '').trim() : String(data);
-      this.log(`🕐 Resposta raw: ${raw}`);
+      if (amostras.length < 3) throw new Error('Menos de 3 amostras válidas');
 
-      let tempoServidor;
-      if (/^\d{13}$/.test(raw)) {
-        tempoServidor = parseInt(raw);
-      } else if (/^\d{10}$/.test(raw)) {
-        tempoServidor = parseInt(raw) * 1000;
-      } else {
-        tempoServidor = new Date(raw).getTime();
-      }
+      // 3. Ordenar por latência, descartar maior e menor (outliers)
+      amostras.sort((a, b) => a.latencia - b.latencia);
+      const filtradas = amostras.slice(1, -1); // remove menor e maior latência
 
-      if (isNaN(tempoServidor)) {
-        throw new Error(`Formato não reconhecido: ${raw}`);
-      }
+      // 4. Mediana do offset
+      const offsets = filtradas.map(a => a.offset).sort((a, b) => a - b);
+      const mediana = offsets[Math.floor(offsets.length / 2)];
+      const latenciaMedia = Math.round(filtradas.reduce((s, a) => s + a.latencia, 0) / filtradas.length);
 
-      const tempoLocal = antes + meioLatencia;
-      this.offsetServidorMs = tempoServidor - tempoLocal;
+      this.offsetServidorMs = mediana;
       this.ultimaCalibracao = new Date().toISOString();
 
-      this.log(`🕐 Calibração: offset=${this.offsetServidorMs}ms, latência=${latencia}ms`);
-      return { offset: this.offsetServidorMs, latencia, tempoServidor: new Date(tempoServidor).toISOString() };
+      this.log(`🕐 Calibração: offset=${mediana}ms (amostras: ${amostras.map(a => a.offset + 'ms').join(', ')}), latência média=${latenciaMedia}ms`);
+      return { offset: mediana, latencia: latenciaMedia, tempoServidor: new Date(Date.now() + mediana).toISOString() };
     } catch (e) {
       this.log(`⚠️ Erro calibração: ${e.message}`);
       throw e;

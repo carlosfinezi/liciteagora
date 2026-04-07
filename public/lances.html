@@ -178,7 +178,7 @@
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding:8px 10px;background:#1a1a2e;border-radius:6px;flex-wrap:wrap">
             <span style="color:#ff6b00;font-weight:600;font-size:0.85em">⏰🚀 Blitz Global</span>
-            <input type="time" id="blitz-global-hora" step="0.001" style="padding:3px 6px;border-radius:4px;border:1px solid #ff6b00;background:#16213e;color:#eee;font-size:0.85em" title="Horário da blitz (com milissegundos)">
+            <input type="time" id="blitz-global-hora" step="1" style="padding:3px 6px;border-radius:4px;border:1px solid #ff6b00;background:#16213e;color:#eee;font-size:0.85em" title="Horário da blitz (milésimo calculado automaticamente)">
             <select id="blitz-global-modo" style="padding:3px 6px;border-radius:4px;border:1px solid #0f3460;background:#16213e;color:#eee;font-size:0.82em">
                 <option value="sequencial">Sequencial</option>
                 <option value="cobrir">Cobrir</option>
@@ -823,9 +823,8 @@ async function agendarBlitzGlobal() {
     var horaEl = document.getElementById('blitz-global-hora');
     var horario = horaEl.value;
     if(!horario) { alert('Informe o horário para a blitz global'); return; }
-    // Normalizar — adicionar segundos/ms se ausentes
-    if(horario.length === 5) horario += ':00.000';
-    else if(horario.length === 8) horario += '.000';
+    // Normalizar — adicionar segundos se ausente. NÃO adicionar ms — servidor calcula automaticamente
+    if(horario.length === 5) horario += ':00';
 
     var modo = document.getElementById('blitz-global-modo').value || 'sequencial';
     var statusEl = document.getElementById('blitz-global-status');
