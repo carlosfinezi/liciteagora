@@ -183,6 +183,17 @@
         }
         .empty-state .icon { font-size: 3em; margin-bottom: 15px; }
         .empty-state p { font-size: 1.1em; }
+
+        /* Dropdown Ações */
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-btn { background: #0f3460; color: #4dabf7; border: 1px solid #0f3460; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 1.2em; line-height: 1; }
+        .dropdown-btn:hover { background: #1a3a6e; }
+        .dropdown-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: #16213e; border: 1px solid #0f3460; border-radius: 8px; min-width: 180px; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.4); overflow: hidden; }
+        .dropdown-menu.show { display: block; }
+        .dropdown-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: none; border: none; color: #ccc; font-size: 0.85em; cursor: pointer; text-align: left; }
+        .dropdown-menu button:hover { background: #0f3460; color: #fff; }
+        .dropdown-menu .dd-danger { color: #ff6b6b; }
+        .dropdown-menu .dd-danger:hover { background: #c9202033; }
     </style>
 </head>
 <body>
@@ -372,6 +383,8 @@
             <div class="tab-content" id="tab-historico">
                 <div class="filtros">
                     <input type="text" id="filtBusca" placeholder="Buscar por tomador, numero..." style="flex: 1; min-width: 200px;">
+                    <input type="date" id="filtDataInicio" title="Data inicio" style="width:140px;">
+                    <input type="date" id="filtDataFim" title="Data fim" style="width:140px;">
                     <select id="filtStatus">
                         <option value="">Todos os status</option>
                         <option value="autorizada">Autorizada</option>
@@ -395,7 +408,7 @@
                                     <th>Valor</th>
                                     <th>Data</th>
                                     <th>Status</th>
-                                    <th>Acoes</th>
+                                    <th style="width:60px;text-align:center;">Acoes</th>
                                 </tr>
                             </thead>
                             <tbody id="tabelaNotas">
@@ -429,15 +442,23 @@
         <div class="modal" style="max-width: 500px;">
             <button class="modal-close" onclick="fecharModal('modalCancelar')">&times;</button>
             <h3>Cancelar NFSe</h3>
-            <p style="color: #ff6b6b; margin-bottom: 15px;">Esta acao e irreversivel!</p>
+            <p style="color: #ff6b6b; margin-bottom: 15px;">Esta acao e irreversivel! Conta a receber e boleto associados tambem serao cancelados.</p>
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label>Motivo</label>
+                <select id="codigoMotivoCancelamento" style="background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; padding:10px; color:#fff; width:100%;">
+                    <option value="1">Erro na emissao</option>
+                    <option value="2">Servico nao prestado</option>
+                    <option value="9">Outros</option>
+                </select>
+            </div>
             <div class="form-group">
-                <label>Motivo do cancelamento (min. 15 caracteres)</label>
+                <label>Justificativa (min. 15 caracteres)</label>
                 <textarea id="motivoCancelamento" placeholder="Descreva o motivo do cancelamento..." style="background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; padding:10px; color:#fff; width:100%; min-height:100px;"></textarea>
             </div>
             <input type="hidden" id="cancelarNfseId">
             <div class="actions-bar" style="border-top: none; margin-top: 15px; padding-top: 0;">
                 <button class="btn-secondary" onclick="fecharModal('modalCancelar')">Voltar</button>
-                <button class="btn-danger" onclick="confirmarCancelamento()">Confirmar Cancelamento</button>
+                <button class="btn-danger" id="btnConfirmarCancelamento" onclick="confirmarCancelamento()">Confirmar Cancelamento</button>
             </div>
         </div>
     </div>
@@ -773,10 +794,14 @@
         async function carregarHistorico() {
             const busca = document.getElementById('filtBusca').value.trim();
             const status = document.getElementById('filtStatus').value;
+            const dataInicio = document.getElementById('filtDataInicio').value;
+            const dataFim = document.getElementById('filtDataFim').value;
 
             let url = '/api/nfse/lista?limite=100';
             if (busca) url += '&busca=' + encodeURIComponent(busca);
             if (status) url += '&status=' + encodeURIComponent(status);
+            if (dataInicio) url += '&dataInicio=' + dataInicio;
+            if (dataFim) url += '&dataFim=' + dataFim;
 
             try {
                 const resp = await fetch(url);
@@ -798,11 +823,14 @@
                         <td>R$ ${Number(n.valorServico || 0).toFixed(2)}</td>
                         <td>${formatarDataBR(n.dataCompetencia)}</td>
                         <td><span class="badge ${n.status}">${n.status}</span></td>
-                        <td>
-                            <div style="display:flex; gap:5px; flex-wrap: wrap;">
-                                <button class="btn-secondary btn-sm" onclick="verDetalhes(${n.id})">Ver</button>
-                                ${n.chaveAcesso ? `<button class="btn-secondary btn-sm" onclick="baixarDanfse(${n.id})">PDF</button>` : ''}
-                                ${n.status === 'autorizada' ? `<button class="btn-danger btn-sm" onclick="abrirCancelamento(${n.id})">Cancelar</button>` : ''}
+                        <td style="text-align:center;">
+                            <div class="dropdown">
+                                <button class="dropdown-btn" onclick="toggleDropdown(event, this)" title="Ações">&#8942;</button>
+                                <div class="dropdown-menu">
+                                    <button onclick="closeDropdowns();verDetalhes(${n.id})">Ver detalhes</button>
+                                    ${n.chaveAcesso ? `<button onclick="closeDropdowns();baixarDanfse(${n.id})">Baixar PDF</button>` : ''}
+                                    ${n.status === 'autorizada' ? `<button class="dd-danger" onclick="closeDropdowns();abrirCancelamento(${n.id})">Cancelar NFSe</button>` : ''}
+                                </div>
                             </div>
                         </td>
                     </tr>
@@ -878,33 +906,59 @@
             document.getElementById('modalCancelar').classList.add('active');
         }
 
+        let cancelando = false;
         async function confirmarCancelamento() {
+            if (cancelando) return;
             const id = document.getElementById('cancelarNfseId').value;
             const motivo = document.getElementById('motivoCancelamento').value.trim();
+            const codigoMotivo = document.getElementById('codigoMotivoCancelamento').value;
 
             if (!motivo || motivo.length < 15) {
-                mostrarAlerta('Motivo deve ter pelo menos 15 caracteres', 'error');
+                mostrarAlerta('Justificativa deve ter pelo menos 15 caracteres', 'error');
                 return;
             }
+
+            cancelando = true;
+            const btn = document.getElementById('btnConfirmarCancelamento');
+            btn.disabled = true;
+            btn.textContent = 'Cancelando...';
 
             try {
                 const resp = await fetch('/api/nfse/' + id + '/cancelar', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ motivo }),
+                    body: JSON.stringify({ motivo, codigoMotivo }),
                 });
                 const data = await resp.json();
                 if (data.success) {
                     fecharModal('modalCancelar');
-                    mostrarAlerta('Nota cancelada com sucesso', 'success');
+                    const emailMsg = data.emailEnviado === 'sim' ? ' Email de cancelamento enviado ao cliente.' : data.emailEnviado === 'erro' ? ' (falha ao enviar email)' : '';
+                    mostrarAlerta('Nota cancelada com sucesso.' + emailMsg, 'success');
                     carregarHistorico();
                 } else {
                     mostrarAlerta('Erro: ' + data.error, 'error');
                 }
             } catch (error) {
                 mostrarAlerta('Erro: ' + error.message, 'error');
+            } finally {
+                cancelando = false;
+                btn.disabled = false;
+                btn.textContent = 'Confirmar Cancelamento';
             }
         }
+
+        // ==================== DROPDOWN ====================
+        function toggleDropdown(e, btn) {
+            e.stopPropagation();
+            const menu = btn.nextElementSibling;
+            const wasOpen = menu.classList.contains('show');
+            closeDropdowns();
+            if (!wasOpen) menu.classList.add('show');
+        }
+        function closeDropdowns() {
+            document.querySelectorAll('.dropdown-menu.show').forEach(m => m.classList.remove('show'));
+        }
+        document.addEventListener('click', closeDropdowns);
 
         // ==================== UTILS ====================
         function mostrarAlerta(msg, tipo) {

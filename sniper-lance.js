@@ -362,7 +362,7 @@ class SniperLance {
       valor,
       faseItem,
       status,
-      resposta: resposta.substring(0, 500),
+      resposta,
       tempoMs,
       timestamp: new Date().toISOString(),
       sucesso: status === 200 || status === 201,

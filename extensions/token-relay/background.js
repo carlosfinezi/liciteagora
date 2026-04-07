@@ -1792,6 +1792,8 @@ chrome.alarms.create('keepalive', { delayInMinutes: 0.5, periodInMinutes: KEEPAL
 // B1: Adaptive lance polling (variable interval based on server signal)
 var lancesPollInterval = 5000;  // default 5s, server can signal 1s
 var lancesPollTimer = null;
+var lancesHeld = [];  // lances com fireAt no futuro — extensão segura até o momento
+var heldTimer = null; // timer para disparar lancesHeld
 
 function agendarProximoPoll() {
   if (lancesPollTimer) clearTimeout(lancesPollTimer);
@@ -1821,6 +1823,123 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ==================== FILA DE LANCES (via browser) ====================
 
 var lancesEmProcessamento = false;
+
+// Dispara lances que estavam em hold (fireAt atingido)
+async function dispararLancesHeld() {
+  if (lancesHeld.length === 0) return;
+  var agora = Date.now();
+  // Pegar lances cujo fireAt já chegou (ou está a menos de 50ms)
+  var prontos = [];
+  var restantes = [];
+  for (var i = 0; i < lancesHeld.length; i++) {
+    if (!lancesHeld[i].fireAt || lancesHeld[i].fireAt <= agora + 50) {
+      prontos.push(lancesHeld[i]);
+    } else {
+      restantes.push(lancesHeld[i]);
+    }
+  }
+  lancesHeld = restantes;
+
+  if (prontos.length === 0) return;
+  console.log('[LiciteAgora] ⏰🚀 FIRE ' + prontos.length + ' held lances! desvio=' + (agora - prontos[0].fireAt) + 'ms');
+
+  // Verificar prerequisites
+  var data = await load();
+  if (!data.bearer) { console.log('[LiciteAgora] HELD: sem bearer'); return; }
+  var tab = await findComprasnetTab();
+  if (!tab) { console.log('[LiciteAgora] HELD: sem aba Comprasnet'); return; }
+
+  // Agrupar por item para round-robin paralelo
+  var grupos = {};
+  for (var li = 0; li < prontos.length; li++) {
+    var l = prontos[li];
+    var gKey = l.compraId + '-' + l.itemNumero;
+    if (!grupos[gKey]) grupos[gKey] = [];
+    grupos[gKey].push(l);
+  }
+  var grupoKeys = Object.keys(grupos);
+  var indices = {};
+  grupoKeys.forEach(function(k) { indices[k] = 0; });
+
+  console.log('[LiciteAgora] ⏰🚀 HELD: ' + prontos.length + ' lances de ' + grupoKeys.length + ' item(ns)' + (grupoKeys.length > 1 ? ' [PARALELO]' : ''));
+
+  var batchResultados = [];
+  var failedItems = {};
+
+  while (true) {
+    var rodada = [];
+    for (var gi = 0; gi < grupoKeys.length; gi++) {
+      var gk = grupoKeys[gi];
+      if (failedItems[gk]) continue;
+      if (indices[gk] >= grupos[gk].length) continue;
+      var lance = grupos[gk][indices[gk]];
+      rodada.push({
+        path: '/comprasnet-disputa/v1/compras/' + lance.compraId + '/itens/' + lance.itemNumero + '/lances',
+        body: { valorInformado: lance.valor, faseItem: lance.faseItem || 'LA' },
+        lance: lance,
+        itemKey: gk,
+      });
+      indices[gk]++;
+    }
+    if (rodada.length === 0) break;
+
+    var resultados;
+    if (rodada.length > 1) {
+      resultados = await comprasnetPostParalelo(tab.id, rodada, data.bearer);
+    } else {
+      var singleResult = await comprasnetPost(tab.id, rodada[0].path, data.bearer, rodada[0].body);
+      resultados = [singleResult];
+    }
+
+    for (var ri = 0; ri < rodada.length; ri++) {
+      var rLance = rodada[ri].lance;
+      var rResult = resultados[ri] || { status: 0, error: 'No result' };
+      var rSucesso = rResult.status === 200 || rResult.status === 201;
+      var fetchMs = rResult.enviadoMs && rResult.recebidoMs ? (rResult.recebidoMs - rResult.enviadoMs) : 0;
+
+      batchResultados.push({
+        id: rLance.id, compraId: rLance.compraId, itemNumero: rLance.itemNumero,
+        valor: rLance.valor, status: rSucesso ? 'ok' : 'erro-' + rResult.status,
+        sucesso: rSucesso,
+        resposta: JSON.stringify(rResult.data || rResult.text || rResult.error).substring(0, 1500),
+        tempoMs: fetchMs,
+        enviadoMs: rResult.enviadoMs || null,
+        recebidoMs: rResult.recebidoMs || null,
+      });
+
+      if (!rSucesso) {
+        if (rResult.status === 422) failedItems[rodada[ri].itemKey] = true;
+      }
+    }
+  }
+
+  // Reportar resultados ao servidor
+  if (batchResultados.length > 0) {
+    try {
+      var sucessos = batchResultados.filter(function(r) { return r.sucesso; }).length;
+      var falhas = batchResultados.length - sucessos;
+      console.log('[LiciteAgora] ⏰🚀 HELD resultado: ' + sucessos + ' ✅ ' + falhas + ' ❌');
+      await fetch(SERVER_URL + '/api/sniper/resultado-lances-batch', {
+        method: 'POST', headers: Object.assign({}, serverHeaders(), {'Content-Type': 'application/json'}),
+        body: JSON.stringify({ resultados: batchResultados }),
+      });
+    } catch (e) {
+      console.error('[LiciteAgora] HELD resultado erro:', e.message);
+    }
+  }
+
+  // Re-agendar próximo held se houver
+  if (lancesHeld.length > 0) {
+    var proxFireAt = lancesHeld[0].fireAt;
+    for (var hi = 1; hi < lancesHeld.length; hi++) {
+      if (lancesHeld[hi].fireAt < proxFireAt) proxFireAt = lancesHeld[hi].fireAt;
+    }
+    heldTimer = setTimeout(function() { dispararLancesHeld(); }, Math.max(0, proxFireAt - Date.now()));
+  }
+
+  // Retomar poll
+  setTimeout(function() { processarFilaLances(); }, 150);
+}
 
 async function processarFilaLances() {
   if (lancesEmProcessamento) return;
@@ -1878,6 +1997,40 @@ async function processarFilaLances() {
       if (oldInterval !== lancesPollInterval) {
         console.log('[LiciteAgora] Poll interval: ' + oldInterval + 'ms → ' + lancesPollInterval + 'ms');
       }
+    }
+
+    // Separar lances com fireAt futuro (pré-enfileirados) dos imediatos
+    if (fila.lances && fila.lances.length > 0) {
+      var agora = Date.now();
+      var held = [];
+      var imediatos = [];
+      for (var fi = 0; fi < fila.lances.length; fi++) {
+        var fl = fila.lances[fi];
+        if (fl.fireAt && fl.fireAt > agora + 500) {
+          held.push(fl);
+        } else {
+          imediatos.push(fl);
+        }
+      }
+      if (held.length > 0) {
+        lancesHeld = lancesHeld.concat(held);
+        var proxFireAt = held[0].fireAt;
+        for (var hi = 1; hi < held.length; hi++) {
+          if (held[hi].fireAt < proxFireAt) proxFireAt = held[hi].fireAt;
+        }
+        var holdDelay = proxFireAt - agora;
+        console.log('[LiciteAgora] ⏰ HELD ' + held.length + ' lances — fireAt em ' + Math.round(holdDelay / 1000) + 's');
+        // Timer preciso para disparar
+        if (heldTimer) clearTimeout(heldTimer);
+        heldTimer = setTimeout(function() { dispararLancesHeld(); }, holdDelay);
+        // Pré-aquecer: verificar bearer e tab agora
+        var preData2 = await load();
+        if (preData2.bearer) {
+          var preTab2 = await findComprasnetTab();
+          if (preTab2) console.log('[LiciteAgora] ⏰ Pré-aquecido: bearer OK, tab ' + preTab2.id);
+        }
+      }
+      fila.lances = imediatos;
     }
 
     if (!fila.success || !fila.lances || fila.lances.length === 0) {

@@ -23,6 +23,8 @@ let lancesProcessados = 0;
 let lancesErros = 0;
 let queriesProcessadas = 0;
 let tarefasProcessadas = 0;
+let lancesHeld = []; // lances com fireAt no futuro
+let heldTimer = null;
 
 // ─── Init ───────────────────────────────────────────────────────────────────
 
@@ -98,12 +100,30 @@ async function processarFilaLances() {
 
   if (!Array.isArray(lances) || lances.length === 0) return;
 
-  _log(`[Lances] ${lances.length} lance(s) na fila`);
+  // Separar lances com fireAt futuro (pré-enfileirados pela blitz)
+  const agora = Date.now();
+  const imediatos = [];
+  for (const l of lances) {
+    if (l.fireAt && l.fireAt > agora + 500) {
+      lancesHeld.push(l);
+    } else {
+      imediatos.push(l);
+    }
+  }
+  if (lancesHeld.length > 0 && !heldTimer) {
+    const proxFireAt = Math.min(...lancesHeld.map(h => h.fireAt));
+    const holdDelay = Math.max(0, proxFireAt - agora);
+    _log(`[Lances] ⏰ HELD ${lancesHeld.length} lances — fireAt em ${Math.round(holdDelay / 1000)}s`);
+    heldTimer = setTimeout(() => { heldTimer = null; dispararLancesHeld(); }, holdDelay);
+  }
+
+  if (imediatos.length === 0) return;
+  _log(`[Lances] ${imediatos.length} lance(s) na fila`);
 
   const resultados = [];
   const itensAbortados = new Set(); // item que falhou → skip restantes
 
-  for (const lance of lances) {
+  for (const lance of imediatos) {
     const { id, compraId, itemNumero, valor, faseItem, batchIndex, batchTotal } = lance;
     const itemKey = `${compraId}-${itemNumero}`;
 
@@ -206,6 +226,66 @@ async function processarFilaLances() {
   if (lances.length > 0) {
     setTimeout(() => poll(), 150);
   }
+}
+
+// ─── Disparo de lances held (fireAt atingido) ──────────────────────────────
+
+async function dispararLancesHeld() {
+  const agora = Date.now();
+  const prontos = lancesHeld.filter(l => !l.fireAt || l.fireAt <= agora + 50);
+  lancesHeld = lancesHeld.filter(l => l.fireAt && l.fireAt > agora + 50);
+
+  if (prontos.length === 0) return;
+  const desvio = agora - prontos[0].fireAt;
+  _log(`[Lances] ⏰🚀 FIRE ${prontos.length} held lances! desvio=${desvio}ms`);
+
+  const resultados = [];
+  const itensAbortados = new Set();
+
+  for (const lance of prontos) {
+    const { id, compraId, itemNumero, valor, faseItem, batchIndex, batchTotal } = lance;
+    const itemKey = `${compraId}-${itemNumero}`;
+
+    if (itensAbortados.has(itemKey)) {
+      resultados.push({ id, compraId, itemNumero, valor, status: 'skipped', sucesso: false, resposta: 'Item abortado', tempoMs: 0 });
+      continue;
+    }
+
+    const inicio = Date.now();
+    try {
+      const resp = await cnet.enviarLance(compraId, itemNumero, valor, faseItem || 'LA');
+      const tempoMs = Date.now() - inicio;
+      if (resp.ok) {
+        lancesProcessados++;
+        resultados.push({ id, compraId, itemNumero, valor, status: 'ok', sucesso: true, resposta: resp.data, tempoMs });
+      } else {
+        lancesErros++;
+        resultados.push({ id, compraId, itemNumero, valor, status: `erro-${resp.status}`, sucesso: false, resposta: resp.data || resp.error, tempoMs });
+        if (resp.status !== 429) itensAbortados.add(itemKey);
+        if (resp.status === 401) { _onNeedKeepalive(); break; }
+      }
+    } catch (e) {
+      resultados.push({ id, compraId, itemNumero, valor, status: 'exception', sucesso: false, resposta: e.message, tempoMs: Date.now() - inicio });
+      itensAbortados.add(itemKey);
+    }
+  }
+
+  if (resultados.length > 0) {
+    const ok = resultados.filter(r => r.sucesso).length;
+    _log(`[Lances] ⏰🚀 HELD resultado: ${ok} ✅ ${resultados.length - ok} ❌`);
+    const rr = await serverRequest('POST', '/api/sniper/resultado-lances-batch', { resultados });
+    if (!rr.ok) {
+      for (const res of resultados) await serverRequest('POST', '/api/sniper/resultado-lance', res);
+    }
+  }
+
+  // Re-agendar próximo held se houver
+  if (lancesHeld.length > 0) {
+    const proxFireAt = Math.min(...lancesHeld.map(h => h.fireAt));
+    heldTimer = setTimeout(() => { heldTimer = null; dispararLancesHeld(); }, Math.max(0, proxFireAt - Date.now()));
+  }
+
+  setTimeout(() => poll(), 150);
 }
 
 // ─── Fila de Queries ────────────────────────────────────────────────────────

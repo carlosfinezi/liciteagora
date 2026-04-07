@@ -81,6 +81,11 @@ function migrarDB(db) {
     db.exec(`ALTER TABLE boletos ADD COLUMN mpResponse TEXT`);
   } catch { /* ja existe */ }
 
+  // Migrar: campo emailsAdicionais em pessoas (CC para envio de email)
+  try {
+    db.exec(`ALTER TABLE pessoas ADD COLUMN emailsAdicionais TEXT`);
+  } catch { /* ja existe */ }
+
   // Defaults mp_config
   const upsert = db.prepare('INSERT OR IGNORE INTO mp_config (key, value) VALUES (?, ?)');
   upsert.run('access_token', '');
@@ -210,7 +215,7 @@ function registrarRotasFinanceiro(app, db) {
     try {
       const { cpfCnpj, razaoSocial, nomeFantasia, inscricaoMunicipal,
               endereco, numero, complemento, bairro, codigoMunicipio, cidade, uf, cep,
-              telefone, email, observacoes } = req.body;
+              telefone, email, emailsAdicionais, observacoes } = req.body;
 
       if (!cpfCnpj || !razaoSocial) {
         return res.status(400).json({ success: false, error: 'CPF/CNPJ e Razao Social sao obrigatorios' });
@@ -225,11 +230,11 @@ function registrarRotasFinanceiro(app, db) {
           db.prepare(`UPDATE pessoas SET ativo = 1, razaoSocial = ?, nomeFantasia = ?, tipo = ?,
             inscricaoMunicipal = ?, endereco = ?, numero = ?, complemento = ?, bairro = ?,
             codigoMunicipio = ?, cidade = ?, uf = ?, cep = ?, telefone = ?, email = ?,
-            observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
+            emailsAdicionais = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
           ).run(razaoSocial, nomeFantasia || null, tipo,
             inscricaoMunicipal || null, endereco || null, numero || null, complemento || null, bairro || null,
             codigoMunicipio || null, cidade || null, uf || null, cep || null, telefone || null, email || null,
-            observacoes || null, existente.id);
+            emailsAdicionais || null, observacoes || null, existente.id);
           const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(existente.id);
           return res.json({ success: true, pessoa, reativada: true });
         }
@@ -239,11 +244,11 @@ function registrarRotasFinanceiro(app, db) {
       const result = db.prepare(
         `INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, nomeFantasia, inscricaoMunicipal,
           endereco, numero, complemento, bairro, codigoMunicipio, cidade, uf, cep,
-          telefone, email, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          telefone, email, emailsAdicionais, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(cpfLimpo, tipo, razaoSocial, nomeFantasia || null, inscricaoMunicipal || null,
         endereco || null, numero || null, complemento || null, bairro || null,
         codigoMunicipio || null, cidade || null, uf || null, cep || null,
-        telefone || null, email || null, observacoes || null);
+        telefone || null, email || null, emailsAdicionais || null, observacoes || null);
 
       const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(result.lastInsertRowid);
       res.json({ success: true, pessoa });
@@ -256,7 +261,7 @@ function registrarRotasFinanceiro(app, db) {
     try {
       const { razaoSocial, nomeFantasia, inscricaoMunicipal,
               endereco, numero, complemento, bairro, codigoMunicipio, cidade, uf, cep,
-              telefone, email, observacoes } = req.body;
+              telefone, email, emailsAdicionais, observacoes } = req.body;
 
       const existing = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(req.params.id);
       if (!existing) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
@@ -264,7 +269,7 @@ function registrarRotasFinanceiro(app, db) {
       db.prepare(`UPDATE pessoas SET razaoSocial = ?, nomeFantasia = ?, inscricaoMunicipal = ?,
         endereco = ?, numero = ?, complemento = ?, bairro = ?,
         codigoMunicipio = ?, cidade = ?, uf = ?, cep = ?,
-        telefone = ?, email = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP
+        telefone = ?, email = ?, emailsAdicionais = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = ?`
       ).run(
         razaoSocial || existing.razaoSocial, nomeFantasia ?? existing.nomeFantasia,
@@ -274,6 +279,7 @@ function registrarRotasFinanceiro(app, db) {
         codigoMunicipio ?? existing.codigoMunicipio, cidade ?? existing.cidade,
         uf ?? existing.uf, cep ?? existing.cep,
         telefone ?? existing.telefone, email ?? existing.email,
+        emailsAdicionais !== undefined ? (emailsAdicionais || null) : existing.emailsAdicionais,
         observacoes ?? existing.observacoes, req.params.id
       );
 
@@ -298,7 +304,7 @@ function registrarRotasFinanceiro(app, db) {
 
   app.get('/api/contas-a-receber', (req, res) => {
     try {
-      const { status, pessoaId, dataInicio, dataFim, busca } = req.query;
+      const { status, pessoaId, dataInicio, dataFim, busca, nota, nDPS } = req.query;
       let sql = `SELECT c.*,
         CASE WHEN c.status='aberta' AND c.dataVencimento < date('now') THEN 'vencida' ELSE c.status END AS statusReal,
         p.razaoSocial AS pessoaNome, p.cpfCnpj AS pessoaCpfCnpj,
@@ -321,6 +327,10 @@ function registrarRotasFinanceiro(app, db) {
       if (dataInicio) { sql += ' AND c.dataVencimento >= ?'; params.push(dataInicio); }
       if (dataFim) { sql += ' AND c.dataVencimento <= ?'; params.push(dataFim); }
       if (busca) { sql += ' AND (p.razaoSocial LIKE ? OR p.cpfCnpj LIKE ? OR c.descricao LIKE ?)'; params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`); }
+      if (nota === 'com') { sql += ' AND c.nfseId IS NOT NULL'; }
+      else if (nota === 'sem') { sql += ' AND c.nfseId IS NULL'; }
+      else if (nota && nota.startsWith('nfse:')) { sql += ' AND c.nfseId = ?'; params.push(parseInt(nota.split(':')[1])); }
+      if (nDPS) { sql += ' AND c.nfseId IN (SELECT id FROM nfse WHERE nDPS = ?)'; params.push(parseInt(nDPS)); }
 
       sql += ' ORDER BY c.dataVencimento ASC';
       const contas = db.prepare(sql).all(...params);

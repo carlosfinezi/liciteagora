@@ -8,9 +8,10 @@
  *   registrarRotasNfse(app, db);
  */
 
-const { gerarIdDps, construirDPS, assinarDPS, extrairChavesCertificado } = require('./nfse-xml');
+const { gerarIdDps, construirDPS, assinarDPS, construirEventoCancelamento, assinarEvento, extrairChavesCertificado } = require('./nfse-xml');
 const { NfseClient } = require('./nfse-client');
 const { MercadoPagoClient, loadMPConfig } = require('./mercadopago-client');
+const { enviarEmailCancelamento, loadSmtpConfig } = require('./email-client');
 
 /** Data atual em Brasilia (UTC-3) no formato YYYY-MM-DD */
 function dataBrasilia() {
@@ -422,7 +423,7 @@ function registrarRotasNfse(app, db) {
 
   app.get('/api/nfse/lista', (req, res) => {
     try {
-      const { status, busca, limite } = req.query;
+      const { status, busca, limite, dataInicio, dataFim } = req.query;
       const lim = Math.min(parseInt(limite) || 50, 200);
 
       let sql = 'SELECT id, idDps, serie, nDPS, tpAmb, chaveAcesso, nNFSe, tomadorCpfCnpj, tomadorRazaoSocial, codigoTributacaoNacional, descricaoServico, valorServico, dataCompetencia, status, dataCriacao, dataAtualizacao FROM nfse WHERE 1=1';
@@ -431,6 +432,16 @@ function registrarRotasNfse(app, db) {
       if (status) {
         sql += ' AND status = ?';
         params.push(status);
+      }
+
+      if (dataInicio) {
+        sql += ' AND dataCompetencia >= ?';
+        params.push(dataInicio);
+      }
+
+      if (dataFim) {
+        sql += ' AND dataCompetencia <= ?';
+        params.push(dataFim);
       }
 
       if (busca) {
@@ -498,7 +509,7 @@ function registrarRotasNfse(app, db) {
 
   app.get('/api/nfse/:id/danfse', async (req, res) => {
     try {
-      const nota = db.prepare('SELECT chaveAcesso, tpAmb FROM nfse WHERE id = ?').get(req.params.id);
+      const nota = db.prepare('SELECT chaveAcesso, tpAmb, tomadorCpfCnpj FROM nfse WHERE id = ?').get(req.params.id);
       if (!nota) {
         return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
       }
@@ -508,8 +519,27 @@ function registrarRotasNfse(app, db) {
 
       const { p12Buffer, senha } = carregarCertificado(db);
       const client = new NfseClient(p12Buffer, senha, nota.tpAmb);
-      const pdfBuffer = await client.downloadDanfse(nota.chaveAcesso);
 
+      // Buscar dados complementares do banco para preencher campos vazios no PDF
+      const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+      const cpfLimpo = (nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+      const pessoa = cpfLimpo ? db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+      const dadosComplementares = { fornecedor, pessoa };
+
+      // Gerar PDF local a partir do XML da SEFIN (com dados complementados)
+      const { gerarDanfseDeGzipB64 } = require('./danfse-pdf');
+
+      // Buscar XML da NFSe na SEFIN
+      const xmlResp = await client.consultarNfse(nota.chaveAcesso);
+      if (xmlResp && xmlResp.nfseXmlGZipB64) {
+        const pdfBuffer = await gerarDanfseDeGzipB64(xmlResp.nfseXmlGZipB64, dadosComplementares);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="DANFSE_${nota.chaveAcesso}.pdf"`);
+        return res.send(pdfBuffer);
+      }
+
+      // Fallback: tentar PDF oficial da SEFIN
+      const pdfBuffer = await client.downloadDanfse(nota.chaveAcesso);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="DANFSE_${nota.chaveAcesso}.pdf"`);
       res.send(pdfBuffer);
@@ -523,12 +553,12 @@ function registrarRotasNfse(app, db) {
 
   app.post('/api/nfse/:id/cancelar', async (req, res) => {
     try {
-      const { motivo } = req.body;
+      const { motivo, codigoMotivo } = req.body;
       if (!motivo || motivo.length < 15) {
         return res.status(400).json({ success: false, error: 'Motivo obrigatorio (minimo 15 caracteres)' });
       }
 
-      const nota = db.prepare('SELECT id, chaveAcesso, tpAmb, status FROM nfse WHERE id = ?').get(req.params.id);
+      const nota = db.prepare('SELECT id, chaveAcesso, tpAmb, status, nNFSe, nDPS, descricaoServico, valorServico, dataCompetencia, tomadorCpfCnpj FROM nfse WHERE id = ?').get(req.params.id);
       if (!nota) {
         return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
       }
@@ -540,17 +570,82 @@ function registrarRotasNfse(app, db) {
       }
 
       const { p12Buffer, senha } = carregarCertificado(db);
-      const client = new NfseClient(p12Buffer, senha, nota.tpAmb);
+      const { privateKeyPem, certDerBase64 } = extrairChavesCertificado(p12Buffer, senha);
 
-      const resposta = await client.cancelarNfse(nota.chaveAcesso, motivo);
+      // CNPJ do prestador (autor do evento)
+      const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+      if (!fornecedor || !fornecedor.cnpj) {
+        return res.status(400).json({ success: false, error: 'Dados do fornecedor nao cadastrados' });
+      }
+
+      // Construir e assinar XML do evento de cancelamento
+      const codMotivo = parseInt(codigoMotivo) || 1;
+      const eventoXml = construirEventoCancelamento({
+        chaveAcesso: nota.chaveAcesso,
+        tpAmb: nota.tpAmb,
+        nSeqEvento: 1,
+        codigoMotivo: codMotivo,
+        justificativa: motivo,
+        cnpjAutor: fornecedor.cnpj || '',
+      });
+      console.log(`[NFSe] Evento cancelamento XML construido`);
+
+      const signedXml = assinarEvento(eventoXml, privateKeyPem, certDerBase64);
+      console.log(`[NFSe] Evento cancelamento assinado`);
+
+      const client = new NfseClient(p12Buffer, senha, nota.tpAmb);
+      const resposta = await client.cancelarNfse(signedXml, nota.chaveAcesso);
       console.log(`[NFSe] Cancelamento resposta:`, JSON.stringify(resposta).substring(0, 300));
 
+      // Atualizar NFSe
       db.prepare(`
         UPDATE nfse SET status = 'cancelada', motivoCancelamento = ?, xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(motivo, JSON.stringify(resposta), nota.id);
 
-      res.json({ success: true, message: 'Nota cancelada', resposta });
+      // Cancelar conta a receber e boleto associados
+      const conta = db.prepare('SELECT id FROM contas_a_receber WHERE nfseId = ? AND status != ?').get(nota.id, 'cancelada');
+      if (conta) {
+        db.prepare("UPDATE contas_a_receber SET status = 'cancelada', observacoes = COALESCE(observacoes || ' | ', '') || 'Cancelada por cancelamento NFSe', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?")
+          .run(conta.id);
+        console.log(`[NFSe] Conta a receber #${conta.id} cancelada`);
+
+        const boleto = db.prepare('SELECT id FROM boletos WHERE contaReceberId = ? AND status != ?').get(conta.id, 'cancelado');
+        if (boleto) {
+          db.prepare("UPDATE boletos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?")
+            .run(boleto.id);
+          console.log(`[NFSe] Boleto #${boleto.id} cancelado`);
+        }
+      }
+
+      // Enviar email de cancelamento ao tomador
+      let emailStatus = 'nao';
+      try {
+        const cpfLimpo = (nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+        const pessoa = cpfLimpo ? db.prepare('SELECT email, emailsAdicionais FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+
+        if (pessoa && pessoa.email && loadSmtpConfig(db)) {
+          const ccList = pessoa.emailsAdicionais
+            ? pessoa.emailsAdicionais.split(',').map(e => e.trim()).filter(Boolean)
+            : [];
+
+          await enviarEmailCancelamento(db, {
+            to: pessoa.email,
+            cc: ccList.length ? ccList.join(', ') : undefined,
+            nfseNumero: nota.nNFSe || nota.nDPS || '',
+            descricao: nota.descricaoServico || '',
+            valor: nota.valorServico,
+            competencia: nota.dataCompetencia || '',
+            motivo,
+          });
+          emailStatus = 'sim';
+        }
+      } catch (emailErr) {
+        console.error(`[NFSe] Erro email cancelamento:`, emailErr.message);
+        emailStatus = 'erro';
+      }
+
+      res.json({ success: true, message: 'Nota cancelada com sucesso', emailEnviado: emailStatus, resposta });
     } catch (error) {
       console.error('[NFSe] Erro ao cancelar:', error.message);
       res.status(500).json({ success: false, error: error.message });

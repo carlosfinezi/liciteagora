@@ -25,6 +25,7 @@ const menuConfig = {
             itens: [
                 { page: 'propostas-api', icone: '📝', texto: 'Propostas', link: '/propostas-api.html' },
                 { page: 'lances', icone: '🎯', texto: 'Lances Automáticos', link: '/lances.html' },
+                { page: 'relatorio-lances', icone: '📊', texto: 'Relatório Lances', link: '/relatorio-lances.html' },
                 { page: 'monitoramento-chat', icone: '💬', texto: 'Monitor de Chat', link: '/monitoramento-chat.html' },
                 { page: 'inteligencia', icone: '📊', texto: 'Inteligência', link: '/inteligencia.html' },
                 { page: 'analises-ia', icone: '🤖', texto: 'Análises IA', link: '/analises-ia.html' }
