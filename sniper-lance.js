@@ -15,6 +15,28 @@ const axios = require('axios');
 
 const BASE_URL = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const TOKEN_MAX_AGE_S = 600; // 10 minutos — tokens Comprasnet expiram por volta disso
+const TOKEN_SAFE_MARGIN_S = TOKEN_MAX_AGE_S - 60; // 540s — margem de segurança usada por callers (electron/processor) para pedir renovação antes da expiração real
+
+/**
+ * Constrói compraId canônico no formato UASG(6) + MODALIDADE(2) + NUMERO(5) + ANO(4).
+ * Aceita objetos no formato Comprasnet (numeroUasg/codigoModalidade/numero/ano ou
+ * identificadores alternativos). Retorna null se não conseguir construir.
+ *
+ * ⚠️ Crítico: esta ordem precisa ser idêntica em TODOS os callers (extensão, Electron,
+ * servidor) — se divergir, gera participações duplicadas em participacoes_comprasnet.
+ */
+function buildCompraId(compra) {
+  if (!compra) return null;
+  if (compra.compraId && typeof compra.compraId === 'string' && compra.compraId.length >= 15) {
+    return compra.compraId;
+  }
+  const uasg = String(compra.numeroUasg || compra.uasg || '').replace(/\D/g, '').padStart(6, '0');
+  const mod  = String(compra.codigoModalidade || compra.modalidade || '').replace(/\D/g, '').padStart(2, '0');
+  const num  = String(compra.numero || compra.numeroCompra || compra.sequencial || '').replace(/\D/g, '').padStart(5, '0');
+  const ano  = String(compra.ano || compra.anoCompra || '').replace(/\D/g, '');
+  if (!uasg || uasg === '000000' || !ano || ano.length < 4) return null;
+  return uasg + mod + num + ano;
+}
 
 const API_HEADERS = {
   'Accept': 'application/json, text/plain, */*',
@@ -69,7 +91,7 @@ class SniperLance {
       const ts  = db.prepare("SELECT valor FROM config WHERE chave = 'bearer_timestamp'").get();
       if (row && row.valor && ts && ts.valor) {
         const idade = (Date.now() - new Date(ts.valor).getTime()) / 1000;
-        if (idade < 540) {
+        if (idade < TOKEN_SAFE_MARGIN_S) {
           this.bearerToken = row.valor;
           this.tokenRecebidoEm = ts.valor;
           this.tokenSource = src ? src.valor : 'db';
@@ -108,7 +130,7 @@ class SniperLance {
       const prioNovo = prioridade[source] || 0;
 
       // Token atual ainda válido e fonte nova tem prioridade menor → rejeitar
-      if (idade < 540 && prioNovo < prioAtual) {
+      if (idade < TOKEN_SAFE_MARGIN_S && prioNovo < prioAtual) {
         return; // Silencioso — não poluir log
       }
 
@@ -439,16 +461,26 @@ class SniperLance {
 
       const resultados = [];
 
+      // Status codes: 400 = payload inválido; 401 = token morto; 422 = regra de negócio.
+      // Nenhum deles se resolve com retry — retentar desperdiça janela crítica da blitz.
+      const FATAL_STATUSES = new Set([400, 401, 403, 422]);
+
       for (let t = 0; t < tentativas; t++) {
+        let ultimoStatus = null;
         try {
           const resultado = await this.enviarLance(compraId, itemNumero, valor, faseItem);
           resultados.push(resultado);
+          ultimoStatus = resultado.status;
 
           if (resultado.sucesso) {
             this.log(`✅ Tentativa ${t + 1}/${tentativas}: SUCESSO em ${resultado.tempoMs}ms`);
             break;
           } else {
             this.log(`⚠️ Tentativa ${t + 1}/${tentativas}: falhou (${resultado.status})`);
+            if (FATAL_STATUSES.has(resultado.status)) {
+              this.log(`🛑 Status ${resultado.status} é fatal — abortando retries`);
+              break;
+            }
           }
         } catch (e) {
           this.log(`❌ Tentativa ${t + 1}/${tentativas}: erro - ${e.message}`);
@@ -667,7 +699,7 @@ class SniperLance {
 
       for (const item of items) {
         const compra = item.compra || item;
-        const compraId = compra.compraId || `${compra.numeroUasg || ''}${compra.ano || ''}${compra.numero || ''}`;
+        const compraId = buildCompraId(compra);
         if (!compraId) continue;
 
         const existe = db.prepare('SELECT id FROM participacoes_comprasnet WHERE compraId = ?').get(compraId);
@@ -824,3 +856,6 @@ class SniperLance {
 }
 
 module.exports = SniperLance;
+module.exports.TOKEN_MAX_AGE_S = TOKEN_MAX_AGE_S;
+module.exports.TOKEN_SAFE_MARGIN_S = TOKEN_SAFE_MARGIN_S;
+module.exports.buildCompraId = buildCompraId;
