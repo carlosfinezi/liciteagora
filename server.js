@@ -16,12 +16,55 @@ const crypto = require('crypto');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth } = require('./auth');
+const { registrarRotasUsuarios } = require('./usuarios-routes');
+const { registrarRotasAuditoria } = require('./audit-log');
+const { registrarRotasDevolucoes } = require('./devolucoes-routes');
+const { registrarRotasCrm } = require('./crm-routes');
+const { registrarRotasGerencial } = require('./gerencial-routes');
+const { registrarRotasConciliacao } = require('./conciliacao-routes');
+const { registrarRotasComissoes } = require('./comissoes-routes');
+const { registrarRotasContratos } = require('./contratos-routes');
+const { registrarRotasOS } = require('./os-routes');
+const { registrarRotasComm } = require('./comm-routes');
+const { registrarRotasMDFe } = require('./mdfe-routes');
+const { registrarRotasRH } = require('./rh-routes');
+const { registrarRotasPatrimonio } = require('./patrimonio-routes');
+const { registrarRotasRoteirizacao } = require('./roteirizacao-routes');
+const { registrarRotasCTe } = require('./cte-routes');
+const { registrarRotasMarketplaces } = require('./marketplaces-routes');
+const { registrarRotasTEF } = require('./tef-routes');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { registrarRotasSniper, getSniper, getPuppeteerSession } = require('./sniper-lance-routes');
 const { registrarRotasNfse } = require('./nfse-routes');
 const { registrarRotasFinanceiro, agendarPollingBoletos } = require('./financeiro-routes');
 const { registrarRotasRecorrencia } = require('./recorrencia-routes');
+const { registrarRotasProdutos } = require('./produtos-routes');
+const { registrarRotasEstoque } = require('./estoque-routes');
+const { registrarRotasLotes } = require('./lotes-routes');
+const { registrarRotasSerial } = require('./serial-routes');
+const { registrarRotasReservas } = require('./reservas-routes');
+const { registrarRotasInventario } = require('./inventario-routes');
+const { registrarRotasPedidosCompra } = require('./pedidos-compra-routes');
+const { registrarRotasPedidos } = require('./pedidos-routes');
+const { registrarRotasFaturas } = require('./faturas-routes');
+const { registrarRotasContasFinanceiras } = require('./contas-financeiras-routes');
+const { registrarRotasNfeEmit } = require('./nfe-emit-routes');
+const { registrarRotasNfeEntrada } = require('./nfe-entrada-routes');
+const { registrarRotasContasPagar } = require('./contas-pagar-routes');
+const { registrarRotasContasReceber } = require('./contas-receber-routes');
+const { registrarRotasFluxoCaixa } = require('./fluxo-caixa-routes');
+const { registrarRotasFiscalSN } = require('./fiscal-sn-routes');
+const { registrarRotasLivroCaixa } = require('./livro-caixa-routes');
+const { registrarRotasFiscalArquivamento } = require('./fiscal-arquivamento-routes');
+const { registrarRotasRetencoes } = require('./retencoes-routes');
+const { registrarRotasDefis } = require('./defis-routes');
+const { registrarRotasNFCe } = require('./nfce-routes');
+const { registrarRotasImportacao } = require('./importacao-routes');
+const { registrarRotasCFOPs } = require('./cfops-routes');
 const { agendarRecorrencias } = require('./recorrencia-scheduler');
+const { registrarRotasCobrancas } = require('./cobrancas-routes');
+const { agendarCobrancas } = require('./cobranca-scheduler');
+const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
 const comprasnetLoginRoutes = require('./comprasnet-login-routes');
 
 // Armazenar instâncias de monitoramento ativas
@@ -101,6 +144,26 @@ db.exec(`
     valor TEXT,
     dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS resultados_bi (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cnpj TEXT NOT NULL,
+    ano INTEGER NOT NULL,
+    sequencial INTEGER NOT NULL,
+    numeroItem INTEGER NOT NULL,
+    niFornecedor TEXT,
+    nomeRazaoSocialFornecedor TEXT,
+    valorUnitarioHomologado REAL,
+    valorTotalHomologado REAL,
+    marcaFabricante TEXT,
+    modeloVersao TEXT,
+    dataResultado TEXT,
+    dadosCompletos TEXT,
+    dataCache TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(cnpj, ano, sequencial, numeroItem, niFornecedor)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_resultados_bi_item ON resultados_bi(cnpj, ano, sequencial, numeroItem);
 
   CREATE INDEX IF NOT EXISTS idx_licitacoes_encerramento ON licitacoes(dataEncerramentoProposta);
   CREATE INDEX IF NOT EXISTS idx_licitacoes_publicacao ON licitacoes(dataPublicacaoPncp);
@@ -514,6 +577,19 @@ db.exec(`
     timestamp TEXT DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_sniper_class_compra ON sniper_classificacao(compraId, itemNumero);
+
+  -- Agendamentos de blitz persistidos (sobrevivem a restart do servidor)
+  CREATE TABLE IF NOT EXISTS blitz_agendadas (
+    blitzKey TEXT PRIMARY KEY,
+    compraId TEXT NOT NULL,
+    itemNumero INTEGER NOT NULL,
+    horario TEXT NOT NULL,
+    alvoMs INTEGER NOT NULL,
+    maxLances INTEGER DEFAULT 50,
+    modoBlitz TEXT DEFAULT 'cobrir',
+    agendadoEm TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_blitz_alvo ON blitz_agendadas(alvoMs);
 
   CREATE TABLE IF NOT EXISTS licitacao_analise (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1178,9 +1254,13 @@ app.post('/api/login', (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
     return res.json({ success: false, error: 'Usuário ou senha incorretos' });
   }
+  if (user.ativo === 0) {
+    return res.json({ success: false, error: 'Usuário inativo' });
+  }
+  db.prepare('UPDATE users SET ultimoLogin = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
   req.session.userId = user.id;
   req.session.username = user.username;
-  res.json({ success: true, username: user.username });
+  res.json({ success: true, username: user.username, nome: user.nome, role: user.role });
 });
 
 // Logout (público)
@@ -1194,6 +1274,11 @@ app.post('/api/logout', (req, res) => {
     res.json({ success: true });
   }
 });
+
+// ==================== PORTAL DO CLIENTE (antes do auth) ====================
+app.use('/portal', express.static(path.join(__dirname, 'public', 'portal')));
+const { registrarRotasPortal, registrarRotasPortalAdmin } = require('./portal-routes');
+registrarRotasPortal(app, db);
 
 // ==================== DOWNLOAD PÚBLICO (antes do auth) ====================
 app.get('/download/:file', (req, res) => {
@@ -1275,20 +1360,27 @@ app.get('/api/electron/status', (req, res) => {
 });
 
 // ─── Endpoint para Electron remoto buscar credenciais ──────────────────────
+// SEC-01 (2026-04-18): exige X-Api-Key. Electron que ainda não tem a chave deve
+// receber via --api-key, LICITEAGORA_API_KEY ou configuração manual inicial.
+// NUNCA devolver apiKey no corpo — rotaciona-la exige deploy manual.
 app.get('/api/electron/credentials', (req, res) => {
   try {
+    const headerKey = req.headers['x-api-key'];
+    if (!headerKey || headerKey !== apiKey) {
+      return res.status(401).json({ error: 'X-Api-Key obrigatório' });
+    }
     const cpf = db.prepare("SELECT valor FROM config WHERE chave = 'govbr_cpf'").get();
     const senha = db.prepare("SELECT valor FROM config WHERE chave = 'govbr_senha'").get();
-    const key = db.prepare("SELECT valor FROM config WHERE chave = 'api_key'").get();
     if (!cpf || !senha) return res.json({ error: 'Credenciais não configuradas' });
-    res.json({ cpf: cpf.valor, senha: senha.valor, apiKey: key ? key.valor : null });
+    // apiKey NÃO é mais devolvida aqui — o cliente já precisa tê-la para passar na validação acima.
+    res.json({ cpf: cpf.valor, senha: senha.valor });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
 // Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
-app.use(requireAuth(apiKey));
+app.use(requireAuth(apiKey, db));
 
 // Alterar senha (protegido)
 app.post('/api/change-password', (req, res) => {
@@ -3087,7 +3179,7 @@ app.post('/api/fornecedor', (req, res) => {
   try {
     const {
       razaoSocial, nomeFantasia, cnpj, inscricaoEstadual, inscricaoMunicipal,
-      endereco, numero, complemento, bairro, cidade, uf, cep,
+      endereco, numero, complemento, bairro, cidade, uf, cep, codigoMunicipio,
       telefone, celular, email, site,
       representanteLegal, cpfRepresentante, cargoRepresentante,
       banco, agencia, conta, tipoConta,
@@ -3150,6 +3242,13 @@ app.post('/api/fornecedor', (req, res) => {
         declaracaoMeEpp ? 1 : 0, declaracaoProgramasIntegridade ? 1 : 0, declaracaoEquidadeGenero ? 1 : 0
       );
     }
+
+    // Grava codigoMunicipio separadamente (coluna adicionada pela migração NF-e)
+    try {
+      if (codigoMunicipio != null) {
+        db.prepare('UPDATE fornecedor SET codigoMunicipio = ? WHERE id = 1').run(codigoMunicipio);
+      }
+    } catch {}
 
     res.json({ success: true, message: 'Dados do fornecedor salvos com sucesso' });
   } catch (error) {
@@ -3568,11 +3667,58 @@ registrarRotasSniper(app, getMonitor, db);
 // ==================== NFSE NACIONAL ====================
 registrarRotasNfse(app, db);
 
+// ==================== COBRANCAS + WHATSAPP ====================
+registrarRotasCobrancas(app, db);
+registrarRotasWhatsApp(app, db);
+
 // ==================== FINANCEIRO (Pessoas, Contas a Receber, Boletos, MercadoPago) ====================
 registrarRotasFinanceiro(app, db);
 
 // ==================== RECORRENCIAS NFSE ====================
 registrarRotasRecorrencia(app, db);
+
+// ==================== SUPRIMENTOS (Produtos, Estoque, Pedidos) ====================
+registrarRotasProdutos(app, db);
+registrarRotasEstoque(app, db);
+registrarRotasLotes(app, db);
+registrarRotasSerial(app, db);
+registrarRotasReservas(app, db);
+registrarRotasInventario(app, db);
+registrarRotasPedidosCompra(app, db);
+registrarRotasPedidos(app, db);
+registrarRotasContasFinanceiras(app, db);
+registrarRotasFaturas(app, db);
+registrarRotasNfeEmit(app, db);
+registrarRotasNfeEntrada(app, db);
+registrarRotasContasPagar(app, db);
+registrarRotasContasReceber(app, db);
+registrarRotasFluxoCaixa(app, db);
+registrarRotasFiscalSN(app, db);
+registrarRotasLivroCaixa(app, db);
+registrarRotasFiscalArquivamento(app, db);
+registrarRotasRetencoes(app, db);
+registrarRotasDefis(app, db);
+registrarRotasNFCe(app, db);
+registrarRotasImportacao(app, db);
+registrarRotasCFOPs(app, db);
+registrarRotasUsuarios(app, db);
+registrarRotasAuditoria(app, db);
+registrarRotasDevolucoes(app, db);
+registrarRotasCrm(app, db);
+registrarRotasGerencial(app, db);
+registrarRotasConciliacao(app, db);
+registrarRotasComissoes(app, db);
+registrarRotasContratos(app, db);
+registrarRotasPortalAdmin(app, db);
+registrarRotasOS(app, db);
+registrarRotasComm(app, db);
+registrarRotasMDFe(app, db);
+registrarRotasRH(app, db);
+registrarRotasPatrimonio(app, db);
+registrarRotasRoteirizacao(app, db);
+registrarRotasCTe(app, db);
+registrarRotasMarketplaces(app, db);
+registrarRotasTEF(app, db);
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
@@ -10199,7 +10345,7 @@ app.get('/api/extensoes/:slug/download', (req, res) => {
 // Pesquisar itens por palavra-chave (busca local)
 app.get('/api/bi/pesquisar', async (req, res) => {
   try {
-    const { q, pagina = 1, tamanhoPagina = 50 } = req.query;
+    const { q, pagina = 1, tamanhoPagina = 50, apenasHomologados } = req.query;
     if (!q || q.trim().length < 3) {
       return res.status(400).json({ error: 'Termo de busca deve ter pelo menos 3 caracteres' });
     }
@@ -10218,14 +10364,25 @@ app.get('/api/bi/pesquisar', async (req, res) => {
     // Só licitações com proposta já encerrada
     const filtroEncerrada = `AND l.dataEncerramentoProposta < datetime('now')`;
 
+    // Filtro de apenas homologados: JOIN com cache de resultados
+    const joinHomologados = apenasHomologados === '1'
+      ? `JOIN resultados_bi rb ON rb.cnpj = l.cnpj AND rb.ano = l.anoCompra AND rb.sequencial = l.sequencialCompra AND rb.numeroItem = i.numeroItem AND rb.niFornecedor != '__sem_resultado__'`
+      : '';
+    const distinctClause = apenasHomologados === '1' ? 'DISTINCT' : '';
+
     const countRow = db.prepare(`
-      SELECT COUNT(*) as total FROM itens i
+      SELECT COUNT(${distinctClause} i.id) as total FROM itens i
       JOIN licitacoes l ON i.licitacaoId = l.id
+      ${joinHomologados}
       WHERE ${conditions} ${filtroEncerrada}
     `).get(...params);
 
+    const selectResultados = apenasHomologados === '1'
+      ? `, rb.niFornecedor, rb.nomeRazaoSocialFornecedor, rb.valorUnitarioHomologado, rb.valorTotalHomologado, rb.marcaFabricante, rb.modeloVersao, rb.dataResultado`
+      : '';
+
     const itens = db.prepare(`
-      SELECT
+      SELECT ${distinctClause}
         i.id as itemId,
         i.numeroItem,
         i.descricao as itemDescricao,
@@ -10247,8 +10404,10 @@ app.get('/api/bi/pesquisar', async (req, res) => {
         l.dataPublicacaoPncp,
         l.dataEncerramentoProposta,
         l.numeroControlePNCP
+        ${selectResultados}
       FROM itens i
       JOIN licitacoes l ON i.licitacaoId = l.id
+      ${joinHomologados}
       WHERE ${conditions} ${filtroEncerrada}
       ORDER BY l.dataPublicacaoPncp DESC
       LIMIT ? OFFSET ?
@@ -10259,7 +10418,8 @@ app.get('/api/bi/pesquisar', async (req, res) => {
       pagina: parseInt(pagina),
       tamanhoPagina: parseInt(tamanhoPagina),
       totalPaginas: Math.ceil(countRow.total / parseInt(tamanhoPagina)),
-      itens
+      itens,
+      apenasHomologados: apenasHomologados === '1'
     });
 
   } catch (error) {
@@ -10291,7 +10451,7 @@ app.get('/api/bi/resultado/:cnpj/:ano/:sequencial/:numeroItem', async (req, res)
 });
 
 // Buscar resultados em lote (até 10 itens por vez)
-// Tenta PNCP API primeiro, depois dadosabertos.compras.gov.br para enriquecer com marca/modelo
+// Usa cache local (resultados_bi) e só consulta PNCP para itens não cacheados
 app.post('/api/bi/resultados-lote', async (req, res) => {
   try {
     const { itens } = req.body; // [{cnpj, ano, sequencial, numeroItem}]
@@ -10302,20 +10462,73 @@ app.post('/api/bi/resultados-lote', async (req, res) => {
     const lote = itens.slice(0, 10); // Máximo 10 por vez
     const resultados = [];
 
+    const stmtBuscarCache = db.prepare(`
+      SELECT * FROM resultados_bi WHERE cnpj = ? AND ano = ? AND sequencial = ? AND numeroItem = ?
+    `);
+    const stmtInserirCache = db.prepare(`
+      INSERT OR REPLACE INTO resultados_bi (cnpj, ano, sequencial, numeroItem, niFornecedor, nomeRazaoSocialFornecedor, valorUnitarioHomologado, valorTotalHomologado, marcaFabricante, modeloVersao, dataResultado, dadosCompletos)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    // Marca que item foi consultado mas não tem resultado (para não reconsultar)
+    const stmtMarcarSemResultado = db.prepare(`
+      INSERT OR IGNORE INTO resultados_bi (cnpj, ano, sequencial, numeroItem, niFornecedor, nomeRazaoSocialFornecedor)
+      VALUES (?, ?, ?, ?, '__sem_resultado__', '')
+    `);
+
     for (const item of lote) {
+      // Verificar cache primeiro
+      const cached = stmtBuscarCache.all(item.cnpj, item.ano, item.sequencial, item.numeroItem);
+      if (cached.length > 0) {
+        // Filtrar marcador de sem_resultado
+        const reais = cached.filter(c => c.niFornecedor !== '__sem_resultado__');
+        resultados.push({
+          cnpj: item.cnpj,
+          ano: item.ano,
+          sequencial: item.sequencial,
+          numeroItem: item.numeroItem,
+          resultados: reais.map(c => ({
+            niFornecedor: c.niFornecedor,
+            nomeRazaoSocialFornecedor: c.nomeRazaoSocialFornecedor,
+            valorUnitarioHomologado: c.valorUnitarioHomologado,
+            valorTotalHomologado: c.valorTotalHomologado,
+            marcaFabricante: c.marcaFabricante,
+            modeloVersao: c.modeloVersao,
+            dataResultado: c.dataResultado
+          })),
+          cache: true
+        });
+        continue;
+      }
+
+      // Sem cache — consultar PNCP
       try {
         const url = `${PNCP_API_ITENS}/orgaos/${item.cnpj}/compras/${item.ano}/${item.sequencial}/itens/${item.numeroItem}/resultados`;
         const response = await axios.get(url, {
           headers: { 'Accept': 'application/json' },
           timeout: 10000
         });
+        const resData = response.data || [];
         resultados.push({
           cnpj: item.cnpj,
           ano: item.ano,
           sequencial: item.sequencial,
           numeroItem: item.numeroItem,
-          resultados: response.data || []
+          resultados: resData
         });
+        // Salvar no cache
+        if (resData.length > 0) {
+          for (const r of resData) {
+            stmtInserirCache.run(
+              item.cnpj, item.ano, item.sequencial, item.numeroItem,
+              r.niFornecedor || '', r.nomeRazaoSocialFornecedor || '',
+              r.valorUnitarioHomologado || null, r.valorTotalHomologado || null,
+              r.marcaFabricante || r.marca || '', r.modeloVersao || '',
+              r.dataResultado || '', JSON.stringify(r)
+            );
+          }
+        } else {
+          stmtMarcarSemResultado.run(item.cnpj, item.ano, item.sequencial, item.numeroItem);
+        }
       } catch (err) {
         resultados.push({
           cnpj: item.cnpj,
@@ -10325,6 +10538,10 @@ app.post('/api/bi/resultados-lote', async (req, res) => {
           resultados: [],
           erro: err.response?.status === 404 ? 'sem_resultado' : err.message
         });
+        // Marcar sem resultado no cache para 404
+        if (err.response?.status === 404) {
+          stmtMarcarSemResultado.run(item.cnpj, item.ano, item.sequencial, item.numeroItem);
+        }
       }
       // Pequeno delay entre chamadas para não sobrecarregar PNCP
       await new Promise(r => setTimeout(r, 100));
@@ -10624,6 +10841,9 @@ app.listen(PORT, () => {
 
   // Agendar Recorrências NFSe
   agendarRecorrencias(db);
+
+  // Agendar Cobranças (régua diária)
+  agendarCobrancas(db);
 
   // Polling boletos MercadoPago (a cada 30 min)
   agendarPollingBoletos(db);

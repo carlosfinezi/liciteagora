@@ -65,8 +65,14 @@ function createSessionStore(session, db) {
   return new SqliteSessionStore();
 }
 
+// Perfis disponíveis (cada perfil corresponde a um conjunto de áreas do menu)
+const ROLES = ['admin', 'financeiro', 'comercial', 'operacional', 'licitacoes'];
+
+function alterSafe(db, sql) { try { db.exec(sql); } catch { /* coluna ja existe */ } }
+
 /**
- * Cria tabela users e usuario admin inicial
+ * Cria tabela users, audit_log e usuario admin inicial.
+ * Migra users legados para role='admin' (compat retroativo).
  */
 function criarUsuarioInicial(db) {
   db.exec(`
@@ -78,10 +84,39 @@ function criarUsuarioInicial(db) {
     )
   `);
 
+  // Migrações idempotentes
+  for (const col of [
+    "nome TEXT",
+    "email TEXT",
+    "role TEXT NOT NULL DEFAULT 'admin'",
+    "ativo INTEGER NOT NULL DEFAULT 1",
+    "ultimoLogin TEXT"
+  ]) {
+    alterSafe(db, `ALTER TABLE users ADD COLUMN ${col}`);
+  }
+
+  // Tabela de auditoria
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER,
+      username TEXT,
+      action TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entityId TEXT,
+      payload TEXT,
+      ip TEXT,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(userId, createdAt);
+    CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entityId);
+    CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(createdAt);
+  `);
+
   const existente = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
   if (!existente) {
     const hash = bcrypt.hashSync('admin', 10);
-    db.prepare('INSERT INTO users (username, passwordHash) VALUES (?, ?)').run('admin', hash);
+    db.prepare("INSERT INTO users (username, passwordHash, nome, role, ativo) VALUES (?, ?, ?, 'admin', 1)").run('admin', hash, 'Administrador');
     console.log('');
     console.log('╔══════════════════════════════════════════════╗');
     console.log('║  USUARIO INICIAL CRIADO: admin / admin       ║');
@@ -123,22 +158,50 @@ function getApiKey(db) {
 }
 
 /**
- * Middleware requireAuth — redireciona para login ou retorna 401
+ * Middleware requireAuth — redireciona para login ou retorna 401.
+ * Quando autenticado por sessão, injeta req.user = { id, username, nome, role, email, ativo }.
  */
-function requireAuth(apiKey) {
+function requireAuth(apiKey, db) {
+  const getUser = db ? db.prepare('SELECT id, username, nome, email, role, ativo FROM users WHERE id = ?') : null;
+
   return (req, res, next) => {
     // Bypass: webhook MercadoPago
     if (req.path === '/api/webhooks/mercadopago') return next();
 
-    // Bypass: endpoints públicos do Electron (auto-update, erros, logs)
-    if (req.path.startsWith('/api/electron/')) return next();
+    // Bypass: endpoints públicos do Electron — somente os estritamente necessários para
+    // auto-update e coleta de logs/erros antes do bootstrap de sessão.
+    // SEC-01 (2026-04-18): /credentials NÃO está aqui — requer X-Api-Key explícito no handler.
+    // /errors e /status não bypassam mais porque expõem logs/estado do cliente.
+    const electronPublic = new Set([
+      '/api/electron/download',
+      '/api/electron/download-exe',
+      '/api/electron/check-version',
+      '/api/electron/error',
+      '/api/electron/logs'
+    ]);
+    if (electronPublic.has(req.path)) return next();
 
-    // Bypass: extensão Chrome via X-Api-Key
+    // Bypass: portal externo do cliente (auth próprio via cliente_logins)
+    if (req.path.startsWith('/portal/')) return next();
+
+    // Bypass: extensão Chrome via X-Api-Key (sem req.user — atua como sistema)
     const headerKey = req.headers['x-api-key'];
     if (headerKey && headerKey === apiKey) return next();
 
     // Verificar sessão
-    if (req.session && req.session.userId) return next();
+    if (req.session && req.session.userId) {
+      if (getUser) {
+        const user = getUser.get(req.session.userId);
+        if (user && user.ativo) {
+          req.user = user;
+          return next();
+        }
+        // Usuário foi inativado/deletado — destruir sessão
+        req.session.destroy(() => {});
+      } else {
+        return next();
+      }
+    }
 
     // Não autenticado
     if (req.path.startsWith('/api/')) {
@@ -150,4 +213,17 @@ function requireAuth(apiKey) {
   };
 }
 
-module.exports = { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth };
+/**
+ * Factory de middleware: exige que req.user.role esteja em roles.
+ * Extensão Chrome (X-Api-Key) passa por sem checagem (req.user undefined → assume sistema).
+ */
+function requireRole(roles) {
+  const allowed = new Set(Array.isArray(roles) ? roles : [roles]);
+  return (req, res, next) => {
+    if (!req.user) return next(); // X-Api-Key bypass — atua como sistema
+    if (allowed.has(req.user.role)) return next();
+    res.status(403).json({ error: 'Acesso negado: perfil insuficiente' });
+  };
+}
+
+module.exports = { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth, requireRole, ROLES };
