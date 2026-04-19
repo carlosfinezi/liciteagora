@@ -7,6 +7,8 @@
  */
 
 const { MercadoPagoClient, loadMPConfig } = require('./mercadopago-client');
+const { lancarMovimentacao, getContaMercadoPago } = require('./contas-financeiras-routes');
+const { registrarBaixaCR } = require('./contas-receber-routes');
 
 // ==================== MIGRAÇÃO ====================
 
@@ -69,6 +71,10 @@ function migrarDB(db) {
 
     CREATE TABLE IF NOT EXISTS mp_config (key TEXT PRIMARY KEY, value TEXT);
   `);
+
+  // Vincula CR à fatura e permite múltiplas CRs por fatura (parcelamento misto)
+  try { db.exec(`ALTER TABLE contas_a_receber ADD COLUMN faturaId INTEGER`); } catch { /* ja existe */ }
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_cr_fatura ON contas_a_receber(faturaId)`); } catch {}
 
   // Migrar colunas se tabela boletos ja existia com schema Stone
   try {
@@ -215,7 +221,7 @@ function registrarRotasFinanceiro(app, db) {
     try {
       const { cpfCnpj, razaoSocial, nomeFantasia, inscricaoMunicipal,
               endereco, numero, complemento, bairro, codigoMunicipio, cidade, uf, cep,
-              telefone, email, emailsAdicionais, observacoes } = req.body;
+              telefone, email, emailsAdicionais, observacoes, contribuinteIcms } = req.body;
 
       if (!cpfCnpj || !razaoSocial) {
         return res.status(400).json({ success: false, error: 'CPF/CNPJ e Razao Social sao obrigatorios' });
@@ -223,6 +229,7 @@ function registrarRotasFinanceiro(app, db) {
 
       const cpfLimpo = cpfCnpj.replace(/\D/g, '');
       const tipo = detectarTipoPessoa(cpfLimpo);
+      const contribIcms = contribuinteIcms ? 1 : 0;
 
       const existente = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo);
       if (existente) {
@@ -230,11 +237,11 @@ function registrarRotasFinanceiro(app, db) {
           db.prepare(`UPDATE pessoas SET ativo = 1, razaoSocial = ?, nomeFantasia = ?, tipo = ?,
             inscricaoMunicipal = ?, endereco = ?, numero = ?, complemento = ?, bairro = ?,
             codigoMunicipio = ?, cidade = ?, uf = ?, cep = ?, telefone = ?, email = ?,
-            emailsAdicionais = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
+            emailsAdicionais = ?, observacoes = ?, contribuinteIcms = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
           ).run(razaoSocial, nomeFantasia || null, tipo,
             inscricaoMunicipal || null, endereco || null, numero || null, complemento || null, bairro || null,
             codigoMunicipio || null, cidade || null, uf || null, cep || null, telefone || null, email || null,
-            emailsAdicionais || null, observacoes || null, existente.id);
+            emailsAdicionais || null, observacoes || null, contribIcms, existente.id);
           const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(existente.id);
           return res.json({ success: true, pessoa, reativada: true });
         }
@@ -244,11 +251,11 @@ function registrarRotasFinanceiro(app, db) {
       const result = db.prepare(
         `INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, nomeFantasia, inscricaoMunicipal,
           endereco, numero, complemento, bairro, codigoMunicipio, cidade, uf, cep,
-          telefone, email, emailsAdicionais, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          telefone, email, emailsAdicionais, observacoes, contribuinteIcms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(cpfLimpo, tipo, razaoSocial, nomeFantasia || null, inscricaoMunicipal || null,
         endereco || null, numero || null, complemento || null, bairro || null,
         codigoMunicipio || null, cidade || null, uf || null, cep || null,
-        telefone || null, email || null, emailsAdicionais || null, observacoes || null);
+        telefone || null, email || null, emailsAdicionais || null, observacoes || null, contribIcms);
 
       const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(result.lastInsertRowid);
       res.json({ success: true, pessoa });
@@ -261,7 +268,7 @@ function registrarRotasFinanceiro(app, db) {
     try {
       const { razaoSocial, nomeFantasia, inscricaoMunicipal,
               endereco, numero, complemento, bairro, codigoMunicipio, cidade, uf, cep,
-              telefone, email, emailsAdicionais, observacoes } = req.body;
+              telefone, email, emailsAdicionais, observacoes, contribuinteIcms } = req.body;
 
       const existing = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(req.params.id);
       if (!existing) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
@@ -269,7 +276,7 @@ function registrarRotasFinanceiro(app, db) {
       db.prepare(`UPDATE pessoas SET razaoSocial = ?, nomeFantasia = ?, inscricaoMunicipal = ?,
         endereco = ?, numero = ?, complemento = ?, bairro = ?,
         codigoMunicipio = ?, cidade = ?, uf = ?, cep = ?,
-        telefone = ?, email = ?, emailsAdicionais = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP
+        telefone = ?, email = ?, emailsAdicionais = ?, observacoes = ?, contribuinteIcms = ?, dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = ?`
       ).run(
         razaoSocial || existing.razaoSocial, nomeFantasia ?? existing.nomeFantasia,
@@ -280,7 +287,9 @@ function registrarRotasFinanceiro(app, db) {
         uf ?? existing.uf, cep ?? existing.cep,
         telefone ?? existing.telefone, email ?? existing.email,
         emailsAdicionais !== undefined ? (emailsAdicionais || null) : existing.emailsAdicionais,
-        observacoes ?? existing.observacoes, req.params.id
+        observacoes ?? existing.observacoes,
+        contribuinteIcms !== undefined ? (contribuinteIcms ? 1 : 0) : existing.contribuinteIcms,
+        req.params.id
       );
 
       const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(req.params.id);
@@ -300,235 +309,11 @@ function registrarRotasFinanceiro(app, db) {
     }
   });
 
-  // ==================== CONTAS A RECEBER ====================
+  // ==================== CONTAS A RECEBER — MOVIDO PARA contas-receber-routes.js ====================
+  // Endpoints /api/contas-a-receber/** (listar, resumo, detalhe, criar, editar, baixar, cancelar, reabrir, duplicar, anexos, categorias)
+  // foram extraídos para contas-receber-routes.js. Aqui continuam apenas os endpoints acoplados a
+  // MercadoPago / boletos. O webhook e o polling usam registrarBaixaCR para registrar baixas.
 
-  app.get('/api/contas-a-receber', (req, res) => {
-    try {
-      const { status, pessoaId, dataInicio, dataFim, busca, nota, nDPS } = req.query;
-      let sql = `SELECT c.*,
-        CASE WHEN c.status='aberta' AND c.dataVencimento < date('now') THEN 'vencida' ELSE c.status END AS statusReal,
-        p.razaoSocial AS pessoaNome, p.cpfCnpj AS pessoaCpfCnpj,
-        b.id AS boletoId, b.status AS boletoStatus, b.barcode, b.writableLine, b.externalUrl
-        FROM contas_a_receber c
-        JOIN pessoas p ON p.id = c.pessoaId
-        LEFT JOIN boletos b ON b.contaReceberId = c.id AND b.id = (SELECT MAX(b2.id) FROM boletos b2 WHERE b2.contaReceberId = c.id)
-        WHERE 1=1`;
-      const params = [];
-
-      if (status) {
-        if (status === 'vencida') {
-          sql += ` AND c.status = 'aberta' AND c.dataVencimento < date('now')`;
-        } else {
-          sql += ' AND c.status = ?';
-          params.push(status);
-        }
-      }
-      if (pessoaId) { sql += ' AND c.pessoaId = ?'; params.push(pessoaId); }
-      if (dataInicio) { sql += ' AND c.dataVencimento >= ?'; params.push(dataInicio); }
-      if (dataFim) { sql += ' AND c.dataVencimento <= ?'; params.push(dataFim); }
-      if (busca) { sql += ' AND (p.razaoSocial LIKE ? OR p.cpfCnpj LIKE ? OR c.descricao LIKE ?)'; params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`); }
-      if (nota === 'com') { sql += ' AND c.nfseId IS NOT NULL'; }
-      else if (nota === 'sem') { sql += ' AND c.nfseId IS NULL'; }
-      else if (nota && nota.startsWith('nfse:')) { sql += ' AND c.nfseId = ?'; params.push(parseInt(nota.split(':')[1])); }
-      if (nDPS) { sql += ' AND c.nfseId IN (SELECT id FROM nfse WHERE nDPS = ?)'; params.push(parseInt(nDPS)); }
-
-      sql += ' ORDER BY c.dataVencimento ASC';
-      const contas = db.prepare(sql).all(...params);
-      res.json({ success: true, contas });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.get('/api/contas-a-receber/resumo', (req, res) => {
-    try {
-      const resumo = db.prepare(`
-        SELECT
-          COALESCE(SUM(CASE WHEN status='aberta' AND dataVencimento >= date('now') THEN valor END), 0) AS totalAberta,
-          COALESCE(SUM(CASE WHEN status='aberta' AND dataVencimento < date('now') THEN valor END), 0) AS totalVencida,
-          COALESCE(SUM(CASE WHEN status='paga' AND dataPagamento >= date('now', 'start of month') THEN valorPago END), 0) AS recebidoMes,
-          COUNT(CASE WHEN status='aberta' AND dataVencimento >= date('now') THEN 1 END) AS qtdAberta,
-          COUNT(CASE WHEN status='aberta' AND dataVencimento < date('now') THEN 1 END) AS qtdVencida,
-          COUNT(CASE WHEN status='paga' AND dataPagamento >= date('now', 'start of month') THEN 1 END) AS qtdPagaMes
-        FROM contas_a_receber
-      `).get();
-      res.json({ success: true, resumo });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.get('/api/contas-a-receber/:id', (req, res) => {
-    try {
-      const conta = db.prepare(`
-        SELECT c.*,
-          CASE WHEN c.status='aberta' AND c.dataVencimento < date('now') THEN 'vencida' ELSE c.status END AS statusReal,
-          p.razaoSocial AS pessoaNome, p.cpfCnpj AS pessoaCpfCnpj
-        FROM contas_a_receber c
-        JOIN pessoas p ON p.id = c.pessoaId
-        WHERE c.id = ?`).get(req.params.id);
-      if (!conta) return res.status(404).json({ success: false, error: 'Conta nao encontrada' });
-
-      const boletos = db.prepare('SELECT * FROM boletos WHERE contaReceberId = ?').all(req.params.id);
-      res.json({ success: true, conta, boletos });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post('/api/contas-a-receber', async (req, res) => {
-    try {
-      const { pessoaId, descricao, valor, dataVencimento, formaPagamento, observacoes, gerarBoleto } = req.body;
-
-      if (!pessoaId || !descricao || !valor || !dataVencimento) {
-        return res.status(400).json({ success: false, error: 'pessoaId, descricao, valor e dataVencimento sao obrigatorios' });
-      }
-
-      const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ? AND ativo = 1').get(pessoaId);
-      if (!pessoa) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
-
-      const contaId = db.prepare(`
-        INSERT INTO contas_a_receber (pessoaId, descricao, valor, dataEmissao, dataVencimento, formaPagamento, observacoes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(pessoaId, descricao, valor, dataBrasilia(), dataVencimento,
-        formaPagamento || (gerarBoleto ? 'boleto' : null), observacoes || null
-      ).lastInsertRowid;
-
-      let boleto = null;
-      if (gerarBoleto) {
-        const amountCentavos = Math.round(valor * 100);
-        const boletoId = db.prepare(`
-          INSERT INTO boletos (contaReceberId, amount, expirationDate, customerDocument, customerName)
-          VALUES (?, ?, ?, ?, ?)`
-        ).run(contaId, amountCentavos, dataVencimento, pessoa.cpfCnpj, pessoa.razaoSocial).lastInsertRowid;
-
-        boleto = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
-        await emitirBoletoMP(db, boleto, pessoa);
-        boleto = db.prepare('SELECT * FROM boletos WHERE id = ?').get(boletoId);
-      }
-
-      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(contaId);
-      res.json({ success: true, conta, boleto });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.put('/api/contas-a-receber/:id', async (req, res) => {
-    try {
-      const { descricao, valor, dataVencimento, formaPagamento, observacoes } = req.body;
-      const existing = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      if (!existing) return res.status(404).json({ success: false, error: 'Conta nao encontrada' });
-      if (existing.status === 'paga' || existing.status === 'cancelada') {
-        return res.status(400).json({ success: false, error: 'Conta ja finalizada, nao pode ser editada' });
-      }
-
-      const novaData = dataVencimento || existing.dataVencimento;
-
-      db.prepare(`UPDATE contas_a_receber SET descricao = ?, valor = ?, dataVencimento = ?,
-        formaPagamento = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
-      ).run(
-        descricao || existing.descricao, valor || existing.valor,
-        novaData,
-        formaPagamento ?? existing.formaPagamento, observacoes ?? existing.observacoes,
-        req.params.id
-      );
-
-      // Se mudou a data de vencimento e há boleto registrado no MercadoPago, recria o boleto
-      let boletoRecriado = false;
-      if (dataVencimento && dataVencimento !== existing.dataVencimento) {
-        const boleto = db.prepare(`SELECT * FROM boletos WHERE contaReceberId = ? AND status IN ('pendente','registrado') ORDER BY id DESC LIMIT 1`).get(req.params.id);
-        if (boleto) {
-          const mpConfig = loadMPConfig(db);
-          if (mpConfig) {
-            const mp = new MercadoPagoClient(mpConfig);
-
-            // Cancela o boleto antigo no MercadoPago (se tiver mpId)
-            if (boleto.mpId) {
-              try { await mp.cancelarBoleto(boleto.mpId); } catch (e) { console.log('[Boleto] Erro ao cancelar antigo:', e.message); }
-            }
-            db.prepare(`UPDATE boletos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(boleto.id);
-
-            // Cria novo boleto com a data correta
-            const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(existing.pessoaId);
-            const novoBoletoId = db.prepare(`INSERT INTO boletos (contaReceberId, amount, expirationDate, status, customerDocument, customerName) VALUES (?, ?, ?, 'pendente', ?, ?)`).run(
-              req.params.id, boleto.amount, dataVencimento, boleto.customerDocument, boleto.customerName
-            ).lastInsertRowid;
-
-            const novoBoleto = db.prepare('SELECT * FROM boletos WHERE id = ?').get(novoBoletoId);
-            try {
-              await emitirBoletoMP(db, novoBoleto, pessoa, true);
-              boletoRecriado = true;
-            } catch (e) {
-              console.error('[Boleto] Erro ao emitir novo boleto:', e.message);
-            }
-          }
-        }
-      }
-
-      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      res.json({ success: true, conta, boletoRecriado });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post('/api/contas-a-receber/:id/baixar', (req, res) => {
-    try {
-      const { valorPago, dataPagamento, formaPagamento } = req.body;
-      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      if (!conta) return res.status(404).json({ success: false, error: 'Conta nao encontrada' });
-      if (conta.status === 'paga') return res.status(400).json({ success: false, error: 'Conta ja paga' });
-      if (conta.status === 'cancelada') return res.status(400).json({ success: false, error: 'Conta cancelada' });
-
-      db.prepare(`UPDATE contas_a_receber SET status = 'paga', valorPago = ?, dataPagamento = ?,
-        formaPagamento = COALESCE(?, formaPagamento), dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
-      ).run(valorPago || conta.valor, dataPagamento || dataBrasilia(), formaPagamento || null, req.params.id);
-
-      db.prepare(`UPDATE boletos SET status = 'pago', dataAtualizacao = CURRENT_TIMESTAMP
-        WHERE contaReceberId = ? AND status IN ('pendente', 'registrado')`).run(req.params.id);
-
-      const updated = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      res.json({ success: true, conta: updated });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post('/api/contas-a-receber/:id/cancelar', (req, res) => {
-    try {
-      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      if (!conta) return res.status(404).json({ success: false, error: 'Conta nao encontrada' });
-      if (conta.status === 'paga') return res.status(400).json({ success: false, error: 'Conta ja paga, nao pode cancelar' });
-
-      db.prepare(`UPDATE contas_a_receber SET status = 'cancelada', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-        .run(req.params.id);
-
-      db.prepare(`UPDATE boletos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP
-        WHERE contaReceberId = ? AND status IN ('pendente', 'registrado')`).run(req.params.id);
-
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // Reabrir conta cancelada
-  app.post('/api/contas-a-receber/:id/reabrir', (req, res) => {
-    try {
-      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      if (!conta) return res.status(404).json({ success: false, error: 'Conta nao encontrada' });
-      if (conta.status !== 'cancelada') return res.status(400).json({ success: false, error: 'Somente contas canceladas podem ser reabertas' });
-
-      db.prepare(`UPDATE contas_a_receber SET status = 'aberta', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-        .run(req.params.id);
-
-      const updated = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
-      res.json({ success: true, conta: updated });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
 
   // Gerar novo boleto para conta existente
   app.post('/api/contas-a-receber/:id/gerar-boleto', async (req, res) => {
@@ -616,11 +401,22 @@ function registrarRotasFinanceiro(app, db) {
         .run(newStatus, JSON.stringify(resp), req.params.id);
 
       if (newStatus === 'pago' && boleto.contaReceberId) {
-        const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ? AND status != ?').get(boleto.contaReceberId, 'paga');
-        if (conta) {
-          db.prepare(`UPDATE contas_a_receber SET status = 'paga', valorPago = ?, dataPagamento = ?,
-            formaPagamento = 'boleto', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-            .run(conta.valor, dataBrasilia(), boleto.contaReceberId);
+        const contaCR = db.prepare('SELECT status FROM contas_a_receber WHERE id = ?').get(boleto.contaReceberId);
+        if (contaCR && contaCR.status !== 'paga' && contaCR.status !== 'cancelada') {
+          const contaMP = getContaMercadoPago(db);
+          if (contaMP) {
+            try {
+              registrarBaixaCR(db, {
+                contaReceberId: boleto.contaReceberId,
+                contaFinanceiraId: contaMP.id,
+                formaPagamento: 'boleto',
+                origem: 'boleto_mp',
+                observacoes: `Baixa via consulta MP (boleto ${boleto.mpId})`
+              });
+            } catch (e) { console.error('[MP consultar] erro baixando CR:', e.message); }
+          } else {
+            console.warn('[MP consultar] Sem conta MP/banco padrão — CR não baixada automaticamente');
+          }
         }
       }
 
@@ -810,11 +606,22 @@ function registrarRotasFinanceiro(app, db) {
             .run(newStatus, JSON.stringify(payload), JSON.stringify(payment), boleto.id);
 
           if (newStatus === 'pago' && boleto.contaReceberId) {
-            const conta = db.prepare(`SELECT * FROM contas_a_receber WHERE id = ? AND status != 'paga'`).get(boleto.contaReceberId);
-            if (conta) {
-              db.prepare(`UPDATE contas_a_receber SET status = 'paga', valorPago = ?, dataPagamento = ?,
-                formaPagamento = 'boleto', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-                .run(conta.valor, dataBrasilia(), boleto.contaReceberId);
+            const contaCR = db.prepare('SELECT status FROM contas_a_receber WHERE id = ?').get(boleto.contaReceberId);
+            if (contaCR && contaCR.status !== 'paga' && contaCR.status !== 'cancelada') {
+              const contaMP = getContaMercadoPago(db);
+              if (contaMP) {
+                try {
+                  registrarBaixaCR(db, {
+                    contaReceberId: boleto.contaReceberId,
+                    contaFinanceiraId: contaMP.id,
+                    formaPagamento: 'boleto',
+                    origem: 'webhook_mp',
+                    observacoes: `Webhook MP (boleto ${boleto.mpId})`
+                  });
+                } catch (e) { console.error('[MP Webhook] erro baixando CR:', e.message); }
+              } else {
+                console.warn('[MP Webhook] Sem conta MP/banco padrão — CR não baixada automaticamente');
+              }
             }
           }
         } catch (err) {
@@ -862,11 +669,22 @@ function agendarPollingBoletos(db) {
               .run(newStatus, JSON.stringify(payment), boleto.id);
 
             if (newStatus === 'pago' && boleto.contaReceberId) {
-              const conta = db.prepare("SELECT * FROM contas_a_receber WHERE id = ? AND status != 'paga'").get(boleto.contaReceberId);
-              if (conta) {
-                db.prepare(`UPDATE contas_a_receber SET status = 'paga', valorPago = ?, dataPagamento = ?,
-                  formaPagamento = 'boleto', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-                  .run(conta.valor, dataBrasilia(), boleto.contaReceberId);
+              const contaCR = db.prepare("SELECT status FROM contas_a_receber WHERE id = ?").get(boleto.contaReceberId);
+              if (contaCR && contaCR.status !== 'paga' && contaCR.status !== 'cancelada') {
+                const contaMP = getContaMercadoPago(db);
+                if (contaMP) {
+                  try {
+                    registrarBaixaCR(db, {
+                      contaReceberId: boleto.contaReceberId,
+                      contaFinanceiraId: contaMP.id,
+                      formaPagamento: 'boleto',
+                      origem: 'polling_mp',
+                      observacoes: `Polling MP (boleto ${boleto.mpId})`
+                    });
+                  } catch (e) { console.error('[Polling Boletos] erro baixando CR:', e.message); }
+                } else {
+                  console.warn('[Polling Boletos] Sem conta MP/banco padrão — CR não baixada automaticamente');
+                }
               }
             }
             atualizados++;

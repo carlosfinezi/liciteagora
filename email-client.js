@@ -67,19 +67,23 @@ function loadSmtpConfig(db) {
 }
 
 function criarTransport(cfg) {
+  // EMAIL-01 (2026-04-18): validar certificado TLS. Para servidores SMTP locais com
+  // certificado auto-assinado, setar SMTP_ALLOW_SELF_SIGNED=1 no systemd (não padrão).
+  const allowSelfSigned = process.env.SMTP_ALLOW_SELF_SIGNED === '1';
   return nodemailer.createTransport({
     host: cfg.host,
     port: cfg.port,
     secure: cfg.secure,
     auth: { user: cfg.user, pass: cfg.pass },
-    tls: { rejectUnauthorized: false },
+    requireTLS: !cfg.secure, // STARTTLS em 587
+    tls: { rejectUnauthorized: !allowSelfSigned, minVersion: 'TLSv1.2' },
   });
 }
 
 /**
  * Envia email com DANFSE PDF + info do boleto
  */
-async function enviarEmailNfse(db, { to, subject, nfseNumero, descricao, valor, competencia, pdfBuffer, boletoWritableLine, boletoUrl }) {
+async function enviarEmailNfse(db, { to, cc, subject, nfseNumero, descricao, valor, competencia, pdfBuffer, boletoWritableLine, boletoUrl }) {
   const cfg = loadSmtpConfig(db);
   if (!cfg) throw new Error('SMTP nao configurado');
 
@@ -130,25 +134,28 @@ async function enviarEmailNfse(db, { to, subject, nfseNumero, descricao, valor, 
 
   const finalSubject = subject || `NFSe ${nfseNumero} - ${compFmt}`;
   try {
-    const info = await transport.sendMail({
+    const mailOpts = {
       from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
       to,
       subject: finalSubject,
       html,
       attachments,
-    });
+    };
+    if (cc) mailOpts.cc = cc;
+
+    const info = await transport.sendMail(mailOpts);
 
     registrarLog(db, {
-      tipo: nfseNumero ? 'nfse' : 'boleto', to, subject: finalSubject,
+      tipo: nfseNumero ? 'nfse' : 'boleto', to: cc ? `${to}, ${cc}` : to, subject: finalSubject,
       nfseNumero, descricao, valor, competencia,
       temPdf: !!pdfBuffer, temBoleto: !!boletoWritableLine,
       messageId: info.messageId, status: 'enviado',
     });
 
-    console.log(`[Email] NFSe ${nfseNumero} enviada para ${to} (messageId: ${info.messageId})`);
+    console.log(`[Email] NFSe ${nfseNumero} enviada para ${to}${cc ? ' cc:' + cc : ''} (messageId: ${info.messageId})`);
   } catch (err) {
     registrarLog(db, {
-      tipo: nfseNumero ? 'nfse' : 'boleto', to, subject: finalSubject,
+      tipo: nfseNumero ? 'nfse' : 'boleto', to: cc ? `${to}, ${cc}` : to, subject: finalSubject,
       nfseNumero, descricao, valor, competencia,
       temPdf: !!pdfBuffer, temBoleto: !!boletoWritableLine,
       status: 'erro', erro: err.message,
@@ -254,4 +261,134 @@ async function enviarEmailBoleto(db, { to, descricao, valor, vencimento, cliente
   }
 }
 
-module.exports = { loadSmtpConfig, enviarEmailNfse, enviarEmailBoleto, enviarEmailTeste };
+/**
+ * Envia email de cancelamento de NFSe
+ */
+async function enviarEmailCancelamento(db, { to, cc, nfseNumero, descricao, valor, competencia, motivo }) {
+  const cfg = loadSmtpConfig(db);
+  if (!cfg) throw new Error('SMTP nao configurado');
+
+  const transport = criarTransport(cfg);
+
+  const valorFmt = Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const compFmt = competencia ? competencia.substring(0, 7) : '';
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#c92020;color:#fff;padding:20px;text-align:center;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;">Cancelamento de Nota Fiscal</h2>
+      </div>
+      <div style="background:#fff;padding:20px;border:1px solid #ddd;">
+        <p>Prezado(a),</p>
+        <p>Informamos que a Nota Fiscal de Servico Eletronica (NFSe) abaixo foi <strong style="color:#c92020;">cancelada</strong>.</p>
+        <table style="width:100%;border-collapse:collapse;margin:15px 0;">
+          <tr><td style="padding:8px 10px;color:#666;width:140px;">NFSe</td><td style="padding:8px 10px;font-weight:bold;">${nfseNumero}</td></tr>
+          <tr><td style="padding:8px 10px;color:#666;">Competencia</td><td style="padding:8px 10px;">${compFmt}</td></tr>
+          <tr><td style="padding:8px 10px;color:#666;">Descricao</td><td style="padding:8px 10px;">${descricao}</td></tr>
+          <tr><td style="padding:8px 10px;color:#666;">Valor</td><td style="padding:8px 10px;font-weight:bold;">${valorFmt}</td></tr>
+          <tr><td style="padding:8px 10px;color:#666;">Motivo</td><td style="padding:8px 10px;color:#c92020;font-weight:bold;">${motivo}</td></tr>
+        </table>
+        <p style="color:#666;font-size:0.9em;">Caso tenha sido gerado boleto referente a esta nota, desconsidere-o.</p>
+      </div>
+      <div style="background:#f5f5f5;padding:10px;text-align:center;font-size:12px;color:#999;border-radius:0 0 8px 8px;">
+        Email enviado automaticamente. Nao responda este email.
+      </div>
+    </div>
+  `;
+
+  const subject = `CANCELAMENTO NFSe ${nfseNumero} - ${compFmt}`;
+  try {
+    const mailOpts = {
+      from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
+      to,
+      subject,
+      html,
+    };
+    if (cc) mailOpts.cc = cc;
+
+    const info = await transport.sendMail(mailOpts);
+
+    registrarLog(db, {
+      tipo: 'cancelamento', to: cc ? `${to}, ${cc}` : to, subject,
+      nfseNumero, descricao, valor, competencia,
+      messageId: info.messageId, status: 'enviado',
+    });
+
+    console.log(`[Email] Cancelamento NFSe ${nfseNumero} enviado para ${to}${cc ? ' cc:' + cc : ''} (messageId: ${info.messageId})`);
+  } catch (err) {
+    registrarLog(db, {
+      tipo: 'cancelamento', to: cc ? `${to}, ${cc}` : to, subject,
+      nfseNumero, descricao, valor, competencia,
+      status: 'erro', erro: err.message,
+    });
+    throw err;
+  }
+}
+
+/**
+ * Envia email de cobranca customizado (com assunto e corpo livre).
+ * Usa o tipo 'cobranca' no email_log.
+ */
+async function enviarEmailCobranca(db, { to, cc, assunto, texto, valor, boletoWritableLine, boletoUrl }) {
+  const cfg = loadSmtpConfig(db);
+  if (!cfg) throw new Error('SMTP nao configurado');
+
+  const transport = criarTransport(cfg);
+
+  const textoHtml = String(texto || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+
+  let boletoHtml = '';
+  if (boletoWritableLine || boletoUrl) {
+    boletoHtml = `
+      <table style="width:100%;border-collapse:collapse;margin:20px 0;background:#f5f5f5;border-radius:6px;">
+        <tr><td colspan="2" style="padding:12px 15px;font-weight:bold;color:#333;border-bottom:1px solid #ddd;">Dados do Boleto</td></tr>
+        ${boletoWritableLine ? `<tr><td style="padding:8px 15px;color:#666;width:140px;">Linha Digitável</td><td style="padding:8px 15px;font-family:monospace;font-size:13px;word-break:break-all;">${boletoWritableLine}</td></tr>` : ''}
+        ${boletoUrl ? `<tr><td style="padding:8px 15px;color:#666;">Boleto</td><td style="padding:8px 15px;"><a href="${boletoUrl}" style="color:#fff;background:#4dabf7;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Visualizar / Imprimir Boleto</a></td></tr>` : ''}
+      </table>
+    `;
+  }
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#1a1a2e;color:#fff;padding:20px;text-align:center;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;">Aviso de Cobrança</h2>
+      </div>
+      <div style="background:#fff;padding:25px;border:1px solid #ddd;line-height:1.6;color:#333;">
+        ${textoHtml}
+        ${boletoHtml}
+      </div>
+      <div style="background:#f5f5f5;padding:10px;text-align:center;font-size:12px;color:#999;border-radius:0 0 8px 8px;">
+        Em caso de dúvidas, entre em contato. Se o pagamento já foi realizado, desconsidere este e-mail.
+      </div>
+    </div>
+  `;
+
+  const finalAssunto = assunto || 'Aviso de cobrança';
+  try {
+    const mailOpts = {
+      from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
+      to, subject: finalAssunto, html,
+    };
+    if (cc) mailOpts.cc = cc;
+
+    const info = await transport.sendMail(mailOpts);
+    registrarLog(db, {
+      tipo: 'cobranca', to: cc ? `${to}, ${cc}` : to, subject: finalAssunto,
+      valor, temBoleto: !!boletoWritableLine,
+      messageId: info.messageId, status: 'enviado',
+    });
+    console.log(`[Email] Cobranca enviada para ${to} (messageId: ${info.messageId})`);
+    return info;
+  } catch (err) {
+    registrarLog(db, {
+      tipo: 'cobranca', to: cc ? `${to}, ${cc}` : to, subject: finalAssunto,
+      valor, temBoleto: !!boletoWritableLine,
+      status: 'erro', erro: err.message,
+    });
+    throw err;
+  }
+}
+
+module.exports = { loadSmtpConfig, enviarEmailNfse, enviarEmailBoleto, enviarEmailCobranca, enviarEmailCancelamento, enviarEmailTeste };
