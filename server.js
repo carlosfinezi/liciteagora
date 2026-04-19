@@ -10892,17 +10892,27 @@ app.listen(PORT, () => {
   //   autoIniciarMonitoramentoMensagens();
   // }, 10000);
 
-  // Agendar Jornal de Licitações
-  agendarJornal();
+  // SCHED-01 (2026-04-18): dois systemd units rodam o mesmo server.js — se ambos
+  // agendassem jobs, cobranças/boletos/recorrências disparariam em dobro.
+  // Gate por ROLE=master no unit file. Default: master (preserva comportamento
+  // atual em caso de atualização de código sem atualizar os units).
+  const ROLE = process.env.ROLE || 'master';
+  const IS_MASTER = ROLE === 'master';
+  console.log(`[scheduler] ROLE=${ROLE} — ${IS_MASTER ? 'inicializando schedulers' : 'SKIP schedulers (role=worker)'}`);
 
-  // Agendar Recorrências NFSe
-  agendarRecorrencias(db);
+  if (IS_MASTER) {
+    // Agendar Jornal de Licitações
+    agendarJornal();
 
-  // Agendar Cobranças (régua diária)
-  agendarCobrancas(db);
+    // Agendar Recorrências NFSe
+    agendarRecorrencias(db);
 
-  // Polling boletos MercadoPago (a cada 30 min)
-  agendarPollingBoletos(db);
+    // Agendar Cobranças (régua diária)
+    agendarCobrancas(db);
+
+    // Polling boletos MercadoPago (a cada 30 min)
+    agendarPollingBoletos(db);
+  }
 
   // MonitorV2 desativado — agora usamos extensão Chrome v3.0 para sync
   // inicializarMonitorV2();
