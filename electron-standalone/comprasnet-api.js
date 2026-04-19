@@ -184,8 +184,15 @@ async function fetchItensCompra(compraId, autoCompraIds = []) {
   // 1. Detectar fase
   const qtdes = await comprasnetGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/qtdes`);
   if (!qtdes.ok) {
+    // SNIPER-H04: propagar 401/403 — caller decide rotear para reautenticar
+    if (qtdes.status === 401 || qtdes.status === 403) {
+      return { itens: [], fase: 'auth-error', stub: true, authError: true, status: qtdes.status };
+    }
     // Fallback: buscar itens genéricos
     const fallback = await comprasnetGet(`/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`);
+    if (fallback.status === 401 || fallback.status === 403) {
+      return { itens: [], fase: 'auth-error', stub: true, authError: true, status: fallback.status };
+    }
     return { itens: fallback.ok && Array.isArray(fallback.data) ? fallback.data : [], fase: 'selecao', stub: !fallback.ok };
   }
 
@@ -208,9 +215,10 @@ async function fetchItensCompra(compraId, autoCompraIds = []) {
           `/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa?tamanhoPagina=50&pagina=0&filtro=${f}`
         );
         if (rf.ok && Array.isArray(rf.data)) {
-          // Enriquecer itens com flags
+          // Enriquecer itens com flags (SNIPER-M02: coerção String para match robusto)
           for (const item of rf.data) {
-            const match = itens.find(i => i.numero === item.numero);
+            const key = String(item.numero);
+            const match = itens.find(i => String(i.numero) === key);
             if (match) {
               if (f === 3) match.estaPerdendo = true;
               if (f === 4) match.emEncAleatoria = true;
@@ -251,8 +259,12 @@ async function fetchItensCompra(compraId, autoCompraIds = []) {
 // ─── Enviar lance ───────────────────────────────────────────────────────────
 
 async function enviarLance(compraId, itemNumero, valor, faseItem = 'LA') {
-  const MAX_RETRIES = 3;
-  const BACKOFF = [2000, 4000, 8000];
+  // Retry curto — a janela de disputa é pequena (segundos) e bloquear o processor
+  // com 2+4+8s = 14s é pior que desistir e deixar próximo poll tentar.
+  // 400/401/403/422 = fatais (nenhum retry resolve); 429/5xx/0 = retryable.
+  const MAX_RETRIES = 2;
+  const BACKOFF = [400, 800]; // ms
+  const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504, 0]);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const r = await comprasnetPost(
@@ -262,9 +274,8 @@ async function enviarLance(compraId, itemNumero, valor, faseItem = 'LA') {
 
     if (r.ok) return r;
 
-    // Retry only on 429
-    if (r.status === 429 && attempt < MAX_RETRIES) {
-      const wait = BACKOFF[attempt] || 8000;
+    if (RETRYABLE_STATUSES.has(r.status) && attempt < MAX_RETRIES) {
+      const wait = BACKOFF[attempt] || 800;
       await new Promise(res => setTimeout(res, wait));
       continue;
     }

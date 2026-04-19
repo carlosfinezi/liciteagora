@@ -142,6 +142,8 @@ async function executarSync() {
   const bearer = _getBearer();
   if (!bearer) { _log('[Sync] Sem bearer — skip sync'); return; }
 
+  // 540000ms = TOKEN_SAFE_MARGIN (60s antes do expiry real de 600s no servidor).
+  // Alinhado com lance-processor.js e sniper-lance.js TOKEN_SAFE_MARGIN_S.
   const bearerTs = _getBearerTimestamp();
   if (bearerTs && (Date.now() - bearerTs) > 540000) {
     _log('[Sync] Bearer stale (>9min) — skip sync');

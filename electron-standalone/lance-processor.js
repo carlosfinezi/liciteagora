@@ -14,6 +14,8 @@ let _getBearerTimestamp = null;
 let _log = console.log;
 let _onNeedKeepalive = null;
 
+// 540s = margem de segurança (60s antes da expiração real de 600s no servidor).
+// Se o token ultrapassar esse limite, o processor para de disparar e pede keepalive.
 const TOKEN_MAX_AGE_MS = 540000;
 const KEEPALIVE_DEBOUNCE_MS = 60000; // Máx 1 chamada de keepalive por minuto
 let lastKeepaliveCall = 0;
