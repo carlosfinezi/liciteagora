@@ -83,13 +83,18 @@ function carregarCertificado(db) {
 }
 
 /**
- * Obtem e incrementa atomicamente o proximo numero de DPS
+ * Obtem e incrementa atomicamente o proximo numero de DPS (NFSE-C01)
+ * Envolvido em transaction para evitar race condition entre SELECT e UPDATE
+ * que produziria nDPS duplicado ou gap na numeracao fiscal.
  */
 function proximoNumeroDPS(db) {
-  const row = db.prepare("SELECT value FROM nfse_config WHERE key = 'proximo_numero'").get();
-  const numero = parseInt(row?.value || '1', 10);
-  db.prepare("UPDATE nfse_config SET value = ? WHERE key = 'proximo_numero'").run(String(numero + 1));
-  return numero;
+  const fn = db.transaction(() => {
+    const row = db.prepare("SELECT value FROM nfse_config WHERE key = 'proximo_numero'").get();
+    const numero = parseInt(row?.value || '1', 10);
+    db.prepare("UPDATE nfse_config SET value = ? WHERE key = 'proximo_numero'").run(String(numero + 1));
+    return numero;
+  });
+  return fn();
 }
 
 /**
@@ -495,7 +500,17 @@ function registrarRotasNfse(app, db) {
 
   app.get('/api/nfse/:id', (req, res) => {
     try {
-      const nota = db.prepare('SELECT * FROM nfse WHERE id = ?').get(req.params.id);
+      // NFSE-H04: whitelist de colunas — nao expor xmlEnvio (payload assinado
+      // completo, inclui certificado publico) nem outros campos sensiveis.
+      // xmlRetorno eh incluido porque o frontend exibe "Resposta SEFIN" nos
+      // detalhes; se desejar endurecer mais, criar rota separada com ACL.
+      const nota = db.prepare(`SELECT
+        id, idDps, serie, nDPS, tpAmb, chaveAcesso, nNFSe,
+        tomadorCpfCnpj, tomadorRazaoSocial, tomadorEndereco,
+        codigoTributacaoNacional, descricaoServico, valorServico,
+        dataCompetencia, status, xmlRetorno, motivoCancelamento,
+        dataCriacao, dataAtualizacao
+      FROM nfse WHERE id = ?`).get(req.params.id);
       if (!nota) {
         return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
       }

@@ -15,6 +15,17 @@ const { SignedXml } = require('xml-crypto');
 
 const NFSE_NS = 'http://www.sped.fazenda.gov.br/nfse';
 
+// verAplic dinâmico (NFSE-H05). XSD exige pattern [A-Za-z0-9._-]{1,20}.
+// Fallback para '1.0.0' se package.json não for legível.
+let VER_APLIC;
+try {
+  const pkg = require('./package.json');
+  const ver = String(pkg.version || '1.0.0').replace(/[^A-Za-z0-9._-]/g, '');
+  VER_APLIC = ('LiciteAgora' + ver).slice(0, 20);
+} catch (e) {
+  VER_APLIC = 'LiciteAgora1.0';
+}
+
 /**
  * Gera o ID da DPS (45 caracteres, pattern: DPS[0-9]{42})
  *
@@ -74,15 +85,35 @@ function escapeXml(str) {
 }
 
 /**
- * Formata data para ISO com offset Brasília (-03:00)
+ * Formata data para ISO com offset Brasília (-03:00) (NFSE-H02)
+ *
+ * Usa Intl.DateTimeFormat com timeZone explícito para funcionar em qualquer
+ * fuso do servidor (container UTC, Brasília, ou outro). A implementação
+ * anterior só produzia resultado correto se o servidor rodava em UTC ou BRT.
  */
 function formatarDataBrasilia(date) {
   if (!date) date = new Date();
   if (typeof date === 'string') date = new Date(date);
-  const offset = -3 * 60; // Brasília UTC-3
-  const local = new Date(date.getTime() + (date.getTimezoneOffset() + offset) * 60000);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}T${pad(local.getHours())}:${pad(local.getMinutes())}:${pad(local.getSeconds())}-03:00`;
+
+  // Extrai partes em America/Sao_Paulo independente do TZ do SO
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+
+  // `hour` vira "24" em algumas libs quando é meia-noite; normalizar
+  const hour = parts.hour === '24' ? '00' : parts.hour;
+
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}:${parts.second}-03:00`;
 }
 
 /**
@@ -152,7 +183,7 @@ function construirDPS(dados) {
   // === Identificação (ordem obrigatória conforme XSD) ===
   xml += `<tpAmb>${tpAmb}</tpAmb>`;
   xml += `<dhEmi>${dhEmi}</dhEmi>`;
-  xml += `<verAplic>LiciteAgora1.0</verAplic>`;
+  xml += `<verAplic>${VER_APLIC}</verAplic>`;
   xml += `<serie>${escapeXml(serie)}</serie>`;
   xml += `<nDPS>${nDPSStr}</nDPS>`;
   xml += `<dCompet>${comp}</dCompet>`;
