@@ -1246,17 +1246,57 @@ app.use(session({
   cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: false }
 }));
 
-// Login (público)
+// Login (público) — SEC-03 (2026-04-18): rate limit por IP + mensagem uniforme
+// anti-enumeração. 5 tentativas falhas em 15 min → 429 por mais 15 min.
+const _loginAttempts = new Map(); // ip → { fails, firstAt, blockedUntil }
+const LOGIN_MAX_FAILS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+setInterval(() => {
+  const agora = Date.now();
+  for (const [ip, st] of _loginAttempts) {
+    if ((st.blockedUntil && st.blockedUntil < agora) || (agora - st.firstAt) > LOGIN_WINDOW_MS) {
+      _loginAttempts.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000).unref();
+
+function _loginClientIp(req) {
+  const fwd = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
 app.post('/api/login', (req, res) => {
+  const ip = _loginClientIp(req);
+  const agora = Date.now();
+  const st = _loginAttempts.get(ip);
+  if (st && st.blockedUntil && st.blockedUntil > agora) {
+    const retryIn = Math.ceil((st.blockedUntil - agora) / 1000);
+    res.set('Retry-After', String(retryIn));
+    return res.status(429).json({ success: false, error: 'Muitas tentativas. Tente novamente em alguns minutos.' });
+  }
+
   const { username, password } = req.body;
   if (!username || !password) return res.json({ success: false, error: 'Informe usuário e senha' });
+
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
-    return res.json({ success: false, error: 'Usuário ou senha incorretos' });
+  const senhaOk = !!user && bcrypt.compareSync(password, user.passwordHash);
+  // Mensagem uniforme — não diferencia usuário inexistente, senha errada ou inativo.
+  if (!senhaOk || !user || user.ativo === 0) {
+    const cur = _loginAttempts.get(ip) || { fails: 0, firstAt: agora, blockedUntil: 0 };
+    if ((agora - cur.firstAt) > LOGIN_WINDOW_MS) { cur.fails = 0; cur.firstAt = agora; }
+    cur.fails += 1;
+    if (cur.fails >= LOGIN_MAX_FAILS) cur.blockedUntil = agora + LOGIN_BLOCK_MS;
+    _loginAttempts.set(ip, cur);
+    // Auditoria de tentativas falhas (best-effort)
+    try {
+      db.prepare(`INSERT INTO audit_log (username, action, entity, payload, ip) VALUES (?, 'login_fail', 'auth', ?, ?)`)
+        .run(String(username).slice(0, 120), JSON.stringify({ reason: !user ? 'no_user' : (user.ativo === 0 ? 'inactive' : 'bad_password') }), ip);
+    } catch { /* tabela pode não existir ainda em migração */ }
+    return res.status(401).json({ success: false, error: 'Usuário ou senha incorretos' });
   }
-  if (user.ativo === 0) {
-    return res.json({ success: false, error: 'Usuário inativo' });
-  }
+
+  _loginAttempts.delete(ip); // sucesso limpa contador
   db.prepare('UPDATE users SET ultimoLogin = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
   req.session.userId = user.id;
   req.session.username = user.username;
@@ -1386,7 +1426,7 @@ app.use(requireAuth(apiKey, db));
 app.post('/api/change-password', (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Informe senha atual e nova' });
-  if (newPassword.length < 4) return res.status(400).json({ error: 'Senha deve ter pelo menos 4 caracteres' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'Senha deve ter pelo menos 8 caracteres' });
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
   if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
     return res.status(400).json({ error: 'Senha atual incorreta' });
