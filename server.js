@@ -580,6 +580,8 @@ db.exec(`
     timestamp TEXT DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_sniper_hist_compra ON sniper_historico(compraId);
+  -- SNIPER-M08: index composto para lookups por (compraId, itemNumero) ordenados por tempo
+  CREATE INDEX IF NOT EXISTS idx_historico_compra_item_ts ON sniper_historico(compraId, itemNumero, timestamp);
 
   -- Histórico do estado do mercado (mudanças detectadas pelo guard mode)
   CREATE TABLE IF NOT EXISTS sniper_classificacao (
