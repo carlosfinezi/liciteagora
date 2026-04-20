@@ -48,9 +48,13 @@ const { agendarRecorrencias } = require('./recorrencia-scheduler');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 
+// NFSE-M06 onda 6.44 (2026-04-20): PORT + PNCP_API_BASE saem do deps bag
+// e viram require direto de config.js. Reduz o contrato com server.js.
+const { PORT, PNCP_API_BASE } = require('./config');
+
 function createRoleDispatch(deps) {
   const {
-    db, app, PORT, apiKey, dbPath, PNCP_API_BASE, getConfigValue, pncpSync,
+    db, app, apiKey, dbPath, getConfigValue, pncpSync,
   } = deps;
 
   function logStartupBanner(role) {

@@ -112,11 +112,14 @@ const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
 const { registrarRotasPortalAdmin } = require('./portal-routes');
 const { sendTelegram, sendNotificacao } = require('./telegram-client');
 
+// NFSE-M06 onda 6.44 (2026-04-20): PORT + PNCP_API_BASE + PNCP_API_ITENS
+// saem do deps bag e viram require direto de config.js. server.js nao
+// precisa mais repassar essas constantes.
+const { PORT, PNCP_API_BASE, PNCP_API_ITENS } = require('./config');
+
 function registerProtectedRoutes(app, deps) {
   const {
-    db, dbPath, PORT,
-    pncpSync, salvarItens,
-    PNCP_API_BASE, PNCP_API_ITENS,
+    db, dbPath, pncpSync, salvarItens,
     getConfigValue, setConfigValue, getIAKeys,
   } = deps;
 

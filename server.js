@@ -5,16 +5,12 @@ puppeteer.use(StealthPlugin());
 
 const app = express();
 
-const PORT = 3000;
 
 // NFSE-M06 onda 6.39 (2026-04-20): middleware base (CORS allow-list +
 // body parsers + static da login page) extraido para base-middleware.js.
 const { applyBaseMiddleware } = require('./base-middleware');
 applyBaseMiddleware(app);
 
-// Configuração da API do PNCP
-const PNCP_API_BASE = 'https://pncp.gov.br/api/consulta/v1';
-const PNCP_API_ITENS = 'https://pncp.gov.br/api/pncp/v1';
 
 // Módulo de análise IA
 const { processarFilaAnalise } = require('./analise-ia');
@@ -38,10 +34,7 @@ const { apiKey } = installAuthPipeline(app, db);
 // passadas uma vez; a ordem interna de registro é preservada 1:1.
 const { registerProtectedRoutes } = require('./route-registry');
 registerProtectedRoutes(app, {
-  db, dbPath, PORT,
-  pncpSync, salvarItens,
-  PNCP_API_BASE, PNCP_API_ITENS,
-  getConfigValue, setConfigValue, getIAKeys,
+  db, dbPath, pncpSync, salvarItens, getConfigValue, setConfigValue, getIAKeys,
 });
 
 
@@ -53,5 +46,5 @@ registerProtectedRoutes(app, {
 // (ROLE=worker) aterra aqui; liciteagora.service usa scheduler.js direto.
 const { createRoleDispatch } = require('./role-dispatch');
 createRoleDispatch({
-  db, app, PORT, apiKey, dbPath, PNCP_API_BASE, getConfigValue, pncpSync,
+  db, app, apiKey, dbPath, getConfigValue, pncpSync,
 }).dispatch();
