@@ -3706,10 +3706,16 @@ async function verificarAlertasDisputa() {
   }
 }
 
-// Verificar a cada 5 minutos
-setInterval(verificarAlertasDisputa, 5 * 60 * 1000);
-// Verificar também na inicialização (após 30s)
-setTimeout(verificarAlertasDisputa, 30000);
+// NFSE-M06 onda 5B: schedulers top-level rodam apenas no master (root).
+// No worker eles duplicariam trabalho — o pior caso é alerta duplicado
+// via Telegram (verificarAlertasDisputa) porque INSERT em alertas_enviados
+// é feito DEPOIS de enviarTelegram. Gate aqui elimina a janela de corrida.
+if ((process.env.ROLE || 'master') === 'master') {
+  // Verificar a cada 5 minutos
+  setInterval(verificarAlertasDisputa, 5 * 60 * 1000);
+  // Verificar também na inicialização (após 30s)
+  setTimeout(verificarAlertasDisputa, 30000);
+}
 
 // ==================== CREDENCIAIS GOV.BR ====================
 
@@ -7758,8 +7764,14 @@ function agendarVerificacaoDiaria() {
   }, msAteProxima);
 }
 
-agendarVerificacaoDiaria();
-iniciarWatchdogSync();
+// NFSE-M06 onda 5B: verificação diária de lacunas PNCP e watchdog de sync
+// só fazem sentido no master. Watchdog no worker era bug latente — in-memory
+// syncStatus.lastIncrementalSync nunca era atualizado, acionando falso
+// alerta "sync parada" após ~15min de uptime no worker.
+if ((process.env.ROLE || 'master') === 'master') {
+  agendarVerificacaoDiaria();
+  iniciarWatchdogSync();
+}
 
 // Função auxiliar para criar assinatura PKCS#7 detached
 function createPkcs7Signature(pdfBytes, privateKey, certificate, additionalCerts = []) {
