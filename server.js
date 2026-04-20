@@ -1,6 +1,4 @@
 const express = require('express');
-const Database = require('better-sqlite3');
-const path = require('path');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -26,46 +24,12 @@ const PNCP_API_BASE = 'https://pncp.gov.br/api/consulta/v1';
 const PNCP_API_ITENS = 'https://pncp.gov.br/api/pncp/v1';
 
 // Módulo de análise IA
-const { analisarLicitacao, processarFilaAnalise } = require('./analise-ia');
+const { processarFilaAnalise } = require('./analise-ia');
 
-// Banco de dados SQLite
-const dbPath = path.join(__dirname, 'pncp.db');
-
-const db = new Database(dbPath);
-
-// Criar tabelas
-// NFSE-M06 onda 6.33 (2026-04-20): schema SQL (~35 CREATE TABLE + índices +
-// seed jornal_config) e as 4 migrações ad-hoc (grupos_palavras.tipo +
-// chat_mensagens.lido aninhado, colunas v1 de chat_mensagens, colunas de
-// config do sniper_itens) migraram para db-schema.js. initSchema(db) é
-// idempotente — pode ser chamado em qualquer ordem relativa ao restante
-// do bootstrap desde que `db` já esteja aberto.
-const { initSchema } = require('./db-schema');
-initSchema(db);
-
-// NFSE-M06 onda 5C: persistência de licitacao/itens extraída para
-// licitacoes-persistence.js (consumida pelo motor PNCP no
-// pncp-sync-scheduler.js, pela rota POST /sync-itens aqui, e pelo
-// verificador de lacunas). Statements ficam no módulo, factory prepara
-// uma vez por processo.
-const { createPersistence } = require('./licitacoes-persistence');
-const { salvarLicitacao, salvarItens } = createPersistence(db);
-
-// NFSE-M06 onda 5C passo 2 (2026-04-20): motor PNCP + schedulers master-only
-// (sincronizarCompleta/Incremental, watchdog, alertas de disputa, verificação
-// diária de lacunas) extraídos para pncp-sync-scheduler.js.
-// No master (scheduler.js na onda 5C passo 4) chama-se iniciarSyncEngine()
-// + startMasterOnlyTimers(). No worker o módulo é carregado apenas para
-// atender GET /api/sync/status via pncpSync.getSyncStatus() e as rotas
-// POST /api/sync/* respondem 503 — sync manual tem que sair do master.
-const pncpSync = require('./pncp-sync-scheduler');
-pncpSync.init({ db, processarFilaAnalise });
-
-// NFSE-M06 onda 6.32 (2026-04-20): getConfigValue / setConfigValue /
-// getIAKeys migraram para config-helpers.js. Os prepared statements
-// getConfig / setConfig ficam escondidos na closure da factory.
-const { createConfigHelpers } = require('./config-helpers');
-const { getConfigValue, setConfigValue, getIAKeys } = createConfigHelpers(db);
+// NFSE-M06 onda 6.41 (2026-04-20): DB open + schema + persistência +
+// pncpSync.init + configHelpers consolidados em db-bootstrap.js.
+const { bootstrapDatabase } = require('./db-bootstrap');
+const { db, dbPath, salvarItens, pncpSync, getConfigValue, setConfigValue, getIAKeys } = bootstrapDatabase({ processarFilaAnalise });
 
 
 // NFSE-M06 onda 6.40 (2026-04-20): criarUsuarioInicial + sessionSecret +
