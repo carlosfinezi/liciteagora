@@ -757,26 +757,13 @@ try {
   console.log('[Migração sniper_itens] Erro:', e.message);
 }
 
-// Statements preparados para performance
-const insertLicitacao = db.prepare(`
-  INSERT OR REPLACE INTO licitacoes (
-    numeroControlePNCP, cnpj, razaoSocial, ufSigla, municipioNome, nomeUnidade, codigoUnidade,
-    anoCompra, sequencialCompra, numeroCompra, processo, modalidadeId, modalidadeNome,
-    objetoCompra, informacaoComplementar, valorTotalEstimado, dataPublicacaoPncp,
-    dataAberturaProposta, dataEncerramentoProposta, situacaoCompraNome, linkSistemaOrigem,
-    usuarioNome, srp, dadosCompletos, dataAtualizacao
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-`);
-
-const insertItem = db.prepare(`
-  INSERT OR REPLACE INTO itens (
-    licitacaoId, numeroControlePNCP, numeroItem, descricao, quantidade,
-    unidadeMedida, valorUnitarioEstimado, valorTotal, dadosCompletos
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-
-const getLicitacaoId = db.prepare(`SELECT id FROM licitacoes WHERE numeroControlePNCP = ?`);
-const deleteItens = db.prepare(`DELETE FROM itens WHERE numeroControlePNCP = ?`);
+// NFSE-M06 onda 5C: persistência de licitacao/itens extraída para
+// licitacoes-persistence.js (consumida pelo motor PNCP no
+// pncp-sync-scheduler.js, pela rota POST /sync-itens aqui, e pelo
+// verificador de lacunas). Statements ficam no módulo, factory prepara
+// uma vez por processo.
+const { createPersistence } = require('./licitacoes-persistence');
+const { salvarLicitacao, salvarItens } = createPersistence(db);
 
 const getConfig = db.prepare(`SELECT valor FROM config WHERE chave = ?`);
 const setConfig = db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)`);
@@ -826,73 +813,8 @@ function gerarDiasEntre(dataInicial, dataFinal) {
   return dias;
 }
 
-/**
- * Salva uma licitação no banco de dados
- */
-function salvarLicitacao(licitacao) {
-  try {
-    insertLicitacao.run(
-      licitacao.numeroControlePNCP,
-      licitacao.orgaoEntidade?.cnpj,
-      licitacao.orgaoEntidade?.razaoSocial,
-      licitacao.unidadeOrgao?.ufSigla,
-      licitacao.unidadeOrgao?.municipioNome,
-      licitacao.unidadeOrgao?.nomeUnidade,
-      licitacao.unidadeOrgao?.codigoUnidade,
-      licitacao.anoCompra,
-      licitacao.sequencialCompra,
-      licitacao.numeroCompra,
-      licitacao.processo,
-      licitacao.modalidadeId,
-      licitacao.modalidadeNome,
-      licitacao.objetoCompra,
-      licitacao.informacaoComplementar,
-      licitacao.valorTotalEstimado,
-      licitacao.dataPublicacaoPncp,
-      licitacao.dataAberturaProposta,
-      licitacao.dataEncerramentoProposta,
-      licitacao.situacaoCompraNome,
-      licitacao.linkSistemaOrigem,
-      licitacao.usuarioNome,
-      licitacao.srp ? 1 : 0,
-      JSON.stringify(licitacao)
-    );
-    return true;
-  } catch (err) {
-    console.error('Erro ao salvar licitação:', err.message);
-    return false;
-  }
-}
-
-/**
- * Salva os itens de uma licitação
- */
-function salvarItens(numeroControlePNCP, itens) {
-  try {
-    const licitacaoRow = getLicitacaoId.get(numeroControlePNCP);
-    if (!licitacaoRow) return false;
-
-    deleteItens.run(numeroControlePNCP);
-
-    for (const item of itens) {
-      insertItem.run(
-        licitacaoRow.id,
-        numeroControlePNCP,
-        item.numeroItem,
-        item.descricao,
-        item.quantidade,
-        item.unidadeMedida,
-        item.valorUnitarioEstimado,
-        item.valorTotal,
-        JSON.stringify(item)
-      );
-    }
-    return true;
-  } catch (err) {
-    console.error('Erro ao salvar itens:', err.message);
-    return false;
-  }
-}
+// NFSE-M06 onda 5C: salvarLicitacao/salvarItens agora vêm de
+// licitacoes-persistence.js (já imported no topo do arquivo).
 
 /**
  * Busca todas as licitações de um dia para uma modalidade
@@ -3411,23 +3333,12 @@ app.delete('/api/certificado', (req, res) => {
 // ==================== TELEGRAM / ALERTAS ====================
 
 // Função para enviar mensagem no Telegram (HTML)
+// NFSE-M06 onda 5C: corpo extraído para telegram-client.js para que o
+// scheduler.js (processo master sem Express) possa usar a mesma lógica
+// sem require server.js. Callers aqui continuam chamando enviarTelegram(msg).
+const { sendTelegram: _sendTelegramViaClient } = require('./telegram-client');
 async function enviarTelegram(mensagem) {
-  try {
-    const config = db.prepare('SELECT botToken, chatId FROM telegram_config WHERE id = 1 AND ativo = 1').get();
-    if (!config || !config.botToken || !config.chatId) return false;
-
-    const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-    const response = await axios.post(url, {
-      chat_id: config.chatId,
-      text: mensagem,
-      parse_mode: 'HTML'
-    });
-
-    return response.data.ok;
-  } catch (error) {
-    console.error('Erro ao enviar Telegram:', error.message);
-    return false;
-  }
+  return _sendTelegramViaClient(db, mensagem);
 }
 
 // Função para enviar notificação formatada do chat de licitação
