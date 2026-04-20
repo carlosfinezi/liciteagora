@@ -72,6 +72,7 @@ const { registrarRotasAnaliseIa } = require('./analise-ia-routes');
 const { registrarRotasJornal } = require('./jornal-routes');
 const { registrarRotasCertificado } = require('./certificado-routes');
 const { registrarRotasProxy } = require('./proxy-routes');
+const { registrarRotasFornecedor } = require('./fornecedor-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -2763,102 +2764,6 @@ app.delete('/api/credenciais', (req, res) => {
   }
 });
 
-// ==================== FORNECEDOR ====================
-
-// Buscar dados do fornecedor
-app.get('/api/fornecedor', (req, res) => {
-  try {
-    const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
-    res.json({ success: true, data: fornecedor || null });
-  } catch (error) {
-    console.error('Erro ao buscar fornecedor:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Salvar dados do fornecedor
-app.post('/api/fornecedor', (req, res) => {
-  try {
-    const {
-      razaoSocial, nomeFantasia, cnpj, inscricaoEstadual, inscricaoMunicipal,
-      endereco, numero, complemento, bairro, cidade, uf, cep, codigoMunicipio,
-      telefone, celular, email, site,
-      representanteLegal, cpfRepresentante, cargoRepresentante,
-      banco, agencia, conta, tipoConta,
-      logoBase64, observacoes,
-      declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero
-    } = req.body;
-
-    // Verificar se já existe registro
-    const existe = db.prepare('SELECT id FROM fornecedor WHERE id = 1').get();
-
-    if (existe) {
-      // Atualizar
-      db.prepare(`
-        UPDATE fornecedor SET
-          razaoSocial = ?, nomeFantasia = ?, cnpj = ?, inscricaoEstadual = ?, inscricaoMunicipal = ?,
-          endereco = ?, numero = ?, complemento = ?, bairro = ?, cidade = ?, uf = ?, cep = ?,
-          telefone = ?, celular = ?, email = ?, site = ?,
-          representanteLegal = ?, cpfRepresentante = ?, cargoRepresentante = ?,
-          banco = ?, agencia = ?, conta = ?, tipoConta = ?,
-          logoBase64 = ?, observacoes = ?,
-          declaracaoMeEpp = ?, declaracaoProgramasIntegridade = ?, declaracaoEquidadeGenero = ?,
-          dataAtualizacao = CURRENT_TIMESTAMP
-        WHERE id = 1
-      `).run(
-        razaoSocial, nomeFantasia, cnpj, inscricaoEstadual, inscricaoMunicipal,
-        endereco, numero, complemento, bairro, cidade, uf, cep,
-        telefone, celular, email, site,
-        representanteLegal, cpfRepresentante, cargoRepresentante,
-        banco, agencia, conta, tipoConta,
-        logoBase64, observacoes,
-        declaracaoMeEpp ? 1 : 0, declaracaoProgramasIntegridade ? 1 : 0, declaracaoEquidadeGenero ? 1 : 0
-      );
-    } else {
-      // Inserir
-      db.prepare(`
-        INSERT INTO fornecedor (
-          id, razaoSocial, nomeFantasia, cnpj, inscricaoEstadual, inscricaoMunicipal,
-          endereco, numero, complemento, bairro, cidade, uf, cep,
-          telefone, celular, email, site,
-          representanteLegal, cpfRepresentante, cargoRepresentante,
-          banco, agencia, conta, tipoConta,
-          logoBase64, observacoes,
-          declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero
-        ) VALUES (
-          1, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?,
-          ?, ?, ?,
-          ?, ?, ?, ?,
-          ?, ?,
-          ?, ?, ?
-        )
-      `).run(
-        razaoSocial, nomeFantasia, cnpj, inscricaoEstadual, inscricaoMunicipal,
-        endereco, numero, complemento, bairro, cidade, uf, cep,
-        telefone, celular, email, site,
-        representanteLegal, cpfRepresentante, cargoRepresentante,
-        banco, agencia, conta, tipoConta,
-        logoBase64, observacoes,
-        declaracaoMeEpp ? 1 : 0, declaracaoProgramasIntegridade ? 1 : 0, declaracaoEquidadeGenero ? 1 : 0
-      );
-    }
-
-    // Grava codigoMunicipio separadamente (coluna adicionada pela migração NF-e)
-    try {
-      if (codigoMunicipio != null) {
-        db.prepare('UPDATE fornecedor SET codigoMunicipio = ? WHERE id = 1').run(codigoMunicipio);
-      }
-    } catch {}
-
-    res.json({ success: true, message: 'Dados do fornecedor salvos com sucesso' });
-  } catch (error) {
-    console.error('Erro ao salvar fornecedor:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 // ==================== CERTIFICADO DIGITAL — extraído ====================
 // NFSE-M06 onda 6.7 (2026-04-20): 3 rotas (status/save/delete) migradas
 // para certificado-routes.js.
@@ -3176,6 +3081,7 @@ registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys });
 registrarRotasJornal(app, db);
 registrarRotasCertificado(app, db);
 registrarRotasProxy(app, db);
+registrarRotasFornecedor(app, db);
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
