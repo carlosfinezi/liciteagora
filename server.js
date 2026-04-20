@@ -2,8 +2,6 @@ const express = require('express');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-const { initAuthAndSession, installAuthBarrier, installProtectedStatic } = require('./auth-bootstrap');
-const { registrarRotasAuthPublicas, registrarRotasAuthProtegidas } = require('./auth-routes');
 
 const app = express();
 
@@ -27,31 +25,11 @@ const { bootstrapDatabase } = require('./db-bootstrap');
 const { db, dbPath, salvarItens, pncpSync, getConfigValue, setConfigValue, getIAKeys } = bootstrapDatabase({ processarFilaAnalise });
 
 
-// NFSE-M06 onda 6.40 (2026-04-20): criarUsuarioInicial + sessionSecret +
-// apiKey + session middleware foram consolidados em auth-bootstrap.js.
-const { apiKey } = initAuthAndSession(app, db);
-
-
-// NFSE-M06 onda 6.31 (2026-04-20): rotas públicas (/api/login com rate
-// limit SEC-03 + /api/logout) migradas para auth-routes.js. Middleware
-// session() e barreira requireAuth continuam no bootstrap abaixo.
-registrarRotasAuthPublicas(app, db);
-
-// NFSE-M06 onda 6.37 (2026-04-20): bloco pre-auth (Portal do Cliente +
-// download publico do Browser + Comprasnet auto-login + Electron remoto)
-// migrou para pre-auth-routes.js. Fica antes de app.use(requireAuth()) e
-// preserva a ordem portal > download > comprasnet > electron.
-const { registerPreAuthRoutes } = require('./pre-auth-routes');
-registerPreAuthRoutes(app, db, { apiKey });
-
-installAuthBarrier(app, db, { apiKey });
-
-// NFSE-M06 onda 6.31 (2026-04-20): rotas protegidas (/api/change-password,
-// /api/auth/api-key) migradas para auth-routes.js.
-registrarRotasAuthProtegidas(app, db, { apiKey });
-
-
-installProtectedStatic(app);
+// NFSE-M06 onda 6.43 (2026-04-20): wiring completo da autenticação
+// (initAuthAndSession + rotas públicas + pre-auth + barrier +
+// rotas protegidas + static protegido) consolidado em auth-pipeline.js.
+const { installAuthPipeline } = require('./auth-pipeline');
+const { apiKey } = installAuthPipeline(app, db);
 
 // NFSE-M06 onda 6.36 (2026-04-20): ~55 registros de rotas protegidas
 // (MonitorV2, Licitacoes, Sniper, NFSe, Cobrancas, Financeiro, suprimentos,
