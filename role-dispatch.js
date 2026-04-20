@@ -38,11 +38,19 @@
  *   rd.startWorker() / rd.startMaster(); // se precisar chamar direto
  */
 
+// NFSE-M06 onda 6.42 (2026-04-20): schedulers que antes eram passados
+// como deps via server.js viraram requires diretos do modulo. Nada
+// muda no comportamento -- scheduler.js (ROLE=master entrypoint) tem
+// requires independentes e nao usa role-dispatch.
+const { iniciarReconciliadorS6 } = require('./nfse-routes');
+const { agendarPollingBoletos } = require('./financeiro-routes');
+const { agendarRecorrencias } = require('./recorrencia-scheduler');
+const { agendarCobrancas } = require('./cobranca-scheduler');
+const { agendarJornal } = require('./jornal-scheduler');
+
 function createRoleDispatch(deps) {
   const {
-    db, app, PORT, apiKey, dbPath, PNCP_API_BASE, getConfigValue,
-    pncpSync, agendarJornal, agendarRecorrencias, agendarCobrancas,
-    agendarPollingBoletos, iniciarReconciliadorS6,
+    db, app, PORT, apiKey, dbPath, PNCP_API_BASE, getConfigValue, pncpSync,
   } = deps;
 
   function logStartupBanner(role) {

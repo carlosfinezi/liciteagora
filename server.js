@@ -4,11 +4,6 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const { initAuthAndSession, installAuthBarrier, installProtectedStatic } = require('./auth-bootstrap');
 const { registrarRotasAuthPublicas, registrarRotasAuthProtegidas } = require('./auth-routes');
-const { iniciarReconciliadorS6 } = require('./nfse-routes');
-const { agendarPollingBoletos } = require('./financeiro-routes');
-const { agendarRecorrencias } = require('./recorrencia-scheduler');
-const { agendarCobrancas } = require('./cobranca-scheduler');
-const { agendarJornal } = require('./jornal-scheduler');
 
 const app = express();
 
@@ -80,7 +75,5 @@ registerProtectedRoutes(app, {
 // (ROLE=worker) aterra aqui; liciteagora.service usa scheduler.js direto.
 const { createRoleDispatch } = require('./role-dispatch');
 createRoleDispatch({
-  db, app, PORT, apiKey, dbPath, PNCP_API_BASE, getConfigValue,
-  pncpSync, agendarJornal, agendarRecorrencias, agendarCobrancas,
-  agendarPollingBoletos, iniciarReconciliadorS6,
+  db, app, PORT, apiKey, dbPath, PNCP_API_BASE, getConfigValue, pncpSync,
 }).dispatch();
