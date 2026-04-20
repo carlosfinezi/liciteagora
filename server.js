@@ -18,7 +18,6 @@ const { agendarPollingBoletos } = require('./financeiro-routes');
 const { agendarRecorrencias } = require('./recorrencia-scheduler');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
-const comprasnetLoginRoutes = require('./comprasnet-login-routes');
 
 const app = express();
 
@@ -120,25 +119,12 @@ app.use(session({
 // session() e barreira requireAuth continuam no bootstrap abaixo.
 registrarRotasAuthPublicas(app, db);
 
-// ==================== PORTAL DO CLIENTE (antes do auth) ====================
-app.use('/portal', express.static(path.join(__dirname, 'public', 'portal')));
-const { registrarRotasPortal, registrarRotasPortalAdmin } = require('./portal-routes');
-registrarRotasPortal(app, db);
-
-// ==================== DOWNLOAD PÚBLICO (antes do auth) ====================
-app.get('/download/:file', (req, res) => {
-  const allowed = ['LiciteAgora-Browser-win.zip'];
-  if (!allowed.includes(req.params.file)) return res.status(404).end();
-  const filePath = path.join(__dirname, 'electron-standalone', 'dist', req.params.file);
-  if (!require('fs').existsSync(filePath)) return res.status(404).json({ error: 'Arquivo não encontrado' });
-  res.download(filePath);
-});
-
-// ==================== COMPRASNET AUTO-LOGIN (Público - antes do auth) ====================
-app.use('/api/comprasnet', comprasnetLoginRoutes);
-// ==================== ELECTRON REMOTO (antes do auth) ====================
-const { registrarRotasElectron } = require('./electron-routes');
-registrarRotasElectron(app, db, { apiKey });
+// NFSE-M06 onda 6.37 (2026-04-20): bloco pre-auth (Portal do Cliente +
+// download publico do Browser + Comprasnet auto-login + Electron remoto)
+// migrou para pre-auth-routes.js. Fica antes de app.use(requireAuth()) e
+// preserva a ordem portal > download > comprasnet > electron.
+const { registerPreAuthRoutes } = require('./pre-auth-routes');
+registerPreAuthRoutes(app, db, { apiKey });
 
 // Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
 app.use(requireAuth(apiKey, db));
