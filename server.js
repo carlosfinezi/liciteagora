@@ -69,8 +69,9 @@ const { registrarRotasPropostasParticipacoes } = require('./propostas-participac
 const { registrarRotasGruposPalavras } = require('./grupos-palavras-routes');
 const { registrarRotasBackup } = require('./backup-routes');
 const { registrarRotasAnaliseIa } = require('./analise-ia-routes');
+const { registrarRotasJornal } = require('./jornal-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
-const { agendarJornal, executarJornal, gerarConteudoJornal } = require('./jornal-scheduler');
+const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
 const comprasnetLoginRoutes = require('./comprasnet-login-routes');
 
@@ -3315,6 +3316,7 @@ registrarRotasPropostasParticipacoes(app, db);
 registrarRotasGruposPalavras(app, db);
 registrarRotasBackup(app, db, { dbPath, PORT });
 registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys });
+registrarRotasJornal(app, db);
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
@@ -7537,93 +7539,9 @@ app.post('/api/pdf/assinar', async (req, res) => {
 // Factory registrado no topo junto a registrarRotasPropostasParticipacoes.
 
 
-// ==================== JORNAL DE LICITAÇÕES ====================
-
-// Obter configuração do jornal
-app.get('/api/jornal/config', (req, res) => {
-  try {
-    const config = db.prepare('SELECT * FROM jornal_config WHERE id = 1').get();
-    const gruposAtivos = db.prepare(`
-      SELECT jg.grupoId, g.nome, g.cor
-      FROM jornal_grupos jg
-      JOIN grupos_palavras g ON g.id = jg.grupoId
-      WHERE jg.ativo = 1
-    `).all();
-
-    res.json({
-      success: true,
-      data: {
-        ...config,
-        gruposAtivos
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Salvar configuração do jornal
-app.post('/api/jornal/config', (req, res) => {
-  try {
-    const { ativo, horario, diasAntecedencia, enviarTelegram, gruposIds } = req.body;
-
-    // Atualizar configuração
-    db.prepare(`
-      UPDATE jornal_config
-      SET ativo = ?, horario = ?, diasAntecedencia = ?, enviarTelegram = ?
-      WHERE id = 1
-    `).run(ativo ? 1 : 0, horario || '08:00', diasAntecedencia || 7, enviarTelegram ? 1 : 0);
-
-    // Atualizar grupos ativos
-    db.prepare('DELETE FROM jornal_grupos').run();
-    if (gruposIds && gruposIds.length > 0) {
-      const insertGrupo = db.prepare('INSERT OR IGNORE INTO jornal_grupos (grupoId, ativo) VALUES (?, 1)');
-      gruposIds.forEach(id => insertGrupo.run(id));
-    }
-
-    // Reagendar o jornal (rota exposta no worker — jornal-scheduler no-op fora do master)
-    agendarJornal(db);
-
-    res.json({ success: true, message: 'Configuração salva!' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Obter histórico de envios
-app.get('/api/jornal/historico', (req, res) => {
-  try {
-    const historico = db.prepare(`
-      SELECT * FROM jornal_historico
-      ORDER BY dataEnvio DESC
-      LIMIT 30
-    `).all();
-
-    res.json({ success: true, data: historico });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Executar jornal manualmente (para teste)
-app.post('/api/jornal/executar', async (req, res) => {
-  try {
-    const resultado = await executarJornal(db);
-    res.json({ success: true, data: resultado });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Preview do jornal (sem enviar)
-app.get('/api/jornal/preview', async (req, res) => {
-  try {
-    const resultado = await gerarConteudoJornal(db);
-    res.json({ success: true, data: resultado });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+// ==================== JORNAL DE LICITAÇÕES — extraído ====================
+// NFSE-M06 onda 6.6 (2026-04-20): 5 rotas migradas para jornal-routes.js.
+// agendarJornal() continua chamado pelo master via _iniciarSchedulersMaster.
 
 
 // Rota de debug para verificar estrutura da tabela
