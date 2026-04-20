@@ -32,6 +32,7 @@ const { registrarRotasMarketplaces } = require('./marketplaces-routes');
 const { registrarRotasTEF } = require('./tef-routes');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { createMonitorMensagens } = require('./monitor-mensagens-core');
+const { registrarRotasMonitorMensagens } = require('./monitor-mensagens-routes');
 const { registrarRotasSniper, getSniper, getPuppeteerSession } = require('./sniper-lance-routes');
 const { registrarRotasNfse, iniciarReconciliadorS6 } = require('./nfse-routes');
 const { registrarRotasFinanceiro, agendarPollingBoletos } = require('./financeiro-routes');
@@ -89,9 +90,6 @@ const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
 const comprasnetLoginRoutes = require('./comprasnet-login-routes');
-
-// Armazenar instâncias de monitoramento ativas
-const monitoramentosAtivos = new Map();
 
 const app = express();
 
@@ -1912,141 +1910,7 @@ const { MonitorMensagensComprasnet, MonitorChat } = createMonitorMensagens({
   db, getConfigValue, enviarTelegram
 });
 
-// Iniciar monitoramento de uma licitação
-app.post('/api/chat/iniciar-monitoramento', async (req, res) => {
-  try {
-    const { cnpj, ano, sequencial } = req.body;
-
-    if (!cnpj || !ano || !sequencial) {
-      return res.status(400).json({ success: false, error: 'Dados incompletos' });
-    }
-
-    const key = `${cnpj}-${ano}-${sequencial}`;
-
-    // Verificar se já está monitorando
-    if (monitoramentosAtivos.has(key)) {
-      return res.status(400).json({ success: false, error: 'Já está sendo monitorado' });
-    }
-
-    // Buscar link do sistema
-    const licitacao = db.prepare(`
-      SELECT linkSistemaOrigem, objetoCompra
-      FROM licitacoes
-      WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?
-    `).get(cnpj, parseInt(ano), parseInt(sequencial));
-
-    if (!licitacao) {
-      return res.status(404).json({ success: false, error: 'Licitação não encontrada' });
-    }
-
-    // Criar monitor
-    const monitor = new MonitorChat(cnpj, ano, sequencial, licitacao.linkSistemaOrigem);
-    monitoramentosAtivos.set(key, monitor);
-
-    // Iniciar em background
-    monitor.iniciar().catch(error => {
-      console.error('Erro no monitoramento:', error);
-      monitoramentosAtivos.delete(key);
-    });
-
-    res.json({ success: true, message: 'Monitoramento iniciado' });
-
-  } catch (error) {
-    console.error('Erro ao iniciar monitoramento:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Parar monitoramento
-app.post('/api/chat/parar-monitoramento', async (req, res) => {
-  try {
-    const { cnpj, ano, sequencial } = req.body;
-    const key = `${cnpj}-${ano}-${sequencial}`;
-
-    const monitor = monitoramentosAtivos.get(key);
-    if (monitor) {
-      await monitor.parar();
-      monitoramentosAtivos.delete(key);
-    }
-
-    res.json({ success: true, message: 'Monitoramento parado' });
-
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Status do monitoramento
-app.get('/api/chat/status-monitoramento/:cnpj/:ano/:sequencial', (req, res) => {
-  try {
-    const { cnpj, ano, sequencial } = req.params;
-    const key = `${cnpj}-${ano}-${sequencial}`;
-
-    const monitor = monitoramentosAtivos.get(key);
-    if (monitor) {
-      res.json({ success: true, ...monitor.getStatus() });
-    } else {
-      res.json({ success: true, ativo: false, logs: [] });
-    }
-
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Listar todos os monitoramentos ativos
-app.get('/api/chat/monitoramentos-ativos', (req, res) => {
-  try {
-    const ativos = [];
-    for (const [key, monitor] of monitoramentosAtivos) {
-      ativos.push({
-        key,
-        cnpj: monitor.cnpj,
-        ano: monitor.ano,
-        sequencial: monitor.sequencial,
-        ativo: monitor.ativo
-      });
-    }
-    res.json({ success: true, data: ativos });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-
-
-// Função para auto-iniciar monitoramento de mensagens
-async function autoIniciarMonitoramentoMensagens() {
-  try {
-    // Verificar se tem certificado digital OU credenciais gov.br
-    const cert = db.prepare('SELECT id FROM certificado_digital WHERE id = 1 AND certificadoBase64 IS NOT NULL').get();
-    const cpf = getConfigValue('govbr_cpf');
-    const senha = getConfigValue('govbr_senha');
-
-    const temCertificado = !!cert;
-    const temCredenciais = cpf && senha;
-
-    if (!temCertificado && !temCredenciais) {
-      console.log('[Monitor Mensagens] Nenhum método de autenticação configurado (certificado ou CPF/senha)');
-      console.log('[Monitor Mensagens] Configure em: http://localhost:3000/fornecedor.html');
-      return;
-    }
-
-    console.log(`[Monitor Mensagens] Iniciando com ${temCertificado ? 'certificado digital' : 'CPF/senha'}...`);
-
-    // Criar e iniciar o monitor
-    monitorMensagens = new MonitorMensagensComprasnet();
-    monitorMensagens.iniciar().catch(error => {
-      console.error('[Monitor Mensagens] Erro ao iniciar:', error.message);
-      monitorMensagens = null;
-    });
-
-  } catch (error) {
-    console.error('[Monitor Mensagens] Erro ao auto-iniciar:', error.message);
-  }
-}
-
-console.log('Rotas de monitoramento de mensagens registradas!');
+registrarRotasMonitorMensagens(app, db, { MonitorChat });
 
 // NFSE-M06 onda 5C passo 2: o verificador de lacunas (verificarECorrigirLacunas
 // e verificacaoCompletaDiaria) agora é criado dentro de pncp-sync-scheduler.js
