@@ -8,10 +8,28 @@
  *   registrarRotasNfse(app, db);
  */
 
+const crypto = require('crypto');
 const { gerarIdDps, construirDPS, assinarDPS, construirEventoCancelamento, assinarEvento, extrairChavesCertificado } = require('./nfse-xml');
 const { NfseClient } = require('./nfse-client');
 const { MercadoPagoClient, loadMPConfig } = require('./mercadopago-client');
 const { enviarEmailCancelamento, loadSmtpConfig } = require('./email-client');
+
+// NFSE-C03: idempotency em memória para evitar double-click / retry rápido
+// na mesma emissão lógica. Chave = hash(cnpj_tomador|descricao|valor|competencia).
+// TTL implícito = duração de uma emissão (concluída sucesso ou erro).
+// Nao substitui solução completa (INSERT pendente_envio + reconciliação),
+// mas fecha a porta mais frequente: usuário clicando duas vezes em "Emitir".
+const _emissoesEmAndamento = new Map();
+
+function _hashEmissao(params) {
+  const raw = [
+    (params.tomador?.cpfCnpj || '').replace(/\D/g, ''),
+    (params.servico?.descricao || '').trim().slice(0, 120),
+    Number(params.servico?.valorServico || 0).toFixed(2),
+    params.competencia || '',
+  ].join('|');
+  return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 32);
+}
 
 /** Data atual em Brasilia (UTC-3) no formato YYYY-MM-DD */
 function dataBrasilia() {
@@ -145,6 +163,25 @@ async function emitirNfseInterno(db, params) {
   if (!fornecedor || !fornecedor.cnpj) {
     return { success: false, error: 'Dados do fornecedor nao cadastrados' };
   }
+
+  // NFSE-C03: idempotency check — bloqueia emissões lógicas duplicadas
+  // concorrentes (mesmo tomador + descrição + valor + competência) antes
+  // de consumir nDPS. Fecha a janela de double-click sem a solução completa.
+  const idempKey = _hashEmissao({
+    tomador,
+    servico,
+    competencia: competencia || dataBrasilia(),
+  });
+  if (_emissoesEmAndamento.has(idempKey)) {
+    return {
+      success: false,
+      code: 'EMISSAO_EM_ANDAMENTO',
+      error: 'Emissao identica ja esta em andamento. Aguarde a conclusao antes de reenviar.',
+    };
+  }
+  _emissoesEmAndamento.set(idempKey, Date.now());
+
+  try { // NFSE-C03: try/finally garante liberacao da chave em qualquer caminho
 
   // Certificado
   const { p12Buffer, senha } = carregarCertificado(db);
@@ -330,6 +367,11 @@ async function emitirNfseInterno(db, params) {
       error: `Erro ao enviar para SEFIN: ${sefinError.message}`,
       nfse: { id: nfseId, idDps, nDPS, serie, status: 'erro' },
     };
+  }
+
+  } finally {
+    // NFSE-C03: libera a chave de idempotencia em qualquer caminho
+    _emissoesEmAndamento.delete(idempKey);
   }
 }
 
@@ -567,22 +609,39 @@ function registrarRotasNfse(app, db) {
   // ---------- CANCELAMENTO ----------
 
   app.post('/api/nfse/:id/cancelar', async (req, res) => {
+    let nota; // visível no catch para eventual rollback de status
     try {
       const { motivo, codigoMotivo } = req.body;
       if (!motivo || motivo.length < 15) {
         return res.status(400).json({ success: false, error: 'Motivo obrigatorio (minimo 15 caracteres)' });
       }
 
-      const nota = db.prepare('SELECT id, chaveAcesso, tpAmb, status, nNFSe, nDPS, descricaoServico, valorServico, dataCompetencia, tomadorCpfCnpj FROM nfse WHERE id = ?').get(req.params.id);
-      if (!nota) {
-        return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
+      // NFSE-C04: lock atômico — uma única transação valida status e move
+      // para 'cancelamento_pendente'. Dois cliques concorrentes: segundo
+      // recebe 409 Conflict e nao chega a chamar SEFIN.
+      const lockFn = db.transaction((id) => {
+        const n = db.prepare('SELECT id, chaveAcesso, tpAmb, status, nNFSe, nDPS, descricaoServico, valorServico, dataCompetencia, tomadorCpfCnpj FROM nfse WHERE id = ?').get(id);
+        if (!n) return { err: 'nao_encontrada' };
+        if (n.status === 'cancelada') return { err: 'ja_cancelada' };
+        if (n.status === 'cancelamento_pendente') return { err: 'em_andamento' };
+        if (n.status !== 'autorizada') return { err: 'status_invalido', status: n.status };
+        if (!n.chaveAcesso) return { err: 'sem_chave' };
+        db.prepare("UPDATE nfse SET status='cancelamento_pendente', dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?").run(id);
+        return { nota: n };
+      });
+      const lock = lockFn(req.params.id);
+      if (lock.err) {
+        const msgs = {
+          nao_encontrada:   { code: 404, msg: 'Nota nao encontrada' },
+          ja_cancelada:     { code: 400, msg: 'Nota ja cancelada' },
+          em_andamento:     { code: 409, msg: 'Cancelamento ja em andamento para esta nota' },
+          status_invalido:  { code: 400, msg: `Status invalido para cancelamento: ${lock.status}` },
+          sem_chave:        { code: 400, msg: 'Nota sem chave de acesso' },
+        };
+        const r = msgs[lock.err];
+        return res.status(r.code).json({ success: false, error: r.msg });
       }
-      if (nota.status === 'cancelada') {
-        return res.status(400).json({ success: false, error: 'Nota ja cancelada' });
-      }
-      if (!nota.chaveAcesso) {
-        return res.status(400).json({ success: false, error: 'Nota sem chave de acesso' });
-      }
+      nota = lock.nota;
 
       const { p12Buffer, senha } = carregarCertificado(db);
       const { privateKeyPem, certDerBase64 } = extrairChavesCertificado(p12Buffer, senha);
@@ -590,6 +649,8 @@ function registrarRotasNfse(app, db) {
       // CNPJ do prestador (autor do evento)
       const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
       if (!fornecedor || !fornecedor.cnpj) {
+        // rollback do lock: volta para 'autorizada' antes de erro
+        db.prepare("UPDATE nfse SET status='autorizada', dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?").run(nota.id);
         return res.status(400).json({ success: false, error: 'Dados do fornecedor nao cadastrados' });
       }
 
@@ -612,26 +673,32 @@ function registrarRotasNfse(app, db) {
       const resposta = await client.cancelarNfse(signedXml, nota.chaveAcesso);
       console.log(`[NFSe] Cancelamento resposta:`, JSON.stringify(resposta).substring(0, 300));
 
-      // Atualizar NFSe
-      db.prepare(`
-        UPDATE nfse SET status = 'cancelada', motivoCancelamento = ?, xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(motivo, JSON.stringify(resposta), nota.id);
+      // NFSE-C04: finalização atômica — três UPDATEs (nfse + conta + boleto)
+      // em uma única transação. Se falhar, estado permanece consistente e
+      // worker futuro (S6) pode reconciliar via consultarNfse.
+      const finalizar = db.transaction(() => {
+        db.prepare(`
+          UPDATE nfse SET status='cancelada', motivoCancelamento=?, xmlRetorno=?, dataAtualizacao=CURRENT_TIMESTAMP
+          WHERE id=?
+        `).run(motivo, JSON.stringify(resposta), nota.id);
 
-      // Cancelar conta a receber e boleto associados
-      const conta = db.prepare('SELECT id FROM contas_a_receber WHERE nfseId = ? AND status != ?').get(nota.id, 'cancelada');
-      if (conta) {
-        db.prepare("UPDATE contas_a_receber SET status = 'cancelada', observacoes = COALESCE(observacoes || ' | ', '') || 'Cancelada por cancelamento NFSe', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?")
-          .run(conta.id);
-        console.log(`[NFSe] Conta a receber #${conta.id} cancelada`);
-
-        const boleto = db.prepare('SELECT id FROM boletos WHERE contaReceberId = ? AND status != ?').get(conta.id, 'cancelado');
-        if (boleto) {
-          db.prepare("UPDATE boletos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?")
-            .run(boleto.id);
-          console.log(`[NFSe] Boleto #${boleto.id} cancelado`);
+        const conta = db.prepare('SELECT id FROM contas_a_receber WHERE nfseId = ? AND status != ?').get(nota.id, 'cancelada');
+        let contaId = null, boletoId = null;
+        if (conta) {
+          db.prepare("UPDATE contas_a_receber SET status='cancelada', observacoes=COALESCE(observacoes || ' | ', '') || 'Cancelada por cancelamento NFSe', dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?")
+            .run(conta.id);
+          contaId = conta.id;
+          const boleto = db.prepare('SELECT id FROM boletos WHERE contaReceberId = ? AND status != ?').get(conta.id, 'cancelado');
+          if (boleto) {
+            db.prepare("UPDATE boletos SET status='cancelado', dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?").run(boleto.id);
+            boletoId = boleto.id;
+          }
         }
-      }
+        return { contaId, boletoId };
+      });
+      const resultFin = finalizar();
+      if (resultFin.contaId) console.log(`[NFSe] Conta a receber #${resultFin.contaId} cancelada`);
+      if (resultFin.boletoId) console.log(`[NFSe] Boleto #${resultFin.boletoId} cancelado`);
 
       // Enviar email de cancelamento ao tomador
       let emailStatus = 'nao';
@@ -663,9 +730,117 @@ function registrarRotasNfse(app, db) {
       res.json({ success: true, message: 'Nota cancelada com sucesso', emailEnviado: emailStatus, resposta });
     } catch (error) {
       console.error('[NFSe] Erro ao cancelar:', error.message);
+      // NFSE-C04: se tínhamos lock em 'cancelamento_pendente' e falhou
+      // antes de finalizar, volta para 'autorizada' para nao deixar a nota
+      // travada. Erros transientes poderão ser reprocessados pelo worker S6.
+      try {
+        if (nota && nota.id) {
+          const atual = db.prepare("SELECT status FROM nfse WHERE id=?").get(nota.id);
+          if (atual && atual.status === 'cancelamento_pendente') {
+            db.prepare("UPDATE nfse SET status='autorizada', dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?").run(nota.id);
+            console.log(`[NFSe] Rollback lock cancelamento nota #${nota.id} → autorizada`);
+          }
+        }
+      } catch (rbErr) {
+        console.error('[NFSe] Rollback lock cancelamento falhou:', rbErr.message);
+      }
       res.status(500).json({ success: false, error: error.message });
     }
   });
+
+  // ==================== NFSE-M05: Reconciliador S6 ====================
+  // Reprocessa automaticamente notas em status 'processando' consultando a SEFIN.
+  // - Gated por ROLE=master para nao rodar duplicado em cluster
+  // - Intervalo: 15min
+  // - Politica:
+  //     rows com chaveAcesso + >5min: consulta SEFIN para decidir autorizada|rejeitada
+  //     rows sem chaveAcesso + >1h:   marca erro_timeout (bloqueia para reemissao manual)
+  function _reconciliarNotasPendentes() {
+    try {
+      const notas = db.prepare(`
+        SELECT id, chaveAcesso, tpAmb, nNFSe, dataCriacao
+        FROM nfse
+        WHERE status = 'processando'
+          AND datetime(dataCriacao) < datetime('now', '-5 minutes')
+        ORDER BY id ASC
+        LIMIT 50
+      `).all();
+
+      if (!notas.length) return;
+      console.log(`[NFSe][reconciler] ${notas.length} nota(s) pendente(s)...`);
+
+      // Carrega certificado uma vez por ciclo
+      let cert;
+      try { cert = carregarCertificado(db); }
+      catch (e) {
+        console.error('[NFSe][reconciler] Sem certificado — abortando ciclo:', e.message);
+        return;
+      }
+
+      (async () => {
+        for (const n of notas) {
+          try {
+            // Caso 1: sem chaveAcesso ha > 1h — marca erro_timeout
+            if (!n.chaveAcesso) {
+              const idadeMs = Date.now() - new Date(n.dataCriacao).getTime();
+              if (idadeMs > 60 * 60 * 1000) {
+                db.prepare(`
+                  UPDATE nfse
+                  SET status = 'erro_timeout',
+                      xmlRetorno = 'NFSE-M05: sem chaveAcesso por >1h — marcada como timeout',
+                      dataAtualizacao = CURRENT_TIMESTAMP
+                  WHERE id = ?
+                `).run(n.id);
+                console.log(`[NFSe][reconciler] nota ${n.id}: erro_timeout (sem chave >1h)`);
+              }
+              continue;
+            }
+
+            // Caso 2: com chaveAcesso — consulta SEFIN
+            const client = new NfseClient(cert.p12Buffer, cert.senha, n.tpAmb || 2);
+            const resp = await client.consultarNfse(n.chaveAcesso);
+
+            // Resposta SEFIN: pode vir com nfseXmlGZipB64 (autorizada) ou motivo (rejeitada)
+            // ou ainda estar processando (mantem)
+            if (resp && (resp.nfseXmlGZipB64 || resp.chaveAcesso)) {
+              const nNFSe = resp.nNFSe || resp.numero || n.nNFSe || '';
+              db.prepare(`
+                UPDATE nfse
+                SET status = 'autorizada',
+                    nNFSe = COALESCE(NULLIF(?, ''), nNFSe),
+                    xmlRetorno = ?,
+                    dataAtualizacao = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'processando'
+              `).run(nNFSe, JSON.stringify(resp).substring(0, 10000), n.id);
+              console.log(`[NFSe][reconciler] nota ${n.id}: autorizada (chave ${n.chaveAcesso})`);
+            } else if (resp && resp.motivo) {
+              db.prepare(`
+                UPDATE nfse
+                SET status = 'rejeitada',
+                    xmlRetorno = ?,
+                    dataAtualizacao = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'processando'
+              `).run(JSON.stringify(resp).substring(0, 10000), n.id);
+              console.log(`[NFSe][reconciler] nota ${n.id}: rejeitada`);
+            }
+            // caso contrario mantem 'processando' para proximo ciclo
+          } catch (errRec) {
+            console.error(`[NFSe][reconciler] nota ${n.id} falhou:`, errRec.message);
+          }
+        }
+      })().catch(err => console.error('[NFSe][reconciler] loop erro:', err.message));
+    } catch (err) {
+      console.error('[NFSe][reconciler] ciclo erro:', err.message);
+    }
+  }
+
+  // Gate: so no master (evita duplicidade em cluster) e apenas se nao estiver desabilitado
+  if (process.env.ROLE === 'master' && process.env.NFSE_RECONCILER_DISABLED !== '1') {
+    // primeira execucao 30s apos boot, depois a cada 15min
+    setTimeout(_reconciliarNotasPendentes, 30 * 1000);
+    setInterval(_reconciliarNotasPendentes, 15 * 60 * 1000);
+    console.log('[NFSe] Reconciliador S6 ativo (ROLE=master, 15min)');
+  }
 
   console.log('[NFSe] Rotas registradas');
 }

@@ -20,6 +20,21 @@ const URLS_API = {
   2: 'https://sefin.producaorestrita.nfse.gov.br/API/SefinNacional',
 };
 
+// NFSE-H09: códigos/erros considerados transientes para retry automático
+const TRANSIENT_STATUS = new Set([502, 503, 504]);
+const TRANSIENT_ERR_CODES = new Set([
+  'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE',
+]);
+
+function _isTransientErr(err) {
+  if (!err) return false;
+  if (err.code && TRANSIENT_ERR_CODES.has(err.code)) return true;
+  const msg = String(err.message || err).toLowerCase();
+  return /timeout|socket hang up|econnreset|etimedout|network/.test(msg);
+}
+
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 class NfseClient {
   /**
    * @param {Buffer} p12Buffer - Certificado PKCS#12 como Buffer
@@ -36,6 +51,40 @@ class NfseClient {
       passphrase: senha,
       rejectUnauthorized: true,
     });
+  }
+
+  /**
+   * NFSE-H09: wrapper com retry exponencial + jitter APENAS para métodos
+   * idempotentes (GET). POST (emitirNfse, cancelarNfse) NUNCA faz retry
+   * automático — risco de dupla emissão fiscal enquanto NFSE-C03 (idempotency
+   * key full) não estiver completa.
+   */
+  async _requestWithRetry(method, url, body, headers = {}, opts = {}) {
+    const isIdempotent = method === 'GET' || opts.forceRetry === true;
+    if (!isIdempotent) return this._request(method, url, body, headers);
+
+    const maxTries = 3; // 1 tentativa + 2 retries
+    const baseDelays = [0, 1000, 3000];
+    let lastErr;
+    for (let attempt = 0; attempt < maxTries; attempt++) {
+      if (attempt > 0) {
+        const jitter = Math.floor(Math.random() * 250);
+        await _sleep(baseDelays[attempt] + jitter);
+        console.log(`[NFSe][retry] tentativa ${attempt + 1}/${maxTries} em ${method} ${url}`);
+      }
+      try {
+        const resp = await this._request(method, url, body, headers);
+        if (TRANSIENT_STATUS.has(resp.status) && attempt < maxTries - 1) {
+          lastErr = new Error(`SEFIN transiente ${resp.status}`);
+          continue;
+        }
+        return resp;
+      } catch (err) {
+        lastErr = err;
+        if (!_isTransientErr(err) || attempt >= maxTries - 1) throw err;
+      }
+    }
+    throw lastErr || new Error('retry exaurido sem causa');
   }
 
   /**
@@ -95,12 +144,17 @@ class NfseClient {
       });
 
       req.on('error', (err) => {
-        reject(new Error(`Erro na requisição SEFIN: ${err.message}`));
+        // NFSE-H09: preserva err.code para que retry detecte transientes
+        const wrapped = new Error(`Erro na requisição SEFIN: ${err.message}`);
+        if (err.code) wrapped.code = err.code;
+        reject(wrapped);
       });
 
       req.setTimeout(30000, () => {
         req.destroy();
-        reject(new Error('Timeout na requisição SEFIN (30s)'));
+        const e = new Error('Timeout na requisição SEFIN (30s)');
+        e.code = 'ETIMEDOUT';
+        reject(e);
       });
 
       if (body) {
@@ -148,7 +202,8 @@ class NfseClient {
     const url = `${this.baseUrl}/nfse/${chaveAcesso}`;
     console.log(`[NFSe] Consultando NFS-e: ${chaveAcesso}`);
 
-    const response = await this._request('GET', url);
+    // NFSE-H09: GET idempotente — usa retry com backoff
+    const response = await this._requestWithRetry('GET', url);
 
     if (response.status >= 400) {
       throw new Error(`Erro ao consultar NFS-e: ${response.status}`);
@@ -166,7 +221,8 @@ class NfseClient {
     const url = `${this.baseUrl}/danfse/${chaveAcesso}`;
     console.log(`[NFSe] Baixando DANFSE: ${chaveAcesso}`);
 
-    const response = await this._request('GET', url, null, {
+    // NFSE-H09: GETs idempotentes usam retry com backoff
+    const response = await this._requestWithRetry('GET', url, null, {
       'Accept': 'application/pdf',
     });
 
@@ -177,7 +233,7 @@ class NfseClient {
     // Fallback: gerar PDF a partir do XML da NFSe
     console.log(`[NFSe] DANFSE indisponivel (${response.status}), gerando PDF do XML...`);
     const xmlUrl = `${this.baseUrl}/nfse/${chaveAcesso}`;
-    const xmlResp = await this._request('GET', xmlUrl, null, { 'Accept': 'application/json' });
+    const xmlResp = await this._requestWithRetry('GET', xmlUrl, null, { 'Accept': 'application/json' });
 
     if (xmlResp.status >= 400) {
       throw new Error(`Erro ao consultar NFSe para gerar DANFSE: ${xmlResp.status}`);
@@ -228,7 +284,8 @@ class NfseClient {
     const url = `${this.baseUrl}/parametros_municipais/${codMunicipio}/convenio`;
     console.log(`[NFSe] Consultando parâmetros municipais: ${codMunicipio}`);
 
-    const response = await this._request('GET', url);
+    // NFSE-H09: GET idempotente — usa retry com backoff
+    const response = await this._requestWithRetry('GET', url);
 
     if (response.status >= 400) {
       throw new Error(`Erro ao consultar parâmetros: ${response.status}`);

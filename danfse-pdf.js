@@ -5,10 +5,30 @@
 const PDFDocument = require('pdfkit');
 const zlib = require('zlib');
 
+/**
+ * NFSE-M04: extrator tolerante a namespaces, atributos, whitespace,
+ * CDATA e tags auto-fechadas. Sem nova dependência — regex melhorada,
+ * escape de nome e detecção de self-close.
+ *
+ * Cobre: <name>x</name>, <ns:name>x</ns:name>, <name attr="v">x</name>,
+ *        <name/>, <ns:name/>, <![CDATA[x]]>.
+ */
 function tag(xml, name) {
-  const re = new RegExp('<' + name + '>([\\s\\S]*?)</' + name + '>');
+  if (!xml || !name) return '';
+  const esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const np = '(?:[A-Za-z_][\\w.-]*:)?' + esc; // prefixo de namespace opcional
+  // Self-closed: <ns:name ... /> → vazio
+  const selfCloseRe = new RegExp('<' + np + '(?:\\s[^>]*)?/>');
+  if (selfCloseRe.test(xml)) return '';
+  // Par aberto/fechado, tolerando atributos e whitespace interno
+  const re = new RegExp('<' + np + '(?:\\s[^>]*)?>([\\s\\S]*?)</' + np + '>');
   const m = xml.match(re);
-  return m ? m[1].trim() : '';
+  if (!m) return '';
+  let inner = m[1];
+  // Desempacota CDATA se presente
+  const cdata = inner.match(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/);
+  if (cdata) inner = cdata[1];
+  return inner.trim();
 }
 
 function formatDoc(doc) {
