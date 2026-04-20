@@ -71,6 +71,7 @@ const { registrarRotasBackup } = require('./backup-routes');
 const { registrarRotasAnaliseIa } = require('./analise-ia-routes');
 const { registrarRotasJornal } = require('./jornal-routes');
 const { registrarRotasCertificado } = require('./certificado-routes');
+const { registrarRotasProxy } = require('./proxy-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -2762,63 +2763,6 @@ app.delete('/api/credenciais', (req, res) => {
   }
 });
 
-// ==================== CONFIGURAÇÃO DE PROXY ====================
-
-// Salvar configuração de proxy
-app.post('/api/proxy', (req, res) => {
-  try {
-    const { servidor, porta, usuario, senha, ativo } = req.body;
-
-    if (ativo && (!servidor || !porta)) {
-      return res.status(400).json({ success: false, error: 'Servidor e porta são obrigatórios quando o proxy está ativo' });
-    }
-
-    // Salvar configurações
-    db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES ('proxy_servidor', ?, CURRENT_TIMESTAMP)`).run(servidor || '');
-    db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES ('proxy_porta', ?, CURRENT_TIMESTAMP)`).run(porta || '');
-    db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES ('proxy_usuario', ?, CURRENT_TIMESTAMP)`).run(usuario || '');
-    db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES ('proxy_senha', ?, CURRENT_TIMESTAMP)`).run(senha || '');
-    db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES ('proxy_ativo', ?, CURRENT_TIMESTAMP)`).run(ativo ? '1' : '0');
-
-    res.json({ success: true, message: 'Configuração de proxy salva' });
-  } catch (error) {
-    console.error('Erro ao salvar proxy:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Verificar configuração de proxy
-app.get('/api/proxy', (req, res) => {
-  try {
-    const servidor = db.prepare(`SELECT valor FROM config WHERE chave = 'proxy_servidor'`).get();
-    const porta = db.prepare(`SELECT valor FROM config WHERE chave = 'proxy_porta'`).get();
-    const usuario = db.prepare(`SELECT valor FROM config WHERE chave = 'proxy_usuario'`).get();
-    const ativo = db.prepare(`SELECT valor FROM config WHERE chave = 'proxy_ativo'`).get();
-
-    res.json({
-      success: true,
-      data: {
-        servidor: servidor?.valor || '',
-        porta: porta?.valor || '',
-        usuario: usuario?.valor || '',
-        ativo: ativo?.valor === '1'
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Remover configuração de proxy
-app.delete('/api/proxy', (req, res) => {
-  try {
-    db.prepare(`DELETE FROM config WHERE chave LIKE 'proxy_%'`).run();
-    res.json({ success: true, message: 'Configuração de proxy removida' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 // ==================== FORNECEDOR ====================
 
 // Buscar dados do fornecedor
@@ -3231,6 +3175,7 @@ registrarRotasBackup(app, db, { dbPath, PORT });
 registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys });
 registrarRotasJornal(app, db);
 registrarRotasCertificado(app, db);
+registrarRotasProxy(app, db);
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
