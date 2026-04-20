@@ -929,93 +929,9 @@ app.get('/download/:file', (req, res) => {
 
 // ==================== COMPRASNET AUTO-LOGIN (Público - antes do auth) ====================
 app.use('/api/comprasnet', comprasnetLoginRoutes);
-// ─── Download do Electron para Windows ─────────────────────────────────────
-app.get('/api/electron/download', (req, res) => {
-  const paths = [
-    path.join(__dirname, 'electron-standalone', 'dist', 'LiciteAgora-v2.zip'),
-    path.join(__dirname, '..', 'public_html', 'LiciteAgora-v2.zip'),
-  ];
-  const filePath = paths.find(p => fs.existsSync(p));
-  if (!filePath) return res.status(404).json({ error: 'Build não encontrado' });
-  res.setHeader('Content-Disposition', 'attachment; filename=LiciteAgora-Electron.zip');
-  res.sendFile(filePath);
-});
-
-// ─── Erros do Electron remoto (sem auth) ───────────────────────────────────
-const electronErrors = [];
-app.post('/api/electron/error', (req, res) => {
-  const err = req.body || {};
-  err.receivedAt = new Date().toISOString();
-  electronErrors.push(err);
-  if (electronErrors.length > 100) electronErrors.shift();
-  console.error('[Electron Error] ' + (err.context || '') + ': ' + (err.error || ''));
-  res.json({ ok: true });
-});
-app.get('/api/electron/errors', (req, res) => { res.json(electronErrors); });
-
-// ─── Versão do Electron (para auto-update, sem auth) ────────────────────────
-const ELECTRON_VERSION = '1.1.0'; // Incrementar ao publicar nova versão
-app.get('/api/electron/check-version', (req, res) => {
-  const downloadUrl = (req.protocol + '://' + req.get('host')) + '/api/electron/download-exe';
-  res.json({
-    version: ELECTRON_VERSION,
-    downloadUrl,
-    releaseNotes: 'Session timers, mensagens v1 global, auto-update',
-  });
-});
-
-app.get('/api/electron/download-exe', (req, res) => {
-  const paths = [
-    path.join(__dirname, 'electron-standalone', 'dist', 'LiciteAgora-Browser.exe'),
-    path.join(__dirname, '..', 'public_html', 'downloads', 'LiciteAgora-Browser.exe'),
-  ];
-  const filePath = paths.find(p => fs.existsSync(p));
-  if (!filePath) return res.status(404).json({ error: 'Exe não encontrado' });
-  res.setHeader('Content-Disposition', 'attachment; filename=LiciteAgora-Browser.exe');
-  res.sendFile(filePath);
-});
-
-// ─── Status/Logs do Electron remoto ────────────────────────────────────────
-const electronState = { logs: [], state: 'offline', bearerAge: null, lastSeen: null };
-app.post('/api/electron/logs', (req, res) => {
-  const key = req.headers['x-api-key'];
-  if (key !== apiKey) return res.status(401).json({ error: 'API key inválida' });
-  const { logs, state: elState, bearerAge } = req.body || {};
-  if (Array.isArray(logs)) {
-    electronState.logs.push(...logs);
-    if (electronState.logs.length > 500) electronState.logs = electronState.logs.slice(-500);
-  }
-  if (elState) electronState.state = elState;
-  if (bearerAge !== undefined) electronState.bearerAge = bearerAge;
-  electronState.lastSeen = new Date().toISOString();
-  res.json({ ok: true });
-});
-app.get('/api/electron/status', (req, res) => {
-  const since = req.query.since ? new Date(req.query.since).toISOString() : null;
-  let logs = electronState.logs;
-  if (since) logs = logs.filter(l => l.time > since);
-  res.json({ state: electronState.state, bearerAge: electronState.bearerAge, lastSeen: electronState.lastSeen, logCount: electronState.logs.length, logs });
-});
-
-// ─── Endpoint para Electron remoto buscar credenciais ──────────────────────
-// SEC-01 (2026-04-18): exige X-Api-Key. Electron que ainda não tem a chave deve
-// receber via --api-key, LICITEAGORA_API_KEY ou configuração manual inicial.
-// NUNCA devolver apiKey no corpo — rotaciona-la exige deploy manual.
-app.get('/api/electron/credentials', (req, res) => {
-  try {
-    const headerKey = req.headers['x-api-key'];
-    if (!headerKey || headerKey !== apiKey) {
-      return res.status(401).json({ error: 'X-Api-Key obrigatório' });
-    }
-    const cpf = db.prepare("SELECT valor FROM config WHERE chave = 'govbr_cpf'").get();
-    const senha = db.prepare("SELECT valor FROM config WHERE chave = 'govbr_senha'").get();
-    if (!cpf || !senha) return res.json({ error: 'Credenciais não configuradas' });
-    // apiKey NÃO é mais devolvida aqui — o cliente já precisa tê-la para passar na validação acima.
-    res.json({ cpf: cpf.valor, senha: senha.valor });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+// ==================== ELECTRON REMOTO (antes do auth) ====================
+const { registrarRotasElectron } = require('./electron-routes');
+registrarRotasElectron(app, db, { apiKey });
 
 // Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
 app.use(requireAuth(apiKey, db));
