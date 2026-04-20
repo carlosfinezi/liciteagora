@@ -229,9 +229,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 // itens e POST sync-itens pontual).
 registrarRotasLicitacoes(app, db, { pncpSync, salvarItens, PNCP_API_BASE, PNCP_API_ITENS });
 
-// ==================== CERTIFICADO DIGITAL — extraído ====================
-// NFSE-M06 onda 6.7 (2026-04-20): 3 rotas (status/save/delete) migradas
-// para certificado-routes.js.
 
 // ==================== TELEGRAM / ALERTAS ====================
 
@@ -252,12 +249,6 @@ async function enviarNotificacaoTelegram(dados) {
   return _sendNotificacaoViaClient(db, dados);
 }
 
-// ==================== ALERTA DISPUTA (Telegram 30 min antes) ====================
-// NFSE-M06 onda 5C passo 2: verificarAlertasDisputa + timer (setInterval 5min
-// e setTimeout 30s pós-boot) migraram para pncp-sync-scheduler.js. O master
-// liga tudo via pncpSync.startMasterOnlyTimers(). No worker não roda — o gate
-// ROLE=master que existia aqui desde a onda 5B deixa de ser necessário porque
-// o módulo só dispara os timers quando o master explicitamente solicita.
 
 // ==================== MONITOR V2 (API direta Comprasnet) ====================
 registrarRotasMonitorV2(app, db, {
@@ -361,46 +352,6 @@ registrarRotasChatMonitoramento(app, db);
 registrarRotasChatMensagens(app, db);
 registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram });
 
-
-// NFSE-M06 onda 5C passo 2: o verificador de lacunas (verificarECorrigirLacunas
-// e verificacaoCompletaDiaria) agora é criado dentro de pncp-sync-scheduler.js
-// no init — ele era o único consumidor destas funções em server.js. A terceira
-// função retornada (corrigirItensFaltantes) era desde sempre dead code aqui.
-// A verificação diária às 03:00 + o watchdog de sync pararem de rodar no
-// worker vieram da onda 5B; 5C apenas move a implementação para o módulo.
-
-// PROPOSTAS (v1 /api/proposta/enviar + v2 via participações)
-// Extraído em NFSE-M06 onda 6.2 para propostas-participacoes-routes.js.
-// Factory registrado no topo junto a registrarRotasBi / registrarRotasTEF.
-
-
-// GRUPOS DE PALAVRAS-CHAVE (pesquisa/exclusão) + rota /pesquisar
-// Extraído em NFSE-M06 onda 6.3 para grupos-palavras-routes.js.
-// Factory registrado no topo junto a registrarRotasPropostasParticipacoes.
-
-
-// ==================== JORNAL DE LICITAÇÕES — extraído ====================
-// NFSE-M06 onda 6.6 (2026-04-20): 5 rotas migradas para jornal-routes.js.
-// agendarJornal() continua chamado pelo master via _iniciarSchedulersMaster.
-
-
-// SISTEMA DE BACKUP E VERSIONAMENTO (backup SQLite + git tags)
-// Extraído em NFSE-M06 onda 6.4 para backup-routes.js.
-// Factory registrado no topo junto a registrarRotasGruposPalavras.
-
-// ==================== ANÁLISE IA (rotas) — extraído ====================
-// NFSE-M06 onda 6.5 (2026-04-20): 7 rotas migradas para analise-ia-routes.js.
-// Factory registrarRotasAnaliseIa chamada no topo junto aos outros módulos.
-
-// BI — registrado via bi-routes.js (NFSE-M06 onda 6.1, 2026-04-20).
-// Bloco de ~291 linhas com 6 rotas (pesquisa local, resultados PNCP,
-// Dados Abertos, pesquisa de preço) migrado para módulo dedicado.
-
-// ─── ROTAS DE ANÁLISE IA (Bloco B) — extraído ──────────────────────────────
-// NFSE-M06 onda 6.5 (2026-04-20): 6 rotas migradas para analise-ia-routes.js,
-// registradas após o Bloco A (mesma ordem original) para preservar quem
-// vence em /api/analise/stats e quem responde aos endpoints com ordem de
-// parâmetros :cnpj/:sequencial/:ano.
 
 // NFSE-M06 onda 6.34 (2026-04-20): _logStartupBanner,
 // _iniciarSchedulersMaster, _iniciarWorkerHttp e o dispatch de
