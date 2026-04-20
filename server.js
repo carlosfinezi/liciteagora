@@ -11,7 +11,6 @@ puppeteer.use(StealthPlugin());
 // instanciado internamente em pncp-sync-scheduler.js. Removido daqui.
 const crypto = require('crypto');
 const session = require('express-session');
-const bcrypt = require('bcryptjs');
 const { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth } = require('./auth');
 const { registrarRotasUsuarios } = require('./usuarios-routes');
 const { registrarRotasAuditoria } = require('./audit-log');
@@ -32,6 +31,7 @@ const { registrarRotasMarketplaces } = require('./marketplaces-routes');
 const { registrarRotasTEF } = require('./tef-routes');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { registrarRotasLicitacoes } = require('./licitacoes-routes');
+const { registrarRotasAuthPublicas, registrarRotasAuthProtegidas } = require('./auth-routes');
 const { createMonitorMensagens } = require('./monitor-mensagens-core');
 const { registrarRotasGovBr } = require('./govbr-routes');
 const { registrarRotasMonitorMensagens } = require('./monitor-mensagens-routes');
@@ -848,74 +848,11 @@ app.use(session({
   cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: false }
 }));
 
-// Login (público) — SEC-03 (2026-04-18): rate limit por IP + mensagem uniforme
-// anti-enumeração. 5 tentativas falhas em 15 min → 429 por mais 15 min.
-const _loginAttempts = new Map(); // ip → { fails, firstAt, blockedUntil }
-const LOGIN_MAX_FAILS = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_BLOCK_MS = 15 * 60 * 1000;
-setInterval(() => {
-  const agora = Date.now();
-  for (const [ip, st] of _loginAttempts) {
-    if ((st.blockedUntil && st.blockedUntil < agora) || (agora - st.firstAt) > LOGIN_WINDOW_MS) {
-      _loginAttempts.delete(ip);
-    }
-  }
-}, 5 * 60 * 1000).unref();
 
-function _loginClientIp(req) {
-  const fwd = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return fwd || req.ip || req.socket?.remoteAddress || 'unknown';
-}
-
-app.post('/api/login', (req, res) => {
-  const ip = _loginClientIp(req);
-  const agora = Date.now();
-  const st = _loginAttempts.get(ip);
-  if (st && st.blockedUntil && st.blockedUntil > agora) {
-    const retryIn = Math.ceil((st.blockedUntil - agora) / 1000);
-    res.set('Retry-After', String(retryIn));
-    return res.status(429).json({ success: false, error: 'Muitas tentativas. Tente novamente em alguns minutos.' });
-  }
-
-  const { username, password } = req.body;
-  if (!username || !password) return res.json({ success: false, error: 'Informe usuário e senha' });
-
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  const senhaOk = !!user && bcrypt.compareSync(password, user.passwordHash);
-  // Mensagem uniforme — não diferencia usuário inexistente, senha errada ou inativo.
-  if (!senhaOk || !user || user.ativo === 0) {
-    const cur = _loginAttempts.get(ip) || { fails: 0, firstAt: agora, blockedUntil: 0 };
-    if ((agora - cur.firstAt) > LOGIN_WINDOW_MS) { cur.fails = 0; cur.firstAt = agora; }
-    cur.fails += 1;
-    if (cur.fails >= LOGIN_MAX_FAILS) cur.blockedUntil = agora + LOGIN_BLOCK_MS;
-    _loginAttempts.set(ip, cur);
-    // Auditoria de tentativas falhas (best-effort)
-    try {
-      db.prepare(`INSERT INTO audit_log (username, action, entity, payload, ip) VALUES (?, 'login_fail', 'auth', ?, ?)`)
-        .run(String(username).slice(0, 120), JSON.stringify({ reason: !user ? 'no_user' : (user.ativo === 0 ? 'inactive' : 'bad_password') }), ip);
-    } catch { /* tabela pode não existir ainda em migração */ }
-    return res.status(401).json({ success: false, error: 'Usuário ou senha incorretos' });
-  }
-
-  _loginAttempts.delete(ip); // sucesso limpa contador
-  db.prepare('UPDATE users SET ultimoLogin = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  res.json({ success: true, username: user.username, nome: user.nome, role: user.role });
-});
-
-// Logout (público)
-app.post('/api/logout', (req, res) => {
-  if (req.session) {
-    req.session.destroy(() => {
-      res.clearCookie('liciteagora.sid');
-      res.json({ success: true });
-    });
-  } else {
-    res.json({ success: true });
-  }
-});
+// NFSE-M06 onda 6.31 (2026-04-20): rotas públicas (/api/login com rate
+// limit SEC-03 + /api/logout) migradas para auth-routes.js. Middleware
+// session() e barreira requireAuth continuam no bootstrap abaixo.
+registrarRotasAuthPublicas(app, db);
 
 // ==================== PORTAL DO CLIENTE (antes do auth) ====================
 app.use('/portal', express.static(path.join(__dirname, 'public', 'portal')));
@@ -940,24 +877,10 @@ registrarRotasElectron(app, db, { apiKey });
 // Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
 app.use(requireAuth(apiKey, db));
 
-// Alterar senha (protegido)
-app.post('/api/change-password', (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Informe senha atual e nova' });
-  if (newPassword.length < 8) return res.status(400).json({ error: 'Senha deve ter pelo menos 8 caracteres' });
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
-  if (!user || !bcrypt.compareSync(currentPassword, user.passwordHash)) {
-    return res.status(400).json({ error: 'Senha atual incorreta' });
-  }
-  const hash = bcrypt.hashSync(newPassword, 10);
-  db.prepare('UPDATE users SET passwordHash = ? WHERE id = ?').run(hash, user.id);
-  res.json({ success: true });
-});
+// NFSE-M06 onda 6.31 (2026-04-20): rotas protegidas (/api/change-password,
+// /api/auth/api-key) migradas para auth-routes.js.
+registrarRotasAuthProtegidas(app, db, { apiKey });
 
-// API key para extensão (protegido)
-app.get('/api/auth/api-key', (req, res) => {
-  res.json({ apiKey });
-});
 
 // Arquivos estáticos protegidos (APÓS rotas de API para que não intercepte)
 app.use(express.static(path.join(__dirname, 'public')));
