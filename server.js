@@ -796,36 +796,11 @@ const { salvarLicitacao, salvarItens } = createPersistence(db);
 const pncpSync = require('./pncp-sync-scheduler');
 pncpSync.init({ db, processarFilaAnalise });
 
-const getConfig = db.prepare(`SELECT valor FROM config WHERE chave = ?`);
-const setConfig = db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)`);
-
-/**
- * Funções de configuração — mantidas em server.js por terem ~37 call-sites
- * espalhados pelo arquivo. O motor PNCP em pncp-sync-scheduler.js tem cópia
- * interna própria (não compartilhada).
- */
-function getConfigValue(chave) {
-  const row = getConfig.get(chave);
-  return row ? row.valor : null;
-}
-
-function setConfigValue(chave, valor) {
-  setConfig.run(chave, valor);
-}
-
-/**
- * NFSE-M06 onda 5C passo 2: getIAKeys mantida em server.js porque rotas HTTP
- * `/api/licitacoes/:cnpj/:ano/:sequencial/analisar` e `/api/analise/processar`
- * (que rodam no worker, não no master) dependem dela. O pncp-sync-scheduler
- * tem uma cópia interna privada — são funções triviais (2 lookups em config),
- * não vale uma abstração compartilhada.
- */
-function getIAKeys() {
-  const gemini = getConfigValue('gemini_api_key');
-  const anthropic = getConfigValue('anthropic_api_key');
-  if (!gemini && !anthropic) return null;
-  return { gemini: gemini || null, anthropic: anthropic || null };
-}
+// NFSE-M06 onda 6.32 (2026-04-20): getConfigValue / setConfigValue /
+// getIAKeys migraram para config-helpers.js. Os prepared statements
+// getConfig / setConfig ficam escondidos na closure da factory.
+const { createConfigHelpers } = require('./config-helpers');
+const { getConfigValue, setConfigValue, getIAKeys } = createConfigHelpers(db);
 
 // NFSE-M06 onda 5C passo 2 (2026-04-20): gerarDiasEntre, buscarLicitacoesDoDia,
 // buscarItensLicitacao, getIAKeys, dispararAnaliseIA, sincronizarCompleta,
