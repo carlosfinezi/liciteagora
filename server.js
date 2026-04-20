@@ -77,6 +77,7 @@ const { registrarRotasTracking } = require('./tracking-routes');
 const { registrarRotasProposta } = require('./proposta-routes');
 const { registrarRotasSync } = require('./sync-routes');
 const { registrarRotasPdf } = require('./pdf-routes');
+const { registrarRotasAdmin } = require('./admin-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -1929,6 +1930,7 @@ registrarRotasTracking(app, db);
 registrarRotasProposta(app, db);
 registrarRotasSync(app, db, { pncpSync });
 registrarRotasPdf(app, db);
+registrarRotasAdmin(app, db, { getConfigValue, setConfigValue });
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
@@ -5905,16 +5907,6 @@ console.log('Rotas de monitoramento de mensagens registradas!');
 // agendarJornal() continua chamado pelo master via _iniciarSchedulersMaster.
 
 
-// Rota de debug para verificar estrutura da tabela
-app.get('/api/debug/tabela/:nome', (req, res) => {
-  try {
-    const info = db.pragma(`table_info(${req.params.nome})`);
-    res.json({ success: true, columns: info });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
 // SISTEMA DE BACKUP E VERSIONAMENTO (backup SQLite + git tags)
 // Extraído em NFSE-M06 onda 6.4 para backup-routes.js.
 // Factory registrado no topo junto a registrarRotasGruposPalavras.
@@ -5924,41 +5916,6 @@ app.get('/api/debug/tabela/:nome', (req, res) => {
 const { spawn } = require('child_process');
 const os = require('os');
 
-// ==================== CONFIG URL DO SERVIDOR ====================
-
-// Retorna a URL do servidor configurada (com fallback para auto-detecção)
-app.get('/api/config/server-url', (req, res) => {
-  try {
-    const urlConfigurada = getConfigValue('server_url');
-    const urlDetectada = req.protocol + '://' + req.get('host');
-    res.json({
-      success: true,
-      url: urlConfigurada || urlDetectada,
-      configurada: !!urlConfigurada,
-      detectada: urlDetectada
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Salva a URL do servidor
-app.post('/api/config/server-url', (req, res) => {
-  try {
-    let { url } = req.body;
-    if (!url || typeof url !== 'string') {
-      return res.status(400).json({ success: false, error: 'URL é obrigatória' });
-    }
-    // Remove trailing slash
-    url = url.replace(/\/+$/, '');
-    setConfigValue('server_url', url);
-    res.json({ success: true, url });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ==================== FIM CONFIG URL DO SERVIDOR ====================
 
 // ==================== ANÁLISE IA (rotas) — extraído ====================
 // NFSE-M06 onda 6.5 (2026-04-20): 7 rotas migradas para analise-ia-routes.js.
