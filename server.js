@@ -79,6 +79,7 @@ const { registrarRotasCredenciais } = require('./credenciais-routes');
 const { registrarRotasRobo } = require('./robo-routes');
 const { registrarRotasTracking } = require('./tracking-routes');
 const { registrarRotasProposta } = require('./proposta-routes');
+const { registrarRotasSync } = require('./sync-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -1517,138 +1518,6 @@ app.get('/api/licitacoes', async (req, res) => {
 
 
 /**
- * Endpoint para consultar status da sincronização
- */
-app.get('/api/sync/status', (req, res) => {
-  try {
-    // Estatísticas do banco
-    const licitacoesCount = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count;
-    const itensCount = db.prepare('SELECT COUNT(*) as count FROM itens').get().count;
-
-    // Configurações de sync
-    const lastFullSync = db.prepare("SELECT valor FROM config WHERE chave = 'lastFullSync'").get();
-    const lastIncrementalSync = db.prepare("SELECT valor FROM config WHERE chave = 'lastIncrementalSync'").get();
-    const lastSyncDate = db.prepare("SELECT valor FROM config WHERE chave = 'lastSyncDate'").get();
-
-    // Calcular dias desatualizados
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-    let diasDesatualizados = 0;
-    let lastSyncDateStr = lastSyncDate ? lastSyncDate.valor : null;
-
-    if (lastSyncDateStr) {
-      const dataSync = new Date(lastSyncDateStr + 'T00:00:00');
-      diasDesatualizados = Math.floor((hoje - dataSync) / (1000 * 60 * 60 * 24));
-      if (diasDesatualizados < 0) diasDesatualizados = 0;
-    }
-
-    // Licitações futuras (data de encerramento > hoje)
-    const licitacoesFuturasResult = db.prepare("SELECT COUNT(*) as count FROM licitacoes WHERE dataEncerramentoProposta > datetime('now')").get();
-    const licitacoesFuturas = licitacoesFuturasResult ? licitacoesFuturasResult.count : 0;
-
-    // Cobertura futura em dias
-    const maxDataFutura = db.prepare("SELECT MAX(date(dataEncerramentoProposta)) as maxData FROM licitacoes WHERE dataEncerramentoProposta > datetime('now') AND dataEncerramentoProposta < datetime('now', '+365 days')").get();
-
-    let coberturaFuturaDias = 0;
-    if (maxDataFutura && maxDataFutura.maxData) {
-      const dataMax = new Date(maxDataFutura.maxData + 'T00:00:00');
-      coberturaFuturaDias = Math.floor((dataMax - hoje) / (1000 * 60 * 60 * 24));
-      if (coberturaFuturaDias < 0) coberturaFuturaDias = 0;
-    }
-
-    // NFSE-M06 onda 5C passo 2: estado in-memory vem do módulo
-    // pncp-sync-scheduler (zerado no worker, populado no master).
-    const _ss = pncpSync.getSyncStatus();
-    res.json({
-      running: _ss.running,
-      type: _ss.type,
-      progress: _ss.progress,
-      total: _ss.total,
-      currentDay: _ss.currentDay,
-      licitacoesNoBanco: licitacoesCount,
-      itensNoBanco: itensCount,
-      lastFullSync: lastFullSync ? lastFullSync.valor : null,
-      lastIncrementalSync: lastIncrementalSync ? lastIncrementalSync.valor : null,
-      lastSyncDate: lastSyncDateStr,
-      diasDesatualizados,
-      coberturaFuturaDias,
-      licitacoesFuturas,
-      dadosAtualizados: diasDesatualizados === 0,
-      syncIntervalMinutes: 30,
-      nextScheduledSync: _ss.nextScheduledSync || null
-    });
-  } catch (error) {
-    console.error('Erro ao obter status de sync:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// NFSE-M06 onda 5C passo 2: sync manual só faz sentido no master (quem tem
-// o motor carregado com seus prepared statements próprios). Se um admin
-// dispara POST /api/sync/* e ele cai no worker, o engine do worker estava
-// ligado e tudo "funcionava" — mas o estado in-memory do worker ficava
-// divergente do master, que continuava rodando sync a cada 5min em paralelo,
-// dobrando tráfego para o PNCP. Gate explícito: worker retorna 503 com
-// orientação ao admin; master executa normalmente.
-function _rejeitaSyncNoWorker(res) {
-  return res.status(503).json({
-    success: false,
-    error: 'Sincronização manual indisponível no worker HTTP. O master executa sync incremental a cada 5min automaticamente; para forçar agora, reinicie o serviço liciteagora (master).'
-  });
-}
-
-/**
- * Endpoint para iniciar sincronização completa
- */
-app.post('/api/sync/full', (req, res) => {
-  if ((process.env.ROLE || 'master') !== 'master') return _rejeitaSyncNoWorker(res);
-  const { diasAtras = 30, diasFrente = 7 } = req.body || {};
-
-  if (pncpSync.isRunning()) {
-    return res.json({ success: false, message: 'Sincronização já em andamento', status: pncpSync.getSyncStatus() });
-  }
-
-  pncpSync.sincronizarCompleta(diasAtras, diasFrente);
-  res.json({ success: true, message: 'Sincronização completa iniciada', status: pncpSync.getSyncStatus() });
-});
-
-/**
- * Endpoint para iniciar sincronização incremental
- */
-app.post('/api/sync/incremental', (req, res) => {
-  if ((process.env.ROLE || 'master') !== 'master') return _rejeitaSyncNoWorker(res);
-
-  if (pncpSync.isRunning()) {
-    return res.json({ success: false, message: 'Sincronização já em andamento', status: pncpSync.getSyncStatus() });
-  }
-
-  pncpSync.sincronizarIncremental();
-  res.json({ success: true, message: 'Sincronização incremental iniciada', status: pncpSync.getSyncStatus() });
-});
-
-/**
- * Endpoint legado (mantido para compatibilidade)
- */
-app.post('/api/sync/start', (req, res) => {
-  if ((process.env.ROLE || 'master') !== 'master') return _rejeitaSyncNoWorker(res);
-  const { diasAtras = 30, diasFrente = 7 } = req.body || {};
-
-  if (pncpSync.isRunning()) {
-    return res.json({ success: false, message: 'Sincronização já em andamento', status: pncpSync.getSyncStatus() });
-  }
-
-  // Se já tem dados, faz incremental; senão, faz completa
-  const stats = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get();
-  if (stats.count > 0) {
-    pncpSync.sincronizarIncremental();
-    res.json({ success: true, message: 'Sincronização incremental iniciada', status: pncpSync.getSyncStatus() });
-  } else {
-    pncpSync.sincronizarCompleta(diasAtras, diasFrente);
-    res.json({ success: true, message: 'Sincronização completa iniciada', status: pncpSync.getSyncStatus() });
-  }
-});
-
-/**
  * Endpoint para buscar detalhes de uma licitação específica
  */
 app.get('/api/licitacoes/:cnpj/:sequencial/:ano', async (req, res) => {
@@ -2061,6 +1930,7 @@ registrarRotasCredenciais(app, db);
 registrarRotasRobo(app, db);
 registrarRotasTracking(app, db);
 registrarRotasProposta(app, db);
+registrarRotasSync(app, db, { pncpSync });
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
