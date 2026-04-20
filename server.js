@@ -7,8 +7,6 @@ const fs = require('fs');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-// NFSE-M06 onda 5C: criarVerificador só era usado pelo motor PNCP; agora é
-// instanciado internamente em pncp-sync-scheduler.js. Removido daqui.
 const crypto = require('crypto');
 const session = require('express-session');
 const { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth } = require('./auth');
@@ -91,11 +89,6 @@ pncpSync.init({ db, processarFilaAnalise });
 // getConfig / setConfig ficam escondidos na closure da factory.
 const { createConfigHelpers } = require('./config-helpers');
 const { getConfigValue, setConfigValue, getIAKeys } = createConfigHelpers(db);
-
-// NFSE-M06 onda 5C passo 2 (2026-04-20): gerarDiasEntre, buscarLicitacoesDoDia,
-// buscarItensLicitacao, getIAKeys, dispararAnaliseIA, sincronizarCompleta,
-// sincronizarIncremental, agendarProximaSync e iniciarWatchdogSync foram
-// integralmente movidos para pncp-sync-scheduler.js. Consulte aquele módulo.
 
 
 // ==================== AUTENTICAÇÃO ====================
