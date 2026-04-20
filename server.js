@@ -10850,72 +10850,83 @@ app.get('/api/analise/lista', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
-  console.log(`Banco de dados: ${dbPath}`);
-  console.log(`API do PNCP: ${PNCP_API_BASE}`);
-  console.log(`API Key extensão: ${apiKey}`);
-
+// NFSE-M06 (2026-04-20): cada systemd unit tinha sua própria corrida para bindar
+// :3000 dentro de app.listen(). Só quem ganhava o bind chegava a executar o
+// callback — e com isso, os schedulers dependiam da sorte do EADDRINUSE. Agora:
+//  - master NÃO escuta HTTP: roda apenas schedulers (sync PNCP, jornal,
+//    recorrências, cobranças, polling boletos). Libera ~180MB de RSS ocioso.
+//  - worker escuta :3000 normalmente e não agenda nada.
+// Benefício colateral: pronto para multi-tenant (um master por instalação,
+// vários workers horizontal-scale) sem re-arranjar o código.
+function _logStartupBanner(role) {
   const stats = {
     licitacoes: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
     itens: db.prepare('SELECT COUNT(*) as count FROM itens').get().count
   };
-  console.log(`\nDados no banco: ${stats.licitacoes} licitações, ${stats.itens} itens`);
-
+  console.log(`[${role}] Banco de dados: ${dbPath}`);
+  console.log(`[${role}] API do PNCP: ${PNCP_API_BASE}`);
+  console.log(`[${role}] API Key extensão: ${apiKey}`);
+  console.log(`[${role}] Dados no banco: ${stats.licitacoes} licitações, ${stats.itens} itens`);
   const lastSyncDate = getConfigValue('lastSyncDate');
   if (lastSyncDate) {
-    console.log(`Última sincronização: ${lastSyncDate}`);
+    console.log(`[${role}] Última sincronização: ${lastSyncDate}`);
   }
+  return stats;
+}
 
-  console.log('\nEndpoints disponíveis:');
-  console.log(`  GET  http://localhost:${PORT}/api/licitacoes`);
-  console.log(`  GET  http://localhost:${PORT}/api/licitacoes/:cnpj/:sequencial/:ano`);
-  console.log(`  GET  http://localhost:${PORT}/api/orgaos`);
-  console.log(`  GET  http://localhost:${PORT}/api/sync/status`);
-  console.log(`  POST http://localhost:${PORT}/api/sync/start        (auto: incremental ou completa)`);
-  console.log(`  POST http://localhost:${PORT}/api/sync/full         (força sync completa)`);
-  console.log(`  POST http://localhost:${PORT}/api/sync/incremental  (força sync incremental)`);
+function _iniciarSchedulersMaster() {
+  const stats = _logStartupBanner('master');
+  console.log('[master] ROLE=master — schedulers-only (NÃO escuta HTTP)');
 
-  // Se banco vazio, sincronização completa
+  // Sync PNCP: completa se banco vazio, depois incremental
   if (stats.licitacoes === 0) {
-    console.log('\nBanco vazio, iniciando sincronização completa...');
+    console.log('[master] Banco vazio, iniciando sincronização completa...');
     sincronizarCompleta(30, 7).then(() => {
       agendarProximaSync();
     });
   } else {
-    // Se já tem dados, agenda sincronização incremental
-    console.log(`\nAgendando sincronização incremental a cada ${SYNC_INTERVAL_MINUTES} minutos...`);
+    console.log(`[master] Agendando sincronização incremental a cada ${SYNC_INTERVAL_MINUTES} minutos...`);
     agendarProximaSync();
   }
 
-  // DESATIVADO: Monitoramento via Puppeteer substituído pela extensão Chrome
-  // O monitor de mensagens agora funciona via extensão Chrome
-  // setTimeout(() => {
-  //   autoIniciarMonitoramentoMensagens();
-  // }, 10000);
+  // Jornal de Licitações
+  agendarJornal();
+  // Recorrências NFSe
+  agendarRecorrencias(db);
+  // Cobranças (régua diária)
+  agendarCobrancas(db);
+  // Polling boletos MercadoPago (a cada 30 min)
+  agendarPollingBoletos(db);
+}
 
-  // SCHED-01 (2026-04-18): dois systemd units rodam o mesmo server.js — se ambos
-  // agendassem jobs, cobranças/boletos/recorrências disparariam em dobro.
-  // Gate por ROLE=master no unit file. Default: master (preserva comportamento
-  // atual em caso de atualização de código sem atualizar os units).
-  const ROLE = process.env.ROLE || 'master';
-  const IS_MASTER = ROLE === 'master';
-  console.log(`[scheduler] ROLE=${ROLE} — ${IS_MASTER ? 'inicializando schedulers' : 'SKIP schedulers (role=worker)'}`);
+function _iniciarWorkerHttp() {
+  app.listen(PORT, () => {
+    _logStartupBanner('worker');
+    console.log(`[worker] Servidor rodando em http://localhost:${PORT}`);
+    console.log('[worker] Endpoints disponíveis:');
+    console.log(`  GET  http://localhost:${PORT}/api/licitacoes`);
+    console.log(`  GET  http://localhost:${PORT}/api/licitacoes/:cnpj/:sequencial/:ano`);
+    console.log(`  GET  http://localhost:${PORT}/api/orgaos`);
+    console.log(`  GET  http://localhost:${PORT}/api/sync/status`);
+    console.log(`  POST http://localhost:${PORT}/api/sync/start        (auto: incremental ou completa)`);
+    console.log(`  POST http://localhost:${PORT}/api/sync/full         (força sync completa)`);
+    console.log(`  POST http://localhost:${PORT}/api/sync/incremental  (força sync incremental)`);
+    console.log('[worker] ROLE=worker — HTTP-only (nenhum scheduler rodando aqui)');
+  }).on('error', (err) => {
+    // Quando o worker perde a corrida do bind, queremos log explícito
+    // ao invés de stacktrace cru no uncaughtException.
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`[worker] FATAL EADDRINUSE :${PORT} — outro processo já escuta. Abortando.`);
+    } else {
+      console.error('[worker] FATAL erro no listen:', err);
+    }
+    process.exit(1);
+  });
+}
 
-  if (IS_MASTER) {
-    // Agendar Jornal de Licitações
-    agendarJornal();
-
-    // Agendar Recorrências NFSe
-    agendarRecorrencias(db);
-
-    // Agendar Cobranças (régua diária)
-    agendarCobrancas(db);
-
-    // Polling boletos MercadoPago (a cada 30 min)
-    agendarPollingBoletos(db);
-  }
-
-  // MonitorV2 desativado — agora usamos extensão Chrome v3.0 para sync
-  // inicializarMonitorV2();
-});
+const _SERVER_ROLE = process.env.ROLE || 'master';
+if (_SERVER_ROLE === 'master') {
+  _iniciarSchedulersMaster();
+} else {
+  _iniciarWorkerHttp();
+}
