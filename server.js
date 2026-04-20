@@ -73,6 +73,7 @@ const { registrarRotasJornal } = require('./jornal-routes');
 const { registrarRotasCertificado } = require('./certificado-routes');
 const { registrarRotasProxy } = require('./proxy-routes');
 const { registrarRotasFornecedor } = require('./fornecedor-routes');
+const { registrarRotasTelegram } = require('./telegram-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -2886,119 +2887,6 @@ async function enviarNotificacaoTelegram(dados) {
   }
 }
 
-// Verificar status do Telegram
-app.get('/api/telegram/status', (req, res) => {
-  try {
-    const config = db.prepare('SELECT chatId, ativo FROM telegram_config WHERE id = 1').get();
-
-    if (config && config.chatId) {
-      res.json({
-        success: true,
-        configurado: true,
-        ativo: config.ativo === 1
-      });
-    } else {
-      res.json({
-        success: true,
-        configurado: false
-      });
-    }
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Salvar configuração do Telegram
-app.post('/api/telegram/config', async (req, res) => {
-  try {
-    const { botToken, chatId: chatIdFromForm } = req.body;
-
-    if (!botToken) {
-      return res.status(400).json({ success: false, error: 'Token do bot é obrigatório' });
-    }
-
-    // Verificar se o token é válido e obter o chat_id
-    const getMeUrl = `https://api.telegram.org/bot${botToken}/getMe`;
-    const meResponse = await axios.get(getMeUrl);
-
-    if (!meResponse.data.ok) {
-      return res.status(400).json({ success: false, error: 'Token inválido' });
-    }
-
-    const botUsername = meResponse.data.result.username;
-
-    // Usa chatId do formulário se fornecido, senão tenta auto-descobrir
-    let chatId = chatIdFromForm || null;
-
-    if (!chatId) {
-      // Tentar obter updates para pegar o chat_id
-      const updatesUrl = `https://api.telegram.org/bot${botToken}/getUpdates`;
-      const updatesResponse = await axios.get(updatesUrl);
-
-      if (updatesResponse.data.ok && updatesResponse.data.result.length > 0) {
-        // Pegar o chat_id da última mensagem recebida
-        const lastUpdate = updatesResponse.data.result[updatesResponse.data.result.length - 1];
-        chatId = lastUpdate.message?.chat?.id || lastUpdate.channel_post?.chat?.id;
-      }
-    }
-
-    if (!chatId) {
-      return res.status(400).json({
-        success: false,
-        error: `Envie uma mensagem para o bot @${botUsername} no Telegram e tente novamente`
-      });
-    }
-
-    // Salvar configuração
-    const exists = db.prepare('SELECT id FROM telegram_config WHERE id = 1').get();
-    if (exists) {
-      db.prepare('UPDATE telegram_config SET botToken = ?, chatId = ?, ativo = 1, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = 1')
-        .run(botToken, chatId.toString());
-    } else {
-      db.prepare('INSERT INTO telegram_config (id, botToken, chatId, ativo) VALUES (1, ?, ?, 1)')
-        .run(botToken, chatId.toString());
-    }
-
-    // Enviar mensagem de confirmação
-    await enviarTelegram('✅ <b>PNCP Monitor conectado!</b>\n\nVocê receberá alertas do chat do Comprasnet aqui.');
-
-    res.json({
-      success: true,
-      message: 'Telegram configurado com sucesso',
-      botUsername
-    });
-
-  } catch (error) {
-    console.error('Erro ao configurar Telegram:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Testar envio de mensagem
-app.post('/api/telegram/testar', async (req, res) => {
-  try {
-    const enviado = await enviarTelegram('🔔 <b>Teste de alerta</b>\n\nSe você recebeu esta mensagem, os alertas estão funcionando!');
-
-    if (enviado) {
-      res.json({ success: true, message: 'Mensagem de teste enviada' });
-    } else {
-      res.status(400).json({ success: false, error: 'Falha ao enviar. Verifique a configuração.' });
-    }
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Desativar Telegram
-app.delete('/api/telegram/config', (req, res) => {
-  try {
-    db.prepare('UPDATE telegram_config SET ativo = 0 WHERE id = 1').run();
-    res.json({ success: true, message: 'Alertas desativados' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 // ==================== ALERTA DISPUTA (Telegram 30 min antes) ====================
 // NFSE-M06 onda 5C passo 2: verificarAlertasDisputa + timer (setInterval 5min
 // e setTimeout 30s pós-boot) migraram para pncp-sync-scheduler.js. O master
@@ -3082,6 +2970,7 @@ registrarRotasJornal(app, db);
 registrarRotasCertificado(app, db);
 registrarRotasProxy(app, db);
 registrarRotasFornecedor(app, db);
+registrarRotasTelegram(app, db, { enviarTelegram });
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
