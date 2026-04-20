@@ -79,6 +79,7 @@ const { registrarRotasSync } = require('./sync-routes');
 const { registrarRotasPdf } = require('./pdf-routes');
 const { registrarRotasAdmin } = require('./admin-routes');
 const { registrarRotasChatLeitura } = require('./chat-leitura-routes');
+const { registrarRotasExtensoes } = require('./extensoes-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -1888,6 +1889,7 @@ registrarRotasSync(app, db, { pncpSync });
 registrarRotasPdf(app, db);
 registrarRotasAdmin(app, db, { getConfigValue, setConfigValue });
 registrarRotasChatLeitura(app, db);
+registrarRotasExtensoes(app, { getConfigValue });
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
@@ -5868,146 +5870,9 @@ console.log('Rotas de monitoramento de mensagens registradas!');
 // Extraído em NFSE-M06 onda 6.4 para backup-routes.js.
 // Factory registrado no topo junto a registrarRotasGruposPalavras.
 
-// ==================== DOWNLOAD DE EXTENSÕES ====================
-
-const { spawn } = require('child_process');
-const os = require('os');
-
-
 // ==================== ANÁLISE IA (rotas) — extraído ====================
 // NFSE-M06 onda 6.5 (2026-04-20): 7 rotas migradas para analise-ia-routes.js.
 // Factory registrarRotasAnaliseIa chamada no topo junto aos outros módulos.
-
-// Mapa das extensões disponíveis
-const extensoesDisponiveis = {
-  'token-relay': {
-    dir: 'extensions/token-relay',
-    nome: 'Licite Agora Token Relay',
-    descricao: 'Captura tokens e sincroniza dados do Comprasnet automaticamente'
-  }
-};
-
-// Listar extensões disponíveis
-app.get('/api/extensoes', (req, res) => {
-  try {
-    const lista = Object.entries(extensoesDisponiveis).map(([slug, ext]) => {
-      const manifestPath = path.join(__dirname, ext.dir, 'manifest.json');
-      let versao = '-';
-      try {
-        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-        versao = manifest.version || '-';
-      } catch (e) {}
-      return { slug, nome: ext.nome, descricao: ext.descricao, versao };
-    });
-    res.json({ success: true, extensoes: lista });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Download de extensão como ZIP
-// Copia diretório recursivamente
-function copiarDiretorioSync(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copiarDiretorioSync(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
-
-// Remove diretório recursivamente
-function removerDiretorioSync(dir) {
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-// Substitui placeholders nos arquivos da extensão
-function substituirPlaceholders(dir, serverUrl) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const filePath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      substituirPlaceholders(filePath, serverUrl);
-    } else if (/\.(js|json|html)$/.test(entry.name)) {
-      let conteudo = fs.readFileSync(filePath, 'utf-8');
-      if (conteudo.includes('__SERVER_URL__')) {
-        conteudo = conteudo.replace(/__SERVER_URL__/g, serverUrl);
-        fs.writeFileSync(filePath, conteudo, 'utf-8');
-      }
-    }
-  }
-}
-
-app.get('/api/extensoes/:slug/download', (req, res) => {
-  const ext = extensoesDisponiveis[req.params.slug];
-  if (!ext) {
-    return res.status(404).json({ success: false, error: 'Extensão não encontrada' });
-  }
-
-  const extDir = path.join(__dirname, ext.dir);
-  if (!fs.existsSync(extDir)) {
-    return res.status(404).json({ success: false, error: 'Diretório da extensão não encontrado' });
-  }
-
-  // Obter URL do servidor configurada (fallback para auto-detecção)
-  const serverUrl = getConfigValue('server_url') || (req.protocol + '://' + req.get('host'));
-
-  // Copiar para diretório temporário e substituir placeholders
-  const tmpDir = path.join(os.tmpdir(), `extensao-${Date.now()}-${ext.dir}`);
-  const zipFileName = `${ext.dir}.zip`;
-  const tmpZipPath = path.join(os.tmpdir(), `extensao-${Date.now()}-${zipFileName}`);
-
-  try {
-    copiarDiretorioSync(extDir, tmpDir);
-    substituirPlaceholders(tmpDir, serverUrl);
-  } catch (err) {
-    console.error('Erro ao preparar extensão:', err);
-    removerDiretorioSync(tmpDir);
-    return res.status(500).json({ success: false, error: 'Erro ao preparar extensão para download' });
-  }
-
-  // Gerar zip em arquivo temporário para garantir Content-Length correto
-  const zipProcess = spawn('zip', ['-r', tmpZipPath, '.'], {
-    cwd: tmpDir,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  zipProcess.on('close', (code) => {
-    // Limpar diretório temporário
-    removerDiretorioSync(tmpDir);
-
-    if (code !== 0) {
-      try { fs.unlinkSync(tmpZipPath); } catch (e) {}
-      return res.status(500).json({ success: false, error: 'Erro ao gerar arquivo zip' });
-    }
-
-    res.download(tmpZipPath, zipFileName, (err) => {
-      // Limpar arquivo zip temporário após envio
-      try { fs.unlinkSync(tmpZipPath); } catch (e) {}
-      if (err && !res.headersSent) {
-        res.status(500).json({ success: false, error: 'Erro ao enviar arquivo' });
-      }
-    });
-  });
-
-  zipProcess.on('error', (err) => {
-    console.error('Erro ao gerar zip:', err);
-    removerDiretorioSync(tmpDir);
-    try { fs.unlinkSync(tmpZipPath); } catch (e) {}
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, error: 'Erro ao gerar arquivo zip' });
-    }
-  });
-});
-
-// ==================== FIM DOWNLOAD DE EXTENSÕES ====================
 
 // BI — registrado via bi-routes.js (NFSE-M06 onda 6.1, 2026-04-20).
 // Bloco de ~291 linhas com 6 rotas (pesquisa local, resultados PNCP,
