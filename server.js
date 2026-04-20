@@ -75,6 +75,7 @@ const { registrarRotasProxy } = require('./proxy-routes');
 const { registrarRotasFornecedor } = require('./fornecedor-routes');
 const { registrarRotasTelegram } = require('./telegram-routes');
 const { registrarRotasLances } = require('./lances-routes');
+const { registrarRotasCredenciais } = require('./credenciais-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -2713,59 +2714,6 @@ app.get('/api/robo/itens/:cnpj/:ano/:sequencial', (req, res) => {
   }
 });
 
-/**
- * Endpoints de Credenciais do Comprasnet
- */
-
-// Salvar credenciais
-app.post('/api/credenciais', (req, res) => {
-  try {
-    const { usuario, senha } = req.body;
-
-    if (!usuario || !senha) {
-      return res.status(400).json({ success: false, error: 'Usuário e senha são obrigatórios' });
-    }
-
-    // Salvar na tabela config
-    const stmtUser = db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES ('comprasnet_usuario', ?, CURRENT_TIMESTAMP)`);
-    const stmtPass = db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES ('comprasnet_senha', ?, CURRENT_TIMESTAMP)`);
-
-    stmtUser.run(usuario);
-    stmtPass.run(senha); // Em produção, deveria criptografar
-
-    res.json({ success: true, message: 'Credenciais salvas com sucesso' });
-  } catch (error) {
-    console.error('Erro ao salvar credenciais:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Verificar se há credenciais salvas
-app.get('/api/credenciais/status', (req, res) => {
-  try {
-    const usuario = db.prepare(`SELECT valor FROM config WHERE chave = 'comprasnet_usuario'`).get();
-    const senha = db.prepare(`SELECT valor FROM config WHERE chave = 'comprasnet_senha'`).get();
-
-    res.json({
-      success: true,
-      configurado: !!(usuario && senha),
-      usuario: usuario?.valor || null
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Remover credenciais
-app.delete('/api/credenciais', (req, res) => {
-  try {
-    db.prepare(`DELETE FROM config WHERE chave IN ('comprasnet_usuario', 'comprasnet_senha')`).run();
-    res.json({ success: true, message: 'Credenciais removidas' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 // ==================== CERTIFICADO DIGITAL — extraído ====================
 // NFSE-M06 onda 6.7 (2026-04-20): 3 rotas (status/save/delete) migradas
 // para certificado-routes.js.
@@ -2973,6 +2921,7 @@ registrarRotasProxy(app, db);
 registrarRotasFornecedor(app, db);
 registrarRotasTelegram(app, db, { enviarTelegram });
 registrarRotasLances(app, db, { enviarTelegram });
+registrarRotasCredenciais(app, db);
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
