@@ -35,7 +35,7 @@ const { registrarRotasMarketplaces } = require('./marketplaces-routes');
 const { registrarRotasTEF } = require('./tef-routes');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { registrarRotasSniper, getSniper, getPuppeteerSession } = require('./sniper-lance-routes');
-const { registrarRotasNfse } = require('./nfse-routes');
+const { registrarRotasNfse, iniciarReconciliadorS6 } = require('./nfse-routes');
 const { registrarRotasFinanceiro, agendarPollingBoletos } = require('./financeiro-routes');
 const { registrarRotasRecorrencia } = require('./recorrencia-routes');
 const { registrarRotasProdutos } = require('./produtos-routes');
@@ -10897,6 +10897,10 @@ function _iniciarSchedulersMaster() {
   agendarCobrancas(db);
   // Polling boletos MercadoPago (a cada 30 min)
   agendarPollingBoletos(db);
+  // NFSE-M06: Reconciliador S6 NFSe — decouplado de registrarRotasNfse.
+  // Chamada explícita aqui para que na Onda 5 o scheduler.js possa chamar
+  // o mesmo helper sem precisar montar Express app.
+  iniciarReconciliadorS6(db);
 }
 
 function _iniciarWorkerHttp() {

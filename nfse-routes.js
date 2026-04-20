@@ -3,9 +3,13 @@
  *
  * Padrão: registrarRotasNfse(app, db)
  *
- * Uso no server.js:
- *   const { registrarRotasNfse, emitirNfseInterno, carregarCertificado, getConfig, dataBrasilia } = require('./nfse-routes');
+ * Uso no server.js (worker — HTTP):
+ *   const { registrarRotasNfse } = require('./nfse-routes');
  *   registrarRotasNfse(app, db);
+ *
+ * Uso no master (scheduler / NFSE-M06):
+ *   const { iniciarReconciliadorS6 } = require('./nfse-routes');
+ *   iniciarReconciliadorS6(db);
  */
 
 const crypto = require('crypto');
@@ -748,101 +752,132 @@ function registrarRotasNfse(app, db) {
     }
   });
 
-  // ==================== NFSE-M05: Reconciliador S6 ====================
-  // Reprocessa automaticamente notas em status 'processando' consultando a SEFIN.
-  // - Gated por ROLE=master para nao rodar duplicado em cluster
-  // - Intervalo: 15min
-  // - Politica:
-  //     rows com chaveAcesso + >5min: consulta SEFIN para decidir autorizada|rejeitada
-  //     rows sem chaveAcesso + >1h:   marca erro_timeout (bloqueia para reemissao manual)
-  function _reconciliarNotasPendentes() {
-    try {
-      const notas = db.prepare(`
-        SELECT id, chaveAcesso, tpAmb, nNFSe, dataCriacao
-        FROM nfse
-        WHERE status = 'processando'
-          AND datetime(dataCriacao) < datetime('now', '-5 minutes')
-        ORDER BY id ASC
-        LIMIT 50
-      `).all();
-
-      if (!notas.length) return;
-      console.log(`[NFSe][reconciler] ${notas.length} nota(s) pendente(s)...`);
-
-      // Carrega certificado uma vez por ciclo
-      let cert;
-      try { cert = carregarCertificado(db); }
-      catch (e) {
-        console.error('[NFSe][reconciler] Sem certificado — abortando ciclo:', e.message);
-        return;
-      }
-
-      (async () => {
-        for (const n of notas) {
-          try {
-            // Caso 1: sem chaveAcesso ha > 1h — marca erro_timeout
-            if (!n.chaveAcesso) {
-              const idadeMs = Date.now() - new Date(n.dataCriacao).getTime();
-              if (idadeMs > 60 * 60 * 1000) {
-                db.prepare(`
-                  UPDATE nfse
-                  SET status = 'erro_timeout',
-                      xmlRetorno = 'NFSE-M05: sem chaveAcesso por >1h — marcada como timeout',
-                      dataAtualizacao = CURRENT_TIMESTAMP
-                  WHERE id = ?
-                `).run(n.id);
-                console.log(`[NFSe][reconciler] nota ${n.id}: erro_timeout (sem chave >1h)`);
-              }
-              continue;
-            }
-
-            // Caso 2: com chaveAcesso — consulta SEFIN
-            const client = new NfseClient(cert.p12Buffer, cert.senha, n.tpAmb || 2);
-            const resp = await client.consultarNfse(n.chaveAcesso);
-
-            // Resposta SEFIN: pode vir com nfseXmlGZipB64 (autorizada) ou motivo (rejeitada)
-            // ou ainda estar processando (mantem)
-            if (resp && (resp.nfseXmlGZipB64 || resp.chaveAcesso)) {
-              const nNFSe = resp.nNFSe || resp.numero || n.nNFSe || '';
-              db.prepare(`
-                UPDATE nfse
-                SET status = 'autorizada',
-                    nNFSe = COALESCE(NULLIF(?, ''), nNFSe),
-                    xmlRetorno = ?,
-                    dataAtualizacao = CURRENT_TIMESTAMP
-                WHERE id = ? AND status = 'processando'
-              `).run(nNFSe, JSON.stringify(resp).substring(0, 10000), n.id);
-              console.log(`[NFSe][reconciler] nota ${n.id}: autorizada (chave ${n.chaveAcesso})`);
-            } else if (resp && resp.motivo) {
-              db.prepare(`
-                UPDATE nfse
-                SET status = 'rejeitada',
-                    xmlRetorno = ?,
-                    dataAtualizacao = CURRENT_TIMESTAMP
-                WHERE id = ? AND status = 'processando'
-              `).run(JSON.stringify(resp).substring(0, 10000), n.id);
-              console.log(`[NFSe][reconciler] nota ${n.id}: rejeitada`);
-            }
-            // caso contrario mantem 'processando' para proximo ciclo
-          } catch (errRec) {
-            console.error(`[NFSe][reconciler] nota ${n.id} falhou:`, errRec.message);
-          }
-        }
-      })().catch(err => console.error('[NFSe][reconciler] loop erro:', err.message));
-    } catch (err) {
-      console.error('[NFSe][reconciler] ciclo erro:', err.message);
-    }
-  }
-
-  // Gate: so no master (evita duplicidade em cluster) e apenas se nao estiver desabilitado
-  if (process.env.ROLE === 'master' && process.env.NFSE_RECONCILER_DISABLED !== '1') {
-    // primeira execucao 30s apos boot, depois a cada 15min
-    setTimeout(_reconciliarNotasPendentes, 30 * 1000);
-    setInterval(_reconciliarNotasPendentes, 15 * 60 * 1000);
-    console.log('[NFSe] Reconciliador S6 ativo (ROLE=master, 15min)');
-  }
-
+  // NFSE-M06 (2026-04-20): reconciliador S6 foi extraído para módulo-level.
+  // server.js master chama iniciarReconciliadorS6(db) explicitamente dentro
+  // de _iniciarSchedulersMaster. Esta função aqui só registra as rotas HTTP.
   console.log('[NFSe] Rotas registradas');
 }
 
-module.exports = { registrarRotasNfse, emitirNfseInterno, carregarCertificado, getConfig, dataBrasilia };
+
+// ==================== NFSE-M05/M06: Reconciliador S6 ====================
+// Reprocessa automaticamente notas em status 'processando' consultando a SEFIN.
+// Movido para módulo-level em NFSE-M06 para permitir start explícito pelo
+// scheduler master (server.js / scheduler.js futuro), desacoplado do ciclo
+// de vida das rotas HTTP.
+//
+// Política:
+//   - rows com chaveAcesso + >5min: consulta SEFIN para decidir autorizada|rejeitada
+//   - rows sem chaveAcesso + >1h:  marca erro_timeout (bloqueia para reemissão manual)
+//   - Intervalo: 15min; primeira execução 30s após start.
+function _reconciliarNotasPendentesImpl(db) {
+  try {
+    const notas = db.prepare(`
+      SELECT id, chaveAcesso, tpAmb, nNFSe, dataCriacao
+      FROM nfse
+      WHERE status = 'processando'
+        AND datetime(dataCriacao) < datetime('now', '-5 minutes')
+      ORDER BY id ASC
+      LIMIT 50
+    `).all();
+
+    if (!notas.length) return;
+    console.log(`[NFSe][reconciler] ${notas.length} nota(s) pendente(s)...`);
+
+    let cert;
+    try { cert = carregarCertificado(db); }
+    catch (e) {
+      console.error('[NFSe][reconciler] Sem certificado — abortando ciclo:', e.message);
+      return;
+    }
+
+    (async () => {
+      for (const n of notas) {
+        try {
+          if (!n.chaveAcesso) {
+            const idadeMs = Date.now() - new Date(n.dataCriacao).getTime();
+            if (idadeMs > 60 * 60 * 1000) {
+              db.prepare(`
+                UPDATE nfse
+                SET status = 'erro_timeout',
+                    xmlRetorno = 'NFSE-M05: sem chaveAcesso por >1h — marcada como timeout',
+                    dataAtualizacao = CURRENT_TIMESTAMP
+                WHERE id = ?
+              `).run(n.id);
+              console.log(`[NFSe][reconciler] nota ${n.id}: erro_timeout (sem chave >1h)`);
+            }
+            continue;
+          }
+
+          const client = new NfseClient(cert.p12Buffer, cert.senha, n.tpAmb || 2);
+          const resp = await client.consultarNfse(n.chaveAcesso);
+
+          if (resp && (resp.nfseXmlGZipB64 || resp.chaveAcesso)) {
+            const nNFSe = resp.nNFSe || resp.numero || n.nNFSe || '';
+            db.prepare(`
+              UPDATE nfse
+              SET status = 'autorizada',
+                  nNFSe = COALESCE(NULLIF(?, ''), nNFSe),
+                  xmlRetorno = ?,
+                  dataAtualizacao = CURRENT_TIMESTAMP
+              WHERE id = ? AND status = 'processando'
+            `).run(nNFSe, JSON.stringify(resp).substring(0, 10000), n.id);
+            console.log(`[NFSe][reconciler] nota ${n.id}: autorizada (chave ${n.chaveAcesso})`);
+          } else if (resp && resp.motivo) {
+            db.prepare(`
+              UPDATE nfse
+              SET status = 'rejeitada',
+                  xmlRetorno = ?,
+                  dataAtualizacao = CURRENT_TIMESTAMP
+              WHERE id = ? AND status = 'processando'
+            `).run(JSON.stringify(resp).substring(0, 10000), n.id);
+            console.log(`[NFSe][reconciler] nota ${n.id}: rejeitada`);
+          }
+        } catch (errRec) {
+          console.error(`[NFSe][reconciler] nota ${n.id} falhou:`, errRec.message);
+        }
+      }
+    })().catch(err => console.error('[NFSe][reconciler] loop erro:', err.message));
+  } catch (err) {
+    console.error('[NFSe][reconciler] ciclo erro:', err.message);
+  }
+}
+
+// Idempotente: múltiplas chamadas não iniciam timers duplicados.
+// Respeita NFSE_RECONCILER_DISABLED=1 como kill switch.
+let _reconcilerState = { started: false, bootTimer: null, loopInterval: null };
+function iniciarReconciliadorS6(db, opts = {}) {
+  if (_reconcilerState.started) {
+    console.log('[NFSe] Reconciliador S6 já está rodando — chamada ignorada');
+    return false;
+  }
+  if (process.env.NFSE_RECONCILER_DISABLED === '1') {
+    console.log('[NFSe] Reconciliador S6 desabilitado via NFSE_RECONCILER_DISABLED=1');
+    return false;
+  }
+  const bootDelayMs = opts.bootDelayMs || 30 * 1000;
+  const loopIntervalMs = opts.loopIntervalMs || 15 * 60 * 1000;
+  _reconcilerState.bootTimer = setTimeout(() => _reconciliarNotasPendentesImpl(db), bootDelayMs);
+  _reconcilerState.loopInterval = setInterval(() => _reconciliarNotasPendentesImpl(db), loopIntervalMs);
+  _reconcilerState.started = true;
+  console.log(`[NFSe] Reconciliador S6 ativo (bootDelay=${Math.round(bootDelayMs/1000)}s, loop=${Math.round(loopIntervalMs/60000)}min)`);
+  return true;
+}
+
+function pararReconciliadorS6() {
+  if (!_reconcilerState.started) return false;
+  if (_reconcilerState.bootTimer) { clearTimeout(_reconcilerState.bootTimer); _reconcilerState.bootTimer = null; }
+  if (_reconcilerState.loopInterval) { clearInterval(_reconcilerState.loopInterval); _reconcilerState.loopInterval = null; }
+  _reconcilerState.started = false;
+  console.log('[NFSe] Reconciliador S6 parado');
+  return true;
+}
+
+module.exports = {
+  registrarRotasNfse,
+  emitirNfseInterno,
+  carregarCertificado,
+  getConfig,
+  dataBrasilia,
+  iniciarReconciliadorS6,
+  pararReconciliadorS6,
+};
