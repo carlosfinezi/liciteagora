@@ -16,8 +16,9 @@ const path = require('path');
 const dbPath = path.join(__dirname, 'pncp.db');
 const db = new Database(dbPath);
 
-const PNCP_API_BASE = 'https://pncp.gov.br/api/consulta/v1';
-const PNCP_API_ITENS = 'https://pncp.gov.br/api/pncp/v1';
+// NFSE-M06 onda 6.45 (2026-04-20): PNCP_API_BASE/PNCP_API_ITENS
+// migrados para require('./config') -- unica fonte de verdade.
+const { PNCP_API_BASE, PNCP_API_ITENS } = require('./config');
 
 // Modalidades a verificar
 const MODALIDADES = [

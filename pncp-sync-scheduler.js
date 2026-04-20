@@ -32,8 +32,9 @@ const { createPersistence } = require('./licitacoes-persistence');
 const { sendTelegram } = require('./telegram-client');
 const { criarVerificador } = require('./verificacao-lacunas');
 
-const PNCP_API_BASE = 'https://pncp.gov.br/api/consulta/v1';
-const PNCP_API_ITENS = 'https://pncp.gov.br/api/pncp/v1';
+// NFSE-M06 onda 6.45 (2026-04-20): PNCP_API_BASE/PNCP_API_ITENS
+// migrados para require('./config') -- unica fonte de verdade.
+const { PNCP_API_BASE, PNCP_API_ITENS } = require('./config');
 const SYNC_INTERVAL_MINUTES = 5;
 
 // ============== Estado do módulo ==============
