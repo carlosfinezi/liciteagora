@@ -13,7 +13,8 @@
  *
  * Dependências externas (require no topo): axios, puppeteer-extra, path,
  * fs, crypto. O `puppeteer-extra` compartilha singleton via cache de
- * require, então o StealthPlugin aplicado em server.js vale aqui também.
+ * require, então o StealthPlugin aplicado em puppeteer-init.js (require
+ * via server.js) vale aqui também.
  * Deps específicas do server (db/getConfigValue/enviarTelegram) entram
  * via closure do factory.
  *

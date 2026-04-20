@@ -1,7 +1,11 @@
 const express = require('express');
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(StealthPlugin());
+
+// NFSE-M06 onda 6.46 (2026-04-20): bootstrap do puppeteer-extra +
+// StealthPlugin extraido para puppeteer-init.js. O require e puro
+// side effect -- registra StealthPlugin no singleton global do
+// puppeteer-extra antes de qualquer modulo que dependa disso (ex.:
+// monitor-mensagens-core.js via route-registry).
+require('./puppeteer-init');
 
 const app = express();
 
