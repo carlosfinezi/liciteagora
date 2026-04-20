@@ -78,6 +78,7 @@ const { registrarRotasProposta } = require('./proposta-routes');
 const { registrarRotasSync } = require('./sync-routes');
 const { registrarRotasPdf } = require('./pdf-routes');
 const { registrarRotasAdmin } = require('./admin-routes');
+const { registrarRotasChatLeitura } = require('./chat-leitura-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
@@ -1040,51 +1041,6 @@ app.get('/api/auth/api-key', (req, res) => {
 // Arquivos estáticos protegidos (APÓS rotas de API para que não intercepte)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ==================== ROTAS DE LEITURA DE MENSAGENS ====================
-// Definidas no início para funcionar corretamente com Express 5
-
-// Contar mensagens não lidas
-app.get('/api/chat/nao-lidas', (req, res) => {
-  try {
-    const result = db.prepare('SELECT COUNT(*) as total FROM chat_mensagens WHERE lido = 0 OR lido IS NULL').get();
-    res.json({ success: true, total: result ? result.total : 0 });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Marcar mensagem específica como lida
-app.post('/api/chat/marcar-lida', (req, res) => {
-  try {
-    const { id } = req.body;
-    const agora = new Date().toISOString();
-    db.prepare('UPDATE chat_mensagens SET lido = 1, dataLeitura = ? WHERE id = ?').run(agora, id);
-    console.log(`[Chat] Mensagem ${id} marcada como lida`);
-    res.json({ success: true, message: 'Mensagem marcada como lida' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Marcar todas mensagens como lidas
-app.post('/api/chat/marcar-todas-lidas', (req, res) => {
-  try {
-    const { cnpjOrgao, ano, sequencial } = req.body;
-    const agora = new Date().toISOString();
-
-    if (cnpjOrgao && ano && sequencial) {
-      db.prepare('UPDATE chat_mensagens SET lido = 1, dataLeitura = ? WHERE cnpjOrgao = ? AND ano = ? AND sequencial = ? AND (lido = 0 OR lido IS NULL)')
-        .run(agora, cnpjOrgao, parseInt(ano), parseInt(sequencial));
-    } else {
-      db.prepare('UPDATE chat_mensagens SET lido = 1, dataLeitura = ? WHERE lido = 0 OR lido IS NULL').run(agora);
-    }
-
-    res.json({ success: true, message: 'Mensagens marcadas como lidas' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 /**
  * Endpoint para buscar licitações do banco local
  */
@@ -1931,6 +1887,7 @@ registrarRotasProposta(app, db);
 registrarRotasSync(app, db, { pncpSync });
 registrarRotasPdf(app, db);
 registrarRotasAdmin(app, db, { getConfigValue, setConfigValue });
+registrarRotasChatLeitura(app, db);
 // Verificar status das credenciais gov.br
 app.get('/api/govbr/status', (req, res) => {
   try {
