@@ -32,6 +32,7 @@ const { registrarRotasMarketplaces } = require('./marketplaces-routes');
 const { registrarRotasTEF } = require('./tef-routes');
 const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { createMonitorMensagens } = require('./monitor-mensagens-core');
+const { registrarRotasGovBr } = require('./govbr-routes');
 const { registrarRotasMonitorMensagens } = require('./monitor-mensagens-routes');
 const { registrarRotasSniper, getSniper, getPuppeteerSession } = require('./sniper-lance-routes');
 const { registrarRotasNfse, iniciarReconciliadorS6 } = require('./nfse-routes');
@@ -127,7 +128,6 @@ const { analisarLicitacao, processarFilaAnalise } = require('./analise-ia');
 
 // Banco de dados SQLite
 const dbPath = path.join(__dirname, 'pncp.db');
-let monitorMensagens = null;
 
 const db = new Database(dbPath);
 
@@ -1722,8 +1722,6 @@ async function enviarNotificacaoTelegram(dados) {
 // ROLE=master que existia aqui desde a onda 5B deixa de ser necessário porque
 // o módulo só dispara os timers quando o master explicitamente solicita.
 
-// ==================== CREDENCIAIS GOV.BR ====================
-
 // ==================== MONITOR V2 (API direta Comprasnet) ====================
 registrarRotasMonitorV2(app, db, {
   enviarTelegram: enviarTelegram,
@@ -1809,108 +1807,23 @@ registrarRotasPdf(app, db);
 registrarRotasAdmin(app, db, { getConfigValue, setConfigValue });
 registrarRotasChatLeitura(app, db);
 registrarRotasExtensoes(app, { getConfigValue });
-registrarRotasExtensaoChrome(app, db, { getConfigValue, enviarNotificacaoTelegram, getMonitor: () => monitorMensagens });
-registrarRotasChatMonitoramento(app, db);
-registrarRotasChatMensagens(app, db);
-registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram });
-// Verificar status das credenciais gov.br
-app.get('/api/govbr/status', (req, res) => {
-  try {
-    const cpf = getConfigValue('govbr_cpf');
-
-    if (cpf) {
-      // Mascarar o CPF para exibição
-      const cpfMascarado = cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.***.***-$4');
-      res.json({
-        success: true,
-        configurado: true,
-        cpf: cpfMascarado
-      });
-    } else {
-      res.json({
-        success: true,
-        configurado: false
-      });
-    }
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Salvar credenciais gov.br
-app.post('/api/govbr/config', async (req, res) => {
-  try {
-    const { cpf, senha } = req.body;
-
-    if (!cpf || !senha) {
-      return res.status(400).json({ success: false, error: 'CPF e senha são obrigatórios' });
-    }
-
-    // Limpar CPF (remover pontos e traços)
-    const cpfLimpo = cpf.replace(/\D/g, '');
-
-    if (cpfLimpo.length !== 11) {
-      return res.status(400).json({ success: false, error: 'CPF inválido' });
-    }
-
-    // Salvar no banco
-    setConfigValue('govbr_cpf', cpfLimpo);
-    setConfigValue('govbr_senha', senha);
-
-    console.log('[Gov.br] Credenciais salvas');
-
-    // Tentar iniciar o monitor de mensagens
-    if (!monitorMensagens || !monitorMensagens.ativo) {
-      console.log('[Gov.br] Iniciando monitor de mensagens...');
-      monitorMensagens = new MonitorMensagensComprasnet();
-      monitorMensagens.iniciar().catch(error => {
-        console.error('[Monitor Mensagens] Erro ao iniciar:', error.message);
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Credenciais salvas com sucesso'
-    });
-
-  } catch (error) {
-    console.error('Erro ao salvar credenciais gov.br:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Remover credenciais gov.br
-app.delete('/api/govbr/config', async (req, res) => {
-  try {
-    // Parar o monitor se estiver ativo
-    if (monitorMensagens && monitorMensagens.ativo) {
-      await monitorMensagens.parar();
-      monitorMensagens = null;
-    }
-
-    // Remover credenciais
-    db.prepare("DELETE FROM config WHERE chave = 'govbr_cpf'").run();
-    db.prepare("DELETE FROM config WHERE chave = 'govbr_senha'").run();
-
-    res.json({ success: true, message: 'Credenciais removidas' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-
-// ==================== ROBÔ DE MONITORAMENTO DE MENSAGENS DO COMPRASNET ====================
-
-// Instância única do monitor de mensagens
-
-// NFSE-M06 onda 6.26 (2026-04-20): classes MonitorMensagensComprasnet +
-// MonitorChat migradas para monitor-mensagens-core.js. Factory recebe
-// db/getConfigValue/enviarTelegram via closure.
+// ==================== ROBÔ DE MONITORAMENTO DE MENSAGENS + CREDENCIAIS GOV.BR ====================
+// NFSE-M06 onda 6.28 (2026-04-20): consolidação.
+//  - classes MonitorMensagensComprasnet + MonitorChat vêm de monitor-mensagens-core.js (6.26)
+//  - 4 rotas do robô (/iniciar, /parar, /status, /ativos) em monitor-mensagens-routes.js (6.27)
+//  - 3 rotas gov.br (/api/govbr/*) + estado monitorMensagens em govbr-routes.js (6.28)
+//  - extensao-chrome usa getMonitor exposto por govbr-routes
 const { MonitorMensagensComprasnet, MonitorChat } = createMonitorMensagens({
   db, getConfigValue, enviarTelegram
 });
-
+const govbrApi = registrarRotasGovBr(app, db, { getConfigValue, setConfigValue, MonitorMensagensComprasnet });
 registrarRotasMonitorMensagens(app, db, { MonitorChat });
+
+registrarRotasExtensaoChrome(app, db, { getConfigValue, enviarNotificacaoTelegram, getMonitor: govbrApi.getMonitor });
+registrarRotasChatMonitoramento(app, db);
+registrarRotasChatMensagens(app, db);
+registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram });
+
 
 // NFSE-M06 onda 5C passo 2: o verificador de lacunas (verificarECorrigirLacunas
 // e verificacaoCompletaDiaria) agora é criado dentro de pncp-sync-scheduler.js
