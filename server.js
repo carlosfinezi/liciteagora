@@ -11,7 +11,8 @@ const { plainAddPlaceholder } = require('@signpdf/placeholder-plain');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-const { criarVerificador } = require('./verificacao-lacunas');
+// NFSE-M06 onda 5C: criarVerificador só era usado pelo motor PNCP; agora é
+// instanciado internamente em pncp-sync-scheduler.js. Removido daqui.
 const crypto = require('crypto');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
@@ -765,29 +766,23 @@ try {
 const { createPersistence } = require('./licitacoes-persistence');
 const { salvarLicitacao, salvarItens } = createPersistence(db);
 
+// NFSE-M06 onda 5C passo 2 (2026-04-20): motor PNCP + schedulers master-only
+// (sincronizarCompleta/Incremental, watchdog, alertas de disputa, verificação
+// diária de lacunas) extraídos para pncp-sync-scheduler.js.
+// No master (scheduler.js na onda 5C passo 4) chama-se iniciarSyncEngine()
+// + startMasterOnlyTimers(). No worker o módulo é carregado apenas para
+// atender GET /api/sync/status via pncpSync.getSyncStatus() e as rotas
+// POST /api/sync/* respondem 503 — sync manual tem que sair do master.
+const pncpSync = require('./pncp-sync-scheduler');
+pncpSync.init({ db, processarFilaAnalise });
+
 const getConfig = db.prepare(`SELECT valor FROM config WHERE chave = ?`);
 const setConfig = db.prepare(`INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)`);
 
-// Estado da sincronização
-let syncStatus = {
-  running: false,
-  type: '', // 'full' ou 'incremental'
-  progress: 0,
-  total: 0,
-  currentDay: '',
-  lastSync: null,
-  lastIncrementalSync: null,
-  licitacoesCount: 0,
-  itensCount: 0,
-  nextScheduledSync: null
-};
-
-// Intervalo do agendamento (em minutos)
-let syncInterval = null;
-const SYNC_INTERVAL_MINUTES = 5; // Sincronização incremental a cada 5 minutos
-
 /**
- * Funções de configuração
+ * Funções de configuração — mantidas em server.js por terem ~37 call-sites
+ * espalhados pelo arquivo. O motor PNCP em pncp-sync-scheduler.js tem cópia
+ * interna própria (não compartilhada).
  */
 function getConfigValue(chave) {
   const row = getConfig.get(chave);
@@ -799,103 +794,11 @@ function setConfigValue(chave, valor) {
 }
 
 /**
- * Gera array de datas entre duas datas
- */
-function gerarDiasEntre(dataInicial, dataFinal) {
-  const dias = [];
-  const inicio = new Date(dataInicial);
-  const fim = new Date(dataFinal);
-
-  for (let d = new Date(inicio); d <= fim; d.setDate(d.getDate() + 1)) {
-    dias.push(d.toISOString().split('T')[0]);
-  }
-
-  return dias;
-}
-
-// NFSE-M06 onda 5C: salvarLicitacao/salvarItens agora vêm de
-// licitacoes-persistence.js (já imported no topo do arquivo).
-
-/**
- * Busca todas as licitações de um dia para uma modalidade
- */
-async function buscarLicitacoesDoDia(dia, modalidade) {
-  const resultados = [];
-  let paginaAtual = 1;
-  let temMaisPaginas = true;
-  const diaAPI = dia.replace(/-/g, '');
-
-  while (temMaisPaginas && paginaAtual <= 200) {
-    try {
-      const response = await axios.get(`${PNCP_API_BASE}/contratacoes/publicacao`, {
-        params: {
-          dataInicial: diaAPI,
-          dataFinal: diaAPI,
-          codigoModalidadeContratacao: modalidade,
-          pagina: paginaAtual,
-          tamanhoPagina: 50
-        },
-        headers: { 'Accept': 'application/json' },
-        timeout: 30000
-      });
-
-      if (response?.data?.data?.length > 0) {
-        resultados.push(...response.data.data);
-        paginaAtual++;
-        await new Promise(r => setTimeout(r, 50));
-      } else {
-        temMaisPaginas = false;
-      }
-    } catch (err) {
-      if (err.response?.status === 400 || err.response?.status === 422) {
-        temMaisPaginas = false;
-      } else {
-        console.warn(`Erro ${dia} mod ${modalidade} pag ${paginaAtual}:`, err.message);
-        paginaAtual++;
-      }
-    }
-  }
-
-  return resultados;
-}
-
-/**
- * Busca itens de uma licitação
- */
-async function buscarItensLicitacao(cnpj, ano, sequencial) {
-  try {
-    const todosItens = [];
-    let pagina = 1;
-    let temMais = true;
-
-    while (temMais) {
-      const response = await axios.get(
-        `${PNCP_API_ITENS}/orgaos/${cnpj}/compras/${ano}/${sequencial}/itens`,
-        {
-          params: { pagina, tamanhoPagina: 100 },
-          headers: { 'Accept': 'application/json' },
-          timeout: 15000
-        }
-      );
-
-      const itens = response.data || [];
-      if (itens.length > 0) {
-        todosItens.push(...itens);
-        pagina++;
-        if (itens.length < 100) temMais = false;
-      } else {
-        temMais = false;
-      }
-    }
-
-    return todosItens;
-  } catch (err) {
-    return [];
-  }
-}
-
-/**
- * Dispara análise IA em background (após sync)
+ * NFSE-M06 onda 5C passo 2: getIAKeys mantida em server.js porque rotas HTTP
+ * `/api/licitacoes/:cnpj/:ano/:sequencial/analisar` e `/api/analise/processar`
+ * (que rodam no worker, não no master) dependem dela. O pncp-sync-scheduler
+ * tem uma cópia interna privada — são funções triviais (2 lookups em config),
+ * não vale uma abstração compartilhada.
  */
 function getIAKeys() {
   const gemini = getConfigValue('gemini_api_key');
@@ -904,273 +807,11 @@ function getIAKeys() {
   return { gemini: gemini || null, anthropic: anthropic || null };
 }
 
-function dispararAnaliseIA() {
-  const keys = getIAKeys();
-  if (!keys) return;
+// NFSE-M06 onda 5C passo 2 (2026-04-20): gerarDiasEntre, buscarLicitacoesDoDia,
+// buscarItensLicitacao, getIAKeys, dispararAnaliseIA, sincronizarCompleta,
+// sincronizarIncremental, agendarProximaSync e iniciarWatchdogSync foram
+// integralmente movidos para pncp-sync-scheduler.js. Consulte aquele módulo.
 
-  setTimeout(async () => {
-    try {
-      const processadas = await processarFilaAnalise(db, keys, 10);
-      if (processadas > 0) {
-        console.log(`[IA] Auto-análise pós-sync: ${processadas} licitações processadas`);
-      }
-    } catch (e) {
-      console.error('[IA] Erro na auto-análise:', e.message);
-    }
-  }, 3000);
-}
-
-/**
- * Sincronização completa (primeira vez ou forçada)
- */
-async function sincronizarCompleta(diasAtras = 30, diasFrente = 7) {
-  if (syncStatus.running) {
-    console.log('Sincronização já está em andamento');
-    return false;
-  }
-
-  syncStatus.running = true;
-  syncStatus.type = 'full';
-  syncStatus.progress = 0;
-  syncStatus.licitacoesCount = 0;
-  syncStatus.itensCount = 0;
-
-  const hoje = new Date();
-  const dataInicial = new Date(hoje);
-  dataInicial.setDate(hoje.getDate() - diasAtras);
-  const dataFinal = new Date(hoje);
-  dataFinal.setDate(hoje.getDate() + diasFrente);
-
-  const dias = gerarDiasEntre(dataInicial.toISOString().split('T')[0], dataFinal.toISOString().split('T')[0]);
-  const modalidades = [6, 1, 7, 8];
-
-  syncStatus.total = dias.length * modalidades.length;
-
-  console.log(`[SYNC COMPLETA] Iniciando: ${dias.length} dias, ${modalidades.length} modalidades`);
-
-  try {
-    for (const modalidade of modalidades) {
-      for (const dia of dias) {
-        syncStatus.currentDay = `${dia} - Modalidade ${modalidade}`;
-
-        const licitacoes = await buscarLicitacoesDoDia(dia, modalidade);
-
-        const transaction = db.transaction(() => {
-          for (const licitacao of licitacoes) {
-            if (salvarLicitacao(licitacao)) {
-              syncStatus.licitacoesCount++;
-            }
-          }
-        });
-        transaction();
-
-        // Buscar itens apenas das licitações que ainda não têm itens no banco
-        for (const licitacao of licitacoes) {
-          const existingItems = db.prepare('SELECT COUNT(*) as count FROM itens WHERE numeroControlePNCP = ?')
-            .get(licitacao.numeroControlePNCP);
-
-          if (!existingItems || existingItems.count === 0) {
-            const itens = await buscarItensLicitacao(
-              licitacao.orgaoEntidade?.cnpj,
-              licitacao.anoCompra,
-              licitacao.sequencialCompra
-            );
-
-            if (itens.length > 0) {
-              salvarItens(licitacao.numeroControlePNCP, itens);
-              syncStatus.itensCount += itens.length;
-            }
-
-            await new Promise(r => setTimeout(r, 100));
-          }
-        }
-
-        syncStatus.progress++;
-        await new Promise(r => setTimeout(r, 100));
-      }
-    }
-
-    const now = new Date().toISOString();
-    syncStatus.lastSync = now;
-    setConfigValue('lastFullSync', now);
-    setConfigValue('lastSyncDate', dataFinal.toISOString().split('T')[0]);
-
-    console.log(`[SYNC COMPLETA] Concluída: ${syncStatus.licitacoesCount} licitações, ${syncStatus.itensCount} novos itens`);
-
-    // Auto-análise desabilitada — apenas sob demanda via botão na UI
-    // dispararAnaliseIA();
-
-    return true;
-  } catch (err) {
-    console.error('[SYNC COMPLETA] Erro:', err.message);
-    return false;
-  } finally {
-    syncStatus.running = false;
-    syncStatus.currentDay = '';
-  }
-}
-
-/**
- * Sincronização incremental (apenas novos dados desde última sync)
- */
-async function sincronizarIncremental() {
-  if (syncStatus.running) {
-    console.log('Sincronização já está em andamento');
-    return false;
-  }
-
-  const lastSyncDate = getConfigValue('lastSyncDate');
-  if (!lastSyncDate) {
-    console.log('[SYNC INCREMENTAL] Nenhuma sincronização anterior, executando sync completa...');
-    return sincronizarCompleta(30, 7);
-  }
-
-  syncStatus.running = true;
-  syncStatus.type = 'incremental';
-  syncStatus.progress = 0;
-  syncStatus.licitacoesCount = 0;
-  syncStatus.itensCount = 0;
-
-  const hoje = new Date();
-  const dataInicial = new Date(lastSyncDate);
-  // Volta 1 dia para garantir que não perca nada
-  dataInicial.setDate(dataInicial.getDate() - 1);
-  const dataFinal = new Date(hoje);
-  dataFinal.setDate(hoje.getDate() + 7);
-
-  const dias = gerarDiasEntre(dataInicial.toISOString().split('T')[0], dataFinal.toISOString().split('T')[0]);
-  const modalidades = [6, 1, 7, 8];
-
-  syncStatus.total = dias.length * modalidades.length;
-
-  console.log(`[SYNC INCREMENTAL] Iniciando desde ${lastSyncDate}: ${dias.length} dias`);
-
-  try {
-    for (const modalidade of modalidades) {
-      for (const dia of dias) {
-        syncStatus.currentDay = `${dia} - Modalidade ${modalidade} (incremental)`;
-
-        const licitacoes = await buscarLicitacoesDoDia(dia, modalidade);
-
-        const transaction = db.transaction(() => {
-          for (const licitacao of licitacoes) {
-            if (salvarLicitacao(licitacao)) {
-              syncStatus.licitacoesCount++;
-            }
-          }
-        });
-        transaction();
-
-        // Buscar itens apenas das licitações novas (verificar se já tem itens)
-        for (const licitacao of licitacoes) {
-          const existingItems = db.prepare('SELECT COUNT(*) as count FROM itens WHERE numeroControlePNCP = ?')
-            .get(licitacao.numeroControlePNCP);
-
-          if (!existingItems || existingItems.count === 0) {
-            const itens = await buscarItensLicitacao(
-              licitacao.orgaoEntidade?.cnpj,
-              licitacao.anoCompra,
-              licitacao.sequencialCompra
-            );
-
-            if (itens.length > 0) {
-              salvarItens(licitacao.numeroControlePNCP, itens);
-              syncStatus.itensCount += itens.length;
-            }
-
-            await new Promise(r => setTimeout(r, 50));
-          }
-        }
-
-        syncStatus.progress++;
-        await new Promise(r => setTimeout(r, 50));
-      }
-    }
-
-    const now = new Date().toISOString();
-    syncStatus.lastIncrementalSync = now;
-    setConfigValue('lastIncrementalSync', now);
-    setConfigValue('lastSyncDate', dataFinal.toISOString().split('T')[0]);
-
-    console.log(`[SYNC INCREMENTAL] Concluída: ${syncStatus.licitacoesCount} licitações, ${syncStatus.itensCount} novos itens`);
-
-    // Verificar e corrigir lacunas após sync
-    if (verificarECorrigirLacunas) {
-      setTimeout(() => verificarECorrigirLacunas(3), 5000);
-    }
-
-    // Auto-análise desabilitada — apenas sob demanda via botão na UI
-    // dispararAnaliseIA();
-
-    return true;
-  } catch (err) {
-    console.error('[SYNC INCREMENTAL] Erro:', err.message);
-    return false;
-  } finally {
-    syncStatus.running = false;
-    syncStatus.currentDay = '';
-    agendarProximaSync();
-  }
-}
-
-/**
- * Agenda próxima sincronização incremental
- */
-function agendarProximaSync() {
-  if (syncInterval) {
-    clearTimeout(syncInterval);
-  }
-
-  const proximaSync = new Date();
-  proximaSync.setMinutes(proximaSync.getMinutes() + SYNC_INTERVAL_MINUTES);
-  syncStatus.nextScheduledSync = proximaSync.toISOString();
-
-  syncInterval = setTimeout(() => {
-    console.log(`[AGENDAMENTO] Executando sincronização incremental agendada...`);
-    sincronizarIncremental();
-  }, SYNC_INTERVAL_MINUTES * 60 * 1000);
-
-  console.log(`[AGENDAMENTO] Próxima sincronização em ${SYNC_INTERVAL_MINUTES} minutos (${proximaSync.toLocaleTimeString()})`);
-}
-
-// Watchdog: alerta no Telegram se sincronização parar
-let ultimoAlertaSyncEnviado = null;
-function iniciarWatchdogSync() {
-  const TEMPO_MAXIMO_SEM_SYNC = 15 * 60 * 1000; // 15 minutos
-  const INTERVALO_VERIFICACAO = 10 * 60 * 1000; // Verifica a cada 10 minutos
-
-  // Restaurar lastIncrementalSync do banco de dados ao iniciar
-  const lastSyncFromDb = getConfigValue('lastIncrementalSync');
-  if (lastSyncFromDb && !syncStatus.lastIncrementalSync) {
-    syncStatus.lastIncrementalSync = lastSyncFromDb;
-    console.log(`[WATCHDOG] Restaurado lastIncrementalSync do banco: ${lastSyncFromDb}`);
-  }
-
-  setInterval(async () => {
-    try {
-      const agora = new Date();
-      const ultimaSync = syncStatus.lastIncrementalSync ? new Date(syncStatus.lastIncrementalSync) : null;
-
-      if (ultimaSync) {
-        const tempoSemSync = agora - ultimaSync;
-
-        if (tempoSemSync > TEMPO_MAXIMO_SEM_SYNC) {
-          // Só envia alerta se não enviou nos últimos 30 minutos
-          if (!ultimoAlertaSyncEnviado || (agora - ultimoAlertaSyncEnviado) > 30 * 60 * 1000) {
-            const minutosSemSync = Math.round(tempoSemSync / 60000);
-            console.log(`[WATCHDOG] ⚠️ Sincronização parada há ${minutosSemSync} minutos!`);
-            await enviarTelegram(`⚠️ <b>ALERTA: Sincronização parada!</b>\n\nÚltima sync: há ${minutosSemSync} minutos\nVerifique o servidor PNCP.`);
-            ultimoAlertaSyncEnviado = agora;
-          }
-        }
-      }
-    } catch (error) {
-      console.error('[WATCHDOG] Erro:', error.message);
-    }
-  }, INTERVALO_VERIFICACAO);
-
-  console.log('[WATCHDOG] Monitoramento de sincronização ativo (alerta se parar por >15min)');
-}
 
 // ==================== AUTENTICAÇÃO ====================
 criarUsuarioInicial(db);
@@ -1828,17 +1469,24 @@ app.get('/api/licitacoes', async (req, res) => {
         numeroPagina: paginaInt,
         empty: licitacoesPaginadas.length === 0
       },
-      syncStatus: {
-        running: syncStatus.running,
-        type: syncStatus.type,
-        progress: syncStatus.progress,
-        total: syncStatus.total,
-        lastSync: syncStatus.lastSync,
-        lastIncrementalSync: syncStatus.lastIncrementalSync,
-        nextScheduledSync: syncStatus.nextScheduledSync,
-        licitacoesNoBanco: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
-        itensNoBanco: db.prepare('SELECT COUNT(*) as count FROM itens').get().count
-      }
+      // NFSE-M06 onda 5C passo 2: syncStatus vem do módulo pncp-sync-scheduler.
+      // No worker (quem serve HTTP) os campos in-memory ficam zerados pois sync
+      // roda no master; os campos persistidos abaixo + GET /api/sync/status
+      // preenchem o estado real da UI.
+      syncStatus: (() => {
+        const _ss = pncpSync.getSyncStatus();
+        return {
+          running: _ss.running,
+          type: _ss.type,
+          progress: _ss.progress,
+          total: _ss.total,
+          lastSync: _ss.lastSync,
+          lastIncrementalSync: _ss.lastIncrementalSync,
+          nextScheduledSync: _ss.nextScheduledSync,
+          licitacoesNoBanco: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
+          itensNoBanco: db.prepare('SELECT COUNT(*) as count FROM itens').get().count
+        };
+      })()
     });
 
   } catch (error) {
@@ -1893,12 +1541,15 @@ app.get('/api/sync/status', (req, res) => {
       if (coberturaFuturaDias < 0) coberturaFuturaDias = 0;
     }
 
+    // NFSE-M06 onda 5C passo 2: estado in-memory vem do módulo
+    // pncp-sync-scheduler (zerado no worker, populado no master).
+    const _ss = pncpSync.getSyncStatus();
     res.json({
-      running: syncStatus.running,
-      type: syncStatus.type,
-      progress: syncStatus.progress,
-      total: syncStatus.total,
-      currentDay: syncStatus.currentDay,
+      running: _ss.running,
+      type: _ss.type,
+      progress: _ss.progress,
+      total: _ss.total,
+      currentDay: _ss.currentDay,
       licitacoesNoBanco: licitacoesCount,
       itensNoBanco: itensCount,
       lastFullSync: lastFullSync ? lastFullSync.valor : null,
@@ -1909,7 +1560,7 @@ app.get('/api/sync/status', (req, res) => {
       licitacoesFuturas,
       dadosAtualizados: diasDesatualizados === 0,
       syncIntervalMinutes: 30,
-      nextScheduledSync: syncStatus.nextScheduledSync || null
+      nextScheduledSync: _ss.nextScheduledSync || null
     });
   } catch (error) {
     console.error('Erro ao obter status de sync:', error.message);
@@ -1917,50 +1568,68 @@ app.get('/api/sync/status', (req, res) => {
   }
 });
 
+// NFSE-M06 onda 5C passo 2: sync manual só faz sentido no master (quem tem
+// o motor carregado com seus prepared statements próprios). Se um admin
+// dispara POST /api/sync/* e ele cai no worker, o engine do worker estava
+// ligado e tudo "funcionava" — mas o estado in-memory do worker ficava
+// divergente do master, que continuava rodando sync a cada 5min em paralelo,
+// dobrando tráfego para o PNCP. Gate explícito: worker retorna 503 com
+// orientação ao admin; master executa normalmente.
+function _rejeitaSyncNoWorker(res) {
+  return res.status(503).json({
+    success: false,
+    error: 'Sincronização manual indisponível no worker HTTP. O master executa sync incremental a cada 5min automaticamente; para forçar agora, reinicie o serviço liciteagora (master).'
+  });
+}
+
 /**
  * Endpoint para iniciar sincronização completa
  */
 app.post('/api/sync/full', (req, res) => {
+  if ((process.env.ROLE || 'master') !== 'master') return _rejeitaSyncNoWorker(res);
   const { diasAtras = 30, diasFrente = 7 } = req.body || {};
 
-  if (syncStatus.running) {
-    return res.json({ success: false, message: 'Sincronização já em andamento', status: syncStatus });
+  if (pncpSync.isRunning()) {
+    return res.json({ success: false, message: 'Sincronização já em andamento', status: pncpSync.getSyncStatus() });
   }
 
-  sincronizarCompleta(diasAtras, diasFrente);
-  res.json({ success: true, message: 'Sincronização completa iniciada', status: syncStatus });
+  pncpSync.sincronizarCompleta(diasAtras, diasFrente);
+  res.json({ success: true, message: 'Sincronização completa iniciada', status: pncpSync.getSyncStatus() });
 });
 
 /**
  * Endpoint para iniciar sincronização incremental
  */
 app.post('/api/sync/incremental', (req, res) => {
-  if (syncStatus.running) {
-    return res.json({ success: false, message: 'Sincronização já em andamento', status: syncStatus });
+  if ((process.env.ROLE || 'master') !== 'master') return _rejeitaSyncNoWorker(res);
+
+  if (pncpSync.isRunning()) {
+    return res.json({ success: false, message: 'Sincronização já em andamento', status: pncpSync.getSyncStatus() });
   }
 
-  sincronizarIncremental();
-  res.json({ success: true, message: 'Sincronização incremental iniciada', status: syncStatus });
+  pncpSync.sincronizarIncremental();
+  res.json({ success: true, message: 'Sincronização incremental iniciada', status: pncpSync.getSyncStatus() });
 });
 
 /**
  * Endpoint legado (mantido para compatibilidade)
  */
 app.post('/api/sync/start', (req, res) => {
+  if ((process.env.ROLE || 'master') !== 'master') return _rejeitaSyncNoWorker(res);
   const { diasAtras = 30, diasFrente = 7 } = req.body || {};
 
-  if (syncStatus.running) {
-    return res.json({ success: false, message: 'Sincronização já em andamento', status: syncStatus });
+  if (pncpSync.isRunning()) {
+    return res.json({ success: false, message: 'Sincronização já em andamento', status: pncpSync.getSyncStatus() });
   }
 
   // Se já tem dados, faz incremental; senão, faz completa
   const stats = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get();
   if (stats.count > 0) {
-    sincronizarIncremental();
-    res.json({ success: true, message: 'Sincronização incremental iniciada', status: syncStatus });
+    pncpSync.sincronizarIncremental();
+    res.json({ success: true, message: 'Sincronização incremental iniciada', status: pncpSync.getSyncStatus() });
   } else {
-    sincronizarCompleta(diasAtras, diasFrente);
-    res.json({ success: true, message: 'Sincronização completa iniciada', status: syncStatus });
+    pncpSync.sincronizarCompleta(diasAtras, diasFrente);
+    res.json({ success: true, message: 'Sincronização completa iniciada', status: pncpSync.getSyncStatus() });
   }
 });
 
@@ -2137,7 +1806,8 @@ app.post('/api/licitacoes/:cnpj/:sequencial/:ano/sync-itens', async (req, res) =
     const { cnpj, sequencial, ano } = req.params;
 
     // Buscar itens da API do PNCP
-    const itens = await buscarItensLicitacao(cnpj, parseInt(ano), parseInt(sequencial));
+    // NFSE-M06 onda 5C passo 2: helper puro exportado pelo pncp-sync-scheduler.
+    const itens = await pncpSync.buscarItensLicitacao(cnpj, parseInt(ano), parseInt(sequencial));
 
     if (itens.length === 0) {
       return res.json({ success: false, error: 'Nenhum item encontrado na API' });
@@ -3562,71 +3232,11 @@ app.delete('/api/telegram/config', (req, res) => {
 });
 
 // ==================== ALERTA DISPUTA (Telegram 30 min antes) ====================
-
-/**
- * Verifica participações em fase de proposta (faseCompra=1) cujo
- * dataHoraInicioDisputa está a 30 min ou menos de agora.
- * Envia alerta Telegram e registra em alertas_enviados para não duplicar.
- */
-async function verificarAlertasDisputa() {
-  try {
-    const agora = new Date();
-    const em30min = new Date(agora.getTime() + 30 * 60 * 1000);
-
-    // Buscar participações com disputa próxima (30 min) que ainda não receberam alerta
-    const proximas = db.prepare(`
-      SELECT p.compraId, p.orgao, p.objeto, p.dataHoraInicioDisputa, p.modoDisputa, p.faseCompra
-      FROM participacoes_comprasnet p
-      LEFT JOIN alertas_enviados a ON a.tipo = 'disputa_30min' AND a.referencia = p.compraId
-      WHERE p.ativo = 1
-        AND p.dataHoraInicioDisputa IS NOT NULL
-        AND p.dataHoraInicioDisputa != ''
-        AND p.faseCompra IN ('1', '3')
-        AND a.id IS NULL
-        AND datetime(p.dataHoraInicioDisputa) > datetime('now')
-        AND datetime(p.dataHoraInicioDisputa) <= datetime('now', '+35 minutes')
-    `).all();
-
-    if (proximas.length === 0) return;
-
-    for (const p of proximas) {
-      const inicio = new Date(p.dataHoraInicioDisputa);
-      const diffMin = Math.round((inicio - agora) / 60000);
-
-      const msg = [
-        `⚔️ <b>DISPUTA EM ${diffMin} MINUTOS</b>`,
-        `━━━━━━━━━━━━━━━━━━━━`,
-        ``,
-        `📋 <b>${(p.objeto || '').substring(0, 200)}</b>`,
-        `🏛 ${p.orgao || 'Órgão não informado'}`,
-        `🕐 Início: ${inicio.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`,
-        p.modoDisputa ? `📊 Modo: ${p.modoDisputa === 'A' ? 'Aberto' : p.modoDisputa === 'F' ? 'Fechado' : p.modoDisputa === 'AF' ? 'Aberto-Fechado' : p.modoDisputa}` : '',
-        `🔗 CompraId: ${p.compraId}`,
-        ``,
-        `<i>Prepare suas propostas!</i>`,
-      ].filter(Boolean).join('\n');
-
-      const enviou = await enviarTelegram(msg);
-      if (enviou) {
-        db.prepare('INSERT OR IGNORE INTO alertas_enviados (tipo, referencia) VALUES (?, ?)').run('disputa_30min', p.compraId);
-        console.log(`[Alerta] Telegram enviado: disputa ${p.compraId} em ${diffMin} min`);
-      }
-    }
-  } catch (e) {
-    console.error('[Alerta] Erro ao verificar disputas:', e.message);
-  }
-}
-
-// NFSE-M06 onda 5B: schedulers top-level rodam apenas no master (root).
-// No worker eles duplicariam trabalho — o pior caso é alerta duplicado
-// via Telegram (verificarAlertasDisputa) porque INSERT em alertas_enviados
-// é feito DEPOIS de enviarTelegram. Gate aqui elimina a janela de corrida.
-if ((process.env.ROLE || 'master') === 'master') {
-  // Verificar a cada 5 minutos
-  setInterval(verificarAlertasDisputa, 5 * 60 * 1000);
-  // Verificar também na inicialização (após 30s)
-  setTimeout(verificarAlertasDisputa, 30000);
-}
+// NFSE-M06 onda 5C passo 2: verificarAlertasDisputa + timer (setInterval 5min
+// e setTimeout 30s pós-boot) migraram para pncp-sync-scheduler.js. O master
+// liga tudo via pncpSync.startMasterOnlyTimers(). No worker não roda — o gate
+// ROLE=master que existia aqui desde a onda 5B deixa de ser necessário porque
+// o módulo só dispara os timers quando o master explicitamente solicita.
 
 // ==================== CREDENCIAIS GOV.BR ====================
 
@@ -7649,40 +7259,12 @@ async function autoIniciarMonitoramentoMensagens() {
 
 console.log('Rotas de monitoramento de mensagens registradas!');
 
-// Configurar verificador de lacunas
-const { verificarECorrigirLacunas, verificacaoCompletaDiaria, corrigirItensFaltantes } = criarVerificador(db, salvarLicitacao, salvarItens);
-
-// Agendar verificação completa diária às 03:00
-function agendarVerificacaoDiaria() {
-  const agora = new Date();
-  const proximaVerificacao = new Date();
-  proximaVerificacao.setHours(3, 0, 0, 0);
-
-  // Se já passou das 03:00 hoje, agendar para amanhã
-  if (agora >= proximaVerificacao) {
-    proximaVerificacao.setDate(proximaVerificacao.getDate() + 1);
-  }
-
-  const msAteProxima = proximaVerificacao - agora;
-
-  console.log(`[VERIFICAÇÃO DIÁRIA] Agendada para ${proximaVerificacao.toLocaleString()}`);
-
-  setTimeout(async () => {
-    console.log('[VERIFICAÇÃO DIÁRIA] Iniciando...');
-    await verificacaoCompletaDiaria();
-    agendarVerificacaoDiaria();
-
-  }, msAteProxima);
-}
-
-// NFSE-M06 onda 5B: verificação diária de lacunas PNCP e watchdog de sync
-// só fazem sentido no master. Watchdog no worker era bug latente — in-memory
-// syncStatus.lastIncrementalSync nunca era atualizado, acionando falso
-// alerta "sync parada" após ~15min de uptime no worker.
-if ((process.env.ROLE || 'master') === 'master') {
-  agendarVerificacaoDiaria();
-  iniciarWatchdogSync();
-}
+// NFSE-M06 onda 5C passo 2: o verificador de lacunas (verificarECorrigirLacunas
+// e verificacaoCompletaDiaria) agora é criado dentro de pncp-sync-scheduler.js
+// no init — ele era o único consumidor destas funções em server.js. A terceira
+// função retornada (corrigirItensFaltantes) era desde sempre dead code aqui.
+// A verificação diária às 03:00 + o watchdog de sync pararem de rodar no
+// worker vieram da onda 5B; 5C apenas move a implementação para o módulo.
 
 // Função auxiliar para criar assinatura PKCS#7 detached
 function createPkcs7Signature(pdfBytes, privateKey, certificate, additionalCerts = []) {
@@ -10530,19 +10112,15 @@ function _logStartupBanner(role) {
 }
 
 function _iniciarSchedulersMaster() {
-  const stats = _logStartupBanner('master');
+  _logStartupBanner('master');
   console.log('[master] ROLE=master — schedulers-only (NÃO escuta HTTP)');
 
-  // Sync PNCP: completa se banco vazio, depois incremental
-  if (stats.licitacoes === 0) {
-    console.log('[master] Banco vazio, iniciando sincronização completa...');
-    sincronizarCompleta(30, 7).then(() => {
-      agendarProximaSync();
-    });
-  } else {
-    console.log(`[master] Agendando sincronização incremental a cada ${SYNC_INTERVAL_MINUTES} minutos...`);
-    agendarProximaSync();
-  }
+  // NFSE-M06 onda 5C passo 2: motor PNCP + 3 timers master-only (watchdog,
+  // disputa-alert, verificação diária de lacunas) vivem em
+  // pncp-sync-scheduler.js. Na onda 5C passo 4 o entrypoint vira
+  // scheduler.js (sem Express) chamando essas mesmas funções.
+  pncpSync.iniciarSyncEngine();
+  pncpSync.startMasterOnlyTimers();
 
   // Jornal de Licitações
   agendarJornal(db);
@@ -10553,8 +10131,8 @@ function _iniciarSchedulersMaster() {
   // Polling boletos MercadoPago (a cada 30 min)
   agendarPollingBoletos(db);
   // NFSE-M06: Reconciliador S6 NFSe — decouplado de registrarRotasNfse.
-  // Chamada explícita aqui para que na Onda 5 o scheduler.js possa chamar
-  // o mesmo helper sem precisar montar Express app.
+  // Chamada explícita aqui para que o scheduler.js possa chamar o mesmo
+  // helper sem precisar montar Express app.
   iniciarReconciliadorS6(db);
 }
 
