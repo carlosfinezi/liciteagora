@@ -12,85 +12,12 @@ puppeteer.use(StealthPlugin());
 const crypto = require('crypto');
 const session = require('express-session');
 const { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth } = require('./auth');
-const { registrarRotasUsuarios } = require('./usuarios-routes');
-const { registrarRotasAuditoria } = require('./audit-log');
-const { registrarRotasDevolucoes } = require('./devolucoes-routes');
-const { registrarRotasCrm } = require('./crm-routes');
-const { registrarRotasGerencial } = require('./gerencial-routes');
-const { registrarRotasConciliacao } = require('./conciliacao-routes');
-const { registrarRotasComissoes } = require('./comissoes-routes');
-const { registrarRotasContratos } = require('./contratos-routes');
-const { registrarRotasOS } = require('./os-routes');
-const { registrarRotasComm } = require('./comm-routes');
-const { registrarRotasMDFe } = require('./mdfe-routes');
-const { registrarRotasRH } = require('./rh-routes');
-const { registrarRotasPatrimonio } = require('./patrimonio-routes');
-const { registrarRotasRoteirizacao } = require('./roteirizacao-routes');
-const { registrarRotasCTe } = require('./cte-routes');
-const { registrarRotasMarketplaces } = require('./marketplaces-routes');
-const { registrarRotasTEF } = require('./tef-routes');
-const { registrarRotasMonitorV2, inicializarMonitorV2, getMonitor } = require('./monitor-v2-routes');
-const { registrarRotasLicitacoes } = require('./licitacoes-routes');
 const { registrarRotasAuthPublicas, registrarRotasAuthProtegidas } = require('./auth-routes');
-const { createMonitorMensagens } = require('./monitor-mensagens-core');
-const { registrarRotasGovBr } = require('./govbr-routes');
-const { registrarRotasMonitorMensagens } = require('./monitor-mensagens-routes');
-const { registrarRotasSniper, getSniper, getPuppeteerSession } = require('./sniper-lance-routes');
-const { registrarRotasNfse, iniciarReconciliadorS6 } = require('./nfse-routes');
-const { registrarRotasFinanceiro, agendarPollingBoletos } = require('./financeiro-routes');
-const { registrarRotasRecorrencia } = require('./recorrencia-routes');
-const { registrarRotasProdutos } = require('./produtos-routes');
-const { registrarRotasEstoque } = require('./estoque-routes');
-const { registrarRotasLotes } = require('./lotes-routes');
-const { registrarRotasSerial } = require('./serial-routes');
-const { registrarRotasReservas } = require('./reservas-routes');
-const { registrarRotasInventario } = require('./inventario-routes');
-const { registrarRotasPedidosCompra } = require('./pedidos-compra-routes');
-const { registrarRotasPedidos } = require('./pedidos-routes');
-const { registrarRotasFaturas } = require('./faturas-routes');
-const { registrarRotasContasFinanceiras } = require('./contas-financeiras-routes');
-const { registrarRotasNfeEmit } = require('./nfe-emit-routes');
-const { registrarRotasNfeEntrada } = require('./nfe-entrada-routes');
-const { registrarRotasContasPagar } = require('./contas-pagar-routes');
-const { registrarRotasContasReceber } = require('./contas-receber-routes');
-const { registrarRotasFluxoCaixa } = require('./fluxo-caixa-routes');
-const { registrarRotasFiscalSN } = require('./fiscal-sn-routes');
-const { registrarRotasLivroCaixa } = require('./livro-caixa-routes');
-const { registrarRotasFiscalArquivamento } = require('./fiscal-arquivamento-routes');
-const { registrarRotasRetencoes } = require('./retencoes-routes');
-const { registrarRotasDefis } = require('./defis-routes');
-const { registrarRotasNFCe } = require('./nfce-routes');
-const { registrarRotasImportacao } = require('./importacao-routes');
-const { registrarRotasCFOPs } = require('./cfops-routes');
+const { iniciarReconciliadorS6 } = require('./nfse-routes');
+const { agendarPollingBoletos } = require('./financeiro-routes');
 const { agendarRecorrencias } = require('./recorrencia-scheduler');
-const { registrarRotasCobrancas } = require('./cobrancas-routes');
-const { registrarRotasBi } = require('./bi-routes');
-const { registrarRotasPropostasParticipacoes } = require('./propostas-participacoes-routes');
-const { registrarRotasGruposPalavras } = require('./grupos-palavras-routes');
-const { registrarRotasBackup } = require('./backup-routes');
-const { registrarRotasAnaliseIa } = require('./analise-ia-routes');
-const { registrarRotasJornal } = require('./jornal-routes');
-const { registrarRotasCertificado } = require('./certificado-routes');
-const { registrarRotasProxy } = require('./proxy-routes');
-const { registrarRotasFornecedor } = require('./fornecedor-routes');
-const { registrarRotasTelegram } = require('./telegram-routes');
-const { registrarRotasLances } = require('./lances-routes');
-const { registrarRotasCredenciais } = require('./credenciais-routes');
-const { registrarRotasRobo } = require('./robo-routes');
-const { registrarRotasTracking } = require('./tracking-routes');
-const { registrarRotasProposta } = require('./proposta-routes');
-const { registrarRotasSync } = require('./sync-routes');
-const { registrarRotasPdf } = require('./pdf-routes');
-const { registrarRotasAdmin } = require('./admin-routes');
-const { registrarRotasChatLeitura } = require('./chat-leitura-routes');
-const { registrarRotasExtensoes } = require('./extensoes-routes');
-const { registrarRotasExtensaoChrome } = require('./extensao-chrome-routes');
-const { registrarRotasChatMonitoramento } = require('./chat-monitoramento-routes');
-const { registrarRotasChatMensagens } = require('./chat-mensagens-routes');
-const { registrarRotasParticipacaoMonitoramento } = require('./participacao-monitoramento-routes');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarJornal } = require('./jornal-scheduler');
-const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
 const comprasnetLoginRoutes = require('./comprasnet-login-routes');
 
 const app = express();
@@ -224,133 +151,18 @@ registrarRotasAuthProtegidas(app, db, { apiKey });
 // Arquivos estáticos protegidos (APÓS rotas de API para que não intercepte)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// NFSE-M06 onda 6.29 (2026-04-20): 5 rotas do catálogo PNCP migradas
-// para licitacoes-routes.js (GET /api/licitacoes, /orgaos, detalhes,
-// itens e POST sync-itens pontual).
-registrarRotasLicitacoes(app, db, { pncpSync, salvarItens, PNCP_API_BASE, PNCP_API_ITENS });
-
-
-// ==================== TELEGRAM / ALERTAS ====================
-
-// Função para enviar mensagem no Telegram (HTML)
-// NFSE-M06 onda 5C: corpo extraído para telegram-client.js para que o
-// scheduler.js (processo master sem Express) possa usar a mesma lógica
-// sem require server.js. Callers aqui continuam chamando enviarTelegram(msg).
-const { sendTelegram: _sendTelegramViaClient, sendNotificacao: _sendNotificacaoViaClient } = require('./telegram-client');
-async function enviarTelegram(mensagem) {
-  return _sendTelegramViaClient(db, mensagem);
-}
-
-// Função para enviar notificação formatada do chat de licitação
-// NFSE-M06 onda 6.30 (2026-04-20): corpo migrado para telegram-client.js
-// (sendNotificacao). Mantemos o wrapper local para não mexer no opts
-// passado para registrarRotasExtensaoChrome.
-async function enviarNotificacaoTelegram(dados) {
-  return _sendNotificacaoViaClient(db, dados);
-}
-
-
-// ==================== MONITOR V2 (API direta Comprasnet) ====================
-registrarRotasMonitorV2(app, db, {
-  enviarTelegram: enviarTelegram,
-  getConfigValue: getConfigValue,
-  intervaloMinutos: 3,
+// NFSE-M06 onda 6.36 (2026-04-20): ~55 registros de rotas protegidas
+// (MonitorV2, Licitacoes, Sniper, NFSe, Cobrancas, Financeiro, suprimentos,
+// fiscais, wiring do robô monitor-mensagens etc.) + wrappers enviarTelegram /
+// enviarNotificacaoTelegram migraram para route-registry.js. Dependências
+// passadas uma vez; a ordem interna de registro é preservada 1:1.
+const { registerProtectedRoutes } = require('./route-registry');
+registerProtectedRoutes(app, {
+  db, dbPath, PORT,
+  pncpSync, salvarItens,
+  PNCP_API_BASE, PNCP_API_ITENS,
+  getConfigValue, setConfigValue, getIAKeys,
 });
-
-// ==================== SNIPER DE LANCES ====================
-registrarRotasSniper(app, getMonitor, db);
-
-// ==================== NFSE NACIONAL ====================
-registrarRotasNfse(app, db);
-
-// ==================== COBRANCAS + WHATSAPP ====================
-registrarRotasCobrancas(app, db);
-registrarRotasWhatsApp(app, db);
-
-// ==================== FINANCEIRO (Pessoas, Contas a Receber, Boletos, MercadoPago) ====================
-registrarRotasFinanceiro(app, db);
-
-// ==================== RECORRENCIAS NFSE ====================
-registrarRotasRecorrencia(app, db);
-
-// ==================== SUPRIMENTOS (Produtos, Estoque, Pedidos) ====================
-registrarRotasProdutos(app, db);
-registrarRotasEstoque(app, db);
-registrarRotasLotes(app, db);
-registrarRotasSerial(app, db);
-registrarRotasReservas(app, db);
-registrarRotasInventario(app, db);
-registrarRotasPedidosCompra(app, db);
-registrarRotasPedidos(app, db);
-registrarRotasContasFinanceiras(app, db);
-registrarRotasFaturas(app, db);
-registrarRotasNfeEmit(app, db);
-registrarRotasNfeEntrada(app, db);
-registrarRotasContasPagar(app, db);
-registrarRotasContasReceber(app, db);
-registrarRotasFluxoCaixa(app, db);
-registrarRotasFiscalSN(app, db);
-registrarRotasLivroCaixa(app, db);
-registrarRotasFiscalArquivamento(app, db);
-registrarRotasRetencoes(app, db);
-registrarRotasDefis(app, db);
-registrarRotasNFCe(app, db);
-registrarRotasImportacao(app, db);
-registrarRotasCFOPs(app, db);
-registrarRotasUsuarios(app, db);
-registrarRotasAuditoria(app, db);
-registrarRotasDevolucoes(app, db);
-registrarRotasCrm(app, db);
-registrarRotasGerencial(app, db);
-registrarRotasConciliacao(app, db);
-registrarRotasComissoes(app, db);
-registrarRotasContratos(app, db);
-registrarRotasPortalAdmin(app, db);
-registrarRotasOS(app, db);
-registrarRotasComm(app, db);
-registrarRotasMDFe(app, db);
-registrarRotasRH(app, db);
-registrarRotasPatrimonio(app, db);
-registrarRotasRoteirizacao(app, db);
-registrarRotasCTe(app, db);
-registrarRotasMarketplaces(app, db);
-registrarRotasTEF(app, db);
-registrarRotasBi(app, db);
-registrarRotasPropostasParticipacoes(app, db);
-registrarRotasGruposPalavras(app, db);
-registrarRotasBackup(app, db, { dbPath, PORT });
-registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys });
-registrarRotasJornal(app, db);
-registrarRotasCertificado(app, db);
-registrarRotasProxy(app, db);
-registrarRotasFornecedor(app, db);
-registrarRotasTelegram(app, db, { enviarTelegram });
-registrarRotasLances(app, db, { enviarTelegram });
-registrarRotasCredenciais(app, db);
-registrarRotasRobo(app, db);
-registrarRotasTracking(app, db);
-registrarRotasProposta(app, db);
-registrarRotasSync(app, db, { pncpSync });
-registrarRotasPdf(app, db);
-registrarRotasAdmin(app, db, { getConfigValue, setConfigValue });
-registrarRotasChatLeitura(app, db);
-registrarRotasExtensoes(app, { getConfigValue });
-// ==================== ROBÔ DE MONITORAMENTO DE MENSAGENS + CREDENCIAIS GOV.BR ====================
-// NFSE-M06 onda 6.28 (2026-04-20): consolidação.
-//  - classes MonitorMensagensComprasnet + MonitorChat vêm de monitor-mensagens-core.js (6.26)
-//  - 4 rotas do robô (/iniciar, /parar, /status, /ativos) em monitor-mensagens-routes.js (6.27)
-//  - 3 rotas gov.br (/api/govbr/*) + estado monitorMensagens em govbr-routes.js (6.28)
-//  - extensao-chrome usa getMonitor exposto por govbr-routes
-const { MonitorMensagensComprasnet, MonitorChat } = createMonitorMensagens({
-  db, getConfigValue, enviarTelegram
-});
-const govbrApi = registrarRotasGovBr(app, db, { getConfigValue, setConfigValue, MonitorMensagensComprasnet });
-registrarRotasMonitorMensagens(app, db, { MonitorChat });
-
-registrarRotasExtensaoChrome(app, db, { getConfigValue, enviarNotificacaoTelegram, getMonitor: govbrApi.getMonitor });
-registrarRotasChatMonitoramento(app, db);
-registrarRotasChatMensagens(app, db);
-registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram });
 
 
 // NFSE-M06 onda 6.34 (2026-04-20): _logStartupBanner,
