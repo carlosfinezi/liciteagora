@@ -1,14 +1,10 @@
 const express = require('express');
-const axios = require('axios');
 const Database = require('better-sqlite3');
 const path = require('path');
-const fs = require('fs');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-const crypto = require('crypto');
-const session = require('express-session');
-const { createSessionStore, criarUsuarioInicial, getSessionSecret, getApiKey, requireAuth } = require('./auth');
+const { initAuthAndSession, installAuthBarrier, installProtectedStatic } = require('./auth-bootstrap');
 const { registrarRotasAuthPublicas, registrarRotasAuthProtegidas } = require('./auth-routes');
 const { iniciarReconciliadorS6 } = require('./nfse-routes');
 const { agendarPollingBoletos } = require('./financeiro-routes');
@@ -72,20 +68,9 @@ const { createConfigHelpers } = require('./config-helpers');
 const { getConfigValue, setConfigValue, getIAKeys } = createConfigHelpers(db);
 
 
-// ==================== AUTENTICAÇÃO ====================
-criarUsuarioInicial(db);
-const sessionSecret = getSessionSecret(db);
-const apiKey = getApiKey(db);
-
-// Session middleware (antes de tudo que precisa de sessão)
-app.use(session({
-  store: createSessionStore(session, db),
-  secret: sessionSecret,
-  name: 'liciteagora.sid',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: false }
-}));
+// NFSE-M06 onda 6.40 (2026-04-20): criarUsuarioInicial + sessionSecret +
+// apiKey + session middleware foram consolidados em auth-bootstrap.js.
+const { apiKey } = initAuthAndSession(app, db);
 
 
 // NFSE-M06 onda 6.31 (2026-04-20): rotas públicas (/api/login com rate
@@ -100,16 +85,14 @@ registrarRotasAuthPublicas(app, db);
 const { registerPreAuthRoutes } = require('./pre-auth-routes');
 registerPreAuthRoutes(app, db, { apiKey });
 
-// Auth barrier — tudo abaixo requer autenticação (exceto webhook e X-Api-Key)
-app.use(requireAuth(apiKey, db));
+installAuthBarrier(app, db, { apiKey });
 
 // NFSE-M06 onda 6.31 (2026-04-20): rotas protegidas (/api/change-password,
 // /api/auth/api-key) migradas para auth-routes.js.
 registrarRotasAuthProtegidas(app, db, { apiKey });
 
 
-// Arquivos estáticos protegidos (APÓS rotas de API para que não intercepte)
-app.use(express.static(path.join(__dirname, 'public')));
+installProtectedStatic(app);
 
 // NFSE-M06 onda 6.36 (2026-04-20): ~55 registros de rotas protegidas
 // (MonitorV2, Licitacoes, Sniper, NFSe, Cobrancas, Financeiro, suprimentos,
