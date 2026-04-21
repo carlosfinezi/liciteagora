@@ -59,10 +59,7 @@
       gap: 10px;
     }
 
-    .btn-success { background: var(--success); color: #fff; }
-    .btn-success:hover { filter: brightness(1.1); }
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-danger:hover { filter: brightness(1.1); }
+    /* .btn-success/.btn-danger: vêm do app-modern.css. .btn-outline: variante page-local */
     .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-2); }
     .btn-outline:hover { background: var(--bg-2); color: var(--text-0); }
 
@@ -183,24 +180,9 @@
       gap: 10px;
     }
 
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: var(--bg-2);
-      color: var(--text-0);
-      border: 1px solid var(--border);
-      padding: 12px 20px;
-      border-radius: var(--r-md);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.3s;
-      z-index: 1002;
-    }
-
+    /* .toast: vem do app-modern.css. Aqui só a animação de entrada específica de versões. */
+    .toast { transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 1002; }
     .toast.show { transform: translateY(0); opacity: 1; }
-    .toast.success { background: var(--success); color: #fff; border-color: var(--success); }
     .toast.error { background: var(--danger); color: #fff; border-color: var(--danger); }
 
     .empty-state {

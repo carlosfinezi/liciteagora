@@ -7,16 +7,13 @@
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
+        /* page-local: .status-bar/.status-item, .verde/.vermelho/.amarelo/.azul, .panel h3, .btn-group, .spinner, .toast, .log-view (.auto-log-area) vêm do app-modern.css */
         .main-content { padding: 20px; }
-
-        /* Status bar */
-        .status-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-        .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 100px; text-align: center; }
+        /* override page-local de .status-item: cards uniformes com flex:1 (diferente do padrão .status-bar) */
+        .status-bar { gap: 12px; margin-bottom: 16px; padding: 0; background: transparent; border: none; }
+        .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 100px; text-align: center; display: block; font-size: 1em; }
         .status-item .label { color: var(--text-3); font-size: 0.75em; margin-bottom: 3px; }
         .status-item .value { font-size: 1em; font-weight: 600; }
-        .verde { color: var(--success); } .vermelho { color: var(--danger); } .amarelo { color: var(--warn); } .azul { color: var(--accent); }
-
-        .panel h3 { color: var(--accent); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 1em; }
 
         /* Filters */
         .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
@@ -81,19 +78,18 @@
         .countdown.vermelho { color: var(--danger); animation: pulse 1s infinite; }
         @keyframes pulse { 50% { opacity: 0.5; } }
 
-        /* Auto-log area */
-        .auto-log-area { background: var(--bg-0); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px; margin-top: 8px; max-height: 200px; overflow-y: auto; font-size: 0.75em; font-family: monospace; }
-        .auto-log-area .log-entry { color: var(--text-3); padding: 1px 0; }
-        .auto-log-area .log-entry .ts { color: var(--text-3); }
-
-        .btn-group { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+        /* .auto-log-area vem do app-modern.css (.log-view aliased). Override page-local: menor (200px). */
+        .auto-log-area { max-height: 200px; font-size: 0.75em; padding: 8px; margin-top: 8px; }
+        /* .btn-group vem do app-modern.css; override page-local só para margin-top e gap menor */
+        .btn-group { gap: 6px; margin-top: 10px; }
 
         .result-msg { padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: 0.82em; }
-        .result-sucesso { background: #4caf5018; border: 1px solid var(--success); color: var(--success); }
-        .result-erro { background: #f4433618; border: 1px solid var(--danger); color: var(--danger); }
-        .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #4dabf740; border-top: 2px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 18px; border-radius: var(--r-md); font-size: 0.85em; z-index: 999; color: var(--text-0); animation: fadeIn 0.3s; }
+        .result-sucesso { background: var(--success-soft); border: 1px solid var(--success); color: var(--success); }
+        .result-erro    { background: var(--danger-soft);  border: 1px solid var(--danger);  color: var(--danger); }
+        /* .spinner vem do app-modern.css; override page-local só para 12px */
+        .spinner { width: 12px; height: 12px; }
+        /* .toast vem do app-modern.css; animação de entrada é page-local */
+        .toast { animation: fadeIn 0.3s; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; } }
         .info-msg { color: var(--text-3); text-align: center; padding: 12px; font-size: 0.85em; }
         .contagem { font-size: 0.72em; color: var(--text-3); margin-top: 2px; }

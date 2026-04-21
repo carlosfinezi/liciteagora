@@ -164,6 +164,9 @@ small { color:var(--text-2); font-size:0.82em; }
 .btn-danger { background: #b91c1c; color: #fff; }
 .btn-danger:hover { background: var(--danger); color: #7f1d1d; }
 
+.btn-warning { background: var(--warn); color: #000; }
+.btn-warning:hover { background: #ffa726; color: #000; }
+
 .btn-sm { padding: 6px 10px; font-size: 0.8em; }
 .btn-lg { padding: 10px 18px; font-size: 0.95em; }
 
@@ -268,6 +271,21 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 .badge.vencida       { background: var(--danger-soft); color: var(--danger); border-color: #991b1b; }
 .badge.ativo         { background: var(--success-soft); color: var(--success); border-color: #065f46; }
 .badge.inativo       { background: #37415160; color: var(--text-3); border-color:#475569; }
+.badge.paga          { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+.badge.cancelada     { background: #37415160; color: var(--text-3); border-color:#475569; }
+.badge.registrado    { background: var(--accent-soft); color: var(--accent); border-color: #1e40af; }
+.badge.erro          { background: var(--danger-soft); color: var(--danger); border-color: #991b1b; }
+.badge.autorizada    { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+.badge.processando   { background: var(--warn-soft); color: var(--warn); border-color: #b45309; }
+.badge.rejeitada     { background: var(--danger-soft); color: var(--danger); border-color: #991b1b; }
+.badge.sucesso       { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+.badge.sim           { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+.badge.nao           { background: #37415160; color: var(--text-3); border-color:#475569; }
+.badge.pdf_indisponivel { background: #37415160; color: var(--text-3); border-color:#475569; }
+.badge.score-alto    { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+.badge.score-medio   { background: var(--warn-soft); color: var(--warn); border-color: #b45309; }
+.badge.score-baixo   { background: var(--danger-soft); color: var(--danger); border-color: #991b1b; }
+.badge.sem-analise   { background: #37415160; color: var(--text-3); border-color:#475569; }
 
 /* Empty state helpers */
 .empty, .empty-row, tbody .empty {
@@ -428,6 +446,15 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 .dropdown-menu button.success { color: var(--success); }
 .dropdown-menu button.success:hover { background: #0d2a14; }
 .dropdown-menu .divider { height: 1px; background: var(--border); margin: 4px 0; }
+/* Aliases dd-* (legacy naming) */
+.dropdown-menu .dd-header { padding: 6px 14px; color: var(--text-3); font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+.dropdown-menu a { display: block; width: 100%; text-align: left; padding: 9px 14px; color: var(--text-1); font-size: 0.88em; text-decoration: none; white-space: nowrap; }
+.dropdown-menu a:hover { background: var(--bg-hover); color: var(--text-0); }
+.dropdown-menu .dd-danger { color: var(--danger); }
+.dropdown-menu .dd-danger:hover { background: #2a1010; }
+.dropdown-menu .dd-success { color: var(--success); }
+.dropdown-menu .dd-success:hover { background: #0d2a14; }
+.dropdown-menu .dd-divider { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* ==================== TOASTS ==================== */
 #toasts {
@@ -1001,10 +1028,10 @@ h1, h2, h3 { color: var(--text-0) !important; }
   font-size: 0.88em;
   border: 1px solid;
 }
-.alert.success { background: var(--success-soft); color: var(--success); border-color: #065f46; }
-.alert.error, .alert.danger { background: var(--danger-soft); color: var(--danger); border-color: #991b1b; }
-.alert.warn, .alert.warning { background: var(--warn-soft); color: var(--warn); border-color: #b45309; }
-.alert.info { background: var(--accent-soft); color: var(--accent); border-color: #1e40af; }
+.alert.success, .alert-success { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+.alert.error, .alert.danger, .alert-error, .alert-danger { background: var(--danger-soft); color: var(--danger); border-color: #991b1b; }
+.alert.warn, .alert.warning, .alert-warn, .alert-warning { background: var(--warn-soft); color: var(--warn); border-color: #b45309; }
+.alert.info, .alert-info { background: var(--accent-soft); color: var(--accent); border-color: #1e40af; }
 
 /* ============================================================
    Actions bar em modais (rodapé de botões)
@@ -1074,3 +1101,229 @@ h1, h2, h3 { color: var(--text-0) !important; }
 .badge.transferencia_entrada { background: var(--accent-soft); color: var(--accent); border-color: #1e40af; }
 .badge.transferencia_saida   { background: var(--purple-soft); color: var(--purple); border-color: #6d28d9; }
 .badge.ajuste            { background: #37415160; color: var(--text-2); border-color:#475569; }
+
+/* ==================== ONDA 4 — Componentes reutilizáveis ==================== */
+
+/* .tab-content (alias para o padrão .tab-pane) */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* .panel h3 — cabeçalho interno de painel */
+.panel h3 {
+  color: var(--accent);
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* .status-bar — faixa de KPIs inline (usada em financeiro, nfse, monitoramento-chat, lances-old, lances) */
+.status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  align-items: center;
+  background: var(--bg-2);
+  border-radius: var(--r-lg);
+  padding: 15px 20px;
+  margin-bottom: 25px;
+  border: 1px solid var(--border);
+}
+.status-item { display: flex; align-items: center; gap: 8px; font-size: 0.9em; }
+.status-item .label { color: var(--text-3); }
+.status-item .value { color: var(--accent); font-weight: 600; }
+.status-item .value.danger,  .status-item .value.vermelho { color: var(--danger); }
+.status-item .value.success, .status-item .value.verde    { color: var(--success); }
+.status-item .value.warning, .status-item .value.amarelo  { color: var(--warn); }
+.status-item .value.azul                                   { color: var(--accent); }
+
+/* .config-panel — seção de configuração leve dentro de card */
+.config-panel { background: var(--bg-1); border-radius: var(--r-md); padding: 15px; margin-bottom: 15px; }
+.config-panel h4 { color: var(--accent); margin-bottom: 10px; font-size: 0.95em; }
+
+/* .autocomplete — lista sob input */
+.autocomplete-wrapper, .autocomplete-container { position: relative; }
+.autocomplete-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--accent);
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 100;
+  display: none;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+}
+.autocomplete-list.active { display: block; }
+.autocomplete-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--bg-2);
+}
+.autocomplete-item:hover { background: var(--bg-hover); color: var(--text-0); }
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item small { color: var(--text-3); }
+
+/* .switch — toggle com slider (jornal, lances-old, recorrencias) */
+.switch { position: relative; display: inline-block; width: 44px; height: 22px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider, .switch-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  transition: background 0.2s;
+}
+.switch .slider::before, .switch-slider::before {
+  content: "";
+  position: absolute;
+  height: 16px; width: 16px;
+  left: 2px; top: 2px;
+  background: var(--text-1);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.switch input:checked + .slider,
+.switch input:checked + .switch-slider { background: var(--accent); }
+.switch input:checked + .slider::before,
+.switch input:checked + .switch-slider::before { transform: translateX(22px); background: #fff; }
+
+/* .progress-bar — barra horizontal de progresso (status, propostas-api, inteligencia) */
+.progress-bar {
+  position: relative;
+  width: 100%;
+  height: 10px;
+  background: var(--bg-3);
+  border-radius: 5px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.progress-bar .progress-fill, .progress-bar .fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.progress-bar .progress-fill.success, .progress-bar .fill.success { background: var(--success); }
+.progress-bar .progress-fill.warn,    .progress-bar .fill.warn    { background: var(--warn); }
+.progress-bar .progress-fill.danger,  .progress-bar .fill.danger  { background: var(--danger); }
+.progress-text { font-size: 0.85em; color: var(--text-2); text-align: center; margin-top: 4px; }
+
+/* .log-view — área de logs monospace (monitoramento-chat, lances-old, lances, propostas-api, conexoes) */
+.log-view, .log-area, .log-container, .logs-container, .auto-log-area, .envio-log {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.82em;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--text-2);
+}
+.log-view .log-entry, .log-area .log-entry, .log-container .log-entry,
+.logs-container .log-entry, .auto-log-area .log-entry,
+.envio-log .log-info, .envio-log .log-ok, .envio-log .log-err {
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--bg-2);
+}
+.log-entry.sucesso, .log-entry.ok, .log-ok, .log-info         { color: var(--success); }
+.log-entry.erro,    .log-entry.error, .log-err                { color: var(--danger); }
+.log-entry.aviso,   .log-entry.warn                           { color: var(--warn); }
+.log-entry.info                                                { color: var(--accent); }
+.log-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+
+/* .step-list — steps de wizard/onboarding (conexoes) */
+.step {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-1);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.step-icon { font-size: 1.5em; flex-shrink: 0; }
+.step-content { flex: 1; }
+.step-title { font-weight: 600; color: var(--text-0); margin-bottom: 4px; }
+.step-desc { color: var(--text-2); font-size: 0.9em; }
+.step-result { margin-top: 6px; font-size: 0.85em; padding: 6px 10px; border-radius: var(--r-sm); display: inline-block; }
+.step-result.sucesso { background: var(--success-soft); color: var(--success); }
+.step-result.erro    { background: var(--danger-soft); color: var(--danger); }
+.step-result.aviso   { background: var(--warn-soft); color: var(--warn); }
+.step-result.info    { background: var(--accent-soft); color: var(--accent); }
+
+/* .table-container + table base (evitar re-declarar por página) */
+.table-container { overflow-x: auto; }
+.table-container table { width: 100%; border-collapse: collapse; }
+.table-container th {
+  background: var(--bg-1);
+  color: var(--accent);
+  padding: 12px 15px;
+  text-align: left;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.table-container td {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9em;
+}
+.table-container tr:hover td { background: var(--bg-hover); }
+
+/* ==================== ONDA 4.2 — utilitários transversais ==================== */
+
+/* .spinner — indicador de carregamento inline (analises-ia, comprasnet-login, conexoes, lances) */
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid var(--accent-soft);
+  border-top: 2px solid var(--accent);
+  border-radius: 50%;
+  animation: lct-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes lct-spin { to { transform: rotate(360deg); } }
+
+/* .btn-group — agrupamento horizontal de botões (conexoes, lances) */
+.btn-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* color utilities (conexoes, lances) */
+.verde    { color: var(--success); }
+.vermelho { color: var(--danger); }
+.amarelo  { color: var(--warn); }
+.azul     { color: var(--accent); }
+.cinza    { color: var(--text-3); }
+
+/* .status-cards / .status-card — grid de KPIs "card" (distinto de .status-bar) — conexoes, status */
+.status-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.status-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 16px;
+  text-align: center;
+  transition: border-color 0.3s;
+}
+.status-card.ok       { border-color: var(--success); }
+.status-card.erro     { border-color: var(--danger); }
+.status-card.aviso    { border-color: var(--warn); }
+.status-card.testando { border-color: var(--accent); }
+.status-card .card-icon  { font-size: 1.8em; margin-bottom: 6px; }
+.status-card .card-label { color: var(--text-3); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.status-card .card-value { font-size: 1em; font-weight: 600; }

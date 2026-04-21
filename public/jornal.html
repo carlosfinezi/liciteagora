@@ -22,8 +22,7 @@
 
     .header-actions { display: flex; gap: 10px; }
 
-    .btn-warning { background: var(--warn); color: #000; }
-    .btn-warning:hover { background: #ffa726; }
+    /* .btn-warning: vem do app-modern.css. .btn-outline: variante page-local. */
     .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-2); padding: 10px 20px; border-radius: var(--r-md); cursor: pointer; font-size: 14px; font-weight: 500; }
     .btn-outline:hover { background: var(--bg-1); color: var(--text-0); }
 
@@ -169,22 +168,9 @@
 
     .empty-state { text-align: center; padding: 40px; color: var(--text-3); }
 
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: var(--bg-1);
-      color: var(--text-0);
-      padding: 12px 20px;
-      border-radius: var(--r-md);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.3s;
-      z-index: 1002;
-    }
+    /* .toast: vem do app-modern.css. Aqui só overrides page-local (animação de entrada). */
+    .toast { transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 1002; }
     .toast.show { transform: translateY(0); opacity: 1; }
-    .toast.success { background: var(--success); color: #fff; }
     .toast.error { background: var(--danger); color: #fff; }
 
     .loading { text-align: center; padding: 20px; color: var(--text-3); }

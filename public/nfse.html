@@ -38,74 +38,17 @@
 }
 </style>
     <style>
-        /* Barra de status */
-        .status-bar { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; background: var(--bg-2); border-radius: var(--r-lg); padding: 15px 20px; margin-bottom: 25px; border: 1px solid var(--border); }
-        .status-item { display: flex; align-items: center; gap: 8px; font-size: 0.9em; }
-        .status-item .label { color: var(--text-3); }
-        .status-item .value { color: var(--accent); font-weight: 600; }
-        .status-item .value.danger { color: var(--danger); }
-        .status-item .value.success { color: var(--success); }
-        .status-item .value.warning { color: var(--warn); }
+        /* page-local: toggle de ambiente fiscal + detail-row no modal + config-actions layout */
         .ambiente-toggle { padding: 6px 14px; border-radius: var(--r-sm); border: none; font-weight: 700; cursor: pointer; font-size: 0.85em; transition: all 0.3s; }
         .ambiente-toggle.producao { background: var(--danger); color: var(--text-0); }
         .ambiente-toggle.homologacao { background: var(--warn); color: #000; }
-
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-        .panel h3 { color: var(--accent); margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
-        .form-group input[readonly] { opacity: 0.6; cursor: not-allowed; }
-
-        .actions-bar { display: flex; gap: 15px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
-
-        /* Table */
-        .table-container { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: var(--bg-1); color: var(--accent); padding: 12px 15px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
-        td { padding: 12px 15px; border-bottom: 1px solid var(--border); font-size: 0.9em; }
-        tr:hover td { background: var(--bg-hover); }
-        .badge.autorizada { background: #2b8a3e33; color: var(--success); }
-        .badge.processando { background: #e67f0033; color: var(--warn); }
-        .badge.rejeitada { background: #c9202033; color: var(--danger); }
-        .badge.erro { background: #c9202033; color: var(--danger); }
-        .badge.cancelada { background: #868e9633; color: var(--text-3); }
-
-        /* Filtros */
-        .filtros { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
-
-        /* Config bar items spacing */
         .config-actions { margin-left: auto; display: flex; gap: 10px; }
-
-        /* Modal */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-overlay.active { display: flex; }
-        .modal { background: var(--bg-2); border-radius: var(--r-lg); padding: 30px; max-width: 700px; width: 95%; max-height: 85vh; overflow-y: auto; border: 1px solid var(--border); }
-        .modal h3 { color: var(--accent); margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-        .modal-close { float: right; background: none; border: none; color: var(--text-3); font-size: 1.5em; cursor: pointer; line-height: 1; }
-        .modal-close:hover { color: var(--text-0); }
+        .config-row { display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; }
+        .config-row .form-group { flex: 1; min-width: 150px; }
         .detail-row { display: flex; gap: 10px; margin-bottom: 10px; }
         .detail-label { color: var(--text-3); min-width: 150px; font-size: 0.9em; }
         .detail-value { color: var(--text-0); font-size: 0.9em; word-break: break-all; }
-
-        /* Config panel */
-        .config-panel { background: var(--bg-1); border-radius: var(--r-md); padding: 15px; margin-bottom: 15px; }
-        .config-panel h4 { color: var(--accent); margin-bottom: 10px; font-size: 0.95em; }
-        .config-row { display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; }
-        .config-row .form-group { flex: 1; min-width: 150px; }
-        .config-row .form-group input, .config-row .form-group select { padding: 8px 10px; font-size: 0.9em; }
-
-        /* Empty state */
-        .empty-state { text-align: center; padding: 60px 20px; color: var(--text-3); }
-        .empty-state .icon { font-size: 3em; margin-bottom: 15px; }
-        .empty-state p { font-size: 1.1em; }
-
-        /* Dropdown Ações */
-        .dropdown-btn { background: var(--bg-1); color: var(--accent); border: 1px solid var(--border); padding: 4px 10px; border-radius: var(--r-sm); cursor: pointer; font-weight: 700; font-size: 1.2em; line-height: 1; }
-        .dropdown-btn:hover { background: var(--bg-hover); }
-        .dropdown-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; background: none; border: none; color: var(--text-1); font-size: 0.85em; cursor: pointer; text-align: left; }
-        .dropdown-menu button:hover { background: var(--bg-1); color: var(--text-0); }
-        .dropdown-menu .dd-danger { color: var(--danger); }
-        .dropdown-menu .dd-danger:hover { background: #c9202033; }
+        .form-group input[readonly] { opacity: 0.6; cursor: not-allowed; }
     </style>
 </head>
 <body>

@@ -20,8 +20,7 @@
     .header .subtitle { opacity: 0.8; font-size: 0.9rem; margin-top: 4px; }
     .header-actions { display: flex; gap: 10px; }
 
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-danger:hover { background: #d32f2f; }
+    /* .btn-danger: vem do app-modern.css. .btn-outline: variante page-local. */
     .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-2); padding: 10px 20px; border-radius: var(--r-md); cursor: pointer; font-size: 14px; font-weight: 500; }
     .btn-outline:hover { background: var(--bg-1); color: var(--text-0); }
 
@@ -252,22 +251,9 @@
 
     .loading { text-align: center; padding: 40px; color: var(--text-3); }
 
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: var(--bg-1);
-      color: var(--text-0);
-      padding: 12px 20px;
-      border-radius: var(--r-md);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.3s;
-      z-index: 1002;
-    }
+    /* .toast: vem do app-modern.css. Overrides page-local abaixo. */
+    .toast { transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 1002; }
     .toast.show { transform: translateY(0); opacity: 1; }
-    .toast.success { background: var(--success); color: #fff; }
     .toast.error { background: var(--danger); color: #fff; }
 
     .exclusao-checkboxes {

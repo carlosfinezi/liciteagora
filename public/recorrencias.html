@@ -7,48 +7,14 @@
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-        .panel h3 { color: var(--accent); margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
-
-        .actions-bar { display: flex; gap: 15px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
-
-        .filtros { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
-
-        .table-container { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: var(--bg-1); color: var(--accent); padding: 12px 15px; text-align: left; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
-        td { padding: 12px 15px; border-bottom: 1px solid var(--border); font-size: 0.9em; }
-        tr:hover td { background: var(--bg-hover); }
-
-        .badge.sucesso { background: #2b8a3e33; color: var(--success); }
-        .badge.erro { background: #c9202033; color: var(--danger); }
-        .badge.processando { background: #e67f0033; color: var(--warn); }
-        .badge.ativo { background: #2b8a3e33; color: var(--success); }
-        .badge.inativo { background: #868e9633; color: var(--text-3); }
-        .badge.sim { background: #2b8a3e33; color: var(--success); }
-        .badge.nao { background: #868e9633; color: var(--text-3); }
-        .badge.pdf_indisponivel { background: #e67f0033; color: var(--warn); }
-
-        .empty-state { text-align: center; padding: 60px 20px; color: var(--text-3); }
-        .empty-state .icon { font-size: 3em; margin-bottom: 15px; }
-
+        /* page-local: aliases legados para toggle (preferir .switch em páginas novas) + .autocomplete-list.show (app-modern usa .active) */
         .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--text-3); border-radius: 12px; transition: 0.3s; }
+        .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: var(--text-3); border-radius: 12px; transition: 0.3s; }
         .toggle-slider:before { content: ''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: var(--text-0); border-radius: 50%; transition: 0.3s; }
         .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
         .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
-
-        .autocomplete-container { position: relative; }
-        .autocomplete-list { position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-2); border: 1px solid var(--border); border-radius: 0 0 var(--r-sm) var(--r-sm); max-height: 200px; overflow-y: auto; z-index: 100; display: none; }
         .autocomplete-list.show { display: block; }
-        .autocomplete-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
-        .autocomplete-item:hover { background: var(--bg-hover); }
-        .autocomplete-item .name { font-weight: 600; }
-        .autocomplete-item .doc { color: var(--text-3); font-size: 0.85em; }
-
         .valor-display { font-size: 1.1em; font-weight: 700; color: var(--accent); }
     </style>
 </head>

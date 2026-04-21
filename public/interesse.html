@@ -6,53 +6,6 @@
     <title>Meus Interesses - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
-    <style>
-        .main-content { padding: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-
-        header { background: var(--bg-2); padding: 30px; border-radius: var(--r-lg); border: 1px solid var(--border); margin-bottom: 20px; }
-
-        .interesse-card { background: var(--bg-2); padding: 20px; border-radius: var(--r-lg); border: 1px solid var(--border); margin-bottom: 15px; }
-        .interesse-header { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 2px solid var(--border); }
-        .interesse-titulo { font-size: 18px; font-weight: 600; color: var(--text-0); }
-        .interesse-info { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 15px; }
-        .info-item { display: flex; flex-direction: column; }
-        .info-label { font-size: 12px; color: var(--text-3); text-transform: uppercase; }
-        .info-value { font-size: 14px; color: var(--text-0); font-weight: 500; }
-        .itens-lista { margin-top: 15px; }
-        .itens-lista h4 { font-size: 14px; color: var(--text-2); margin-bottom: 10px; }
-        .item-interesse { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: var(--bg-1); border-radius: var(--r-sm); margin-bottom: 8px; }
-        .item-info { flex: 1; }
-        .item-numero { font-weight: 600; color: var(--accent); margin-right: 10px; }
-        .item-descricao { font-size: 14px; color: var(--text-0); }
-        .item-valor { font-weight: 600; color: var(--success); margin-left: 15px; }
-        .btn-remover { padding: 5px 12px; background: var(--danger); color: var(--text-0); border: none; border-radius: 3px; font-size: 12px; cursor: pointer; margin-left: 10px; }
-        .btn-remover:hover { background: #d32f2f; }
-        .empty-state { background: var(--bg-2); padding: 60px 20px; border-radius: var(--r-lg); border: 1px solid var(--border); text-align: center; }
-        .empty-state-title { font-size: 20px; color: var(--text-0); margin-bottom: 10px; }
-        .empty-state-text { font-size: 14px; color: var(--text-2); }
-        .loading { text-align: center; padding: 40px; background: var(--bg-2); border-radius: var(--r-lg); }
-        .total-info { background: var(--bg-2); padding: 15px 25px; border-radius: var(--r-lg); border: 1px solid var(--border); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-        .filtro-bar { background: var(--bg-2); padding: 15px 25px; border-radius: var(--r-lg); border: 1px solid var(--border); margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
-        .filtro-bar label { font-size: 14px; color: var(--text-2); font-weight: 600; }
-        .filtro-bar select, .filtro-bar input[type="date"] { padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 14px; color: var(--text-0); background: var(--bg-input); max-width: 220px; }
-        .filtro-bar .filtro-info { margin-left: auto; font-size: 13px; color: var(--text-3); }
-        .data-abertura-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 10px; }
-        .data-abertura-badge.futuro { background: #e3f2fd; color: #1565c0; }
-        .data-abertura-badge.hoje { background: #e8f5e9; color: #2e7d32; }
-        .data-abertura-badge.passado { background: #fce4ec; color: #c62828; }
-        .data-abertura-badge.sem-data { background: #f5f5f5; color: #999; }
-        .total-count { font-size: 16px; color: var(--text-0); font-weight: 600; }
-        .total-valor { font-size: 18px; color: var(--success); font-weight: 700; }
-        .btn-excluir-todos { padding: 10px 20px; background: var(--danger); color: var(--text-0); border: none; border-radius: var(--r-sm); font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.3s; }
-        .btn-excluir-todos:hover { background: #c0392b; }
-        .btn-detalhes { padding: 8px 15px; background: var(--accent); color: #000; border: none; border-radius: var(--r-sm); font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; }
-        .btn-detalhes:hover { background: var(--accent-strong); }
-
-        .btn-kanban { background: var(--accent); color: #000; border: none; padding: 10px 20px; border-radius: var(--r-md); cursor: pointer; font-weight: 600; margin-left: 10px; transition: all 0.3s; }
-        .btn-kanban:hover { background: #74c0fc; }
-        .interesse-footer { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; padding-top: 15px; border-top: 1px solid var(--border); }
-    </style>
 </head>
 <body>
     <div class="app-container">

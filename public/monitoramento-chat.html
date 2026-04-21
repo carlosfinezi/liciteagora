@@ -25,8 +25,7 @@
         .status-item.inativo { border: 2px solid var(--danger); }
         .status-item.inativo .numero { color: var(--danger); }
 
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
+        /* .tab-content vem do app-modern.css */
 
         /* Filtros Avancados */
         .filtros-container {
@@ -301,30 +300,7 @@
         .stat-item .value { font-size: 20px; font-weight: bold; color: var(--accent); }
         .stat-item .label { color: var(--text-3); font-size: 12px; }
 
-        .logs-container {
-            background: var(--bg-0);
-            border-radius: var(--r-md);
-            padding: 15px;
-            max-height: 300px;
-            overflow-y: auto;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 12px;
-        }
-        .log-entry { padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text-2); }
-        .log-entry:last-child { border-bottom: none; }
-        .log-entry.error { color: var(--danger); }
-        .log-entry.success { color: var(--success); }
-
-        .alert {
-            padding: 15px 20px;
-            border-radius: var(--r-md);
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .alert-success { background: var(--success); color: #fff; }
-        .alert-error { background: var(--danger); color: #fff; }
+        /* .logs-container, .log-entry (+ .success/.error), .alert/.alert-success/.alert-error vêm do app-modern.css */
 
         @media (max-width: 768px) {
             .filtros-row { flex-direction: column; }

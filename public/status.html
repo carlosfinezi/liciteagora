@@ -7,18 +7,9 @@
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
-        .alert {
-            padding: 15px 20px;
-            border-radius: var(--r-md);
-            margin-bottom: 15px;
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-        }
-        .alert-warning { background: rgba(255, 212, 59, 0.15); border: 1px solid var(--warn); color: var(--warn); }
-        .alert-danger { background: rgba(255, 107, 107, 0.15); border: 1px solid var(--danger); color: var(--danger); }
-        .alert-success { background: rgba(81, 207, 102, 0.15); border: 1px solid var(--success); color: var(--success); }
-        .alert-info { background: rgba(77, 171, 247, 0.15); border: 1px solid var(--accent); color: var(--accent); }
+        /* page-local: .alert/.alert-*, .status-card/.progress-bar/.progress-fill vêm do app-modern.css */
+        /* override page-local de .alert (padding maior, display flex para ícone) */
+        .alert { padding: 15px 20px; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 15px; }
         .alert .icon { font-size: 1.5em; flex-shrink: 0; }
 
         .status-grid {
@@ -52,20 +43,10 @@
         .stat-value.error { color: var(--danger); }
 
         .sync-progress { margin-top: 20px; }
-        .progress-bar {
-            background: var(--bg-1);
-            border-radius: 10px;
-            height: 20px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-        .progress-fill {
-            background: linear-gradient(90deg, var(--accent), var(--accent-strong));
-            height: 100%;
-            transition: width 0.5s ease;
-            border-radius: 10px;
-        }
-        .progress-text { text-align: center; margin-top: 10px; color: var(--text-3); }
+        /* override page-local de .progress-bar: 20px em vez dos 10px canônicos, com gradient fill */
+        .progress-bar { height: 20px; border-radius: 10px; margin-top: 10px; }
+        .progress-fill { background: linear-gradient(90deg, var(--accent), var(--accent-strong)); border-radius: 10px; }
+        .progress-text { text-align: center; margin-top: 10px; }
 
         .sync-status {
             display: inline-flex;

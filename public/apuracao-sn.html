@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
+  /* page-local: .card/.card h3 vêm do app-modern.css; vocabulário sn-*/subl-*/das-*/.alerta/.status-badge/.fator-r-info/.acoes-apuracao/.timeline é específico do domínio Simples Nacional */
   .sn-toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
   .sn-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
   .sn-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -15,8 +16,7 @@
   .sn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
   @media (max-width: 900px) { .sn-grid { grid-template-columns: 1fr; } }
 
-  .card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 16px; }
-  .card h3 { margin: 0 0 12px 0; color: var(--accent); font-size: 1em; }
+  /* .card .row — layout interno label + input numérico (exclusivo desta página) */
   .card .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: center; margin-bottom: 8px; }
   .card .row label { color: var(--text-2); font-size: 0.88em; }
   .card .row input { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
@@ -30,9 +30,9 @@
 
   .alertas { margin-bottom: 16px; }
   .alerta { padding: 10px 14px; border-radius: var(--r-md); margin-bottom: 8px; font-size: 0.9em; }
-  .alerta.warn { background: var(--warn-soft); color: var(--warn); border-left: 3px solid var(--warn); }
+  .alerta.warn   { background: var(--warn-soft);   color: var(--warn);   border-left: 3px solid var(--warn); }
   .alerta.danger { background: var(--danger-soft); color: var(--danger); border-left: 3px solid var(--danger); }
-  .alerta.info { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
+  .alerta.info   { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
 
   .timeline { width: 100%; border-collapse: collapse; margin-top: 8px; }
   .timeline th { text-align: left; font-size: 0.76em; text-transform: uppercase; color: var(--text-2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -41,10 +41,10 @@
   .timeline tr:hover { background: var(--bg-hover); cursor: pointer; }
 
   .status-badge { padding: 3px 9px; border-radius: 10px; font-weight: 700; text-transform: uppercase; font-size: 0.72em; }
-  .status-badge.rascunho { background: var(--warn-soft); color: var(--warn); }
-  .status-badge.fechada { background: var(--accent-soft); color: var(--accent); }
-  .status-badge.reaberta { background: var(--bg-hover); color: var(--text-1); }
-  .status-badge.paga { background: var(--success-soft); color: var(--success); }
+  .status-badge.rascunho { background: var(--warn-soft);    color: var(--warn); }
+  .status-badge.fechada  { background: var(--accent-soft);  color: var(--accent); }
+  .status-badge.reaberta { background: var(--bg-hover);     color: var(--text-1); }
+  .status-badge.paga     { background: var(--success-soft); color: var(--success); }
 
   .fator-r-info { font-size: 0.85em; color: var(--text-2); margin-top: 4px; }
   .fator-r-info.ativo { color: var(--success); }
@@ -54,8 +54,7 @@
   .subl-barra { position: relative; height: 22px; background: var(--bg-1); border-radius: 11px; overflow: hidden; margin: 8px 0; border: 1px solid var(--border); }
   .subl-fill { height: 100%; transition: width 0.3s; }
   .subl-fill.ok { background: var(--success); }
-  .subl-fill.aviso { background: var(--warn); }
-  .subl-fill.sublimite, .subl-fill.projecao_sublimite { background: var(--warn); }
+  .subl-fill.aviso, .subl-fill.sublimite, .subl-fill.projecao_sublimite { background: var(--warn); }
   .subl-fill.critico, .subl-fill.projecao_estourou { background: var(--danger); }
   .subl-fill.desenquadrado { background: var(--danger); animation: pulse 2s infinite; }
   @keyframes pulse { 50% { opacity: 0.6; } }
@@ -63,8 +62,7 @@
   .subl-legenda { display: flex; justify-content: space-between; font-size: 0.78em; color: var(--text-2); margin-top: -4px; }
   .subl-mensagem { padding: 10px; border-radius: var(--r-md); font-size: 0.92em; margin-top: 8px; }
   .subl-mensagem.ok { background: var(--success-soft); color: var(--success); }
-  .subl-mensagem.aviso { background: var(--warn-soft); color: var(--warn); }
-  .subl-mensagem.sublimite, .subl-mensagem.projecao_sublimite { background: var(--warn-soft); color: var(--warn); }
+  .subl-mensagem.aviso, .subl-mensagem.sublimite, .subl-mensagem.projecao_sublimite { background: var(--warn-soft); color: var(--warn); }
   .subl-mensagem.critico, .subl-mensagem.projecao_estourou, .subl-mensagem.desenquadrado { background: var(--danger-soft); color: var(--danger); }
   .subl-numeros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 8px 0; }
   .subl-numeros .item { background: var(--bg-1); padding: 8px 10px; border-radius: var(--r-sm); }

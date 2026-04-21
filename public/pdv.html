@@ -10,7 +10,8 @@
   .pdv-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
   @media (max-width: 1100px) { .pdv-layout { grid-template-columns: 1fr; } }
 
-  .card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px; }
+  /* .card base vem de app-modern.css; aqui só override do radius (lg em vez de md) */
+  .card { border-radius: var(--r-lg); }
   .card h3 { margin: 0 0 10px 0; color: var(--accent); font-size: 1em; }
 
   .busca-wrap { display: flex; gap: 8px; }

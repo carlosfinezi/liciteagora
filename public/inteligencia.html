@@ -67,9 +67,8 @@
         .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #4fc3f7, #0288d1); transition: width 0.3s; }
         .progress-text { font-size: 11px; color: var(--text-3); margin-top: 4px; }
 
-        /* Loading */
-        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(79,195,247,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* .loading-spinner — alias page-local apontando para o @keyframes lct-spin (app-modern.css) */
+        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: lct-spin 0.8s linear infinite; }
 
         /* Empty state */
         .empty-state { padding: 60px 20px; text-align: center; color: var(--text-3); }
