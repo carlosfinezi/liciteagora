@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal do Cliente · Licite Agora</title>
+<style>
+* { box-sizing:border-box; }
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin:0; background:#0a1428; color:#e0e0e0; }
+header { background:#0f1a30; padding:14px 24px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #1f2a44; }
+header h1 { font-size:18px; margin:0; color:#4dabf7; }
+header .user { font-size:13px; color:#aaa; }
+header .user button { background:transparent; border:1px solid #2a3a5c; color:#aaa; padding:6px 12px; border-radius:6px; cursor:pointer; margin-left:10px; }
+nav { background:#0f1a30; padding:10px 24px; display:flex; gap:16px; border-bottom:1px solid #1f2a44; }
+nav a { color:#bbb; text-decoration:none; padding:6px 10px; border-radius:6px; font-size:14px; }
+nav a:hover { background:#16213e; color:#fff; }
+nav a.active { background:#16213e; color:#4dabf7; }
+main { max-width:1100px; margin:24px auto; padding:0 24px; }
+.kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:20px; }
+.kpi { background:#16213e; border-radius:8px; padding:16px; border-left:3px solid #4dabf7; }
+.kpi .label { color:#888; font-size:12px; text-transform:uppercase; }
+.kpi .value { color:#fff; font-size:24px; font-weight:600; margin-top:4px; }
+.kpi.danger { border-left-color:#ff6b6b; } .kpi.danger .value { color:#ff8888; }
+.kpi.warn { border-left-color:#fa3; }
+.kpi.success { border-left-color:#3a3; } .kpi.success .value { color:#69db7c; }
+table { width:100%; border-collapse:collapse; background:#16213e; border-radius:8px; overflow:hidden; }
+th, td { padding:10px 14px; text-align:left; border-bottom:1px solid #1f2a44; }
+th { color:#888; font-size:12px; text-transform:uppercase; background:#0f1a30; }
+.num { text-align:right; font-family:monospace; }
+.badge { padding:2px 8px; border-radius:10px; font-size:11px; }
+.badge.aberta { background:rgba(250,170,51,0.2); color:#fa3; }
+.badge.paga, .badge.confirmado { background:rgba(58,170,58,0.2); color:#69db7c; }
+.badge.rascunho, .badge.cancelado { background:rgba(150,150,150,0.2); color:#aaa; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Portal do Cliente</h1>
+  <div class="user">
+    <span id="razao">…</span>
+    <button onclick="logout()">Sair</button>
+  </div>
+</header>
+<nav>
+  <a href="/portal/index.html" class="active">Início</a>
+  <a href="/portal/pedidos.html">Pedidos</a>
+  <a href="/portal/cobrancas.html">Cobranças</a>
+  <a href="/portal/nfses.html">NF-e/NFS-e</a>
+  <a href="/portal/contratos.html">Contratos</a>
+  <a href="/portal/perfil.html">Trocar senha</a>
+</nav>
+<main>
+  <h2>Resumo</h2>
+  <div class="kpi-grid" id="kpis">Carregando…</div>
+
+  <h2 style="margin-top:30px;">Cobranças vencendo</h2>
+  <table id="tCobs"><thead><tr><th>Descrição</th><th>Vencimento</th><th class="num">Valor</th><th>Status</th></tr></thead><tbody><tr><td colspan="4">Carregando…</td></tr></tbody></table>
+</main>
+<script>
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+async function init(){
+  const me = await fetch('/portal/api/me').then(r=>r.json()).catch(()=>null);
+  if (!me || !me.success) { window.location.href='/portal/login.html'; return; }
+  document.getElementById('razao').textContent = me.cliente.razaoSocial;
+  const d = await fetch('/portal/api/dashboard').then(r=>r.json());
+  if (!d.success) return;
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Pedidos no total</div><div class="value">${d.pedidos.total||0}</div></div>
+    <div class="kpi success"><div class="label">Pagos (acumulado)</div><div class="value">${fmtBRL(d.pedidos.valorPago)}</div></div>
+    <div class="kpi warn"><div class="label">A receber</div><div class="value">${fmtBRL(d.cobrancas.aReceber)}</div></div>
+    <div class="kpi danger"><div class="label">Vencidas</div><div class="value">${fmtBRL(d.cobrancas.vencidas)}</div></div>
+    <div class="kpi success"><div class="label">Pagas no mês</div><div class="value">${fmtBRL(d.cobrancas.pagasNoMes)}</div></div>
+  `;
+  const cs = await fetch('/portal/api/cobrancas').then(r=>r.json());
+  if (cs.success) {
+    const proximas = cs.cobrancas.filter(c => c.status==='aberta').slice(0,10);
+    document.querySelector('#tCobs tbody').innerHTML = proximas.length
+      ? proximas.map(c=>`<tr><td>${c.descricao}</td><td>${c.dataVencimento}</td><td class="num">${fmtBRL(c.valor)}</td><td><span class="badge ${c.status}">${c.status}</span></td></tr>`).join('')
+      : '<tr><td colspan="4">Sem cobranças em aberto</td></tr>';
+  }
+}
+async function logout(){ await fetch('/portal/api/logout',{method:'POST'}); window.location.href='/portal/login.html'; }
+init();
+</script>
+</body></html>

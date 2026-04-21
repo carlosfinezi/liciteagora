@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal do Cliente · Login</title>
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; margin:0; background:#0a1428; color:#e0e0e0; min-height:100vh; display:flex; align-items:center; justify-content:center; }
+.box { background:#16213e; padding:32px; border-radius:12px; width:100%; max-width:380px; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+h1 { color:#4dabf7; margin:0 0 20px; font-size:22px; text-align:center; }
+.sub { color:#aaa; font-size:13px; text-align:center; margin-bottom:24px; }
+label { display:block; font-size:13px; color:#aaa; margin-bottom:6px; }
+input { width:100%; padding:10px; border:1px solid #2a3a5c; border-radius:6px; background:#0f1a30; color:#e0e0e0; font-size:14px; margin-bottom:14px; box-sizing:border-box; }
+button { width:100%; padding:12px; border:none; border-radius:6px; background:#4dabf7; color:#fff; cursor:pointer; font-weight:600; font-size:14px; }
+.erro { background:rgba(255,70,70,0.15); color:#ff6b6b; padding:10px; border-radius:6px; font-size:13px; margin-bottom:14px; display:none; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Portal do Cliente</h1>
+  <div class="sub">Acesse seus pedidos, boletos e notas fiscais</div>
+  <div id="erro" class="erro"></div>
+  <label>E-mail</label>
+  <input type="email" id="email" autocomplete="username">
+  <label>Senha</label>
+  <input type="password" id="senha" autocomplete="current-password">
+  <button onclick="entrar()">Entrar</button>
+</div>
+<script>
+async function entrar(){
+  const email = document.getElementById('email').value.trim();
+  const senha = document.getElementById('senha').value;
+  document.getElementById('erro').style.display='none';
+  if (!email || !senha) { erro('Informe e-mail e senha'); return; }
+  const r = await fetch('/portal/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, senha }) });
+  const d = await r.json();
+  if (!d.success) return erro(d.error||'Falha no login');
+  window.location.href = '/portal/index.html';
+}
+function erro(m){ const e=document.getElementById('erro'); e.textContent=m; e.style.display='block'; }
+document.getElementById('senha').addEventListener('keydown', e => { if (e.key==='Enter') entrar(); });
+</script>
+</body></html>

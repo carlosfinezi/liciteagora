@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Livro Caixa · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .lc-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+  .lc-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
+  .lc-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .lc-toolbar input, .lc-toolbar select { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; }
+
+  .lc-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .lc-kpi { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 12px 14px; }
+  .lc-kpi .label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .lc-kpi .value { font-size: 1.35em; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .lc-kpi.green .value { color: var(--success); }
+  .lc-kpi.red .value { color: var(--danger); }
+
+  .lc-tbl { width: 100%; border-collapse: collapse; background: var(--bg-2); border-radius: var(--r-lg); overflow: hidden; }
+  .lc-tbl th { text-align: left; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 10px 12px; background: var(--bg-1); border-bottom: 1px solid var(--border); }
+  .lc-tbl td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.92em; color: var(--text-0); }
+  .lc-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .lc-tbl td.entrada { color: var(--success); font-weight: 600; }
+  .lc-tbl td.saida { color: var(--danger); font-weight: 600; }
+  .lc-tbl td.saldo { font-weight: 700; }
+  .lc-tbl tr.saldoInicial td { background: var(--bg-1); color: var(--text-2); font-style: italic; }
+  .lc-tbl tfoot td { background: var(--bg-1); font-weight: 700; color: var(--accent); }
+  .lc-tbl small { color: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Livro Caixa</h1>
+      <small>Registro obrigatório LC 123/06 art. 26 · consolidado por conta financeira</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="exportCSV()">⬇ Exportar CSV</button>
+      <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="lc-toolbar">
+    <div class="field">
+      <label>Data inicial</label>
+      <input type="date" id="fDataInicio" onchange="carregar()">
+    </div>
+    <div class="field">
+      <label>Data final</label>
+      <input type="date" id="fDataFim" onchange="carregar()">
+    </div>
+    <div class="field">
+      <label>Atalhos</label>
+      <select id="fAtalho" onchange="aplicarAtalho()">
+        <option value="">—</option>
+        <option value="mes-atual">Mês atual</option>
+        <option value="mes-anterior">Mês anterior</option>
+        <option value="trimestre">Trimestre atual</option>
+        <option value="ano">Ano atual</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="lc-kpis" id="kpis"></div>
+
+  <table class="lc-tbl">
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Histórico</th>
+        <th>Documento</th>
+        <th>Conta</th>
+        <th style="text-align:right;">Entrada</th>
+        <th style="text-align:right;">Saída</th>
+        <th style="text-align:right;">Saldo</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+    <tfoot id="tfoot"></tfoot>
+  </table>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('livro-caixa');</script>
+<script>
+function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(ymd){ if(!ymd)return''; const p=ymd.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:ymd; }
+function val(id){ return document.getElementById(id).value; }
+function setVal(id, v){ document.getElementById(id).value = v ?? ''; }
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(()=>e.style.display='none', 5000);
+}
+
+function hojeISO(){ return new Date().toISOString().slice(0,10); }
+function primeiroDiaMes(ref){ return ref.slice(0,7) + '-01'; }
+function ultimoDiaMes(ym){
+  const [y,m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0,10);
+}
+
+function aplicarAtalho(){
+  const a = val('fAtalho');
+  const hoje = hojeISO();
+  if (a === 'mes-atual') {
+    setVal('fDataInicio', primeiroDiaMes(hoje));
+    setVal('fDataFim', hoje);
+  } else if (a === 'mes-anterior') {
+    const [y,m] = hoje.split('-').map(Number);
+    const ymAnt = new Date(Date.UTC(y, m-2, 1)).toISOString().slice(0,7);
+    setVal('fDataInicio', ymAnt + '-01');
+    setVal('fDataFim', ultimoDiaMes(ymAnt));
+  } else if (a === 'trimestre') {
+    const d = new Date();
+    const triStart = Math.floor(d.getUTCMonth() / 3) * 3;
+    const inicio = new Date(Date.UTC(d.getUTCFullYear(), triStart, 1)).toISOString().slice(0,10);
+    setVal('fDataInicio', inicio);
+    setVal('fDataFim', hoje);
+  } else if (a === 'ano') {
+    setVal('fDataInicio', hoje.slice(0,4) + '-01-01');
+    setVal('fDataFim', hoje);
+  }
+  if (a) carregar();
+}
+
+async function carregar(){
+  const dataInicio = val('fDataInicio');
+  const dataFim = val('fDataFim');
+  if (!dataInicio || !dataFim) return;
+  try {
+    const r = await fetch(`/api/fiscal/livro-caixa?dataInicio=${dataInicio}&dataFim=${dataFim}`);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    renderKpis(d);
+    renderTabela(d);
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+function renderKpis(d){
+  document.getElementById('kpis').innerHTML = `
+    <div class="lc-kpi"><div class="label">Saldo inicial</div><div class="value">R$ ${fmt(d.saldoInicial)}</div></div>
+    <div class="lc-kpi green"><div class="label">Entradas</div><div class="value">R$ ${fmt(d.totais.entradas)}</div></div>
+    <div class="lc-kpi red"><div class="label">Saídas</div><div class="value">R$ ${fmt(d.totais.saidas)}</div></div>
+    <div class="lc-kpi"><div class="label">Saldo final</div><div class="value">R$ ${fmt(d.totais.saldoFinal)}</div></div>
+    <div class="lc-kpi"><div class="label">Lançamentos</div><div class="value">${d.linhas.length}</div></div>
+  `;
+}
+
+function renderTabela(d){
+  const tb = document.getElementById('tbody');
+  const tf = document.getElementById('tfoot');
+  const header = `<tr class="saldoInicial"><td>${fmtData(d.periodo.dataInicio)}</td><td colspan="3">Saldo inicial do período</td><td class="num">—</td><td class="num">—</td><td class="num saldo">R$ ${fmt(d.saldoInicial)}</td></tr>`;
+  const linhas = d.linhas.map(l => `
+    <tr>
+      <td>${fmtData(l.data)}</td>
+      <td>${escape(l.historico)}${l.categoria?` <small>· ${escape(l.categoria)}</small>`:''}</td>
+      <td><small>${escape(l.documento)}</small></td>
+      <td><small>${escape(l.conta)}</small></td>
+      <td class="num entrada">${l.entrada > 0 ? 'R$ ' + fmt(l.entrada) : ''}</td>
+      <td class="num saida">${l.saida > 0 ? 'R$ ' + fmt(l.saida) : ''}</td>
+      <td class="num saldo">R$ ${fmt(l.saldo)}</td>
+    </tr>`).join('');
+  tb.innerHTML = header + (linhas || `<tr><td colspan="7" style="color:var(--text-2);text-align:center;padding:20px;">Nenhum lançamento no período.</td></tr>`);
+
+  tf.innerHTML = `
+    <tr>
+      <td colspan="4">Totais do período</td>
+      <td class="num">R$ ${fmt(d.totais.entradas)}</td>
+      <td class="num">R$ ${fmt(d.totais.saidas)}</td>
+      <td class="num">R$ ${fmt(d.totais.saldoFinal)}</td>
+    </tr>`;
+}
+
+function escape(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function exportCSV(){
+  const dataInicio = val('fDataInicio');
+  const dataFim = val('fDataFim');
+  if (!dataInicio || !dataFim) return showAlert('Selecione o período', 'error');
+  window.open(`/api/fiscal/livro-caixa?dataInicio=${dataInicio}&dataFim=${dataFim}&formato=csv`, '_blank');
+}
+
+// Bootstrap: mês atual
+(function init(){
+  setVal('fDataInicio', primeiroDiaMes(hojeISO()));
+  setVal('fDataFim', hojeISO());
+  carregar();
+})();
+</script>
+</body>
+</html>

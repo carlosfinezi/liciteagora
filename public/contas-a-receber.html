@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contas a Receber · Licite Agora</title>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>💰 Contas a Receber</h1>
+        <div class="subtitle">Cobranças a clientes — manuais, de NFSe ou parceladas</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="abrirNova()">+ Nova</button>
+        <button class="btn btn-secondary" onclick="abrirCategorias()">🏷️ Categorias</button>
+        <button class="btn btn-secondary" onclick="exportarCSV()">⤓ CSV</button>
+        <a class="btn btn-secondary" href="/recorrencias.html" style="text-decoration:none;">↻ Recorrências NFSe</a>
+      </div>
+    </div>
+
+    <div class="totalizadores" id="totalizadores"></div>
+
+    <div class="panel">
+      <div class="filtros">
+        <select id="fStatus" onchange="carregar()">
+          <option value="">Todos</option>
+          <option value="aberta" selected>Abertas</option>
+          <option value="parcial">Parciais</option>
+          <option value="vencida">Vencidas</option>
+          <option value="paga">Pagas</option>
+          <option value="cancelada">Canceladas</option>
+        </select>
+        <select id="fCategoria" onchange="carregar()"><option value="">Todas categorias</option></select>
+        <select id="fNota" onchange="carregar()">
+          <option value="">Com/sem NFSe</option>
+          <option value="com">Com NFSe</option>
+          <option value="sem">Sem NFSe</option>
+        </select>
+        <input type="date" id="fVencIni" onchange="carregar()" title="Vence de">
+        <input type="date" id="fVencFim" onchange="carregar()" title="Vence até">
+        <input type="text" id="fBusca" placeholder="Cliente ou descrição…" oninput="debounce(carregar)" style="flex:1; min-width: 200px;">
+      </div>
+    </div>
+
+    <div class="panel" style="padding: 0;">
+      <table>
+        <thead><tr>
+          <th style="width:28px;"><input type="checkbox" id="chkAll" onchange="toggleAll(this)"></th>
+          <th>Vencimento</th>
+          <th>Cliente</th>
+          <th>Descrição</th>
+          <th>Categoria</th>
+          <th style="text-align:right;">Valor</th>
+          <th style="text-align:right;">Saldo</th>
+          <th>Status</th>
+          <th style="text-align:center;">📄</th>
+          <th style="text-align:center;">📎</th>
+          <th>Ações</th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<div class="barra-lote" id="barraLote">
+  <span id="loteCount">0 selecionadas</span>
+  <button class="btn btn-success btn-sm" onclick="abrirLote()">💰 Receber selecionadas</button>
+  <button class="btn btn-secondary btn-sm" onclick="limparSelecao()">Limpar</button>
+</div>
+
+<!-- Modal NOVA -->
+<div class="modal-bg" id="modalNova">
+  <div class="modal" style="max-width: 640px;">
+    <h2>Nova conta a receber</h2>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="unica" onclick="selTab('unica')">Única</button>
+      <button class="modal-tab" data-tab="parcelada" onclick="selTab('parcelada')">Parcelada</button>
+    </div>
+
+    <div class="row">
+      <label>Cliente *</label>
+      <input type="text" id="nPessoaBusca" placeholder="CPF/CNPJ ou nome..." oninput="debouncePessoa()">
+      <div id="nPessoaList" class="pessoa-result"></div>
+      <div id="nPessoaSel" class="pessoa-sel"></div>
+    </div>
+    <div class="row-2">
+      <div class="row">
+        <label>Categoria</label>
+        <select id="nCategoria"><option value="">— sem —</option></select>
+      </div>
+      <div class="row">
+        <label>Forma de pagamento (prevista)</label>
+        <select id="nForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <label>Descrição *</label>
+      <input type="text" id="nDesc" placeholder="ex: Consultoria mês de abril">
+    </div>
+
+    <div class="modal-tab-content active" data-tab="unica">
+      <div class="row-2">
+        <div class="row"><label>Valor *</label><input type="number" step="0.01" id="nValor"></div>
+        <div class="row"><label>Vencimento *</label><input type="date" id="nVenc"></div>
+      </div>
+    </div>
+
+    <div class="modal-tab-content" data-tab="parcelada">
+      <div class="row-2">
+        <div class="row"><label>Valor TOTAL *</label><input type="number" step="0.01" id="nValorTot"></div>
+        <div class="row"><label>Nº parcelas *</label><input type="number" min="2" value="3" id="nParcelas"></div>
+      </div>
+      <div class="row-2">
+        <div class="row"><label>1º vencimento *</label><input type="date" id="nVenc1"></div>
+        <div class="row"><label>Intervalo (meses)</label><input type="number" min="1" value="1" id="nIntervalo"></div>
+      </div>
+      <small style="color:var(--text-2);">O valor será dividido igualmente (último absorve arredondamento).</small>
+    </div>
+
+    <div class="row"><label>Observações</label><textarea id="nObs" rows="2"></textarea></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharNova()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNova()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal BAIXA EM LOTE -->
+<div class="modal-bg" id="modalLote">
+  <div class="modal">
+    <h2>Baixa em lote</h2>
+    <p style="color:var(--text-2); margin-bottom:12px;"><span id="loteResumo"></span></p>
+    <div class="row"><label>Conta financeira (entrada) *</label><select id="lContaFin"></select></div>
+    <div class="row-2">
+      <div class="row"><label>Data do recebimento</label><input type="date" id="lData"></div>
+      <div class="row">
+        <label>Forma</label>
+        <select id="lForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <small style="color:var(--warn);">Cada conta será baixada pelo saldo restante. Juros/multa/desconto não se aplicam em lote — use o detalhe individual.</small>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharLote()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarLote()">Confirmar recebimento</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal CATEGORIAS -->
+<div class="modal-bg" id="modalCat">
+  <div class="modal">
+    <h2>Gerenciar categorias</h2>
+    <div id="catList" style="max-height: 300px; overflow-y:auto; margin-bottom: 14px;"></div>
+    <div class="row-2">
+      <div class="row"><label>Nova categoria</label><input type="text" id="catNome" placeholder="ex: Consultoria"></div>
+      <div class="row"><label>Ícone (emoji)</label><input type="text" id="catIcone" placeholder="💼" maxlength="3"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharCategorias()">Fechar</button>
+      <button class="btn btn-primary" onclick="criarCategoria()">+ Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('contas-a-receber');</script>
+<script>
+let tm; function debounce(fn){ clearTimeout(tm); tm = setTimeout(fn, 300); }
+function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(iso){ if(!iso) return '-'; const d = new Date((iso||'').length===10?iso+'T12:00:00':iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
+function hoje(){ const d = new Date(Date.now() - 3*60*60*1000); return d.toISOString().slice(0,10); }
+
+let CONTAS = [], CATEGORIAS = [];
+const SELECIONADAS = new Set();
+
+async function carregarCategorias(){
+  try {
+    const r = await fetch('/api/cr-categorias');
+    const d = await r.json();
+    CATEGORIAS = d.categorias || [];
+    const opts = '<option value="">— sem —</option>' + CATEGORIAS.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+    document.getElementById('nCategoria').innerHTML = opts;
+    document.getElementById('fCategoria').innerHTML = '<option value="">Todas categorias</option>' + CATEGORIAS.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+  } catch(e){}
+}
+
+async function carregar(){
+  const p = new URLSearchParams();
+  for (const [id, key] of [['fStatus','status'],['fCategoria','categoriaId'],['fNota','nota'],['fVencIni','dataVencIni'],['fVencFim','dataVencFim'],['fBusca','busca']]) {
+    const v = document.getElementById(id).value;
+    if (v) p.set(key, v);
+  }
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch('/api/contas-a-receber?' + p).then(x => x.json()),
+      fetch('/api/contas-a-receber/resumo').then(x => x.json())
+    ]);
+    if (!r1.success) throw new Error(r1.error);
+    CONTAS = r1.contas;
+    renderTabela();
+    renderTotalizadores(r2.resumo || {});
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+function renderTotalizadores(r){
+  const cards = [
+    { label: 'Aberto', value: fmt(r.aberto), cls: 'primary' },
+    { label: 'Vencido', value: fmt(r.vencido), cls: 'danger' },
+    { label: 'Vence hoje', value: fmt(r.venceHoje), cls: 'warn' },
+    { label: 'Próx. 7 dias', value: fmt(r.prox7), cls: 'warn' },
+    { label: 'Próx. 30 dias', value: fmt(r.prox30), cls: 'primary' },
+    { label: 'Recebido (mês)', value: fmt(r.recebidoMes), cls: 'success' }
+  ];
+  document.getElementById('totalizadores').innerHTML = cards.map(c => `
+    <div class="tot-card"><div class="label">${c.label}</div>
+    <div class="value ${c.cls}">R$ ${c.value}</div></div>`).join('');
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tb');
+  if (!CONTAS.length) { tb.innerHTML = '<tr><td colspan="11" class="empty">Nenhuma conta encontrada.</td></tr>'; return; }
+  const h = hoje();
+  tb.innerHTML = CONTAS.map(c => {
+    const vencida = ['aberta','parcial'].includes(c.status) && c.dataVencimento < h;
+    const statusDisplay = vencida ? 'vencida' : c.status;
+    const selecionada = SELECIONADAS.has(c.id);
+    const parcelaInfo = c.parcelaNumero ? `<br><small style="color:var(--text-3);">${c.parcelaNumero}/${c.totalParcelas}</small>` : '';
+    const origemInfo = c.nfseId ? `<br><small style="color:var(--text-3);">NFSe ${c.nfseNumero||c.nfseId}</small>` : '';
+    return `<tr class="${selecionada?'selected':''}">
+      <td>${['aberta','parcial'].includes(c.status) ? `<input type="checkbox" ${selecionada?'checked':''} onchange="toggleSel(${c.id}, this.checked)">` : ''}</td>
+      <td>${fmtData(c.dataVencimento)}${parcelaInfo}</td>
+      <td><strong>${c.pessoaNome||'—'}</strong><br><small style="color:var(--text-3);">${c.pessoaCpfCnpj||''}</small></td>
+      <td>${c.descricao}${origemInfo}</td>
+      <td>${c.categoriaNome ? (c.categoriaIcone||'') + ' ' + c.categoriaNome : '<span style="color:var(--text-3);">—</span>'}</td>
+      <td style="text-align:right;"><strong>R$ ${fmt(c.valor)}</strong></td>
+      <td style="text-align:right;"><strong style="color:${c.saldoRestante>0?'var(--warn)':'var(--success)'}">R$ ${fmt(c.saldoRestante)}</strong></td>
+      <td><span class="badge ${statusDisplay}">${statusDisplay}</span></td>
+      <td style="text-align:center;">${c.boletoStatus ? `<span title="boleto ${c.boletoStatus}">📄</span>` : ''}</td>
+      <td style="text-align:center;">${c.totalAnexos>0?`<span title="${c.totalAnexos} anexo(s)">📎${c.totalAnexos}</span>`:''}</td>
+      <td><a class="btn btn-secondary btn-sm" href="/contas-a-receber-detalhe.html?id=${c.id}" style="text-decoration:none;">Abrir</a></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('chkAll').checked = false;
+  atualizarBarraLote();
+}
+
+function toggleSel(id, checked){
+  if (checked) SELECIONADAS.add(id); else SELECIONADAS.delete(id);
+  atualizarBarraLote(); renderTabela();
+}
+function toggleAll(cb){
+  CONTAS.forEach(c => {
+    if (['aberta','parcial'].includes(c.status)) {
+      if (cb.checked) SELECIONADAS.add(c.id); else SELECIONADAS.delete(c.id);
+    }
+  });
+  renderTabela();
+}
+function limparSelecao(){ SELECIONADAS.clear(); renderTabela(); }
+function atualizarBarraLote(){
+  const n = SELECIONADAS.size;
+  document.getElementById('loteCount').textContent = `${n} conta(s) selecionada(s)`;
+  document.getElementById('barraLote').classList.toggle('show', n > 0);
+}
+
+// ===== Modal Nova =====
+let PESSOA_SEL = null;
+let tmrP, TAB_ATIVA = 'unica';
+function debouncePessoa(){ clearTimeout(tmrP); tmrP = setTimeout(buscarPessoa, 250); }
+function selTab(t){
+  TAB_ATIVA = t;
+  document.querySelectorAll('.modal-tab').forEach(el => el.classList.toggle('active', el.dataset.tab === t));
+  document.querySelectorAll('.modal-tab-content').forEach(el => el.classList.toggle('active', el.dataset.tab === t));
+}
+function abrirNova(){
+  PESSOA_SEL = null;
+  ['nPessoaBusca','nDesc','nValor','nVenc','nValorTot','nVenc1','nObs'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('nParcelas').value = 3;
+  document.getElementById('nIntervalo').value = 1;
+  document.getElementById('nCategoria').value = '';
+  document.getElementById('nForma').value = '';
+  document.getElementById('nPessoaList').innerHTML = '';
+  document.getElementById('nPessoaSel').textContent = '';
+  selTab('unica');
+  document.getElementById('modalNova').classList.add('open');
+}
+function fecharNova(){ document.getElementById('modalNova').classList.remove('open'); }
+
+async function buscarPessoa(){
+  const q = document.getElementById('nPessoaBusca').value.trim();
+  const list = document.getElementById('nPessoaList');
+  if (q.length < 2) { list.innerHTML = ''; return; }
+  try {
+    const r = await fetch('/api/pessoas?q=' + encodeURIComponent(q));
+    const d = await r.json();
+    const ps = d.pessoas || [];
+    if (!ps.length) { list.innerHTML = '<div class="item" style="color:var(--text-3);">Nenhum cliente — cadastre em /pessoas.html</div>'; return; }
+    list.innerHTML = ps.slice(0,20).map(p => `<div class="item" onclick="selecionarPessoa(${p.id}, ${JSON.stringify(p.razaoSocial||'').replace(/"/g,'&quot;')}, '${p.cpfCnpj}')"><strong>${p.razaoSocial}</strong> <span style="color:var(--text-3);">${p.cpfCnpj}</span></div>`).join('');
+  } catch(e){ list.innerHTML = '<div class="item" style="color:var(--danger);">Erro: '+e.message+'</div>'; }
+}
+function selecionarPessoa(id, nome, cpfCnpj){
+  PESSOA_SEL = { id, nome, cpfCnpj };
+  document.getElementById('nPessoaList').innerHTML = '';
+  document.getElementById('nPessoaBusca').value = nome;
+  document.getElementById('nPessoaSel').textContent = `✓ ${nome} (${cpfCnpj})`;
+}
+
+async function salvarNova(){
+  if (!PESSOA_SEL) { alert('Selecione um cliente'); return; }
+  const desc = document.getElementById('nDesc').value.trim();
+  if (!desc) { alert('Descrição obrigatória'); return; }
+  const body = {
+    pessoaId: PESSOA_SEL.id,
+    categoriaId: document.getElementById('nCategoria').value || null,
+    descricao: desc,
+    formaPagamento: document.getElementById('nForma').value || null,
+    observacoes: document.getElementById('nObs').value || null
+  };
+  if (TAB_ATIVA === 'unica') {
+    body.valor = Number(document.getElementById('nValor').value);
+    body.dataVencimento = document.getElementById('nVenc').value;
+    if (!body.valor || !body.dataVencimento) { alert('Valor e vencimento obrigatórios'); return; }
+  } else {
+    body.valor = Number(document.getElementById('nValorTot').value);
+    body.parcelas = Number(document.getElementById('nParcelas').value);
+    body.intervaloMeses = Number(document.getElementById('nIntervalo').value);
+    body.dataVencimento = document.getElementById('nVenc1').value;
+    if (!body.valor || !body.parcelas || body.parcelas < 2 || !body.dataVencimento) { alert('Valor, parcelas (≥2) e 1º vencimento obrigatórios'); return; }
+  }
+  try {
+    const r = await fetch('/api/contas-a-receber', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharNova(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== Baixa em lote =====
+async function abrirLote(){
+  const n = SELECIONADAS.size;
+  if (!n) return;
+  const total = CONTAS.filter(c => SELECIONADAS.has(c.id)).reduce((s,c) => s + c.saldoRestante, 0);
+  document.getElementById('loteResumo').innerHTML = `<strong>${n} conta(s)</strong> · total saldo <strong style="color:var(--accent);">R$ ${fmt(total)}</strong>`;
+  document.getElementById('lData').value = hoje();
+  document.getElementById('lForma').value = '';
+  try {
+    const r = await fetch('/api/contas-financeiras');
+    const d = await r.json();
+    document.getElementById('lContaFin').innerHTML = (d.contas || []).filter(c => c.ativo).map(c => `<option value="${c.id}">${c.nome} (${c.tipo})</option>`).join('');
+  } catch(e){}
+  document.getElementById('modalLote').classList.add('open');
+}
+function fecharLote(){ document.getElementById('modalLote').classList.remove('open'); }
+async function confirmarLote(){
+  const ids = [...SELECIONADAS];
+  const body = {
+    ids,
+    contaFinanceiraId: Number(document.getElementById('lContaFin').value),
+    dataPagamento: document.getElementById('lData').value,
+    formaPagamento: document.getElementById('lForma').value || null
+  };
+  if (!body.contaFinanceiraId) { alert('Selecione conta financeira'); return; }
+  try {
+    const r = await fetch('/api/contas-a-receber/baixar-lote', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alert(`${d.sucessos.length} conta(s) recebida(s).${d.falhas.length?' Falhas: '+d.falhas.length:''}`);
+    SELECIONADAS.clear();
+    fecharLote(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== Categorias =====
+async function abrirCategorias(){
+  await carregarCategorias();
+  const list = document.getElementById('catList');
+  list.innerHTML = CATEGORIAS.map(c => `
+    <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border);">
+      <span>${c.icone||''} ${c.nome}</span>
+      <button class="btn btn-link" onclick="removerCategoria(${c.id})">remover</button>
+    </div>`).join('') || '<p style="color:var(--text-3);">Nenhuma categoria.</p>';
+  document.getElementById('catNome').value = '';
+  document.getElementById('catIcone').value = '';
+  document.getElementById('modalCat').classList.add('open');
+}
+function fecharCategorias(){ document.getElementById('modalCat').classList.remove('open'); }
+async function criarCategoria(){
+  const nome = document.getElementById('catNome').value.trim();
+  if (!nome) return;
+  const icone = document.getElementById('catIcone').value.trim() || null;
+  try {
+    const r = await fetch('/api/cr-categorias', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nome, icone })});
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    abrirCategorias();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function removerCategoria(id){
+  if (!confirm('Remover esta categoria?')) return;
+  await fetch('/api/cr-categorias/'+id, { method:'DELETE' });
+  abrirCategorias(); carregarCategorias();
+}
+
+function exportarCSV(){
+  const p = new URLSearchParams();
+  for (const [id, key] of [['fStatus','status'],['fCategoria','categoriaId'],['fNota','nota'],['fVencIni','dataVencIni'],['fVencFim','dataVencFim'],['fBusca','busca']]) {
+    const v = document.getElementById(id).value;
+    if (v) p.set(key, v);
+  }
+  window.location.href = '/api/contas-a-receber/csv?' + p.toString();
+}
+
+['modalNova','modalLote','modalCat'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) e.target.classList.remove('open'); });
+});
+
+carregarCategorias().then(carregar);
+</script>
+</body></html>

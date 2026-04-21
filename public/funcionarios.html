@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Funcionários · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Funcionários</h1><small>Cadastro, ponto, férias e atestados</small></div>
+    <div class="actions"><button class="btn btn-primary" onclick="abrirNovo()">+ Novo funcionário</button></div>
+  </div>
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+  <div class="toolbar">
+    <input type="text" id="fQ" placeholder="Buscar nome, CPF ou cargo…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fAtivo" onchange="carregar()"><option value="1">Ativos</option><option value="0">Inativos</option></select>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Nome</th><th>CPF</th><th>Cargo</th><th>Departamento</th><th>Tipo</th><th>Admissão</th><th class="num">Salário</th><th></th></tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header"><h3 id="mTit">Novo funcionário</h3><button class="btn btn-ghost btn-sm" onclick="fecharModal()">×</button></div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Nome *</label><input type="text" id="fNome"></div>
+      <div class="form-group"><label>CPF</label><input type="text" id="fCpf"></div>
+      <div class="form-group"><label>Nascimento</label><input type="date" id="fNasc"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Admissão *</label><input type="date" id="fAdm"></div>
+      <div class="form-group"><label>Cargo</label><input type="text" id="fCargo"></div>
+      <div class="form-group"><label>Departamento</label><input type="text" id="fDep"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Tipo de contrato</label>
+        <select id="fTipo"><option>CLT</option><option>PJ</option><option>MEI</option><option>autonomo</option><option>estagio</option><option>jovem-aprendiz</option></select>
+      </div>
+      <div class="form-group"><label>Salário (R$)</label><input type="number" id="fSal" step="0.01" min="0" value="0"></div>
+      <div class="form-group"><label>Jornada semanal (h)</label><input type="number" id="fJor" step="0.5" value="44"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>E-mail</label><input type="email" id="fEmail"></div>
+      <div class="form-group"><label>Telefone</label><input type="text" id="fTel"></div>
+      <div class="form-group" style="flex:2;"><label>Endereço</label><input type="text" id="fEnd"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Banco</label><input type="text" id="fBanco"></div>
+      <div class="form-group"><label>Agência</label><input type="text" id="fAg"></div>
+      <div class="form-group"><label>Conta</label><input type="text" id="fConta"></div>
+      <div class="form-group"><label>PIX</label><input type="text" id="fPix"></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="fObs" rows="2"></textarea></div></div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('funcionarios');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+  p.set('ativo', document.getElementById('fAtivo').value);
+  const r = await fetch('/api/funcionarios?'+p);
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${d.kpis.total||0}</div></div>
+    <div class="kpi success"><div class="label">Ativos</div><div class="value">${d.kpis.ativos||0}</div></div>
+    <div class="kpi"><div class="label">Folha mensal</div><div class="value">${fmtBRL(d.kpis.folhaTotal)}</div></div>
+  `;
+  document.getElementById('tb').innerHTML = d.funcionarios.length ? d.funcionarios.map(f=>`<tr>
+    <td><strong>${f.nome}</strong></td>
+    <td class="mono">${f.cpf||'—'}</td>
+    <td>${f.cargo||'—'}</td>
+    <td>${f.departamento||'—'}</td>
+    <td>${f.tipoContrato}</td>
+    <td>${f.dataAdmissao}</td>
+    <td class="num">${fmtBRL(f.salario)}</td>
+    <td><a class="btn btn-secondary btn-sm" href="/funcionario.html?id=${f.id}">Abrir</a></td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum funcionário</td></tr>';
+}
+
+function abrirNovo(){
+  document.getElementById('mTit').textContent='Novo funcionário';
+  ['fId','fNome','fCpf','fNasc','fAdm','fCargo','fDep','fEmail','fTel','fEnd','fBanco','fAg','fConta','fPix','fObs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fTipo').value='CLT';
+  document.getElementById('fSal').value='0'; document.getElementById('fJor').value='44';
+  document.getElementById('fAdm').value=new Date().toISOString().slice(0,10);
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const body = {
+    nome: document.getElementById('fNome').value.trim(),
+    cpf: document.getElementById('fCpf').value || null,
+    dataNascimento: document.getElementById('fNasc').value || null,
+    dataAdmissao: document.getElementById('fAdm').value,
+    cargo: document.getElementById('fCargo').value || null,
+    departamento: document.getElementById('fDep').value || null,
+    tipoContrato: document.getElementById('fTipo').value,
+    salario: Number(document.getElementById('fSal').value) || 0,
+    jornadaSemanalHoras: Number(document.getElementById('fJor').value) || 44,
+    email: document.getElementById('fEmail').value || null,
+    telefone: document.getElementById('fTel').value || null,
+    endereco: document.getElementById('fEnd').value || null,
+    banco: document.getElementById('fBanco').value || null,
+    agencia: document.getElementById('fAg').value || null,
+    conta: document.getElementById('fConta').value || null,
+    pix: document.getElementById('fPix').value || null,
+    observacoes: document.getElementById('fObs').value || null
+  };
+  if (!body.nome || !body.dataAdmissao) return showAlert('Nome e data de admissão obrigatórios','error');
+  const r = await fetch('/api/funcionarios', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('Funcionário criado'); fecharModal(); carregar();
+}
+
+carregar();
+</script>
+</body></html>

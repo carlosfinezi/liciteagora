@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conciliação Bancária · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.upload-card { background:var(--bg-2); border:2px dashed var(--border); border-radius:var(--r-md); padding:24px; text-align:center; }
+.trx-row.credito td { color:var(--success); }
+.trx-row.debito td { color:var(--danger); }
+.trx-row.conciliada td { opacity:0.55; }
+.sug-card { background:var(--bg-1); border-left:3px solid var(--accent); padding:8px 10px; margin-bottom:6px; border-radius:var(--r-sm); cursor:pointer; }
+.sug-card:hover { background:var(--bg-3); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Conciliação Bancária</h1>
+      <small>Importar OFX e casar transações com contas a pagar/receber</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="upload-card">
+    <h3 style="margin-top:0;">Importar extrato OFX</h3>
+    <div class="form-row" style="justify-content:center;align-items:end;">
+      <div class="form-group" style="min-width:240px;">
+        <label>Conta financeira *</label>
+        <select id="upConta"></select>
+      </div>
+      <div class="form-group">
+        <label>Arquivo OFX *</label>
+        <input type="file" id="upArquivo" accept=".ofx,.OFX">
+      </div>
+      <div class="form-group">
+        <button class="btn btn-primary" onclick="enviar()">Importar</button>
+      </div>
+    </div>
+    <small class="muted">Aceita OFX 1.x (SGML) ou 2.x (XML). Itaú, Bradesco, Sicoob, Caixa, BB e similares.</small>
+  </div>
+
+  <div class="toolbar" style="margin-top:18px;">
+    <select id="fConta" onchange="carregar()" style="min-width:200px;"></select>
+    <select id="fStatus" onchange="carregar()">
+      <option value="pendente">Pendentes</option>
+      <option value="conciliada">Conciliadas</option>
+      <option value="">Todas</option>
+    </select>
+    <input type="date" id="fIni" onchange="carregar()">
+    <input type="date" id="fFim" onchange="carregar()">
+    <input type="text" id="fQ" placeholder="Buscar descrição/memo…" oninput="debounce(carregar)" style="flex:1;min-width:200px;">
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Data</th>
+        <th>Descrição</th>
+        <th>Memo</th>
+        <th>FITID</th>
+        <th class="num">Valor</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Conciliar -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <h3>Conciliar transação</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()">×</button>
+    </div>
+    <div id="trxInfo" class="card" style="margin-bottom:14px;"></div>
+    <h4>Sugestões de casamento</h4>
+    <div id="sugList" style="margin-bottom:14px;">Buscando…</div>
+    <h4>Ou marcar como avulsa</h4>
+    <div class="muted" style="font-size:13px;margin-bottom:8px;">Sem CR/CP correspondente — marca a transação como conciliada manualmente sem efeito em CR/CP.</div>
+    <button class="btn btn-secondary" onclick="conciliarAvulsa()">Marcar como avulsa</button>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('conciliacao-bancaria');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+let trxAtual = null;
+
+async function carregarContas(){
+  const r = await fetch('/api/contas-financeiras');
+  const d = await r.json();
+  const lista = (d.contas || d.data || []);
+  const opts = lista.map(c=>`<option value="${c.id}">${c.nome}${c.banco?' ('+c.banco+')':''}</option>`).join('');
+  document.getElementById('upConta').innerHTML = opts;
+  document.getElementById('fConta').innerHTML = '<option value="">Todas as contas</option>' + opts;
+}
+
+async function enviar(){
+  const file = document.getElementById('upArquivo').files[0];
+  const contaId = document.getElementById('upConta').value;
+  if (!file) return showAlert('Escolha um arquivo OFX','error');
+  if (!contaId) return showAlert('Escolha a conta financeira','error');
+  const fd = new FormData();
+  fd.append('arquivo', file);
+  fd.append('contaFinanceiraId', contaId);
+  const r = await fetch('/api/conciliacao/upload', { method:'POST', body: fd });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Importado: ${d.novas} nova(s), ${d.duplicadas} já existente(s) (${d.total} total) — ${d.conta}`);
+  document.getElementById('upArquivo').value = '';
+  carregar();
+}
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const conta = document.getElementById('fConta').value;
+  if (conta) p.set('contaFinanceiraId', conta);
+  const status = document.getElementById('fStatus').value;
+  if (status) p.set('status', status);
+  const ini = document.getElementById('fIni').value; if (ini) p.set('dataIni', ini);
+  const fim = document.getElementById('fFim').value; if (fim) p.set('dataFim', fim);
+  const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+  const r = await fetch('/api/conciliacao/transacoes?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tb');
+  tb.innerHTML = d.transacoes.length ? d.transacoes.map(t=>{
+    const cls = t.conciliadaCom ? 'conciliada' : (t.valor >= 0 ? 'credito' : 'debito');
+    return `<tr class="trx-row ${cls}">
+      <td>${t.data}</td>
+      <td>${t.descricao||'—'}</td>
+      <td><small>${t.memo||''}</small></td>
+      <td class="mono"><small>${t.fitid}</small></td>
+      <td class="num">${fmtBRL(t.valor)}</td>
+      <td>${t.conciliadaCom ? `<span class="badge entrada">${t.conciliadaCom}</span>` : '<span class="badge pendente">pendente</span>'}</td>
+      <td>
+        ${!t.conciliadaCom
+          ? `<button class="btn btn-primary btn-sm" onclick="abrirConciliar(${t.id})">Conciliar</button>`
+          : `<button class="btn btn-secondary btn-sm" onclick="desconciliar(${t.id})">Desconciliar</button>`
+        }
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" class="empty">Nenhuma transação</td></tr>';
+}
+
+async function abrirConciliar(trxId){
+  const tRow = await fetch('/api/conciliacao/transacoes?contaFinanceiraId=&limit=1000').then(r=>r.json());
+  const t = (tRow.transacoes || []).find(x=>x.id===trxId);
+  trxAtual = t;
+  document.getElementById('trxInfo').innerHTML = `
+    <div><strong>${t.data}</strong> · ${fmtBRL(t.valor)}</div>
+    <div>${t.descricao||''}</div>
+    ${t.memo ? `<div class="muted">${t.memo}</div>` : ''}
+  `;
+  document.getElementById('sugList').innerHTML = 'Buscando…';
+  document.getElementById('modal').classList.add('open');
+  const r = await fetch('/api/conciliacao/sugestoes/'+trxId);
+  const d = await r.json();
+  if (!d.success || !d.sugestoes.length) {
+    document.getElementById('sugList').innerHTML = '<div class="muted">Nenhum CR/CP em aberto com mesmo valor</div>';
+    return;
+  }
+  document.getElementById('sugList').innerHTML = d.sugestoes.map(s=>`
+    <div class="sug-card" onclick="conciliarCom('${s.tipo}', ${s.id})">
+      <strong>${s.tipo.toUpperCase()}</strong> · ${s.descricao} (${s.pessoa})<br>
+      <small class="muted">Vence em ${s.dataVencimento} · ${fmtBRL(s.valor)}</small>
+    </div>
+  `).join('');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); trxAtual = null; }
+
+async function conciliarCom(tipo, contaId){
+  if (!confirm(`Conciliar com ${tipo.toUpperCase()} #${contaId}? Isto marcará o ${tipo.toUpperCase()} como pago.`)) return;
+  const r = await fetch(`/api/conciliacao/transacoes/${trxAtual.id}/conciliar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ tipo, contaId })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Conciliada com sucesso');
+  fecharModal();
+  carregar();
+}
+async function conciliarAvulsa(){
+  if (!confirm('Marcar transação como avulsa (sem CR/CP)?')) return;
+  const r = await fetch(`/api/conciliacao/transacoes/${trxAtual.id}/conciliar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ tipo: 'avulsa' })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Marcada como avulsa');
+  fecharModal();
+  carregar();
+}
+async function desconciliar(id){
+  if (!confirm('Desfazer conciliação? Se for CR/CP, voltará a status aberta.')) return;
+  const r = await fetch(`/api/conciliacao/transacoes/${id}/desconciliar`, { method:'POST' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Desconciliada');
+  carregar();
+}
+
+carregarContas().then(carregar);
+</script>
+</body></html>

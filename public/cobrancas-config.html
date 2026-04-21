@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuração de Cobranças - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Configuração de Cobranças</h1>
+                <small>Régua de cobrança automática, templates e regras de execução</small>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div class="panel">
+                <h3>Execução automática</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Horário diário (BRT)</label>
+                        <input type="number" id="horaExecucao" min="0" max="23" value="9">
+                    </div>
+                    <div class="form-group">
+                        <label>Pular fim de semana e feriados</label>
+                        <select id="executarDiasUteis">
+                            <option value="true">Sim (só dias úteis)</option>
+                            <option value="false">Não (todos os dias)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Máx. disparos por conta/dia</label>
+                        <input type="number" id="limitePorDia" min="0" max="10" value="1">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>E‑mail em cópia interna (opcional)</label>
+                        <input type="email" id="ccInterno" placeholder="financeiro@empresa.com.br">
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Régua de cobrança</h3>
+                <div class="variaveis-info">
+                    <strong>Variáveis disponíveis nos templates:</strong>
+                    <code>{{nome}}</code><code>{{descricao}}</code><code>{{valor}}</code>
+                    <code>{{vencimento}}</code><code>{{diasAtraso}}</code>
+                    <code>{{linhaDigitavel}}</code><code>{{linkBoleto}}</code>
+                    <code>{{nfseNumero}}</code>
+                </div>
+                <div id="etapas"></div>
+            </div>
+
+            <div class="actions-bar">
+                <button class="btn-primary" onclick="salvar()">Salvar configuração</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let configAtual = null;
+
+        document.addEventListener('DOMContentLoaded', carregar);
+
+        async function carregar() {
+            try {
+                const resp = await fetch('/api/cobrancas/config');
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                configAtual = data.config;
+                renderForm();
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        function renderForm() {
+            document.getElementById('horaExecucao').value = configAtual.horaExecucao ?? 9;
+            document.getElementById('executarDiasUteis').value = String(configAtual.executarDiasUteis !== false);
+            document.getElementById('limitePorDia').value = configAtual.limitePorDia ?? 1;
+            document.getElementById('ccInterno').value = configAtual.ccInterno || '';
+
+            const container = document.getElementById('etapas');
+            container.innerHTML = configAtual.regua.map((e, idx) => `
+                <div class="etapa-box">
+                    <h4>
+                        Etapa ${e.etapa}
+                        <span style="color:#888;font-weight:normal;font-size:0.85em;">
+                            Dispara D+<input type="number" id="diasApos_${idx}" value="${e.diasApos}" min="1" style="width:60px;background:#0b1120;border:1px solid #1e293b;border-radius:4px;padding:3px 6px;color:#fff;"> dias após vencer
+                        </span>
+                    </h4>
+                    <div class="canais">
+                        <label><input type="checkbox" id="canalEmail_${idx}" ${e.canais?.includes('email') ? 'checked' : ''}> E‑mail</label>
+                        <label><input type="checkbox" id="canalWa_${idx}" ${e.canais?.includes('whatsapp') ? 'checked' : ''}> WhatsApp</label>
+                        <span style="color:#888;font-size:0.85em;">(desmarque tudo para desativar a etapa)</span>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Assunto do e‑mail</label>
+                            <input type="text" id="assunto_${idx}" value="${escAttr(e.assunto || '')}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Corpo do e‑mail</label>
+                            <textarea id="emailTexto_${idx}">${escHtml(e.emailTexto || '')}</textarea>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Texto do WhatsApp</label>
+                            <textarea id="whatsappTexto_${idx}" style="min-height:60px;">${escHtml(e.whatsappTexto || '')}</textarea>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function salvar() {
+            const novaRegua = configAtual.regua.map((e, idx) => {
+                const canais = [];
+                if (document.getElementById('canalEmail_'+idx).checked) canais.push('email');
+                if (document.getElementById('canalWa_'+idx).checked) canais.push('whatsapp');
+                return {
+                    etapa: e.etapa,
+                    diasApos: Number(document.getElementById('diasApos_'+idx).value) || e.diasApos,
+                    canais,
+                    assunto: document.getElementById('assunto_'+idx).value,
+                    emailTexto: document.getElementById('emailTexto_'+idx).value,
+                    whatsappTexto: document.getElementById('whatsappTexto_'+idx).value,
+                };
+            });
+
+            const payload = {
+                horaExecucao: Number(document.getElementById('horaExecucao').value) || 9,
+                executarDiasUteis: document.getElementById('executarDiasUteis').value === 'true',
+                limitePorDia: Number(document.getElementById('limitePorDia').value) || 1,
+                ccInterno: document.getElementById('ccInterno').value.trim(),
+                regua: novaRegua,
+            };
+
+            try {
+                const resp = await fetch('/api/cobrancas/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    mostrarAlerta('Configuração salva. As alterações valerão no próximo disparo.', 'success');
+                    configAtual = data.config;
+                } else {
+                    mostrarAlerta('Erro: ' + data.error, 'error');
+                }
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        function mostrarAlerta(msg, tipo) {
+            const el = document.getElementById('alertBox');
+            el.textContent = msg;
+            el.className = 'alert ' + tipo;
+            setTimeout(() => { el.className = 'alert'; }, 6000);
+        }
+
+        function escHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        function escAttr(str) {
+            return escHtml(str).replace(/"/g, '&quot;');
+        }
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('cobrancas-config');</script>
+</body>
+</html>

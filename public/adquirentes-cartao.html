@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adquirentes de Cartão · Licite Agora</title>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>💳 Adquirentes de Cartão</h1>
+        <div class="subtitle">Cielo, Stone, Rede, etc. — usadas ao mesclar formas de pagamento no pedido</div>
+      </div>
+      <button class="btn btn-primary" onclick="abrirNova()">+ Nova</button>
+    </div>
+
+    <div class="panel" style="padding:0;">
+      <table>
+        <thead><tr>
+          <th>Nome</th><th>CNPJ</th>
+          <th style="text-align:right;">Taxa %</th>
+          <th style="text-align:right;">Prazo (dias)</th>
+          <th>Conta de liquidação</th>
+          <th>Status</th><th>Ações</th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h2 id="mTitulo">Nova adquirente</h2>
+    <div class="row"><label>Nome *</label><input type="text" id="mNome" placeholder="Ex.: Cielo"></div>
+    <div class="row"><label>CNPJ</label><input type="text" id="mCnpj" placeholder="00.000.000/0000-00"></div>
+    <div class="row-2">
+      <div class="row"><label>Taxa (%)</label><input type="number" step="0.01" id="mTaxa" placeholder="3.50"></div>
+      <div class="row"><label>Prazo liquidação (dias)</label><input type="number" id="mPrazo" placeholder="30"></div>
+    </div>
+    <div class="row">
+      <label>Conta financeira padrão (liquidação)</label>
+      <select id="mContaFin"><option value="">— nenhuma —</option></select>
+      <small style="color:var(--text-2);">Conta bancária que recebe os depósitos da adquirente</small>
+    </div>
+    <div class="row"><label>Observações</label><textarea id="mObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('adquirentes-cartao');</script>
+<script>
+let LISTA = [], EDITANDO = null;
+function fmt(v){ return (v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+async function carregar(){
+  try {
+    const r = await fetch('/api/adquirentes?ativo=1');
+    const d = await r.json();
+    LISTA = d.adquirentes || [];
+    render();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+function render(){
+  const tb = document.getElementById('tb');
+  if (!LISTA.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma adquirente cadastrada.</td></tr>'; return; }
+  tb.innerHTML = LISTA.map(a => `
+    <tr>
+      <td><strong>${a.nome}</strong></td>
+      <td>${a.cnpj || '<span style="color:var(--text-3);">—</span>'}</td>
+      <td style="text-align:right;">${a.taxaPercentual ? fmt(a.taxaPercentual)+'%' : '—'}</td>
+      <td style="text-align:right;">${a.prazoLiquidacaoDias || '—'}</td>
+      <td>${a.contaFinanceiraPadraoNome || '<span style="color:var(--text-3);">—</span>'}</td>
+      <td><span class="badge ${a.ativo?'ativo':'inativo'}">${a.ativo?'ativo':'inativo'}</span></td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="abrirEditar(${a.id})">Editar</button>
+        <button class="btn btn-danger btn-sm" onclick="desativar(${a.id})">Desativar</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function abrirNova(){
+  EDITANDO = null;
+  document.getElementById('mTitulo').textContent = 'Nova adquirente';
+  ['mNome','mCnpj','mTaxa','mPrazo','mObs'].forEach(id => document.getElementById(id).value = '');
+  await carregarContasFin();
+  document.getElementById('mContaFin').value = '';
+  document.getElementById('modal').classList.add('open');
+}
+
+async function abrirEditar(id){
+  const a = LISTA.find(x => x.id === id);
+  if (!a) return;
+  EDITANDO = id;
+  document.getElementById('mTitulo').textContent = 'Editar: ' + a.nome;
+  document.getElementById('mNome').value = a.nome;
+  document.getElementById('mCnpj').value = a.cnpj || '';
+  document.getElementById('mTaxa').value = a.taxaPercentual || '';
+  document.getElementById('mPrazo').value = a.prazoLiquidacaoDias || '';
+  document.getElementById('mObs').value = a.observacoes || '';
+  await carregarContasFin();
+  document.getElementById('mContaFin').value = a.contaFinanceiraPadraoId || '';
+  document.getElementById('modal').classList.add('open');
+}
+
+async function carregarContasFin(){
+  try {
+    const r = await fetch('/api/contas-financeiras');
+    const d = await r.json();
+    const opts = '<option value="">— nenhuma —</option>' +
+      (d.contas || []).filter(c => c.ativo).map(c => `<option value="${c.id}">${c.nome} (${c.tipo})</option>`).join('');
+    document.getElementById('mContaFin').innerHTML = opts;
+  } catch(e){}
+}
+
+function fechar(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const body = {
+    nome: document.getElementById('mNome').value.trim(),
+    cnpj: document.getElementById('mCnpj').value.trim() || null,
+    taxaPercentual: parseFloat(document.getElementById('mTaxa').value) || 0,
+    prazoLiquidacaoDias: parseInt(document.getElementById('mPrazo').value) || 0,
+    contaFinanceiraPadraoId: document.getElementById('mContaFin').value || null,
+    observacoes: document.getElementById('mObs').value || null
+  };
+  if (!body.nome) { alert('Nome obrigatório'); return; }
+  try {
+    const url = EDITANDO ? '/api/adquirentes/'+EDITANDO : '/api/adquirentes';
+    const method = EDITANDO ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fechar(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function desativar(id){
+  if (!confirm('Desativar esta adquirente? (não será mais listada no autocomplete de pedidos)')) return;
+  await fetch('/api/adquirentes/'+id, { method:'DELETE' });
+  carregar();
+}
+
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target.id === 'modal') fechar();
+});
+
+carregar();
+</script>
+</body></html>

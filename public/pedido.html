@@ -1,0 +1,1538 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pedido · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Layout full-height sem scroll externo (detail view) */
+  html, body { height: 100vh !important; overflow: hidden !important; }
+  .layout { height: 100vh !important; min-height: 0 !important; overflow: hidden !important; }
+  .main-content { display: flex !important; flex-direction: column !important; height: 100vh !important; overflow: hidden !important; padding: 0 !important; min-height: 0 !important; }
+
+  /* Header do pedido */
+  .ped-header { padding: 18px 28px; border-bottom: 1px solid var(--border); background: var(--bg-1); flex-shrink: 0; }
+  .ped-header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+  .ped-header-left { min-width: 0; }
+  .ped-header-left h1 { font-size: 1.25rem; margin-bottom: 4px; }
+  .ped-header-meta { color: var(--text-2); font-size: 0.85em; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .ped-header-meta strong { color: var(--text-0); font-weight: 500; }
+  .ped-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 8px; font-size: 0.85em; font-family: inherit; }
+  .back-link:hover { color: var(--accent); }
+
+  /* Tabs do pedido (variante com count) */
+  .ped-tabs { display: flex; gap: 2px; background: var(--bg-1); border-bottom: 1px solid var(--border); padding: 0 28px; overflow-x: auto; flex-shrink: 0; }
+  .ped-tab { padding: 11px 16px; cursor: pointer; color: var(--text-2); border: none; background: none; border-bottom: 2px solid transparent; font-weight: 500; font-size: 0.88em; font-family: inherit; white-space: nowrap; }
+  .ped-tab:hover { color: var(--text-0); }
+  .ped-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .ped-tab.dirty::after { content:'●'; color: var(--warn); margin-left: 5px; font-size: 0.9em; }
+  .ped-tab .count { background: var(--bg-3); color: var(--text-2); padding: 1px 7px; border-radius: 999px; font-size: 0.72em; margin-left: 6px; }
+
+  /* Painéis abáveis */
+  .ped-painel { display: none; flex: 1; overflow-y: auto; padding: 24px 28px; background: var(--bg-0); min-height: 0 !important; }
+  .ped-painel.active { display: block; }
+  .ped-painel h3 { margin-bottom: 16px; font-size: 0.95em; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .btn.dirty { box-shadow: 0 0 0 2px var(--warn-soft); }
+
+  /* Drawer lateral de ações */
+  .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); z-index: 2000; display: none; }
+  .drawer-overlay.open { display: flex; justify-content: flex-end; }
+  .drawer-right { width: 320px; max-width: 90vw; height: 100vh; background: var(--bg-1); border-left: 1px solid var(--border); padding: 18px 20px; overflow-y: auto; animation: slideInRight 0.22s ease-out; display: flex; flex-direction: column; }
+  @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  .drawer-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .drawer-header button.close { background: none; border: none; color: var(--text-2); font-size: 1.5em; cursor: pointer; padding: 0 4px; line-height: 1; }
+  .drawer-header button.close:hover { color: var(--text-0); }
+  .drawer-body { display: flex; flex-direction: column; gap: 6px; }
+  .drawer-body .btn { width: 100%; justify-content: flex-start; padding: 11px 14px; font-size: 0.9em; }
+  .drawer-body .divider { height: 1px; background: var(--border); margin: 10px 0; }
+  .drawer-body .group-label { font-size: 0.72em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; padding: 4px 0 2px; }
+</style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="ped-header">
+    <div class="ped-header-top">
+      <div class="ped-header-left">
+        <button class="back-link" onclick="voltar()">← Voltar aos pedidos</button>
+        <h1 id="hNumero">Carregando…</h1>
+        <div class="ped-header-meta" id="hMeta"></div>
+      </div>
+      <div class="ped-actions" id="hActions"></div>
+    </div>
+  </div>
+
+  <div class="ped-tabs" id="pedTabs"></div>
+
+  <div class="ped-painel" data-aba="cliente">
+    <h3>Cliente e entrega</h3>
+    <div class="panel">
+      <div class="form-row">
+        <div class="form-group full-width" style="position:relative;">
+          <label>Cliente *</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="clBusca" placeholder="CNPJ ou razão social…" oninput="acCliente()" autocomplete="off" style="flex:1;">
+            <input type="hidden" id="clId">
+            <button class="btn btn-ghost btn-sm" onclick="limparCliente()" type="button">Limpar</button>
+          </div>
+          <div id="clList" class="ac-list"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>CPF/CNPJ</label><input type="text" id="clCpfCnpj" disabled></div>
+        <div class="form-group"><label>Nome fantasia</label><input type="text" id="clNomeFantasia" disabled></div>
+        <div class="form-group"><label>Email</label><input type="text" id="clEmail" disabled></div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:20px;">Endereço de entrega</h3>
+    <p class="muted" style="font-size:0.85em;margin-bottom:12px;">
+      Pré-preenchido com o endereço do cliente. Altere livremente caso este pedido tenha local de entrega diferente.
+    </p>
+    <div class="panel">
+      <div class="form-row">
+        <div class="form-group" style="flex:3;"><label>Endereço</label><input type="text" id="enderecoEntrega"></div>
+        <div class="form-group"><label>Número</label><input type="text" id="numeroEntrega"></div>
+        <div class="form-group"><label>Complemento</label><input type="text" id="complementoEntrega"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Bairro</label><input type="text" id="bairroEntrega"></div>
+        <div class="form-group"><label>Cidade</label><input type="text" id="cidadeEntrega"></div>
+        <div class="form-group"><label>UF</label><input type="text" id="ufEntrega" maxlength="2"></div>
+        <div class="form-group"><label>CEP</label><input type="text" id="cepEntrega"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Contato</label><input type="text" id="contatoEntrega" placeholder="Nome da pessoa que recebe"></div>
+        <div class="form-group"><label>Telefone</label><input type="text" id="telefoneEntrega"></div>
+        <div class="form-group" style="justify-content:flex-end;">
+          <button class="btn btn-ghost btn-sm" onclick="copiarEnderecoCliente()" type="button">Copiar endereço do cliente</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ped-painel" data-aba="itens">
+    <h3>Itens do pedido</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Produto</th><th>Descrição</th><th>Qtd</th><th>V.Unit</th><th>CFOP</th><th>Total</th><th></th></tr></thead>
+        <tbody id="tbItens"></tbody>
+        <tfoot id="tfItens"></tfoot>
+      </table>
+    </div>
+    <div class="card card-info" id="addItemCard" style="margin-top:16px;">
+      <h4 style="margin-bottom:12px; color:var(--text-1); font-weight:500;">Adicionar item</h4>
+      <div class="form-row">
+        <div class="form-group"><label>Produto (opcional)</label>
+          <input type="text" id="itBusca" placeholder="SKU ou descrição…" oninput="acItemProd()" autocomplete="off">
+          <input type="hidden" id="itProdId">
+          <div id="itProdList" class="ac-list"></div>
+        </div>
+        <div class="form-group"><label>Descrição *</label><input type="text" id="itDesc"></div>
+        <div class="form-group"><label>Qtd *</label><input type="number" id="itQtd" step="0.01"></div>
+        <div class="form-group"><label>V.Unit *</label><input type="number" id="itPu" step="0.01"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="addItem()">Adicionar item</button>
+    </div>
+  </div>
+
+  <div class="ped-painel" data-aba="frete">
+    <h3>Frete e transportadora</h3>
+    <div class="panel">
+      <div class="form-row">
+        <div class="form-group full-width" style="position:relative;">
+          <label>Transportadora</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="tpBusca" placeholder="CNPJ ou razão social…" oninput="acTransportadora()" autocomplete="off" style="flex:1;">
+            <input type="hidden" id="tpId">
+            <button class="btn btn-secondary btn-sm" onclick="abrirModalTransp()" type="button">+ Nova</button>
+            <button class="btn btn-ghost btn-sm" onclick="limparTransp()" type="button">Limpar</button>
+          </div>
+          <div id="tpList" class="ac-list"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Tipo de frete</label><select id="tipoFrete"></select></div>
+        <div class="form-group"><label>Valor do frete (R$)</label><input type="number" id="valorFrete" step="0.01"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ped-painel" data-aba="datas">
+    <h3>Datas e referências</h3>
+    <div class="panel">
+      <div class="form-row">
+        <div class="form-group"><label>Entrega prevista</label><input type="date" id="dataEntregaPrevista"></div>
+        <div class="form-group"><label>Validade do pedido</label><input type="date" id="dataValidade"></div>
+        <div class="form-group"><label>Faturamento previsto</label><input type="date" id="dataFaturamentoPrevista"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Código do pedido no cliente</label>
+          <input type="text" id="codigoPedidoCliente">
+          <small>Nº do pedido no ERP do cliente (referência externa)</small>
+        </div>
+      </div>
+      <div id="dataEntregaRealBox" class="card card-info" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="ped-painel" data-aba="pgto">
+    <h3>Pagamento</h3>
+
+    <!-- Modo pagamento único (padrão) -->
+    <div class="panel" id="pgtoModoUnico">
+      <div class="form-row">
+        <div class="form-group" style="grid-column: span 2;"><label>Meio de pagamento</label>
+          <select id="meioPagamento"></select>
+          <small id="meioPagamentoHint" class="muted"></small>
+        </div>
+        <div class="form-group"><label>Valor total</label><input type="text" id="resValorTotal" disabled></div>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btn-secondary btn-sm" onclick="ativarParcelamento()">➕ Dividir em parcelas (mesclar formas)</button>
+      </div>
+    </div>
+
+    <!-- Modo parcelado -->
+    <div class="panel" id="pgtoModoParcelado" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+        <div>
+          <strong>Plano de parcelas</strong>
+          <small class="muted" style="display:block;">Cada parcela gera uma conta a receber separada na tela Contas a Receber.</small>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span class="muted" style="font-size:0.85em;">Total pedido: <strong id="parcTotalPed">R$ 0,00</strong></span>
+          <span id="parcSomaWrap" style="font-size:0.85em;">Soma: <strong id="parcSoma">R$ 0,00</strong></span>
+          <button class="btn btn-secondary btn-sm" onclick="desativarParcelamento()">← Voltar ao pagamento único</button>
+        </div>
+      </div>
+      <div id="parcelasList"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="adicionarParcela()">+ Adicionar parcela</button>
+        <button class="btn btn-secondary btn-sm" onclick="distribuirRestante()">↳ Distribuir resto na última</button>
+        <button class="btn btn-success btn-sm" onclick="salvarParcelas()">💾 Salvar parcelas</button>
+      </div>
+    </div>
+
+    <div id="pgtoFaturaBox" class="panel" style="margin-top:16px;display:none;">
+      <h3 style="color:var(--text-1); font-weight:500; text-transform:none; letter-spacing:normal;">Conta(s) a receber vinculada(s)</h3>
+      <div id="pgtoFaturaContent"></div>
+    </div>
+
+  </div>
+
+  <div class="ped-painel" data-aba="fiscal">
+    <h3>Fiscal</h3>
+    <div class="panel">
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:500;">
+            <input type="checkbox" id="naoEmitirNFe" style="width:auto;margin:0;transform:scale(1.2);">
+            <span>📄 Documento interno — não emitir NF-e</span>
+          </label>
+          <small class="muted" style="margin-left:32px;margin-top:6px;display:block;">
+            Quando marcado, ao faturar o pedido a nota <strong>não</strong> será enviada para a SEFAZ.
+            A fatura, a conta a receber e a movimentação de estoque são geradas normalmente —
+            apenas o documento fiscal eletrônico deixa de ser emitido.
+          </small>
+          <small class="muted" style="margin-left:32px;margin-top:10px;display:block;font-size:0.82em;">
+            Exemplos: transferência entre filiais, amostra, bonificação, venda que não exige NF-e.
+          </small>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <div class="form-row">
+        <div class="form-group full-width">
+          <small class="muted" style="display:block;">
+            A <strong>série</strong> e o <strong>próximo número fiscal</strong> ficam em
+            <a href="/nfe-config.html" style="color:var(--accent);">Configuração NF-e</a> (globais a todas as notas emitidas).
+            Futuramente este painel poderá sobrescrever a série por pedido.
+          </small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ped-painel" data-aba="obs">
+    <h3>Observações</h3>
+    <div class="panel">
+      <div class="form-row"><div class="form-group full-width">
+        <label>Observações (visíveis ao cliente)</label>
+        <textarea id="observacao" rows="4"></textarea>
+      </div></div>
+      <div class="form-row"><div class="form-group full-width">
+        <label>Observações internas</label>
+        <textarea id="observacoesInterna" rows="4"></textarea>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="ped-painel" data-aba="historico">
+    <h3>Histórico</h3>
+    <div id="historicoBox"><em class="muted">Carregando…</em></div>
+  </div>
+
+  <div class="ped-painel" data-aba="fatura">
+    <h3>Fatura</h3>
+    <div id="faturaBox"><em class="muted">Carregando…</em></div>
+  </div>
+
+</main>
+</div>
+
+<!-- Drawer de ações -->
+<div class="drawer-overlay" id="drawerAcoes" onclick="if(event.target===this)fecharDrawer()">
+  <aside class="drawer-right">
+    <div class="drawer-header">
+      <h3>Ações do pedido</h3>
+      <button class="close" onclick="fecharDrawer()" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+</div>
+
+<div id="toasts"></div>
+
+<!-- Modal Motivo -->
+<div class="modal-bg" id="modalMotivo">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><h3 id="motivoTitulo">Ação</h3></div>
+    <div id="motivoPreview" class="card card-info" style="margin-bottom:14px;"></div>
+    <div id="motivoAvisoEstoque" class="card" style="background:var(--danger-soft);border-color:var(--danger);color:var(--danger);margin-bottom:14px;display:none;"></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Motivo *</label>
+      <textarea id="motivoTexto" rows="3" placeholder="Descreva o motivo…"></textarea>
+    </div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalMotivo()">Cancelar</button>
+      <button class="btn btn-primary" id="motivoBotaoConfirmar" onclick="confirmarAcaoMotivo()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Bandeira (só aparece se pagamento for cartão) -->
+<div class="modal-bg" id="modalBandeira">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header"><h3>Bandeira do cartão</h3></div>
+    <p class="muted" style="margin-bottom:12px;font-size:0.88em;">Pagamento em cartão — informe a bandeira (Cielo, Stone, Rede…) para criar a CR em nome dela.</p>
+    <div class="form-row"><div class="form-group full-width" style="position:relative;">
+      <label>Bandeira *</label>
+      <input type="text" id="fatBandeiraBusca" placeholder="Ex.: Cielo, Stone, Rede…" oninput="acBandeira()" autocomplete="off">
+      <input type="hidden" id="fatBandeiraId">
+      <div id="fatBandeiraList" class="ac-list"></div>
+    </div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalBandeira()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarBandeiraEFaturar()">Faturar agora</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Nova Transportadora -->
+<div class="modal-bg" id="modalTransp">
+  <div class="modal">
+    <div class="modal-header"><h3>Nova transportadora</h3></div>
+    <div class="form-row">
+      <div class="form-group"><label>CNPJ/CPF *</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="tCpfCnpj" style="flex:1;">
+          <button class="btn btn-secondary btn-sm" onclick="consultarCnpjTransp()" type="button">Consultar</button>
+        </div>
+        <small id="tCnpjStatus"></small>
+      </div>
+      <div class="form-group"><label>RNTRC</label><input type="text" id="tRntrc"></div>
+      <div class="form-group"><label>Placa</label><input type="text" id="tPlaca" maxlength="8"></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width"><label>Razão social *</label><input type="text" id="tRazaoSocial"></div></div>
+    <div class="form-row">
+      <div class="form-group"><label>Nome fantasia</label><input type="text" id="tNomeFantasia"></div>
+      <div class="form-group"><label>Insc. estadual</label><input type="text" id="tInscricaoEstadual"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Endereço</label><input type="text" id="tEndereco"></div>
+      <div class="form-group"><label>Número</label><input type="text" id="tNumero"></div>
+      <div class="form-group"><label>Bairro</label><input type="text" id="tBairro"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Cidade</label><input type="text" id="tCidade"></div>
+      <div class="form-group"><label>UF</label><input type="text" id="tUf" maxlength="2"></div>
+      <div class="form-group"><label>CEP</label><input type="text" id="tCep"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Telefone</label><input type="text" id="tTelefone"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="tEmail"></div>
+      <div class="form-group"><label>Contato</label><input type="text" id="tContato"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalTransp()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTransportadora()">Salvar transportadora</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('pedidos');</script>
+<script>
+let pedidoAtual = null;
+let isDirty = false;
+const params = new URLSearchParams(location.search);
+const PEDIDO_ID = params.get('id');
+const ABA_INICIAL = params.get('aba') || null; // decidida após carregar (cliente se vazio, senão itens)
+
+const TIPOS_FRETE = [['','—'],
+  ['0','0 · Por conta do emitente (CIF)'],['1','1 · Por conta do destinatário (FOB)'],
+  ['2','2 · Por conta de terceiros'],['3','3 · Transporte próprio (remetente)'],
+  ['4','4 · Transporte próprio (destinatário)'],['9','9 · Sem frete']];
+const MEIOS_PAGAMENTO = [['','—'],
+  ['01','01 · Dinheiro'],['02','02 · Cheque'],['03','03 · Cartão de crédito'],['04','04 · Cartão de débito'],
+  ['05','05 · Crédito loja'],['10','10 · Vale alimentação'],['11','11 · Vale refeição'],
+  ['12','12 · Vale presente'],['13','13 · Vale combustível'],['14','14 · Duplicata mercantil'],
+  ['15','15 · Boleto bancário'],['16','16 · Depósito bancário'],['17','17 · PIX'],
+  ['18','18 · Transferência bancária'],['19','19 · Carteira digital'],['90','90 · Sem pagamento'],['99','99 · Outros']];
+const TRANSICAO_REABRIR = { confirmado:'rascunho', em_separacao:'confirmado', entregue:'em_separacao', cancelado:'rascunho', faturado:'entregue' };
+
+function showAlert(m,t='success'){
+  const box = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast ' + (t==='error'?'error':'success');
+  el.innerHTML = `<span class="toast-close" onclick="this.parentElement.remove()">×</span>${m}`;
+  box.appendChild(el);
+  setTimeout(()=>el.remove(), t==='error'?8000:4000);
+}
+function fmt(v){ return (v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function val(id){ const e=document.getElementById(id); return e?e.value:''; }
+
+function atualizarHintMeio(){
+  const meio = val('meioPagamento');
+  const hint = document.getElementById('meioPagamentoHint');
+  if (!hint) return;
+  const msgs = {
+    '01':'Dinheiro: ao faturar, CR baixada imediatamente + entrada no caixa padrão.',
+    '17':'PIX: ao faturar, CR baixada imediatamente + entrada no banco padrão.',
+    '03':'Cartão de crédito: CR criada em nome da bandeira ao faturar.',
+    '04':'Cartão de débito: CR criada em nome da bandeira ao faturar.',
+    '15':'Boleto: CR aberta até cliente pagar; polling MP baixa automaticamente.',
+  };
+  hint.textContent = msgs[meio] || (meio ? 'CR aberta até baixa manual na tela Financeiro.' : 'Escolha o meio para ver o comportamento ao faturar.');
+}
+
+// ==================== PARCELAS DE PAGAMENTO ====================
+let PARCELAS = [];           // [{valor, dataVencimento, meioPagamento, bandeiraId, bandeiraNome}]
+let PARCELADO_ATIVO = false;
+
+function MEIOS_PAGAMENTO_ARR(){ return MEIOS_PAGAMENTO; }
+
+async function carregarParcelas(){
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/parcelas');
+    const d = await r.json();
+    PARCELAS = (d.parcelas || []).map(p => ({
+      valor: p.valor, dataVencimento: p.dataVencimento,
+      meioPagamento: p.meioPagamento,
+      bandeiraId: p.bandeiraId, bandeiraNome: p.bandeiraNome || ''
+    }));
+    PARCELADO_ATIVO = PARCELAS.length > 0;
+    atualizarModoPagamento();
+  } catch(e){}
+}
+
+function atualizarModoPagamento(){
+  document.getElementById('pgtoModoUnico').style.display = PARCELADO_ATIVO ? 'none' : 'block';
+  document.getElementById('pgtoModoParcelado').style.display = PARCELADO_ATIVO ? 'block' : 'none';
+  if (PARCELADO_ATIVO) renderParcelas();
+}
+
+function ativarParcelamento(){
+  PARCELADO_ATIVO = true;
+  // Se não tem parcelas ainda, semeia 2 linhas de 50%
+  if (PARCELAS.length === 0) {
+    const total = Number(pedidoAtual.valorTotal || 0);
+    const meioHoje = pedidoAtual.meioPagamento || '';
+    const v1 = Number((total / 2).toFixed(2));
+    const v2 = Number((total - v1).toFixed(2));
+    const hoje = new Date().toISOString().slice(0,10);
+    const d30 = new Date(Date.now() + 30*86400000).toISOString().slice(0,10);
+    PARCELAS = [
+      { valor: v1, dataVencimento: hoje, meioPagamento: meioHoje || '17', bandeiraId: null, bandeiraNome: '' },
+      { valor: v2, dataVencimento: d30, meioPagamento: meioHoje || '15', bandeiraId: null, bandeiraNome: '' }
+    ];
+  }
+  atualizarModoPagamento();
+}
+
+async function desativarParcelamento(){
+  if (PARCELAS.length && !confirm('Descartar as parcelas e voltar ao pagamento único?')) return;
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/parcelas', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ parcelas: [] })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    PARCELAS = [];
+    PARCELADO_ATIVO = false;
+    atualizarModoPagamento();
+    showAlert('Parcelas removidas','success');
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+function renderParcelas(){
+  const total = Number(pedidoAtual.valorTotal || 0);
+  document.getElementById('parcTotalPed').textContent = 'R$ ' + fmt(total);
+  const soma = PARCELAS.reduce((s,p) => s + Number(p.valor || 0), 0);
+  const somaEl = document.getElementById('parcSoma');
+  somaEl.textContent = 'R$ ' + fmt(soma);
+  const diff = Math.abs(soma - total);
+  somaEl.style.color = diff < 0.01 ? 'var(--success)' : 'var(--danger)';
+
+  const opts = MEIOS_PAGAMENTO.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  const box = document.getElementById('parcelasList');
+  box.innerHTML = PARCELAS.map((p, i) => {
+    const ehCartao = p.meioPagamento === '03' || p.meioPagamento === '04';
+    return `
+      <div class="panel" style="padding:12px;margin-bottom:8px;background:var(--bg-1);">
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:0 0 40px;"><small class="muted">#</small><div style="font-weight:600;padding:8px 0;">${i+1}</div></div>
+          <div style="flex:1;min-width:110px;">
+            <small class="muted">Valor</small>
+            <input type="number" step="0.01" value="${p.valor}" oninput="atualizarParcela(${i},'valor',this.value)">
+          </div>
+          <div style="flex:1;min-width:140px;">
+            <small class="muted">Vencimento</small>
+            <input type="date" value="${p.dataVencimento||''}" oninput="atualizarParcela(${i},'dataVencimento',this.value)">
+          </div>
+          <div style="flex:1.3;min-width:170px;">
+            <small class="muted">Meio</small>
+            <select onchange="atualizarParcela(${i},'meioPagamento',this.value)">
+              ${MEIOS_PAGAMENTO.map(([v,l]) => `<option value="${v}" ${p.meioPagamento===v?'selected':''}>${l}</option>`).join('')}
+            </select>
+          </div>
+          <div style="flex:1.3;min-width:170px;display:${ehCartao?'block':'none'};position:relative;">
+            <small class="muted">Bandeira</small>
+            <input type="text" value="${p.bandeiraNome||''}" placeholder="Ex.: Cielo, Stone..." oninput="acBandeiraParcela(${i}, this.value)" autocomplete="off">
+            <div id="acBand_${i}" class="ac-list"></div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="removerParcela(${i})" style="flex:0 0 auto;">×</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function atualizarParcela(i, campo, valor){
+  if (campo === 'valor') PARCELAS[i].valor = parseFloat(valor) || 0;
+  else if (campo === 'meioPagamento') {
+    PARCELAS[i].meioPagamento = valor;
+    // Se trocou pra não-cartão, limpa bandeira
+    if (valor !== '03' && valor !== '04') {
+      PARCELAS[i].bandeiraId = null;
+      PARCELAS[i].bandeiraNome = '';
+    }
+  }
+  else PARCELAS[i][campo] = valor;
+  renderParcelas();
+}
+
+function adicionarParcela(){
+  const total = Number(pedidoAtual.valorTotal || 0);
+  const soma = PARCELAS.reduce((s,p) => s + Number(p.valor || 0), 0);
+  const resto = Math.max(0, Number((total - soma).toFixed(2)));
+  const d = new Date(Date.now() + 30*86400000*(PARCELAS.length+1)).toISOString().slice(0,10);
+  PARCELAS.push({ valor: resto, dataVencimento: d, meioPagamento: '15', bandeiraId: null, bandeiraNome: '' });
+  renderParcelas();
+}
+
+function removerParcela(i){
+  if (PARCELAS.length <= 1) { showAlert('Pelo menos 1 parcela','error'); return; }
+  PARCELAS.splice(i,1);
+  renderParcelas();
+}
+
+function distribuirRestante(){
+  if (!PARCELAS.length) return;
+  const total = Number(pedidoAtual.valorTotal || 0);
+  const outros = PARCELAS.slice(0,-1).reduce((s,p) => s + Number(p.valor || 0), 0);
+  PARCELAS[PARCELAS.length-1].valor = Number((total - outros).toFixed(2));
+  renderParcelas();
+}
+
+let acBandTimers = {};
+async function acBandeiraParcela(i, q){
+  PARCELAS[i].bandeiraNome = q; PARCELAS[i].bandeiraId = null;
+  clearTimeout(acBandTimers[i]);
+  if (q.length < 1) { document.getElementById('acBand_'+i).innerHTML = ''; return; }
+  acBandTimers[i] = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/adquirentes/autocomplete?q='+encodeURIComponent(q));
+      const d = await r.json();
+      if (!d.success) return;
+      const box = document.getElementById('acBand_'+i);
+      if (!box) return;
+      box.innerHTML = d.adquirentes.map(a =>
+        `<div onclick="selBandParcela(${i},${a.id},'${esc(a.nome)}')">${a.nome}${a.taxaPercentual?` <span class="muted">— ${a.taxaPercentual}%</span>`:''}</div>`
+      ).join('');
+    } catch {}
+  }, 200);
+}
+
+function selBandParcela(i, id, nome){
+  PARCELAS[i].bandeiraId = id;
+  PARCELAS[i].bandeiraNome = nome;
+  const box = document.getElementById('acBand_'+i);
+  if (box) box.innerHTML = '';
+  renderParcelas();
+}
+
+async function salvarParcelas(){
+  const total = Number(pedidoAtual.valorTotal || 0);
+  const soma = Number(PARCELAS.reduce((s,p) => s + Number(p.valor || 0), 0).toFixed(2));
+  if (Math.abs(soma - total) > 0.01) {
+    return showAlert(`Soma (R$ ${fmt(soma)}) difere do total do pedido (R$ ${fmt(total)})`,'error');
+  }
+  // Valida cartão tem bandeira
+  for (let i = 0; i < PARCELAS.length; i++){
+    const p = PARCELAS[i];
+    if ((p.meioPagamento === '03' || p.meioPagamento === '04') && !p.bandeiraId) {
+      return showAlert(`Parcela ${i+1}: selecione a bandeira do cartão`,'error');
+    }
+  }
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/parcelas', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ parcelas: PARCELAS })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Parcelas salvas','success');
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+function renderPgtoFatura(){
+  const p = pedidoAtual;
+  const box = document.getElementById('pgtoFaturaBox');
+  if (!box) return;
+  if (p.faturaId && p.contaReceberStatus) {
+    box.style.display = 'block';
+    const st = p.statusRecebimento || p.contaReceberStatus || '—';
+    const pagoLabel = p.crValorPago ? 'R$ ' + fmt(p.crValorPago) : '—';
+    document.getElementById('pgtoFaturaContent').innerHTML = `
+      <div class="form-row">
+        <div><small class="muted">Fatura</small><div><strong class="mono">${p.faturaNumero || '—'}</strong></div></div>
+        <div><small class="muted">Status Recebimento</small><div><span class="badge ${st}">${st}</span></div></div>
+        <div><small class="muted">Valor Recebido</small><div>${pagoLabel}</div></div>
+        <div><small class="muted">Data Pagamento</small><div>${p.crDataPagamento || '<span class="muted">—</span>'}</div></div>
+      </div>
+      <p class="muted" style="font-size:0.85em;margin-top:10px;">
+        Para dar baixa manualmente, acesse <a href="/financeiro.html">Financeiro → Contas a Receber</a>.
+      </p>`;
+  } else {
+    box.style.display = 'none';
+  }
+}
+function esc(s){ return (s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+function voltar(){ location.href = '/pedidos.html'; }
+
+async function carregar(){
+  if (!PEDIDO_ID) { showAlert('ID não informado','error'); setTimeout(voltar, 1500); return; }
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    pedidoAtual = d.pedido;
+    renderHeader();
+    renderAbas();
+    preencher();
+    const abaInicial = ABA_INICIAL || (pedidoAtual.clienteId ? 'itens' : 'cliente');
+    ativarAba(abaInicial);
+  } catch(e) { showAlert('Erro ao carregar: '+e.message,'error'); }
+}
+
+function renderHeader(){
+  const p = pedidoAtual;
+  const ehOrcamento = p.modoDocumento === 'orcamento';
+  const rotulo = ehOrcamento ? 'Orçamento' : 'Pedido';
+  document.title = `${rotulo} ${p.numero} · Licite Agora`;
+  document.getElementById('hNumero').textContent = `${rotulo} ${p.numero}`;
+  const statusBadge = ehOrcamento
+    ? `<span class="badge orcamento">orçamento</span>`
+    : `<span class="badge ${p.status}">${p.status.replace('_',' ')}</span>`;
+  document.getElementById('hMeta').innerHTML = `
+    <span class="badge ${p.tipo}">${p.tipo}</span>
+    ${statusBadge}
+    ${ehOrcamento ? '' : `<span class="badge ${p.statusPagamento}">${p.statusPagamento}</span>`}
+    <span>· <strong>${p.clienteNome || '<em class="muted">Sem cliente — configure na aba Cliente</em>'}</strong></span>
+    <span>· ${p.dataPedido}</span>
+    <span>· Total <strong>R$ ${fmt(p.valorTotal)}</strong></span>
+    ${!ehOrcamento && p.valorPago?`<span>· Pago <strong class="text-success">R$ ${fmt(p.valorPago)}</strong></span>`:''}
+  `;
+  renderAcoes();
+}
+
+function renderAcoes(){
+  const p = pedidoAtual;
+  const editavel = !['entregue','faturado','cancelado'].includes(p.status);
+  const btns = [];
+  if (editavel) btns.push(`<button class="btn btn-primary" onclick="salvarHeader()">Salvar</button>`);
+  btns.push(`<button class="btn btn-secondary" onclick="abrirDrawer()">Ações</button>`);
+  document.getElementById('hActions').innerHTML = btns.join('');
+}
+
+function abrirDrawer(){
+  renderDrawerBody();
+  document.getElementById('drawerAcoes').classList.add('open');
+}
+function fecharDrawer(){ document.getElementById('drawerAcoes').classList.remove('open'); }
+
+function renderDrawerBody(){
+  const p = pedidoAtual;
+  const ehOrcamento = p.modoDocumento === 'orcamento';
+  const statusItems = [];
+
+  if (ehOrcamento) {
+    if (p.status === 'rascunho') statusItems.push(`<button class="btn btn-success" onclick="fecharDrawer(); converterModo('pedido')">Converter em pedido</button>`);
+  } else {
+    if (p.status==='rascunho') statusItems.push(`<button class="btn btn-success" onclick="fecharDrawer(); acao('confirmar')">Confirmar pedido</button>`);
+    if (p.status==='rascunho') statusItems.push(`<button class="btn btn-secondary" onclick="fecharDrawer(); converterModo('orcamento')">Converter em orçamento</button>`);
+    if (['confirmado','em_separacao'].includes(p.status)) statusItems.push(`<button class="btn btn-success" onclick="fecharDrawer(); acao('entregar')">Marcar como entregue</button>`);
+    if (p.status==='confirmado') statusItems.push(`<button class="btn btn-secondary" onclick="fecharDrawer(); statusPara('em_separacao')">Em separação</button>`);
+    if (p.status === 'entregue') statusItems.push(`<button class="btn btn-success" onclick="fecharDrawer(); faturarAgora()">Faturar</button>`);
+    if (p.status === 'cancelado') statusItems.push(`<button class="btn btn-secondary" onclick="fecharDrawer(); abrirModalMotivo('reabrir')">Reabrir</button>`);
+  }
+
+  const docsItems = [
+    `<button class="btn btn-secondary" onclick="imprimirPdf()">Imprimir PDF</button>`,
+    `<button class="btn btn-secondary" onclick="enviarWhatsApp()">Enviar via WhatsApp</button>`,
+  ];
+
+  const dangerItems = [];
+  if (!ehOrcamento && ['rascunho','confirmado','em_separacao','entregue','faturado'].includes(p.status))
+    dangerItems.push(`<button class="btn btn-danger" onclick="fecharDrawer(); tentarCancelar()">Cancelar pedido</button>`);
+  if (p.status==='rascunho')
+    dangerItems.push(`<button class="btn btn-danger" onclick="fecharDrawer(); excluir()">Excluir ${ehOrcamento ? 'orçamento' : 'rascunho'}</button>`);
+
+  const sections = [];
+  if (statusItems.length) sections.push(`<div class="group-label">Fluxo</div>` + statusItems.join(''));
+  sections.push(`<div class="group-label">Documentos</div>` + docsItems.join(''));
+  if (dangerItems.length) sections.push(`<div class="group-label">Zona de perigo</div>` + dangerItems.join(''));
+
+  document.getElementById('drawerBody').innerHTML = sections.join(`<div class="divider"></div>`);
+}
+
+async function converterModo(destino){
+  if (isDirty) {
+    const ok = await salvarHeaderSilencioso();
+    if (!ok) return;
+  }
+  const label = destino === 'orcamento' ? 'orçamento' : 'pedido';
+  if (!confirm(`Converter para ${label}? O número do documento será regerado.`)) return;
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/converter-modo', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ modoDocumento: destino })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'HTTP '+r.status);
+    pedidoAtual = d.pedido;
+    renderHeader();
+    showAlert(`Convertido em ${label}`);
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+function imprimirPdf(){
+  window.open('/api/pedidos/'+PEDIDO_ID+'/pdf', '_blank');
+}
+
+function enviarWhatsApp(){
+  const p = pedidoAtual;
+  const limparTel = t => (t||'').replace(/\D/g,'');
+  let tel = limparTel(p.telefoneEntrega) || limparTel(p.clienteTelefone);
+  if (!tel) {
+    tel = prompt('Telefone não cadastrado. Digite o número (DDD + telefone):');
+    if (!tel) return;
+    tel = limparTel(tel);
+  }
+  // Se tem 10 ou 11 dígitos, prefixa 55 (Brasil). Se já tem 12-13, usa como está.
+  if (tel.length === 10 || tel.length === 11) tel = '55' + tel;
+  const rotulo = p.modoDocumento === 'orcamento' ? 'orçamento' : 'pedido';
+  const msg = `Olá! Segue o ${rotulo} *${p.numero}*${p.clienteNome?` — ${p.clienteNome}`:''}.\n` +
+              `Total: *R$ ${fmt(p.valorTotal)}*\n\n` +
+              `PDF do ${rotulo}: ${location.origin}/api/pedidos/${p.id}/pdf`;
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+  fecharDrawer();
+}
+
+// ESC fecha drawer
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') fecharDrawer();
+});
+
+function renderAbas(){
+  const p = pedidoAtual;
+  const abas = [
+    ['cliente', 'Cliente', p.clienteId ? null : '!'],
+    ['itens', 'Itens', p.itens.length],
+    ['frete', 'Frete', null],
+    ['datas', 'Datas', null],
+    ['pgto', 'Pagamento', null],
+    ['fiscal', 'Fiscal', null],
+    ['obs', 'Observações', null],
+    ['historico', 'Histórico', null],
+  ];
+  if (p.faturaId) abas.push(['fatura', 'Fatura', null]);
+  document.getElementById('pedTabs').innerHTML = abas.map(([id,lbl,cnt]) =>
+    `<button class="ped-tab" data-aba="${id}" onclick="ativarAba('${id}')">${lbl}${cnt!=null?` <span class="count">${cnt}</span>`:''}</button>`
+  ).join('');
+}
+
+async function ativarAba(aba){
+  // Auto-save se houver alterações pendentes
+  if (isDirty) {
+    const ok = await salvarHeaderSilencioso();
+    if (!ok) return; // bloqueia navegação se save falhou (usuário vê toast de erro)
+  }
+  document.querySelectorAll('.ped-tab').forEach(t => t.classList.toggle('active', t.dataset.aba === aba));
+  document.querySelectorAll('.ped-painel').forEach(p => p.classList.toggle('active', p.dataset.aba === aba));
+  const u = new URL(location.href);
+  u.searchParams.set('aba', aba);
+  history.replaceState(null, '', u);
+  if (aba === 'historico') carregarHistorico();
+  if (aba === 'fatura' && pedidoAtual?.faturaId) carregarFaturaInfo();
+}
+
+// ==================== DIRTY TRACKING ====================
+function marcarDirty(){
+  if (isDirty) return;
+  isDirty = true;
+  atualizarIndicadoresDirty();
+}
+function limparDirty(){
+  isDirty = false;
+  atualizarIndicadoresDirty();
+}
+function atualizarIndicadoresDirty(){
+  const aba = document.querySelector('.ped-tab.active');
+  if (aba) aba.classList.toggle('dirty', isDirty);
+  document.querySelectorAll('.ped-actions .btn-primary').forEach(b => b.classList.toggle('dirty', isDirty));
+}
+// Delegação: qualquer input/change dentro de .ped-painel marca dirty
+document.addEventListener('input', e => {
+  if (e.target.closest('.ped-painel')) marcarDirty();
+});
+document.addEventListener('change', e => {
+  if (e.target.closest('.ped-painel')) marcarDirty();
+});
+window.addEventListener('beforeunload', e => {
+  if (isDirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+});
+
+function preencher(){
+  const p = pedidoAtual;
+  const editavel = !['entregue','faturado','cancelado'].includes(p.status);
+
+  // CLIENTE
+  document.getElementById('clId').value = p.clienteId || '';
+  document.getElementById('clBusca').value = p.clienteNome || '';
+  document.getElementById('clCpfCnpj').value = p.clienteCpfCnpj || '';
+  document.getElementById('clNomeFantasia').value = p.clienteNomeFantasia || '';
+  document.getElementById('clEmail').value = p.clienteEmail || '';
+  // Endereço de entrega (override ou endereço do cliente)
+  document.getElementById('enderecoEntrega').value = p.enderecoEntrega || p.clienteEndereco || '';
+  document.getElementById('numeroEntrega').value = p.numeroEntrega || p.clienteNumero || '';
+  document.getElementById('complementoEntrega').value = p.complementoEntrega || p.clienteComplemento || '';
+  document.getElementById('bairroEntrega').value = p.bairroEntrega || p.clienteBairro || '';
+  document.getElementById('cidadeEntrega').value = p.cidadeEntrega || p.clienteCidade || '';
+  document.getElementById('ufEntrega').value = p.ufEntrega || p.clienteUf || '';
+  document.getElementById('cepEntrega').value = p.cepEntrega || p.clienteCep || '';
+  document.getElementById('contatoEntrega').value = p.contatoEntrega || '';
+  document.getElementById('telefoneEntrega').value = p.telefoneEntrega || p.clienteTelefone || '';
+
+  // ITENS
+  const tb = document.getElementById('tbItens');
+  if (!p.itens.length) {
+    tb.innerHTML = '<tr><td colspan="8" class="muted" style="text-align:center;padding:30px;">Sem itens</td></tr>';
+  } else {
+    tb.innerHTML = p.itens.map((it,i) => {
+      if (!editavel) {
+        return `<tr>
+          <td class="muted">${i+1}</td>
+          <td class="mono">${it.sku||'<span class="muted">livre</span>'}</td>
+          <td>${it.descricao}</td>
+          <td>${fmt(it.quantidade)} <span class="muted">${it.unidade||''}</span></td>
+          <td>R$ ${fmt(it.precoUnitario)}</td>
+          <td><span class="mono">${it.cfop || '—'}</span></td>
+          <td><strong>R$ ${fmt(it.valorTotal)}</strong></td>
+          <td></td>
+        </tr>`;
+      }
+      return `<tr data-item="${it.id}">
+        <td class="muted">${i+1}</td>
+        <td class="mono">${it.sku||'<span class="muted">livre</span>'}</td>
+        <td><input type="text" value="${esc(it.descricao||'')}" onchange="salvarItemCampo(${it.id},'descricao',this.value)" style="width:100%;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
+        <td><input type="number" step="0.01" min="0" value="${Number(it.quantidade)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'quantidade',this.value)" style="width:80px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="qtd"> <span class="muted">${it.unidade||''}</span></td>
+        <td><input type="number" step="0.01" min="0" value="${Number(it.precoUnitario)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'precoUnitario',this.value)" style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="pu"></td>
+        <td><input type="text" value="${esc(it.cfop||'')}" placeholder="auto" onchange="salvarItemCampo(${it.id},'cfop',this.value)" title="CFOP — deixe vazio para auto-sugerir" style="width:70px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;font-family:monospace;"></td>
+        <td><strong data-campo="total">R$ ${fmt(it.valorTotal)}</strong></td>
+        <td><button class="btn btn-ghost btn-sm" onclick="removerItem(${it.id})" title="Remover">✕</button></td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('tfItens').innerHTML = `
+    <tr><td colspan="6" class="text-right">Total</td><td><strong>R$ ${fmt(p.valorTotal)}</strong></td><td></td></tr>
+    ${p.valorPago?`<tr><td colspan="6" class="text-right">Pago</td><td class="text-success">R$ ${fmt(p.valorPago)}</td><td></td></tr>`:''}`;
+  document.getElementById('addItemCard').style.display = editavel ? 'block' : 'none';
+
+  // FRETE
+  document.getElementById('tipoFrete').innerHTML = TIPOS_FRETE.map(([v,l]) =>
+    `<option value="${v}" ${p.tipoFrete===v?'selected':''}>${l}</option>`).join('');
+  document.getElementById('valorFrete').value = p.valorFrete ?? '';
+  if (p.transportadoraId) {
+    document.getElementById('tpId').value = p.transportadoraId;
+    document.getElementById('tpBusca').value = p.transportadoraNome || '';
+  } else {
+    document.getElementById('tpId').value = '';
+    document.getElementById('tpBusca').value = '';
+  }
+
+  // DATAS
+  document.getElementById('dataEntregaPrevista').value = p.dataEntregaPrevista || '';
+  document.getElementById('dataValidade').value = p.dataValidade || '';
+  document.getElementById('dataFaturamentoPrevista').value = p.dataFaturamentoPrevista || '';
+  document.getElementById('codigoPedidoCliente').value = p.codigoPedidoCliente || '';
+  const dreBox = document.getElementById('dataEntregaRealBox');
+  if (p.dataEntregaReal) {
+    dreBox.innerHTML = `<small class="muted">Entrega real:</small> <strong>${p.dataEntregaReal}</strong>`;
+    dreBox.style.display = 'block';
+  } else dreBox.style.display = 'none';
+
+  // PAGAMENTO
+  document.getElementById('meioPagamento').innerHTML = MEIOS_PAGAMENTO.map(([v,l]) =>
+    `<option value="${v}" ${p.meioPagamento===v?'selected':''}>${l}</option>`).join('');
+  document.getElementById('meioPagamento').addEventListener('change', atualizarHintMeio);
+  document.getElementById('resValorTotal').value = 'R$ ' + fmt(p.valorTotal);
+  atualizarHintMeio();
+  renderPgtoFatura();
+  carregarParcelas();
+
+  // OBS
+  document.getElementById('observacao').value = p.observacao || '';
+  document.getElementById('observacoesInterna').value = p.observacoesInterna || '';
+  document.getElementById('naoEmitirNFe').checked = !!p.naoEmitirNFe;
+
+  if (!editavel) {
+    document.querySelectorAll('.ped-painel input, .ped-painel select, .ped-painel textarea').forEach(el => {
+      if (['resValorTotal','resValorPago'].includes(el.id)) return;
+      el.disabled = true;
+    });
+  } else {
+    document.querySelectorAll('.ped-painel input, .ped-painel select, .ped-painel textarea').forEach(el => {
+      if (['resValorTotal','resValorPago'].includes(el.id)) return;
+      el.disabled = false;
+    });
+  }
+}
+
+function coletarBody(){
+  return {
+    clienteId: val('clId') ? Number(val('clId')) : null,
+    transportadoraId: val('tpId') ? Number(val('tpId')) : null,
+    tipoFrete: val('tipoFrete') || null,
+    valorFrete: val('valorFrete')!=='' ? parseFloat(val('valorFrete')) : null,
+    dataEntregaPrevista: val('dataEntregaPrevista') || null,
+    dataValidade: val('dataValidade') || null,
+    dataFaturamentoPrevista: val('dataFaturamentoPrevista') || null,
+    codigoPedidoCliente: val('codigoPedidoCliente') || null,
+    meioPagamento: val('meioPagamento') || null,
+    observacao: val('observacao') || null,
+    observacoesInterna: val('observacoesInterna') || null,
+    naoEmitirNFe: document.getElementById('naoEmitirNFe').checked ? 1 : 0,
+    enderecoEntrega: val('enderecoEntrega') || null,
+    numeroEntrega: val('numeroEntrega') || null,
+    complementoEntrega: val('complementoEntrega') || null,
+    bairroEntrega: val('bairroEntrega') || null,
+    cidadeEntrega: val('cidadeEntrega') || null,
+    ufEntrega: (val('ufEntrega')||'').toUpperCase() || null,
+    cepEntrega: val('cepEntrega') || null,
+    contatoEntrega: val('contatoEntrega') || null,
+    telefoneEntrega: val('telefoneEntrega') || null,
+  };
+}
+
+async function salvarHeaderSilencioso(){
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(coletarBody()) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'HTTP '+r.status);
+    pedidoAtual = d.pedido;
+    limparDirty();
+    renderHeader();
+    return true;
+  } catch(e){ showAlert('Erro ao salvar: '+e.message, 'error'); return false; }
+}
+
+async function salvarHeader(){
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(coletarBody()) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'HTTP '+r.status);
+    pedidoAtual = d.pedido;
+    limparDirty();
+    renderHeader();
+    preencher();
+    showAlert('Pedido salvo');
+  } catch(e){ showAlert('Erro ao salvar: '+e.message, 'error'); }
+}
+
+// ==================== CLIENTE ====================
+let acClTimer;
+async function acCliente(){
+  clearTimeout(acClTimer);
+  const q = val('clBusca');
+  if (q.length<2) { document.getElementById('clList').innerHTML=''; return; }
+  acClTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/pessoas/autocomplete?q='+encodeURIComponent(q));
+      const d = await r.json();
+      if(!d.success) return;
+      document.getElementById('clList').innerHTML = d.pessoas.map(p =>
+        `<div onclick="selCliente(${p.id})">${p.razaoSocial} <span class="muted">— ${p.cpfCnpj}</span></div>`
+      ).join('');
+    } catch {}
+  }, 200);
+}
+async function selCliente(id){
+  try {
+    // Busca dados completos do cliente e pré-preenche endereço (override)
+    const r = await fetch('/api/pessoas/'+id);
+    const d = await r.json();
+    if(!d.success) throw new Error(d.error);
+    const c = d.pessoa;
+    document.getElementById('clId').value = c.id;
+    document.getElementById('clBusca').value = c.razaoSocial;
+    document.getElementById('clCpfCnpj').value = c.cpfCnpj || '';
+    document.getElementById('clNomeFantasia').value = c.nomeFantasia || '';
+    document.getElementById('clEmail').value = c.email || '';
+    // Pré-preencher endereço de entrega com o do cliente (usuário pode alterar)
+    document.getElementById('enderecoEntrega').value = c.endereco || '';
+    document.getElementById('numeroEntrega').value = c.numero || '';
+    document.getElementById('complementoEntrega').value = c.complemento || '';
+    document.getElementById('bairroEntrega').value = c.bairro || '';
+    document.getElementById('cidadeEntrega').value = c.cidade || '';
+    document.getElementById('ufEntrega').value = c.uf || '';
+    document.getElementById('cepEntrega').value = c.cep || '';
+    document.getElementById('telefoneEntrega').value = c.telefone || '';
+    document.getElementById('clList').innerHTML = '';
+    marcarDirty();
+    showAlert('Cliente selecionado: '+c.razaoSocial);
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+function limparCliente(){
+  ['clId','clBusca','clCpfCnpj','clNomeFantasia','clEmail'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('clList').innerHTML = '';
+  marcarDirty();
+}
+function copiarEnderecoCliente(){
+  const p = pedidoAtual;
+  if (!p.clienteId) return showAlert('Selecione um cliente primeiro','error');
+  document.getElementById('enderecoEntrega').value = p.clienteEndereco || '';
+  document.getElementById('numeroEntrega').value = p.clienteNumero || '';
+  document.getElementById('complementoEntrega').value = p.clienteComplemento || '';
+  document.getElementById('bairroEntrega').value = p.clienteBairro || '';
+  document.getElementById('cidadeEntrega').value = p.clienteCidade || '';
+  document.getElementById('ufEntrega').value = p.clienteUf || '';
+  document.getElementById('cepEntrega').value = p.clienteCep || '';
+  document.getElementById('telefoneEntrega').value = p.clienteTelefone || '';
+  marcarDirty();
+  showAlert('Endereço do cliente copiado.');
+}
+document.addEventListener('click', ev => {
+  if (!ev.target.closest('#clBusca') && !ev.target.closest('#clList')) {
+    const el = document.getElementById('clList'); if (el) el.innerHTML='';
+  }
+});
+
+// ==================== ITENS ====================
+let acTimer;
+async function acItemProd(){
+  clearTimeout(acTimer);
+  const q = val('itBusca').trim();
+  if (!q) { document.getElementById('itProdList').innerHTML=''; return; }
+  acTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/produtos/autocomplete?q='+encodeURIComponent(q));
+      const d = await r.json();
+      if(!d.success) return;
+      document.getElementById('itProdList').innerHTML = (d.produtos||[]).map(p =>
+        `<div onclick="selItemProd(${p.id},'${esc(p.sku)}','${esc(p.descricao)}',${p.precoVenda||0})">${p.sku} <span class="muted">— ${p.descricao}</span></div>`
+      ).join('');
+    } catch {}
+  }, 200);
+}
+function selItemProd(id, sku, desc, pv){
+  document.getElementById('itProdId').value = id;
+  document.getElementById('itBusca').value = sku + ' — ' + desc;
+  document.getElementById('itProdList').innerHTML = '';
+  if (!val('itDesc')) document.getElementById('itDesc').value = desc;
+  if (!val('itPu') && pv) document.getElementById('itPu').value = pv;
+}
+async function addItem(){
+  const descricao = val('itDesc').trim();
+  const qtd = parseFloat(val('itQtd'));
+  const pu = parseFloat(val('itPu'));
+  if (!descricao) return showAlert('Descrição obrigatória','error');
+  if (!qtd || qtd<=0) return showAlert('Quantidade deve ser maior que zero','error');
+  if (isNaN(pu) || pu<0) return showAlert('Preço unitário inválido','error');
+  const body = { produtoId: val('itProdId') ? Number(val('itProdId')) : null, descricao, quantidade: qtd, precoUnitario: pu };
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/itens', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    pedidoAtual = d.pedido;
+    ['itBusca','itProdId','itDesc','itQtd','itPu'].forEach(id=>document.getElementById(id).value='');
+    renderHeader(); renderAbas(); preencher();
+    showAlert('Item adicionado');
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+async function removerItem(itemId){
+  if (!confirm('Remover item?')) return;
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/itens/'+itemId, { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    pedidoAtual = d.pedido;
+    renderHeader(); renderAbas(); preencher();
+    showAlert('Item removido');
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+
+// Atualiza só o total da linha enquanto o user digita qtd/pu (feedback imediato)
+function recalcularLinha(itemId){
+  const tr = document.querySelector(`tr[data-item="${itemId}"]`);
+  if (!tr) return;
+  const qtd = parseFloat(tr.querySelector('[data-campo="qtd"]').value) || 0;
+  const pu = parseFloat(tr.querySelector('[data-campo="pu"]').value) || 0;
+  tr.querySelector('[data-campo="total"]').textContent = 'R$ ' + fmt(qtd * pu);
+}
+
+// Salva campo individual do item no backend (disparado no onchange/blur)
+async function salvarItemCampo(itemId, campo, valor){
+  const body = {};
+  if (campo === 'descricao') {
+    const v = String(valor || '').trim();
+    if (!v) return showAlert('Descrição não pode ficar vazia','error');
+    body.descricao = v;
+  } else if (campo === 'quantidade') {
+    const q = parseFloat(valor);
+    if (!q || q <= 0) return showAlert('Quantidade deve ser maior que zero','error');
+    body.quantidade = q;
+  } else if (campo === 'precoUnitario') {
+    const pu = parseFloat(valor);
+    if (isNaN(pu) || pu < 0) return showAlert('Preço unitário inválido','error');
+    body.precoUnitario = pu;
+  } else if (campo === 'cfop') {
+    body.cfop = String(valor || '').trim();
+  }
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/itens/'+itemId, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    pedidoAtual = d.pedido;
+    // Re-renderiza rodapé (total do pedido) mantendo os inputs atuais sem blur confuso
+    document.getElementById('tfItens').innerHTML = `
+      <tr><td colspan="6" class="text-right">Total</td><td><strong>R$ ${fmt(pedidoAtual.valorTotal)}</strong></td><td></td></tr>
+      ${pedidoAtual.valorPago?`<tr><td colspan="6" class="text-right">Pago</td><td class="text-success">R$ ${fmt(pedidoAtual.valorPago)}</td><td></td></tr>`:''}`;
+    // Se houver parcelas, recarrega para refletir novo total
+    if (PARCELADO_ATIVO) carregarParcelas();
+    document.getElementById('resValorTotal').value = 'R$ ' + fmt(pedidoAtual.valorTotal);
+  } catch(e){ showAlert('Erro ao salvar: '+e.message, 'error'); }
+}
+
+// ==================== TRANSPORTADORA ====================
+async function acTransportadora(){
+  clearTimeout(acTimer);
+  const q = val('tpBusca');
+  if (q.length<2) { document.getElementById('tpList').innerHTML=''; return; }
+  acTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/transportadoras/autocomplete?q='+encodeURIComponent(q));
+      const d = await r.json();
+      if(!d.success) return;
+      document.getElementById('tpList').innerHTML = d.transportadoras.map(t =>
+        `<div onclick="selTransportadora(${t.id},'${esc(t.razaoSocial)}')">${t.razaoSocial} <span class="muted">— ${t.cpfCnpj}</span></div>`
+      ).join('');
+    } catch {}
+  }, 200);
+}
+function selTransportadora(id, nome){
+  document.getElementById('tpId').value = id;
+  document.getElementById('tpBusca').value = nome;
+  document.getElementById('tpList').innerHTML = '';
+  marcarDirty();
+}
+function limparTransp(){
+  document.getElementById('tpId').value = '';
+  document.getElementById('tpBusca').value = '';
+  document.getElementById('tpList').innerHTML = '';
+  marcarDirty();
+}
+document.addEventListener('click', ev => {
+  if (!ev.target.closest('#tpBusca') && !ev.target.closest('#tpList')) {
+    const el = document.getElementById('tpList'); if (el) el.innerHTML='';
+  }
+});
+
+function abrirModalTransp(){ document.getElementById('modalTransp').classList.add('open'); }
+function fecharModalTransp(){
+  document.getElementById('modalTransp').classList.remove('open');
+  ['tCpfCnpj','tRntrc','tPlaca','tRazaoSocial','tNomeFantasia','tInscricaoEstadual','tEndereco','tNumero','tBairro','tCidade','tUf','tCep','tTelefone','tEmail','tContato'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  document.getElementById('tCnpjStatus').textContent='';
+}
+async function consultarCnpjTransp(){
+  const raw = val('tCpfCnpj').replace(/\D/g,'');
+  if (raw.length!==14) return showAlert('CNPJ deve ter 14 dígitos','error');
+  const st = document.getElementById('tCnpjStatus'); st.textContent='Consultando…'; st.style.color='var(--accent)';
+  try {
+    const r = await fetch('https://brasilapi.com.br/api/cnpj/v1/'+raw);
+    if (!r.ok) throw new Error('CNPJ não encontrado');
+    const d = await r.json();
+    const set = (id,v) => { const el=document.getElementById(id); if(el && v!=null) el.value = v; };
+    set('tRazaoSocial', d.razao_social); set('tNomeFantasia', d.nome_fantasia);
+    set('tEndereco', d.logradouro ? (d.descricao_tipo_de_logradouro?d.descricao_tipo_de_logradouro+' ':'')+d.logradouro : '');
+    set('tNumero', d.numero); set('tBairro', d.bairro); set('tCidade', d.municipio);
+    set('tUf', d.uf); set('tCep', d.cep);
+    set('tTelefone', d.ddd_telefone_1); set('tEmail', (d.email||'').toLowerCase());
+    st.textContent='Dados preenchidos'; st.style.color='var(--success)';
+  } catch(e){ st.textContent='Erro: '+e.message; st.style.color='var(--danger)'; }
+}
+async function salvarTransportadora(){
+  const body = {
+    cpfCnpj: val('tCpfCnpj'), rntrc: val('tRntrc')||null, placa: val('tPlaca')||null,
+    razaoSocial: val('tRazaoSocial'), nomeFantasia: val('tNomeFantasia')||null,
+    inscricaoEstadual: val('tInscricaoEstadual')||null,
+    endereco: val('tEndereco')||null, numero: val('tNumero')||null, bairro: val('tBairro')||null,
+    cidade: val('tCidade')||null, uf: (val('tUf')||'').toUpperCase()||null, cep: val('tCep')||null,
+    telefone: val('tTelefone')||null, email: val('tEmail')||null, contato: val('tContato')||null,
+  };
+  if (!body.cpfCnpj || !body.razaoSocial) return showAlert('CNPJ e Razão social obrigatórios','error');
+  try {
+    const r = await fetch('/api/transportadoras', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    selTransportadora(d.transportadora.id, d.transportadora.razaoSocial);
+    fecharModalTransp();
+    showAlert('Transportadora cadastrada');
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+// ==================== STATUS/AÇÕES ====================
+async function acao(a){
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+a, { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Ação executada');
+    await carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+async function statusPara(s){
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/status', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: s}) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Status alterado');
+    await carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+async function excluir(){
+  if (!confirm('Excluir rascunho?')) return;
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID, { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Excluído');
+    setTimeout(voltar, 500);
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+function tentarCancelar(){
+  if (pedidoAtual.status === 'faturado' && pedidoAtual.faturaId) {
+    showAlert('Cancele a fatura primeiro (aba Fatura)','error');
+    ativarAba('fatura');
+    return;
+  }
+  abrirModalMotivo('cancelar');
+}
+
+// ==================== MODAL MOTIVO ====================
+let acaoMotivo = null;
+function abrirModalMotivo(acao){
+  acaoMotivo = acao;
+  const p = pedidoAtual;
+  const isReabrir = acao === 'reabrir';
+  const destino = isReabrir ? TRANSICAO_REABRIR[p.status] : 'cancelado';
+  document.getElementById('motivoTitulo').textContent = isReabrir ? 'Reabrir pedido' : 'Cancelar pedido';
+  document.getElementById('motivoPreview').innerHTML =
+    `<strong>${p.numero}</strong><br><small class="muted">Transição:</small> <span class="badge ${p.status}">${p.status}</span> → <span class="badge ${destino}">${destino}</span>`;
+  const aviso = document.getElementById('motivoAvisoEstoque');
+  if (p.status === 'entregue') {
+    aviso.innerHTML = '<strong>Atenção:</strong> pedido entregue. Movimentações de saída de estoque serão estornadas automaticamente (entradas compensatórias).';
+    aviso.style.display = 'block';
+  } else aviso.style.display = 'none';
+  document.getElementById('motivoTexto').value = '';
+  const btn = document.getElementById('motivoBotaoConfirmar');
+  btn.textContent = isReabrir ? 'Reabrir' : 'Cancelar pedido';
+  btn.className = 'btn ' + (isReabrir ? 'btn-primary' : 'btn-danger');
+  document.getElementById('modalMotivo').classList.add('open');
+}
+function fecharModalMotivo(){ document.getElementById('modalMotivo').classList.remove('open'); acaoMotivo = null; }
+async function confirmarAcaoMotivo(){
+  const motivo = val('motivoTexto').trim();
+  if (!motivo) return showAlert('Motivo obrigatório','error');
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+acaoMotivo, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(acaoMotivo==='reabrir' ? `Reaberto para ${d.statusNovo}` : 'Pedido cancelado');
+    fecharModalMotivo();
+    await carregar();
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+
+// ==================== FATURAR (direto, sem modal para casos normais) ====================
+async function faturarAgora(){
+  const p = pedidoAtual;
+
+  // Checa se já existe plano de parcelas salvo — se tiver, backend usa essas parcelas
+  // e não precisa perguntar bandeira (cada parcela já tem sua adquirente).
+  let temParcelas = false;
+  try {
+    const rp = await fetch('/api/pedidos/'+PEDIDO_ID+'/parcelas');
+    const dp = await rp.json();
+    temParcelas = Array.isArray(dp.parcelas) && dp.parcelas.length > 0;
+  } catch {}
+
+  const ehCartaoUnico = !temParcelas && (p.meioPagamento==='03' || p.meioPagamento==='04');
+
+  // Só abre modal de bandeira quando NÃO tem parcelas e o meio único é cartão
+  if (ehCartaoUnico) {
+    document.getElementById('fatBandeiraBusca').value = '';
+    document.getElementById('fatBandeiraId').value = '';
+    document.getElementById('fatBandeiraList').innerHTML = '';
+    document.getElementById('modalBandeira').classList.add('open');
+    return;
+  }
+
+  const msg = p.naoEmitirNFe
+    ? `Faturar pedido ${p.numero}?\n\nDocumento INTERNO — não será enviado à SEFAZ.${temParcelas ? '\nSerão criadas '+temParcelas+' contas a receber conforme o plano de parcelas.' : '\nSerá gerada fatura, conta a receber e movimentação financeira.'}`
+    : `Faturar pedido ${p.numero}?\n\nSerá gerada a fatura${temParcelas ? ', as contas a receber do plano de parcelas' : ', conta a receber'} e a NF-e será emitida automaticamente na SEFAZ.`;
+  if (!confirm(msg)) return;
+
+  await executarFaturar({});
+}
+
+function fecharModalBandeira(){ document.getElementById('modalBandeira').classList.remove('open'); }
+
+let acBTimer;
+async function acBandeira(){
+  clearTimeout(acBTimer);
+  const q = val('fatBandeiraBusca');
+  if (q.length<1) { document.getElementById('fatBandeiraList').innerHTML=''; return; }
+  acBTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/adquirentes/autocomplete?q='+encodeURIComponent(q));
+      const d = await r.json();
+      if(!d.success) return;
+      document.getElementById('fatBandeiraList').innerHTML = d.adquirentes.map(a =>
+        `<div onclick="selBandeira(${a.id},'${esc(a.nome)}')">${a.nome}${a.taxaPercentual?` <span class="muted">— ${a.taxaPercentual}%</span>`:''}</div>`
+      ).join('');
+    } catch {}
+  }, 200);
+}
+function selBandeira(id, nome){
+  document.getElementById('fatBandeiraId').value = id;
+  document.getElementById('fatBandeiraBusca').value = nome;
+  document.getElementById('fatBandeiraList').innerHTML = '';
+}
+
+async function confirmarBandeiraEFaturar(){
+  const bandeiraId = val('fatBandeiraId');
+  if (!bandeiraId) return showAlert('Selecione a bandeira do cartão','error');
+  fecharModalBandeira();
+  await executarFaturar({ bandeiraId: Number(bandeiraId) });
+}
+
+async function executarFaturar(body){
+  const p = pedidoAtual;
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/faturar', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {})
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+
+    if (p.naoEmitirNFe) {
+      showAlert('Fatura interna '+d.fatura.numero+' gerada (sem NF-e)','success');
+      await carregar();
+      ativarAba('fatura');
+      return;
+    }
+
+    // Fiscal: emite NF-e imediatamente
+    showAlert('Fatura '+d.fatura.numero+' criada. Enviando NF-e à SEFAZ…','info');
+    const r2 = await fetch('/api/faturas/'+d.fatura.id+'/emitir-nfe', { method:'POST' });
+    const d2 = await r2.json();
+    if (d2.success) {
+      showAlert('NF-e '+(d2.numero||'')+' autorizada na SEFAZ','success');
+    } else {
+      showAlert('Fatura criada, mas a NF-e falhou: '+d2.error+'\n\nReenvie pela aba "Fatura".','error');
+    }
+    await carregar();
+    ativarAba('fatura');
+  } catch(e){ showAlert('Erro ao faturar: '+e.message,'error'); }
+}
+
+// ==================== HISTÓRICO ====================
+async function carregarHistorico(){
+  const box = document.getElementById('historicoBox');
+  if (box.dataset.loaded === PEDIDO_ID) return;
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/historico');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    if (!d.historico.length) { box.innerHTML = '<em class="muted">Sem eventos registrados.</em>'; return; }
+    box.innerHTML = `<div class="tbl-wrap"><table>
+      <thead><tr><th>Data</th><th>Ação</th><th>De → Para</th><th>Motivo</th><th>Usuário</th></tr></thead>
+      <tbody>${d.historico.map(h => `<tr>
+        <td class="muted">${h.dataCriacao}</td>
+        <td><strong>${h.acao}</strong></td>
+        <td><span class="badge ${h.statusAnterior||'rascunho'}">${h.statusAnterior||'—'}</span> → <span class="badge ${h.statusNovo||'rascunho'}">${h.statusNovo||'—'}</span></td>
+        <td>${h.motivo||'—'}</td>
+        <td class="muted">${h.usuario||'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+    box.dataset.loaded = PEDIDO_ID;
+  } catch(e) { box.innerHTML = '<em style="color:var(--danger);">Erro: '+e.message+'</em>'; }
+}
+
+// ==================== FATURA ====================
+async function carregarFaturaInfo(){
+  const box = document.getElementById('faturaBox');
+  if (!pedidoAtual.faturaId) { box.innerHTML = '<em class="muted">Pedido ainda não faturado.</em>'; return; }
+  try {
+    const r = await fetch('/api/faturas/'+pedidoAtual.faturaId);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const f = d.fatura;
+    const podeEmitir = f.status==='emitida' && (!f.statusSefaz || f.statusSefaz==='rejeitada');
+    const ehNaoFiscal = f.statusSefaz === 'nao_fiscal';
+    const nfeBox = f.statusSefaz ? `
+      <div class="panel" style="margin-top:14px;">
+        <h4 style="color:var(--text-1);font-weight:500;margin-bottom:10px;">NF-e</h4>
+        <div class="form-row">
+          <div><small class="muted">Status SEFAZ</small><div><span class="badge ${f.statusSefaz==='autorizada'?'pago':f.statusSefaz==='cancelada_sefaz'?'cancelada':'vencida'}">${f.statusSefaz}</span></div></div>
+          ${f.numeroNFe?`<div><small class="muted">Nº/Série</small><div><strong class="mono">${f.numeroNFe}/${f.serieNFe||'1'}</strong></div></div>`:''}
+          ${f.chaveAcesso?`<div style="grid-column:1/-1;"><small class="muted">Chave de acesso</small><div class="mono" style="font-size:0.82em;word-break:break-all;">${f.chaveAcesso}</div></div>`:''}
+          ${f.protocoloAutorizacao?`<div><small class="muted">Protocolo</small><div class="mono">${f.protocoloAutorizacao}</div></div>`:''}
+          ${f.dataAutorizacaoSefaz?`<div><small class="muted">Autorizada em</small><div>${f.dataAutorizacaoSefaz}</div></div>`:''}
+        </div>
+        ${f.rejeicaoMotivo?`<div class="card" style="background:var(--danger-soft);border-color:var(--danger);color:var(--danger);margin-top:10px;">${f.rejeicaoMotivo}</div>`:''}
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+          ${f.statusSefaz==='autorizada'?`<a href="/api/faturas/${f.id}/danfe" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;">Baixar DANFE</a>`:''}
+          ${f.statusSefaz==='autorizada'?`<a href="/api/faturas/${f.id}/xml" class="btn btn-secondary btn-sm" style="text-decoration:none;">Baixar XML</a>`:''}
+          ${f.statusSefaz==='autorizada'?`<button class="btn btn-secondary btn-sm" onclick="enviarCCe(${f.id})">Carta de Correção</button>`:''}
+          ${f.statusSefaz==='autorizada'?`<button class="btn btn-danger btn-sm" onclick="cancelarNFe(${f.id})">Cancelar NF-e</button>`:''}
+        </div>
+      </div>` : '';
+
+    box.innerHTML = `
+      <div class="panel">
+        <div class="form-row">
+          <div><small class="muted">Número</small><div><strong>${f.numero}</strong></div></div>
+          <div><small class="muted">Emissão</small><div>${f.dataEmissao}</div></div>
+          <div><small class="muted">Vencimento</small><div>${f.dataVencimento}</div></div>
+          <div><small class="muted">Total</small><div><strong>R$ ${fmt(f.valorTotal)}</strong></div></div>
+          <div><small class="muted">Status fatura</small><div><span class="badge ${f.status}">${f.status}</span></div></div>
+          <div><small class="muted">Conta a receber</small><div>${f.contaReceberStatus ? `<span class="badge ${f.contaReceberStatus}">${f.contaReceberStatus}</span>` : '—'}</div></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+          <a href="/api/faturas/${f.id}/pdf" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">Baixar fatura (PDF interno)</a>
+          ${podeEmitir && !ehNaoFiscal ?`<button class="btn btn-primary btn-sm" onclick="emitirNFe(${f.id})">${f.statusSefaz==='rejeitada'?'Reenviar NF-e':'Emitir NF-e'}</button>`:''}
+          ${ehNaoFiscal ? `<span class="badge" style="background:var(--warn-soft,#78350f60);color:var(--warn,#fbbf24);">📄 Documento interno (sem NF-e)</span>` : ''}
+          ${f.status==='emitida' && !f.statusSefaz?`<button class="btn btn-danger btn-sm" onclick="cancelarFatura(${f.id})">Cancelar fatura</button>`:''}
+        </div>
+      </div>
+      ${nfeBox}`;
+  } catch(e){ box.innerHTML = '<em style="color:var(--danger);">Erro: '+e.message+'</em>'; }
+}
+
+async function emitirNFe(fid){
+  if (!confirm('Emitir NF-e para SEFAZ? Esta ação reserva um número fiscal.')) return;
+  showAlert('Enviando NF-e para SEFAZ… aguarde.');
+  try {
+    const r = await fetch('/api/faturas/'+fid+'/emitir-nfe', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    if (d.cStat === '100' || d.cStat === '150') {
+      showAlert(`NF-e autorizada · nº ${d.nNF} · protocolo ${d.protocolo}`);
+    } else {
+      showAlert(`SEFAZ: cStat ${d.cStat} — ${d.xMotivo}`, 'error');
+    }
+    await carregar();
+  } catch(e){ showAlert('Erro ao emitir: '+e.message, 'error'); }
+}
+
+async function enviarCCe(fid){
+  const correcao = prompt('Texto da Carta de Correção (15-1000 caracteres):');
+  if (!correcao || correcao.trim().length < 15) return showAlert('Correção inválida (mínimo 15 caracteres)','error');
+  const seq = Number(prompt('Nº sequência da CC-e (1 a 20):', '1')) || 1;
+  try {
+    const r = await fetch('/api/faturas/'+fid+'/cce', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ correcao: correcao.trim(), nSeqEvento: seq })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.xMotivo || d.error);
+    showAlert('Carta de Correção enviada · protocolo '+d.nProt);
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+async function cancelarNFe(fid){
+  const motivo = prompt('Motivo do cancelamento (mínimo 15 caracteres — exigência SEFAZ):');
+  if (!motivo || motivo.trim().length < 15) return showAlert('Motivo inválido (mínimo 15 caracteres)','error');
+  try {
+    const r = await fetch('/api/faturas/'+fid+'/cancelar-nfe', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ motivo: motivo.trim() })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.xMotivo || d.error);
+    showAlert('NF-e cancelada');
+    await carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+async function cancelarFatura(fid){
+  if (!confirm('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "entregue".')) return;
+  try {
+    const r = await fetch('/api/faturas/'+fid+'/cancelar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Fatura cancelada');
+    await carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+carregar();
+</script>
+</body>
+</html>

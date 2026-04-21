@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minhas Cobranças</title>
+<link rel="stylesheet" href="/portal/portal-style.css">
+</head>
+<body>
+<header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
+<nav>
+  <a href="/portal/index.html">Início</a>
+  <a href="/portal/pedidos.html">Pedidos</a>
+  <a href="/portal/cobrancas.html" class="active">Cobranças</a>
+  <a href="/portal/nfses.html">NF-e/NFS-e</a>
+  <a href="/portal/contratos.html">Contratos</a>
+  <a href="/portal/perfil.html">Trocar senha</a>
+</nav>
+<main>
+  <h2>Minhas cobranças</h2>
+  <table><thead><tr>
+    <th>Descrição</th><th>Emissão</th><th>Vencimento</th><th class="num">Valor</th><th class="num">Pago</th><th>Pago em</th><th>Status</th>
+  </tr></thead><tbody id="tb"><tr><td colspan="7">Carregando…</td></tr></tbody></table>
+</main>
+<script src="/portal/portal-common.js"></script>
+<script>
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+async function carregar(){
+  if (!await initMe()) return;
+  const r = await fetch('/portal/api/cobrancas').then(r=>r.json());
+  if (!r.success) return;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.cobrancas.length ? r.cobrancas.map(c=>{
+    const venceu = c.status==='aberta' && c.dataVencimento < new Date().toISOString().slice(0,10);
+    return `<tr ${venceu?'style="color:#ff8888;"':''}>
+      <td>${c.descricao}</td>
+      <td>${c.dataEmissao}</td>
+      <td>${c.dataVencimento}</td>
+      <td class="num">${fmtBRL(c.valor)}</td>
+      <td class="num">${c.valorPago?fmtBRL(c.valorPago):'—'}</td>
+      <td>${c.dataPagamento||'—'}</td>
+      <td><span class="badge ${c.status}">${venceu?'vencida':c.status}</span></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7">Nenhuma cobrança</td></tr>';
+}
+carregar();
+</script>
+</body></html>

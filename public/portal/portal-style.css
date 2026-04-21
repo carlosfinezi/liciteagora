@@ -1,0 +1,20 @@
+* { box-sizing:border-box; }
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin:0; background:#0a1428; color:#e0e0e0; }
+header { background:#0f1a30; padding:14px 24px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #1f2a44; }
+header h1 { font-size:18px; margin:0; color:#4dabf7; }
+header .user { font-size:13px; color:#aaa; }
+header .user button { background:transparent; border:1px solid #2a3a5c; color:#aaa; padding:6px 12px; border-radius:6px; cursor:pointer; margin-left:10px; }
+nav { background:#0f1a30; padding:10px 24px; display:flex; gap:16px; border-bottom:1px solid #1f2a44; flex-wrap:wrap; }
+nav a { color:#bbb; text-decoration:none; padding:6px 10px; border-radius:6px; font-size:14px; }
+nav a:hover { background:#16213e; color:#fff; }
+nav a.active { background:#16213e; color:#4dabf7; }
+main { max-width:1200px; margin:24px auto; padding:0 24px; }
+table { width:100%; border-collapse:collapse; background:#16213e; border-radius:8px; overflow:hidden; }
+th, td { padding:10px 14px; text-align:left; border-bottom:1px solid #1f2a44; vertical-align:middle; }
+th { color:#888; font-size:12px; text-transform:uppercase; background:#0f1a30; }
+.num { text-align:right; font-family:monospace; }
+.badge { padding:2px 8px; border-radius:10px; font-size:11px; display:inline-block; }
+.badge.aberta, .badge.pendente { background:rgba(250,170,51,0.2); color:#fa3; }
+.badge.paga, .badge.confirmado, .badge.ativo, .badge.autorizada { background:rgba(58,170,58,0.2); color:#69db7c; }
+.badge.rascunho, .badge.cancelado, .badge.encerrado, .badge.suspenso { background:rgba(150,150,150,0.2); color:#aaa; }
+.badge.vencida { background:rgba(255,107,107,0.2); color:#ff8888; }

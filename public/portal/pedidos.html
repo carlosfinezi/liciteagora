@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meus Pedidos</title>
+<link rel="stylesheet" href="/portal/portal-style.css">
+</head>
+<body>
+<header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
+<nav>
+  <a href="/portal/index.html">Início</a>
+  <a href="/portal/pedidos.html" class="active">Pedidos</a>
+  <a href="/portal/cobrancas.html">Cobranças</a>
+  <a href="/portal/nfses.html">NF-e/NFS-e</a>
+  <a href="/portal/contratos.html">Contratos</a>
+  <a href="/portal/perfil.html">Trocar senha</a>
+</nav>
+<main>
+  <h2>Meus pedidos</h2>
+  <table><thead><tr>
+    <th>Número</th><th>Data</th><th>Status</th><th>Pagamento</th><th>Entrega prevista</th><th class="num">Valor</th><th class="num">Pago</th>
+  </tr></thead><tbody id="tb"><tr><td colspan="7">Carregando…</td></tr></tbody></table>
+</main>
+<script src="/portal/portal-common.js"></script>
+<script>
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+async function carregar(){
+  if (!await initMe()) return;
+  const r = await fetch('/portal/api/pedidos').then(r=>r.json());
+  if (!r.success) return;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.pedidos.length ? r.pedidos.map(p=>`<tr>
+    <td><strong>${p.numero}</strong></td>
+    <td>${(p.dataPedido||'').slice(0,10)}</td>
+    <td><span class="badge ${p.status}">${p.status}</span></td>
+    <td><span class="badge ${p.statusPagamento}">${p.statusPagamento||'—'}</span></td>
+    <td>${p.dataEntregaPrevista||'—'}</td>
+    <td class="num">${fmtBRL(p.valorTotal)}</td>
+    <td class="num">${fmtBRL(p.valorPago)}</td>
+  </tr>`).join('') : '<tr><td colspan="7">Nenhum pedido</td></tr>';
+}
+carregar();
+</script>
+</body></html>

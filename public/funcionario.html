@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Funcionário · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* page-local: tab-pane toggle helper — .tabs/.tab vêm de app-modern.css */
+.tab-pane { display:none; } .tab-pane.active { display:block; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1 id="pgTitulo">Funcionário</h1><small id="pgSub"></small></div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/funcionarios.html">← Lista</a>
+      <button class="btn btn-danger" onclick="demitir()">Demitir</button>
+    </div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="trocarTab('dados')">Dados</div>
+    <div class="tab" onclick="trocarTab('ponto')">Ponto</div>
+    <div class="tab" onclick="trocarTab('ferias')">Férias</div>
+    <div class="tab" onclick="trocarTab('atestados')">Atestados</div>
+  </div>
+
+  <div class="tab-pane active" id="tab-dados"><div class="card" id="dadosCard">Carregando…</div></div>
+
+  <div class="tab-pane" id="tab-ponto">
+    <div class="form-row">
+      <div class="form-group"><label>Mês</label><input type="month" id="pMes"></div>
+      <div class="form-group"><label>Data</label><input type="date" id="pData"></div>
+      <div class="form-group"><label>Entrada</label><input type="time" id="pE"></div>
+      <div class="form-group"><label>Saída almoço</label><input type="time" id="pSA"></div>
+      <div class="form-group"><label>Volta almoço</label><input type="time" id="pVA"></div>
+      <div class="form-group"><label>Saída</label><input type="time" id="pS"></div>
+      <div class="form-group"><label>Tipo</label><select id="pTipo"><option value="normal">Normal</option><option value="falta">Falta</option><option value="folga">Folga</option><option value="feriado">Feriado</option></select></div>
+      <div class="form-group"><button class="btn btn-primary btn-sm" style="margin-top:18px;" onclick="addPonto()">Salvar dia</button></div>
+    </div>
+    <div id="pontoTotal" class="muted" style="margin:8px 0;"></div>
+    <table>
+      <thead><tr><th>Data</th><th>Tipo</th><th>Entrada</th><th>Saída almoço</th><th>Volta</th><th>Saída</th><th class="num">Horas</th><th></th></tr></thead>
+      <tbody id="tbPonto"><tr><td colspan="8" class="empty">Selecione o mês</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="tab-pane" id="tab-ferias">
+    <div class="form-row">
+      <div class="form-group"><label>Período aquisitivo de</label><input type="date" id="fAqIni"></div>
+      <div class="form-group"><label>até</label><input type="date" id="fAqFim"></div>
+      <div class="form-group"><label>Início gozo</label><input type="date" id="fGoIni"></div>
+      <div class="form-group"><label>Fim gozo</label><input type="date" id="fGoFim"></div>
+      <div class="form-group"><label>Dias de abono</label><input type="number" id="fAbono" min="0" max="10" value="0"></div>
+      <div class="form-group"><button class="btn btn-primary btn-sm" style="margin-top:18px;" onclick="addFerias()">Adicionar</button></div>
+    </div>
+    <table><thead><tr><th>Aquisitivo</th><th>Gozo</th><th>Dias</th><th>Abono</th><th>Status</th><th></th></tr></thead><tbody id="tbFerias"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody></table>
+  </div>
+
+  <div class="tab-pane" id="tab-atestados">
+    <div class="form-row">
+      <div class="form-group"><label>Início</label><input type="date" id="aIni"></div>
+      <div class="form-group"><label>Fim</label><input type="date" id="aFim"></div>
+      <div class="form-group"><label>CID</label><input type="text" id="aCid"></div>
+      <div class="form-group"><label>Profissional</label><input type="text" id="aProf"></div>
+      <div class="form-group"><label>CRM</label><input type="text" id="aCrm"></div>
+      <div class="form-group"><label>Motivo</label><input type="text" id="aMotivo"></div>
+      <div class="form-group"><button class="btn btn-primary btn-sm" style="margin-top:18px;" onclick="addAtestado()">Adicionar</button></div>
+    </div>
+    <table><thead><tr><th>Início</th><th>Fim</th><th>Dias</th><th>CID</th><th>Profissional</th><th>Motivo</th><th></th></tr></thead><tbody id="tbAt"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody></table>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('funcionarios');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+const id = new URLSearchParams(window.location.search).get('id');
+let func = null;
+
+function trocarTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+  if (t==='ponto')  carregarPonto();
+  if (t==='ferias') carregarFerias();
+  if (t==='atestados') carregarAtestados();
+}
+
+async function carregar(){
+  const r = await fetch('/api/funcionarios/'+id);
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  func = d.funcionario;
+  document.getElementById('pgTitulo').textContent=func.nome;
+  document.getElementById('pgSub').textContent=`${func.cargo||''} ${func.departamento?'· '+func.departamento:''}`;
+  document.getElementById('dadosCard').innerHTML = `
+    <table style="width:100%;font-size:13px;">
+      <tr><td class="muted">CPF</td><td class="mono">${func.cpf||'—'}</td><td class="muted">Tipo</td><td>${func.tipoContrato}</td></tr>
+      <tr><td class="muted">Admissão</td><td>${func.dataAdmissao}</td><td class="muted">Demissão</td><td>${func.dataDemissao||'—'}</td></tr>
+      <tr><td class="muted">Salário</td><td>${fmtBRL(func.salario)}</td><td class="muted">Jornada</td><td>${func.jornadaSemanalHoras||44}h/sem</td></tr>
+      <tr><td class="muted">E-mail</td><td>${func.email||'—'}</td><td class="muted">Telefone</td><td>${func.telefone||'—'}</td></tr>
+      <tr><td class="muted">Endereço</td><td colspan="3">${func.endereco||'—'}</td></tr>
+      <tr><td class="muted">Banco</td><td>${func.banco||'—'} ${func.agencia?'Ag '+func.agencia:''} ${func.conta?'/ '+func.conta:''}</td><td class="muted">PIX</td><td class="mono">${func.pix||'—'}</td></tr>
+    </table>
+    ${func.observacoes ? `<div style="margin-top:12px;padding:8px;background:#0f1a30;border-radius:6px;font-size:13px;">${func.observacoes}</div>` : ''}
+  `;
+  // Default values
+  const hoje = new Date();
+  document.getElementById('pMes').value = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('pData').value = hoje.toISOString().slice(0,10);
+}
+
+async function carregarPonto(){
+  const mes = document.getElementById('pMes').value;
+  const r = await fetch(`/api/funcionarios/${id}/ponto?mes=${mes}`);
+  const d = await r.json(); if (!d.success) return;
+  document.getElementById('pontoTotal').textContent = `Total no mês: ${d.totalHoras.toFixed(2)}h`;
+  document.getElementById('tbPonto').innerHTML = d.ponto.length ? d.ponto.map(p=>`<tr>
+    <td>${p.data}</td><td>${p.tipo}</td><td>${p.horaEntrada||'—'}</td><td>${p.horaSaidaAlmoco||'—'}</td><td>${p.horaVoltaAlmoco||'—'}</td><td>${p.horaSaida||'—'}</td><td class="num">${(p.horasTrabalhadas||0).toFixed(2)}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="remPonto(${p.id})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Sem registros</td></tr>';
+}
+document.getElementById('pMes').addEventListener('change', carregarPonto);
+
+async function addPonto(){
+  const body = {
+    data: document.getElementById('pData').value,
+    horaEntrada: document.getElementById('pE').value || null,
+    horaSaidaAlmoco: document.getElementById('pSA').value || null,
+    horaVoltaAlmoco: document.getElementById('pVA').value || null,
+    horaSaida: document.getElementById('pS').value || null,
+    tipo: document.getElementById('pTipo').value
+  };
+  if (!body.data) return showAlert('Data obrigatória','error');
+  const r = await fetch(`/api/funcionarios/${id}/ponto`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregarPonto();
+}
+async function remPonto(pid){ if (!confirm('Remover registro?')) return; await fetch('/api/funcionarios/ponto/'+pid,{method:'DELETE'}); carregarPonto(); }
+
+async function carregarFerias(){
+  const r = await fetch(`/api/funcionarios/${id}/ferias`);
+  const d = await r.json(); if (!d.success) return;
+  document.getElementById('tbFerias').innerHTML = d.ferias.length ? d.ferias.map(f=>`<tr>
+    <td>${f.periodoAquisitivoIni} → ${f.periodoAquisitivoFim}</td>
+    <td>${f.dataInicio?f.dataInicio+' → '+f.dataFim:'—'}</td>
+    <td>${f.dias||'—'}</td>
+    <td>${f.diasAbono||0}</td>
+    <td><span class="badge ${f.status==='concluida'?'entrada':f.status==='cancelada'?'inativo':'pendente'}">${f.status}</span></td>
+    <td><button class="btn btn-danger btn-sm" onclick="remFerias(${f.id})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty">Sem férias</td></tr>';
+}
+async function addFerias(){
+  const body = {
+    periodoAquisitivoIni: document.getElementById('fAqIni').value,
+    periodoAquisitivoFim: document.getElementById('fAqFim').value,
+    dataInicio: document.getElementById('fGoIni').value || null,
+    dataFim: document.getElementById('fGoFim').value || null,
+    diasAbono: Number(document.getElementById('fAbono').value)||0
+  };
+  if (!body.periodoAquisitivoIni || !body.periodoAquisitivoFim) return showAlert('Período aquisitivo obrigatório','error');
+  const r = await fetch(`/api/funcionarios/${id}/ferias`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregarFerias();
+}
+async function remFerias(fid){ if (!confirm('Remover?')) return; await fetch('/api/funcionarios/ferias/'+fid,{method:'DELETE'}); carregarFerias(); }
+
+async function carregarAtestados(){
+  const r = await fetch(`/api/funcionarios/${id}/atestados`);
+  const d = await r.json(); if (!d.success) return;
+  document.getElementById('tbAt').innerHTML = d.atestados.length ? d.atestados.map(a=>`<tr>
+    <td>${a.dataInicio}</td><td>${a.dataFim}</td><td>${a.dias}</td><td class="mono">${a.cid||'—'}</td><td>${a.profissionalSaude||'—'}</td><td>${a.motivo||'—'}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="remAt(${a.id})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Sem atestados</td></tr>';
+}
+async function addAtestado(){
+  const body = {
+    dataInicio: document.getElementById('aIni').value, dataFim: document.getElementById('aFim').value,
+    cid: document.getElementById('aCid').value || null, profissionalSaude: document.getElementById('aProf').value || null,
+    crm: document.getElementById('aCrm').value || null, motivo: document.getElementById('aMotivo').value || null
+  };
+  if (!body.dataInicio || !body.dataFim) return showAlert('Datas obrigatórias','error');
+  const r = await fetch(`/api/funcionarios/${id}/atestados`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregarAtestados();
+}
+async function remAt(aid){ if (!confirm('Remover?')) return; await fetch('/api/funcionarios/atestados/'+aid,{method:'DELETE'}); carregarAtestados(); }
+
+async function demitir(){
+  const data = prompt('Data de demissão (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+  if (!data) return;
+  const r = await fetch('/api/funcionarios/'+id, { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dataDemissao: data }) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('Demissão registrada'); carregar();
+}
+
+carregar();
+</script>
+</body></html>

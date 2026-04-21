@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meus Contratos</title>
+<link rel="stylesheet" href="/portal/portal-style.css">
+</head>
+<body>
+<header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
+<nav>
+  <a href="/portal/index.html">Início</a>
+  <a href="/portal/pedidos.html">Pedidos</a>
+  <a href="/portal/cobrancas.html">Cobranças</a>
+  <a href="/portal/nfses.html">NF-e/NFS-e</a>
+  <a href="/portal/contratos.html" class="active">Contratos</a>
+  <a href="/portal/perfil.html">Trocar senha</a>
+</nav>
+<main>
+  <h2>Meus contratos</h2>
+  <table><thead><tr>
+    <th>Número</th><th>Descrição</th><th class="num">Valor mensal</th><th>Vencimento</th><th>Vigência</th><th>Status</th>
+  </tr></thead><tbody id="tb"><tr><td colspan="6">Carregando…</td></tr></tbody></table>
+</main>
+<script src="/portal/portal-common.js"></script>
+<script>
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+async function carregar(){
+  if (!await initMe()) return;
+  const r = await fetch('/portal/api/contratos').then(r=>r.json());
+  if (!r.success) return;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.contratos.length ? r.contratos.map(c=>`<tr>
+    <td><strong>${c.numero}</strong></td>
+    <td>${c.descricao}</td>
+    <td class="num">${fmtBRL(c.valorMensal)}</td>
+    <td>dia ${c.diaVencimento}</td>
+    <td>${c.dataInicio} → ${c.dataFim||'indeterminado'}</td>
+    <td><span class="badge ${c.status}">${c.status}</span></td>
+  </tr>`).join('') : '<tr><td colspan="6">Nenhum contrato</td></tr>';
+}
+carregar();
+</script>
+</body></html>

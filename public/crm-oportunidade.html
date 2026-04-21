@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oportunidade · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.cards-grid { display:grid; grid-template-columns: 1fr 380px; gap:16px; }
+@media (max-width: 980px) { .cards-grid { grid-template-columns: 1fr; } }
+.ativ-item { padding:10px; border-left:3px solid var(--accent); background:var(--bg-1); margin-bottom:8px; border-radius:var(--r-md); }
+.ativ-item.concluida { border-left-color:var(--success); opacity:.7; }
+.ativ-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
+.tipo-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-lg); font-size:10px; background:var(--border); color:var(--text-2); margin-right:6px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 id="pgTitulo">Oportunidade</h1>
+      <small id="pgSub"></small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/crm-funil.html">← Funil</a>
+      <button class="btn btn-secondary" onclick="editar()">Editar</button>
+      <button class="btn btn-danger" onclick="arquivar()">Arquivar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="cards-grid">
+    <div class="card">
+      <h3>Resumo</h3>
+      <div id="resumo" class="muted">Carregando…</div>
+
+      <h3 style="margin-top:18px;">Atividades</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="aTipo"></select>
+        </div>
+        <div class="form-group">
+          <label>Data/hora *</label>
+          <input type="datetime-local" id="aData">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Título *</label>
+          <input type="text" id="aTit">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Descrição</label>
+          <textarea id="aDesc" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="actions-bar">
+        <button class="btn btn-primary btn-sm" onclick="addAtividade()">+ Adicionar atividade</button>
+      </div>
+
+      <div id="listaAtiv" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
+      <h3>Mover para etapa</h3>
+      <div id="etapasMover"></div>
+    </div>
+  </div>
+</main></div>
+
+<!-- Modal editar (compartilhado com funil; aqui simplificado: redireciona) -->
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('crm-funil');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function fmtDataHora(s){ if (!s) return '—'; const d = new Date(s.includes('T')?s:s+'Z'); return d.toLocaleString('pt-BR'); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const opId = new URLSearchParams(window.location.search).get('id');
+let op = null;
+let funis = [];
+
+async function carregar(){
+  if (!opId) return showAlert('ID da oportunidade não informado','error');
+  const [r1, r2] = await Promise.all([
+    fetch('/api/crm/oportunidades/'+opId).then(r=>r.json()),
+    fetch('/api/crm/funis').then(r=>r.json())
+  ]);
+  if (!r1.success) return showAlert(r1.error,'error');
+  if (!r2.success) return showAlert(r2.error,'error');
+  op = r1.oportunidade;
+  funis = r2.funis;
+  document.getElementById('aTipo').innerHTML = r2.tiposAtividade.map(t=>`<option>${t}</option>`).join('');
+  document.getElementById('pgTitulo').textContent = op.titulo;
+  document.getElementById('pgSub').textContent = `${op.funilNome} · ${op.etapaNome}`;
+  renderResumo();
+  renderAtividades(r1.atividades);
+  renderEtapasMover();
+  // default datetime para agora
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('aData').value = now.toISOString().slice(0,16);
+}
+
+function renderResumo(){
+  const html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span class="badge" style="background:${op.etapaCor||'#2a3a5c'};color:#fff;">${op.etapaNome}</span>
+      <strong style="color:#69db7c;font-size:18px;">${fmtBRL(op.valor)}</strong>
+    </div>
+    <table style="width:100%;font-size:13px;">
+      <tr><td class="muted">Cliente</td><td>${op.clienteNome||'—'}</td></tr>
+      <tr><td class="muted">Vendedor</td><td>${op.vendedorNome||'—'}</td></tr>
+      <tr><td class="muted">Probabilidade</td><td>${op.probabilidade}%</td></tr>
+      <tr><td class="muted">Fonte</td><td>${op.fonte||'—'}</td></tr>
+      <tr><td class="muted">Aberta em</td><td>${fmtDataHora(op.dataAbertura)}</td></tr>
+      <tr><td class="muted">Previsão</td><td>${op.dataPrevisaoFechamento||'—'}</td></tr>
+      ${op.dataFechamento ? `<tr><td class="muted">Fechada em</td><td>${fmtDataHora(op.dataFechamento)}</td></tr>` : ''}
+      ${op.motivoPerda ? `<tr><td class="muted">Motivo da perda</td><td>${escapeHtml(op.motivoPerda)}</td></tr>` : ''}
+    </table>
+    ${op.descricao ? `<div style="margin-top:12px;padding:8px;background:#0f1a30;border-radius:6px;font-size:13px;">${escapeHtml(op.descricao)}</div>` : ''}
+  `;
+  document.getElementById('resumo').innerHTML = html;
+}
+
+function renderAtividades(ativs){
+  const tb = document.getElementById('listaAtiv');
+  if (!ativs || !ativs.length) { tb.innerHTML = '<div class="muted" style="text-align:center;padding:20px;">Sem atividades</div>'; return; }
+  tb.innerHTML = ativs.map(a=>`
+    <div class="ativ-item ${a.concluida?'concluida':''}">
+      <div>
+        <span class="tipo-badge">${a.tipo}</span>
+        <strong>${escapeHtml(a.titulo)}</strong>
+      </div>
+      ${a.descricao ? `<div style="font-size:12px;margin-top:4px;color:#bbb;">${escapeHtml(a.descricao)}</div>` : ''}
+      <div class="ativ-meta">
+        📅 ${fmtDataHora(a.dataHora)} · ${a.usuarioNome||'—'}
+        ${a.concluida ? `· ✅ ${fmtDataHora(a.dataConclusao)}` : ''}
+      </div>
+      <div style="margin-top:6px;">
+        ${!a.concluida ? `<button class="btn btn-secondary btn-sm" onclick="concluir(${a.id})">Concluir</button>` : ''}
+        <button class="btn btn-danger btn-sm" onclick="excluirAtiv(${a.id})">Excluir</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderEtapasMover(){
+  const funil = funis.find(f=>f.id===op.funilId);
+  if (!funil) return;
+  document.getElementById('etapasMover').innerHTML = funil.etapas.filter(e=>e.id!==op.etapaId).map(e=>
+    `<button class="btn btn-secondary btn-sm" style="display:block;width:100%;margin-bottom:6px;text-align:left;background:${e.cor||'#2a3a5c'};color:#fff;border:none;" onclick="moverEtapa(${e.id}, '${e.tipo}')">→ ${e.nome}</button>`
+  ).join('');
+}
+
+async function moverEtapa(etapaId, tipo){
+  let motivoPerda = null;
+  if (tipo === 'perdido') {
+    motivoPerda = prompt('Motivo da perda:');
+    if (motivoPerda === null) return;
+  }
+  const r = await fetch(`/api/crm/oportunidades/${op.id}/mover`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ etapaId, motivoPerda })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Movida com sucesso');
+  carregar();
+}
+
+async function addAtividade(){
+  const body = {
+    oportunidadeId: op.id,
+    tipo: document.getElementById('aTipo').value,
+    titulo: document.getElementById('aTit').value.trim(),
+    descricao: document.getElementById('aDesc').value || null,
+    dataHora: document.getElementById('aData').value
+  };
+  if (!body.titulo || !body.dataHora) return showAlert('Título e data/hora obrigatórios','error');
+  const r = await fetch('/api/crm/atividades', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('aTit').value=''; document.getElementById('aDesc').value='';
+  showAlert('Atividade adicionada');
+  carregar();
+}
+async function concluir(id){
+  const nota = prompt('Resultado / nota (opcional):') || null;
+  const r = await fetch(`/api/crm/atividades/${id}/concluir`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ resultadoNota: nota }) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+async function excluirAtiv(id){
+  if (!confirm('Excluir esta atividade?')) return;
+  const r = await fetch('/api/crm/atividades/'+id, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+function editar(){
+  // versão simples: redireciona para o funil com o card aberto via nova chamada futura
+  // por enquanto edição completa fica no funil; aqui suportamos só atividades + mover
+  alert('Edição completa: use o funil. Nesta tela é possível mover etapa e gerenciar atividades.');
+}
+
+async function arquivar(){
+  if (!confirm('Arquivar esta oportunidade?')) return;
+  const r = await fetch('/api/crm/oportunidades/'+op.id, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  window.location.href='/crm-funil.html';
+}
+
+carregar();
+</script>
+</body></html>

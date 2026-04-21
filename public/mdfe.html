@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MDF-e · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>MDF-e — Manifesto de Documentos Fiscais</h1>
+      <small>Estrutura + geração de XML básico. Transmissão SEFAZ é manual nesta versão (use emissor externo).</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo MDF-e</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="alert" style="background:rgba(250,170,51,0.15);color:#fa3;padding:8px 14px;margin:10px 0;border-radius:6px;display:block;">
+    ⚠ Esta versão registra os dados e gera o XML não-assinado. A assinatura digital e o envio à SEFAZ devem ser feitos por emissor externo (ou em evolução futura). Após emitir, marque o MDF-e como "transmitido" informando a chave de acesso retornada.
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="fQ" placeholder="Buscar placa, condutor ou chave…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todos</option>
+      <option value="rascunho">Rascunho</option>
+      <option value="preparado">Preparado</option>
+      <option value="transmitido">Transmitido</option>
+      <option value="encerrado">Encerrado</option>
+      <option value="cancelado">Cancelado</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Série/Nº</th><th>Emissão</th><th>UF Ini→Fim</th><th>Placa</th><th>Condutor</th><th>NF-e</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Novo/Editar -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:840px;">
+    <div class="modal-header"><h3 id="mTit">Novo MDF-e</h3><button class="btn btn-ghost btn-sm" onclick="fecharModal()">×</button></div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group"><label>Série</label><input type="number" id="fSerie" value="1" min="1"></div>
+      <div class="form-group"><label>Modal</label><select id="fModal"><option value="1">Rodoviário</option><option value="2">Aéreo</option><option value="3">Aquaviário</option><option value="4">Ferroviário</option></select></div>
+      <div class="form-group"><label>Tipo Emitente</label><select id="fTipoEmit"><option value="1">Transportador (PJ)</option><option value="2">Autônomo</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>UF Carregamento *</label><input type="text" id="fUfIni" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label>UF Descarregamento *</label><input type="text" id="fUfFim" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><label>Percurso UFs intermediárias (separadas por vírgula)</label><input type="text" id="fPerc" placeholder="MG, BA"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Data emissão *</label><input type="date" id="fDtEmi"></div>
+      <div class="form-group"><label>Início viagem</label><input type="date" id="fDtIni"></div>
+      <div class="form-group"><label>RNTRC</label><input type="text" id="fRntrc"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Placa</label><input type="text" id="fPlaca" style="text-transform:uppercase"></div>
+      <div class="form-group"><label>Renavam</label><input type="text" id="fRenavam"></div>
+      <div class="form-group"><label>Tara (kg)</label><input type="number" id="fTara"></div>
+      <div class="form-group"><label>Capacidade (kg)</label><input type="number" id="fCap"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Condutor</label><input type="text" id="fCondNome"></div>
+      <div class="form-group"><label>CPF do condutor</label><input type="text" id="fCondCpf"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Peso bruto total (kg)</label><input type="number" id="fPeso" step="0.001"></div>
+      <div class="form-group"><label>Valor total da carga (R$)</label><input type="number" id="fValCarga" step="0.01"></div>
+    </div>
+
+    <h4 style="margin-top:14px;">NF-e transportadas</h4>
+    <div class="form-row">
+      <div class="form-group" style="flex:1;"><label>Chave de acesso (44 dígitos)</label><input type="text" id="fNfeChave" maxlength="44"></div>
+      <div class="form-group"><label>Número</label><input type="text" id="fNfeNum"></div>
+      <div class="form-group"><label>UF descarga</label><input type="text" id="fNfeUf" maxlength="2" style="text-transform:uppercase"></div>
+      <div class="form-group"><button class="btn btn-secondary btn-sm" onclick="addNfe()" style="margin-top:18px;">Adicionar</button></div>
+    </div>
+    <table id="tbNfe" style="margin-top:8px;font-size:13px;"><thead><tr><th>Chave</th><th>Nº</th><th>UF</th><th></th></tr></thead><tbody></tbody></table>
+
+    <div class="form-row" style="margin-top:14px;">
+      <div class="form-group full-width"><label>Observações</label><textarea id="fObs" rows="2"></textarea></div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar (rascunho)</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal marcar transmitido -->
+<div class="modal-bg" id="modalTransmitido">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3>Marcar como transmitido</h3><button class="btn btn-ghost btn-sm" onclick="document.getElementById('modalTransmitido').classList.remove('open')">×</button></div>
+    <input type="hidden" id="trId">
+    <div class="form-row"><div class="form-group full-width"><label>Chave de acesso (44 dígitos) *</label><input type="text" id="trChave" maxlength="44"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label>Protocolo (opcional)</label><input type="text" id="trProt"></div></div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="document.getElementById('modalTransmitido').classList.remove('open')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarTransmitido()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('mdfe');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+let nfesBuffer = [];
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+  const s = document.getElementById('fStatus').value;   if (s) p.set('status', s);
+  const r = await fetch('/api/mdfe?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tb');
+  tb.innerHTML = d.manifestos.length ? d.manifestos.map(m=>`<tr>
+    <td class="mono"><strong>${m.serie}/${m.numero}</strong></td>
+    <td>${m.dataEmissao}</td>
+    <td>${m.ufCarregamento} → ${m.ufDescarregamento}</td>
+    <td class="mono">${m.placa||'—'}</td>
+    <td>${m.condutorNome||'—'}</td>
+    <td><small class="mono">${m.chaveAcesso?m.chaveAcesso.slice(-12):'—'}</small></td>
+    <td><span class="badge ${m.status==='encerrado'?'entrada':m.status==='cancelado'?'inativo':'pendente'}">${m.status}</span></td>
+    <td>
+      ${m.status==='rascunho' ? `<button class="btn btn-secondary btn-sm" onclick="editar(${m.id})">Editar</button>
+                                  <button class="btn btn-primary btn-sm" onclick="preparar(${m.id})">Preparar XML</button>` : ''}
+      ${m.status==='preparado' ? `<a class="btn btn-secondary btn-sm" href="/api/mdfe/${m.id}/xml" target="_blank">Baixar XML</a>
+                                  <button class="btn btn-primary btn-sm" onclick="abrirTransmitido(${m.id})">Marcar transmitido</button>` : ''}
+      ${m.status==='transmitido' ? `<button class="btn btn-success btn-sm" onclick="encerrar(${m.id})">Encerrar</button>
+                                    <a class="btn btn-secondary btn-sm" href="/api/mdfe/${m.id}/xml" target="_blank">XML</a>` : ''}
+      ${['rascunho','preparado','transmitido'].includes(m.status) ? `<button class="btn btn-danger btn-sm" onclick="cancelar(${m.id})">Cancelar</button>` : ''}
+    </td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum MDF-e</td></tr>';
+}
+
+function abrirNovo(){
+  document.getElementById('mTit').textContent='Novo MDF-e';
+  document.getElementById('fId').value='';
+  ['fUfIni','fUfFim','fPerc','fDtIni','fRntrc','fPlaca','fRenavam','fTara','fCap','fCondNome','fCondCpf','fPeso','fValCarga','fObs','fNfeChave','fNfeNum','fNfeUf'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fSerie').value='1';
+  document.getElementById('fModal').value='1';
+  document.getElementById('fTipoEmit').value='1';
+  document.getElementById('fDtEmi').value = new Date().toISOString().slice(0,10);
+  nfesBuffer = []; renderNfes();
+  document.getElementById('modal').classList.add('open');
+}
+
+async function editar(id){
+  const r = await fetch('/api/mdfe/'+id);
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('mTit').textContent='Editar MDF-e';
+  document.getElementById('fId').value=d.mdfe.id;
+  document.getElementById('fSerie').value=d.mdfe.serie;
+  document.getElementById('fModal').value=d.mdfe.modal;
+  document.getElementById('fTipoEmit').value=d.mdfe.tipoEmitente;
+  document.getElementById('fUfIni').value=d.mdfe.ufCarregamento;
+  document.getElementById('fUfFim').value=d.mdfe.ufDescarregamento;
+  document.getElementById('fPerc').value=d.percurso.map(p=>p.uf).join(', ');
+  document.getElementById('fDtEmi').value=d.mdfe.dataEmissao;
+  document.getElementById('fDtIni').value=d.mdfe.dataInicioViagem||'';
+  document.getElementById('fRntrc').value=d.mdfe.rntrc||'';
+  document.getElementById('fPlaca').value=d.mdfe.placa||'';
+  document.getElementById('fRenavam').value=d.mdfe.renavam||'';
+  document.getElementById('fTara').value=d.mdfe.tara||'';
+  document.getElementById('fCap').value=d.mdfe.capacidadeKg||'';
+  document.getElementById('fCondNome').value=d.mdfe.condutorNome||'';
+  document.getElementById('fCondCpf').value=d.mdfe.condutorCpf||'';
+  document.getElementById('fPeso').value=d.mdfe.pesoBrutoKg||'';
+  document.getElementById('fValCarga').value=d.mdfe.valorCargaTotal||'';
+  document.getElementById('fObs').value=d.mdfe.observacoes||'';
+  nfesBuffer = d.nfes.map(n => ({ chaveNfe: n.chaveNfe, numeroNfe: n.numeroNfe, ufDescarga: n.ufDescarga }));
+  renderNfes();
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+function addNfe(){
+  const chave = document.getElementById('fNfeChave').value.trim();
+  if (chave.length !== 44) return alert('Chave de NF-e deve ter 44 dígitos');
+  nfesBuffer.push({
+    chaveNfe: chave,
+    numeroNfe: document.getElementById('fNfeNum').value || null,
+    ufDescarga: document.getElementById('fNfeUf').value || null
+  });
+  ['fNfeChave','fNfeNum','fNfeUf'].forEach(id=>document.getElementById(id).value='');
+  renderNfes();
+}
+function renderNfes(){
+  document.querySelector('#tbNfe tbody').innerHTML = nfesBuffer.length ? nfesBuffer.map((n,idx)=>`<tr>
+    <td class="mono"><small>${n.chaveNfe}</small></td>
+    <td>${n.numeroNfe||'—'}</td>
+    <td>${n.ufDescarga||'—'}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="remNfe(${idx})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhuma NF-e</td></tr>';
+}
+function remNfe(idx){ nfesBuffer.splice(idx,1); renderNfes(); }
+
+async function salvar(){
+  const id = document.getElementById('fId').value;
+  const percursoTxt = document.getElementById('fPerc').value;
+  const percurso = percursoTxt.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+  const body = {
+    serie: Number(document.getElementById('fSerie').value),
+    modal: document.getElementById('fModal').value,
+    tipoEmitente: document.getElementById('fTipoEmit').value,
+    ufCarregamento: document.getElementById('fUfIni').value.toUpperCase(),
+    ufDescarregamento: document.getElementById('fUfFim').value.toUpperCase(),
+    dataEmissao: document.getElementById('fDtEmi').value,
+    dataInicioViagem: document.getElementById('fDtIni').value || null,
+    rntrc: document.getElementById('fRntrc').value || null,
+    placa: document.getElementById('fPlaca').value.toUpperCase() || null,
+    renavam: document.getElementById('fRenavam').value || null,
+    tara: document.getElementById('fTara').value ? Number(document.getElementById('fTara').value) : null,
+    capacidadeKg: document.getElementById('fCap').value ? Number(document.getElementById('fCap').value) : null,
+    condutorNome: document.getElementById('fCondNome').value || null,
+    condutorCpf: document.getElementById('fCondCpf').value || null,
+    pesoBrutoKg: document.getElementById('fPeso').value ? Number(document.getElementById('fPeso').value) : null,
+    valorCargaTotal: document.getElementById('fValCarga').value ? Number(document.getElementById('fValCarga').value) : null,
+    observacoes: document.getElementById('fObs').value || null,
+    percurso,
+    nfes: nfesBuffer
+  };
+  if (!body.ufCarregamento || !body.ufDescarregamento || !body.dataEmissao) return showAlert('UFs e data emissão obrigatórios','error');
+  const url = id ? '/api/mdfe/'+id : '/api/mdfe';
+  const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert(id?'Atualizado':'MDF-e criado'); fecharModal(); carregar();
+}
+
+async function preparar(id){
+  if (!confirm('Gerar XML não-assinado e marcar como preparado?')) return;
+  const r = await fetch('/api/mdfe/'+id+'/preparar', { method:'POST' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('XML gerado. Baixe e use seu emissor para transmitir à SEFAZ. Volte aqui para registrar a chave.');
+  carregar();
+}
+function abrirTransmitido(id){
+  document.getElementById('trId').value=id;
+  document.getElementById('trChave').value='';
+  document.getElementById('trProt').value='';
+  document.getElementById('modalTransmitido').classList.add('open');
+}
+async function confirmarTransmitido(){
+  const id = document.getElementById('trId').value;
+  const body = { chaveAcesso: document.getElementById('trChave').value.replace(/\D/g,''), protocolo: document.getElementById('trProt').value || null };
+  const r = await fetch(`/api/mdfe/${id}/marcar-transmitido`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('modalTransmitido').classList.remove('open');
+  showAlert('Marcado como transmitido'); carregar();
+}
+async function encerrar(id){
+  if (!confirm('Encerrar este MDF-e? (a viagem foi concluída)')) return;
+  const r = await fetch(`/api/mdfe/${id}/encerrar`, { method:'POST' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+async function cancelar(id){
+  const motivo = prompt('Motivo do cancelamento (mín. 15 caracteres por exigência da SEFAZ):');
+  if (!motivo) return;
+  const r = await fetch(`/api/mdfe/${id}/cancelar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+carregar();
+</script>
+</body></html>

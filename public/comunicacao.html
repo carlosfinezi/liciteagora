@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Comunicação · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* page-local: .tabs/.tab vêm de app-modern.css */
+.tab-pane { display:none; } .tab-pane.active { display:block; }
+.placeholders { font-size:11px; color:var(--text-3); margin-top:4px; }
+.placeholders code { background:var(--bg-1); padding:1px 4px; border-radius:var(--r-sm); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Comunicação</h1>
+      <small>Templates, listas e campanhas de e-mail/WhatsApp</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="trocarTab('camp')">Campanhas</div>
+    <div class="tab" onclick="trocarTab('tpl')">Templates</div>
+    <div class="tab" onclick="trocarTab('lst')">Listas</div>
+  </div>
+
+  <!-- CAMPANHAS -->
+  <div class="tab-pane active" id="tab-camp">
+    <div class="toolbar"><button class="btn btn-primary" onclick="novaCamp()">+ Nova campanha</button></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Canal</th><th>Template</th><th>Lista</th><th>Status</th><th class="num">Dest.</th><th class="num">Enviados</th><th class="num">Falhas</th><th>Quando</th><th>Ações</th></tr></thead>
+        <tbody id="tbCamp"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TEMPLATES -->
+  <div class="tab-pane" id="tab-tpl">
+    <div class="toolbar"><button class="btn btn-primary" onclick="novoTpl()">+ Novo template</button></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Canal</th><th>Assunto</th><th>Início do corpo</th><th>Ações</th></tr></thead>
+        <tbody id="tbTpl"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- LISTAS -->
+  <div class="tab-pane" id="tab-lst">
+    <div class="toolbar"><button class="btn btn-primary" onclick="novaLst()">+ Nova lista</button></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Descrição</th><th class="num">Membros</th><th>Ações</th></tr></thead>
+        <tbody id="tbLst"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<!-- Modal Template -->
+<div class="modal-bg" id="modalTpl">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header"><h3 id="tplTit">Template</h3><button class="btn btn-ghost btn-sm" onclick="fechar('modalTpl')">×</button></div>
+    <input type="hidden" id="tplId">
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Nome *</label><input type="text" id="tplNome"></div>
+      <div class="form-group"><label>Canal *</label><select id="tplCanal"><option value="email">E-mail</option><option value="whatsapp">WhatsApp</option></select></div>
+    </div>
+    <div class="form-row" id="rowAssunto"><div class="form-group full-width"><label>Assunto (e-mail)</label><input type="text" id="tplAssunto"></div></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Corpo *</label>
+      <textarea id="tplCorpo" rows="8"></textarea>
+      <div class="placeholders">Placeholders: <code>{{razaoSocial}}</code> <code>{{primeiroNome}}</code> <code>{{cpfCnpj}}</code> <code>{{email}}</code> <code>{{telefone}}</code></div>
+    </div></div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fechar('modalTpl')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTpl()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Lista -->
+<div class="modal-bg" id="modalLst">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><h3>Nova lista</h3><button class="btn btn-ghost btn-sm" onclick="fechar('modalLst')">×</button></div>
+    <div class="form-row"><div class="form-group full-width"><label>Nome *</label><input type="text" id="lstNome"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label>Descrição</label><textarea id="lstDesc" rows="2"></textarea></div></div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fechar('modalLst')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarLst()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Membros -->
+<div class="modal-bg" id="modalMembros">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header"><h3 id="memTit">Membros</h3><button class="btn btn-ghost btn-sm" onclick="fechar('modalMembros')">×</button></div>
+    <input type="hidden" id="memListaId">
+    <div class="toolbar">
+      <input type="text" id="memBuscaPessoa" placeholder="Buscar pessoa para adicionar…" oninput="acPessoa()" style="flex:1;position:relative;">
+    </div>
+    <div id="acPessoaList" class="ac-list" style="position:relative;max-height:200px;overflow:auto;background:#0f1a30;border:1px solid #2a3a5c;border-radius:6px;margin-top:4px;"></div>
+    <div class="tbl-wrap" style="margin-top:14px;max-height:300px;overflow:auto;">
+      <table>
+        <thead><tr><th>Razão social</th><th>CPF/CNPJ</th><th>E-mail</th><th>Telefone</th><th></th></tr></thead>
+        <tbody id="tbMem"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Campanha -->
+<div class="modal-bg" id="modalCamp">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><h3>Nova campanha</h3><button class="btn btn-ghost btn-sm" onclick="fechar('modalCamp')">×</button></div>
+    <div class="form-row"><div class="form-group full-width"><label>Nome *</label><input type="text" id="campNome"></div></div>
+    <div class="form-row">
+      <div class="form-group"><label>Template *</label><select id="campTpl"></select></div>
+      <div class="form-group"><label>Lista *</label><select id="campLst"></select></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Agendar para (opcional — vazio = rascunho, executa manualmente)</label>
+      <input type="datetime-local" id="campAg">
+    </div></div>
+    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="campObs" rows="2"></textarea></div></div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fechar('modalCamp')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCamp()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('comunicacao');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+
+let templates=[], listas=[];
+
+function trocarTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+  if (t==='camp') carregarCamp();
+  if (t==='tpl')  carregarTpl();
+  if (t==='lst')  carregarLst();
+}
+
+// ===== TEMPLATES =====
+
+async function carregarTpl(){
+  const r = await fetch('/api/comm/templates');
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  templates = d.templates;
+  document.getElementById('tbTpl').innerHTML = templates.length ? templates.map(t=>`<tr>
+    <td><strong>${t.nome}</strong></td>
+    <td><span class="badge ${t.canal==='email'?'entrada':'pendente'}">${t.canal}</span></td>
+    <td>${t.assunto||'—'}</td>
+    <td><small>${(t.corpo||'').slice(0,80)}…</small></td>
+    <td>
+      <button class="btn btn-secondary btn-sm" onclick='editarTpl(${JSON.stringify(t)})'>Editar</button>
+      <button class="btn btn-danger btn-sm" onclick="excluirTpl(${t.id})">Desativar</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhum template</td></tr>';
+}
+function novoTpl(){
+  document.getElementById('tplTit').textContent='Novo template';
+  ['tplId','tplNome','tplAssunto','tplCorpo'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('tplCanal').value='email';
+  document.getElementById('rowAssunto').style.display='';
+  document.getElementById('modalTpl').classList.add('open');
+}
+function editarTpl(t){
+  document.getElementById('tplTit').textContent='Editar template';
+  document.getElementById('tplId').value=t.id;
+  document.getElementById('tplNome').value=t.nome;
+  document.getElementById('tplCanal').value=t.canal;
+  document.getElementById('tplAssunto').value=t.assunto||'';
+  document.getElementById('tplCorpo').value=t.corpo;
+  toggleAssunto();
+  document.getElementById('modalTpl').classList.add('open');
+}
+document.getElementById('tplCanal').addEventListener('change', toggleAssunto);
+function toggleAssunto(){ document.getElementById('rowAssunto').style.display = document.getElementById('tplCanal').value === 'email' ? '' : 'none'; }
+async function salvarTpl(){
+  const id = document.getElementById('tplId').value;
+  const body = {
+    nome: document.getElementById('tplNome').value.trim(),
+    canal: document.getElementById('tplCanal').value,
+    assunto: document.getElementById('tplAssunto').value || null,
+    corpo: document.getElementById('tplCorpo').value
+  };
+  if (!body.nome || !body.corpo) return showAlert('Nome e corpo obrigatórios','error');
+  const url = id ? '/api/comm/templates/'+id : '/api/comm/templates';
+  const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert(id?'Template atualizado':'Template criado'); fechar('modalTpl'); carregarTpl();
+}
+async function excluirTpl(id){ if (!confirm('Desativar?')) return; const r=await fetch('/api/comm/templates/'+id,{method:'DELETE'}); if ((await r.json()).success) carregarTpl(); }
+
+// ===== LISTAS =====
+
+async function carregarLst(){
+  const r = await fetch('/api/comm/listas');
+  const d = await r.json(); if (!d.success) return;
+  listas = d.listas;
+  document.getElementById('tbLst').innerHTML = listas.length ? listas.map(l=>`<tr>
+    <td><strong>${l.nome}</strong></td>
+    <td>${l.descricao||'—'}</td>
+    <td class="num">${l.qtdMembros}</td>
+    <td>
+      <button class="btn btn-secondary btn-sm" onclick="abrirMembros(${l.id}, ${JSON.stringify(l.nome).replace(/"/g,'&quot;')})">Membros</button>
+      <button class="btn btn-danger btn-sm" onclick="excluirLst(${l.id})">Desativar</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhuma lista</td></tr>';
+}
+function novaLst(){ ['lstNome','lstDesc'].forEach(id=>document.getElementById(id).value=''); document.getElementById('modalLst').classList.add('open'); }
+async function salvarLst(){
+  const body = { nome: document.getElementById('lstNome').value.trim(), descricao: document.getElementById('lstDesc').value || null };
+  if (!body.nome) return showAlert('Nome obrigatório','error');
+  const r = await fetch('/api/comm/listas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  fechar('modalLst'); carregarLst();
+}
+async function excluirLst(id){ if (!confirm('Desativar lista?')) return; await fetch('/api/comm/listas/'+id,{method:'DELETE'}); carregarLst(); }
+
+async function abrirMembros(id, nome){
+  document.getElementById('memTit').textContent='Membros: '+nome;
+  document.getElementById('memListaId').value=id;
+  document.getElementById('memBuscaPessoa').value='';
+  document.getElementById('acPessoaList').innerHTML='';
+  document.getElementById('modalMembros').classList.add('open');
+  carregarMembros();
+}
+async function carregarMembros(){
+  const id = document.getElementById('memListaId').value;
+  const r = await fetch('/api/comm/listas/'+id);
+  const d = await r.json(); if (!d.success) return;
+  document.getElementById('tbMem').innerHTML = d.membros.length ? d.membros.map(m=>`<tr>
+    <td>${m.razaoSocial}</td><td class="mono">${m.cpfCnpj||'—'}</td><td>${m.email||'—'}</td><td>${m.telefone||'—'}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="remMembro(${m.id})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="5" class="empty">Sem membros</td></tr>';
+}
+
+let acTimer;
+function acPessoa(){
+  clearTimeout(acTimer);
+  const q = document.getElementById('memBuscaPessoa').value.trim();
+  if (q.length<2){ document.getElementById('acPessoaList').innerHTML=''; return; }
+  acTimer = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = d.pessoas || d.data || [];
+    document.getElementById('acPessoaList').innerHTML = lista.slice(0,15).map(p=>
+      `<div style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #2a3a5c;" onclick="addMembro(${p.id})">${p.razaoSocial} <small class="muted">${p.cpfCnpj||''} · ${p.email||''}</small></div>`
+    ).join('');
+  },200);
+}
+async function addMembro(pessoaId){
+  const id = document.getElementById('memListaId').value;
+  const r = await fetch(`/api/comm/listas/${id}/membros`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pessoaIds: [pessoaId] }) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('memBuscaPessoa').value='';
+  document.getElementById('acPessoaList').innerHTML='';
+  carregarMembros();
+}
+async function remMembro(id){ await fetch('/api/comm/listas/membros/'+id,{method:'DELETE'}); carregarMembros(); }
+
+// ===== CAMPANHAS =====
+
+async function carregarCamp(){
+  const [t1, t2, t3] = await Promise.all([
+    fetch('/api/comm/templates').then(r=>r.json()),
+    fetch('/api/comm/listas').then(r=>r.json()),
+    fetch('/api/comm/campanhas').then(r=>r.json())
+  ]);
+  if (t1.success) templates = t1.templates;
+  if (t2.success) listas = t2.listas;
+  if (!t3.success) return showAlert(t3.error,'error');
+  document.getElementById('tbCamp').innerHTML = t3.campanhas.length ? t3.campanhas.map(c=>`<tr>
+    <td><strong>${c.nome}</strong></td>
+    <td><span class="badge ${c.canal==='email'?'entrada':'pendente'}">${c.canal}</span></td>
+    <td>${c.templateNome}</td>
+    <td>${c.listaNome}</td>
+    <td><span class="badge ${c.status==='enviada'?'entrada':c.status==='cancelada'?'inativo':'pendente'}">${c.status}</span></td>
+    <td class="num">${c.totalDestinatarios}</td>
+    <td class="num">${c.totalEnviados||0}</td>
+    <td class="num">${c.totalFalhas||0}</td>
+    <td>${c.dataEnvio?new Date(c.dataEnvio+'Z').toLocaleString('pt-BR'):(c.agendadaPara||'—')}</td>
+    <td>
+      ${['rascunho','agendada'].includes(c.status) ? `<button class="btn btn-success btn-sm" onclick="executarCamp(${c.id})">▶ Enviar</button>` : ''}
+      ${['rascunho','agendada','enviando'].includes(c.status) ? `<button class="btn btn-danger btn-sm" onclick="cancelarCamp(${c.id})">Cancelar</button>` : ''}
+      <button class="btn btn-secondary btn-sm" onclick="verEnvios(${c.id})">Envios</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="10" class="empty">Nenhuma campanha</td></tr>';
+}
+
+async function novaCamp(){
+  await Promise.all([
+    fetch('/api/comm/templates').then(r=>r.json()).then(d=>{ if(d.success)templates=d.templates; }),
+    fetch('/api/comm/listas').then(r=>r.json()).then(d=>{ if(d.success)listas=d.listas; })
+  ]);
+  document.getElementById('campTpl').innerHTML = templates.map(t=>`<option value="${t.id}">[${t.canal}] ${t.nome}</option>`).join('');
+  document.getElementById('campLst').innerHTML = listas.map(l=>`<option value="${l.id}">${l.nome} (${l.qtdMembros})</option>`).join('');
+  ['campNome','campAg','campObs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('modalCamp').classList.add('open');
+}
+async function salvarCamp(){
+  const body = {
+    nome: document.getElementById('campNome').value.trim(),
+    templateId: Number(document.getElementById('campTpl').value),
+    listaId: Number(document.getElementById('campLst').value),
+    agendadaPara: document.getElementById('campAg').value || null,
+    observacoes: document.getElementById('campObs').value || null
+  };
+  if (!body.nome || !body.templateId || !body.listaId) return showAlert('Preencha todos os campos','error');
+  const r = await fetch('/api/comm/campanhas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('Campanha criada'); fechar('modalCamp'); carregarCamp();
+}
+async function executarCamp(id){
+  if (!confirm('Executar agora? (modo simulado — registra envios sem disparar provider real)')) return;
+  const r = await fetch(`/api/comm/campanhas/${id}/executar`, { method:'POST' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Executada: ${d.enviados} enviado(s), ${d.falhas} falha(s)`); carregarCamp();
+}
+async function cancelarCamp(id){
+  if (!confirm('Cancelar campanha?')) return;
+  await fetch(`/api/comm/campanhas/${id}/cancelar`, { method:'POST' });
+  carregarCamp();
+}
+async function verEnvios(id){
+  const r = await fetch('/api/comm/campanhas/'+id);
+  const d = await r.json(); if (!d.success) return;
+  const lines = d.envios.slice(0,50).map(e=>`${e.razaoSocial} → ${e.destino||'(sem destino)'} [${e.status}] ${e.erro?'⚠ '+e.erro:''}`).join('\n');
+  alert((d.envios.length>50?`Mostrando 50 de ${d.envios.length}\n\n`:'') + lines);
+}
+
+carregarCamp();
+</script>
+</body></html>

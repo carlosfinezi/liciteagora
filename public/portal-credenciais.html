@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Credenciais do Portal · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Credenciais do Portal do Cliente</h1>
+      <small>Gerencie quais clientes têm acesso ao portal externo</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/portal/login.html" target="_blank">Abrir portal ↗</a>
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Liberar acesso</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Cliente</th>
+        <th>CPF/CNPJ</th>
+        <th>E-mail de acesso</th>
+        <th>Status</th>
+        <th>Último login</th>
+        <th>Criado em</th>
+        <th>Ações</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 id="mTit">Liberar acesso ao portal</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()">×</button>
+    </div>
+    <input type="hidden" id="fPessoaId">
+    <div class="form-row">
+      <div class="form-group full-width" style="position:relative;">
+        <label>Cliente *</label>
+        <input type="text" id="fCliBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCli()" autocomplete="off">
+        <div id="acCliList" class="ac-list"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>E-mail (login) *</label>
+        <input type="email" id="fEmail">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Senha (mín. 6 caracteres) *</label>
+        <input type="text" id="fSenha" placeholder="Gere ou informe uma senha inicial">
+        <small class="muted">A senha será mostrada apenas uma vez. Comunique ao cliente por canal seguro.</small>
+      </div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('portal-credenciais');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',7000); }
+
+async function carregar(){
+  const r = await fetch('/api/portal/credenciais');
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tb');
+  tb.innerHTML = d.credenciais.length ? d.credenciais.map(c=>`<tr>
+    <td>${c.razaoSocial}</td>
+    <td class="mono">${c.cpfCnpj||'—'}</td>
+    <td class="mono">${c.email}</td>
+    <td><span class="badge ${c.ativo?'entrada':'inativo'}">${c.ativo?'ativo':'revogado'}</span></td>
+    <td>${c.ultimoLogin?new Date(c.ultimoLogin+'Z').toLocaleString('pt-BR'):'<small class="muted">nunca</small>'}</td>
+    <td>${(c.dataCriacao||'').slice(0,10)}</td>
+    <td>
+      <button class="btn btn-secondary btn-sm" onclick='resetar(${c.pessoaId}, ${JSON.stringify(c.razaoSocial)}, ${JSON.stringify(c.email)})'>Redefinir senha</button>
+      ${c.ativo ? `<button class="btn btn-danger btn-sm" onclick="revogar(${c.pessoaId})">Revogar</button>` : ''}
+    </td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhum cliente liberado</td></tr>';
+}
+
+function abrirNovo(){
+  document.getElementById('mTit').textContent='Liberar acesso ao portal';
+  ['fPessoaId','fCliBusca','fEmail','fSenha'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('modal').classList.add('open');
+}
+function resetar(pessoaId, nome, email){
+  document.getElementById('mTit').textContent='Redefinir credencial: '+nome;
+  document.getElementById('fPessoaId').value=pessoaId;
+  document.getElementById('fCliBusca').value=nome;
+  document.getElementById('fEmail').value=email;
+  document.getElementById('fSenha').value='';
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+let acTimer;
+function acCli(){
+  clearTimeout(acTimer);
+  const q = document.getElementById('fCliBusca').value.trim();
+  if (q.length<2){ document.getElementById('acCliList').innerHTML=''; return; }
+  acTimer = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = d.pessoas || d.data || [];
+    document.getElementById('acCliList').innerHTML = lista.slice(0,12).map(p=>
+      `<div onclick='selCli(${p.id}, ${JSON.stringify(p.razaoSocial)}, ${JSON.stringify(p.email||"")})'>${p.razaoSocial} <small class="muted">${p.cpfCnpj||""}</small></div>`
+    ).join('');
+  },200);
+}
+function selCli(id, nome, email){
+  document.getElementById('fPessoaId').value=id;
+  document.getElementById('fCliBusca').value=nome;
+  if (email && !document.getElementById('fEmail').value) document.getElementById('fEmail').value=email;
+  document.getElementById('acCliList').innerHTML='';
+}
+
+async function salvar(){
+  const body = {
+    pessoaId: Number(document.getElementById('fPessoaId').value),
+    email: document.getElementById('fEmail').value.trim(),
+    senha: document.getElementById('fSenha').value
+  };
+  if (!body.pessoaId || !body.email || !body.senha) return showAlert('Preencha todos os campos','error');
+  const r = await fetch('/api/portal/credencial', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Acesso liberado. E-mail: ${body.email} / Senha: ${body.senha} — comunique ao cliente.`);
+  fecharModal();
+  carregar();
+}
+async function revogar(pessoaId){
+  if (!confirm('Revogar acesso deste cliente?')) return;
+  const r = await fetch('/api/portal/credencial/'+pessoaId, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+carregar();
+</script>
+</body></html>

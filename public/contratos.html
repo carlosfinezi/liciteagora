@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contratos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Contratos</h1>
+      <small>Vigência, renovação e reajuste — receita recorrente</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo contrato</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="fQ" placeholder="Buscar número, descrição ou cliente…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="ativo">Ativo</option>
+      <option value="suspenso">Suspenso</option>
+      <option value="encerrado">Encerrado</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th>
+        <th>Cliente</th>
+        <th>Descrição</th>
+        <th class="num">Valor mensal</th>
+        <th>Vigência</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Novo -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-header">
+      <h3>Novo contrato</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1;position:relative;">
+        <label>Cliente *</label>
+        <input type="text" id="fCliBusca" placeholder="Razão social…" oninput="acCli()" autocomplete="off">
+        <input type="hidden" id="fClienteId">
+        <div id="acCliList" class="ac-list"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição *</label>
+        <input type="text" id="fDesc" placeholder="Ex.: Locação mensal de equipamentos">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Valor mensal (R$) *</label>
+        <input type="number" id="fValor" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>Dia de vencimento</label>
+        <input type="number" id="fDia" min="1" max="28" value="10">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Início *</label>
+        <input type="date" id="fIni">
+      </div>
+      <div class="form-group">
+        <label>Fim (opcional, indeterminado se vazio)</label>
+        <input type="date" id="fFim">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Renovação automática</label>
+        <select id="fRenov">
+          <option value="1">Sim</option>
+          <option value="0">Não</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Prazo de renovação (meses)</label>
+        <input type="number" id="fRenovMeses" value="12" min="1">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Índice de reajuste</label>
+        <select id="fIndice">
+          <option value="">—</option>
+          <option>IPCA</option>
+          <option>IGPM</option>
+          <option>INPC</option>
+          <option>IGPDI</option>
+          <option>Fixo</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>% reajuste</label>
+        <input type="number" id="fPercReajuste" step="0.01" placeholder="ex.: 5">
+      </div>
+      <div class="form-group">
+        <label>Próximo reajuste</label>
+        <input type="date" id="fDataReajuste">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observações</label>
+        <textarea id="fObs" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Criar contrato</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('contratos');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+  const s = document.getElementById('fStatus').value;   if (s) p.set('status', s);
+  const r = await fetch('/api/contratos?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${d.kpis.total||0}</div></div>
+    <div class="kpi success"><div class="label">Ativos</div><div class="value">${d.kpis.ativos||0}</div></div>
+    <div class="kpi"><div class="label">MRR (Receita Recorrente)</div><div class="value">${fmtBRL(d.kpis.receitaMensalRecorrente)}</div></div>
+    <div class="kpi warn"><div class="label">Vencendo em 30d</div><div class="value">${d.kpis.vencendo30d||0}</div></div>
+  `;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = d.contratos.length ? d.contratos.map(c=>`<tr>
+    <td class="mono"><strong>${c.numero}</strong></td>
+    <td>${c.clienteNome}</td>
+    <td>${c.descricao}</td>
+    <td class="num">${fmtBRL(c.valorMensal)}</td>
+    <td>${c.dataInicio} → ${c.dataFim||'—'}</td>
+    <td><span class="badge ${c.status==='ativo'?'entrada':c.status==='suspenso'?'pendente':'inativo'}">${c.status}</span></td>
+    <td><a class="btn btn-secondary btn-sm" href="/contrato.html?id=${c.id}">Abrir</a></td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhum contrato</td></tr>';
+}
+
+function abrirNovo(){
+  ['fCliBusca','fClienteId','fDesc','fValor','fIni','fFim','fPercReajuste','fDataReajuste','fObs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fDia').value='10';
+  document.getElementById('fRenov').value='1';
+  document.getElementById('fRenovMeses').value='12';
+  document.getElementById('fIndice').value='';
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+let acTimer;
+function acCli(){
+  clearTimeout(acTimer);
+  const q = document.getElementById('fCliBusca').value.trim();
+  if (q.length<2){ document.getElementById('acCliList').innerHTML=''; return; }
+  acTimer = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = d.pessoas || d.data || [];
+    document.getElementById('acCliList').innerHTML = lista.slice(0,10).map(p=>
+      `<div onclick='selCli(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${p.razaoSocial} <small class="muted">${p.cpfCnpj||''}</small></div>`
+    ).join('');
+  },200);
+}
+function selCli(id, nome){
+  document.getElementById('fClienteId').value=id;
+  document.getElementById('fCliBusca').value=nome;
+  document.getElementById('acCliList').innerHTML='';
+}
+
+async function salvar(){
+  const body = {
+    clienteId: Number(document.getElementById('fClienteId').value),
+    descricao: document.getElementById('fDesc').value.trim(),
+    valorMensal: Number(document.getElementById('fValor').value),
+    diaVencimento: Number(document.getElementById('fDia').value)||10,
+    dataInicio: document.getElementById('fIni').value,
+    dataFim: document.getElementById('fFim').value||null,
+    renovacaoAutomatica: Number(document.getElementById('fRenov').value),
+    prazoRenovacaoMeses: Number(document.getElementById('fRenovMeses').value)||12,
+    indiceReajuste: document.getElementById('fIndice').value || null,
+    percentualReajuste: document.getElementById('fPercReajuste').value ? Number(document.getElementById('fPercReajuste').value) : null,
+    dataProximoReajuste: document.getElementById('fDataReajuste').value || null,
+    observacoes: document.getElementById('fObs').value || null
+  };
+  if (!body.clienteId || !body.descricao || !body.valorMensal || !body.dataInicio) {
+    return showAlert('Preencha cliente, descrição, valor e início','error');
+  }
+  const r = await fetch('/api/contratos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Contrato criado');
+  fecharModal();
+  carregar();
+}
+
+carregar();
+</script>
+</body></html>

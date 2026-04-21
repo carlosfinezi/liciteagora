@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notas Fiscais</title>
+<link rel="stylesheet" href="/portal/portal-style.css">
+</head>
+<body>
+<header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
+<nav>
+  <a href="/portal/index.html">Início</a>
+  <a href="/portal/pedidos.html">Pedidos</a>
+  <a href="/portal/cobrancas.html">Cobranças</a>
+  <a href="/portal/nfses.html" class="active">NF-e/NFS-e</a>
+  <a href="/portal/contratos.html">Contratos</a>
+  <a href="/portal/perfil.html">Trocar senha</a>
+</nav>
+<main>
+  <h2>Minhas notas fiscais (NFS-e)</h2>
+  <table><thead><tr>
+    <th>Número</th><th>Chave de acesso</th><th>Descrição</th><th>Competência</th><th class="num">Valor</th><th>Status</th>
+  </tr></thead><tbody id="tb"><tr><td colspan="6">Carregando…</td></tr></tbody></table>
+  <small style="color:#888;display:block;margin-top:10px;">Para baixar o PDF/XML, contate o emissor.</small>
+</main>
+<script src="/portal/portal-common.js"></script>
+<script>
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+async function carregar(){
+  if (!await initMe()) return;
+  const r = await fetch('/portal/api/nfses').then(r=>r.json());
+  if (!r.success) return;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.nfses.length ? r.nfses.map(n=>`<tr>
+    <td><strong>${n.nNFSe||n.nDPS||'—'}</strong></td>
+    <td style="font-family:monospace;font-size:11px;">${n.chaveAcesso||'—'}</td>
+    <td>${n.descricaoServico||'—'}</td>
+    <td>${(n.dataCompetencia||'').slice(0,7)}</td>
+    <td class="num">${fmtBRL(n.valorServico)}</td>
+    <td><span class="badge ${n.status}">${n.status}</span></td>
+  </tr>`).join('') : '<tr><td colspan="6">Nenhuma nota fiscal</td></tr>';
+}
+carregar();
+</script>
+</body></html>

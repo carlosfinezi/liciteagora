@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contas Financeiras - Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Contas Financeiras</h1>
+      <small>Caixa, bancos e fluxo de caixa</small>
+    </div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div style="display:flex;gap:10px;margin-bottom:15px;">
+    <button class="btn btn-primary" onclick="abrirNova()">+ Nova Conta</button>
+    <button class="btn btn-secondary" onclick="abrirTransferir()">⇄ Transferência entre contas</button>
+  </div>
+
+  <div class="contas-grid" id="contasGrid"></div>
+</main></div>
+
+<!-- Modal Nova/Editar Conta -->
+<div class="modal-bg" id="modalConta">
+  <div class="modal" style="max-width:600px;">
+    <h3 id="mcTitulo" style="color:#60a5fa;margin-bottom:15px;">Nova Conta Financeira</h3>
+    <input type="hidden" id="mcId">
+    <div class="form-row">
+      <div class="form-group"><label>Nome *</label><input type="text" id="mcNome" placeholder="Ex: Caixa Geral, Itaú CC, MercadoPago"></div>
+      <div class="form-group"><label>Tipo *</label>
+        <select id="mcTipo"><option value="caixa">Caixa (dinheiro físico)</option><option value="banco">Banco (conta corrente/digital)</option></select>
+      </div>
+    </div>
+    <div class="form-row" id="mcBancoRow">
+      <div class="form-group"><label>Banco</label><input type="text" id="mcBanco" placeholder="Itaú, Bradesco..."></div>
+      <div class="form-group"><label>Agência</label><input type="text" id="mcAgencia"></div>
+      <div class="form-group"><label>Conta</label><input type="text" id="mcConta"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Saldo Inicial (R$)</label><input type="number" id="mcSaldoInicial" step="0.01" value="0"></div>
+      <div class="form-group" style="display:flex;flex-direction:row;align-items:center;gap:8px;padding-top:22px;">
+        <input type="checkbox" id="mcPadrao">
+        <label for="mcPadrao" style="color:#eee;">Conta padrão deste tipo</label>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observações</label><textarea id="mcObs" rows="2"></textarea></div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharConta()">Cancelar</button>
+      <button class="btn btn-danger" id="btnExcluirConta" onclick="excluirConta()" style="display:none;">Desativar</button>
+      <button class="btn btn-primary" onclick="salvarConta()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Extrato -->
+<div class="modal-bg" id="modalExtrato">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+      <h3 id="extTitulo" style="color:#60a5fa;">Extrato</h3>
+      <button class="btn btn-secondary" onclick="fecharExtrato()">Fechar</button>
+    </div>
+    <div id="extResumo" style="margin-bottom:15px;"></div>
+    <div class="filtros">
+      <label style="color:#888;">De</label><input type="date" id="extDataInicio" onchange="carregarExtrato()">
+      <label style="color:#888;">até</label><input type="date" id="extDataFim" onchange="carregarExtrato()">
+      <button class="btn btn-secondary btn-sm" onclick="abrirLancamento()">+ Lançamento Manual</button>
+      <button class="btn btn-secondary btn-sm" onclick="editarContaSelecionada()">✏️ Editar Conta</button>
+    </div>
+    <div class="table-container">
+      <table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Origem</th><th>Valor</th><th>Saldo</th></tr></thead>
+      <tbody id="extBody"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Lançamento Manual -->
+<div class="modal-bg" id="modalLanc">
+  <div class="modal" style="max-width:500px;">
+    <h3 style="color:#60a5fa;margin-bottom:15px;">Lançamento Manual</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Tipo *</label>
+        <select id="lancTipo"><option value="entrada">Entrada</option><option value="saida">Saída</option></select>
+      </div>
+      <div class="form-group"><label>Valor (R$) *</label><input type="number" id="lancValor" step="0.01"></div>
+      <div class="form-group"><label>Data</label><input type="date" id="lancData"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição *</label><input type="text" id="lancDesc" placeholder="Ex: Pagamento de conta de luz"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Categoria</label><input type="text" id="lancCat" placeholder="vendas, despesas, taxas..."></div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharLancamento()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarLancamento()">Lançar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Transferência -->
+<div class="modal-bg" id="modalTransfer">
+  <div class="modal" style="max-width:550px;">
+    <h3 style="color:#60a5fa;margin-bottom:15px;">⇄ Transferência entre contas</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Conta Origem *</label><select id="trfOrigem"></select></div>
+      <div class="form-group"><label>Conta Destino *</label><select id="trfDestino"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Valor (R$) *</label><input type="number" id="trfValor" step="0.01"></div>
+      <div class="form-group"><label>Data</label><input type="date" id="trfData"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição</label><input type="text" id="trfDesc"></div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharTransferir()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTransferencia()">Transferir</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('contas-financeiras');</script>
+<script>
+let contasCache = [];
+let contaSelecionada = null;
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function val(id){ return document.getElementById(id).value; }
+
+async function carregar(){
+  try {
+    const [rContas, rResumo] = await Promise.all([
+      fetch('/api/contas-financeiras').then(r=>r.json()),
+      fetch('/api/contas-financeiras/resumo').then(r=>r.json()),
+    ]);
+    if (!rContas.success) throw new Error(rContas.error);
+    contasCache = rContas.contas;
+    renderKpis(rResumo.resumo || {});
+    renderContas();
+  } catch(e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+function renderKpis(r){
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi success"><div class="label">Saldo Total</div><div class="value">R$ ${fmt(r.total)}</div></div>
+    <div class="kpi"><div class="label">Caixa</div><div class="value">R$ ${fmt(r.totalCaixa)}</div></div>
+    <div class="kpi"><div class="label">Banco</div><div class="value">R$ ${fmt(r.totalBanco)}</div></div>
+    <div class="kpi success"><div class="label">Entradas (mês)</div><div class="value">R$ ${fmt(r.entradasMes)}</div></div>
+    <div class="kpi danger"><div class="label">Saídas (mês)</div><div class="value">R$ ${fmt(r.saidasMes)}</div></div>`;
+}
+
+function renderContas(){
+  const grid = document.getElementById('contasGrid');
+  if (!contasCache.length) { grid.innerHTML = '<p style="color:#666;">Nenhuma conta cadastrada. Clique em "+ Nova Conta".</p>'; return; }
+  grid.innerHTML = contasCache.map(c => {
+    const padrao = (c.tipo==='caixa' && c.ehCaixaPadrao) || (c.tipo==='banco' && c.ehBancoPadrao);
+    return `<div class="conta-card ${c.tipo}" onclick="abrirExtrato(${c.id})">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <strong>${c.nome}</strong>
+        <div><span class="badge ${c.tipo}">${c.tipo}</span>${padrao?' <span class="badge padrao">padrão</span>':''}</div>
+      </div>
+      ${c.banco?`<small style="color:#888;">${c.banco}${c.agencia?' · Ag '+c.agencia:''}${c.conta?' · Cc '+c.conta:''}</small>`:''}
+      <div class="conta-saldo ${c.saldo<0?'negativo':''}">R$ ${fmt(c.saldo)}</div>
+    </div>`;
+  }).join('');
+}
+
+// ==================== NOVA/EDITAR CONTA ====================
+function abrirNova(){
+  document.getElementById('mcTitulo').textContent = 'Nova Conta Financeira';
+  document.getElementById('mcId').value = '';
+  ['mcNome','mcBanco','mcAgencia','mcConta','mcObs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('mcSaldoInicial').value = '0';
+  document.getElementById('mcTipo').value = 'caixa';
+  document.getElementById('mcPadrao').checked = false;
+  document.getElementById('btnExcluirConta').style.display = 'none';
+  document.getElementById('modalConta').classList.add('open');
+}
+function abrirEdicao(c){
+  document.getElementById('mcTitulo').textContent = 'Editar: ' + c.nome;
+  document.getElementById('mcId').value = c.id;
+  document.getElementById('mcNome').value = c.nome;
+  document.getElementById('mcTipo').value = c.tipo;
+  document.getElementById('mcTipo').disabled = true;
+  document.getElementById('mcBanco').value = c.banco || '';
+  document.getElementById('mcAgencia').value = c.agencia || '';
+  document.getElementById('mcConta').value = c.conta || '';
+  document.getElementById('mcSaldoInicial').value = c.saldoInicial;
+  document.getElementById('mcPadrao').checked = !!(c.ehCaixaPadrao || c.ehBancoPadrao);
+  document.getElementById('mcObs').value = c.observacoes || '';
+  document.getElementById('btnExcluirConta').style.display = 'inline-block';
+  document.getElementById('modalConta').classList.add('open');
+}
+function fecharConta(){
+  document.getElementById('modalConta').classList.remove('open');
+  document.getElementById('mcTipo').disabled = false;
+}
+async function salvarConta(){
+  const id = val('mcId');
+  const tipo = val('mcTipo');
+  const body = {
+    nome: val('mcNome').trim(),
+    tipo,
+    banco: val('mcBanco')||null,
+    agencia: val('mcAgencia')||null,
+    conta: val('mcConta')||null,
+    saldoInicial: parseFloat(val('mcSaldoInicial'))||0,
+    observacoes: val('mcObs')||null,
+    ehCaixaPadrao: tipo==='caixa' && document.getElementById('mcPadrao').checked,
+    ehBancoPadrao: tipo==='banco' && document.getElementById('mcPadrao').checked,
+  };
+  if (!body.nome) return showAlert('Nome obrigatório','error');
+  try {
+    const r = await fetch(id?'/api/contas-financeiras/'+id:'/api/contas-financeiras',
+      {method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d = await r.json();
+    if(!d.success) throw new Error(d.error);
+    showAlert(id?'Conta atualizada':'Conta criada');
+    fecharConta();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+async function excluirConta(){
+  const id = val('mcId');
+  if (!id) return;
+  if (!confirm('Desativar esta conta? (movimentações existentes serão preservadas)')) return;
+  try {
+    const r = await fetch('/api/contas-financeiras/'+id,{method:'DELETE'});
+    const d = await r.json();
+    if(!d.success) throw new Error(d.error);
+    showAlert('Conta desativada');
+    fecharConta();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+// ==================== EXTRATO ====================
+async function abrirExtrato(id){
+  contaSelecionada = contasCache.find(c=>c.id===id);
+  if (!contaSelecionada) return;
+  document.getElementById('extTitulo').textContent = `Extrato · ${contaSelecionada.nome}`;
+  document.getElementById('extDataInicio').value = '';
+  document.getElementById('extDataFim').value = '';
+  document.getElementById('modalExtrato').classList.add('open');
+  carregarExtrato();
+}
+function fecharExtrato(){ document.getElementById('modalExtrato').classList.remove('open'); }
+
+async function carregarExtrato(){
+  if (!contaSelecionada) return;
+  const p = new URLSearchParams();
+  if (val('extDataInicio')) p.set('dataInicio', val('extDataInicio'));
+  if (val('extDataFim')) p.set('dataFim', val('extDataFim'));
+  try {
+    const r = await fetch('/api/contas-financeiras/'+contaSelecionada.id+'/extrato?'+p);
+    const d = await r.json();
+    if(!d.success) throw new Error(d.error);
+    document.getElementById('extResumo').innerHTML =
+      `<small style="color:#888;">Saldo atual:</small> <strong style="color:#51cf66;font-size:1.2em;">R$ ${fmt(d.conta.saldo)}</strong>
+       · Saldo inicial período: R$ ${fmt(d.saldoInicialPeriodo)}`;
+    const tb = document.getElementById('extBody');
+    if (!d.extrato.length) { tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:20px;">Sem lançamentos no período</td></tr>'; return; }
+    tb.innerHTML = d.extrato.map(m=>{
+      const sinal = m.delta>=0 ? '+' : '';
+      const cor = m.delta>=0 ? '#51cf66' : '#ff6b6b';
+      return `<tr>
+        <td>${m.data}</td>
+        <td><span class="badge ${m.tipo}">${m.tipo.replace('_',' ')}</span></td>
+        <td>${m.descricao}</td>
+        <td><small style="color:#888;">${m.origem||'-'}${m.categoria?' · '+m.categoria:''}</small></td>
+        <td style="color:${cor};font-weight:700;">${sinal}R$ ${fmt(m.delta)}</td>
+        <td>R$ ${fmt(m.saldoAcumulado)}</td>
+      </tr>`;
+    }).join('');
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+function editarContaSelecionada(){ if(contaSelecionada){ fecharExtrato(); abrirEdicao(contaSelecionada); } }
+
+// ==================== LANÇAMENTO MANUAL ====================
+function abrirLancamento(){
+  if (!contaSelecionada) return;
+  document.getElementById('lancTipo').value = 'entrada';
+  document.getElementById('lancValor').value = '';
+  document.getElementById('lancData').value = new Date().toISOString().slice(0,10);
+  document.getElementById('lancDesc').value = '';
+  document.getElementById('lancCat').value = '';
+  document.getElementById('modalLanc').classList.add('open');
+}
+function fecharLancamento(){ document.getElementById('modalLanc').classList.remove('open'); }
+async function salvarLancamento(){
+  const body = {
+    tipo: val('lancTipo'),
+    valor: parseFloat(val('lancValor')),
+    data: val('lancData'),
+    descricao: val('lancDesc').trim(),
+    categoria: val('lancCat')||null,
+  };
+  if (!body.descricao || !body.valor) return showAlert('Descrição e valor obrigatórios','error');
+  try {
+    const r = await fetch('/api/contas-financeiras/'+contaSelecionada.id+'/movimentar',
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d = await r.json();
+    if(!d.success) throw new Error(d.error);
+    showAlert('Lançamento registrado');
+    fecharLancamento();
+    carregarExtrato();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+// ==================== TRANSFERÊNCIA ====================
+function abrirTransferir(){
+  if (!contasCache.length) return showAlert('Cadastre contas primeiro','error');
+  const opts = contasCache.map(c=>`<option value="${c.id}">${c.nome} (${c.tipo})</option>`).join('');
+  document.getElementById('trfOrigem').innerHTML = opts;
+  document.getElementById('trfDestino').innerHTML = opts;
+  document.getElementById('trfValor').value = '';
+  document.getElementById('trfData').value = new Date().toISOString().slice(0,10);
+  document.getElementById('trfDesc').value = '';
+  document.getElementById('modalTransfer').classList.add('open');
+}
+function fecharTransferir(){ document.getElementById('modalTransfer').classList.remove('open'); }
+async function salvarTransferencia(){
+  const body = {
+    origemId: Number(val('trfOrigem')),
+    destinoId: Number(val('trfDestino')),
+    valor: parseFloat(val('trfValor')),
+    data: val('trfData'),
+    descricao: val('trfDesc')||null,
+  };
+  if (!body.valor) return showAlert('Valor obrigatório','error');
+  if (body.origemId === body.destinoId) return showAlert('Escolha contas diferentes','error');
+  try {
+    const r = await fetch('/api/contas-financeiras/transferir',
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d = await r.json();
+    if(!d.success) throw new Error(d.error);
+    showAlert('Transferência registrada');
+    fecharTransferir();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+carregar();
+</script>
+</body></html>

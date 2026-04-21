@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cobranças - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Cobranças</h1>
+                <small>Títulos vencidos e envio de cobranças por e-mail e WhatsApp</small>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div class="stats" id="stats"></div>
+
+            <div class="panel">
+                <div class="filtros">
+                    <input type="text" id="filtBusca" placeholder="Buscar por cliente ou descrição..." style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter') carregar()">
+                    <input type="number" id="filtMinDias" placeholder="Min. dias atraso" style="width:150px;" min="0">
+                    <input type="number" id="filtMaxDias" placeholder="Max. dias atraso" style="width:150px;" min="0">
+                    <button class="btn-secondary" onclick="carregar()">Filtrar</button>
+                    <button class="btn-primary" onclick="abrirPreviewRegua()">Executar régua agora</button>
+                </div>
+
+                <div class="acoes-massa" id="acoesMassa" style="display:none;">
+                    <span class="label"><span id="qtdSelecionadas">0</span> selecionadas</span>
+                    <button class="btn-primary btn-sm" onclick="cobrarMassa('email')">Cobrar por e-mail</button>
+                    <button class="btn-primary btn-sm" onclick="cobrarMassa('whatsapp')">Cobrar por WhatsApp</button>
+                    <button class="btn-primary btn-sm" onclick="cobrarMassa('ambos')">E-mail + WhatsApp</button>
+                    <button class="btn-secondary btn-sm" onclick="limparSelecao()">Limpar</button>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:30px;"><input type="checkbox" id="selTodos" onchange="selecionarTodos(this)"></th>
+                                <th>Cliente</th>
+                                <th>Descrição</th>
+                                <th>Valor</th>
+                                <th>Vencimento</th>
+                                <th>Atraso</th>
+                                <th>Última etapa</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabela">
+                            <tr><td colspan="8"><div class="empty-state"><div class="icon">💰</div><p>Carregando...</p></div></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-overlay" id="modalPreview">
+        <div class="modal">
+            <button class="modal-close" onclick="fecharModal('modalPreview')">&times;</button>
+            <h3>Preview: Executar régua agora</h3>
+            <p id="previewResumo" style="color:#aaa;margin-bottom:10px;">Calculando...</p>
+            <div class="preview-list" id="previewLista"></div>
+            <div class="actions-bar">
+                <button class="btn-secondary" onclick="fecharModal('modalPreview')">Cancelar</button>
+                <button class="btn-primary" onclick="executarReguaConfirmado()" id="btnConfirmarRegua">Confirmar envio</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modalHistorico">
+        <div class="modal">
+            <button class="modal-close" onclick="fecharModal('modalHistorico')">&times;</button>
+            <h3>Histórico de cobranças</h3>
+            <div id="historicoConteudo" style="font-size:0.9em;"></div>
+        </div>
+    </div>
+
+    <script>
+        let contasCache = [];
+        let selecionadas = new Set();
+
+        document.addEventListener('DOMContentLoaded', carregar);
+
+        async function carregar() {
+            const busca = document.getElementById('filtBusca').value.trim();
+            const minDias = document.getElementById('filtMinDias').value;
+            const maxDias = document.getElementById('filtMaxDias').value;
+
+            let url = '/api/cobrancas/contas-vencidas?';
+            if (busca) url += 'busca=' + encodeURIComponent(busca) + '&';
+            if (minDias) url += 'minDias=' + minDias + '&';
+            if (maxDias) url += 'maxDias=' + maxDias + '&';
+
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                contasCache = data.contas;
+                renderStats(data.contas, data.resumo);
+                renderTabela(data.contas);
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        function renderStats(contas, resumo) {
+            const pausadas = contas.filter(c => c.cobrancaAtiva === 0).length;
+            const criticas = contas.filter(c => c.diasAtraso >= 15).length;
+            document.getElementById('stats').innerHTML = `
+                <div class="stat-card danger"><div class="label">Total vencidas</div><div class="value">${resumo.total}</div></div>
+                <div class="stat-card danger"><div class="label">Valor total</div><div class="value">${formatarValor(resumo.totalValor)}</div></div>
+                <div class="stat-card warn"><div class="label">Críticas (15+ dias)</div><div class="value">${criticas}</div></div>
+                <div class="stat-card"><div class="label">Clientes pausados</div><div class="value">${pausadas}</div></div>
+            `;
+        }
+
+        function renderTabela(contas) {
+            const tbody = document.getElementById('tabela');
+            if (!contas.length) {
+                tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="icon">✅</div><p>Nenhuma conta vencida encontrada</p></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = contas.map(c => {
+                const etapaLabel = c.ultimaEtapa ? 'Etapa ' + c.ultimaEtapa : 'Nenhuma';
+                const etapaClass = 'etapa-' + (c.ultimaEtapa || 0);
+                const pausadoBadge = c.cobrancaAtiva === 0 ? '<span class="badge pausado">Pausado</span>' : '';
+                return `
+                    <tr>
+                        <td><input type="checkbox" class="selConta" value="${c.id}" onchange="atualizarSelecao()" ${c.cobrancaAtiva === 0 ? 'disabled' : ''}></td>
+                        <td>${escHtml(c.razaoSocial)} ${pausadoBadge}</td>
+                        <td title="${escHtml(c.descricao)}">${escHtml((c.descricao || '').substring(0, 40))}${(c.descricao || '').length > 40 ? '...' : ''}</td>
+                        <td>${formatarValor(c.valor)}</td>
+                        <td>${formatarData(c.dataVencimento)}</td>
+                        <td><strong style="color:${c.diasAtraso >= 15 ? '#ff6b6b' : c.diasAtraso >= 7 ? '#fcc419' : '#60a5fa'};">${c.diasAtraso}d</strong></td>
+                        <td><span class="badge ${etapaClass}">${etapaLabel}</span></td>
+                        <td>
+                            <button class="btn-secondary btn-sm" onclick="cobrarUm(${c.id}, 'email')" title="E-mail">✉️</button>
+                            <button class="btn-secondary btn-sm" onclick="cobrarUm(${c.id}, 'whatsapp')" title="WhatsApp">📱</button>
+                            <button class="btn-secondary btn-sm" onclick="abrirHistorico(${c.id})" title="Histórico">📋</button>
+                            <button class="btn-secondary btn-sm" onclick="togglePausa(${c.pessoaId}, ${c.cobrancaAtiva})" title="Pausar/retomar">${c.cobrancaAtiva ? '⏸️' : '▶️'}</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            selecionadas.clear();
+            atualizarSelecao();
+        }
+
+        function atualizarSelecao() {
+            selecionadas = new Set(Array.from(document.querySelectorAll('.selConta:checked')).map(el => Number(el.value)));
+            document.getElementById('qtdSelecionadas').textContent = selecionadas.size;
+            document.getElementById('acoesMassa').style.display = selecionadas.size > 0 ? '' : 'none';
+        }
+
+        function selecionarTodos(checkbox) {
+            document.querySelectorAll('.selConta:not(:disabled)').forEach(el => el.checked = checkbox.checked);
+            atualizarSelecao();
+        }
+
+        function limparSelecao() {
+            document.querySelectorAll('.selConta').forEach(el => el.checked = false);
+            document.getElementById('selTodos').checked = false;
+            atualizarSelecao();
+        }
+
+        async function cobrarUm(contaId, canalOuAmbos) {
+            const conta = contasCache.find(c => c.id === contaId);
+            if (!conta) return;
+            const etapa = (conta.ultimaEtapa || 0) + 1;
+            if (!confirm('Disparar cobrança etapa ' + etapa + ' via ' + canalOuAmbos + ' para ' + conta.razaoSocial + '?')) return;
+
+            const canais = canalOuAmbos === 'ambos' ? ['email', 'whatsapp'] : [canalOuAmbos];
+            try {
+                const resp = await fetch('/api/cobrancas/enviar/' + contaId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ etapa, canais }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    const detalhes = Object.entries(data.canais || {}).map(([k,v]) => `${k}: ${v.success ? 'OK' : (v.queued ? 'em fila' : 'erro — ' + v.error)}`).join(' | ');
+                    mostrarAlerta('Cobrança processada. ' + detalhes, 'success');
+                    carregar();
+                } else {
+                    mostrarAlerta('Erro: ' + data.error, 'error');
+                }
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        async function cobrarMassa(canalOuAmbos) {
+            if (!selecionadas.size) return;
+            if (!confirm('Disparar cobrança via ' + canalOuAmbos + ' para ' + selecionadas.size + ' clientes?')) return;
+
+            const canais = canalOuAmbos === 'ambos' ? ['email', 'whatsapp'] : [canalOuAmbos];
+            try {
+                mostrarAlerta('Enviando ' + selecionadas.size + ' cobranças...', 'info');
+                const resp = await fetch('/api/cobrancas/enviar-massa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contas: Array.from(selecionadas), canais, forcar: true }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    const ok = data.resultados.filter(r => r.success).length;
+                    const erros = data.resultados.filter(r => !r.success);
+                    let msg = ok + '/' + data.total + ' enviadas.';
+                    if (erros.length) msg += ' Erros: ' + erros.map(e => e.error).slice(0, 3).join('; ');
+                    mostrarAlerta(msg, ok > 0 ? 'success' : 'error');
+                    carregar();
+                } else {
+                    mostrarAlerta('Erro: ' + data.error, 'error');
+                }
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        async function togglePausa(pessoaId, cobrancaAtualAtiva) {
+            const novaAtiva = cobrancaAtualAtiva === 1 ? false : true;
+            if (!confirm((novaAtiva ? 'Retomar' : 'Pausar') + ' cobranças automáticas para este cliente?')) return;
+            try {
+                const resp = await fetch('/api/cobrancas/pessoa/' + pessoaId + '/pausar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ativa: novaAtiva }),
+                });
+                const data = await resp.json();
+                if (data.success) { mostrarAlerta('Atualizado', 'success'); carregar(); }
+                else mostrarAlerta('Erro: ' + data.error, 'error');
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        async function abrirPreviewRegua() {
+            document.getElementById('modalPreview').classList.add('active');
+            document.getElementById('previewResumo').textContent = 'Calculando...';
+            document.getElementById('previewLista').innerHTML = '';
+            try {
+                const resp = await fetch('/api/cobrancas/executar-regua', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dryRun: true }),
+                });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+
+                if (!data.total) {
+                    document.getElementById('previewResumo').textContent = 'Nenhuma conta se enquadra na régua hoje.';
+                    document.getElementById('btnConfirmarRegua').disabled = true;
+                    return;
+                }
+
+                document.getElementById('previewResumo').textContent = data.total + ' cobranças seriam disparadas agora:';
+                document.getElementById('previewLista').innerHTML = data.resultados.map(r =>
+                    `<div class="preview-item"><strong>${escHtml(r.pessoa)}</strong> — ${formatarValor(r.valor)} — Etapa ${r.etapa}</div>`
+                ).join('');
+                document.getElementById('btnConfirmarRegua').disabled = false;
+            } catch (err) {
+                document.getElementById('previewResumo').textContent = 'Erro: ' + err.message;
+            }
+        }
+
+        async function executarReguaConfirmado() {
+            document.getElementById('btnConfirmarRegua').disabled = true;
+            try {
+                const resp = await fetch('/api/cobrancas/executar-regua', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dryRun: false }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    mostrarAlerta('Régua executada: ' + data.total + ' cobranças processadas.', 'success');
+                    fecharModal('modalPreview');
+                    carregar();
+                } else {
+                    mostrarAlerta('Erro: ' + data.error, 'error');
+                }
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            } finally {
+                document.getElementById('btnConfirmarRegua').disabled = false;
+            }
+        }
+
+        async function abrirHistorico(contaId) {
+            document.getElementById('modalHistorico').classList.add('active');
+            document.getElementById('historicoConteudo').innerHTML = 'Carregando...';
+            try {
+                const resp = await fetch('/api/cobrancas/log?contaId=' + contaId);
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+                if (!data.logs.length) {
+                    document.getElementById('historicoConteudo').innerHTML = '<p style="color:#888;">Nenhuma cobrança enviada ainda.</p>';
+                    return;
+                }
+                document.getElementById('historicoConteudo').innerHTML = data.logs.map(l => `
+                    <div style="border:1px solid #1e293b;border-radius:6px;padding:10px;margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                            <strong>${escHtml(l.canal)} — etapa ${l.etapa} (${escHtml(l.origem || 'manual')})</strong>
+                            <span style="color:${l.status==='enviado'?'#51cf66':l.status==='fila'?'#fcc419':'#ff6b6b'};">${escHtml(l.status)}</span>
+                        </div>
+                        <div style="color:#888;font-size:0.85em;">${escHtml(l.dataEnvio)} — ${escHtml(l.destinatario || '')}</div>
+                        ${l.assunto ? '<div style="margin-top:5px;"><em>'+escHtml(l.assunto)+'</em></div>' : ''}
+                        ${l.mensagem ? '<pre style="margin-top:5px;background:#1e293b;padding:8px;border-radius:4px;white-space:pre-wrap;font-size:0.8em;">'+escHtml(l.mensagem)+'</pre>' : ''}
+                        ${l.erro ? '<div style="color:#ff6b6b;margin-top:5px;">Erro: '+escHtml(l.erro)+'</div>' : ''}
+                    </div>
+                `).join('');
+            } catch (err) {
+                document.getElementById('historicoConteudo').innerHTML = 'Erro: ' + err.message;
+            }
+        }
+
+        function fecharModal(id) { document.getElementById(id).classList.remove('active'); }
+
+        function mostrarAlerta(msg, tipo) {
+            const el = document.getElementById('alertBox');
+            el.textContent = msg;
+            el.className = 'alert ' + tipo;
+            setTimeout(() => { el.className = 'alert'; }, 8000);
+        }
+
+        function escHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        function formatarValor(v) {
+            return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        }
+
+        function formatarData(ymd) {
+            if (!ymd) return '-';
+            const parts = ymd.split('-');
+            return parts.length === 3 ? parts[2] + '/' + parts[1] + '/' + parts[0] : ymd;
+        }
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('cobrancas');</script>
+</body>
+</html>

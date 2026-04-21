@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova Movimentação · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Nova Movimentação</h1>
+      <small>Entrada, saída ou ajuste manual de estoque</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/estoque-movimentacoes.html">← Movimentações</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <div class="form-row">
+      <div class="form-group" style="position:relative;">
+        <label>Produto *</label>
+        <input type="text" id="movProdBusca" placeholder="Digite SKU ou descrição..." oninput="autocompleteProd()" autocomplete="off">
+        <input type="hidden" id="movProdId">
+        <div id="movProdList" class="ac-list"></div>
+        <small id="movProdInfo" class="muted"></small>
+      </div>
+      <div class="form-group">
+        <label>Tipo *</label>
+        <select id="movTipo" onchange="atualizarUI()">
+          <option value="entrada">Entrada</option>
+          <option value="saida">Saída</option>
+          <option value="ajuste">Ajuste</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Quantidade *</label><input type="number" id="movQtd" step="0.01" oninput="atualizarSeriaisNecessarios()"></div>
+      <div class="form-group"><label>Custo Unitário (opcional)</label><input type="number" id="movCusto" step="0.01"></div>
+      <div class="form-group"><label>Data</label><input type="date" id="movData"></div>
+    </div>
+
+    <div class="form-row" id="rowLote" style="display:none;">
+      <div class="form-group full-width">
+        <label>Lote <span id="loteObrigatorio" class="muted">(opcional)</span></label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="movLoteId" style="flex:1;">
+            <option value="">— selecionar lote —</option>
+          </select>
+          <a href="/estoque-lotes.html" class="btn btn-ghost btn-sm" target="_blank">Gerenciar lotes</a>
+        </div>
+        <small id="movLoteInfo" class="muted"></small>
+      </div>
+    </div>
+
+    <div class="form-row" id="rowSerial" style="display:none;">
+      <div class="form-group full-width">
+        <label>Números de série (um por linha) <span id="serialQtd" class="muted"></span></label>
+        <select id="movSerialModo" style="margin-bottom:6px;" onchange="atualizarSerialUI()">
+          <option value="existentes">Selecionar seriais existentes (entrada/saída)</option>
+          <option value="novos">Criar novos seriais (só entrada)</option>
+        </select>
+        <div id="serialPickerExistentes" style="display:none;">
+          <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r-md);padding:8px;background:var(--bg-input);">
+            <div id="serialList" class="muted">Selecione o produto primeiro…</div>
+          </div>
+        </div>
+        <div id="serialPickerNovos" style="display:none;">
+          <textarea id="movSerialNovos" rows="5" placeholder="SN-0001\nSN-0002\nSN-0003" style="font-family:monospace;"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observação</label><textarea id="movObs" rows="2"></textarea></div>
+    </div>
+
+    <div class="actions-bar">
+      <a class="btn btn-secondary" href="/estoque.html">Cancelar</a>
+      <button class="btn btn-primary" onclick="salvarMov()">Lançar</button>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('estoque');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+
+let produtoSelecionado = null;
+let serialDisponiveis = [];  // seriais do produto atual (filtrados por status)
+
+let acTimer;
+async function autocompleteProd(){
+  clearTimeout(acTimer);
+  const q=document.getElementById('movProdBusca').value;
+  if(q.length<2){ document.getElementById('movProdList').innerHTML=''; return; }
+  acTimer=setTimeout(async()=>{
+    const r=await fetch('/api/produtos/autocomplete?q='+encodeURIComponent(q));
+    const d=await r.json();
+    if(!d.success) return;
+    document.getElementById('movProdList').innerHTML = (d.produtos||[]).map(p=>
+      `<div onclick="selecionarProd(${p.id}, ${JSON.stringify((p.sku+' — '+(p.descricao||''))).replace(/"/g,'&quot;')})">${p.sku} — ${p.descricao||''}</div>`
+    ).join('');
+  },200);
+}
+
+async function selecionarProd(id,txt){
+  document.getElementById('movProdId').value=id;
+  document.getElementById('movProdBusca').value=txt;
+  document.getElementById('movProdList').innerHTML='';
+
+  // Buscar detalhe do produto para saber se rastreia lote/serial
+  const r=await fetch('/api/produtos/'+id);
+  const d=await r.json();
+  if(d.success){
+    produtoSelecionado = d.produto;
+    const flags = [];
+    if (produtoSelecionado.rastreiaLote) flags.push('rastreia LOTE');
+    if (produtoSelecionado.rastreiaSerial) flags.push('rastreia SERIAL');
+    document.getElementById('movProdInfo').textContent = flags.length ? flags.join(', ') : 'sem rastreabilidade';
+    await carregarLotes(id);
+  }
+  atualizarUI();
+}
+
+async function carregarLotes(produtoId){
+  const r=await fetch('/api/lotes?produtoId='+produtoId+'&comSaldo=1');
+  const d=await r.json();
+  const sel=document.getElementById('movLoteId');
+  const tipo = document.getElementById('movTipo').value;
+  let opts = '<option value="">— selecionar lote —</option>';
+  if (tipo !== 'saida') opts += '<option value="__novo__">+ Criar novo lote</option>';
+  opts += (d.lotes||[]).map(l=>`<option value="${l.id}" data-saldo="${l.saldoAtual}">${l.numero} (saldo ${l.saldoAtual}${l.dataValidade?', val '+l.dataValidade:''})</option>`).join('');
+  sel.innerHTML = opts;
+}
+
+async function carregarSerialDisponiveis(produtoId){
+  const tipo = document.getElementById('movTipo').value;
+  const status = tipo === 'saida' ? 'disponivel' : '';  // entrada vincula novos
+  const r=await fetch('/api/serial?produtoId='+produtoId+(status?'&status='+status:''));
+  const d=await r.json();
+  serialDisponiveis = d.success ? (d.serial||[]) : [];
+  renderSerialPicker();
+}
+
+function renderSerialPicker(){
+  const div = document.getElementById('serialList');
+  if (!serialDisponiveis.length) { div.innerHTML = '<span class="muted">Nenhum serial disponível para este produto</span>'; return; }
+  div.innerHTML = serialDisponiveis.map(s=>`
+    <label style="display:flex;gap:8px;padding:4px 6px;font-family:monospace;font-size:0.9em;">
+      <input type="checkbox" class="serial-check" value="${s.id}" data-numero="${s.numero}">
+      <strong>${s.numero}</strong>
+      <span class="muted">${s.loteNumero?' · lote '+s.loteNumero:''} · ${s.status}</span>
+    </label>
+  `).join('');
+}
+
+function atualizarUI(){
+  const tipo = document.getElementById('movTipo').value;
+  const p = produtoSelecionado;
+
+  const mostraLote = p && p.rastreiaLote && tipo !== 'ajuste';
+  const mostraSerial = p && p.rastreiaSerial && tipo !== 'ajuste';
+
+  document.getElementById('rowLote').style.display = mostraLote ? '' : 'none';
+  document.getElementById('rowSerial').style.display = mostraSerial ? '' : 'none';
+
+  if (mostraLote) {
+    document.getElementById('loteObrigatorio').textContent = '(obrigatório)';
+    document.getElementById('loteObrigatorio').className = 'text-warn';
+    if (p) carregarLotes(p.id);
+  }
+
+  if (mostraSerial) {
+    // Força modo "novos" em entrada, "existentes" em saída
+    const modo = document.getElementById('movSerialModo');
+    modo.value = tipo === 'entrada' ? 'novos' : 'existentes';
+    atualizarSerialUI();
+    if (p) carregarSerialDisponiveis(p.id);
+  }
+
+  atualizarSeriaisNecessarios();
+}
+
+function atualizarSerialUI(){
+  const modo = document.getElementById('movSerialModo').value;
+  document.getElementById('serialPickerExistentes').style.display = modo==='existentes' ? '' : 'none';
+  document.getElementById('serialPickerNovos').style.display = modo==='novos' ? '' : 'none';
+}
+
+function atualizarSeriaisNecessarios(){
+  const qtd = parseInt(document.getElementById('movQtd').value) || 0;
+  document.getElementById('serialQtd').textContent = qtd > 0 ? `(${qtd} serial(is) necessário(s))` : '';
+}
+
+async function salvarMov(){
+  const produtoId=Number(document.getElementById('movProdId').value);
+  const tipo=document.getElementById('movTipo').value;
+  const quantidade=parseFloat(document.getElementById('movQtd').value);
+  if(!produtoId) return showAlert('Selecione um produto','error');
+  if(!quantidade) return showAlert('Informe a quantidade','error');
+
+  const body={
+    produtoId,
+    tipo,
+    quantidade,
+    custoUnitario: parseFloat(document.getElementById('movCusto').value) || null,
+    observacao: document.getElementById('movObs').value || null,
+    data: document.getElementById('movData').value || null
+  };
+
+  const p = produtoSelecionado;
+  const mostraLote = p && p.rastreiaLote && tipo !== 'ajuste';
+  const mostraSerial = p && p.rastreiaSerial && tipo !== 'ajuste';
+
+  // LOTE
+  if (mostraLote) {
+    const loteSel = document.getElementById('movLoteId').value;
+    if (!loteSel) return showAlert('Selecione um lote','error');
+    if (loteSel === '__novo__') {
+      // Criar lote novo inline
+      const numero = prompt('Número do novo lote:');
+      if (!numero) return;
+      const validade = prompt('Data de validade (YYYY-MM-DD, opcional):') || null;
+      const custo = body.custoUnitario;
+      try {
+        const r = await fetch('/api/lotes', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            produtoId,
+            numero,
+            dataValidade: validade,
+            quantidadeInicial: 0,
+            custoUnitario: custo
+          })
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error);
+        body.loteId = d.lote.id;
+      } catch(e) { return showAlert('Erro criando lote: '+e.message, 'error'); }
+    } else {
+      body.loteId = Number(loteSel);
+    }
+  }
+
+  // SERIAIS
+  if (mostraSerial) {
+    const modo = document.getElementById('movSerialModo').value;
+    if (modo === 'existentes') {
+      const checks = document.querySelectorAll('.serial-check:checked');
+      body.serialIds = Array.from(checks).map(c=>Number(c.value));
+    } else {
+      const numeros = document.getElementById('movSerialNovos').value.split('\n').map(s=>s.trim()).filter(Boolean);
+      if (numeros.length !== quantidade) return showAlert(`Informe exatamente ${quantidade} serial(is)`,'error');
+      // Criar seriais primeiro
+      try {
+        const r = await fetch('/api/serial', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ produtoId, loteId: body.loteId || null, numeros })
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error);
+        body.serialIds = d.serial.map(s=>s.id);
+      } catch(e) { return showAlert('Erro criando seriais: '+e.message, 'error'); }
+    }
+    if (!body.serialIds || body.serialIds.length !== quantidade) {
+      return showAlert(`Informe exatamente ${quantidade} serial(is)`,'error');
+    }
+  }
+
+  try {
+    const r=await fetch('/api/estoque/movimentacoes', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json();
+    if(!d.success) return showAlert(d.error,'error');
+    showAlert('Movimentação lançada');
+    setTimeout(()=>{ window.location.href='/estoque-movimentacoes.html'; }, 800);
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+document.getElementById('movData').value = new Date().toISOString().slice(0,10);
+</script>
+</body></html>

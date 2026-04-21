@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Funil de Vendas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.kanban-board { display:flex; gap:14px; overflow-x:auto; padding:6px 2px 12px; }
+.kanban-column { min-width:280px; max-width:280px; background:var(--bg-1); border-radius:var(--r-lg); padding:10px; display:flex; flex-direction:column; max-height:calc(100vh - 230px); }
+.kanban-column h4 { margin:0 0 8px; padding:6px 8px; border-radius:var(--r-md); color:var(--text-0); display:flex; justify-content:space-between; align-items:center; }
+.kanban-cards { flex:1; overflow-y:auto; min-height:60px; display:flex; flex-direction:column; gap:8px; }
+.kanban-cards.drag-over { background:rgba(77,171,247,0.08); border:2px dashed var(--accent); border-radius:var(--r-md); }
+.op-card { background:var(--bg-2); border-radius:var(--r-md); padding:10px; cursor:grab; border-left:3px solid var(--accent); }
+.op-card:active { cursor:grabbing; }
+.op-card .titulo { font-weight:600; color:var(--text-0); font-size:13px; line-height:1.3; }
+.op-card .cliente { color:var(--text-2); font-size:11px; margin-top:4px; }
+.op-card .valor { color:var(--success); font-size:12px; font-weight:600; margin-top:4px; }
+.op-card .meta { color:var(--text-3); font-size:10px; margin-top:6px; display:flex; gap:8px; }
+.col-count { background:rgba(255,255,255,0.15); padding:1px 8px; border-radius:var(--r-lg); font-size:11px; }
+.col-soma { font-size:11px; opacity:0.85; margin-top:2px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Funil de Vendas</h1>
+      <small>Acompanhamento de oportunidades por etapa</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" id="btnImportarInteresse" onclick="abrirModalImportInteresse()" style="display:none;">Importar de Interesse</button>
+      <button class="btn btn-primary" onclick="abrirNovaOp()">+ Nova oportunidade</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="fFunil" onchange="carregar()" style="min-width:160px;"></select>
+    <input type="text" id="fQ" placeholder="Buscar título ou cliente…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fVendedor" onchange="carregar()" style="min-width:160px;"><option value="">Todos vendedores</option></select>
+  </div>
+
+  <div class="kanban-board" id="board"></div>
+</main></div>
+
+<!-- Modal Importar de Interesse -->
+<div class="modal-bg" id="modalImpInt">
+  <div class="modal" style="max-width:960px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Importar licitação de interesse</h3>
+        <small class="muted">Licitações marcadas como interesse que ainda não viraram oportunidade no funil.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalImportInteresse()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="text" id="impIntBusca" placeholder="Buscar por objeto, órgão ou número…" oninput="debImpInt()" style="margin-bottom:12px;">
+    <div id="impIntLista" style="max-height:56vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-1);"></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="fecharModalImportInteresse()">Fechar</button></div>
+  </div>
+</div>
+
+<!-- Modal Oportunidade -->
+<div class="modal-bg" id="modalOp">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 id="opTitulo">Nova oportunidade</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalOp()">×</button>
+    </div>
+    <input type="hidden" id="opId">
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Título *</label>
+        <input type="text" id="opTit" placeholder="Ex.: Venda de equipamento para Cliente X">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1;position:relative;">
+        <label>Cliente</label>
+        <input type="text" id="opClienteBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCliente()" autocomplete="off">
+        <input type="hidden" id="opClienteId">
+        <div id="acClienteList" class="ac-list"></div>
+      </div>
+      <div class="form-group" style="width:160px;">
+        <label>Valor (R$)</label>
+        <input type="number" id="opValor" step="0.01" min="0" value="0">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Etapa</label>
+        <select id="opEtapa"></select>
+      </div>
+      <div class="form-group">
+        <label>Probabilidade</label>
+        <input type="number" id="opProb" min="0" max="100" value="50">
+      </div>
+      <div class="form-group">
+        <label>Vendedor</label>
+        <select id="opVendedor"><option value="">—</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Fonte</label>
+        <select id="opFonte"><option value="">—</option></select>
+      </div>
+      <div class="form-group">
+        <label>Previsão de fechamento</label>
+        <input type="date" id="opPrev">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição</label>
+        <textarea id="opDesc" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharModalOp()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarOp()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('crm-funil');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+let funis = [];
+let funilAtual = null;
+let usuarios = [];
+let fontes = [];
+
+async function carregarConfig(){
+  const [r1, r2] = await Promise.all([
+    fetch('/api/crm/funis').then(r=>r.json()),
+    fetch('/api/usuarios').then(r=>r.json()).catch(()=>({success:false}))
+  ]);
+  if (!r1.success) return showAlert('Erro ao carregar funis','error');
+  funis = r1.funis; fontes = r1.fontes;
+  if (r2.success) usuarios = r2.usuarios;
+
+  const selFunil = document.getElementById('fFunil');
+  selFunil.innerHTML = funis.map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
+  funilAtual = funis[0];
+
+  const selVend = document.getElementById('fVendedor');
+  selVend.innerHTML = '<option value="">Todos vendedores</option>' + usuarios.map(u=>`<option value="${u.id}">${u.nome||u.username}</option>`).join('');
+
+  document.getElementById('opFonte').innerHTML = '<option value="">—</option>' + fontes.map(f=>`<option>${f}</option>`).join('');
+  document.getElementById('opVendedor').innerHTML = '<option value="">—</option>' + usuarios.map(u=>`<option value="${u.id}">${u.nome||u.username}</option>`).join('');
+}
+
+async function carregar(){
+  const fid = Number(document.getElementById('fFunil').value);
+  funilAtual = funis.find(f=>f.id===fid);
+  if (!funilAtual) return;
+  document.getElementById('btnImportarInteresse').style.display = funilAtual.nome === 'Licitações' ? 'inline-flex' : 'none';
+  const p = new URLSearchParams({ funilId: fid });
+  const q = document.getElementById('fQ').value.trim();
+  const v = document.getElementById('fVendedor').value;
+  if (q) p.set('q', q);
+  if (v) p.set('vendedorId', v);
+  const r = await fetch('/api/crm/oportunidades?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  renderBoard(d.oportunidades);
+}
+
+function renderBoard(ops){
+  const board = document.getElementById('board');
+  const grupos = {};
+  funilAtual.etapas.forEach(e => grupos[e.id] = []);
+  ops.forEach(o => { if (grupos[o.etapaId]) grupos[o.etapaId].push(o); });
+  board.innerHTML = funilAtual.etapas.map(et => {
+    const lista = grupos[et.id] || [];
+    const soma = lista.reduce((s,o)=>s+Number(o.valor||0),0);
+    return `<div class="kanban-column">
+      <h4 style="background:${et.cor||'#2a3a5c'};">
+        <span>${et.nome}</span>
+        <span class="col-count">${lista.length}</span>
+      </h4>
+      <div class="col-soma muted" style="text-align:right;color:#aaa;">${fmtBRL(soma)}</div>
+      <div class="kanban-cards" data-etapa-id="${et.id}" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
+        ${lista.map(o=>cardHtml(o)).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function cardHtml(o){
+  return `<div class="op-card" draggable="true" data-id="${o.id}" ondragstart="dragStart(event)" onclick="abrirDetalhe(${o.id})">
+    <div class="titulo">${o.titulo}</div>
+    ${o.clienteNome ? `<div class="cliente">👤 ${o.clienteNome}</div>` : ''}
+    ${Number(o.valor)>0 ? `<div class="valor">${fmtBRL(o.valor)}</div>` : ''}
+    <div class="meta">
+      ${o.vendedorNome ? `<span>${o.vendedorNome}</span>` : ''}
+      ${o.dataPrevisaoFechamento ? `<span>📅 ${o.dataPrevisaoFechamento}</span>` : ''}
+      <span style="margin-left:auto;">${o.probabilidade}%</span>
+    </div>
+  </div>`;
+}
+
+// ----- Drag & Drop -----
+let dragId = null;
+function dragStart(e){ dragId = e.currentTarget.dataset.id; e.dataTransfer.effectAllowed='move'; }
+function dragOver(e){ e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function dragLeave(e){ e.currentTarget.classList.remove('drag-over'); }
+async function drop(e){
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const etapaId = Number(e.currentTarget.dataset.etapaId);
+  if (!dragId || !etapaId) return;
+  const etapa = funilAtual.etapas.find(et=>et.id===etapaId);
+  let motivoPerda = null;
+  if (etapa && etapa.tipo === 'perdido') {
+    motivoPerda = prompt('Motivo da perda:');
+    if (motivoPerda === null) return;
+  }
+  const r = await fetch(`/api/crm/oportunidades/${dragId}/mover`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ etapaId, motivoPerda })
+  });
+  const d = await r.json();
+  if (!d.success) showAlert(d.error,'error');
+  else carregar();
+}
+
+// ----- Modal oportunidade -----
+function abrirNovaOp(){
+  document.getElementById('opTitulo').textContent='Nova oportunidade';
+  document.getElementById('opId').value='';
+  ['opTit','opClienteBusca','opClienteId','opDesc','opPrev'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('opValor').value='0';
+  document.getElementById('opProb').value='50';
+  document.getElementById('opEtapa').innerHTML = funilAtual.etapas.filter(e=>e.tipo==='normal').map(e=>`<option value="${e.id}">${e.nome}</option>`).join('');
+  document.getElementById('opFonte').value='';
+  document.getElementById('opVendedor').value='';
+  document.getElementById('modalOp').classList.add('open');
+}
+function fecharModalOp(){ document.getElementById('modalOp').classList.remove('open'); }
+
+async function salvarOp(){
+  const id = document.getElementById('opId').value;
+  const body = {
+    funilId: funilAtual.id,
+    etapaId: Number(document.getElementById('opEtapa').value),
+    titulo: document.getElementById('opTit').value.trim(),
+    descricao: document.getElementById('opDesc').value || null,
+    valor: Number(document.getElementById('opValor').value) || 0,
+    probabilidade: Number(document.getElementById('opProb').value) || 0,
+    fonte: document.getElementById('opFonte').value || null,
+    dataPrevisaoFechamento: document.getElementById('opPrev').value || null,
+    clienteId: document.getElementById('opClienteId').value ? Number(document.getElementById('opClienteId').value) : null,
+    vendedorId: document.getElementById('opVendedor').value ? Number(document.getElementById('opVendedor').value) : null
+  };
+  if (!body.titulo) return showAlert('Informe o título','error');
+  try {
+    const url = id ? '/api/crm/oportunidades/'+id : '/api/crm/oportunidades';
+    const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(id?'Oportunidade atualizada':'Oportunidade criada');
+    fecharModalOp();
+    carregar();
+  } catch(e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+// Autocomplete cliente
+let acTimer;
+function acCliente(){
+  clearTimeout(acTimer);
+  const q = document.getElementById('opClienteBusca').value.trim();
+  if (q.length<2){ document.getElementById('acClienteList').innerHTML=''; return; }
+  acTimer = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = (d.pessoas || d.data || []);
+    document.getElementById('acClienteList').innerHTML = lista.slice(0,12).map(p=>
+      `<div onclick='selCliente(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${p.razaoSocial} <small class="muted">${p.cpfCnpj||''}</small></div>`
+    ).join('');
+  },200);
+}
+function selCliente(id, nome){
+  document.getElementById('opClienteId').value = id;
+  document.getElementById('opClienteBusca').value = nome;
+  document.getElementById('acClienteList').innerHTML='';
+}
+
+function abrirDetalhe(id){
+  window.location.href = '/crm-oportunidade.html?id='+id;
+}
+
+// ==================== IMPORTAR DE INTERESSE ====================
+function abrirModalImportInteresse(){
+  document.getElementById('modalImpInt').classList.add('open');
+  document.getElementById('impIntBusca').value = '';
+  carregarInteresses();
+}
+function fecharModalImportInteresse(){ document.getElementById('modalImpInt').classList.remove('open'); }
+
+let impIntTimer;
+function debImpInt(){ clearTimeout(impIntTimer); impIntTimer = setTimeout(carregarInteresses, 250); }
+
+async function carregarInteresses(){
+  const q = document.getElementById('impIntBusca').value.trim();
+  const box = document.getElementById('impIntLista');
+  box.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-3);">Buscando…</div>';
+  try {
+    const r = await fetch('/api/crm/importar-interesse/lista' + (q?'?q='+encodeURIComponent(q):''));
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    if (!d.licitacoes.length) {
+      box.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3);">Nenhuma licitação de interesse disponível para importação.</div>';
+      return;
+    }
+    box.innerHTML = d.licitacoes.map(l => {
+      const prazo = l.dataEncerramentoProposta ? new Date(l.dataEncerramentoProposta) : null;
+      const diasRestantes = prazo ? Math.ceil((prazo - new Date()) / 86400000) : null;
+      const corPrazo = diasRestantes == null ? '' : diasRestantes < 0 ? 'var(--danger)' : diasRestantes <= 3 ? 'var(--warn)' : 'var(--text-2)';
+      return `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto;gap:14px;align-items:start;">
+        <div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+            <strong class="mono">${l.numeroCompra || '—'}</strong>
+            ${l.modalidadeNome ? `<span class="badge">${l.modalidadeNome}</span>` : ''}
+            ${l.nomeOrgao ? `<span style="color:var(--text-1);font-size:0.9em;">${l.nomeOrgao}</span>` : ''}
+          </div>
+          ${l.objetoCompra ? `<div style="color:var(--text-2);font-size:0.88em;line-height:1.4;">${l.objetoCompra.slice(0,200)}${l.objetoCompra.length>200?'…':''}</div>` : ''}
+          <div style="color:var(--text-3);font-size:0.78em;margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;">
+            ${l.dataEncerramentoProposta ? `<span style="color:${corPrazo};">📅 ${l.dataEncerramentoProposta}${diasRestantes!=null?` (${diasRestantes>=0?'em '+diasRestantes+'d':'venceu há '+Math.abs(diasRestantes)+'d'})`:''}</span>` : ''}
+            ${l.valorTotalEstimado ? `<span>💰 ${fmtBRL(l.valorTotalEstimado)}</span>` : ''}
+            ${l.qtdItens ? `<span>📦 ${l.qtdItens} item(ns)</span>` : ''}
+            ${l.linkSistemaOrigem ? `<a href="${l.linkSistemaOrigem}" target="_blank" rel="noopener" style="color:var(--accent);">abrir no portal ↗</a>` : ''}
+          </div>
+        </div>
+        <div>
+          <button class="btn btn-primary btn-sm" onclick="importarLicitacao('${l.cnpj}', ${l.ano}, ${l.sequencial}, this)">Importar →</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    box.innerHTML = `<div style="padding:30px;text-align:center;color:var(--danger);">Erro: ${e.message}</div>`;
+  }
+}
+
+async function importarLicitacao(cnpj, ano, sequencial, btn){
+  btn.disabled = true; btn.textContent = 'Importando…';
+  try {
+    const r = await fetch('/api/crm/importar-interesse', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cnpj, ano, sequencial })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Oportunidade criada no funil Licitações');
+    carregarInteresses();
+    carregar();
+  } catch(e) {
+    showAlert('Erro: '+e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Importar →';
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modalImpInt').classList.contains('open')) fecharModalImportInteresse();
+});
+
+carregarConfig().then(carregar);
+</script>
+</body></html>
