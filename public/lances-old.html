@@ -5,359 +5,137 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lances Automáticos - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
-            min-height: 100vh;
-        }
-        .layout {
-            display: flex;
-            min-height: 100vh;
-        }
-        .sidebar {
-            width: 220px;
-            background: #16213e;
-            padding: 0;
-            border-right: 1px solid #0f3460;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-        }
-        .sidebar-header {
-            padding: 20px;
-            border-bottom: 1px solid #0f3460;
-        }
-        .sidebar-logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #4dabf7;
-            text-decoration: none;
-            font-size: 1.3em;
-            font-weight: 700;
-        }
-        .sidebar-menu {
-            padding: 15px 0;
-            flex: 1;
-        }
-        .menu-section {
-            color: #666;
-            font-size: 0.75em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            padding: 10px 20px 5px;
-            margin-top: 10px;
-        }
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 20px;
-            color: #adb5bd;
-            text-decoration: none;
-            transition: all 0.2s;
-            border-left: 3px solid transparent;
-        }
-        .menu-item:hover {
-            background: #0f3460;
-            color: #4dabf7;
-        }
-        .menu-item.active {
-            background: #0f3460;
-            color: #4dabf7;
-            border-left-color: #4dabf7;
-        }
-        .main-content {
-            flex: 1;
-            padding: 30px;
-            overflow-y: auto;
-        }
-        h1 {
-            color: #4dabf7;
-            margin-bottom: 10px;
-        }
-        .subtitle {
-            color: #888;
-            margin-bottom: 30px;
-        }
-        .panel {
-            background: #16213e;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 20px;
-        }
-        .panel h3 {
-            color: #4dabf7;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #0f3460;
-        }
-        .status-bar {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
+        .status-bar { display: flex; gap: 20px; margin-bottom: 20px; }
         .status-item {
-            background: #1a1a2e;
+            background: var(--bg-0);
             padding: 15px 20px;
-            border-radius: 8px;
+            border-radius: var(--r-md);
             flex: 1;
             text-align: center;
         }
-        .status-item .label {
-            color: #888;
-            font-size: 0.85em;
-            margin-bottom: 5px;
-        }
-        .status-item .value {
-            font-size: 1.5em;
-            font-weight: 600;
-        }
-        .status-item .value.verde { color: #4caf50; }
-        .status-item .value.amarelo { color: #ff9800; }
-        .status-item .value.vermelho { color: #f44336; }
-        .status-item .value.azul { color: #4dabf7; }
+        .status-item .label { color: var(--text-3); font-size: 0.85em; margin-bottom: 5px; }
+        .status-item .value { font-size: 1.5em; font-weight: 600; }
+        .status-item .value.verde { color: var(--success); }
+        .status-item .value.amarelo { color: var(--warn); }
+        .status-item .value.vermelho { color: var(--danger); }
+        .status-item .value.azul { color: var(--accent); }
 
-        /* Tabela de itens em disputa */
-        .tabela-lances {
-            width: 100%;
-            border-collapse: collapse;
-        }
+        .tabela-lances { width: 100%; border-collapse: collapse; }
         .tabela-lances th {
-            background: #0f3460;
-            color: #4dabf7;
+            background: var(--bg-1);
+            color: var(--accent);
             padding: 12px;
             text-align: left;
             font-weight: 600;
             font-size: 0.9em;
         }
-        .tabela-lances td {
-            padding: 12px;
-            border-bottom: 1px solid #0f3460;
-            vertical-align: middle;
-        }
-        .tabela-lances tr:hover {
-            background: #1a1a2e;
-        }
-        .item-numero {
-            color: #4dabf7;
-            font-weight: 600;
-        }
-        .item-descricao {
-            max-width: 300px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .valor-atual {
-            font-weight: 600;
-            color: #4caf50;
-        }
-        .meu-lance {
-            color: #4dabf7;
-        }
-        .posicao {
-            text-align: center;
-        }
-        .posicao-1 {
-            color: #4caf50;
-            font-weight: 600;
-        }
-        .posicao-outro {
-            color: #ff9800;
-        }
+        .tabela-lances td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .tabela-lances tr:hover { background: var(--bg-0); }
+        .item-numero { color: var(--accent); font-weight: 600; }
+        .item-descricao { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .valor-atual { font-weight: 600; color: var(--success); }
+        .meu-lance { color: var(--accent); }
+        .posicao { text-align: center; }
+        .posicao-1 { color: var(--success); font-weight: 600; }
+        .posicao-outro { color: var(--warn); }
 
-        /* Configuração de lance */
-        .config-lance {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
+        .config-lance { display: flex; gap: 10px; align-items: center; }
         .config-lance input {
             width: 100px;
             padding: 8px 10px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            color: #fff;
+            background: var(--bg-0);
+            border: 1px solid var(--border);
+            border-radius: var(--r-sm);
+            color: var(--text-0);
             font-size: 0.9em;
         }
-        .config-lance input:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
+        .config-lance input:focus { outline: none; border-color: var(--accent); }
         .config-lance select {
             padding: 8px 10px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            color: #fff;
+            background: var(--bg-0);
+            border: 1px solid var(--border);
+            border-radius: var(--r-sm);
+            color: var(--text-0);
             cursor: pointer;
         }
         .btn-lance {
             padding: 8px 16px;
             border: none;
-            border-radius: 6px;
+            border-radius: var(--r-sm);
             cursor: pointer;
             font-weight: 600;
             font-size: 0.85em;
             transition: all 0.2s;
         }
-        .btn-cobrir {
-            background: #4caf50;
-            color: #fff;
-        }
-        .btn-cobrir:hover {
-            background: #66bb6a;
-        }
-        .btn-cobrir:disabled {
-            background: #555;
-            cursor: not-allowed;
-        }
-        .btn-auto {
-            background: #ff9800;
-            color: #000;
-        }
-        .btn-auto:hover {
-            background: #ffa726;
-        }
-        .btn-auto.ativo {
-            background: #f44336;
-            color: #fff;
-        }
-        .btn-parar {
-            background: #f44336;
-            color: #fff;
-        }
+        .btn-cobrir { background: var(--success); color: #fff; }
+        .btn-cobrir:hover { background: #66bb6a; }
+        .btn-cobrir:disabled { background: #555; cursor: not-allowed; }
+        .btn-auto { background: var(--warn); color: #000; }
+        .btn-auto:hover { background: #ffa726; }
+        .btn-auto.ativo { background: var(--danger); color: #fff; }
+        .btn-parar { background: var(--danger); color: #fff; }
 
-        /* Configurações gerais */
         .config-geral {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
         }
-        .config-grupo {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .config-grupo label {
-            color: #888;
-            font-size: 0.85em;
-        }
+        .config-grupo { display: flex; flex-direction: column; gap: 8px; }
+        .config-grupo label { color: var(--text-3); font-size: 0.85em; }
         .config-grupo input,
         .config-grupo select {
             padding: 10px 12px;
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            color: #fff;
+            background: var(--bg-0);
+            border: 1px solid var(--border);
+            border-radius: var(--r-sm);
+            color: var(--text-0);
             font-size: 0.95em;
         }
         .config-grupo input:focus,
-        .config-grupo select:focus {
-            outline: none;
-            border-color: #4dabf7;
-        }
+        .config-grupo select:focus { outline: none; border-color: var(--accent); }
 
-        /* Log de lances */
         .log-container {
             max-height: 300px;
             overflow-y: auto;
-            background: #1a1a2e;
-            border-radius: 8px;
+            background: var(--bg-0);
+            border-radius: var(--r-md);
             padding: 15px;
             font-family: monospace;
             font-size: 0.85em;
         }
-        .log-item {
-            padding: 5px 0;
-            border-bottom: 1px solid #0f3460;
-        }
-        .log-item:last-child {
-            border-bottom: none;
-        }
-        .log-sucesso { color: #4caf50; }
-        .log-erro { color: #f44336; }
-        .log-info { color: #4dabf7; }
-        .log-aviso { color: #ff9800; }
+        .log-item { padding: 5px 0; border-bottom: 1px solid var(--border); }
+        .log-item:last-child { border-bottom: none; }
+        .log-sucesso { color: var(--success); }
+        .log-erro { color: var(--danger); }
+        .log-info { color: var(--accent); }
+        .log-aviso { color: var(--warn); }
 
-        /* Botões principais */
-        .btn-primary {
-            background: #4dabf7;
-            color: #000;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 1em;
-        }
-        .btn-primary:hover {
-            background: #74c0fc;
-        }
-        .btn-secondary {
-            background: #0f3460;
-            color: #4dabf7;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        .btn-secondary:hover {
-            background: #16213e;
-        }
-
-        /* Alerta de conexão */
         .alerta-conexao {
-            background: #f44336;
+            background: var(--danger);
             color: #fff;
             padding: 15px 20px;
-            border-radius: 8px;
+            border-radius: var(--r-md);
             margin-bottom: 20px;
             display: none;
         }
-        .alerta-conexao.visivel {
-            display: block;
-        }
+        .alerta-conexao.visivel { display: block; }
 
-        /* Empty state */
-        .empty-state {
-            text-align: center;
-            padding: 60px;
-            color: #888;
-        }
-        .empty-state h3 {
-            color: #4dabf7;
-            margin-bottom: 15px;
-        }
+        .empty-state { text-align: center; padding: 60px; color: var(--text-3); }
+        .empty-state h3 { color: var(--accent); margin-bottom: 15px; }
 
-        /* Toggle switch */
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+        .toggle-container { display: flex; align-items: center; gap: 10px; }
         .toggle {
             position: relative;
             width: 50px;
             height: 26px;
-            background: #0f3460;
+            background: var(--bg-1);
             border-radius: 13px;
             cursor: pointer;
             transition: background 0.3s;
         }
-        .toggle.ativo {
-            background: #4caf50;
-        }
+        .toggle.ativo { background: var(--success); }
         .toggle::after {
             content: '';
             position: absolute;
@@ -369,26 +147,16 @@
             border-radius: 50%;
             transition: left 0.3s;
         }
-        .toggle.ativo::after {
-            left: 27px;
-        }
+        .toggle.ativo::after { left: 27px; }
 
-        /* Licitação header */
         .licitacao-info {
-            background: #1a1a2e;
-            border-radius: 8px;
+            background: var(--bg-0);
+            border-radius: var(--r-md);
             padding: 20px;
             margin-bottom: 20px;
         }
-        .licitacao-info h2 {
-            color: #fff;
-            font-size: 1.1em;
-            margin-bottom: 10px;
-        }
-        .licitacao-info .orgao {
-            color: #888;
-            font-size: 0.9em;
-        }
+        .licitacao-info h2 { color: var(--text-0); font-size: 1.1em; margin-bottom: 10px; }
+        .licitacao-info .orgao { color: var(--text-3); font-size: 0.9em; }
         .licitacao-info .badge {
             display: inline-block;
             padding: 4px 12px;
@@ -397,24 +165,11 @@
             font-weight: 600;
             margin-top: 10px;
         }
-        .badge-disputa {
-            background: #4caf50;
-            color: #fff;
-        }
-        .badge-aguardando {
-            background: #ff9800;
-            color: #000;
-        }
-        .badge-encerrada {
-            background: #f44336;
-            color: #fff;
-        }
+        .badge-disputa { background: var(--success); color: #fff; }
+        .badge-aguardando { background: var(--warn); color: #000; }
+        .badge-encerrada { background: var(--danger); color: #fff; }
 
-        .actions-bar {
-            display: flex;
-            gap: 15px;
-            margin-top: 20px;
-        }
+        .actions-bar { display: flex; gap: 15px; margin-top: 20px; }
     </style>
 </head>
 <body>

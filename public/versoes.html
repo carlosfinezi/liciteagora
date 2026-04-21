@@ -5,115 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Versoes e Backups | Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: #f0f2f5;
-      min-height: 100vh;
-      color: #1a1a2e;
-    }
-
-    .app-container {
-      display: flex;
-      min-height: 100vh;
-    }
-
-    .sidebar {
-      width: 250px;
-      background: #2c3e50;
-      padding: 0;
-      position: fixed;
-      height: 100vh;
-      left: 0;
-      top: 0;
-      overflow-y: auto;
-      box-shadow: 2px 0 10px rgba(0,0,0,0.2);
-      z-index: 1000;
-    }
-
-    .sidebar-header {
-      padding: 25px 20px;
-      background: #1a252f;
-      border-bottom: 1px solid #34495e;
-    }
-
-    .sidebar-logo {
-      color: white;
-      font-size: 20px;
-      font-weight: 700;
-      text-decoration: none;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .sidebar-menu { padding: 15px 0; }
-
-    .menu-section {
-      padding: 10px 20px 5px;
-      color: #7f8c8d;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .menu-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 20px;
-      color: #bdc3c7;
-      text-decoration: none;
-      transition: all 0.3s;
-      border-left: 3px solid transparent;
-    }
-
-    .menu-item:hover, .menu-item.active {
-      background: #34495e;
-      color: white;
-      border-left-color: #667eea;
-    }
-
-    .menu-item .icon { font-size: 18px; width: 24px; text-align: center; }
-
-    .main-content {
-      flex: 1;
-      margin-left: 250px;
-      padding: 0;
-    }
-
-    .header {
-      background: linear-gradient(135deg, #8e44ad 0%, #5b2c6f 100%);
-      color: white;
-      padding: 20px 30px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-
-    .header h1 { font-size: 1.5rem; font-weight: 600; }
-    .header .subtitle { opacity: 0.8; font-size: 0.9rem; margin-top: 4px; }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 30px;
-    }
-
     .version-info {
-      background: white;
-      border-radius: 12px;
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
       padding: 20px;
       margin-bottom: 30px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
 
     .version-info h3 {
-      color: #8e44ad;
+      color: var(--accent);
       margin-bottom: 15px;
       display: flex;
       align-items: center;
@@ -128,13 +32,13 @@
 
     .version-item {
       padding: 12px;
-      background: #f8f9fa;
-      border-radius: 8px;
+      background: var(--bg-2);
+      border-radius: var(--r-md);
     }
 
     .version-item label {
       font-size: 11px;
-      color: #666;
+      color: var(--text-3);
       text-transform: uppercase;
       display: block;
       margin-bottom: 4px;
@@ -143,39 +47,24 @@
     .version-item span {
       font-size: 14px;
       font-weight: 500;
-      color: #333;
+      color: var(--text-0);
     }
 
     .section-title {
       font-size: 1.3rem;
-      color: #333;
+      color: var(--text-0);
       margin-bottom: 20px;
       display: flex;
       align-items: center;
       gap: 10px;
     }
 
-    .btn {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .btn-primary { background: #8e44ad; color: white; }
-    .btn-primary:hover { background: #7d3c98; }
-    .btn-success { background: #27ae60; color: white; }
-    .btn-success:hover { background: #219a52; }
-    .btn-danger { background: #e74c3c; color: white; }
-    .btn-danger:hover { background: #c0392b; }
-    .btn-outline { background: white; border: 1px solid #ddd; color: #666; }
-    .btn-outline:hover { background: #f5f5f5; }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-success:hover { filter: brightness(1.1); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover { filter: brightness(1.1); }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-2); }
+    .btn-outline:hover { background: var(--bg-2); color: var(--text-0); }
 
     .cards-grid {
       display: grid;
@@ -184,17 +73,10 @@
       margin-bottom: 30px;
     }
 
-    .card {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      overflow: hidden;
-    }
-
     .card-header {
       padding: 15px 20px;
-      background: #f8f9fa;
-      border-bottom: 1px solid #eee;
+      background: var(--bg-2);
+      border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -202,7 +84,7 @@
 
     .card-header h4 {
       font-size: 14px;
-      color: #333;
+      color: var(--text-0);
     }
 
     .card-body {
@@ -211,7 +93,7 @@
 
     .card-meta {
       font-size: 12px;
-      color: #888;
+      color: var(--text-3);
       margin-bottom: 10px;
     }
 
@@ -224,8 +106,8 @@
     .tag-badge {
       display: inline-block;
       padding: 4px 10px;
-      background: #8e44ad;
-      color: white;
+      background: var(--accent);
+      color: #fff;
       border-radius: 12px;
       font-size: 12px;
       font-weight: 500;
@@ -233,10 +115,10 @@
 
     .backup-size {
       font-size: 12px;
-      color: #666;
-      background: #f0f0f0;
+      color: var(--text-2);
+      background: var(--bg-2);
       padding: 2px 8px;
-      border-radius: 4px;
+      border-radius: var(--r-sm);
     }
 
     .modal-overlay {
@@ -245,7 +127,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.6);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -261,8 +143,9 @@
     }
 
     .modal {
-      background: white;
-      border-radius: 12px;
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
       width: 90%;
       max-width: 500px;
       max-height: 85vh;
@@ -271,49 +154,30 @@
 
     .modal-header {
       padding: 20px;
-      border-bottom: 1px solid #eee;
+      border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
 
-    .modal-header h3 { font-size: 1.2rem; color: #333; }
+    .modal-header h3 { font-size: 1.2rem; color: var(--text-0); }
 
     .modal-close {
       width: 32px;
       height: 32px;
       border: none;
-      background: #f5f5f5;
-      border-radius: 6px;
+      background: var(--bg-2);
+      color: var(--text-2);
+      border-radius: var(--r-sm);
       cursor: pointer;
       font-size: 18px;
-      color: #666;
     }
 
     .modal-body { padding: 20px; }
 
-    .form-group { margin-bottom: 16px; }
-
-    .form-group label {
-      display: block;
-      margin-bottom: 6px;
-      font-weight: 500;
-      color: #333;
-      font-size: 14px;
-    }
-
-    .form-group input, .form-group textarea {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      font-size: 14px;
-      font-family: inherit;
-    }
-
     .modal-footer {
       padding: 16px 20px;
-      border-top: 1px solid #eee;
+      border-top: 1px solid var(--border);
       display: flex;
       justify-content: flex-end;
       gap: 10px;
@@ -323,11 +187,12 @@
       position: fixed;
       bottom: 20px;
       right: 20px;
-      background: #333;
-      color: white;
+      background: var(--bg-2);
+      color: var(--text-0);
+      border: 1px solid var(--border);
       padding: 12px 20px;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      border-radius: var(--r-md);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
       transform: translateY(100px);
       opacity: 0;
       transition: all 0.3s;
@@ -335,13 +200,13 @@
     }
 
     .toast.show { transform: translateY(0); opacity: 1; }
-    .toast.success { background: #27ae60; }
-    .toast.error { background: #e74c3c; }
+    .toast.success { background: var(--success); color: #fff; border-color: var(--success); }
+    .toast.error { background: var(--danger); color: #fff; border-color: var(--danger); }
 
     .empty-state {
       text-align: center;
       padding: 40px;
-      color: #888;
+      color: var(--text-3);
     }
 
     .stats-row {
@@ -354,18 +219,18 @@
     .stat-badge {
       font-size: 11px;
       padding: 3px 8px;
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-radius: 4px;
+      background: rgba(81, 207, 102, 0.15);
+      color: var(--success);
+      border-radius: var(--r-sm);
     }
 
     .warning-box {
-      background: #fff3cd;
-      border: 1px solid #ffc107;
-      border-radius: 8px;
+      background: rgba(255, 212, 59, 0.1);
+      border: 1px solid var(--warn);
+      border-radius: var(--r-md);
       padding: 15px;
       margin-bottom: 20px;
-      color: #856404;
+      color: var(--warn);
     }
   </style>
 </head>

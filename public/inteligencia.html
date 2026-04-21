@@ -5,89 +5,74 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inteligência de Negócio - LiciteAgora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; min-height: 100vh; color: #e0e0e0; }
-        .container { max-width: 1800px; margin: 0 auto; }
-
         /* Header */
-        .header { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 25px 30px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
-        .header h1 { color: #4fc3f7; font-size: 24px; margin-bottom: 5px; }
-        .header p { color: #90a4ae; font-size: 13px; }
+        .header h1 { color: var(--accent); font-size: 24px; margin-bottom: 5px; }
+        .header p { color: var(--text-2); font-size: 13px; }
 
         /* Search */
-        .search-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 25px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+        .search-card { padding: 25px; margin-bottom: 20px; }
         .search-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
-        .search-row label { display: block; font-size: 12px; color: #90a4ae; margin-bottom: 5px; }
-        .search-row input, .search-row select { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 10px 14px; border-radius: 8px; font-size: 14px; }
-        .search-row input:focus, .search-row select:focus { outline: none; border-color: #4fc3f7; }
+        .search-row label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 5px; }
         .search-row input[type=text] { flex: 1; min-width: 250px; }
-        .btn { padding: 10px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-        .btn-primary { background: linear-gradient(135deg, #4fc3f7, #0288d1); color: white; }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(79,195,247,0.3); }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-        .btn-secondary { background: rgba(255,255,255,0.1); color: #b0bec5; }
-        .btn-secondary:hover { background: rgba(255,255,255,0.15); }
-        .btn-success { background: linear-gradient(135deg, #66bb6a, #388e3c); color: white; }
-        .btn-success:hover { box-shadow: 0 4px 15px rgba(102,187,106,0.3); }
-        .search-hint { font-size: 12px; color: #78909c; margin-top: 8px; }
+        .search-hint { font-size: 12px; color: var(--text-3); margin-top: 8px; }
 
         /* Stats Row */
         .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .stat-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); padding: 18px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); text-align: center; }
-        .stat-card .stat-value { font-size: 28px; font-weight: 700; color: #4fc3f7; }
-        .stat-card .stat-label { font-size: 12px; color: #78909c; margin-top: 4px; }
+        .stat-card { padding: 18px; text-align: center; }
+        .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
+        .stat-card .stat-label { font-size: 12px; color: var(--text-3); margin-top: 4px; }
 
         /* Layout full width */
         .content-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
         .panels-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
 
         /* Results Table */
-        .results-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; }
-        .results-header { padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; }
-        .results-header h3 { color: #b0bec5; font-size: 14px; }
+        .results-card { overflow: hidden; }
+        .results-header { padding: 15px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .results-header h3 { color: var(--text-2); font-size: 14px; }
         .results-table { width: 100%; border-collapse: collapse; }
-        .results-table th { background: rgba(0,0,0,0.2); padding: 10px 14px; text-align: left; font-size: 12px; color: #78909c; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; }
+        .results-table th { background: rgba(0,0,0,0.2); padding: 10px 14px; text-align: left; font-size: 12px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; }
         .results-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 13px; vertical-align: top; }
         .results-table tbody tr:hover { background: rgba(79,195,247,0.05); }
         .results-table .desc { max-width: 450px; line-height: 1.4; }
         .results-table .valor { text-align: right; white-space: nowrap; font-family: 'Consolas', monospace; }
-        .results-table .orgao { color: #90a4ae; font-size: 11px; }
+        .results-table .orgao { color: var(--text-2); font-size: 11px; }
         .results-scroll { max-height: 600px; overflow-y: auto; }
 
         /* Winner badge */
         .winner-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-        .winner-badge.homologado { background: rgba(102,187,106,0.15); color: #66bb6a; }
-        .winner-badge.pendente { background: rgba(255,183,77,0.15); color: #ffb74d; }
-        .winner-badge.sem-resultado { background: rgba(120,144,156,0.15); color: #78909c; }
-        .winner-badge.erro { background: rgba(239,83,80,0.15); color: #ef5350; }
+        .winner-badge.homologado { background: rgba(102,187,106,0.15); color: var(--success); }
+        .winner-badge.pendente { background: rgba(255,183,77,0.15); color: var(--warn); }
+        .winner-badge.sem-resultado { background: rgba(120,144,156,0.15); color: var(--text-3); }
+        .winner-badge.erro { background: rgba(239,83,80,0.15); color: var(--danger); }
         .winner-info { margin-top: 4px; }
-        .winner-info .fornecedor { color: #4fc3f7; font-weight: 600; font-size: 12px; }
-        .winner-info .cnpj { color: #78909c; font-size: 11px; }
-        .winner-info .valor-h { color: #66bb6a; font-weight: 600; }
+        .winner-info .fornecedor { color: var(--accent); font-weight: 600; font-size: 12px; }
+        .winner-info .cnpj { color: var(--text-3); font-size: 11px; }
+        .winner-info .valor-h { color: var(--success); font-weight: 600; }
 
         /* Sidebar panels */
-        .panel { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 15px; overflow: hidden; }
-        .panel-header { padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-        .panel-header h3 { color: #b0bec5; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .panel-header { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+        .panel-header h3 { color: var(--text-2); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
         .panel-body { padding: 14px 18px; }
         .rank-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
         .rank-item:last-child { border: none; }
-        .rank-item .rank-name { font-size: 13px; color: #e0e0e0; flex: 1; margin-right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .rank-item .rank-count { background: rgba(79,195,247,0.15); color: #4fc3f7; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; min-width: 30px; text-align: center; }
-        .rank-item .rank-valor { color: #66bb6a; font-size: 12px; font-family: 'Consolas', monospace; }
+        .rank-item .rank-name { font-size: 13px; color: var(--text-0); flex: 1; margin-right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rank-item .rank-count { background: rgba(79,195,247,0.15); color: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; min-width: 30px; text-align: center; }
+        .rank-item .rank-valor { color: var(--success); font-size: 12px; font-family: 'Consolas', monospace; }
 
         /* Progress */
         .progress-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-top: 10px; }
         .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #4fc3f7, #0288d1); transition: width 0.3s; }
-        .progress-text { font-size: 11px; color: #78909c; margin-top: 4px; }
+        .progress-text { font-size: 11px; color: var(--text-3); margin-top: 4px; }
 
         /* Loading */
-        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(79,195,247,0.3); border-top-color: #4fc3f7; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(79,195,247,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* Empty state */
-        .empty-state { padding: 60px 20px; text-align: center; color: #78909c; }
+        .empty-state { padding: 60px 20px; text-align: center; color: var(--text-3); }
         .empty-state .icon { font-size: 48px; margin-bottom: 15px; }
         .empty-state p { font-size: 14px; }
 
@@ -96,7 +81,7 @@
         .pagination .btn { padding: 6px 14px; font-size: 12px; }
 
         /* Link PNCP */
-        a.pncp-link { color: #4fc3f7; text-decoration: none; font-size: 11px; }
+        a.pncp-link { color: var(--accent); text-decoration: none; font-size: 11px; }
         a.pncp-link:hover { text-decoration: underline; }
     </style>
 </head>

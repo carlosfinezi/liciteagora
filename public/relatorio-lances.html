@@ -5,45 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Relatório de Lances - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
         .main-content { padding: 20px; }
-        h1 { color: #4dabf7; margin-bottom: 5px; }
-        .subtitle { color: #888; margin-bottom: 20px; font-size: 0.9em; }
 
         .filtros { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-        .filtros input, .filtros select { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 6px; padding: 7px 10px; color: #eee; font-size: 0.88em; }
-        .filtros input:focus, .filtros select:focus { outline: none; border-color: #4dabf7; }
-        .btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.88em; font-weight: 500; }
-        .btn-primary { background: #4dabf7; color: #000; }
-        .btn-outline { background: transparent; color: #4dabf7; border: 1px solid #4dabf7; }
-        .btn-sm { padding: 4px 10px; font-size: 0.82em; }
 
         .resumo { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
-        .card { background: #16213e; border-radius: 10px; padding: 16px 20px; min-width: 140px; }
-        .card .label { color: #888; font-size: 0.8em; margin-bottom: 4px; }
+        .card { min-width: 140px; padding: 16px 20px; }
+        .card .label { color: var(--text-3); font-size: 0.8em; margin-bottom: 4px; }
         .card .valor { font-size: 1.4em; font-weight: 700; }
-        .card .valor.verde { color: #4caf50; }
-        .card .valor.vermelho { color: #f44336; }
-        .card .valor.azul { color: #4dabf7; }
-        .card .valor.laranja { color: #ff9800; }
+        .card .valor.verde { color: var(--success); }
+        .card .valor.vermelho { color: var(--danger); }
+        .card .valor.azul { color: var(--accent); }
+        .card .valor.laranja { color: var(--warn); }
 
-        .panel { background: #16213e; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-        .panel h3 { color: #4dabf7; margin-bottom: 12px; font-size: 0.95em; border-bottom: 1px solid #0f3460; padding-bottom: 8px; }
+        .panel h3 { color: var(--accent); margin-bottom: 12px; font-size: 0.95em; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
 
         table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
-        th { text-align: left; padding: 8px 6px; color: #888; font-size: 0.8em; text-transform: uppercase; border-bottom: 1px solid #0f3460; }
+        th { text-align: left; padding: 8px 6px; color: var(--text-3); font-size: 0.8em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
         td { padding: 6px; border-bottom: 1px solid #0f346030; }
         tr:hover { background: #0f346020; }
         .mono { font-family: 'Consolas', monospace; font-size: 0.9em; }
-        .ok { color: #4caf50; }
-        .erro { color: #f44336; }
-        .badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 0.78em; font-weight: 600; }
-        .badge-ok { background: #4caf5020; color: #4caf50; }
-        .badge-falha { background: #f4433620; color: #f44336; }
-        .badge-fonte { background: #4dabf720; color: #4dabf7; }
-        .empty { text-align: center; padding: 40px; color: #888; }
+        .ok { color: var(--success); }
+        .erro { color: var(--danger); }
+        .badge-ok { background: #4caf5020; color: var(--success); }
+        .badge-falha { background: #f4433620; color: var(--danger); }
+        .badge-fonte { background: #4dabf720; color: var(--accent); }
+        .empty { text-align: center; padding: 40px; color: var(--text-3); }
     </style>
 </head>
 <body>
