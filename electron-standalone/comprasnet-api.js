@@ -13,7 +13,11 @@ const HEADERS_BASE = {
 };
 
 // Referências externas
-let _wv = null;       // webviewContents (só para antiIdle)
+// _wv = webviewContents do webview Comprasnet. Usado por antiIdle() e por
+// wvFetchJSON() — fetch executado no contexto do navegador (carrega cookies
+// de sessão + Origin/Referer corretos), evitando o 204 que o /participacoes
+// devolve quando chamado via Node https direto sem captcha.
+let _wv = null;
 let _getBearer = null;
 
 function init(webviewContents, getBearerFn) {
@@ -96,6 +100,58 @@ async function sessaoFornecedor() {
 
 // ─── Participações (paginado, multi-filtro) ─────────────────────────────────
 
+// GET via executeJavaScript no webview Comprasnet. Carrega cookies de sessão,
+// Origin/Referer corretos e TLS fingerprint Chromium — o servidor SERPRO
+// trata como request do navegador real e retorna o payload, ao contrário do
+// https direto que devolve HTTP 204 sem captcha-token. Mesma assinatura de
+// retorno do comprasnetGet ({ ok, status, data }).
+async function wvFetchJSON(apiPath, timeoutMs = 20000) {
+  if (!_wv) return { ok: false, status: 0, error: 'Webview não disponível' };
+  let b;
+  try { b = bearer(); } catch (e) { return { ok: false, status: 0, error: e.message }; }
+  const url = COMPRASNET + apiPath;
+  const js = `
+    (async () => {
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), ${timeoutMs});
+        const r = await fetch(${JSON.stringify(url)}, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Authorization': ${JSON.stringify(b)},
+            'x-device-platform': 'web',
+            'x-version-number': '6.0.0',
+            'Cache-Control': 'no-cache',
+          },
+          signal: ctrl.signal,
+        });
+        clearTimeout(tid);
+        const status = r.status;
+        const text = await r.text();
+        let data = null;
+        if (text) {
+          const ct = (r.headers.get('content-type') || '').toLowerCase();
+          if (ct.includes('json')) {
+            try { data = JSON.parse(text); } catch { data = text; }
+          } else {
+            data = text;
+          }
+        }
+        return { ok: status >= 200 && status < 300, status, data };
+      } catch (e) {
+        return { ok: false, status: 0, error: e && e.message ? e.message : String(e) };
+      }
+    })()
+  `;
+  try {
+    return await _wv.executeJavaScript(js, true);
+  } catch (e) {
+    return { ok: false, status: 0, error: 'executeJavaScript: ' + e.message };
+  }
+}
+
 async function fetchParticipacoes(filtros = [5, 4, 3]) {
   const todas = [];
   const seen = new Set();
@@ -103,7 +159,7 @@ async function fetchParticipacoes(filtros = [5, 4, 3]) {
   for (const filtro of filtros) {
     let pagina = 0;
     while (true) {
-      const r = await comprasnetGet(
+      const r = await wvFetchJSON(
         `/comprasnet-fase-externa/v1/compras/participacoes?filtro=${filtro}&tamanhoPagina=50&pagina=${pagina}`
       );
       if (!r.ok || !Array.isArray(r.data)) break;

@@ -5,7 +5,9 @@ const http = require('http');
 const https = require('https');
 const cnet = require('./comprasnet-api');
 
-const SERVER_URL = 'http://217.216.85.37:8080';
+// Multi-tenant (Fase 6, 2026-04-22): SERVER_URL vem do init() —
+// electron-browser passa a URL resolvida via config/argv/env.
+let SERVER_URL = null;
 let API_KEY = null;
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -14,10 +16,16 @@ let syncRunning = false;
 let syncCount = 0;
 let syncTimer = null;
 let keepaliveTimer = null;
+let heartbeatTimer = null;
 let lastBearerSentAt = 0;
 let lastBearerSent = null;
 let ssoMorto = false;
 let encerradasTracker = {}; // compraId → ciclos ausente
+
+// Auditoria — atualizados ao longo do ciclo, enviados no heartbeat.
+let lastCaptureAt = null;       // ISO — último Bearer visto via enviarBearer()
+let lastSendAttemptAt = null;   // ISO — última tentativa de POST /api/auth/token
+let lastSendStatus = null;      // string — HTTP status (ou 'timeout', '0', 'skip-dedup')
 
 // Callbacks
 let _getBearer = null;
@@ -26,40 +34,53 @@ let _onSSODead = null;
 let _onNewBearer = null;
 let _onNeedReload = null;
 let _log = console.log;
+let _portal = null;
+let _versao = null;
 let reloginEmAndamento = false;
 let aguardandoNovoBearer = false;
 let aguardandoDesde = 0;
 const AGUARDANDO_TIMEOUT_MS = 90000; // 30s timeout
 
 const SYNC_INTERVAL_MS = 120000;    // 2 min
-const KEEPALIVE_INTERVAL_MS = 60000;  // 60s (único keepalive do sistema)
+const KEEPALIVE_INTERVAL_MS = 120000; // 2 min (re-auth SSO estilo Lancer — fluxo de 23s evita trigger hCaptcha)
+const RETOKEN_THRESHOLD_MS = 240000;  // 4 min — retoken HTTP proativo (TTL 9 min → ~5 min de buffer)
+const RELOAD_LAST_RESORT_MS = 420000; // 7 min — reload SÓ se retoken falhar perto do TTL (v5.2.3: antes recarregava todo ciclo → acionava hCaptcha)
+const HEARTBEAT_INTERVAL_MS = 30000;  // 30s — audita estado pra dashboard tokens.html
 let lastParticipacoes = [];          // último sync — usada pelo motor timer
 
 // ─── Init ───────────────────────────────────────────────────────────────────
 
 function init(opts) {
   API_KEY = opts.apiKey;
+  SERVER_URL = opts.serverUrl;
+  if (!SERVER_URL) throw new Error('server-sync: opts.serverUrl é obrigatório');
   _getBearer = opts.getBearer;
   _getBearerTimestamp = opts.getBearerTimestamp;
   _onSSODead = opts.onSSODead || (() => {});
   _onNewBearer = opts.onNewBearer || (() => {});
   _onNeedReload = opts.onNeedReload || null;
   _log = opts.log || console.log;
+  _portal = opts.portal || null;
+  _versao = opts.versao || null;
 }
 
 function start() {
-  _log('[Sync] Iniciando sync a cada 2 min + keepalive a cada 60s');
+  _log('[Sync] Iniciando sync a cada 2 min + keepalive a cada 60s + heartbeat a cada 30s');
   // Sync imediato (3s delay)
   setTimeout(() => executarSync(), 3000);
   syncTimer = setInterval(() => executarSync(), SYNC_INTERVAL_MS);
   // Keepalive com 30s de delay inicial
   setTimeout(() => executarKeepalive(), 30000);
   keepaliveTimer = setInterval(() => executarKeepalive(), KEEPALIVE_INTERVAL_MS);
+  // Heartbeat — primeiro disparo em 5s pra logar boot do Electron
+  setTimeout(() => enviarHeartbeat(), 5000);
+  heartbeatTimer = setInterval(() => enviarHeartbeat(), HEARTBEAT_INTERVAL_MS);
 }
 
 function stop() {
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
   if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
 }
 
 function isSSODead() { return ssoMorto; }
@@ -113,15 +134,23 @@ async function enviarBearer() {
   const token = _getBearer();
   if (!token) return;
 
+  // Bearer está em memória — marca captura pra heartbeat (auditoria).
+  lastCaptureAt = new Date().toISOString();
+
   // Dedup: só enviar se mudou ou >60s
   const now = Date.now();
-  if (token === lastBearerSent && (now - lastBearerSentAt) < 60000) return;
+  if (token === lastBearerSent && (now - lastBearerSentAt) < 60000) {
+    lastSendStatus = 'skip-dedup';
+    return;
+  }
 
+  lastSendAttemptAt = new Date().toISOString();
   const r = await serverRequest('POST', '/api/auth/token', {
     token,
     source: 'electron',
-    timestamp: new Date().toISOString(),
+    timestamp: lastSendAttemptAt,
   });
+  lastSendStatus = r.error ? r.error : String(r.status);
 
   if (r.ok) {
     lastBearerSent = token;
@@ -129,6 +158,73 @@ async function enviarBearer() {
     _log('[Sync] Bearer enviado ao servidor');
   } else {
     _log(`[Sync] Erro ao enviar bearer: ${r.status} ${r.error || ''}`);
+  }
+}
+
+// ─── Heartbeat (auditoria de fora — operacional/tokens.html) ────────────────
+// Envia snapshot do estado interno a cada 30s. Servidor purga >24h.
+// Token NUNCA é enviado — só metadados.
+
+async function enviarHeartbeat() {
+  try {
+    const token = _getBearer && _getBearer();
+    const ts = _getBearerTimestamp && _getBearerTimestamp();
+    const tokenAgeSec = (token && ts) ? Math.floor((Date.now() - ts) / 1000) : null;
+
+    // Subject (CPF) — best-effort, sem quebrar se token inválido.
+    let subject = null;
+    try {
+      if (token) {
+        const raw = token.replace(/^Bearer\s+/, '');
+        const parts = raw.split('.');
+        if (parts.length === 3) {
+          const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const padLen = padded.length % 4 === 0 ? 0 : (4 - padded.length % 4);
+          const json = Buffer.from(padded + '='.repeat(padLen), 'base64').toString('utf8');
+          const payload = JSON.parse(json);
+          subject = payload.sub || payload.preferred_username || null;
+        }
+      }
+    } catch (_) { /* payload corrompido — ok, subject fica null */ }
+
+    await serverRequest('POST', '/api/electron/heartbeat', {
+      tokenPresent: !!token,
+      tokenAgeSec,
+      lastCaptureAt,
+      ssoMorto,
+      lastSendAttemptAt,
+      lastSendStatus,
+      portal: _portal,
+      versao: _versao,
+      subject,
+    });
+  } catch (_) { /* não logar — heartbeat é silencioso, falha é normal */ }
+}
+
+// Envia captcha hCaptcha (P1_...) capturado da query string Comprasnet.
+// Usado por endpoints fase-externa/aguardando-abertura-sessao-publica e
+// /comprasnet-mensagem. Dedup: só envia se mudou ou >60s.
+let lastCaptchaSent = null;
+let lastCaptchaSentAt = 0;
+async function enviarCaptcha(captchaToken) {
+  if (!captchaToken) return;
+  const now = Date.now();
+  if (captchaToken === lastCaptchaSent && (now - lastCaptchaSentAt) < 60000) return;
+
+  const bearer = _getBearer();
+  const r = await serverRequest('POST', '/api/auth/token', {
+    token: bearer,
+    captchaToken,
+    source: 'electron',
+    timestamp: new Date().toISOString(),
+  });
+
+  if (r.ok) {
+    lastCaptchaSent = captchaToken;
+    lastCaptchaSentAt = now;
+    _log(`[Sync] Captcha enviado ao servidor (${captchaToken.substring(0, 12)}…)`);
+  } else {
+    _log(`[Sync] Erro ao enviar captcha: ${r.status} ${r.error || ''}`);
   }
 }
 
@@ -238,25 +334,34 @@ async function executarSync() {
           totalItens: itens.length,
           itensAtivos: itens.filter(i => i.situacao !== 'Encerrado').length,
           stub,
-          itens: itens.map(i => ({
-            numero: i.numero,
-            tipo: i.tipo,
-            descricao: i.descricao || '',
-            fase: i.fase || fase,
-            situacao: i.situacao || '',
-            melhorValor: i.melhorLance?.valor ?? i.melhorValor ?? null,
-            nossoValor: i.valorInformado ?? i.nossoValor ?? null,
-            valorEstimado: i.valorEstimado ?? null,
-            situacaoParticipante: i.situacaoParticipante || '',
-            variacaoMinima: i.variacaoMinima ?? null,
-            podeEnviar: i.podeEnviar ?? false,
-            fimContagem: i.fimContagem ?? null,
-            quantidadeSolicitada: i.quantidadeSolicitada ?? null,
-            disputaPorValorUnitario: i.disputaPorValorUnitario ?? true,
-            estaPerdendo: i.estaPerdendo ?? false,
-            emEncAleatoria: i.emEncAleatoria ?? false,
-            nosDoisMinFinais: i.nosDoisMinFinais ?? false,
-          })),
+          itens: itens.map(i => {
+            // Grupo/lote (numero -1, tipo G): melhor/nosso vêm em valorCalculado
+            // dentro de melhorValorGeral/Fornecedor, não nos campos achatados.
+            // Fallback restrito a grupo p/ não mexer no item normal.
+            const ehGrupo = i.tipo === 'G' || i.numero < 0;
+            const mg = i.melhorValorGeral || {};
+            const mf = i.melhorValorFornecedor || {};
+            return {
+              numero: i.numero,
+              tipo: i.tipo,
+              identificador: i.identificador ?? null,
+              descricao: i.descricao || '',
+              fase: i.fase || fase,
+              situacao: i.situacao || '',
+              melhorValor: i.melhorLance?.valor ?? i.melhorValor ?? (ehGrupo ? (mg.valorInformado ?? mg.valorCalculado ?? null) : null),
+              nossoValor: i.valorInformado ?? i.nossoValor ?? (ehGrupo ? (mf.valorInformado ?? mf.valorCalculado ?? null) : null),
+              valorEstimado: i.valorEstimado ?? null,
+              situacaoParticipante: i.situacaoParticipante || i.situacaoParticipanteDisputa || '',
+              variacaoMinima: i.variacaoMinima ?? null,
+              podeEnviar: i.podeEnviar ?? i.podeEnviarLances ?? false,
+              fimContagem: i.fimContagem ?? null,
+              quantidadeSolicitada: i.quantidadeSolicitada ?? null,
+              disputaPorValorUnitario: i.disputaPorValorUnitario ?? true,
+              estaPerdendo: i.estaPerdendo ?? false,
+              emEncAleatoria: i.emEncAleatoria ?? false,
+              nosDoisMinFinais: i.nosDoisMinFinais ?? false,
+            };
+          }),
         });
       } catch (e) {
         _log(`[Sync] Erro disputas ${compraId}: ${e.message}`);
@@ -314,6 +419,115 @@ async function detectarEncerradas(participacoesAtuais) {
   }
 }
 
+// ─── Retoken via HTTP direto (Node.js, sem browser/CORS) ────────────────────
+// Reintroduzido na v5.1.8 (originalmente commit 2fab745, removido em 6fdea27).
+// Renova bearer chamando PUT no endpoint SERPRO. Resposta tem novo accessToken.
+// Sem reload de webview, sem risco de hCaptcha, sem fluxo Lancer 3-passos.
+
+// Lê os cookies de sessão do cnetmobile (session do webview, no processo MAIN) e monta
+// o header Cookie. É o que faltava no retoken via Node: o endpoint /retoken valida o
+// cookie de sessão do SERPRO/gov.br; sem ele = 401. (v5.2.15)
+async function getCookieHeaderCnetmobile(wv) {
+  try {
+    if (!wv || !wv.session || !wv.session.cookies) return '';
+    const cookies = await wv.session.cookies.get({ url: 'https://cnetmobile.estaleiro.serpro.gov.br' });
+    return (cookies || []).map(c => `${c.name}=${c.value}`).join('; ');
+  } catch { return ''; }
+}
+
+function retokenHTTP(currentBearer, cookieHeader) {
+  return new Promise((resolve) => {
+    const headers = {
+      'Authorization': currentBearer,
+      'Accept': 'application/json, text/plain, */*',
+      'Content-Type': 'application/json',
+      'x-device-platform': 'web',
+      'x-version-number': '6.0.2',
+    };
+    // O /retoken valida o cookie de sessão; sem ele = 401. (v5.2.15: Node + cookies)
+    if (cookieHeader) headers['Cookie'] = cookieHeader;
+    const options = {
+      method: 'PUT',
+      hostname: 'cnetmobile.estaleiro.serpro.gov.br',
+      path: '/comprasnet-usuario/v2/sessao/fornecedor/retoken',
+      timeout: 15000,
+      headers,
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (res.statusCode === 200 && json.accessToken) {
+            resolve({ ok: true, status: 200, token: json.accessToken });
+          } else {
+            resolve({ ok: false, status: res.statusCode, error: data.substring(0, 200) });
+          }
+        } catch (e) {
+          resolve({ ok: false, status: res.statusCode, error: data.substring(0, 200) });
+        }
+      });
+    });
+
+    req.on('error', e => resolve({ ok: false, status: 0, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
+    req.end();
+  });
+}
+
+// ─── Retoken via WEBVIEW (executeJavaScript fetch) ──────────────────────────
+// O retoken via Node (retokenHTTP) sempre dava 401: o endpoint /sessao/fornecedor/
+// retoken valida o COOKIE de sessão, e o https.request do Node não manda cookies.
+// Aqui o fetch roda no webview com credentials:'include' → carrega os cookies da
+// sessão gov.br/SERPRO (mesmo padrão de wvFetchJSON do comprasnet-api.js, que
+// funciona). x-version-number alinhado a 6.0.0 (resto do app). Resposta tem o novo
+// accessToken no corpo (json.accessToken) — não passa pelo interceptor de Bearer.
+function retokenWebview(wv, currentBearer) {
+  const url = 'https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-usuario/v2/sessao/fornecedor/retoken';
+  const js = `
+    (async () => {
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 15000);
+        const r = await fetch(${JSON.stringify(url)}, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/json',
+            'Authorization': ${JSON.stringify(currentBearer)},
+            'x-device-platform': 'web',
+            'x-version-number': '6.0.0',
+          },
+          signal: ctrl.signal,
+        });
+        clearTimeout(tid);
+        const status = r.status;
+        const text = await r.text();
+        let token = null;
+        try { const j = JSON.parse(text); if (j && j.accessToken) token = j.accessToken; } catch (_) {}
+        return { ok: status >= 200 && status < 300 && !!token, status, token, error: token ? '' : (text || '').slice(0, 150) };
+      } catch (e) {
+        return { ok: false, status: 0, error: e && e.message ? e.message : String(e) };
+      }
+    })()
+  `;
+  return wv.executeJavaScript(js, true).catch(e => ({ ok: false, status: 0, error: 'executeJavaScript: ' + e.message }));
+}
+
+// Detecta se o webview escorregou para o fluxo de login gov.br (sso.acesso.gov.br /
+// loginPortal / intro). Nesse estado o retoken cross-origin SEMPRE falha ("Failed to
+// fetch") e o reload só re-dispara o hCaptcha em loop — então tratamos como sessão
+// perdida (ssoMorto) em vez de recarregar. (v5.2.15)
+function webviewNoLogin(wv) {
+  try {
+    const url = (wv && wv.getURL) ? String(wv.getURL() || '') : '';
+    return /sso\.acesso\.gov\.br|acesso\.gov\.br\/login|loginPortal|loginPortalFornecedor|intro\.htm/i.test(url);
+  } catch { return false; }
+}
+
 // ─── Keepalive (SSO + bearer renewal + anti-idle + legado) ──────────────────
 
 let keepaliveCount = 0;
@@ -327,15 +541,17 @@ async function executarKeepalive() {
 
   keepaliveCount++;
 
+  const bearerTs = _getBearerTimestamp();
+  const bearerIdade = bearerTs ? (Date.now() - bearerTs) : 0;
+
+  // 1+2. Anti-idle + ping main.asp mantêm o SSO vivo SEM reload de página
+  // (reload do webview Comprasnet aciona hCaptcha no gov.br). Rodam todo ciclo.
   try {
-    // 1. Anti-idle (clicar botões de sessão)
     const idleResult = await cnet.antiIdle();
     if (idleResult) {
       _log(`[Keepalive] Anti-idle: ${idleResult}`);
       await serverLog('idle-dialog', { action: idleResult });
     }
-
-    // 2. Keepalive legado (main.asp) — a cada 2 ciclos (~2 min)
     if (keepaliveCount % 2 === 0) {
       try {
         const wv = cnet._getWV();
@@ -348,31 +564,71 @@ async function executarKeepalive() {
         }
       } catch {}
     }
+  } catch (e) {
+    _log(`[Keepalive] Erro anti-idle: ${e.message}`);
+  }
 
-    // 3. Se aguardando novo bearer após reload, verificar timeout
-    if (aguardandoNovoBearer) {
-      if (Date.now() - aguardandoDesde > AGUARDANDO_TIMEOUT_MS) {
-        _log('[Keepalive] Timeout aguardando novo bearer após reload — SSO morto');
-        aguardandoNovoBearer = false;
+  // 3. Se aguardando novo bearer após um reload de último recurso, checar timeout.
+  if (aguardandoNovoBearer) {
+    if (Date.now() - aguardandoDesde > AGUARDANDO_TIMEOUT_MS) {
+      _log('[Keepalive] Timeout aguardando novo bearer após reload — SSO morto');
+      aguardandoNovoBearer = false;
+      ssoMorto = true;
+      _onSSODead();
+      await serverLog('reload-timeout-sso-morto', {});
+    }
+    return;
+  }
+
+  // 4. Renovação do Bearer: retoken HTTP é o caminho PRIMÁRIO (sem reload, zero
+  // hCaptcha). Dispara aos 4 min de idade do token (TTL 9 min).
+  if (bearerTs && bearerIdade > RETOKEN_THRESHOLD_MS) {
+    // PRIMÁRIO: retoken via webview (carrega cookies → evita o 401 crônico do
+    // Node). Fallback p/ Node só se o webview não estiver disponível.
+    const wv = cnet._getWV();
+
+    // Guard (v5.2.15): se o webview já está no login gov.br, o retoken cross-origin
+    // falha ("Failed to fetch") e o reload só re-dispara hCaptcha em loop (queimando o
+    // profile). Reconhece sessão perdida → ssoMorto + alerta, SEM retoken nem reload.
+    if (webviewNoLogin(wv)) {
+      if (!ssoMorto) {
+        _log('[Keepalive] Webview no login gov.br — retoken impossível; SSO morto (precisa login manual)');
         ssoMorto = true;
         _onSSODead();
-        await serverLog('reload-timeout-sso-morto', {});
+        await serverLog('sso-morto-login-page', { url: (wv && wv.getURL) ? String(wv.getURL()).slice(0, 120) : '' });
       }
       return;
     }
 
-    // 4. Reload do webview (sempre, a cada 60s — mantém SSO vivo + renova bearer)
-    if (_onNeedReload) {
-      _log(`[Keepalive] #${keepaliveCount} Recarregando webview para manter SSO...`);
-      aguardandoNovoBearer = true;
-      aguardandoDesde = Date.now();
-      await serverLog('reload-keepalive', {});
-      _onNeedReload();
+    // Retoken via Node COM cookies de sessão do webview (v5.2.15): resolve o 401 do
+    // Node-sem-cookie E o CORS do webview-fetch. Sem reload → sem hCaptcha.
+    const cookieHeader = await getCookieHeaderCnetmobile(wv);
+    const via = cookieHeader ? 'node+cookie' : 'node';
+    _log(`[Retoken] Bearer > 4min — renovando via ${via} (${cookieHeader ? cookieHeader.split(';').length + ' cookies' : 'sem cookie'})...`);
+    const rt = await retokenHTTP(bearer, cookieHeader);
+    if (rt.ok && rt.token) {
+      _log(`[Retoken] OK (${via}) — novo Bearer sem reload`);
+      _onNewBearer(rt.token);
+      await enviarBearer();
+      await serverLog('retoken-http-ok', { via });
       return;
     }
+    _log(`[Retoken] FALHOU (${via}) status=${rt.status}: ${rt.error || ''}`);
+    await serverLog('retoken-http-fail', { via, status: rt.status, error: rt.error });
 
-  } catch (e) {
-    _log(`[Keepalive] Erro: ${e.message}`);
+    // 5. Último recurso: só recarrega o webview se o retoken FALHOU E o token
+    // está perto de expirar (> 7 min). v5.2.3: antes o passo 4 recarregava todo
+    // ciclo (~200-700 reloads/dia) e era o gatilho do hCaptcha de renovação.
+    // Reload SÓ se ainda estiver no app (não no login — senão re-dispara hCaptcha) e
+    // perto do TTL. Se o retoken falhou porque o webview drifou pro login, o guard
+    // acima já cuidou; aqui é a última checagem antes de recarregar. (v5.2.15)
+    if (_onNeedReload && bearerIdade > RELOAD_LAST_RESORT_MS && !webviewNoLogin(wv)) {
+      _log(`[Keepalive] #${keepaliveCount} Retoken falhou e bearer perto do TTL — reload de último recurso`);
+      aguardandoNovoBearer = true;
+      aguardandoDesde = Date.now();
+      await serverLog('reload-keepalive', { motivo: 'retoken-fail-near-ttl', idadeMs: bearerIdade });
+      _onNeedReload();
+    }
   }
 }
 
@@ -416,6 +672,8 @@ module.exports = {
   start,
   stop,
   enviarBearer,
+  enviarCaptcha,
+  enviarHeartbeat,
   executarSync,
   executarKeepalive,
   reviverSSO,

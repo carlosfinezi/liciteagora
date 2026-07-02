@@ -306,20 +306,28 @@ async function processarFilaQueries() {
         merge: true,
         disputas: [{
           compraId,
-          itens: itens.map(i => ({
-            numero: i.numero,
-            tipo: i.tipo,
-            descricao: i.descricao || '',
-            fase: i.fase || fase,
-            situacao: i.situacao || '',
-            melhorValor: i.melhorLance?.valor ?? i.melhorValor ?? null,
-            nossoValor: i.valorInformado ?? i.nossoValor ?? null,
-            valorEstimado: i.valorEstimado ?? null,
-            podeEnviar: i.podeEnviar ?? false,
-            estaPerdendo: i.estaPerdendo ?? false,
-            emEncAleatoria: i.emEncAleatoria ?? false,
-            nosDoisMinFinais: i.nosDoisMinFinais ?? false,
-          })),
+          itens: itens.map(i => {
+            // Grupo/lote: melhor/nosso vêm em valorCalculado (melhorValorGeral/
+            // Fornecedor). Fallback restrito a grupo; item normal inalterado.
+            const ehGrupo = i.tipo === 'G' || i.numero < 0;
+            const mg = i.melhorValorGeral || {};
+            const mf = i.melhorValorFornecedor || {};
+            return {
+              numero: i.numero,
+              tipo: i.tipo,
+              identificador: i.identificador ?? null,
+              descricao: i.descricao || '',
+              fase: i.fase || fase,
+              situacao: i.situacao || '',
+              melhorValor: i.melhorLance?.valor ?? i.melhorValor ?? (ehGrupo ? (mg.valorInformado ?? mg.valorCalculado ?? null) : null),
+              nossoValor: i.valorInformado ?? i.nossoValor ?? (ehGrupo ? (mf.valorInformado ?? mf.valorCalculado ?? null) : null),
+              valorEstimado: i.valorEstimado ?? null,
+              podeEnviar: i.podeEnviar ?? i.podeEnviarLances ?? false,
+              estaPerdendo: i.estaPerdendo ?? false,
+              emEncAleatoria: i.emEncAleatoria ?? false,
+              nosDoisMinFinais: i.nosDoisMinFinais ?? false,
+            };
+          }),
           stub,
         }],
       });

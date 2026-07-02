@@ -59,3 +59,10 @@ debug-*.json
 extensao-propostas/content.js.bak-dom-v1.2
 public/propostas.html.bak-v1
 public/propostas.js.bak-v1
+
+# Electron standalone — runtime/build artifacts (nunca versionar)
+electron-standalone/.electron-profile/
+electron-standalone/dist-staging/
+electron-standalone/*.zip
+electron-standalone/*.7z
+electron-standalone/*.exe

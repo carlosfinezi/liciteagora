@@ -4,6 +4,41 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, sans-serif; }
+  #portalbar {
+    display: flex; align-items: center; gap: 0;
+    background: #1a202c; color: #e2e8f0;
+    height: 32px; flex-shrink: 0;
+    border-bottom: 1px solid #2d3748;
+  }
+  .portal-btn {
+    background: transparent; border: none; color: #94a3b8;
+    cursor: pointer; padding: 0 16px; height: 100%;
+    font-size: 13px; font-weight: 600;
+    border-right: 1px solid #2d3748;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .portal-btn:hover { background: #2d3748; color: #e2e8f0; }
+  .portal-btn.active { background: #0b1120; color: #60a5fa; border-bottom: 2px solid #60a5fa; }
+  .portal-btn .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4a5568; display: inline-block;
+  }
+  .portal-btn .dot.connected { background: #48bb78; }
+  .portal-btn .dot.logged_in { background: #38b2ac; box-shadow: 0 0 6px #38b2ac; }
+  #portalbar .spacer { flex: 1; }
+  #chat-badge {
+    display: none; background: #e53e3e; color: white; border-radius: 10px;
+    padding: 1px 7px; font-size: 11px; font-weight: bold; cursor: pointer;
+    animation: pulse 1.5s infinite; margin-right: 8px;
+  }
+  #update-btn {
+    display: none; background: #3182ce; color: white; border: none; border-radius: 4px;
+    padding: 2px 10px; font-size: 11px; cursor: pointer; height: 22px;
+    margin-right: 8px;
+  }
+  #update-btn:hover { background: #2c5282; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+
   #navbar {
     display: flex; align-items: center; gap: 4px;
     background: #f0f0f0; padding: 4px 8px; border-bottom: 1px solid #ccc;
@@ -24,70 +59,126 @@
     white-space: nowrap;
   }
   #status.logado { color: #2a2; font-weight: bold; }
-  #chat-badge {
-    display: none; background: #e53e3e; color: white; border-radius: 10px;
-    padding: 1px 7px; font-size: 11px; font-weight: bold; cursor: pointer;
-    animation: pulse 1.5s infinite;
-  }
-  #update-btn {
-    display: none; background: #3182ce; color: white; border: none; border-radius: 4px;
-    padding: 2px 10px; font-size: 11px; cursor: pointer; height: 24px;
-  }
-  #update-btn:hover { background: #2c5282; }
-  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+
+  #wv-host { flex: 1; position: relative; }
   webview {
-    flex: 1; border: none;
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    border: none; visibility: hidden;
   }
+  webview.active { visibility: visible; }
 </style>
 </head>
 <body>
+  <div id="portalbar">
+    <button class="portal-btn active" data-portal="comprasnet">
+      <span class="dot" id="dot-comprasnet"></span> Comprasnet
+    </button>
+    <button class="portal-btn" data-portal="bnc">
+      <span class="dot" id="dot-bnc"></span> BNC
+    </button>
+    <button class="portal-btn" data-portal="bll">
+      <span class="dot" id="dot-bll"></span> BLL
+    </button>
+    <div class="spacer"></div>
+    <span id="version-badge" title="Clique para verificar atualização" style="color:#94a3b8; font-size:11px; padding:0 8px; font-weight:600; letter-spacing:0.3px; cursor:pointer;"></span>
+    <span id="update-status" title="Estado da atualização" style="font-size:11px; padding:0 8px; color:#64748b;"></span>
+    <button id="force-update-btn" title="Baixar e instalar a última versão agora" style="font-size:11px; padding:2px 8px; margin-right:6px; background:#2d3748; color:#cbd5e1; border:1px solid #4a5568; border-radius:4px; cursor:pointer;">🔄 Forçar atualização</button>
+    <span id="chat-badge" title="Mensagens urgentes!">CHAT</span>
+    <button id="update-btn" title="Atualização disponível">Atualizar</button>
+  </div>
   <div id="navbar">
     <button id="back" title="Voltar">&#9664;</button>
     <button id="fwd" title="Avançar">&#9654;</button>
     <button id="reload" title="Recarregar">&#8635;</button>
     <input id="urlbar" type="text" value="" />
-    <span id="chat-badge" title="Mensagens urgentes!">CHAT</span>
-    <button id="update-btn" title="Atualização disponível">Atualizar</button>
     <span id="status">...</span>
   </div>
-  <webview id="wv" src="" allowpopups></webview>
+  <div id="wv-host">
+    <webview id="wv-comprasnet" class="active" partition="persist:comprasnet" src="" allowpopups></webview>
+    <webview id="wv-bnc" partition="persist:bnc" src="" allowpopups></webview>
+    <webview id="wv-bll" partition="persist:bll" src="" allowpopups></webview>
+  </div>
 
   <script>
     const { ipcRenderer } = require('electron');
-    const wv = document.getElementById('wv');
+    // Versão do app no badge da barra (fonte da verdade: app.getVersion() no main).
+    ipcRenderer.invoke('get-app-version').then(v => {
+      const el = document.getElementById('version-badge');
+      if (el && v) el.textContent = 'v' + v;
+    }).catch(() => {});
+    const wvComprasnet = document.getElementById('wv-comprasnet');
+    const wvBnc = document.getElementById('wv-bnc');
+    const wvBll = document.getElementById('wv-bll');
     const urlbar = document.getElementById('urlbar');
     const status = document.getElementById('status');
+    const dots = {
+      comprasnet: document.getElementById('dot-comprasnet'),
+      bnc: document.getElementById('dot-bnc'),
+      bll: document.getElementById('dot-bll'),
+    };
 
-    // Receber URL inicial do main process
-    ipcRenderer.on('set-url', (e, url) => {
-      wv.src = url;
-      urlbar.value = url;
+    let activePortal = 'comprasnet';
+    const wvByPortal = { comprasnet: wvComprasnet, bnc: wvBnc, bll: wvBll };
+
+    function getActiveWv() { return wvByPortal[activePortal]; }
+
+    function switchPortal(name) {
+      if (!wvByPortal[name]) return;
+      activePortal = name;
+      document.querySelectorAll('.portal-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.portal === name);
+      });
+      Object.entries(wvByPortal).forEach(([k, wv]) => wv.classList.toggle('active', k === name));
+      const wv = getActiveWv();
+      try { urlbar.value = wv.getURL() || ''; } catch (_) {}
+      ipcRenderer.send('portal-switched', name);
+    }
+
+    document.querySelectorAll('.portal-btn').forEach(btn => {
+      btn.addEventListener('click', () => switchPortal(btn.dataset.portal));
     });
 
-    // Navegação
-    document.getElementById('back').onclick = () => { if (wv.canGoBack()) wv.goBack(); };
-    document.getElementById('fwd').onclick = () => { if (wv.canGoForward()) wv.goForward(); };
-    document.getElementById('reload').onclick = () => wv.reload();
+    // Main process pode setar URL inicial pra cada portal
+    ipcRenderer.on('set-url', (e, { portal, url }) => {
+      const wv = wvByPortal[portal];
+      if (!wv) return;
+      wv.src = url;
+      if (portal === activePortal) urlbar.value = url;
+    });
+
+    // Main process pode pedir pra trocar de portal (ex: BNC quando faltar login)
+    ipcRenderer.on('switch-portal', (e, name) => switchPortal(name));
+
+    // Navegação atua só no webview ativo
+    document.getElementById('back').onclick = () => { const wv = getActiveWv(); if (wv.canGoBack()) wv.goBack(); };
+    document.getElementById('fwd').onclick = () => { const wv = getActiveWv(); if (wv.canGoForward()) wv.goForward(); };
+    document.getElementById('reload').onclick = () => getActiveWv().reload();
 
     urlbar.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         let url = urlbar.value.trim();
         if (!url.startsWith('http')) url = 'https://' + url;
-        wv.src = url;
+        getActiveWv().src = url;
       }
     });
 
-    // Atualizar URL bar
-    wv.addEventListener('did-navigate', (e) => {
-      urlbar.value = e.url;
-      ipcRenderer.send('webview-navigated', e.url);
-    });
-    wv.addEventListener('did-navigate-in-page', (e) => {
-      urlbar.value = e.url;
-      ipcRenderer.send('webview-navigated', e.url);
-    });
+    // Bind URL update events em cada webview
+    function bindWv(portal, wv) {
+      const onNav = (e) => {
+        if (portal === activePortal) urlbar.value = e.url;
+        ipcRenderer.send('webview-navigated', { portal, url: e.url });
+      };
+      wv.addEventListener('did-navigate', onNav);
+      wv.addEventListener('did-navigate-in-page', onNav);
+      wv.addEventListener('page-title-updated', (e) => {
+        if (portal === activePortal) document.title = e.title + ' — LiciteAgora';
+      });
+    }
+    bindWv('comprasnet', wvComprasnet);
+    bindWv('bnc', wvBnc);
+    bindWv('bll', wvBll);
 
-    // Status updates
+    // Status (Comprasnet): mantém compat com fluxo atual
     ipcRenderer.on('status-update', (e, data) => {
       if (data.loggedIn) {
         status.textContent = 'Logado | Bearer ' + (data.bearerAge || '?') + 's';
@@ -98,12 +189,16 @@
       }
     });
 
-    // Título
-    wv.addEventListener('page-title-updated', (e) => {
-      document.title = e.title + ' — Electron Browser';
+    // Status dos dots (por portal)
+    ipcRenderer.on('portal-state', (e, { portal, state }) => {
+      const dot = dots[portal];
+      if (!dot) return;
+      dot.className = 'dot';
+      if (state === 'connected') dot.classList.add('connected');
+      if (state === 'logged_in') dot.classList.add('logged_in');
     });
 
-    // Chat alerts
+    // Chat alerts (Comprasnet)
     const chatBadge = document.getElementById('chat-badge');
     let chatCount = 0;
     ipcRenderer.on('chat-alert', (e, mensagens) => {
@@ -117,26 +212,58 @@
       chatBadge.style.display = 'none';
     };
 
-    // Auto-update
+    // ─── Atualização: status sempre visível + verificação manual ───
     const updateBtn = document.getElementById('update-btn');
-    let pendingUpdate = null;
+    const updateStatus = document.getElementById('update-status');
+    const versionBadge = document.getElementById('version-badge');
+    function setUpStatus(text, color) {
+      updateStatus.textContent = text || '';
+      updateStatus.style.color = color || '#64748b';
+    }
+    // Clique no badge de versão = verificar atualização agora
+    versionBadge.onclick = () => {
+      setUpStatus('Verificando…', '#94a3b8');
+      ipcRenderer.send('check-update-now');
+    };
+    // Botão "Forçar atualização": baixa + instala a última versão e reinicia.
+    const forceUpdateBtn = document.getElementById('force-update-btn');
+    forceUpdateBtn.onclick = () => {
+      if (!confirm('Forçar atualização agora? O app vai baixar a última versão e REINICIAR.')) return;
+      setUpStatus('Verificando…', '#94a3b8');
+      forceUpdateBtn.disabled = true;
+      ipcRenderer.send('force-update');
+    };
+    ipcRenderer.on('update-checking', () => setUpStatus('Verificando…', '#94a3b8'));
+    ipcRenderer.on('update-none', () => {
+      updateBtn.style.display = 'none';
+      setUpStatus('✓ Atualizado', '#48bb78');
+      setTimeout(() => { if (updateStatus.textContent === '✓ Atualizado') setUpStatus('', ''); }, 5000);
+    });
     ipcRenderer.on('update-available', (e, update) => {
-      pendingUpdate = update;
-      updateBtn.textContent = 'Atualizar v' + update.version;
+      setUpStatus('Baixando v' + (update && update.version || '') + '…', '#f6ad55');
+      updateBtn.style.display = 'none'; // só mostra "Instalar" quando baixado
+    });
+    ipcRenderer.on('update-progress', (e, pct) => {
+      setUpStatus('Baixando ' + pct + '%', '#f6ad55');
+    });
+    ipcRenderer.on('update-downloaded', (e, u) => {
+      setUpStatus('Pronto p/ instalar' + (u && u.version ? ' v' + u.version : ''), '#48bb78');
+      updateBtn.textContent = 'Instalar agora';
+      updateBtn.disabled = false;
       updateBtn.style.display = 'inline';
     });
-    updateBtn.onclick = async () => {
-      if (!pendingUpdate) return;
-      updateBtn.textContent = 'Baixando...';
+    ipcRenderer.on('update-applying', () => {
+      setUpStatus('Instalando…', '#f6ad55');
+      updateBtn.textContent = 'Reiniciando…';
+      updateBtn.disabled = true;
+    });
+    ipcRenderer.on('update-error', () => setUpStatus('Erro ao verificar', '#e53e3e'));
+    updateBtn.onclick = () => {
+      setUpStatus('Instalando…', '#f6ad55');
+      updateBtn.textContent = 'Reiniciando…';
       updateBtn.disabled = true;
       ipcRenderer.send('apply-update');
     };
-    ipcRenderer.on('update-progress', (e, pct) => {
-      updateBtn.textContent = 'Baixando ' + pct + '%';
-    });
-    ipcRenderer.on('update-applying', () => {
-      updateBtn.textContent = 'Reiniciando...';
-    });
   </script>
 </body>
 </html>

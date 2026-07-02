@@ -23,6 +23,66 @@ REQUISITOS:
      npm start
 
 ============================================================
+  MODO MULTI-PORTAL (--portal, 2026-05-15)
+============================================================
+
+  O mesmo binario suporta 2 portais via flag --portal:
+
+    --portal=comprasnet   (DEFAULT, comportamento historico)
+                          Loga via gov.br SSO + captura Bearer
+                          Profile: .electron-profile
+
+    --portal=bnc          BNC Compras (bnccompras.com)
+                          Loga via teclado virtual + reCAPTCHA v3
+                          Profile: .electron-profile-bnc
+                          Usa partition persist:bnc no <webview>
+                          Sincroniza cookies (nao Bearer) ao servidor
+
+  Exemplos:
+    npm start
+    electron --no-sandbox electron-browser.js --portal=bnc
+
+  No build Windows, criar 2 atalhos no Desktop apontando pro mesmo
+  .exe com argumentos diferentes:
+    "LiciteAgora Browser"   -> LiciteAgora-Browser.exe
+    "LiciteAgora BNC"       -> LiciteAgora-Browser.exe --portal=bnc
+
+  Os dois podem rodar SIMULTANEAMENTE — single-instance lock e
+  por portal (app.setName diferente: "LiciteAgora Browser" e
+  "LiciteAgora BNC"). Profile dirs separados garantem cookies
+  isolados.
+
+  REPLACEMENT do app antigo "LiciteAgora-BNC-Setup.exe":
+  o binario unificado substitui o app BNC separado de
+  electron-bnc/. Veja electron-bnc/DEPRECATED.md para detalhes
+  da migracao.
+
+============================================================
+  CONFIGURACAO INICIAL (multi-tenant, 2026-04-22)
+============================================================
+
+  Na primeira execucao, o Electron abre um dialog pedindo:
+
+    - Subdominio ou URL completa
+      ex: "1bit"  ou  "https://1bit.liciteagora.app"
+
+    - API Key do tenant
+      voce recebe essa chave ao criar o tenant no painel
+      admin (https://admin.liciteagora.app)
+
+  A config fica salva em .electron-profile/liciteagora-config.json
+  e e reutilizada nas proximas execucoes.
+
+  Para automatizar (skip do dialog):
+
+    - Via argumentos:
+      electron . --server-url 1bit.liciteagora.app --api-key ABC...
+
+    - Via env vars:
+      LICITEAGORA_SERVER_URL=1bit.liciteagora.app
+      LICITEAGORA_API_KEY=ABC...
+
+============================================================
   O QUE VAI ACONTECER
 ============================================================
 
@@ -85,9 +145,11 @@ REQUISITOS:
 
   - O Electron roda como Chromium REAL (nao headless)
   - Sem navigator.webdriver, sem flags de automacao
-  - Perfil persistente em .electron-profile/
+  - Perfil persistente em .electron-profile/ (Comprasnet)
+                       ou .electron-profile-bnc/ (BNC)
   - Se fechar e abrir de novo, cookies sao mantidos
-  - Bearer token e capturado automaticamente quando logado
-  - Keepalive automatico a cada 60s apos login
+  - Bearer token e capturado automaticamente quando logado (Comprasnet)
+  - Cookie sincronizado ao servidor automaticamente (BNC)
+  - Keepalive automatico a cada 60s apos login (Comprasnet)
 
 ============================================================

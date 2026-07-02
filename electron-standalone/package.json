@@ -1,16 +1,24 @@
 {
   "name": "liciteagora-electron",
-  "version": "1.0.0",
+  "version": "5.2.15",
   "description": "Browser CEF para Comprasnet — login + sync + lances",
   "main": "electron-browser.js",
   "scripts": {
     "start": "electron --no-sandbox electron-browser.js",
     "build:win": "electron-builder --win --x64",
+    "build:win:portable": "electron-builder --win portable --x64",
+    "build:win:nsis": "electron-builder --win nsis --x64",
     "build:linux": "electron-builder --linux --x64"
   },
   "build": {
     "appId": "com.liciteagora.electron",
     "productName": "LiciteAgora Browser",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://1bit.liciteagora.app/api/electron/updates"
+      }
+    ],
     "files": [
       "electron-browser.js",
       "electron-nav.html",
@@ -21,13 +29,28 @@
       "lance-processor.js",
       "session-timers.js",
       "auto-updater.js",
-      "fingerprint-generator.js",
-      "stealth-preload.js",
-      "webview-preload.js",
-      "INSTRUCOES.txt"
+      "updater-electron.js",
+      "core/**/*",
+      "portals/**/*",
+      "INSTRUCOES.txt",
+      "assets/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
       "signAndEditExecutable": false
     },
     "linux": {
@@ -35,9 +58,24 @@
     },
     "portable": {
       "artifactName": "LiciteAgora-Browser.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LiciteAgora Browser",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "artifactName": "LiciteAgora-Setup.exe",
+      "include": "installer.nsh"
     }
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.8.3"
+  },
   "devDependencies": {
     "electron": "^41.0.2",
     "electron-builder": "^26.0.0"
