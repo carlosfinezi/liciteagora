@@ -121,6 +121,35 @@ const RECORDINGS_DIR = path.join(USER_DATA_DIR, 'recordings');
 const LOG_DIR = path.join(USER_DATA_DIR, 'logs');
 const TOKEN_MAX_AGE_MS = 540000; // 9 min
 
+// ─── Auto-recuperação de perfil (v5.2.16) ──────────────────────────────────
+// Wipe do perfil no STARTUP (antes de abrir qualquer session), em 2 gatilhos:
+//  (a) marcador `wipe-profile-on-start` = escalonamento da auto-recuperação quando o
+//      clearStorageData parcial não zerou o hCaptcha (integration.js escreve o marcador
+//      e faz relaunch);
+//  (b) troca de versão = auto-aplica "apagar perfil ao atualizar" → updates nunca deixam
+//      perfil flagrado (parte da causa da regressão do hCaptcha).
+// Preserva logs/. Seguro: roda no load do módulo, antes de qualquer session.fromPartition.
+try {
+  const _marker = path.join(USER_DATA_DIR, 'wipe-profile-on-start');
+  const _verFile = path.join(USER_DATA_DIR, 'last-app-version');
+  const _curVer = app.getVersion();
+  let _motivo = null;
+  if (fs.existsSync(_marker)) { _motivo = 'auto-recuperacao'; try { fs.unlinkSync(_marker); } catch (_) {} }
+  else {
+    let _lastVer = '';
+    try { _lastVer = fs.readFileSync(_verFile, 'utf8').trim(); } catch (_) {}
+    if (_lastVer && _lastVer !== _curVer) _motivo = `versao ${_lastVer}->${_curVer}`;
+  }
+  if (_motivo) {
+    try { fs.rmSync(path.join(USER_DATA_DIR, 'Partitions'), { recursive: true, force: true }); } catch (_) {}
+    for (const _d of ['GPUCache', 'ShaderCache', 'DawnCache', 'Code Cache', 'Cache', 'Network']) {
+      try { fs.rmSync(path.join(USER_DATA_DIR, _d), { recursive: true, force: true }); } catch (_) {}
+    }
+    try { console.log(`[Profile] WIPE (${_motivo}) — perfil zerado no startup`); } catch (_) {}
+  }
+  try { fs.mkdirSync(USER_DATA_DIR, { recursive: true }); fs.writeFileSync(_verFile, _curVer); } catch (_) {}
+} catch (_) { /* wipe nunca derruba o boot */ }
+
 // Log persistente em arquivo: userData/logs/main.log. Inicializado já no
 // load do módulo (antes de qualquer log()) pra capturar crashes de boot.
 // Veja onde fica o userData no comentário de USER_DATA_DIR acima.
