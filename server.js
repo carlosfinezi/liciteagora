@@ -1,13 +1,11 @@
 const express = require('express');
 
-// NFSE-M06 onda 6.46 (2026-04-20): bootstrap do puppeteer-extra +
-// StealthPlugin extraido para puppeteer-init.js. O require e puro
-// side effect -- registra StealthPlugin no singleton global do
-// puppeteer-extra antes de qualquer modulo que dependa disso (ex.:
-// monitor-mensagens-core.js via route-registry).
-require('./puppeteer-init');
-
 const app = express();
+
+// Multi-tenant (2026-04-22): confia no proxy nginx para identificar HTTPS
+// via X-Forwarded-Proto. Sem isso, cookie.secure=true faz Express recusar
+// setar Set-Cookie (Node não vê TLS direto, só o loopback HTTP do proxy).
+app.set('trust proxy', 1);
 
 
 // NFSE-M06 onda 6.39 (2026-04-20): middleware base (CORS allow-list +
@@ -19,35 +17,139 @@ applyBaseMiddleware(app);
 // Módulo de análise IA
 const { processarFilaAnalise } = require('./analise-ia');
 
-// NFSE-M06 onda 6.41 (2026-04-20): DB open + schema + persistência +
-// pncpSync.init + configHelpers consolidados em db-bootstrap.js.
-const { bootstrapDatabase } = require('./db-bootstrap');
-const { db, dbPath, salvarItens, pncpSync, getConfigValue, setConfigValue, getIAKeys } = bootstrapDatabase({ processarFilaAnalise });
+
+// Multi-tenant (2026-04-22): quando MULTI_TENANT=true, o worker roda
+// em modo multi-tenant — tenant-bootstrap cria control.db + pool +
+// middleware que resolve tenant por subdomínio. Cada request carrega
+// req.tenant/req.tenantDb e o `db` global é um Proxy que delega via
+// AsyncLocalStorage.
+//
+// Default FALSE (legado single-tenant) enquanto a Fase 2c ainda não
+// estiver concluída: 5 módulos (portal-routes, contas-receber-routes,
+// pedidos-routes, produtos-routes, sniper-lance-routes) ainda fazem
+// db.exec/db.prepare em escopo de registro, o que quebra o boot
+// sem contexto de tenant. Feito isso, trocar default para 'true'.
+const MULTI_TENANT = process.env.MULTI_TENANT === 'true';
+
+let db, dbPath, salvarItens, pncpSync, getConfigValue, setConfigValue, getIAKeys;
+let tenantManager = null;
+let controlDb = null;
+
+if (MULTI_TENANT) {
+  const { bootstrapTenantAware } = require('./tenant-bootstrap');
+  const ctx = bootstrapTenantAware({ processarFilaAnalise });
+  db = ctx.db;
+  dbPath = ctx.dbPath;
+  salvarItens = ctx.salvarItens;
+  pncpSync = ctx.pncpSync;
+  getConfigValue = ctx.getConfigValue;
+  setConfigValue = ctx.setConfigValue;
+  getIAKeys = ctx.getIAKeys;
+  tenantManager = ctx.manager;
+  controlDb = ctx.manager.controlDb;
+
+  // Middleware tenant-aware ANTES de qualquer coisa que acesse o db.
+  // Rotas de landing (apex) e control-plane (admin) serão instaladas
+  // no ramo `allowWithoutTenant` via checagem de req.tenantCtx.kind.
+  app.use(ctx.middleware);
+
+  // Feature-gate por modulo (Fase 2B) — DESATIVADO em 2026-05-21 apos 2
+  // tentativas causarem travamento prolongado. Causa raiz nao identificada
+  // (talvez interacao com sync PNCP pesado). Tabelas plan_modules e
+  // tenant_module_overrides continuam populadas — Fase 1 entregue.
+  // const { createModuleGate } = require('./module-gate');
+  // app.use(createModuleGate(ctx.manager));
+} else {
+  const { bootstrapDatabase } = require('./db-bootstrap');
+  const ctx = bootstrapDatabase({ processarFilaAnalise });
+  db = ctx.db;
+  dbPath = ctx.dbPath;
+  salvarItens = ctx.salvarItens;
+  pncpSync = ctx.pncpSync;
+  getConfigValue = ctx.getConfigValue;
+  setConfigValue = ctx.setConfigValue;
+  getIAKeys = ctx.getIAKeys;
+}
 
 
 // NFSE-M06 onda 6.43 (2026-04-20): wiring completo da autenticação
-// (initAuthAndSession + rotas públicas + pre-auth + barrier +
-// rotas protegidas + static protegido) consolidado em auth-pipeline.js.
+// consolidado em auth-pipeline.js. Multi-tenant: passa controlDb
+// (fonte do session_secret único). Em multi-tenant o registro de rotas
+// roda dentro de runInBootContext → o DB proxy vira no-op para todas
+// as chamadas de migração/seed (já aplicadas por db-schema.js em cada
+// tenant). Em runtime, dentro de um request, o proxy resolve normal.
 const { installAuthPipeline } = require('./auth-pipeline');
-const { apiKey } = installAuthPipeline(app, db);
-
-// NFSE-M06 onda 6.36 (2026-04-20): ~55 registros de rotas protegidas
-// (MonitorV2, Licitacoes, Sniper, NFSe, Cobrancas, Financeiro, suprimentos,
-// fiscais, wiring do robô monitor-mensagens etc.) + wrappers enviarTelegram /
-// enviarNotificacaoTelegram migraram para route-registry.js. Dependências
-// passadas uma vez; a ordem interna de registro é preservada 1:1.
 const { registerProtectedRoutes } = require('./route-registry');
-registerProtectedRoutes(app, {
-  db, dbPath, pncpSync, salvarItens, getConfigValue, setConfigValue, getIAKeys,
-});
+
+let apiKey;
+function installPipeline() {
+  const pipelineResult = installAuthPipeline(app, db, { controlDb, tenantManager });
+  apiKey = pipelineResult.apiKey;
+  registerProtectedRoutes(app, {
+    db, dbPath, pncpSync, salvarItens, getConfigValue, setConfigValue, getIAKeys,
+  });
+}
+
+if (MULTI_TENANT) {
+  const { runInBootContext } = require('./tenant-middleware');
+  runInBootContext(installPipeline);
+
+  // Força criação da instância SniperLance por tenant 3s após o boot.
+  // Sem isso, `_iniciarAgendamentoTenant` (que recupera blitzes agendadas,
+  // liga auto-lance, etc.) só dispara no primeiro request tenant-scoped —
+  // e agendamentos persistidos podem perder o momento do disparo.
+  const { tenantStorage } = require('./tenant-middleware');
+  const { getSniper } = require('./sniper-lance-routes');
+  // Modo emergencial 2026-05-23: SKIP_TENANT_BOOT=1 pula a inicialização
+  // pré-emptiva dos tenants. Cada tenant fica lazy (cria sniper só na 1ª request).
+  if (process.env.SKIP_TENANT_BOOT === '1') {
+    console.log('[worker] SKIP_TENANT_BOOT=1 — inicialização pré-emptiva de tenants pulada');
+  } else
+  setTimeout(() => {
+    try {
+      const tenants = tenantManager.listAll();
+      const { ensureScheduleForTenant } = require('./sc-scheduler');
+      const { createConfigHelpers } = require('./config-helpers');
+      const { iniciarSchedulerAnaliseIa } = require('./analise-ia-scheduler');
+      for (const t of tenants) {
+        try {
+          const tdb = tenantManager.getDb(t.slug);
+          // Schema de cobranças/boletos (tabela `boletos` + colunas provedor/pix/etc.) é
+          // dono do boleto-orchestrator, não do db-schema. migrarSchema no registro roda
+          // contra o proxy (no-op fora de contexto) → aplicamos por-tenant aqui (idempotente).
+          try { require('./boleto-orchestrator').migrarSchema(tdb); } catch (e) { console.error(`[boleto migrar ${t.slug}] ${e.message}`); }
+          tenantStorage.run({ kind: 'tenant', tenant: t, db: tdb }, () => {
+            // Acesso a qualquer propriedade do Proxy força _getSniperForContext,
+            // que cria a instância e chama _iniciarAgendamentoTenant (recovery + auto-lance).
+            void getSniper().autoLanceLog;
+          });
+          // Boot do scheduler do robô SC. Idempotente — se o tenant não tem
+          // credenciais sc_*, o tick sai sem fazer nada (mas continua agendado
+          // para o caso de credenciais serem cadastradas no futuro).
+          ensureScheduleForTenant(t, tdb);
+          // Scheduler diário de análise IA por grupo de palavras (6h da manhã).
+          // No-op se nenhum grupo do tenant tem agendamento ativo.
+          const helpers = createConfigHelpers(tdb);
+          iniciarSchedulerAnaliseIa(tdb, helpers.getIAKeys);
+          // Scheduler de disputa BNC — instancia 1 engine SignalR por sala
+          // ativa em bnc_salas. Idempotente (no-op se tenant não tem sala).
+          require('./bnc-dispute-scheduler').ensureSchedulerForTenant(t, tdb);
+          // Scheduler de disputa BLL (Fase 3) — idem para bll_salas. dryRun
+          // default; no-op se tenant não tem sala BLL cadastrada.
+          require('./bll-dispute-scheduler').ensureSchedulerForTenant(t, tdb);
+        } catch (e) { console.error(`[Sniper boot ${t.slug}] ${e.message}`); }
+      }
+    } catch (e) { console.error(`[Sniper boot global] ${e.message}`); }
+  }, 3000);
+} else {
+  installPipeline();
+}
 
 
-// NFSE-M06 onda 6.34 (2026-04-20): _logStartupBanner,
-// _iniciarSchedulersMaster, _iniciarWorkerHttp e o dispatch de
-// process.env.ROLE migraram para role-dispatch.js. O factory recebe
-// todas as dependências (db, app, PORT, schedulers...) uma vez e expõe
-// dispatch(role?) que roda o ramo correto. Produção: consulta-licitacoes
-// (ROLE=worker) aterra aqui; liciteagora.service usa scheduler.js direto.
+// NFSE-M06 onda 6.34 (2026-04-20): dispatch de process.env.ROLE
+// em role-dispatch.js. Produção: consulta-licitacoes (ROLE=worker)
+// aterra aqui; liciteagora.service (ROLE=master) usa scheduler.js
+// direto, que ainda é single-tenant até a Fase 5.
 const { createRoleDispatch } = require('./role-dispatch');
 createRoleDispatch({
   db, app, apiKey, dbPath, getConfigValue, pncpSync,

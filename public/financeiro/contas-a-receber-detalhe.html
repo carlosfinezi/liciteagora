@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conta a Receber · Detalhe</title>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+  <style>
+    /* Classes específicas da página — originalmente faltantes no CSS global.
+       Mantidas aqui até refatorar a página para usar só classes canônicas. */
+    .back { color: var(--text-2); font-size: 0.88em; text-decoration: none; }
+    .back:hover { color: var(--accent); }
+    .header-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 20px; margin-bottom: 16px; }
+    .header-card h1 { margin: 0 0 6px; font-size: 1.4em; }
+    .cliente { color: var(--text-2); font-size: 0.9em; margin-bottom: 8px; }
+    .grid-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .info-item { display: flex; flex-direction: column; gap: 4px; }
+    .info-item .lbl { color: var(--text-3); font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+    .info-item .val { color: var(--text-0); font-size: 0.98em; font-weight: 600; }
+    .info-item .val.big { font-size: 1.25em; }
+    .info-item .val.danger  { color: var(--danger); }
+    .info-item .val.warn    { color: var(--warn); }
+    .info-item .val.success { color: var(--success); }
+    .boleto-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px 14px; margin-bottom: 10px; }
+    .boleto-linha { font-family: 'SF Mono', Menlo, monospace; font-size: 0.78em; color: var(--text-2); background: var(--bg-3); padding: 6px 10px; border-radius: var(--r-sm); margin-top: 8px; word-break: break-all; }
+    .dropzone { border: 2px dashed var(--border); border-radius: var(--r-md); padding: 20px; text-align: center; color: var(--text-3); cursor: pointer; transition: all 0.15s; }
+    .dropzone:hover { border-color: var(--accent); color: var(--accent); }
+    .anexos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+    .anexo-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px; }
+    .anexo-card .nome { font-weight: 600; font-size: 0.88em; color: var(--text-0); word-break: break-word; }
+    .anexo-card .meta { color: var(--text-3); font-size: 0.74em; margin: 4px 0 8px; }
+    .anexo-card .acoes { display: flex; gap: 6px; }
+    .resumo-pag { background: var(--bg-1); padding: 10px 12px; border-radius: var(--r-sm); margin-bottom: 14px; color: var(--text-1); font-size: 0.88em; line-height: 1.5; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>Conta a receber</h1>
+        <small><a class="back" href="/financeiro/contas-a-receber.html"><svg class="ic-sm"><use href="#i-arrow-left"/></svg> Voltar para Contas a Receber</a></small>
+      </div>
+    </div>
+    <div id="conteudo">Carregando…</div>
+  </main>
+</div>
+
+<!-- Modal Receber -->
+<div class="modal-bg" id="modalReceber">
+  <div class="modal">
+    <h2>Registrar recebimento</h2>
+    <div class="resumo-pag" id="resumoPag"></div>
+    <div class="row"><label>Conta financeira (entrada) *</label><select id="pContaFin"></select></div>
+    <div class="row-2">
+      <div class="row"><label>Data recebimento</label><input type="date" id="pData"></div>
+      <div class="row">
+        <label>Forma</label>
+        <select id="pForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>Valor base</label><input type="number" step="0.01" id="pBase" oninput="recalc()"></div>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;">
+          <input type="checkbox" id="pParcial" onchange="recalc()"> Recebimento parcial
+        </label>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>+ Juros</label><input type="number" step="0.01" id="pJuros" value="0" oninput="recalc()"></div>
+      <div class="row"><label>+ Multa</label><input type="number" step="0.01" id="pMulta" value="0" oninput="recalc()"></div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>− Desconto</label><input type="number" step="0.01" id="pDesc" value="0" oninput="recalc()"></div>
+      <div class="row"><label>&nbsp;</label>
+        <div class="resumo-pag" style="margin:0;"><div class="linha total">Total: <span id="pTotal">R$ 0,00</span></div></div>
+      </div>
+    </div>
+    <div class="row"><label>Observações</label><textarea id="pObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharReceber()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarReceber()">Confirmar recebimento</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Editar -->
+<div class="modal-bg" id="modalEditar">
+  <div class="modal">
+    <h2>Editar conta</h2>
+    <div class="row"><label>Descrição</label><input type="text" id="eDesc"></div>
+    <div class="row-2">
+      <div class="row"><label>Valor</label><input type="number" step="0.01" id="eValor"></div>
+      <div class="row"><label>Vencimento</label><input type="date" id="eVenc"></div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>Categoria</label><select id="eCategoria"></select></div>
+      <div class="row">
+        <label>Forma de pagamento</label>
+        <select id="eForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>Plano de contas</label><select id="ePlanoConta"></select></div>
+      <div class="row"><label>Centro de custo</label><select id="eCentroCusto"></select></div>
+    </div>
+    <div class="row"><label>Observações</label><textarea id="eObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharEditar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEdicao()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Cobrar -->
+<div class="modal-bg" id="modalCobrar">
+  <div class="modal">
+    <h2>Enviar cobrança</h2>
+    <p id="cobrarResumo" style="color:var(--text-2);margin-bottom:10px;"></p>
+    <div class="row">
+      <label>Canais</label>
+      <div style="display:flex;gap:15px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="cobrarEmail" checked> E‑mail</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="cobrarWa" checked> WhatsApp</label>
+      </div>
+    </div>
+    <div class="row">
+      <label>Etapa da régua</label>
+      <select id="cobrarEtapa"></select>
+    </div>
+    <div id="cobrarPreview" style="background:rgba(255,255,255,0.04);border-radius:6px;padding:10px;margin-top:10px;font-size:0.88em;color:var(--text-2);white-space:pre-wrap;max-height:200px;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharCobrar()">Cancelar</button>
+      <button class="btn btn-primary" id="btnCobrarConfirmar" onclick="confirmarCobrar()">Enviar cobrança</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" style="display:none;" accept="application/pdf,image/*" onchange="enviarAnexo(this.files[0])">
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('contas-a-receber');</script>
+<script>
+let CR_ID = null, DADOS = null;
+function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(iso){ if(!iso) return '-'; const d = new Date((iso||'').length===10?iso+'T12:00:00':iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
+function hoje(){ const d = new Date(Date.now() - 3*60*60*1000); return d.toISOString().slice(0,10); }
+
+async function carregar(){
+  CR_ID = new URLSearchParams(location.search).get('id');
+  if (!CR_ID) { document.getElementById('conteudo').textContent = 'id obrigatório'; return; }
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    DADOS = d;
+    render();
+  } catch(e){ document.getElementById('conteudo').textContent = 'Erro: '+e.message; }
+}
+
+function render(){
+  const c = DADOS.conta, pagtos = DADOS.pagamentos, anexos = DADOS.anexos, parcelas = DADOS.parcelas, boletos = DADOS.boletos;
+  const h = hoje();
+  const vencida = ['aberta','parcial'].includes(c.status) && c.dataVencimento < h;
+  const statusDisplay = vencida ? 'vencida' : c.status;
+  const boletoAtivo = boletos.find(b => ['pendente','registrado'].includes(b.status));
+
+  let html = `
+    <div class="header-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+        <div>
+          <h1>${c.descricao}</h1>
+          <div class="cliente"><strong>${c.pessoaNome||'—'}</strong> · ${c.pessoaCpfCnpj||''}${c.pessoaEmail?` · ${c.pessoaEmail}`:''}</div>
+          <span class="badge ${statusDisplay}">${statusDisplay}</span>
+          ${c.parcelaNumero ? `<span style="margin-left:8px;color:var(--text-2);font-size:0.88em;">Parcela ${c.parcelaNumero}/${c.totalParcelas}</span>` : ''}
+          ${c.nfseId ? `<span style="margin-left:8px;color:var(--purple);font-size:0.88em;">${icon('file-text','ic-sm')} NFSe ${c.nfseNumero||c.nfseId}</span>` : ''}
+        </div>
+        <div class="actions">
+          ${['aberta','parcial'].includes(c.status) ? `<button class="btn btn-success" onclick="abrirReceber()">${icon('wallet')}Receber</button>` : ''}
+          ${vencida ? `<button class="btn btn-primary" onclick="abrirCobrar()">${icon('send')}Enviar cobrança</button>` : ''}
+          ${['aberta','parcial'].includes(c.status) ? `<button class="btn btn-secondary" onclick="abrirEditar()">${icon('edit')}Editar</button>` : ''}
+          <button class="btn btn-secondary" onclick="duplicar()">${icon('copy')}Duplicar</button>
+          ${['aberta','parcial'].includes(c.status) ? `<button class="btn btn-danger" onclick="cancelar()">${icon('x-circle')}Cancelar</button>` : ''}
+          ${['aberta','parcial'].includes(c.status) ? `<button class="btn btn-danger" onclick="baixarPerda()" title="Baixa como incobrável (perda)">✂️ Perda</button>` : ''}
+          ${c.status === 'cancelada' ? `<button class="btn btn-secondary" onclick="reabrir()">${icon('rotate-ccw')}Reabrir</button>` : ''}
+          ${c.status === 'incobravel' ? `<button class="btn btn-secondary" onclick="reativarPerda()">${icon('rotate-ccw')}Reativar (cliente pagou)</button>` : ''}
+        </div>
+      </div>
+
+      <div class="grid-info">
+        <div class="info-item"><div class="lbl">Categoria</div><div class="val">${c.categoriaNome ? (c.categoriaIcone||'')+' '+c.categoriaNome : '—'}</div></div>
+        <div class="info-item"><div class="lbl">Vencimento</div><div class="val ${vencida?'danger':''}">${fmtData(c.dataVencimento)}</div></div>
+        <div class="info-item"><div class="lbl">Valor total</div><div class="val big">R$ ${fmt(c.valor)}</div></div>
+        <div class="info-item"><div class="lbl">Recebido</div><div class="val success">R$ ${fmt(c.totalPago)}</div></div>
+        <div class="info-item"><div class="lbl">Saldo</div><div class="val ${c.saldoRestante>0?'warn':'success'} big">R$ ${fmt(c.saldoRestante)}</div></div>
+        <div class="info-item"><div class="lbl">Forma</div><div class="val">${c.formaPagamento||'—'}</div></div>
+      </div>
+
+      ${c.observacoes ? `<p style="margin-top:14px;padding:10px;background:var(--bg-1);border-radius:var(--r-sm);color:var(--text-1);font-size:0.88em;">${c.observacoes}</p>` : ''}
+    </div>
+
+    <div class="panel">
+      <h3>Histórico de recebimentos <span style="color:var(--text-3);font-size:0.85em;font-weight:normal;">(${pagtos.length})</span></h3>
+      ${pagtos.length ? `
+        <table>
+          <thead><tr><th>Data</th><th>Conta financeira</th><th>Forma</th><th style="text-align:right;">Base</th><th style="text-align:right;">Juros</th><th style="text-align:right;">Multa</th><th style="text-align:right;">Desc.</th><th style="text-align:right;">Total</th><th>Origem</th><th>Status</th><th></th></tr></thead>
+          <tbody>${pagtos.map(p => `
+            <tr style="${p.estornado?'opacity:0.55;':''}">
+              <td>${fmtData(p.dataPagamento)}</td>
+              <td>${p.contaFinanceiraNome||'—'}</td>
+              <td>${p.formaPagamento||'—'}</td>
+              <td style="text-align:right;">R$ ${fmt(p.valorBase)}</td>
+              <td style="text-align:right;color:var(--warn);">R$ ${fmt(p.juros)}</td>
+              <td style="text-align:right;color:var(--warn);">R$ ${fmt(p.multa)}</td>
+              <td style="text-align:right;color:var(--success);">R$ ${fmt(p.desconto)}</td>
+              <td style="text-align:right;"><strong>R$ ${fmt(p.valorPago)}</strong></td>
+              <td><small style="color:var(--text-3);">${p.origem||'manual'}</small></td>
+              <td><span class="badge ${p.estornado?'estornado':'paga'}">${p.estornado?'estornado':'pago'}</span></td>
+              <td>${!p.estornado ? `<button class="btn btn-warn btn-sm" onclick="estornar(${p.id})">Estornar</button>` : ''}</td>
+            </tr>`).join('')}</tbody>
+        </table>` : '<p style="color:var(--text-3);">Nenhum recebimento registrado.</p>'}
+    </div>
+
+    ${boletos.length ? `
+      <div class="panel">
+        <h3>Cobranças <span style="color:var(--text-3);font-size:0.85em;font-weight:normal;">(${boletos.length})</span></h3>
+        ${boletos.map(b => `
+          <div class="boleto-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+              <div>
+                <span class="badge ${b.status}">${b.status}</span>
+                <strong style="margin-left:8px;">R$ ${fmt(b.amount/100)}</strong>
+                <span style="color:var(--text-3);margin-left:8px;">venc ${fmtData(b.expirationDate)}</span>
+                ${b.provedor ? `<span style="color:var(--text-3);margin-left:8px;font-size:0.85em;text-transform:uppercase;">via ${b.provedor}</span>` : ''}
+                ${b.tipoCobranca === 'pix' ? `<span class="badge" style="margin-left:8px;background:#00b894;color:#fff;">PIX</span>` : ''}
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                ${b.externalUrl ? `<a href="${b.externalUrl}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">${icon('external','ic-sm')}Ver</a>` : ''}
+                ${['pendente','registrado'].includes(b.status) ? `<button class="btn btn-secondary btn-sm" onclick="consultarBoleto(${b.id})">${icon('refresh','ic-sm')}Consultar</button>` : ''}
+                ${['pendente','registrado'].includes(b.status) ? `<button class="btn btn-secondary btn-sm" onclick="${b.tipoCobranca === 'pix' ? `enviarEmailPixCob(${b.id})` : `enviarEmailBoleto(${b.id})`}">${icon('mail','ic-sm')}Email</button>` : ''}
+                ${['pendente','registrado'].includes(b.status) ? `<button class="btn btn-secondary btn-sm" onclick="compartilharBoleto(${b.id})">${icon('message-circle','ic-sm')}Compartilhar</button>` : ''}
+                ${['pendente','registrado'].includes(b.status) ? `<button class="btn btn-danger btn-sm" onclick="cancelarBoleto(${b.id})">${icon('x','ic-sm')}Cancelar</button>` : ''}
+              </div>
+            </div>
+            ${b.tipoCobranca === 'pix'
+              ? `${b.pixQrImage ? `<div style="text-align:center;margin-top:10px;"><img src="data:image/png;base64,${b.pixQrImage}" alt="QR Code PIX" style="width:170px;height:170px;background:#fff;padding:6px;border-radius:8px;"></div>` : ''}${b.pixPayload ? `<div class="boleto-linha" style="cursor:pointer;" title="Clique para copiar" onclick="copiarTexto(this)">${b.pixPayload}</div><div style="font-size:0.8em;color:var(--text-3);margin-top:2px;">PIX copia e cola — clique no código para copiar</div>` : ''}`
+              : (b.writableLine ? `<div class="boleto-linha">${b.writableLine}</div>` : '')}
+          </div>`).join('')}
+        ${['aberta','parcial'].includes(c.status) && !boletoAtivo ? `<button class="btn btn-primary btn-sm" onclick="gerarBoleto()">${icon('plus','ic-sm')}Gerar boleto</button> <button class="btn btn-primary btn-sm" onclick="gerarPix()">${icon('plus','ic-sm')}Gerar PIX</button>` : ''}
+      </div>` : (['aberta','parcial'].includes(c.status) ? `
+      <div class="panel">
+        <h3>Cobrança</h3>
+        <button class="btn btn-primary btn-sm" onclick="gerarBoleto()">${icon('plus','ic-sm')}Gerar boleto</button>
+        <button class="btn btn-primary btn-sm" onclick="gerarPix()">${icon('plus','ic-sm')}Gerar PIX</button>
+      </div>` : '')}
+
+    <div class="panel">
+      <h3>Anexos <span style="color:var(--text-3);font-size:0.85em;font-weight:normal;">(${anexos.length})</span></h3>
+      <div class="dropzone" onclick="document.getElementById('fileInput').click()">${icon('paperclip')} Clique para enviar um PDF ou imagem (contrato, comprovante…)</div>
+      ${anexos.length ? `<div class="anexos-grid">${anexos.map(a => `
+        <div class="anexo-card">
+          <div class="nome">${icon(a.tipo==='contrato'?'file-text':a.tipo==='comprovante'?'receipt':'paperclip','ic-sm')} ${a.nomeOriginal}</div>
+          <div class="meta">${a.mimeType||''} · ${((a.tamanho||0)/1024).toFixed(0)} KB · ${fmtData(a.dataUpload)}</div>
+          <div class="acoes">
+            <a class="btn btn-secondary btn-sm" href="/api/contas-a-receber/anexos/${a.id}/download" style="text-decoration:none;">${icon('download','ic-sm')}Baixar</a>
+            <button class="btn btn-danger btn-sm" onclick="excluirAnexo(${a.id})">${icon('trash','ic-sm')}Excluir</button>
+          </div>
+        </div>`).join('')}</div>` : ''}
+    </div>
+
+    ${parcelas.length > 1 ? `
+      <div class="panel">
+        <h3>Parcelas desta cobrança <span style="color:var(--text-3);font-size:0.85em;font-weight:normal;">(${parcelas.length})</span></h3>
+        <table>
+          <thead><tr><th>#</th><th>Descrição</th><th>Vencimento</th><th style="text-align:right;">Valor</th><th>Status</th><th></th></tr></thead>
+          <tbody>${parcelas.map(p => `
+            <tr style="${p.id == c.id ? 'background:var(--accent-soft);' : ''}">
+              <td>${p.parcelaNumero}/${parcelas.length}</td>
+              <td>${p.descricao}</td>
+              <td>${fmtData(p.dataVencimento)}</td>
+              <td style="text-align:right;">R$ ${fmt(p.valor)}</td>
+              <td><span class="badge ${p.status}">${p.status}</span></td>
+              <td>${p.id != c.id ? `<a href="/financeiro/contas-a-receber-detalhe.html?id=${p.id}" style="color:var(--accent);font-size:0.85em;">abrir</a>` : '<em style="color:var(--text-3);">atual</em>'}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>` : ''}
+
+    ${c.nfseId ? `
+      <div class="panel">
+        <h3>NFSe vinculada</h3>
+        <p>NFSe ${c.nfseNumero || ''} · status <span class="badge">${c.nfseStatus||'—'}</span></p>
+        <a href="/fiscal/nfse-emitidas.html" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;margin-top:8px;">Abrir NFSe</a>
+      </div>` : ''}
+  `;
+  document.getElementById('conteudo').innerHTML = html;
+}
+
+// ===== Receber =====
+// Calcula juros/multa sugeridos com base em /api/financeiro/config-juros.
+// Fórmulas:
+//   dias_efetivos = max(0, diasAtraso - carenciaDias)
+//   multa = saldo × multaAtrasoPct / 100                (se dias_efetivos > 0)
+//   juros simples   = saldo × jurosMesPct/100 × (dias_efetivos/30)
+//   juros composto  = saldo × ((1 + jurosMesPct/100)^(dias_efetivos/30) − 1)
+// Retorna { juros, multa, diasAtraso, diasEfetivos }.
+async function calcularJurosMultaSugeridos(saldo, dataVencimento) {
+  try {
+    const r = await fetch('/api/financeiro/config-juros');
+    const cfg = await r.json();
+    if (!cfg.success) return { juros: 0, multa: 0 };
+    const atraso = diffDias(dataVencimento);
+    const efetivos = Math.max(0, atraso - (cfg.carenciaDias || 0));
+    if (efetivos <= 0 || saldo <= 0) return { juros: 0, multa: 0, diasAtraso: atraso, diasEfetivos: 0 };
+    const jPct = Number(cfg.jurosMesPct) || 0;
+    const mPct = Number(cfg.multaAtrasoPct) || 0;
+    let juros;
+    if (cfg.jurosModo === 'composto') {
+      juros = saldo * (Math.pow(1 + jPct / 100, efetivos / 30) - 1);
+    } else {
+      juros = saldo * (jPct / 100) * (efetivos / 30);
+    }
+    const multa = saldo * (mPct / 100);
+    return {
+      juros:  Math.max(0, Math.round(juros * 100) / 100),
+      multa:  Math.max(0, Math.round(multa * 100) / 100),
+      diasAtraso: atraso,
+      diasEfetivos: efetivos,
+    };
+  } catch (e) {
+    return { juros: 0, multa: 0 };
+  }
+}
+
+async function abrirReceber(){
+  const c = DADOS.conta;
+  const sugerido = await calcularJurosMultaSugeridos(c.saldoRestante, c.dataVencimento);
+  document.getElementById('resumoPag').innerHTML = `
+    <div class="linha"><span>Valor total</span><strong>R$ ${fmt(c.valor)}</strong></div>
+    <div class="linha"><span>Já recebido</span><strong style="color:var(--success);">R$ ${fmt(c.totalPago)}</strong></div>
+    <div class="linha total"><span>Saldo restante</span><span>R$ ${fmt(c.saldoRestante)}</span></div>
+    ${sugerido.diasEfetivos > 0 ? `<div class="linha" style="color:var(--warn);"><span>Em atraso</span><span>${sugerido.diasAtraso} dias (${sugerido.diasEfetivos} após carência)</span></div>` : ''}
+  `;
+  document.getElementById('pBase').value = c.saldoRestante.toFixed(2);
+  document.getElementById('pJuros').value = sugerido.juros || 0;
+  document.getElementById('pMulta').value = sugerido.multa || 0;
+  document.getElementById('pDesc').value = 0;
+  document.getElementById('pData').value = hoje();
+  document.getElementById('pParcial').checked = false;
+  document.getElementById('pForma').value = c.formaPagamento || '';
+  recalc();
+  try {
+    const r = await fetch('/api/contas-financeiras');
+    const d = await r.json();
+    document.getElementById('pContaFin').innerHTML = (d.contas || []).filter(c => c.ativo).map(c => `<option value="${c.id}">${c.nome} (${c.tipo})</option>`).join('');
+  } catch(e){}
+  document.getElementById('modalReceber').classList.add('open');
+}
+function fecharReceber(){ document.getElementById('modalReceber').classList.remove('open'); }
+function recalc(){
+  const b = Number(document.getElementById('pBase').value) || 0;
+  const j = Number(document.getElementById('pJuros').value) || 0;
+  const m = Number(document.getElementById('pMulta').value) || 0;
+  const d = Number(document.getElementById('pDesc').value) || 0;
+  document.getElementById('pTotal').textContent = 'R$ ' + fmt(b + j + m - d);
+}
+async function confirmarReceber(){
+  const body = {
+    contaFinanceiraId: Number(document.getElementById('pContaFin').value),
+    dataPagamento: document.getElementById('pData').value,
+    valorBase: Number(document.getElementById('pBase').value),
+    juros: Number(document.getElementById('pJuros').value) || 0,
+    multa: Number(document.getElementById('pMulta').value) || 0,
+    desconto: Number(document.getElementById('pDesc').value) || 0,
+    parcial: document.getElementById('pParcial').checked,
+    formaPagamento: document.getElementById('pForma').value || null,
+    observacoes: document.getElementById('pObs').value || null
+  };
+  const totalReceber = (Number(body.valorBase) || 0) + body.juros + body.multa - body.desconto;
+  // Bonificação: total 0 (desconto cobre tudo) não exige conta financeira.
+  if (totalReceber > 0 && !body.contaFinanceiraId) { alert('Selecione conta financeira'); return; }
+  if (!body.valorBase || body.valorBase <= 0) { alert('Valor base inválido'); return; }
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/baixar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharReceber(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function estornar(pagamentoId){
+  if (!confirm('Estornar este recebimento?\n\nO registro fica marcado como estornado (histórico preservado) e a movimentação financeira será removida.')) return;
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/estornar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pagamentoId }) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== Editar =====
+async function abrirEditar(){
+  const c = DADOS.conta;
+  document.getElementById('eDesc').value = c.descricao || '';
+  document.getElementById('eValor').value = Number(c.valor).toFixed(2);
+  document.getElementById('eVenc').value = (c.dataVencimento||'').slice(0,10);
+  document.getElementById('eForma').value = c.formaPagamento || '';
+  document.getElementById('eObs').value = c.observacoes || '';
+  try {
+    const [rc, rp, rcc] = await Promise.all([
+      fetch('/api/cr-categorias').then(r => r.json()),
+      fetch('/api/plano-contas').then(r => r.json()),
+      fetch('/api/centros-custo').then(r => r.json()),
+    ]);
+    document.getElementById('eCategoria').innerHTML = '<option value="">— sem —</option>' + (rc.categorias||[]).map(x => `<option value="${x.id}" ${x.id==c.categoriaId?'selected':''}>${x.icone||''} ${x.nome}</option>`).join('');
+    const TIPOS_CR = ['receita','deducao','financeiro_receita'];
+    const todasPlano = (rp.plano || []).filter(x => x.ativo);
+    const planosOrd = [...todasPlano.filter(x => TIPOS_CR.includes(x.tipo)), ...todasPlano.filter(x => !TIPOS_CR.includes(x.tipo))];
+    document.getElementById('ePlanoConta').innerHTML = '<option value="">— sem —</option>' + planosOrd.map(x => `<option value="${x.id}" ${x.id==c.planoContaId?'selected':''}>${x.codigo} · ${x.nome}${x.tipo&&!TIPOS_CR.includes(x.tipo)?' ('+x.tipo+')':''}</option>`).join('');
+    document.getElementById('eCentroCusto').innerHTML = '<option value="">— sem —</option>' + (rcc.centros||[]).map(x => `<option value="${x.id}" ${x.id==c.centroCustoId?'selected':''}>${x.codigo?x.codigo+' · ':''}${x.nome}</option>`).join('');
+  } catch(e){}
+  document.getElementById('modalEditar').classList.add('open');
+}
+function fecharEditar(){ document.getElementById('modalEditar').classList.remove('open'); }
+async function salvarEdicao(){
+  const body = {
+    descricao: document.getElementById('eDesc').value.trim(),
+    valor: Number(document.getElementById('eValor').value),
+    dataVencimento: document.getElementById('eVenc').value,
+    categoriaId: document.getElementById('eCategoria').value || null,
+    planoContaId: document.getElementById('ePlanoConta').value || null,
+    centroCustoId: document.getElementById('eCentroCusto').value || null,
+    formaPagamento: document.getElementById('eForma').value || null,
+    observacoes: document.getElementById('eObs').value || null
+  };
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharEditar(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function duplicar(){
+  if (!confirm('Duplicar esta conta? Será criada uma nova aberta com vencimento para daqui 30 dias.')) return;
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/duplicar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    location.href = '/financeiro/contas-a-receber-detalhe.html?id=' + d.id;
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function cancelar(){
+  if (!confirm('Cancelar esta conta?')) return;
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/cancelar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function reabrir(){
+  if (!confirm('Reabrir esta conta cancelada?')) return;
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/reabrir', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== Boletos =====
+async function gerarBoleto(){
+  if (!confirm('Gerar um novo boleto para esta cobrança?')) return;
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/gerar-boleto', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function consultarBoleto(id){
+  try {
+    const r = await fetch('/api/boletos/'+id+'/consultar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function cancelarBoleto(id){
+  if (!confirm('Cancelar este boleto?')) return;
+  try {
+    const r = await fetch('/api/boletos/'+id+'/cancelar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function enviarEmailBoleto(id){
+  try {
+    const r = await fetch('/api/boletos/'+id+'/enviar-email', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alert('Email enviado.');
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function compartilharBoleto(id){
+  try {
+    const r = await fetch('/api/boletos/'+id+'/compartilhar');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    if (d.whatsapp) window.open(d.whatsapp, '_blank');
+    else if (d.texto) { await navigator.clipboard.writeText(d.texto); alert('Texto copiado para área de transferência.'); }
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== PIX =====
+async function gerarPix(){
+  if (!confirm('Gerar cobrança PIX (QR + link) e enviar ao cliente por email?')) return;
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/gerar-pix', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function enviarEmailPixCob(id){
+  try {
+    const r = await fetch('/api/cobrancas/'+id+'/enviar-pix', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const partes = [];
+    const wa = d.canais && d.canais.whatsapp;
+    if (wa && (wa.queued || wa.success)) partes.push('WhatsApp'+(wa.queued ? ' (fila p/ envio)' : ''));
+    if (d.canais && d.canais.email && d.canais.email.to) partes.push('email '+d.canais.email.to);
+    alert('PIX enviado'+(partes.length ? ': '+partes.join(' + ') : '')+'.');
+  } catch(e){ alert('Erro: '+e.message); }
+}
+function copiarTexto(el){
+  const t = (el.textContent || '').trim();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(()=>alert('Copiado!')).catch(()=>{ _fallbackCopy(t); alert('Copiado!'); });
+  } else { _fallbackCopy(t); alert('Copiado!'); }
+}
+function _fallbackCopy(t){
+  const ta = document.createElement('textarea'); ta.value = t;
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch(e){}
+  ta.remove();
+}
+
+// ===== Anexos =====
+async function enviarAnexo(file){
+  if (!file) return;
+  const tipo = prompt('Tipo do anexo? (contrato, comprovante, boleto ou outro)', 'contrato') || 'outro';
+  const fd = new FormData();
+  fd.append('arquivo', file); fd.append('tipo', tipo);
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/anexos', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    document.getElementById('fileInput').value = '';
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function excluirAnexo(id){
+  if (!confirm('Excluir este anexo?')) return;
+  await fetch('/api/contas-a-receber/anexos/'+id, { method:'DELETE' });
+  carregar();
+}
+
+['modalReceber','modalEditar','modalCobrar'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) e.target.classList.remove('open'); });
+});
+
+// ==================== COBRAR ====================
+let COBRANCA_CFG = null;
+
+async function abrirCobrar(){
+  const c = DADOS.conta;
+  try {
+    if (!COBRANCA_CFG) {
+      const r = await fetch('/api/cobrancas/config');
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error);
+      COBRANCA_CFG = d.config;
+    }
+
+    const diasAtraso = diffDias(c.dataVencimento);
+    const ultimaEnviada = await buscarUltimaEtapa(c.id);
+
+    const etapas = COBRANCA_CFG.regua.filter(e => e.canais && e.canais.length > 0);
+    const sel = document.getElementById('cobrarEtapa');
+    sel.innerHTML = etapas.map(e => {
+      const mark = (e.etapa === (ultimaEnviada || 0) + 1) ? ' (sugerida)' : '';
+      return `<option value="${e.etapa}">Etapa ${e.etapa} — D+${e.diasApos}${mark}</option>`;
+    }).join('');
+    const sugerida = etapas.find(e => e.etapa === (ultimaEnviada || 0) + 1) || etapas[0];
+    sel.value = sugerida.etapa;
+
+    document.getElementById('cobrarResumo').textContent =
+      `Conta: ${c.descricao} — R$ ${Number(c.valor).toFixed(2)} — ${diasAtraso} dias de atraso` +
+      (ultimaEnviada ? ` · Última cobrança enviada: etapa ${ultimaEnviada}` : '');
+
+    atualizarPreviewCobrar();
+    sel.onchange = atualizarPreviewCobrar;
+
+    document.getElementById('modalCobrar').classList.add('open');
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+function fecharCobrar(){ document.getElementById('modalCobrar').classList.remove('open'); }
+
+function atualizarPreviewCobrar(){
+  const c = DADOS.conta;
+  const etapaNum = Number(document.getElementById('cobrarEtapa').value);
+  const etapa = COBRANCA_CFG.regua.find(e => e.etapa === etapaNum);
+  if (!etapa) return;
+  const ctx = {
+    nome: c.pessoaNome || '', descricao: c.descricao || '',
+    valor: 'R$ ' + Number(c.valor).toFixed(2).replace('.',','),
+    vencimento: fmtData(c.dataVencimento),
+    diasAtraso: String(diffDias(c.dataVencimento)),
+    linhaDigitavel: '(linha do boleto)', linkBoleto: '(link do boleto)',
+    nfseNumero: c.nfseNumero || '',
+  };
+  const subst = (t) => (t || '').replace(/\{\{(\w+)\}\}/g, (_, k) => ctx[k] !== undefined ? ctx[k] : '');
+  let preview = '';
+  if (document.getElementById('cobrarEmail').checked && etapa.emailTexto) {
+    preview += 'E-MAIL\nAssunto: ' + subst(etapa.assunto) + '\n\n' + subst(etapa.emailTexto) + '\n\n';
+  }
+  if (document.getElementById('cobrarWa').checked && etapa.whatsappTexto) {
+    preview += 'WHATSAPP\n' + subst(etapa.whatsappTexto);
+  }
+  document.getElementById('cobrarPreview').textContent = preview || '(canal vazio)';
+}
+
+async function buscarUltimaEtapa(contaId){
+  try {
+    const r = await fetch('/api/cobrancas/log?contaId=' + contaId + '&status=enviado&limite=1');
+    const d = await r.json();
+    if (d.success && d.logs?.length) return d.logs[0].etapa;
+  } catch {}
+  return 0;
+}
+
+async function confirmarCobrar(){
+  const etapa = Number(document.getElementById('cobrarEtapa').value);
+  const canais = [];
+  if (document.getElementById('cobrarEmail').checked) canais.push('email');
+  if (document.getElementById('cobrarWa').checked) canais.push('whatsapp');
+  if (!canais.length) { alert('Selecione ao menos um canal'); return; }
+
+  const btn = document.getElementById('btnCobrarConfirmar');
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/api/cobrancas/enviar/' + DADOS.conta.id, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ etapa, canais, forcar: true }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      const partes = Object.entries(data.canais || {}).map(([k,v]) =>
+        `${k}: ${v.success ? 'enviado' : (v.queued ? 'em fila' : 'erro — ' + v.error)}`
+      ).join(' | ');
+      alert('Cobrança processada.\n' + partes);
+      fecharCobrar();
+      carregar();
+    } else {
+      alert('Erro: ' + (data.error || 'desconhecido'));
+    }
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function diffDias(dataVenc){
+  if (!dataVenc) return 0;
+  const h = new Date(hoje() + 'T12:00:00Z');
+  const v = new Date(String(dataVenc).slice(0,10) + 'T12:00:00Z');
+  return Math.floor((h - v) / 86400000);
+}
+
+carregar();
+
+// ===== Incobráveis (financeiro_avancado) =====
+async function baixarPerda(){
+  const motivo = prompt('Motivo da baixa como perda (mín. 5 caracteres):');
+  if (!motivo) return;
+  const r = await fetch(`/api/contas-a-receber/${CR_ID}/baixar-perda`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo })
+  });
+  const d = await r.json();
+  if (!d.success) return alert(d.error);
+  location.reload();
+}
+async function reativarPerda(){
+  if (!confirm('Reativar este título? Ele volta para em aberto e pode receber baixa normal.')) return;
+  const r = await fetch(`/api/contas-a-receber/${CR_ID}/reativar-perda`, { method:'POST' });
+  const d = await r.json();
+  if (!d.success) return alert(d.error);
+  location.reload();
+}
+</script>
+</body></html>

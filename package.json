@@ -13,8 +13,7 @@
   "pkg": {
     "assets": [
       "public/**/*",
-      "node_modules/better-sqlite3/prebuilds/**/*",
-      "node_modules/puppeteer/.local-chromium/**/*"
+      "node_modules/better-sqlite3/prebuilds/**/*"
     ],
     "targets": [
       "node18-win-x64"
@@ -42,15 +41,19 @@
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "mammoth": "^1.11.0",
+    "multer": "^2.1.1",
     "node-forge": "^1.3.3",
     "node-signpdf": "^3.0.0",
+    "node-sped-nfe": "^1.2.52",
+    "node-sped-pdf": "^1.0.66",
     "nodemailer": "^8.0.1",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "pdf-signer": "^1.1.4",
-    "puppeteer": "^24.34.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "pg": "^8.21.0",
+    "pg-copy-streams": "^7.0.0",
+    "ws": "^8.21.0",
+    "xlsx": "^0.18.5",
     "xml-crypto": "^6.1.2"
   }
 }

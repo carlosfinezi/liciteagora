@@ -66,3 +66,9 @@ electron-standalone/dist-staging/
 electron-standalone/*.zip
 electron-standalone/*.7z
 electron-standalone/*.exe
+
+# Landmines: backups de banco com nome não-padrão + zips soltos (nunca versionar)
+pncp.db.*
+*.db.*
+public/*.zip
+*.nsis.7z

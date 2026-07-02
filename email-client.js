@@ -165,6 +165,62 @@ async function enviarEmailNfse(db, { to, cc, subject, nfseNumero, descricao, val
 }
 
 /**
+ * Envia a NF-e de produto (DANFE PDF + XML) ao destinatário.
+ * SEFAZ obriga o emitente a disponibilizar o XML ao destinatário.
+ */
+async function enviarEmailNfe(db, { to, cc, numero, chave, valor, danfePdf, xmlBuffer, clienteNome }) {
+  const cfg = loadSmtpConfig(db);
+  if (!cfg) throw new Error('SMTP nao configurado');
+
+  const transport = criarTransport(cfg);
+  const valorFmt = Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#1a1a2e;color:#fff;padding:20px;text-align:center;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;">Nota Fiscal Eletronica (NF-e)</h2>
+      </div>
+      <div style="background:#fff;padding:20px;border:1px solid #ddd;">
+        <p>Prezado(a)${clienteNome ? ' ' + clienteNome : ''},</p>
+        <p>Seguem em anexo o DANFE (PDF) e o XML da Nota Fiscal Eletronica.</p>
+        <table style="width:100%;border-collapse:collapse;margin:15px 0;">
+          <tr><td style="padding:4px 10px;color:#666;width:140px;">NF-e</td><td style="padding:4px 10px;font-weight:bold;">${numero || ''}</td></tr>
+          ${chave ? `<tr><td style="padding:4px 10px;color:#666;">Chave de acesso</td><td style="padding:4px 10px;font-family:monospace;font-size:12px;">${chave}</td></tr>` : ''}
+          <tr><td style="padding:4px 10px;color:#666;">Valor</td><td style="padding:4px 10px;font-weight:bold;">${valorFmt}</td></tr>
+        </table>
+      </div>
+      <div style="background:#f5f5f5;padding:10px;text-align:center;font-size:12px;color:#999;border-radius:0 0 8px 8px;">
+        Email enviado automaticamente. Nao responda este email.
+      </div>
+    </div>
+  `;
+
+  const attachments = [];
+  if (danfePdf) attachments.push({ filename: `DANFE-${numero}.pdf`, content: danfePdf, contentType: 'application/pdf' });
+  if (xmlBuffer) attachments.push({ filename: `${chave || numero}.xml`, content: xmlBuffer, contentType: 'application/xml' });
+
+  const finalSubject = `NF-e ${numero || ''} - ${cfg.fromName || ''}`.trim();
+  try {
+    const mailOpts = { from: `"${cfg.fromName}" <${cfg.fromEmail}>`, to, subject: finalSubject, html, attachments };
+    if (cc) mailOpts.cc = cc;
+    const info = await transport.sendMail(mailOpts);
+    registrarLog(db, {
+      tipo: 'nfe', to: cc ? `${to}, ${cc}` : to, subject: finalSubject,
+      nfseNumero: numero, descricao: chave, valor, temPdf: !!danfePdf, temBoleto: false,
+      messageId: info.messageId, status: 'enviado',
+    });
+    console.log(`[Email] NF-e ${numero} enviada para ${to}${cc ? ' cc:' + cc : ''} (messageId: ${info.messageId})`);
+    return info;
+  } catch (err) {
+    registrarLog(db, {
+      tipo: 'nfe', to, subject: finalSubject, nfseNumero: numero, descricao: chave, valor,
+      temPdf: !!danfePdf, temBoleto: false, status: 'erro', erro: err.message,
+    });
+    throw err;
+  }
+}
+
+/**
  * Envia email de teste para verificar config SMTP
  */
 async function enviarEmailTeste(db, toEmail) {
@@ -257,6 +313,66 @@ async function enviarEmailBoleto(db, { to, descricao, valor, vencimento, cliente
       temBoleto: !!boletoWritableLine,
       status: 'erro', erro: err.message,
     });
+    throw err;
+  }
+}
+
+/**
+ * Envia cobrança via PIX: QR dinâmico (imagem inline) + copia-e-cola + link de pagamento.
+ */
+async function enviarEmailPix(db, { to, cc, descricao, valor, vencimento, clienteNome, pixPayload, pixQrImage, pixUrl }) {
+  const cfg = loadSmtpConfig(db);
+  if (!cfg) throw new Error('SMTP nao configurado');
+  const transport = criarTransport(cfg);
+  const valorFmt = Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const vencFmt = vencimento ? String(vencimento).split('-').reverse().join('/') : '';
+
+  const attachments = [];
+  let qrHtml = '';
+  if (pixQrImage) {
+    attachments.push({ filename: 'pix-qrcode.png', content: Buffer.from(pixQrImage, 'base64'), cid: 'pixqr', contentType: 'image/png' });
+    qrHtml = `<tr><td style="padding:8px 10px;color:#666;">QR Code</td><td style="padding:8px 10px;"><img src="cid:pixqr" alt="QR Code PIX" style="width:180px;height:180px;"></td></tr>`;
+  }
+  const copiaHtml = pixPayload
+    ? `<tr><td style="padding:8px 10px;color:#666;">PIX Copia e Cola</td><td style="padding:8px 10px;font-family:monospace;font-size:12px;word-break:break-all;background:#f5f5f5;border-radius:6px;">${pixPayload}</td></tr>`
+    : '';
+  const linkHtml = pixUrl
+    ? `<tr><td style="padding:8px 10px;color:#666;">Pagar</td><td style="padding:8px 10px;"><a href="${pixUrl}" style="color:#fff;background:#00b894;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Abrir link de pagamento</a></td></tr>`
+    : '';
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#1a1a2e;color:#fff;padding:20px;text-align:center;border-radius:8px 8px 0 0;">
+        <h2 style="margin:0;">Cobrança via PIX</h2>
+      </div>
+      <div style="background:#fff;padding:20px;border:1px solid #ddd;">
+        <p>Prezado(a) ${clienteNome || ''},</p>
+        <p>Pague com PIX escaneando o QR Code, copiando o código, ou pelo link:</p>
+        <table style="width:100%;border-collapse:collapse;margin:15px 0;">
+          <tr><td style="padding:8px 10px;color:#666;width:140px;">Descrição</td><td style="padding:8px 10px;">${descricao || ''}</td></tr>
+          <tr><td style="padding:8px 10px;color:#666;">Valor</td><td style="padding:8px 10px;font-weight:bold;font-size:16px;">${valorFmt}</td></tr>
+          ${vencFmt ? `<tr><td style="padding:8px 10px;color:#666;">Vencimento</td><td style="padding:8px 10px;">${vencFmt}</td></tr>` : ''}
+          ${qrHtml}
+          ${copiaHtml}
+          ${linkHtml}
+        </table>
+      </div>
+      <div style="background:#f5f5f5;padding:10px;text-align:center;font-size:12px;color:#999;border-radius:0 0 8px 8px;">
+        Email enviado automaticamente.
+      </div>
+    </div>
+  `;
+
+  const subject = `Cobrança PIX - ${descricao || ''} - ${valorFmt}`;
+  const mailOpts = { from: `"${cfg.fromName}" <${cfg.fromEmail}>`, to, subject, html, attachments };
+  if (cc) mailOpts.cc = cc;
+  try {
+    const info = await transport.sendMail(mailOpts);
+    registrarLog(db, { tipo: 'pix', to: cc ? `${to}, ${cc}` : to, subject, descricao, valor, competencia: vencimento, temBoleto: !!pixPayload, messageId: info.messageId, status: 'enviado' });
+    console.log(`[Email] PIX enviado para ${to} (messageId: ${info.messageId})`);
+    return info;
+  } catch (err) {
+    registrarLog(db, { tipo: 'pix', to, subject, descricao, valor, competencia: vencimento, temBoleto: !!pixPayload, status: 'erro', erro: err.message });
     throw err;
   }
 }
@@ -391,4 +507,36 @@ async function enviarEmailCobranca(db, { to, cc, assunto, texto, valor, boletoWr
   }
 }
 
-module.exports = { loadSmtpConfig, enviarEmailNfse, enviarEmailBoleto, enviarEmailCobranca, enviarEmailCancelamento, enviarEmailTeste };
+/**
+ * Email genérico pra alertas (token inválido, disputa sem blitz, digest, etc.).
+ * Recebe HTML pronto (mesmo body usado no Telegram), gera versão texto plana
+ * pelo strip de tags, e envia pros destinatários configurados.
+ */
+async function enviarEmailAlerta(db, { subject, htmlBody, to }) {
+  const cfg = loadSmtpConfig(db);
+  if (!cfg) throw new Error('SMTP nao configurado');
+
+  let destinatarios = to;
+  if (Array.isArray(destinatarios)) destinatarios = destinatarios.join(', ');
+  if (!destinatarios || !String(destinatarios).trim()) throw new Error('Sem destinatário(s) de email');
+
+  const transport = criarTransport(cfg);
+  const from = cfg.fromName ? `"${cfg.fromName}" <${cfg.fromEmail}>` : cfg.fromEmail;
+
+  // Plain text: strip de tags + normaliza \n
+  const text = String(htmlBody || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+  // HTML pronto pra email: troca \n por <br> só fora dos tags existentes
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;line-height:1.5;white-space:pre-wrap;">${htmlBody}</div>`;
+
+  const info = await transport.sendMail({ from, to: destinatarios, subject, html, text });
+  registrarLog(db, { tipo: 'alerta', destinatario: destinatarios, assunto: subject, status: 'enviado', messageId: info.messageId });
+  return info;
+}
+
+module.exports = { loadSmtpConfig, enviarEmailNfse, enviarEmailNfe, enviarEmailBoleto, enviarEmailPix, enviarEmailCobranca, enviarEmailCancelamento, enviarEmailTeste, enviarEmailAlerta };

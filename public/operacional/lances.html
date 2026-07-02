@@ -1,0 +1,1783 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sniper de Lances - LiciteAgora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: .status-bar/.status-item, .verde/.vermelho/.amarelo/.azul, .panel h3, .btn-group, .spinner, .toast, .log-view (.auto-log-area) vêm do app-modern.css */
+        .main-content { padding: 20px; }
+        /* override page-local de .status-item: cards uniformes com flex:1 (diferente do padrão .status-bar) */
+        .status-bar { gap: 12px; margin-bottom: 16px; padding: 0; background: transparent; border: none; }
+        .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 100px; text-align: center; display: block; font-size: 1em; }
+        .status-item .label { color: var(--text-3); font-size: 0.75em; margin-bottom: 3px; }
+        .status-item .value { font-size: 1em; font-weight: 600; }
+
+        /* Filters */
+        .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+        .filtros label { font-size: 0.85em; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--text-1); }
+        .filtros label:hover { color: var(--accent); }
+
+        /* Licitação rows */
+        .lic-row { border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: 4px; overflow: hidden; }
+        .lic-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; cursor: pointer; transition: background 0.15s; }
+        .lic-header:hover { background: #0f346040; }
+        .lic-header.aberta { background: #0f346060; border-bottom: 1px solid var(--border); }
+        .lic-left { flex: 1; min-width: 0; }
+        .lic-id { font-size: 0.85em; font-weight: 600; color: var(--accent); }
+        .lic-obj { font-size: 0.8em; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 550px; margin-top: 2px; }
+        .lic-org { font-size: 0.72em; color: var(--text-3); margin-top: 1px; }
+        .lic-right { text-align: right; flex-shrink: 0; margin-left: 12px; }
+        .lic-etapa { font-size: 0.8em; font-weight: 600; padding: 2px 8px; border-radius: var(--r-sm); }
+        .etapa-disputa { background: #4caf5025; color: var(--success); }
+        .etapa-encerrada { background: #88888825; color: var(--text-3); }
+        .etapa-outra { background: #ff980025; color: var(--warn); }
+        .lic-data { font-size: 0.72em; color: var(--text-3); margin-top: 3px; }
+        .lic-body { display: none; padding: 12px 14px; background: var(--bg-0); }
+        .lic-body.aberta { display: block; }
+        .lic-arrow { color: var(--text-3); font-size: 0.8em; transition: transform 0.2s; margin-left: 8px; }
+        .lic-arrow.aberta { transform: rotate(180deg); }
+
+        /* Item table */
+        .itens-table { width: 100%; border-collapse: collapse; font-size: 0.82em; table-layout: auto; }
+        .itens-table th { color: var(--text-3); text-align: left; padding: 4px 5px; border-bottom: 1px solid var(--border); font-weight: 500; white-space: nowrap; font-size: 0.9em; }
+        .itens-table td { padding: 4px 5px; border-bottom: 1px solid #0f346030; vertical-align: middle; }
+        .itens-table tr:hover { background: #0f346020; }
+        .itens-table input[type=number] { width: 72px; padding: 3px 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-0); font-size: 0.9em; }
+        .itens-table input:focus { outline: none; border-color: var(--accent); }
+        .itens-table .desc-cell { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stacked-cell { line-height: 1.5; }
+        .stacked-cell .sub { color: var(--text-3); font-size: 0.85em; }
+        .blitz-row { display: flex; align-items: center; gap: 3px; margin-top: 3px; }
+        .blitz-row input[type=text] { width: 85px; }
+        .valor-melhor { color: var(--success); font-weight: 600; }
+        .valor-nosso { color: var(--accent); font-weight: 600; }
+        .valor-nosso.melhor { color: #ffd700; }
+        .badge-sit { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 0.75em; font-weight: 600; margin-left: 4px; }
+        .badge-G { background: #4caf5030; color: var(--success); }
+        .badge-P { background: #4dabf730; color: var(--accent); }
+        .badge-C { background: #ff980030; color: var(--warn); }
+        .badge-D, .badge-A, .badge-F, .badge-I, .badge-R { background: #f4433630; color: var(--danger); }
+        .badge-filtro { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: 0.7em; font-weight: 700; margin-left: 3px; letter-spacing: 0.3px; }
+        .badge-perd { background: #f4433630; color: var(--danger); }
+        .badge-aleat { background: #e91e6330; color: #e91e63; }
+        .badge-2min { background: #9c27b030; color: #ce93d8; }
+
+        /* Auto-lance select */
+        .auto-select { padding: 3px 4px; border-radius: 4px; border: 1px solid #444; cursor: pointer; font-size: 0.78em; font-weight: 600; background: var(--bg-0); color: var(--text-3); appearance: auto; }
+        .auto-select.continuo { color: var(--success); border-color: var(--success); background: #4caf5015; }
+        .auto-select.sniper { color: var(--warn); border-color: var(--warn); background: #ff980015; }
+        .auto-select:focus { outline: none; }
+
+        /* Countdown */
+        .countdown { font-size: 0.75em; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .countdown.verde { color: var(--success); }
+        .countdown.amarelo { color: var(--warn); }
+        .countdown.vermelho { color: var(--danger); animation: pulse 1s infinite; }
+        @keyframes pulse { 50% { opacity: 0.5; } }
+
+        /* .auto-log-area vem do app-modern.css (.log-view aliased). Override page-local: menor (200px). */
+        .auto-log-area { max-height: 200px; font-size: 0.75em; padding: 8px; margin-top: 8px; }
+        /* .btn-group vem do app-modern.css; override page-local só para margin-top e gap menor */
+        .btn-group { gap: 6px; margin-top: 10px; }
+
+        .result-msg { padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-size: 0.82em; }
+        .result-sucesso { background: var(--success-soft); border: 1px solid var(--success); color: var(--success); }
+        .result-erro    { background: var(--danger-soft);  border: 1px solid var(--danger);  color: var(--danger); }
+        /* .spinner vem do app-modern.css; override page-local só para 12px */
+        .spinner { width: 12px; height: 12px; }
+        /* .toast vem do app-modern.css; animação de entrada é page-local */
+        .toast { animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; } }
+        .info-msg { color: var(--text-3); text-align: center; padding: 12px; font-size: 0.85em; }
+        .contagem { font-size: 0.72em; color: var(--text-3); margin-top: 2px; }
+
+        /* Custo / Lucro */
+        .valor-lucro { font-weight: 600; font-size: 0.9em; }
+        .valor-lucro.positivo { color: var(--success); }
+        .valor-lucro.negativo { color: var(--danger); }
+        .valor-lucro.zero { color: var(--text-3); }
+        .config-imposto { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-2); padding: 6px 12px; border-radius: var(--r-sm); font-size: 0.82em; margin-left: 12px; }
+        .config-imposto label { color: var(--text-1); font-weight: 500; }
+        .config-imposto input { width: 65px; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-0); color: var(--warn); font-size: 0.95em; font-weight: 600; text-align: center; }
+        .config-imposto input:focus { outline: none; border-color: var(--warn); }
+        .mv-cell { color: var(--text-3); font-size: 0.9em; cursor: pointer; }
+        .mv-cell:hover { text-decoration: underline; color: var(--text-2); }
+        .sugerido-cell { color: var(--accent); font-weight: 600; font-size: 0.9em; cursor: pointer; }
+        .sugerido-cell:hover { text-decoration: underline; }
+
+        /* Config margem (variação do config-imposto com borda azul) */
+        .config-margem input { color: var(--accent); border-color: var(--accent); }
+
+        /* Barra Blitz Global */
+        .blitz-bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 10px; background: var(--bg-3); border-radius: var(--r-sm); flex-wrap: wrap; }
+        .blitz-label { color: #ff8c42; font-weight: 600; font-size: 0.85em; }
+        .blitz-hora { padding: 3px 6px; border-radius: var(--r-sm); border: 1px solid #ff8c42; background: var(--bg-2); color: var(--text-0); font-size: 0.85em; width: auto; }
+        .blitz-modo { padding: 3px 6px; border-radius: var(--r-sm); background: var(--bg-2); color: var(--text-0); font-size: 0.82em; width: auto; }
+        .blitz-btn-agendar  { background: #ff8c42; color: #fff; border: none; padding: 4px 12px; font-size: 0.82em; font-weight: 600; }
+        .blitz-btn-agendar:hover  { background: #ff6b00; }
+        .blitz-btn-cancelar { background: var(--danger); color: #fff; border: none; padding: 4px 10px; font-size: 0.78em; }
+        .blitz-btn-cancelar:hover { background: #dc2626; }
+        .blitz-status { font-size: 0.82em; color: var(--text-3); }
+
+        /* Barra Guard (polling ativo no Comprasnet) */
+        .guard-bar { display: flex; gap: 12px; align-items: center; margin-top: 8px; padding: 8px 12px; background: var(--bg-3); border-radius: var(--r-sm); flex-wrap: wrap; }
+        .guard-bar label { display: flex; align-items: center; gap: 8px; font-size: 0.88em; color: var(--text-1); cursor: pointer; user-select: none; }
+        .guard-bar input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+        .guard-bar small { color: var(--text-3); font-size: 0.76em; flex: 1; }
+
+        /* Label das configs por item na tabela (Quando agir / Como lançar) */
+        .auto-label { display: block; font-size: 0.66em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; font-weight: 600; }
+
+        /* Checkbox inline estilizada para encaixar em barras horizontais */
+        .chk-inline { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-sm); background: var(--bg-2); border: 1px solid var(--border); color: var(--text-2); font-size: 0.82em; cursor: pointer; user-select: none; white-space: nowrap; transition: all 0.15s; }
+        .chk-inline:hover { border-color: var(--accent-soft); color: var(--text-1); }
+        .chk-inline input[type=checkbox] { margin: 0; cursor: pointer; accent-color: var(--warn); }
+        .chk-inline input[type=checkbox]:checked ~ span { color: var(--warn); font-weight: 600; }
+        .btn-icon-pair { display: inline-flex; align-items: center; gap: 2px; line-height: 1; }
+        .btn-icon-pair .ic-sm { width: 14px; height: 14px; }
+        .btn-rajada {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 4px 10px; border-radius: 6px;
+            background: linear-gradient(135deg, #ff6b00 0%, #ff8c42 100%);
+            color: #fff; border: none; font-size: 0.78em; font-weight: 600;
+            cursor: pointer; white-space: nowrap; line-height: 1;
+            box-shadow: 0 1px 2px rgba(255,107,0,0.25);
+            transition: transform 0.12s, box-shadow 0.12s, filter 0.12s;
+        }
+        .btn-rajada:hover { filter: brightness(1.08); box-shadow: 0 2px 6px rgba(255,107,0,0.4); transform: translateY(-1px); }
+        .btn-rajada:active { transform: translateY(0); filter: brightness(0.95); }
+        .btn-rajada .ic-sm { width: 13px; height: 13px; }
+        .btn-historico {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 4px 10px; border-radius: 6px;
+            background: #1a2036; color: #8ab4f8;
+            border: 1px solid #2a3554; font-size: 0.78em; font-weight: 500;
+            cursor: pointer; white-space: nowrap; line-height: 1;
+            transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.12s;
+        }
+        .btn-historico:hover { background: #22304f; border-color: #4dabf7; color: #4dabf7; transform: translateY(-1px); }
+        .btn-historico:active { transform: translateY(0); background: #1a2036; }
+        .btn-historico .ic-sm { width: 13px; height: 13px; }
+        .lance-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 0.76em; font-weight: 600; letter-spacing: 0.2px;
+            border: 1px solid transparent; cursor: help;
+        }
+        .lance-ok     { background: rgba(76,175,80,0.15);  color: #4caf50; border-color: rgba(76,175,80,0.35); }
+        .lance-reject { background: rgba(255,152,0,0.15);  color: #ff9800; border-color: rgba(255,152,0,0.35); }
+        .lance-warn   { background: rgba(255,193,7,0.15);  color: #ffc107; border-color: rgba(255,193,7,0.35); }
+        .lance-err    { background: rgba(244,67,54,0.15);  color: #f44336; border-color: rgba(244,67,54,0.35); }
+
+        /* Modal "Como funciona?" */
+        .help-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: flex-start; justify-content: center; z-index: 1000; padding-top: 5vh; overflow-y: auto; }
+        .help-modal.open { display: flex; }
+        .help-modal-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 24px 28px; max-width: 680px; width: 92%; color: var(--text-1); font-size: 0.92em; line-height: 1.55; max-height: 90vh; overflow-y: auto; }
+        .help-modal-card h3 { color: var(--accent); margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+        .help-modal-card h4 { color: var(--accent-soft); font-size: 0.95em; margin: 18px 0 8px; }
+        .help-modal-card ul { margin: 0 0 14px; padding-left: 20px; }
+        .help-modal-card ul li { margin-bottom: 6px; }
+        .help-modal-card .close-row { display: flex; justify-content: flex-end; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Sniper de Lances</h1>
+        <small>Disputas ativas do Comprasnet — clique em uma licitação para ver itens e configurar</small>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" onclick="recarregarDados()" title="Recarregar"><svg class="ic-sm"><use href="#i-refresh"/></svg> Recarregar</button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirComoFunciona()" title="Entender os modos de lance"><svg class="ic-sm"><use href="#i-info"/></svg> Como funciona?</button>
+        <button class="btn btn-secondary btn-sm" id="btnRefreshPart" onclick="refreshParticipacoes()" title="Buscar participações da API Comprasnet"><svg class="ic-sm"><use href="#i-download"/></svg> Sync API</button>
+      </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item"><div class="label">Electron</div><div class="value" id="stElectron">--</div></div>
+        <div class="status-item"><div class="label">Bearer</div><div class="value" id="stBearer">--</div></div>
+        <div class="status-item"><div class="label">Brasília</div><div class="value azul" id="hora">--:--:--</div></div>
+        <div class="status-item"><div class="label">Disputas</div><div class="value azul" id="stDisp">0</div></div>
+        <div class="status-item"><div class="label">Lances</div><div class="value azul" id="stLances">0</div></div>
+        <div class="status-item" style="cursor:pointer" onclick="toggleAutoEngine()" title="Clique para ligar/desligar engine"><div class="label">Auto</div><div class="value" id="stAuto"><span class="vermelho">OFF</span></div></div>
+    </div>
+
+    <!-- ===== BNC: salas de disputa BNC (acima do Comprasnet) ===== -->
+    <div class="panel" id="panelBNC" style="display:none;">
+        <h3>📡 BNC — Salas de Disputa
+            <a href="/configuracoes/bnc-salas.html" class="btn btn-ghost btn-sm" style="float:right; font-size:0.75em;">⚙️ Cadastrar</a>
+        </h3>
+        <div id="bncStatus" style="font-size:0.78em; color:var(--text-3); margin-bottom:6px;"></div>
+        <div id="bncSalas"></div>
+    </div>
+
+    <div class="panel">
+        <h3>🔥 Compras — Minhas Participações</h3>
+        <div class="filtros">
+            <label><input type="radio" name="filtroEtapa" value="ativa" checked onchange="aplicarFiltro()"> Disputa Ativa</label>
+            <label><input type="radio" name="filtroEtapa" value="disputa" onchange="aplicarFiltro()"> Em Andamento</label>
+            <label><input type="radio" name="filtroEtapa" value="todas" onchange="aplicarFiltro()"> Todas</label>
+            <input type="text" id="buscaTexto" placeholder="Filtrar por objeto, órgão ou compraId…" oninput="aplicarFiltro()">
+            <input type="date" id="filtroData" onchange="aplicarFiltro()" title="Filtrar por data da sessão" style="width:auto;">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('filtroData').value='';aplicarFiltro()" title="Limpar filtro de data">✕</button>
+            <span class="config-imposto">
+                <label>Imposto %</label>
+                <input type="number" id="impostoPercent" step="0.1" min="0" max="100" value="15" onchange="salvarImposto();recalcTodosLucros()" title="Percentual de imposto sobre o lance">
+            </span>
+            <span class="config-imposto config-margem">
+                <label>Margem %</label>
+                <input type="number" id="margemPercent" step="0.1" min="0" max="1000" value="20" onchange="salvarMargem();recalcTodosLucros()" title="Margem de lucro desejada sobre o custo">
+            </span>
+        </div>
+        <div class="guard-bar">
+            <label title="Ligado: lances saem normalmente (manual, agendado ou rajada). Desligado: nenhum lance vai para o Comprasnet — modo observação.">
+                <input type="checkbox" id="motorLances" onchange="toggleMotorLances()">
+                <svg class="ic-sm"><use href="#i-zap"/></svg> Motor de lances — <span id="motorEstadoLbl">verificando…</span>
+            </label>
+            <small>Quando desligado, nada vai para o Comprasnet (nem ⚡ manual, nem agendado, nem rajada). A tela e o cache continuam atualizando em tempo real para análise.</small>
+        </div>
+
+        <div class="blitz-bar">
+            <span class="blitz-label"><svg class="ic-sm"><use href="#i-zap"/></svg> Rajada Global</span>
+            <input type="time" id="blitz-global-hora" step="1" class="blitz-hora" title="Horário da rajada (milésimo calculado automaticamente pelo servidor com base no RTT)">
+            <span style="font-size:0.75em;color:var(--text-3);">Como lançar:</span>
+            <select id="blitz-global-modo" class="blitz-modo" title="Cobrir concorrente = 1 lance acima do melhor concorrente. Esgotar desconto = desce degrau-por-degrau até o valor mínimo, ignorando o concorrente.">
+                <option value="cobrir">Cobrir concorrente</option>
+                <option value="sequencial">Esgotar desconto</option>
+            </select>
+            <label class="chk-inline" title="Se marcado, a rajada IGNORA o 'Máx lances' configurado em cada item e desce enquanto houver degraus até o Valor Mínimo do item.">
+                <input type="checkbox" id="blitz-global-ignore-max">
+                <span>até Valor Mín</span>
+            </label>
+            <button class="btn btn-sm blitz-btn-agendar" onclick="agendarBlitzGlobal()">Agendar Todos</button>
+            <button class="btn btn-sm blitz-btn-cancelar" id="blitz-global-cancelar" onclick="cancelarBlitzGlobal()" style="display:none;">Cancelar Todos</button>
+            <span id="blitz-global-status" class="blitz-status"></span>
+        </div>
+        <div id="listaCompras"><p class="info-msg"><span class="spinner"></span> Carregando participações…</p></div>
+    </div>
+
+    <div id="toastArea"></div>
+
+    <!-- Modal "Como funciona?" -->
+    <div class="help-modal" id="helpModal" onclick="if(event.target===this)fecharComoFunciona()">
+      <div class="help-modal-card">
+        <h3><svg class="ic"><use href="#i-info"/></svg> Como os modos de lance funcionam</h3>
+
+        <h4>Fontes de lance disponíveis</h4>
+        <ul>
+          <li><strong><svg class="ic-sm"><use href="#i-zap"/></svg> Manual</strong> — botão <svg class="ic-sm"><use href="#i-zap"/></svg> na linha do item envia 1 lance imediato.</li>
+          <li><strong>⏰⚡ Lance único agendado</strong> — 1 lance programado para um horário específico.</li>
+          <li><strong>⏰🚀 Rajada por item</strong> — lote de lances de um único item, disparado na hora marcada.</li>
+          <li><strong>⏰🚀 Rajada Global</strong> — agenda rajada em <em>todos</em> os itens elegíveis de uma vez.</li>
+        </ul>
+
+        <h4>Como lançar (estratégia da rajada)</h4>
+        <ul>
+          <li><strong>Cobrir concorrente</strong> — economiza desconto. Envia só lances necessários para passar à frente do melhor concorrente. Para quando assumir a liderança.</li>
+          <li><strong>Esgotar desconto</strong> — agressivo. Desce degrau-por-degrau do seu valor até o <em>Valor Mínimo</em> ignorando o concorrente. Cria um chão difícil de furar.</li>
+          <li><strong>até Valor Mín (só Rajada Global)</strong> — ignora o "Máx lances" do item e desce degrau-por-degrau até atingir o <em>Valor Mínimo</em>.</li>
+        </ul>
+
+        <h4><svg class="ic-sm"><use href="#i-zap"/></svg> Motor de lances — switch no topo da lista</h4>
+        <ul>
+          <li><strong>Ligado</strong> (default): lances saem normalmente — manual (⚡), lance agendado, rajada por item e Rajada Global.</li>
+          <li><strong>Desligado</strong>: <em>nenhum</em> lance vai para o Comprasnet. Modo observação — a tela e o cache continuam atualizando (sempre via Guard, a cada ~200ms), mas o sistema não dispara nada.</li>
+        </ul>
+
+        <h4><svg class="ic-sm"><use href="#i-shield"/></svg> Guard (sempre ativo)</h4>
+        <p>O Guard consulta o Comprasnet direto a cada ~200ms para manter os valores "Melhor/Nosso/Situação" atualizados em tempo real. Essencial para a precisão das rajadas agendadas e para visualização ao vivo — por isso está sempre ligado.</p>
+
+        <div class="close-row">
+          <button class="btn btn-secondary btn-sm" onclick="fecharComoFunciona()"><svg class="ic-sm"><use href="#i-x"/></svg> Fechar</button>
+        </div>
+      </div>
+    </div>
+</main>
+</div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('lances');</script>
+<script>
+var API = '';
+var participacoes = [];
+var disputasLive = {};  // compraId -> { itens: [...] } from extension cache
+var itensConfig = {};   // compraId -> [sniper_itens rows] from DB
+var abertas = new Set();  // compraIds expandidas (múltiplas)
+
+function esc(s) { var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function fmtR$(v) { return v != null && v !== '' && !isNaN(v) ? 'R$ ' + parseFloat(v).toFixed(2) : '--'; }
+function fmtHora(iso) { if(!iso)return'--'; try{var s=iso.endsWith('Z')||iso.includes('+')?iso:iso+'Z';var d=new Date(s);return d.toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'})+'.'+String(d.getMilliseconds()).padStart(3,'0');}catch(e){return iso;} }
+
+var MOD_NOMES = {'05':'Pregão','06':'Dispensa','07':'Pregão','08':'Dispensa','09':'Inexigibilidade','10':'Credenciamento'};
+// Encerramento aleatório = pregão (código 05, confirmado pelo usuário). Só 05 fecha aleatório.
+function isPregao(cid){ return !!cid && cid.length>=8 && cid.substring(6,8)==='05'; }
+// Default do horário da rajada p/ DISPENSA (hora exata) = encerramento (fimContagem) − 1s.
+// Pregão fecha aleatório → sem default. Formata em Brasília (igual ao countdown), HH:MM:SS.
+function defaultHoraRajada(cid, fimContagem){
+    if(isPregao(cid) || !fimContagem) return '';
+    var t = new Date(fimContagem).getTime();
+    if(!t || isNaN(t)) return '';
+    return new Date(t - 1000).toLocaleTimeString('pt-BR', { timeZone:'America/Sao_Paulo', hour12:false });
+}
+function fmtCompraId(cid) {
+    if(!cid || cid.length < 17) return cid||'';
+    var uasg = cid.substring(0,6);
+    var mod = cid.substring(6,8);
+    var num = cid.substring(8,13);
+    var ano = cid.substring(13,17);
+    var modNome = MOD_NOMES[mod] || 'Mod'+mod;
+    return modNome + ' ' + parseInt(num) + '/' + ano + ' — UASG ' + parseInt(uasg);
+}
+
+// ==================== STATUS ====================
+async function atualizarStatus() {
+    try {
+        var r = await fetch(API+'/api/sniper/fila-status'); var d = await r.json();
+        if(d.success){
+            // Bearer com cor baseada na idade
+            if(d.temBearer) {
+                var idadeS = d.bearerIdade||0;
+                var corBearer = idadeS < 300 ? 'verde' : idadeS < 600 ? 'amarelo' : 'vermelho';
+                var labelBearer = d.tokenExpirado ? 'EXPIRADO' : Math.floor(idadeS/60)+'m';
+                document.getElementById('stBearer').innerHTML = '<span class="'+corBearer+'">'+labelBearer+'</span>';
+            } else {
+                document.getElementById('stBearer').innerHTML = '<span class="vermelho">SEM</span>';
+            }
+            document.getElementById('stLances').textContent = d.totalResultados||0;
+            // Disputas com idade do cache
+            if(d.disputasCache && d.disputasCache.atualizadoEm) {
+                var idadeDisp = d.disputasCache.idadeSegundos||0;
+                var corDisp = idadeDisp < 180 ? 'verde' : idadeDisp < 600 ? 'amarelo' : 'vermelho';
+                document.getElementById('stDisp').innerHTML = '<span class="'+corDisp+'">'+d.disputasCache.total+'</span>';
+            }
+        }
+    }catch(e){}
+}
+
+// ==================== LOAD DATA ====================
+async function recarregarDados() {
+    await Promise.all([carregarParticipacoes(), carregarDisputasLive(), carregarDisputasBNC()]);
+    aplicarFiltro();
+}
+
+// ==================== BNC ====================
+async function carregarDisputasBNC() {
+    try {
+        var r = await fetch(API+'/api/bnc/disputas');
+        var d = await r.json();
+        renderBNC(d.success ? (d.disputas||[]) : [], d.updatedAt);
+    } catch(e) { renderBNC([], null); }
+}
+
+function renderBNC(disputas, updatedAt) {
+    var panel = document.getElementById('panelBNC');
+    var status = document.getElementById('bncStatus');
+    var container = document.getElementById('bncSalas');
+    if (!disputas || !disputas.length) {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = '';
+    status.innerHTML = 'Atualizado: '+(updatedAt ? new Date(updatedAt).toLocaleTimeString('pt-BR') : '—')+' · '+disputas.length+' sala(s) ativa(s)';
+    container.innerHTML = disputas.map(function(s) {
+        var lotesHtml;
+        if (!s.lotes || !s.lotes.length) {
+            lotesHtml = '<div style="color:var(--text-3); font-size:0.8em; padding:8px;">⏳ Aguardando primeiro updateStatus do SignalR — abra a sala no Electron BNC pra forçar evento.</div>';
+        } else {
+            lotesHtml = '<table class="itens-table" style="margin-top:6px;"><thead><tr>'+
+                '<th>Lote</th><th>Título</th><th>Base</th><th>Melhor lance</th><th>Líder</th><th>Ofertas</th><th>Valor</th><th>Ação</th>'+
+              '</tr></thead><tbody>'+
+              s.lotes.map(function(l) {
+                  var leader = l.fkParticipantLider ? l.fkParticipantLider.slice(0,8)+'…' : '—';
+                  var bidderId = l.winnerBidderId || '';
+                  return '<tr>'+
+                    '<td>'+esc(l.batchNumber)+'</td>'+
+                    '<td class="desc-cell" title="'+esc(l.title||'')+'">'+esc(l.title||'')+'</td>'+
+                    '<td>'+(l.baseValue != null ? Number(l.baseValue).toLocaleString('pt-BR', {minimumFractionDigits:2}) : '—')+'</td>'+
+                    '<td class="valor-melhor">'+(l.currentBest != null ? Number(l.currentBest).toLocaleString('pt-BR', {minimumFractionDigits:2}) : '—')+'</td>'+
+                    '<td title="'+esc(l.fkParticipantLider||'')+'">'+esc(leader)+(bidderId?'<br><small style="color:var(--text-3);">'+esc(bidderId)+'</small>':'')+'</td>'+
+                    '<td>'+(l.offers||0)+'</td>'+
+                    '<td><input type="text" id="bnc-vl-'+esc(s.compraId)+'-'+esc(l.batchNumber)+'" placeholder="0,00" style="width:90px;"></td>'+
+                    '<td><button class="btn btn-primary btn-sm" onclick="enviarBNC(\''+esc(s.compraId)+'\','+esc(l.batchNumber)+')" '+(l.knowsBatchToken?'':'disabled title="Token [gkz] do lote ainda não descoberto"')+'>Enviar</button></td>'+
+                  '</tr>';
+              }).join('') +
+              '</tbody></table>';
+        }
+        return '<div class="lic-row" style="margin-bottom:8px;">'+
+                 '<div class="lic-header aberta">'+
+                   '<div class="lic-left">'+
+                     '<div class="lic-id">'+esc(s.compraId)+' <span class="badge-sit badge-G" style="margin-left:6px;">BNC</span></div>'+
+                     '<div class="lic-obj">'+esc(s.title||'')+'</div>'+
+                   '</div>'+
+                   '<div class="lic-right">'+
+                     '<div class="lic-etapa etapa-disputa">'+esc(s.statusName||'—')+'</div>'+
+                   '</div>'+
+                 '</div>'+
+                 '<div class="lic-body aberta">'+lotesHtml+'<div id="bnc-resultado-'+esc(s.compraId)+'" style="margin-top:6px;font-size:0.85em;"></div></div>'+
+               '</div>';
+    }).join('');
+}
+
+function enviarBNC(compraId, batchNumber) {
+    var inp = document.getElementById('bnc-vl-'+compraId+'-'+batchNumber);
+    var valor = parseFloat((inp && inp.value || '').replace(',', '.'));
+    if (!valor || valor <= 0) { alert('Informe o valor do lance'); if(inp) inp.focus(); return; }
+    if (!confirm('Enviar lance BNC R$ '+valor.toFixed(2)+' no lote '+batchNumber+' de '+compraId+'?')) return;
+    var resDiv = document.getElementById('bnc-resultado-'+compraId);
+    resDiv.innerHTML = '<span class="spinner"></span> Enviando…';
+    fetch(API+'/api/sniper/lance', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ compraId: compraId, itemNumero: batchNumber, valor: valor })
+    }).then(function(r){return r.json();}).then(function(d) {
+        if (d.success) {
+            resDiv.innerHTML = '<span style="color:var(--success);">✅ Lance enviado: R$ '+valor.toFixed(2)+' lote '+batchNumber+'</span>';
+            setTimeout(carregarDisputasBNC, 1500);
+        } else {
+            resDiv.innerHTML = '<span style="color:var(--danger);">❌ '+esc(d.error || 'Falha')+'</span>';
+        }
+    }).catch(function(e) {
+        resDiv.innerHTML = '<span style="color:var(--danger);">❌ '+esc(e.message)+'</span>';
+    });
+}
+
+async function refreshParticipacoes() {
+    var btn = document.getElementById('btnRefreshPart');
+    btn.disabled = true; btn.textContent = '⬇ Sincronizando...';
+    try {
+        var r = await fetch(API+'/api/sniper/refresh-participacoes', { method: 'POST' });
+        var d = await r.json();
+        if(d.success) {
+            btn.textContent = '✓ ' + d.message;
+            await recarregarDados();
+        } else {
+            btn.textContent = '✗ ' + (d.error || 'Erro');
+        }
+    } catch(e) {
+        btn.textContent = '✗ ' + e.message;
+    }
+    setTimeout(function() { btn.disabled = false; btn.textContent = '⬇ Sync API'; }, 5000);
+}
+
+async function carregarParticipacoes() {
+    try {
+        var r = await fetch(API+'/api/sniper/participacoes');
+        var d = await r.json();
+        participacoes = d.success ? d.participacoes : [];
+    } catch(e) { participacoes = []; }
+}
+
+async function carregarDisputasLive() {
+    try {
+        var r = await fetch(API+'/api/sniper/disputas-ativas');
+        var d = await r.json();
+        disputasLive = {};
+        if(d.success && d.disputas) {
+            d.disputas.forEach(function(disp) { disputasLive[disp.compraId] = disp; });
+        }
+        document.getElementById('stDisp').textContent = Object.keys(disputasLive).length;
+        await enriquecerGruposLive();
+    } catch(e) {}
+}
+
+// Grupo/lote: o cache do Electron não traz melhor/nosso (vêm em valorCalculado,
+// que o server-sync ignora). Buscar itens-live (servidor calcula) e sobrepor
+// nos itens de grupo. Só dispara p/ disputas que têm grupo com valor nulo.
+async function enriquecerGruposLive() {
+    // Alvo: toda disputa que tem linha de grupo (pra sobrepor valores E injetar sub-itens).
+    var alvos = Object.keys(disputasLive).filter(function(cid){
+        var its = (disputasLive[cid] && disputasLive[cid].itens) || [];
+        return its.some(function(i){ return (i.tipo==='G'||i.numero<0); });
+    });
+    await Promise.all(alvos.map(async function(cid){
+        try {
+            var rl = await fetch(API+'/api/sniper/itens-live?compraId='+cid);
+            var dl = await rl.json();
+            if(!dl.success || !dl.itens) return;
+            var lmap = {};
+            dl.itens.forEach(function(x){ lmap[x.numero] = x; });
+            var arr = (disputasLive[cid]||{}).itens || [];
+            // 1) sobrepor melhor/nosso na linha do grupo (Electron não traz valorCalculado)
+            arr.forEach(function(i){
+                var x = lmap[i.numero];
+                if(x && (i.tipo==='G'||i.numero<0)) {
+                    if(x.melhorValor!=null) i.melhorValor = x.melhorValor;
+                    if(x.nossoValor!=null) i.nossoValor = x.nossoValor;
+                    if(x.identificador) i.identificador = x.identificador;
+                    if(x.situacaoParticipante) i.situacaoParticipante = x.situacaoParticipante;
+                    if(x.podeEnviar!=null) i.podeEnviar = x.podeEnviar;
+                }
+            });
+            // 2) injetar sub-itens do grupo (tipo 'S') que o cache do Electron não traz —
+            //    lance é POR ITEM (unitário). Insere logo após a linha do grupo.
+            var existentes = {};
+            arr.forEach(function(i){ existentes[i.numero] = true; });
+            var subs = dl.itens.filter(function(x){ return (x.tipo==='S' || x.grupoPai!=null) && !existentes[x.numero]; });
+            if(subs.length){
+                subs.sort(function(a,b){ return a.numero-b.numero; });
+                var gidx = arr.findIndex(function(i){ return i.tipo==='G'||i.numero<0; });
+                if(gidx>=0){ arr.splice.apply(arr, [gidx+1, 0].concat(subs)); }
+                else { arr.push.apply(arr, subs); }
+                disputasLive[cid].itens = arr;
+            }
+        } catch(e){}
+    }));
+}
+
+// ==================== FILTER & RENDER ====================
+function aplicarFiltro() {
+    var filtro = document.querySelector('input[name=filtroEtapa]:checked').value;
+    var busca = document.getElementById('buscaTexto').value.toLowerCase().trim();
+    var filtroData = document.getElementById('filtroData').value; // YYYY-MM-DD or ''
+
+    var lista = participacoes.filter(function(p) {
+        // Filtro por data da sessão
+        if(filtroData && p.dataSessao) {
+            if((p.dataSessao||'').substring(0,10) !== filtroData) return false;
+        }
+
+        var fase = p.faseCompra||'';
+        var live = disputasLive[p.compraId];
+        var sit = (p.situacao||'').toUpperCase();
+
+        if(filtro === 'ativa') {
+            if(sit==='FR'||sit==='EN'||sit==='SU') return false;
+            if(fase==='4'||fase==='encerrada'||fase==='99') return false;
+            if(!live) return false;
+            var algumAtivo = (live.itens||[]).some(function(i) {
+                var f = (i.fase||'').toUpperCase();
+                return f==='LA'||f==='D1'||f==='D2'||i.podeEnviar;
+            });
+            return algumAtivo;
+        }
+
+        if(filtro === 'disputa') {
+            if(sit==='FR'||sit==='EN'||sit==='SU') return false;
+            if(fase==='4'||fase==='encerrada'||fase==='99') return false;
+            if(live && live.totalItens > 0 && live.itensAtivos === 0) {
+                var algumAtivo2 = (live.itens||[]).some(function(i) {
+                    var f = (i.fase||'').toUpperCase();
+                    return f==='LA'||f==='D1'||f==='D2'||i.podeEnviar;
+                });
+                if(!algumAtivo2) return false;
+            }
+            var temDisputaLive = live && live.itensAtivos > 0;
+            if(fase !== '3' && !temDisputaLive) return false;
+        }
+        if(busca) {
+            return (p.objeto||'').toLowerCase().indexOf(busca)>=0 ||
+                   (p.orgao||'').toLowerCase().indexOf(busca)>=0 ||
+                   (p.compraId||'').toLowerCase().indexOf(busca)>=0;
+        }
+        return true;
+    });
+
+    renderLista(lista);
+}
+
+function etapaInfo(p) {
+    var fase = p.faseCompra||'';
+    var live = disputasLive[p.compraId];
+    var sit = (p.situacao||'').toUpperCase();
+
+    // Dados do banco indicam encerrada/inativa
+    if(sit==='FR') return { label: 'Fracassada', cls: 'etapa-encerrada' };
+    if(sit==='EN') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+    if(sit==='SU') return { label: 'Suspensa', cls: 'etapa-encerrada' };
+    if(fase==='4'||fase==='encerrada') return { label: 'Encerrada', cls: 'etapa-encerrada' };
+    if(fase==='99') return { label: 'Concluída', cls: 'etapa-encerrada' };
+
+    // Dados live: se tem itens e NENHUM ativo → encerrada (live)
+    if(live && live.totalItens > 0 && live.itensAtivos === 0) {
+        var algumAtivo = (live.itens||[]).some(function(i) {
+            var f = (i.fase||'').toUpperCase();
+            return f==='LA'||f==='D1'||f==='D2'||i.podeEnviar;
+        });
+        if(!algumAtivo) return { label: 'Encerrada (live)', cls: 'etapa-encerrada' };
+    }
+
+    // Dados live: se tem itens ativos, é disputa
+    if(live && live.itensAtivos > 0) return { label: 'Disputa', cls: 'etapa-disputa' };
+    if(fase==='3') return { label: 'Disputa', cls: 'etapa-disputa' };
+    if(fase==='1') return { label: 'Cadastrada', cls: 'etapa-outra' };
+    if(fase==='2') return { label: 'Publicada', cls: 'etapa-outra' };
+    return { label: fase||sit||'Em andamento', cls: 'etapa-outra' };
+}
+
+function renderLista(lista) {
+    var div = document.getElementById('listaCompras');
+    if(!lista.length) { div.innerHTML='<p class="info-msg">Nenhuma participação encontrada.</p>'; return; }
+
+    div.innerHTML = '<div style="color:#888;font-size:0.75em;margin-bottom:6px">'+lista.length+' participações</div>' +
+        lista.map(function(p) {
+            var et = etapaInfo(p);
+            var isAberta = abertas.has(p.compraId);
+            return '<div class="lic-row" id="lic-'+p.compraId+'">' +
+                '<div class="lic-header'+(isAberta?' aberta':'')+'" onclick="toggleLic(\''+p.compraId+'\')">' +
+                    '<div class="lic-left">' +
+                        '<div class="lic-id">'+esc(fmtCompraId(p.compraId))+' <span style="color:#666;font-weight:400;font-size:0.85em">'+p.compraId+'</span></div>' +
+                        '<div class="lic-obj" title="'+esc(p.objeto)+'">'+esc((p.objeto||'(sem objeto)').substring(0,120))+'</div>' +
+                        '<div class="lic-org">'+esc(p.orgao||'')+'</div>' +
+                    '</div>' +
+                    '<div class="lic-right">' +
+                        '<span class="lic-etapa '+et.cls+'">'+et.label+'</span>' +
+                        (isPregao(p.compraId)?'<span class="lic-etapa" style="background:#ff6b0020;color:#ff6b00;border:1px solid #ff6b00;margin-left:4px">⚠ PREGÃO · fecha ALEATÓRIO</span>':'') +
+                        (p.dataSessao?'<div class="lic-data">'+esc((p.dataSessao||'').substring(0,16))+'</div>':'') +
+                    '</div>' +
+                    '<span class="lic-arrow'+(isAberta?' aberta':'')+'">▼</span>' +
+                '</div>' +
+                '<div class="lic-body'+(isAberta?' aberta':'')+'" id="body-'+p.compraId+'">'+(isAberta?'<span class="spinner"></span>':'')+'</div>' +
+            '</div>';
+        }).join('');
+
+    abertas.forEach(function(cid) { carregarItensLic(cid); });
+}
+
+// ==================== TOGGLE / EXPAND ====================
+function toggleLic(compraId) {
+    if(abertas.has(compraId)) {
+        abertas.delete(compraId);
+        aplicarFiltro();
+        return;
+    }
+    abertas.add(compraId);
+    aplicarFiltro();
+    carregarItensLic(compraId);
+}
+
+async function carregarItensLic(compraId) {
+    var body = document.getElementById('body-'+compraId);
+    if(!body) return;
+    body.innerHTML = '<p style="color:#888;padding:8px"><span class="spinner"></span> Carregando itens...</p>';
+
+    // 1. Dados live da extensão (cache)
+    var live = disputasLive[compraId];
+    var itensLive = live ? live.itens : [];
+
+    // 1.5. Se não tem dados live no cache, buscar direto da API Comprasnet
+    if (itensLive.length === 0) {
+        try {
+            var rl = await fetch(API+'/api/sniper/itens-live?compraId='+compraId);
+            var dl = await rl.json();
+            if (dl.success && dl.itens && dl.itens.length > 0) {
+                itensLive = dl.itens;
+                // Salvar no cache local para não buscar de novo
+                disputasLive[compraId] = { compraId: compraId, itens: itensLive, totalItens: itensLive.length, itensAtivos: itensLive.filter(function(i){return i.podeEnviar;}).length };
+            }
+        } catch(e) {}
+    }
+
+    // 2. Config salva no banco (sniper_itens)
+    try {
+        var r = await fetch(API+'/api/sniper/itens?compraId='+compraId);
+        var d = await r.json();
+        itensConfig[compraId] = d.success ? d.itens : [];
+    } catch(e) { itensConfig[compraId] = []; }
+
+    // 3. Se não tem config, buscar itens do PNCP (tabela itens/licitacoes)
+    if(itensConfig[compraId].length === 0) {
+        try {
+            var rp = await fetch(API+'/api/sniper/itens-pncp?compraId='+compraId);
+            var dp = await rp.json();
+            if(dp.success && dp.itens && dp.itens.length > 0) {
+                // Criar sniper_itens a partir dos dados PNCP
+                var bulkPncp = dp.itens.map(function(i) {
+                    return { itemNumero: i.itemNumero, descricao: i.descricao||'', faseItem: 'LA', valorEstimado: i.valorEstimado };
+                });
+                var rbp = await fetch(API+'/api/sniper/itens/bulk', {method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({compraId:compraId, itens:bulkPncp})});
+                var dbp = await rbp.json();
+                if(dbp.success) itensConfig[compraId] = dbp.itens;
+            }
+        } catch(e){}
+    }
+
+    // 4. Se tem itens live mas não no banco, criar a partir do live
+    if(itensLive.length > 0 && itensConfig[compraId].length === 0) {
+        var bulk = itensLive.map(function(i) {
+            return { itemNumero: i.numero||1, descricao: i.descricao||'', faseItem: i.fase||'LA', valorEstimado: i.valorEstimado };
+        });
+        try {
+            var rb = await fetch(API+'/api/sniper/itens/bulk', {method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({compraId:compraId, itens:bulk})});
+            var db2 = await rb.json();
+            if(db2.success) itensConfig[compraId] = db2.itens;
+        } catch(e){}
+    }
+
+    // 5. Pré-disputa: tentar fase-externa do Comprasnet (mesma fonte que a tela
+    //    /cadastro-propostas usa). Útil quando o catálogo PNCP não tem a licitação
+    //    mas o fornecedor já cadastrou proposta. Cria sniper_itens com valorEstimado
+    //    pra usuário poder setar valorMinimo/modoAuto antes do pregão começar.
+    if(itensLive.length === 0 && itensConfig[compraId].length === 0) {
+        try {
+            var rcn = await fetch(API+'/api/sniper/itens-comprasnet?compraId='+compraId);
+            var dcn = await rcn.json();
+            if(dcn.success && dcn.itens && dcn.itens.length > 0) {
+                var bulkCN = dcn.itens.map(function(i){
+                    return { itemNumero: i.numero||1, descricao: i.descricao||'', faseItem: i.fase||'LA', valorEstimado: i.valorEstimado };
+                });
+                var rbn = await fetch(API+'/api/sniper/itens/bulk',{method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({compraId:compraId, itens:bulkCN})});
+                var dbn = await rbn.json();
+                if(dbn.success) itensConfig[compraId] = dbn.itens;
+            }
+        } catch(e){}
+    }
+
+    // 6. Último recurso: consultar via extensão (legado — extensão removida em mai/26)
+    if(itensLive.length === 0 && itensConfig[compraId].length === 0) {
+        try {
+            var rc = await fetch(API+'/api/sniper/consultar-itens?compraId='+compraId);
+            var dc = await rc.json();
+            if(dc.success && dc.itens && dc.itens.length > 0) {
+                itensLive = dc.itens;
+                var bulk2 = itensLive.map(function(i){return{itemNumero:i.numero||1,descricao:i.descricao||'',faseItem:i.fase||'LA',valorEstimado:i.valorEstimado};});
+                var rb2 = await fetch(API+'/api/sniper/itens/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId:compraId,itens:bulk2})});
+                var db3 = await rb2.json();
+                if(db3.success) itensConfig[compraId]=db3.itens;
+            }
+        } catch(e){}
+    }
+
+    renderItens(compraId, itensLive);
+    restaurarBlitzAgendadas();
+}
+
+// ==================== RENDER ITENS TABLE ====================
+function renderItens(compraId, itensLive) {
+    var body = document.getElementById('body-'+compraId);
+    if(!body) return;
+    var config = itensConfig[compraId]||[];
+
+    // Merge: for each item, combine live data with saved config
+    var merged = [];
+    // Start with live items
+    var liveMap = {};
+    itensLive.forEach(function(il) { liveMap[il.numero] = il; });
+    // Start with config items (they have all saved data)
+    var seen = {};
+    config.forEach(function(cfg) {
+        var lv = liveMap[cfg.itemNumero] || {};
+        merged.push({
+            numero: cfg.itemNumero,
+            tipo: lv.tipo || null,
+            descricao: cfg.descricao || lv.descricao || '',
+            fase: lv.fase || cfg.faseItem || '',
+            melhorValor: lv.melhorValor,
+            nossoValor: lv.nossoValor != null ? lv.nossoValor : cfg.valorLance,
+            situacaoParticipante: lv.situacaoParticipante || null,
+            tipoVariacao: lv.tipoVariacao || 'V',
+            podeEnviar: lv.podeEnviar !== undefined ? lv.podeEnviar : true,
+            valorEstimado: cfg.valorEstimado || lv.valorEstimado,
+            fimContagem: lv.fimContagem,
+            // Filtros Comprasnet
+            estaPerdendo: !!lv.estaPerdendo,
+            emEncAleatoria: !!lv.emEncAleatoria,
+            nosDoisMinFinais: !!lv.nosDoisMinFinais,
+            // Config salva
+            custo: cfg.custo,
+            variacaoMinima: cfg.variacaoMinima != null ? cfg.variacaoMinima : (lv.variacaoMinima != null ? lv.variacaoMinima : null),
+            valorLance: cfg.valorLance,
+            valorMinimo: cfg.valorMinimo,
+            descontoMinimo: cfg.descontoMinimo,
+            descontoMaximo: cfg.descontoMaximo,
+            horarioAlvo: cfg.horarioAlvo,
+            antecedenciaMs: cfg.antecedenciaMs,
+            maxLances: cfg.maxLances,
+            ativo: cfg.ativo,
+            modoAuto: cfg.modoAuto || null,
+            ultimoResultado: cfg.ultimoResultado,
+            ultimoEnvio: cfg.ultimoEnvio,
+            status: cfg.status,
+        });
+        seen[cfg.itemNumero] = true;
+    });
+    // Add live items not in config
+    itensLive.forEach(function(il) {
+        if(!seen[il.numero]) {
+            merged.push({ numero:il.numero, tipo:il.tipo||null, descricao:il.descricao, fase:il.fase, melhorValor:il.melhorValor, nossoValor:il.nossoValor, situacaoParticipante:il.situacaoParticipante||null, variacaoMinima:il.variacaoMinima!=null?il.variacaoMinima:null, tipoVariacao:il.tipoVariacao||'V', podeEnviar:il.podeEnviar, valorEstimado:il.valorEstimado, fimContagem:il.fimContagem, estaPerdendo:!!il.estaPerdendo, emEncAleatoria:!!il.emEncAleatoria, nosDoisMinFinais:!!il.nosDoisMinFinais, valorLance:null, valorMinimo:null, descontoMinimo:null, descontoMaximo:null, horarioAlvo:null, antecedenciaMs:3000, ativo:1, modoAuto:null });
+            // Auto-salvar variacaoMinima do live no servidor
+            if(il.variacaoMinima != null) {
+                salvar(compraId, il.numero, 'variacaoMinima', il.variacaoMinima);
+            }
+        }
+    });
+
+    if(merged.length === 0) {
+        body.innerHTML = '<p class="info-msg">Sem dados de itens. Aguardando sync da extensão ou adicione manualmente.</p><div class="btn-group"><button class="btn btn-ghost btn-sm" onclick="adicionarItemManual(\''+compraId+'\')">+ Adicionar Item</button></div><div id="resultado-'+compraId+'"></div>';
+        return;
+    }
+
+    var html = '<table class="itens-table"><thead><tr>' +
+        '<th>#</th><th>Descrição</th>' +
+        '<th>Melhor / Nosso</th><th>Custo / Mín / Sug</th>' +
+        '<th title="Valor mínimo (seu piso). Sistema nunca lança abaixo disso.">Mín</th>' +
+        '<th title="Variação mínima entre lances (R$ ou %)">Var</th>' +
+        '<th title="Valor para o lance manual — use o botão ⚡ para enviar agora.">Lance Manual</th>' +
+        '<th>Ações</th>' +
+        '</tr></thead><tbody>';
+
+    merged.forEach(function(m) {
+        var isGrupo = m.tipo === 'G' || m.numero < 0;
+
+        var nossoClass = 'valor-nosso';
+        if(m.nossoValor && m.melhorValor && m.nossoValor <= m.melhorValor) nossoClass += ' melhor';
+        var nossoLabel = fmtR$(m.nossoValor);
+        if(m.situacaoParticipante) {
+            var sitLabels = {'G':'Ganhando','P':'Participando','C':'Reafirmado','D':'Desclassif.','I':'Excluída','A':'Desclassif.','F':'Desclassif.','R':'Recusada'};
+            nossoLabel += ' <span class="badge-sit badge-'+m.situacaoParticipante+'">'+(sitLabels[m.situacaoParticipante]||m.situacaoParticipante)+'</span>';
+        }
+        if(m.estaPerdendo) nossoLabel += ' <span class="badge-filtro badge-perd">PERD</span>';
+        if(m.emEncAleatoria) nossoLabel += ' <span class="badge-filtro badge-aleat">ALEAT</span>';
+        if(m.nosDoisMinFinais) nossoLabel += ' <span class="badge-filtro badge-2min">2MIN</span>';
+
+        // Grupo (disputaPorValorUnitario=false): o RANKING é pelo TOTAL, mas o LANCE
+        // é POR ITEM (unitário) — cada sub-item é uma linha normal com ⚡ abaixo.
+        // A linha do grupo é só um RESUMO read-only (total melhor/nosso); NÃO se lança
+        // no -1 (o Comprasnet não aceita lance no total do grupo).
+        if(isGrupo) {
+            html += '<tr style="background:#0f346030;border-top:2px solid #4dabf7">' +
+                '<td><strong data-num="'+m.numero+'" style="color:#4dabf7" title="Grupo — disputa pelo TOTAL; o lance é por item abaixo">'+esc(m.identificador||'G')+'</strong></td>' +
+                '<td class="desc-cell" title="'+esc(m.descricao)+'"><strong style="color:#4dabf7">Grupo</strong> '+esc((m.descricao||'').substring(0,45))+'</td>' +
+                '<td class="stacked-cell"><span class="valor-melhor">'+fmtR$(m.melhorValor)+'</span><br><span class="'+nossoClass+'">'+nossoLabel+'</span><br><span class="sub" title="V.Estimado total">Est '+fmtR$(m.valorEstimado)+'</span></td>' +
+                '<td colspan="4" style="color:#8b5cf6;font-size:0.82em;line-height:1.35">⬇ Disputa pelo <strong>total</strong> do grupo. O <strong>lance é por item</strong> (valor unitário) nas linhas abaixo — o total é recalculado a cada lance.</td>' +
+                '<td>' +
+                    '<button class="btn btn-sm '+(m.modoAuto==='continuo'?'btn-success':'btn-ghost')+'" onclick="toggleGrupoAuto(\''+compraId+'\','+(m.modoAuto==='continuo'?'false':'true')+')" title="Auto-lance do grupo: distribui lances por item preservando margem, respeitando o piso de CADA item. Requer piso definido nos itens + Motor de lances ligado.">🤖 Auto grupo: '+(m.modoAuto==='continuo'?'ON':'OFF')+'</button> ' +
+                    '<button class="btn-historico" onclick="toggleHistorico(\''+compraId+'\','+m.numero+')" title="Histórico do grupo">'+icon('file-text','ic-sm')+'<span>Histórico</span></button>' +
+                    '<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-top:3px">' +
+                        '<input type="time" step="1" id="agendar-hora-grupo-'+compraId+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:0.72em;padding:2px;font-family:monospace;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:4px;width:82px" title="Horário do disparo (default: encerramento − 1s)">' +
+                        '<button class="btn-rajada" onclick="agendarRajadaGrupo(\''+compraId+'\')" title="No horário, desce CADA item do grupo ao seu Mínimo (piso). Requer Mín definido nos itens + Motor de lances ligado.">'+icon('rocket','ic-sm')+'<span>Agendar piso</span></button>' +
+                    '</div>' +
+                    '<div id="fim-'+compraId+'-'+m.numero+'" data-fim="'+(m.fimContagem||'')+'" style="font-size:0.72em;color:#fbbf24;margin-top:2px;font-family:monospace"></div>' +
+                '</td>' +
+                '</tr>' +
+                '<tr id="historico-'+compraId+'-'+m.numero+'" style="display:none"><td colspan="9"></td></tr>';
+            return;
+        }
+
+        html += '<tr>' +
+            '<td><strong>'+m.numero+'</strong>'+(m.tipo==='S'?' <span style="color:#4dabf7;font-size:0.7em">SUB</span>':'')+'</td>' +
+            '<td class="desc-cell" title="'+esc(m.descricao)+'">'+esc((m.descricao||'').substring(0,50))+'</td>' +
+            '<td class="stacked-cell"><span class="valor-melhor">'+fmtR$(m.melhorValor)+'</span><br><span class="'+nossoClass+'">'+nossoLabel+'</span><br><span class="sub" title="V.Estimado">Est '+fmtR$(m.valorEstimado)+'</span></td>' +
+            '<td class="stacked-cell"><input type="number" step="0.01" value="'+(m.custo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'custo\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Custo" style="width:72px"><br><span class="sub mv-cell" id="mv-'+compraId+'-'+m.numero+'">--</span> · <span class="sugerido-cell" id="sg-'+compraId+'-'+m.numero+'" style="font-size:0.85em">--</span></td>' +
+            '<td><input type="number" step="0.01" id="vm-'+compraId+'-'+m.numero+'" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Mín" style="width:72px"></td>' +
+            '<td><input type="number" step="0.01" value="'+(m.variacaoMinima||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'variacaoMinima\',this.value)" placeholder="Var" style="width:55px" title="Variação mínima entre lances (R$)"></td>' +
+            '<td>' +
+                '<div style="display:flex;gap:4px;align-items:center">' +
+                    '<input type="number" step="0.01" id="vl-'+compraId+'-'+m.numero+'" value="'+(m.valorLance||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorLance\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Lance" style="width:72px">' +
+                    '<button class="btn btn-success btn-sm" onclick="enviar(\''+compraId+'\','+m.numero+')" '+(m.podeEnviar?'':'disabled')+' title="Enviar lance manual agora">'+icon('zap','ic-sm')+'</button>' +
+                '</div>' +
+            '</td>' +
+            '<td>' +
+                '<div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">' +
+                    '<input type="time" step="1" id="agendar-hora-'+compraId+'-'+m.numero+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:0.75em;padding:2px 4px;font-family:monospace;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:4px;width:90px" title="Horário agendamento (dispensa: pré-preenchido = encerramento − 1s)">' +
+                    '<input type="number" min="1" max="50" id="max-lances-'+compraId+'-'+m.numero+'" value="'+(m.maxLances||5)+'" style="width:40px;font-size:0.75em;padding:2px;border:1px solid #0f3460;background:#1a1a2e;color:#ff6b00;border-radius:4px;text-align:center;font-weight:600" title="Máx lances na rajada" onchange="salvar(\''+compraId+'\','+m.numero+',\'maxLances\',this.value)">' +
+                    '<label style="font-size:0.7em;color:#aaa;display:inline-flex;align-items:center;gap:2px;cursor:pointer" title="Ignorar Máx e descer até o Valor Mínimo"><input type="checkbox" id="ignore-max-'+compraId+'-'+m.numero+'" style="margin:0">∞</label>' +
+                    '<button class="btn-rajada" onclick="agendarBlitz(\''+compraId+'\','+m.numero+')" title="Agendar rajada (blitz) — milésimo auto-calculado (alvo 970ms)">'+icon('rocket','ic-sm')+'<span>Rajada</span></button>' +
+                    '<button class="btn-historico" onclick="toggleHistorico(\''+compraId+'\','+m.numero+')" title="Histórico do item '+m.numero+'">'+icon('file-text','ic-sm')+'<span>Histórico</span></button>' +
+                '</div>' +
+                '<div id="fim-'+compraId+'-'+m.numero+'" data-fim="'+(m.fimContagem||'')+'" style="font-size:0.72em;color:#fbbf24;margin-top:2px;font-family:monospace"></div>' +
+                '<div id="agendado-'+compraId+'-'+m.numero+'" style="font-size:0.78em;color:#8b5cf6;margin-top:2px"></div>' +
+            '</td>' +
+            '</tr>' +
+            '<tr id="historico-'+compraId+'-'+m.numero+'" style="display:none"><td colspan="9"></td></tr>';
+
+    });
+
+    html += '</tbody></table>';
+    html += '<div id="resultado-'+compraId+'"></div>';
+
+    body.innerHTML = html;
+    // Recalcular lucros após render
+    setTimeout(function(){ recalcTodosLucros(); }, 0);
+    // Carregar blitzes agendadas de cada item (pode ter múltiplas por item agora)
+    merged.forEach(function(m){
+        if (m.tipo !== 'G' && m.numero > 0) recarregarBlitzesAgendadas(compraId, m.numero);
+    });
+    // Buscar sugestões de custo (match fuzzy contra cadastro de produtos)
+    sugerirCustos(compraId, merged);
+}
+
+// ==================== SUGESTÃO DE CUSTO ====================
+// Mostra "Sug: R$ X (SKU)" abaixo do input de Custo quando match é encontrado
+// na tabela `produtos`. Clicar aplica o preço (salva e recalcula lucro).
+async function sugerirCustos(compraId, merged) {
+    // Só consulta itens normais (não grupo, não SUB) que ainda não têm custo
+    var pedidos = merged
+        .filter(function(m){ return m.tipo !== 'G' && m.numero > 0 && !(m.custo > 0); })
+        .map(function(m){ return { key: String(m.numero), descricao: m.descricao || '' }; });
+    if (pedidos.length === 0) return;
+    try {
+        var r = await fetch(API+'/api/produto-match/bulk', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ itens: pedidos, limite: 1, scoreMin: 0.4 })
+        });
+        var d = await r.json();
+        if (!d.success || !d.matches) return;
+        Object.keys(d.matches).forEach(function(numStr){
+            var arr = d.matches[numStr];
+            if (!arr || arr.length === 0) return;
+            var m = arr[0];
+            var sgCell = document.getElementById('sg-'+compraId+'-'+numStr);
+            if (!sgCell) return;
+            var precoFmt = fmtR$(m.precoCusto);
+            var scoreFmt = Math.round(m.precoCusto > 0 ? m.score*100 : 0) + '%';
+            var titulo = 'Match '+scoreFmt+': '+m.sku+' — '+(m.descricao||'').substring(0,80)+'. Clique para aplicar.';
+            sgCell.innerHTML = '<a href="#" onclick="aplicarSugestaoCusto(\''+compraId+'\','+numStr+','+(m.precoCusto||0)+');return false;" title="'+esc(titulo)+'" style="color:var(--success,#2ecc71);text-decoration:underline dotted;cursor:pointer;">Sug ' + precoFmt + ' ('+esc(m.sku||'')+')</a>';
+        });
+    } catch (e) {
+        console.warn('Falha ao sugerir custos:', e.message);
+    }
+}
+
+function aplicarSugestaoCusto(compraId, numeroItem, preco) {
+    // Acha o input de custo na linha do item
+    var rows = document.querySelectorAll('#body-'+compraId+' tr');
+    for (var i=0;i<rows.length;i++) {
+        var firstCell = rows[i].cells[0];
+        if (!firstCell) continue;
+        var strongEl = firstCell.querySelector('strong');
+        if (!strongEl) continue;
+        if (parseInt(strongEl.textContent) !== numeroItem) continue;
+        var custoInput = rows[i].cells[3] ? rows[i].cells[3].querySelector('input') : null;
+        if (!custoInput) return;
+        custoInput.value = preco;
+        salvar(compraId, numeroItem, 'custo', preco);
+        recalcLucro(compraId, numeroItem);
+        // Some o link de sugestão pra evitar reaplicar
+        var sgCell = document.getElementById('sg-'+compraId+'-'+numeroItem);
+        if (sgCell) sgCell.textContent = '✓ aplicado';
+        return;
+    }
+}
+
+// ==================== HISTÓRICO DE BLITZ (rajada) ====================
+// Modal simples (overlay) que lista todas as blitzes passadas+ativas pra um item.
+async function abrirHistoricoBlitz(compraId, itemNumero) {
+    var modal = document.getElementById('blitzHistModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'blitzHistModal';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div style="background:#1a1a2e;border:1px solid #0f3460;border-radius:8px;max-width:900px;width:100%;max-height:80vh;overflow:auto;padding:20px;color:#eee;"><div id="blitzHistContent">Carregando...</div></div>';
+        modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+        document.body.appendChild(modal);
+    }
+    var content = document.getElementById('blitzHistContent');
+    content.innerHTML = '<p style="color:#888"><span class="spinner"></span> Carregando histórico de rajadas…</p>';
+    try {
+        var r = await fetch(API+'/api/sniper/blitz-historico?compraId='+encodeURIComponent(compraId)+'&itemNumero='+itemNumero+'&limit=200');
+        var d = await r.json();
+        if (!d.success) throw new Error(d.error || 'erro desconhecido');
+        var titulo = 'Histórico de Rajadas — '+compraId+' item '+itemNumero;
+        if (!d.historico || d.historico.length === 0) {
+            content.innerHTML = '<h3 style="margin:0 0 12px;color:#a78bfa">'+esc(titulo)+'</h3>' +
+                '<p style="color:#888">Nenhuma rajada registrada para este item.</p>' +
+                '<div style="text-align:right;margin-top:12px"><button class="btn btn-ghost" onclick="document.getElementById(\'blitzHistModal\').remove()">Fechar</button></div>';
+            return;
+        }
+        var html = '<h3 style="margin:0 0 12px;color:#a78bfa">'+esc(titulo)+' ('+d.total+')</h3>';
+        html += '<table class="itens-table"><thead><tr><th>Agendada</th><th>Alvo</th><th>Status</th><th>Lances</th><th>Modo</th><th>Executada/Cancelada</th><th>Observação</th></tr></thead><tbody>';
+        var statusCor = { agendada:'#fbbf24', executada:'#4caf50', cancelada:'#888', expirada:'#f97316' };
+        d.historico.forEach(function(h){
+            var cor = statusCor[h.status] || '#aaa';
+            var fim = h.executadoEm || h.canceladoEm || '--';
+            html += '<tr>' +
+                '<td style="color:#aaa;font-size:0.85em">'+esc(h.agendadoEm||'')+'</td>' +
+                '<td>'+esc(h.horarioAlvo||'')+'</td>' +
+                '<td><span style="color:'+cor+';font-weight:600">'+esc(h.status)+'</span></td>' +
+                '<td style="text-align:right">'+(h.lancesEnviados||0)+(h.maxLances?'/'+h.maxLances:'')+'</td>' +
+                '<td style="color:#aaa;font-size:0.85em">'+esc(h.modoBlitz||'')+'</td>' +
+                '<td style="color:#aaa;font-size:0.85em">'+esc(fim)+'</td>' +
+                '<td style="color:#aaa;font-size:0.85em">'+esc(h.observacao||'')+'</td>' +
+            '</tr>';
+        });
+        html += '</tbody></table>';
+        html += '<div style="text-align:right;margin-top:12px"><button class="btn btn-ghost" onclick="document.getElementById(\'blitzHistModal\').remove()">Fechar</button></div>';
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = '<p style="color:#f44336">Erro: '+esc(e.message)+'</p>' +
+            '<div style="text-align:right;margin-top:12px"><button class="btn btn-ghost" onclick="document.getElementById(\'blitzHistModal\').remove()">Fechar</button></div>';
+    }
+}
+
+// ==================== SAVE CONFIG ====================
+function salvar(compraId, itemNumero, campo, valor) {
+    var body = { compraId: compraId, itemNumero: itemNumero };
+    if(campo === 'maxLances') { body[campo] = parseInt(valor)||null; }
+    else if(campo === 'valorLance' || campo === 'valorMinimo' || campo === 'custo' || campo === 'variacaoMinima') body[campo] = parseFloat(valor)||null;
+    else if(campo === 'descontoMinimo' || campo === 'descontoMaximo') body[campo] = parseFloat(valor)||null;
+    else body[campo] = valor || null;
+    // Update local cache
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+    if(!cfg){
+        // Sub-item de grupo injetado ao vivo ainda não está no cache local (itensConfig
+        // é carregado do servidor antes dos sub-itens existirem). Cria a entrada aqui pra
+        // agendarBlitz/setAuto acharem a config — o servidor já persiste o valor.
+        if(!itensConfig[compraId]) itensConfig[compraId] = [];
+        cfg = { itemNumero: itemNumero };
+        itensConfig[compraId].push(cfg);
+    }
+    cfg[campo] = body[campo];
+    fetch(API+'/api/sniper/itens',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();}).then(function(d){
+        // Camada 1.5: pregão recebeu Valor Mínimo sem modo escolhido → backend ativou Contínuo. Reflete na UI.
+        if(d && d.autoRoteado === 'continuo'){
+          if(cfg) cfg.modoAuto = 'continuo';
+          toast('⚡ Pregão #'+itemNumero+': Auto-Lance CONTÍNUO ativado (fecha aleatório)','sucesso');
+          if(abertas.has(compraId)) renderItens(compraId, disputasLive[compraId]?disputasLive[compraId].itens:[]);
+        }
+      }).catch(function(){});
+}
+
+// ==================== ENVIAR LANCE ====================
+// Extrai a mensagem de negócio do Comprasnet de um resultado de lance.
+// resposta pode ser string JSON ou objeto/array — ex.: "O Lance Ofertado deve ser melhor que seu último lance."
+function msgComprasnet(r){
+    if(!r||!r.resposta) return '';
+    try{
+        var resp = typeof r.resposta==='string' ? JSON.parse(r.resposta) : r.resposta;
+        var item0 = Array.isArray(resp) ? resp[0] : resp;
+        return (item0 && (item0.mensagem || item0.message || item0.error)) || '';
+    }catch(e){
+        return (typeof r.resposta==='string' && r.resposta.length<200) ? r.resposta : '';
+    }
+}
+
+function enviar(compraId, itemNumero) {
+    var el = document.getElementById('vl-'+compraId+'-'+itemNumero);
+    var valor = parseFloat(el?el.value:0);
+    if(!valor||valor<=0){alert('Informe o valor do lance para o item '+itemNumero);if(el)el.focus();return;}
+
+    var resDiv = document.getElementById('resultado-'+compraId);
+    resDiv.innerHTML = '<div class="result-msg" style="color:#ff9800"><span class="spinner"></span> Enviando item '+itemNumero+'...</div>';
+
+    fetch(API+'/api/sniper/lance',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,valor:valor})
+    }).then(function(r){return r.json();}).then(function(d){
+        // Comprasnet (via='servidor'): backend envia sincronamente e retorna {resultado,tempoMs}.
+        // BNC ou modo fila: retorna {id} pra pollar /api/sniper/fila-status.
+        if(d.resultado || d.via==='servidor' || d.tempoMs!=null){
+            if(d.success){resDiv.innerHTML='<div class="result-msg result-sucesso">✅ Item '+itemNumero+' — R$ '+valor.toFixed(2)+' ('+(d.tempoMs||0)+'ms)</div>';toast('✅ #'+itemNumero+' R$ '+valor.toFixed(2),'sucesso');}
+            else{var st=d.resultado&&d.resultado.status?d.resultado.status:'erro';var m=msgComprasnet(d.resultado)||d.error||'';resDiv.innerHTML='<div class="result-msg result-erro">❌ HTTP '+st+' ('+(d.tempoMs||0)+'ms)'+(m?' — '+esc(m):'')+'</div>';}
+            return;
+        }
+        if(!d.success){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(d.error||'Falha')+'</div>';return;}
+        var lanceId=d.id; var tent=0;
+        var poll=setInterval(function(){
+            tent++;
+            fetch(API+'/api/sniper/fila-status').then(function(r){return r.json();}).then(function(ds){
+                var lance=(ds.resultados||[]).find(function(r){return r.id===lanceId;});
+                if(lance){clearInterval(poll);
+                    if(lance.sucesso){resDiv.innerHTML='<div class="result-msg result-sucesso">✅ Item '+itemNumero+' — R$ '+valor.toFixed(2)+' ('+lance.tempoMs+'ms)</div>';toast('✅ #'+itemNumero+' R$ '+valor.toFixed(2),'sucesso');}
+                    else{var m=msgComprasnet(lance);resDiv.innerHTML='<div class="result-msg result-erro">❌ HTTP '+lance.status+' ('+lance.tempoMs+'ms)'+(m?' — '+esc(m):'')+'</div>';}
+                }
+            }).catch(function(){});
+            if(tent>30){clearInterval(poll);resDiv.innerHTML='<div class="result-msg result-erro">Timeout</div>';}
+        },1000);
+    }).catch(function(e){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(e.message)+'</div>';});
+}
+
+function enviarTodos(compraId) {
+    var config = itensConfig[compraId]||[];
+    var ativos = config.filter(function(c){return c.ativo && c.valorLance>0;});
+    if(!ativos.length){alert('Configure valor nos itens primeiro');return;}
+    var lista = ativos.map(function(c){return'  #'+c.itemNumero+': R$ '+parseFloat(c.valorLance).toFixed(2);}).join('\n');
+    if(!confirm('Enviar '+ativos.length+' lances?\n\n'+lista))return;
+    ativos.forEach(function(c){
+        fetch(API+'/api/sniper/lance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId:compraId,itemNumero:c.itemNumero,valor:c.valorLance})});
+    });
+    toast('🎯 '+ativos.length+' lances enfileirados','sucesso');
+}
+
+// ==================== DISPARAR BLITZ MANUAL ====================
+function dispararBlitz(compraId, itemNumero) {
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+    if(!cfg || !cfg.valorMinimo) {
+        alert('Defina o Valor Minimo antes de disparar blitz no item '+itemNumero);
+        return;
+    }
+    if(!confirm('Disparar rajada blitz REAL no item '+itemNumero+'?\n\nLances reais serao enviados ao Comprasnet ate R$ '+parseFloat(cfg.valorMinimo).toFixed(2)))return;
+
+    var resDiv = document.getElementById('resultado-'+compraId);
+    resDiv.innerHTML = '<div class="result-msg" style="color:#ff6b00"><span class="spinner"></span> Calculando blitz item '+itemNumero+'...</div>';
+
+    var maxEl = document.getElementById('max-lances-'+compraId+'-'+itemNumero);
+    var maxLances = maxEl ? parseInt(maxEl.value)||50 : 50;
+    var modoBlitz = document.getElementById('blitz-global-modo').value || 'sequencial';
+    fetch(API+'/api/sniper/disparar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,maxLances:maxLances,modoBlitz:modoBlitz})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(!d.success){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(d.error||d.message||'Erro')+'</div>';return;}
+        if(d.totalLances===0){resDiv.innerHTML='<div class="result-msg" style="color:#888">Nenhum lance a enviar (ja no minimo ou sem variacao)</div>';return;}
+
+        var primeiro = d.lances[0], ultimo = d.lances[d.lances.length-1];
+        resDiv.innerHTML = '<div class="result-msg" style="color:#ff6b00;border:1px solid #ff6b0030;padding:8px;border-radius:6px">' +
+            '<strong>Blitz:</strong> '+d.totalLances+' lances, R$ '+primeiro.valor.toFixed(2)+' &rarr; R$ '+ultimo.valor.toFixed(2)+
+            ' (~'+(d.estimativaMs/1000).toFixed(1)+'s)' +
+            '<div id="blitz-progress-'+compraId+'-'+itemNumero+'" style="margin-top:6px;font-size:0.85em;color:#aaa"></div></div>';
+
+        // Poll fila-status para mostrar progresso lance a lance
+        var lanceIds = d.lances.map(function(l){return l.id;});
+        var concluidos = 0;
+        var progDiv = document.getElementById('blitz-progress-'+compraId+'-'+itemNumero);
+        var tent = 0;
+        var poll = setInterval(function(){
+            tent++;
+            fetch(API+'/api/sniper/fila-status').then(function(r){return r.json();}).then(function(ds){
+                var resultados = ds.resultados || [];
+                var novosConcluidos = 0;
+                var tempoTotal = 0;
+                var sucessos = 0;
+                var falhas = 0;
+                for(var i=0;i<lanceIds.length;i++){
+                    var r = resultados.find(function(x){return x.id===lanceIds[i];});
+                    if(r){novosConcluidos++;tempoTotal+=(r.tempoMs||0);if(r.sucesso)sucessos++;else falhas++;}
+                }
+                if(novosConcluidos > concluidos) {
+                    concluidos = novosConcluidos;
+                    var pct = Math.round(concluidos/d.totalLances*100);
+                    progDiv.innerHTML = concluidos+'/'+d.totalLances+' ('+pct+'%) — '+tempoTotal+'ms total' +
+                        (falhas?' <span style="color:#ff6b6b">'+falhas+' falha(s)</span>':'');
+                }
+                if(concluidos >= d.totalLances) {
+                    clearInterval(poll);
+                    var cor = falhas ? '#ff6b6b' : '#51cf66';
+                    progDiv.innerHTML = '<span style="color:'+cor+'">Concluido: '+sucessos+'/'+d.totalLances+' OK em '+tempoTotal+'ms (media '+(tempoTotal/d.totalLances).toFixed(0)+'ms/lance)</span>';
+                    toast('Blitz #'+itemNumero+': '+sucessos+'/'+d.totalLances+' OK', falhas?'erro':'sucesso');
+                    setTimeout(function(){carregarItensLic(compraId);},2000);
+                }
+            }).catch(function(){});
+            if(tent>120){clearInterval(poll);progDiv.innerHTML='<span style="color:#ff6b6b">Timeout no acompanhamento</span>';}
+        },500);
+    }).catch(function(e){resDiv.innerHTML='<div class="result-msg result-erro">'+esc(e.message)+'</div>';});
+}
+
+// ==================== AGENDAR LANCE ÚNICO ====================
+// 2026-05-25: removido `.700` forçado. Agora envia HH:MM:SS (sem ms) ao backend,
+// que auto-calcula o milésimo alvo (default 970 — mais próximo do encerramento).
+function lerHorarioAgendamento(compraId, itemNumero) {
+    var input = document.getElementById('agendar-hora-'+compraId+'-'+itemNumero);
+    var horario = (input?input.value:'').trim();
+    if(!horario) return null;
+    if(horario.length === 5) horario += ':00';  // só garante segundos, sem ms
+    return horario;
+}
+
+// ==================== AGENDAR BLITZ ====================
+// Múltiplas blitzes por item: a UI agora suporta agendar várias blitzes pro
+// mesmo item em horários diferentes (cada uma com seu próprio cancelar).
+function agendarBlitz(compraId, itemNumero) {
+    var horario = lerHorarioAgendamento(compraId, itemNumero);
+    if(!horario) { alert('Informe o horário para agendar a blitz'); return; }
+
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+    if(!cfg || !cfg.valorMinimo) {
+        alert('Defina o Valor Minimo antes de agendar blitz no item '+itemNumero);
+        return;
+    }
+    if(isPregao(compraId) && !confirm(
+        '⚠ Esta é um PREGÃO — encerramento ALEATÓRIO.\n\n'+
+        'A rajada de HORÁRIO FIXO pode não te proteger: o pregão pode fechar a qualquer momento '+
+        'após os 10 min iniciais se ninguém lançar por 120s.\n\n'+
+        'Recomendado: Auto-Lance CONTÍNUO (cobre sempre que você está perdendo).\n\n'+
+        'Agendar a rajada fixa mesmo assim?')) return;
+    if(!confirm('Agendar blitz REAL (rajada) no item '+itemNumero+' para '+horario+'?\n\nO milésimo será calculado automaticamente (alvo 970ms) com base no RTT.\n\nVários lances reais serão enviados ao Comprasnet.')) return;
+
+    var maxEl = document.getElementById('max-lances-'+compraId+'-'+itemNumero);
+    var maxLances = maxEl ? parseInt(maxEl.value)||50 : 50;
+    var ignoreEl = document.getElementById('ignore-max-'+compraId+'-'+itemNumero);
+    var ignoreMax = ignoreEl ? ignoreEl.checked : false;
+    var modoBlitz = document.getElementById('blitz-global-modo').value || 'sequencial';
+
+    fetch(API+'/api/sniper/disparar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero,horario:horario,maxLances:maxLances,modoBlitz:modoBlitz,ignoreMax:ignoreMax})
+    }).then(function(r){return r.json();}).then(function(d){
+        if(!d.success){toast('Erro: '+esc(d.error), 'erro');return;}
+        toast('Blitz #'+itemNumero+' agendada para '+d.horario+(d.coalesced?' (coalescida com '+(d.itensNoGrupo-1)+' outra(s))':''), 'sucesso');
+        recarregarBlitzesAgendadas(compraId, itemNumero);
+    }).catch(function(e){toast('Erro: '+esc(e.message), 'erro');});
+}
+
+// Lista todas as blitzes agendadas do item e renderiza no badge.
+// Cada blitz tem seu próprio botão cancelar (via blitzKey).
+function recarregarBlitzesAgendadas(compraId, itemNumero) {
+    var spanEl = document.getElementById('agendado-'+compraId+'-'+itemNumero);
+    if (!spanEl) return;
+    fetch(API+'/api/sniper/blitz-agendadas').then(function(r){return r.json();}).then(function(d){
+        if(!d.success || !d.agendadas) { spanEl.innerHTML = ''; return; }
+        var doItem = d.agendadas.filter(function(b){ return b.compraId === compraId && b.itemNumero === itemNumero; });
+        if (doItem.length === 0) { spanEl.innerHTML = ''; return; }
+        doItem.sort(function(a,b){ return (a.alvoMs||0) - (b.alvoMs||0); });
+        spanEl.innerHTML = doItem.map(function(b){
+            var modoLabel = (b.modoBlitz==='sequencial' || b.modoBlitz==='paralelo')?' '+b.modoBlitz.substring(0,3):'';
+            var safeKey = b.blitzKey.replace(/'/g, "\\'");
+            return '<div style="display:inline-flex;align-items:center;gap:4px;margin-right:6px;padding:2px 6px;background:#1a1a3e;border:1px solid #4c1d95;border-radius:4px">' +
+                '<span style="color:#ff6b00">🚀 '+(b.maxLances||50)+'x'+modoLabel+' às '+b.horario+'</span>' +
+                '<button class="btn btn-sm" style="background:#ff6b6b;color:#fff;border:none;font-size:0.7em;padding:0 5px;line-height:1.4;border-radius:3px" ' +
+                'onclick="cancelarBlitzPorKey(\''+safeKey+'\',\''+compraId+'\','+itemNumero+')" title="Cancelar esta blitz">X</button>' +
+                '</div>';
+        }).join('');
+    }).catch(function(){});
+}
+
+// Cancela uma blitz específica pelo blitzKey (suporta múltiplas blitzes do mesmo item)
+function cancelarBlitzPorKey(blitzKey, compraId, itemNumero) {
+    if(!confirm('Cancelar esta blitz?')) return;
+    fetch(API+'/api/sniper/cancelar-blitz',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId, itemNumero:itemNumero, blitzKey:blitzKey})
+    }).then(function(r){return r.json();}).then(function(d){
+        toast(d.success ? ('Blitz cancelada: '+(d.canceladas&&d.canceladas[0]?d.canceladas[0].horario:'')) : ('Erro: '+esc(d.error||'')),
+              d.success?'info':'erro');
+        recarregarBlitzesAgendadas(compraId, itemNumero);
+    });
+}
+
+async function agendarBlitzGlobal() {
+    var horaEl = document.getElementById('blitz-global-hora');
+    var horario = horaEl.value;
+    if(!horario) { alert('Informe o horário para a blitz global'); return; }
+    // Normalizar — adicionar segundos se ausente. NÃO adicionar ms — servidor calcula automaticamente
+    if(horario.length === 5) horario += ':00';
+
+    var modo = document.getElementById('blitz-global-modo').value || 'sequencial';
+    var statusEl = document.getElementById('blitz-global-status');
+    statusEl.innerHTML = '<span class="spinner"></span> Agendando...';
+
+    // Não manda maxLancesDefault — cada item usa o valor do seu campo
+    // "Max lances" individual (default 5, igual ao input visível).
+    // ignoreMax=true descarta esse limite e desce até o Valor Mínimo.
+    var ignoreMax = document.getElementById('blitz-global-ignore-max').checked;
+    try {
+        var r = await fetch(API+'/api/sniper/blitz-global', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ horario: horario, modoBlitz: modo, ignoreMax: ignoreMax })
+        });
+        var d = await r.json();
+        if(d.success) {
+            statusEl.innerHTML = '<span style="color:#4caf50">' + d.message + '</span>';
+            document.getElementById('blitz-global-cancelar').style.display = '';
+            toast(d.message, 'sucesso');
+            // Atualizar spans per-item
+            restaurarBlitzAgendadas();
+        } else {
+            statusEl.innerHTML = '<span style="color:#ff6b6b">' + esc(d.error || 'Erro') + '</span>';
+        }
+    } catch(e) {
+        statusEl.innerHTML = '<span style="color:#ff6b6b">' + esc(e.message) + '</span>';
+    }
+}
+
+async function cancelarBlitzGlobal() {
+    if(!confirm('Cancelar TODAS as blitz agendadas?')) return;
+    try {
+        var r = await fetch(API+'/api/sniper/blitz-agendadas');
+        var d = await r.json();
+        if(d.success && d.agendadas) {
+            for(var b of d.agendadas) {
+                await fetch(API+'/api/sniper/cancelar-blitz', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ compraId: b.compraId, itemNumero: b.itemNumero })
+                });
+                var spanEl = document.getElementById('agendado-'+b.compraId+'-'+b.itemNumero);
+                if(spanEl) spanEl.innerHTML = '';
+            }
+        }
+        document.getElementById('blitz-global-status').innerHTML = '<span style="color:#aaa">Todas canceladas</span>';
+        document.getElementById('blitz-global-cancelar').style.display = 'none';
+        toast('Todas as blitz canceladas', 'info');
+    } catch(e) {}
+}
+
+async function restaurarBlitzAgendadas() {
+    try {
+        var r = await fetch(API+'/api/sniper/blitz-agendadas');
+        var d = await r.json();
+        if(!d.success || !d.agendadas) return;
+        // Agrupa por item (pode ter múltiplas blitzes por item) e delega ao renderer comum
+        var porItem = {};
+        d.agendadas.forEach(function(b){
+            var k = b.compraId + '|' + b.itemNumero;
+            if (!porItem[k]) porItem[k] = { compraId: b.compraId, itemNumero: b.itemNumero };
+        });
+        Object.values(porItem).forEach(function(it){
+            recarregarBlitzesAgendadas(it.compraId, it.itemNumero);
+        });
+    } catch(e) {}
+}
+
+// Cancela TODAS as blitzes de um item (sem alvoMs/blitzKey específicos)
+function cancelarBlitz(compraId, itemNumero) {
+    if(!confirm('Cancelar TODAS as blitzes agendadas para este item?')) return;
+    fetch(API+'/api/sniper/cancelar-blitz',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:itemNumero})
+    }).then(function(r){return r.json();}).then(function(d){
+        toast(d.message || 'Blitz cancelada', d.success?'sucesso':'erro');
+        recarregarBlitzesAgendadas(compraId, itemNumero);
+    });
+}
+
+// ==================== ADD ITEM ====================
+function adicionarItemManual(compraId) {
+    var num = prompt('Número do item:');
+    if(!num) return;
+    var desc = prompt('Descrição:','');
+    fetch(API+'/api/sniper/itens',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({compraId:compraId,itemNumero:parseInt(num),descricao:desc,faseItem:'LA'})
+    }).then(function(){carregarItensLic(compraId);});
+}
+
+// ==================== AUTO-LANCE ====================
+// Auto-lance em GRUPO (Fase 2): ativa modoAuto no -1; o backend distribui lances
+// por item (preservar margem), respeitando o piso de cada item. Requer Motor de lances ligado.
+// Agenda rajada de GRUPO: no horário, desce cada item do grupo ao seu piso (Mín).
+function agendarRajadaGrupo(compraId){
+    var el = document.getElementById('agendar-hora-grupo-'+compraId);
+    var horario = el ? el.value : '';
+    if(!horario){ alert('Informe o horário do disparo'); return; }
+    if(!confirm('Agendar rajada do GRUPO para '+horario+'?\n\nNo horário, cada item do grupo recebe 1 lance REAL descendo ao seu Mínimo (piso) que você setou. O total do grupo vai pro mínimo somado.\n\nConfirme: pisos por item corretos + Motor de lances LIGADO.')) return;
+    fetch(API+'/api/sniper/agendar-grupo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({compraId:compraId,horario:horario})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d && d.success){
+            var oks = (d.agendados||[]).filter(function(a){return a.ok;});
+            var falhas = (d.agendados||[]).filter(function(a){return !a.ok;});
+            toast('🚀 Grupo agendado: '+oks.length+' item(ns) → piso @ '+horario+(falhas.length?(' ('+falhas.length+' falhou)'):''),'sucesso');
+        } else {
+            toast('Falha ao agendar: '+((d&&d.error)||'erro'),'erro');
+        }
+      }).catch(function(){ toast('Erro de rede ao agendar grupo','erro'); });
+}
+
+function toggleGrupoAuto(compraId, ligar){
+    if(ligar && !confirm('Ligar AUTO-LANCE do grupo?\n\nO sistema vai dar lances REAIS por item pra deixar o TOTAL do grupo abaixo do concorrente, preservando margem e NUNCA abaixo do piso (Mín) que você definiu em cada item.\n\nConfirme que os pisos por item estão corretos e que o Motor de lances está ligado.')) return;
+    setAuto(compraId, -1, ligar?'continuo':null);
+}
+
+function setAuto(compraId, itemNumero, modo, selectEl) {
+    // Require valorMinimo before enabling
+    var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
+
+    if(modo && (!cfg || !cfg.valorMinimo)) {
+        alert('Defina o Valor Mínimo antes de ativar auto-lance no item '+itemNumero);
+        if(selectEl) selectEl.value = cfg?.modoAuto || '';
+        return;
+    }
+
+    if(modo==='sniper' && isPregao(compraId) && !confirm(
+        'Pregão fecha em horário aleatório — o modo Sniper (horário fixo) pode perder o fechamento.\n'+
+        'Prefira Contínuo. Usar Sniper mesmo assim?')) { if(selectEl) selectEl.value=cfg?.modoAuto||''; return; }
+
+    // Save to server
+    var payload = {compraId:compraId, itemNumero:itemNumero, modoAuto: modo||null};
+    if(modo === 'sniper' && cfg && !cfg.antecedenciaMs) payload.antecedenciaMs = 60000; // default 60s
+    fetch(API+'/api/sniper/itens', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+    }).then(function(r){return r.json();}).then(function(d){
+        if(d.success) {
+            if(cfg) {
+                cfg.modoAuto = modo||null;
+                if(payload.antecedenciaMs) cfg.antecedenciaMs = payload.antecedenciaMs;
+            }
+            var labels = {continuo:'Contínuo',sniper:'Sniper'};
+            toast('Auto #'+itemNumero+': '+(modo?labels[modo]:'OFF'), modo?'sucesso':'info');
+            // Re-render to show/hide sniper seconds input
+            if(abertas.has(compraId)) renderItens(compraId, disputasLive[compraId]?disputasLive[compraId].itens:[]);
+        }
+    });
+}
+
+function salvarSniperSeg(compraId, itemNumero, seg) {
+    var ms = Math.max(5, Math.min(300, parseInt(seg)||60)) * 1000;
+    salvar(compraId, itemNumero, 'antecedenciaMs', ms);
+    toast('Sniper #'+itemNumero+': '+Math.round(ms/1000)+'s antes do fim', 'info');
+}
+
+function toggleAutoEngine() {
+    fetch(API+'/api/sniper/auto/toggle',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+        if(d.success) {
+            toast('Auto engine: '+(d.ativo?'LIGADO':'DESLIGADO'), d.ativo?'sucesso':'info');
+            atualizarAutoStatus();
+        }
+    });
+}
+
+function atualizarAutoStatus() {
+    fetch(API+'/api/sniper/auto/status').then(function(r){return r.json();}).then(function(d){
+        if(!d.success) return;
+        var el = document.getElementById('stAuto');
+        if(d.ativo) {
+            el.innerHTML = '<span class="verde">'+d.itensMonitorados+' itens</span>';
+        } else {
+            el.innerHTML = '<span class="vermelho">OFF</span>';
+        }
+    }).catch(function(){});
+}
+
+// ==================== HISTÓRICO ====================
+// Converte status HTTP do lance em badge visual com label humano.
+// - 200/201: Aceito (verde)
+// - 422: Rejeitado (laranja) — valor/regra Comprasnet
+// - 429: Rate-limit (amarelo)
+// - 400: Requisição inválida
+// - 401/403: Autenticação
+// - 5xx: Erro Comprasnet (vermelho)
+function statusLanceBadge(h) {
+    var code = h.httpStatus || h.status;
+    var msg = '';
+    if (h.resposta) {
+        try {
+            var resp = typeof h.resposta === 'string' ? JSON.parse(h.resposta) : h.resposta;
+            var item0 = Array.isArray(resp) ? resp[0] : resp;
+            msg = (item0 && (item0.mensagem || item0.message || item0.error)) || '';
+        } catch(e) {
+            if (typeof h.resposta === 'string' && h.resposta.length < 200) msg = h.resposta;
+        }
+    }
+    var cls, label;
+    if (h.sucesso && (code === 200 || code === 201)) { cls = 'ok';     label = 'Aceito'; }
+    else if (code === 422)                           { cls = 'reject'; label = 'Rejeitado'; }
+    else if (code === 429)                           { cls = 'warn';   label = 'Rate-limit'; }
+    else if (code === 400)                           { cls = 'err';    label = 'Inválido'; }
+    else if (code === 401 || code === 403)           { cls = 'err';    label = 'Sem auth'; }
+    else if (code >= 500)                            { cls = 'err';    label = 'Erro CN'; }
+    else if (!code)                                  { cls = 'err';    label = 'Timeout'; }
+    else                                              { cls = 'err';    label = 'Erro ' + code; }
+    var tip = 'HTTP ' + (code || 'n/a') + (msg ? ' — ' + msg : '');
+    return '<span class="lance-badge lance-'+cls+'" title="'+esc(tip)+'">'+label+'</span>';
+}
+
+async function toggleHistorico(compraId, itemNumero) {
+    var row = document.getElementById('historico-'+compraId+'-'+itemNumero);
+    if(!row) return;
+    if(row.style.display !== 'none') { row.style.display = 'none'; return; }
+
+    row.style.display = '';
+    var div = row.querySelector('td');
+    div.innerHTML = '<p style="color:#888;padding:8px"><span class="spinner"></span> Carregando histórico...</p>';
+
+    var html = '';
+    // 1. Histórico de lances (banco) — filtrado por item
+    try {
+        var r = await fetch(API+'/api/sniper/historico?compraId='+compraId+'&itemNumero='+itemNumero+'&limit=30');
+        var d = await r.json();
+        if(d.success && d.historico && d.historico.length > 0) {
+            html += '<div style="margin-top:8px"><strong style="color:#4dabf7;font-size:0.82em">Histórico de Lances</strong>';
+            html += '<table class="itens-table" style="margin-top:4px"><thead><tr><th>Comprasnet</th><th>Valor</th><th>Resultado</th><th>Latência</th><th>Fonte</th></tr></thead><tbody>';
+            d.historico.forEach(function(h) {
+                var cor = h.sucesso ? '#4caf50' : '#f44336';
+                // Extrair dataHoraAtualizacao da resposta do Comprasnet (horário oficial)
+                var horaCN = fmtHora(h.timestamp); // fallback
+                if(h.resposta) {
+                    try {
+                        var resp = typeof h.resposta === 'string' ? JSON.parse(h.resposta) : h.resposta;
+                        var item0 = Array.isArray(resp) ? resp[0] : resp;
+                        if(item0 && item0.dataHoraAtualizacao) {
+                            horaCN = item0.dataHoraAtualizacao.substring(11, 23);
+                        }
+                    } catch(e) {}
+                }
+                html += '<tr>' +
+                    '<td>'+horaCN+'</td>' +
+                    '<td>'+fmtR$(h.valor)+'</td>' +
+                    '<td>'+statusLanceBadge(h)+'</td>' +
+                    '<td style="color:#888">'+(h.tempoMs||'--')+'ms</td>' +
+                    '<td style="color:#888">'+esc(h.fonte||'--')+'</td>' +
+                '</tr>';
+            });
+            html += '</tbody></table></div>';
+        } else {
+            html += '<div style="color:#888;font-size:0.8em;padding:6px">Nenhum lance registrado.</div>';
+        }
+    } catch(e) {
+        html += '<div style="color:#f44336;font-size:0.8em;padding:6px">Erro ao carregar histórico: '+esc(e.message)+'</div>';
+    }
+
+    if(!html) html = '<div style="color:#888;font-size:0.8em;padding:6px">Sem dados de histórico.</div>';
+    div.innerHTML = html;
+}
+
+// ==================== TOAST ====================
+function toast(msg,tipo){var d=document.createElement('div');d.className='toast';d.style.background=tipo==='sucesso'?'#4caf50':tipo==='erro'?'#f44336':'#4dabf7';d.textContent=msg;document.getElementById('toastArea').appendChild(d);setTimeout(function(){d.remove();},4000);}
+
+// ==================== MODAL "Como funciona?" ====================
+function abrirComoFunciona() { document.getElementById('helpModal').classList.add('open'); }
+function fecharComoFunciona() { document.getElementById('helpModal').classList.remove('open'); }
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') fecharComoFunciona(); });
+
+// ==================== MOTOR DE LANCES (Plano 16) ====================
+function _atualizarMotorLabel(ligado) {
+    var lbl = document.getElementById('motorEstadoLbl');
+    if (!lbl) return;
+    if (ligado) { lbl.textContent = 'LIGADO'; lbl.style.color = 'var(--success)'; }
+    else        { lbl.textContent = 'DESLIGADO'; lbl.style.color = 'var(--danger)'; }
+}
+async function carregarMotorConfig() {
+    try {
+        var r = await fetch(API+'/api/sniper/motor-config');
+        var d = await r.json();
+        if (d.success) {
+            document.getElementById('motorLances').checked = !!d.enabled;
+            _atualizarMotorLabel(!!d.enabled);
+        }
+    } catch (_) { _atualizarMotorLabel(true); }
+}
+async function toggleMotorLances() {
+    var cb = document.getElementById('motorLances');
+    var novoEstado = cb.checked ? 1 : 0;
+    try {
+        var r = await fetch(API+'/api/sniper/motor-config', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ enabled: novoEstado })
+        });
+        var d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Erro');
+        _atualizarMotorLabel(!!novoEstado);
+        toast('Motor de lances ' + (novoEstado ? 'LIGADO — lances saem normalmente' : 'DESLIGADO — nenhum lance vai ser enviado'), novoEstado ? 'sucesso' : 'erro');
+    } catch (e) {
+        cb.checked = !novoEstado;
+        _atualizarMotorLabel(!novoEstado);
+        toast('Falha ao salvar: ' + e.message, 'erro');
+    }
+}
+
+// ==================== IMPOSTO / MARGEM / LUCRO ====================
+function carregarImposto() {
+    var saved = localStorage.getItem('lancesImpostoPercent');
+    if(saved !== null) document.getElementById('impostoPercent').value = saved;
+    var savedM = localStorage.getItem('lancesMargemPercent');
+    if(savedM !== null) document.getElementById('margemPercent').value = savedM;
+}
+function salvarImposto() {
+    localStorage.setItem('lancesImpostoPercent', document.getElementById('impostoPercent').value);
+}
+function salvarMargem() {
+    localStorage.setItem('lancesMargemPercent', document.getElementById('margemPercent').value);
+}
+function getImposto() {
+    return parseFloat(document.getElementById('impostoPercent').value) || 0;
+}
+function getMargem() {
+    return parseFloat(document.getElementById('margemPercent').value) || 0;
+}
+function usarSugerido(compraId, num) {
+    var sgEl = document.getElementById('sg-'+compraId+'-'+num);
+    if(!sgEl || sgEl.textContent === '--') return;
+    var valor = parseFloat(sgEl.textContent.replace('R$ ',''));
+    if(!valor || valor <= 0) return;
+    var vmInput = document.getElementById('vm-'+compraId+'-'+num);
+    if(vmInput) {
+        vmInput.value = valor.toFixed(2);
+        salvar(compraId, num, 'valorMinimo', valor);
+        recalcLucro(compraId, num);
+        toast('Mínimo #'+num+' → R$ '+valor.toFixed(2), 'info');
+    }
+}
+function usarMinViavel(compraId, num) {
+    var mvEl = document.getElementById('mv-'+compraId+'-'+num);
+    if(!mvEl || mvEl.textContent === '--') return;
+    var valor = parseFloat(mvEl.textContent.replace('R$ ',''));
+    if(!valor || valor <= 0) return;
+    var vmInput = document.getElementById('vm-'+compraId+'-'+num);
+    if(vmInput) {
+        vmInput.value = valor.toFixed(2);
+        salvar(compraId, num, 'valorMinimo', valor);
+        recalcLucro(compraId, num);
+        toast('Mínimo #'+num+' → R$ '+valor.toFixed(2)+' (mínimo viável)', 'info');
+    }
+}
+function recalcLucro(compraId, num) {
+    var imposto = getImposto();
+    var margem = getMargem();
+    // Find custo input: look in the row that has this item number
+    var custo = NaN;
+    var table = document.querySelector('#body-'+compraId+' .itens-table');
+    if(table) {
+        var rows = table.querySelectorAll('tbody tr');
+        for(var i=0;i<rows.length;i++) {
+            var strong = rows[i].querySelector('td:first-child strong');
+            if(strong && parseInt(strong.textContent) === num) {
+                var custoInput = rows[i].cells[3] ? rows[i].cells[3].querySelector('input') : null;
+                if(custoInput) custo = parseFloat(custoInput.value);
+                break;
+            }
+        }
+    }
+    var vlInput = document.getElementById('vl-'+compraId+'-'+num);
+    var valorLance = vlInput ? parseFloat(vlInput.value) : NaN;
+    var mvEl = document.getElementById('mv-'+compraId+'-'+num);
+    var lcEl = document.getElementById('lc-'+compraId+'-'+num);
+    var sgEl = document.getElementById('sg-'+compraId+'-'+num);
+    // Mín.Viável = custo / (1 - imposto/100)
+    if(mvEl) {
+        if(!isNaN(custo) && custo > 0 && imposto < 100) {
+            var mv = custo / (1 - imposto/100);
+            mvEl.textContent = 'R$ ' + mv.toFixed(2);
+            mvEl.title = 'Clique para usar este valor como Mínimo (piso de segurança)';
+            mvEl.onclick = function(){ usarMinViavel(compraId, num); };
+        } else {
+            mvEl.textContent = '--';
+            mvEl.title = '';
+            mvEl.onclick = null;
+        }
+    }
+    // Lucro = valorLance - (valorLance * imposto/100) - custo
+    if(lcEl) {
+        if(!isNaN(valorLance) && valorLance > 0 && !isNaN(custo) && custo > 0) {
+            var lucro = valorLance - (valorLance * imposto/100) - custo;
+            lcEl.textContent = 'R$ ' + lucro.toFixed(2);
+            lcEl.className = 'valor-lucro ' + (lucro > 0.005 ? 'positivo' : lucro < -0.005 ? 'negativo' : 'zero');
+        } else {
+            lcEl.textContent = '--';
+            lcEl.className = 'valor-lucro';
+        }
+    }
+    // Sugerido = custo * (1 + margem/100) / (1 - imposto/100)
+    if(sgEl) {
+        if(!isNaN(custo) && custo > 0 && imposto < 100) {
+            var sg = custo * (1 + margem/100) / (1 - imposto/100);
+            sgEl.textContent = 'R$ ' + sg.toFixed(2);
+            sgEl.title = 'Clique para usar este valor como lance';
+            sgEl.onclick = function(){ usarSugerido(compraId, num); };
+        } else {
+            sgEl.textContent = '--';
+            sgEl.onclick = null;
+        }
+    }
+}
+function recalcTodosLucros() {
+    if(abertas.size === 0) return;
+    abertas.forEach(function(cid) {
+        var config = itensConfig[cid]||[];
+        config.forEach(function(c) { recalcLucro(cid, c.itemNumero); });
+    });
+}
+
+// ==================== PUPPETEER ====================
+
+function atualizarElectronStatus() {
+    fetch(API+'/api/electron/status')
+        .then(function(r){return r.json()})
+        .then(function(d) {
+            var el = document.getElementById('stElectron');
+            if (!el) return;
+            if (!d.lastSeen) {
+                el.innerHTML = '<span style="color:#666">OFF</span>';
+                return;
+            }
+            var ago = Math.round((Date.now() - new Date(d.lastSeen).getTime()) / 1000);
+            var online = ago < 30;
+            if (d.state === 'logged_in' && online) {
+                el.innerHTML = '<span class="verde">ATIVO</span>';
+            } else if (online) {
+                el.innerHTML = '<span class="amarelo">'+d.state.toUpperCase()+'</span>';
+            } else {
+                el.innerHTML = '<span class="vermelho">OFFLINE</span>';
+            }
+        })
+        .catch(function() {
+            var el = document.getElementById('stElectron');
+            if (el) el.innerHTML = '<span style="color:#666">--</span>';
+        });
+}
+
+// ==================== INIT ====================
+// Filtro data: default = hoje (horário de Brasília)
+(function(){
+    var now = new Date();
+    var br = new Date(now.toLocaleString('en-US',{timeZone:'America/Sao_Paulo'}));
+    var yyyy = br.getFullYear();
+    var mm = String(br.getMonth()+1).padStart(2,'0');
+    var dd = String(br.getDate()).padStart(2,'0');
+    document.getElementById('filtroData').value = yyyy+'-'+mm+'-'+dd;
+})();
+carregarImposto();
+carregarMotorConfig();
+recarregarDados();
+atualizarStatus();
+atualizarAutoStatus();
+atualizarElectronStatus();
+setInterval(atualizarStatus,10000);
+setInterval(atualizarAutoStatus,10000);
+setInterval(atualizarElectronStatus,10000);
+setInterval(function(){document.getElementById('hora').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'});},500);
+// Countdown ao vivo do encerramento previsto (fimContagem) por item — atualiza a cada 1s
+setInterval(function(){
+    var nodes = document.querySelectorAll('div[id^="fim-"][data-fim]');
+    var agora = Date.now();
+    nodes.forEach(function(el){
+        var fim = el.getAttribute('data-fim');
+        if(!fim) { el.textContent = ''; return; }
+        var t;
+        try { t = new Date(fim).getTime(); } catch(_) { el.textContent = ''; return; }
+        if(!t || isNaN(t)) { el.textContent = ''; return; }
+        var diff = t - agora;
+        var seg = Math.floor(Math.abs(diff) / 1000);
+        var ms = Math.abs(diff) % 1000;
+        var sinal = diff < 0 ? '+' : '';
+        var hh = new Date(t).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
+        var msStr = String(new Date(t).getMilliseconds()).padStart(3, '0');
+        var cor = diff < 0 ? '#ef4444' : (diff < 60000 ? '#ef4444' : (diff < 300000 ? '#fbbf24' : '#84cc16'));
+        el.style.color = cor;
+        el.innerHTML = '⏱ enc: '+hh+'.'+msStr+' <span style="opacity:0.7">('+(diff<0?'há ':'em ')+sinal+seg+'s)</span>';
+    });
+},500);
+// Refresh live data every 30s — atualiza valores dinâmicos sem destruir inputs
+setInterval(function(){
+    carregarDisputasLive().then(function(){
+        abertas.forEach(function(cid) {
+            var live = disputasLive[cid];
+            var itensLive = live ? live.itens : [];
+            if(itensLive.length > 0) atualizarValoresLive(cid, itensLive);
+        });
+    });
+},30000);
+
+// Atualiza apenas valores dinâmicos (melhor, nosso, contagem, badges) sem recriar DOM
+function atualizarValoresLive(compraId, itensLive) {
+    var table = document.querySelector('#body-'+compraId+' .itens-table');
+    if(!table) { renderItens(compraId, itensLive); return; } // fallback: render completo se não há tabela
+    var rows = table.querySelectorAll('tbody tr');
+    var liveMap = {};
+    itensLive.forEach(function(il) { liveMap[il.numero] = il; });
+    rows.forEach(function(row) {
+        var numCell = row.querySelector('td:first-child strong');
+        if(!numCell) return;
+        var dn = numCell.getAttribute('data-num');
+        var num = parseInt(dn != null ? dn : numCell.textContent);
+        var lv = liveMap[num];
+        if(!lv) return;
+        // Atualiza fimContagem (Comprasnet pode estender a contagem após lance)
+        var fimEl = document.getElementById('fim-'+compraId+'-'+num);
+        if(fimEl) fimEl.setAttribute('data-fim', lv.fimContagem || '');
+        // Melhor / Nosso stacked cell (col 3)
+        var stackedTd = row.cells[2];
+        if(stackedTd) {
+            var nossoClass = 'valor-nosso' + (lv.nossoValor && lv.melhorValor && lv.nossoValor <= lv.melhorValor ? ' melhor' : '');
+            var nossoHtml = fmtR$(lv.nossoValor);
+            if(lv.situacaoParticipante) {
+                var sitLabels = {'G':'Ganhando','P':'Participando','C':'Reafirmado','D':'Desclassif.','I':'Excluída','A':'Desclassif.','F':'Desclassif.','R':'Recusada'};
+                nossoHtml += ' <span class="badge-sit badge-'+lv.situacaoParticipante+'">'+(sitLabels[lv.situacaoParticipante]||lv.situacaoParticipante)+'</span>';
+            }
+            if(lv.estaPerdendo) nossoHtml += ' <span class="badge-filtro badge-perd">PERD</span>';
+            if(lv.emEncAleatoria) nossoHtml += ' <span class="badge-filtro badge-aleat">ALEAT</span>';
+            if(lv.nosDoisMinFinais) nossoHtml += ' <span class="badge-filtro badge-2min">2MIN</span>';
+            // Preserve the Est line from original render
+            var subSpan = stackedTd.querySelector('.sub');
+            var estHtml = subSpan ? subSpan.outerHTML : '';
+            stackedTd.innerHTML = '<span class="valor-melhor">'+fmtR$(lv.melhorValor)+'</span><br><span class="'+nossoClass+'">'+nossoHtml+'</span>'+(estHtml?'<br>'+estHtml:'');
+        }
+    });
+}
+</script>
+</body>
+</html>

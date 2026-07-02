@@ -1,66 +1,413 @@
 /**
  * sniper-lance-routes.js — Endpoints REST para o Sniper de Lances
- * 
- * O sniper agora funciona de forma autônoma:
- * - Recebe Bearer token via POST /api/auth/token (da extensão Chrome)
- * - Faz chamadas HTTP diretas ao Comprasnet (sem Puppeteer)
- * 
+ *
+ * O sniper funciona de forma autônoma:
+ * - Recebe Bearer token via POST /api/auth/token (Electron Standalone)
+ * - Faz chamadas HTTP diretas ao Comprasnet (sem Puppeteer — removido
+ *   em 2026-04-22)
+ *
  * Uso no server.js:
  *   const { registrarRotasSniper } = require('./sniper-lance-routes');
  *   registrarRotasSniper(app, db);
  */
 
 const SniperLance = require('./sniper-lance');
-const { buildCompraId } = require('./sniper-lance');
-const { getPuppeteerSession } = require('./puppeteer-session');
+const { buildCompraId, classificar422 } = require('./sniper-lance');
+const { currentTenant, currentDb, tenantStorage } = require('./tenant-middleware');
+const { sendTelegram } = require('./telegram-client');
+const { enviarEmailAlerta } = require('./email-client');
+const blitzHist = require('./blitz-historico');
+const bncScheduler = require('./bnc-dispute-scheduler');
+// Fase 3g (2026-05-23): resultados_bi/itens/licitacoes vão pra PG
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
-// Singleton — sempre inicializado
-const sniper = new SniperLance();
-console.log('[Sniper] Inicializado (aguardando Bearer token da extensão)');
+// Extrai (situacao, fase, objeto, orgao) do payload de
+// GET /comprasnet-fase-externa/v1/compras/{compraId}/participacao.
+// Fonte única usada pelo guard de /qtdes (fetchItensDirecto), pelo refresh
+// periódico (executarRefreshParticipacoes) e pelo backfill manual
+// (/api/sniper/resync-encerradas).
+function extrairFaseFromParticipacao(data) {
+  if (!data || typeof data !== 'object') return null;
+  return {
+    situacao: data.situacaoCompraFaseExterna || '',
+    fase: data.faseCompraFaseExterna || '',
+    objeto: data.objetoCompra || '',
+    orgao: data.nomeOrgao || data.nomeUasg || '',
+  };
+}
 
-function registrarRotasSniper(app, monitorGetter, db) {
-
-  sniper.initDb(db);
-  // ==================== MIGRAÇÃO: colunas extras em participacoes_comprasnet ====================
+// Handler de lance BNC. compraId vem como 'bnc:<processNumber>', itemNumero
+// é o batchNumber do lote (1, 2, ...). Reusa a engine SignalR (que tem o
+// bridge de captcha pra obter token reCAPTCHA via Electron).
+async function handleBNCLance(tdb, tenantSlug, { compraId, batchNumber, valor }, res) {
   try {
-    const infoP = db.pragma('table_info(participacoes_comprasnet)');
-    const colunasP = infoP.map(c => c.name);
-    const novasColunas = [
-      { col: 'modoDisputa',           sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN modoDisputa TEXT' },
-      { col: 'dataHoraInicioDisputa', sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN dataHoraInicioDisputa TEXT' },
-      { col: 'dataHoraFimDisputa',    sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN dataHoraFimDisputa TEXT' },
-      { col: 'linkPncp',             sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN linkPncp TEXT' },
-      { col: 'exclusivaMeEpp',       sql: 'ALTER TABLE participacoes_comprasnet ADD COLUMN exclusivaMeEpp INTEGER DEFAULT 0' },
-    ];
-    for (const m of novasColunas) {
-      if (!colunasP.includes(m.col)) {
-        db.exec(m.sql);
-        console.log(`[Sniper] Migração: coluna "${m.col}" adicionada a participacoes_comprasnet`);
+    if (!tenantSlug) return res.status(400).json({ success: false, error: 'tenant slug indisponível no contexto' });
+    const engine = bncScheduler.getEngineForSala(tenantSlug, compraId);
+    if (!engine) return res.status(400).json({ success: false, error: `Engine BNC não está rodando pra ${compraId}. Garanta que a sala está ativa em /configuracoes/bnc-salas.html` });
+
+    // Achar o lote pelo batchNumber. Engine mantém Map<idBatchUuid, gkz>; precisamos
+    // descobrir o idBatchUuid correspondente ao batchNumber.
+    const sala = require('./bnc-salas').getSala(tdb, compraId);
+    if (!sala) return res.status(404).json({ success: false, error: 'Sala não encontrada' });
+    const lote = (sala.lotes || []).find(l => l.batchNumber === batchNumber);
+    if (!lote) return res.status(404).json({ success: false, error: `Lote ${batchNumber} não encontrado na sala` });
+    if (!lote.batchTokenGkz) return res.status(400).json({ success: false, error: `Token [gkz] do lote ${batchNumber} ainda desconhecido — re-cadastre a sala ou aguarde descoberta automática` });
+
+    // sendBid da engine espera batchToken já registrado por uuid; injeta agora
+    if (lote.idBatchUuid) engine.setBatchToken(lote.idBatchUuid, lote.batchTokenGkz);
+
+    // Construir decision pra forçar envio independente da lógica dryRun
+    const decisionId = lote.idBatchUuid || `__nouuid__:${batchNumber}`;
+    if (!lote.idBatchUuid) engine.setBatchToken(decisionId, lote.batchTokenGkz);
+
+    const decision = {
+      batchId: decisionId,
+      myNextBid: valor,
+      currentBest: lote.currentBest,
+      action: 'bid',
+      reason: 'manual via /api/sniper/lance',
+    };
+
+    // Promise wrapper sobre os events bidSent/bidFailed
+    const result = await new Promise((resolve) => {
+      let done = false;
+      const onSent = (info) => { if (done) return; done = true; cleanup(); resolve({ ok: true, info }); };
+      const onFailed = (info) => { if (done) return; done = true; cleanup(); resolve({ ok: false, info }); };
+      const onUnknown = (info) => { if (done) return; done = true; cleanup(); resolve({ ok: false, info, unknown: true }); };
+      function cleanup() {
+        engine.removeListener('bidSent', onSent);
+        engine.removeListener('bidFailed', onFailed);
+        engine.removeListener('bidUnknown', onUnknown);
       }
+      engine.on('bidSent', onSent);
+      engine.on('bidFailed', onFailed);
+      engine.on('bidUnknown', onUnknown);
+
+      // Dispara — não passa pelo dryRun pois sendBid é exposto publicamente
+      engine.sendBid(decision).catch(e => onFailed({ ...decision, error: e.message, stage: 'throw' }));
+    });
+
+    if (result.ok) {
+      res.json({ success: true, via: 'bnc-engine', resultado: result.info });
+    } else {
+      const err = (result.info && result.info.error) || 'falha desconhecida';
+      const stage = (result.info && result.info.stage) || 'unknown';
+      res.json({ success: false, via: 'bnc-engine', error: `${stage}: ${err}`, resultado: result.info });
     }
   } catch (e) {
-    console.error('[Sniper] Erro na migração:', e.message);
+    console.error('[BNC lance handler]', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+}
+
+// Phase A (2026-04-23): pool de SniperLance por tenant — corrige leak onde
+// o Bearer capturado pelo Electron de um tenant vazava para todos os outros.
+// Cada tenant agora mantém seu próprio estado (token, captcha, agendamentos,
+// logs). O `sniper` exportado abaixo é um Proxy que resolve dinamicamente a
+// instância correta via AsyncLocalStorage do tenant-middleware.
+//
+// Phase B pendente: timers setInterval (sniper.autoLanceTimerNormal, iniciarAutoRefresh,
+// guardPoll, etc.) registrados em boot ainda perdem o contexto de tenant ao
+// disparar — até que sejam reescritos para agendar por-tenant dentro de
+// tenantStorage.run(), auto-refresh e auto-lance scheduler ficam desligados
+// em multi-tenant. Token capture + request-path continuam OK.
+const _sniperPool = new Map();   // tenantSlug -> SniperLance
+const _bootSniper = new SniperLance();   // usado só em contexto sem tenant (boot/timers legados)
+const _refreshSchedules = new Map();  // tenantSlug -> interval id
+
+function _iniciarAgendamentoTenant(tenant, db) {
+  if (_refreshSchedules.has(tenant.slug)) return;
+  // Modo emergencial 2026-05-23: DISABLE_SCHEDULERS=1 pula todos os
+  // timers per-tenant (SniperRefresh, AutoLance, ScanAlertas, proposta-sync).
+  // UI continua respondendo; só ações automáticas ficam off.
+  if (process.env.DISABLE_SCHEDULERS === '1') {
+    _refreshSchedules.set(tenant.slug, null); // marca como "já iniciado" pra não tentar de novo
+    console.log(`[SniperRefresh] DESABILITADO para tenant "${tenant.slug}" (DISABLE_SCHEDULERS=1)`);
+    return;
   }
 
-  // ==================== MIGRAÇÃO: colunas extras em sniper_itens ====================
-  try {
-    const infoSI = db.pragma('table_info(sniper_itens)');
-    const colunasSI = infoSI.map(c => c.name);
-    if (!colunasSI.includes('custo')) {
-      db.exec('ALTER TABLE sniper_itens ADD COLUMN custo REAL');
-      console.log('[Sniper] Migração: coluna "custo" adicionada a sniper_itens');
+  // Refresh de participações a cada 2 min (Phase B)
+  const tickRefresh = async () => {
+    try {
+      await tenantStorage.run({ kind: 'tenant', tenant, db }, async () => {
+        if (!_refreshParticipacoesRef) return;
+        await _refreshParticipacoesRef();
+      });
+    } catch (e) {
+      console.error(`[SniperRefresh ${tenant.slug}] ${e.message}`);
     }
-    if (!colunasSI.includes('variacaoMinima')) {
-      db.exec('ALTER TABLE sniper_itens ADD COLUMN variacaoMinima REAL');
-      console.log('[Sniper] Migração: coluna "variacaoMinima" adicionada a sniper_itens');
-    }
-    if (!colunasSI.includes('tipoVariacao')) {
-      db.exec("ALTER TABLE sniper_itens ADD COLUMN tipoVariacao TEXT DEFAULT 'V'");
-      console.log('[Sniper] Migração: coluna "tipoVariacao" adicionada a sniper_itens');
-    }
-  } catch (e) {
-    console.error('[Sniper] Erro na migração:', e.message);
+  };
+  const refreshTimer = setInterval(tickRefresh, 120000);
+  if (refreshTimer.unref) refreshTimer.unref();
+  _refreshSchedules.set(tenant.slug, refreshTimer);
+  setTimeout(tickRefresh, 10000);
+
+  // Auto-lance engine check (Phase C): 5s após primeira ativação, verifica se
+  // o tenant tem configs de auto-lance e inicia engine. AsyncLocalStorage
+  // propaga tenant/db para os timers criados por iniciarAutoLance, então os
+  // callbacks subsequentes (executarCicloAutoLance, guardPoll) rodam no
+  // contexto certo automaticamente.
+  setTimeout(() => {
+    tenantStorage.run({ kind: 'tenant', tenant, db }, () => {
+      try { if (_verificarAutoLanceRef) _verificarAutoLanceRef(); }
+      catch (e) { console.error(`[AutoLance ${tenant.slug}] boot check: ${e.message}`); }
+    });
+  }, 5000);
+
+  // Recovery de blitz agendadas (Phase C multi-tenant fix): só uma vez por tenant.
+  // Re-arma os setTimeouts in-memory dos agendamentos persistidos que sobreviveram
+  // ao restart. Corre 2s após primeira ativação, dentro do tenantStorage.
+  if (!_recuperacoesFeitas.has(tenant.slug)) {
+    _recuperacoesFeitas.add(tenant.slug);
+    setTimeout(() => {
+      tenantStorage.run({ kind: 'tenant', tenant, db }, async () => {
+        try { if (_recuperarBlitzesRef) await _recuperarBlitzesRef(); }
+        catch (e) { console.error(`[BLITZ-RECOVERY ${tenant.slug}] ${e.message}`); }
+      });
+    }, 2000);
   }
+
+  // Scanner de alertas (Telegram): token inválido + disputa sem blitz.
+  // Roda a cada 30s dentro de tenantStorage pro sniper resolver no tenant correto.
+  const tickAlertas = async () => {
+    try {
+      await tenantStorage.run({ kind: 'tenant', tenant, db }, async () => {
+        if (!_scanAlertasRef) return;
+        await _scanAlertasRef();
+      });
+    } catch (e) {
+      console.error(`[ScanAlertas ${tenant.slug}] ${e.message}`);
+    }
+  };
+  const alertasTimer = setInterval(tickAlertas, 30000);
+  if (alertasTimer.unref) alertasTimer.unref();
+  setTimeout(tickAlertas, 15000); // primeira passada 15s após boot
+
+  // Sync diário do status de propostas no Comprasnet (Fix B):
+  // detecta propostas enviadas direto pelo portal (sem passar pelo LiciteAgora)
+  // e atualiza participacoes_comprasnet.propostaEnviadaEm. Precisa do Bearer,
+  // então pula silenciosamente quando não tem.
+  const propostaStatusSync = require('./proposta-status-sync');
+  const tickPropostaSync = async () => {
+    try {
+      await tenantStorage.run({ kind: 'tenant', tenant, db }, async () => {
+        const s = _getSniperForContext();
+        const r = await propostaStatusSync.rodarSync(s, db, { tenantSlug: tenant.slug });
+        if (r && !r.skipped && (r.confirmadas > 0 || r.erros > 0)) {
+          console.log(`[proposta-sync ${tenant.slug}] candidatos=${r.candidatos} confirmadas=${r.confirmadas} semProposta=${r.semProposta} erros=${r.erros}`);
+        }
+      });
+    } catch (e) {
+      console.error(`[proposta-sync ${tenant.slug}] ${e.message}`);
+    }
+  };
+  const propostaSyncTimer = setInterval(tickPropostaSync, 24 * 60 * 60 * 1000);
+  if (propostaSyncTimer.unref) propostaSyncTimer.unref();
+  setTimeout(tickPropostaSync, 2 * 60 * 1000); // 1ª passada 2 min após boot
+
+  // Ping ativo de saúde Comprasnet (30s) — roda NO CONTEXTO do tenant para que os
+  // Proxies sniper/db resolvam. Fix 2026-06-26: antes era um setTimeout global
+  // (sniper=_bootSniper sem token, db Proxy sem tenant) → INSERT engolido, 0 amostras.
+  const pingHealthTimer = setInterval(() => {
+    try { if (_pingHealthTickRef) _pingHealthTickRef(tenant, db).catch(() => {}); } catch (_) {}
+  }, 30000);
+  if (pingHealthTimer.unref) pingHealthTimer.unref();
+
+  console.log(`[SniperRefresh] agendado para tenant "${tenant.slug}" (a cada 2 min)`);
+  console.log(`[AutoLance] boot check agendado para tenant "${tenant.slug}" (em 5s)`);
+  console.log(`[ScanAlertas] agendado para tenant "${tenant.slug}" (a cada 30s)`);
+  console.log(`[proposta-sync] agendado para tenant "${tenant.slug}" (1ª em 2min, depois 24h)`);
+}
+
+function _getSniperForContext() {
+  const tenant = currentTenant();
+  if (!tenant || !tenant.slug) return _bootSniper;
+  let s = _sniperPool.get(tenant.slug);
+  if (!s) {
+    s = new SniperLance();
+    const tenantDb = (() => { try { return currentDb(); } catch (_) { return null; } })();
+    if (tenantDb) {
+      try { s.initDb(tenantDb); } catch (_) {}
+      _iniciarAgendamentoTenant(tenant, tenantDb);
+    }
+    _sniperPool.set(tenant.slug, s);
+    console.log(`[Sniper] Instância criada para tenant "${tenant.slug}"`);
+  }
+  return s;
+}
+
+const sniper = new Proxy({}, {
+  get(_, prop) {
+    const s = _getSniperForContext();
+    const v = s[prop];
+    return typeof v === 'function' ? v.bind(s) : v;
+  },
+  set(_, prop, value) {
+    _getSniperForContext()[prop] = value;
+    return true;
+  },
+  has(_, prop) { return prop in _getSniperForContext(); },
+});
+console.log('[Sniper] Pool multi-tenant inicializado');
+
+// Phase B: referência module-scope para executarRefreshParticipacoes (definida
+// dentro de registrarRotasSniper). Após primeira chamada de registrarRotasSniper,
+// o scheduler master pode invocar via agendarSniperRefresh(db).
+let _refreshParticipacoesRef = null;
+let _scanAlertasRef = null;
+
+// Phase C: referência para verificarAutoLanceNecessario. Cada tenant dispara
+// seu próprio check 5s após primeira atividade no worker.
+let _verificarAutoLanceRef = null;
+
+// Ping de saúde Comprasnet (30s). Definido dentro de registrarRotasSniper (precisa
+// de _registrarHealth/sniper), disparado per-tenant em _iniciarAgendamentoTenant.
+let _pingHealthTickRef = null;
+
+// Recovery de blitz agendadas — dispara por tenant no primeiro acesso
+// para re-armar timers perdidos no restart do processo.
+let _recuperarBlitzesRef = null;
+const _recuperacoesFeitas = new Set(); // tenantSlug → já rodou, evita duplicar
+
+/**
+ * Sincroniza status das participações com o funil CRM "Licitações".
+ * Para cada participação com resultado homologado em resultados_bi:
+ *   - Ganha  → move oportunidade para etapa tipo='ganho'
+ *   - Perdida → move para etapa tipo='perdido' + registra motivoPerda
+ * Oportunidades sem linha no CRM são criadas com título/descrição derivados.
+ *
+ * Idempotente: só altera etapa quando difere da atual.
+ * Chamada tanto pelo endpoint on-demand (worker) quanto pelo scheduler diário.
+ *
+ * @param {Database} db — tenant DB (com catalog attached)
+ * @returns {object} stats: { candidatas, movidas, criadas, semAlteracao, erros }
+ */
+async function sincronizarParticipacoesFunil(db) {
+  const fornecedor = db.prepare('SELECT cnpj FROM fornecedor LIMIT 1').get();
+  const nossoCnpj = fornecedor ? (fornecedor.cnpj || '').replace(/\D/g, '') : '';
+  if (!nossoCnpj) throw new Error('CNPJ do fornecedor não cadastrado — impossível distinguir vitórias');
+
+  const funil = db.prepare("SELECT id FROM crm_funis WHERE nome = 'Licitações' AND ativo = 1").get();
+  if (!funil) throw new Error('Funil "Licitações" não encontrado no CRM');
+
+  const etapas = db.prepare('SELECT id, tipo FROM crm_etapas WHERE funilId = ? AND ativo = 1').all(funil.id);
+  const etapaGanho = etapas.find(e => e.tipo === 'ganho');
+  const etapaPerdido = etapas.find(e => e.tipo === 'perdido');
+  if (!etapaGanho || !etapaPerdido) throw new Error('Funil "Licitações" sem etapa de ganho/perdido');
+
+  // Candidatas: participações com resultado homologado (pelo menos 1 item)
+  // Fase 3g: em PG mode separa em 2 passos (tenant + catalog PG) — JOIN cross-DB.
+  let candidatas;
+  if (USE_PG) {
+    const parts = db.prepare(`
+      SELECT p.compraId, p.cnpj, p.ano, p.sequencial, p.numero, p.orgao, p.objeto, p.dataHoraFimDisputa
+        FROM participacoes_comprasnet p
+       WHERE p.ativo = 1
+    `).all();
+    if (parts.length === 0) {
+      candidatas = [];
+    } else {
+      // Agrega resultados_bi por (cnpj,ano,sequencial) no PG, restringindo ao
+      // universo das participações ativas via VALUES + JOIN.
+      const values = parts.map((_, i) => `($${i*3+2}::text,$${i*3+3}::int,$${i*3+4}::bigint)`).join(',');
+      const params = [nossoCnpj];
+      for (const p of parts) params.push(String(p.cnpj), Number(p.ano), Number(p.sequencial));
+      const agg = await catalogPg.query(`
+        WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+        SELECT k.cnpj, k.ano, k.sequencial,
+               COUNT(*)::int AS itens_homol,
+               SUM(CASE WHEN REPLACE(REPLACE(r."niFornecedor",'.',''),'/','') = $1 THEN 1 ELSE 0 END)::int AS itens_ganhos,
+               COALESCE(SUM(CASE WHEN REPLACE(REPLACE(r."niFornecedor",'.',''),'/','') = $1
+                                 THEN r."valorTotalHomologado" ELSE 0 END), 0) AS valor_ganho
+          FROM resultados_bi r
+          JOIN keys k ON r."cnpj"=k.cnpj AND r."ano"=k.ano AND r."sequencial"=k.sequencial
+         GROUP BY k.cnpj, k.ano, k.sequencial
+      `, params);
+      const aggMap = new Map();
+      for (const a of agg) aggMap.set(`${a.cnpj}|${a.ano}|${a.sequencial}`, a);
+      candidatas = parts.map(p => {
+        const a = aggMap.get(`${p.cnpj}|${p.ano}|${p.sequencial}`) || { itens_homol: 0, itens_ganhos: 0, valor_ganho: 0 };
+        return { ...p, itens_homol: a.itens_homol, itens_ganhos: a.itens_ganhos, valor_ganho: Number(a.valor_ganho) };
+      }).filter(r => r.itens_homol > 0);
+    }
+  } else {
+    candidatas = db.prepare(`
+      SELECT p.compraId, p.cnpj, p.ano, p.sequencial, p.numero, p.orgao, p.objeto,
+             p.dataHoraFimDisputa,
+             (SELECT COUNT(*) FROM resultados_bi r WHERE r.cnpj=p.cnpj AND r.ano=p.ano AND r.sequencial=p.sequencial) AS itens_homol,
+             (SELECT COUNT(*) FROM resultados_bi r WHERE r.cnpj=p.cnpj AND r.ano=p.ano AND r.sequencial=p.sequencial
+                AND REPLACE(REPLACE(r.niFornecedor,'.',''),'/','') = ?) AS itens_ganhos,
+             (SELECT COALESCE(SUM(r.valorTotalHomologado),0) FROM resultados_bi r
+                WHERE r.cnpj=p.cnpj AND r.ano=p.ano AND r.sequencial=p.sequencial
+                AND REPLACE(REPLACE(r.niFornecedor,'.',''),'/','') = ?) AS valor_ganho
+      FROM participacoes_comprasnet p
+      WHERE p.ativo = 1
+    `).all(nossoCnpj, nossoCnpj).filter(r => r.itens_homol > 0);
+  }
+
+  const selOp = db.prepare(`
+    SELECT id, etapaId, titulo FROM crm_oportunidades
+    WHERE licitacaoCnpj = ? AND licitacaoAno = ? AND licitacaoSequencial = ? AND ativo = 1
+  `);
+  const updEtapa = db.prepare(`
+    UPDATE crm_oportunidades
+    SET etapaId = ?, dataFechamento = CURRENT_TIMESTAMP, dataAtualizacao = CURRENT_TIMESTAMP,
+        valor = COALESCE(NULLIF(?, 0), valor),
+        motivoPerda = ?
+    WHERE id = ?
+  `);
+  const insOp = db.prepare(`
+    INSERT INTO crm_oportunidades
+      (funilId, etapaId, titulo, descricao, valor, probabilidade, fonte,
+       licitacaoCnpj, licitacaoAno, licitacaoSequencial,
+       dataAbertura, dataFechamento)
+    VALUES (?, ?, ?, ?, ?, ?, 'licitacao', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `);
+
+  const stats = { candidatas: candidatas.length, movidas: 0, criadas: 0, semAlteracao: 0, erros: 0 };
+
+  for (const c of candidatas) {
+    const ganhou = c.itens_ganhos > 0;
+    const etapaAlvo = ganhou ? etapaGanho : etapaPerdido;
+    const motivoPerda = ganhou ? null : 'Licitação homologada para outro fornecedor';
+
+    try {
+      const op = selOp.get(c.cnpj, Number(c.ano), Number(c.sequencial));
+      if (op) {
+        if (op.etapaId === etapaAlvo.id) { stats.semAlteracao++; continue; }
+        updEtapa.run(etapaAlvo.id, c.valor_ganho || 0, motivoPerda, op.id);
+        stats.movidas++;
+      } else {
+        const titulo = (c.numero ? `${c.numero} — ` : '') + (c.orgao || '').slice(0, 80) || `Licitação ${c.cnpj}/${c.ano}/${c.sequencial}`;
+        const descricao = c.objeto || null;
+        insOp.run(
+          funil.id, etapaAlvo.id,
+          titulo.slice(0, 200), descricao,
+          c.valor_ganho || 0, 100,
+          c.cnpj, Number(c.ano), Number(c.sequencial),
+          c.dataHoraFimDisputa || new Date().toISOString(),
+        );
+        stats.criadas++;
+      }
+    } catch (e) {
+      stats.erros++;
+      console.error(`[sync-funil] ${c.compraId}: ${e.message}`);
+    }
+  }
+  return stats;
+}
+
+function registrarRotasSniper(app, db) {
+  // Phase A: initDb é chamado LAZY por tenant em _getSniperForContext.
+  // A chamada abaixo só afeta o _bootSniper (contexto boot) e é mantida
+  // apenas como no-op compatível — não carrega bearer de nenhum tenant.
+  try { _bootSniper.initDb(db); } catch (_) {}
+
+  // Plano 16 (2026-04-24): seed do toggle do Motor de lances. Default ON.
+  try {
+    db.prepare(`INSERT OR IGNORE INTO config (chave, valor) VALUES ('sniper_motor_enabled', '1')`).run();
+  } catch (_) { /* config pode não existir em bootstrap — ok */ }
 
   // Tracking da extensão
   let ultimoSyncExtensao = null; // timestamp do último POST da extensão
@@ -69,7 +416,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   /**
    * POST /api/auth/token
-   * Recebe Bearer token da extensão Chrome (Token Relay).
+   * Recebe Bearer token do Electron Standalone (server-sync.js).
    * Também aceita envio manual.
    */
   app.post('/api/auth/token', async (req, res) => {
@@ -86,6 +433,23 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       if (!validation.valid) {
         sniper.log(`🚫 Token REJEITADO de ${source || 'api'} (HTTP ${validation.status})`);
+        // Auditoria: grava entrada em bearer_history com motivoRejeicao pra
+        // distinguir "token nunca chegou" de "chegou e foi recusado".
+        try {
+          const payload = sniper._decodeJwtPayload(normalizedToken) || {};
+          const fp = sniper._fingerprint(normalizedToken);
+          const expEm = payload.exp ? new Date(payload.exp * 1000).toISOString() : null;
+          const subject = payload.sub || payload.preferred_username || null;
+          const jti = payload.jti || null;
+          const duracao = payload.exp && payload.iat ? (payload.exp - payload.iat) : null;
+          const agora = new Date().toISOString();
+          db.prepare(`INSERT OR IGNORE INTO bearer_history
+            (source, tokenFingerprint, jti, subject, recebidoEm, expEm, duracaoEsperadaSeg,
+             substituidoEm, motivoRejeicao, httpStatusRejeicao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(source || 'api', fp, jti, subject, agora, expEm, duracao,
+                 agora, `Comprasnet HTTP ${validation.status}`, validation.status);
+        } catch (_) { /* não bloquear resposta por falha de auditoria */ }
         return res.json({
           success: false,
           validated: false,
@@ -103,14 +467,6 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (captchaToken) {
         sniper.setCaptchaToken(captchaToken);
       }
-
-      // Backward compat: MonitorV2
-      try {
-        const monitor = typeof monitorGetter === 'function' ? monitorGetter() : monitorGetter;
-        if (monitor && typeof monitor.setBearerToken === 'function') {
-          monitor.setBearerToken(token);
-        }
-      } catch (e) {}
 
       res.json({
         success: true,
@@ -137,6 +493,52 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
+  // ==================== ALERTAS — CONFIG DE CANAIS ====================
+  // GET → estado atual dos canais (telegram on/off, email on/off, destinatários)
+  app.get('/api/alertas/config', (req, res) => {
+    try {
+      res.json({ success: true, config: lerAlertasConfig() });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // POST { telegram: bool, email: bool, destinatarios: string|string[] }
+  app.post('/api/alertas/config', (req, res) => {
+    try {
+      const b = req.body || {};
+      const upsert = db.prepare('INSERT OR REPLACE INTO config (chave, valor) VALUES (?, ?)');
+      if (b.telegram !== undefined)  upsert.run('alerta_canal_telegram', b.telegram ? '1' : '0');
+      if (b.email !== undefined)     upsert.run('alerta_canal_email',    b.email    ? '1' : '0');
+      if (b.destinatarios !== undefined) {
+        const lista = Array.isArray(b.destinatarios)
+          ? b.destinatarios
+          : String(b.destinatarios || '').split(/[,;]/);
+        const limpos = lista.map(s => String(s).trim()).filter(s => /@.+\./.test(s));
+        upsert.run('alerta_email_destinatarios', limpos.join(', '));
+      }
+      res.json({ success: true, config: lerAlertasConfig() });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // POST → envia um alerta de teste pra exercitar os canais configurados
+  app.post('/api/alertas/teste', async (req, res) => {
+    try {
+      const ts = new Date().toLocaleString('pt-BR');
+      await enviarAlerta({
+        subject: `[LiciteAgora] ✅ Teste de notificação`,
+        body: `✅ <b>Teste de notificação</b>\n` +
+              `Hora: <i>${ts}</i>\n\n` +
+              `<i>Se você recebeu isso, seus canais de alerta estão funcionando.</i>`,
+      });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   app.get('/api/sniper/logs', (req, res) => {
     try {
       res.json({ success: true, logs: sniper.logs });
@@ -158,30 +560,24 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   // ==================== LANCE ====================
 
-  // ==================== FILA DE LANCES (via extensão/browser) ====================
+  // ==================== FILA DE LANCES (via Electron) ====================
 
-  let filaLances = [];  // { id, compraId, itemNumero, valor, faseItem, criadoEm, status }
-  let resultadosLances = []; // últimos 50 resultados
+  // Phase C (2026-04-23): state movido para instance fields de SniperLance.
+  // Acessado via `sniper.X` que o Proxy do sniper roteia pro tenant atual.
 
-  // ==================== FILA DE TAREFAS GENÉRICA (via extensão/browser) ====================
-  let filaTarefas = [];  // { id, tipo, dados, status, criadoEm, processadoEm, resultado }
-  let tarefaIdCounter = 0;
+  // Phase B (2026-04-23): disputasCache agora é instance field de SniperLance
+  // (per-tenant). Alias local delega via Proxy para sniper.disputasCache do
+  // tenant atual — toda leitura/escrita fica isolada.
+  const disputasCache = new Proxy({}, {
+    get(_, prop) { return sniper.disputasCache[prop]; },
+    set(_, prop, value) { sniper.disputasCache[prop] = value; return true; },
+  });
 
-  // Cache em memória das disputas recebidas da extensão (declarado aqui para uso no auto-lance)
-  let disputasCache = { disputas: [], atualizadoEm: null };
-
-  // ==================== AUTO-LANCE ENGINE ====================
-  let autoLanceAtivo = false;
-  let autoLanceTimerNormal = null;   // 15s cycle
-  let autoLanceTimerRapido = null;   // 5s cycle (fast poll for sniper/ambos)
-  let autoLancePendentes = {};       // { 'compraId-itemNumero': timestamp } cooldown 30s
-  let autoLanceComprasFast = {};     // { compraId: true } compras that need fast polling (fimContagem < 90s)
-  let autoLanceLog = [];             // últimos 100 log entries
-  let autoLanceStats = { ciclos: 0, lancesEnviados: 0, ultimoCiclo: null };
-
-  // ==================== GUARD MODE (detecção sub-segundo) ====================
-  let guardLoops = {};    // { compraId: { active, timer, itens: Set, intervalMs, iniciadoEm, ultimaClassificacao } }
-  let guardStats = { totalPolls: 0, detections: 0, lancesEnqueued: 0 };
+  // ==================== AUTO-LANCE ENGINE (Phase C: state per-tenant) ====================
+  // sniper.autoLanceAtivo, sniper.autoLanceTimerNormal/Rapido/Ultra, sniper.autoLancePendentes,
+  // sniper.autoLanceComprasFast, sniper.autoLanceLog, sniper.autoLanceStats, sniper.guardLoops, sniper.guardStats,
+  // sniper.blitzDisparados, sniper.filaLances, sniper.resultadosLances, sniper.filaTarefas, sniper.tarefaIdCounter
+  // todos vivem em sniper.X (instance field de SniperLance, via Proxy do sniper).
 
   // Parsear timestamp de Brasília (UTC-3) para Date.
   // Comprasnet retorna datas sem timezone suffix — são sempre horário de Brasília.
@@ -196,14 +592,13 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   function logAuto(msg) {
     const entry = { ts: new Date().toISOString(), msg };
-    autoLanceLog.unshift(entry);
-    if (autoLanceLog.length > 100) autoLanceLog.pop();
+    sniper.autoLanceLog.unshift(entry);
+    if (sniper.autoLanceLog.length > 100) sniper.autoLanceLog.pop();
     console.log(`[AutoLance] ${msg}`);
   }
 
   // ==================== BLITZ MODE ====================
-  let blitzDisparados = {};  // { 'compraId-itemNumero': timestamp } prevent re-trigger
-  let autoLanceTimerUltra = null;  // 1s cycle for items near end
+  // sniper.blitzDisparados e sniper.autoLanceTimerUltra são instance fields (Phase C).
 
   /**
    * A7: Calcula média de tempo real por lance usando sniper_historico.
@@ -262,7 +657,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
       let step = 0;
       while (valorAtual > valorMinimo && step < maxSteps) {
         let novoValor = calcularProximoDegrau(valorAtual, varMin, tipoVar);
-        if (novoValor < valorMinimo) novoValor = valorMinimo;
+        // Se o próximo degrau natural já ultrapassa o piso, parar — clampar para valorMinimo
+        // criaria step < varMin e o Comprasnet responde 422 "Intervalo Mínimo Entre Lances".
+        if (novoValor < valorMinimo) break;
         if (novoValor >= valorAtual) break;
         step++;
         lances.push({
@@ -292,7 +689,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
       valorInicial = nossoValor;
     }
 
-    if (valorInicial < valorMinimo) valorInicial = valorMinimo;
+    // Cobertura do concorrente caiu abaixo do piso do usuário.
+    // O primeiro lance precisa estar em [valorMinimo, calcularProximoDegrau(nossoValor, varMin, tipoVar)]
+    // — abaixo do piso é vetado pelo usuário, acima do próximo degrau é vetado pelo Comprasnet.
+    if (valorInicial < valorMinimo) {
+      const maxRespeitandoVarMin = calcularProximoDegrau(nossoValor, varMin, tipoVar);
+      if (maxRespeitandoVarMin < valorMinimo) return [];
+      valorInicial = valorMinimo;
+    }
 
     const lances = [];
     let valorAtual = valorInicial;
@@ -322,7 +726,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
     // Degraus seguintes até valorMinimo (limitado por maxSteps)
     while (valorAtual > valorMinimo && step < maxSteps) {
       let novoValor = calcularProximoDegrau(valorAtual, varMin, tipoVar);
-      if (novoValor < valorMinimo) novoValor = valorMinimo;
+      // Se o próximo degrau natural já ultrapassa o piso, parar — clampar para valorMinimo
+      // criaria step < varMin e o Comprasnet responde 422 "Intervalo Mínimo Entre Lances".
+      if (novoValor < valorMinimo) break;
 
       if (novoValor >= valorAtual) break;
 
@@ -428,7 +834,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
   }
 
   async function guardPoll(compraId) {
-    const guard = guardLoops[compraId];
+    const guard = sniper.guardLoops[compraId];
     if (!guard || !guard.active) return;
 
     // Token check
@@ -439,21 +845,24 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
 
     const inicio = Date.now();
+    const endpoint = `/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`;
     try {
-      const { status, data } = await sniper.apiGet(
-        `/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`
-      );
+      const { status, data } = await sniper.apiGet(endpoint);
       const elapsed = Date.now() - inicio;
-      guardStats.totalPolls++;
+      sniper.guardStats.totalPolls++;
+      _registrarHealth('guard', endpoint, status, elapsed, status >= 200 && status < 400, null);
 
       if (status !== 200 && status !== 206) {
         logAuto(`GUARD ${compraId}: HTTP ${status} (${elapsed}ms)`);
+        if (status === 401 || status === 403) {
+          alertarTokenInvalido(`GUARD ${compraId}`, status).catch(() => {});
+        }
         guard.timer = setTimeout(() => guardPoll(compraId), 2000);
         return;
       }
 
       if (!Array.isArray(data) || data.length === 0) {
-        guard.timer = setTimeout(() => guardPoll(compraId), guard.intervalMs);
+        reagendarGuardPoll(compraId, Date.now() - inicio);
         return;
       }
 
@@ -463,24 +872,66 @@ function registrarRotasSniper(app, monitorGetter, db) {
       // Registrar mudanças no estado do mercado
       registrarEstadoMercado(compraId, data, 'guard');
 
+      // Alerta proativo: se tem rajada agendada e concorrente já está abaixo do piso,
+      // avisa no Telegram (1 vez por agendamento) pra o usuário poder reagir.
+      for (const itemNum of guard.itens) {
+        const blitzInfo = _proxBlitzFutura(compraId, itemNum);
+        if (!blitzInfo) continue;
+        const apiItem = data.find(i => (i.numero || i.identificador) === itemNum);
+        if (!apiItem) continue;
+        const melhorGeral = (apiItem.melhorValorGeral || {}).valorInformado;
+        if (melhorGeral == null) continue;
+        const cfg = db.prepare('SELECT valorMinimo FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, itemNum);
+        if (!cfg || cfg.valorMinimo == null) continue;
+        if (melhorGeral < cfg.valorMinimo) {
+          alertarMercadoAbaixoDoPiso(compraId, itemNum, blitzInfo, melhorGeral, cfg.valorMinimo);
+        }
+      }
+
       // Buscar config dos itens monitorados
       const autoItens = db.prepare(
         `SELECT compraId, itemNumero, valorMinimo, variacaoMinima, tipoVariacao, faseItem
          FROM sniper_itens WHERE compraId = ? AND modoAuto = 'continuo' AND valorMinimo IS NOT NULL`
       ).all(compraId);
 
-      // Auto-stop: remover itens onde disputa fechou
+      // Auto-stop: remover itens onde disputa fechou — EXCETO se há blitz futuro
+      // agendado pro item (caso pré-abertura: API retorna podeEnviarLances=false
+      // até o horário marcado da disputa). Manter no Set garante que o GUARD
+      // continue armado até o T-0 e tenha cache fresco quando a rajada disparar.
       let anyActive = false;
       for (const itemNum of [...guard.itens]) {
         const apiItem = data.find(i => (i.numero || i.identificador) === itemNum);
         if (apiItem && apiItem.podeEnviarLances) {
           anyActive = true;
         } else if (apiItem && !apiItem.podeEnviarLances) {
+          const blitzFuturo = _proxBlitzFutura(compraId, itemNum);
+          if (blitzFuturo) {
+            // Pré-abertura: segura o item, vai reagendar polling lá embaixo
+            continue;
+          }
           guard.itens.delete(itemNum);
           logAuto(`GUARD: item ${itemNum} disputa fechou, removido`);
         }
       }
       if (!anyActive || guard.itens.size === 0) {
+        // Antes de parar: se algum item tem blitz futuro, reagenda o poll
+        // pra acordar perto do disparo (cache fresco no T-0) em vez de desmontar.
+        let blitzMaisCedo = null;
+        for (const itemNum of guard.itens) {
+          const bi = _proxBlitzFutura(compraId, itemNum);
+          if (bi && (blitzMaisCedo == null || bi.alvoMs < blitzMaisCedo)) {
+            blitzMaisCedo = bi.alvoMs;
+          }
+        }
+        if (blitzMaisCedo != null) {
+          const restanteAteT60 = blitzMaisCedo - 60000 - Date.now();
+          // Dorme até T-60s (cap 30s pra não ficar surdo demais); se faltam <60s,
+          // já entra em modo agressivo via ramp.
+          const sleep = restanteAteT60 > 0 ? Math.min(restanteAteT60, 30000) : 2000;
+          logAuto(`GUARD ${compraId}: aguardando abertura, próximo poll em ${Math.round(sleep/1000)}s (blitz T=${new Date(blitzMaisCedo).toISOString()})`);
+          guard.timer = setTimeout(() => guardPoll(compraId), sleep);
+          return;
+        }
         pararGuard(compraId, null);
         return;
       }
@@ -502,8 +953,15 @@ function registrarRotasSniper(app, monitorGetter, db) {
           // Perdendo — calcular lance reativo
           let novoValor = calcularProximoDegrau(melhorGeral, varMin, tipoVar);
 
-          // Respeitar piso
-          if (novoValor < cfgItem.valorMinimo) novoValor = cfgItem.valorMinimo;
+          // Respeitar piso — mas sem violar varMin em relação ao nossoValor.
+          // Se a cobertura cai abaixo do piso, só clampa se o clamp respeitar varMin.
+          if (novoValor < cfgItem.valorMinimo) {
+            if (nossoValor != null) {
+              const maxRespeitandoVarMin = calcularProximoDegrau(nossoValor, varMin, tipoVar);
+              if (maxRespeitandoVarMin < cfgItem.valorMinimo) continue; // impossível descer respeitando as duas regras
+            }
+            novoValor = cfgItem.valorMinimo;
+          }
           // Já no piso
           if (nossoValor != null && nossoValor <= cfgItem.valorMinimo) continue;
           // Valor não melhora
@@ -517,7 +975,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
           }
 
           // Não duplicar na fila
-          const jaEnfileirado = filaLances.some(l =>
+          const jaEnfileirado = sniper.filaLances.some(l =>
             l.compraId === compraId && l.itemNumero === cfgItem.itemNumero &&
             (l.status === 'pendente' || l.status === 'processando')
           );
@@ -525,11 +983,11 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
           // Não interferir com blitz em execução (últimos 5s)
           const blitzKey = `${compraId}-${cfgItem.itemNumero}`;
-          const blitzRecente = blitzDisparados[blitzKey];
+          const blitzRecente = sniper.blitzDisparados[blitzKey];
           if (blitzRecente && (Date.now() - blitzRecente) < 5000) continue;
 
-          guardStats.detections++;
-          autoLanceStats.lancesEnviados++;
+          sniper.guardStats.detections++;
+          sniper.autoLanceStats.lancesEnviados++;
 
           logAuto(`⚡ GUARD DETECTED: ${compraId} item ${cfgItem.itemNumero} sit=P — ` +
             `lance R$${novoValor.toFixed(2)} DIRETO (melhor=R$${melhorGeral}, nosso=R$${nossoValor}, var=${varMin}, ${elapsed}ms)`);
@@ -539,40 +997,735 @@ function registrarRotasSniper(app, monitorGetter, db) {
             const respostaStr = typeof resultado.resposta === 'string' ? resultado.resposta.substring(0, 1500) : (resultado.resposta ? JSON.stringify(resultado.resposta).substring(0, 1500) : '');
             try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, cfgItem.itemNumero, novoValor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, 'guard-servidor', new Date().toISOString()); } catch (e) {}
-            guardStats.lancesEnqueued++;
+            sniper.guardStats.lancesEnqueued++;
             if (resultado.sucesso) logAuto(`⚡ GUARD OK: ${compraId} item ${cfgItem.itemNumero} R$${novoValor.toFixed(2)} (${resultado.tempoMs}ms)`);
             else logAuto(`⚡ GUARD FALHA: ${compraId} item ${cfgItem.itemNumero} HTTP ${resultado.status}`);
           }).catch(() => {});
         }
       }
 
-      // Intervalo adaptativo: se API demorou >500ms, desacelerar
-      const nextInterval = elapsed > 500 ? 500 : guard.intervalMs;
-      guard.timer = setTimeout(() => guardPoll(compraId), nextInterval);
+      reagendarGuardPoll(compraId, elapsed);
 
     } catch (e) {
+      const elapsed = Date.now() - inicio;
       logAuto(`GUARD ${compraId}: erro ${e.message}`);
+      _registrarHealth('guard', endpoint, 0, elapsed, false, e.message);
       guard.timer = setTimeout(() => guardPoll(compraId), 2000);
     }
   }
 
-  function iniciarGuard(compraId, itemNumero) {
-    if (!guardLoops[compraId]) {
-      guardLoops[compraId] = {
+  // ════════════════════════════════════════════════════════════════════
+  // HEALTH COMPRASNET — capture, ping ativo, alerta degradação
+  // ════════════════════════════════════════════════════════════════════
+  // Rolling window pra detectar degradação. Mantém últimos N eventos.
+  const _healthBuffer = []; // {ts, ok}
+  const _HEALTH_WINDOW_MS = 60000; // 60s
+  const _HEALTH_ALERT_RATE = 0.5;  // alerta se >50% falham na janela
+  const _HEALTH_MIN_SAMPLES = 4;   // mín amostras pra avaliar
+  let _ultimoHealthAlertMs = 0;
+  const _HEALTH_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5min entre alertas
+
+  function _registrarHealth(tipo, endpoint, httpStatus, tempoMs, ok, erro) {
+    try {
+      db.prepare(`INSERT INTO comprasnet_health (tipo, endpoint, httpStatus, tempoMs, ok, erro)
+                  VALUES (?, ?, ?, ?, ?, ?)`).run(tipo, endpoint, httpStatus, tempoMs, ok ? 1 : 0, erro || null);
+    } catch (_) { /* table pode não existir ainda em tenants antigos */ }
+    // Mantém buffer in-memory pra avaliar degradação
+    const agora = Date.now();
+    _healthBuffer.push({ ts: agora, ok: !!ok });
+    while (_healthBuffer.length > 0 && (agora - _healthBuffer[0].ts) > _HEALTH_WINDOW_MS) {
+      _healthBuffer.shift();
+    }
+    if (_healthBuffer.length >= _HEALTH_MIN_SAMPLES) {
+      const falhas = _healthBuffer.filter(h => !h.ok).length;
+      const taxa = falhas / _healthBuffer.length;
+      if (taxa >= _HEALTH_ALERT_RATE && (agora - _ultimoHealthAlertMs) > _HEALTH_ALERT_COOLDOWN_MS) {
+        _ultimoHealthAlertMs = agora;
+        const msg = `🚨 Comprasnet DEGRADADO: ${falhas}/${_healthBuffer.length} falhas em ${Math.round(_HEALTH_WINDOW_MS/1000)}s (taxa ${Math.round(taxa*100)}%)`;
+        console.error(`[HEALTH] ${msg}`);
+        logAuto(msg);
+        // Telegram só em horário comercial (seg-sex 08h-18h, TZ do servidor = America/Sao_Paulo)
+        const _ag = new Date();
+        const _dia = _ag.getDay(), _h = _ag.getHours();
+        const _comercial = _dia >= 1 && _dia <= 5 && _h >= 8 && _h < 18;
+        if (_comercial) {
+          try { sendTelegram(db, msg).catch(() => {}); } catch (_) {}
+        }
+      }
+    }
+  }
+
+  // Ping ativo: a cada 30s bate em /datahorabrasilia (endpoint trivial) pra ter
+  // sinal contínuo de saúde mesmo sem GUARDs ativos. Disparado per-tenant em
+  // _iniciarAgendamentoTenant via _pingHealthTickRef, DENTRO de tenantStorage.run —
+  // assim os Proxies sniper/db resolvem pro tenant certo (senão o INSERT é engolido
+  // e nenhuma amostra 'ping' é gravada, como acontecia no setTimeout global anterior).
+  async function _pingHealthTick(tenant, tenantDb) {
+    await tenantStorage.run({ kind: 'tenant', tenant, db: tenantDb }, async () => {
+      if (!sniper.temToken()) return;
+      const t0 = Date.now();
+      try {
+        const { status } = await sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia');
+        _registrarHealth('ping', '/datahorabrasilia', status, Date.now() - t0, status >= 200 && status < 400, null);
+      } catch (e) {
+        _registrarHealth('ping', '/datahorabrasilia', 0, Date.now() - t0, false, e.message);
+      }
+    });
+  }
+  _pingHealthTickRef = _pingHealthTick;
+
+  // Reagenda o próximo poll do Guard aplicando:
+  //  1) Ramp dinâmico via calcularIntervalGuard(alvoMs) — longe é barato, perto é agressivo
+  //  2) Auto-backoff: 3 polls seguidos mais lentos que o interval dobram o próximo sleep (até 2s)
+  //     Previne pile-up quando Comprasnet degrada.
+  function reagendarGuardPoll(compraId, elapsed) {
+    const guard = sniper.guardLoops[compraId];
+    if (!guard || !guard.active) return;
+
+    // Recalcula interval-base pelo alvoMs (pode ter avançado pra próxima fase)
+    guard.intervalMs = calcularIntervalGuard(guard.alvoMs);
+
+    // Backoff adaptativo
+    if (elapsed != null && elapsed > guard.intervalMs) {
+      guard.lentidaoSeguida = (guard.lentidaoSeguida || 0) + 1;
+    } else {
+      guard.lentidaoSeguida = 0;
+    }
+
+    let intervalEfetivo = guard.intervalMs;
+    if (guard.lentidaoSeguida >= 3) {
+      intervalEfetivo = Math.min(intervalEfetivo * 2, 2000);
+    }
+
+    guard.timer = setTimeout(() => guardPoll(compraId), intervalEfetivo);
+  }
+
+  // Gate compartilhado: motor de lances ligado?
+  // Cache simples de 5s (mesma cadência do cache no sniper-lance.js).
+  let _motorCache = null;
+  function motorLigado() {
+    const agora = Date.now();
+    if (!_motorCache || agora > _motorCache.expira) {
+      let ligado = true;
+      try {
+        const row = db.prepare("SELECT valor FROM config WHERE chave='sniper_motor_enabled'").get();
+        ligado = row ? row.valor !== '0' : true;
+      } catch (_) { ligado = true; }
+      _motorCache = { valor: ligado, expira: agora + 5000 };
+    }
+    return _motorCache.valor;
+  }
+
+  // Calcula interval de poll conforme tempo até o disparo (alvoMs).
+  // Sem alvoMs → fallback 200ms (modo contínuo/pós-blitz).
+  // Com alvoMs → ramp: longe é barato, perto é agressivo, no disparo é o mínimo viável com keep-alive.
+  function calcularIntervalGuard(alvoMs) {
+    if (!alvoMs) return 200;
+    const restante = alvoMs - Date.now();
+    if (restante < 0) return 200;                 // pós-disparo
+    if (restante <= 3000) return 60;              // janela de rajada
+    if (restante <= 10000) return 100;            // crítico
+    if (restante <= 60000) return 250;            // close
+    if (restante <= 300000) return 800;           // mid
+    return 2000;                                  // far
+  }
+
+  // Plano 16: Guard é sempre ligado (removido toggle). Decisão de usuário
+  // passou a ser o motor de lances (enviarLance gate). O Guard continua
+  // vital para manter cache fresco e apoiar precisão de rajadas.
+  // alvoMs opcional — quando informado, liga o polling degradê (ramp-up próximo do disparo).
+  function iniciarGuard(compraId, itemNumero, alvoMs = null) {
+    if (!sniper.guardLoops[compraId]) {
+      const intervalInicial = calcularIntervalGuard(alvoMs);
+      sniper.guardLoops[compraId] = {
         active: true,
         timer: null,
         itens: new Set(),
-        intervalMs: 200,
+        intervalMs: intervalInicial,
+        alvoMs: alvoMs,
+        lentidaoSeguida: 0,
         iniciadoEm: new Date().toISOString(),
       };
-      logAuto(`⚡ GUARD START: ${compraId} (polling ${200}ms)`);
+      const alvoStr = alvoMs ? ` (disparo em ${Math.round((alvoMs - Date.now())/1000)}s, ramp dinâmico)` : ` (polling ${intervalInicial}ms)`;
+      logAuto(`⚡ GUARD START: ${compraId}${alvoStr}`);
       guardPoll(compraId);
+    } else if (alvoMs && !sniper.guardLoops[compraId].alvoMs) {
+      // Guard já existe mas sem alvoMs — upgrade para ramp dinâmico
+      sniper.guardLoops[compraId].alvoMs = alvoMs;
     }
-    guardLoops[compraId].itens.add(itemNumero);
+    sniper.guardLoops[compraId].itens.add(itemNumero);
   }
 
+  // Agenda tarefas de pré-disparo para uma rajada:
+  //   T−30s: recalibração de clock com Comprasnet (offsetServidorMs)
+  //   T−1s:  warmup TLS — abre (itensCount+2) sockets em paralelo no pool
+  //
+  // Padrão usado por:
+  //   - agendarBlitz (individual)
+  //   - agendar-blitz-global
+  //   - agendarBlitzRecuperada (recovery após restart)
+  //
+  // Retorna lista de timer IDs para o chamador poder cancelar se precisar.
+  function agendarPreDisparoTasks(alvoMs, itensCount = 1, tag = 'BLITZ', compraIds = []) {
+    const timers = [];
+    const delayMs = alvoMs - Date.now();
+    const agendados = [];
+
+    // Alerta T−30min: se ainda não há token Bearer, manda Telegram/email pedindo
+    // pro usuário abrir o Electron. Sem isso, a rajada vai abortar em "sem live
+    // data" (incidente 2026-05-19 com licitação 98092106000282026).
+    // Só dispara se o agendamento foi feito com >31min de antecedência —
+    // blitz agendada in extremis não tem tempo de alertar.
+    if (delayMs > 31 * 60 * 1000) {
+      timers.push(setTimeout(() => {
+        if (sniper.temToken()) return; // token chegou no meio do caminho, tudo bem
+        const minutosRestantes = Math.max(1, Math.round((alvoMs - Date.now()) / 60000));
+        const compraIdsStr = Array.isArray(compraIds) && compraIds.length > 0
+          ? compraIds.slice(0, 3).join(', ') + (compraIds.length > 3 ? ` +${compraIds.length - 3}` : '')
+          : '?';
+        const alvoBrt = new Date(alvoMs).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        const corpo =
+          `⚠️ <b>BLITZ SEM TOKEN — abra o Electron agora</b>\n\n` +
+          `Faltam <b>~${minutosRestantes} min</b> para o disparo e o servidor não tem token Bearer do Comprasnet. Sem token, a rajada <b>vai abortar</b>.\n\n` +
+          `Compra(s): <code>${compraIdsStr}</code>\n` +
+          `Itens: ${itensCount}\n` +
+          `Alvo: ${alvoBrt}\n\n` +
+          `<b>Ação:</b> abra o Comprasnet pelo Electron LiciteAgora e faça login.`;
+        enviarAlerta({
+          subject: `[LiciteAgora] ⚠️ Blitz em ${minutosRestantes}min sem token Bearer`,
+          body: corpo,
+        }).catch(e => console.error(`[${tag}] alerta T-30min sem-token falhou: ${e.message}`));
+        console.log(`[${tag}] ⚠️ Alerta T-30min disparado: sem token Bearer (compraIds=${compraIdsStr})`);
+        try { logAuto(`⚠️ Alerta T-30min: blitz sem token (${compraIdsStr})`); } catch (e) {}
+      }, delayMs - 30 * 60 * 1000));
+      agendados.push('alerta-sem-token@T-30min');
+    }
+
+    // Recalibração T−30s: só faz sentido se ainda dá tempo (>35s de margem).
+    if (delayMs > 35000) {
+      timers.push(setTimeout(() => {
+        sniper.calibrarTempo()
+          .then(r => console.log(`[${tag}] ✅ Recalibração pré-disparo: offset=${r.offset}ms, latência=${r.latencia}ms`))
+          .catch(() => {});
+      }, delayMs - 30000));
+      agendados.push('recalibração@T-30s');
+    }
+
+    // Warmup TLS T−1s: abre (itensCount+2) sockets em paralelo no pool.
+    // Health-check ativo (2026-05-25): detecta 502/timeout/4xx em vez de
+    // engolir silenciosamente. Se >50% das chamadas falharem, agenda retry
+    // automático em T-500ms (talvez Comprasnet recupere antes do disparo).
+    if (delayMs > 2000) {
+      const numConexoes = Math.max(3, itensCount + 2);
+      const doWarmup = async (label, recheckTimer) => {
+        const t0 = Date.now();
+        const resultados = await Promise.all(
+          Array.from({ length: numConexoes }, () =>
+            sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia')
+              .then(r => ({ ok: r.status >= 200 && r.status < 400, status: r.status, ms: Date.now() - t0 }))
+              .catch(e => ({ ok: false, status: 0, ms: Date.now() - t0, err: e.message }))
+          )
+        );
+        const ok = resultados.filter(r => r.ok).length;
+        const totalMs = Date.now() - t0;
+        const statuses = resultados.map(r => r.status || 'TO').join(',');
+        if (ok === numConexoes) {
+          console.log(`[${tag}] ✅ Warmup ${label} ${numConexoes}/${numConexoes} OK em ${totalMs}ms`);
+        } else if (ok / numConexoes >= 0.5) {
+          console.warn(`[${tag}] ⚠️ Warmup ${label} parcial ${ok}/${numConexoes} (statuses=${statuses}, ${totalMs}ms) — Comprasnet instável`);
+          logAuto(`⚠️ Warmup ${label} parcial ${ok}/${numConexoes} (${statuses})`);
+        } else {
+          console.error(`[${tag}] 🚨 Warmup ${label} FALHOU ${ok}/${numConexoes} (statuses=${statuses}, ${totalMs}ms) — Comprasnet provavelmente fora`);
+          logAuto(`🚨 Warmup ${label} FALHOU ${ok}/${numConexoes} — disparo pode falhar`);
+        }
+        return { ok, total: numConexoes };
+      };
+      // Warmup T-1s
+      timers.push(setTimeout(async () => {
+        const r = await doWarmup('T-1s');
+        // Retry T-500ms se ≤50% sucesso
+        if (r.ok / r.total < 0.5) {
+          timers.push(setTimeout(() => doWarmup('T-500ms-RETRY'), 500));
+        }
+      }, delayMs - 1000));
+      agendados.push(`warmup-${numConexoes}x@T-1s(+retry)`);
+    }
+
+    // Cache refresh T−200ms: GET /itens/em-disputa por compraId pra ter
+    // melhorValor/nossoValor o mais frescos possível na hora do disparo.
+    // Latência média ~120ms → resposta volta em T−80ms, updateCacheFromGuardPoll
+    // roda em <5ms, disparo a T-0 com mercado atual. Sem isso o cache pode estar
+    // até 10s velho (frequência do tickRefresh) — bug clássico de race com o
+    // concorrente que motivou esse refresh.
+    if (delayMs > 500 && Array.isArray(compraIds) && compraIds.length > 0) {
+      timers.push(setTimeout(() => {
+        if (!sniper.temToken()) return;
+        for (const cId of compraIds) {
+          sniper.apiGet(`/comprasnet-disputa/v1/compras/${cId}/itens/em-disputa`)
+            .then(({ status, data }) => {
+              if ((status === 200 || status === 206) && Array.isArray(data)) {
+                updateCacheFromGuardPoll(cId, data);
+                console.log(`[${tag}] ✅ Cache refresh T-200ms: ${cId} (${data.length} itens)`);
+              }
+            })
+            .catch(() => {});
+        }
+      }, delayMs - 200));
+      agendados.push('cache-refresh@T-200ms');
+    }
+
+    if (agendados.length > 0) {
+      console.log(`[${tag}] Pré-disparo agendado para T=${new Date(alvoMs).toISOString()}: ${agendados.join(', ')}`);
+    }
+
+    return timers;
+  }
+
+  // Notifica via Telegram o resultado de uma rajada.
+  // Pós-blitz: lê o estado atualizado do cache (melhorValorGeral, nossoValor)
+  // e manda mensagem formatada. Silencioso em erro (nunca atrapalha o fluxo).
+  async function notificarResultadoBlitz(compraId, itemNumero, extras = {}) {
+    try {
+      // Refresh do estado pós-blitz: última resposta da API vem como array de itens
+      let snapshot = null;
+      if (sniper.temToken()) {
+        try {
+          const { status, data } = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`);
+          if ((status === 200 || status === 206) && Array.isArray(data)) {
+            snapshot = data.find(i => (i.numero || i.identificador) === itemNumero);
+          }
+        } catch (_) {}
+      }
+
+      // Fallback: usa cache se o GET falhou
+      if (!snapshot) {
+        const cached = disputasCache.disputas.find(d => d.compraId === compraId);
+        const liveItem = cached && cached.itens ? cached.itens.find(i => i.numero === itemNumero) : null;
+        if (liveItem) {
+          snapshot = {
+            numero: itemNumero,
+            melhorValorGeral: { valorInformado: liveItem.melhorValor },
+            melhorValorFornecedor: { valorInformado: liveItem.nossoValor },
+            situacaoParticipanteDisputa: liveItem.situacaoParticipante,
+          };
+        }
+      }
+
+      if (!snapshot) {
+        console.warn(`[TELEGRAM] sem snapshot para ${compraId} item ${itemNumero} — notificação abortada`);
+        return;
+      }
+
+      const melhor = (snapshot.melhorValorGeral || {}).valorInformado;
+      const nosso = (snapshot.melhorValorFornecedor || {}).valorInformado;
+      const sit = snapshot.situacaoParticipanteDisputa;
+      const ganhando = nosso != null && melhor != null && nosso <= melhor;
+      const sucessos = extras.sucessos || 0;
+      const falhas = extras.falhas || 0;
+
+      const titulo = ganhando ? '🏆 <b>MELHOR COLOCADO</b>' : '⚠️ <b>Não ganhamos</b>';
+      const fmtR$ = v => v != null ? `R$ ${Number(v).toFixed(2).replace('.', ',')}` : '—';
+      const linhaMotivo = extras.motivo ? `\nMotivo: <i>${extras.motivo}</i>` : '';
+
+      const mensagem =
+        `${titulo}\n` +
+        `Compra: <code>${compraId}</code>\n` +
+        `Item: <b>${itemNumero}</b>\n` +
+        `Nosso: <b>${fmtR$(nosso)}</b>\n` +
+        `Melhor: ${fmtR$(melhor)}\n` +
+        `Situação: ${sit || '—'}\n` +
+        `Rajada: ${sucessos} ✅ / ${falhas} ❌` +
+        linhaMotivo;
+
+      const subject = ganhando
+        ? `[LiciteAgora] 🏆 Melhor colocado — ${compraId} item ${itemNumero}`
+        : `[LiciteAgora] ⚠️ Não ganhamos — ${compraId} item ${itemNumero}`;
+      await enviarAlerta({ subject, body: mensagem });
+      console.log(`[ALERTA] notificação enviada: ${compraId} item ${itemNumero} — ganhando=${ganhando}`);
+    } catch (e) {
+      console.error(`[ALERTA] erro ao notificar: ${e.message}`);
+    }
+  }
+
+  // Dedup: 1 alerta de "mercado abaixo do piso" por blitz agendada.
+  // Chave inclui agendadoEm pra re-alertar se o usuário reagenda (nova rajada = nova chance de ajustar).
+  const _alertasPisoEnviados = new Set();
+
+  // Dedup de "disputa iniciou sem blitz agendado". Chave: tenant-compraId-item-fase.
+  // Reset quando a fase muda ou quando o item é removido da config.
+  const _alertasDisputaIniciada = new Set();
+
+  // Hora do dia (BRT) em que o digest diário de interesses pendentes deve disparar.
+  const HORA_DIGEST_INTERESSES = 8;
+
+  // Lê config per-tenant dos canais de alerta. Defaults preservam compatibilidade:
+  //   telegram ON, email OFF, destinatarios vazio.
+  function lerAlertasConfig() {
+    const get = (chave) => {
+      const row = db.prepare('SELECT valor FROM config WHERE chave = ?').get(chave);
+      return row ? row.valor : null;
+    };
+    const telegram = get('alerta_canal_telegram');
+    const email = get('alerta_canal_email');
+    const destinatariosRaw = get('alerta_email_destinatarios') || '';
+    return {
+      telegram: telegram == null ? true : telegram === '1',
+      email: email === '1',
+      destinatarios: destinatariosRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean),
+    };
+  }
+
+  // Despacha alertas pros canais habilitados do tenant. Mesmo corpo HTML é
+  // usado em ambos (Telegram aceita um subset de HTML; o email envelopa).
+  // Erros num canal não bloqueiam o outro — cada um loga e segue.
+  async function enviarAlerta({ subject, body }) {
+    const cfg = lerAlertasConfig();
+    const tarefas = [];
+    if (cfg.telegram) {
+      tarefas.push(
+        sendTelegram(db, body).catch(e => console.error(`[ALERTA] telegram falhou: ${e.message}`))
+      );
+    }
+    if (cfg.email && cfg.destinatarios.length > 0) {
+      tarefas.push(
+        enviarEmailAlerta(db, { subject, htmlBody: body, to: cfg.destinatarios })
+          .catch(e => console.error(`[ALERTA] email falhou: ${e.message}`))
+      );
+    }
+    if (tarefas.length === 0) return; // nenhum canal ativo, no-op silencioso
+    await Promise.all(tarefas);
+  }
+
+  async function alertarMercadoAbaixoDoPiso(compraId, itemNumero, blitzInfo, melhorGeral, piso) {
+    try {
+      const dedupKey = `${compraId}-${itemNumero}@${blitzInfo.agendadoEm || ''}`;
+      if (_alertasPisoEnviados.has(dedupKey)) return;
+      _alertasPisoEnviados.add(dedupKey);
+
+      const secUntilDisparo = blitzInfo.alvoMs ? Math.round((blitzInfo.alvoMs - Date.now()) / 1000) : null;
+      const tempoTexto = secUntilDisparo != null
+        ? (secUntilDisparo > 60 ? `${Math.round(secUntilDisparo/60)}min` : `${secUntilDisparo}s`)
+        : blitzInfo.horario || '—';
+      const fmtR$ = v => v != null ? `R$ ${Number(v).toFixed(2).replace('.', ',')}` : '—';
+
+      const mensagem =
+        `🚨 <b>RAJADA SEM EFEITO</b>\n` +
+        `Compra: <code>${compraId}</code>\n` +
+        `Item: <b>${itemNumero}</b>\n` +
+        `Concorrente: <b>${fmtR$(melhorGeral)}</b>\n` +
+        `Seu piso: <b>${fmtR$(piso)}</b>\n` +
+        `Disparo: <b>${blitzInfo.horario || '—'}</b> (em ${tempoTexto})\n\n` +
+        `<i>O concorrente já está abaixo do seu piso. A rajada vai gerar 0 lances. ` +
+        `Abaixe o piso agora ou cancele se não quiser disputar.</i>`;
+
+      await enviarAlerta({ subject: `[LiciteAgora] 🚨 Rajada sem efeito — ${compraId} item ${itemNumero}`, body: mensagem });
+      console.log(`[ALERTA] 🚨 piso abaixo do concorrente: ${compraId} item ${itemNumero} — melhor=${melhorGeral} piso=${piso}`);
+    } catch (e) {
+      console.error(`[ALERTA] erro ao alertar piso: ${e.message}`);
+    }
+  }
+
+  // Alerta de token inválido / morto. Dedup via flag em sniper instance (per-tenant).
+  // Flag reseta quando setToken() é chamado com bearer novo (sniper-lance.js).
+  async function alertarTokenInvalido(motivo, status) {
+    try {
+      if (sniper._tokenMortoAlertado) return;
+      sniper._tokenMortoAlertado = true;
+
+      const idade = sniper.tokenRecebidoEm ? Math.round(sniper.idadeTokenSegundos()) : null;
+      const idadeTexto = idade != null
+        ? (idade < 60 ? `${idade}s` : `${Math.round(idade/60)}min`)
+        : '—';
+      const fonteTexto = sniper.tokenSource || '—';
+
+      const mensagem =
+        `🔐 <b>TOKEN COMPRASNET INVÁLIDO</b>\n` +
+        `Status: <b>HTTP ${status}</b>\n` +
+        `Origem da detecção: <code>${motivo}</code>\n` +
+        `Fonte do token atual: <b>${fonteTexto}</b>\n` +
+        `Idade: <b>${idadeTexto}</b>\n\n` +
+        `<i>Renove o bearer no Electron (qualquer ação autenticada no Comprasnet ` +
+        `dispara o interceptor). Sem token válido, polling e disparos falham.</i>`;
+
+      await enviarAlerta({ subject: `[LiciteAgora] 🔐 Token Comprasnet inválido`, body: mensagem });
+      console.log(`[ALERTA] 🔐 token inválido alertado (${motivo}, HTTP ${status})`);
+    } catch (e) {
+      console.error(`[ALERTA] erro ao alertar token: ${e.message}`);
+    }
+  }
+
+  // Alerta de SSO morto (Electron preso no login gov.br/hCaptcha, parou de capturar
+  // Bearer). Dedup por episódio via flag no sniper — reseta quando o heartbeat volta
+  // com ssoMorto=0 (login manual feito).
+  async function alertarSSOMorto(hb) {
+    try {
+      if (sniper._ssoMortoAlertado) return;
+      sniper._ssoMortoAlertado = true;
+
+      const idadeMin = hb.tokenAgeSec != null ? Math.round(hb.tokenAgeSec / 60) : null;
+      const mensagem =
+        `🔴 <b>ELECTRON — SSO COMPRASNET MORTO</b>\n` +
+        `O robô parou de capturar o Bearer e está preso no login gov.br (hCaptcha).\n` +
+        `Versão: <b>${hb.versao || '—'}</b> · Token: <b>${hb.tokenPresent ? 'presente' : 'ausente'}</b>` +
+        (idadeMin != null ? ` (idade ${idadeMin} min)` : '') + `\n\n` +
+        `<i>Ação: abra a janela do Electron e faça o login gov.br manualmente (resolver o hCaptcha + senha). ` +
+        `NÃO recarregue páginas do Comprasnet. Assim que logar, a captura volta sozinha.</i>`;
+
+      const subject = `[LiciteAgora] 🔴 Electron SSO morto — precisa login manual`;
+      await enviarAlerta({ subject, body: mensagem });
+      // Fallback: sem destinatário de alerta configurado → envia pro e-mail do próprio
+      // tenant (SMTP fromEmail) pra garantir que o alerta chegue.
+      if (!lerAlertasConfig().destinatarios.length) {
+        try {
+          const { loadSmtpConfig, enviarEmailAlerta } = require('./email-client');
+          const smtp = loadSmtpConfig(db);
+          if (smtp && smtp.fromEmail) {
+            await enviarEmailAlerta(db, { subject, htmlBody: mensagem.replace(/\n/g, '<br>'), to: [smtp.fromEmail] });
+          }
+        } catch (e) { console.error(`[ALERTA] fallback SSO morto falhou: ${e.message}`); }
+      }
+      console.log('[ALERTA] 🔴 SSO morto alertado');
+    } catch (e) {
+      console.error(`[ALERTA] erro ao alertar SSO morto: ${e.message}`);
+    }
+  }
+
+  // Alerta de "disputa iniciou mas item ativo não tem blitz agendado".
+  // Item ativo = sniper_itens.ativo=1 com valorMinimo configurado.
+  // Dedup: tenant-compraId-item-fase (re-alerta se a fase muda).
+  async function alertarDisputaIniciadaSemBlitz(compraId, itemNumero, apiItem, cfgItem) {
+    try {
+      const tenant = currentTenant();
+      const slug = tenant && tenant.slug ? tenant.slug : 'unknown';
+      const fase = apiItem.fase || 'LA';
+      const dedupKey = `${slug}-${compraId}-${itemNumero}-${fase}`;
+      if (_alertasDisputaIniciada.has(dedupKey)) return;
+      _alertasDisputaIniciada.add(dedupKey);
+
+      const fmtR$ = v => v != null ? `R$ ${Number(v).toFixed(2).replace('.', ',')}` : '—';
+      const melhorGeral = (apiItem.melhorValorGeral || {}).valorInformado;
+      const nossoValor  = (apiItem.melhorValorFornecedor || {}).valorInformado;
+
+      const mensagem =
+        `⚠️ <b>DISPUTA INICIOU SEM AGENDAMENTO</b>\n` +
+        `Compra: <code>${compraId}</code>\n` +
+        `Item: <b>${itemNumero}</b>\n` +
+        `Fase: <b>${fase}</b>\n` +
+        `Seu piso: <b>${fmtR$(cfgItem.valorMinimo)}</b>\n` +
+        `Concorrente: <b>${fmtR$(melhorGeral)}</b>\n` +
+        `Seu valor: <b>${fmtR$(nossoValor)}</b>\n\n` +
+        `<i>O item está aceitando lances agora mas você não tem blitz agendada. ` +
+        `Agende uma rajada ou mude o item pro modo contínuo se quiser proteção reativa.</i>`;
+
+      await enviarAlerta({ subject: `[LiciteAgora] ⚠️ Disputa iniciou sem agendamento — ${compraId} item ${itemNumero}`, body: mensagem });
+      console.log(`[ALERTA] ⚠️ disputa-sem-blitz alertado: ${compraId} item ${itemNumero} (fase ${fase})`);
+    } catch (e) {
+      console.error(`[ALERTA] erro ao alertar disputa-sem-blitz: ${e.message}`);
+    }
+  }
+
+  // Digest diário (Telegram): lista licitações em "interesse" cuja proposta
+  // ainda não foi enviada (participacoes_comprasnet.situacao != 'PE').
+  // Agrupado por licitação. Cada licitação lista os itens pendentes.
+  async function enviarDigestInteressesPendentes() {
+    let rows;
+    try {
+      rows = db.prepare(`
+        SELECT
+          i.cnpj, i.ano, i.sequencial, i.numeroItem,
+          l.objetoCompra,
+          l.razaoSocial as nomeOrgao,
+          l.dataEncerramentoProposta,
+          l.numeroCompra,
+          l.modalidadeNome,
+          l.codigoUnidade,
+          it.descricao as itemDescricao,
+          pc.situacao as situacaoParticipacao
+        FROM interesse i
+        LEFT JOIN licitacoes l ON i.cnpj = l.cnpj
+          AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra
+        LEFT JOIN itens it ON l.id = it.licitacaoId AND i.numeroItem = it.numeroItem
+        LEFT JOIN participacoes_comprasnet pc
+          ON pc.cnpj = substr(i.cnpj, 1, 8)
+          AND pc.ano = i.ano AND pc.sequencial = i.sequencial
+        WHERE
+          (pc.situacao IS NULL OR pc.situacao != 'PE')
+          AND (l.dataEncerramentoProposta IS NULL
+               OR l.dataEncerramentoProposta = ''
+               OR l.dataEncerramentoProposta > datetime('now'))
+        ORDER BY l.dataEncerramentoProposta ASC, i.cnpj, i.ano, i.sequencial, i.numeroItem
+      `).all();
+    } catch (e) {
+      console.error(`[DIGEST] erro na query: ${e.message}`);
+      return;
+    }
+
+    if (!rows || rows.length === 0) return; // Nada pendente, não envia digest vazio
+
+    // Agrupar por licitação (cnpj-ano-sequencial)
+    const grupos = new Map();
+    for (const r of rows) {
+      const key = `${r.cnpj}-${r.ano}-${r.sequencial}`;
+      if (!grupos.has(key)) {
+        grupos.set(key, {
+          objetoCompra: r.objetoCompra || 'Objeto não disponível',
+          nomeOrgao: r.nomeOrgao || '',
+          numeroCompra: r.numeroCompra || '',
+          modalidadeNome: r.modalidadeNome || '',
+          dataEncerramentoProposta: r.dataEncerramentoProposta || '',
+          itens: [],
+        });
+      }
+      if (r.numeroItem) {
+        grupos.get(key).itens.push({
+          numero: r.numeroItem,
+          descricao: r.itemDescricao || '',
+        });
+      }
+    }
+
+    const fmtData = iso => {
+      if (!iso) return 'sem data';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      } catch (_) { return iso; }
+    };
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const linhas = [];
+    linhas.push(`📋 <b>RESUMO DIÁRIO — Interesses pendentes</b>`);
+    linhas.push(`<i>${grupos.size} licitação(ões) sem proposta enviada</i>\n`);
+
+    for (const [, g] of grupos) {
+      const cabecalho = `▪ <b>${esc(g.modalidadeNome || 'Licitação')} ${esc(g.numeroCompra || '?')}</b> · ${esc(g.nomeOrgao || '?')}`;
+      const enc = `   <i>Encerra: ${fmtData(g.dataEncerramentoProposta)}</i>`;
+      const obj = `   ${esc((g.objetoCompra || '').substring(0, 120))}${g.objetoCompra && g.objetoCompra.length > 120 ? '…' : ''}`;
+      linhas.push(cabecalho);
+      linhas.push(enc);
+      linhas.push(obj);
+      const maxItens = 5;
+      const itensMostrados = g.itens.slice(0, maxItens);
+      for (const it of itensMostrados) {
+        const desc = (it.descricao || '').substring(0, 80);
+        linhas.push(`   • Item ${it.numero}: ${esc(desc)}${it.descricao && it.descricao.length > 80 ? '…' : ''}`);
+      }
+      if (g.itens.length > maxItens) linhas.push(`   <i>+ ${g.itens.length - maxItens} item(ns)…</i>`);
+      linhas.push('');
+    }
+
+    const mensagem = linhas.join('\n');
+    try {
+      await enviarAlerta({ subject: `[LiciteAgora] 📋 Resumo diário — ${grupos.size} interesse(s) pendente(s)`, body: mensagem });
+      console.log(`[ALERTA] 📋 digest interesses: ${grupos.size} licitação(ões), ${rows.length} item(ns)`);
+    } catch (e) {
+      console.error(`[ALERTA] erro ao enviar digest: ${e.message}`);
+      throw e; // propaga pra scanAlertas não marcar como enviado
+    }
+  }
+
+  // Scanner periódico (30s) chamado per-tenant em _iniciarAgendamentoTenant.
+  // Cobre os alertas:
+  //   1) Token: se validateToken inválido, dispara alertarTokenInvalido
+  //   2) Disputa iniciada sem blitz agendado: pra cada compraId com sniper_itens.ativo=1
+  //      sem blitz pendente, chama /itens/em-disputa e alerta itens com podeEnviarLances=true
+  //   3) Digest diário (uma vez por dia às 8h): lista interesses sem proposta enviada
+  async function scanAlertas() {
+    // Digest diário: roda uma vez por dia perto das 8h. Dedup por data ISO em config.
+    const agora = new Date();
+    if (agora.getHours() === HORA_DIGEST_INTERESSES) {
+      try {
+        const hoje = agora.toISOString().slice(0, 10);
+        const row = db.prepare("SELECT valor FROM config WHERE chave = 'digest_interesses_ultimo_envio'").get();
+        const ultimoEnvio = row ? row.valor : null;
+        if (!ultimoEnvio || ultimoEnvio < hoje) {
+          await enviarDigestInteressesPendentes();
+          db.prepare("INSERT OR REPLACE INTO config (chave, valor) VALUES ('digest_interesses_ultimo_envio', ?)").run(hoje);
+        }
+      } catch (e) {
+        console.error(`[DIGEST] tick falhou: ${e.message}`);
+      }
+    }
+
+
+    // 1) Token check
+    if (sniper.temToken() && !sniper.tokenExpirado()) {
+      try {
+        const validation = await sniper.validateToken(sniper.bearerToken);
+        if (!validation.valid && !validation.cached) {
+          await alertarTokenInvalido('scanner periódico', validation.status || 0);
+        }
+      } catch (_) { /* silencioso */ }
+    } else if (sniper.temToken() && sniper.tokenExpirado()) {
+      // Token cadastrado mas considerado expirado pelo cliente — também avisar
+      await alertarTokenInvalido('token marcado como expirado', 0);
+    }
+
+    // 2) Disputa sem blitz: scan por compraIds distintos com items ativos.
+    // Basta o item estar ATIVO (acompanhado); piso (valorMinimo) NÃO é exigido —
+    // o objetivo é justamente avisar de item aberto sem nada preparado, inclusive
+    // antes de o piso ser configurado.
+    let compras;
+    try {
+      compras = db.prepare(
+        `SELECT DISTINCT compraId FROM sniper_itens WHERE ativo = 1`
+      ).all();
+    } catch (_) { return; }
+
+    if (!compras || compras.length === 0) return;
+    if (!sniper.temToken()) return; // sem token não dá pra checar
+
+    for (const { compraId } of compras) {
+      // Fonte de verdade: tabela blitz_agendadas no DB. Antes consultava só
+      // o objeto in-memory `blitzAgendadas` — incidente 2026-05-22 mostrou
+      // que ele pode ficar dessincronizado do DB (recovery não populou ou
+      // alguém limpou indevidamente) e gerar falso "DISPUTA SEM AGENDAMENTO"
+      // mesmo com a blitz no DB. Em caso de divergência, loga warning pra
+      // permitir investigação posterior.
+      let blitzNoDb;
+      try {
+        blitzNoDb = db.prepare(
+          'SELECT blitzKey FROM blitz_agendadas WHERE compraId = ? LIMIT 1'
+        ).get(compraId);
+      } catch (_) { blitzNoDb = null; }
+      const blitzNaMemoria = Object.keys(blitzAgendadas).some(k => k.startsWith(compraId + '-'));
+      if (blitzNoDb && !blitzNaMemoria) {
+        console.warn(`[ScanAlertas] divergência ${compraId}: blitz no DB (${blitzNoDb.blitzKey}) mas ausente do in-memory blitzAgendadas — fonte DB prevalece`);
+      }
+      if (blitzNoDb || blitzNaMemoria) continue;
+
+      try {
+        const { status, data } = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`);
+        if (!(status === 200 || status === 206) || !Array.isArray(data)) continue;
+
+        for (const apiItem of data) {
+          if (!apiItem.podeEnviarLances) continue;
+          const itemNum = apiItem.numero || apiItem.identificador;
+          // Item tem config ativo?
+          const cfg = db.prepare(
+            `SELECT itemNumero, valorMinimo FROM sniper_itens WHERE compraId = ? AND itemNumero = ? AND ativo = 1`
+          ).get(compraId, itemNum);
+          if (!cfg) continue; // piso (valorMinimo) opcional — alerta mesmo sem ele
+          // Tem blitz específica pra esse item? Mesmo padrão: DB é fonte
+          // de verdade, in-memory é apenas fallback.
+          let blitzItemNoDb;
+          try {
+            blitzItemNoDb = db.prepare(
+              'SELECT 1 FROM blitz_agendadas WHERE compraId = ? AND itemNumero = ? LIMIT 1'
+            ).get(compraId, itemNum);
+          } catch (_) { blitzItemNoDb = null; }
+          if (blitzItemNoDb) continue;
+          if (Object.keys(blitzAgendadas).some(k => k.startsWith(_itemPrefix(compraId, itemNum)))) continue;
+          await alertarDisputaIniciadaSemBlitz(compraId, itemNum, apiItem, cfg);
+        }
+      } catch (_) { /* silencioso */ }
+    }
+  }
+
+  _scanAlertasRef = scanAlertas;
+
   function pararGuard(compraId, itemNumero) {
-    const guard = guardLoops[compraId];
+    const guard = sniper.guardLoops[compraId];
     if (!guard) return;
 
     if (itemNumero != null) {
@@ -582,13 +1735,13 @@ function registrarRotasSniper(app, monitorGetter, db) {
     if (guard.itens.size === 0 || itemNumero == null) {
       guard.active = false;
       if (guard.timer) { clearTimeout(guard.timer); guard.timer = null; }
-      delete guardLoops[compraId];
+      delete sniper.guardLoops[compraId];
       logAuto(`GUARD STOP: ${compraId}`);
     }
   }
 
   function pararTodosGuards() {
-    for (const compraId of Object.keys(guardLoops)) {
+    for (const compraId of Object.keys(sniper.guardLoops)) {
       pararGuard(compraId, null);
     }
   }
@@ -613,13 +1766,30 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (status === 200 || status === 206) qtdes = data;
     } catch (e) {}
 
-    // Se /qtdes mostra 0 itens em disputa, não vale buscar itens detalhados
+    // Se /qtdes mostra 0 itens em disputa, não vale buscar itens detalhados.
     if (qtdes && qtdes.qtdeItensEmDisputa === 0 && qtdes.qtdeItensAguardandoDisputa === 0) {
       logAuto(`Fetch direto: ${compraId} sem itens em disputa (qtdes: disputa=${qtdes.qtdeItensEmDisputa}, encerrada=${qtdes.qtdeItensComDisputaEncerrada})`);
-      // Atualizar faseCompra no banco se tudo encerrado
-      if (qtdes.qtdeItensComDisputaEncerrada > 0 && qtdes.qtdeItensEmDisputa === 0 && qtdes.qtdeItensAguardandoDisputa === 0) {
+      // Antes de marcar faseCompra=4 confirmar com /participacao. /qtdes é
+      // contagem de itens — pode dar 0 em disputa durante suspensão ou
+      // intervalo aleatório entre fases, mesmo que a compra continue em
+      // aberto. A fonte de verdade é faseCompraFaseExterna do /participacao.
+      if (qtdes.qtdeItensComDisputaEncerrada > 0) {
         try {
-          db.prepare(`UPDATE participacoes_comprasnet SET faseCompra = '4', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ? AND faseCompra = '3'`).run(compraId);
+          const { status: stPart, data: dataPart } = await sniper.apiGet(`/comprasnet-fase-externa/v1/compras/${compraId}/participacao`);
+          if (stPart === 200) {
+            const parsed = extrairFaseFromParticipacao(dataPart);
+            if (parsed && parsed.fase) {
+              db.prepare(`UPDATE participacoes_comprasnet SET
+                situacao = ?, faseCompra = ?,
+                objeto = COALESCE(NULLIF(?, ''), objeto),
+                orgao = COALESCE(NULLIF(?, ''), orgao),
+                dataAtualizacao = CURRENT_TIMESTAMP
+                WHERE compraId = ?`).run(parsed.situacao, parsed.fase, parsed.objeto, parsed.orgao, compraId);
+              if (parsed.fase !== '4') {
+                logAuto(`Fetch direto: ${compraId} /qtdes sugeriu fim mas /participacao confirma faseCompra=${parsed.fase} — não marcado encerrado`);
+              }
+            }
+          }
         } catch (e) {}
       }
       return null;
@@ -644,12 +1814,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
           // Derivar flags direto da resposta (filtro=3,4,5 não funciona para fornecedor)
           const itens = data.map(i => {
             const num = i.numero || i.identificador;
+            // Grupo/lote: total vem em valorCalculado, não valorInformado. Fallback só p/ grupo.
+            const ehGrupo = i.tipo === 'G' || i.numero < 0;
+            const pickV = o => (o || {}).valorInformado != null
+              ? o.valorInformado
+              : (ehGrupo && (o || {}).valorCalculado != null ? o.valorCalculado : null);
             return {
               numero: num,
+              tipo: i.tipo || null,
+              identificador: i.identificador || null,
               descricao: (i.descricao || i.objetoItem || '').substring(0, 200),
               fase: i.fase || '',
-              melhorValor: (i.melhorValorGeral || {}).valorInformado != null ? i.melhorValorGeral.valorInformado : null,
-              nossoValor: (i.melhorValorFornecedor || {}).valorInformado != null ? i.melhorValorFornecedor.valorInformado : null,
+              melhorValor: pickV(i.melhorValorGeral),
+              nossoValor: pickV(i.melhorValorFornecedor),
               valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || null,
               situacaoParticipante: i.situacaoParticipanteDisputa || null,
               variacaoMinima: i.variacaoMinimaEntreLances != null ? i.variacaoMinimaEntreLances : null,
@@ -686,9 +1863,117 @@ function registrarRotasSniper(app, monitorGetter, db) {
     return null;
   }
 
+  // ============ FASE 2: AUTO-LANCE EM GRUPO (lance POR ITEM) ============
+  // Grupo disputaPorValorUnitario=false: ranking pelo TOTAL, mas o lance é por item
+  // (unitário). Estratégia PRESERVAR MARGEM: reduz o item de MAIOR folga primeiro,
+  // 1 item por ciclo, aprendendo a quantidade q_i pelo ΔM (só nosso lance muda M).
+  // SEGURANÇA: nunca abaixo do piso f_i (sniper_itens.valorMinimo por item) — limite
+  // duro de dinheiro; guarda-de-voo (8s) + backoff 429; 1 lance/ciclo.
+  async function executarGrupoContinuo(compraId, grupoCfg) {
+    const gkey = `grp-${compraId}`;
+    sniper.continuoEstado = sniper.continuoEstado || {};
+    const est = sniper.continuoEstado[gkey] || (sniper.continuoEstado[gkey] = { inFlight: false, sentAt: 0, backoffUntil: 0, backoffLevel: 0, qtd: {}, pend: null });
+    const agora = Date.now();
+    if (est.backoffUntil > agora) return;
+    if (est.inFlight && (agora - est.sentAt) < 8000) return;
+
+    // 1) Grupo fresco: total nosso (M) e melhor concorrente (B)
+    let grupo;
+    try {
+      const g = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/-1`);
+      if (g.status !== 200 || !g.data) return;
+      grupo = g.data;
+    } catch (e) { return; }
+    const N = grupo.qtdeItensDoGrupo || 0;
+    if (N < 1 || !grupo.podeEnviarLances) return;
+    const M = (grupo.melhorValorFornecedor || {}).valorCalculado;
+    const B = (grupo.melhorValorGeral || {}).valorCalculado;
+    if (M == null || B == null) return;
+
+    // 2) Sub-itens frescos (valor unitário atual)
+    const subs = [];
+    for (let n = 1; n <= N; n++) {
+      try {
+        const s = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/${n}`);
+        if (s.status === 200 && s.data && s.data.numero != null) subs.push(s.data);
+      } catch (e) {}
+    }
+    if (!subs.length) return;
+    const uNow = {};
+    subs.forEach(s => { uNow[s.numero] = (s.melhorValorFornecedor || {}).valorInformado != null ? (s.melhorValorFornecedor || {}).valorInformado : (s.melhorValorFornecedor || {}).valorCalculado; });
+
+    // 2b) Aprender q_i do lance anterior (só nosso lance muda M entre ciclos)
+    if (est.pend && est.pend.mAntes != null) {
+      const p = est.pend, uDep = uNow[p.item];
+      if (uDep != null && p.uAntes != null && p.uAntes !== uDep) {
+        const q = Math.abs((p.mAntes - M) / (p.uAntes - uDep));
+        if (isFinite(q) && q > 0) est.qtd[p.item] = q;
+      }
+      est.pend = null;
+    }
+
+    // 3) Ganhando? margem = quanto ficar ABAIXO do melhor (descontoMinimo do grupo, default 0,01)
+    let margem = parseFloat(grupoCfg.descontoMinimo);
+    if (!(margem > 0)) margem = 0.01;
+    if (M <= B - margem) return; // já na frente pelo total
+    const need = M - (B - margem); // reais a cortar do total
+
+    // 4) Pisos por item + q estimado (fallback uniforme grupoEst/ΣunitEst)
+    const somaUEst = subs.reduce((a, s) => a + (s.valorEstimado || 0), 0);
+    const qUnif = (somaUEst > 0 && grupo.valorEstimado) ? grupo.valorEstimado / somaUEst : 1;
+    const pisos = {};
+    try {
+      db.prepare(`SELECT itemNumero, valorMinimo FROM sniper_itens WHERE compraId = ? AND itemNumero > 0`).all(compraId)
+        .forEach(r => { pisos[r.itemNumero] = r.valorMinimo; });
+    } catch (e) {}
+
+    const elig = subs.map(s => {
+      const u = uNow[s.numero];
+      const delta = s.variacaoMinimaEntreLances != null ? s.variacaoMinimaEntreLances : 0.3;
+      const f = pisos[s.numero];
+      const q = (est.qtd[s.numero] > 0) ? est.qtd[s.numero] : qUnif;
+      return { n: s.numero, u, delta, f, q, pode: s.podeEnviarLances };
+    }).filter(it => it.f != null && it.pode && it.u != null && (it.u - it.f) >= it.delta);
+
+    if (!elig.length) {
+      logAuto(`GRUPO ${compraId}: sem item elegível (defina piso < preço atual nos itens). nosso=R$${M} melhor=R$${B}`);
+      return;
+    }
+
+    // 4b) VIABILIDADE: se nem descendo tudo ao piso cobre o melhor, NÃO lança —
+    // jogar a margem fora perdendo do mesmo jeito é pior. (Baixe os pisos p/ competir.)
+    const folgaTotal = elig.reduce((a, x) => a + (x.u - x.f) * x.q, 0);
+    if (need > folgaTotal) {
+      logAuto(`GRUPO ${compraId}: INVIÁVEL — precisa cortar R$${need.toFixed(2)} > folga total R$${folgaTotal.toFixed(2)}; NÃO lança (preserva margem). nosso=R$${M} melhor=R$${B}`);
+      return;
+    }
+
+    // 5) PRESERVAR MARGEM: item de MAIOR folga total (u-f)*q primeiro
+    elig.sort((a, b) => ((b.u - b.f) * b.q) - ((a.u - a.f) * a.q));
+    const it = elig[0];
+    let dropUnit = need / it.q;                 // reduzir só o necessário
+    if (dropUnit < it.delta) dropUnit = it.delta;
+    let alvo = Math.round((it.u - dropUnit) * 100) / 100;
+    if (alvo < it.f) alvo = it.f;               // TRAVA DURA: nunca abaixo do piso
+    if (alvo >= it.u) return;
+
+    // 6) UM lance (1 item/ciclo) + guarda-de-voo/backoff + marca p/ aprender q_i
+    est.inFlight = true; est.sentAt = agora;
+    est.pend = { item: it.n, uAntes: it.u, mAntes: M };
+    try {
+      const r = await sniper.enviarLance(compraId, it.n, alvo, 'LA');
+      est.inFlight = false;
+      if (r.status === 429) { est.backoffLevel = Math.min((est.backoffLevel || 0) + 1, 6); est.backoffUntil = Date.now() + Math.min(1000 * Math.pow(2, est.backoffLevel - 1), 30000); est.pend = null; }
+      else { est.backoffLevel = 0; est.backoffUntil = 0; }
+      const rs = typeof r.resposta === 'string' ? r.resposta.substring(0, 1500) : (r.resposta ? JSON.stringify(r.resposta).substring(0, 1500) : '');
+      try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, it.n, alvo, r.status, r.sucesso ? 1 : 0, r.tempoMs, rs, 'grupo-continuo', new Date().toISOString()); } catch (e) {}
+      logAuto(`GRUPO ${compraId}: item #${it.n} R$${it.u}→R$${alvo} (need=R$${need.toFixed(2)}, q≈${it.q.toFixed(1)}, piso=R$${it.f}, nosso=R$${M} melhor=R$${B}) → HTTP ${r.status}`);
+    } catch (e) { est.inFlight = false; est.pend = null; }
+  }
+
   /**
    * Core loop: checks all items with modoAuto set and enqueues bids when losing.
-   * @param {boolean} modoRapido - If true, only processes compras in autoLanceComprasFast
+   * @param {boolean} modoRapido - If true, only processes compras in sniper.autoLanceComprasFast
    */
   async function executarCicloAutoLance(modoRapido = false) {
     try {
@@ -710,19 +1995,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       // In fast mode, only process compras near end
       const compraIds = modoRapido
-        ? Object.keys(porCompra).filter(id => autoLanceComprasFast[id])
+        ? Object.keys(porCompra).filter(id => sniper.autoLanceComprasFast[id])
         : Object.keys(porCompra);
 
       if (compraIds.length === 0) return;
 
-      autoLanceStats.ciclos++;
-      autoLanceStats.ultimoCiclo = new Date().toISOString();
+      sniper.autoLanceStats.ciclos++;
+      sniper.autoLanceStats.ultimoCiclo = new Date().toISOString();
 
       // Log diagnóstico a cada 20 ciclos (~5min) ou nos primeiros 3 ciclos
-      const logDiag = (autoLanceStats.ciclos <= 3 || autoLanceStats.ciclos % 20 === 0);
+      const logDiag = (sniper.autoLanceStats.ciclos <= 3 || sniper.autoLanceStats.ciclos % 20 === 0);
 
       // Reset fast list (will be rebuilt)
-      if (!modoRapido) autoLanceComprasFast = {};
+      if (!modoRapido) sniper.autoLanceComprasFast = {};
 
       for (const compraId of compraIds) {
         try {
@@ -742,6 +2027,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
           const itensAuto = porCompra[compraId];
 
           for (const cfgItem of itensAuto) {
+            // FASE 2: grupo (-1) com auto-lance → distribuição POR ITEM (preservar margem),
+            // não trata o -1 como item único (o Comprasnet não aceita lance no total).
+            if (cfgItem.itemNumero < 0 && cfgItem.modoAuto) {
+              await executarGrupoContinuo(compraId, cfgItem);
+              continue;
+            }
             let liveItem = cached.itens.find(i => i.numero === cfgItem.itemNumero);
             if (!liveItem) {
               // Grupo fallback: sub-items (1,2,3) inherit data from grupo (-1)
@@ -822,29 +2113,29 @@ function registrarRotasSniper(app, monitorGetter, db) {
               if (!dentroJanela && !gatilho2min) continue;
               // Fast polling when approaching sniper window
               if ((segRestantes != null && segRestantes < sniperSeg + 30 && segRestantes > 0) || nosDoisMinFinais) {
-                autoLanceComprasFast[compraId] = true;
+                sniper.autoLanceComprasFast[compraId] = true;
               }
             }
 
             // nosDoisMinFinais: ativar fast polling mesmo em modo contínuo
             if (nosDoisMinFinais) {
-              autoLanceComprasFast[compraId] = true;
+              sniper.autoLanceComprasFast[compraId] = true;
             }
 
             // emEncAleatoria: ativar ultra-fast timer (1s) — pode fechar a qualquer momento
             if (emEncAleatoria) {
-              autoLanceComprasFast[compraId] = true;
-              if (!autoLanceTimerUltra) {
-                autoLanceTimerUltra = setInterval(() => executarCicloAutoLance(true), 1000);
+              sniper.autoLanceComprasFast[compraId] = true;
+              if (!sniper.autoLanceTimerUltra) {
+                sniper.autoLanceTimerUltra = setInterval(() => executarCicloAutoLance(true), 1000);
                 logAuto(`ULTRA-FAST timer ativado (1s) — item ${cfgItem.itemNumero} em ENC.ALEATÓRIA`);
               }
             }
 
             // A3: Ultra-fast polling when < 30s from end
             if (segRestantes != null && segRestantes > 0 && segRestantes < 30) {
-              autoLanceComprasFast[compraId] = true;
-              if (!autoLanceTimerUltra) {
-                autoLanceTimerUltra = setInterval(() => executarCicloAutoLance(true), 1000);
+              sniper.autoLanceComprasFast[compraId] = true;
+              if (!sniper.autoLanceTimerUltra) {
+                sniper.autoLanceTimerUltra = setInterval(() => executarCicloAutoLance(true), 1000);
                 logAuto(`ULTRA-FAST timer ativado (1s) — item ${cfgItem.itemNumero} a ${segRestantes}s do fim`);
               }
             }
@@ -861,7 +2152,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
             // A2: BLITZ MODE — sniper with batch pre-calculation
             const blitzKey = `${compraId}-${cfgItem.itemNumero}`;
-            if (cfgItem.modoAuto === 'sniper' && segRestantes != null && segRestantes > 0 && !blitzDisparados[blitzKey]) {
+            if (cfgItem.modoAuto === 'sniper' && segRestantes != null && segRestantes > 0 && !sniper.blitzDisparados[blitzKey]) {
               // Calculate batch
               const batchLances = calcularBatchLances(cfgItem, liveItem, compraId, 50);
               if (batchLances.length > 0) {
@@ -873,17 +2164,17 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
                 if (segRestantes <= momentoIdealSeg) {
                   // DISPARA BLITZ! Enqueue ALL at once
-                  const jaEnfileirado = filaLances.some(l =>
+                  const jaEnfileirado = sniper.filaLances.some(l =>
                     l.compraId === compraId &&
                     l.itemNumero === cfgItem.itemNumero &&
                     (l.status === 'pendente' || l.status === 'processando')
                   );
                   if (!jaEnfileirado) {
                     for (const lance of batchLances) {
-                      filaLances.push(lance);
+                      sniper.filaLances.push(lance);
                     }
-                    blitzDisparados[blitzKey] = Date.now();
-                    autoLanceStats.lancesEnviados += batchLances.length;
+                    sniper.blitzDisparados[blitzKey] = Date.now();
+                    sniper.autoLanceStats.lancesEnviados += batchLances.length;
                     liveItem.nossoValor = batchLances[batchLances.length - 1].valor;
 
                     logAuto(`🚀 BLITZ: ${compraId} item ${cfgItem.itemNumero} — ${batchLances.length} lances enfileirados! ` +
@@ -898,8 +2189,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
               }
             }
 
-            // Check if already in filaLances (pendente or processando)
-            const jaEnfileirado = filaLances.some(l =>
+            // Check if already in sniper.filaLances (pendente or processando)
+            const jaEnfileirado = sniper.filaLances.some(l =>
               l.compraId === compraId &&
               l.itemNumero === cfgItem.itemNumero &&
               (l.status === 'pendente' || l.status === 'processando')
@@ -909,7 +2200,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
             // MODO CONTÍNUO: lance único reativo — envia UM degrau por vez, espera resultado, re-avalia
             if (cfgItem.modoAuto === 'continuo') {
               // Contínuo sempre entra no fast polling (para setImmediate pós-lance funcionar)
-              autoLanceComprasFast[compraId] = true;
+              sniper.autoLanceComprasFast[compraId] = true;
               // Não enviar sem dados reais do Comprasnet (stub = extensão não sincronizou)
               if (!cached || cached.stub) {
                 if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — aguardando sync (dados stub)`);
@@ -937,7 +2228,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
                 if (liveItem.sintetico && nossoValor == null && cfgItem.valorLance != null && cfgItem.valorLance > 0) {
                   const initVal = parseFloat(cfgItem.valorLance);
                   if (initVal >= cfgItem.valorMinimo) {
-                    autoLanceStats.lancesEnviados++;
+                    sniper.autoLanceStats.lancesEnviados++;
                     logAuto(`CONTÍNUO INIT DIRETO: ${compraId} item ${cfgItem.itemNumero} — R$${initVal.toFixed(2)} (primeiro lance grupo)`);
                     sniper.enviarLance(compraId, cfgItem.itemNumero, initVal, cfgItem.faseItem || 'LA').then(r => {
                       const rs = typeof r.resposta === 'string' ? r.resposta.substring(0, 1500) : (r.resposta ? JSON.stringify(r.resposta).substring(0, 1500) : '');
@@ -950,63 +2241,84 @@ function registrarRotasSniper(app, monitorGetter, db) {
                 continue;
               }
 
-              // Não dar lance se estamos GANHANDO — guard mode vigia e reage em <270ms
-              if (!estaPerdendo) {
+              // Não dar lance se estamos GANHANDO — guard mode vigia e reage em <270ms.
+              // Confia no sinal OBJETIVO (nosso <= melhor), não só na flag estaPerdendo do feed:
+              // o feed do Comprasnet CONGELA (melhor + estaPerdendo=PERDENDO desatualizados) e o
+              // motor descia o PRÓPRIO preço 1%/ciclo mesmo já sendo o melhor colocado
+              // (feedback usuário 2026-07-01: "deu lances desnecessários, já éramos o melhor").
+              // Ao entrar em GUARD o poll de ~200ms revalida o feed; se de fato perdermos, o Guard reage.
+              if (!estaPerdendo || (melhorGeral != null && nossoValor <= melhorGeral)) {
                 iniciarGuard(compraId, cfgItem.itemNumero);
-                if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — ganhando, GUARD ativo (nosso=R$${nossoValor.toFixed(2)})`);
+                if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — ganhando (nosso=R$${nossoValor.toFixed(2)} <= melhor=R$${melhorGeral != null ? melhorGeral.toFixed(2) : '?'}), GUARD ativo`);
                 continue;
               }
 
-              // Batch sizing inteligente: calcular quantos passos até superar melhorGeral
-              let stepsNeeded;
-              if (melhorGeral != null && nossoValor > melhorGeral) {
-                let vCalc = nossoValor;
-                stepsNeeded = 0;
-                while (vCalc >= melhorGeral && stepsNeeded < 50) {
-                  vCalc = calcularProximoDegrau(vCalc, varMinEfetivo, tipoVarEfetivo);
-                  stepsNeeded++;
-                }
-                stepsNeeded += 2; // margem de segurança
+              // MODO CONTÍNUO reativo: UM lance por ciclo (cobre o melhor concorrente em 1 lance),
+              // protegido por guarda-de-voo + backoff em 429.
+              // Antes (bug, incidente 2026-07-01): "Batch sizing" despejava até 50 lances em
+              // PARALELO por ciclo, sem esperar resultado. Como os 429 (rate limit) não mudam nossa
+              // posição, cada ciclo (ultra-timer 1s) re-disparava a escada inteira → ~2.000 req/min,
+              // ~95% recusadas (429 + 422 auto-corrida). O comentário acima já dizia "UM degrau por vez".
+              const _ckey = `${compraId}-${cfgItem.itemNumero}`;
+              sniper.continuoEstado = sniper.continuoEstado || {};
+              let _est = sniper.continuoEstado[_ckey];
+              if (!_est) _est = sniper.continuoEstado[_ckey] = { inFlight: false, sentAt: 0, backoffUntil: 0, backoffLevel: 0 };
+              const _agora = Date.now();
+
+              // Backoff pós-429: pausa o item por tempo crescente (1s→30s) até o Comprasnet liberar.
+              if (_est.backoffUntil > _agora) {
+                if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — backoff 429 +${Math.ceil((_est.backoffUntil - _agora) / 1000)}s`);
+                continue;
+              }
+              // Guarda-de-voo: no máximo 1 lance contínuo em trânsito por item
+              // (timeout de segurança 8s, abaixo dos 10s de timeout do enviarLance/apiPost).
+              if (_est.inFlight && (_agora - _est.sentAt) < 8000) continue;
+
+              // Alvo: cobrir o melhor concorrente em UM lance (1 degrau abaixo dele), clampado ao piso.
+              // Se o melhor é desconhecido, desce 1 degrau do nosso valor.
+              let _alvo;
+              if (melhorGeral != null && melhorGeral < nossoValor) {
+                _alvo = calcularProximoDegrau(melhorGeral, varMinEfetivo, tipoVarEfetivo);
               } else {
-                stepsNeeded = 5; // melhorGeral desconhecido → batch pequeno
+                _alvo = calcularProximoDegrau(nossoValor, varMinEfetivo, tipoVarEfetivo);
               }
-              const BATCH_SIZE = Math.min(Math.max(stepsNeeded, 3), 50);
-              let v = nossoValor;
-              let batchCount = 0;
-              const melhorGeralRound = melhorGeral != null ? Math.round(melhorGeral * 100) / 100 : null;
-
-              while (batchCount < BATCH_SIZE) {
-                let novoValor = calcularProximoDegrau(v, varMinEfetivo, tipoVarEfetivo);
-                if (novoValor < cfgItem.valorMinimo) novoValor = cfgItem.valorMinimo;
-                if (novoValor >= v) break; // sem espaço para baixar
-
-                // Pular valor igual ao melhor geral (Comprasnet rejeita)
-                if (melhorGeralRound != null && novoValor === melhorGeralRound) {
-                  v = novoValor;
-                  continue; // skip this value but keep going
+              // Cobrir o concorrente furaria o piso → só lançar se o próprio piso ainda for um
+              // degrau válido (respeitando varMin) abaixo do nosso valor atual.
+              if (_alvo < cfgItem.valorMinimo) {
+                if (calcularProximoDegrau(nossoValor, varMinEfetivo, tipoVarEfetivo) < cfgItem.valorMinimo) {
+                  if (logDiag) logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — piso R$${cfgItem.valorMinimo} não cobre (nosso R$${nossoValor.toFixed(2)})`);
+                  continue;
                 }
-
-                if (novoValor <= 0) break;
-
-                // Enviar direto pelo servidor (async em background)
-                const _cid = compraId, _inum = cfgItem.itemNumero, _nv = novoValor, _fi = cfgItem.faseItem || 'LA';
-                sniper.enviarLance(_cid, _inum, _nv, _fi).then(r => {
-                  const rs = typeof r.resposta === 'string' ? r.resposta.substring(0, 1500) : (r.resposta ? JSON.stringify(r.resposta).substring(0, 1500) : '');
-                  try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(_cid, _inum, _nv, r.status, r.sucesso ? 1 : 0, r.tempoMs, rs, 'continuo-servidor', new Date().toISOString()); } catch (e) {}
-                }).catch(() => {});
-                autoLanceStats.lancesEnviados++;
-                batchCount++;
-                v = novoValor;
-                if (novoValor <= cfgItem.valorMinimo) break; // atingiu mínimo
+                _alvo = cfgItem.valorMinimo;
               }
+              if (_alvo >= nossoValor || _alvo <= 0) continue; // sem espaço para baixar
 
-              if (batchCount > 0) {
-                const primeiro = calcularProximoDegrau(nossoValor, varMinEfetivo, tipoVarEfetivo);
-                const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
-                logAuto(`CONTÍNUO BATCH: ${compraId} item ${cfgItem.itemNumero} — ${batchCount} lances R$${primeiro.toFixed(2)}→R$${v.toFixed(2)} ` +
-                  `(nosso=R$${nossoValor.toFixed(2)}, var ${tipoVarEfetivo}=${varMinEfetivo}, min=R$${cfgItem.valorMinimo})` +
-                  `${flagsStr ? ' [' + flagsStr + ']' : ''}`);
-              }
+              _est.inFlight = true;
+              _est.sentAt = _agora;
+              sniper.autoLanceStats.lancesEnviados++;
+              const _cid = compraId, _inum = cfgItem.itemNumero, _nv = _alvo, _fi = cfgItem.faseItem || 'LA';
+              sniper.enviarLance(_cid, _inum, _nv, _fi).then(r => {
+                _est.inFlight = false;
+                if (r.status === 429) {
+                  _est.backoffLevel = Math.min((_est.backoffLevel || 0) + 1, 6);
+                  _est.backoffUntil = Date.now() + Math.min(1000 * Math.pow(2, _est.backoffLevel - 1), 30000);
+                } else {
+                  _est.backoffLevel = 0;
+                  _est.backoffUntil = 0;
+                }
+                // O feed do Comprasnet atrasa a atualização do nosso valor: com lance aceito (200)
+                // OU 422 "deve ser melhor que o último" (= já detemos esse valor), registrar
+                // otimisticamente pra não re-lançar o mesmo valor a cada ciclo (loop de 422).
+                // Mesmo padrão já usado no path sniper/ambos (liveItem.nossoValor = ...).
+                if (r.sucesso || r.status === 422) { try { liveItem.nossoValor = _nv; } catch (e) {} }
+                const rs = typeof r.resposta === 'string' ? r.resposta.substring(0, 1500) : (r.resposta ? JSON.stringify(r.resposta).substring(0, 1500) : '');
+                try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(_cid, _inum, _nv, r.status, r.sucesso ? 1 : 0, r.tempoMs, rs, 'continuo-servidor', new Date().toISOString()); } catch (e) {}
+              }).catch(() => { _est.inFlight = false; });
+
+              const flagsStr = [estaPerdendo && 'PERDENDO', emEncAleatoria && 'ENC.ALEATORIA', nosDoisMinFinais && '2MIN'].filter(Boolean).join(' ');
+              logAuto(`CONTÍNUO: ${compraId} item ${cfgItem.itemNumero} — 1 lance R$${nossoValor.toFixed(2)}→R$${_alvo.toFixed(2)} ` +
+                `(var ${tipoVarEfetivo}=${varMinEfetivo}, min=R$${cfgItem.valorMinimo}, melhor=${melhorGeral != null ? 'R$' + melhorGeral.toFixed(2) : '?'})` +
+                `${flagsStr ? ' [' + flagsStr + ']' : ''}`);
               continue;
             }
 
@@ -1033,8 +2345,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
               status: 'pendente',
               fonte: 'auto-lance',
             };
-            filaLances.push(lance);
-            autoLanceStats.lancesEnviados++;
+            sniper.filaLances.push(lance);
+            sniper.autoLanceStats.lancesEnviados++;
             liveItem.nossoValor = novoLance;
 
             const logMelhor = melhorGeral != null ? `melhor R$${melhorGeral.toFixed(2)}` : 'sem melhor';
@@ -1053,33 +2365,33 @@ function registrarRotasSniper(app, monitorGetter, db) {
   }
 
   function iniciarAutoLance() {
-    if (autoLanceAtivo) return;
-    autoLanceAtivo = true;
+    if (sniper.autoLanceAtivo) return;
+    sniper.autoLanceAtivo = true;
     logAuto('Engine LIGADO');
 
     // Normal cycle every 15s
-    autoLanceTimerNormal = setInterval(() => executarCicloAutoLance(false), 15000);
+    sniper.autoLanceTimerNormal = setInterval(() => executarCicloAutoLance(false), 15000);
     // Fast cycle every 5s (for sniper/ambos near end)
-    autoLanceTimerRapido = setInterval(() => executarCicloAutoLance(true), 5000);
+    sniper.autoLanceTimerRapido = setInterval(() => executarCicloAutoLance(true), 5000);
     // Run immediately
     executarCicloAutoLance(false);
   }
 
   function pararAutoLance() {
-    if (!autoLanceAtivo) return;
-    autoLanceAtivo = false;
-    if (autoLanceTimerNormal) { clearInterval(autoLanceTimerNormal); autoLanceTimerNormal = null; }
-    if (autoLanceTimerRapido) { clearInterval(autoLanceTimerRapido); autoLanceTimerRapido = null; }
-    if (autoLanceTimerUltra) { clearInterval(autoLanceTimerUltra); autoLanceTimerUltra = null; }
-    autoLanceComprasFast = {};
-    blitzDisparados = {};
+    if (!sniper.autoLanceAtivo) return;
+    sniper.autoLanceAtivo = false;
+    if (sniper.autoLanceTimerNormal) { clearInterval(sniper.autoLanceTimerNormal); sniper.autoLanceTimerNormal = null; }
+    if (sniper.autoLanceTimerRapido) { clearInterval(sniper.autoLanceTimerRapido); sniper.autoLanceTimerRapido = null; }
+    if (sniper.autoLanceTimerUltra) { clearInterval(sniper.autoLanceTimerUltra); sniper.autoLanceTimerUltra = null; }
+    sniper.autoLanceComprasFast = {};
+    sniper.blitzDisparados = {};
     pararTodosGuards();
     logAuto('Engine DESLIGADO');
   }
 
   // A3: Auto-cleanup ultra timer when no items near end or in encerramento aleatório
   function verificarUltraTimer() {
-    if (!autoLanceTimerUltra) return;
+    if (!sniper.autoLanceTimerUltra) return;
     // Check if any item is still < 30s from end OR in encerramento aleatório
     let precisaUltra = false;
     for (const d of disputasCache.disputas) {
@@ -1094,8 +2406,8 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (precisaUltra) break;
     }
     if (!precisaUltra) {
-      clearInterval(autoLanceTimerUltra);
-      autoLanceTimerUltra = null;
+      clearInterval(sniper.autoLanceTimerUltra);
+      sniper.autoLanceTimerUltra = null;
       logAuto('ULTRA-FAST timer desativado (nenhum item próximo do fim ou em enc.aleatória)');
     }
   }
@@ -1105,20 +2417,25 @@ function registrarRotasSniper(app, monitorGetter, db) {
       const count = db.prepare(
         `SELECT COUNT(*) as n FROM sniper_itens WHERE modoAuto IS NOT NULL AND modoAuto != ''`
       ).get();
-      if (count.n > 0 && !autoLanceAtivo) {
+      if (count.n > 0 && !sniper.autoLanceAtivo) {
         iniciarAutoLance();
-      } else if (count.n === 0 && autoLanceAtivo) {
+      } else if (count.n === 0 && sniper.autoLanceAtivo) {
         pararAutoLance();
       }
     } catch (e) {}
   }
 
-  // Auto-start on boot (after 5s to let everything initialize)
-  setTimeout(verificarAutoLanceNecessario, 5000);
+  // Phase C (2026-04-23): boot-time verificarAutoLanceNecessario foi movido
+  // para _iniciarAgendamentoTenant — cada tenant que aparecer no worker recebe
+  // sua própria verificação per-tenant com contexto preservado. AsyncLocalStorage
+  // propaga contexto através de setInterval/setTimeout, então os timers criados
+  // por iniciarAutoLance dentro do contexto do tenant herdam o contexto em
+  // todas as disparadas.
+  _verificarAutoLanceRef = verificarAutoLanceNecessario;
 
   /**
    * POST /api/sniper/lance
-   * Adiciona lance à fila (extensão processa via browser).
+   * Adiciona lance à fila (Electron processa via webview Comprasnet).
    * Também tenta enviar direto (fallback se servidor tiver acesso).
    */
   app.post('/api/sniper/lance', async (req, res) => {
@@ -1127,6 +2444,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (!compraId || !itemNumero || valor == null) {
         return res.status(400).json({ success: false, error: 'compraId, itemNumero e valor obrigatórios' });
       }
+
+      // ─── Roteamento BNC: compraId 'bnc:<processNumber>' usa engine SignalR + captcha bridge ───
+      if (typeof compraId === 'string' && compraId.startsWith('bnc:')) {
+        const tdb = req.tenantDb || db;
+        const tenantSlug = req.tenant?.slug || req.tenantSlug || null;
+        return handleBNCLance(tdb, tenantSlug, { compraId, batchNumber: parseInt(itemNumero), valor: parseFloat(valor) }, res);
+      }
+
       if (!sniper.temToken()) return res.status(400).json({ success: false, error: 'Sem Bearer token' });
 
       // Enviar direto pelo servidor
@@ -1150,12 +2475,298 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Disparo manual da rajada blitz — calcula batch e enfileira lances REAIS.
    * Permite testar o modo sniper a qualquer momento, sem esperar o timer automático.
    */
-  // Blitz agendadas: { 'compraId-itemNumero': { timer, horario, compraId, itemNumero, totalLances } }
+  // Blitz agendadas: { 'compraId-itemNumero-alvoMs': { timer, horario, compraId, itemNumero, alvoMs, ... } }
+  // Formato 2026-05-25: blitzKey inclui alvoMs pra permitir múltiplos agendamentos
+  // do MESMO item em horários diferentes (testes / estratégias múltiplas).
   var blitzAgendadas = {};
+
+  function _mkBlitzKey(compraId, itemNumero, alvoMs) {
+    return `${compraId}-${itemNumero}-${alvoMs}`;
+  }
+  // Modalidade Comprasnet no compraId {uasg:6}{mod:2}{num:5}{ano:4}.
+  // 05 = Pregão (encerramento ALEATÓRIO), 06 = Dispensa (hora exata). Confirmado pelo usuário 2026-06-24.
+  // participacoes_comprasnet.modalidade/modoDisputa estão vazios em ~95% das linhas → decodificar do compraId.
+  function isPregaoCompraId(cid) {
+    return typeof cid === 'string' && cid.length >= 8 && cid.substring(6, 8) === '05';
+  }
+  // Prefix usado por scan-alertas e dedupe-por-item (sem alvoMs).
+  function _itemPrefix(compraId, itemNumero) {
+    return `${compraId}-${itemNumero}-`;
+  }
+  // Retorna a blitz futura mais próxima pra esse item (ou null). Usado por
+  // guard/alertas que antes pegavam blitzAgendadas[compraId-itemNum] direto.
+  function _proxBlitzFutura(compraId, itemNumero) {
+    const prefixo = _itemPrefix(compraId, itemNumero);
+    const agora = Date.now();
+    let melhor = null;
+    for (const k of Object.keys(blitzAgendadas)) {
+      if (!k.startsWith(prefixo)) continue;
+      const b = blitzAgendadas[k];
+      if (b.alvoMs <= agora) continue;
+      if (melhor == null || b.alvoMs < melhor.alvoMs) melhor = b;
+    }
+    return melhor;
+  }
+
+  // Coalescing por alvoMs: vários blitz-individuais agendados pro MESMO instante
+  // compartilham 1 timer e disparam em round-robin entre os itens (igual o global).
+  // Estrutura: Map<alvoMs, { items: [{compraId, itemNumero, maxLances, modoBlitz, capPorItem}], timer, horarioEfetivo, tag }>
+  var blitzGruposPorAlvo = new Map();
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Helper: dado um horário do ÚLTIMO LANCE (com ou sem ms), calcula:
+  //   - alvoUltimoLance: timestamp em que o último lance deve CHEGAR ao Comprasnet
+  //   - dispatchAlvo:    timestamp em que o setTimeout deve disparar (PRIMEIRO lance sai)
+  //   - duracaoTotalMs:  recuo aplicado = oneWay + (N-1)*intervaloRR + bufferSpike
+  //
+  // Diferença vs versão antiga: ANTES o ms do horário era usado como dispatch
+  // direto (causava chegada do último lance MUITO depois do alvo). AGORA o
+  // ms do horário (ou milesimoAlvo default=970) é o ALVO DE CHEGADA, e o
+  // dispatch é calculado recuando. Bug fix 2026-05-25 (15:00 falhou +118ms).
+  // ─────────────────────────────────────────────────────────────────────
+  function _calcularMilesimoAuto({ horario, itensCount, maxLancesArr, milesimoAlvo }) {
+    const agora = new Date();
+    const partes = horario.split(':');
+    const hh = parseInt(partes[0]) || 0;
+    const mm = parseInt(partes[1]) || 0;
+    const secParts = (partes[2] || '0').split('.');
+    const ss = parseInt(secParts[0]) || 0;
+    // Se o usuário forneceu ms → esse é o alvo de chegada. Senão usa milesimoAlvo (default 970).
+    const msExplicito = secParts[1] != null && secParts[1] !== '';
+    const msTarget = msExplicito
+      ? parseInt(secParts[1].padEnd(3, '0').substring(0, 3))
+      : (milesimoAlvo || 970);
+
+    // alvoUltimoLance = quando o último lance precisa CHEGAR ao Comprasnet
+    const alvoUltimoLance = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), hh, mm, ss, msTarget);
+
+    // Cálculo de recuo (mesmas constantes calibradas):
+    const oneWay = 76;          // mediana RTT/2 (lance servidor → Comprasnet)
+    const intervaloRR = 157;    // gap entre rodadas round-robin
+    const rttMediana = 153;     // RTT puro (1 item sequencial)
+    const bufferSpike = 30;     // tolerância jitter
+    const lancesValidos = (maxLancesArr || []).filter(m => m > 0);
+    const maxLancesReal = lancesValidos.length > 0 ? Math.max(...lancesValidos) : 5;
+    const numRodadas = Math.max(0, maxLancesReal - 1);
+    const intervalo = (itensCount || 1) > 1 ? intervaloRR : rttMediana;
+    const duracaoTotalMs = oneWay + (numRodadas * intervalo) + bufferSpike;
+
+    // dispatchAlvo = recua a duração total do alvo de chegada
+    const dispatchAlvo = new Date(alvoUltimoLance.getTime() - duracaoTotalMs);
+
+    // horarioEfetivo (humano) — mostra o ALVO DE CHEGADA do último lance
+    const horarioEfetivo = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}.${String(msTarget).padStart(3,'0')}`;
+    const dispatchHora = dispatchAlvo.toTimeString().slice(0,8) + '.' + String(dispatchAlvo.getMilliseconds()).padStart(3,'0');
+
+    // Compat: campo `alvo` antigo continua = alvoUltimoLance (pra callers existentes)
+    return {
+      alvo: alvoUltimoLance,
+      alvoUltimoLance,
+      dispatchAlvo,
+      duracaoTotalMs,
+      horarioEfetivo,
+      dispatchHora,
+      msCalculado: dispatchAlvo.getMilliseconds(),  // pra compat
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Helper compartilhado: prepara batches dos itens (com refresh API se faltar
+  // dado live) e executa round-robin de lances com Promise.all por rodada.
+  // Usado pelo blitz-global e pelo timer coalescido do individual.
+  // `itensConfig`: [{ compraId, itemNumero, valorMinimo, faseItem, variacaoMinima, tipoVariacao, maxLances }, ...]
+  // ─────────────────────────────────────────────────────────────────────
+  async function _executarRoundRobinBlitz({ itensConfig, modo, capPorItem, tag, fonte, alvoMs }) {
+    // Telemetria: marca tempo real de dispatch + snapshot fimContagem por item
+    const dispatchMs = Date.now();
+    const desvioInicialMs = alvoMs != null ? (dispatchMs - alvoMs) : null;
+    const fimContagemSnapshot = {}; // { 'compraId-itemNumero': fimContagemString }
+    const itensBatches = [];
+    for (const item of itensConfig) {
+      // blitzKey específico desse agendamento (suporta múltiplas blitzes pro mesmo item)
+      const blitzKey = alvoMs != null ? _mkBlitzKey(item.compraId, item.itemNumero, alvoMs) : `${item.compraId}-${item.itemNumero}`;
+      const cached = disputasCache.disputas.find(d => d.compraId === item.compraId);
+      const liveItem = cached && cached.itens ? cached.itens.find(i => i.numero === item.itemNumero) : null;
+      // Snapshot do encerramento previsto no T=0 (pra comparar depois com chegada real)
+      fimContagemSnapshot[`${item.compraId}-${item.itemNumero}`] = liveItem?.fimContagem || null;
+      if (!liveItem || liveItem.nossoValor == null) {
+        const motivo = sniper.temToken()
+          ? 'Aborto: sem dados live (cache não populado e API não respondeu)'
+          : 'Aborto: sem dados live (token Bearer ausente — Electron offline?)';
+        blitzHist.finalizarStatus(db, blitzKey, 'executada', {
+          compraId: item.compraId, itemNumero: item.itemNumero,
+          lancesEnviados: 0, observacao: motivo,
+        });
+        try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
+        delete blitzAgendadas[blitzKey];
+        notificarResultadoBlitz(item.compraId, item.itemNumero, { sucessos: 0, falhas: 0, motivo: 'sem live data' });
+        continue;
+      }
+
+      // Refresh direto da API se faltar tipoVariacao (extensão antiga)
+      if (liveItem.tipoVariacao == null && sniper.temToken()) {
+        try {
+          const { status, data } = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${item.compraId}/itens/em-disputa`);
+          if ((status === 200 || status === 206) && Array.isArray(data)) {
+            const apiItem = data.find(i => (i.numero || i.identificador) === item.itemNumero);
+            if (apiItem) {
+              liveItem.variacaoMinima = apiItem.variacaoMinimaEntreLances ?? liveItem.variacaoMinima;
+              liveItem.tipoVariacao = apiItem.tipoVariacaoMinimaEntreLances || liveItem.tipoVariacao;
+              liveItem.melhorValor = (apiItem.melhorValorGeral || {}).valorInformado ?? liveItem.melhorValor;
+              liveItem.nossoValor = (apiItem.melhorValorFornecedor || {}).valorInformado ?? liveItem.nossoValor;
+              liveItem.situacaoParticipante = apiItem.situacaoParticipanteDisputa || liveItem.situacaoParticipante;
+              logAuto(`🔄 ${tag} refresh: ${item.compraId} item ${item.itemNumero} — varMin=${liveItem.variacaoMinima} tipo=${liveItem.tipoVariacao} nosso=${liveItem.nossoValor}`);
+            }
+          }
+        } catch (e) {
+          logAuto(`⚠️ ${tag} refresh falhou: ${e.message}`);
+        }
+      }
+
+      const itemParaCalculo = {
+        ...liveItem,
+        variacaoMinima: liveItem.variacaoMinima != null ? liveItem.variacaoMinima : item.variacaoMinima,
+        tipoVariacao: liveItem.tipoVariacao || item.tipoVariacao || 'V',
+      };
+      const itemMaxLances = capPorItem != null ? capPorItem : (item.maxLances || 5);
+      const batchLances = calcularBatchLances(item, itemParaCalculo, item.compraId, itemMaxLances, modo);
+      if (batchLances.length === 0) {
+        const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${item.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${modo}`;
+        blitzHist.finalizarStatus(db, blitzKey, 'executada', {
+          compraId: item.compraId, itemNumero: item.itemNumero,
+          lancesEnviados: 0, observacao: `Aborto: batch vazio — ${dbg}`,
+        });
+        try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
+        delete blitzAgendadas[blitzKey];
+        notificarResultadoBlitz(item.compraId, item.itemNumero, { sucessos: 0, falhas: 0, motivo: 'batch vazio (piso/varMin)' });
+        continue;
+      }
+      sniper.blitzDisparados[blitzKey] = Date.now();
+      delete blitzAgendadas[blitzKey];
+      try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
+      const histIdBlitz = blitzHist.finalizarStatus(db, blitzKey, 'executada', {
+        compraId: item.compraId, itemNumero: item.itemNumero,
+        observacao: `Disparada (${tag.toLowerCase()})`,
+      });
+      const vi = itemParaCalculo.nossoValor.toFixed(2);
+      const vf = batchLances[batchLances.length - 1].valor.toFixed(2);
+      logAuto(`📋 ${tag} ${item.compraId} item ${item.itemNumero} pré-disparo: fase=${itemParaCalculo.fase || '?'} sit=${itemParaCalculo.situacaoParticipante || '?'} nosso=${itemParaCalculo.nossoValor} varMin=${itemParaCalculo.variacaoMinima} batch=[${batchLances.slice(0,3).map(l => l.valor.toFixed(2)).join(', ')}${batchLances.length > 3 ? ', …' : ''}]`);
+      console.log(`[${tag}] DIRETO: ${item.compraId} item ${item.itemNumero} — ${batchLances.length} lances (R$${vi} → R$${vf})`);
+      itensBatches.push({ compraId: item.compraId, itemNumero: item.itemNumero, batchLances, liveItem, historicoId: histIdBlitz });
+    }
+
+    if (itensBatches.length === 0) return { itemOk: {}, itemFalha: {} };
+
+    const maxRodadas = Math.max(...itensBatches.map(ib => ib.batchLances.length));
+    const itemFalhou = new Set();
+    const itemOk = {};
+    const itemFalha = {};
+    // Telemetria: acumular RTT por item + timestamp da última chegada
+    const itemRtts = {};            // key → [tempoMs, ...]
+    const itemUltimaChegadaMs = {}; // key → timestamp absoluto (Date.now()) da última resposta
+    for (const ib of itensBatches) {
+      const k = ib.compraId + '-' + ib.itemNumero;
+      itemOk[k] = 0; itemFalha[k] = 0;
+      itemRtts[k] = []; itemUltimaChegadaMs[k] = null;
+    }
+
+    for (let rodada = 0; rodada < maxRodadas; rodada++) {
+      const lancesRodada = [];
+      for (const ib of itensBatches) {
+        const key = ib.compraId + '-' + ib.itemNumero;
+        if (itemFalhou.has(key)) continue;
+        if (rodada >= ib.batchLances.length) continue;
+        lancesRodada.push({ ib, lance: ib.batchLances[rodada], key });
+      }
+      if (lancesRodada.length === 0) break;
+
+      const rodadaInicio = Date.now();
+      const resultados = await Promise.all(lancesRodada.map(({ ib, lance, key }) =>
+        sniper.enviarLance(ib.compraId, ib.itemNumero, lance.valor, lance.faseItem || 'LA')
+          .then(r => ({ key, ib, lance, resultado: r, chegadaMs: Date.now() }))
+          .catch(e => ({ key, ib, lance, resultado: { sucesso: false, status: 0, resposta: e.message, tempoMs: 0 }, chegadaMs: Date.now() }))
+      ));
+      const rodadaDur = Date.now() - rodadaInicio;
+      const maxRttRodada = Math.max(...resultados.map(r => r.resultado.tempoMs || 0));
+      console.log(`[${tag}-TIMING] rodada ${rodada+1}/${maxRodadas}: ${lancesRodada.length} lance(s) — duração=${rodadaDur}ms, RTT máx=${maxRttRodada}ms (alvo=${alvoMs ? new Date(alvoMs).toISOString() : '?'})`);
+
+      for (const { key, ib, lance, resultado, chegadaMs } of resultados) {
+        const respostaStr = typeof resultado.resposta === 'string' ? resultado.resposta.substring(0, 1500) : (resultado.resposta ? JSON.stringify(resultado.resposta).substring(0, 1500) : '');
+        try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ib.compraId, ib.itemNumero, lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, fonte || 'blitz-servidor', new Date().toISOString()); } catch (e) {}
+        if (resultado.tempoMs > 0) itemRtts[key].push(resultado.tempoMs);
+        itemUltimaChegadaMs[key] = chegadaMs;
+        if (resultado.sucesso) {
+          itemOk[key]++;
+        } else {
+          itemFalha[key]++;
+          if (resultado.status === 401 || resultado.status === 403) itemFalhou.add(key);
+          else if (resultado.status === 422) {
+            const tipo = classificar422(resultado.resposta);
+            logAuto(`🩹 ${tag} 422 ${tipo}: ${ib.compraId} item ${ib.itemNumero} R$ ${lance.valor.toFixed(2)}`);
+            if (tipo !== 'colisao') itemFalhou.add(key);
+          }
+        }
+      }
+    }
+
+    for (const ib of itensBatches) {
+      const key = ib.compraId + '-' + ib.itemNumero;
+      ib.liveItem.nossoValor = ib.batchLances[ib.batchLances.length - 1].valor;
+      console.log(`[${tag}] DIRETO resultado: ${ib.compraId} item ${ib.itemNumero} — ${itemOk[key]} ✅ ${itemFalha[key]} ❌`);
+      blitzHist.atualizarLances(db, ib.historicoId, itemOk[key] + itemFalha[key],
+        `Disparada (${tag.toLowerCase()}): ${itemOk[key]} OK, ${itemFalha[key]} falhas`);
+
+      // ───── Telemetria fina (2026-05-25): salva métricas pra análise/calibração ─────
+      try {
+        const rtts = itemRtts[key];
+        const rttMedio = rtts.length > 0 ? Math.round(rtts.reduce((s,v)=>s+v,0) / rtts.length) : null;
+        const rttMax = rtts.length > 0 ? Math.max(...rtts) : null;
+        const rttMin = rtts.length > 0 ? Math.min(...rtts) : null;
+        const fimContagemNoT0 = fimContagemSnapshot[key];
+        let deltaVsEnc = null;
+        if (fimContagemNoT0 && itemUltimaChegadaMs[key]) {
+          try {
+            const encMs = parseBrasilia(fimContagemNoT0).getTime();
+            if (!isNaN(encMs)) deltaVsEnc = itemUltimaChegadaMs[key] - encMs;
+          } catch (_) {}
+        }
+        const numLances = itemOk[key] + itemFalha[key];
+        db.prepare(`INSERT INTO blitz_telemetria
+          (blitzKey, compraId, itemNumero, tag, alvoMs, dispatchMs, desvioInicialMs,
+           fimContagemNoT0, numLances, sucessos, falhas,
+           rttMedioMs, rttMaxMs, rttMinMs, ultimoChegadaMs, deltaVsEncerramentoMs,
+           numItensCoalescidos)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            alvoMs != null ? _mkBlitzKey(ib.compraId, ib.itemNumero, alvoMs) : null,
+            ib.compraId, ib.itemNumero, tag,
+            alvoMs || 0, dispatchMs, desvioInicialMs,
+            fimContagemNoT0, numLances, itemOk[key], itemFalha[key],
+            rttMedio, rttMax, rttMin,
+            itemUltimaChegadaMs[key], deltaVsEnc,
+            itensBatches.length
+          );
+        if (deltaVsEnc != null) {
+          const sinal = deltaVsEnc > 0 ? '+' : '';
+          console.log(`[${tag}-TIMING] ${ib.compraId} item ${ib.itemNumero}: desvio_inicial=${desvioInicialMs}ms, RTT méd=${rttMedio}ms, último_lance ${sinal}${deltaVsEnc}ms vs fimContagem (${fimContagemNoT0})`);
+        }
+      } catch (e) { console.warn(`[${tag}-TIMING] save fail:`, e.message); }
+
+      iniciarGuard(ib.compraId, ib.itemNumero);
+      notificarResultadoBlitz(ib.compraId, ib.itemNumero, { sucessos: itemOk[key], falhas: itemFalha[key] });
+    }
+    return { itemOk, itemFalha };
+  }
 
   app.post('/api/sniper/disparar-blitz', (req, res) => {
     try {
-      const { compraId, itemNumero, horario, maxLances, modoBlitz } = req.body;
+      // Plano: alinhamento com blitz-global (2026-05-25)
+      //   - milesimoAlvo: alvo do milésimo de chegada do último lance (default 970).
+      //     Auto-calcula o segundo/ms de início recuando por rodadas × intervalo.
+      //   - ignoreMax: ignora maxLances do item e desce até valorMinimo.
+      //   - Coalescing: se outra blitz-individual já tem timer no mesmo alvoMs,
+      //     este item entra no MESMO grupo (round-robin entre todos os coalescidos).
+      const { compraId, itemNumero, horario, maxLances, modoBlitz, milesimoAlvo, ignoreMax } = req.body;
       if (!compraId || itemNumero == null) {
         return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
       }
@@ -1165,6 +2776,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (!cfgItem || !cfgItem.valorMinimo) {
         return res.status(400).json({ success: false, error: 'Item sem valorMinimo configurado' });
       }
+
+      // ── Camada 2: pregão (05) fecha em horário ALEATÓRIO — blitz de horário fixo não protege.
+      if (isPregaoCompraId(compraId) && !req.body.overridePregao) {
+        return res.status(400).json({ success: false,
+          error: 'PREGAO_BLITZ_FIXA: pregão (05) encerra em horário ALEATÓRIO — blitz de horário fixo não protege. Use Auto-Lance Contínuo (modoAuto=continuo) + Valor Mínimo. Para forçar, envie overridePregao:true.' });
+      }
+
+      const capPorItem = ignoreMax ? 99999 : null;
 
       // Ler dados live do cache de disputas
       const cached = disputasCache.disputas.find(d => d.compraId === compraId);
@@ -1184,7 +2803,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       }
 
       // Verificar se já tem lances pendentes para este item
-      const jaEnfileirado = filaLances.some(l =>
+      const jaEnfileirado = sniper.filaLances.some(l =>
         l.compraId === compraId &&
         l.itemNumero === parseInt(itemNumero) &&
         (l.status === 'pendente' || l.status === 'processando')
@@ -1221,8 +2840,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
         const itemAtual = liveItemAgora || liveItem;
         if (!itemAtual || itemAtual.nossoValor == null) {
+          const motivo = sniper.temToken()
+            ? 'Aborto: sem dados live (cache não populado e API não respondeu)'
+            : 'Aborto: sem dados live (token Bearer ausente — Electron offline?)';
           console.log(`[Sniper] 🚀 BLITZ: ${compraId} item ${itemNumero} — sem dados live, abortando`);
           logAuto(`🚀 BLITZ: ${compraId} item ${itemNumero} — sem dados live, abortando`);
+          const blitzKeyAbort = `${compraId}-${parseInt(itemNumero)}`;
+          blitzHist.finalizarStatus(db, blitzKeyAbort, 'executada', {
+            compraId, itemNumero: parseInt(itemNumero),
+            lancesEnviados: 0, observacao: motivo,
+          });
+          try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKeyAbort); } catch (e) {}
+          delete blitzAgendadas[blitzKeyAbort];
+          notificarResultadoBlitz(compraId, parseInt(itemNumero), { sucessos: 0, falhas: 0, motivo: 'sem live data' });
           return 0;
         }
 
@@ -1232,21 +2862,36 @@ function registrarRotasSniper(app, monitorGetter, db) {
           tipoVariacao: itemAtual.tipoVariacao || cfgItem.tipoVariacao || 'V',
         };
 
-        const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, maxLances || 50, modoBlitz || 'cobrir');
+        const cap = capPorItem != null ? capPorItem : (maxLances || 50);
+        const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, cap, modoBlitz || 'cobrir');
         if (batchLances.length === 0) {
           const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${cfgItem.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${modoBlitz||'cobrir'}`;
           console.log(`[Sniper] 🚀 BLITZ: ${compraId} item ${itemNumero} — 0 lances (${dbg})`);
           logAuto(`🚀 BLITZ: ${compraId} item ${itemNumero} — 0 lances (${dbg})`);
+          const blitzKeyAbort = `${compraId}-${parseInt(itemNumero)}`;
+          blitzHist.finalizarStatus(db, blitzKeyAbort, 'executada', {
+            compraId, itemNumero: parseInt(itemNumero),
+            lancesEnviados: 0, observacao: `Aborto: batch vazio — ${dbg}`,
+          });
+          try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKeyAbort); } catch (e) {}
+          delete blitzAgendadas[blitzKeyAbort];
+          notificarResultadoBlitz(compraId, parseInt(itemNumero), { sucessos: 0, falhas: 0, motivo: 'batch vazio (piso/varMin)' });
           return 0;
         }
 
         const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
-        blitzDisparados[blitzKey] = Date.now();
+        sniper.blitzDisparados[blitzKey] = Date.now();
         delete blitzAgendadas[blitzKey];
         try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
+        // Marca histórico como executada — count será atualizado após o loop.
+        const histId_2053 = blitzHist.finalizarStatus(db, blitzKey, 'executada', {
+          compraId, itemNumero: parseInt(itemNumero),
+          observacao: 'Disparada (individual)',
+        });
 
         const valorInicial = itemParaCalculo.nossoValor.toFixed(2);
         const valorFinal = batchLances[batchLances.length - 1].valor.toFixed(2);
+        logAuto(`📋 BLITZ ${compraId} item ${itemNumero} estado pré-disparo: fase=${itemParaCalculo.fase || '?'} sit=${itemParaCalculo.situacaoParticipante || '?'} melhorGeral=${itemParaCalculo.melhorValor} nosso=${itemParaCalculo.nossoValor} varMin=${itemParaCalculo.variacaoMinima} tipoVar=${itemParaCalculo.tipoVariacao} batch=[${batchLances.slice(0,3).map(l => l.valor.toFixed(2)).join(', ')}${batchLances.length > 3 ? ', …' : ''}]`);
         console.log(`[Sniper] 🚀 BLITZ DIRETO: ${compraId} item ${itemNumero} — ${batchLances.length} lances (R$${valorInicial} → R$${valorFinal}) varMin=${itemParaCalculo.variacaoMinima}`);
         logAuto(`🚀 BLITZ DIRETO: ${compraId} item ${itemNumero} — ${batchLances.length} lances (R$${valorInicial} → R$${valorFinal})`);
 
@@ -1266,8 +2911,15 @@ function registrarRotasSniper(app, monitorGetter, db) {
               sucessos++;
             } else {
               falhas++;
-              if (resultado.status === 422) break; // Item rejeitado, parar
-              if (resultado.status === 401) break; // Token inválido
+              if (resultado.status === 401 || resultado.status === 403) break; // sem token → para
+              if (resultado.status === 422) {
+                const tipo = classificar422(resultado.resposta);
+                logAuto(`🩹 BLITZ 422 ${tipo}: ${compraId} item ${itemNumero} R$ ${lance.valor.toFixed(2)}`);
+                if (tipo === 'colisao')       continue;   // próximo lance é varMin abaixo → diferente
+                if (tipo === 'valor-baixo')   break;      // demais valores ainda menores → todos vão falhar
+                if (tipo === 'fase-invalida') break;      // disputa encerrou
+                break;                                    // tipo desconhecido: conservador
+              }
             }
           } catch (e) {
             falhas++;
@@ -1279,85 +2931,143 @@ function registrarRotasSniper(app, monitorGetter, db) {
         console.log(`[Sniper] 🚀 BLITZ DIRETO resultado: ${compraId} item ${itemNumero} — ${sucessos} ✅ ${falhas} ❌`);
         logAuto(`🚀 BLITZ DIRETO: ${compraId} item ${itemNumero} — ${sucessos} ✅ ${falhas} ❌`);
 
+        // Histórico: atualiza contagem real de lances enviados.
+        blitzHist.atualizarLances(db, histId_2053, sucessos + falhas,
+          `Disparada (individual): ${sucessos} OK, ${falhas} falhas`);
+
         iniciarGuard(compraId, parseInt(itemNumero));
+        // Telegram: pós-blitz notifica se somos melhor colocado
+        notificarResultadoBlitz(compraId, parseInt(itemNumero), { sucessos, falhas });
         return sucessos;
       };
 
       // Se horário foi especificado, agendar em vez de disparar imediatamente
       if (horario) {
-        const agora = new Date();
-        const partes = horario.split(':');
-        const hh = parseInt(partes[0]) || 0;
-        const mm = parseInt(partes[1]) || 0;
-        const secParts = (partes[2] || '0').split('.');
-        const ss = parseInt(secParts[0]) || 0;
-        const ms = parseInt((secParts[1] || '0').padEnd(3, '0').substring(0, 3)) || 0;
-        const alvo = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), hh, mm, ss, ms);
-        // Usar relógio calibrado com Comprasnet (compensa offset)
-        const delayMs = alvo.getTime() - sniper.tempoServidorAgora();
+        const itemNum = parseInt(itemNumero);
+        const modo = modoBlitz || 'cobrir';
+        const maxLancesEfetivo = maxLances || 50;
+
+        // Auto-cálculo (2026-05-25 fix): `alvoMs` = momento de CHEGADA do último
+        // lance. `dispatchAlvo` = quando setTimeout dispara (recuado pra que
+        // a rajada inteira termine em alvoMs).
+        const { alvoUltimoLance, dispatchAlvo, horarioEfetivo, dispatchHora, duracaoTotalMs, msCalculado } = _calcularMilesimoAuto({
+          horario,
+          itensCount: 1,
+          maxLancesArr: [maxLancesEfetivo],
+          milesimoAlvo,
+        });
+        const alvoMs = alvoUltimoLance.getTime();        // pra DB/telemetria/grupo
+        const dispatchMs = dispatchAlvo.getTime();
+        const delayMs = dispatchMs - sniper.tempoServidorAgora();
 
         if (delayMs < -5000) {
-          return res.status(400).json({ success: false, error: `Horário ${horario} já passou (agora: ${agora.toTimeString().slice(0,8)}, offset: ${sniper.offsetServidorMs}ms)` });
+          const agoraStr = new Date().toTimeString().slice(0,8);
+          return res.status(400).json({ success: false, error: `Horário ${horarioEfetivo} (dispatch ${dispatchHora}) já passou (agora: ${agoraStr}, offset: ${sniper.offsetServidorMs}ms)` });
         }
 
-        const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
-
-        // Cancelar agendamento anterior se existir
+        // blitzKey inclui alvoMs → múltiplas blitzes pro mesmo item são permitidas.
+        // Se já existe blitz com mesmo (compraId, itemNumero, alvoMs), é re-agendamento
+        // exato — substitui (cancela timer antigo do grupo, idêntico ao update).
+        const blitzKey = _mkBlitzKey(compraId, itemNum, alvoMs);
         if (blitzAgendadas[blitzKey]) {
-          clearTimeout(blitzAgendadas[blitzKey].timer);
+          const oldAlvoMs = blitzAgendadas[blitzKey].alvoMs;
+          const oldGrupo = blitzGruposPorAlvo.get(oldAlvoMs);
+          if (oldGrupo) {
+            oldGrupo.items = oldGrupo.items.filter(i => !(i.compraId === compraId && i.itemNumero === itemNum));
+            if (oldGrupo.items.length === 0) {
+              if (oldGrupo.timer) clearTimeout(oldGrupo.timer);
+              blitzGruposPorAlvo.delete(oldAlvoMs);
+            }
+          }
+          delete blitzAgendadas[blitzKey];
         }
 
-        const alvoMs = alvo.getTime();
-        // Recalibrar 30s antes do disparo
-        if (delayMs > 35000) {
-          setTimeout(() => {
-            sniper.calibrarTempo()
-              .then(r => console.log(`[Sniper] Recalibração pré-blitz: offset=${r.offset}ms`))
-              .catch(() => {});
-          }, delayMs - 30000);
+        const itemConfig = {
+          compraId,
+          itemNumero: itemNum,
+          valorMinimo: cfgItem.valorMinimo,
+          faseItem: cfgItem.faseItem,
+          variacaoMinima: cfgItem.variacaoMinima,
+          tipoVariacao: cfgItem.tipoVariacao,
+          maxLances: maxLancesEfetivo,
+        };
+
+        // Coalescing: existe grupo no mesmo alvoMs? Anexa.
+        let grupo = blitzGruposPorAlvo.get(alvoMs);
+        let timerCompartilhado;
+        if (grupo) {
+          // Anexa ao grupo existente — não cria novo timer
+          grupo.items.push(itemConfig);
+          timerCompartilhado = grupo.timer;
+          console.log(`[Sniper] ⏰ BLITZ COALESCIDA: ${compraId} item ${itemNum} anexada ao timer existente (alvoMs=${alvoMs}, total no grupo=${grupo.items.length})`);
+          logAuto(`⏰ BLITZ COALESCIDA: ${compraId} item ${itemNum} (grupo tem ${grupo.items.length} item(ns))`);
+        } else {
+          // Cria grupo novo + timer
+          grupo = { items: [itemConfig], timer: null, horarioEfetivo, modo, capPorItem };
+          blitzGruposPorAlvo.set(alvoMs, grupo);
+          agendarPreDisparoTasks(alvoMs, 1, 'Sniper', [compraId]);
+
+          timerCompartilhado = setTimeout(async () => {
+            const agoraMs = Date.now();
+            // desvioDispatch: timer real vs alvo dispatch (recuado). Pra avaliar precisão do setTimeout.
+            const desvioDispatchMs = Math.round(sniper.tempoServidorAgora() - dispatchMs);
+            const d = new Date(agoraMs); const horaReal = d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+            const itens = grupo.items;
+            console.log(`[Sniper] ⏰ BLITZ DIRETO disparando ${itens.length} item(ns) — alvo último=${horarioEfetivo} dispatch real=${horaReal} (recuo=${duracaoTotalMs}ms, desvio dispatch=${desvioDispatchMs}ms, offset=${sniper.offsetServidorMs}ms)`);
+            logAuto(`⏰ BLITZ DIRETO: ${itens.length} item(ns) — recuo=${duracaoTotalMs}ms, desvio=${desvioDispatchMs}ms`);
+            try {
+              await _executarRoundRobinBlitz({
+                itensConfig: itens,
+                modo: grupo.modo,
+                capPorItem: grupo.capPorItem,
+                tag: itens.length > 1 ? 'BLITZ-COALESCIDA' : 'BLITZ',
+                fonte: 'blitz-servidor',
+                alvoMs,
+              });
+            } finally {
+              blitzGruposPorAlvo.delete(alvoMs);
+            }
+          }, Math.max(0, delayMs));
+          grupo.timer = timerCompartilhado;
         }
 
-        // Warmup 1s antes — aquece conexões TLS
-        if (delayMs > 2000) {
-          setTimeout(() => {
-            Promise.all([
-              sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia').catch(() => {}),
-              sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia').catch(() => {}),
-              sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia').catch(() => {}),
-            ]);
-          }, delayMs - 1000);
-        }
+        blitzAgendadas[blitzKey] = {
+          timer: timerCompartilhado, horario: horarioEfetivo, compraId, itemNumero: itemNum,
+          maxLances: maxLancesEfetivo, modoBlitz: modo, agendadoEm: new Date().toISOString(), alvoMs,
+        };
 
-        // Disparo direto no momento exato (calibrado com Comprasnet)
-        const timer = setTimeout(async () => {
-          const agoraMs = Date.now();
-          const desvioMs = Math.round(sniper.tempoServidorAgora() - alvoMs);
-          const d = new Date(agoraMs); const horaReal = d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
-          console.log(`[Sniper] ⏰ BLITZ DIRETO disparando: ${compraId} item ${itemNumero} — alvo=${horario} real=${horaReal} desvio=${desvioMs}ms (offset=${sniper.offsetServidorMs}ms)`);
-          logAuto(`⏰ BLITZ DIRETO: ${compraId} item ${itemNumero} — desvio=${desvioMs}ms`);
-          await executarBlitz();
-        }, Math.max(0, delayMs));
-
-        blitzAgendadas[blitzKey] = { timer, horario, compraId, itemNumero: parseInt(itemNumero), maxLances: maxLances || 50, modoBlitz: modoBlitz || 'cobrir', agendadoEm: agora.toISOString() };
-
-        // Persistir no banco para sobreviver a restart do servidor
+        // Persistir no banco
         try {
           db.prepare(`INSERT OR REPLACE INTO blitz_agendadas
             (blitzKey, compraId, itemNumero, horario, alvoMs, maxLances, modoBlitz, agendadoEm)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(blitzKey, compraId, parseInt(itemNumero), horario, alvoMs, maxLances || 50, modoBlitz || 'cobrir', agora.toISOString());
+            .run(blitzKey, compraId, itemNum, horarioEfetivo, alvoMs, maxLancesEfetivo, modo, new Date().toISOString());
         } catch (e) { console.warn('[BLITZ] persist falhou:', e.message); }
+        blitzHist.registrarAgendada(db, {
+          blitzKey, compraId, itemNumero: itemNum, horario: horarioEfetivo, alvoMs,
+          maxLances: maxLancesEfetivo, modoBlitz: modo,
+          agendadoEm: new Date().toISOString(),
+        });
 
-        console.log(`[Sniper] ⏰ BLITZ AGENDADA: ${compraId} item ${itemNumero} para ${horario} (em ${Math.round(delayMs/1000)}s)`);
-        logAuto(`⏰ BLITZ AGENDADA: ${compraId} item ${itemNumero} para ${horario} (em ${Math.round(delayMs/1000)}s)`);
+        if (motorLigado() && delayMs > 0) {
+          iniciarGuard(compraId, itemNum, alvoMs);
+        }
+
+        console.log(`[Sniper] ⏰ BLITZ AGENDADA: ${compraId} item ${itemNum} para ${horarioEfetivo} (em ${Math.round(delayMs/1000)}s)${msCalculado != null ? ' [auto-calc]' : ''}`);
+        logAuto(`⏰ BLITZ AGENDADA: ${compraId} item ${itemNum} para ${horarioEfetivo} (em ${Math.round(delayMs/1000)}s)`);
 
         return res.json({
           success: true,
           agendado: true,
-          horario,
-          maxLances: maxLances || 50,
+          horario: horarioEfetivo,
+          horarioAjustadoAuto: msCalculado != null,
+          milesimoAlvo: milesimoAlvo || (msCalculado != null ? 970 : null),
+          maxLances: maxLancesEfetivo,
+          ignoreMax: !!ignoreMax,
+          coalesced: grupo.items.length > 1,
+          itensNoGrupo: grupo.items.length,
           delayMs,
-          message: `Blitz agendada para ${horario} (em ${Math.round(delayMs/1000)}s)`,
+          message: `Blitz agendada para ${horarioEfetivo} (em ${Math.round(delayMs/1000)}s${grupo.items.length > 1 ? `, coalescida com ${grupo.items.length - 1} outra(s)` : ''})`,
         });
       }
 
@@ -1368,14 +3078,16 @@ function registrarRotasSniper(app, monitorGetter, db) {
         tipoVariacao: liveItem.tipoVariacao || cfgItem.tipoVariacao || 'V',
       };
 
-      const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, maxLances || 50, modoBlitz || 'cobrir');
+      const capImediato = capPorItem != null ? capPorItem : (maxLances || 50);
+      const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, capImediato, modoBlitz || 'cobrir');
       if (batchLances.length === 0) {
         return res.json({ success: true, totalLances: 0, message: 'Nenhum lance a enviar (já no mínimo ou sem variação)' });
       }
 
       const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
-      blitzDisparados[blitzKey] = Date.now();
+      sniper.blitzDisparados[blitzKey] = Date.now();
 
+      logAuto(`📋 BLITZ ${compraId} item ${itemNumero} estado pré-disparo: fase=${itemParaCalculo.fase || '?'} sit=${itemParaCalculo.situacaoParticipante || '?'} melhorGeral=${itemParaCalculo.melhorValor} nosso=${itemParaCalculo.nossoValor} varMin=${itemParaCalculo.variacaoMinima} tipoVar=${itemParaCalculo.tipoVariacao} batch=[${batchLances.slice(0,3).map(l => l.valor.toFixed(2)).join(', ')}${batchLances.length > 3 ? ', …' : ''}]`);
       console.log(`[Sniper] 🚀 BLITZ DIRETO: ${compraId} item ${itemNumero} — ${batchLances.length} lances (R$${itemParaCalculo.nossoValor.toFixed(2)} → R$${batchLances[batchLances.length - 1].valor.toFixed(2)})`);
       logAuto(`🚀 BLITZ DIRETO: ${compraId} item ${itemNumero} — ${batchLances.length} lances`);
 
@@ -1390,7 +3102,20 @@ function registrarRotasSniper(app, monitorGetter, db) {
               db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, parseInt(itemNumero), lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, 'blitz-servidor', new Date().toISOString());
             } catch (dbErr) {}
-            if (resultado.sucesso) { sucessos++; } else { falhas++; if (resultado.status === 422 || resultado.status === 401) break; }
+            if (resultado.sucesso) {
+              sucessos++;
+            } else {
+              falhas++;
+              if (resultado.status === 401 || resultado.status === 403) break;
+              if (resultado.status === 422) {
+                const tipo = classificar422(resultado.resposta);
+                logAuto(`🩹 BLITZ 422 ${tipo}: ${compraId} item ${itemNumero} R$ ${lance.valor.toFixed(2)}`);
+                if (tipo === 'colisao')       continue;
+                if (tipo === 'valor-baixo')   break;
+                if (tipo === 'fase-invalida') break;
+                break;
+              }
+            }
           } catch (e) { falhas++; break; }
         }
         liveItem.nossoValor = batchLances[batchLances.length - 1].valor;
@@ -1410,21 +3135,60 @@ function registrarRotasSniper(app, monitorGetter, db) {
   });
 
   // Cancelar blitz agendada
+  // POST /api/sniper/cancelar-blitz { compraId, itemNumero, alvoMs?, blitzKey? }
+  // Sem alvoMs/blitzKey: cancela TODAS as blitzes pendentes desse item.
   app.post('/api/sniper/cancelar-blitz', (req, res) => {
-    const { compraId, itemNumero } = req.body;
-    const blitzKey = `${compraId}-${parseInt(itemNumero)}`;
-    const agendada = blitzAgendadas[blitzKey];
-    if (!agendada) {
+    const { compraId, itemNumero, alvoMs, blitzKey: blitzKeyParam } = req.body;
+    const itemNum = parseInt(itemNumero);
+    const prefixo = _itemPrefix(compraId, itemNum);
+
+    // Acha alvos a cancelar
+    let alvos;
+    if (blitzKeyParam) {
+      alvos = blitzAgendadas[blitzKeyParam] ? [blitzKeyParam] : [];
+    } else if (alvoMs != null) {
+      const k = _mkBlitzKey(compraId, itemNum, alvoMs);
+      alvos = blitzAgendadas[k] ? [k] : [];
+    } else {
+      alvos = Object.keys(blitzAgendadas).filter(k => k.startsWith(prefixo));
+    }
+
+    if (alvos.length === 0) {
       return res.json({ success: false, error: 'Nenhuma blitz agendada para este item' });
     }
-    // Só cancelar o timer se nenhum outro item compartilha ele
-    const timer = agendada.timer;
-    delete blitzAgendadas[blitzKey];
-    try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
-    const outrosUsam = Object.values(blitzAgendadas).some(b => b.timer === timer);
-    if (!outrosUsam && timer) clearTimeout(timer);
-    logAuto(`❌ BLITZ CANCELADA: ${compraId} item ${itemNumero} (era para ${agendada.horario})`);
-    res.json({ success: true, message: `Blitz cancelada (era para ${agendada.horario})` });
+
+    const canceladas = [];
+    for (const k of alvos) {
+      const agendada = blitzAgendadas[k];
+      if (!agendada) continue;
+      const timer = agendada.timer;
+      const aMs = agendada.alvoMs;
+      // BUG FIX 2026-07-01: cancelando via blitzKey só, compraId/itemNumero do req.body
+      // vinham undefined → o filtro de grupo.items não removia nada e o timer COMPARTILHADO
+      // (coalescência por alvoMs) disparava a blitz mesmo "cancelada" (blitzAgendadas já
+      // esvaziado dava falso "success"). Usar sempre os dados do próprio registro.
+      const cId = agendada.compraId;
+      const iNum = agendada.itemNumero;
+      delete blitzAgendadas[k];
+      try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(k); } catch (e) {}
+      blitzHist.finalizarStatus(db, k, 'cancelada', {
+        observacao: `Cancelada manualmente (era para ${agendada.horario})`,
+      });
+      const grupo = blitzGruposPorAlvo.get(aMs);
+      if (grupo) {
+        grupo.items = grupo.items.filter(i => !(i.compraId === cId && i.itemNumero === iNum));
+        if (grupo.items.length === 0) {
+          if (grupo.timer) clearTimeout(grupo.timer);
+          blitzGruposPorAlvo.delete(aMs);
+        }
+      } else {
+        const outrosUsam = Object.values(blitzAgendadas).some(b => b.timer === timer);
+        if (!outrosUsam && timer) clearTimeout(timer);
+      }
+      canceladas.push({ blitzKey: k, horario: agendada.horario });
+    }
+    logAuto(`❌ BLITZ${canceladas.length > 1 ? 'ES' : ''} CANCELADA${canceladas.length > 1 ? 'S' : ''}: ${compraId} item ${itemNumero} — ${canceladas.length} (${canceladas.map(c => c.horario).join(', ')})`);
+    res.json({ success: true, canceladas, message: `${canceladas.length} blitz(es) cancelada(s) (${canceladas.map(c => c.horario).join(', ')})` });
   });
 
   // Agendar lance único para horário específico
@@ -1512,7 +3276,11 @@ function registrarRotasSniper(app, monitorGetter, db) {
    */
   app.post('/api/sniper/blitz-global', (req, res) => {
     try {
-      const { horario, modoBlitz, maxLancesDefault, milesimoAlvo } = req.body;
+      const { horario, modoBlitz, maxLancesDefault, milesimoAlvo, ignoreMax } = req.body;
+      // ignoreMax: Plano 15 — ignora o Máx lances por item. Desce até o Valor Mínimo.
+      // calcularBatchLances para quando valor <= valorMinimo; o 99999 aqui é só
+      // um integer grande persistível no SQLite (Infinity não serializa).
+      const capPorItem = ignoreMax ? 99999 : null;
       if (!horario) return res.status(400).json({ success: false, error: 'Horário obrigatório' });
 
       // Calcular milésimo automaticamente se não informado
@@ -1590,18 +3358,27 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       const agendadosList = [];
 
-      for (const item of itensElegiveis) {
-        const blitzKey = `${item.compraId}-${item.itemNumero}`;
-        if (blitzAgendadas[blitzKey]) clearTimeout(blitzAgendadas[blitzKey].timer);
-        const jaEnfileirado = filaLances.some(l =>
+      // ── Camada 2: pregão (05) fecha aleatório — fora da rajada de horário fixo (use Contínuo).
+      const elegiveis = req.body.overridePregao ? itensElegiveis : itensElegiveis.filter(it => {
+        if (isPregaoCompraId(it.compraId)) { erros.push(`${it.compraId} item ${it.itemNumero}: pregão (fecha aleatório) — pulado; use Contínuo`); return false; }
+        return true;
+      });
+
+      for (const item of elegiveis) {
+        const blitzKey = _mkBlitzKey(item.compraId, item.itemNumero, alvoMs);
+        // Mesmo alvoMs + item já agendado = re-agendamento exato — substitui (cancela timer)
+        if (blitzAgendadas[blitzKey] && blitzAgendadas[blitzKey].timer) clearTimeout(blitzAgendadas[blitzKey].timer);
+        const jaEnfileirado = sniper.filaLances.some(l =>
           l.compraId === item.compraId && l.itemNumero === item.itemNumero &&
           (l.status === 'pendente' || l.status === 'processando')
         );
         if (jaEnfileirado) { erros.push(`${item.compraId} item ${item.itemNumero}: já tem lances pendentes`); continue; }
         agendadosList.push(item);
-        const itemMaxLances = item.maxLances || maxLancesDefault || 5;
+        // capPorItem = Infinity quando ignoreMax=true (desce até Valor Mínimo);
+        // senão usa o Máx do item (ou default do body, ou fallback 5).
+        const itemMaxLances = capPorItem != null ? capPorItem : (item.maxLances || maxLancesDefault || 5);
         agendados.push({ compraId: item.compraId, itemNumero: item.itemNumero, maxLances: itemMaxLances });
-        blitzAgendadas[blitzKey] = { timer: null, horario, compraId: item.compraId, itemNumero: item.itemNumero, maxLances: itemMaxLances, modoBlitz: modo, agendadoEm: agora.toISOString() };
+        blitzAgendadas[blitzKey] = { timer: null, horario, compraId: item.compraId, itemNumero: item.itemNumero, maxLances: itemMaxLances, modoBlitz: modo, agendadoEm: agora.toISOString(), alvoMs };
         // Persistir no banco para sobreviver a restart
         try {
           db.prepare(`INSERT OR REPLACE INTO blitz_agendadas
@@ -1609,6 +3386,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
             .run(blitzKey, item.compraId, item.itemNumero, horario, alvoMs, itemMaxLances, modo, agora.toISOString());
         } catch (e) { console.warn('[BLITZ-GLOBAL] persist falhou:', e.message); }
+        // Histórico permanente — registro do agendamento (status='agendada').
+        blitzHist.registrarAgendada(db, {
+          blitzKey, compraId: item.compraId, itemNumero: item.itemNumero,
+          horario, alvoMs, maxLances: itemMaxLances, modoBlitz: modo,
+          agendadoEm: agora.toISOString(),
+        });
       }
 
       if (agendadosList.length === 0) {
@@ -1624,48 +3407,34 @@ function registrarRotasSniper(app, monitorGetter, db) {
             const respostaStr = typeof resultado.resposta === 'string' ? resultado.resposta.substring(0, 1500) : (resultado.resposta ? JSON.stringify(resultado.resposta).substring(0, 1500) : '');
             try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(compraId, itemNumero, lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, 'blitz-servidor', new Date().toISOString()); } catch (e) {}
-            if (resultado.sucesso) { sucessos++; } else { falhas++; if (resultado.status === 422 || resultado.status === 401) break; }
+            if (resultado.sucesso) {
+              sucessos++;
+            } else {
+              falhas++;
+              if (resultado.status === 401 || resultado.status === 403) break;
+              if (resultado.status === 422) {
+                const tipo = classificar422(resultado.resposta);
+                logAuto(`🩹 BLITZ 422 ${tipo}: ${compraId} item ${itemNumero} R$ ${lance.valor.toFixed(2)}`);
+                if (tipo === 'colisao')       continue;
+                if (tipo === 'valor-baixo')   break;
+                if (tipo === 'fase-invalida') break;
+                break;
+              }
+            }
           } catch (e) { falhas++; break; }
         }
         return { sucessos, falhas };
       };
 
-      // Recalibrar 30s antes do disparo para offset mais preciso
-      if (delayMs > 35000) {
-        setTimeout(() => {
-          sniper.calibrarTempo()
-            .then(r => console.log(`[BLITZ-GLOBAL] Recalibração pré-disparo: offset=${r.offset}ms, latência=${r.latencia}ms`))
-            .catch(() => {});
-        }, delayMs - 30000);
-      }
+      agendarPreDisparoTasks(alvoMs, agendadosList.length, 'BLITZ-GLOBAL', [...new Set(agendadosList.map(i => i.compraId))]);
 
-      // Warmup 1s antes — aquece N+2 conexões TLS paralelas (extras para compensar interferência)
-      if (delayMs > 2000) {
-        const numConexoes = agendadosList.length + 2;
-        setTimeout(() => {
-          const warmups = Array.from({ length: numConexoes }, () =>
-            sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia').catch(() => {})
-          );
-          Promise.all(warmups)
-            .then(() => console.log(`[BLITZ-GLOBAL] Warmup ${numConexoes}x TLS OK`))
-            .catch(() => {});
-        }, delayMs - 1000);
-      }
-
-      // Guard pré-blitz: ativa 3s antes para detectar qualquer mudança do concorrente
-      // no último instante. Guard respeita blitzDisparados para não duplicar durante a rajada.
-      if (delayMs > 3000) {
-        setTimeout(() => {
-          for (const item of agendadosList) {
-            iniciarGuard(item.compraId, item.itemNumero);
-          }
-          logAuto(`🛡️ GUARD pré-blitz ativado para ${agendadosList.length} item(ns) — 3s antes do disparo`);
-        }, delayMs - 3000);
-      } else {
-        // Blitz muito próxima — ativar guard imediatamente
+      // Guard liga imediatamente com ramp dinâmico — polling degradê até o disparo.
+      // Motor desligado → não polla (usuário optou por ficar passivo).
+      if (motorLigado()) {
         for (const item of agendadosList) {
-          iniciarGuard(item.compraId, item.itemNumero);
+          iniciarGuard(item.compraId, item.itemNumero, alvoMs);
         }
+        logAuto(`🛡️ GUARD ramped ativado para ${agendadosList.length} item(ns) — disparo em ${Math.round(delayMs/1000)}s`);
       }
 
       // Um único timer para TODOS os itens
@@ -1677,10 +3446,22 @@ function registrarRotasSniper(app, monitorGetter, db) {
         // Calcular batches para todos os itens
         const itensBatches = [];
         for (const item of agendadosList) {
-          const blitzKey = `${item.compraId}-${item.itemNumero}`;
+          const blitzKey = _mkBlitzKey(item.compraId, item.itemNumero, alvoMs);
           const cached = disputasCache.disputas.find(d => d.compraId === item.compraId);
           const liveItem = cached && cached.itens ? cached.itens.find(i => i.numero === item.itemNumero) : null;
-          if (!liveItem || liveItem.nossoValor == null) continue;
+          if (!liveItem || liveItem.nossoValor == null) {
+            const motivo = sniper.temToken()
+              ? 'Aborto: sem dados live (cache não populado e API não respondeu)'
+              : 'Aborto: sem dados live (token Bearer ausente — Electron offline?)';
+            blitzHist.finalizarStatus(db, blitzKey, 'executada', {
+              compraId: item.compraId, itemNumero: item.itemNumero,
+              lancesEnviados: 0, observacao: motivo,
+            });
+            try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
+            delete blitzAgendadas[blitzKey];
+            notificarResultadoBlitz(item.compraId, item.itemNumero, { sucessos: 0, falhas: 0, motivo: 'sem live data' });
+            continue;
+          }
 
           // Refresh direto da API se faltar tipoVariacao (extensão antiga que não envia o campo)
           if (liveItem.tipoVariacao == null && sniper.temToken()) {
@@ -1707,16 +3488,32 @@ function registrarRotasSniper(app, monitorGetter, db) {
             variacaoMinima: liveItem.variacaoMinima != null ? liveItem.variacaoMinima : item.variacaoMinima,
             tipoVariacao: liveItem.tipoVariacao || item.tipoVariacao || 'V',
           };
-          const itemMaxLances = item.maxLances || maxLancesDefault || 5;
+          const itemMaxLances = capPorItem != null ? capPorItem : (item.maxLances || maxLancesDefault || 5);
           const batchLances = calcularBatchLances(item, itemParaCalculo, item.compraId, itemMaxLances, modo);
-          if (batchLances.length === 0) continue;
-          blitzDisparados[blitzKey] = Date.now();
+          if (batchLances.length === 0) {
+            const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${item.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${modo}`;
+            blitzHist.finalizarStatus(db, blitzKey, 'executada', {
+              compraId: item.compraId, itemNumero: item.itemNumero,
+              lancesEnviados: 0, observacao: `Aborto: batch vazio — ${dbg}`,
+            });
+            try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
+            delete blitzAgendadas[blitzKey];
+            notificarResultadoBlitz(item.compraId, item.itemNumero, { sucessos: 0, falhas: 0, motivo: 'batch vazio (piso/varMin)' });
+            continue;
+          }
+          sniper.blitzDisparados[blitzKey] = Date.now();
           delete blitzAgendadas[blitzKey];
           try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(blitzKey); } catch (e) {}
+          // Histórico: marca executada (count atualizado após o loop round-robin)
+          const histIdBlitz = blitzHist.finalizarStatus(db, blitzKey, 'executada', {
+            compraId: item.compraId, itemNumero: item.itemNumero,
+            observacao: 'Disparada (global/batch)',
+          });
           const vi = itemParaCalculo.nossoValor.toFixed(2);
           const vf = batchLances[batchLances.length - 1].valor.toFixed(2);
+          logAuto(`📋 BLITZ-GLOBAL ${item.compraId} item ${item.itemNumero} estado pré-disparo: fase=${itemParaCalculo.fase || '?'} sit=${itemParaCalculo.situacaoParticipante || '?'} melhorGeral=${itemParaCalculo.melhorValor} nosso=${itemParaCalculo.nossoValor} varMin=${itemParaCalculo.variacaoMinima} tipoVar=${itemParaCalculo.tipoVariacao} batch=[${batchLances.slice(0,3).map(l => l.valor.toFixed(2)).join(', ')}${batchLances.length > 3 ? ', …' : ''}]`);
           console.log(`[BLITZ-GLOBAL] DIRETO: ${item.compraId} item ${item.itemNumero} — ${batchLances.length} lances (R$${vi} → R$${vf})`);
-          itensBatches.push({ compraId: item.compraId, itemNumero: item.itemNumero, batchLances, liveItem });
+          itensBatches.push({ compraId: item.compraId, itemNumero: item.itemNumero, batchLances, liveItem, historicoId: histIdBlitz });
         }
 
         if (itensBatches.length === 0) return;
@@ -1755,7 +3552,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
               itemOk[key]++;
             } else {
               itemFalha[key]++;
-              if (resultado.status === 422 || resultado.status === 401) itemFalhou.add(key);
+              if (resultado.status === 401 || resultado.status === 403) itemFalhou.add(key);
+              else if (resultado.status === 422) {
+                const tipo = classificar422(resultado.resposta);
+                logAuto(`🩹 BLITZ-GLOBAL 422 ${tipo}: ${ib.compraId} item ${ib.itemNumero} R$ ${lance.valor.toFixed(2)}`);
+                // colisao: deixa o item continuar nas próximas rodadas (cada rodada
+                // pega o próximo valor do batch, que está varMin abaixo do anterior)
+                if (tipo !== 'colisao') itemFalhou.add(key);
+              }
             }
           }
         }
@@ -1765,7 +3569,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
           const key = ib.compraId + '-' + ib.itemNumero;
           ib.liveItem.nossoValor = ib.batchLances[ib.batchLances.length - 1].valor;
           console.log(`[BLITZ-GLOBAL] DIRETO resultado: ${ib.compraId} item ${ib.itemNumero} — ${itemOk[key]} ✅ ${itemFalha[key]} ❌`);
+          // Histórico: atualiza contagem real
+          blitzHist.atualizarLances(db, ib.historicoId, itemOk[key] + itemFalha[key],
+            `Disparada (global/batch): ${itemOk[key]} OK, ${itemFalha[key]} falhas`);
           iniciarGuard(ib.compraId, ib.itemNumero);
+          // Telegram: pós-blitz notifica se somos melhor colocado (1 por item)
+          notificarResultadoBlitz(ib.compraId, ib.itemNumero, { sucessos: itemOk[key], falhas: itemFalha[key] });
         }
       }, Math.max(0, delayMs));
 
@@ -1790,15 +3599,463 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   // Status das blitz agendadas
   app.get('/api/sniper/blitz-agendadas', (req, res) => {
-    const lista = Object.values(blitzAgendadas).map(b => ({
+    const lista = Object.entries(blitzAgendadas).map(([blitzKey, b]) => ({
+      blitzKey,
       compraId: b.compraId,
       itemNumero: b.itemNumero,
       horario: b.horario,
+      alvoMs: b.alvoMs,
       maxLances: b.maxLances || 50,
       modoBlitz: b.modoBlitz || 'cobrir',
       agendadoEm: b.agendadoEm,
     }));
     res.json({ success: true, agendadas: lista });
+  });
+
+  /**
+   * GET /api/sniper/blitz-historico?compraId=...&itemNumero=...&limit=100&status=executada
+   * Histórico permanente de blitzes (todas as instâncias passadas + ativas).
+   * Filtros opcionais: compraId, itemNumero, status.
+   */
+  app.get('/api/sniper/blitz-historico', (req, res) => {
+    try {
+      const { compraId, itemNumero, status } = req.query;
+      const limite = Math.max(1, Math.min(500, Number(req.query.limit) || 100));
+      const where = [];
+      const params = [];
+      if (compraId) { where.push('compraId = ?'); params.push(String(compraId)); }
+      if (itemNumero) { where.push('itemNumero = ?'); params.push(Number(itemNumero)); }
+      if (status) { where.push('status = ?'); params.push(String(status)); }
+      const sql = `
+        SELECT id, blitzKey, compraId, itemNumero, horarioAlvo, alvoMs,
+               maxLances, modoBlitz, status,
+               agendadoEm, executadoEm, canceladoEm,
+               lancesEnviados, observacao
+          FROM blitz_historico
+          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+         ORDER BY agendadoEm DESC
+         LIMIT ?
+      `;
+      const rows = db.prepare(sql).all(...params, limite);
+      res.json({ success: true, historico: rows, total: rows.length });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/tokens/historico?limite=50
+   * Histórico de tokens Bearer recebidos + decodificação JWT do atual.
+   */
+  app.get('/api/sniper/tokens/historico', (req, res) => {
+    try {
+      const limite = Math.max(1, Math.min(500, parseInt(req.query.limite) || 50));
+      const rows = db.prepare(`
+        SELECT id, source, tokenFingerprint, jti, subject, recebidoEm,
+               expEm, substituidoEm, duracaoEsperadaSeg,
+               motivoRejeicao, httpStatusRejeicao
+          FROM bearer_history
+         ORDER BY recebidoEm DESC
+         LIMIT ?
+      `).all(limite);
+
+      // Calcula duração efetiva de cada token (substituidoEm - recebidoEm) ou (expEm - recebidoEm)
+      const historico = rows.map(r => {
+        let duracaoEfetivaSeg = null;
+        if (r.substituidoEm) {
+          duracaoEfetivaSeg = Math.floor((new Date(r.substituidoEm).getTime() - new Date(r.recebidoEm).getTime()) / 1000);
+        } else if (!r.substituidoEm) {
+          // Token atual — usa idade
+          duracaoEfetivaSeg = Math.floor((Date.now() - new Date(r.recebidoEm).getTime()) / 1000);
+        }
+        const restanteSeg = r.expEm ? Math.floor((new Date(r.expEm).getTime() - Date.now()) / 1000) : null;
+        return {
+          ...r,
+          duracaoEfetivaSeg,
+          restanteSeg,
+          atual: !r.substituidoEm,
+        };
+      });
+
+      // Stats agregados
+      const expirados = historico.filter(r => r.expEm && new Date(r.expEm) < new Date()).length;
+      const completos = historico.filter(r => r.duracaoEsperadaSeg);
+      const duracaoMediaSeg = completos.length
+        ? Math.round(completos.reduce((s,r) => s + r.duracaoEsperadaSeg, 0) / completos.length)
+        : null;
+
+      // Estado atual
+      const atual = historico.find(r => r.atual);
+      const atualInfo = atual ? {
+        source: atual.source,
+        recebidoEm: atual.recebidoEm,
+        expEm: atual.expEm,
+        restanteSeg: atual.restanteSeg,
+        restanteHumano: atual.restanteSeg != null
+          ? (atual.restanteSeg < 0 ? `expirou há ${Math.abs(atual.restanteSeg)}s`
+             : atual.restanteSeg < 60 ? `expira em ${atual.restanteSeg}s`
+             : `expira em ${Math.floor(atual.restanteSeg/60)}m${atual.restanteSeg%60}s`)
+          : null,
+        valido: atual.restanteSeg != null ? atual.restanteSeg > 0 : null,
+      } : null;
+
+      res.json({
+        success: true,
+        total: rows.length,
+        expirados,
+        duracaoMediaSeg,
+        atual: atualInfo,
+        historico,
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/electron/heartbeat
+   * Recebe snapshot do estado interno do Electron Standalone a cada ~30s.
+   * Permite auditar de fora "Electron está vivo? Está capturando bearer?"
+   * Body: { tokenPresent, tokenAgeSec, lastCaptureAt, ssoMorto,
+   *         lastSendAttemptAt, lastSendStatus, portal, versao, subject }
+   */
+  app.post('/api/electron/heartbeat', (req, res) => {
+    try {
+      const b = req.body || {};
+      const agora = new Date().toISOString();
+      db.prepare(`INSERT INTO electron_heartbeat
+        (recebidoEm, tokenPresent, tokenAgeSec, lastCaptureAt, ssoMorto,
+         lastSendAttemptAt, lastSendStatus, portal, versao, subject)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        agora,
+        b.tokenPresent ? 1 : 0,
+        b.tokenAgeSec != null ? Math.floor(b.tokenAgeSec) : null,
+        b.lastCaptureAt || null,
+        b.ssoMorto ? 1 : 0,
+        b.lastSendAttemptAt || null,
+        b.lastSendStatus != null ? String(b.lastSendStatus) : null,
+        b.portal || null,
+        b.versao || null,
+        b.subject || null,
+      );
+      // Purge antigos: manter só últimas 24h (heartbeat é alto volume).
+      db.prepare(`DELETE FROM electron_heartbeat WHERE recebidoEm < datetime('now', '-1 day')`).run();
+
+      // Alerta de SSO morto (dedup por episódio; reseta quando o Electron recupera).
+      if (b.ssoMorto) {
+        alertarSSOMorto(b).catch(() => {});
+      } else if (sniper._ssoMortoAlertado) {
+        sniper._ssoMortoAlertado = false;
+      }
+
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/electron/heartbeat-historico?limite=60
+   * Histórico de heartbeats + estado atual derivado pra dashboard.
+   */
+  app.get('/api/sniper/electron/heartbeat-historico', (req, res) => {
+    try {
+      const limite = Math.max(1, Math.min(500, parseInt(req.query.limite) || 60));
+      const rows = db.prepare(`
+        SELECT id, recebidoEm, tokenPresent, tokenAgeSec, lastCaptureAt,
+               ssoMorto, lastSendAttemptAt, lastSendStatus, portal, versao, subject
+          FROM electron_heartbeat
+         ORDER BY recebidoEm DESC
+         LIMIT ?
+      `).all(limite);
+
+      const ultimo = rows[0] || null;
+      const gapDesdeUltimoSeg = ultimo
+        ? Math.floor((Date.now() - new Date(ultimo.recebidoEm).getTime()) / 1000)
+        : null;
+
+      // Status agregado:
+      //  - gap > 90s OU sem heartbeat: 'offline'
+      //  - sso morto: 'sso-morto'
+      //  - sem token (mas Electron vivo): 'sem-token'
+      //  - tudo ok: 'online'
+      let status = 'offline';
+      if (ultimo && gapDesdeUltimoSeg != null && gapDesdeUltimoSeg <= 90) {
+        if (ultimo.ssoMorto) status = 'sso-morto';
+        else if (!ultimo.tokenPresent) status = 'sem-token';
+        else status = 'online';
+      }
+
+      // Alerta dedup-travado (2026-05-27): cruzar heartbeats da janela pra
+      // detectar quando o Electron está vivo, mandando POST /api/auth/token
+      // dedup'ado mas o bearer NÃO está sendo renovado em memória — sinal
+      // que o interceptor parou de capturar. Critério:
+      //   - últimos N >= 5 heartbeats todos com lastSendStatus='skip-dedup'
+      //   - tokenAgeSec do mais antigo da janela < do mais recente (sobe)
+      //   - tokenAgeSec atual > 300s
+      let alertaDedup = null;
+      const ultimos = rows.slice(0, 10).reverse(); // do mais antigo pro mais novo
+      if (ultimos.length >= 5) {
+        const todosSkip = ultimos.every(r => r.lastSendStatus === 'skip-dedup');
+        const ageSubindo = ultimos[ultimos.length - 1].tokenAgeSec > (ultimos[0].tokenAgeSec || 0);
+        const ageAlto = (ultimos[ultimos.length - 1].tokenAgeSec || 0) > 300;
+        if (todosSkip && ageSubindo && ageAlto) {
+          alertaDedup = {
+            ativo: true,
+            mensagem: `Electron envia mesmo bearer há ${ultimos.length} ciclos (skip-dedup). Bearer já com ${ultimos[ultimos.length-1].tokenAgeSec}s de idade — interceptor parece não estar capturando token novo.`,
+            tokenAgeSec: ultimos[ultimos.length - 1].tokenAgeSec,
+            ciclosSemBearerNovo: ultimos.length,
+          };
+        }
+      }
+
+      res.json({
+        success: true,
+        status,
+        gapDesdeUltimoSeg,
+        ultimo,
+        alertaDedup,
+        total: rows.length,
+        historico: rows,
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // Watchdog: alerta T-2min antes da expiração do token (uma vez por token).
+  // Roda a cada 30s.
+  let _tokenExpAlertadoFp = null;
+  setInterval(() => {
+    if (!sniper.temToken) return;
+    try {
+      const segRest = sniper.segundosAteExpirar?.();
+      if (segRest != null && segRest > 0 && segRest <= 120) {
+        const fp = sniper._fingerprint?.(sniper.bearerToken);
+        if (fp && fp !== _tokenExpAlertadoFp) {
+          _tokenExpAlertadoFp = fp;
+          const msg = `⚠️ Bearer Comprasnet expira em ${segRest}s — Electron precisa renovar antes!`;
+          console.warn(`[TOKEN-WATCHDOG] ${msg}`);
+          logAuto(msg);
+          try { sendTelegram(db, msg).catch(() => {}); } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }, 30000);
+
+  /**
+   * GET /api/sniper/comprasnet-health?janela=60 (segundos)
+   * Retorna stats agregados + timeline pra dashboard de saúde.
+   */
+  app.get('/api/sniper/comprasnet-health', (req, res) => {
+    try {
+      const janelaSeg = Math.max(60, Math.min(86400, parseInt(req.query.janela) || 600));
+      const rows = db.prepare(`
+        SELECT tipo, httpStatus, tempoMs, ok, erro, ts
+          FROM comprasnet_health
+         WHERE ts > datetime('now', '-${janelaSeg} seconds')
+         ORDER BY ts DESC
+         LIMIT 1000
+      `).all();
+      const total = rows.length;
+      const okCount = rows.filter(r => r.ok).length;
+      const failCount = total - okCount;
+      const tempos = rows.filter(r => r.ok && r.tempoMs > 0).map(r => r.tempoMs);
+      const tempoMedio = tempos.length ? Math.round(tempos.reduce((s,v)=>s+v,0)/tempos.length) : null;
+      const tempoMax = tempos.length ? Math.max(...tempos) : null;
+
+      // Agrupa por minuto pra timeline gráfico
+      const porMinuto = {};
+      for (const r of rows) {
+        const min = r.ts ? r.ts.substring(0, 16) : null;
+        if (!min) continue;
+        if (!porMinuto[min]) porMinuto[min] = { ts: min, total: 0, ok: 0, falha: 0, statuses: {} };
+        porMinuto[min].total++;
+        if (r.ok) porMinuto[min].ok++; else porMinuto[min].falha++;
+        const stKey = String(r.httpStatus || 'TO');
+        porMinuto[min].statuses[stKey] = (porMinuto[min].statuses[stKey] || 0) + 1;
+      }
+      const timeline = Object.values(porMinuto).sort((a,b) => a.ts.localeCompare(b.ts));
+
+      // Top status codes
+      const statusCount = {};
+      for (const r of rows) {
+        const k = r.ok ? `OK_${r.httpStatus}` : `FAIL_${r.httpStatus || 'TO'}`;
+        statusCount[k] = (statusCount[k] || 0) + 1;
+      }
+
+      const taxaSucesso = total > 0 ? Math.round(okCount / total * 100) : null;
+      const veredito =
+        total === 0 ? 'sem dados' :
+        taxaSucesso >= 95 ? 'saudável' :
+        taxaSucesso >= 80 ? 'instável' :
+        'degradado';
+
+      res.json({
+        success: true,
+        janelaSeg, total, okCount, failCount,
+        taxaSucesso, tempoMedio, tempoMax,
+        veredito,
+        statusCount,
+        timeline,
+        ultimasFalhas: rows.filter(r => !r.ok).slice(0, 20),
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/test-warmup?n=5&modo=imediato|agendado
+   *   - modo=imediato (default): faz N pings agora e retorna diagnóstico
+   *   - modo=agendado: simula o pre-disparo COMPLETO (agendarPreDisparoTasks)
+   *     alvo daqui a 5s — você acompanha pelos logs
+   * Não envia lances reais. Apenas pings GET ao Comprasnet.
+   */
+  app.get('/api/sniper/test-warmup', async (req, res) => {
+    const n = Math.max(1, Math.min(20, parseInt(req.query.n) || 5));
+    const modo = req.query.modo === 'agendado' ? 'agendado' : 'imediato';
+    if (!sniper.temToken()) {
+      return res.status(400).json({ success: false, error: 'Sem Bearer token — Electron offline?' });
+    }
+    if (modo === 'agendado') {
+      // Simula o ciclo completo de pre-disparo (recalibração + warmup + retry).
+      // Alvo daqui a 5s. Você vê os logs no journalctl.
+      const alvoMs = Date.now() + 5000;
+      console.log(`[TEST-WARMUP] modo=agendado — alvo=${new Date(alvoMs).toISOString()} (em 5s). Veja logs [TEST-PREDISPARO] pra resultados.`);
+      agendarPreDisparoTasks(alvoMs, n, 'TEST-PREDISPARO', ['TEST']);
+      return res.json({
+        success: true,
+        modo: 'agendado',
+        alvoMs,
+        alvoIso: new Date(alvoMs).toISOString(),
+        n,
+        message: `Pre-disparo agendado pra ${new Date(alvoMs).toISOString()} (em 5s). Acompanhe logs com: journalctl -u consulta-licitacoes -f | grep TEST-PREDISPARO`,
+      });
+    }
+    const t0 = Date.now();
+    const resultados = await Promise.all(
+      Array.from({ length: n }, (_, i) => {
+        const reqStart = Date.now();
+        return sniper.apiGet('/comprasnet-disputa/v1/datahorabrasilia')
+          .then(r => ({ idx: i+1, ok: r.status >= 200 && r.status < 400, status: r.status, ms: Date.now() - reqStart, dataHora: r.data || null }))
+          .catch(e => ({ idx: i+1, ok: false, status: 0, ms: Date.now() - reqStart, err: e.message }));
+      })
+    );
+    const totalMs = Date.now() - t0;
+    const ok = resultados.filter(r => r.ok).length;
+    const rtts = resultados.filter(r => r.ms > 0 && r.ok).map(r => r.ms);
+    const rttMedio = rtts.length ? Math.round(rtts.reduce((s,v)=>s+v,0) / rtts.length) : null;
+    const rttMin = rtts.length ? Math.min(...rtts) : null;
+    const rttMax = rtts.length ? Math.max(...rtts) : null;
+    const veredito =
+      ok === n ? 'saudável' :
+      ok / n >= 0.5 ? 'instável (warmup ainda dispara, mas log warning)' :
+      'CAÍDO (warmup vai agendar retry T-500ms)';
+    console.log(`[TEST-WARMUP] ${ok}/${n} OK em ${totalMs}ms — veredito: ${veredito}`);
+    res.json({
+      success: true,
+      modo: 'imediato',
+      veredito,
+      ok, n, totalMs,
+      rttMedio, rttMin, rttMax,
+      resultados,
+    });
+  });
+
+  /**
+   * GET /api/sniper/timing-analise?ultimas=20&compraId=...
+   * Análise de timing das últimas blitzes pra calibração:
+   *   - Desvio inicial (timer dispatch vs alvoMs) — quanto o setTimeout atrasou
+   *   - RTT médio/máx por lance — latência rede + servidor Comprasnet
+   *   - Delta vs encerramento — quão perto do fim a rajada chegou
+   * Retorna também sugestões de ajuste (oneWay, bufferSpike, intervaloRR).
+   */
+  app.get('/api/sniper/timing-analise', (req, res) => {
+    try {
+      const ultimas = Math.max(1, Math.min(200, Number(req.query.ultimas) || 20));
+      const where = [];
+      const params = [];
+      if (req.query.compraId) { where.push('compraId = ?'); params.push(String(req.query.compraId)); }
+      if (req.query.itemNumero) { where.push('itemNumero = ?'); params.push(Number(req.query.itemNumero)); }
+      const sql = `
+        SELECT id, blitzKey, compraId, itemNumero, tag,
+               alvoMs, dispatchMs, desvioInicialMs,
+               fimContagemNoT0, numLances, sucessos, falhas,
+               rttMedioMs, rttMaxMs, rttMinMs,
+               ultimoChegadaMs, deltaVsEncerramentoMs,
+               numItensCoalescidos, criadoEm
+          FROM blitz_telemetria
+          ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+         ORDER BY criadoEm DESC
+         LIMIT ?
+      `;
+      const rows = db.prepare(sql).all(...params, ultimas);
+
+      // Agregados
+      const validos = rows.filter(r => r.desvioInicialMs != null);
+      const desvios = validos.map(r => r.desvioInicialMs);
+      const rttMedios = rows.filter(r => r.rttMedioMs != null).map(r => r.rttMedioMs);
+      const rttMaxs = rows.filter(r => r.rttMaxMs != null).map(r => r.rttMaxMs);
+      const deltas = rows.filter(r => r.deltaVsEncerramentoMs != null).map(r => r.deltaVsEncerramentoMs);
+      const avg = (a) => a.length ? Math.round(a.reduce((s,v)=>s+v,0)/a.length) : null;
+      const p95 = (a) => {
+        if (!a.length) return null;
+        const sorted = [...a].sort((x,y)=>x-y);
+        return sorted[Math.min(sorted.length-1, Math.floor(sorted.length*0.95))];
+      };
+      const agregados = {
+        amostras: rows.length,
+        desvioInicialMedioMs: avg(desvios),
+        desvioInicialP95Ms: p95(desvios),
+        rttMedioMs: avg(rttMedios),
+        rttP95Ms: p95(rttMaxs),
+        deltaVsEncMedioMs: avg(deltas),
+        deltaVsEncP95Ms: p95(deltas),
+        deltasAtrasados: deltas.filter(d => d > 0).length,
+        deltasTotal: deltas.length,
+        sucessosTotal: rows.reduce((s,r)=>s+(r.sucessos||0),0),
+        falhasTotal: rows.reduce((s,r)=>s+(r.falhas||0),0),
+        lancesTotal: rows.reduce((s,r)=>s+(r.numLances||0),0),
+      };
+
+      // Sugestões automáticas (regras simples)
+      const sugestoes = [];
+      if (agregados.desvioInicialMedioMs != null && Math.abs(agregados.desvioInicialMedioMs) > 30) {
+        sugestoes.push({
+          tipo: 'desvio_inicial',
+          mensagem: `Timer dispara em média ${agregados.desvioInicialMedioMs > 0 ? '+' : ''}${agregados.desvioInicialMedioMs}ms vs alvo. Considere ${agregados.desvioInicialMedioMs > 0 ? 'compensar atraso no auto-cálculo' : 'reduzir o adiantamento'}.`,
+        });
+      }
+      if (agregados.rttMedioMs != null && agregados.rttMedioMs > 200) {
+        sugestoes.push({
+          tipo: 'rtt_alto',
+          mensagem: `RTT médio = ${agregados.rttMedioMs}ms. Backend está com latência alta — verifique conexão com Comprasnet ou pool TCP.`,
+        });
+      }
+      if (agregados.deltaVsEncMedioMs != null && agregados.deltaVsEncMedioMs > 0) {
+        sugestoes.push({
+          tipo: 'atrasou',
+          mensagem: `Último lance está chegando em média ${agregados.deltaVsEncMedioMs}ms DEPOIS do encerramento. Diminua \`milesimoAlvo\` (atual default 970) por ${Math.ceil(agregados.deltaVsEncMedioMs / 10) * 10}ms.`,
+        });
+      }
+      if (agregados.deltaVsEncMedioMs != null && agregados.deltaVsEncMedioMs < -200) {
+        sugestoes.push({
+          tipo: 'muito_cedo',
+          mensagem: `Último lance está chegando ${Math.abs(agregados.deltaVsEncMedioMs)}ms ANTES do encerramento. Você está deixando margem de segurança grande — pode aumentar \`milesimoAlvo\` se quiser mais lances.`,
+        });
+      }
+      if (agregados.deltaVsEncP95Ms != null && agregados.deltaVsEncP95Ms > 50 && agregados.deltaVsEncMedioMs != null && agregados.deltaVsEncMedioMs < 0) {
+        sugestoes.push({
+          tipo: 'jitter',
+          mensagem: `Variação alta no delta (p95 = +${agregados.deltaVsEncP95Ms}ms, média ${agregados.deltaVsEncMedioMs}ms). Aumente \`bufferSpike\` (atual 30ms) pra cobrir picos.`,
+        });
+      }
+
+      res.json({ success: true, agregados, sugestoes, amostras: rows });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
   });
 
   /**
@@ -1808,24 +4065,24 @@ function registrarRotasSniper(app, monitorGetter, db) {
   app.get('/api/sniper/fila-lances', (req, res) => {
     // Limpar lances travados em 'processando' há mais de 30s (extensão não respondeu)
     const agora = Date.now();
-    for (let i = filaLances.length - 1; i >= 0; i--) {
-      const l = filaLances[i];
+    for (let i = sniper.filaLances.length - 1; i >= 0; i--) {
+      const l = sniper.filaLances[i];
       if (l.status === 'processando' && l.processandoDesde) {
         const timeout = (l.fonte === 'auto-continuo' || l.fonte === 'guard') ? 10000 : 60000;
         if (agora - l.processandoDesde > timeout) {
-          filaLances.splice(i, 1);
+          sniper.filaLances.splice(i, 1);
         }
       }
     }
 
     // Só entregar lances cujo fireAt já chegou (ou sem fireAt)
-    const pendentes = filaLances.filter(l => l.status === 'pendente' && (!l.fireAt || l.fireAt <= agora));
+    const pendentes = sniper.filaLances.filter(l => l.status === 'pendente' && (!l.fireAt || l.fireAt <= agora));
     // Marcar como "processando" com timestamp
     pendentes.forEach(l => { l.status = 'processando'; l.processandoDesde = agora; });
 
     // A4: Determine poll interval — fast when contínuo/guard/blitz has pending lances or blitz imminent
     let pollIntervalMs = 5000; // default
-    const temFastPendente = filaLances.some(l =>
+    const temFastPendente = sniper.filaLances.some(l =>
       (l.fonte === 'auto-continuo' || l.fonte === 'guard' || l.fonte === 'blitz' || l.fonte === 'agendado') &&
       (l.status === 'pendente' || l.status === 'processando')
     );
@@ -1906,7 +4163,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       }
     }
 
-    res.json({ success: true, lances: pendentes, total: filaLances.length, pollIntervalMs, proximaBlitz, proximoLanceAgendado });
+    res.json({ success: true, lances: pendentes, total: sniper.filaLances.length, pollIntervalMs, proximaBlitz, proximoLanceAgendado });
   });
 
   /**
@@ -1914,12 +4171,96 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Recebe logs da extensão (idle dialogs, erros, eventos).
    */
   app.post('/api/sniper/log', (req, res) => {
-    const { tipo, msg, detalhes } = req.body;
+    const { tipo, msg, detalhes, source } = req.body;
     const entry = `[EXT:${tipo || 'info'}] ${msg || ''}`;
     sniper.log(entry);
     logAuto(entry);
     console.log(`[Extensão] ${entry}`, detalhes ? JSON.stringify(detalhes).substring(0, 200) : '');
+    // Auditoria (2026-05-27): persistir eventos do Electron pra timeline em
+    // tokens.html. Resto do payload (status, error, action, etc) vai em JSON.
+    if (source === 'electron' && tipo) {
+      try {
+        const det = { ...req.body };
+        delete det.tipo; delete det.msg; delete det.source; delete det.timestamp;
+        db.prepare(`INSERT INTO electron_eventos (recebidoEm, tipo, msg, detalhes, source)
+                    VALUES (?, ?, ?, ?, ?)`).run(
+          new Date().toISOString(),
+          String(tipo).substring(0, 80),
+          msg ? String(msg).substring(0, 500) : null,
+          Object.keys(det).length ? JSON.stringify(det).substring(0, 1000) : null,
+          'electron',
+        );
+        // Purge: manter só últimos 7 dias
+        db.prepare(`DELETE FROM electron_eventos WHERE recebidoEm < datetime('now', '-7 days')`).run();
+      } catch (_) { /* não bloquear resposta */ }
+    }
     res.json({ success: true });
+  });
+
+  /**
+   * GET /api/sniper/electron/eventos-historico?limite=100&janelaMin=60
+   * Timeline de eventos do Electron (retoken, idle-dialog, reload-keepalive,
+   * sso-morto, etc). Usado pra responder "por que o SSO morreu?".
+   */
+  app.get('/api/sniper/electron/eventos-historico', (req, res) => {
+    try {
+      const limite = Math.max(1, Math.min(500, parseInt(req.query.limite) || 100));
+      const janelaMin = Math.max(1, Math.min(10080, parseInt(req.query.janelaMin) || 1440)); // default 24h
+      const rows = db.prepare(`
+        SELECT id, recebidoEm, tipo, msg, detalhes
+          FROM electron_eventos
+         WHERE recebidoEm > datetime('now', ?)
+         ORDER BY recebidoEm DESC
+         LIMIT ?
+      `).all(`-${janelaMin} minutes`, limite);
+      // Stats agregados por tipo
+      const porTipo = {};
+      for (const r of rows) {
+        porTipo[r.tipo] = (porTipo[r.tipo] || 0) + 1;
+      }
+      res.json({ success: true, total: rows.length, porTipo, eventos: rows });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/sniper/comprasnet-uso-bearer?janelaMin=10
+   * Agrega comprasnet_health pra distinguir "bearer aceito em /api/auth/token"
+   * de "bearer rejeitado em uso real" (ex: AutoLance.GUARD recebendo 401 em
+   * loop mesmo com token aceito pelo servidor).
+   */
+  app.get('/api/sniper/comprasnet-uso-bearer', (req, res) => {
+    try {
+      const janelaMin = Math.max(1, Math.min(1440, parseInt(req.query.janelaMin) || 10));
+      const rows = db.prepare(`
+        SELECT httpStatus, COUNT(*) as qtd, MAX(ts) as ultimoTs
+          FROM comprasnet_health
+         WHERE ts > datetime('now', ?)
+         GROUP BY httpStatus
+         ORDER BY qtd DESC
+      `).all(`-${janelaMin} minutes`);
+      const total = rows.reduce((s, r) => s + r.qtd, 0);
+      const ok = rows.filter(r => r.httpStatus >= 200 && r.httpStatus < 300).reduce((s, r) => s + r.qtd, 0);
+      const _401 = rows.find(r => r.httpStatus === 401)?.qtd || 0;
+      const _403 = rows.find(r => r.httpStatus === 403)?.qtd || 0;
+      const _429 = rows.find(r => r.httpStatus === 429)?.qtd || 0;
+      const _5xx = rows.filter(r => r.httpStatus >= 500).reduce((s, r) => s + r.qtd, 0);
+      // Sinal de problema: > 20% das chamadas com 401/403 indica bearer rejeitado
+      // em uso real (mesmo que /api/auth/token tenha aceitado).
+      const taxaRejeicao = total > 0 ? Math.round(((_401 + _403) / total) * 100) : 0;
+      res.json({
+        success: true,
+        janelaMin,
+        total,
+        ok,
+        _401, _403, _429, _5xx,
+        taxaRejeicao,
+        porStatus: rows,
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
   });
 
   /**
@@ -1932,24 +4273,24 @@ function registrarRotasSniper(app, monitorGetter, db) {
     const { id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs, enviadoMs, recebidoMs } = r;
 
     // 1. Atualizar na fila + recuperar fonte original
-    const idx = filaLances.findIndex(l => l.id === id);
+    const idx = sniper.filaLances.findIndex(l => l.id === id);
     let fonteOriginal = 'browser';
     if (idx >= 0) {
-      fonteOriginal = filaLances[idx].fonte || 'browser';
-      filaLances[idx].status = sucesso ? 'sucesso' : 'falha';
-      filaLances[idx].httpStatus = status;
-      filaLances[idx].resposta = resposta;
-      filaLances[idx].tempoMs = tempoMs;
-      filaLances[idx].processadoEm = new Date().toISOString();
+      fonteOriginal = sniper.filaLances[idx].fonte || 'browser';
+      sniper.filaLances[idx].status = sucesso ? 'sucesso' : 'falha';
+      sniper.filaLances[idx].httpStatus = status;
+      sniper.filaLances[idx].resposta = resposta;
+      sniper.filaLances[idx].tempoMs = tempoMs;
+      sniper.filaLances[idx].processadoEm = new Date().toISOString();
     }
 
     // 2. Histórico recente (in-memory)
-    resultadosLances.unshift({
+    sniper.resultadosLances.unshift({
       id, compraId, itemNumero, valor, status, sucesso, resposta, tempoMs,
       timestamp: new Date().toISOString(),
       fonte: fonteOriginal,
     });
-    if (resultadosLances.length > 50) resultadosLances.pop();
+    if (sniper.resultadosLances.length > 50) sniper.resultadosLances.pop();
 
     // 3. Log
     const fonteTag = fonteOriginal !== 'browser' ? ' [' + fonteOriginal.toUpperCase() + ']' : ' (browser)';
@@ -2056,23 +4397,23 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
     // 7. Cooldown/fila cleanup
     const pendingKey = `${compraId}-${itemNumero}`;
-    const lanceObj = idx >= 0 ? filaLances[idx] : null;
+    const lanceObj = idx >= 0 ? sniper.filaLances[idx] : null;
     const isBatchFonte = lanceObj && (lanceObj.fonte === 'blitz' || lanceObj.fonte === 'auto-continuo' || lanceObj.fonte === 'guard');
     if (sucesso) {
-      if (isBatchFonte) delete autoLancePendentes[pendingKey];
-      else autoLancePendentes[pendingKey] = Date.now();
+      if (isBatchFonte) delete sniper.autoLancePendentes[pendingKey];
+      else sniper.autoLancePendentes[pendingKey] = Date.now();
     } else {
-      delete autoLancePendentes[pendingKey];
+      delete sniper.autoLancePendentes[pendingKey];
     }
 
     const isContinuo = lanceObj && (lanceObj.fonte === 'auto-continuo' || lanceObj.fonte === 'guard');
     if (isContinuo) {
-      const i2 = filaLances.findIndex(l => l.id === id);
-      if (i2 >= 0) filaLances.splice(i2, 1);
+      const i2 = sniper.filaLances.findIndex(l => l.id === id);
+      if (i2 >= 0) sniper.filaLances.splice(i2, 1);
     } else {
       setTimeout(() => {
-        const i = filaLances.findIndex(l => l.id === id);
-        if (i >= 0) filaLances.splice(i, 1);
+        const i = sniper.filaLances.findIndex(l => l.id === id);
+        if (i >= 0) sniper.filaLances.splice(i, 1);
       }, isBatchFonte ? 5000 : 30000);
     }
 
@@ -2091,7 +4432,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       console.log(`[Sniper] Lance resultado: ${sucesso ? '✅' : '❌'} ${r.compraId} item ${r.itemNumero} R$${r.valor} HTTP ${r.status} (${r.tempoMs}ms)`);
 
       // A6: trigger reativo
-      if (autoLanceAtivo) {
+      if (sniper.autoLanceAtivo) {
         if (sucesso) {
           setImmediate(() => executarCicloAutoLance(true));
         } else if (isContinuo) {
@@ -2134,7 +4475,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       console.log(`[Sniper] Batch resultado: ${sucessos} ✅ ${falhas} ❌ (${resultados.length} total)`);
 
       // Reactive trigger after batch
-      if (autoLanceAtivo) {
+      if (sniper.autoLanceAtivo) {
         if (sucessos > 0) {
           setImmediate(() => executarCicloAutoLance(true));
         } else if (falhas > 0) {
@@ -2186,23 +4527,23 @@ function registrarRotasSniper(app, monitorGetter, db) {
       ).all();
       res.json({
         success: true,
-        ativo: autoLanceAtivo,
+        ativo: sniper.autoLanceAtivo,
         itensMonitorados: autoItens.length,
         itens: autoItens,
-        stats: autoLanceStats,
-        comprasFastPoll: Object.keys(autoLanceComprasFast),
-        pendentes: Object.keys(autoLancePendentes).length,
-        blitzDisparados: Object.keys(blitzDisparados),
-        ultraTimerAtivo: !!autoLanceTimerUltra,
-        guardLoops: Object.keys(guardLoops).map(cid => ({
+        stats: sniper.autoLanceStats,
+        comprasFastPoll: Object.keys(sniper.autoLanceComprasFast),
+        pendentes: Object.keys(sniper.autoLancePendentes).length,
+        blitzDisparados: Object.keys(sniper.blitzDisparados),
+        ultraTimerAtivo: !!sniper.autoLanceTimerUltra,
+        guardLoops: Object.keys(sniper.guardLoops).map(cid => ({
           compraId: cid,
-          itens: [...guardLoops[cid].itens],
-          intervalMs: guardLoops[cid].intervalMs,
-          iniciadoEm: guardLoops[cid].iniciadoEm,
+          itens: [...sniper.guardLoops[cid].itens],
+          intervalMs: sniper.guardLoops[cid].intervalMs,
+          iniciadoEm: sniper.guardLoops[cid].iniciadoEm,
         })),
-        guardStats,
-        log: autoLanceLog.slice(0, 200),
-        filaLances: filaLances.length,
+        guardStats: sniper.guardStats,
+        log: sniper.autoLanceLog.slice(0, 200),
+        filaLances: sniper.filaLances.length,
       });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -2215,12 +4556,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
    */
   app.post('/api/sniper/auto/toggle', (req, res) => {
     try {
-      if (autoLanceAtivo) {
+      if (sniper.autoLanceAtivo) {
         pararAutoLance();
       } else {
         iniciarAutoLance();
       }
-      res.json({ success: true, ativo: autoLanceAtivo });
+      res.json({ success: true, ativo: sniper.autoLanceAtivo });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -2257,39 +4598,57 @@ function registrarRotasSniper(app, monitorGetter, db) {
   });
 
   /**
+   * Plano 16: toggle global do MOTOR DE LANCES.
+   * Quando desligado, sniper.enviarLance() retorna { bloqueado: true } e
+   * nenhum lance vai para o Comprasnet — válido para manual, agendado,
+   * rajada individual e Rajada Global. Dados do mercado continuam
+   * atualizando via Guard (que agora é sempre ligado).
+   */
+  app.get('/api/sniper/motor-config', (req, res) => {
+    try {
+      const row = db.prepare("SELECT valor FROM config WHERE chave='sniper_motor_enabled'").get();
+      const enabled = row ? (row.valor !== '0' ? 1 : 0) : 1;
+      res.json({ success: true, enabled });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/sniper/motor-config', (req, res) => {
+    try {
+      const en = req.body && (req.body.enabled === 1 || req.body.enabled === '1' || req.body.enabled === true) ? '1' : '0';
+      db.prepare(`INSERT INTO config (chave, valor) VALUES ('sniper_motor_enabled', ?)
+        ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`).run(en);
+      if (sniper && typeof sniper.invalidarMotorCache === 'function') sniper.invalidarMotorCache();
+      logAuto(`MOTOR DE LANCES ${en === '1' ? 'LIGADO' : 'DESLIGADO'} — ${en === '1' ? 'lances podem ser enviados' : 'lances bloqueados no gate'}`);
+      res.json({ success: true, enabled: Number(en) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  /**
    * GET /api/sniper/fila-status
    * Status completo da fila de lances.
    */
   app.get('/api/sniper/fila-status', (req, res) => {
     const sniperStatus = sniper.getStatus();
     const extensaoConectada = !!(ultimoSyncExtensao && (Date.now() - ultimoSyncExtensao) < 5 * 60 * 1000);
-    const ps = getPuppeteerSession();
     res.json({
       success: true,
-      fila: filaLances,
-      resultados: resultadosLances.slice(0, 20),
-      totalResultados: resultadosLances.length,
+      fila: sniper.filaLances,
+      resultados: sniper.resultadosLances.slice(0, 20),
+      totalResultados: sniper.resultadosLances.length,
       extensaoConectada,
       temBearer: sniperStatus.temToken,
       bearerIdade: sniperStatus.tokenIdadeSegundos,
       tokenExpirado: sniperStatus.tokenExpirado,
-      puppeteer: {
-        state: ps.state,
-        loggedIn: ps.state === 'logged_in',
-        bearerFresh: ps.tokenEstaFresco(),
-        bearerAge: ps.bearerTimestamp ? ps.tokenIdadeSegundos() : null,
-        uptime: ps.launchedAt ? Math.floor((Date.now() - new Date(ps.launchedAt).getTime()) / 1000) : null,
-      },
       disputasCache: {
         total: disputasCache.disputas.length,
         atualizadoEm: disputasCache.atualizadoEm,
         idadeSegundos: disputasCache.atualizadoEm ? Math.floor((Date.now() - new Date(disputasCache.atualizadoEm).getTime()) / 1000) : null,
       },
       stats: {
-        pendentes: filaLances.filter(l => l.status === 'pendente').length,
-        processando: filaLances.filter(l => l.status === 'processando').length,
-        sucesso: filaLances.filter(l => l.status === 'sucesso').length,
-        falha: filaLances.filter(l => l.status === 'falha').length,
+        pendentes: sniper.filaLances.filter(l => l.status === 'pendente').length,
+        processando: sniper.filaLances.filter(l => l.status === 'processando').length,
+        sucesso: sniper.filaLances.filter(l => l.status === 'sucesso').length,
+        falha: sniper.filaLances.filter(l => l.status === 'falha').length,
       },
     });
   });
@@ -2306,7 +4665,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (!sniper.temToken()) {
         return res.status(400).json({
           success: false,
-          error: 'Sem Bearer token! Abra o Comprasnet com a extensão Token Relay ativa.',
+          error: 'Sem Bearer token. Abra o Comprasnet pelo Electron LiciteAgora.',
         });
       }
 
@@ -2324,6 +4683,45 @@ function registrarRotasSniper(app, monitorGetter, db) {
       });
 
       res.json(resultado);
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // FASE 2b: agendar RAJADA DE GRUPO — no horário, desce CADA item do grupo ao seu
+  // piso individual (sniper_itens.valorMinimo). 1 lance agendado por item (sniper.agendar).
+  // É o que dá pra ganhar num grupo por lance-por-item, no último segundo, respeitando
+  // o mínimo que o usuário setou em cada item.
+  app.post('/api/sniper/agendar-grupo', (req, res) => {
+    try {
+      const { compraId, horario, antecedenciaMs, tentativas } = req.body;
+      if (!compraId || !horario) return res.status(400).json({ success: false, error: 'compraId e horario obrigatórios' });
+      if (!sniper.temToken()) return res.status(400).json({ success: false, error: 'Sem Bearer token. Abra o Comprasnet pelo Electron.' });
+
+      // horarioAlvo ISO: aceita "HH:MM:SS(.mmm)" (monta com a data de hoje, TZ do servidor = Brasília)
+      // ou uma string já parseável por new Date().
+      let horarioAlvo = horario;
+      if (/^\d{2}:\d{2}:\d{2}/.test(horario) && !String(horario).includes('T')) {
+        const h = new Date();
+        const y = h.getFullYear(), mo = String(h.getMonth() + 1).padStart(2, '0'), da = String(h.getDate()).padStart(2, '0');
+        horarioAlvo = `${y}-${mo}-${da}T${horario}-03:00`;
+      }
+
+      // Itens do grupo COM piso definido (o piso É o alvo do lance)
+      const itens = db.prepare(`SELECT itemNumero, valorMinimo FROM sniper_itens WHERE compraId = ? AND itemNumero > 0 AND valorMinimo IS NOT NULL`).all(compraId);
+      if (!itens.length) return res.json({ success: false, error: 'Nenhum item do grupo com Valor Mínimo (piso) definido' });
+
+      const agendados = [];
+      for (const it of itens) {
+        const id = `grupo-${compraId}-${it.itemNumero}-${Date.now()}`;
+        const r = sniper.agendar({
+          id, compraId, itemNumero: it.itemNumero, valor: it.valorMinimo, faseItem: 'LA',
+          horarioAlvo, antecedenciaMs: antecedenciaMs || 300, tentativas: tentativas || 6, intervaloTentativasMs: 50,
+        });
+        agendados.push({ itemNumero: it.itemNumero, valor: it.valorMinimo, ok: r && r.success !== false, erro: r && r.error });
+      }
+      logAuto(`🚀 RAJADA GRUPO agendada: ${compraId} — ${agendados.filter(a => a.ok).length}/${agendados.length} item(ns) → piso @ ${horarioAlvo}`);
+      res.json({ success: true, compraId, horarioAlvo, agendados });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -2401,13 +4799,22 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
     const delay = ms => new Promise(r => setTimeout(r, ms));
 
-    // 1. Coletar compraIds para verificar (prioridade: em disputa/ativas recentes)
+    // 1. Coletar compraIds para verificar (prioridade: em disputa/ativas recentes).
+    // A última OR clause (faseCompra='4' AND homologada=0 AND dataAtualizacao>now-30d)
+    // garante que compras marcadas como encerradas continuem sendo re-checadas
+    // por até 30 dias — protege contra falsos positivos do /qtdes e contra
+    // remarcações/suspensões que reabrem a disputa. homologada=0 evita
+    // ressuscitar compras de fato terminadas.
     const comprasDB = db.prepare(`
       SELECT compraId, cnpj, ano, sequencial, situacao, faseCompra
       FROM participacoes_comprasnet
-      WHERE ativo = 1 AND situacao NOT IN ('FR', 'EN', 'EX')
-        AND (faseCompra IN ('1', '2', '3') OR situacao IN ('PD', 'AB', 'PE', '5', 'SU', '')
-             OR dataAtualizacao > datetime('now', '-7 days'))
+      WHERE ativo = 1 AND situacao NOT IN ('FR', 'EX')
+        AND (
+          faseCompra IN ('1', '2', '3')
+          OR situacao IN ('PD', 'AB', 'PE', '5', 'SU', '')
+          OR dataAtualizacao > datetime('now', '-7 days')
+          OR (faseCompra = '4' AND homologada = 0 AND dataAtualizacao > datetime('now', '-30 days'))
+        )
       ORDER BY CASE WHEN faseCompra = '3' THEN 0 WHEN situacao IN ('PD', 'PE') THEN 1 ELSE 2 END,
                dataAtualizacao DESC
       LIMIT 80
@@ -2441,11 +4848,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
     for (const [compraId, info] of todosCompraIds) {
       try {
         const { status, data } = await sniper.apiGet(`/comprasnet-fase-externa/v1/compras/${compraId}/participacao`);
-        if (status === 200 && data && typeof data === 'object') {
-          const sit = data.situacaoCompraFaseExterna || '';
-          const fase = data.faseCompraFaseExterna || '';
-          const objeto = data.objetoCompra || '';
-          const orgao = data.nomeOrgao || data.nomeUasg || '';
+        const parsed = status === 200 ? extrairFaseFromParticipacao(data) : null;
+        if (parsed) {
+          const { situacao: sit, fase, objeto, orgao } = parsed;
           const existe = stmtSelect.get(compraId);
           if (existe) {
             if (existe.situacao !== sit || existe.faseCompra !== fase) {
@@ -2535,14 +4940,10 @@ function registrarRotasSniper(app, monitorGetter, db) {
     console.log('[REFRESH] Auto-refresh ativado (a cada 2 min) + calibração de relógio');
   }
 
-  // Observar quando token chegar para iniciar auto-refresh
-  const origSetToken = sniper.setToken.bind(sniper);
-  sniper.setToken = function(token, source) {
-    origSetToken(token, source);
-    iniciarAutoRefresh();
-  };
-  // Se já tem token no startup
-  if (sniper.temToken()) setTimeout(iniciarAutoRefresh, 5000);
+  // Phase B (2026-04-23): expõe referência para agendarSniperRefresh
+  // iterar tenants e chamar periodicamente (a cada 2 min) dentro do
+  // contexto de cada tenant.
+  _refreshParticipacoesRef = executarRefreshParticipacoes;
 
   // Endpoint manual (botão Sync API)
   app.post('/api/sniper/refresh-participacoes', async (req, res) => {
@@ -2569,7 +4970,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   /**
    * POST /api/sync/disputas
-   * Recebe dados de disputas da extensão Chrome (consulta feita pelo browser).
+   * Recebe dados de disputas do Electron (consulta feita pelo webview Comprasnet).
    */
   app.post('/api/sync/disputas', (req, res) => {
     try {
@@ -2664,7 +5065,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
           disputas: [],
           atualizadoEm: null,
           fonte: 'sem-dados',
-          mensagem: 'Aguardando sync da extensão. Verifique se o Chrome está aberto com Comprasnet logado.',
+          mensagem: 'Aguardando sync do Electron. Verifique se o Electron LiciteAgora está aberto e logado no Comprasnet.',
         });
       }
     } catch (e) {
@@ -2801,6 +5202,113 @@ function registrarRotasSniper(app, monitorGetter, db) {
   });
 
   /**
+   * GET /api/sniper/itens-comprasnet?compraId=XXXX&captcha=P1_...
+   * Busca itens da compra na API Comprasnet PRÉ-DISPUTA (fase externa).
+   * Funciona quando o fornecedor já cadastrou proposta — mesmo endpoint
+   * que a tela /comprasnet-web/seguro/fornecedor/cadastro-propostas usa.
+   *
+   * O endpoint primário (aguardando-abertura-sessao-publica) EXIGE captcha
+   * hCaptcha. Hoje o Electron não captura captcha automaticamente — então
+   * o usuário pode passar via query (?captcha=P1_...) copiando do Network
+   * tab do navegador. TODO: capturar no Electron via webRequest.
+   *
+   * Tentativas em ordem (cai pro próximo se vazio/erro):
+   *   1. fase-externa/itens/aguardando-abertura-sessao-publica  ← com captcha
+   *   2. fase-externa/itens/em-selecao-fornecedores
+   *   3. disputa/itens                                          ← fallback
+   *
+   * Retorno: { itens: [{numero, descricao, valorEstimado, fase, propostaItem, ...}] }
+   */
+  app.get('/api/sniper/itens-comprasnet', async (req, res) => {
+    try {
+      const { compraId, captcha: captchaQuery } = req.query;
+      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      if (!sniper.temToken()) {
+        return res.json({ success: false, error: 'Sem Bearer token. Renove no Electron.' });
+      }
+
+      // Se cliente passou captcha por query (test manual), grava em memória
+      if (captchaQuery) sniper.setCaptchaToken(captchaQuery);
+
+      const mapearItens = arr => arr.map(i => ({
+        numero: i.numero || i.identificador || i.numeroItem || 0,
+        descricao: String(i.descricao || i.objetoItem || i.descricaoItem || '').substring(0, 500),
+        fase: i.fase || i.faseItem || 'LA',
+        valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || i.valorTotalEstimado || null,
+        unidadeMedida: i.unidadeFornecimento || i.unidadeMedida || i.unidade || '',
+        quantidade: i.quantidadeSolicitada || i.quantidade || null,
+        propostaItem: i.propostaItem || null,
+      }));
+
+      const tentativas = [];
+
+      // 1) ENDPOINT PRINCIPAL: pré-abertura da sessão pública (REQUER CAPTCHA)
+      if (sniper.temCaptcha()) {
+        // Paginar até esgotar (pages-count vem no header, mas iteramos por size)
+        try {
+          let pagina = 0;
+          const tamanho = 100;
+          const todos = [];
+          while (true) {
+            const path = `/comprasnet-fase-externa/v1/compras/${compraId}/itens/aguardando-abertura-sessao-publica?tamanhoPagina=${tamanho}&pagina=${pagina}`;
+            const { status, data } = await sniper.apiGetCaptcha(path);
+            const isArray = Array.isArray(data);
+            tentativas.push({ endpoint: `aguardando-abertura-sessao-publica?pagina=${pagina}`, status, len: isArray ? data.length : 0 });
+            if (!(status === 200 || status === 206) || !isArray) break;
+            todos.push(...data);
+            if (data.length < tamanho) break; // última página
+            pagina++;
+            if (pagina > 50) break; // sanity
+          }
+          if (todos.length > 0) {
+            return res.json({ success: true, fonte: 'aguardando-abertura-sessao-publica', compraId, itens: mapearItens(todos), tentativas });
+          }
+        } catch (e) {
+          tentativas.push({ endpoint: 'aguardando-abertura-sessao-publica', error: e.message });
+        }
+      } else {
+        tentativas.push({ endpoint: 'aguardando-abertura-sessao-publica', skipped: 'sem captcha — passe ?captcha=P1_... copiado do Network tab' });
+      }
+
+      // 2) Fallback sem captcha: em-selecao-fornecedores (vale em fases mais avançadas)
+      try {
+        const path = `/comprasnet-fase-externa/v1/compras/${compraId}/itens/em-selecao-fornecedores`;
+        const { status, data } = await sniper.apiGet(path);
+        const isArray = Array.isArray(data);
+        tentativas.push({ endpoint: 'em-selecao-fornecedores', status, len: isArray ? data.length : 0 });
+        if ((status === 200 || status === 206) && isArray && data.length > 0) {
+          return res.json({ success: true, fonte: 'em-selecao-fornecedores', compraId, itens: mapearItens(data), tentativas });
+        }
+      } catch (e) {
+        tentativas.push({ endpoint: 'em-selecao-fornecedores', error: e.message });
+      }
+
+      // 3) Fallback: já em disputa
+      try {
+        const path = `/comprasnet-disputa/v1/compras/${compraId}/itens`;
+        const { status, data } = await sniper.apiGet(path);
+        const isArray = Array.isArray(data);
+        tentativas.push({ endpoint: 'disputa/itens', status, len: isArray ? data.length : 0 });
+        if ((status === 200 || status === 206) && isArray && data.length > 0) {
+          return res.json({ success: true, fonte: 'disputa/itens', compraId, itens: mapearItens(data), tentativas });
+        }
+      } catch (e) {
+        tentativas.push({ endpoint: 'disputa/itens', error: e.message });
+      }
+
+      return res.json({
+        success: false,
+        error: sniper.temCaptcha()
+          ? 'Itens não encontrados em nenhum endpoint (fase-externa nem disputa).'
+          : 'Endpoint primário (aguardando-abertura-sessao-publica) exige captcha hCaptcha. Cole o token P1_... do Network tab do navegador via ?captcha=P1_... ou aguarde o Electron capturar.',
+        tentativas,
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
    * GET /api/sniper/itens-live?compraId=XXXX
    * Busca itens em disputa DIRETO da API Comprasnet usando Bearer token.
    * Retorna melhorValor, nossoValor, variacaoMinima, fimContagem etc.
@@ -2825,20 +5333,69 @@ function registrarRotasSniper(app, monitorGetter, db) {
           const { status, data } = await sniper.apiGet(path);
           tentativas.push({ endpoint: path.split('/v1/')[1], status, isArray: Array.isArray(data), len: Array.isArray(data) ? data.length : 0 });
           if ((status === 200 || status === 206) && Array.isArray(data) && data.length > 0) {
-            const itens = data.map(i => ({
-              numero: i.numero || i.identificador,
-              descricao: (i.descricao || i.objetoItem || '').substring(0, 200),
-              fase: i.fase || '',
-              melhorValor: (i.melhorValorGeral || {}).valorInformado != null ? i.melhorValorGeral.valorInformado : null,
-              nossoValor: (i.melhorValorFornecedor || {}).valorInformado != null ? i.melhorValorFornecedor.valorInformado : null,
-              valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || null,
-              situacaoParticipante: i.situacaoParticipanteDisputa || null,
-              variacaoMinima: i.variacaoMinimaEntreLances != null ? i.variacaoMinimaEntreLances : null,
-              tipoVariacao: i.tipoVariacaoMinimaEntreLances || 'V',
-              podeEnviar: i.podeEnviarLances || false,
-              fimContagem: i.dataHoraFimContagem || null,
-              versaoParticipante: i.versaoParticipante || null,
-            }));
+            const itens = data.map(i => {
+              // Grupo/lote (disputaPorValorUnitario=false) traz o total em
+              // valorCalculado, não valorInformado. Fallback restrito a grupo
+              // p/ não mudar o display de item normal.
+              const ehGrupo = i.tipo === 'G' || i.numero < 0;
+              const mg = i.melhorValorGeral || {};
+              const mf = i.melhorValorFornecedor || {};
+              const pick = o => o.valorInformado != null
+                ? o.valorInformado
+                : (ehGrupo && o.valorCalculado != null ? o.valorCalculado : null);
+              return {
+                numero: i.numero || i.identificador,
+                tipo: i.tipo || null,
+                identificador: i.identificador || null,
+                descricao: (i.descricao || i.objetoItem || '').substring(0, 200),
+                fase: i.fase || '',
+                melhorValor: pick(mg),
+                nossoValor: pick(mf),
+                valorEstimado: i.valorEstimadoUnitario || i.valorEstimado || null,
+                situacaoParticipante: i.situacaoParticipanteDisputa || null,
+                variacaoMinima: i.variacaoMinimaEntreLances != null ? i.variacaoMinimaEntreLances : null,
+                tipoVariacao: i.tipoVariacaoMinimaEntreLances || 'V',
+                podeEnviar: i.podeEnviarLances || false,
+                fimContagem: i.dataHoraFimContagem || null,
+                versaoParticipante: i.versaoParticipante || null,
+              };
+            });
+
+            // GRUPO: em-disputa devolve só a linha do grupo (-1). Buscar os
+            // sub-itens individuais (/itens/{n}) pra permitir LANCE POR ITEM —
+            // grupo disputaPorValorUnitario=false = ranking pelo TOTAL, mas o
+            // lance é unitário por item (o sub-item traz disputaPorValorUnitario=true).
+            for (const g of data) {
+              const ehGrupoG = g.tipo === 'G' || g.numero < 0;
+              const qtdG = g.qtdeItensDoGrupo || 0;
+              if (!ehGrupoG || qtdG < 1) continue;
+              for (let n = 1; n <= qtdG; n++) {
+                try {
+                  const { status: stSub, data: sub } = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/${n}`);
+                  if (stSub !== 200 || !sub || sub.numero == null) continue;
+                  const smg = sub.melhorValorGeral || {};
+                  const smf = sub.melhorValorFornecedor || {};
+                  const spick = o => o.valorInformado != null ? o.valorInformado : (o.valorCalculado != null ? o.valorCalculado : null);
+                  itens.push({
+                    numero: sub.numero,
+                    tipo: sub.tipo || 'S',
+                    identificador: sub.identificador || String(sub.numero),
+                    grupoPai: g.numero,
+                    descricao: (sub.descricao || '').substring(0, 200),
+                    fase: sub.fase || '',
+                    melhorValor: spick(smg),
+                    nossoValor: spick(smf),
+                    valorEstimado: sub.valorEstimadoUnitario || sub.valorEstimado || null,
+                    situacaoParticipante: sub.situacaoParticipanteDisputa || null,
+                    variacaoMinima: sub.variacaoMinimaEntreLances != null ? sub.variacaoMinimaEntreLances : null,
+                    tipoVariacao: sub.tipoVariacaoMinimaEntreLances || 'V',
+                    podeEnviar: sub.podeEnviarLances || false,
+                    fimContagem: sub.dataHoraFimContagem || null,
+                    versaoParticipante: sub.versaoParticipante || null,
+                  });
+                } catch (e) { /* pular sub-item que falhar */ }
+              }
+            }
 
             // Atualizar cache de disputas também
             const idx = disputasCache.disputas.findIndex(d => d.compraId === compraId);
@@ -2898,7 +5455,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   /**
    * POST /api/sync/participacoes
-   * Recebe participações em bulk da extensão Chrome.
+   * Recebe participações em bulk do Electron Standalone (server-sync.js).
+   * O Electron coleta via fetchParticipacoes(filtros=[5,4,3]) e posta aqui
+   * a cada 2 min. Filtros: 5=em andamento, 4=em disputa, 3=proposta enviada.
    * A extensão busca direto da API Comprasnet (mesmo IP = captcha válido).
    */
   app.post('/api/sync/participacoes', (req, res) => {
@@ -3089,7 +5648,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   /**
    * POST /api/sync/mensagens
-   * Recebe mensagens de uma licitação em bulk da extensão Chrome.
+   * Recebe mensagens de uma licitação em bulk do Electron.
    */
   app.post('/api/sync/mensagens', async (req, res) => {
     try {
@@ -3111,6 +5670,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       let novas = 0;
       const alertas = []; // mensagens direcionadas a mim
+
+      // Pregão silenciado pelo usuário não gera alerta Telegram (captura segue normal)
+      let silenciado = false;
+      try {
+        silenciado = !!db.prepare('SELECT 1 FROM chat_pregoes_silenciados WHERE compraId = ?').get(compraId);
+      } catch (e) { /* tabela pode não existir */ }
 
       for (const msg of mensagens) {
         const conteudo = msg.mensagem || msg.conteudo || msg.texto || '';
@@ -3147,7 +5712,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
           novas++;
 
           // Detectar mensagem direcionada a mim
-          if (meuCnpj && destinatario === meuCnpj) {
+          if (meuCnpj && destinatario === meuCnpj && !silenciado) {
             alertas.push({ conteudo, dataHora, compraId });
           }
         } catch (e) {
@@ -3224,6 +5789,33 @@ function registrarRotasSniper(app, monitorGetter, db) {
       let novas = 0;
       const alertas = [];
 
+      // Carregar palavras-chave ativas do tenant uma vez (caches na ingestão do batch)
+      let palavrasChaveAtivas = [];
+      try {
+        palavrasChaveAtivas = db.prepare("SELECT palavra FROM chat_palavras_chave WHERE ativo = 1").all()
+          .map(r => String(r.palavra || '').toLowerCase()).filter(p => p.length >= 2);
+      } catch (e) { /* tabela pode não existir */ }
+
+      // Pregões silenciados pelo usuário — não geram alerta Telegram (captura segue normal)
+      let silenciados = new Set();
+      try {
+        silenciados = new Set(db.prepare('SELECT compraId FROM chat_pregoes_silenciados').all().map(r => r.compraId));
+      } catch (e) { /* tabela pode não existir */ }
+
+      // Categorias do Comprasnet consideradas "importantes" para alerta Telegram.
+      // 810 = impugnação / pedido esclarecimento
+      // 820 = resposta / aviso do pregoeiro
+      // 830 = convocação formal (anexos, propostas)
+      // 840 = mensagem do agente de contratação (pregoeiro conduzindo a sessão)
+      // 850 = ata / julgamento
+      const CATEGORIAS_ALERTA = new Set(['810', '820', '830', '840', '850']);
+
+      // Normaliza CNPJ (só dígitos). Também prepara variação formatada para busca.
+      const meuCnpjDigits = meuCnpj; // já vem limpo acima
+      const meuCnpjFormatado = meuCnpjDigits.length === 14
+        ? `${meuCnpjDigits.substring(0,2)}.${meuCnpjDigits.substring(2,5)}.${meuCnpjDigits.substring(5,8)}/${meuCnpjDigits.substring(8,12)}-${meuCnpjDigits.substring(12,14)}`
+        : '';
+
       const insertStmt = db.prepare(`INSERT OR IGNORE INTO chat_mensagens
         (compraId, cnpjOrgao, ano, sequencial, dataHoraMensagem,
          remetente, mensagem, hashMensagem, titulo, categoria,
@@ -3277,9 +5869,38 @@ function registrarRotasSniper(app, monitorGetter, db) {
           );
           novas++;
 
-          // Detectar mensagem direcionada (categoria 830 = convocação)
-          if (msg.categoria === '830' || (msg.identificadorParticipante && meuCnpj)) {
-            alertas.push({ conteudo, dataHora, compraId, titulo: msg.titulo || '' });
+          // Avalia motivos de alerta (qualquer match já qualifica)
+          const motivos = [];
+          const tituloMsg = msg.titulo || '';
+          const conteudoLower = String(conteudo).toLowerCase();
+          const tituloLower = tituloMsg.toLowerCase();
+          const textoCombinado = conteudoLower + ' ' + tituloLower;
+
+          if (CATEGORIAS_ALERTA.has(String(msg.categoria))) {
+            motivos.push(`categoria ${msg.categoria}`);
+          }
+          if (msg.identificadorParticipante && meuCnpjDigits) {
+            motivos.push('direcionada ao fornecedor');
+          }
+          if (meuCnpjDigits && (textoCombinado.includes(meuCnpjDigits) ||
+              (meuCnpjFormatado && textoCombinado.includes(meuCnpjFormatado.toLowerCase())))) {
+            motivos.push('menção ao CNPJ');
+          }
+          const palavrasMatch = palavrasChaveAtivas.filter(p => textoCombinado.includes(p));
+          if (palavrasMatch.length) {
+            motivos.push('palavra-chave');
+          }
+
+          if (motivos.length > 0 && !silenciados.has(compraId)) {
+            alertas.push({
+              conteudo, dataHora, compraId,
+              titulo: tituloMsg,
+              categoria: msg.categoria || '',
+              motivos,
+              palavrasMatch,
+              mensagemId: msg.id || null,
+              hashMensagem,
+            });
           }
         } catch (e) {
           // Duplicate hash ou id — skip
@@ -3290,32 +5911,59 @@ function registrarRotasSniper(app, monitorGetter, db) {
         console.log(`[Sync] Mensagens global: ${novas} novas (de ${mensagens.length})`);
       }
 
-      // Enviar alertas Telegram para convocações
+      // Enviar alertas Telegram para mensagens que bateram critérios
       if (alertas.length > 0) {
         try {
           const telegramConfig = db.prepare('SELECT botToken, chatId FROM telegram_config WHERE id = 1 AND ativo = 1').get();
           if (telegramConfig?.botToken && telegramConfig?.chatId) {
+            const axios = require('axios');
+            const stmtMarcarNotificado = db.prepare(
+              `UPDATE chat_mensagens SET notificado = 1
+               WHERE (mensagemIdComprasnet = ? AND ? IS NOT NULL)
+                  OR hashMensagem = ?`
+            );
             for (const alerta of alertas) {
               const participacao = db.prepare('SELECT orgao, objeto FROM participacoes_comprasnet WHERE compraId = ?').get(alerta.compraId);
               const orgao = participacao?.orgao || alerta.compraId;
               const objeto = participacao?.objeto || '';
 
+              const conteudoLimitado = alerta.conteudo.length > 500
+                ? alerta.conteudo.substring(0, 500) + '…'
+                : alerta.conteudo;
+
+              const linhasExtras = [];
+              if (alerta.palavrasMatch?.length) {
+                linhasExtras.push(`🔔 <b>Palavras-chave:</b> ${alerta.palavrasMatch.join(', ')}`);
+              }
+              if (alerta.motivos?.length) {
+                linhasExtras.push(`🏷️ <b>Motivos:</b> ${alerta.motivos.join(' · ')}`);
+              }
+
               const texto = `🚨 <b>${alerta.titulo || 'MENSAGEM IMPORTANTE'}</b>\n\n` +
                 `📋 <b>Compra:</b> ${alerta.compraId}\n` +
                 `🏢 <b>Órgão:</b> ${orgao}\n` +
-                (objeto ? `📝 <b>Objeto:</b> ${objeto.substring(0, 100)}...\n` : '') +
-                `⏰ <b>Hora:</b> ${alerta.dataHora}\n\n` +
-                `💬 ${alerta.conteudo}\n\n` +
+                (objeto ? `📝 <b>Objeto:</b> ${objeto.substring(0, 100)}${objeto.length > 100 ? '…' : ''}\n` : '') +
+                `⏰ <b>Hora:</b> ${alerta.dataHora}\n` +
+                (linhasExtras.length ? linhasExtras.join('\n') + '\n' : '') +
+                `\n💬 ${conteudoLimitado}\n\n` +
                 `⚠️ <b>VERIFIQUE NO COMPRASNET!</b>`;
 
-              const axios = require('axios');
-              await axios.post(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
-                chat_id: telegramConfig.chatId,
-                text: texto,
-                parse_mode: 'HTML'
-              });
-              console.log(`[ALERTA] Telegram enviado: ${alerta.titulo} em ${alerta.compraId}`);
+              try {
+                await axios.post(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
+                  chat_id: telegramConfig.chatId,
+                  text: texto,
+                  parse_mode: 'HTML'
+                });
+                // Marca como notificado para evitar reenvio se Electron repostar
+                try { stmtMarcarNotificado.run(alerta.mensagemId, alerta.mensagemId, alerta.hashMensagem); }
+                catch (_) {}
+                console.log(`[ALERTA] Telegram enviado: ${alerta.motivos.join('+')} em ${alerta.compraId}`);
+              } catch (axiosErr) {
+                console.error(`[ALERTA] Telegram falhou em ${alerta.compraId}: ${axiosErr.message}`);
+              }
             }
+          } else {
+            console.log(`[ALERTA] ${alertas.length} alerta(s) candidatos mas Telegram não configurado/ativo neste tenant`);
           }
         } catch (telegramErr) {
           console.error('[ALERTA] Erro Telegram:', telegramErr.message);
@@ -3337,6 +5985,55 @@ function registrarRotasSniper(app, monitorGetter, db) {
       const result = await sniper.syncParticipacoes(db);
       res.json({ success: true, ...result });
     } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // POST /api/sniper/resync-encerradas — backfill imediato pra destravar compras
+  // que ficaram marcadas como faseCompra='4' indevidamente (heurística do /qtdes
+  // marcando 4 durante suspensão/intervalo, ou Comprasnet retornando 4 num
+  // momento transitório). Itera as candidatas (faseCompra=4, não homologada,
+  // janela 30d) e re-consulta /participacao pra ler faseCompraFaseExterna real.
+  app.post('/api/sniper/resync-encerradas', async (req, res) => {
+    if (!sniper.temToken() || sniper.tokenExpirado()) {
+      return res.status(401).json({ success: false, error: 'Bearer ausente/expirado' });
+    }
+    try {
+      const candidatas = db.prepare(`
+        SELECT compraId FROM participacoes_comprasnet
+        WHERE ativo = 1 AND faseCompra = '4' AND homologada = 0
+          AND dataAtualizacao > datetime('now', '-30 days')
+        ORDER BY dataAtualizacao DESC LIMIT 200
+      `).all();
+      const stmtUpdate = db.prepare(`UPDATE participacoes_comprasnet SET
+        situacao = ?, faseCompra = ?,
+        objeto = COALESCE(NULLIF(?, ''), objeto),
+        orgao = COALESCE(NULLIF(?, ''), orgao),
+        dataAtualizacao = CURRENT_TIMESTAMP
+        WHERE compraId = ?`);
+      const resultado = { verificadas: candidatas.length, reativadas: 0, mantidas: 0, erros: 0, detalhes: [] };
+      const delay = ms => new Promise(r => setTimeout(r, ms));
+      for (const { compraId } of candidatas) {
+        try {
+          const { status, data } = await sniper.apiGet(`/comprasnet-fase-externa/v1/compras/${compraId}/participacao`);
+          const parsed = status === 200 ? extrairFaseFromParticipacao(data) : null;
+          if (parsed && parsed.fase) {
+            stmtUpdate.run(parsed.situacao, parsed.fase, parsed.objeto, parsed.orgao, compraId);
+            if (parsed.fase !== '4') {
+              resultado.reativadas++;
+              resultado.detalhes.push({ compraId, faseAntes: '4', faseDepois: parsed.fase, situacao: parsed.situacao });
+            } else {
+              resultado.mantidas++;
+            }
+          } else {
+            resultado.erros++;
+          }
+          await delay(150);
+        } catch (e) { resultado.erros++; }
+      }
+      res.json({ success: true, ...resultado });
+    } catch (e) {
+      console.error('[resync-encerradas] erro:', e.message);
       res.status(500).json({ success: false, error: e.message });
     }
   });
@@ -3435,12 +6132,24 @@ function registrarRotasSniper(app, monitorGetter, db) {
           .run(valorMinimo != null ? valorMinimo : null, compraId, itemNumero);
       }
 
+      // ── Camada 2: auto-roteamento por modalidade. Pregão (fecha aleatório) → Contínuo.
+      // Só dispara quando o usuário definiu Valor Mínimo num pregão e NÃO escolheu modo
+      // (se escolheu explicitamente, respeita — Camada 1 já avisou).
+      let autoRoteado = null;
+      if (isPregaoCompraId(compraId) && !('modoAuto' in req.body)) {
+        const it = db.prepare('SELECT modoAuto, valorMinimo FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, itemNumero);
+        if (it && it.valorMinimo != null && (it.modoAuto == null || it.modoAuto === '')) {
+          db.prepare(`UPDATE sniper_itens SET modoAuto = 'continuo', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ? AND itemNumero = ?`).run(compraId, itemNumero);
+          autoRoteado = 'continuo';
+        }
+      }
+
       const item = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, itemNumero);
 
       // Check if auto-lance engine needs to start/stop
       verificarAutoLanceNecessario();
 
-      res.json({ success: true, item });
+      res.json({ success: true, item, autoRoteado });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -3503,7 +6212,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
    * Busca itens da tabela PNCP (licitacoes + itens) para uma participação Comprasnet.
    * Usa codigoUnidade + ano + objeto para encontrar a licitação correspondente.
    */
-  app.get('/api/sniper/itens-pncp', (req, res) => {
+  app.get('/api/sniper/itens-pncp', async (req, res) => {
     try {
       const { compraId } = req.query;
       if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
@@ -3522,23 +6231,46 @@ function registrarRotasSniper(app, monitorGetter, db) {
       let licitacao = null;
 
       if (palavrasObjeto.length > 0) {
-        // Tentar match por UASG + ano + palavras do objeto
-        const likeClause = palavrasObjeto.map(() => 'objetoCompra LIKE ?').join(' AND ');
-        const likeParams = palavrasObjeto.map(p => `%${p}%`);
-        licitacao = db.prepare(
-          `SELECT id, codigoUnidade, anoCompra, sequencialCompra, objetoCompra, numeroControlePNCP
-           FROM licitacoes WHERE codigoUnidade LIKE ? AND anoCompra = ? AND ${likeClause}
-           ORDER BY id DESC LIMIT 1`
-        ).get(`%${uasg}%`, participacao.ano, ...likeParams);
+        if (USE_PG) {
+          const likeClause = palavrasObjeto.map((_, i) => `"objetoCompra" ILIKE $${i + 3}`).join(' AND ');
+          const likeParams = palavrasObjeto.map(p => `%${p}%`);
+          licitacao = await catalogPg.queryOne(
+            `SELECT "id" AS id, "codigoUnidade" AS "codigoUnidade", "anoCompra" AS "anoCompra",
+                    "sequencialCompra" AS "sequencialCompra", "objetoCompra" AS "objetoCompra",
+                    "numeroControlePNCP" AS "numeroControlePNCP"
+               FROM licitacoes WHERE "codigoUnidade" ILIKE $1 AND "anoCompra" = $2 AND ${likeClause}
+              ORDER BY "id" DESC LIMIT 1`,
+            [`%${uasg}%`, participacao.ano, ...likeParams]
+          );
+        } else {
+          const likeClause = palavrasObjeto.map(() => 'objetoCompra LIKE ?').join(' AND ');
+          const likeParams = palavrasObjeto.map(p => `%${p}%`);
+          licitacao = db.prepare(
+            `SELECT id, codigoUnidade, anoCompra, sequencialCompra, objetoCompra, numeroControlePNCP
+             FROM licitacoes WHERE codigoUnidade LIKE ? AND anoCompra = ? AND ${likeClause}
+             ORDER BY id DESC LIMIT 1`
+          ).get(`%${uasg}%`, participacao.ano, ...likeParams);
+        }
       }
 
       if (!licitacao) {
         return res.json({ success: false, error: 'Licitação PNCP não encontrada para esta participação' });
       }
 
-      const itens = db.prepare(
-        'SELECT numeroItem, descricao, quantidade, unidadeMedida, valorUnitarioEstimado, valorTotal FROM itens WHERE licitacaoId = ? ORDER BY numeroItem'
-      ).all(licitacao.id);
+      let itens;
+      if (USE_PG) {
+        itens = await catalogPg.query(
+          `SELECT "numeroItem" AS "numeroItem", "descricao" AS descricao, "quantidade" AS quantidade,
+                  "unidadeMedida" AS "unidadeMedida", "valorUnitarioEstimado" AS "valorUnitarioEstimado",
+                  "valorTotal" AS "valorTotal"
+             FROM itens WHERE "licitacaoId" = $1 ORDER BY "numeroItem"`,
+          [licitacao.id]
+        );
+      } else {
+        itens = db.prepare(
+          'SELECT numeroItem, descricao, quantidade, unidadeMedida, valorUnitarioEstimado, valorTotal FROM itens WHERE licitacaoId = ? ORDER BY numeroItem'
+        ).all(licitacao.id);
+      }
 
       res.json({
         success: true,
@@ -3631,6 +6363,181 @@ function registrarRotasSniper(app, monitorGetter, db) {
           avgMs, compras, itens,
         },
       });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/relatorios/participacoes
+   * Relatório das licitações em que o fornecedor participou.
+   * Cruza participacoes_comprasnet × catalog.resultados_bi × sniper_historico
+   * para mostrar: disputadas, ganhas, perdidas, pendentes de homologação.
+   *
+   * Query params:
+   *   dataInicio / dataFim — intervalo baseado em dataHoraFimDisputa (YYYY-MM-DD)
+   *   status — 'ganha' | 'perdida' | 'pendente' | 'sem-disputa' | '' (todas)
+   *   q — busca livre em orgao/objeto/numero
+   *   limit — default 500
+   */
+  app.get('/api/relatorios/participacoes', async (req, res) => {
+    try {
+      const { dataInicio, dataFim, status, q, limit } = req.query;
+
+      // CNPJ do fornecedor do tenant — discrimina vitórias
+      const fornecedor = db.prepare('SELECT cnpj FROM fornecedor LIMIT 1').get();
+      const nossoCnpj = fornecedor ? (fornecedor.cnpj || '').replace(/\D/g, '') : '';
+
+      const where = ['p.ativo = 1'];
+      const params = [];
+      if (dataInicio) { where.push('p.dataHoraFimDisputa >= ?'); params.push(dataInicio + 'T00:00:00'); }
+      if (dataFim)    { where.push('p.dataHoraFimDisputa <= ?'); params.push(dataFim + 'T23:59:59'); }
+      if (q) {
+        where.push('(p.orgao LIKE ? OR p.objeto LIKE ? OR p.numero LIKE ?)');
+        const like = `%${q}%`;
+        params.push(like, like, like);
+      }
+
+      let rows;
+      if (USE_PG) {
+        // Fase 3g: cross-DB resolvido em 2 passos. Query base só com tenant tables.
+        const sqlBase = `
+          SELECT
+            p.compraId, p.cnpj, p.ano, p.sequencial, p.numero, p.orgao, p.objeto,
+            p.modalidade, p.situacao, p.etapa, p.faseCompra, p.homologada,
+            p.dataHoraInicioDisputa, p.dataHoraFimDisputa, p.linkPncp, p.urlCompra,
+            (SELECT COUNT(*) FROM sniper_historico h WHERE h.compraId = p.compraId AND h.sucesso = 1) AS lances_ok,
+            (SELECT COUNT(*) FROM sniper_historico h WHERE h.compraId = p.compraId AND h.sucesso = 0) AS lances_falha,
+            (SELECT k.dataAtualizacao FROM kanban_status k
+              WHERE k.cnpj = p.cnpj AND k.ano = p.ano AND k.sequencial = p.sequencial AND k.status = 'enviada') AS propostaEnviadaEm
+          FROM participacoes_comprasnet p
+          WHERE ${where.join(' AND ')}
+          ORDER BY COALESCE(p.dataHoraFimDisputa, p.dataCriacao) DESC
+          LIMIT ?
+        `;
+        rows = db.prepare(sqlBase).all(...params, parseInt(limit) || 500);
+
+        // Agrega resultados_bi em PG por (cnpj,ano,sequencial) via VALUES
+        if (rows.length > 0) {
+          const values = rows.map((_, i) => `($${i*3+2}::text,$${i*3+3}::int,$${i*3+4}::bigint)`).join(',');
+          const aggParams = [nossoCnpj];
+          for (const r of rows) aggParams.push(String(r.cnpj), Number(r.ano), Number(r.sequencial));
+          const agg = await catalogPg.query(`
+            WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+            SELECT k.cnpj, k.ano, k.sequencial,
+                   COUNT(DISTINCT r."numeroItem")::int AS itens_homologados,
+                   COUNT(DISTINCT r."numeroItem") FILTER (WHERE REPLACE(REPLACE(r."niFornecedor",'.',''),'/','') = $1)::int AS itens_ganhos,
+                   COALESCE(SUM(CASE WHEN REPLACE(REPLACE(r."niFornecedor",'.',''),'/','') = $1
+                                     THEN r."valorTotalHomologado" ELSE 0 END), 0) AS valor_ganho
+              FROM resultados_bi r
+              JOIN keys k ON r."cnpj"=k.cnpj AND r."ano"=k.ano AND r."sequencial"=k.sequencial
+             GROUP BY k.cnpj, k.ano, k.sequencial
+          `, aggParams);
+          const aggMap = new Map();
+          for (const a of agg) aggMap.set(`${a.cnpj}|${a.ano}|${a.sequencial}`, a);
+          rows = rows.map(r => {
+            const a = aggMap.get(`${r.cnpj}|${r.ano}|${r.sequencial}`) || {};
+            return {
+              ...r,
+              itens_homologados: a.itens_homologados || 0,
+              itens_ganhos: a.itens_ganhos || 0,
+              valor_ganho: Number(a.valor_ganho || 0),
+            };
+          });
+        }
+      } else {
+        const sql = `
+          SELECT
+            p.compraId, p.cnpj, p.ano, p.sequencial, p.numero, p.orgao, p.objeto,
+            p.modalidade, p.situacao, p.etapa, p.faseCompra, p.homologada,
+            p.dataHoraInicioDisputa, p.dataHoraFimDisputa, p.linkPncp, p.urlCompra,
+            (
+              SELECT COUNT(DISTINCT r.numeroItem)
+              FROM resultados_bi r
+              WHERE r.cnpj = p.cnpj AND r.ano = p.ano AND r.sequencial = p.sequencial
+            ) AS itens_homologados,
+            (
+              SELECT COUNT(DISTINCT r.numeroItem)
+              FROM resultados_bi r
+              WHERE r.cnpj = p.cnpj AND r.ano = p.ano AND r.sequencial = p.sequencial
+                AND REPLACE(REPLACE(r.niFornecedor,'.',''),'/','') = ?
+            ) AS itens_ganhos,
+            (
+              SELECT COALESCE(SUM(r.valorTotalHomologado), 0)
+              FROM resultados_bi r
+              WHERE r.cnpj = p.cnpj AND r.ano = p.ano AND r.sequencial = p.sequencial
+                AND REPLACE(REPLACE(r.niFornecedor,'.',''),'/','') = ?
+            ) AS valor_ganho,
+            (
+              SELECT COUNT(*) FROM sniper_historico h
+              WHERE h.compraId = p.compraId AND h.sucesso = 1
+            ) AS lances_ok,
+            (
+              SELECT COUNT(*) FROM sniper_historico h
+              WHERE h.compraId = p.compraId AND h.sucesso = 0
+            ) AS lances_falha,
+            (
+              SELECT k.dataAtualizacao FROM kanban_status k
+              WHERE k.cnpj = p.cnpj AND k.ano = p.ano AND k.sequencial = p.sequencial
+                AND k.status = 'enviada'
+            ) AS propostaEnviadaEm
+          FROM participacoes_comprasnet p
+          WHERE ${where.join(' AND ')}
+          ORDER BY COALESCE(p.dataHoraFimDisputa, p.dataCriacao) DESC
+          LIMIT ?
+        `;
+        rows = db.prepare(sql).all(nossoCnpj, nossoCnpj, ...params, parseInt(limit) || 500);
+      }
+
+      // Deriva status lógico por linha:
+      //   ganha      — homologadas > 0 e ganhamos ≥ 1 item
+      //   perdida    — homologadas > 0 e ganhamos 0 itens
+      //   pendente   — tem dataHoraFimDisputa mas nenhum item homologado ainda
+      //   sem-disputa— sem dataHoraFimDisputa (interesse/cadastrada mas não disputou)
+      const agora = new Date();
+      const participacoes = rows.map(r => {
+        let statusLogico;
+        if (r.itens_homologados > 0) {
+          statusLogico = r.itens_ganhos > 0 ? 'ganha' : 'perdida';
+        } else if (r.dataHoraFimDisputa) {
+          const fim = new Date(r.dataHoraFimDisputa);
+          statusLogico = fim < agora ? 'pendente' : 'agendada';
+        } else {
+          statusLogico = 'sem-disputa';
+        }
+        return { ...r, statusLogico };
+      });
+
+      const filtradas = status
+        ? participacoes.filter(p => p.statusLogico === status)
+        : participacoes;
+
+      // KPIs (sobre o conjunto filtrado por período, ignorando filtro de status)
+      const disputadas = participacoes.filter(p => p.statusLogico !== 'sem-disputa' && p.statusLogico !== 'agendada');
+      const ganhas = disputadas.filter(p => p.statusLogico === 'ganha');
+      const valorTotalGanho = ganhas.reduce((s, p) => s + (Number(p.valor_ganho) || 0), 0);
+      const kpis = {
+        total: participacoes.length,
+        disputadas: disputadas.length,
+        ganhas: ganhas.length,
+        perdidas: disputadas.filter(p => p.statusLogico === 'perdida').length,
+        pendentes: disputadas.filter(p => p.statusLogico === 'pendente').length,
+        semDisputa: participacoes.filter(p => p.statusLogico === 'sem-disputa').length,
+        taxaVitoria: disputadas.length > 0 ? Math.round((ganhas.length / disputadas.length) * 100) : 0,
+        valorTotalGanho,
+        ticketMedio: ganhas.length > 0 ? Math.round(valorTotalGanho / ganhas.length) : 0,
+      };
+
+      res.json({ success: true, participacoes: filtradas, kpis, nossoCnpj });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post('/api/relatorios/participacoes/sincronizar-funil', async (req, res) => {
+    try {
+      const stats = await sincronizarParticipacoesFunil(db);
+      res.json({ success: true, ...stats });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -3750,8 +6657,47 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
       if (!itens || !Array.isArray(itens) || itens.length === 0) return res.status(400).json({ success: false, error: 'Array de itens obrigatório' });
-      if (!sniper.temToken()) return res.status(400).json({ success: false, error: 'Sem Bearer token. Abra o Comprasnet com a extensão Token Relay.' });
+      if (!sniper.temToken()) return res.status(400).json({ success: false, error: 'Sem Bearer token. Abra o Comprasnet pelo Electron LiciteAgora.' });
       if (sniper.tokenExpirado()) return res.status(400).json({ success: false, error: 'Bearer token expirado. Recarregue o Comprasnet.' });
+
+      // Guard de portal: a API fase-externa só conhece compras do Comprasnet
+      // (compras.gov.br). Pra licitações de outros portais (ex: Portal de Compras
+      // Públicas) o POST de participação dá 404 "Compra não encontrada". Lookup
+      // autoritativo: interesse_compra_id (compraId→PNCP) + catalog (portal de origem).
+      // Fail-open: se não der pra determinar o portal, segue o fluxo normal.
+      if (USE_PG) {
+        try {
+          const k = db.prepare('SELECT cnpj, ano, sequencial FROM interesse_compra_id WHERE compraId = ?').get(compraId);
+          if (k) {
+            const lic = await catalogPg.queryOne(
+              `SELECT "linkSistemaOrigem", "usuarioNome" FROM licitacoes WHERE "cnpj"=$1 AND "anoCompra"=$2 AND "sequencialCompra"=$3 LIMIT 1`,
+              [String(k.cnpj), Number(k.ano), Number(k.sequencial)]
+            );
+            if (lic && (lic.linkSistemaOrigem || lic.usuarioNome)) {
+              const link = String(lic.linkSistemaOrigem || '').toLowerCase();
+              const usr = String(lic.usuarioNome || '').toLowerCase();
+              const ehComprasnet = /comprasnet|compras\.gov|cnetmobile/.test(link) || usr === 'compras.gov.br';
+              if (!ehComprasnet) {
+                const portal =
+                  (/portaldecompraspublicas/.test(link) || /governan[çc]abrasil/.test(usr)) ? 'Portal de Compras Públicas' :
+                  (/licitacoes-e|bb\.com/.test(link) || /licitacoes-e|banco do brasil/.test(usr)) ? 'Licitações-e (Banco do Brasil)' :
+                  (/bll\.org|bllcompras|bnccompras/.test(link) || /bll compras|bolsa nacional/.test(usr)) ? 'BLL / BNC' :
+                  (/licitardigital/.test(link)) ? 'Licitar Digital' :
+                  (lic.usuarioNome || 'outro portal (não Comprasnet)');
+                sniper.log(`🚫 Guard portal: ${compraId} é do "${portal}", não Comprasnet — envio bloqueado`);
+                return res.status(400).json({
+                  success: false,
+                  naoComprasnet: true,
+                  portalOrigem: portal,
+                  error: `Esta licitação é do portal "${portal}", não do Comprasnet. O envio automático por aqui não funciona — envie a proposta diretamente no portal de origem.`,
+                });
+              }
+            }
+          }
+        } catch (e) {
+          sniper.log(`⚠️ Guard portal falhou (segue fluxo): ${e.message}`);
+        }
+      }
 
       const basePath = `/comprasnet-fase-externa/v1/compras/${compraId}`;
       const resultados = [];
@@ -3866,8 +6812,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
           continue;
         }
 
+        // quantidadeOfertada deve ser número (Jackson rejeita string → 400 "Failed to read request").
+        // Frontend geralmente passa string vinda do GET itens da Comprasnet (ex.: "1.0000");
+        // converter pra Number antes do JSON.stringify.
+        const qtdNum = parseFloat(item.quantidade);
         const itemBody = {
-          quantidadeOfertada: item.quantidade || 1,
+          quantidadeOfertada: Number.isFinite(qtdNum) && qtdNum > 0 ? qtdNum : 1,
           valor: parseFloat(item.valor),
           marcaFabricante: item.marca || null,
           modeloVersao: item.modelo || null,
@@ -3910,16 +6860,75 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
       // Salvar status e valores no banco apenas se houve sucesso
       if (sucessos > 0) {
+        // Resolve cnpj/ano/sequencial do compraId — usado pra UPSERT em
+        // participacoes_comprasnet (Fix A: garante linha mesmo se a licitação
+        // veio só do PNCP/interesse e nunca foi visitada pela extensão), além
+        // de valores_proposta e kanban_status.
+        let participacao = null;
         try {
-          db.prepare(`UPDATE participacoes_comprasnet SET situacao = 'PE', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`).run(compraId);
-        } catch (e) {}
-
-        // Salvar valores enviados (marca, modelo, etc.) em valores_proposta
-        try {
-          const participacao = db.prepare(
+          participacao = db.prepare(
             'SELECT cnpj, ano, sequencial FROM participacoes_comprasnet WHERE compraId = ?'
           ).get(compraId);
-          if (participacao) {
+        } catch (e) {}
+        if (!participacao) {
+          try {
+            participacao = db.prepare(
+              'SELECT cnpj, ano, sequencial FROM interesse_compra_id WHERE compraId = ?'
+            ).get(compraId);
+          } catch (e) {}
+        }
+
+        // UPSERT em participacoes_comprasnet. Antes só fazia UPDATE: se a linha
+        // não existisse (caso comum: licitação veio do PNCP e foi enviada via
+        // API sem visita prévia pela extensão), o UPDATE retornava 0 linhas
+        // silenciosamente, e o card continuava como "🟡 A enviar" pra sempre.
+        try {
+          // Tenta UPDATE primeiro. Se não afetar linha, faz INSERT com dados
+          // enriquecidos do PNCP (licitacoes) quando cnpj/ano/sequencial conhecidos.
+          const upd = db.prepare(`UPDATE participacoes_comprasnet
+            SET situacao = 'PE', propostaEnviadaEm = CURRENT_TIMESTAMP, dataAtualizacao = CURRENT_TIMESTAMP
+            WHERE compraId = ?`).run(compraId);
+          if (upd.changes === 0 && participacao) {
+            // Enriquece com dados da licitação PNCP se disponível
+            let lic = null;
+            try {
+              if (USE_PG) {
+                lic = await catalogPg.queryOne(
+                  `SELECT "numeroCompra" AS "numeroCompra", "modalidadeNome" AS "modalidadeNome",
+                          "razaoSocial" AS orgao, "objetoCompra" AS "objetoCompra",
+                          "linkSistemaOrigem" AS "linkSistemaOrigem",
+                          "dataEncerramentoProposta" AS "dataEncerramentoProposta",
+                          "codigoUnidade" AS "codigoUnidade"
+                     FROM licitacoes WHERE "cnpj"=$1 AND "anoCompra"=$2 AND "sequencialCompra"=$3 LIMIT 1`,
+                  [participacao.cnpj, participacao.ano, participacao.sequencial]
+                );
+              } else {
+                lic = db.prepare(`SELECT numeroCompra, modalidadeNome, razaoSocial AS orgao, objetoCompra, linkSistemaOrigem, dataEncerramentoProposta, codigoUnidade
+                  FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ? LIMIT 1`)
+                  .get(participacao.cnpj, participacao.ano, participacao.sequencial);
+              }
+            } catch (_) {}
+            db.prepare(`INSERT INTO participacoes_comprasnet
+              (compraId, cnpj, codigoUnidade, ano, sequencial, tipo, numero, orgao, objeto,
+               etapa, situacao, urlCompra, dataSessao, propostaEnviadaEm, ativo, dataAtualizacao)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', 'PE', ?, ?, CURRENT_TIMESTAMP, 1, CURRENT_TIMESTAMP)`)
+              .run(
+                compraId, participacao.cnpj, lic?.codigoUnidade || '',
+                participacao.ano, participacao.sequencial,
+                lic?.modalidadeNome || '', lic?.numeroCompra || '',
+                lic?.orgao || '', lic?.objetoCompra || '',
+                lic?.linkSistemaOrigem || '',
+                lic?.dataEncerramentoProposta || ''
+              );
+            console.log(`[PROPOSTA-API] participacoes_comprasnet INSERT pra ${compraId} (não existia antes)`);
+          }
+        } catch (e) {
+          console.warn('[PROPOSTA-API] upsert participacoes_comprasnet:', e.message);
+        }
+
+        // Salvar valores enviados (marca, modelo, etc.) em valores_proposta
+        if (participacao) {
+          try {
             const stmtVP = db.prepare(`
               INSERT OR REPLACE INTO valores_proposta
               (cnpj, ano, sequencial, numeroItem, valorUnitario, marca, modelo, fabricante, selecionado, dataAtualizacao)
@@ -3936,9 +6945,32 @@ function registrarRotasSniper(app, monitorGetter, db) {
                 }
               }
             }
+          } catch (e) {
+            console.warn('[PROPOSTA-API] Erro ao salvar valores_proposta:', e.message);
           }
-        } catch (e) {
-          console.warn('[PROPOSTA-API] Erro ao salvar valores_proposta:', e.message);
+
+          // Atualiza kanban_status → 'enviada' (mesmo status usado pelo fluxo
+          // via extensão). Faz a /licitacoes/agenda.html mostrar "Proposta
+          // enviada" pra licitações cuja proposta foi mandada pela API.
+          // Idempotente: INSERT OR IGNORE garante a linha, depois UPDATE.
+          try {
+            db.prepare(`
+              INSERT OR IGNORE INTO kanban_status (cnpj, ano, sequencial, status, dataAtualizacao)
+              VALUES (?, ?, ?, 'enviada', CURRENT_TIMESTAMP)
+            `).run(participacao.cnpj, participacao.ano, participacao.sequencial);
+            db.prepare(`
+              UPDATE kanban_status
+                 SET status = 'enviada',
+                     observacao = 'Proposta enviada via API Comprasnet',
+                     dataAtualizacao = CURRENT_TIMESTAMP
+               WHERE cnpj = ? AND ano = ? AND sequencial = ?
+            `).run(participacao.cnpj, participacao.ano, participacao.sequencial);
+            console.log(`[PROPOSTA-API] kanban_status → 'enviada' para ${participacao.cnpj}/${participacao.ano}/${participacao.sequencial}`);
+          } catch (e) {
+            console.warn('[PROPOSTA-API] Erro ao atualizar kanban_status:', e.message);
+          }
+        } else {
+          console.warn(`[PROPOSTA-API] compraId ${compraId} não mapeado em participacoes_comprasnet nem interesse_compra_id — agenda não será atualizada`);
         }
       }
 
@@ -4001,7 +7033,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       if (result.status >= 200 && result.status < 300) {
         // Atualizar banco local
         try {
-          db.prepare(`UPDATE participacoes_comprasnet SET situacao = 'EX', dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`).run(compraId);
+          db.prepare(`UPDATE participacoes_comprasnet SET situacao = 'EX', propostaEnviadaEm = NULL, dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ?`).run(compraId);
         } catch (e) {}
 
         console.log(`[PROPOSTA-API] DELETE ${compraId}: OK`);
@@ -4395,51 +7427,11 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
   });
 
-  // ==================== PUPPETEER SESSION ====================
+  // ==================== LANCE DIRETO (via extensão/Electron) ====================
+  // Puppeteer server-side removido em 2026-04-22. Lances são sempre
+  // enfileirados e executados pelo Electron Standalone (webview Comprasnet).
 
-  const pSession = getPuppeteerSession();
-
-  // Callback: quando Puppeteer captura um Bearer, atualizar o sniper também
-  pSession.onBearerCaptured = (bearer) => {
-    sniper.setToken(bearer, 'puppeteer');
-    console.log('[Sniper] Bearer recebido do Puppeteer');
-  };
-
-  /**
-   * Executa lance diretamente via Puppeteer (sem fila).
-   * Fallback: enfileira para extensão se Puppeteer não estiver disponível.
-   * @returns {{ direto: boolean, resultado?: object, lanceId?: string }}
-   */
   async function executarLanceDireto(compraId, itemNumero, valor, faseItem, fonte) {
-    const ps = getPuppeteerSession();
-
-    if (ps.state === 'logged_in' && ps.tokenEstaFresco()) {
-      // Execução direta via Puppeteer
-      const inicio = Date.now();
-      try {
-        const resultado = ps.enviarLance(compraId, parseInt(itemNumero), valor, faseItem || 'LA');
-        // Aguardar resultado (pode ser Promise)
-        const res = await resultado;
-        const tempoMs = Date.now() - inicio;
-
-        // Gravar no histórico do banco
-        try {
-          db.prepare(`INSERT INTO sniper_historico
-            (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(compraId, parseInt(itemNumero), valor,
-              res.httpStatus, res.sucesso ? 1 : 0, tempoMs,
-              (res.resposta || '').substring(0, 500),
-              (fonte || 'puppeteer'), new Date().toISOString());
-        } catch (e) { /* ok se tabela não existir */ }
-
-        return { direto: true, resultado: res };
-      } catch (e) {
-        console.log(`[Sniper] Puppeteer lance falhou: ${e.message} — fallback para fila`);
-      }
-    }
-
-    // Fallback: enfileirar para extensão
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const lance = {
       id, compraId, itemNumero: parseInt(itemNumero),
@@ -4447,57 +7439,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
       criadoEm: new Date().toISOString(), status: 'pendente',
       fonte: fonte || 'browser',
     };
-    filaLances.push(lance);
+    sniper.filaLances.push(lance);
     return { direto: false, lanceId: id };
   }
-
-  // --- Rotas Puppeteer ---
-
-  app.get('/api/puppeteer/status', (req, res) => {
-    try {
-      res.json({ success: true, ...pSession.getStatus() });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  app.post('/api/puppeteer/launch', async (req, res) => {
-    try {
-      const { headless } = req.body || {};
-      const result = await pSession.launch({ headless: headless !== false });
-      res.json({ success: true, ...result });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  app.post('/api/puppeteer/login', async (req, res) => {
-    try {
-      const result = await pSession.login();
-      res.json({ success: true, ...result });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  app.post('/api/puppeteer/close', async (req, res) => {
-    try {
-      const result = await pSession.close();
-      res.json({ success: true, ...result });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  app.get('/api/puppeteer/logs', (req, res) => {
-    try {
-      const limit = parseInt(req.query.limit) || 50;
-      const logs = pSession.logs.slice(-limit);
-      res.json({ success: true, logs });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
 
   // ==================== TESTE DE CONEXÃO ====================
 
@@ -4509,7 +7453,6 @@ function registrarRotasSniper(app, monitorGetter, db) {
     try {
       const sniperStatus = sniper.getStatus();
       const extensaoConectada = !!(ultimoSyncExtensao && (Date.now() - ultimoSyncExtensao) < 5 * 60 * 1000);
-      const ps = getPuppeteerSession();
       res.json({
         success: true,
         servidor: { online: true, timestamp: new Date().toISOString() },
@@ -4530,10 +7473,6 @@ function registrarRotasSniper(app, monitorGetter, db) {
           presente: sniperStatus.temCaptcha,
           idade: sniperStatus.captchaIdade,
         },
-        puppeteer: {
-          state: ps.state,
-          loggedIn: ps.state === 'logged_in',
-        },
       });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -4549,7 +7488,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
   app.post('/api/conexao/testar-comprasnet', async (req, res) => {
     try {
       if (!sniper.temToken()) {
-        return res.json({ success: false, erro: 'sem_bearer', mensagem: 'Sem Bearer token. Abra o Comprasnet com a extensão Token Relay ativa.' });
+        return res.json({ success: false, erro: 'sem_bearer', mensagem: 'Sem Bearer token. Abra o Comprasnet pelo Electron LiciteAgora.' });
       }
       if (sniper.tokenExpirado()) {
         return res.json({ success: false, erro: 'bearer_expirado', mensagem: 'Bearer token expirado. Recarregue o Comprasnet.' });
@@ -4615,7 +7554,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
   /**
    * POST /api/tarefas/criar
-   * Cria uma tarefa na fila para a extensão executar no browser.
+   * Cria uma tarefa na fila para o Electron executar no webview Comprasnet.
    * Body: { tipo: 'testar-conexao'|'testar-participacao'|'enviar-proposta', dados: {...} }
    */
   app.post('/api/tarefas/criar', (req, res) => {
@@ -4629,7 +7568,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
       }
 
       const tarefa = {
-        id: ++tarefaIdCounter,
+        id: ++sniper.tarefaIdCounter,
         tipo,
         dados: dados || {},
         status: 'pendente',
@@ -4637,11 +7576,11 @@ function registrarRotasSniper(app, monitorGetter, db) {
         processadoEm: null,
         resultado: null,
       };
-      filaTarefas.push(tarefa);
+      sniper.filaTarefas.push(tarefa);
 
       // Limpar tarefas antigas (> 5 min, já concluídas/falhas)
       const cincoMinAtras = Date.now() - 5 * 60 * 1000;
-      filaTarefas = filaTarefas.filter(t =>
+      sniper.filaTarefas = sniper.filaTarefas.filter(t =>
         t.status === 'pendente' || t.status === 'processando' ||
         new Date(t.criadoEm).getTime() > cincoMinAtras
       );
@@ -4665,7 +7604,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
     const TTL_CONCLUIDA_MS   = 5 * 60 * 1000;   // 5min após concluída
 
     // Descartar tarefas stuck em 'processando' ou já terminadas há tempo
-    filaTarefas = filaTarefas.filter(t => {
+    sniper.filaTarefas = sniper.filaTarefas.filter(t => {
       if (t.status === 'pendente') return true;
       if (t.status === 'processando') {
         const idade = agora - new Date(t.criadoEm).getTime();
@@ -4676,9 +7615,9 @@ function registrarRotasSniper(app, monitorGetter, db) {
       return idade < TTL_CONCLUIDA_MS;
     });
 
-    const pendentes = filaTarefas.filter(t => t.status === 'pendente');
+    const pendentes = sniper.filaTarefas.filter(t => t.status === 'pendente');
     pendentes.forEach(t => { t.status = 'processando'; });
-    res.json({ success: true, tarefas: pendentes, total: filaTarefas.length });
+    res.json({ success: true, tarefas: pendentes, total: sniper.filaTarefas.length });
   });
 
   /**
@@ -4689,7 +7628,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
   app.post('/api/tarefas/resultado', (req, res) => {
     try {
       const { id, sucesso, resultado, erro, tempoMs } = req.body;
-      const tarefa = filaTarefas.find(t => t.id === id);
+      const tarefa = sniper.filaTarefas.find(t => t.id === id);
       if (!tarefa) return res.status(404).json({ success: false, error: 'Tarefa não encontrada' });
 
       tarefa.status = sucesso ? 'concluida' : 'falha';
@@ -4711,7 +7650,7 @@ function registrarRotasSniper(app, monitorGetter, db) {
    */
   app.get('/api/tarefas/:id', (req, res) => {
     const id = parseInt(req.params.id);
-    const tarefa = filaTarefas.find(t => t.id === id);
+    const tarefa = sniper.filaTarefas.find(t => t.id === id);
     if (!tarefa) return res.status(404).json({ success: false, error: 'Tarefa não encontrada' });
     res.json({ success: true, tarefa });
   });
@@ -4740,8 +7679,10 @@ function registrarRotasSniper(app, monitorGetter, db) {
   sniper.log('🏥 Health check de token ativado (a cada 2 min)');
 
   // ===== Recuperação de blitz agendadas após restart =====
-  // Roda 2s após o startup para permitir que cache e configs sejam carregados
-  setTimeout(() => recuperarBlitzesAgendadas(), 2000);
+  // NÃO roda em boot — o `db` aqui é o Proxy sem contexto de tenant.
+  // A recovery é disparada per-tenant em `_iniciarAgendamentoTenant` (2s
+  // após o primeiro acesso) onde tenantStorage resolve o db corretamente.
+  _recuperarBlitzesRef = recuperarBlitzesAgendadas;
 
   async function recuperarBlitzesAgendadas() {
     try {
@@ -4753,7 +7694,12 @@ function registrarRotasSniper(app, monitorGetter, db) {
       const expiradas = rows.filter(r => r.alvoMs <= now);
       if (expiradas.length > 0) {
         const stmt = db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?');
-        for (const r of expiradas) stmt.run(r.blitzKey);
+        for (const r of expiradas) {
+          blitzHist.finalizarStatus(db, r.blitzKey, 'expirada', {
+            observacao: 'Servidor estava fora no horário do disparo',
+          });
+          stmt.run(r.blitzKey);
+        }
         console.log(`[BLITZ-RECOVERY] ${expiradas.length} agendamento(s) expirado(s) removido(s)`);
       }
 
@@ -4771,8 +7717,19 @@ function registrarRotasSniper(app, monitorGetter, db) {
   }
 
   function agendarBlitzRecuperada(row) {
-    const delayMs = row.alvoMs - Date.now();
+    // Recuo do dispatch: alvoMs no DB = chegada último lance. Dispatch é recuado.
+    const oneWay = 76, intervaloRR = 157, rttMediana = 153, bufferSpike = 30;
+    const maxLancesRow = row.maxLances || 5;
+    const numRodadas = Math.max(0, maxLancesRow - 1);
+    // Sem saber ainda quantos itens vão coalescer, assume RTT puro (1 item).
+    // Se coalescer mais itens, o primeiro grupo wins (timer já agendado).
+    const duracaoRecuo = oneWay + (numRodadas * rttMediana) + bufferSpike;
+    const dispatchMs = row.alvoMs - duracaoRecuo;
+    const delayMs = dispatchMs - Date.now();
     if (delayMs <= 0) {
+      blitzHist.finalizarStatus(db, row.blitzKey, 'expirada', {
+        observacao: `Expirou entre o restart e a recovery (recuo=${duracaoRecuo}ms já passou)`,
+      });
       try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(row.blitzKey); } catch (e) {}
       return;
     }
@@ -4780,33 +7737,69 @@ function registrarRotasSniper(app, monitorGetter, db) {
     const cfgItem = db.prepare('SELECT * FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(row.compraId, row.itemNumero);
     if (!cfgItem || !cfgItem.valorMinimo) {
       console.log(`[BLITZ-RECOVERY] ${row.blitzKey} sem config válida — descartando`);
+      blitzHist.finalizarStatus(db, row.blitzKey, 'cancelada', {
+        observacao: 'Recovery descartou — config do item ausente/inválida',
+      });
       try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(row.blitzKey); } catch (e) {}
       return;
     }
 
-    // Guard pré-blitz 3s antes
-    if (delayMs > 3000) {
-      setTimeout(() => {
-        iniciarGuard(row.compraId, row.itemNumero);
-        logAuto(`🛡️ GUARD pré-blitz (recuperado) ativado para ${row.compraId} item ${row.itemNumero}`);
-      }, delayMs - 3000);
+    // Guard liga imediatamente com ramp dinâmico — polling degradê até o disparo.
+    if (motorLigado()) {
+      iniciarGuard(row.compraId, row.itemNumero, row.alvoMs);
+      logAuto(`🛡️ GUARD ramped (recuperado) ativado para ${row.compraId} item ${row.itemNumero} (disparo em ${Math.round(delayMs/1000)}s)`);
     }
 
-    const timer = setTimeout(async () => {
-      try { db.prepare('DELETE FROM blitz_agendadas WHERE blitzKey = ?').run(row.blitzKey); } catch (e) {}
-      await executarBlitzRecuperada(row, cfgItem);
-    }, delayMs);
+    // Coalescing na recovery: se já existe grupo com este alvoMs, anexa.
+    const itemConfig = {
+      compraId: row.compraId,
+      itemNumero: row.itemNumero,
+      valorMinimo: cfgItem.valorMinimo,
+      faseItem: cfgItem.faseItem,
+      variacaoMinima: cfgItem.variacaoMinima,
+      tipoVariacao: cfgItem.tipoVariacao,
+      maxLances: row.maxLances || 50,
+    };
+    let grupo = blitzGruposPorAlvo.get(row.alvoMs);
+    let timer;
+    if (grupo) {
+      grupo.items.push(itemConfig);
+      timer = grupo.timer;
+      console.log(`[BLITZ-RECOVERY] ${row.compraId} item ${row.itemNumero} COALESCIDA no grupo existente (alvoMs=${row.alvoMs}, total=${grupo.items.length})`);
+    } else {
+      agendarPreDisparoTasks(row.alvoMs, 1, 'BLITZ-RECOVERY', [row.compraId]);
+      grupo = { items: [itemConfig], timer: null, horarioEfetivo: row.horario, modo: row.modoBlitz || 'cobrir', capPorItem: null, dispatchMs };
+      blitzGruposPorAlvo.set(row.alvoMs, grupo);
+      timer = setTimeout(async () => {
+        const itens = grupo.items;
+        try {
+          await _executarRoundRobinBlitz({
+            itensConfig: itens,
+            modo: grupo.modo,
+            capPorItem: grupo.capPorItem,
+            tag: itens.length > 1 ? 'BLITZ-RECOVERY-COALESCIDA' : 'BLITZ-RECOVERY',
+            fonte: 'blitz-servidor',
+            alvoMs: row.alvoMs,
+          });
+        } finally {
+          blitzGruposPorAlvo.delete(row.alvoMs);
+        }
+      }, delayMs);
+      grupo.timer = timer;
+      console.log(`[BLITZ-RECOVERY] ${row.compraId} item ${row.itemNumero} dispatch recuado ${duracaoRecuo}ms (de ${new Date(row.alvoMs).toISOString()} pra ${new Date(dispatchMs).toISOString()})`);
+    }
 
     blitzAgendadas[row.blitzKey] = {
       timer, horario: row.horario, compraId: row.compraId, itemNumero: row.itemNumero,
       maxLances: row.maxLances, modoBlitz: row.modoBlitz, agendadoEm: row.agendadoEm,
+      alvoMs: row.alvoMs,
     };
 
     console.log(`[BLITZ-RECOVERY] ${row.compraId} item ${row.itemNumero} reagendado para ${row.horario} (em ${Math.round(delayMs/1000)}s)`);
     logAuto(`⏰ BLITZ RECUPERADA: ${row.compraId} item ${row.itemNumero} para ${row.horario}`);
   }
 
-  async function executarBlitzRecuperada(row, cfgItem) {
+  async function executarBlitzRecuperada(row, cfgItem, historicoId) {
     let cached = disputasCache.disputas.find(d => d.compraId === row.compraId);
     let liveItem = cached && cached.itens ? cached.itens.find(i => i.numero === row.itemNumero) : null;
 
@@ -4841,8 +7834,14 @@ function registrarRotasSniper(app, monitorGetter, db) {
     }
 
     if (!liveItem || liveItem.nossoValor == null) {
+      const motivo = sniper.temToken()
+        ? 'Recovery aborto: sem dados live (cache não populado e API não respondeu)'
+        : 'Recovery aborto: sem dados live (token Bearer ausente — Electron offline?)';
       console.log(`[BLITZ-RECOVERY] ${row.compraId} item ${row.itemNumero} — sem live data, abortando`);
       logAuto(`🚀 BLITZ-RECOVERY: ${row.compraId} item ${row.itemNumero} — sem live data, abortando`);
+      blitzHist.atualizarLances(db, historicoId, 0, motivo);
+      // Telegram mesmo sem dados — usuário precisa saber que a rajada rodou
+      notificarResultadoBlitz(row.compraId, row.itemNumero, { sucessos: 0, falhas: 0, motivo: 'sem live data' });
       return;
     }
 
@@ -4854,15 +7853,21 @@ function registrarRotasSniper(app, monitorGetter, db) {
 
     const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, row.compraId, row.maxLances || 50, row.modoBlitz || 'cobrir');
     if (batchLances.length === 0) {
+      const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${cfgItem.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${row.modoBlitz||'cobrir'}`;
       console.log(`[BLITZ-RECOVERY] ${row.compraId} item ${row.itemNumero} — 0 lances calculados`);
+      blitzHist.atualizarLances(db, historicoId, 0, `Recovery aborto: batch vazio — ${dbg}`);
+      // Telegram mesmo com batch vazio — cenário típico quando concorrente foi
+      // abaixo do piso ou varMin não permite mais descer respeitando o piso.
+      notificarResultadoBlitz(row.compraId, row.itemNumero, { sucessos: 0, falhas: 0, motivo: 'batch vazio (piso/varMin)' });
       return;
     }
 
-    blitzDisparados[row.blitzKey] = Date.now();
+    sniper.blitzDisparados[row.blitzKey] = Date.now();
     delete blitzAgendadas[row.blitzKey];
 
     const vi = itemParaCalculo.nossoValor.toFixed(2);
     const vf = batchLances[batchLances.length - 1].valor.toFixed(2);
+    logAuto(`📋 BLITZ-RECOVERY ${row.compraId} item ${row.itemNumero} estado pré-disparo: fase=${itemParaCalculo.fase || '?'} sit=${itemParaCalculo.situacaoParticipante || '?'} melhorGeral=${itemParaCalculo.melhorValor} nosso=${itemParaCalculo.nossoValor} varMin=${itemParaCalculo.variacaoMinima} tipoVar=${itemParaCalculo.tipoVariacao} batch=[${batchLances.slice(0,3).map(l => l.valor.toFixed(2)).join(', ')}${batchLances.length > 3 ? ', …' : ''}]`);
     console.log(`[BLITZ-RECOVERY] DIRETO: ${row.compraId} item ${row.itemNumero} — ${batchLances.length} lances (R$${vi} → R$${vf})`);
     logAuto(`🚀 BLITZ-RECOVERY DIRETO: ${row.compraId} item ${row.itemNumero} — ${batchLances.length} lances`);
 
@@ -4875,12 +7880,29 @@ function registrarRotasSniper(app, monitorGetter, db) {
           db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(row.compraId, row.itemNumero, lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, 'blitz-servidor', new Date().toISOString());
         } catch (e) {}
-        if (resultado.sucesso) sucessos++;
-        else { falhas++; if (resultado.status === 422 || resultado.status === 401) break; }
+        if (resultado.sucesso) {
+          sucessos++;
+        } else {
+          falhas++;
+          if (resultado.status === 401 || resultado.status === 403) break;
+          if (resultado.status === 422) {
+            const tipo = classificar422(resultado.resposta);
+            logAuto(`🩹 BLITZ-RECOVERY 422 ${tipo}: ${row.compraId} item ${row.itemNumero} R$ ${lance.valor.toFixed(2)}`);
+            if (tipo === 'colisao')       continue;
+            if (tipo === 'valor-baixo')   break;
+            if (tipo === 'fase-invalida') break;
+            break;
+          }
+        }
       } catch (e) { falhas++; break; }
     }
     console.log(`[BLITZ-RECOVERY] DIRETO resultado: ${row.compraId} item ${row.itemNumero} — ${sucessos} ✅ ${falhas} ❌`);
+    // Histórico: atualiza contagem real de lances enviados.
+    blitzHist.atualizarLances(db, historicoId, sucessos + falhas,
+      `Recovery: ${sucessos} OK, ${falhas} falhas`);
     iniciarGuard(row.compraId, row.itemNumero);
+    // Telegram: pós-blitz notifica se somos melhor colocado
+    notificarResultadoBlitz(row.compraId, row.itemNumero, { sucessos, falhas });
   }
 
 } // end registrarRotasSniper
@@ -4889,4 +7911,4 @@ function getSniper() {
   return sniper;
 }
 
-module.exports = { registrarRotasSniper, getSniper, getPuppeteerSession };
+module.exports = { registrarRotasSniper, getSniper, sincronizarParticipacoesFunil };
