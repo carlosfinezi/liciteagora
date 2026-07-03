@@ -43,9 +43,9 @@ inconsistência detectável → transformou o hCaptcha visível-resolvível num 
 
 ⚠️ **Regra de ouro:** o device-trust é sagrado. NUNCA fazer wipe total de perfil nem
 `clearStorageData` com `cookies`. Re-login usa só `limparSessaoComprasnet` (cirúrgico, apaga
-apenas cookies do comprasnet.gov.br, preserva acesso.gov.br). Se o hCaptcha aparecer mesmo
-assim → **UM login manual** re-semeia o trust; depois os reloads renovam invisível.
-NÃO reintroduzir stealth JS: as flags do Chromium já bastam.
+apenas cookies do comprasnet.gov.br, preserva acesso.gov.br). As flags do Chromium fazem o
+hCaptcha passar invisível **mesmo em perfil recém-limpo** (provado 2026-07-03: login OK sem
+prompt). Captura 100% autônoma — **nada manual, nunca**. NÃO reintroduzir stealth JS.
 
 ## CAPTURA CONTÍNUA = re-auth SSO (não retoken) — v5.2.20
 
