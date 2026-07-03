@@ -44,7 +44,6 @@ const AGUARDANDO_TIMEOUT_MS = 90000; // 30s timeout
 const SYNC_INTERVAL_MS = 120000;    // 2 min
 const KEEPALIVE_INTERVAL_MS = 120000; // 2 min (re-auth SSO estilo Lancer — fluxo de 23s evita trigger hCaptcha)
 const RETOKEN_THRESHOLD_MS = 240000;  // 4 min — retoken HTTP proativo (TTL 9 min → ~5 min de buffer)
-const RELOAD_LAST_RESORT_MS = 420000; // 7 min — reload SÓ se retoken falhar perto do TTL (v5.2.3: antes recarregava todo ciclo → acionava hCaptcha)
 const HEARTBEAT_INTERVAL_MS = 30000;  // 30s — audita estado pra dashboard tokens.html
 let lastParticipacoes = [];          // último sync — usada pelo motor timer
 
@@ -65,7 +64,7 @@ function init(opts) {
 }
 
 function start() {
-  _log('[Sync] Iniciando sync a cada 2 min + keepalive a cada 60s + heartbeat a cada 30s');
+  _log('[Sync] Iniciando sync 2min + keepalive/re-auth 2min (renova Bearer >4min) + heartbeat 30s');
   // Sync imediato (3s delay)
   setTimeout(() => executarSync(), 3000);
   syncTimer = setInterval(() => executarSync(), SYNC_INTERVAL_MS);
@@ -419,114 +418,11 @@ async function detectarEncerradas(participacoesAtuais) {
   }
 }
 
-// ─── Retoken via HTTP direto (Node.js, sem browser/CORS) ────────────────────
-// Reintroduzido na v5.1.8 (originalmente commit 2fab745, removido em 6fdea27).
-// Renova bearer chamando PUT no endpoint SERPRO. Resposta tem novo accessToken.
-// Sem reload de webview, sem risco de hCaptcha, sem fluxo Lancer 3-passos.
-
-// Lê os cookies de sessão do cnetmobile (session do webview, no processo MAIN) e monta
-// o header Cookie. É o que faltava no retoken via Node: o endpoint /retoken valida o
-// cookie de sessão do SERPRO/gov.br; sem ele = 401. (v5.2.15)
-async function getCookieHeaderCnetmobile(wv) {
-  try {
-    if (!wv || !wv.session || !wv.session.cookies) return '';
-    const cookies = await wv.session.cookies.get({ url: 'https://cnetmobile.estaleiro.serpro.gov.br' });
-    return (cookies || []).map(c => `${c.name}=${c.value}`).join('; ');
-  } catch { return ''; }
-}
-
-function retokenHTTP(currentBearer, cookieHeader) {
-  return new Promise((resolve) => {
-    const headers = {
-      'Authorization': currentBearer,
-      'Accept': 'application/json, text/plain, */*',
-      'Content-Type': 'application/json',
-      'x-device-platform': 'web',
-      'x-version-number': '6.0.2',
-    };
-    // O /retoken valida o cookie de sessão; sem ele = 401. (v5.2.15: Node + cookies)
-    if (cookieHeader) headers['Cookie'] = cookieHeader;
-    const options = {
-      method: 'PUT',
-      hostname: 'cnetmobile.estaleiro.serpro.gov.br',
-      path: '/comprasnet-usuario/v2/sessao/fornecedor/retoken',
-      timeout: 15000,
-      headers,
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (res.statusCode === 200 && json.accessToken) {
-            resolve({ ok: true, status: 200, token: json.accessToken });
-          } else {
-            resolve({ ok: false, status: res.statusCode, error: data.substring(0, 200) });
-          }
-        } catch (e) {
-          resolve({ ok: false, status: res.statusCode, error: data.substring(0, 200) });
-        }
-      });
-    });
-
-    req.on('error', e => resolve({ ok: false, status: 0, error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
-    req.end();
-  });
-}
-
-// ─── Retoken via WEBVIEW (executeJavaScript fetch) ──────────────────────────
-// O retoken via Node (retokenHTTP) sempre dava 401: o endpoint /sessao/fornecedor/
-// retoken valida o COOKIE de sessão, e o https.request do Node não manda cookies.
-// Aqui o fetch roda no webview com credentials:'include' → carrega os cookies da
-// sessão gov.br/SERPRO (mesmo padrão de wvFetchJSON do comprasnet-api.js, que
-// funciona). x-version-number alinhado a 6.0.0 (resto do app). Resposta tem o novo
-// accessToken no corpo (json.accessToken) — não passa pelo interceptor de Bearer.
-function retokenWebview(wv, currentBearer) {
-  const url = 'https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-usuario/v2/sessao/fornecedor/retoken';
-  const js = `
-    (async () => {
-      try {
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 15000);
-        const r = await fetch(${JSON.stringify(url)}, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json, text/plain, */*',
-            'Content-Type': 'application/json',
-            'Authorization': ${JSON.stringify(currentBearer)},
-            'x-device-platform': 'web',
-            'x-version-number': '6.0.0',
-          },
-          signal: ctrl.signal,
-        });
-        clearTimeout(tid);
-        const status = r.status;
-        const text = await r.text();
-        let token = null;
-        try { const j = JSON.parse(text); if (j && j.accessToken) token = j.accessToken; } catch (_) {}
-        return { ok: status >= 200 && status < 300 && !!token, status, token, error: token ? '' : (text || '').slice(0, 150) };
-      } catch (e) {
-        return { ok: false, status: 0, error: e && e.message ? e.message : String(e) };
-      }
-    })()
-  `;
-  return wv.executeJavaScript(js, true).catch(e => ({ ok: false, status: 0, error: 'executeJavaScript: ' + e.message }));
-}
-
-// Detecta se o webview escorregou para o fluxo de login gov.br (sso.acesso.gov.br /
-// loginPortal / intro). Nesse estado o retoken cross-origin SEMPRE falha ("Failed to
-// fetch") e o reload só re-dispara o hCaptcha em loop — então tratamos como sessão
-// perdida (ssoMorto) em vez de recarregar. (v5.2.15)
-function webviewNoLogin(wv) {
-  try {
-    const url = (wv && wv.getURL) ? String(wv.getURL() || '') : '';
-    return /sso\.acesso\.gov\.br|acesso\.gov\.br\/login|loginPortal|loginPortalFornecedor|intro\.htm/i.test(url);
-  } catch { return false; }
-}
+// Retoken via HTTP/webview REMOVIDO (v5.2.20): nunca funcionou (0/850 — o endpoint
+// /sessao/fornecedor/retoken exige o cookie de sessão que nem Node nem webview-fetch
+// conseguem mandar). A renovação do Bearer é 100% via re-auth SSO (reauth.js), igual à
+// build estável. Junto saiu o webviewNoLogin→ssoMorto (tratava repouso no loginPortal
+// como sessão morta).
 
 // ─── Keepalive (SSO + bearer renewal + anti-idle + legado) ──────────────────
 
@@ -580,55 +476,31 @@ async function executarKeepalive() {
     return;
   }
 
-  // 4. Renovação do Bearer: retoken HTTP é o caminho PRIMÁRIO (sem reload, zero
-  // hCaptcha). Dispara aos 4 min de idade do token (TTL 9 min).
-  if (bearerTs && bearerIdade > RETOKEN_THRESHOLD_MS) {
-    // PRIMÁRIO: retoken via webview (carrega cookies → evita o 401 crônico do
-    // Node). Fallback p/ Node só se o webview não estiver disponível.
-    const wv = cnet._getWV();
-
-    // Guard (v5.2.15): se o webview já está no login gov.br, o retoken cross-origin
-    // falha ("Failed to fetch") e o reload só re-dispara hCaptcha em loop (queimando o
-    // profile). Reconhece sessão perdida → ssoMorto + alerta, SEM retoken nem reload.
-    if (webviewNoLogin(wv)) {
-      if (!ssoMorto) {
-        _log('[Keepalive] Webview no login gov.br — retoken impossível; SSO morto (precisa login manual)');
-        ssoMorto = true;
-        _onSSODead();
-        await serverLog('sso-morto-login-page', { url: (wv && wv.getURL) ? String(wv.getURL()).slice(0, 120) : '' });
-      }
-      return;
-    }
-
-    // Retoken via Node COM cookies de sessão do webview (v5.2.15): resolve o 401 do
-    // Node-sem-cookie E o CORS do webview-fetch. Sem reload → sem hCaptcha.
-    const cookieHeader = await getCookieHeaderCnetmobile(wv);
-    const via = cookieHeader ? 'node+cookie' : 'node';
-    _log(`[Retoken] Bearer > 4min — renovando via ${via} (${cookieHeader ? cookieHeader.split(';').length + ' cookies' : 'sem cookie'})...`);
-    const rt = await retokenHTTP(bearer, cookieHeader);
-    if (rt.ok && rt.token) {
-      _log(`[Retoken] OK (${via}) — novo Bearer sem reload`);
-      _onNewBearer(rt.token);
-      await enviarBearer();
-      await serverLog('retoken-http-ok', { via });
-      return;
-    }
-    _log(`[Retoken] FALHOU (${via}) status=${rt.status}: ${rt.error || ''}`);
-    await serverLog('retoken-http-fail', { via, status: rt.status, error: rt.error });
-
-    // 5. Último recurso: só recarrega o webview se o retoken FALHOU E o token
-    // está perto de expirar (> 7 min). v5.2.3: antes o passo 4 recarregava todo
-    // ciclo (~200-700 reloads/dia) e era o gatilho do hCaptcha de renovação.
-    // Reload SÓ se ainda estiver no app (não no login — senão re-dispara hCaptcha) e
-    // perto do TTL. Se o retoken falhou porque o webview drifou pro login, o guard
-    // acima já cuidou; aqui é a última checagem antes de recarregar. (v5.2.15)
-    if (_onNeedReload && bearerIdade > RELOAD_LAST_RESORT_MS && !webviewNoLogin(wv)) {
-      _log(`[Keepalive] #${keepaliveCount} Retoken falhou e bearer perto do TTL — reload de último recurso`);
-      aguardandoNovoBearer = true;
-      aguardandoDesde = Date.now();
-      await serverLog('reload-keepalive', { motivo: 'retoken-fail-near-ttl', idadeMs: bearerIdade });
-      _onNeedReload();
-    }
+  // 4. Renovação PROATIVA do Bearer via re-auth SSO (v5.2.20 — igual à build ESTÁVEL
+  // v1.0.0, "como o Lancer faz"). Quando o token passa de RETOKEN_THRESHOLD_MS de idade
+  // (4 min; TTL é 9 min), dispara o fluxo de 3 passos do reauth.js:
+  //   sso.acesso.gov.br/authorize → dispensa_eletronica.asp → cnetmobile,
+  // e essa última request carrega um Bearer NOVO que o interceptor captura (e chama
+  // resetAguardando). É ISTO que faz a captura contínua funcionar.
+  //
+  // POR QUE mudou (o que travava a renovação até o 5.2.19):
+  //  - O retoken (endpoint /sessao/fornecedor/retoken) NUNCA funcionou (0/850): exige o
+  //    cookie de sessão que nem Node nem webview-fetch conseguem mandar. Removido.
+  //  - O guard `webviewNoLogin → ssoMorto` tratava "webview parado no loginPortal.asp"
+  //    como sessão morta. Mas na estável ficar no loginPortal é o REPOUSO NORMAL entre
+  //    re-auths (o passo 3 do fluxo volta pra lá). Isso matava uma sessão saudável e
+  //    inundava `sso-morto-login-page`. Removido.
+  //  - O /authorize passa invisível enquanto o device-trust do acesso.gov.br viver
+  //    (flags do Chromium removem navigator.webdriver no motor). Se de fato a sessão SSO
+  //    expirou, o próprio reauth.js detecta (ainda no acesso.gov.br) e cai no re-login.
+  //  - Se nenhum Bearer novo chegar em AGUARDANDO_TIMEOUT_MS, o passo 3 acima marca
+  //    ssoMorto → onSSODead → re-login cirúrgico (preserva o trust).
+  if (bearerTs && bearerIdade > RETOKEN_THRESHOLD_MS && _onNeedReload) {
+    _log(`[ReAuth] Bearer com ${Math.round(bearerIdade / 1000)}s — re-auth SSO proativo (renova o Bearer)`);
+    aguardandoNovoBearer = true;
+    aguardandoDesde = Date.now();
+    await serverLog('reauth-sso', { idadeMs: bearerIdade });
+    _onNeedReload();
   }
 }
 

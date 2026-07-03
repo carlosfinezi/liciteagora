@@ -36,21 +36,26 @@ apenas cookies do comprasnet.gov.br, preserva acesso.gov.br). Se o hCaptcha apar
 assim → **UM login manual** re-semeia o trust; depois os reloads renovam invisível.
 NÃO reintroduzir stealth JS: as flags do Chromium já bastam.
 
-## A VERDADE sobre o retoken (medida, não teoria)
+## CAPTURA CONTÍNUA = re-auth SSO (não retoken) — v5.2.20
 
-Telemetria real do 1bit (`electron_eventos`, tenant DB — NÃO journald), 2026-07-02:
+A renovação do Bearer é **100% via re-auth SSO** (`portals/comprasnet/reauth.js`), o mesmo
+fluxo de 3 passos da build estável ("como o Lancer faz"):
+1. `loadURL` em `sso.acesso.gov.br/authorize` (SSO vivo → redireciona sem hCaptcha),
+2. `dispensa_eletronica.asp` → extrai `compras-id` → navega ao **cnetmobile**,
+3. a request ao cnetmobile carrega o Bearer NOVO → o **interceptor captura** (bearer-interceptor.js
+   chama `resetAguardando`). Volta ao loginPortal (repouso).
 
-| evento | total histórico |
-|---|---|
-| `retoken-http-ok` (retoken funcionou) | **0** |
-| `retoken-http-fail` | **850** |
-| `reload-keepalive` (o que REALMENTE renova o Bearer) | **1492** |
+`executarKeepalive` (server-sync.js) dispara isso quando o token passa de `RETOKEN_THRESHOLD_MS`
+(4 min; TTL 9 min). Telemetria: evento `reauth-sso` a cada ciclo; `bearer_history` novo a cada ~4min.
 
-- **O retoken NUNCA funcionou. Zero sucessos.** Node = 401 (não manda cookie de sessão);
-  webview fetch = status 0 "Failed to fetch" (CORS no PUT cross-origin p/ cnetmobile).
-  As duas vias são becos sem saída conhecidos. **Não gaste tempo no retoken.**
-- **A renovação do token é 100% via RELOAD do webview.** Isso é por design e funciona —
-  **desde que o stealth esteja ativo** (senão o reload cai no hCaptcha visível).
+- **O `retoken` (endpoint /sessao/fornecedor/retoken) foi REMOVIDO (5.2.20). NUNCA funcionou
+  (0/850):** Node = 401 (não manda cookie de sessão); webview-fetch = "Failed to fetch" (CORS
+  cross-origin). Não reintroduza.
+- **NÃO** tratar "webview parado no loginPortal.asp" como sessão morta (`webviewNoLogin→ssoMorto`,
+  removido): ficar no loginPortal é o REPOUSO NORMAL entre re-auths. Aquilo inundava
+  `sso-morto-login-page` e matava sessão saudável (bug que travou a captura contínua no 5.2.19).
+- Se o re-auth não trouxer Bearer novo em 90s (`AGUARDANDO_TIMEOUT_MS`) → ssoMorto → re-login
+  cirúrgico (preserva trust). Sem wipe, sem passo manual.
 
 ## BASELINE ESTÁVEL
 
