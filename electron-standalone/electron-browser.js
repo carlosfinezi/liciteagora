@@ -568,6 +568,28 @@ app.whenReady().then(async () => {
     },
   });
 
+  // ─── Anti-detecção hCaptcha (RESTAURADO do v4.0.0 — regrediu no refactor 5.x) ──
+  // O stealth-preload mascara navigator.webdriver/vendor/plugins/CDP ANTES de
+  // qualquer script da página rodar. Sem ele o hCaptcha detecta automação e vira
+  // desafio VISÍVEL → o auto-login não resolve → login trava (o ciclo que a gente
+  // vinha "consertando" por caminhos errados). Injetado como PRELOAD em TODO
+  // webview (roda no mundo da página via contextIsolation:false, antes do hCaptcha)
+  // + backup no did-navigate. O arquivo vai no asar via core/** + asarUnpack.
+  const STEALTH_PATH = path.join(__dirname, 'core', 'stealth-preload.js');
+  let STEALTH_CODE = '';
+  try { STEALTH_CODE = fs.readFileSync(STEALTH_PATH, 'utf8'); }
+  catch (e) { log(`[Stealth] AVISO: não carregou stealth-preload.js: ${e.message}`); }
+
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences) => {
+    // preload roda antes dos scripts da página; contextIsolation:false faz o
+    // stealth agir sobre o navigator REAL que o hCaptcha inspeciona.
+    if (STEALTH_CODE) {
+      webPreferences.preload = STEALTH_PATH;
+      webPreferences.contextIsolation = false;
+      webPreferences.sandbox = false;   // preload precisa rodar no mundo principal p/ o override do navigator "grudar"
+    }
+  });
+
   // Versão visível no título da janela (taskbar) — fica fixa mesmo se a página
   // tentar mudar o título. Fonte: app.getVersion() (package.json empacotado).
   const APP_TITLE = `LiciteAgora Browser v${app.getVersion()}`;
@@ -691,6 +713,9 @@ app.whenReady().then(async () => {
 
     wvContents.on('did-navigate', (event, url) => {
       log(`[${portalLabel}] navegou: ${url.substring(0, 80)}`);
+      // Backup do stealth: re-injeta caso o preload não tenha pego (defesa em
+      // profundidade — o preload é o caminho primário e roda antes disto).
+      if (STEALTH_CODE) wvContents.executeJavaScript(STEALTH_CODE).catch(() => {});
     });
 
     if (isBncWv) {

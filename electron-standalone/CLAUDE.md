@@ -4,7 +4,25 @@ Este módulo **regride em ciclo**. Toda vez que alguém "conserta o hCaptcha da 
 mexendo no retoken, o problema volta. Este arquivo existe para **parar o ciclo**. Leia-o
 inteiro antes de tocar em `server-sync.js`, `auto-login.js` ou `portals/comprasnet/`.
 
-## A VERDADE (medida, não teoria)
+## 🔴 A CAUSA-RAIZ REAL (2026-07-03) — hCaptcha = STEALTH FALTANDO, não flag
+
+O ciclo inteiro veio de uma **regressão no refactor multi-portal 5.x**: o
+`stealth-preload.js` (anti-detecção estilo puppeteer-extra-stealth, 443 linhas) foi
+**DELETADO** e a fiação do preload (`webview-preload.js`) sumiu junto. Sem ele:
+
+- `navigator.webdriver` fica **exposto** (+ vendor/plugins/CDP markers) → o hCaptcha
+  detecta automação → vira **desafio VISÍVEL** → o auto-login não resolve → login trava.
+- **NÃO é flag de CPF, NÃO é flag de IP, NÃO é "perfil flagrado por builds repetidos".**
+  Era código: o fingerprint saía sujo. Perseguir flag/retoken/wipe-de-perfil foi o erro.
+
+**Fix (5.2.18):** `core/stealth-preload.js` restaurado do git `c26df6d` (v4.0.0), no asar
+via `core/**` + `asarUnpack`, injetado como **preload** em todo webview
+(`will-attach-webview`: `preload` + `contextIsolation:false` + `sandbox:false` → roda no
+mundo REAL da página, antes do hCaptcha) + backup no `did-navigate`. Ver `electron-browser.js`
+(busca `STEALTH_PATH`). **Se o hCaptcha voltar, a primeira suspeita é o stealth ter saído do
+asar de novo** — confirme com `asar list dist/win-unpacked/resources/app.asar | grep stealth`.
+
+## A VERDADE sobre o retoken (medida, não teoria)
 
 Telemetria real do 1bit (`electron_eventos`, tenant DB — NÃO journald), 2026-07-02:
 
@@ -17,11 +35,8 @@ Telemetria real do 1bit (`electron_eventos`, tenant DB — NÃO journald), 2026-
 - **O retoken NUNCA funcionou. Zero sucessos.** Node = 401 (não manda cookie de sessão);
   webview fetch = status 0 "Failed to fetch" (CORS no PUT cross-origin p/ cnetmobile).
   As duas vias são becos sem saída conhecidos. **Não gaste tempo no retoken.**
-- **A renovação do token é 100% via RELOAD do webview.** Isso é por design e funciona.
-- **hCaptcha NA RENOVAÇÃO = PERFIL FLAGRADO, não bug de código.** Com o perfil limpo, os
-  reloads renovam o Bearer silenciosamente (hCaptcha invisível). O perfil flagra por:
-  (a) **builds/updates repetidos** — "8 builds em 1 dia flagraram o perfil e travaram o
-  login"; (b) logins falhos acumulados.
+- **A renovação do token é 100% via RELOAD do webview.** Isso é por design e funciona —
+  **desde que o stealth esteja ativo** (senão o reload cai no hCaptcha visível).
 
 ## BASELINE ESTÁVEL
 
@@ -59,6 +74,9 @@ voltar a esse modelo simples, NÃO adicionar mais retoken.
    captura a cada ~8 min quando saudável. `electron_heartbeat.ssoMorto`=1 = travado.
 
 ## Arquivos-mina (mexer = risco alto de regressão)
+- `core/stealth-preload.js` — **anti-detecção hCaptcha. NUNCA delete. Tem que estar no asar**
+  (`core/**` + `asarUnpack` no package.json). É a causa-raiz do ciclo se sumir.
+- `electron-browser.js` (`STEALTH_PATH`/`will-attach-webview`) — fiação do preload do stealth.
 - `server-sync.js` — keepalive / retoken / reload / ssoMorto.
 - `auto-login.js` — fluxo de login gov.br (passos SSO, hCaptcha).
 - `portals/comprasnet/integration.js` — `onSSODead` / auto-recuperação de perfil.
