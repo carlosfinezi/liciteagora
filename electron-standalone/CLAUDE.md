@@ -4,6 +4,17 @@ Este módulo **regride em ciclo**. Toda vez que alguém "conserta o hCaptcha da 
 mexendo no retoken, o problema volta. Este arquivo existe para **parar o ciclo**. Leia-o
 inteiro antes de tocar em `server-sync.js`, `auto-login.js` ou `portals/comprasnet/`.
 
+## 🛡️ GUARD AUTOMÁTICO (rode/builde por aqui)
+
+`verify-comprasnet-invariants.js` codifica as regras abaixo e **trava o build** se violadas.
+- Buildar SEMPRE via **`npm run build:win:nsis`** (o `prebuild` roda o guard). Não chame o
+  electron-builder direto sem rodar `npm run verify:comprasnet` antes.
+- **BNC/BLL/outros portais podem mudar à vontade** — o guard só protege o núcleo Comprasnet
+  (`electron-browser.js` flags, `server-sync.js` renovação, `portals/comprasnet/*`). Mudanças
+  em `portals/bnc/` ou `portals/bll/` não disparam o guard.
+- Padrão de referência: build ESTÁVEL v1.0.0 do cliente em
+  `/tmp/uploads-1bit/LiciteAgora-Browser-versao-estavel-login-automatico.zip` (`resources/app.asar`).
+
 ## 🔴 A CAUSA-RAIZ REAL (2026-07-03, confirmada com a build ESTÁVEL v1.0.0)
 
 O cliente enviou a build estável funcional (`LiciteAgora-Browser-versao-estavel-login-automatico.zip`,
