@@ -32,9 +32,6 @@ const cnet = require('../../comprasnet-api');
 const lanceProcessor = require('../../lance-processor');
 const sessionTimers = require('../../session-timers');
 const reauth = require('./reauth');
-const { app } = require('electron');
-const fs = require('fs');
-const path = require('path');
 
 let started = false;
 
@@ -69,26 +66,11 @@ function start({ ctx, autoLoginModule }) {
     if (agora - _clearUltimaEm > CLEAR_JANELA_MS) _clearTentativas = 0;  // reset janela
     if (agora - _clearUltimaEm < CLEAR_COOLDOWN_MS) return;              // cooldown
     if (_clearTentativas >= CLEAR_MAX) {
-      // clearStorageData (limpeza parcial) não zerou o hCaptcha → ESCALAR p/ wipe TOTAL do
-      // perfil + relaunch (v5.2.16). Máquina desassistida: nunca desistir de vez.
-      // Rate limit: no máx 1 wipe-relaunch a cada 15 min (persistido em arquivo).
-      const UDIR = app.getPath('userData');
-      const lastWipeFile = path.join(UDIR, 'last-profile-wipe');
-      let lastWipe = 0;
-      try { lastWipe = parseInt(fs.readFileSync(lastWipeFile, 'utf8'), 10) || 0; } catch {}
-      if (agora - lastWipe < 900000) {
-        log('[Recuperação] Wipe de perfil recente (<15min) — aguardando antes de novo relaunch.');
-        try { await serverSync.serverLog('profile-wipe-ratelimited', {}); } catch {}
-        return;
-      }
-      try {
-        fs.writeFileSync(path.join(UDIR, 'wipe-profile-on-start'), '1');
-        fs.writeFileSync(lastWipeFile, String(agora));
-      } catch (e) { log(`[Recuperação] falha ao marcar wipe: ${e.message}`); }
-      log('[Recuperação] clearStorageData não resolveu → WIPE TOTAL do perfil + relaunch (fresh).');
-      try { await serverSync.serverLog('profile-wipe-relaunch', { tentativas: _clearTentativas }); } catch {}
-      app.relaunch();
-      app.exit(0);
+      // clearStorageData (parcial) não zerou o hCaptcha → wipe TOTAL + relaunch (v5.2.17,
+      // via helper compartilhado com o cold-boot; rate-limit em arquivo). Nunca desiste.
+      try { serverSync.serverLog('profile-wipe-relaunch', { tentativas: _clearTentativas, via: 'sso-morto' }).catch(() => {}); } catch {}
+      const r = require('./profile-recovery').wipeAndRelaunch('sso-morto', log);
+      if (!r.done) { try { serverSync.serverLog('profile-wipe-ratelimited', {}).catch(() => {}); } catch {} }
       return;
     }
     _clearTentativas++;

@@ -138,7 +138,12 @@ try {
   else {
     let _lastVer = '';
     try { _lastVer = fs.readFileSync(_verFile, 'utf8').trim(); } catch (_) {}
-    if (_lastVer && _lastVer !== _curVer) _motivo = `versao ${_lastVer}->${_curVer}`;
+    // Wipe na troca de versão. Se o marcador de versão não existe MAS já há perfil
+    // (Partitions/), é upgrade de uma versão que não escrevia o marcador → wipa também
+    // (senão o 1º update pro esquema novo não limpava o perfil flagrado — bug do 5.2.16).
+    // Fresh install (sem Partitions) NÃO wipa.
+    const _temPerfil = fs.existsSync(path.join(USER_DATA_DIR, 'Partitions'));
+    if (_temPerfil && _lastVer !== _curVer) _motivo = `versao ${_lastVer || 'pre-marcador'}->${_curVer}`;
   }
   if (_motivo) {
     try { fs.rmSync(path.join(USER_DATA_DIR, 'Partitions'), { recursive: true, force: true }); } catch (_) {}

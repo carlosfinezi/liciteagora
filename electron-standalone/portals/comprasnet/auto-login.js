@@ -507,9 +507,20 @@ function create({ ctx, utils }) {
       if (ctx.getState() === 'logged_in') break;
       result = await autoLogin(creds.cpf, creds.senha, { clearSession: true });
     }
-    ctx.log((ctx.getState() === 'logged_in' || result.success)
-      ? 'Auto-login do banco: SUCESSO (após recuperação)'
-      : `Auto-login do banco: FALHA persistente — ${result.message}. Aguardando login manual.`);
+    if (ctx.getState() === 'logged_in' || result.success) {
+      ctx.log('Auto-login do banco: SUCESSO (após recuperação)');
+    } else {
+      // clearSession (limpeza PARCIAL) não zerou o hCaptcha → escalar p/ wipe TOTAL do
+      // perfil + relaunch (v5.2.17). Este é o único caminho que roda no COLD BOOT — a
+      // auto-recuperação do server-sync (onSSODead) NÃO dispara sem Bearer. Rate-limited.
+      ctx.log(`Auto-login do banco: FALHA persistente — ${result.message}. Escalando p/ wipe total + relaunch (cold-boot self-heal).`);
+      try {
+        if (ctx.serverSync && ctx.serverSync.serverLog) {
+          ctx.serverSync.serverLog('cold-boot-wipe-relaunch', { message: result.message }).catch(() => {});
+        }
+      } catch {}
+      require('./profile-recovery').wipeAndRelaunch('cold-boot-hcaptcha', ctx.log);
+    }
   }
 
   // ─── attemptAutoRelogin: cooldown 2min ───────────────────────────────
