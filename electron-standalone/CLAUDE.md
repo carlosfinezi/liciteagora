@@ -4,23 +4,37 @@ Este módulo **regride em ciclo**. Toda vez que alguém "conserta o hCaptcha da 
 mexendo no retoken, o problema volta. Este arquivo existe para **parar o ciclo**. Leia-o
 inteiro antes de tocar em `server-sync.js`, `auto-login.js` ou `portals/comprasnet/`.
 
-## 🔴 A CAUSA-RAIZ REAL (2026-07-03) — hCaptcha = STEALTH FALTANDO, não flag
+## 🔴 A CAUSA-RAIZ REAL (2026-07-03, confirmada com a build ESTÁVEL v1.0.0)
 
-O ciclo inteiro veio de uma **regressão no refactor multi-portal 5.x**: o
-`stealth-preload.js` (anti-detecção estilo puppeteer-extra-stealth, 443 linhas) foi
-**DELETADO** e a fiação do preload (`webview-preload.js`) sumiu junto. Sem ele:
+O cliente enviou a build estável funcional (`LiciteAgora-Browser-versao-estavel-login-automatico.zip`,
+`resources/app.asar`). Comparação direta com o código atual revelou a verdade:
 
-- `navigator.webdriver` fica **exposto** (+ vendor/plugins/CDP markers) → o hCaptcha
-  detecta automação → vira **desafio VISÍVEL** → o auto-login não resolve → login trava.
-- **NÃO é flag de CPF, NÃO é flag de IP, NÃO é "perfil flagrado por builds repetidos".**
-  Era código: o fingerprint saía sujo. Perseguir flag/retoken/wipe-de-perfil foi o erro.
+- **A build estável evita o hCaptcha SÓ com flags do Chromium** — nada de JS:
+  `disable-blink-features=AutomationControlled` (remove navigator.webdriver no MOTOR) +
+  `ignore-gpu-blocklist` (WebGL) + UA limpo + `www.comprasnet.gov.br`. **Não existe
+  `stealth-preload.js` na estável.** Essas flags **já estão idênticas no código atual**.
+- Logo, o hCaptcha **NÃO** é fingerprint faltando. O que faz o hCaptcha voltar é
+  **destruir o device-trust do `acesso.gov.br`** (cookie que faz o hCaptcha passar
+  invisível). E o que destruía o trust em loop era o **wipe automático de perfil** que o
+  refactor 5.x adicionou (wipe na troca de versão + escalonamento `wipeAndRelaunch` +
+  `clearStorageData(cookies)` no SSO morto). 124 `profile-clear-giveup` numa noite.
 
-**Fix (5.2.18):** `core/stealth-preload.js` restaurado do git `c26df6d` (v4.0.0), no asar
-via `core/**` + `asarUnpack`, injetado como **preload** em todo webview
-(`will-attach-webview`: `preload` + `contextIsolation:false` + `sandbox:false` → roda no
-mundo REAL da página, antes do hCaptcha) + backup no `did-navigate`. Ver `electron-browser.js`
-(busca `STEALTH_PATH`). **Se o hCaptcha voltar, a primeira suspeita é o stealth ter saído do
-asar de novo** — confirme com `asar list dist/win-unpacked/resources/app.asar | grep stealth`.
+**Tentativa ERRADA (5.2.18, revertida):** restaurei o `stealth-preload.js` achando que era
+a regressão. Injetar JS redefinindo `navigator.webdriver` POR CIMA da flag do motor cria
+inconsistência detectável → transformou o hCaptcha visível-resolvível num invisível-travado.
+
+**Fix correto (5.2.19):**
+1. **Removido** todo o stealth-preload/injeção (volta ao flags-only da estável).
+2. **Removido** o wipe automático de perfil (startup version-wipe, `profile-recovery.js`
+   inteiro, `resetProfileComprasnet`, `clearStorageData(cookies)` do SSO morto). Nunca mais
+   apagar o cookie do `acesso.gov.br`.
+3. `www.comprasnet.gov.br` (igual à estável).
+
+⚠️ **Regra de ouro:** o device-trust é sagrado. NUNCA fazer wipe total de perfil nem
+`clearStorageData` com `cookies`. Re-login usa só `limparSessaoComprasnet` (cirúrgico, apaga
+apenas cookies do comprasnet.gov.br, preserva acesso.gov.br). Se o hCaptcha aparecer mesmo
+assim → **UM login manual** re-semeia o trust; depois os reloads renovam invisível.
+NÃO reintroduzir stealth JS: as flags do Chromium já bastam.
 
 ## A VERDADE sobre o retoken (medida, não teoria)
 
@@ -74,9 +88,10 @@ voltar a esse modelo simples, NÃO adicionar mais retoken.
    captura a cada ~8 min quando saudável. `electron_heartbeat.ssoMorto`=1 = travado.
 
 ## Arquivos-mina (mexer = risco alto de regressão)
-- `core/stealth-preload.js` — **anti-detecção hCaptcha. NUNCA delete. Tem que estar no asar**
-  (`core/**` + `asarUnpack` no package.json). É a causa-raiz do ciclo se sumir.
-- `electron-browser.js` (`STEALTH_PATH`/`will-attach-webview`) — fiação do preload do stealth.
+- `electron-browser.js` (flags no topo: `AutomationControlled` + `ignore-gpu-blocklist`) —
+  é isto que evita o hCaptcha. NÃO remover. NÃO adicionar injeção de stealth JS por cima.
+- `portals/comprasnet/auto-login.js` (`limparSessaoComprasnet` cirúrgico) — re-login NÃO
+  pode apagar o cookie do acesso.gov.br (device-trust).
 - `server-sync.js` — keepalive / retoken / reload / ssoMorto.
 - `auto-login.js` — fluxo de login gov.br (passos SSO, hCaptcha).
 - `portals/comprasnet/integration.js` — `onSSODead` / auto-recuperação de perfil.

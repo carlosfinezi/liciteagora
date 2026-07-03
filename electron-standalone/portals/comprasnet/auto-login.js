@@ -68,27 +68,8 @@ function create({ ctx, utils }) {
     }
   }
 
-  // Recuperação de profile FLAGRADO pelo hCaptcha (gov.br exibindo o desafio
-  // VISÍVEL → "campo de senha não apareceu"). Diferente do limparSessaoComprasnet
-  // (cirúrgico, preserva o trust): aqui o trust já é inútil porque o gov.br está
-  // desafiando de qualquer jeito. Limpamos TUDO da partition Comprasnet (cookies +
-  // storages + cache) pra resetar o fingerprint/reputação — é o que faz o hCaptcha
-  // invisible voltar a auto-resolver (equivale a deletar o .electron-profile).
-  // BNC usa persist:bnc separada, não é afetada.
-  async function resetProfileComprasnet() {
-    try {
-      const wv = getWV();
-      await wv.session.clearStorageData(); // sem filtro: todos storages, todas origens
-      try { await wv.session.clearCache(); } catch (_) {}
-      ctx.log('Profile Comprasnet RESETADO (recuperação hCaptcha — fingerprint limpo)');
-    } catch (e) {
-      ctx.log(`Falha ao resetar profile Comprasnet: ${e.message}`);
-    }
-  }
-
-  // Falhas consecutivas no hCaptcha (campo de senha nunca aparece = profile
-  // flagrado). Ao atingir o limiar, o próximo autoLogin reseta o profile pra
-  // recuperar o auto-resolve do hCaptcha invisible — sem exigir login manual.
+  // Contador diagnóstico de falhas no hCaptcha (campo de senha nunca aparece). NÃO
+  // dispara mais wipe de profile (v5.2.19) — apagar o profile destruía o device-trust.
   let hcaptchaFails = 0;
 
   // ─── autoLogin: passos 0-11 do SSO gov.br ─────────────────────────────
@@ -99,17 +80,12 @@ function create({ ctx, utils }) {
     ctx.log(`CPF: ${cpf.substring(0, 3)}...`);
 
     try {
-      // 0a. Recuperação automática: se as últimas tentativas travaram no hCaptcha
-      // (campo de senha nunca aparece), o profile está flagrado pelo gov.br. Reset
-      // total da partition → fingerprint limpo → o hCaptcha invisible volta a
-      // auto-resolver, sem login manual. Supera o clearSession cirúrgico.
-      if (hcaptchaFails >= 2) {
-        ctx.log(`hCaptcha travou ${hcaptchaFails}x seguidas — resetando profile Comprasnet`);
-        await resetProfileComprasnet();
-        hcaptchaFails = 0;
-      } else if (opts.clearSession) {
-        // Re-login: limpar cookies da sessão morta ANTES de navegar, senão o
-        // loginPortal.asp quica para intro.htm e não há botão Gov.br pra clicar.
+      // 0a. Re-login: limpar SÓ os cookies do comprasnet.gov.br (cirúrgico) antes de
+      // navegar, senão o loginPortal.asp quica para intro.htm e não há botão Gov.br.
+      // NUNCA resetar o profile inteiro (v5.2.19): apagar o device-trust do
+      // acesso.gov.br é o que faz o hCaptcha voltar a exigir resolução. Se travar no
+      // hCaptcha, o certo é UM login manual pra re-semear o trust — não um wipe.
+      if (opts.clearSession) {
         await limparSessaoComprasnet();
       }
 
@@ -118,7 +94,7 @@ function create({ ctx, utils }) {
 
       // 1. Navegar ao loginPortal.asp
       ctx.log('Passo 1: Navegando ao loginPortal.asp...');
-      wv.loadURL('https://comprasnet.gov.br/seguro/loginPortal.asp');
+      wv.loadURL('https://www.comprasnet.gov.br/seguro/loginPortal.asp');
       await humanDelay(3000, 4000);
 
       const currentUrl = wv.getURL();
@@ -371,7 +347,7 @@ function create({ ctx, utils }) {
         try {
           frames[1].location.href = '/assinadas/dispensa_eletronica.asp';
         } catch(e) {
-          window.open('https://comprasnet.gov.br/assinadas/dispensa_eletronica.asp', '_blank');
+          window.open('https://www.comprasnet.gov.br/assinadas/dispensa_eletronica.asp', '_blank');
         }
       `).catch(() => null);
       ctx.log('dispensa_eletronica.asp aberto');
@@ -510,16 +486,18 @@ function create({ ctx, utils }) {
     if (ctx.getState() === 'logged_in' || result.success) {
       ctx.log('Auto-login do banco: SUCESSO (após recuperação)');
     } else {
-      // clearSession (limpeza PARCIAL) não zerou o hCaptcha → escalar p/ wipe TOTAL do
-      // perfil + relaunch (v5.2.17). Este é o único caminho que roda no COLD BOOT — a
-      // auto-recuperação do server-sync (onSSODead) NÃO dispara sem Bearer. Rate-limited.
-      ctx.log(`Auto-login do banco: FALHA persistente — ${result.message}. Escalando p/ wipe total + relaunch (cold-boot self-heal).`);
+      // Wipe/relaunch REMOVIDO (v5.2.19): apagar o perfil destruía o device-trust do
+      // acesso.gov.br → o hCaptcha voltava e o login travava (era o motor do ciclo).
+      // Se o hCaptcha aparecer, é preciso UM login manual pra re-semear o trust; depois
+      // os reloads renovam invisível. O clearSession das tentativas acima é cirúrgico
+      // (só cookies do comprasnet.gov.br, preserva acesso.gov.br).
+      ctx.log(`Auto-login do banco: FALHA persistente — ${result.message}. Aguardando login manual pra re-semear o device-trust (sem wipe).`);
       try {
         if (ctx.serverSync && ctx.serverSync.serverLog) {
-          ctx.serverSync.serverLog('cold-boot-wipe-relaunch', { message: result.message }).catch(() => {});
+          ctx.serverSync.serverLog('cold-boot-login-manual-necessario', { message: result.message }).catch(() => {});
         }
+        if (ctx.serverSync && ctx.serverSync.marcarSSOmorto) ctx.serverSync.marcarSSOmorto();
       } catch {}
-      require('./profile-recovery').wipeAndRelaunch('cold-boot-hcaptcha', ctx.log);
     }
   }
 

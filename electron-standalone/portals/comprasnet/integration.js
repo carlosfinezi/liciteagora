@@ -49,47 +49,16 @@ function start({ ctx, autoLoginModule }) {
   // Construir callback de re-auth (fluxo SSO 3-passos do Lancer)
   const onNeedReload = reauth.createOnNeedReload({ ctx, autoLoginModule });
 
-  // ─── Recuperação automática: limpar perfil quando o login trava ──────────
-  // SSO morto (reload-timeout sem capturar Bearer) = login não conseguiu
-  // re-logar — quase sempre o perfil Comprasnet ficou FLAGRADO pelo hCaptcha
-  // (que então vira desafio visível, e o auto-login não resolve). Em vez de só
-  // desistir, limpamos a sessão (cookies/storage) — perfil "limpo" geralmente
-  // recebe hCaptcha invisível — e re-logamos. Guard contra loop: máx 2/hora,
-  // senão desiste e alerta (evita clear→falha→clear infinito).
-  let _clearTentativas = 0;
-  let _clearUltimaEm = 0;
-  const CLEAR_MAX = 2;
-  const CLEAR_JANELA_MS = 3600000;   // 1h
-  const CLEAR_COOLDOWN_MS = 150000;  // 2.5min entre tentativas
-  async function tentarRecuperacaoPerfilLimpo() {
-    const agora = Date.now();
-    if (agora - _clearUltimaEm > CLEAR_JANELA_MS) _clearTentativas = 0;  // reset janela
-    if (agora - _clearUltimaEm < CLEAR_COOLDOWN_MS) return;              // cooldown
-    if (_clearTentativas >= CLEAR_MAX) {
-      // clearStorageData (parcial) não zerou o hCaptcha → wipe TOTAL + relaunch (v5.2.17,
-      // via helper compartilhado com o cold-boot; rate-limit em arquivo). Nunca desiste.
-      try { serverSync.serverLog('profile-wipe-relaunch', { tentativas: _clearTentativas, via: 'sso-morto' }).catch(() => {}); } catch {}
-      const r = require('./profile-recovery').wipeAndRelaunch('sso-morto', log);
-      if (!r.done) { try { serverSync.serverLog('profile-wipe-ratelimited', {}).catch(() => {}); } catch {} }
-      return;
-    }
-    _clearTentativas++;
-    _clearUltimaEm = agora;
-    const wvc = ctx.getWebview();
-    if (!wvc) return;
-    try {
-      log(`[Recuperação] SSO morto → limpando perfil Comprasnet (tentativa ${_clearTentativas}/${CLEAR_MAX}) e re-logando limpo...`);
-      try { await serverSync.serverLog('profile-clear-recovery', { tentativa: _clearTentativas }); } catch {}
-      // 1. Limpa cookies/storage da sessão Comprasnet (remove o estado flagrado)
-      await wvc.session.clearStorageData({ storages: ['cookies', 'localstorage', 'caches', 'serviceworkers', 'indexdb', 'websql', 'shadercache'] });
-      // 2. Reabilita o SSO (ssoMorto=false) pra permitir novo login
-      serverSync.reviverSSO();
-      // 3. Reload + auto-login limpo
-      await wvc.loadURL('https://comprasnet.gov.br/seguro/loginPortal.asp');
-      autoLoginModule.autoLoginFromDB();
-    } catch (e) {
-      log(`[Recuperação] Falhou: ${e.message}`);
-    }
+  // ─── Recuperação em SSO morto: re-login CIRÚRGICO (v5.2.19) ──────────────
+  // A versão anterior fazia clearStorageData(cookies) + escalava pra wipe TOTAL +
+  // relaunch. Isso apagava o device-trust do acesso.gov.br → o hCaptcha voltava →
+  // clear→falha→clear em loop (124 giveups numa noite). REMOVIDO.
+  // Agora só reabilita o SSO e dispara attemptAutoRelogin, que limpa apenas os
+  // cookies do comprasnet.gov.br (limparSessaoComprasnet — preserva o trust) e tem
+  // cooldown próprio de 2min. Se travar mesmo assim, é caso de UM login manual.
+  function tentarRecuperacaoPerfilLimpo() {
+    try { serverSync.reviverSSO(); } catch {}
+    try { autoLoginModule.attemptAutoRelogin(); } catch (e) { log(`[Recuperação] Falhou: ${e.message}`); }
   }
 
   // Inicializar server-sync

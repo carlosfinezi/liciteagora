@@ -121,39 +121,14 @@ const RECORDINGS_DIR = path.join(USER_DATA_DIR, 'recordings');
 const LOG_DIR = path.join(USER_DATA_DIR, 'logs');
 const TOKEN_MAX_AGE_MS = 540000; // 9 min
 
-// ─── Auto-recuperação de perfil (v5.2.16) ──────────────────────────────────
-// Wipe do perfil no STARTUP (antes de abrir qualquer session), em 2 gatilhos:
-//  (a) marcador `wipe-profile-on-start` = escalonamento da auto-recuperação quando o
-//      clearStorageData parcial não zerou o hCaptcha (integration.js escreve o marcador
-//      e faz relaunch);
-//  (b) troca de versão = auto-aplica "apagar perfil ao atualizar" → updates nunca deixam
-//      perfil flagrado (parte da causa da regressão do hCaptcha).
-// Preserva logs/. Seguro: roda no load do módulo, antes de qualquer session.fromPartition.
-try {
-  const _marker = path.join(USER_DATA_DIR, 'wipe-profile-on-start');
-  const _verFile = path.join(USER_DATA_DIR, 'last-app-version');
-  const _curVer = app.getVersion();
-  let _motivo = null;
-  if (fs.existsSync(_marker)) { _motivo = 'auto-recuperacao'; try { fs.unlinkSync(_marker); } catch (_) {} }
-  else {
-    let _lastVer = '';
-    try { _lastVer = fs.readFileSync(_verFile, 'utf8').trim(); } catch (_) {}
-    // Wipe na troca de versão. Se o marcador de versão não existe MAS já há perfil
-    // (Partitions/), é upgrade de uma versão que não escrevia o marcador → wipa também
-    // (senão o 1º update pro esquema novo não limpava o perfil flagrado — bug do 5.2.16).
-    // Fresh install (sem Partitions) NÃO wipa.
-    const _temPerfil = fs.existsSync(path.join(USER_DATA_DIR, 'Partitions'));
-    if (_temPerfil && _lastVer !== _curVer) _motivo = `versao ${_lastVer || 'pre-marcador'}->${_curVer}`;
-  }
-  if (_motivo) {
-    try { fs.rmSync(path.join(USER_DATA_DIR, 'Partitions'), { recursive: true, force: true }); } catch (_) {}
-    for (const _d of ['GPUCache', 'ShaderCache', 'DawnCache', 'Code Cache', 'Cache', 'Network']) {
-      try { fs.rmSync(path.join(USER_DATA_DIR, _d), { recursive: true, force: true }); } catch (_) {}
-    }
-    try { console.log(`[Profile] WIPE (${_motivo}) — perfil zerado no startup`); } catch (_) {}
-  }
-  try { fs.mkdirSync(USER_DATA_DIR, { recursive: true }); fs.writeFileSync(_verFile, _curVer); } catch (_) {}
-} catch (_) { /* wipe nunca derruba o boot */ }
+// ─── Wipe de perfil no startup: REMOVIDO (v5.2.19) ─────────────────────────
+// Este bloco apagava Partitions/ na troca de versão e via marcador de
+// "auto-recuperação". Isso DESTRUÍA o cookie de device-trust do acesso.gov.br
+// a cada update → o hCaptcha voltava a exigir resolução → o login travava.
+// A versão estável (v1.0.0) NUNCA fazia isso. O fingerprint limpo vem das flags
+// do Chromium (disable-blink-features=AutomationControlled), não de wipe/stealth.
+// Um marcador `wipe-profile-on-start` porventura deixado por versões antigas é
+// simplesmente ignorado agora (sem consumidor = sem wipe).
 
 // Log persistente em arquivo: userData/logs/main.log. Inicializado já no
 // load do módulo (antes de qualquer log()) pra capturar crashes de boot.
@@ -568,27 +543,10 @@ app.whenReady().then(async () => {
     },
   });
 
-  // ─── Anti-detecção hCaptcha (RESTAURADO do v4.0.0 — regrediu no refactor 5.x) ──
-  // O stealth-preload mascara navigator.webdriver/vendor/plugins/CDP ANTES de
-  // qualquer script da página rodar. Sem ele o hCaptcha detecta automação e vira
-  // desafio VISÍVEL → o auto-login não resolve → login trava (o ciclo que a gente
-  // vinha "consertando" por caminhos errados). Injetado como PRELOAD em TODO
-  // webview (roda no mundo da página via contextIsolation:false, antes do hCaptcha)
-  // + backup no did-navigate. O arquivo vai no asar via core/** + asarUnpack.
-  const STEALTH_PATH = path.join(__dirname, 'core', 'stealth-preload.js');
-  let STEALTH_CODE = '';
-  try { STEALTH_CODE = fs.readFileSync(STEALTH_PATH, 'utf8'); }
-  catch (e) { log(`[Stealth] AVISO: não carregou stealth-preload.js: ${e.message}`); }
-
-  mainWindow.webContents.on('will-attach-webview', (event, webPreferences) => {
-    // preload roda antes dos scripts da página; contextIsolation:false faz o
-    // stealth agir sobre o navigator REAL que o hCaptcha inspeciona.
-    if (STEALTH_CODE) {
-      webPreferences.preload = STEALTH_PATH;
-      webPreferences.contextIsolation = false;
-      webPreferences.sandbox = false;   // preload precisa rodar no mundo principal p/ o override do navigator "grudar"
-    }
-  });
+  // Anti-detecção hCaptcha = flags do Chromium (disable-blink-features=
+  // AutomationControlled + ignore-gpu-blocklist, ver topo do arquivo). É assim que
+  // a versão estável evita o hCaptcha. NÃO injetar stealth-preload por JS: redefinir
+  // navigator.webdriver por cima da flag cria inconsistência detectável (v5.2.19).
 
   // Versão visível no título da janela (taskbar) — fica fixa mesmo se a página
   // tentar mudar o título. Fonte: app.getVersion() (package.json empacotado).
@@ -713,9 +671,6 @@ app.whenReady().then(async () => {
 
     wvContents.on('did-navigate', (event, url) => {
       log(`[${portalLabel}] navegou: ${url.substring(0, 80)}`);
-      // Backup do stealth: re-injeta caso o preload não tenha pego (defesa em
-      // profundidade — o preload é o caminho primário e roda antes disto).
-      if (STEALTH_CODE) wvContents.executeJavaScript(STEALTH_CODE).catch(() => {});
     });
 
     if (isBncWv) {

@@ -1,6 +1,6 @@
 {
   "name": "liciteagora-electron",
-  "version": "5.2.18",
+  "version": "5.2.19",
   "description": "Browser CEF para Comprasnet — login + sync + lances",
   "main": "electron-browser.js",
   "scripts": {
@@ -71,10 +71,7 @@
       "uninstallerIcon": "assets/icon.ico",
       "artifactName": "LiciteAgora-Setup.exe",
       "include": "installer.nsh"
-    },
-    "asarUnpack": [
-      "core/stealth-preload.js"
-    ]
+    }
   },
   "dependencies": {
     "electron-updater": "^6.8.3"
