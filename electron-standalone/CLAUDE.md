@@ -13,7 +13,7 @@ inteiro antes de tocar em `server-sync.js`, `auto-login.js` ou `portals/comprasn
   (`electron-browser.js` flags, `server-sync.js` renovação, `portals/comprasnet/*`). Mudanças
   em `portals/bnc/` ou `portals/bll/` não disparam o guard.
 - Padrão de referência: build ESTÁVEL v1.0.0 do cliente em
-  `/tmp/uploads-1bit/LiciteAgora-Browser-versao-estavel-login-automatico.zip` (`resources/app.asar`).
+  `private/electron-standalone-REFERENCE-v1.0.0-comprasnet-stable.zip` (`resources/app.asar`; gitignored).
 
 ## 🔴 A CAUSA-RAIZ REAL (2026-07-03, confirmada com a build ESTÁVEL v1.0.0)
 

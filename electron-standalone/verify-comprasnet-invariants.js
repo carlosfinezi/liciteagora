@@ -14,7 +14,7 @@
  * server-sync.js (renovação), portals/comprasnet/{auto-login,integration,reauth}.js.
  *
  * Referência do padrão correto: build ESTÁVEL v1.0.0 enviada pelo cliente
- * (/tmp/uploads-1bit/LiciteAgora-Browser-versao-estavel-login-automatico.zip).
+ * (private/electron-standalone-REFERENCE-v1.0.0-comprasnet-stable.zip).
  */
 
 const fs = require('fs');

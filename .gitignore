@@ -72,3 +72,6 @@ pncp.db.*
 *.db.*
 public/*.zip
 *.nsis.7z
+
+# Builds de referência do Electron (grandes; manter em disco, fora do git)
+/electron-standalone-*.zip
