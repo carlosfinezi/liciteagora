@@ -68,40 +68,39 @@ fluxo de 3 passos da build estável ("como o Lancer faz"):
 - Se o re-auth não trouxer Bearer novo em 90s (`AGUARDANDO_TIMEOUT_MS`) → ssoMorto → re-login
   cirúrgico (preserva trust). Sem wipe, sem passo manual.
 
-## BASELINE ESTÁVEL
+## ❌ O QUE NÃO FAZER (é o que causa a regressão — o guard trava tudo isto)
 
-`server-sync-v4.0.3.js` (neste diretório) = versão consolidada. **Zero retoken**, renovação
-só por reload (keepalive 60s + main.asp + reload). Era estável. Quando em dúvida, o alvo é
-voltar a esse modelo simples, NÃO adicionar mais retoken.
+1. **NÃO reintroduzir retoken** (`retokenHTTP`/`retokenWebview`). Removido no 5.2.20. Nunca
+   funcionou (0/850). Renovação é via re-auth SSO (`reauth.js`), ponto.
+2. **NÃO fazer wipe de perfil** — nem `rmSync(Partitions)`, nem `clearStorageData` com
+   `cookies`, nem `wipeAndRelaunch`, nem "apagar `.electron-profile`/`%APPDATA%` ao trocar de
+   versão". Apagar o perfil **destrói o device-trust do `acesso.gov.br`** → é o que CAUSA o
+   hCaptcha. (Era a antiga "recuperação" que rodava em loop — 124 giveups numa noite.)
+3. **NÃO reintroduzir stealth JS** (`stealth-preload`). As flags do Chromium já bastam;
+   stealth por cima cria fingerprint inconsistente (regressão 5.2.18).
+4. **NÃO tratar "webview no loginPortal" como sessão morta** (`webviewNoLogin→ssoMorto`). É o
+   repouso normal entre re-auths.
+5. **NÃO limpar o cookie do `acesso.gov.br`** no re-login. Re-login usa só
+   `limparSessaoComprasnet` (cirúrgico — [[project_electron_relogin_cookie_clear]]).
 
-## ❌ O QUE NÃO FAZER (causa a regressão)
+## ✅ SE O hCAPTCHA VOLTAR (é regressão de código, não "recuperação")
 
-1. **NÃO mexa no retoken** (`retokenHTTP` / `retokenWebview` / `getCookieHeaderCnetmobile`).
-   Nunca funcionou (0/850). É a armadilha nº 1. Se for simplificar, **remova** o retoken e
-   use reload-only (estilo v4.0.3) — menos código, menos regressão.
-2. **NÃO rebuilde/redeploye por impulso.** Cada build+update pode flagrar o perfil → hCaptcha.
-   Junte TODAS as mudanças em **um único build testado**. Nunca faça N builds no mesmo dia.
-3. **NÃO recarregue páginas do Comprasnet** fora do keepalive (aciona hCaptcha).
-4. **NÃO limpe o cookie do `acesso.gov.br`** no re-login (mata o SSO — [[project_electron_relogin_cookie_clear]]).
-5. **NÃO troque de versão sem apagar `.electron-profile`** (perfil velho c/ falhas flagra hCaptcha).
-
-## ✅ QUANDO O hCAPTCHA APARECER (recuperação, NÃO "conserto de código")
-
-1. Login manual na janela do Electron (resolver hCaptcha + senha).
-2. Se persistir: fechar o Electron, **apagar `%APPDATA%\LiciteAgora Browser`** (perfil limpo
-   → hCaptcha invisível), reabrir e logar.
-3. **NÃO** responda a um hCaptcha adicionando/alterando código de retoken. Isso é o ciclo.
+Com as flags + trust preservado, o hCaptcha passa **invisível sozinho** (provado 2026-07-03:
+login OK sem prompt mesmo em perfil recém-limpo). Se ele voltar a aparecer:
+1. Rode `npm run verify:comprasnet` — provavelmente alguma invariante foi violada.
+2. Diff contra a build de referência (`private/electron-standalone-REFERENCE-v1.0.0-comprasnet-stable.zip`).
+3. **NÃO** "resolva" apagando perfil nem adicionando retoken/stealth. Isso É o ciclo.
+   Nada manual — o objetivo do software é captura 100% autônoma.
 
 ## PROCESSO OBRIGATÓRIO antes de qualquer mudança aqui
 
-1. **Ler este arquivo.**
-2. **O código do Electron NÃO está no git** (`server-sync.js` = uncommitted; `auto-login.js`
-   = untracked). Sem baseline não há como saber o que regrediu. **Commitar + taggovernar a
-   versão boa ANTES de mudar.**
-3. Mudança em **1 build testado**, nunca por impulso (ver regra 2 acima).
-4. **Validar por telemetria pós-deploy** (`electron_eventos` no tenant DB): o esperado é
-   `retoken-http-ok` subir de 0, `reload-keepalive`/hCaptcha caírem. `bearer_history` mostra
-   captura a cada ~8 min quando saudável. `electron_heartbeat.ssoMorto`=1 = travado.
+1. **Ler este arquivo.** O núcleo Comprasnet está no git (commits `fix(electron)` até 5.2.20).
+2. **Rodar `npm run verify:comprasnet`** antes e depois; buildar via `npm run build:win:nsis`
+   (dispara o guard). Um build testado, sem impulso.
+3. **Validar por telemetria pós-deploy** (`data/tenants/1bit/pncp.db`, NÃO journald): saudável =
+   `electron_heartbeat.versao` novo, `ssoMorto=0`, `tokenAgeSec` oscila baixo (reseta),
+   `bearer_history` com `expEm` diferente a cada ~6min, evento `reauth-sso` recorrente,
+   `sso-morto-login-page` ausente.
 
 ## Arquivos-mina (mexer = risco alto de regressão)
 - `electron-browser.js` (flags no topo: `AutomationControlled` + `ignore-gpu-blocklist`) —
@@ -112,5 +111,5 @@ voltar a esse modelo simples, NÃO adicionar mais retoken.
 - `auto-login.js` — fluxo de login gov.br (passos SSO, hCaptcha).
 - `portals/comprasnet/integration.js` — `onSSODead` / auto-recuperação de perfil.
 
-Contexto detalhado: memórias `project_electron_reload_keepalive_hcaptcha`,
-`project_electron_relogin_cookie_clear`, `project_electron_reload_keepalive_hcaptcha`.
+Contexto detalhado: memória `project_electron_hcaptcha_captura_definitivo` (definitiva) +
+`project_electron_relogin_cookie_clear`.

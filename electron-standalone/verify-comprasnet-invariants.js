@@ -88,7 +88,7 @@ if (problems.length) {
   console.error('\n❌ INVARIANTES DO COMPRASNET VIOLADAS — build bloqueado:\n');
   problems.forEach(p => console.error('   • ' + p));
   console.error('\nLeia electron-standalone/CLAUDE.md antes de mexer no núcleo Comprasnet.');
-  console.error('Referência do padrão correto: build estável v1.0.0 em /tmp/uploads-1bit/.\n');
+  console.error('Referência do padrão correto: private/electron-standalone-REFERENCE-v1.0.0-comprasnet-stable.zip.\n');
   process.exit(1);
 }
 console.log('✓ Invariantes do Comprasnet OK (flags anti-hCaptcha + re-auth SSO + trust preservado).');
