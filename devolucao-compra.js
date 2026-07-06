@@ -342,11 +342,25 @@ function registrar(app, db) {
       catch (e) { return res.status(500).json({ success: false, error: 'Falha na emissão: ' + e.message, faturaId }); }
 
       const fat = db.prepare('SELECT statusSefaz, chaveAcesso, rejeicaoMotivo FROM faturas WHERE id = ?').get(faturaId);
+
+      // Efeitos colaterais SÓ na autorização (opção a do financeiro): saída de estoque dos
+      // itens devolvidos + abate da conta a pagar da entrada. Best-effort: a NF-e já está
+      // autorizada; se um efeito falhar, loga e reporta, mas não derruba a resposta.
+      let efeitos = null;
+      if (fat.statusSefaz === 'autorizada') {
+        try {
+          efeitos = db.transaction(() => ({
+            estoque: darSaidaEstoque(db, faturaId, tags),
+            financeiro: abaterContaPagar(db, nfeId, Number(totais.vNF), faturaId),
+          }))();
+        } catch (e) { console.error(`[devolucao-compra] efeitos fatura ${faturaId}:`, e.message); efeitos = { erro: e.message }; }
+      }
+
       res.json({
         success: fat.statusSefaz === 'autorizada',
         faturaId, numero, statusSefaz: fat.statusSefaz,
         chaveAcesso: fat.chaveAcesso, motivo: fat.rejeicaoMotivo || emissao?.xMotivo,
-        cStat: emissao?.cStat, valorTotal: totais.vNF,
+        cStat: emissao?.cStat, valorTotal: totais.vNF, efeitos,
       });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
@@ -498,6 +512,54 @@ function calcularImpostoEspelho(itensEspelho, quantidades) {
   return { itens, totais };
 }
 
+// Saída de estoque dos itens devolvidos (custo médio inalterado — saída sai ao custo atual).
+function darSaidaEstoque(db, faturaId, itensFatura) {
+  let depositoId = null;
+  try { depositoId = require('./estoque-routes').getDepositoPadraoId(db); } catch {}
+  const hoje = new Date().toISOString().slice(0, 10);
+  const movs = [];
+  for (const it of itensFatura) {
+    if (!it.produtoId) continue;
+    const prod = db.prepare('SELECT precoCusto FROM produtos WHERE id = ?').get(it.produtoId);
+    const custo = Number(prod?.precoCusto) || 0;
+    const r = db.prepare(`INSERT INTO movimentacoes_estoque
+      (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, depositoId)
+      VALUES (?, 'saida', ?, ?, 'devolucao_compra', ?, ?, ?, ?)`).run(
+      it.produtoId, Number(it.quantidade), custo, faturaId,
+      `Devolução de compra (fatura ${faturaId})`, hoje, depositoId);
+    movs.push({ produtoId: it.produtoId, movimentacaoId: r.lastInsertRowid, quantidade: it.quantidade });
+  }
+  return movs;
+}
+
+// Abate a(s) conta(s) a pagar em aberto da entrada (opção a). Reduz o `valor` pela devolução;
+// zera + cancela quando quita; nota em `observacoes`. Excedente (devolução > aberto) é reportado.
+function abaterContaPagar(db, nfeEntradaId, valorDevol, faturaId) {
+  const abertas = db.prepare(
+    `SELECT id, valor, COALESCE(valorPago,0) vp FROM contas_a_pagar
+      WHERE nfeEntradaId=? AND status='aberta' ORDER BY id`).all(nfeEntradaId);
+  let restante = Number(valorDevol) || 0;
+  const abatidos = [];
+  for (const c of abertas) {
+    if (restante <= 0.005) break;
+    const saldo = Number(c.valor) - Number(c.vp);
+    if (saldo <= 0) continue;
+    const abate = Math.min(saldo, restante);
+    const novoValor = Number((Number(c.valor) - abate).toFixed(2));
+    const nota = ` [Abatido R$ ${abate.toFixed(2)} — devolução de compra fatura ${faturaId}]`;
+    if (novoValor <= 0.005) {
+      db.prepare(`UPDATE contas_a_pagar SET valor=0, status='cancelada',
+        observacoes=COALESCE(observacoes,'')||?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?`).run(nota, c.id);
+    } else {
+      db.prepare(`UPDATE contas_a_pagar SET valor=?,
+        observacoes=COALESCE(observacoes,'')||?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?`).run(novoValor, nota, c.id);
+    }
+    abatidos.push({ contaId: c.id, abate: Number(abate.toFixed(2)) });
+    restante -= abate;
+  }
+  return { abatidos, naoAbatido: Number(restante.toFixed(2)) };
+}
+
 module.exports = {
   registrar,
   migrarSchema,
@@ -508,6 +570,8 @@ module.exports = {
   calcularImpostoEspelho,
   garantirPessoaFornecedor,
   tornarPedidoIdNulavel,
+  darSaidaEstoque,
+  abaterContaPagar,
   // helpers expostos p/ teste
   _internal: { tag, tagAll, num },
 };

@@ -363,7 +363,7 @@ function renderDevolucao(){
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;">
       <small style="color:#888;">Impostos rateados proporcionalmente à quantidade devolvida — espelho da nota de origem.</small>
-      <button class="btn btn-primary" id="btnEmitirDev" disabled title="Habilitado após a validação fiscal do tratamento de ICMS/IPI no Simples (Fase 2).">⏳ Emitir NF-e de devolução (aguardando validação fiscal)</button>
+      <button class="btn btn-primary" id="btnEmitirDev" onclick="emitirDevolucao()">Emitir NF-e de devolução</button>
     </div>
   `;
   recalcDev();
@@ -402,6 +402,45 @@ function recalcDev(){
   });
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent='R$ '+fmt(v); };
   set('totVprod',tP); set('totVicms',tI); set('totVipi',tIpi); set('totVpis',tPis); set('totVcofins',tCof);
+}
+
+async function emitirDevolucao(){
+  const sel = [];
+  DEV.itens.forEach((it, idx) => {
+    const chk = document.querySelector('.dev-chk[data-idx="'+idx+'"]');
+    const qtd = parseFloat((document.querySelector('.dev-qtd[data-idx="'+idx+'"]')||{}).value) || 0;
+    if (chk && chk.checked && qtd > 0) sel.push({ nfeEntradaItemId: it.nfeEntradaItemId, quantidade: qtd });
+  });
+  if (!sel.length) { alert('Selecione ao menos 1 item com quantidade a devolver.'); return; }
+  // Total = todos os itens no saldo cheio.
+  const todos = sel.length === DEV.itens.length && DEV.itens.every((it, idx) => {
+    const q = parseFloat((document.querySelector('.dev-qtd[data-idx="'+idx+'"]')||{}).value) || 0;
+    return q >= it.saldoDisponivel;
+  });
+  if (!confirm(`Emitir NF-e de devolução ao fornecedor (${sel.length} item(ns))?\n\nEmite a nota na SEFAZ, dá saída no estoque e abate a conta a pagar da entrada. Só se desfaz cancelando a NF-e.`)) return;
+  const btn = document.getElementById('btnEmitirDev');
+  btn.disabled = true; btn.textContent = 'Emitindo…';
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/devolucao', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(todos ? { total: true } : { itens: sel })
+    });
+    const d = await r.json();
+    if (d.success) {
+      const ef = d.efeitos || {};
+      const est = ef.estoque ? `${ef.estoque.length} saída(s) de estoque` : '';
+      const fin = ef.financeiro && ef.financeiro.abatidos ? `abatido em ${ef.financeiro.abatidos.length} conta(s) a pagar` : '';
+      alert(`✅ NF-e de devolução AUTORIZADA!\n\nNúmero: ${d.numero}\nChave: ${d.chaveAcesso}\nValor: R$ ${d.valorTotal}` +
+        (est||fin ? `\n\n${[est,fin].filter(Boolean).join(' · ')}` : ''));
+      fecharDevolucao(); carregar();
+    } else {
+      alert(`Não autorizada.\n\nStatus: ${d.statusSefaz||'-'}\nMotivo: ${d.motivo || d.error || '—'}`);
+      btn.disabled = false; btn.textContent = 'Emitir NF-e de devolução';
+    }
+  } catch(e){
+    alert('Erro: '+e.message);
+    btn.disabled = false; btn.textContent = 'Emitir NF-e de devolução';
+  }
 }
 
 document.getElementById('modalDevolucao').addEventListener('click', e => {
