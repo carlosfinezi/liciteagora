@@ -49,6 +49,11 @@ function migrar(db) {
     );
   `);
   db.prepare('INSERT OR IGNORE INTO nfe_config (id, tpAmb, serie, proximoNumero) VALUES (1, 2, 1, 1)').run();
+  // Reforma tributária (item 3.1): grupo IBS/CBS opt-in + alíquotas do ano-teste
+  for (const col of ['ibsCbsAtivo INTEGER DEFAULT 0', 'pIBSUF REAL DEFAULT 0.1',
+                     'pIBSMun REAL DEFAULT 0', 'pCBS REAL DEFAULT 0.9']) {
+    alterSafe(db, `ALTER TABLE nfe_config ADD COLUMN ${col}`);
+  }
   alterSafe(db, 'ALTER TABLE faturas ADD COLUMN rejeicaoMotivo TEXT');
   alterSafe(db, 'ALTER TABLE produtos ADD COLUMN cstPIS TEXT');
   alterSafe(db, 'ALTER TABLE produtos ADD COLUMN cstCOFINS TEXT');
@@ -152,6 +157,21 @@ async function emitirNFe(db, faturaId) {
   const itens = db.prepare('SELECT * FROM fatura_itens WHERE faturaId = ? ORDER BY id ASC').all(faturaId);
   if (!itens.length) throw new Error('Fatura sem itens');
 
+  // ─── Devolução de COMPRA (espelho da entrada) — saída, impostos reproduzidos ──
+  // Recomputa as tags de imposto a partir da entrada imutável (montarItensEspelho) +
+  // as quantidades gravadas na fatura (parcial/total). Fonte única = calcularImpostoEspelho.
+  const ehDevolucaoCompra = fatura.tipoDevolucao === 'compra';
+  let espelhoTagsPorItem = null, espelhoTotais = null;
+  if (ehDevolucaoCompra) {
+    if (!fatura.nfeEntradaId) throw new Error('Devolução de compra sem nfeEntradaId na fatura');
+    const dc = require('./devolucao-compra');
+    const espelho = dc.montarItensEspelho(db, fatura.nfeEntradaId, { nossaUf: emit.uf });
+    const qtdMap = new Map(itens.map(it => [it.nfeEntradaItemId, Number(it.quantidade)]));
+    const calc = dc.calcularImpostoEspelho(espelho, qtdMap);
+    espelhoTagsPorItem = new Map(calc.itens.map(t => [t.nfeEntradaItemId, t]));
+    espelhoTotais = calc.totais;
+  }
+
   // Reservar número (transação)
   const nNF = cfg.proximoNumero;
   const serie = cfg.serie;
@@ -169,9 +189,9 @@ async function emitirNFe(db, faturaId) {
   const tipoOpRow = fatura.tipoOperacaoId
     ? db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(fatura.tipoOperacaoId)
     : null;
-  const ehDevolucao = tipoOpRow
+  const ehDevolucao = ehDevolucaoCompra || (tipoOpRow
     ? (tipoOpRow.finalidadeNFe === 4 || tipoOpRow.categoriaOperacao === 'devolucao_venda')
-    : Number(fatura.isDevolucao) === 1;
+    : Number(fatura.isDevolucao) === 1);
 
   // Resolve CFOP final por item (converte venda→devolução quando aplicável) e carrega
   // mapa de metadados dos CFOPs envolvidos. Os CFOPs resolvidos alimentam natOp, CSOSN
@@ -191,7 +211,8 @@ async function emitirNFe(db, faturaId) {
   const cfopResolvidoPorItem = new Map();
   for (const it of itens) {
     let cf = it.cfop || '5102';
-    if (ehDevolucao && /^[567]/.test(cf)) {
+    // Devolução de compra: o CFOP gravado (5202/5411/…) já é o de devolução → não converter.
+    if (!ehDevolucaoCompra && ehDevolucao && /^[567]/.test(cf)) {
       cf = getCfopMeta(cf)?.cfopContrapartida || fallbackDevolucao(fatura.clienteUf, emit.uf);
     }
     cfopResolvidoPorItem.set(it.id, cf);
@@ -202,9 +223,10 @@ async function emitirNFe(db, faturaId) {
   // Truncado a 60 chars (limite do layout NF-e) e sem diacríticos.
   const primeiroCfop = itens.length ? cfopResolvidoPorItem.get(itens[0].id) : null;
   const cfopMetaPrincipal = getCfopMeta(primeiroCfop);
-  const natOpFonte = tipoOpRow?.textoPadraoNFe
-    || cfopMetaPrincipal?.descricao
-    || (ehDevolucao ? 'DEVOLUCAO DE VENDA' : 'VENDA DE PRODUTO');
+  const natOpFonte = ehDevolucaoCompra ? 'DEVOLUCAO DE COMPRA'
+    : (tipoOpRow?.textoPadraoNFe
+      || cfopMetaPrincipal?.descricao
+      || (ehDevolucao ? 'DEVOLUCAO DE VENDA' : 'VENDA DE PRODUTO'));
   const natOpDinamica = natOpFonte
     .normalize('NFD').replace(/\p{Diacritic}/gu, '')
     .toUpperCase()
@@ -221,7 +243,7 @@ async function emitirNFe(db, faturaId) {
     serie: String(serie),
     nNF: String(nNF),
     dhEmi: NFe.formatData(),
-    tpNF: ehDevolucao ? '0' : '1',  // 0 = entrada (devolução) / 1 = saída
+    tpNF: ehDevolucaoCompra ? '1' : (ehDevolucao ? '0' : '1'),  // devolução de compra = SAÍDA (1)
     // 1 = mesma UF / 2 = interestadual / 3 = exterior (clienteUf 'EX')
     idDest: (fatura.clienteUf || '').toUpperCase() === 'EX' ? '3'
       : (fatura.clienteUf || '').toUpperCase() === (emit.uf || '').toUpperCase() ? '1'
@@ -352,13 +374,26 @@ async function emitirNFe(db, faturaId) {
 
   // Impostos (Simples Nacional).
   // Precedência CSOSN/CST: produto cadastrado → CFOP (csosnPadrao/cstPadrao) → fallback 400/49.
-  const produtoIds = [...new Set(itens.map(it => it.produtoId).filter(Boolean))];
+  // Devolução de compra usa os impostos espelhados (não o cadastro do produto) → pula a query.
+  const produtoIds = ehDevolucaoCompra ? [] : [...new Set(itens.map(it => it.produtoId).filter(Boolean))];
   const produtosPor = new Map();
   if (produtoIds.length) {
-    const rows = db.prepare(`SELECT id, csosn, cstPIS, cstCOFINS FROM produtos WHERE id IN (${produtoIds.map(()=>'?').join(',')})`).all(...produtoIds);
+    const rows = db.prepare(`SELECT id, csosn, cstPIS, cstCOFINS, CSTBS, cClassTrib FROM produtos WHERE id IN (${produtoIds.map(()=>'?').join(',')})`).all(...produtoIds);
     for (const r of rows) produtosPor.set(r.id, r);
   }
   itens.forEach((it, i) => {
+    // Devolução de compra: impostos ESPELHADOS da entrada (CSOSN 900 c/ destaque, IPI no
+    // item, PIS/COFINS reproduzidos, ST quando originou). Pula o caminho Simples-zerado.
+    if (ehDevolucaoCompra) {
+      const t = espelhoTagsPorItem.get(it.nfeEntradaItemId);
+      if (t) {
+        NFe.tagProdICMSSN(i, { ...t.icms });
+        if (t.ipi) NFe.tagProdIPI(i, { ...t.ipi });
+        NFe.tagProdPIS(i, { ...t.pis });
+        NFe.tagProdCOFINS(i, { ...t.cofins });
+      }
+      return;
+    }
     const prod = it.produtoId ? produtosPor.get(it.produtoId) : null;
     const cfopMeta = getCfopMeta(cfopResolvidoPorItem.get(it.id));
     const csosn = (prod?.csosn || cfopMeta?.csosnPadrao || '400').trim();
@@ -377,6 +412,27 @@ async function emitirNFe(db, faturaId) {
     }
     NFe.tagProdPIS(i, { CST: cstPIS, vBC: '0.00', pPIS: '0.00', vPIS: '0.00' });
     NFe.tagProdCOFINS(i, { CST: cstCOFINS, vBC: '0.00', pCOFINS: '0.00', vCOFINS: '0.00' });
+
+    // Reforma tributária (NT 2025.002): grupo UB — IBS/CBS por item, opt-in
+    // via nfe_config.ibsCbsAtivo. CST/cClassTrib do cadastro do produto
+    // (fallback 000/000001 = tributação integral). A lib acumula o IBSCBSTot.
+    if (cfg.ibsCbsAtivo) {
+      const vBC = Number(it.valorTotal);
+      const vIBSUF = vBC * (cfg.pIBSUF || 0) / 100;
+      const vIBSMun = vBC * (cfg.pIBSMun || 0) / 100;
+      const vCBS = vBC * (cfg.pCBS || 0) / 100;
+      NFe.tagProdIBSCBS(i, {
+        CST: (prod?.CSTBS || '000').trim(),
+        cClassTrib: (prod?.cClassTrib || '000001').trim(),
+        gIBSCBS: {
+          vBC: vBC.toFixed(2),
+          gIBSUF: { pIBSUF: (cfg.pIBSUF || 0).toFixed(4), vIBSUF: vIBSUF.toFixed(2) },
+          gIBSMun: { pIBSMun: (cfg.pIBSMun || 0).toFixed(4), vIBSMun: vIBSMun.toFixed(2) },
+          vIBS: (vIBSUF + vIBSMun).toFixed(2),
+          gCBS: { pCBS: (cfg.pCBS || 0).toFixed(4), vCBS: vCBS.toFixed(2) }
+        }
+      });
+    }
   });
 
   // Totais — incluindo frete da fatura no vNF
@@ -384,11 +440,16 @@ async function emitirNFe(db, faturaId) {
   const vFreteTot = Number(fatura.valorFrete) || 0;
   const vDescTot = Number(fatura.valorDesconto) || 0;
   const vNF = vProdTot + vFreteTot - vDescTot;
-  NFe.tagTotal({ ICMSTot: {
-    vFrete: vFreteTot.toFixed(2),
-    vDesc: vDescTot.toFixed(2),
-    vNF: vNF.toFixed(2)
-  }});
+  if (ehDevolucaoCompra) {
+    // Totais espelhados (vBC/vICMS/vST/vIPI/vPIS/vCOFINS + vNF = vProd+IPI+ST).
+    NFe.tagTotal({ ICMSTot: espelhoTotais });
+  } else {
+    NFe.tagTotal({ ICMSTot: {
+      vFrete: vFreteTot.toFixed(2),
+      vDesc: vDescTot.toFixed(2),
+      vNF: vNF.toFixed(2)
+    }});
+  }
   NFe.tagTransp({ modFrete: Number(modFrete(fatura.pedidoTipoFrete)) });
 
   // Pagamento (grupo YA) — deriva das parcelas de contas_a_receber, que são a mesma
@@ -464,8 +525,9 @@ async function emitirNFe(db, faturaId) {
     const card = cardFor(t);
     if (card) dp.card = card;
     NFe.tagDetPag([dp]);
-  } else if (!geraFinanceiro) {
-    // Operação genuinamente sem pagamento (bonificação/remessa/comodato): tPag 90.
+  } else if (!geraFinanceiro || ehDevolucaoCompra) {
+    // Sem pagamento no documento (bonificação/remessa/comodato OU devolução de compra —
+    // o acerto financeiro é o abate da conta a pagar, não uma cobrança na NF-e): tPag 90.
     NFe.tagDetPag([{ indPag: 0, tPag: '90', vPag: '0.00' }]);
   } else {
     // Gera financeiro mas sem parcelas nem meio → inconsistência: bloquear (não emitir "sem pagamento").
@@ -481,13 +543,19 @@ async function emitirNFe(db, faturaId) {
 
   const xmlAssinado = await tools.xmlSign(xmlRaw);
 
-  // Validação local contra XSD v4.00 APÓS assinar (XSD exige <Signature>)
-  const xsdErro = validarXmlLocal(xmlAssinado);
-  if (xsdErro) {
-    console.error('[NFe] XSD invalidação local:\n', xsdErro);
-    throw new Error('Schema XSD local rejeitou: ' + xsdErro);
+  // Validação local contra XSD v4.00 APÓS assinar (XSD exige <Signature>).
+  // Com IBS/CBS ativo o grupo UB não existe no XSD v4.00 local — a validação
+  // fica a cargo da SEFAZ (schema PL_010).
+  if (!cfg.ibsCbsAtivo) {
+    const xsdErro = validarXmlLocal(xmlAssinado);
+    if (xsdErro) {
+      console.error('[NFe] XSD invalidação local:\n', xsdErro);
+      throw new Error('Schema XSD local rejeitou: ' + xsdErro);
+    }
+    console.log('[NFe] XSD local OK, enviando à SEFAZ…');
+  } else {
+    console.log('[NFe] IBS/CBS ativo — validação XSD local pulada (schema PL_010 só na SEFAZ)');
   }
-  console.log('[NFe] XSD local OK, enviando à SEFAZ…');
   console.log('[NFe] XML assinado OK, enviando à SEFAZ…');
   const resposta = await tools.sefazEnviaLote(xmlAssinado, { indSinc: 1 });
   const respStr = typeof resposta === 'string' ? resposta : JSON.stringify(resposta);
@@ -737,6 +805,9 @@ function registrarRotas(app, db) {
       const cStat = tag(inner, 'cStat') || tag(str, 'cStat');
       const xMotivo = tag(inner, 'xMotivo') || tag(str, 'xMotivo');
       const nProt = tag(inner, 'nProt');
+      const { registrarEventoNfe } = require('./fiscal-ops-routes');
+      registrarEventoNfe(db, { faturaId: f.id, chaveAcesso: f.chaveAcesso, tpEvento: '110110',
+        nSeqEvento, texto: correcao, cStat, xMotivo, protocolo: nProt, usuario: req.session?.username });
       if (cStat === '135' || cStat === '136') {
         res.json({ success: true, cStat, xMotivo, nProt });
       } else {

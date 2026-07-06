@@ -262,7 +262,149 @@ function registrar(app, db) {
     }
   });
 
-  // TODO Fase 3: POST /api/nfe-entrada/:id/devolucao (efetiva + emite via motor espelho)
+  // ─── Emitir devolução de compra (cria fatura espelho + emite NF-e) ────────
+  app.post('/api/nfe-entrada/:id/devolucao', async (req, res) => {
+    try {
+      const nfeId = Number(req.params.id);
+      const ent = db.prepare('SELECT * FROM nfe_entrada WHERE id = ?').get(nfeId);
+      if (!ent) return res.status(404).json({ success: false, error: 'Entrada não encontrada' });
+
+      let nossaUf = '';
+      try { nossaUf = (db.prepare('SELECT uf FROM fornecedor ORDER BY id DESC LIMIT 1').get() || {}).uf || ''; } catch {}
+      const espelho = montarItensEspelho(db, nfeId, { nossaUf });
+
+      // Seleção: body.total = tudo; senão body.itens [{ nfeEntradaItemId, quantidade }].
+      let quantidades = null;
+      if (!req.body.total) {
+        const sel = Array.isArray(req.body.itens) ? req.body.itens : [];
+        quantidades = new Map();
+        for (const s of sel) { const q = Number(s.quantidade); if (q > 0) quantidades.set(Number(s.nfeEntradaItemId), q); }
+        if (!quantidades.size) return res.status(400).json({ success: false, error: 'Selecione itens/quantidades (ou envie total:true)' });
+      }
+
+      // Trava de saldo: qtd devolvida acumulada (devoluções não-excluídas e não-rejeitadas)
+      // + esta não pode passar do recebido.
+      const jaDev = db.prepare(
+        `SELECT fi.nfeEntradaItemId AS iid, SUM(fi.quantidade) AS q
+           FROM fatura_itens fi JOIN faturas f ON f.id = fi.faturaId
+          WHERE f.tipoDevolucao='compra' AND f.nfeEntradaId=? AND IFNULL(f.excluida,0)=0
+            AND IFNULL(f.statusSefaz,'') <> 'rejeitada'
+          GROUP BY fi.nfeEntradaItemId`
+      ).all(nfeId);
+      const devMap = new Map(jaDev.map(r => [r.iid, r.q || 0]));
+      for (const it of espelho) {
+        const pedido = quantidades ? (quantidades.get(it.nfeEntradaItemId) || 0) : it.quantidadeRecebida;
+        const saldo = (it.quantidadeRecebida || 0) - (devMap.get(it.nfeEntradaItemId) || 0);
+        if (pedido > saldo + 1e-6) {
+          return res.status(400).json({ success: false, error: `Item ${it.numero}: devolução ${pedido} > saldo disponível ${saldo.toFixed(4)}` });
+        }
+      }
+
+      const { itens: tags, totais } = calcularImpostoEspelho(espelho, quantidades);
+      if (!tags.length) return res.status(400).json({ success: false, error: 'Nada a devolver' });
+
+      // faturas.pedidoId é NOT NULL (venda). Devolução de compra não tem pedido → torna nulável
+      // (rebuild idempotente, só na 1ª vez). Destinatário = pessoa do fornecedor.
+      tornarPedidoIdNulavel(db);
+      const pessoaId = garantirPessoaFornecedor(db, ent);
+
+      const seq = (db.prepare(`SELECT COUNT(*) c FROM faturas WHERE tipoDevolucao='compra' AND nfeEntradaId=?`).get(nfeId).c) + 1;
+      const numero = `DEVC-${ent.numero || nfeId}/${seq}`;
+      const hoje = new Date().toISOString().slice(0, 10);
+      const chaveRef = (ent.chaveAcesso || '').replace(/\D/g, '');
+
+      const faturaId = db.transaction(() => {
+        const r = db.prepare(`
+          INSERT INTO faturas (numero, pedidoId, clienteId, dataEmissao, dataVencimento,
+            valorBruto, valorTotal, status, observacao, isDevolucao, refNFeOriginal,
+            nfeEntradaId, tipoDevolucao)
+          VALUES (?, NULL, ?, ?, ?, ?, ?, 'emitida', ?, 1, ?, ?, 'compra')
+        `).run(numero, pessoaId, hoje, hoje, Number(totais.vNF), Number(totais.vNF),
+          `Devolução de compra ref. NF-e ${ent.numero || ''}${req.body.motivo ? ' · ' + req.body.motivo : ''}`,
+          chaveRef, nfeId);
+        const fid = r.lastInsertRowid;
+        const stmt = db.prepare(`
+          INSERT INTO fatura_itens (faturaId, produtoId, sku, descricao, unidade, quantidade,
+            precoUnitario, valorTotal, ncm, cfop, origem, nfeEntradaItemId)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        for (const t of tags) {
+          stmt.run(fid, t.produtoId || null, t.produtoId ? String(t.produtoId) : '', (t.descricao || '').substring(0, 120),
+            t.unidade || 'UN', t.quantidade, t.valorUnitario, t.vProd, t.ncm || '00000000', t.cfop,
+            t.icms.orig, t.nfeEntradaItemId);
+        }
+        return fid;
+      })();
+
+      // Emite a NF-e (o emitirNFe detecta tipoDevolucao='compra' e usa o modo espelho).
+      const { emitirNFe } = require('./nfe-emit-routes');
+      let emissao;
+      try { emissao = await emitirNFe(db, faturaId); }
+      catch (e) { return res.status(500).json({ success: false, error: 'Falha na emissão: ' + e.message, faturaId }); }
+
+      const fat = db.prepare('SELECT statusSefaz, chaveAcesso, rejeicaoMotivo FROM faturas WHERE id = ?').get(faturaId);
+      res.json({
+        success: fat.statusSefaz === 'autorizada',
+        faturaId, numero, statusSefaz: fat.statusSefaz,
+        chaveAcesso: fat.chaveAcesso, motivo: fat.rejeicaoMotivo || emissao?.xMotivo,
+        cStat: emissao?.cStat, valorTotal: totais.vNF,
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+}
+
+// Garante um registro em `pessoas` para o fornecedor (destinatário da devolução). Casa por
+// CNPJ normalizado; cria a partir de `fornecedores` (endereço) + emitente da entrada.
+function garantirPessoaFornecedor(db, ent) {
+  const cnpj = (ent.emitenteCnpj || '').replace(/\D/g, '');
+  if (!cnpj) throw new Error('Entrada sem CNPJ do emitente');
+  const ex = db.prepare(
+    `SELECT id FROM pessoas WHERE REPLACE(REPLACE(REPLACE(cpfCnpj,'.',''),'/',''),'-','') = ?`
+  ).get(cnpj);
+  if (ex) return ex.id;
+  const forn = ent.fornecedorId ? db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(ent.fornecedorId) : null;
+  const s = forn || {};
+  const r = db.prepare(`
+    INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, endereco, numero, bairro, codigoMunicipio,
+      cidade, uf, cep, email, inscricaoEstadual)
+    VALUES (?, 'PJ', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    cnpj, s.razaoSocial || ent.emitenteRazaoSocial || 'FORNECEDOR',
+    s.endereco || null, s.numero || null, s.bairro || null, s.codigoMunicipio || null,
+    s.cidade || null, s.uf || ent.emitenteUf || null, s.cep || null, s.email || null,
+    s.inscricaoEstadual || ent.emitenteIe || null);
+  return r.lastInsertRowid;
+}
+
+// Torna faturas.pedidoId NULLABLE (rebuild) — devolução de compra não tem pedido. SQLite não
+// tem ALTER COLUMN DROP NOT NULL, então recria a tabela preservando tudo. Idempotente: só roda
+// se pedidoId ainda for NOT NULL. Verifica contagem antes/depois; FK OFF só durante o rebuild.
+function tornarPedidoIdNulavel(db) {
+  const ped = db.prepare('PRAGMA table_info(faturas)').all().find(c => c.name === 'pedidoId');
+  if (!ped || ped.notnull === 0) return;
+  const createSql = db.prepare("SELECT sql FROM sqlite_master WHERE name='faturas' AND type='table'").get().sql;
+  const novo = createSql
+    .replace(/CREATE TABLE faturas\b/, 'CREATE TABLE faturas__new')
+    .replace(/pedidoId INTEGER NOT NULL/, 'pedidoId INTEGER');
+  if (!novo.includes('faturas__new') || /pedidoId INTEGER NOT NULL/.test(novo)) {
+    throw new Error('Rebuild faturas: SQL inesperado — abortado por segurança');
+  }
+  const idxs = db.prepare("SELECT sql FROM sqlite_master WHERE tbl_name='faturas' AND type='index' AND sql IS NOT NULL").all().map(r => r.sql);
+  const n0 = db.prepare('SELECT COUNT(*) c FROM faturas').get().c;
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(novo);
+      db.exec('INSERT INTO faturas__new SELECT * FROM faturas');
+      const n1 = db.prepare('SELECT COUNT(*) c FROM faturas__new').get().c;
+      if (n1 !== n0) throw new Error(`Rebuild faturas: contagem divergente ${n0}→${n1}`);
+      db.exec('DROP TABLE faturas');
+      db.exec('ALTER TABLE faturas__new RENAME TO faturas');
+      for (const s of idxs) { try { db.exec(s); } catch {} }
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
 }
 
 // CSTs de IPI que levam valor (IPITrib); o resto é IPINT (só CST). Espelha o switch da lib.
@@ -306,15 +448,24 @@ function calcularImpostoEspelho(itensEspelho, quantidades) {
     const vBCcof = r2((imp.vBCCofins || 0) * f);
     const vCOFINS = r2((imp.vCofins || 0) * f);
 
-    // ICMS: CSOSN 900 com destaque reproduzido (opção A). Campos que a lib exige p/ 900.
-    const icms = {
-      orig: String(imp.origem || '0'), CSOSN: '900',
-      modBC: String(imp.modBCIcms || '3'), vBC: vBCicms.toFixed(2), pRedBC: '0.00',
-      pICMS: Number(imp.pIcms || 0).toFixed(2), vICMS: vICMS.toFixed(2),
-      modBCST: '0', pMVAST: '0.00', pRedBCST: '0.00',
-      vBCST: vBCST.toFixed(2), pICMSST: Number(imp.pIcmsST || 0).toFixed(2), vICMSST: vST.toFixed(2),
-      pCredSN: '0.00', vCredICMSSN: '0.00',
-    };
+    // ICMS: CSOSN 900 (opção A). Blocos ICMS/ST são CONDICIONAIS: só entram quando há valor.
+    // Motivo: campos enum (modBC/modBCST) que a lib coage p/ "0.00" quando 0 quebram o XSD; e
+    // sem ICMS/ST reproduzir zeros nesses grupos é fiscalmente incorreto (não havia destaque).
+    const temICMS = vICMS > 0 || vBCicms > 0;
+    const temST = vST > 0 || vBCST > 0;
+    const icms = { orig: String(imp.origem || '0'), CSOSN: '900' };
+    if (temICMS) {
+      icms.modBC = String(imp.modBCIcms || '3');
+      icms.vBC = vBCicms.toFixed(2);
+      icms.pICMS = Number(imp.pIcms || 0).toFixed(2);
+      icms.vICMS = vICMS.toFixed(2);
+    }
+    if (temST) {
+      icms.modBCST = String(imp.modBCST || '4');
+      icms.vBCST = vBCST.toFixed(2);
+      icms.pICMSST = Number(imp.pIcmsST || 0).toFixed(2);
+      icms.vICMSST = vST.toFixed(2);
+    }
 
     // IPI: reproduz no grupo do item. Tributado → IPITrib c/ valor; senão IPINT só CST.
     let ipi = null;
@@ -355,6 +506,8 @@ module.exports = {
   parseImpostoItem,
   montarItensEspelho,
   calcularImpostoEspelho,
+  garantirPessoaFornecedor,
+  tornarPedidoIdNulavel,
   // helpers expostos p/ teste
   _internal: { tag, tagAll, num },
 };
