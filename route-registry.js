@@ -14,9 +14,10 @@
  * de path collision (p.ex. /api/analise/stats aparece nos blocos A e B
  * de analise-ia-routes; o último registro vence).
  *
- * Wiring especial do robô monitor-mensagens (final da função):
- *   createMonitorMensagens → {MonitorMensagensComprasnet, MonitorChat}
- *   → passados para GovBr / MonitorMensagens / ExtensaoChrome.
+ * Monitoramento server-side via Puppeteer foi removido (2026-04-22):
+ * captura de mensagens do Comprasnet agora é 100% Electron standalone
+ * (sync via /api/sync/mensagens-global). govbr-routes.js virou CRUD
+ * puro do config (CPF/senha isolado por tenant).
  *
  * Deps esperadas (desestruturadas do options object):
  *   db, dbPath, PORT,
@@ -38,6 +39,7 @@ const { registrarRotasUsuarios } = require('./usuarios-routes');
 const { registrarRotasAuditoria } = require('./audit-log');
 const { registrarRotasDevolucoes } = require('./devolucoes-routes');
 const { registrarRotasCrm } = require('./crm-routes');
+const { registrarRotasPropostasComerciais } = require('./propostas-comerciais-routes');
 const { registrarRotasGerencial } = require('./gerencial-routes');
 const { registrarRotasConciliacao } = require('./conciliacao-routes');
 const { registrarRotasComissoes } = require('./comissoes-routes');
@@ -51,22 +53,35 @@ const { registrarRotasRoteirizacao } = require('./roteirizacao-routes');
 const { registrarRotasCTe } = require('./cte-routes');
 const { registrarRotasMarketplaces } = require('./marketplaces-routes');
 const { registrarRotasTEF } = require('./tef-routes');
-const { registrarRotasMonitorV2, getMonitor } = require('./monitor-v2-routes');
 const { registrarRotasLicitacoes } = require('./licitacoes-routes');
-const { createMonitorMensagens } = require('./monitor-mensagens-core');
 const { registrarRotasGovBr } = require('./govbr-routes');
-const { registrarRotasMonitorMensagens } = require('./monitor-mensagens-routes');
 const { registrarRotasSniper } = require('./sniper-lance-routes');
 const { registrarRotasNfse } = require('./nfse-routes');
 const { registrarRotasFinanceiro } = require('./financeiro-routes');
 const { registrarRotasRecorrencia } = require('./recorrencia-routes');
 const { registrarRotasProdutos } = require('./produtos-routes');
+const { registrarRotasProdutoLookup } = require('./produto-lookup-routes');
+const { registrarRotasProdutoMatch } = require('./produto-match-routes');
+const { registrarRotasFornecedores } = require('./fornecedores-routes');
 const { registrarRotasEstoque } = require('./estoque-routes');
+const { registrarRotasDepositos } = require('./depositos-routes');
+const { registrarRotasEtiquetas } = require('./etiquetas-routes');
+const { registrarRotasFinanceiroAvancado } = require('./financeiro-avancado-routes');
+const { registrarRotasCotacoes } = require('./cotacoes-routes');
+const { registrarRotasContabilidade } = require('./contabilidade-routes');
+const { registrarRotasRequisicoes } = require('./requisicoes-routes');
+const { registrarRotasPrecos } = require('./precos-routes');
+const { registrarRotasFiscalOps } = require('./fiscal-ops-routes');
+const { registrarRotasGovernanca } = require('./governanca-routes');
+const { registrarRotasTesouraria } = require('./tesouraria-routes');
+const { registrarRotasPlanejamento } = require('./planejamento-routes');
+const { registrarRotasContabilizacao } = require('./contabilizacao-routes');
+const { registrarRotasIbsCbs } = require('./ibscbs-routes');
 const { registrarRotasLotes } = require('./lotes-routes');
 const { registrarRotasSerial } = require('./serial-routes');
 const { registrarRotasReservas } = require('./reservas-routes');
 const { registrarRotasInventario } = require('./inventario-routes');
-const { registrarRotasPedidosCompra } = require('./pedidos-compra-routes');
+const { registrarRotasCompras } = require('./compras-routes');
 const { registrarRotasPedidos } = require('./pedidos-routes');
 const { registrarRotasFaturas } = require('./faturas-routes');
 const { registrarRotasContasFinanceiras } = require('./contas-financeiras-routes');
@@ -83,12 +98,20 @@ const { registrarRotasDefis } = require('./defis-routes');
 const { registrarRotasNFCe } = require('./nfce-routes');
 const { registrarRotasImportacao } = require('./importacao-routes');
 const { registrarRotasCFOPs } = require('./cfops-routes');
+const { registrarRotasTiposOperacao } = require('./tipos-operacao-routes');
+const { registrarRotasServicos } = require('./servicos-routes');
+const { registrarRotasOptica } = require('./optica/optica-routes');
+const { registrarRotasFeatures } = require('./features-routes');
+const { registrarRotasCfopsEntradaMap } = require('./cfops-entrada-map-routes');
 const { registrarRotasCobrancas } = require('./cobrancas-routes');
+const { registrarRotasBoletoProvedores } = require('./boleto-provedores-routes');
 const { registrarRotasBi } = require('./bi-routes');
 const { registrarRotasPropostasParticipacoes } = require('./propostas-participacoes-routes');
+const { registrarRotasPropostasMatch } = require('./propostas-match-routes');
 const { registrarRotasGruposPalavras } = require('./grupos-palavras-routes');
 const { registrarRotasBackup } = require('./backup-routes');
 const { registrarRotasAnaliseIa } = require('./analise-ia-routes');
+const { registrarRotasChatIa } = require('./chat-ia-routes');
 const { registrarRotasJornal } = require('./jornal-routes');
 const { registrarRotasCertificado } = require('./certificado-routes');
 const { registrarRotasProxy } = require('./proxy-routes');
@@ -96,6 +119,12 @@ const { registrarRotasFornecedor } = require('./fornecedor-routes');
 const { registrarRotasTelegram } = require('./telegram-routes');
 const { registrarRotasLances } = require('./lances-routes');
 const { registrarRotasCredenciais } = require('./credenciais-routes');
+const { registrarRotasPortaisIntegracao } = require('./portais-integracao-routes');
+const { registrarRotasBNCSalas } = require('./bnc-salas-routes');
+const { registrarRotasBLL } = require('./bll-routes');
+const { registrarRotasBLLSalas } = require('./bll-salas-routes');
+const { registrarRotasPcp } = require('./pcp-routes');
+const { registrarRotasSC } = require('./sc-routes');
 const { registrarRotasRobo } = require('./robo-routes');
 const { registrarRotasTracking } = require('./tracking-routes');
 const { registrarRotasProposta } = require('./proposta-routes');
@@ -103,14 +132,12 @@ const { registrarRotasSync } = require('./sync-routes');
 const { registrarRotasPdf } = require('./pdf-routes');
 const { registrarRotasAdmin } = require('./admin-routes');
 const { registrarRotasChatLeitura } = require('./chat-leitura-routes');
-const { registrarRotasExtensoes } = require('./extensoes-routes');
-const { registrarRotasExtensaoChrome } = require('./extensao-chrome-routes');
 const { registrarRotasChatMonitoramento } = require('./chat-monitoramento-routes');
 const { registrarRotasChatMensagens } = require('./chat-mensagens-routes');
 const { registrarRotasParticipacaoMonitoramento } = require('./participacao-monitoramento-routes');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
 const { registrarRotasPortalAdmin } = require('./portal-routes');
-const { sendTelegram, sendNotificacao } = require('./telegram-client');
+const { sendTelegram } = require('./telegram-client');
 
 // NFSE-M06 onda 6.44 (2026-04-20): PORT + PNCP_API_BASE + PNCP_API_ITENS
 // saem do deps bag e viram require direto de config.js. server.js nao
@@ -126,52 +153,72 @@ function registerProtectedRoutes(app, deps) {
   // NFSE-M06 onda 5C / 6.30: wrappers finos sobre telegram-client.js. Eram
   // globais em server.js; aqui moram no closure do registry. Apenas as
   // chamadas abaixo (e o wiring do monitor-mensagens) os consomem.
+  // enviarNotificacaoTelegram era consumido só pelo fluxo legado
+  // extensao-chrome-routes (desativado 2026-04-22, substituído pelo
+  // Electron Standalone); ficou disponível no telegram-client para
+  // quem precisar no futuro.
   const enviarTelegram = (mensagem) => sendTelegram(db, mensagem);
-  const enviarNotificacaoTelegram = (dados) => sendNotificacao(db, dados);
 
   // ==================== CATÁLOGO PNCP ====================
   // onda 6.29: 5 rotas /api/licitacoes, /api/orgaos, detalhes, itens e sync-itens.
   registrarRotasLicitacoes(app, db, { pncpSync, salvarItens, PNCP_API_BASE, PNCP_API_ITENS });
 
-  // ==================== MONITOR V2 (API direta Comprasnet) ====================
-  registrarRotasMonitorV2(app, db, {
-    enviarTelegram,
-    getConfigValue,
-    intervaloMinutos: 3,
-  });
-
   // ==================== SNIPER DE LANCES ====================
-  // getMonitor vem do MonitorV2 (mesmo módulo monitor-v2-routes).
-  registrarRotasSniper(app, getMonitor, db);
+  registrarRotasSniper(app, db);
 
   // ==================== NFSE NACIONAL ====================
   registrarRotasNfse(app, db);
+
+  // ==================== FINANCEIRO (Pessoas, Contas a Receber, Boletos, MercadoPago) ====================
+  // FINANCEIRO precisa vir ANTES de cobrancas e contas-receber-routes
+  // porque cria as tabelas pessoas e contas_a_receber, usadas por eles
+  // em boot-time migrations (ALTER TABLE pessoas ADD cobrancaAtiva, etc.).
+  registrarRotasFinanceiro(app, db);
+
+  // ==================== BOLETO PROVEDORES (registry multi-banco) ====================
+  registrarRotasBoletoProvedores(app, db);
 
   // ==================== COBRANÇAS + WHATSAPP ====================
   registrarRotasCobrancas(app, db);
   registrarRotasWhatsApp(app, db);
 
-  // ==================== FINANCEIRO (Pessoas, Contas a Receber, Boletos, MercadoPago) ====================
-  registrarRotasFinanceiro(app, db);
-
   // ==================== RECORRÊNCIAS NFSE ====================
   registrarRotasRecorrencia(app, db);
 
   // ==================== SUPRIMENTOS (Produtos, Estoque, Pedidos) ====================
+  // contas-financeiras subido pra ANTES de pedidos — pedidos-routes cria
+  // adquirentes_cartao com FK para contas_financeiras; ordem errada
+  // só quebra no provision de tenant novo (FK recém-validada no ON).
+  registrarRotasContasFinanceiras(app, db);
+  // produto-lookup precisa vir ANTES de produtos-routes — produtos-routes
+  // importa registrarLookup do módulo lookup. A ordem de require não exige,
+  // mas a migração única (popular lookup a partir de produtos existentes)
+  // depende de a tabela produto_lookup já estar criada por db-schema.js.
+  registrarRotasProdutoLookup(app, db);
+  registrarRotasProdutoMatch(app, db);
+  registrarRotasFornecedores(app, db);
   registrarRotasProdutos(app, db);
   registrarRotasEstoque(app, db);
+  registrarRotasDepositos(app, db);
+  registrarRotasEtiquetas(app, db);
   registrarRotasLotes(app, db);
   registrarRotasSerial(app, db);
   registrarRotasReservas(app, db);
   registrarRotasInventario(app, db);
-  registrarRotasPedidosCompra(app, db);
+  registrarRotasCompras(app, db);
   registrarRotasPedidos(app, db);
-  registrarRotasContasFinanceiras(app, db);
   registrarRotasFaturas(app, db);
   registrarRotasNfeEmit(app, db);
   registrarRotasNfeEntrada(app, db);
   registrarRotasContasPagar(app, db);
   registrarRotasContasReceber(app, db);
+  registrarRotasFinanceiroAvancado(app, db);
+  registrarRotasCotacoes(app, db);
+  registrarRotasContabilidade(app, db);
+  registrarRotasRequisicoes(app, db);
+  registrarRotasPrecos(app, db);
+  registrarRotasFiscalOps(app, db);
+  registrarRotasGovernanca(app, db);
   registrarRotasFluxoCaixa(app, db);
   registrarRotasFiscalSN(app, db);
   registrarRotasLivroCaixa(app, db);
@@ -181,17 +228,32 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasNFCe(app, db);
   registrarRotasImportacao(app, db);
   registrarRotasCFOPs(app, db);
+  registrarRotasTiposOperacao(app, db);
+  registrarRotasCfopsEntradaMap(app, db);
+
+  // ==================== ÓTICA (módulo opcional) ====================
+  registrarRotasOptica(app, db);
+
+  // ==================== FEATURE FLAGS (sidebar usa) ====================
+  registrarRotasFeatures(app, db);
 
   // ==================== ADMIN / RH / AUDITORIA ====================
   registrarRotasUsuarios(app, db);
   registrarRotasAuditoria(app, db);
   registrarRotasDevolucoes(app, db);
+  require('./devolucao-compra').registrar(app, db); // Fase 1: migra schema espelho (rotas na Fase 3)
   registrarRotasCrm(app, db);
+  registrarRotasPropostasComerciais(app, db);
   registrarRotasGerencial(app, db);
   registrarRotasConciliacao(app, db);
+  registrarRotasTesouraria(app, db);
+  registrarRotasPlanejamento(app, db);
+  registrarRotasContabilizacao(app, db);
+  registrarRotasIbsCbs(app, db);
   registrarRotasComissoes(app, db);
   registrarRotasContratos(app, db);
   registrarRotasPortalAdmin(app, db);
+  registrarRotasServicos(app, db);
   registrarRotasOS(app, db);
   registrarRotasComm(app, db);
   registrarRotasMDFe(app, db);
@@ -205,9 +267,11 @@ function registerProtectedRoutes(app, deps) {
   // ==================== BI / IA / JORNAL / BACKUP / CERTIFICADO / PROXY / FORNECEDOR ====================
   registrarRotasBi(app, db);
   registrarRotasPropostasParticipacoes(app, db);
+  registrarRotasPropostasMatch(app, db);
   registrarRotasGruposPalavras(app, db);
   registrarRotasBackup(app, db, { dbPath, PORT });
   registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys });
+  registrarRotasChatIa(app, db, { getIAKeys });
   registrarRotasJornal(app, db);
   registrarRotasCertificado(app, db);
   registrarRotasProxy(app, db);
@@ -217,31 +281,34 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasTelegram(app, db, { enviarTelegram });
   registrarRotasLances(app, db, { enviarTelegram });
   registrarRotasCredenciais(app, db);
+  // Portais externos genéricos (BNC, BLL, etc.) — só usuário+senha em config.
+  registrarRotasPortaisIntegracao(app, db);
+  // BNC: cadastro de salas de disputa (processId, lotes) — alimenta scheduler.
+  registrarRotasBNCSalas(app, db);
+  // BLL: sessão + envio de proposta (Fase 1/2). Lance (SignalR) vem na Fase 3.
+  registrarRotasBLL(app, db);
+  // BLL: cadastro de salas de disputa + auto-lance (Fase 3) — alimenta scheduler.
+  registrarRotasBLLSalas(app, db);
+  // Portal de Compras Públicas — sessão autenticada + listagem de Seus Pregões / Sessões Públicas.
+  registrarRotasPcp(app, db);
+  // Robô SC (cotacao.licitacao.sc.gov.br) — credenciais, sessão, sync (participações/disputa/chat).
+  registrarRotasSC(app, db, { enviarTelegram });
   registrarRotasRobo(app, db);
   registrarRotasTracking(app, db);
   registrarRotasProposta(app, db);
 
-  // ==================== SYNC / PDF / ADMIN / CHAT LEITURA / EXTENSÕES ====================
+  // ==================== SYNC / PDF / ADMIN / CHAT LEITURA ====================
   registrarRotasSync(app, db, { pncpSync });
   registrarRotasPdf(app, db);
   registrarRotasAdmin(app, db, { getConfigValue, setConfigValue });
   registrarRotasChatLeitura(app, db);
-  registrarRotasExtensoes(app, { getConfigValue });
 
-  // ==================== ROBÔ DE MONITORAMENTO DE MENSAGENS + CREDENCIAIS GOV.BR ====================
-  // NFSE-M06 onda 6.28: wiring explícito, ordem importa.
-  //   core → govbr (guarda MonitorMensagensComprasnet) → monitor-mensagens
-  //     (guarda MonitorChat) → extensao-chrome (consome govbrApi.getMonitor).
-  const { MonitorMensagensComprasnet, MonitorChat } = createMonitorMensagens({
-    db, getConfigValue, enviarTelegram,
-  });
-  const govbrApi = registrarRotasGovBr(app, db, {
-    getConfigValue, setConfigValue, MonitorMensagensComprasnet,
-  });
-  registrarRotasMonitorMensagens(app, db, { MonitorChat });
-  registrarRotasExtensaoChrome(app, db, {
-    getConfigValue, enviarNotificacaoTelegram, getMonitor: govbrApi.getMonitor,
-  });
+  // ==================== CREDENCIAIS GOV.BR + CHAT (leitura) ====================
+  // Monitoramento server-side via Puppeteer foi removido em 2026-04-22:
+  // captura de mensagens agora é 100% feita pelo Electron standalone
+  // (envia via /api/sync/mensagens-global). Estas rotas apenas leem/editam
+  // o estado já persistido e a config gov.br do tenant.
+  registrarRotasGovBr(app, { getConfigValue, setConfigValue });
   registrarRotasChatMonitoramento(app, db);
   registrarRotasChatMensagens(app, db);
   registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram });
