@@ -122,8 +122,9 @@ function parseImpostoItem(body) {
     vBCST: num(tag(icmsGrp, 'vBCST')),
     pIcmsST: num(tag(icmsGrp, 'pICMSST')),
     vIcmsST: num(tag(icmsGrp, 'vICMSST')),
-    // IPI (destaque em IPITrib; IPINT/IPINT só tem CST)
+    // IPI (destaque em IPITrib; IPINT só tem CST). cEnq = enquadramento legal (obrigatório).
     cstIpi: tag(ipiGrp, 'CST'),
+    cEnqIpi: tag(ipiGrp, 'cEnq') || '999',
     vBCIpi: num(tag(ipiGrp, 'vBC')),
     pIpi: num(tag(ipiGrp, 'pIPI')),
     vIpi: num(tag(ipiGrp, 'vIPI')),
@@ -264,6 +265,88 @@ function registrar(app, db) {
   // TODO Fase 3: POST /api/nfe-entrada/:id/devolucao (efetiva + emite via motor espelho)
 }
 
+// CSTs de IPI que levam valor (IPITrib); o resto é IPINT (só CST). Espelha o switch da lib.
+const IPI_TRIBUTADO = new Set(['00', '49', '50', '99']);
+
+// ─── Núcleo da Fase 2 (motor espelho) ────────────────────────────────────────
+// Dado o espelho dos itens (montarItensEspelho) e as quantidades a devolver (parcial →
+// rateio proporcional), devolve POR ITEM os payloads prontos das tags SEFAZ (ICMS CSOSN
+// 900 c/ destaque, IPI, PIS, COFINS) + os TOTAIS (ICMSTot) já somados. Função PURA (não
+// depende da lib node-sped-nfe) → testável isolada. As alíquotas NÃO são rateadas; bases
+// e valores sim. vNF = produtos + IPI + ICMS-ST (contador: IPI/ST entram no total).
+//
+// quantidades: Map(nfeEntradaItemId → qtd) = seleção EXPLÍCITA (só os itens do mapa entram;
+// ausentes ficam de fora). Sem o argumento (null/undefined) = devolução TOTAL (todos cheios).
+function calcularImpostoEspelho(itensEspelho, quantidades) {
+  const total = !quantidades;               // sem seleção → devolução total
+  const q = quantidades || new Map();
+  const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+  const itens = [];
+  const tot = { vProd: 0, vBC: 0, vICMS: 0, vBCST: 0, vST: 0, vIPI: 0, vPIS: 0, vCOFINS: 0 };
+
+  for (const it of itensEspelho) {
+    let qtdDev;
+    if (total) qtdDev = it.quantidadeRecebida;
+    else if (q.has(it.nfeEntradaItemId)) qtdDev = Number(q.get(it.nfeEntradaItemId));
+    else continue;                          // item não selecionado → fora da devolução
+    if (!(qtdDev > 0)) continue;
+    const rec = Number(it.quantidadeRecebida) || 0;
+    const f = rec > 0 ? qtdDev / rec : 0;
+    const imp = it.imposto || {};
+
+    const vProd = r2(Number(it.valorTotal) * f);
+    const vBCicms = r2((imp.vBCIcms || 0) * f);
+    const vICMS = r2((imp.vIcms || 0) * f);
+    const vBCST = r2((imp.vBCST || 0) * f);
+    const vST = r2((imp.vIcmsST || 0) * f);
+    const vBCipi = r2((imp.vBCIpi || 0) * f);
+    const vIPI = r2((imp.vIpi || 0) * f);
+    const vBCpis = r2((imp.vBCPis || 0) * f);
+    const vPIS = r2((imp.vPis || 0) * f);
+    const vBCcof = r2((imp.vBCCofins || 0) * f);
+    const vCOFINS = r2((imp.vCofins || 0) * f);
+
+    // ICMS: CSOSN 900 com destaque reproduzido (opção A). Campos que a lib exige p/ 900.
+    const icms = {
+      orig: String(imp.origem || '0'), CSOSN: '900',
+      modBC: String(imp.modBCIcms || '3'), vBC: vBCicms.toFixed(2), pRedBC: '0.00',
+      pICMS: Number(imp.pIcms || 0).toFixed(2), vICMS: vICMS.toFixed(2),
+      modBCST: '0', pMVAST: '0.00', pRedBCST: '0.00',
+      vBCST: vBCST.toFixed(2), pICMSST: Number(imp.pIcmsST || 0).toFixed(2), vICMSST: vST.toFixed(2),
+      pCredSN: '0.00', vCredICMSSN: '0.00',
+    };
+
+    // IPI: reproduz no grupo do item. Tributado → IPITrib c/ valor; senão IPINT só CST.
+    let ipi = null;
+    if (imp.cstIpi) {
+      ipi = IPI_TRIBUTADO.has(String(imp.cstIpi))
+        ? { cEnq: String(imp.cEnqIpi || '999'), CST: String(imp.cstIpi), vBC: vBCipi.toFixed(2), pIPI: Number(imp.pIpi || 0).toFixed(4), vIPI: vIPI.toFixed(2) }
+        : { cEnq: String(imp.cEnqIpi || '999'), CST: String(imp.cstIpi) };
+    }
+
+    const pis = { CST: String(imp.cstPis || '49'), vBC: vBCpis.toFixed(2), pPIS: Number(imp.pPis || 0).toFixed(4), vPIS: vPIS.toFixed(2) };
+    const cofins = { CST: String(imp.cstCofins || '49'), vBC: vBCcof.toFixed(2), pCOFINS: Number(imp.pCofins || 0).toFixed(4), vCOFINS: vCOFINS.toFixed(2) };
+
+    itens.push({
+      nfeEntradaItemId: it.nfeEntradaItemId, produtoId: it.produtoId, descricao: it.descricao,
+      ncm: it.ncm, unidade: it.unidade, cfop: it.cfopDevolucao,
+      quantidade: qtdDev, valorUnitario: it.valorUnitario, vProd, icms, ipi, pis, cofins,
+    });
+    tot.vProd = r2(tot.vProd + vProd); tot.vBC = r2(tot.vBC + vBCicms); tot.vICMS = r2(tot.vICMS + vICMS);
+    tot.vBCST = r2(tot.vBCST + vBCST); tot.vST = r2(tot.vST + vST); tot.vIPI = r2(tot.vIPI + vIPI);
+    tot.vPIS = r2(tot.vPIS + vPIS); tot.vCOFINS = r2(tot.vCOFINS + vCOFINS);
+  }
+
+  const vNF = r2(tot.vProd + tot.vIPI + tot.vST);
+  const totais = {
+    vBC: tot.vBC.toFixed(2), vICMS: tot.vICMS.toFixed(2), vBCST: tot.vBCST.toFixed(2), vST: tot.vST.toFixed(2),
+    vProd: tot.vProd.toFixed(2), vFrete: '0.00', vSeg: '0.00', vDesc: '0.00', vII: '0.00',
+    vIPI: tot.vIPI.toFixed(2), vPIS: tot.vPIS.toFixed(2), vCOFINS: tot.vCOFINS.toFixed(2),
+    vOutro: '0.00', vNF: vNF.toFixed(2),
+  };
+  return { itens, totais };
+}
+
 module.exports = {
   registrar,
   migrarSchema,
@@ -271,6 +354,7 @@ module.exports = {
   parseEspelhoEntrada,
   parseImpostoItem,
   montarItensEspelho,
+  calcularImpostoEspelho,
   // helpers expostos p/ teste
   _internal: { tag, tagAll, num },
 };
