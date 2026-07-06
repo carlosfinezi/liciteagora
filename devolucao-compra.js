@@ -209,10 +209,59 @@ function montarItensEspelho(db, nfeId, opts = {}) {
 }
 
 // Ponto de entrada chamado pelo route-registry no boot (por tenant).
-// FASE 1: só migra o schema. As rotas (criar/emitir devolução) entram na Fase 3.
 function registrar(app, db) {
   migrarSchema(db);
-  // TODO Fase 3: app.post('/api/nfe-entrada/:id/devolucao', ...) etc.
+
+  // ─── Preview do espelho de devolução (READ-ONLY — não emite nada) ─────────
+  // Base da UI de seleção de itens. Retorna, por item da entrada: nosso CFOP de
+  // entrada, CFOP de devolução espelhado, saldo disponível (recebido − já devolvido)
+  // e o bloco de imposto a reproduzir (valores da qtd cheia; o rateio parcial é feito
+  // no cliente proporcional à qtd selecionada). Seguro: independe das decisões fiscais.
+  app.get('/api/nfe-entrada/:id/devolucao/preview', (req, res) => {
+    try {
+      const nfeId = Number(req.params.id);
+      const ent = db.prepare(
+        'SELECT id, numero, serie, chaveAcesso, emitenteRazaoSocial, emitenteCnpj, emitenteUf, fornecedorId, valorProdutos, valorTotal, statusEstoque, statusFinanceiro FROM nfe_entrada WHERE id = ?'
+      ).get(nfeId);
+      if (!ent) return res.status(404).json({ success: false, error: 'Entrada não encontrada' });
+
+      let nossaUf = '';
+      try { const emit = db.prepare('SELECT uf FROM fornecedor ORDER BY id DESC LIMIT 1').get(); nossaUf = (emit && emit.uf) || ''; } catch {}
+
+      const itens = montarItensEspelho(db, nfeId, { nossaUf });
+
+      // Saldo já devolvido por item (Fase 3 grava as faturas de devolução; hoje = 0).
+      const jaDev = db.prepare(
+        `SELECT fi.nfeEntradaItemId AS iid, SUM(fi.quantidade) AS q
+           FROM fatura_itens fi JOIN faturas f ON f.id = fi.faturaId
+          WHERE f.tipoDevolucao = 'compra' AND f.nfeEntradaId = ? AND IFNULL(f.excluida,0) = 0
+          GROUP BY fi.nfeEntradaItemId`
+      ).all(nfeId);
+      const devMap = new Map(jaDev.map(r => [r.iid, r.q || 0]));
+      for (const it of itens) {
+        const dev = devMap.get(it.nfeEntradaItemId) || 0;
+        it.quantidadeDevolvida = dev;
+        it.saldoDisponivel = Math.max(0, (it.quantidadeRecebida || 0) - dev);
+      }
+
+      res.json({
+        success: true,
+        entrada: {
+          id: ent.id, numero: ent.numero, serie: ent.serie, chave: ent.chaveAcesso,
+          fornecedor: ent.emitenteRazaoSocial, cnpj: ent.emitenteCnpj, uf: ent.emitenteUf,
+          valorTotal: ent.valorTotal, statusEstoque: ent.statusEstoque, statusFinanceiro: ent.statusFinanceiro,
+        },
+        nossaUf,
+        natOp: 'Devolução de compra',
+        itens,
+        avisos: { cfopsForaDoMapa: itens.filter(i => !i.cfopDevolucaoDoMapa).length },
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // TODO Fase 3: POST /api/nfe-entrada/:id/devolucao (efetiva + emite via motor espelho)
 }
 
 module.exports = {

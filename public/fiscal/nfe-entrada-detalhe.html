@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NF-e Recebida · Detalhe</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 id="titulo">NF-e Recebida</h1>
+      <small><a class="back" href="/fiscal/nfe-inbox.html">← Voltar para NF-e Recebidas</a></small>
+    </div>
+  </div>
+  <div id="conteudo">Carregando…</div>
+</main></div>
+
+<!-- Modal Vincular Produto -->
+<div class="modal-bg" id="modalVincular">
+  <div class="modal">
+    <button class="close" onclick="fecharModal()">&times;</button>
+    <h2>Vincular produto ao item</h2>
+    <div class="item-origem" id="itemOrigem"></div>
+    <label style="color:#888;font-size:0.85em;">Buscar produto existente</label>
+    <input type="text" id="buscaProduto" placeholder="SKU ou descrição..." oninput="debounceBusca()">
+    <div class="result-list" id="resultList"></div>
+    <div class="divider">OU</div>
+    <div class="preview-campos" id="previewNovo"></div>
+    <button class="btn btn-primary" style="width:100%;" onclick="criarNovoProduto()">✨ Criar novo produto com os dados da NF-e</button>
+  </div>
+</div>
+
+<!-- Modal Devolução ao fornecedor (espelho da entrada) -->
+<div class="modal-bg" id="modalDevolucao">
+  <div class="modal" style="max-width:1120px;width:96%;">
+    <button class="close" onclick="fecharDevolucao()">&times;</button>
+    <h2>↩ Devolução ao fornecedor <span style="font-size:.6em;color:#888;">— espelho da entrada</span></h2>
+    <div class="item-origem" id="devCabecalho"></div>
+    <div id="devConteudo">Carregando…</div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('nfe-inbox');</script>
+<script>
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(iso){ if(!iso) return '-'; const d=new Date(iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
+
+let NFE_ID = null;
+let DADOS = null;
+
+async function carregar(){
+  const qs = new URLSearchParams(location.search);
+  let id = qs.get('id');
+  if (!id && qs.get('chave')) {
+    const r = await fetch('/api/nfe-entrada?busca='+qs.get('chave'));
+    const d = await r.json();
+    const m = (d.notas||[]).find(n => n.chaveAcesso === qs.get('chave'));
+    if (m) id = m.id;
+  }
+  if (!id) { document.getElementById('conteudo').textContent = 'Parâmetro id obrigatório'; return; }
+  NFE_ID = id;
+
+  const r = await fetch('/api/nfe-entrada/'+id);
+  const d = await r.json();
+  if (!d.success) { document.getElementById('conteudo').textContent = 'Erro: '+d.error; return; }
+  DADOS = d;
+  render();
+}
+
+function render(){
+  const n = DADOS.nota;
+  const itens = DADOS.itens;
+  const dups = DADOS.duplicatas;
+  document.getElementById('titulo').textContent = `NF-e ${n.numero} · Série ${n.serie}`;
+
+  const itensSemVinculo = itens.filter(i => !i.produtoId).length;
+  const podeAplicarEstoque = itensSemVinculo === 0 && n.statusEstoque === 'pendente';
+  const jaAplicado = n.statusEstoque === 'aplicado';
+  const jaGerouCP = n.statusFinanceiro === 'gerado';
+
+  let acoesHtml = `<div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+      <div>
+        <div style="margin-bottom:6px;"><span class="label" style="color:#888;font-size:0.8em;">Status estoque:</span>
+          <span class="badge ${n.statusEstoque}">${n.statusEstoque}</span></div>
+        <div><span class="label" style="color:#888;font-size:0.8em;">Status financeiro:</span>
+          <span class="badge ${n.statusFinanceiro}">${n.statusFinanceiro}</span></div>
+      </div>
+      <div class="acoes">
+        ${!jaAplicado && itensSemVinculo > 0
+          ? `<button class="btn btn-primary" onclick="vincularTodos()" title="Cria/associa um produto para cada item ainda sem vínculo">✨ Criar e vincular todos (${itensSemVinculo})</button>`
+          : ''}
+        ${!jaAplicado
+          ? `<button class="btn btn-primary" ${podeAplicarEstoque?'':'disabled'} onclick="aplicarEstoque()" title="${podeAplicarEstoque?'':'Vincule todos os itens a produtos antes'}">📦 Aplicar entrada no estoque</button>`
+          : `<button class="btn btn-warn" onclick="reverterEstoque()">↶ Reverter estoque</button>`}
+        ${!jaGerouCP
+          ? `<button class="btn btn-primary" onclick="gerarContasPagar()">💳 Gerar contas a pagar</button>`
+          : `<button class="btn btn-warn" onclick="reverterContasPagar()">↶ Reverter contas a pagar</button>`}
+        <button class="btn btn-secondary" onclick="abrirDevolucao()" title="Emitir NF-e de devolução ao fornecedor espelhando esta entrada (total ou parcial)">↩ Devolução ao fornecedor</button>
+      </div>
+    </div>
+    ${itensSemVinculo > 0 ? `<p style="color:#f59e0b;margin-top:10px;font-size:0.85em;">⚠ ${itensSemVinculo} item(ns) ainda sem produto vinculado.</p>` : ''}
+  </div>`;
+
+  let html = acoesHtml + `
+    <div class="panel">
+      <div class="grid kv">
+        <div><div class="label">Fornecedor</div><div class="value">${n.fornecedorNome || n.emitenteRazaoSocial || '—'}</div></div>
+        <div><div class="label">CNPJ</div><div class="value mono">${n.emitenteCnpj || '—'}</div></div>
+        <div><div class="label">Emissão</div><div class="value">${fmtData(n.dataEmissao)}</div></div>
+        <div><div class="label">Natureza</div><div class="value">${n.naturezaOperacao || '—'}</div></div>
+        <div><div class="label">Valor total</div><div class="value">R$ ${fmt(n.valorTotal)}</div></div>
+        <div><div class="label">Frete</div><div class="value">R$ ${fmt(n.valorFrete)}</div></div>
+        <div><div class="label">Chave</div><div class="value mono" style="font-size:0.75em;">${n.chaveAcesso || ''}</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="color:#60a5fa;margin-bottom:12px;">Itens (${itens.length})</h3>
+      <table>
+        <thead><tr><th>#</th><th>Código</th><th>Descrição</th><th>NCM</th><th>Qtde</th><th>V.Unit</th><th>Total</th><th>Produto vinculado</th></tr></thead>
+        <tbody>${itens.map(i => `<tr>
+          <td>${i.numero}</td><td class="mono">${i.codigoProduto||'-'}</td><td>${i.descricao||'-'}</td>
+          <td class="mono">${i.ncm||'-'}</td>
+          <td>${fmt(i.quantidade)}</td><td>R$ ${fmt(i.valorUnitario)}</td><td>R$ ${fmt(i.valorTotal)}</td>
+          <td>${i.produtoId
+              ? `<span class="produto-link">✓ ${i.sku} · ${i.produtoDescricao||''}</span>
+                 ${!jaAplicado ? `<button class="btn btn-secondary btn-sm" onclick="abrirVincular(${i.id})">Trocar</button>` : ''}`
+              : `<button class="btn btn-primary btn-sm" onclick="abrirVincular(${i.id})">🔗 Vincular</button>`}
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  `;
+  if (dups.length) {
+    html += `<div class="panel">
+      <h3 style="color:#60a5fa;margin-bottom:12px;">Duplicatas (${dups.length})</h3>
+      <table><thead><tr><th>Nº</th><th>Vencimento</th><th>Valor</th><th>Conta a pagar</th></tr></thead>
+      <tbody>${dups.map(x => `<tr><td>${x.numero||'-'}</td><td>${fmtData(x.dataVencimento)}</td><td>R$ ${fmt(x.valor)}</td>
+        <td>${x.contaPagarId
+            ? `<a href="/financeiro/contas-a-pagar.html?id=${x.contaPagarId}" class="produto-link">✓ CP #${x.contaPagarId}</a>`
+            : '<em style="color:#888;">pendente</em>'}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }
+  document.getElementById('conteudo').innerHTML = html;
+}
+
+// ================= Ações =================
+
+async function vincularTodos(){
+  const semVinc = DADOS.itens.filter(i => !i.produtoId).length;
+  if (!confirm(`Criar/vincular produto para ${semVinc} item(ns) sem vínculo?\n\nItens que casarem com produtos existentes (código do fornecedor, EAN ou SKU) são apenas vinculados; os demais ganham um produto novo com os dados da NF-e.`)) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/vincular-todos', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'erro');
+    alert(`Concluído.\n\nVinculados a produtos existentes: ${d.vinculadosExistente}\nProdutos novos criados: ${d.criados}` + (d.semVinculo>0 ? `\n\n⚠ ${d.semVinculo} ainda sem vínculo.` : ''));
+    await carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function aplicarEstoque(){
+  if (!confirm('Aplicar entrada no estoque?\n\nIsso cria movimentações e recalcula o preço de custo (média ponderada) dos produtos.')) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/aplicar-estoque', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) {
+      if (d.itensPendentes) {
+        alert(d.error + '\n\n' + d.itensPendentes.map(i => `• Item ${i.numero}: ${i.descricao}`).join('\n'));
+      } else {
+        alert('Erro: '+d.error);
+      }
+      return;
+    }
+    alert(`Entrada aplicada! ${d.movimentacoes.length} movimentação(ões) criada(s).`);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function reverterEstoque(){
+  if (!confirm('Reverter entrada de estoque?\n\nMovimentações serão removidas. Preço de custo dos produtos NÃO volta ao anterior (histórico cumulativo).')) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/reverter-estoque', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    alert('Estoque revertido.' + (d.aviso ? '\n\n' + d.aviso : ''));
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function gerarContasPagar(){
+  if (!confirm('Gerar contas a pagar a partir das duplicatas da NF-e?')) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/gerar-contas-pagar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    alert(`${d.contas.length} conta(s) a pagar gerada(s).`);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function reverterContasPagar(){
+  if (!confirm('Reverter contas a pagar? Só funciona se nenhuma estiver paga/cancelada.')) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/reverter-contas-pagar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    alert('Contas a pagar revertidas.');
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ================= Modal Vincular =================
+
+let ITEM_ATUAL = null;
+let tmrBusca;
+function debounceBusca(){ clearTimeout(tmrBusca); tmrBusca = setTimeout(buscarProdutos, 300); }
+
+function abrirVincular(itemId){
+  ITEM_ATUAL = DADOS.itens.find(i => i.id === itemId);
+  if (!ITEM_ATUAL) return;
+  document.getElementById('itemOrigem').innerHTML = `
+    <strong>Item da NF-e:</strong> ${ITEM_ATUAL.descricao || '—'}<br>
+    <span style="color:#888;">Código fornecedor: ${ITEM_ATUAL.codigoProduto || '—'} · NCM: ${ITEM_ATUAL.ncm || '—'} · EAN: ${ITEM_ATUAL.ean || '—'}</span>
+  `;
+  const eanValido = ITEM_ATUAL.ean && ITEM_ATUAL.ean !== 'SEM GTIN' && ITEM_ATUAL.ean.length >= 8;
+  document.getElementById('previewNovo').innerHTML = `
+    Será criado um produto novo com:<br>
+    <b>SKU:</b> ${eanValido ? ITEM_ATUAL.ean : `NFE-${DADOS.nota.fornecedorId||0}-${ITEM_ATUAL.codigoProduto||'...'}`} &nbsp;
+    <b>Descrição:</b> ${ITEM_ATUAL.descricao || '—'} &nbsp;
+    <b>NCM:</b> ${ITEM_ATUAL.ncm || '—'} &nbsp;
+    <b>Unidade:</b> ${ITEM_ATUAL.unidade || 'UN'} &nbsp;
+    <b>Preço custo:</b> R$ ${fmt(ITEM_ATUAL.valorUnitario)}
+  `;
+  document.getElementById('buscaProduto').value = ITEM_ATUAL.descricao || '';
+  document.getElementById('resultList').innerHTML = '';
+  document.getElementById('modalVincular').classList.add('open');
+  buscarProdutos();
+}
+
+function fecharModal(){
+  document.getElementById('modalVincular').classList.remove('open');
+  ITEM_ATUAL = null;
+}
+
+async function buscarProdutos(){
+  const q = document.getElementById('buscaProduto').value.trim();
+  if (q.length < 2) { document.getElementById('resultList').innerHTML = '<p style="color:#888;padding:10px;">Digite ao menos 2 caracteres</p>'; return; }
+  try {
+    const r = await fetch('/api/estoque?q='+encodeURIComponent(q));
+    const d = await r.json();
+    const list = document.getElementById('resultList');
+    if (!d.success || !d.itens.length) {
+      list.innerHTML = '<p style="color:#888;padding:10px;">Nenhum produto encontrado. Crie um novo abaixo ⬇</p>';
+      return;
+    }
+    list.innerHTML = d.itens.slice(0,20).map(p => `
+      <div class="result-item" onclick="vincularExistente(${p.id})">
+        <div><span class="sku">${p.sku}</span> · ${p.descricao}</div>
+        <div class="saldo">saldo: ${fmt(p.saldo)} ${p.unidade||''}</div>
+      </div>
+    `).join('');
+  } catch(e){ document.getElementById('resultList').innerHTML = '<p style="color:#ff6b6b;">Erro: '+e.message+'</p>'; }
+}
+
+async function vincularExistente(produtoId){
+  if (!ITEM_ATUAL) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/itens/'+ITEM_ATUAL.id+'/vincular', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ produtoId })
+    });
+    const d = await r.json();
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    fecharModal();
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function criarNovoProduto(){
+  if (!ITEM_ATUAL) return;
+  if (!confirm('Criar novo produto com os dados da NF-e e vincular ao item?')) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/itens/'+ITEM_ATUAL.id+'/vincular', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ novoProduto: true })
+    });
+    const d = await r.json();
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    alert(`Produto criado: ${d.produto.sku} · ${d.produto.descricao}`);
+    fecharModal();
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+document.getElementById('modalVincular').addEventListener('click', e => {
+  if (e.target.id === 'modalVincular') fecharModal();
+});
+
+// ================= Modal Devolução (espelho) =================
+
+let DEV = null; // dados do preview
+
+async function abrirDevolucao(){
+  document.getElementById('modalDevolucao').classList.add('open');
+  document.getElementById('devCabecalho').innerHTML = '';
+  document.getElementById('devConteudo').innerHTML = 'Carregando espelho…';
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/devolucao/preview');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'erro');
+    DEV = d;
+    renderDevolucao();
+  } catch(e){
+    document.getElementById('devConteudo').innerHTML =
+      '<p style="color:#ff6b6b;">Erro: '+e.message+'</p>'+
+      '<p style="color:#888;font-size:.85em;">Se for "não encontrada"/404, o endpoint de preview entra no ar no próximo restart do serviço.</p>';
+  }
+}
+function fecharDevolucao(){ document.getElementById('modalDevolucao').classList.remove('open'); DEV=null; }
+
+function renderDevolucao(){
+  const e = DEV.entrada;
+  document.getElementById('devCabecalho').innerHTML = `
+    <strong>NF-e ${e.numero}/${e.serie}</strong> · Fornecedor: ${e.fornecedor||'—'} (${e.uf||'—'})<br>
+    <span style="color:#888;">Natureza: <b>${DEV.natOp}</b> · Saída (tpNF=1, finNFe=4) · refNFe: <span class="mono" style="font-size:.82em;">${e.chave}</span></span>
+    ${DEV.avisos.cfopsForaDoMapa>0 ? `<div style="color:#f59e0b;margin-top:6px;">⚠ ${DEV.avisos.cfopsForaDoMapa} item(ns) com CFOP fora do mapa — usando fallback 5202/6202 (revisar com o contador).</div>`:''}
+  `;
+  const rows = DEV.itens.map((it,idx)=>`
+    <tr data-idx="${idx}">
+      <td><input type="checkbox" class="dev-chk" data-idx="${idx}" ${it.saldoDisponivel>0?'checked':'disabled'} onchange="recalcDev()"></td>
+      <td>${it.numero}</td>
+      <td>${it.descricao||'-'}<br><small class="mono" style="color:#888;">${it.codigoProduto||''}${it.produtoId?'':' · <span style="color:#f59e0b;">sem produto vinculado</span>'}</small></td>
+      <td class="mono">${it.cfopEntradaNosso} → <b>${it.cfopDevolucao}</b>${it.cfopDevolucaoDoMapa?'':' ⚠'}</td>
+      <td>${fmt(it.saldoDisponivel)} <small style="color:#888;">/${fmt(it.quantidadeRecebida)}</small></td>
+      <td><input type="number" class="dev-qtd" data-idx="${idx}" min="0" step="any" max="${it.saldoDisponivel}" value="${it.saldoDisponivel}" style="width:78px;" oninput="recalcDev()"></td>
+      <td class="dev-vprod" style="text-align:right;">-</td>
+      <td class="dev-vicms" style="text-align:right;">-</td>
+      <td class="dev-vipi" style="text-align:right;">-</td>
+      <td class="dev-vpis" style="text-align:right;">-</td>
+      <td class="dev-vcofins" style="text-align:right;">-</td>
+    </tr>`).join('');
+  document.getElementById('devConteudo').innerHTML = `
+    <div style="display:flex;gap:10px;margin:6px 0 10px;">
+      <button class="btn btn-sm btn-secondary" onclick="devSelecionar('total')">Devolução total</button>
+      <button class="btn btn-sm btn-secondary" onclick="devSelecionar('limpar')">Limpar seleção</button>
+    </div>
+    <div style="overflow-x:auto;">
+    <table>
+      <thead><tr><th></th><th>#</th><th>Produto</th><th>CFOP</th><th>Saldo</th><th>Devolver</th><th>V.Prod</th><th>ICMS</th><th>IPI</th><th>PIS</th><th>COFINS</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="font-weight:bold;border-top:2px solid #333;">
+        <td colspan="6" style="text-align:right;">Totais a devolver:</td>
+        <td id="totVprod" style="text-align:right;">-</td><td id="totVicms" style="text-align:right;">-</td>
+        <td id="totVipi" style="text-align:right;">-</td><td id="totVpis" style="text-align:right;">-</td><td id="totVcofins" style="text-align:right;">-</td>
+      </tr></tfoot>
+    </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;">
+      <small style="color:#888;">Impostos rateados proporcionalmente à quantidade devolvida — espelho da nota de origem.</small>
+      <button class="btn btn-primary" id="btnEmitirDev" disabled title="Habilitado após a validação fiscal do tratamento de ICMS/IPI no Simples (Fase 2).">⏳ Emitir NF-e de devolução (aguardando validação fiscal)</button>
+    </div>
+  `;
+  recalcDev();
+}
+
+function devSelecionar(modo){
+  document.querySelectorAll('.dev-chk').forEach(chk=>{
+    if (chk.disabled) return;
+    const idx=+chk.dataset.idx, it=DEV.itens[idx];
+    const qtd=document.querySelector('.dev-qtd[data-idx="'+idx+'"]');
+    if (modo==='total'){ chk.checked=true; qtd.value=it.saldoDisponivel; }
+    else { chk.checked=false; }
+  });
+  recalcDev();
+}
+
+function recalcDev(){
+  let tP=0,tI=0,tIpi=0,tPis=0,tCof=0;
+  DEV.itens.forEach((it,idx)=>{
+    const chk=document.querySelector('.dev-chk[data-idx="'+idx+'"]');
+    const qtdInput=document.querySelector('.dev-qtd[data-idx="'+idx+'"]');
+    const tr=document.querySelector('tr[data-idx="'+idx+'"]');
+    if (!chk||!qtdInput||!tr) return;
+    let qtd=parseFloat(qtdInput.value)||0;
+    if (qtd>it.saldoDisponivel){ qtd=it.saldoDisponivel; qtdInput.value=qtd; }
+    const ativo = chk.checked && qtd>0;
+    const f = (it.quantidadeRecebida>0 && ativo) ? (qtd/it.quantidadeRecebida) : 0;
+    const vP=it.valorTotal*f, vI=(it.imposto?.vIcms||0)*f, vIpi=(it.imposto?.vIpi||0)*f, vPis=(it.imposto?.vPis||0)*f, vCof=(it.imposto?.vCofins||0)*f;
+    tr.querySelector('.dev-vprod').textContent='R$ '+fmt(vP);
+    tr.querySelector('.dev-vicms').textContent='R$ '+fmt(vI);
+    tr.querySelector('.dev-vipi').textContent='R$ '+fmt(vIpi);
+    tr.querySelector('.dev-vpis').textContent='R$ '+fmt(vPis);
+    tr.querySelector('.dev-vcofins').textContent='R$ '+fmt(vCof);
+    tr.style.opacity = ativo ? '1':'0.45';
+    if (ativo){ tP+=vP;tI+=vI;tIpi+=vIpi;tPis+=vPis;tCof+=vCof; }
+  });
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent='R$ '+fmt(v); };
+  set('totVprod',tP); set('totVicms',tI); set('totVipi',tIpi); set('totVpis',tPis); set('totVcofins',tCof);
+}
+
+document.getElementById('modalDevolucao').addEventListener('click', e => {
+  if (e.target.id === 'modalDevolucao') fecharDevolucao();
+});
+
+carregar();
+</script>
+</body></html>
