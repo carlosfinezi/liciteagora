@@ -208,10 +208,10 @@ function montarItensEspelho(db, nfeId, opts = {}) {
   });
 }
 
-// Ponto de entrada chamado pelo route-registry no boot (por tenant).
+// Registra as ROTAS (chamado pelo route-registry 1x no boot com o db PROXY).
+// A migration NÃO roda aqui: contra o proxy (fora de contexto de tenant) seria no-op.
+// migrarSchema(tdb) é aplicado por-tenant no boot loop do server.js (padrão boleto-orchestrator).
 function registrar(app, db) {
-  migrarSchema(db);
-
   // ─── Preview do espelho de devolução (READ-ONLY — não emite nada) ─────────
   // Base da UI de seleção de itens. Retorna, por item da entrada: nosso CFOP de
   // entrada, CFOP de devolução espelhado, saldo disponível (recebido − já devolvido)

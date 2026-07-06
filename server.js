@@ -118,6 +118,9 @@ if (MULTI_TENANT) {
           // dono do boleto-orchestrator, não do db-schema. migrarSchema no registro roda
           // contra o proxy (no-op fora de contexto) → aplicamos por-tenant aqui (idempotente).
           try { require('./boleto-orchestrator').migrarSchema(tdb); } catch (e) { console.error(`[boleto migrar ${t.slug}] ${e.message}`); }
+          // Schema espelho da devolução de compra (mesmo motivo: migrarSchema no registro roda
+          // contra o proxy). Aplicado por-tenant aqui, idempotente.
+          try { require('./devolucao-compra').migrarSchema(tdb); } catch (e) { console.error(`[devolucao-compra migrar ${t.slug}] ${e.message}`); }
           tenantStorage.run({ kind: 'tenant', tenant: t, db: tdb }, () => {
             // Acesso a qualquer propriedade do Proxy força _getSniperForContext,
             // que cria a instância e chama _iniciarAgendamentoTenant (recovery + auto-lance).
