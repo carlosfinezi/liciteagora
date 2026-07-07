@@ -184,6 +184,101 @@ async function refreshVencendo(db, log = () => {}) {
   return { ok: true };
 }
 
+// ─── Fase 1: importação de pedidos ───────────────────────────────────────────
+// Access token válido do tenant (decifra; renova se faltar <5min). Retorna string ou null.
+async function getAccessTokenValido(db, log = () => {}) {
+  const row = db.prepare("SELECT accessTokenEnc, refreshTokenEnc, expiresAt FROM marketplaces_integracoes WHERE canal='mercado-livre' AND ativo=1").get();
+  if (!row || !row.accessTokenEnc) return null;
+  if (Number(row.expiresAt || 0) - Date.now() > 5 * 60 * 1000) return decifrar(row.accessTokenEnc);
+  const refresh = decifrar(row.refreshTokenEnc);
+  if (refresh) {
+    const r = await refreshAccessToken(refresh);
+    if (r.ok && r.json?.access_token) { gravarTokens(db, r.json, null); return r.json.access_token; }
+    log('[ML] refresh falhou em getAccessTokenValido: ' + r.status);
+  }
+  return decifrar(row.accessTokenEnc); // fallback ao atual (pode já ter expirado)
+}
+async function mlGet(accessToken, apiPath) {
+  const r = await fetch(`${API_BASE}${apiPath}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  return { ok: r.ok, status: r.status, json: r.ok ? await r.json().catch(() => null) : null };
+}
+
+// Descobre qual tenant é dono de um mlUserId (varre os tenants — baixa frequência no webhook).
+function resolverTenantPorUserId(tenantManager, userId) {
+  const uid = String(userId);
+  for (const t of tenantManager.listAll()) {
+    try {
+      const tdb = tenantManager.getDb(t.slug);
+      if (tdb.prepare("SELECT 1 FROM marketplaces_integracoes WHERE canal='mercado-livre' AND mlUserId=? AND ativo=1").get(uid)) {
+        return { slug: t.slug, db: tdb };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// Importa um pedido do ML: GET /orders/{id}, grava em marketplaces_pedidos e cria o pedido
+// local COM itens (casando seller_sku → produtos.sku). Idempotente (UNIQUE canal+idExterno).
+async function importarPedido(db, orderId, log = () => {}) {
+  const token = await getAccessTokenValido(db, log);
+  if (!token) return { erro: 'sem token válido' };
+  const r = await mlGet(token, `/orders/${orderId}`);
+  if (!r.ok || !r.json) {
+    db.prepare("INSERT INTO marketplaces_logs (canal, tipo, mensagem, sucesso) VALUES ('mercado-livre','pedido-fetch',?,0)").run(`GET /orders/${orderId} → ${r.status}`);
+    return { erro: `fetch ${r.status}` };
+  }
+  const o = r.json;
+  const b = o.buyer || {};
+  const nome = [b.first_name, b.last_name].filter(Boolean).join(' ') || b.nickname || null;
+  const formaPag = (o.payments && o.payments[0] && o.payments[0].payment_type) || null;
+  const dataPed = String(o.date_created || '').slice(0, 10);
+
+  db.prepare(`INSERT INTO marketplaces_pedidos
+      (canal, idExterno, numeroExterno, compradorNome, compradorEmail, dataPedido, valorTotal, valorFrete, status, formaPagamento, dadosBrutos)
+      VALUES ('mercado-livre', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+      ON CONFLICT(canal, idExterno) DO UPDATE SET status=excluded.status, valorTotal=excluded.valorTotal, dadosBrutos=excluded.dadosBrutos`)
+    .run(String(o.id), String(o.id), nome, b.email || null, dataPed, Number(o.total_amount) || 0,
+      o.status || 'novo', formaPag, JSON.stringify(o).slice(0, 100000));
+
+  const mp = db.prepare("SELECT id, pedidoIdLocal FROM marketplaces_pedidos WHERE canal='mercado-livre' AND idExterno=?").get(String(o.id));
+  if (mp.pedidoIdLocal) return { ok: true, jaImportado: true, pedidoLocalId: mp.pedidoIdLocal };
+
+  const semVinculo = [];
+  const pedidoLocalId = db.transaction(() => {
+    const ult = db.prepare('SELECT numero FROM pedidos ORDER BY id DESC LIMIT 1').get();
+    let n = 1; if (ult) { const m = String(ult.numero).match(/(\d+)/); if (m) n = parseInt(m[1], 10) + 1; }
+    const pr = db.prepare(`INSERT INTO pedidos (numero, tipo, status, dataPedido, valorTotal, observacao)
+        VALUES (?, 'marketplace', 'confirmado', ?, ?, ?)`)
+      .run('ML-' + String(n).padStart(6, '0'), dataPed, Number(o.total_amount) || 0, `Mercado Livre #${o.id} (${nome || 'sem nome'})`);
+    const pid = pr.lastInsertRowid;
+    const stmt = db.prepare('INSERT INTO pedido_itens (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal) VALUES (?,?,?,?,?,?)');
+    for (const oi of (o.order_items || [])) {
+      const it = oi.item || {};
+      const sku = it.seller_sku || it.seller_custom_field || null;
+      const prod = sku ? db.prepare('SELECT id FROM produtos WHERE sku=?').get(sku) : null;
+      const qtd = Number(oi.quantity) || 0, unit = Number(oi.unit_price) || 0;
+      stmt.run(pid, prod?.id || null, it.title || sku || 'Item ML', qtd, unit, Number((qtd * unit).toFixed(2)));
+      if (!prod) semVinculo.push(sku || it.title || '?');
+    }
+    db.prepare("UPDATE marketplaces_pedidos SET pedidoIdLocal=?, status='vinculado' WHERE id=?").run(pid, mp.id);
+    return pid;
+  })();
+  db.prepare("INSERT INTO marketplaces_logs (canal, tipo, mensagem, sucesso) VALUES ('mercado-livre','pedido-import',?,1)")
+    .run(`Pedido ML ${o.id} → local #${pedidoLocalId}` + (semVinculo.length ? ` (${semVinculo.length} item(ns) sem produto)` : ''));
+  log(`[ML] pedido ${o.id} → local #${pedidoLocalId}`);
+  return { ok: true, pedidoLocalId, itensSemVinculo: semVinculo };
+}
+
+// Processa uma notificação do webhook (só orders_v2 por ora).
+async function processarNotificacao(notif, tenantManager, log = () => {}) {
+  if (!notif || notif.topic !== 'orders_v2') return;
+  const m = String(notif.resource || '').match(/\/orders\/(\w+)/);
+  if (!m) return;
+  const alvo = resolverTenantPorUserId(tenantManager, notif.user_id);
+  if (!alvo) { log(`[ML] webhook user_id ${notif.user_id} sem tenant conectado`); return; }
+  await importarPedido(alvo.db, m[1], log);
+}
+
 // ─── Rotas ───────────────────────────────────────────────────────────────────
 // Per-tenant (autenticada): inicia o OAuth. Registrada no route-registry.
 function registrarRotasTenant(app, db) {
@@ -204,6 +299,17 @@ function registrarRotasTenant(app, db) {
     try {
       const r = db.prepare("SELECT mlUserId, mlNickname, ativo, expiresAt, conectadoEm, scopes FROM marketplaces_integracoes WHERE canal='mercado-livre'").get();
       res.json({ success: true, conectado: !!(r && r.ativo && r.mlUserId), integracao: r || null, configurado: configOk() });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // Import manual de um pedido (teste): POST { orderId }. Útil pra validar sem esperar
+  // a notificação real (o ID de um pedido vem do painel de vendas do ML).
+  app.post('/api/marketplaces/ml/importar', async (req, res) => {
+    try {
+      const orderId = String((req.body && req.body.orderId) || '').trim();
+      if (!orderId) return res.status(400).json({ success: false, error: 'orderId obrigatório' });
+      const r = await importarPedido(req.tenantDb || db, orderId, (m) => console.log(m));
+      res.json({ success: !r.erro, ...r });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 }
@@ -229,6 +335,17 @@ function registrarRotasGlobal(app, { tenantManager }) {
       res.status(500).send('Erro no callback ML: ' + e.message);
     }
   });
+
+  // Webhook de notificações (apex, público). O ML exige resposta 200 em <500ms senão
+  // re-tenta — respondemos JÁ e processamos async. Resolve o tenant pelo user_id.
+  app.post('/api/marketplaces/ml/webhook', (req, res) => {
+    res.status(200).end();
+    const notif = req.body || {};
+    setImmediate(() => {
+      processarNotificacao(notif, tenantManager, (m) => console.log(m))
+        .catch(e => console.error('[ML webhook]', e.message));
+    });
+  });
 }
 
 module.exports = {
@@ -237,6 +354,10 @@ module.exports = {
   migrarSchemaTenant,
   refreshVencendo,
   configOk,
+  importarPedido,
+  processarNotificacao,
+  getAccessTokenValido,
+  resolverTenantPorUserId,
   // expostos p/ teste
   _internal: { cifrar, decifrar, gerarPKCE, gerarState, buildAuthorizeUrl, mlConfig },
 };

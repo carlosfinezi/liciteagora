@@ -272,9 +272,10 @@ function requireAuth(apiKey, db) {
     // são binários públicos. A rota faz whitelist de nomes (anti path-traversal).
     if (req.path.startsWith('/api/electron/updates/')) return next();
 
-    // Bypass: callback OAuth do Mercado Livre (apex, sem sessão — o ML redireciona
-    // o browser pra cá com code+state; o tenant é resolvido pelo state no control.db).
+    // Bypass: callback OAuth + webhook de notificações do Mercado Livre (apex, sem sessão —
+    // o ML chama sem auth; o tenant é resolvido pelo state/user_id).
     if (req.path === '/api/marketplaces/ml/callback') return next();
+    if (req.path === '/api/marketplaces/ml/webhook') return next();
 
     // Bypass: portal externo do cliente
     if (req.path.startsWith('/portal/')) return next();
