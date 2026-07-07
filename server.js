@@ -160,7 +160,11 @@ if (MULTI_TENANT) {
     try {
       const ml = require('./marketplaces-ml');
       for (const t of tenantManager.listAll()) {
-        try { ml.refreshVencendo(tenantManager.getDb(t.slug)).catch(() => {}); } catch {}
+        try {
+          const tdb = tenantManager.getDb(t.slug);
+          ml.refreshVencendo(tdb).catch(() => {});
+          ml.pushEstoqueML(tdb, () => {}).catch(() => {}); // gated: no-op se sincronizarEstoque=0
+        } catch {}
       }
     } catch {}
   }, 30 * 60 * 1000);

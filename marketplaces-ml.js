@@ -141,8 +141,15 @@ function migrarSchemaTenant(db) {
   const cols = {
     mlUserId: 'TEXT', mlNickname: 'TEXT', accessTokenEnc: 'TEXT', refreshTokenEnc: 'TEXT',
     expiresAt: 'INTEGER', scopes: 'TEXT', conectadoEm: 'TEXT',
+    sincronizarEstoque: 'INTEGER DEFAULT 0', // Fase 2: push ERP→ML gated (default OFF)
   };
   for (const [c, t] of Object.entries(cols)) { try { db.exec(`ALTER TABLE marketplaces_integracoes ADD COLUMN ${c} ${t}`); } catch {} }
+  // Fase 2: mapa anúncio ML ↔ produto local (casa por seller_sku → produtos.sku).
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS ml_item_map (
+      mlItemId TEXT PRIMARY KEY, produtoId INTEGER, sku TEXT, titulo TEXT,
+      qtdML INTEGER, ultimoPushEm TEXT, atualizadoEm TEXT );`);
+  } catch {}
 }
 
 // Grava/atualiza a integração ML de um tenant a partir da resposta de token.
@@ -279,6 +286,89 @@ async function processarNotificacao(notif, tenantManager, log = () => {}) {
   await importarPedido(alvo.db, m[1], log);
 }
 
+// ─── Fase 2: estoque (mapeamento + push gated) ───────────────────────────────
+async function mlPut(accessToken, apiPath, body) {
+  const r = await fetch(`${API_BASE}${apiPath}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { ok: r.ok, status: r.status, body: r.ok ? await r.json().catch(() => null) : await r.text().catch(() => null) };
+}
+// seller_sku pode vir como seller_sku, seller_custom_field ou no atributo SELLER_SKU.
+function skuDoItem(it) {
+  if (it.seller_sku) return String(it.seller_sku);
+  if (it.seller_custom_field) return String(it.seller_custom_field);
+  const at = (it.attributes || []).find(a => a.id === 'SELLER_SKU');
+  return at?.value_name ? String(at.value_name) : null;
+}
+
+// Puxa os anúncios do vendedor e casa seller_sku → produtos.sku. READ-ONLY (não altera o ML).
+async function sincronizarItensML(db, log = () => {}) {
+  const token = await getAccessTokenValido(db, log);
+  if (!token) return { erro: 'sem token' };
+  const integ = db.prepare("SELECT mlUserId FROM marketplaces_integracoes WHERE canal='mercado-livre'").get();
+  const uid = integ && integ.mlUserId;
+  if (!uid) return { erro: 'sem mlUserId' };
+
+  const ids = [];
+  let offset = 0;
+  for (let p = 0; p < 40; p++) { // até ~2000 anúncios
+    const s = await mlGet(token, `/users/${uid}/items/search?limit=50&offset=${offset}`);
+    if (!s.ok || !s.json) break;
+    const res = s.json.results || [];
+    ids.push(...res);
+    offset += 50;
+    if (!res.length || ids.length >= (s.json.paging?.total || 0)) break;
+  }
+
+  let mapeados = 0, semMatch = 0;
+  const upsert = db.prepare(`INSERT INTO ml_item_map (mlItemId, produtoId, sku, titulo, qtdML, atualizadoEm)
+    VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(mlItemId) DO UPDATE SET produtoId=excluded.produtoId, sku=excluded.sku, titulo=excluded.titulo, qtdML=excluded.qtdML, atualizadoEm=CURRENT_TIMESTAMP`);
+  for (let i = 0; i < ids.length; i += 20) {
+    const batch = ids.slice(i, i + 20).join(',');
+    const m = await mlGet(token, `/items?ids=${batch}&attributes=id,seller_sku,seller_custom_field,available_quantity,title,attributes`);
+    if (!m.ok || !Array.isArray(m.json)) continue;
+    for (const w of m.json) {
+      const it = w.body || {};
+      if (!it.id) continue;
+      const sku = skuDoItem(it);
+      const prod = sku ? db.prepare('SELECT id FROM produtos WHERE sku=?').get(sku) : null;
+      upsert.run(it.id, prod ? prod.id : null, sku, it.title || null, Number(it.available_quantity) || 0);
+      if (prod) mapeados++; else semMatch++;
+    }
+  }
+  db.prepare("UPDATE marketplaces_integracoes SET ultimaSync=CURRENT_TIMESTAMP WHERE canal='mercado-livre'").run();
+  log(`[ML] anúncios: ${ids.length} (mapeados ${mapeados}, sem produto ${semMatch})`);
+  return { total: ids.length, mapeados, semMatch };
+}
+
+// Empurra o saldo local → available_quantity do ML. GATED: só roda com sincronizarEstoque=1
+// (senão zeraria o estoque de anúncios cujo produto não é gerido no ERP). opts.dryRun não PUTa.
+async function pushEstoqueML(db, log = () => {}, opts = {}) {
+  const integ = db.prepare("SELECT sincronizarEstoque FROM marketplaces_integracoes WHERE canal='mercado-livre' AND ativo=1").get();
+  if (!integ) return { skip: 'sem integração' };
+  if (!opts.dryRun && Number(integ.sincronizarEstoque) !== 1) return { skip: 'sincronização de estoque desligada' };
+  const token = await getAccessTokenValido(db, log);
+  if (!token) return { erro: 'sem token' };
+  const mapeados = db.prepare('SELECT mlItemId, produtoId, qtdML FROM ml_item_map WHERE produtoId IS NOT NULL').all();
+  const mudancas = [];
+  for (const m of mapeados) {
+    const row = db.prepare(`SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade WHEN tipo='saida' THEN -quantidade ELSE quantidade END),0) s
+      FROM movimentacoes_estoque WHERE produtoId=?`).get(m.produtoId);
+    const saldo = Math.max(0, Math.floor(Number(row.s) || 0));
+    if (saldo === Number(m.qtdML)) continue;
+    if (!opts.dryRun) {
+      const r = await mlPut(token, `/items/${m.mlItemId}`, { available_quantity: saldo });
+      if (!r.ok) { log(`[ML] push ${m.mlItemId} falhou ${r.status}`); continue; }
+      db.prepare('UPDATE ml_item_map SET qtdML=?, ultimoPushEm=CURRENT_TIMESTAMP WHERE mlItemId=?').run(saldo, m.mlItemId);
+    }
+    mudancas.push({ mlItemId: m.mlItemId, de: Number(m.qtdML), para: saldo });
+  }
+  return { mudancas, aplicado: !opts.dryRun };
+}
+
 // ─── Rotas ───────────────────────────────────────────────────────────────────
 // Per-tenant (autenticada): inicia o OAuth. Registrada no route-registry.
 function registrarRotasTenant(app, db) {
@@ -310,6 +400,25 @@ function registrarRotasTenant(app, db) {
       if (!orderId) return res.status(400).json({ success: false, error: 'orderId obrigatório' });
       const r = await importarPedido(req.tenantDb || db, orderId, (m) => console.log(m));
       res.json({ success: !r.erro, ...r });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // Fase 2 — sincroniza o mapa de anúncios ↔ produtos (READ-ONLY, não altera o ML).
+  app.post('/api/marketplaces/ml/sync-itens', async (req, res) => {
+    try { const r = await sincronizarItensML(req.tenantDb || db, (m) => console.log(m)); res.json({ success: !r.erro, ...r }); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  // Fase 2 — push de estoque ERP→ML. { dryRun:true } só mostra o que mudaria (não altera o ML).
+  app.post('/api/marketplaces/ml/sync-estoque', async (req, res) => {
+    try { const r = await pushEstoqueML(req.tenantDb || db, (m) => console.log(m), { dryRun: !!(req.body && req.body.dryRun) }); res.json({ success: !r.erro, ...r }); }
+    catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+  // Fase 2 — liga/desliga a sincronização de estoque (default OFF; ligar = ERP vira fonte da verdade).
+  app.post('/api/marketplaces/ml/config', (req, res) => {
+    try {
+      const on = (req.body && req.body.sincronizarEstoque) ? 1 : 0;
+      (req.tenantDb || db).prepare("UPDATE marketplaces_integracoes SET sincronizarEstoque=? WHERE canal='mercado-livre'").run(on);
+      res.json({ success: true, sincronizarEstoque: on });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 }
@@ -358,6 +467,8 @@ module.exports = {
   processarNotificacao,
   getAccessTokenValido,
   resolverTenantPorUserId,
+  sincronizarItensML,
+  pushEstoqueML,
   // expostos p/ teste
   _internal: { cifrar, decifrar, gerarPKCE, gerarState, buildAuthorizeUrl, mlConfig },
 };
