@@ -369,6 +369,111 @@ async function pushEstoqueML(db, log = () => {}, opts = {}) {
   return { mudancas, aplicado: !opts.dryRun };
 }
 
+// ─── Fase 3: NF-e do pedido ML ───────────────────────────────────────────────
+// Dados fiscais do comprador (CPF/CNPJ + nome + endereço) — vêm de billing_info, não do pedido.
+async function buscarBillingInfo(token, orderId) {
+  const r = await mlGet(token, `/orders/${orderId}/billing_info`);
+  const bi = r.ok && r.json && r.json.billing_info;
+  if (!bi) return null;
+  const ai = {};
+  for (const p of (bi.additional_info || [])) ai[p.type] = p.value;
+  return {
+    docType: ai.DOC_TYPE || null,
+    docNumber: (ai.DOC_NUMBER || '').replace(/\D/g, '') || null,
+    nome: [ai.FIRST_NAME, ai.LAST_NAME].filter(Boolean).join(' ') || ai.BUSINESS_NAME || null,
+    ie: ai.STATE_REGISTRATION || null,
+    endereco: ai.STREET_NAME || null, numero: ai.STREET_NUMBER || null,
+    bairro: ai.NEIGHBORHOOD || null, cidade: ai.CITY_NAME || ai.CITY || null,
+    uf: ai.STATE_NAME || ai.STATE || null, cep: (ai.ZIP_CODE || '').replace(/\D/g, '') || null,
+  };
+}
+
+// Garante a pessoa (destinatário) do comprador ML por CPF/CNPJ.
+function garantirPessoaComprador(db, bill) {
+  const doc = (bill.docNumber || '').replace(/\D/g, '');
+  if (!doc) throw new Error('Comprador sem CPF/CNPJ (billing_info)');
+  const ex = db.prepare("SELECT id FROM pessoas WHERE REPLACE(REPLACE(REPLACE(cpfCnpj,'.',''),'/',''),'-','') = ?").get(doc);
+  if (ex) return ex.id;
+  const r = db.prepare(`INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, endereco, numero, bairro, cidade, uf, cep, inscricaoEstadual)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    doc, doc.length === 14 ? 'PJ' : 'PF', bill.nome || 'CLIENTE MERCADO LIVRE',
+    bill.endereco, bill.numero, bill.bairro, bill.cidade, bill.uf, bill.cep, bill.ie);
+  return r.lastInsertRowid;
+}
+
+// Sobe o XML da NF-e autorizada pro ML (multipart) — ML gera o DANFE. Não vale p/ Full.
+async function enviarNfeAoML(token, packId, xmlAssinado) {
+  const fd = new FormData();
+  fd.append('fiscal_document', new Blob([xmlAssinado], { type: 'application/xml' }), 'nfe.xml');
+  const r = await fetch(`${API_BASE}/packs/${packId}/fiscal_documents`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+  });
+  return { ok: r.ok, status: r.status, body: r.ok ? await r.json().catch(() => null) : await r.text().catch(() => null) };
+}
+
+// Emite a NF-e de um pedido ML: billing_info → pessoa, cria fatura de venda a partir do
+// pedido local (itens precisam de produto vinculado) e emite via emitirNFe; no sucesso,
+// sobe o XML pro ML. Pagamento já feito no ML → sem cobrança nova (tPag 99 outros).
+async function emitirNfeDoPedidoML(db, mpId, log = () => {}) {
+  const mp = db.prepare("SELECT * FROM marketplaces_pedidos WHERE id=? AND canal='mercado-livre'").get(mpId);
+  if (!mp) return { erro: 'pedido ML não encontrado' };
+  if (!mp.pedidoIdLocal) return { erro: 'pedido sem vínculo local' };
+  const jaFat = db.prepare("SELECT id, statusSefaz, chaveAcesso FROM faturas WHERE pedidoId=? AND IFNULL(excluida,0)=0 ORDER BY id DESC LIMIT 1").get(mp.pedidoIdLocal);
+  if (jaFat && jaFat.statusSefaz === 'autorizada') return { erro: 'NF-e já autorizada', chaveAcesso: jaFat.chaveAcesso, faturaId: jaFat.id };
+
+  const token = await getAccessTokenValido(db, log);
+  if (!token) return { erro: 'sem token' };
+  const bill = await buscarBillingInfo(token, mp.idExterno);
+  if (!bill || !bill.docNumber) return { erro: 'sem CPF/CNPJ do comprador (billing_info)' };
+  const clienteId = garantirPessoaComprador(db, bill);
+
+  const itens = db.prepare('SELECT produtoId, descricao, quantidade, precoUnitario, valorTotal FROM pedido_itens WHERE pedidoId=?').all(mp.pedidoIdLocal);
+  const semProd = itens.filter(i => !i.produtoId);
+  if (semProd.length) return { erro: `${semProd.length} item(ns) sem produto vinculado — vincule ao catálogo antes de emitir`, itensSemVinculo: semProd.map(i => i.descricao) };
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const total = itens.reduce((s, i) => s + Number(i.valorTotal || 0), 0);
+  const faturaId = db.transaction(() => {
+    const ult = db.prepare('SELECT numero FROM faturas ORDER BY id DESC LIMIT 1').get();
+    let n = 1; if (ult) { const m = String(ult.numero).match(/(\d+)/); if (m) n = parseInt(m[1], 10) + 1; }
+    const fr = db.prepare(`INSERT INTO faturas (numero, pedidoId, clienteId, dataEmissao, dataVencimento,
+        valorBruto, valorTotal, status, meioPagamento, observacao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'emitida', '99', ?)`)
+      .run('FT-ML-' + String(n).padStart(6, '0'), mp.pedidoIdLocal, clienteId, hoje, hoje, total, total,
+        `Venda Mercado Livre #${mp.idExterno}`);
+    const fid = fr.lastInsertRowid;
+    const st = db.prepare(`INSERT INTO fatura_itens (faturaId, produtoId, sku, descricao, unidade, quantidade, precoUnitario, valorTotal, ncm, cfop, origem)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const it of itens) {
+      const p = db.prepare('SELECT sku, ncm, cfopPadrao, origem, unidade FROM produtos WHERE id=?').get(it.produtoId) || {};
+      st.run(fid, it.produtoId, p.sku || '', (it.descricao || '').substring(0, 120), p.unidade || 'UN',
+        it.quantidade, it.precoUnitario, it.valorTotal, p.ncm || '00000000', p.cfopPadrao || '5102', p.origem || '0');
+    }
+    return fid;
+  })();
+
+  const { emitirNFe } = require('./nfe-emit-routes');
+  let emissao;
+  try { emissao = await emitirNFe(db, faturaId); }
+  catch (e) { return { erro: 'Falha na emissão: ' + e.message, faturaId }; }
+  const fat = db.prepare('SELECT statusSefaz, chaveAcesso, xmlAssinado, rejeicaoMotivo FROM faturas WHERE id=?').get(faturaId);
+  if (fat.statusSefaz !== 'autorizada') return { erro: 'NF-e não autorizada: ' + (fat.rejeicaoMotivo || emissao?.xMotivo), faturaId, statusSefaz: fat.statusSefaz };
+
+  // Sobe pro ML (best-effort — a NF-e já está autorizada).
+  let envioML = null;
+  if (mp.dadosBrutos) {
+    try {
+      const packId = JSON.parse(mp.dadosBrutos).pack_id || mp.idExterno;
+      const r = await enviarNfeAoML(token, packId, fat.xmlAssinado);
+      envioML = { ok: r.ok, status: r.status };
+      db.prepare("INSERT INTO marketplaces_logs (canal, tipo, mensagem, sucesso) VALUES ('mercado-livre','nfe-ml',?,?)")
+        .run(`NF-e ${fat.chaveAcesso} → pack ${packId}: ${r.status}`, r.ok ? 1 : 0);
+    } catch (e) { envioML = { ok: false, erro: e.message }; }
+  }
+  log(`[ML] NF-e do pedido ${mp.idExterno} autorizada (${fat.chaveAcesso})`);
+  return { ok: true, faturaId, chaveAcesso: fat.chaveAcesso, envioML };
+}
+
 // ─── Rotas ───────────────────────────────────────────────────────────────────
 // Per-tenant (autenticada): inicia o OAuth. Registrada no route-registry.
 function registrarRotasTenant(app, db) {
@@ -421,6 +526,15 @@ function registrarRotasTenant(app, db) {
       res.json({ success: true, sincronizarEstoque: on });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
+  // Fase 3 — emite a NF-e de um pedido ML (billing_info → destinatário; reusa emitirNFe; sobe ao ML).
+  app.post('/api/marketplaces/ml/emitir-nfe', async (req, res) => {
+    try {
+      const mpId = Number((req.body && req.body.marketplacePedidoId) || 0);
+      if (!mpId) return res.status(400).json({ success: false, error: 'marketplacePedidoId obrigatório' });
+      const r = await emitirNfeDoPedidoML(req.tenantDb || db, mpId, (m) => console.log(m));
+      res.json({ success: !r.erro, ...r });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
 }
 
 // Global (apex, pública): recebe o callback do ML. Registrada no server.js com tenantManager.
@@ -469,6 +583,8 @@ module.exports = {
   resolverTenantPorUserId,
   sincronizarItensML,
   pushEstoqueML,
+  emitirNfeDoPedidoML,
+  buscarBillingInfo,
   // expostos p/ teste
   _internal: { cifrar, decifrar, gerarPKCE, gerarState, buildAuthorizeUrl, mlConfig },
 };
