@@ -92,11 +92,14 @@ function installPipeline() {
 
 if (MULTI_TENANT) {
   const { runInBootContext } = require('./tenant-middleware');
-  runInBootContext(installPipeline);
 
-  // ML Fase 0: rota GLOBAL do callback OAuth (apex, pública). Resolve o tenant pelo state
-  // e grava os tokens no DB dele. /connect e /status são per-tenant (route-registry).
+  // ML Fase 0: rota GLOBAL do callback OAuth (apex, pública). Registrada ANTES do
+  // installPipeline de propósito — o landing instala um catch-all SPA (serve index.html
+  // pra qualquer path no apex) dentro do installPipeline; registrar aqui garante que o
+  // /callback vem na frente. Resolve o tenant pelo state e grava os tokens no DB dele.
   try { require('./marketplaces-ml').registrarRotasGlobal(app, { tenantManager }); } catch (e) { console.error('[ML callback global]', e.message); }
+
+  runInBootContext(installPipeline);
 
   // Força criação da instância SniperLance por tenant 3s após o boot.
   // Sem isso, `_iniciarAgendamentoTenant` (que recupera blitzes agendadas,
