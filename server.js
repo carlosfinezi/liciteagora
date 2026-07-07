@@ -94,6 +94,10 @@ if (MULTI_TENANT) {
   const { runInBootContext } = require('./tenant-middleware');
   runInBootContext(installPipeline);
 
+  // ML Fase 0: rota GLOBAL do callback OAuth (apex, pública). Resolve o tenant pelo state
+  // e grava os tokens no DB dele. /connect e /status são per-tenant (route-registry).
+  try { require('./marketplaces-ml').registrarRotasGlobal(app, { tenantManager }); } catch (e) { console.error('[ML callback global]', e.message); }
+
   // Força criação da instância SniperLance por tenant 3s após o boot.
   // Sem isso, `_iniciarAgendamentoTenant` (que recupera blitzes agendadas,
   // liga auto-lance, etc.) só dispara no primeiro request tenant-scoped —
@@ -121,6 +125,8 @@ if (MULTI_TENANT) {
           // Schema espelho da devolução de compra (mesmo motivo: migrarSchema no registro roda
           // contra o proxy). Aplicado por-tenant aqui, idempotente.
           try { require('./devolucao-compra').migrarSchema(tdb); } catch (e) { console.error(`[devolucao-compra migrar ${t.slug}] ${e.message}`); }
+          // ML Fase 0: colunas de token (cifrado) em marketplaces_integracoes. Idempotente.
+          try { require('./marketplaces-ml').migrarSchemaTenant(tdb); } catch (e) { console.error(`[ml migrar ${t.slug}] ${e.message}`); }
           tenantStorage.run({ kind: 'tenant', tenant: t, db: tdb }, () => {
             // Acesso a qualquer propriedade do Proxy força _getSniperForContext,
             // que cria a instância e chama _iniciarAgendamentoTenant (recovery + auto-lance).
@@ -144,6 +150,17 @@ if (MULTI_TENANT) {
       }
     } catch (e) { console.error(`[Sniper boot global] ${e.message}`); }
   }, 3000);
+
+  // ML Fase 0: refresh de token a cada 30min. refreshVencendo só age se faltar <1h pro
+  // access token (6h) vencer, e é no-op se o tenant não conectou o Mercado Livre.
+  setInterval(() => {
+    try {
+      const ml = require('./marketplaces-ml');
+      for (const t of tenantManager.listAll()) {
+        try { ml.refreshVencendo(tenantManager.getDb(t.slug)).catch(() => {}); } catch {}
+      }
+    } catch {}
+  }, 30 * 60 * 1000);
 } else {
   installPipeline();
 }

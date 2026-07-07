@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marketplaces · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* page-local: tab-pane toggle helper — .tabs/.tab vêm de app-modern.css */
+.tab-pane { display:none; } .tab-pane.active { display:block; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Marketplaces</h1><small>Estrutura para integração com Mercado Livre, Shopee, Magalu, WooCommerce, Shopify</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+  <div class="alert warn" style="display:block;margin:10px 0;">
+    ⚠ MVP: permite cadastrar canais, registrar pedidos manualmente (ou via webhook externo) e vinculá-los a pedidos locais. Integração com APIs reais é evolução.
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="trocarTab('pedidos')">Pedidos</div>
+    <div class="tab" onclick="trocarTab('integracoes')">Canais</div>
+  </div>
+
+  <div class="tab-pane active" id="tab-pedidos">
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="abrirPed()">+ Registrar pedido manual</button>
+      <select id="fCanal" onchange="carregarPedidos()"><option value="">Todos canais</option></select>
+      <select id="fStatus" onchange="carregarPedidos()"><option value="">Todos status</option></select>
+      <input type="text" id="fQ" placeholder="Buscar…" oninput="debounce(carregarPedidos)" style="flex:1;">
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Canal</th><th>ID externo</th><th>Comprador</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Pedido local</th><th></th></tr></thead>
+        <tbody id="tbPed"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="tab-integracoes">
+    <div class="toolbar"><button class="btn btn-primary" onclick="abrirInt()">+ Cadastrar canal</button></div>
+    <div id="mlCard" style="margin:0 0 14px;padding:14px;border:1px solid var(--border,#334);border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div><strong>🛒 Mercado Livre</strong> &nbsp;<span id="mlStatus" class="muted">verificando…</span></div>
+      <div id="mlAcao"></div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Canal</th><th>Apelido</th><th>Última sync</th><th>Status</th><th></th></tr></thead>
+        <tbody id="tbInt"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalInt">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Novo canal</h3>
+        <small class="muted">Mercado Livre, Shopee, Magalu, WooCommerce, Shopify…</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalInt')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Canal *</label><select id="iCanal"></select></div>
+      <div class="form-group" style="flex:2;"><label>Apelido</label><input type="text" id="iApelido"></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width"><label>Credenciais (JSON — fica cifrado em base64)</label><textarea id="iCred" rows="3" placeholder='{"token":"abc...","user":"..."}'></textarea></div></div>
+    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="iObs" rows="2"></textarea></div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalInt')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarInt()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalPed">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Pedido marketplace</h3>
+        <small class="muted">Registro manual de pedido vindo de canal externo</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalPed')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Canal *</label><select id="pCanal"></select></div>
+      <div class="form-group"><label>ID externo *</label><input type="text" id="pIdExt"></div>
+      <div class="form-group"><label>Nº externo</label><input type="text" id="pNumExt"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Comprador</label><input type="text" id="pComp"></div>
+      <div class="form-group"><label>CPF/CNPJ</label><input type="text" id="pCpf"></div>
+      <div class="form-group"><label>E-mail</label><input type="email" id="pEmail"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Data *</label><input type="date" id="pData"></div>
+      <div class="form-group"><label>Valor total</label><input type="number" id="pVal" step="0.01" min="0"></div>
+      <div class="form-group"><label>Frete</label><input type="number" id="pFrete" step="0.01" min="0" value="0"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Status</label><select id="pStatus"></select></div>
+      <div class="form-group" style="flex:2;"><label>Forma pagamento</label><input type="text" id="pForma"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalPed')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarPed()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('marketplaces');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+let CANAIS = [], STATUS_PED = [];
+
+function trocarTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+  if (t==='integracoes') { carregarIntegracoes(); carregarMl(); }
+}
+
+async function carregarPedidos(){
+  const r = await fetch('/api/marketplaces/pedidos').then(r=>r.json());
+  if (!r.success) return;
+  CANAIS = r.canais; STATUS_PED = r.statusList;
+  document.getElementById('fCanal').innerHTML = '<option value="">Todos canais</option>' + CANAIS.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('fStatus').innerHTML = '<option value="">Todos status</option>' + STATUS_PED.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('tbPed').innerHTML = r.pedidos.length ? r.pedidos.map(p=>`<tr>
+    <td>${p.canal}</td><td class="mono">${p.idExterno}</td><td>${p.compradorNome||'—'}</td>
+    <td>${(p.dataPedido||'').slice(0,10)}</td><td class="num">${fmtBRL(p.valorTotal)}</td>
+    <td><span class="badge ${p.status==='vinculado'?'entrada':'pendente'}">${p.status}</span></td>
+    <td>${p.pedidoIdLocal?`#${p.pedidoIdLocal}`:'—'}</td>
+    <td style="text-align:right;white-space:nowrap;">${!p.pedidoIdLocal ? `<button class="btn btn-primary btn-sm" onclick="vincular(${p.id})">Vincular</button>` : ''}</td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum pedido marketplace</td></tr>';
+}
+
+async function carregarIntegracoes(){
+  const r = await fetch('/api/marketplaces/integracoes').then(r=>r.json());
+  if (!r.success) return;
+  CANAIS = r.canais;
+  document.getElementById('iCanal').innerHTML = CANAIS.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('tbInt').innerHTML = r.integracoes.length ? r.integracoes.map(i=>`<tr>
+    <td><strong>${i.canal}</strong></td><td>${i.apelido||'—'}</td>
+    <td>${i.ultimaSync?new Date(i.ultimaSync+'Z').toLocaleString('pt-BR'):'—'}</td>
+    <td><span class="badge ${i.ativo?'ativo':'inativo'}">${i.ativo?'ativo':'inativo'}</span></td>
+    <td style="text-align:right;white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick="sync(${i.id})">Sync</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="remInt(${i.id})">Desativar</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhum canal</td></tr>';
+}
+
+function abrirInt(){ ['iApelido','iCred','iObs'].forEach(id=>document.getElementById(id).value=''); document.getElementById('modalInt').classList.add('open'); }
+async function salvarInt(){
+  let cred = null;
+  try { if (document.getElementById('iCred').value.trim()) cred = JSON.parse(document.getElementById('iCred').value); }
+  catch { return showAlert('Credenciais: JSON inválido','error'); }
+  const body = { canal: document.getElementById('iCanal').value, apelido: document.getElementById('iApelido').value || null, credenciais: cred, observacoes: document.getElementById('iObs').value || null };
+  const r = await fetch('/api/marketplaces/integracoes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('Canal salvo'); fechar('modalInt'); carregarIntegracoes();
+}
+async function sync(id){ const r = await fetch(`/api/marketplaces/integracoes/${id}/sync`,{method:'POST'}); const d = await r.json(); showAlert(d.mensagem||'ok'); carregarIntegracoes(); }
+async function remInt(id){ if(!confirm('Desativar?'))return; await fetch('/api/marketplaces/integracoes/'+id,{method:'DELETE'}); carregarIntegracoes(); }
+
+function abrirPed(){
+  document.getElementById('pCanal').innerHTML = CANAIS.map(c=>`<option>${c}</option>`).join('');
+  document.getElementById('pStatus').innerHTML = STATUS_PED.map(s=>`<option>${s}</option>`).join('');
+  ['pIdExt','pNumExt','pComp','pCpf','pEmail','pForma'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pVal').value='0'; document.getElementById('pFrete').value='0';
+  document.getElementById('pData').value=new Date().toISOString().slice(0,10);
+  document.getElementById('modalPed').classList.add('open');
+}
+async function salvarPed(){
+  const body = {
+    canal: document.getElementById('pCanal').value,
+    idExterno: document.getElementById('pIdExt').value.trim(),
+    numeroExterno: document.getElementById('pNumExt').value || null,
+    compradorNome: document.getElementById('pComp').value || null,
+    compradorCpfCnpj: document.getElementById('pCpf').value || null,
+    compradorEmail: document.getElementById('pEmail').value || null,
+    dataPedido: document.getElementById('pData').value,
+    valorTotal: Number(document.getElementById('pVal').value)||0,
+    valorFrete: Number(document.getElementById('pFrete').value)||0,
+    status: document.getElementById('pStatus').value,
+    formaPagamento: document.getElementById('pForma').value || null
+  };
+  if (!body.canal || !body.idExterno) return showAlert('Canal e ID externo obrigatórios','error');
+  const r = await fetch('/api/marketplaces/pedidos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  fechar('modalPed'); carregarPedidos();
+}
+async function vincular(id){
+  const modo = confirm('Criar novo pedido local automaticamente? (Cancelar = informar ID existente)');
+  let body = {};
+  if (modo) body.criarPedido = true;
+  else { const pid = prompt('ID do pedido local:'); if (!pid) return; body.pedidoLocalId = Number(pid); }
+  const r = await fetch(`/api/marketplaces/pedidos/${id}/vincular`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('Vinculado ao pedido #'+d.pedidoLocalId); carregarPedidos();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  ['modalInt','modalPed'].forEach(id => document.getElementById(id).classList.remove('open'));
+});
+
+async function carregarMl(){
+  const st = document.getElementById('mlStatus'), ac = document.getElementById('mlAcao');
+  if (!st) return;
+  try {
+    const d = await fetch('/api/marketplaces/ml/status').then(r=>r.json());
+    if (!d.configurado) {
+      st.textContent = '— integração não configurada no servidor';
+      ac.innerHTML = '<span class="muted" style="font-size:.85em;">aguardando ML_APP_ID/SECRET</span>';
+      return;
+    }
+    if (d.conectado) {
+      st.innerHTML = `✅ conectado como <strong>${d.integracao.mlNickname||d.integracao.mlUserId}</strong>`;
+      ac.innerHTML = '<a class="btn btn-ghost btn-sm" href="/api/marketplaces/ml/connect">Reconectar</a>';
+    } else {
+      st.textContent = '— não conectado';
+      ac.innerHTML = '<a class="btn btn-primary btn-sm" href="/api/marketplaces/ml/connect">Conectar Mercado Livre</a>';
+    }
+  } catch(e){ st.textContent = '— erro ao verificar'; }
+}
+if (new URLSearchParams(location.search).get('ml')==='conectado') { try{ showAlert('Mercado Livre conectado!'); }catch(e){} }
+
+carregarPedidos();
+carregarMl();
+</script>
+</body></html>

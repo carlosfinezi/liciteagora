@@ -262,6 +262,7 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasRoteirizacao(app, db);
   registrarRotasCTe(app, db);
   registrarRotasMarketplaces(app, db);
+  require('./marketplaces-ml').registrarRotasTenant(app, db); // ML Fase 0: /connect + /status (per-tenant)
   registrarRotasTEF(app, db);
 
   // ==================== BI / IA / JORNAL / BACKUP / CERTIFICADO / PROXY / FORNECEDOR ====================
