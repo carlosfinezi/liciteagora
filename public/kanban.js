@@ -109,7 +109,7 @@ function criarCard(item) {
             ${item.linkSistemaOrigem ? `
                 <button class="card-btn abrir" onclick="abrirSistema('${item.linkSistemaOrigem}')">Abrir</button>
             ` : ''}
-            <button class="card-btn proposta" onclick="window.location.href='propostas-api.html'">Proposta</button>
+            <button class="card-btn proposta" onclick="window.location.href='/operacional/propostas-api.html'">Proposta</button>
             <button class="card-btn remover" onclick="removerDoKanban('${item.cnpj}', ${item.ano}, ${item.sequencial})">✕</button>
         </div>
     `;
@@ -203,7 +203,7 @@ async function abrirModalInteresses() {
     container.innerHTML = '';
 
     if (licitacoesMap.size === 0) {
-        container.innerHTML = '<p style="color: #888; text-align: center;">Nenhum interesse cadastrado</p>';
+        container.innerHTML = '<p class="empty">Nenhum interesse cadastrado</p>';
     } else {
         licitacoesMap.forEach((lic, key) => {
             const jaNoKanban = kanbanData.some(k =>
@@ -215,7 +215,7 @@ async function abrirModalInteresses() {
             div.innerHTML = `
                 <h4>${lic.objetoCompra || 'Sem objeto'}</h4>
                 <p>${lic.nomeOrgao} - ${lic.qtdItens} item(s)</p>
-                ${jaNoKanban ? '<p style="color: #4dabf7;">Já no Kanban</p>' : ''}
+                ${jaNoKanban ? '<p style="color:var(--accent);font-size:0.82em;margin-top:4px;">Já no Kanban</p>' : ''}
             `;
 
             if (!jaNoKanban) {
@@ -226,7 +226,7 @@ async function abrirModalInteresses() {
         });
     }
 
-    document.getElementById('interesseModal').classList.add('show');
+    document.getElementById('interesseModal').classList.add('open');
 }
 
 async function adicionarAoKanban(lic) {
@@ -252,14 +252,15 @@ async function adicionarAoKanban(lic) {
 }
 
 function fecharModal() {
-    document.getElementById('interesseModal').classList.remove('show');
+    document.getElementById('interesseModal').classList.remove('open');
 }
 
-// Fechar modal ao clicar fora
+// Fechar modal ao clicar fora ou com ESC
 document.getElementById('interesseModal').addEventListener('click', (e) => {
-    if (e.target.id === 'interesseModal') {
-        fecharModal();
-    }
+    if (e.target.id === 'interesseModal') fecharModal();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') fecharModal();
 });
 
 // Highlight da coluna durante drag

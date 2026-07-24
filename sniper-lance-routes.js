@@ -13,6 +13,7 @@
 
 const SniperLance = require('./sniper-lance');
 const { buildCompraId, classificar422 } = require('./sniper-lance');
+const { ingerirMensagensGlobais } = require('./chat-mensagens-ingest');
 const { currentTenant, currentDb, tenantStorage } = require('./tenant-middleware');
 const { sendTelegram } = require('./telegram-client');
 const { enviarEmailAlerta } = require('./email-client');
@@ -44,7 +45,7 @@ async function handleBNCLance(tdb, tenantSlug, { compraId, batchNumber, valor },
   try {
     if (!tenantSlug) return res.status(400).json({ success: false, error: 'tenant slug indisponível no contexto' });
     const engine = bncScheduler.getEngineForSala(tenantSlug, compraId);
-    if (!engine) return res.status(400).json({ success: false, error: `Engine BNC não está rodando pra ${compraId}. Garanta que a sala está ativa em /configuracoes/bnc-salas.html` });
+    if (!engine) return res.status(400).json({ success: false, error: `Engine BNC não está rodando pra ${compraId}. Garanta que a sala está ativa em /portais/bnc-salas.html` });
 
     // Achar o lote pelo batchNumber. Engine mantém Map<idBatchUuid, gkz>; precisamos
     // descobrir o idBatchUuid correspondente ao batchNumber.
@@ -633,13 +634,32 @@ function registrarRotasSniper(app, db) {
     }
   }
 
+  // Alvo de "mergulho": cobre o melhor concorrente com um salto proporcional à
+  // folga (melhor − piso), até o piso. pct (0–100): 0 = cobre por 1 degrau mínimo
+  // (talo, margem máx); 100 = vai ao piso (vitória máx). Deriva o passo mínimo em
+  // R$ do próprio degrau (funciona p/ tipoVar 'V' e 'P'). Retorna null se nem
+  // cobrir por 1 degrau respeita o piso.
+  function calcularAlvoMergulho(melhor, piso, varMin, tipoVar, pct) {
+    if (melhor == null || piso == null || varMin == null) return null;
+    if (melhor <= piso) return null;
+    const degrauMin = calcularProximoDegrau(melhor, varMin, tipoVar); // maior valor que ainda cobre
+    if (degrauMin < piso) return null;              // nem 1 degrau cabe acima do piso
+    const stepAbs = melhor - degrauMin;             // tamanho do menor degrau, em R$
+    const folga = melhor - piso;
+    const p = Math.max(0, Math.min(100, pct != null ? pct : 20)) / 100;
+    const bufferAbs = Math.max(stepAbs, folga * p);
+    let alvo = melhor - bufferAbs;
+    if (alvo < piso) alvo = piso;
+    return Math.round(alvo * 100) / 100;
+  }
+
   /**
    * A1: Pré-calcula degraus de lance para cobrir o concorrente até valorMinimo.
    * Se estamos ganhando (melhorGeral === nossoValor), retorna vazio — não concorrer consigo mesmo.
    * Se estamos perdendo, começa de melhorGeral - varMin (pula direto para cobrir).
    * Retorna array de lances prontos para enfileirar.
    */
-  function calcularBatchLances(cfgItem, liveItem, compraId, maxSteps = 50, modo = 'cobrir') {
+  function calcularBatchLances(cfgItem, liveItem, compraId, maxSteps = 50, modo = 'cobrir', preencherAteMax = false) {
     const nossoValor = liveItem.nossoValor;
     const melhorValor = liveItem.melhorValor;
     const varMin = liveItem.variacaoMinima != null ? liveItem.variacaoMinima : cfgItem.variacaoMinima;
@@ -678,6 +698,60 @@ function registrarRotasSniper(app, db) {
     // Se estamos ganhando (melhorGeral é nosso), não dar lance
     if (melhorValor != null && nossoValor <= melhorValor) return [];
     if (situacao === 'G') return [];
+
+    // ── MERGULHO (agressividadePct): cobre o concorrente com UM salto grande
+    // proporcional à folga, em vez de 5 degraus tímidos. pct=0 → cobre no talo;
+    // pct=100 → vai ao piso. Só quando conhecemos o concorrente. Sem referência
+    // (melhorValor == null) cai no fallback gradual abaixo.
+    if (melhorValor != null) {
+      let pctMerg = cfgItem.agressividadePct;
+      if (pctMerg == null) {
+        try {
+          const r = db.prepare('SELECT agressividadePct FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, cfgItem.itemNumero);
+          pctMerg = r ? r.agressividadePct : null;
+        } catch (_) { /* usa default */ }
+      }
+      const alvoMerg = calcularAlvoMergulho(melhorValor, valorMinimo, varMin, tipoVar, pctMerg);
+      // `topo` = melhor cobertura possível respeitando o piso: cobre o líder (mergulho);
+      // ou o próprio piso quando o líder já está no piso/abaixo e cabe 1 degrau legal a
+      // partir do nosso valor (senão Comprasnet rejeita 422). null = não dá lance.
+      let topo = null;
+      if (alvoMerg != null && alvoMerg < nossoValor) {
+        topo = alvoMerg;
+      } else if (alvoMerg == null && valorMinimo < nossoValor &&
+                 calcularProximoDegrau(nossoValor, varMin, tipoVar) >= valorMinimo) {
+        topo = valorMinimo;
+      }
+      if (topo != null) {
+        const mk = (v, i) => ({
+          id: `blitz-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 5)}`,
+          compraId, itemNumero: cfgItem.itemNumero, valor: v,
+          faseItem: cfgItem.faseItem || 'LA', criadoEm: new Date().toISOString(),
+          status: 'pendente', fonte: 'blitz', batchIndex: i, batchTotal: 1,
+        });
+        const out = [mk(topo, 0)];
+        // Rajada de snipe (preencherAteMax): escalona de `topo` até o piso pra preencher
+        // maxSteps lances. O cronômetro já reserva a janela pra N lances, então o ÚLTIMO
+        // (mais agressivo, perto do piso) cai no milésimo alvo (~.970). Teto de segurança
+        // de 12 degraus (evita storm com ignoreMax/∞). O contínuo dá 1 lance (flag off).
+        const TETO_DEGRAUS = 12;
+        const alvoN = Math.min(Math.max(maxSteps || 1, 1), TETO_DEGRAUS);
+        if (preencherAteMax && topo > valorMinimo && alvoN > 1) {
+          const faltam = alvoN - 1;
+          const passo = (topo - valorMinimo) / (faltam + 1);
+          for (let i = 1; i <= faltam; i++) {
+            let v = (i === faltam) ? valorMinimo : Math.round((topo - passo * i) * 100) / 100;
+            const anterior = out[out.length - 1].valor;
+            if (v >= anterior) continue;                                        // tem que descer
+            if (calcularProximoDegrau(anterior, varMin, tipoVar) < v) continue;  // degrau < varMin: inválido
+            out.push(mk(v, out.length));
+          }
+        }
+        for (const l of out) l.batchTotal = out.length;
+        return out;
+      }
+      return [];
+    }
 
     // Ponto de partida: cobrir o concorrente, não descer do nosso valor
     let valorInicial;
@@ -884,13 +958,16 @@ function registrarRotasSniper(app, db) {
         const cfg = db.prepare('SELECT valorMinimo FROM sniper_itens WHERE compraId = ? AND itemNumero = ?').get(compraId, itemNum);
         if (!cfg || cfg.valorMinimo == null) continue;
         if (melhorGeral < cfg.valorMinimo) {
-          alertarMercadoAbaixoDoPiso(compraId, itemNum, blitzInfo, melhorGeral, cfg.valorMinimo);
+          const nossoV = (apiItem.melhorValorFornecedor || {}).valorInformado;
+          const varMinV = apiItem.variacaoMinimaEntreLances;
+          const tipoVarV = apiItem.tipoVariacaoMinimaEntreLances || 'V';
+          alertarMercadoAbaixoDoPiso(compraId, itemNum, blitzInfo, melhorGeral, cfg.valorMinimo, nossoV, varMinV, tipoVarV);
         }
       }
 
       // Buscar config dos itens monitorados
       const autoItens = db.prepare(
-        `SELECT compraId, itemNumero, valorMinimo, variacaoMinima, tipoVariacao, faseItem
+        `SELECT compraId, itemNumero, valorMinimo, variacaoMinima, tipoVariacao, faseItem, agressividadePct
          FROM sniper_itens WHERE compraId = ? AND modoAuto = 'continuo' AND valorMinimo IS NOT NULL`
       ).all(compraId);
 
@@ -950,8 +1027,9 @@ function registrarRotasSniper(app, db) {
         const tipoVar = apiItem.tipoVariacaoMinimaEntreLances || 'V';
 
         if (sit === 'P' && melhorGeral != null && varMin != null) {
-          // Perdendo — calcular lance reativo
-          let novoValor = calcularProximoDegrau(melhorGeral, varMin, tipoVar);
+          // Perdendo — alvo com MERGULHO (agressividadePct); null = piso não cobre
+          let novoValor = calcularAlvoMergulho(melhorGeral, cfgItem.valorMinimo, varMin, tipoVar, cfgItem.agressividadePct);
+          if (novoValor == null) continue;
 
           // Respeitar piso — mas sem violar varMin em relação ao nossoValor.
           // Se a cobertura cai abaixo do piso, só clampa se o clamp respeitar varMin.
@@ -1396,7 +1474,7 @@ function registrarRotasSniper(app, db) {
     await Promise.all(tarefas);
   }
 
-  async function alertarMercadoAbaixoDoPiso(compraId, itemNumero, blitzInfo, melhorGeral, piso) {
+  async function alertarMercadoAbaixoDoPiso(compraId, itemNumero, blitzInfo, melhorGeral, piso, nossoValor, varMin, tipoVar) {
     try {
       const dedupKey = `${compraId}-${itemNumero}@${blitzInfo.agendadoEm || ''}`;
       if (_alertasPisoEnviados.has(dedupKey)) return;
@@ -1408,18 +1486,28 @@ function registrarRotasSniper(app, db) {
         : blitzInfo.horario || '—';
       const fmtR$ = v => v != null ? `R$ ${Number(v).toFixed(2).replace('.', ',')}` : '—';
 
-      const mensagem =
-        `🚨 <b>RAJADA SEM EFEITO</b>\n` +
+      // Com o drop-ao-piso, a rajada NÃO gera mais 0 lances quando o líder está abaixo do
+      // piso: ela te posiciona NO seu piso (melhor colocação possível), desde que caiba 1
+      // degrau legal a partir do nosso valor. Só é "sem efeito" se nem o piso couber.
+      const podePiso = nossoValor != null && varMin != null && piso < nossoValor &&
+                       calcularProximoDegrau(nossoValor, varMin, tipoVar || 'V') >= piso;
+
+      const cab =
         `Compra: <code>${compraId}</code>\n` +
         `Item: <b>${itemNumero}</b>\n` +
         `Concorrente: <b>${fmtR$(melhorGeral)}</b>\n` +
         `Seu piso: <b>${fmtR$(piso)}</b>\n` +
-        `Disparo: <b>${blitzInfo.horario || '—'}</b> (em ${tempoTexto})\n\n` +
-        `<i>O concorrente já está abaixo do seu piso. A rajada vai gerar 0 lances. ` +
-        `Abaixe o piso agora ou cancele se não quiser disputar.</i>`;
+        `Disparo: <b>${blitzInfo.horario || '—'}</b> (em ${tempoTexto})\n\n`;
+      const mensagem = podePiso
+        ? `ℹ️ <b>CONCORRENTE ABAIXO DO PISO</b>\n` + cab +
+          `<i>Não dá pra vencer o líder sem furar o piso. A rajada vai te posicionar no SEU PISO ` +
+          `(${fmtR$(piso)}) — melhor colocação possível. Não vence o líder; se não quiser disputar, cancele.</i>`
+        : `🚨 <b>RAJADA SEM EFEITO</b>\n` + cab +
+          `<i>O concorrente está abaixo do piso e nem o piso cabe (degrau < variação mínima). ` +
+          `A rajada vai gerar 0 lances. Abaixe o piso ou cancele.</i>`;
 
-      await enviarAlerta({ subject: `[LiciteAgora] 🚨 Rajada sem efeito — ${compraId} item ${itemNumero}`, body: mensagem });
-      console.log(`[ALERTA] 🚨 piso abaixo do concorrente: ${compraId} item ${itemNumero} — melhor=${melhorGeral} piso=${piso}`);
+      await enviarAlerta({ subject: `[LiciteAgora] ${podePiso ? 'ℹ️ Concorrente abaixo do piso' : '🚨 Rajada sem efeito'} — ${compraId} item ${itemNumero}`, body: mensagem });
+      console.log(`[ALERTA] piso vs concorrente: ${compraId} item ${itemNumero} — melhor=${melhorGeral} piso=${piso} podePiso=${podePiso}`);
     } catch (e) {
       console.error(`[ALERTA] erro ao alertar piso: ${e.message}`);
     }
@@ -1979,7 +2067,7 @@ function registrarRotasSniper(app, db) {
     try {
       // Query DB for compras with auto items
       const autoItens = db.prepare(
-        `SELECT si.compraId, si.itemNumero, si.valorMinimo, si.valorLance, si.modoAuto, si.faseItem, si.antecedenciaMs, si.variacaoMinima, si.tipoVariacao
+        `SELECT si.compraId, si.itemNumero, si.valorMinimo, si.valorLance, si.modoAuto, si.faseItem, si.antecedenciaMs, si.variacaoMinima, si.tipoVariacao, si.agressividadePct
          FROM sniper_itens si
          WHERE si.modoAuto IS NOT NULL AND si.modoAuto != ''`
       ).all();
@@ -2278,7 +2366,9 @@ function registrarRotasSniper(app, db) {
               // Se o melhor é desconhecido, desce 1 degrau do nosso valor.
               let _alvo;
               if (melhorGeral != null && melhorGeral < nossoValor) {
-                _alvo = calcularProximoDegrau(melhorGeral, varMinEfetivo, tipoVarEfetivo);
+                // MERGULHO: cobre o concorrente com salto proporcional à folga (agressividadePct)
+                _alvo = calcularAlvoMergulho(melhorGeral, cfgItem.valorMinimo, varMinEfetivo, tipoVarEfetivo, cfgItem.agressividadePct);
+                if (_alvo == null) continue; // nem cobrir por 1 degrau respeita o piso
               } else {
                 _alvo = calcularProximoDegrau(nossoValor, varMinEfetivo, tipoVarEfetivo);
               }
@@ -2629,7 +2719,7 @@ function registrarRotasSniper(app, db) {
         tipoVariacao: liveItem.tipoVariacao || item.tipoVariacao || 'V',
       };
       const itemMaxLances = capPorItem != null ? capPorItem : (item.maxLances || 5);
-      const batchLances = calcularBatchLances(item, itemParaCalculo, item.compraId, itemMaxLances, modo);
+      const batchLances = calcularBatchLances(item, itemParaCalculo, item.compraId, itemMaxLances, modo, true);
       if (batchLances.length === 0) {
         const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${item.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${modo}`;
         blitzHist.finalizarStatus(db, blitzKey, 'executada', {
@@ -2863,7 +2953,7 @@ function registrarRotasSniper(app, db) {
         };
 
         const cap = capPorItem != null ? capPorItem : (maxLances || 50);
-        const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, cap, modoBlitz || 'cobrir');
+        const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, cap, modoBlitz || 'cobrir', true);
         if (batchLances.length === 0) {
           const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${cfgItem.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${modoBlitz||'cobrir'}`;
           console.log(`[Sniper] 🚀 BLITZ: ${compraId} item ${itemNumero} — 0 lances (${dbg})`);
@@ -3079,7 +3169,7 @@ function registrarRotasSniper(app, db) {
       };
 
       const capImediato = capPorItem != null ? capPorItem : (maxLances || 50);
-      const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, capImediato, modoBlitz || 'cobrir');
+      const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, compraId, capImediato, modoBlitz || 'cobrir', true);
       if (batchLances.length === 0) {
         return res.json({ success: true, totalLances: 0, message: 'Nenhum lance a enviar (já no mínimo ou sem variação)' });
       }
@@ -3294,7 +3384,7 @@ function registrarRotasSniper(app, db) {
 
       // Buscar itens elegíveis ANTES do auto-cálculo (precisa do maxLances)
       const itensElegiveis = db.prepare(`
-        SELECT si.compraId, si.itemNumero, si.valorMinimo, si.faseItem, si.variacaoMinima, si.tipoVariacao, si.maxLances
+        SELECT si.compraId, si.itemNumero, si.valorMinimo, si.faseItem, si.variacaoMinima, si.tipoVariacao, si.maxLances, si.agressividadePct
         FROM sniper_itens si
         JOIN participacoes_comprasnet pc ON si.compraId = pc.compraId
         WHERE si.valorMinimo IS NOT NULL AND si.valorMinimo > 0
@@ -3489,7 +3579,7 @@ function registrarRotasSniper(app, db) {
             tipoVariacao: liveItem.tipoVariacao || item.tipoVariacao || 'V',
           };
           const itemMaxLances = capPorItem != null ? capPorItem : (item.maxLances || maxLancesDefault || 5);
-          const batchLances = calcularBatchLances(item, itemParaCalculo, item.compraId, itemMaxLances, modo);
+          const batchLances = calcularBatchLances(item, itemParaCalculo, item.compraId, itemMaxLances, modo, true);
           if (batchLances.length === 0) {
             const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${item.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${modo}`;
             blitzHist.finalizarStatus(db, blitzKey, 'executada', {
@@ -5774,203 +5864,8 @@ function registrarRotasSniper(app, db) {
       if (!Array.isArray(mensagens)) {
         return res.status(400).json({ success: false, error: 'mensagens[] obrigatório' });
       }
-
-      // Obter CNPJ do fornecedor para detectar mensagens direcionadas
-      let meuCnpj = '';
-      try {
-        const fornConfig = db.prepare('SELECT cnpj FROM fornecedor WHERE id = 1').get();
-        meuCnpj = (fornConfig?.cnpj || '').replace(/\D/g, '');
-        if (!meuCnpj) {
-          const configVal = db.prepare("SELECT valor FROM config WHERE chave = 'fornecedor_cnpj'").get();
-          meuCnpj = (configVal?.valor || '').replace(/\D/g, '');
-        }
-      } catch (e) {}
-
-      let novas = 0;
-      const alertas = [];
-
-      // Carregar palavras-chave ativas do tenant uma vez (caches na ingestão do batch)
-      let palavrasChaveAtivas = [];
-      try {
-        palavrasChaveAtivas = db.prepare("SELECT palavra FROM chat_palavras_chave WHERE ativo = 1").all()
-          .map(r => String(r.palavra || '').toLowerCase()).filter(p => p.length >= 2);
-      } catch (e) { /* tabela pode não existir */ }
-
-      // Pregões silenciados pelo usuário — não geram alerta Telegram (captura segue normal)
-      let silenciados = new Set();
-      try {
-        silenciados = new Set(db.prepare('SELECT compraId FROM chat_pregoes_silenciados').all().map(r => r.compraId));
-      } catch (e) { /* tabela pode não existir */ }
-
-      // Categorias do Comprasnet consideradas "importantes" para alerta Telegram.
-      // 810 = impugnação / pedido esclarecimento
-      // 820 = resposta / aviso do pregoeiro
-      // 830 = convocação formal (anexos, propostas)
-      // 840 = mensagem do agente de contratação (pregoeiro conduzindo a sessão)
-      // 850 = ata / julgamento
-      const CATEGORIAS_ALERTA = new Set(['810', '820', '830', '840', '850']);
-
-      // Normaliza CNPJ (só dígitos). Também prepara variação formatada para busca.
-      const meuCnpjDigits = meuCnpj; // já vem limpo acima
-      const meuCnpjFormatado = meuCnpjDigits.length === 14
-        ? `${meuCnpjDigits.substring(0,2)}.${meuCnpjDigits.substring(2,5)}.${meuCnpjDigits.substring(5,8)}/${meuCnpjDigits.substring(8,12)}-${meuCnpjDigits.substring(12,14)}`
-        : '';
-
-      const insertStmt = db.prepare(`INSERT OR IGNORE INTO chat_mensagens
-        (compraId, cnpjOrgao, ano, sequencial, dataHoraMensagem,
-         remetente, mensagem, hashMensagem, titulo, categoria,
-         origemMensagem, lidaComprasnet, tipoCompra, excluida,
-         vinculadaADiligencia, descricaoModalidade, numeroCompraFormatado,
-         identificadorItem, mensagemIdComprasnet, origemCaptura, notificado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'extensao-v1', 0)`);
-
-      for (const msg of mensagens) {
-        // Montar compraId via helper centralizado (SNIPER-C01)
-        const compraId = buildCompraId(msg);
-        if (!compraId || compraId.length < 10) continue;
-        const uasg = String(msg.numeroUasg || '').padStart(6, '0');
-
-        const conteudo = msg.texto || '';
-        const remetente = msg.remetente || '';
-        const dataHora = msg.dataHoraPublicacao || new Date().toISOString();
-
-        // Hash para deduplicação (fallback se não tiver id do Comprasnet)
-        const hashMensagem = require('crypto').createHash('md5')
-          .update(compraId + '|' + dataHora + '|' + remetente + '|' + conteudo)
-          .digest('hex');
-
-        // Se já temos pelo ID do Comprasnet, skip
-        if (msg.id) {
-          const existe = db.prepare('SELECT id FROM chat_mensagens WHERE mensagemIdComprasnet = ?').get(msg.id);
-          if (existe) continue;
-        }
-
-        try {
-          insertStmt.run(
-            compraId,
-            uasg,                               // cnpjOrgao (aqui é UASG, não CNPJ)
-            parseInt(msg.anoCompra) || 0,        // ano
-            parseInt(msg.numeroCompra) || 0,     // sequencial
-            dataHora,
-            remetente,
-            conteudo,
-            hashMensagem,
-            msg.titulo || '',
-            msg.categoria || '',
-            msg.origemMensagem || '',
-            msg.lida ? 1 : 0,
-            msg.tipoCompra || '',
-            msg.excluida ? 1 : 0,
-            msg.vinculadaADiligencia ? 1 : 0,
-            msg.descricaoModalidade || '',
-            msg.numeroCompraFormatado || '',
-            msg.identificadorItem || '',
-            msg.id || null
-          );
-          novas++;
-
-          // Avalia motivos de alerta (qualquer match já qualifica)
-          const motivos = [];
-          const tituloMsg = msg.titulo || '';
-          const conteudoLower = String(conteudo).toLowerCase();
-          const tituloLower = tituloMsg.toLowerCase();
-          const textoCombinado = conteudoLower + ' ' + tituloLower;
-
-          if (CATEGORIAS_ALERTA.has(String(msg.categoria))) {
-            motivos.push(`categoria ${msg.categoria}`);
-          }
-          if (msg.identificadorParticipante && meuCnpjDigits) {
-            motivos.push('direcionada ao fornecedor');
-          }
-          if (meuCnpjDigits && (textoCombinado.includes(meuCnpjDigits) ||
-              (meuCnpjFormatado && textoCombinado.includes(meuCnpjFormatado.toLowerCase())))) {
-            motivos.push('menção ao CNPJ');
-          }
-          const palavrasMatch = palavrasChaveAtivas.filter(p => textoCombinado.includes(p));
-          if (palavrasMatch.length) {
-            motivos.push('palavra-chave');
-          }
-
-          if (motivos.length > 0 && !silenciados.has(compraId)) {
-            alertas.push({
-              conteudo, dataHora, compraId,
-              titulo: tituloMsg,
-              categoria: msg.categoria || '',
-              motivos,
-              palavrasMatch,
-              mensagemId: msg.id || null,
-              hashMensagem,
-            });
-          }
-        } catch (e) {
-          // Duplicate hash ou id — skip
-        }
-      }
-
-      if (novas > 0) {
-        console.log(`[Sync] Mensagens global: ${novas} novas (de ${mensagens.length})`);
-      }
-
-      // Enviar alertas Telegram para mensagens que bateram critérios
-      if (alertas.length > 0) {
-        try {
-          const telegramConfig = db.prepare('SELECT botToken, chatId FROM telegram_config WHERE id = 1 AND ativo = 1').get();
-          if (telegramConfig?.botToken && telegramConfig?.chatId) {
-            const axios = require('axios');
-            const stmtMarcarNotificado = db.prepare(
-              `UPDATE chat_mensagens SET notificado = 1
-               WHERE (mensagemIdComprasnet = ? AND ? IS NOT NULL)
-                  OR hashMensagem = ?`
-            );
-            for (const alerta of alertas) {
-              const participacao = db.prepare('SELECT orgao, objeto FROM participacoes_comprasnet WHERE compraId = ?').get(alerta.compraId);
-              const orgao = participacao?.orgao || alerta.compraId;
-              const objeto = participacao?.objeto || '';
-
-              const conteudoLimitado = alerta.conteudo.length > 500
-                ? alerta.conteudo.substring(0, 500) + '…'
-                : alerta.conteudo;
-
-              const linhasExtras = [];
-              if (alerta.palavrasMatch?.length) {
-                linhasExtras.push(`🔔 <b>Palavras-chave:</b> ${alerta.palavrasMatch.join(', ')}`);
-              }
-              if (alerta.motivos?.length) {
-                linhasExtras.push(`🏷️ <b>Motivos:</b> ${alerta.motivos.join(' · ')}`);
-              }
-
-              const texto = `🚨 <b>${alerta.titulo || 'MENSAGEM IMPORTANTE'}</b>\n\n` +
-                `📋 <b>Compra:</b> ${alerta.compraId}\n` +
-                `🏢 <b>Órgão:</b> ${orgao}\n` +
-                (objeto ? `📝 <b>Objeto:</b> ${objeto.substring(0, 100)}${objeto.length > 100 ? '…' : ''}\n` : '') +
-                `⏰ <b>Hora:</b> ${alerta.dataHora}\n` +
-                (linhasExtras.length ? linhasExtras.join('\n') + '\n' : '') +
-                `\n💬 ${conteudoLimitado}\n\n` +
-                `⚠️ <b>VERIFIQUE NO COMPRASNET!</b>`;
-
-              try {
-                await axios.post(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
-                  chat_id: telegramConfig.chatId,
-                  text: texto,
-                  parse_mode: 'HTML'
-                });
-                // Marca como notificado para evitar reenvio se Electron repostar
-                try { stmtMarcarNotificado.run(alerta.mensagemId, alerta.mensagemId, alerta.hashMensagem); }
-                catch (_) {}
-                console.log(`[ALERTA] Telegram enviado: ${alerta.motivos.join('+')} em ${alerta.compraId}`);
-              } catch (axiosErr) {
-                console.error(`[ALERTA] Telegram falhou em ${alerta.compraId}: ${axiosErr.message}`);
-              }
-            }
-          } else {
-            console.log(`[ALERTA] ${alertas.length} alerta(s) candidatos mas Telegram não configurado/ativo neste tenant`);
-          }
-        } catch (telegramErr) {
-          console.error('[ALERTA] Erro Telegram:', telegramErr.message);
-        }
-      }
-
-      res.json({ success: true, novas, total: mensagens.length, alertas: alertas.length });
+      const r = await ingerirMensagensGlobais(db, mensagens);
+      res.json({ success: true, novas: r.novas, total: mensagens.length, alertas: r.alertas.length });
     } catch (e) {
       console.error('[Sync] Erro mensagens-global:', e.message);
       res.status(500).json({ success: false, error: e.message });
@@ -6038,23 +5933,95 @@ function registrarRotasSniper(app, db) {
     }
   });
 
-  app.post('/api/sniper/capturar-mensagens', async (req, res) => {
-    try {
-      const { compraId } = req.body;
-      if (!compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
-      const novas = await sniper.capturarMensagens(compraId, db);
-      res.json({ success: true, novasMensagens: novas });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
+  // ==================== ESCADA DE LANCES (concorrentes) ====================
 
-  app.post('/api/sniper/capturar-todas-mensagens', async (req, res) => {
+  /**
+   * GET /api/sniper/escada?compraId=XXXX&item=N
+   * Puxa a escada de lances de um item via /lances/por-participante, que já
+   * devolve o melhor lance de cada participante distinto, ordenado.
+   * Como os demais /comprasnet-disputa/, aceita só Bearer; cai pro captcha
+   * apenas se o Comprasnet reclamar (401/403). NÃO envia lances.
+   * Uso: análise/visualização sob demanda na tela de lances (Vetor B — melhor
+   * colocação possível pelo maior preço).
+   */
+  app.get('/api/sniper/escada', async (req, res) => {
     try {
-      const total = await sniper.capturarTodasMensagens(db);
-      res.json({ success: true, novasMensagens: total });
+      const { compraId, item, captcha } = req.query;
+      if (!compraId || !item) return res.status(400).json({ success: false, error: 'compraId e item obrigatórios' });
+      if (!sniper.temToken()) return res.json({ success: false, error: 'Sem Bearer token' });
+      // Permite colar um P1_... do Network tab pra testar/destravar (igual itens-comprasnet).
+      if (captcha) sniper.setCaptchaToken(captcha);
+
+      // Líder ao vivo + nosso valor — de em-disputa (só Bearer, sem captcha).
+      // Serve pra sobrepor a realidade da disputa por cima das propostas iniciais.
+      async function lerAoVivo() {
+        try {
+          const r = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${compraId}/itens/em-disputa`);
+          if ((r.status === 200 || r.status === 206) && Array.isArray(r.data)) {
+            const it = r.data.find(i => (i.numero || i.identificador) === parseInt(item));
+            if (it) return {
+              lider: (it.melhorValorGeral || {}).valorInformado ?? null,
+              nosso: (it.melhorValorFornecedor || {}).valorInformado ?? null,
+            };
+          }
+        } catch (_) {}
+        return { lider: null, nosso: null };
+      }
+
+      // ── 1) Ladder AO VIVO por participante (exige captcha). ──
+      const path = `/comprasnet-disputa/v1/compras/${compraId}/itens/${item}/lances/por-participante`;
+      let { status, data } = await sniper.apiGet(path);
+      let via = 'bearer';
+      if ((status === 204 || status === 401 || status === 403) && sniper.temCaptcha()) {
+        ({ status, data } = await sniper.apiGetCaptcha(path));
+        via = 'captcha';
+      }
+      if ((status === 200 || status === 206) && Array.isArray(data) && data.length > 0) {
+        const escada = data
+          .filter(l => !l.excluido)
+          .map(l => ({
+            valor: (l.valor && (l.valor.valorInformado ?? l.valor.valorCalculado)) ?? null,
+            dataHora: l.dataHoraInclusao || null,
+            origem: l.origem || null,
+          }))
+          .filter(x => x.valor != null)
+          .sort((a, b) => a.valor - b.valor);
+        const vivo = await lerAoVivo();
+        return res.json({
+          success: true, fonte: 'lances-ao-vivo', via,
+          participantes: escada.length, escada,
+          liderAoVivo: vivo.lider, nossoAoVivo: vivo.nosso,
+        });
+      }
+
+      // ── 2) Fallback SEM captcha: propostas iniciais + líder ao vivo. ──
+      const fe = await sniper.apiGet(`/comprasnet-fase-externa/v1/compras/${compraId}/itens/${item}/propostas-iniciais?tamanhoPagina=50&pagina=0`);
+      const vivo = await lerAoVivo();
+      if ((fe.status === 200 || fe.status === 206) && Array.isArray(fe.data)) {
+        const escada = fe.data
+          .filter(p => !p.desclassificada)
+          .map(p => ({
+            valor: ((p.valores || {}).valorPropostaInicial || {}).valorInformado ?? null,
+            sequencial: p.sequencial ?? null,
+            dataHora: null,
+          }))
+          .filter(x => x.valor != null)
+          .sort((a, b) => a.valor - b.valor);
+        return res.json({
+          success: true, fonte: 'propostas-iniciais', via: 'bearer',
+          participantes: escada.length, escada,
+          liderAoVivo: vivo.lider, nossoAoVivo: vivo.nosso,
+          aviso: 'Ranking ao vivo por fornecedor exige captcha (indisponível server-side). Mostrando PROPOSTAS INICIAIS dos concorrentes + líder ao vivo da disputa.',
+        });
+      }
+
+      // ── 3) Nada disponível. ──
+      return res.json({
+        success: false, status, ipBound: status === 403,
+        error: `Sem dados (por-participante=${status}, propostas-iniciais=${fe.status})`,
+      });
     } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
+      return res.json({ success: false, error: e.message });
     }
   });
 
@@ -6084,7 +6051,7 @@ function registrarRotasSniper(app, db) {
       const { compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo,
               antecedenciaMs, tentativas, intervaloMs, ativo,
               valorMinimo, descontoMinimo, descontoMaximo, valorEstimado, modoAuto, custo,
-              variacaoMinima, tipoVariacao, maxLances } = req.body;
+              variacaoMinima, tipoVariacao, maxLances, agressividadePct } = req.body;
       if (!compraId || !itemNumero) return res.status(400).json({ success: false, error: 'compraId e itemNumero obrigatórios' });
 
       const stmt = db.prepare(`INSERT INTO sniper_itens (compraId, itemNumero, descricao, valorLance, faseItem, horarioAlvo, antecedenciaMs, tentativas, intervaloMs, ativo, valorMinimo, descontoMinimo, descontoMaximo, valorEstimado, custo, variacaoMinima, tipoVariacao)
@@ -6126,6 +6093,13 @@ function registrarRotasSniper(app, db) {
       if ('maxLances' in req.body) {
         db.prepare(`UPDATE sniper_itens SET maxLances = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ? AND itemNumero = ?`)
           .run(maxLances || null, compraId, itemNumero);
+      }
+      if ('agressividadePct' in req.body) {
+        // % de mergulho rumo ao piso (0 = cobre no talo, 100 = vai ao piso). Clamp 0–100.
+        const pct = agressividadePct != null && agressividadePct !== ''
+          ? Math.max(0, Math.min(100, Number(agressividadePct))) : null;
+        db.prepare(`UPDATE sniper_itens SET agressividadePct = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ? AND itemNumero = ?`)
+          .run(pct, compraId, itemNumero);
       }
       if ('valorMinimo' in req.body) {
         db.prepare(`UPDATE sniper_itens SET valorMinimo = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE compraId = ? AND itemNumero = ?`)
@@ -6897,7 +6871,7 @@ function registrarRotasSniper(app, db) {
                   `SELECT "numeroCompra" AS "numeroCompra", "modalidadeNome" AS "modalidadeNome",
                           "razaoSocial" AS orgao, "objetoCompra" AS "objetoCompra",
                           "linkSistemaOrigem" AS "linkSistemaOrigem",
-                          "dataEncerramentoProposta" AS "dataEncerramentoProposta",
+                          COALESCE("dataEncerramentoPortal", "dataEncerramentoProposta") AS "dataEncerramentoProposta",
                           "codigoUnidade" AS "codigoUnidade"
                      FROM licitacoes WHERE "cnpj"=$1 AND "anoCompra"=$2 AND "sequencialCompra"=$3 LIMIT 1`,
                   [participacao.cnpj, participacao.ano, participacao.sequencial]
@@ -7851,7 +7825,7 @@ function registrarRotasSniper(app, db) {
       tipoVariacao: liveItem.tipoVariacao || cfgItem.tipoVariacao || 'V',
     };
 
-    const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, row.compraId, row.maxLances || 50, row.modoBlitz || 'cobrir');
+    const batchLances = calcularBatchLances(cfgItem, itemParaCalculo, row.compraId, row.maxLances || 50, row.modoBlitz || 'cobrir', true);
     if (batchLances.length === 0) {
       const dbg = `nosso=${itemParaCalculo.nossoValor} melhor=${itemParaCalculo.melhorValor} varMin=${itemParaCalculo.variacaoMinima} valMin=${cfgItem.valorMinimo} sit=${itemParaCalculo.situacaoParticipante} modo=${row.modoBlitz||'cobrir'}`;
       console.log(`[BLITZ-RECOVERY] ${row.compraId} item ${row.itemNumero} — 0 lances calculados`);

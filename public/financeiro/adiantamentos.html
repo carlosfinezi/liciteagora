@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adiantamentos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Adiantamentos</h1>
+      <small>Valores recebidos de clientes ou pagos a fornecedores antes do título — o saldo abate baixas futuras</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirModalNovo()">+ Novo adiantamento</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="filtTipo" onchange="carregar()">
+      <option value="">Clientes e fornecedores</option>
+      <option value="cliente">De clientes</option>
+      <option value="fornecedor">A fornecedores</option>
+    </select>
+    <select id="filtStatus" onchange="carregar()">
+      <option value="ativo" selected>Com saldo (ativos)</option>
+      <option value="">Todos</option>
+      <option value="consumido">Consumidos</option>
+      <option value="devolvido">Devolvidos</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>#</th><th>Tipo</th><th>Cliente/Fornecedor</th><th>Data</th>
+        <th style="text-align:right;">Valor</th><th style="text-align:right;">Saldo</th>
+        <th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="tbAdiant"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNovo">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Novo adiantamento</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalNovo')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="nTipo" onchange="carregarQuem()">
+          <option value="cliente">De cliente (dinheiro entra)</option>
+          <option value="fornecedor">A fornecedor (dinheiro sai)</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Valor (R$)</label><input type="number" id="nValor" step="0.01" min="0.01"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label id="lblQuem">Cliente</label><select id="nQuem"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Conta financeira</label><select id="nConta"></select></div>
+      <div class="form-group"><label>Data</label><input type="date" id="nData"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalNovo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNovo()">Lançar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalUsar">
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Utilizar adiantamento</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalUsar')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div id="usarResumo" class="card card-info" style="margin-bottom:12px;font-size:0.9em;"></div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Título em aberto</label><select id="uTitulo"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Valor a abater (R$)</label><input type="number" id="uValor" step="0.01" min="0.01"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalUsar')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarUsar()">Abater título</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('fin-adiantamentos');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+
+const STATUS_BADGE = {
+  ativo: '<span class="badge entrada">ATIVO</span>',
+  consumido: '<span class="badge ajuste">CONSUMIDO</span>',
+  devolvido: '<span class="badge cancelado">DEVOLVIDO</span>'
+};
+let adiantAtual = null;
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const t = document.getElementById('filtTipo').value; if (t) p.set('tipo', t);
+  const st = document.getElementById('filtStatus').value; if (st) p.set('status', st);
+  const r = await fetch('/api/adiantamentos?'+p); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbAdiant').innerHTML = d.adiantamentos.length ? d.adiantamentos.map(a => `<tr>
+    <td>${a.id}</td>
+    <td>${a.tipo === 'cliente' ? '👤 Cliente' : '🏢 Fornecedor'}</td>
+    <td>${a.pessoaNome || a.fornecedorNome || '-'}</td>
+    <td>${a.data}</td>
+    <td style="text-align:right;">${fmt(a.valor)}</td>
+    <td style="text-align:right;"><strong>${fmt(a.saldo)}</strong></td>
+    <td>${STATUS_BADGE[a.status]||a.status}</td>
+    <td style="white-space:nowrap;">
+      ${a.status==='ativo' ? `<button class="btn btn-primary btn-sm" onclick='abrirUsar(${JSON.stringify(a).replace(/'/g,"&#39;")})'>Utilizar</button>
+      <button class="btn btn-ghost btn-sm" onclick="devolver(${a.id}, ${a.saldo})">Devolver</button>` : ''}
+    </td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum adiantamento</td></tr>';
+}
+
+async function carregarQuem(){
+  const tipo = document.getElementById('nTipo').value;
+  document.getElementById('lblQuem').textContent = tipo === 'cliente' ? 'Cliente' : 'Fornecedor';
+  const url = tipo === 'cliente' ? '/api/pessoas' : '/api/fornecedores';
+  const r = await fetch(url); const d = await r.json();
+  const lista = d.pessoas || d.fornecedores || [];
+  document.getElementById('nQuem').innerHTML = lista.map(x=>`<option value="${x.id}">${x.razaoSocial}</option>`).join('');
+}
+
+async function abrirModalNovo(){
+  await carregarQuem();
+  const r = await fetch('/api/contas-financeiras'); const d = await r.json();
+  document.getElementById('nConta').innerHTML = (d.contas||[]).map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+  document.getElementById('nData').value = new Date().toISOString().slice(0,10);
+  document.getElementById('nValor').value=''; document.getElementById('nObs').value='';
+  document.getElementById('modalNovo').classList.add('open');
+}
+
+async function salvarNovo(){
+  const tipo = document.getElementById('nTipo').value;
+  const body = {
+    tipo,
+    valor: Number(document.getElementById('nValor').value),
+    contaFinanceiraId: Number(document.getElementById('nConta').value),
+    data: document.getElementById('nData').value || null,
+    observacao: document.getElementById('nObs').value.trim() || null
+  };
+  body[tipo === 'cliente' ? 'pessoaId' : 'fornecedorId'] = Number(document.getElementById('nQuem').value);
+  if (!(body.valor > 0)) return showAlert('Informe o valor','error');
+  const r = await fetch('/api/adiantamentos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar('modalNovo'); showAlert('Adiantamento lançado'); carregar();
+}
+
+async function abrirUsar(a){
+  adiantAtual = a;
+  document.getElementById('usarResumo').innerHTML =
+    `<strong>${a.pessoaNome || a.fornecedorNome}</strong> — saldo disponível: <strong>R$ ${fmt(a.saldo)}</strong>`;
+  const url = a.tipo === 'cliente'
+    ? `/api/contas-a-receber?pessoaId=${a.pessoaId}`
+    : `/api/contas-a-pagar?fornecedorId=${a.fornecedorId}`;
+  const r = await fetch(url); const d = await r.json();
+  const contas = (d.contas || d.contasAReceber || d.contasAPagar || []).filter(c => ['aberta','parcial'].includes(c.status));
+  document.getElementById('uTitulo').innerHTML = contas.length
+    ? contas.map(c=>`<option value="${c.id}" data-saldo="${c.valor - (c.valorPago||0)}">${c.descricao} — vence ${c.dataVencimento} — aberto R$ ${fmt(c.valor - (c.valorPago||0))}</option>`).join('')
+    : '<option value="">— sem títulos abertos —</option>';
+  const sel = document.getElementById('uTitulo');
+  const preencher = () => {
+    const opt = sel.selectedOptions[0];
+    document.getElementById('uValor').value = opt && opt.dataset.saldo ? Math.min(Number(opt.dataset.saldo), a.saldo).toFixed(2) : '';
+  };
+  sel.onchange = preencher; preencher();
+  document.getElementById('modalUsar').classList.add('open');
+}
+
+async function confirmarUsar(){
+  const tituloId = Number(document.getElementById('uTitulo').value);
+  if (!tituloId) return showAlert('Selecione um título','error');
+  const body = { valor: Number(document.getElementById('uValor').value) };
+  body[adiantAtual.tipo === 'cliente' ? 'contaReceberId' : 'contaPagarId'] = tituloId;
+  const r = await fetch(`/api/adiantamentos/${adiantAtual.id}/utilizar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar('modalUsar'); showAlert('Título abatido com o adiantamento'); carregar();
+}
+
+async function devolver(id, saldo){
+  if (!confirm(`Devolver R$ ${fmt(saldo)} ao cliente/fornecedor? O valor sai/entra no caixa.`)) return;
+  const r = await fetch(`/api/adiantamentos/${id}/devolver`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Adiantamento devolvido'); carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape'){ fechar('modalNovo'); fechar('modalUsar'); } });
+carregar();
+</script>
+</body></html>

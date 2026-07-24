@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Certidões & Habilitação · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Certidões & Habilitação</h1>
+      <small>Documentos de habilitação da empresa para licitações — jurídica, fiscal, econômico-financeira e técnica</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo documento</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="fQ" placeholder="Buscar documento, órgão ou número…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fCategoria" onchange="carregar()">
+      <option value="">Todas categorias</option>
+      <option value="juridica">Jurídica</option>
+      <option value="fiscal">Fiscal / Social / Trabalhista</option>
+      <option value="economico-financeira">Econômico-financeira</option>
+      <option value="tecnica">Técnica</option>
+    </select>
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="vigente">Vigente</option>
+      <option value="a-vencer">A vencer</option>
+      <option value="vencido">Vencido</option>
+      <option value="sem-validade">Sem validade</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Documento</th>
+        <th>Órgão emissor</th>
+        <th>Número</th>
+        <th>Emissão</th>
+        <th>Validade</th>
+        <th>Status</th>
+        <th>Arquivo</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- input escondido para upload por linha -->
+<input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp" style="display:none;" onchange="enviarArquivo()">
+
+<!-- Modal Novo/Editar -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;" id="modalTitulo">Novo documento</h3>
+        <small class="muted">Categoria, tipo, órgão emissor e validade</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Categoria *</label>
+        <select id="fCat" onchange="onCategoria()">
+          <option value="juridica">Jurídica</option>
+          <option value="fiscal">Fiscal / Social / Trabalhista</option>
+          <option value="economico-financeira">Econômico-financeira</option>
+          <option value="tecnica">Técnica</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Esfera</label>
+        <select id="fEsfera" onchange="atualizarHintEstab()">
+          <option value="">—</option>
+          <option value="federal">Federal</option>
+          <option value="estadual">Estadual</option>
+          <option value="municipal">Municipal</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="rowEstab" style="display:none;">
+      <div class="form-group full-width">
+        <label>Estabelecimento</label>
+        <select id="fEstab" onchange="atualizarHintEstab()"></select>
+        <small class="muted" id="fEstabHint" style="display:block;margin-top:4px;"></small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Tipo de documento *</label>
+        <select id="fTipoSel" onchange="onTipoSel()"></select>
+        <input type="text" id="fTipo" placeholder="Descreva o documento" style="margin-top:6px;display:none;">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Órgão emissor</label>
+        <input type="text" id="fOrgao" placeholder="Ex.: Receita Federal / PGFN">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Número / controle</label>
+        <input type="text" id="fNumero" placeholder="Nº da certidão">
+      </div>
+      <div class="form-group">
+        <label>Emissão</label>
+        <input type="date" id="fEmissao">
+      </div>
+      <div class="form-group">
+        <label>Validade</label>
+        <input type="date" id="fValidade">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observações</label>
+        <textarea id="fObs" rows="2" placeholder="Notas internas"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('habilitacao-certidoes');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+
+const CAT_LABEL = { 'juridica':'Jurídica', 'fiscal':'Fiscal', 'economico-financeira':'Econ.-financeira', 'tecnica':'Técnica' };
+const ST_BADGE = { 'vigente':'ativo', 'a-vencer':'pendente', 'vencido':'inativo', 'sem-validade':'' };
+const ST_LABEL = { 'vigente':'Vigente', 'a-vencer':'A vencer', 'vencido':'Vencido', 'sem-validade':'Sem validade' };
+let CATALOGO = {};
+let PROVEDORES = [];
+
+function fmtData(d){ if(!d) return '—'; const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y}`; }
+
+async function carregarCatalogo(){
+  const r = await fetch('/api/habilitacao/catalogo');
+  const d = await r.json();
+  if (d.success){ CATALOGO = d.catalogo || {}; PROVEDORES = d.provedores || []; }
+}
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+  const c = document.getElementById('fCategoria').value; if (c) p.set('categoria', c);
+  const s = document.getElementById('fStatus').value;    if (s) p.set('status', s);
+  const r = await fetch('/api/habilitacao?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  const k = d.kpis;
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${k.total||0}</div></div>
+    <div class="kpi success"><div class="label">Vigentes</div><div class="value">${k.vigente||0}</div></div>
+    <div class="kpi warn"><div class="label">A vencer (30d)</div><div class="value">${k['a-vencer']||0}</div></div>
+    <div class="kpi danger"><div class="label">Vencidos</div><div class="value">${k.vencido||0}</div></div>
+  `;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = d.documentos.length ? d.documentos.map(x=>`<tr>
+    <td><strong>${esc(x.tipo)}</strong><br><small class="muted">${CAT_LABEL[x.categoria]||x.categoria}${x.esfera?' · '+x.esfera:''}</small></td>
+    <td>${esc(x.orgaoEmissor)||'—'}</td>
+    <td class="mono">${esc(x.numero)||'—'}</td>
+    <td>${fmtData(x.dataEmissao)}</td>
+    <td>${fmtData(x.dataValidade)}</td>
+    <td><span class="badge ${ST_BADGE[x.status]||''}">${ST_LABEL[x.status]||x.status}</span></td>
+    <td>${x.temArquivo
+      ? `<a class="btn btn-ghost btn-sm" href="/api/habilitacao/${x.id}/arquivo" target="_blank" style="text-decoration:none;">Ver</a>
+         <button class="btn btn-ghost btn-sm" onclick="uploadPara(${x.id})" title="Substituir">↻</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="uploadPara(${x.id})">⬆ Enviar</button>`}
+    </td>
+    <td style="text-align:right;white-space:nowrap;">
+      ${PROVEDORES.includes(x.tipo) ? `<button class="btn btn-ghost btn-sm" onclick="buscarAuto(${x.id})" title="Buscar automaticamente no portal">🔎</button>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(x)})'>Editar</button>
+      <button class="btn btn-ghost btn-sm" onclick="excluir(${x.id})" title="Excluir">🗑</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum documento cadastrado</td></tr>';
+}
+function esc(s){ return s==null ? '' : String(s).replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+// ---------- modal ----------
+function onCategoria(){
+  const cat = document.getElementById('fCat').value;
+  const sel = document.getElementById('fTipoSel');
+  const lista = CATALOGO[cat] || [];
+  sel.innerHTML = lista.map((t,i)=>`<option value="${i}">${esc(t.tipo)}</option>`).join('') + '<option value="__outro">Outro (digitar)…</option>';
+  onTipoSel();
+}
+function onTipoSel(){
+  const cat = document.getElementById('fCat').value;
+  const sel = document.getElementById('fTipoSel').value;
+  const inp = document.getElementById('fTipo');
+  if (sel === '__outro'){ inp.style.display='block'; inp.value=''; inp.focus(); return; }
+  inp.style.display='none';
+  const item = (CATALOGO[cat]||[])[Number(sel)];
+  if (item){
+    inp.value = item.tipo;
+    if (item.orgao && !document.getElementById('fOrgao').value) document.getElementById('fOrgao').value = item.orgao;
+    if (item.esfera) document.getElementById('fEsfera').value = item.esfera;
+  }
+}
+
+function abrirNovo(){
+  document.getElementById('modalTitulo').textContent='Novo documento';
+  ['fId','fTipo','fOrgao','fNumero','fEmissao','fValidade','fObs','fEstab'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fCat').value='fiscal';
+  document.getElementById('fEsfera').value='';
+  onCategoria();
+  atualizarHintEstab();
+  document.getElementById('modal').classList.add('open');
+}
+function editar(x){
+  document.getElementById('modalTitulo').textContent='Editar documento';
+  document.getElementById('fId').value=x.id;
+  document.getElementById('fCat').value=x.categoria;
+  onCategoria();
+  // usa o campo de texto livre pré-preenchido
+  document.getElementById('fTipoSel').value='__outro';
+  onTipoSel();
+  document.getElementById('fTipo').value=x.tipo||'';
+  document.getElementById('fEsfera').value=x.esfera||'';
+  document.getElementById('fOrgao').value=x.orgaoEmissor||'';
+  document.getElementById('fNumero').value=x.numero||'';
+  document.getElementById('fEmissao').value=x.dataEmissao||'';
+  document.getElementById('fValidade').value=x.dataValidade||'';
+  document.getElementById('fObs').value=x.observacoes||'';
+  document.getElementById('fEstab').value = x.estabelecimentoId || '';
+  atualizarHintEstab();
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const tipo = document.getElementById('fTipo').value.trim() || (document.getElementById('fTipo').style.display==='none' ? document.getElementById('fTipoSel').selectedOptions[0]?.text : '');
+  const body = {
+    categoria: document.getElementById('fCat').value,
+    tipo: tipo,
+    esfera: document.getElementById('fEsfera').value || null,
+    orgaoEmissor: document.getElementById('fOrgao').value.trim() || null,
+    numero: document.getElementById('fNumero').value.trim() || null,
+    dataEmissao: document.getElementById('fEmissao').value || null,
+    dataValidade: document.getElementById('fValidade').value || null,
+    observacoes: document.getElementById('fObs').value.trim() || null,
+    estabelecimentoId: document.getElementById('fEstab').value ? Number(document.getElementById('fEstab').value) : null,
+  };
+  if (!body.tipo){ return showAlert('Informe o tipo de documento','error'); }
+  const id = document.getElementById('fId').value;
+  const r = await fetch(id ? '/api/habilitacao/'+id : '/api/habilitacao', {
+    method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(id ? 'Documento atualizado' : 'Documento cadastrado');
+  fecharModal();
+  carregar();
+}
+
+async function excluir(id){
+  if (!confirm('Excluir este documento e seu arquivo?')) return;
+  const r = await fetch('/api/habilitacao/'+id, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Documento excluído');
+  carregar();
+}
+
+// ---------- upload ----------
+let uploadId = null;
+function uploadPara(id){ uploadId=id; document.getElementById('fileInput').value=''; document.getElementById('fileInput').click(); }
+async function enviarArquivo(){
+  const f = document.getElementById('fileInput').files[0];
+  if (!f || !uploadId) return;
+  const fd = new FormData(); fd.append('arquivo', f);
+  const r = await fetch('/api/habilitacao/'+uploadId+'/arquivo', { method:'POST', body: fd });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Arquivo enviado');
+  carregar();
+}
+
+// ---------- busca automática (Fase 2) ----------
+async function buscarAuto(id){
+  showAlert('Consultando portal…','info');
+  const r = await fetch('/api/habilitacao/'+id+'/buscar', { method:'POST' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, r.status===501 ? 'warn' : 'error');
+  showAlert('Certidão obtida automaticamente');
+  carregar();
+}
+
+let ESTABS = [];
+async function carregarEstabs(){
+  try {
+    const j = await fetch('/api/estabelecimentos').then(r=>r.json());
+    if (!j.success) return;
+    ESTABS = (j.data||[]).filter(e=>e.ativo && !e.bloqueado);
+    const sel = document.getElementById('fEstab');
+    sel.innerHTML = '<option value="">Matriz</option>' + ESTABS.filter(e=>!e.matriz)
+      .map(e=>`<option value="${e.id}">${(e.nomeFantasia||e.razaoSocial||'Filial')} · ${e.tipo_vinculo==='PJ_DISTINTA'?'PJ distinta':'filial'}</option>`).join('');
+    document.getElementById('rowEstab').style.display = ESTABS.some(e=>!e.matriz) ? '' : 'none';
+  } catch(_){}
+}
+function atualizarHintEstab(){
+  const sel = document.getElementById('fEstab');
+  const hint = document.getElementById('fEstabHint');
+  if (!sel || !hint) return;
+  const esfera = document.getElementById('fEsfera').value;
+  const estab = ESTABS.find(e=>String(e.id)===String(sel.value));
+  if (estab && !estab.matriz && estab.tipo_vinculo==='FILIAL_MESMA_PJ' && esfera==='federal') {
+    hint.textContent = '⚖️ Certidão federal cobre a PJ inteira → será emitida no CNPJ da matriz.';
+  } else if (estab && !estab.matriz) {
+    hint.textContent = 'Será emitida no CNPJ próprio deste estabelecimento.';
+  } else {
+    hint.textContent = '';
+  }
+}
+(async function init(){ await carregarCatalogo(); await carregarEstabs(); carregar(); })();
+</script>
+</body></html>

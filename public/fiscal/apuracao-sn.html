@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apuração Simples Nacional · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* page-local: .card/.card h3 vêm do app-modern.css; vocabulário sn-*/subl-*/das-*/.alerta/.status-badge/.fator-r-info/.acoes-apuracao/.timeline é específico do domínio Simples Nacional */
+  .sn-toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+  .sn-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
+  .sn-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .sn-toolbar input, .sn-toolbar select { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; }
+
+  .sn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 900px) { .sn-grid { grid-template-columns: 1fr; } }
+
+  /* .card .row — layout interno label + input numérico (exclusivo desta página) */
+  .card .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .card .row label { color: var(--text-2); font-size: 0.88em; }
+  .card .row input { background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 6px 10px; width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+  .card .row input:read-only { background: var(--bg-1); color: var(--text-1); }
+
+  .das-tabela { width: 100%; border-collapse: collapse; }
+  .das-tabela th { text-align: left; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .das-tabela td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 0.93em; font-variant-numeric: tabular-nums; }
+  .das-tabela td.num { text-align: right; }
+  .das-tabela tfoot td { font-weight: 700; color: var(--accent); border-top: 2px solid var(--border-strong); }
+
+  .alertas { margin-bottom: 16px; }
+  .alerta { padding: 10px 14px; border-radius: var(--r-md); margin-bottom: 8px; font-size: 0.9em; }
+  .alerta.warn   { background: var(--warn-soft);   color: var(--warn);   border-left: 3px solid var(--warn); }
+  .alerta.danger { background: var(--danger-soft); color: var(--danger); border-left: 3px solid var(--danger); }
+  .alerta.info   { background: var(--accent-soft); color: var(--accent); border-left: 3px solid var(--accent); }
+
+  .timeline { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .timeline th { text-align: left; font-size: 0.76em; text-transform: uppercase; color: var(--text-2); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .timeline td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 0.9em; }
+  .timeline td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .timeline tr:hover { background: var(--bg-hover); cursor: pointer; }
+
+  .status-badge { padding: 3px 9px; border-radius: 10px; font-weight: 700; text-transform: uppercase; font-size: 0.72em; }
+  .status-badge.rascunho { background: var(--warn-soft);    color: var(--warn); }
+  .status-badge.fechada  { background: var(--accent-soft);  color: var(--accent); }
+  .status-badge.reaberta { background: var(--bg-hover);     color: var(--text-1); }
+  .status-badge.paga     { background: var(--success-soft); color: var(--success); }
+
+  .fator-r-info { font-size: 0.85em; color: var(--text-2); margin-top: 4px; }
+  .fator-r-info.ativo { color: var(--success); }
+
+  .acoes-apuracao { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
+  .subl-barra { position: relative; height: 22px; background: var(--bg-1); border-radius: 11px; overflow: hidden; margin: 8px 0; border: 1px solid var(--border); }
+  .subl-fill { height: 100%; transition: width 0.3s; }
+  .subl-fill.ok { background: var(--success); }
+  .subl-fill.aviso, .subl-fill.sublimite, .subl-fill.projecao_sublimite { background: var(--warn); }
+  .subl-fill.critico, .subl-fill.projecao_estourou { background: var(--danger); }
+  .subl-fill.desenquadrado { background: var(--danger); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: 0.6; } }
+  .subl-marca { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.6); }
+  .subl-legenda { display: flex; justify-content: space-between; font-size: 0.78em; color: var(--text-2); margin-top: -4px; }
+  .subl-mensagem { padding: 10px; border-radius: var(--r-md); font-size: 0.92em; margin-top: 8px; }
+  .subl-mensagem.ok { background: var(--success-soft); color: var(--success); }
+  .subl-mensagem.aviso, .subl-mensagem.sublimite, .subl-mensagem.projecao_sublimite { background: var(--warn-soft); color: var(--warn); }
+  .subl-mensagem.critico, .subl-mensagem.projecao_estourou, .subl-mensagem.desenquadrado { background: var(--danger-soft); color: var(--danger); }
+  .subl-numeros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 8px 0; }
+  .subl-numeros .item { background: var(--bg-1); padding: 8px 10px; border-radius: var(--r-sm); }
+  .subl-numeros .item .lb { font-size: 0.75em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .subl-numeros .item .vl { font-size: 1.1em; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Apuração Simples Nacional</h1>
+      <small>Cálculo mensal do DAS — LC 123/06 anexos I a V</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="abrirTabelas()">📋 Tabelas de alíquotas</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="sn-toolbar">
+    <div class="field">
+      <label>Competência</label>
+      <input type="month" id="fCompetencia" onchange="carregarCompetencia()">
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn btn-primary" onclick="gerarApuracao()">Gerar / atualizar apuração</button>
+    </div>
+    <div class="field" id="boxStatus" style="display:none;">
+      <label>Status</label>
+      <div><span id="statusBadge" class="status-badge">—</span></div>
+    </div>
+  </div>
+
+  <div class="alertas" id="alertas"></div>
+
+  <div class="card" id="boxSublimite" style="margin-bottom:16px;display:none;">
+    <h3>Projeção e sublimite</h3>
+    <div id="sublimiteConteudo"></div>
+  </div>
+
+  <div class="sn-grid">
+    <div class="card">
+      <h3>Base de cálculo</h3>
+      <div class="row"><label>RBT12 (12 meses)</label>
+        <input type="number" id="iRbt12" step="0.01"></div>
+      <div class="row"><label>Folha 12m (salários + pró-labore + FGTS + INSS)</label>
+        <input type="number" id="iFolha12m" step="0.01"></div>
+      <div class="row"><label>Fator R</label>
+        <input type="number" id="iFatorR" step="0.0001" readonly></div>
+      <div class="fator-r-info" id="fatorRInfo">&nbsp;</div>
+    </div>
+
+    <div class="card">
+      <h3>Receita do mês por anexo</h3>
+      <div class="row"><label>Anexo I — Comércio</label><input type="number" id="rAnexoI" step="0.01"></div>
+      <div class="row"><label>Anexo II — Indústria</label><input type="number" id="rAnexoII" step="0.01"></div>
+      <div class="row"><label>Anexo III — Serviços em geral</label><input type="number" id="rAnexoIII" step="0.01"></div>
+      <div class="row"><label>Anexo IV — Serviços específicos</label><input type="number" id="rAnexoIV" step="0.01"></div>
+      <div class="row"><label>Anexo V — Serviços intelectuais</label><input type="number" id="rAnexoV" step="0.01"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <h3>DAS apurado</h3>
+    <div id="dasBox">
+      <p style="color:var(--text-2);">Preencha a competência e clique em "Gerar apuração".</p>
+    </div>
+    <div class="acoes-apuracao" id="acoes"></div>
+  </div>
+
+  <div class="card">
+    <h3>Histórico (últimas 12 apurações)</h3>
+    <table class="timeline">
+      <thead><tr>
+        <th>Competência</th>
+        <th>Status</th>
+        <th style="text-align:right;">RBT12</th>
+        <th style="text-align:right;">DAS total</th>
+        <th style="text-align:right;">Vencimento</th>
+      </tr></thead>
+      <tbody id="tbTimeline"><tr><td colspan="5" style="color:var(--text-2);text-align:center;padding:14px;">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Tabelas -->
+<div class="modal-bg" id="modalTabelas">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Tabelas de alíquotas SN</h3>
+        <small class="muted">LC 123/06 art. 18 — Anexos I a V</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharTabelas()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="alert warn" style="display:block;margin-bottom:12px;">
+      ⚠️ Valores padrão conforme LC 123/06 art. 18. <strong>Audite com o contador antes de usar em produção.</strong>
+    </div>
+    <div class="sn-toolbar" style="margin-bottom:12px;">
+      <div class="field">
+        <label>Anexo</label>
+        <select id="selAnexo" onchange="renderTabelas()">
+          <option value="I">I — Comércio</option>
+          <option value="II">II — Indústria</option>
+          <option value="III">III — Serviços em geral</option>
+          <option value="IV">IV — Serviços específicos</option>
+          <option value="V">V — Serviços intelectuais</option>
+        </select>
+      </div>
+    </div>
+    <div id="tabelaAliquotas"></div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('apuracao-sn');</script>
+<script>
+let apAtual = null;
+let tabelas = null;
+
+function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtPct(v){ if (v==null||isNaN(v))return '0,00%'; return (Number(v)*100).toFixed(4).replace('.',',') + '%'; }
+function val(id){ return document.getElementById(id).value; }
+function setVal(id, v){ document.getElementById(id).value = v ?? ''; }
+function setValN(id, v){ document.getElementById(id).value = (v==null||isNaN(v)) ? '' : Number(v).toFixed(2); }
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(()=>e.style.display='none', 6000);
+}
+
+function hojeMesAtual(){ return new Date().toISOString().slice(0,7); }
+
+async function carregarTabelas(){
+  if (tabelas) return tabelas;
+  const r = await fetch('/api/fiscal/tabelas-aliquotas');
+  const d = await r.json();
+  if (!d.success) throw new Error(d.error);
+  tabelas = d.tabelas;
+  return tabelas;
+}
+
+async function carregarCompetencia(){
+  const comp = val('fCompetencia');
+  if (!comp) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao/' + comp);
+    const d = await r.json();
+    if (d.success) {
+      apAtual = d.apuracao;
+      renderApuracao();
+    } else {
+      apAtual = null;
+      setValN('iRbt12', '');
+      setValN('iFolha12m', '');
+      setValN('iFatorR', '');
+      ['rAnexoI','rAnexoII','rAnexoIII','rAnexoIV','rAnexoV'].forEach(id=>setValN(id,''));
+      document.getElementById('dasBox').innerHTML = '<p style="color:var(--text-2);">Competência sem apuração ainda. Clique em "Gerar apuração" para criar.</p>';
+      document.getElementById('boxStatus').style.display = 'none';
+      document.getElementById('alertas').innerHTML = '';
+      document.getElementById('acoes').innerHTML = '';
+      document.getElementById('fatorRInfo').textContent = '';
+      carregarRbt12Preview(comp);
+    }
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function carregarRbt12Preview(comp){
+  try {
+    const r = await fetch('/api/fiscal/rbt12?referencia=' + comp);
+    const d = await r.json();
+    if (d.success) setValN('iRbt12', d.rbt12);
+  } catch {}
+}
+
+function renderApuracao(){
+  if (!apAtual) return;
+  setValN('iRbt12', apAtual.rbt12);
+  setValN('iFolha12m', apAtual.folha12m);
+  setValN('iFatorR', apAtual.fatorR);
+  setValN('rAnexoI', apAtual.receitaAnexoI);
+  setValN('rAnexoII', apAtual.receitaAnexoII);
+  setValN('rAnexoIII', apAtual.receitaAnexoIII);
+  setValN('rAnexoIV', apAtual.receitaAnexoIV);
+  setValN('rAnexoV', apAtual.receitaAnexoV);
+
+  document.getElementById('fatorRInfo').className = 'fator-r-info' + (apAtual.anexoVMigradoIII ? ' ativo' : '');
+  document.getElementById('fatorRInfo').textContent = apAtual.anexoVMigradoIII
+    ? `✓ Fator R ≥ 28% — Anexo V migrou para III nesta apuração`
+    : (apAtual.receitaAnexoV > 0 ? 'Fator R < 28% — receita mantida no Anexo V' : '');
+
+  document.getElementById('statusBadge').className = 'status-badge ' + apAtual.status;
+  document.getElementById('statusBadge').textContent = apAtual.status;
+  document.getElementById('boxStatus').style.display = 'flex';
+
+  renderAlertas();
+  renderDAS();
+  renderAcoes();
+  carregarSublimite();
+}
+
+async function carregarSublimite(){
+  const comp = val('fCompetencia');
+  if (!comp) return;
+  try {
+    const r = await fetch('/api/fiscal/sublimite?referencia=' + comp);
+    const d = await r.json();
+    if (!d.success) return;
+    const box = document.getElementById('boxSublimite');
+    const cont = document.getElementById('sublimiteConteudo');
+    const pctRbt = Math.min(100, d.pctRbt12);
+    const pctProj = Math.min(100, d.pctProjecao);
+    const pctSublimite = (d.limites.sublimiteEstadual / d.limites.nacional) * 100;
+    cont.innerHTML = `
+      <div class="subl-numeros">
+        <div class="item"><div class="lb">RBT12 atual</div><div class="vl">R$ ${fmt(d.rbt12)}</div></div>
+        <div class="item"><div class="lb">RBA (ano ${comp.slice(0,4)}, ${d.mesesDecorridos} meses)</div><div class="vl">R$ ${fmt(d.rbaAnoAtual)}</div></div>
+        <div class="item"><div class="lb">Projeção anual (linear)</div><div class="vl">R$ ${fmt(d.projecaoAnual)}</div></div>
+      </div>
+      <div style="font-size:0.82em;color:var(--text-2);margin-top:14px;">RBT12 vs limite nacional (R$ 4,8M)</div>
+      <div class="subl-barra" title="RBT12">
+        <div class="subl-fill ${d.nivel}" style="width:${pctRbt}%;"></div>
+        <div class="subl-marca" style="left:${pctSublimite}%;" title="Sublimite estadual R$ 3,6M"></div>
+      </div>
+      <div class="subl-legenda"><span>0</span><span>R$ 3,6M (sublimite)</span><span>R$ 4,8M (limite)</span></div>
+
+      <div style="font-size:0.82em;color:var(--text-2);margin-top:14px;">Projeção anual vs limite nacional</div>
+      <div class="subl-barra" title="Projeção">
+        <div class="subl-fill ${d.nivel.includes('projecao') ? d.nivel : (pctProj > 75 ? 'projecao_sublimite' : 'ok')}" style="width:${pctProj}%;"></div>
+        <div class="subl-marca" style="left:${pctSublimite}%;"></div>
+      </div>
+
+      <div class="subl-mensagem ${d.nivel}">
+        <strong>${d.nivel.toUpperCase().replace('_',' ')}:</strong> ${d.mensagem}
+      </div>
+    `;
+    box.style.display = 'block';
+  } catch {}
+}
+
+function renderAlertas(){
+  const el = document.getElementById('alertas');
+  const avisos = [];
+  const rbt12 = Number(apAtual.rbt12) || 0;
+  if (rbt12 > 4500000) avisos.push({ t: 'danger', m: `RBT12 acima de R$ 4.500.000 — risco alto de desenquadramento do SN (limite R$ 4.800.000)` });
+  else if (rbt12 > 3600000) avisos.push({ t: 'warn', m: `RBT12 acima do sublimite estadual (R$ 3.600.000) — ICMS/ISS podem sair do DAS` });
+  else if (rbt12 > 3000000) avisos.push({ t: 'info', m: `RBT12 acima de R$ 3M — monitore proximidade do sublimite` });
+  el.innerHTML = avisos.map(a => `<div class="alerta ${a.t}">${a.m}</div>`).join('');
+}
+
+function renderDAS(){
+  const box = document.getElementById('dasBox');
+  const tributos = apAtual.dasPorTributo || {};
+  const anexos = apAtual.dasPorAnexo || {};
+  const ef = apAtual.aliquotasEfetivas || {};
+  const linhasAnexo = Object.entries(anexos).filter(([,v]) => v > 0).map(([a, v]) => {
+    const detalhe = ef[a];
+    const fx = detalhe?.faixa ? `Faixa ${detalhe.faixa}` : '';
+    const alEf = detalhe?.efetiva != null ? fmtPct(detalhe.efetiva) : '';
+    return `<tr><td>Anexo ${a}</td><td>${fx}</td><td class="num">${alEf}</td><td class="num">R$ ${fmt(v)}</td></tr>`;
+  }).join('');
+  const linhasTrib = Object.entries(tributos).filter(([,v]) => v > 0).map(([t, v]) =>
+    `<tr><td>${t}</td><td class="num">R$ ${fmt(v)}</td></tr>`).join('');
+
+  box.innerHTML = `
+    <div class="sn-grid">
+      <div>
+        <h4 style="color:var(--text-1);margin:0 0 8px 0;font-size:0.9em;">DAS por Anexo</h4>
+        <table class="das-tabela">
+          <thead><tr><th>Anexo</th><th>Faixa</th><th style="text-align:right;">Al. efetiva</th><th style="text-align:right;">Valor</th></tr></thead>
+          <tbody>${linhasAnexo || '<tr><td colspan="4" style="color:var(--text-2);text-align:center;">Sem receitas no mês</td></tr>'}</tbody>
+          <tfoot><tr><td colspan="3">DAS total</td><td class="num">R$ ${fmt(apAtual.dasTotal)}</td></tr></tfoot>
+        </table>
+      </div>
+      <div>
+        <h4 style="color:var(--text-1);margin:0 0 8px 0;font-size:0.9em;">Partilha por tributo</h4>
+        <table class="das-tabela">
+          <thead><tr><th>Tributo</th><th style="text-align:right;">Valor</th></tr></thead>
+          <tbody>${linhasTrib || '<tr><td colspan="2" style="color:var(--text-2);text-align:center;">—</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin-top:12px;color:var(--text-2);font-size:0.88em;">
+      Vencimento: <strong style="color:var(--text-0);">${apAtual.dataVencimento || '—'}</strong>
+      ${apAtual.dataPagamento ? ` · Pago em ${apAtual.dataPagamento}` : ''}
+    </div>
+  `;
+}
+
+function renderAcoes(){
+  const el = document.getElementById('acoes');
+  if (!apAtual) { el.innerHTML = ''; return; }
+  const botoes = [];
+  if (apAtual.status === 'rascunho' || apAtual.status === 'reaberta') {
+    botoes.push('<button class="btn btn-primary" onclick="salvarEdicao()">💾 Salvar ajustes</button>');
+    botoes.push('<button class="btn btn-secondary" onclick="fecharApuracao()">🔒 Fechar apuração</button>');
+  }
+  if (apAtual.status === 'fechada') {
+    botoes.push('<button class="btn btn-secondary" onclick="reabrirApuracao()">↩️ Reabrir</button>');
+    botoes.push('<button class="btn btn-primary" onclick="marcarPaga()">✓ Marcar como paga</button>');
+  }
+  el.innerHTML = botoes.join('');
+}
+
+async function gerarApuracao(){
+  const comp = val('fCompetencia');
+  if (!comp) return showAlert('Selecione uma competência', 'error');
+  try {
+    const body = { folha12m: parseFloat(val('iFolha12m')) || 0 };
+    const r = await fetch('/api/fiscal/apuracao/' + comp + '/gerar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    apAtual = d.apuracao;
+    renderApuracao();
+    carregarTimeline();
+    showAlert('Apuração gerada');
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function salvarEdicao(){
+  const comp = val('fCompetencia');
+  try {
+    const body = {
+      rbt12: parseFloat(val('iRbt12')) || 0,
+      folha12m: parseFloat(val('iFolha12m')) || 0,
+      receitaAnexoI: parseFloat(val('rAnexoI')) || 0,
+      receitaAnexoII: parseFloat(val('rAnexoII')) || 0,
+      receitaAnexoIII: parseFloat(val('rAnexoIII')) || 0,
+      receitaAnexoIV: parseFloat(val('rAnexoIV')) || 0,
+      receitaAnexoV: parseFloat(val('rAnexoV')) || 0
+    };
+    const r = await fetch('/api/fiscal/apuracao/' + comp, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    apAtual = d.apuracao;
+    renderApuracao();
+    carregarTimeline();
+    showAlert('Apuração atualizada');
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function fecharApuracao(){
+  if (!confirm('Fechar apuração de ' + val('fCompetencia') + '? Os números ficarão congelados.')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao/' + val('fCompetencia') + '/fechar', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    apAtual = d.apuracao;
+    renderApuracao();
+    carregarTimeline();
+    showAlert('Apuração fechada');
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function reabrirApuracao(){
+  if (!confirm('Reabrir apuração de ' + val('fCompetencia') + '?')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao/' + val('fCompetencia') + '/reabrir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregarCompetencia();
+    carregarTimeline();
+    showAlert('Apuração reaberta');
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function marcarPaga(){
+  const data = prompt('Data do pagamento (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+  if (!data) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao/' + val('fCompetencia') + '/marcar-paga', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataPagamento: data })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregarCompetencia();
+    carregarTimeline();
+    showAlert('Marcada como paga');
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function carregarTimeline(){
+  try {
+    const r = await fetch('/api/fiscal/apuracoes?limit=12');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const tb = document.getElementById('tbTimeline');
+    if (!d.apuracoes.length) {
+      tb.innerHTML = '<tr><td colspan="5" style="color:var(--text-2);text-align:center;padding:14px;">Nenhuma apuração registrada ainda.</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.apuracoes.map(a => `
+      <tr onclick="setVal('fCompetencia','${a.competencia}');carregarCompetencia();">
+        <td>${a.competencia}</td>
+        <td><span class="status-badge ${a.status}">${a.status}</span></td>
+        <td class="num">R$ ${fmt(a.rbt12)}</td>
+        <td class="num">R$ ${fmt(a.dasTotal)}</td>
+        <td class="num">${a.dataVencimento || '—'}</td>
+      </tr>
+    `).join('');
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function abrirTabelas(){
+  try {
+    await carregarTabelas();
+    document.getElementById('modalTabelas').classList.add('open');
+    renderTabelas();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+function fecharTabelas(){ document.getElementById('modalTabelas').classList.remove('open'); }
+
+function renderTabelas(){
+  const anexo = val('selAnexo');
+  const faixas = tabelas[anexo] || [];
+  const box = document.getElementById('tabelaAliquotas');
+  if (!faixas.length) { box.innerHTML = '<p style="color:var(--text-2);">Sem dados.</p>'; return; }
+  const tributos = Object.keys(faixas[0].partilhaTributos);
+  let html = `<table class="das-tabela"><thead><tr>
+    <th>Faixa</th>
+    <th style="text-align:right;">Receita min.</th>
+    <th style="text-align:right;">Receita max.</th>
+    <th style="text-align:right;">Alíquota</th>
+    <th style="text-align:right;">Deduzir</th>
+    ${tributos.map(t => `<th style="text-align:right;">${t} %</th>`).join('')}
+  </tr></thead><tbody>`;
+  for (const f of faixas) {
+    html += `<tr>
+      <td>${f.faixa}</td>
+      <td class="num">R$ ${fmt(f.receitaMin)}</td>
+      <td class="num">R$ ${fmt(f.receitaMax)}</td>
+      <td class="num">${Number(f.aliquotaNominal).toFixed(2).replace('.',',')}%</td>
+      <td class="num">R$ ${fmt(f.parcelaDeduzir)}</td>
+      ${tributos.map(t => `<td class="num">${Number(f.partilhaTributos[t]||0).toFixed(2).replace('.',',')}</td>`).join('')}
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  box.innerHTML = html;
+}
+
+// Bootstrap
+(async function init(){
+  setVal('fCompetencia', hojeMesAtual());
+  await carregarTimeline();
+  await carregarCompetencia();
+})();
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modalTabelas').classList.contains('open')) fecharTabelas();
+});
+</script>
+</body>
+</html>

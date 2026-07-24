@@ -1,0 +1,921 @@
+/**
+ * nfse-routes.js — Endpoints REST para NFS-e Nacional
+ *
+ * Padrão: registrarRotasNfse(app, db)
+ *
+ * Uso no server.js:
+ *   const { registrarRotasNfse, emitirNfseInterno, carregarCertificado, getConfig, dataBrasilia } = require('./nfse-routes');
+ *   registrarRotasNfse(app, db);
+ */
+
+const { gerarIdDps, construirDPS, assinarDPS, construirEventoCancelamento, assinarEvento, extrairChavesCertificado } = require('./nfse-xml');
+const { NfseClient } = require('./nfse-client');
+const { MercadoPagoClient, loadMPConfig } = require('./mercadopago-client');
+const { enviarEmailNfse, enviarEmailCancelamento, loadSmtpConfig } = require('./email-client');
+
+/** Data atual em Brasilia (UTC-3) no formato YYYY-MM-DD */
+function dataBrasilia() {
+  const now = new Date();
+  const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  return brt.toISOString().slice(0, 10);
+}
+
+/**
+ * Migracao inline — cria tabelas nfse e nfse_config se nao existem
+ */
+function migrarDB(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS nfse (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      idDps TEXT,
+      serie TEXT,
+      nDPS INTEGER,
+      tpAmb INTEGER DEFAULT 2,
+      chaveAcesso TEXT,
+      nNFSe TEXT,
+      tomadorCpfCnpj TEXT,
+      tomadorRazaoSocial TEXT,
+      tomadorEndereco TEXT,
+      codigoTributacaoNacional TEXT,
+      descricaoServico TEXT,
+      valorServico REAL,
+      dataCompetencia TEXT,
+      status TEXT DEFAULT 'processando',
+      xmlEnvio TEXT,
+      xmlRetorno TEXT,
+      motivoCancelamento TEXT,
+      dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+      dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS nfse_config (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
+  // Valores padrao
+  const insert = db.prepare('INSERT OR IGNORE INTO nfse_config (key, value) VALUES (?, ?)');
+  insert.run('ambiente', '2');        // Homologacao por padrao
+  insert.run('serie', '1');
+  insert.run('cod_municipio', '');
+  insert.run('proximo_numero', '1');
+
+  console.log('[NFSe] Tabelas verificadas/criadas');
+}
+
+/**
+ * Carrega certificado digital do banco de dados
+ */
+function carregarCertificado(db) {
+  const cert = db.prepare(
+    'SELECT certificadoBase64, senhaCriptografada, titular, validade FROM certificado_digital WHERE id = 1'
+  ).get();
+
+  if (!cert) {
+    throw new Error('Certificado digital não configurado. Configure em Dados do Fornecedor.');
+  }
+
+  const p12Buffer = Buffer.from(cert.certificadoBase64, 'base64');
+  const senha = Buffer.from(cert.senhaCriptografada, 'base64').toString();
+
+  return { p12Buffer, senha, titular: cert.titular, validade: cert.validade };
+}
+
+/**
+ * Obtem e incrementa atomicamente o proximo numero de DPS (NFSE-C01)
+ * Envolvido em transaction para evitar race condition entre SELECT e UPDATE
+ * que produziria nDPS duplicado ou gap na numeracao fiscal.
+ */
+function proximoNumeroDPS(db) {
+  const fn = db.transaction(() => {
+    const row = db.prepare("SELECT value FROM nfse_config WHERE key = 'proximo_numero'").get();
+    const numero = parseInt(row?.value || '1', 10);
+    db.prepare("UPDATE nfse_config SET value = ? WHERE key = 'proximo_numero'").run(String(numero + 1));
+    return numero;
+  });
+  return fn();
+}
+
+/**
+ * Obtem valor de config NFSe
+ */
+function getConfig(db, key) {
+  const row = db.prepare('SELECT value FROM nfse_config WHERE key = ?').get(key);
+  return row?.value || '';
+}
+
+/**
+ * Define valor de config NFSe
+ */
+function setConfig(db, key, value) {
+  db.prepare('INSERT OR REPLACE INTO nfse_config (key, value) VALUES (?, ?)').run(key, String(value));
+}
+
+// ==================== ENVIO DE EMAIL (reusavel) ====================
+
+/**
+ * Envia email de NFSe com DANFSE PDF e boleto (se houver).
+ * Busca dados no banco a partir do nfseId.
+ *
+ * @returns {object} { success, skipped, reason, erro }
+ */
+async function enviarEmailNfsePorId(db, nfseId, opts = {}) {
+  const nota = db.prepare('SELECT * FROM nfse WHERE id = ?').get(nfseId);
+  if (!nota) return { success: false, erro: 'NFSe nao encontrada' };
+  if (nota.status !== 'autorizada') return { success: false, skipped: true, reason: 'NFSe nao autorizada' };
+  if (!loadSmtpConfig(db)) return { success: false, skipped: true, reason: 'SMTP nao configurado' };
+
+  const cpfLimpo = (nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+  const pessoa = cpfLimpo ? db.prepare('SELECT email, emailsAdicionais FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+  const toEmail = opts.to || pessoa?.email;
+  if (!toEmail) return { success: false, skipped: true, reason: 'Sem email do tomador' };
+
+  const ccList = pessoa?.emailsAdicionais
+    ? pessoa.emailsAdicionais.split(',').map(e => e.trim()).filter(Boolean)
+    : [];
+
+  let pdfBuffer = null;
+  if (nota.chaveAcesso) {
+    try {
+      const { p12Buffer, senha } = carregarCertificado(db);
+      const client = new NfseClient(p12Buffer, senha, nota.tpAmb);
+      const { gerarDanfseDeGzipB64 } = require('./danfse-pdf');
+      const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+      const pessoaCompleta = cpfLimpo ? db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+      const xmlResp = await client.consultarNfse(nota.chaveAcesso);
+      if (xmlResp?.nfseXmlGZipB64) {
+        pdfBuffer = await gerarDanfseDeGzipB64(xmlResp.nfseXmlGZipB64, { fornecedor, pessoa: pessoaCompleta });
+      }
+    } catch (pdfErr) {
+      console.error('[NFSe email] Erro ao gerar DANFSE:', pdfErr.message);
+    }
+  }
+
+  let boletoWritableLine = null;
+  let boletoUrl = null;
+  const conta = db.prepare('SELECT id FROM contas_a_receber WHERE nfseId = ?').get(nfseId);
+  if (conta) {
+    const boleto = db.prepare('SELECT writableLine, externalUrl FROM boletos WHERE contaReceberId = ? ORDER BY id DESC LIMIT 1').get(conta.id);
+    boletoWritableLine = boleto?.writableLine || null;
+    boletoUrl = boleto?.externalUrl || null;
+  }
+
+  try {
+    await enviarEmailNfse(db, {
+      to: toEmail,
+      cc: ccList.length ? ccList.join(', ') : undefined,
+      nfseNumero: nota.nNFSe || nota.nDPS || '',
+      descricao: nota.descricaoServico || '',
+      valor: nota.valorServico,
+      competencia: nota.dataCompetencia || '',
+      pdfBuffer,
+      boletoWritableLine,
+      boletoUrl,
+    });
+    return { success: true, temPdf: !!pdfBuffer, temBoleto: !!boletoWritableLine };
+  } catch (err) {
+    return { success: false, erro: err.message };
+  }
+}
+
+// ==================== EMISSAO INTERNA (reusavel) ====================
+
+/**
+ * Emite NFSe internamente (sem HTTP). Usado pelo handler e pelo scheduler de recorrencias.
+ *
+ * @param {object} db - instancia better-sqlite3
+ * @param {object} params - { tomador, servico, competencia, incluirIM, opSimpNac, regEspTrib, pTotTribSN, gerarBoleto, dataVencimentoBoleto }
+ * @returns {object} { success, nfse: { id, idDps, nDPS, serie, chaveAcesso, nNFSe, status, resposta }, conta, boleto, error }
+ */
+async function emitirNfseInterno(db, params) {
+  const { tomador, servico, competencia, incluirIM, opSimpNac, regEspTrib, pTotTribSN, gerarBoleto, dataVencimentoBoleto, enviarEmail } = params;
+
+  // Validacoes
+  if (!tomador || !tomador.cpfCnpj || !tomador.razaoSocial) {
+    return { success: false, error: 'Dados do tomador obrigatorios (cpfCnpj, razaoSocial)' };
+  }
+  if (!servico || !servico.codigoTributacaoNacional || !servico.descricao || !servico.valorServico) {
+    return { success: false, error: 'Dados do servico obrigatorios (codigoTributacaoNacional, descricao, valorServico)' };
+  }
+
+  // Carregar dados
+  const ambiente = parseInt(getConfig(db, 'ambiente') || '2', 10);
+  const serie = getConfig(db, 'serie') || 'NFSE';
+  const codMunicipio = getConfig(db, 'cod_municipio');
+
+  if (!codMunicipio) {
+    return { success: false, error: 'Codigo do municipio nao configurado' };
+  }
+
+  const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+  if (!fornecedor || !fornecedor.cnpj) {
+    return { success: false, error: 'Dados do fornecedor nao cadastrados' };
+  }
+
+  // Certificado
+  const { p12Buffer, senha } = carregarCertificado(db);
+  const { privateKeyPem, certDerBase64 } = extrairChavesCertificado(p12Buffer, senha);
+
+  // Numero DPS (atomico)
+  const nDPS = proximoNumeroDPS(db);
+
+  // ID da DPS
+  const idDps = gerarIdDps(codMunicipio, fornecedor.cnpj, serie, nDPS);
+
+  // Construir XML
+  const dados = {
+    idDps,
+    tpAmb: ambiente,
+    serie,
+    nDPS,
+    competencia: competencia || dataBrasilia(),
+    prestador: {
+      cnpj: fornecedor.cnpj,
+      inscricaoMunicipal: (incluirIM === false) ? '' : (fornecedor.inscricaoMunicipal || ''),
+      codigoMunicipio: codMunicipio,
+      opSimpNac: opSimpNac || 3,
+      regEspTrib: regEspTrib || 0,
+    },
+    tomador: {
+      cpfCnpj: tomador.cpfCnpj,
+      razaoSocial: tomador.razaoSocial,
+      inscricaoMunicipal: tomador.inscricaoMunicipal,
+      email: tomador.email,
+      endereco: tomador.endereco || null,
+    },
+    servico: {
+      codigoTributacaoNacional: servico.codigoTributacaoNacional,
+      codigoListaServico: servico.codigoListaServico,
+      descricao: servico.descricao,
+      valorServico: servico.valorServico,
+      valorDeducoes: servico.valorDeducoes,
+      aliquota: servico.aliquota,
+      codigoMunicipioPrestacao: servico.codigoMunicipioPrestacao || codMunicipio,
+    },
+    pTotTribSN: pTotTribSN || null,
+  };
+
+  const dpsXml = construirDPS(dados);
+  console.log(`[NFSe] DPS construida: ${idDps}`);
+
+  // Assinar
+  const signedXml = assinarDPS(dpsXml, privateKeyPem, certDerBase64);
+  console.log(`[NFSe] DPS assinada com sucesso`);
+
+  // Salvar no banco antes de enviar (status = processando)
+  const insertStmt = db.prepare(`
+    INSERT INTO nfse (idDps, serie, nDPS, tpAmb, tomadorCpfCnpj, tomadorRazaoSocial,
+      tomadorEndereco, codigoTributacaoNacional, descricaoServico, valorServico,
+      dataCompetencia, status, xmlEnvio)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processando', ?)
+  `);
+
+  const result = insertStmt.run(
+    idDps, serie, nDPS, ambiente,
+    tomador.cpfCnpj, tomador.razaoSocial,
+    tomador.endereco ? JSON.stringify(tomador.endereco) : null,
+    servico.codigoTributacaoNacional, servico.descricao,
+    servico.valorServico,
+    competencia || dataBrasilia(),
+    signedXml
+  );
+  const nfseId = result.lastInsertRowid;
+
+  // Enviar para SEFIN
+  try {
+    const client = new NfseClient(p12Buffer, senha, ambiente);
+    const resposta = await client.emitirNfse(signedXml);
+
+    console.log(`[NFSe] Resposta SEFIN:`, JSON.stringify(resposta).substring(0, 500));
+
+    // Atualizar com resposta
+    const chaveAcesso = resposta.chaveAcesso || resposta.chNFSe || '';
+    const nNFSe = resposta.nNFSe || resposta.numero || '';
+    const status = chaveAcesso ? 'autorizada' : (resposta.motivo ? 'rejeitada' : 'processando');
+
+    db.prepare(`
+      UPDATE nfse SET chaveAcesso = ?, nNFSe = ?, status = ?, xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(chaveAcesso, nNFSe, status, JSON.stringify(resposta), nfseId);
+
+    // Integracao Financeiro: sempre gerar pessoa + conta a receber; boleto so se pedido
+    let contaCriada = null;
+    let boletoCriado = null;
+    if (status === 'autorizada') {
+      try {
+        const cpfLimpo = tomador.cpfCnpj.replace(/\D/g, '');
+        const tipoPessoa = cpfLimpo.length <= 11 ? 'PF' : 'PJ';
+
+        // Busca ou cria pessoa
+        let pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo);
+        if (!pessoa) {
+          const endJson = tomador.endereco || {};
+          db.prepare(`INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, inscricaoMunicipal,
+            endereco, numero, complemento, bairro, codigoMunicipio, uf, cep, email)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(cpfLimpo, tipoPessoa, tomador.razaoSocial, tomador.inscricaoMunicipal || null,
+            endJson.logradouro || null, endJson.numero || null, endJson.complemento || null,
+            endJson.bairro || null, endJson.codigoMunicipio || null, endJson.uf || null,
+            endJson.cep || null, tomador.email || null);
+          pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo);
+        } else if (!pessoa.ativo) {
+          db.prepare('UPDATE pessoas SET ativo = 1, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(pessoa.id);
+        }
+
+        const valor = servico.valorServico;
+        const dataVenc = dataVencimentoBoleto || dataBrasilia();
+        const descConta = `NFSe ${nNFSe || nDPS} - ${servico.descricao}`.substring(0, 200);
+
+        // Criar conta a receber (sempre)
+        const formaPgto = gerarBoleto ? 'boleto' : 'outros';
+        const contaId = db.prepare(`INSERT INTO contas_a_receber
+          (pessoaId, nfseId, descricao, valor, dataEmissao, dataVencimento, formaPagamento)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(pessoa.id, nfseId, descConta, valor, dataBrasilia(), dataVenc, formaPgto).lastInsertRowid;
+
+        contaCriada = { id: contaId };
+        console.log(`[NFSe->Financeiro] Conta #${contaId} criada para NFSe #${nfseId}`);
+
+        // Criar boleto apenas se solicitado
+        if (gerarBoleto) {
+          const amountCentavos = Math.round(valor * 100);
+          const boletoId = db.prepare(`INSERT INTO boletos
+            (contaReceberId, amount, expirationDate, customerDocument, customerName)
+            VALUES (?, ?, ?, ?, ?)`
+          ).run(contaId, amountCentavos, dataVenc, cpfLimpo, tomador.razaoSocial).lastInsertRowid;
+
+          boletoCriado = { id: boletoId, status: 'pendente' };
+
+          // Tenta emitir no MercadoPago (nao-fatal)
+          const mpConfig = loadMPConfig(db);
+          if (mpConfig) {
+            try {
+              const mpClient = new MercadoPagoClient(mpConfig);
+              const mpResp = await mpClient.criarBoleto({
+                amount: valor, expirationDate: dataVenc,
+                customerDocument: cpfLimpo, customerName: tomador.razaoSocial,
+                customerEmail: tomador.email || 'pagador@email.com',
+                description: descConta,
+                address: { cep: pessoa.cep, endereco: pessoa.endereco, numero: pessoa.numero, bairro: pessoa.bairro, cidade: pessoa.cidade, uf: pessoa.uf },
+                nfseNumero: nNFSe || nDPS, competencia,
+              });
+              db.prepare(`UPDATE boletos SET mpId = ?, barcode = ?, writableLine = ?,
+                externalUrl = ?, status = 'registrado', mpResponse = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
+              ).run(mpResp.id, mpResp.barcode, mpResp.writable_line, mpResp.external_resource_url, JSON.stringify(mpResp.raw), boletoId);
+              boletoCriado.status = 'registrado';
+            } catch (mpErr) {
+              console.error('[NFSe->Boleto] Erro MercadoPago (nao-fatal):', mpErr.message);
+              db.prepare('UPDATE boletos SET erroMensagem = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
+                .run(mpErr.message, boletoId);
+            }
+          }
+
+          console.log(`[NFSe->Boleto] Boleto #${boletoId} criado para Conta #${contaId}`);
+        }
+      } catch (finErr) {
+        console.error('[NFSe->Financeiro] Erro ao criar financeiro (nao-fatal):', finErr.message);
+      }
+    }
+
+    let emailResult = null;
+    if (enviarEmail && status === 'autorizada') {
+      try {
+        emailResult = await enviarEmailNfsePorId(db, nfseId, { to: tomador.email });
+      } catch (emailErr) {
+        console.error('[NFSe] Erro envio email pos-emissao (nao-fatal):', emailErr.message);
+        emailResult = { success: false, erro: emailErr.message };
+      }
+    }
+
+    return {
+      success: true,
+      nfse: { id: nfseId, idDps, nDPS, serie, chaveAcesso, nNFSe, status, resposta },
+      conta: contaCriada,
+      boleto: boletoCriado,
+      email: emailResult,
+    };
+  } catch (sefinError) {
+    console.error(`[NFSe] Erro SEFIN:`, sefinError.message);
+
+    db.prepare(`
+      UPDATE nfse SET status = 'erro', xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(sefinError.message, nfseId);
+
+    return {
+      success: false,
+      error: `Erro ao enviar para SEFIN: ${sefinError.message}`,
+      nfse: { id: nfseId, idDps, nDPS, serie, status: 'erro' },
+    };
+  }
+}
+
+// ==================== REGISTRO DE ROTAS ====================
+
+function registrarRotasNfse(app, db) {
+  // Migrar banco
+  migrarDB(db);
+
+  // ---------- CONFIG ----------
+
+  // GET /api/nfse/config
+  app.get('/api/nfse/config', (req, res) => {
+    try {
+      const ambiente = getConfig(db, 'ambiente');
+      const serie = getConfig(db, 'serie');
+      const codMunicipio = getConfig(db, 'cod_municipio');
+      const proximoNumero = getConfig(db, 'proximo_numero');
+
+      const cert = db.prepare('SELECT titular, validade FROM certificado_digital WHERE id = 1').get();
+      const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+
+      res.json({
+        success: true,
+        config: { ambiente, serie, codMunicipio, proximoNumero },
+        certificado: cert ? { configurado: true, titular: cert.titular, validade: cert.validade } : { configurado: false },
+        prestador: fornecedor || null,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // POST /api/nfse/config
+  app.post('/api/nfse/config', (req, res) => {
+    try {
+      const { ambiente, serie, codMunicipio } = req.body;
+
+      if (ambiente !== undefined) {
+        if (![1, 2, '1', '2'].includes(ambiente)) {
+          return res.status(400).json({ success: false, error: 'Ambiente invalido (1=Producao, 2=Homologacao)' });
+        }
+        setConfig(db, 'ambiente', ambiente);
+      }
+      if (serie !== undefined) setConfig(db, 'serie', serie);
+      if (codMunicipio !== undefined) setConfig(db, 'cod_municipio', codMunicipio);
+
+      res.json({ success: true, message: 'Configuracao atualizada' });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/nfse/prestador
+  app.get('/api/nfse/prestador', (req, res) => {
+    try {
+      const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+      if (!fornecedor) {
+        return res.json({ success: true, prestador: null, message: 'Fornecedor nao cadastrado' });
+      }
+      res.json({ success: true, prestador: fornecedor });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ---------- EMISSAO (wrapper HTTP) ----------
+
+  app.post('/api/nfse/emitir', async (req, res) => {
+    try {
+      const resultado = await emitirNfseInterno(db, {
+        tomador: req.body.tomador,
+        servico: req.body.servico,
+        competencia: req.body.competencia,
+        incluirIM: req.body.incluirIM,
+        opSimpNac: req.body.opSimpNac,
+        regEspTrib: req.body.regEspTrib,
+        pTotTribSN: req.body.pTotTribSN,
+        gerarBoleto: req.body.gerarBoleto,
+        dataVencimentoBoleto: req.body.dataVencimentoBoleto,
+        enviarEmail: req.body.enviarEmail,
+      });
+
+      if (!resultado.success) {
+        const statusCode = resultado.nfse ? 502 : 400;
+        return res.status(statusCode).json(resultado);
+      }
+
+      res.json(resultado);
+    } catch (error) {
+      console.error('[NFSe] Erro na emissao:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ---------- LISTAGEM ----------
+
+  app.get('/api/nfse/lista', (req, res) => {
+    try {
+      const { status, busca, limite, dataInicio, dataFim } = req.query;
+      const lim = Math.min(parseInt(limite) || 50, 200);
+
+      let sql = 'SELECT id, idDps, serie, nDPS, tpAmb, chaveAcesso, nNFSe, tomadorCpfCnpj, tomadorRazaoSocial, codigoTributacaoNacional, descricaoServico, valorServico, dataCompetencia, status, dataCriacao, dataAtualizacao FROM nfse WHERE 1=1';
+      const params = [];
+
+      if (status) {
+        sql += ' AND status = ?';
+        params.push(status);
+      }
+
+      if (dataInicio) {
+        sql += ' AND dataCompetencia >= ?';
+        params.push(dataInicio);
+      }
+
+      if (dataFim) {
+        sql += ' AND dataCompetencia <= ?';
+        params.push(dataFim);
+      }
+
+      if (busca) {
+        sql += ' AND (tomadorRazaoSocial LIKE ? OR tomadorCpfCnpj LIKE ? OR nNFSe LIKE ? OR descricaoServico LIKE ?)';
+        const term = `%${busca}%`;
+        params.push(term, term, term, term);
+      }
+
+      sql += ' ORDER BY id DESC LIMIT ?';
+      params.push(lim);
+
+      const notas = db.prepare(sql).all(...params);
+
+      res.json({ success: true, notas, total: notas.length });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ---------- PARAMETROS MUNICIPAIS ----------
+
+  app.get('/api/nfse/parametros-municipais', async (req, res) => {
+    return handleParametrosMunicipais(req, res, '');
+  });
+
+  app.get('/api/nfse/parametros-municipais/:cod', async (req, res) => {
+    return handleParametrosMunicipais(req, res, req.params.cod);
+  });
+
+  async function handleParametrosMunicipais(req, res, cod) {
+    try {
+      cod = cod || getConfig(db, 'cod_municipio');
+      if (!cod) {
+        return res.status(400).json({ success: false, error: 'Codigo do municipio nao informado' });
+      }
+
+      const { p12Buffer, senha } = carregarCertificado(db);
+      const ambiente = parseInt(getConfig(db, 'ambiente') || '2', 10);
+      const client = new NfseClient(p12Buffer, senha, ambiente);
+
+      const parametros = await client.parametrosMunicipais(cod);
+
+      res.json({ success: true, codMunicipio: cod, parametros });
+    } catch (error) {
+      console.error('[NFSe] Erro parametros municipais:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // ---------- DETALHES ----------
+
+  app.get('/api/nfse/:id', (req, res) => {
+    try {
+      // NFSE-H04: whitelist de colunas — nao expor xmlEnvio (payload assinado
+      // completo, inclui certificado publico) nem outros campos sensiveis.
+      // xmlRetorno eh incluido porque o frontend exibe "Resposta SEFIN" nos
+      // detalhes; se desejar endurecer mais, criar rota separada com ACL.
+      const nota = db.prepare(`SELECT
+        id, idDps, serie, nDPS, tpAmb, chaveAcesso, nNFSe,
+        tomadorCpfCnpj, tomadorRazaoSocial, tomadorEndereco,
+        codigoTributacaoNacional, descricaoServico, valorServico,
+        dataCompetencia, status, xmlRetorno, motivoCancelamento,
+        dataCriacao, dataAtualizacao
+      FROM nfse WHERE id = ?`).get(req.params.id);
+      if (!nota) {
+        return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
+      }
+      res.json({ success: true, nota });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ---------- EXPORT ZIP ----------
+
+  app.get('/api/nfse/export-zip', async (req, res) => {
+    try {
+      const AdmZip = require('adm-zip');
+      const { dataInicio, dataFim, status, incluirPdf } = req.query;
+      let sql = `SELECT id, chaveAcesso, nNFSe, nDPS, serie, status, dataCompetencia, tomadorRazaoSocial, tomadorCpfCnpj, valorServico, descricaoServico, xmlEnvio, xmlRetorno, tpAmb FROM nfse WHERE 1=1`;
+      const params = [];
+      if (dataInicio) { sql += ' AND dataCompetencia >= ?'; params.push(dataInicio); }
+      if (dataFim)    { sql += ' AND dataCompetencia <= ?'; params.push(dataFim); }
+      if (status)     { sql += ' AND status = ?';           params.push(status); }
+      sql += ' ORDER BY dataCompetencia ASC, id ASC';
+      const notas = db.prepare(sql).all(...params);
+      if (!notas.length) return res.status(404).json({ success: false, error: 'Nenhuma NFSe encontrada no filtro' });
+
+      const zip = new AdmZip();
+      let client = null, gerarDanfseDeGzipB64 = null, fornecedor = null;
+      if (incluirPdf === '1') {
+        try {
+          const { p12Buffer, senha } = carregarCertificado(db);
+          client = new NfseClient(p12Buffer, senha, parseInt(getConfig(db, 'ambiente') || '2', 10));
+          gerarDanfseDeGzipB64 = require('./danfse-pdf').gerarDanfseDeGzipB64;
+          fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+        } catch (e) { console.error('[nfse export-zip] sem PDF:', e.message); }
+      }
+
+      for (const n of notas) {
+        const base = n.chaveAcesso || ('nfse-' + n.id);
+        if (n.xmlEnvio)   zip.addFile(`dps/${base}.xml`, Buffer.from(n.xmlEnvio, 'utf-8'));
+        if (n.xmlRetorno) zip.addFile(`retorno/${base}.xml`, Buffer.from(n.xmlRetorno, 'utf-8'));
+        if (client && n.chaveAcesso && n.status === 'autorizada') {
+          try {
+            const xmlResp = await client.consultarNfse(n.chaveAcesso);
+            if (xmlResp?.nfseXmlGZipB64) {
+              const cpfLimpo = (n.tomadorCpfCnpj || '').replace(/\D/g, '');
+              const pessoa = cpfLimpo ? db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+              const pdfBuf = await gerarDanfseDeGzipB64(xmlResp.nfseXmlGZipB64, { fornecedor, pessoa });
+              zip.addFile(`danfse/${base}.pdf`, Buffer.from(pdfBuf));
+            }
+          } catch (e) { console.error('[nfse export-zip] DANFSE', n.id, e.message); }
+        }
+      }
+
+      const lines = ['nNFSe;serie;dataCompetencia;status;tomador;cpfCnpj;valor;descricao;chaveAcesso'];
+      for (const n of notas) lines.push([
+        n.nNFSe||'', n.serie||'', n.dataCompetencia||'', n.status||'',
+        (n.tomadorRazaoSocial||'').replace(/[;\n]/g,' '),
+        n.tomadorCpfCnpj||'', n.valorServico||'',
+        (n.descricaoServico||'').replace(/[;\n]/g,' ').slice(0,200),
+        n.chaveAcesso||''
+      ].join(';'));
+      zip.addFile('manifesto.csv', Buffer.from(lines.join('\n'), 'utf-8'));
+
+      const filename = `nfse-${dataInicio||'todos'}_${dataFim||'todos'}.zip`;
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(zip.toBuffer());
+    } catch (err) {
+      res.status(500).json({ success: false, error: String(err.message || err) });
+    }
+  });
+
+  // ---------- DANFSE ----------
+
+  app.get('/api/nfse/:id/danfse', async (req, res) => {
+    try {
+      const nota = db.prepare('SELECT chaveAcesso, tpAmb, tomadorCpfCnpj FROM nfse WHERE id = ?').get(req.params.id);
+      if (!nota) {
+        return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
+      }
+      if (!nota.chaveAcesso) {
+        return res.status(400).json({ success: false, error: 'Nota sem chave de acesso (nao autorizada)' });
+      }
+
+      const { p12Buffer, senha } = carregarCertificado(db);
+      const client = new NfseClient(p12Buffer, senha, nota.tpAmb);
+
+      // Buscar dados complementares do banco para preencher campos vazios no PDF
+      const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+      const cpfLimpo = (nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+      const pessoa = cpfLimpo ? db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+      const dadosComplementares = { fornecedor, pessoa };
+
+      // Gerar PDF local a partir do XML da SEFIN (com dados complementados)
+      const { gerarDanfseDeGzipB64 } = require('./danfse-pdf');
+
+      // Buscar XML da NFSe na SEFIN
+      const xmlResp = await client.consultarNfse(nota.chaveAcesso);
+      if (xmlResp && xmlResp.nfseXmlGZipB64) {
+        const pdfBuffer = await gerarDanfseDeGzipB64(xmlResp.nfseXmlGZipB64, dadosComplementares);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="DANFSE_${nota.chaveAcesso}.pdf"`);
+        return res.send(pdfBuffer);
+      }
+
+      // Fallback: tentar PDF oficial da SEFIN
+      const pdfBuffer = await client.downloadDanfse(nota.chaveAcesso);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="DANFSE_${nota.chaveAcesso}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error('[NFSe] Erro ao baixar DANFSE:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ---------- CANCELAMENTO ----------
+
+  app.post('/api/nfse/:id/cancelar', async (req, res) => {
+    try {
+      const { motivo, codigoMotivo } = req.body;
+      if (!motivo || motivo.length < 15) {
+        return res.status(400).json({ success: false, error: 'Motivo obrigatorio (minimo 15 caracteres)' });
+      }
+
+      const nota = db.prepare('SELECT id, chaveAcesso, tpAmb, status, nNFSe, nDPS, descricaoServico, valorServico, dataCompetencia, tomadorCpfCnpj FROM nfse WHERE id = ?').get(req.params.id);
+      if (!nota) {
+        return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
+      }
+      if (nota.status === 'cancelada') {
+        return res.status(400).json({ success: false, error: 'Nota ja cancelada' });
+      }
+      if (!nota.chaveAcesso) {
+        return res.status(400).json({ success: false, error: 'Nota sem chave de acesso' });
+      }
+
+      const { p12Buffer, senha } = carregarCertificado(db);
+      const { privateKeyPem, certDerBase64 } = extrairChavesCertificado(p12Buffer, senha);
+
+      // CNPJ do prestador (autor do evento)
+      const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+      if (!fornecedor || !fornecedor.cnpj) {
+        return res.status(400).json({ success: false, error: 'Dados do fornecedor nao cadastrados' });
+      }
+
+      // Construir e assinar XML do evento de cancelamento
+      const codMotivo = parseInt(codigoMotivo) || 1;
+      const eventoXml = construirEventoCancelamento({
+        chaveAcesso: nota.chaveAcesso,
+        tpAmb: nota.tpAmb,
+        nSeqEvento: 1,
+        codigoMotivo: codMotivo,
+        justificativa: motivo,
+        cnpjAutor: fornecedor.cnpj || '',
+      });
+      console.log(`[NFSe] Evento cancelamento XML construido`);
+
+      const signedXml = assinarEvento(eventoXml, privateKeyPem, certDerBase64);
+      console.log(`[NFSe] Evento cancelamento assinado`);
+
+      const client = new NfseClient(p12Buffer, senha, nota.tpAmb);
+      const resposta = await client.cancelarNfse(signedXml, nota.chaveAcesso);
+      console.log(`[NFSe] Cancelamento resposta:`, JSON.stringify(resposta).substring(0, 300));
+
+      // Atualizar NFSe
+      db.prepare(`
+        UPDATE nfse SET status = 'cancelada', motivoCancelamento = ?, xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(motivo, JSON.stringify(resposta), nota.id);
+
+      // Cancelar conta a receber e boleto associados
+      const conta = db.prepare('SELECT id FROM contas_a_receber WHERE nfseId = ? AND status != ?').get(nota.id, 'cancelada');
+      if (conta) {
+        db.prepare("UPDATE contas_a_receber SET status = 'cancelada', observacoes = COALESCE(observacoes || ' | ', '') || 'Cancelada por cancelamento NFSe', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?")
+          .run(conta.id);
+        console.log(`[NFSe] Conta a receber #${conta.id} cancelada`);
+
+        const boleto = db.prepare('SELECT id FROM boletos WHERE contaReceberId = ? AND status != ?').get(conta.id, 'cancelado');
+        if (boleto) {
+          db.prepare("UPDATE boletos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?")
+            .run(boleto.id);
+          console.log(`[NFSe] Boleto #${boleto.id} cancelado`);
+        }
+      }
+
+      // Enviar email de cancelamento ao tomador
+      let emailStatus = 'nao';
+      try {
+        const cpfLimpo = (nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+        const pessoa = cpfLimpo ? db.prepare('SELECT email, emailsAdicionais FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+
+        if (pessoa && pessoa.email && loadSmtpConfig(db)) {
+          const ccList = pessoa.emailsAdicionais
+            ? pessoa.emailsAdicionais.split(',').map(e => e.trim()).filter(Boolean)
+            : [];
+
+          await enviarEmailCancelamento(db, {
+            to: pessoa.email,
+            cc: ccList.length ? ccList.join(', ') : undefined,
+            nfseNumero: nota.nNFSe || nota.nDPS || '',
+            descricao: nota.descricaoServico || '',
+            valor: nota.valorServico,
+            competencia: nota.dataCompetencia || '',
+            motivo,
+          });
+          emailStatus = 'sim';
+        }
+      } catch (emailErr) {
+        console.error(`[NFSe] Erro email cancelamento:`, emailErr.message);
+        emailStatus = 'erro';
+      }
+
+      res.json({ success: true, message: 'Nota cancelada com sucesso', emailEnviado: emailStatus, resposta });
+    } catch (error) {
+      console.error('[NFSe] Erro ao cancelar:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ---------- COMPARTILHAR WHATSAPP ----------
+
+  app.get('/api/nfse/:id/compartilhar', (req, res) => {
+    try {
+      const nota = db.prepare('SELECT * FROM nfse WHERE id = ?').get(req.params.id);
+      if (!nota) return res.status(404).json({ success: false, error: 'NFSe nao encontrada' });
+
+      const cpfLimpo = (nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+      const pessoa = cpfLimpo ? db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo) : null;
+
+      const conta = db.prepare('SELECT id, descricao FROM contas_a_receber WHERE nfseId = ?').get(nota.id);
+      const boleto = conta
+        ? db.prepare('SELECT writableLine, externalUrl, expirationDate, amount FROM boletos WHERE contaReceberId = ? ORDER BY id DESC LIMIT 1').get(conta.id)
+        : null;
+
+      const valorFmt = 'R$ ' + Number(nota.valorServico || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+      const compFmt = nota.dataCompetencia ? nota.dataCompetencia.split('-').reverse().join('/') : '';
+
+      let texto = `*Nota Fiscal de Serviço*\n`;
+      if (nota.nNFSe) texto += `NFSe: ${nota.nNFSe}\n`;
+      texto += `Descrição: ${nota.descricaoServico || '-'}\n`;
+      texto += `Valor: *${valorFmt}*\n`;
+      if (compFmt) texto += `Competência: ${compFmt}\n`;
+      if (nota.chaveAcesso) texto += `Chave de acesso: ${nota.chaveAcesso}\n`;
+
+      if (boleto && (boleto.writableLine || boleto.externalUrl)) {
+        texto += `\n*Dados para pagamento*\n`;
+        if (boleto.expirationDate) texto += `Vencimento: ${boleto.expirationDate.split('-').reverse().join('/')}\n`;
+        if (boleto.writableLine) texto += `\nLinha Digitável:\n${boleto.writableLine}\n`;
+        if (boleto.externalUrl) texto += `\nBoleto PDF:\n${boleto.externalUrl}\n`;
+      }
+
+      texto += `\n(A DANFSE em PDF foi enviada por e-mail)`;
+
+      res.json({
+        success: true,
+        texto,
+        telefone: pessoa?.telefone || '',
+        pessoaNome: pessoa?.razaoSocial || nota.tomadorRazaoSocial || '',
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ---------- ENVIO MANUAL DE EMAIL ----------
+
+  app.post('/api/nfse/:id/enviar-email', async (req, res) => {
+    try {
+      const result = await enviarEmailNfsePorId(db, req.params.id, { to: req.body?.to });
+      if (!result.success) {
+        return res.status(result.skipped ? 400 : 500).json(result);
+      }
+      res.json(result);
+    } catch (error) {
+      console.error('[NFSe] Erro envio email:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ---------- EMAIL LOG ----------
+
+  app.get('/api/email-log', (req, res) => {
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS email_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL DEFAULT 'nfse',
+        destinatario TEXT NOT NULL,
+        assunto TEXT,
+        nfseNumero TEXT,
+        descricao TEXT,
+        valor REAL,
+        competencia TEXT,
+        temPdf INTEGER DEFAULT 0,
+        temBoleto INTEGER DEFAULT 0,
+        messageId TEXT,
+        status TEXT NOT NULL DEFAULT 'enviado',
+        erro TEXT,
+        dataEnvio TEXT DEFAULT (datetime('now'))
+      )`);
+
+      const { tipo, status, busca, dataInicio, dataFim, limite } = req.query;
+      const lim = Math.min(parseInt(limite) || 100, 500);
+
+      let sql = 'SELECT id, tipo, destinatario, assunto, nfseNumero, descricao, valor, competencia, temPdf, temBoleto, messageId, status, erro, dataEnvio FROM email_log WHERE 1=1';
+      const params = [];
+
+      if (tipo)        { sql += ' AND tipo = ?';          params.push(tipo); }
+      if (status)      { sql += ' AND status = ?';        params.push(status); }
+      if (dataInicio)  { sql += ' AND dataEnvio >= ?';    params.push(dataInicio + ' 00:00:00'); }
+      if (dataFim)     { sql += ' AND dataEnvio <= ?';    params.push(dataFim + ' 23:59:59'); }
+      if (busca) {
+        sql += ' AND (destinatario LIKE ? OR assunto LIKE ? OR nfseNumero LIKE ? OR descricao LIKE ?)';
+        const term = `%${busca}%`;
+        params.push(term, term, term, term);
+      }
+
+      sql += ' ORDER BY id DESC LIMIT ?';
+      params.push(lim);
+
+      const logs = db.prepare(sql).all(...params);
+      res.json({ success: true, logs, total: logs.length });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  console.log('[NFSe] Rotas registradas');
+}
+
+module.exports = { registrarRotasNfse, emitirNfseInterno, carregarCertificado, getConfig, dataBrasilia };

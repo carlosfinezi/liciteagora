@@ -10,9 +10,9 @@
 // NFSE-M06 onda 6.30 (2026-04-20): sendNotificacao foi migrado para cá
 // também. Era o antigo enviarNotificacaoTelegram de server.js — envio
 // formatado HTML de notificação de chat de licitação (órgão, objeto,
-// remetente, palavras-chave, alerta CNPJ etc.). Consumidor externo é
-// extensao-chrome-routes.js, que recebe a função via opts a partir
-// de server.js. server.js agora mantém só um wrapper fino.
+// remetente, palavras-chave, alerta CNPJ etc.). Hoje é consumido só
+// pelo wrapper enviarTelegram em route-registry.js (o consumidor original,
+// extensao-chrome-routes, foi desativado em 2026-04-22).
 
 const axios = require('axios');
 

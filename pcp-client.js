@@ -74,8 +74,49 @@ async function fetchPcpHtml(db, url, { retryOnExpiry = true } = {}) {
   return r;
 }
 
-async function fetchWithJars(url, jars) {
+// POST form-urlencoded autenticado (mesma detecção de expiração do GET).
+async function postPcpForm(db, url, formStr, { retryOnExpiry = true, extraHeaders = {} } = {}) {
+  let jars = await ensureSession(db);
+  let r = await fetchWithJars(url, jars, { method: 'POST', body: formStr, extraHeaders });
+  const expirou =
+    r.finalUrl.includes('iam.secure.portaldecompraspublicas') ||
+    /\/loginext\/oauth/i.test(r.finalUrl) ||
+    /id="kc-form-login"|action="[^"]*login-actions\/authenticate/i.test(r.body);
+  if (expirou && retryOnExpiry) {
+    invalidate(db);
+    jars = await ensureSession(db);
+    r = await fetchWithJars(url, jars, { method: 'POST', body: formStr, extraHeaders });
+  }
+  return r;
+}
+
+// Status da sessão pro badge da UI (mirror de bnc-client.getSessionInfo).
+function getPcpSessionInfo(db) {
+  let usuario = null;
+  let configurado = false;
+  try {
+    const u = db.prepare("SELECT valor FROM config WHERE chave='pcp_usuario'").get();
+    const s = db.prepare("SELECT valor FROM config WHERE chave='pcp_senha'").get();
+    usuario = u?.valor || null;
+    configurado = !!(u?.valor && s?.valor);
+  } catch (e) {}
+  const cached = cache.get(dbKey(db));
+  const idadeMs = cached ? Date.now() - cached.capturedAt : null;
+  return {
+    configurado,
+    usuario,
+    sessaoAtiva: !!cached,
+    idadeMs,
+    expirando: idadeMs != null && idadeMs > SESSION_TTL_MS,
+  };
+}
+
+// GET (default) ou POST form-urlencoded. Numa resposta de redirect o método
+// vira GET e o body é descartado (comportamento de browser p/ 302/303).
+async function fetchWithJars(url, jars, { method = 'GET', body = null, extraHeaders = {} } = {}) {
   let cur = url;
+  let curMethod = method;
+  let curBody = body;
   let bodyBuf = null;
   let ct = '';
   let finalUrl = url;
@@ -85,14 +126,20 @@ async function fetchWithJars(url, jars) {
     const u = new URL(cur);
     if (!jars[u.host]) jars[u.host] = {};
 
+    const headers = {
+      'User-Agent': UA,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+      Cookie: jarToHeader(jars[u.host]),
+      ...extraHeaders,
+    };
+    if (curBody != null) {
+      headers['Content-Type'] = headers['Content-Type'] || 'application/x-www-form-urlencoded';
+    }
     const resp = await fetch(cur, {
-      method: 'GET',
-      headers: {
-        'User-Agent': UA,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-        Cookie: jarToHeader(jars[u.host]),
-      },
+      method: curMethod,
+      headers,
+      body: curBody != null ? curBody : undefined,
       redirect: 'manual',
     });
     status = resp.status;
@@ -103,6 +150,8 @@ async function fetchWithJars(url, jars) {
       const loc = resp.headers.get('location');
       if (!loc) break;
       cur = loc.startsWith('http') ? loc : new URL(loc, cur).toString();
+      curMethod = 'GET';
+      curBody = null;
       continue;
     }
 
@@ -113,8 +162,8 @@ async function fetchWithJars(url, jars) {
 
   // Decode conforme content-type. PCP envia iso-8859-1 nas páginas operacionais.
   const charset = /charset=([\w-]+)/i.exec(ct)?.[1]?.toLowerCase() || 'iso-8859-1';
-  const body = bodyBuf ? new TextDecoder(charset).decode(bodyBuf) : '';
-  return { status, body, finalUrl, ct };
+  const decoded = bodyBuf ? new TextDecoder(charset).decode(bodyBuf) : '';
+  return { status, body: decoded, finalUrl, ct };
 }
 
 // ----- parser de tabela #searchTableSorter (compartilhado entre Seus Pregões e Sessões Públicas) -----
@@ -249,6 +298,8 @@ module.exports = {
   listSeusPregoes,
   listSessoesPublicas,
   fetchPcpHtml,
+  postPcpForm,
+  getPcpSessionInfo,
   invalidate,
   // exposto pra testes
   parsePregaoTable,

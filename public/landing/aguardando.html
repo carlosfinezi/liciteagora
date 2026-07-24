@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Provisionando seu ambiente — Licite Agora</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/landing.css">
+</head>
+<body>
+
+<script src="/landing.js"></script>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo"><span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span><span>Licite Agora</span></a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <div class="waiting">
+      <div class="spinner" id="spinner"></div>
+      <h1 style="font-size:clamp(1.8rem,3vw,2.5rem);">Preparando <span class="gradient-text" id="slugLabel">seu ambiente</span>…</h1>
+      <p class="muted mt-3" id="progressMsg">Criando banco de dados isolado e gerando certificado SSL — isso leva entre 30 segundos e 2 minutos.</p>
+
+      <div class="progress-bar"><div class="fill" id="progressFill" style="width:15%;"></div></div>
+
+      <div class="glass mt-4" id="credsBox" style="text-align:left; display:none;">
+        <h3 style="margin-bottom:12px;">Suas credenciais de acesso</h3>
+        <p class="muted" style="font-size:var(--fs-sm);margin-bottom:16px;">Guarde em local seguro — essa senha não será mostrada novamente. Você poderá trocá-la no primeiro acesso.</p>
+
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-family:monospace;font-size:var(--fs-sm);">
+          <div class="muted">URL:</div>     <div><strong id="credUrl"></strong></div>
+          <div class="muted">Usuário:</div> <div><strong id="credUser"></strong></div>
+          <div class="muted">Senha:</div>   <div><strong id="credPass"></strong> <button type="button" onclick="copiarSenha()" style="background:none;border:1px solid var(--border);color:var(--text-2);padding:2px 10px;border-radius:6px;cursor:pointer;font-size:11px;margin-left:8px;">Copiar</button></div>
+          <div class="muted">Email:</div>   <div id="credEmail"></div>
+        </div>
+      </div>
+
+      <div id="readyBox" style="display:none;">
+        <h2 class="mt-4" style="color:var(--green);">✓ Tudo pronto!</h2>
+        <p class="muted mt-3">Redirecionando você para seu ambiente em 3 segundos…</p>
+        <a id="btnAcessar" href="#" class="btn btn-primary btn-xl mt-3">Acessar agora →</a>
+      </div>
+
+      <div id="failedBox" style="display:none;">
+        <h2 class="mt-4" style="color:var(--red);">Algo deu errado.</h2>
+        <p class="muted mt-3">Nosso time foi notificado automaticamente. Por favor entre em contato pelo email <a href="mailto:atendimento@1bit.net.br" style="color:var(--accent-soft);">atendimento@1bit.net.br</a> informando seu subdomínio.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+const params = new URLSearchParams(location.search);
+const slug = params.get('slug');
+if (!slug) { location.href = '/trial.html'; }
+
+const creds = (() => { try { return JSON.parse(sessionStorage.getItem('trialCreds') || '{}'); } catch (_) { return {}; } })();
+
+document.getElementById('slugLabel').textContent = `${slug}.liciteagora.app`;
+if (creds.username && creds.senha) {
+  document.getElementById('credsBox').style.display = 'block';
+  document.getElementById('credUrl').textContent = creds.subdomainUrl || `https://${slug}.liciteagora.app/`;
+  document.getElementById('credUser').textContent = creds.username;
+  document.getElementById('credPass').textContent = creds.senha;
+  document.getElementById('credEmail').textContent = creds.email || '—';
+  document.getElementById('btnAcessar').href = creds.subdomainUrl || `https://${slug}.liciteagora.app/`;
+}
+
+function copiarSenha() {
+  navigator.clipboard.writeText(creds.senha || '').then(() => {
+    const msg = document.createElement('div');
+    msg.textContent = '✓ Senha copiada';
+    msg.style.cssText = 'position:fixed;bottom:24px;right:24px;background:var(--green);color:white;padding:10px 18px;border-radius:8px;z-index:100;font-size:14px;';
+    document.body.appendChild(msg);
+    setTimeout(() => msg.remove(), 2000);
+  });
+}
+
+const etapas = [
+  { pct: 25, msg: 'Criando banco de dados isolado…' },
+  { pct: 45, msg: 'Configurando domínio e roteamento…' },
+  { pct: 65, msg: 'Gerando certificado SSL via Let\'s Encrypt…' },
+  { pct: 80, msg: 'Carregando 70+ módulos…' },
+  { pct: 92, msg: 'Últimos ajustes…' },
+];
+let etapaIdx = 0;
+function avancarProgresso() {
+  if (etapaIdx < etapas.length) {
+    document.getElementById('progressFill').style.width = etapas[etapaIdx].pct + '%';
+    document.getElementById('progressMsg').textContent = etapas[etapaIdx].msg;
+    etapaIdx++;
+  }
+}
+
+setInterval(avancarProgresso, 8000);
+
+async function checarStatus() {
+  try {
+    const r = await fetch('/api/landing/trial/status?slug=' + encodeURIComponent(slug));
+    const d = await r.json();
+    if (d.status === 'ready') {
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('progressMsg').style.display = 'none';
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('readyBox').style.display = 'block';
+      sessionStorage.removeItem('trialCreds');
+      setTimeout(() => { location.href = d.subdomainUrl; }, 3000);
+      return;
+    }
+    if (d.status === 'failed') {
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('failedBox').style.display = 'block';
+      document.getElementById('progressMsg').style.display = 'none';
+      return;
+    }
+    setTimeout(checarStatus, 3000);
+  } catch (err) {
+    setTimeout(checarStatus, 5000);
+  }
+}
+
+avancarProgresso();
+setTimeout(checarStatus, 5000);
+</script>
+</body>
+</html>

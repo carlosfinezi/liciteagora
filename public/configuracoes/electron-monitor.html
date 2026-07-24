@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor do App · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Monitor do App (Electron)</h1>
+      <small>Estado ao vivo do navegador LiciteAgora: versão, sessão Comprasnet, hCaptcha e eventos. Atualiza sozinho.</small>
+    </div>
+    <div class="actions">
+      <select id="janela" style="font-size:0.85em;">
+        <option value="60">Última 1h</option>
+        <option value="360" selected>Últimas 6h</option>
+        <option value="1440">Últimas 24h</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="carregar()">↻ Atualizar</button>
+      <label style="font-size:0.8em; color:var(--text-3); cursor:pointer;"><input type="checkbox" id="auto" checked> auto (8s)</label>
+    </div>
+  </div>
+
+  <!-- Cartões de estado atual -->
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px;">
+    <div class="panel" style="text-align:center;">
+      <div style="font-size:0.75em; color:var(--text-3); text-transform:uppercase;">Status</div>
+      <div id="cardStatus" style="font-size:1.2em; font-weight:bold; margin-top:4px;">—</div>
+      <div id="cardGap" style="font-size:0.72em; color:var(--text-3);"></div>
+    </div>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size:0.75em; color:var(--text-3); text-transform:uppercase;">Versão</div>
+      <div id="cardVersao" style="font-size:1.4em; font-weight:bold; margin-top:4px; color:var(--primary);">—</div>
+    </div>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size:0.75em; color:var(--text-3); text-transform:uppercase;">Token / SSO</div>
+      <div id="cardToken" style="font-size:1.1em; font-weight:bold; margin-top:4px;">—</div>
+      <div id="cardSso" style="font-size:0.72em; color:var(--text-3);"></div>
+    </div>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size:0.75em; color:var(--text-3); text-transform:uppercase;">hCaptcha (reloads)</div>
+      <div id="cardHcaptcha" style="font-size:1.4em; font-weight:bold; margin-top:4px;">—</div>
+      <div id="cardHcaptchaSub" style="font-size:0.72em; color:var(--text-3);"></div>
+    </div>
+  </div>
+
+  <div id="alertBox"></div>
+
+  <!-- Contagem por tipo de evento -->
+  <div class="panel" style="margin-bottom:16px;">
+    <h2>Eventos por tipo <small id="janelaLabel" style="color:var(--text-3); font-weight:normal;"></small></h2>
+    <div id="porTipo" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">—</div>
+  </div>
+
+  <!-- Timeline de eventos -->
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th style="width:90px;">Hora</th><th style="width:200px;">Evento</th><th>Detalhe</th></tr></thead>
+      <tbody id="tbodyEventos"><tr><td colspan="3" style="text-align:center; color:var(--text-3); padding:20px;">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<script>
+function esc(s){return String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));}
+function hora(iso){try{return new Date(iso).toLocaleTimeString('pt-BR');}catch{return iso;}}
+
+// Cor/rótulo por tipo de evento (destaca os relacionados a hCaptcha/renovação)
+function corTipo(t){
+  if(/profile-clear-giveup/i.test(t)) return '#e53e3e';              // recuperação desistiu (login manual)
+  if(/profile-clear-recovery/i.test(t)) return '#3182ce';            // auto-limpeza de perfil (recuperação)
+  if(/timeout-sso-morto|sso-morto/i.test(t)) return '#e53e3e';        // bloqueio real (hCaptcha matou login)
+  if(/reload-keepalive/i.test(t)) return '#dd6b20';                   // reload (gatilho hCaptcha)
+  if(/retoken-http-fail/i.test(t)) return '#d69e2e';                  // retoken falhou
+  if(/retoken-http-ok/i.test(t)) return '#38a169';                    // retoken OK (fix funcionando)
+  return '#4a5568';
+}
+
+async function carregar(){
+  const janela = document.getElementById('janela').value;
+  document.getElementById('janelaLabel').textContent = '(' + document.getElementById('janela').selectedOptions[0].text.toLowerCase() + ')';
+  try{
+    const [hbR, evR] = await Promise.all([
+      fetch('/api/sniper/electron/heartbeat-historico?limite=20').then(r=>r.json()),
+      fetch('/api/sniper/electron/eventos-historico?limite=120&janelaMin='+janela).then(r=>r.json()),
+    ]);
+
+    // ── Estado atual (heartbeat) ──
+    const u = hbR.ultimo;
+    const stMap = {online:['🟢 Online','var(--success)'], offline:['🔴 Offline','var(--danger)'], 'sso-morto':['⛔ SSO morto','var(--danger)'], 'sem-token':['🟡 Sem token','#dd6b20']};
+    const [stTxt, stCor] = stMap[hbR.status] || ['—','var(--text-3)'];
+    const cs=document.getElementById('cardStatus'); cs.textContent=stTxt; cs.style.color=stCor;
+    document.getElementById('cardGap').textContent = hbR.gapDesdeUltimoSeg!=null ? ('último sinal há '+hbR.gapDesdeUltimoSeg+'s') : 'sem heartbeat';
+    document.getElementById('cardVersao').textContent = u && u.versao ? ('v'+u.versao) : '—';
+    document.getElementById('cardToken').textContent = u ? (u.tokenPresent ? ('token '+(u.tokenAgeSec||0)+'s') : 'sem token') : '—';
+    const sso=document.getElementById('cardSso');
+    sso.textContent = u ? (u.ssoMorto ? 'SSO MORTO' : 'SSO vivo · '+(u.portal||'')) : '';
+    sso.style.color = u && u.ssoMorto ? 'var(--danger)' : 'var(--text-3)';
+
+    // ── Eventos ──
+    const porTipo = evR.porTipo || {};
+    const reloads = porTipo['reload-keepalive'] || 0;
+    const bloqueios = porTipo['reload-timeout-sso-morto'] || 0;
+    const okWebview = porTipo['retoken-http-ok'] || 0;
+    const ch=document.getElementById('cardHcaptcha');
+    ch.textContent = reloads;
+    ch.style.color = reloads>0 ? '#dd6b20' : 'var(--success)';
+    document.getElementById('cardHcaptchaSub').textContent =
+      (bloqueios>0 ? bloqueios+' bloqueio(s) real · ' : '') + (okWebview>0 ? okWebview+' retoken OK ✓' : 'retoken: 0 ok');
+
+    // chips por tipo
+    const chips = Object.entries(porTipo).sort((a,b)=>b[1]-a[1]).map(([t,n])=>
+      `<span style="background:${corTipo(t)}22; color:${corTipo(t)}; border:1px solid ${corTipo(t)}55; padding:3px 10px; border-radius:12px; font-size:0.8em; font-weight:600;">${esc(t)} · ${n}</span>`
+    ).join('');
+    document.getElementById('porTipo').innerHTML = chips || '<span style="color:var(--text-3);">nenhum evento na janela</span>';
+
+    // timeline
+    const evs = evR.eventos || [];
+    document.getElementById('tbodyEventos').innerHTML = evs.length ? evs.map(e=>{
+      let det=''; try{ det=typeof e.detalhes==='string'?e.detalhes:JSON.stringify(e.detalhes); }catch{ det=String(e.detalhes||''); }
+      return `<tr>
+        <td><small>${hora(e.recebidoEm)}</small></td>
+        <td><span style="color:${corTipo(e.tipo)}; font-weight:600; font-size:0.85em;">${esc(e.tipo)}</span>${e.msg?'<br><small style="color:var(--text-3);">'+esc(e.msg)+'</small>':''}</td>
+        <td><small style="color:var(--text-2); font-family:monospace;">${esc(det).slice(0,160)}</small></td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="3" style="text-align:center; color:var(--text-3); padding:20px;">Nenhum evento na janela selecionada.</td></tr>';
+
+    // alerta dedup (interceptor parou de capturar)
+    const ab=document.getElementById('alertBox');
+    if(hbR.alertaDedup && hbR.alertaDedup.ativo){
+      ab.innerHTML = '<div class="panel" style="border-color:var(--danger); background:rgba(229,62,62,0.08);"><strong style="color:var(--danger);">⚠️ '+esc(hbR.alertaDedup.mensagem)+'</strong></div>';
+    } else ab.innerHTML='';
+  }catch(e){
+    document.getElementById('tbodyEventos').innerHTML = '<tr><td colspan="3" style="text-align:center; color:var(--danger);">'+esc(e.message)+'</td></tr>';
+  }
+}
+
+let timer=null;
+function setupAuto(){
+  if(timer){clearInterval(timer);timer=null;}
+  if(document.getElementById('auto').checked) timer=setInterval(carregar, 8000);
+}
+document.getElementById('auto').addEventListener('change', setupAuto);
+document.getElementById('janela').addEventListener('change', carregar);
+carregar();
+setupAuto();
+</script>
+</body>
+</html>

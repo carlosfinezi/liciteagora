@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tabelas de Preço · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Tabelas de Preço</h1>
+      <small>Preços por tabela com vigência e prioridade — resolução: tabela do cliente → tabela vigente → preço do cadastro</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="abrirComparar()">⇄ Comparar tabelas</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova tabela</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Nome</th><th style="text-align:right;">Prioridade</th><th>Vigência</th>
+        <th style="text-align:right;">Itens</th><th style="text-align:right;">Clientes</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="tbTabelas"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="itensWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;">
+      <div><h2 id="itTitulo" style="margin:0;"></h2></div>
+      <div class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="abrirReajuste()">% Reajustar / Popular</button>
+      </div>
+    </div>
+    <div id="resumoTab"></div>
+    <div class="toolbar">
+      <select id="addProduto" style="flex:1;min-width:280px;" onchange="sugerirPreco()"></select>
+      <input type="number" id="addMarkup" placeholder="Markup %" step="0.1" title="Sugere Preço = custo × (1 + markup%)" oninput="sugerirPreco()" style="width:100px;">
+      <input type="number" id="addPreco" placeholder="Preço" step="0.01" style="width:120px;">
+      <input type="number" id="addQtdMin" placeholder="Qtd mín (0)" step="any" style="width:110px;">
+      <button class="btn btn-primary btn-sm" onclick="addItem()">+ Incluir</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>SKU</th><th>Produto</th><th style="text-align:right;">Qtd mín.</th>
+          <th style="text-align:right;">Custo</th><th style="text-align:right;">Preço tabela</th><th style="text-align:right;">Preço cadastro</th><th style="text-align:right;">Margem</th><th style="width:40px;"></th></tr></thead>
+        <tbody id="tbItens"></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalTab">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 id="mTitulo" style="margin:0;">Nova tabela</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalTab')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Nome *</label><input type="text" id="tNome" placeholder="Ex.: Atacado, Governo, Promoção Julho"></div>
+      <div class="form-group"><label>Prioridade</label><input type="number" id="tPrioridade" value="0" title="Maior prioridade vence quando o produto está em várias tabelas"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Vigência início</label><input type="date" id="tIni"></div>
+      <div class="form-group"><label>Vigência fim</label><input type="date" id="tFim"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalTab')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTab()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalReaj">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Reajuste em massa</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalReaj')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Percentual (%)</label><input type="number" id="rPct" step="0.01" placeholder="Ex.: 10 ou -5"></div>
+      <div class="form-group full-width"><label>Modo</label>
+        <select id="rModo">
+          <option value="reajustar">Reajustar itens já na tabela</option>
+          <option value="popular">Popular do cadastro (precoVenda × %) — todos produtos ativos</option>
+          <option value="markup">Definir por markup sobre o custo — Preço = custo × (1 + %) — itens da tabela</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalReaj')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarReajuste()">Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalCmp">
+  <div class="modal" style="max-width:96vw;width:1100px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Comparação entre tabelas</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalCmp')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <small class="muted">Preço-base de cada produto (menor Qtd mín.) por tabela ativa. <span style="color:var(--success);">Verde</span> = menor preço · <span style="color:var(--warn);">âmbar</span> = maior preço · — = produto sem preço na tabela.</small>
+    <div id="cmpBody" style="overflow:auto;max-height:70vh;margin-top:12px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalCmp')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('comercial-tabelas-preco');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+
+// ===== Inteligência de margem =====
+function margemPct(preco, custo){ preco=Number(preco); custo=Number(custo);
+  if(!(preco>0) || custo==null || isNaN(custo)) return null; return (preco - custo) / preco * 100; }
+function corMargem(m){ if(m==null) return 'var(--text-3)'; if(m<=0) return 'var(--danger)'; if(m<margemAlvo) return 'var(--warn)'; return 'var(--success)'; }
+function pct(v){ return (v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%'; }
+function custoDe(produtoId){ const p=(produtosCache||[]).find(x=>x.id==produtoId); return p?Number(p.precoCusto||0):0; }
+function sugerirPreco(){ const pid=document.getElementById('addProduto').value;
+  const mkEl=document.getElementById('addMarkup'); if(mkEl.value==='') return;
+  const mk=Number(mkEl.value); if(!pid||isNaN(mk)) return;
+  const c=custoDe(pid); if(c>0) document.getElementById('addPreco').value=(c*(1+mk/100)).toFixed(2); }
+
+let tabEdit = null, tabAtual = null, produtosCache = null;
+let tabelasCache = [], itensCache = [], margemAlvo = 20;
+
+async function carregar(){
+  const r = await fetch('/api/tabelas-preco'); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  tabelasCache = d.tabelas;
+  document.getElementById('tbTabelas').innerHTML = d.tabelas.length ? d.tabelas.map(t=>`<tr${t.ativo?'':' style="opacity:0.55;"'}>
+    <td><strong>${t.nome}</strong></td>
+    <td style="text-align:right;">${t.prioridade}</td>
+    <td>${t.vigenciaInicio||'—'} → ${t.vigenciaFim||'—'} ${t.vigente?'<span class="badge entrada">VIGENTE</span>':'<span class="badge ajuste">FORA</span>'}</td>
+    <td style="text-align:right;">${t.qtdItens}</td>
+    <td style="text-align:right;">${t.qtdClientes}</td>
+    <td>${t.ativo?'ativa':'inativa'}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick='verItens(${JSON.stringify(t).replace(/'/g,"&#39;")})'>Itens</button>
+      <button class="btn btn-ghost btn-sm" onclick='editarTab(${JSON.stringify(t).replace(/'/g,"&#39;")})'>Editar</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleAtivo(${t.id}, ${t.ativo?0:1})">${t.ativo?'Inativar':'Reativar'}</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma tabela</td></tr>';
+}
+
+function abrirNova(){ tabEdit=null; document.getElementById('mTitulo').textContent='Nova tabela';
+  ['tNome','tIni','tFim'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('tPrioridade').value='0';
+  document.getElementById('modalTab').classList.add('open'); }
+function editarTab(t){ tabEdit=t; document.getElementById('mTitulo').textContent='Editar '+t.nome;
+  document.getElementById('tNome').value=t.nome; document.getElementById('tPrioridade').value=t.prioridade;
+  document.getElementById('tIni').value=t.vigenciaInicio||''; document.getElementById('tFim').value=t.vigenciaFim||'';
+  document.getElementById('modalTab').classList.add('open'); }
+
+async function salvarTab(){
+  const body = {
+    nome: document.getElementById('tNome').value.trim(),
+    prioridade: Number(document.getElementById('tPrioridade').value)||0,
+    vigenciaInicio: document.getElementById('tIni').value || null,
+    vigenciaFim: document.getElementById('tFim').value || null
+  };
+  if(!body.nome) return showAlert('Nome obrigatório','error');
+  const url = tabEdit ? '/api/tabelas-preco/'+tabEdit.id : '/api/tabelas-preco';
+  const r = await fetch(url, { method: tabEdit?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar('modalTab'); showAlert('Tabela salva'); carregar();
+}
+
+async function toggleAtivo(id, ativo){
+  const r = await fetch('/api/tabelas-preco/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ativo }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+async function getProdutos(){
+  if (produtosCache) return produtosCache;
+  const r = await fetch('/api/produtos'); const d = await r.json();
+  produtosCache = d.produtos||[];
+  return produtosCache;
+}
+
+async function verItens(t){
+  tabAtual = t;
+  document.getElementById('itensWrap').style.display='block';
+  document.getElementById('itTitulo').textContent = 'Itens — ' + t.nome;
+  const prods = await getProdutos();
+  document.getElementById('addProduto').innerHTML = '<option value="">— produto —</option>' +
+    prods.map(p=>`<option value="${p.id}">${p.sku} — ${p.descricao}</option>`).join('');
+  await carregarItens();
+}
+
+async function carregarItens(){
+  const r = await fetch(`/api/tabelas-preco/${tabAtual.id}/itens`); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  itensCache = d.itens;
+  renderItens();
+}
+
+function setMargemAlvo(v){ margemAlvo = Number(v)||0; renderItens(); }
+
+function renderItens(){
+  const itens = itensCache;
+  // ---- Resumo / inteligência da tabela ----
+  let somaPreco=0, somaCusto=0, comCusto=0, abaixoCusto=0, abaixoCadastro=0, abaixoMeta=0;
+  for(const i of itens){
+    const custo=Number(i.precoCusto), preco=Number(i.preco);
+    if(custo>0){ somaPreco+=preco; somaCusto+=custo; comCusto++;
+      const m=margemPct(preco,custo);
+      if(m<=0) abaixoCusto++; else if(m<margemAlvo) abaixoMeta++;
+    }
+    if(Number(i.precoCadastro)>0 && preco<Number(i.precoCadastro)) abaixoCadastro++;
+  }
+  const margemAgg = somaPreco>0 ? (somaPreco-somaCusto)/somaPreco*100 : null;
+  const card=(rot,val,cor)=>`<div style="flex:1;min-width:130px;background:var(--surface-2,#1e293b30);border:1px solid var(--border,#33415530);border-radius:8px;padding:10px 12px;">
+    <div style="font-size:.72em;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3);">${rot}</div>
+    <div style="font-size:1.25em;font-weight:600;color:${cor||'var(--text-1,inherit)'};">${val}</div></div>`;
+  document.getElementById('resumoTab').innerHTML = itens.length ? `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 14px;">
+      ${card('Itens', itens.length)}
+      ${card('Margem média', pct(margemAgg), corMargem(margemAgg))}
+      ${card('Abaixo do custo', abaixoCusto, abaixoCusto?'var(--danger)':'var(--success)')}
+      ${card('Abaixo da meta', abaixoMeta, abaixoMeta?'var(--warn)':'var(--success)')}
+      ${card('< preço cadastro', abaixoCadastro, abaixoCadastro?'var(--warn)':'var(--text-1,inherit)')}
+      <div style="flex:1;min-width:150px;display:flex;align-items:center;gap:6px;justify-content:flex-end;">
+        <label style="font-size:.8em;color:var(--text-3);white-space:nowrap;">Meta de margem</label>
+        <input type="number" value="${margemAlvo}" step="1" onchange="setMargemAlvo(this.value)" style="width:70px;"> %
+      </div>
+    </div>` : '';
+  // ---- Linhas ----
+  document.getElementById('tbItens').innerHTML = itens.length ? itens.map(i=>{
+    const custo=Number(i.precoCusto), m=margemPct(i.preco,custo);
+    const abaixoCad = Number(i.precoCadastro)>0 && Number(i.preco)<Number(i.precoCadastro);
+    return `<tr>
+    <td>${i.sku}</td><td>${i.descricao}</td>
+    <td style="text-align:right;">${i.qtdMinima||0}</td>
+    <td style="text-align:right;" class="muted">${custo>0?'R$ '+fmt(custo):'—'}</td>
+    <td style="text-align:right;"><strong>R$ ${fmt(i.preco)}</strong></td>
+    <td style="text-align:right;" class="muted">R$ ${fmt(i.precoCadastro)}${abaixoCad?' <span title="Preço da tabela abaixo do preço de cadastro" style="color:var(--warn);">▾</span>':''}</td>
+    <td style="text-align:right;font-weight:600;color:${corMargem(m)};">${m==null?'—':pct(m)}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="rmItem(${i.id})">×</button></td>
+  </tr>`; }).join('') : '<tr><td colspan="8" class="empty">Tabela vazia — inclua itens ou use "Popular do cadastro"</td></tr>';
+}
+
+async function addItem(){
+  const body = {
+    produtoId: Number(document.getElementById('addProduto').value),
+    preco: Number(document.getElementById('addPreco').value),
+    qtdMinima: Number(document.getElementById('addQtdMin').value)||0
+  };
+  if (!body.produtoId || !(body.preco>0)) return showAlert('Produto e preço obrigatórios','error');
+  const r = await fetch(`/api/tabelas-preco/${tabAtual.id}/itens`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('addPreco').value=''; carregarItens(); carregar();
+}
+
+async function rmItem(itemId){
+  const r = await fetch(`/api/tabelas-preco/${tabAtual.id}/itens/${itemId}`, { method:'DELETE' });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregarItens(); carregar();
+}
+
+function abrirReajuste(){ document.getElementById('rPct').value=''; document.getElementById('modalReaj').classList.add('open'); }
+async function confirmarReajuste(){
+  const modo = document.getElementById('rModo').value;
+  if (modo==='markup') return aplicarMarkupCusto();
+  const body = { percentual: Number(document.getElementById('rPct').value)||0, popularDoCadastro: modo==='popular' };
+  const r = await fetch(`/api/tabelas-preco/${tabAtual.id}/reajustar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar('modalReaj'); showAlert(`${d.alterados} item(ns) atualizado(s)`); carregarItens(); carregar();
+}
+
+// Define preço = custo × (1 + %) para os itens já na tabela (client-side, usa o custo que veio no payload)
+async function aplicarMarkupCusto(){
+  const mk = Number(document.getElementById('rPct').value);
+  if (isNaN(mk)) return showAlert('Informe o markup %','error');
+  const alvos = itensCache.filter(i => Number(i.precoCusto) > 0);
+  const semCusto = itensCache.length - alvos.length;
+  if (!alvos.length) return showAlert('Nenhum item com custo cadastrado para calcular markup','error');
+  let ok = 0;
+  for (const i of alvos){
+    const novo = Number((Number(i.precoCusto) * (1 + mk/100)).toFixed(2));
+    const r = await fetch(`/api/tabelas-preco/${tabAtual.id}/itens`, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ produtoId: i.produtoId, preco: novo, qtdMinima: i.qtdMinima||0 }) });
+    if ((await r.json()).success) ok++;
+  }
+  fechar('modalReaj');
+  showAlert(`${ok} item(ns) definidos por markup${semCusto?` · ${semCusto} sem custo ignorado(s)`:''}`);
+  carregarItens(); carregar();
+}
+
+// ===== Comparação entre tabelas =====
+async function abrirComparar(){
+  const ativas = tabelasCache.filter(t => t.ativo);
+  if (ativas.length < 2) return showAlert('Cadastre ao menos 2 tabelas ativas para comparar','error');
+  document.getElementById('cmpBody').innerHTML = '<div class="empty">Carregando…</div>';
+  document.getElementById('modalCmp').classList.add('open');
+  const listas = await Promise.all(ativas.map(t =>
+    fetch(`/api/tabelas-preco/${t.id}/itens`).then(r=>r.json()).then(d => d.itens||[])));
+  // produtoId -> {sku, descricao, custo}; e preço-base (menor qtdMin) por tabela
+  const prodMap = new Map();
+  const precoTab = ativas.map(()=>new Map());
+  ativas.forEach((t,ti)=>{ for(const i of listas[ti]){
+    if(!prodMap.has(i.produtoId)) prodMap.set(i.produtoId, { sku:i.sku, descricao:i.descricao, custo:Number(i.precoCusto)||0 });
+    const q=i.qtdMinima||0, cur=precoTab[ti].get(i.produtoId);
+    if(!cur || q<cur.q) precoTab[ti].set(i.produtoId, { preco:Number(i.preco), q });
+  }});
+  const totalProd = prodMap.size;
+  const prods = [...prodMap.entries()].sort((a,b)=>a[1].descricao.localeCompare(b[1].descricao));
+  const cobertura = ativas.map((t,ti)=> precoTab[ti].size);
+  const head = `<tr><th>SKU</th><th>Produto</th><th style="text-align:right;">Custo</th>` +
+    ativas.map((t,ti)=>`<th style="text-align:right;">${t.nome}<br><span style="font-weight:400;color:var(--text-3);font-size:.85em;">${precoTab[ti].size}/${totalProd} (${totalProd?Math.round(cobertura[ti]/totalProd*100):0}%)</span></th>`).join('') + `</tr>`;
+  const rows = prods.map(([pid,info])=>{
+    const cells = ativas.map((t,ti)=> precoTab[ti].has(pid) ? precoTab[ti].get(pid).preco : null);
+    const presentes = cells.filter(v=>v!=null);
+    const min = presentes.length?Math.min(...presentes):null, max = presentes.length?Math.max(...presentes):null;
+    return `<tr>
+      <td>${info.sku}</td><td>${info.descricao}</td>
+      <td style="text-align:right;" class="muted">${info.custo>0?'R$ '+fmt(info.custo):'—'}</td>
+      ${cells.map(v=>{
+        if(v==null) return '<td style="text-align:right;color:var(--text-3);">—</td>';
+        const cor = (presentes.length>1 && v===min) ? 'var(--success)' : (presentes.length>1 && v===max) ? 'var(--warn)' : 'inherit';
+        const m = margemPct(v, info.custo);
+        const tip = info.custo>0 ? ` title="Margem ${pct(m)}"` : '';
+        return `<td style="text-align:right;color:${cor};"${tip}>R$ ${fmt(v)}</td>`;
+      }).join('')}
+    </tr>`;
+  }).join('');
+  document.getElementById('cmpBody').innerHTML = totalProd ? `<div class="tbl-wrap"><table>
+    <thead>${head}</thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">Nenhum item nas tabelas ativas</div>';
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape'){ fechar('modalTab'); fechar('modalReaj'); fechar('modalCmp'); } });
+carregar();
+</script>
+</body></html>

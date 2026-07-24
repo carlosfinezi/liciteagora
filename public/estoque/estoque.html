@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estoque · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Estoque</h1>
+      <small>Saldo por produto, custo médio e valorização</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/estoque/analises.html">Análises</a>
+      <a class="btn btn-secondary" href="/estoque/reservas.html">Reservas</a>
+      <a class="btn btn-secondary" href="/estoque/lotes.html">Lotes</a>
+      <a class="btn btn-secondary" href="/estoque/movimentacoes.html">Movimentações</a>
+      <a class="btn btn-primary" href="/estoque/movimentacao-nova.html">+ Nova movimentação</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div id="alertasBox"></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="filtSaldo" placeholder="Buscar por SKU ou descrição…" oninput="carregarSaldo()" style="flex:1;min-width:250px;">
+    <select id="filtDeposito" onchange="carregarSaldo()" style="display:none;">
+      <option value="">Todos os depósitos</option>
+    </select>
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-size:0.88em;">
+      <input type="checkbox" id="filtRastreiaLote" onchange="carregarSaldo()"> Só rastreia lote
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);font-size:0.88em;">
+      <input type="checkbox" id="filtRastreiaSerial" onchange="carregarSaldo()"> Só rastreia serial
+    </label>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>SKU</th><th>Descrição</th><th>Un</th>
+        <th style="text-align:right;" title="Saldo físico (entradas - saídas)">Físico</th>
+        <th style="text-align:right;" title="Quantidade reservada por pedidos confirmados">Reservado</th>
+        <th style="text-align:right;" title="Disponível para novos pedidos (Físico - Reservado)">Disponível</th>
+        <th style="text-align:right;">Mínimo</th>
+        <th style="text-align:right;">Custo médio</th>
+        <th style="text-align:right;">Valor estoque</th>
+        <th>Rastreio</th>
+        <th>Status</th>
+      </tr></thead>
+      <tbody id="tbSaldo"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('estoque');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtInt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'); }
+
+// Seletor de depósito só aparece quando o tenant tem mais de um depósito ativo
+async function initDepositos(){
+  try {
+    const r = await fetch('/api/depositos'); const d = await r.json();
+    if (d.success && d.depositos && d.depositos.length > 1) {
+      const sel = document.getElementById('filtDeposito');
+      sel.innerHTML = '<option value="">Todos os depósitos</option>' +
+        d.depositos.map(x=>`<option value="${x.id}">${x.nome}</option>`).join('');
+      sel.style.display = '';
+    }
+  } catch { /* endpoint indisponível — segue sem filtro */ }
+}
+
+async function carregarSaldo(){
+  const q=document.getElementById('filtSaldo').value;
+  const rl=document.getElementById('filtRastreiaLote').checked ? '1' : '';
+  const rs=document.getElementById('filtRastreiaSerial').checked ? '1' : '';
+  const dep=document.getElementById('filtDeposito').value;
+  const params=new URLSearchParams();
+  if(q) params.set('q', q);
+  if(rl) params.set('rastreiaLote', rl);
+  if(rs) params.set('rastreiaSerial', rs);
+  if(dep) params.set('depositoId', dep);
+  const r=await fetch('/api/estoque?'+params);
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+
+  renderKpis(d.total, d.itens);
+
+  const tb=document.getElementById('tbSaldo');
+  tb.innerHTML = d.itens.length ? d.itens.map(i=>{
+    const baixo = i.estoqueMinimo>0 && i.disponivel<i.estoqueMinimo;
+    const pontoRep = i.pontoReposicao>0 && i.disponivel<i.pontoReposicao;
+    const negativo = i.disponivel < 0;
+    const status = negativo ? 'NEGATIVO' : (baixo ? 'BAIXO' : (pontoRep ? 'REPOR' : 'OK'));
+    const badgeClass = negativo ? 'cancelado' : (baixo ? 'vencida' : (pontoRep ? 'em_separacao' : 'ativo'));
+    const rastreio = [
+      i.rastreiaLote ? '<span class="badge confirmado">Lote</span>' : '',
+      i.rastreiaSerial ? '<span class="badge ativo">Serial</span>' : ''
+    ].filter(Boolean).join(' ') || '<small class="muted">—</small>';
+    return `<tr>
+      <td><strong>${i.sku}</strong></td>
+      <td>${i.descricao}</td>
+      <td>${i.unidade||'-'}</td>
+      <td style="text-align:right;cursor:pointer;text-decoration:underline dotted;" title="Ver saldo por loja" onclick="verSaldoLojas(${i.id}, '${(i.sku||'').replace(/'/g,"\\'")}')">${fmt(i.saldo)}</td>
+      <td style="text-align:right;${i.reservado>0?'color:var(--warn);font-weight:600':'color:var(--text-3);'}">${fmt(i.reservado)}</td>
+      <td style="text-align:right;font-weight:700;${negativo?'color:var(--danger);':baixo?'color:var(--warn);':''}">${fmt(i.disponivel)}</td>
+      <td style="text-align:right;color:var(--text-2);">${fmt(i.estoqueMinimo)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.custoMedio)}</td>
+      <td style="text-align:right;font-weight:600;">R$ ${fmt(i.valorEstoque)}</td>
+      <td>${rastreio}</td>
+      <td><span class="badge ${badgeClass}">${status}</span></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="11" class="empty">Sem produtos</td></tr>';
+}
+
+async function verSaldoLojas(produtoId, sku){
+  try {
+    const r = await fetch(`/api/estoque/${produtoId}/saldo-lojas`).then(x=>x.json());
+    if (!r.success) return;
+    if (!r.lojas || r.lojas.length <= 1){
+      alert(`${sku}\nSaldo: ${fmt(r.total)} (só matriz)`);
+      return;
+    }
+    const linhas = r.lojas.map(l=>`• ${l.nome}: ${fmt(l.saldo)}`).join('\n');
+    alert(`Saldo por loja — ${sku}\n\n${linhas}\n\nTotal da rede: ${fmt(r.total)}`);
+  } catch(e){ /* silencioso */ }
+}
+
+function renderKpis(total, itens){
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Valor total do estoque</div><div class="value">R$ ${fmt(total.valorTotal)}</div></div>
+    <div class="kpi success"><div class="label">Produtos com saldo</div><div class="value">${fmtInt(total.produtosComSaldo)}</div></div>
+    <div class="kpi warn"><div class="label">Total reservado</div><div class="value">${fmt(total.totalReservado||0)}</div></div>
+    <div class="kpi"><div class="label">Com reserva ativa</div><div class="value">${fmtInt(total.comReservaAtiva||0)}</div></div>
+  `;
+}
+
+async function carregarAlertas(){
+  const r=await fetch('/api/estoque/alertas');
+  const d=await r.json();
+  const box=document.getElementById('alertasBox');
+  if(d.success && d.alertas.length){
+    box.innerHTML = `<div class="alert warn"><strong>⚠️ ${d.alertas.length} produto(s) abaixo do mínimo/ponto de reposição:</strong> `+
+      d.alertas.map(a=>`${a.sku} (${fmt(a.saldo)}/${fmt(a.pontoReposicao||a.estoqueMinimo)})`).join(', ')+`</div>`;
+  } else box.innerHTML='';
+}
+
+initDepositos(); carregarSaldo(); carregarAlertas();
+</script>
+</body></html>

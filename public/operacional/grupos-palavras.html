@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grupos de Palavras-Chave | Licite Agora</title>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css?v=20260520b">
+</head>
+<body>
+  <div class="layout">
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h1>Grupos de Palavras-Chave</h1>
+          <small>Configure grupos para pesquisa rápida de licitações</small>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary btn-sm" onclick="abrirModalNovo('pesquisa')">+ Grupo de pesquisa</button>
+          <button class="btn btn-danger btn-sm" onclick="abrirModalNovo('exclusao')">+ Grupo de exclusão</button>
+        </div>
+      </div>
+
+      <!-- Grupos de Pesquisa -->
+      <div id="gruposPesquisaContainer" class="cards-grid">
+        <div class="loading">Carregando grupos…</div>
+      </div>
+
+      <!-- Grupos de Exclusão -->
+      <div class="page-header" style="margin-top: 32px;">
+        <div>
+          <h1>🚫 Grupos de exclusão</h1>
+          <small>Palavras-chave para excluir licitações indesejadas dos resultados</small>
+        </div>
+      </div>
+
+      <div id="gruposExclusaoContainer" class="cards-grid">
+        <div class="loading">Carregando grupos…</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Novo/Editar Grupo -->
+  <div id="modalGrupo" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitulo">Novo Grupo</h3>
+        <button class="modal-close" onclick="fecharModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="grupoId">
+        <input type="hidden" id="grupoTipo" value="pesquisa">
+
+        <div class="form-group">
+          <label for="grupoNome">Nome do Grupo *</label>
+          <input type="text" id="grupoNome" placeholder="Ex: Tecnologia">
+        </div>
+
+        <div class="form-group">
+          <label for="grupoDescricao">Descricao</label>
+          <input type="text" id="grupoDescricao" placeholder="Ex: Equipamentos e suprimentos de TI">
+        </div>
+
+        <div class="form-group">
+          <label>Cor</label>
+          <div class="color-picker">
+            <div class="color-option selected" style="background: #2196F3" data-cor="#2196F3"></div>
+            <div class="color-option" style="background: #4CAF50" data-cor="#4CAF50"></div>
+            <div class="color-option" style="background: #FF9800" data-cor="#FF9800"></div>
+            <div class="color-option" style="background: #9C27B0" data-cor="#9C27B0"></div>
+            <div class="color-option" style="background: #f44336" data-cor="#f44336"></div>
+            <div class="color-option" style="background: #00BCD4" data-cor="#00BCD4"></div>
+            <div class="color-option" style="background: #795548" data-cor="#795548"></div>
+            <div class="color-option" style="background: #607D8B" data-cor="#607D8B"></div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="grupoPalavras">Palavras-chave</label>
+          <textarea id="grupoPalavras" placeholder="Digite as palavras separadas por virgula ou enter&#10;Ex: computador, notebook, monitor, teclado, mouse"></textarea>
+          <div class="hint">Separe as palavras por virgula ou linha</div>
+        </div>
+
+        <div class="form-group" id="vinculoExclusaoContainer" hidden>
+          <label>Vincular Grupos de Exclusao</label>
+          <div id="gruposExclusaoCheckboxes" class="checkbox-list">
+            <!-- Checkboxes serão inseridos via JavaScript -->
+          </div>
+          <div class="hint">Selecione os grupos de exclusao que serao aplicados automaticamente nas buscas</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarGrupo()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Agendamento Auto-análise IA -->
+  <div id="modalAgendamentoIA" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🤖 Auto-análise IA — <span id="agendamentoNomeGrupo"></span></h3>
+        <button class="modal-close" onclick="fecharAgendamentoIA()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="agendamentoGrupoId">
+
+        <div class="form-group form-inline">
+          <input type="checkbox" id="agendamentoAtivo">
+          <label for="agendamentoAtivo">Ativar análise IA diária às 6h</label>
+        </div>
+        <div class="hint" style="margin-bottom:16px;">Cron varre licitações abertas que casam com este grupo e analisa as ainda não analisadas, até o limite definido.</div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label for="agendamentoUfs">UFs (vazio = todas)</label>
+            <input type="text" id="agendamentoUfs" placeholder="Ex: SP, RJ, MG">
+            <div class="hint">Separadas por vírgula</div>
+          </div>
+          <div class="form-group">
+            <label for="agendamentoModalidades">Modalidades (vazio = todas)</label>
+            <input type="text" id="agendamentoModalidades" placeholder="Ex: 6, 5">
+            <div class="hint">IDs separados por vírgula. 6=Pregão, 5=Concorrência, 8=Dispensa</div>
+          </div>
+          <div class="form-group">
+            <label for="agendamentoValorMin">Valor mínimo estimado (R$)</label>
+            <input type="number" id="agendamentoValorMin" placeholder="Ex: 50000" min="0" step="1000">
+            <div class="hint">Ignora licitações abaixo deste valor</div>
+          </div>
+          <div class="form-group">
+            <label for="agendamentoLimite">Limite por dia</label>
+            <input type="number" id="agendamentoLimite" min="1" max="500" value="100">
+            <div class="hint">Máximo 500. Protege contra estouro de quota</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="agendamentoProdutos">🛍️ Produtos que sua empresa vende</label>
+          <textarea id="agendamentoProdutos" rows="3" placeholder="Ex: Vendo certificados SSL, Wildcard, Wildcard OV. NÃO vendo A1 CPF/CNPJ nem e-CPF/e-CNPJ."></textarea>
+          <div class="hint">A IA usa isso para classificar cada licitação como compatível ou não com seu portfólio. Seja específico sobre o que você vende E o que não vende. Deixe vazio para não classificar.</div>
+        </div>
+
+        <div class="panel" style="background:var(--bg-0);padding:14px;">
+          <h4 class="section-title">⚡ Auto-ações após análise compatível</h4>
+          <div class="hint" style="margin-bottom:12px;">Quando a IA classificar uma licitação como compatível com seu portfólio E score acima do mínimo, executa automaticamente:</div>
+
+          <div class="form-group form-inline">
+            <input type="checkbox" id="agendamentoAutoInteresse">
+            <label for="agendamentoAutoInteresse">⭐ Marcar todos os itens da licitação como "interesse"</label>
+          </div>
+          <div class="form-group form-inline">
+            <input type="checkbox" id="agendamentoAutoTelegram">
+            <label for="agendamentoAutoTelegram">📨 Notificar nos canais ativos (<a href="/configuracoes/notificacoes.html" target="_blank">Telegram/Email</a>)</label>
+          </div>
+          <div class="form-group form-inline">
+            <label for="agendamentoAutoScoreMin">Score mínimo IA:</label>
+            <input type="number" id="agendamentoAutoScoreMin" min="0" max="100" value="70" class="input-narrow">
+            <div class="hint">0-100. Padrão 70 (alta viabilidade)</div>
+          </div>
+        </div>
+
+        <div id="agendamentoStatusBox" hidden>
+          <h4 class="section-title">Último scan</h4>
+          <div class="status-grid">
+            <div class="status-item"><span class="label">Quando</span><span class="value" id="statusQuando">—</span></div>
+            <div class="status-item"><span class="label">Candidatas</span><span class="value" id="statusTotal">—</span></div>
+            <div class="status-item"><span class="label">Analisadas</span><span class="value" id="statusAnalisadas">—</span></div>
+            <div class="status-item"><span class="label">Erros</span><span class="value" id="statusErros">—</span></div>
+            <div class="status-item"><span class="label">Status</span><span class="value" id="statusStatus">—</span></div>
+          </div>
+          <div id="statusMensagem" class="hint hint-error" hidden></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="fecharAgendamentoIA()">Fechar</button>
+        <button class="btn btn-secondary" onclick="executarScanAgora()" id="btnExecutarScan">▶ Rodar agora</button>
+        <button class="btn btn-primary" onclick="salvarAgendamentoIA()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const API_URL = '';
+    let gruposPesquisa = [];
+    let gruposExclusao = [];
+    let corSelecionada = '#2196F3';
+
+    // Inicializar
+    document.addEventListener('DOMContentLoaded', () => {
+      carregarGrupos();
+      configurarColorPicker();
+    });
+
+    function configurarColorPicker() {
+      document.querySelectorAll('.color-option').forEach(el => {
+        el.addEventListener('click', () => {
+          document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
+          el.classList.add('selected');
+          corSelecionada = el.dataset.cor;
+        });
+      });
+    }
+
+    async function carregarGrupos() {
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras`);
+        const data = await res.json();
+
+        if (data.success) {
+          gruposPesquisa = data.data.filter(g => !g.tipo || g.tipo === 'pesquisa');
+          gruposExclusao = data.data.filter(g => g.tipo === 'exclusao');
+          console.log('[Debug] Grupos carregados - Pesquisa:', gruposPesquisa.length, 'Exclusao:', gruposExclusao.length);
+          renderizarGrupos();
+        }
+      } catch (error) {
+        showToast('Erro ao carregar grupos', 'error');
+      }
+    }
+
+    function renderizarGrupos() {
+      renderizarGruposPorTipo('gruposPesquisaContainer', gruposPesquisa, 'pesquisa');
+      renderizarGruposPorTipo('gruposExclusaoContainer', gruposExclusao, 'exclusao');
+      // Após renderizar, carrega status do auto-análise IA de cada grupo de pesquisa
+      carregarStatusAutoIA(gruposPesquisa).catch(() => {});
+    }
+
+    function renderizarGruposPorTipo(containerId, grupos, tipo) {
+      const container = document.getElementById(containerId);
+      const isExclusao = tipo === 'exclusao';
+
+      if (grupos.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+            </svg>
+            <h3>Nenhum grupo ${isExclusao ? 'de exclusao' : ''} criado</h3>
+            <p>${isExclusao ? 'Crie grupos para filtrar licitacoes indesejadas' : 'Crie seu primeiro grupo de palavras-chave para facilitar suas pesquisas'}</p>
+            <button class="btn ${isExclusao ? 'btn-danger' : 'btn-primary'}" onclick="abrirModalNovo('${tipo}')">Criar Grupo</button>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = grupos.map(grupo => `
+        <div class="card-sections" data-id="${grupo.id}">
+          <div class="section section-header">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+              <div class="card-avatar" style="background: ${grupo.cor || '#1a5f7a'}">
+                ${grupo.nome.charAt(0).toUpperCase()}
+              </div>
+              <div style="min-width:0;">
+                <div class="card-title">${grupo.nome}</div>
+                ${grupo.descricao ? `<div class="card-obs">${grupo.descricao}</div>` : ''}
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="icon-btn" onclick="editarGrupo(${grupo.id})" title="Editar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+              <button class="icon-btn danger" onclick="excluirGrupo(${grupo.id})" title="Excluir">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="section">
+            <div class="chip-list">
+              ${grupo.palavras && grupo.palavras.length > 0
+                ? grupo.palavras.map(p => `
+                    <span class="chip-item" style="background: ${grupo.cor}22; color: ${grupo.cor}; border-color: ${grupo.cor}55;">
+                      ${p}
+                      <button class="chip-remove" onclick="removerPalavra(${grupo.id}, '${p}')">&times;</button>
+                    </span>
+                  `).join('')
+                : '<span class="hint">Nenhuma palavra configurada</span>'
+              }
+            </div>
+            <div class="form-inline" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+              <input type="text" id="novaPalavra${grupo.id}" placeholder="Adicionar palavra..."
+                onkeypress="if(event.key==='Enter') adicionarPalavra(${grupo.id})" style="flex:1;">
+              <button class="btn btn-primary btn-sm" onclick="adicionarPalavra(${grupo.id})">+ Adicionar</button>
+            </div>
+            ${!isExclusao && grupo.gruposExclusaoVinculados && grupo.gruposExclusaoVinculados.length > 0 ? `
+              <div class="chip-list" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+                ${grupo.gruposExclusaoVinculados.map(ge => `
+                  <span class="chip-item" style="background:rgba(244,67,54,0.15);color:var(--danger);border-color:rgba(244,67,54,0.3);">
+                    <span class="card-avatar sm" style="background: ${ge.cor || '#f44336'}"></span>
+                    ${ge.nome}
+                  </span>
+                `).join('')}
+              </div>
+            ` : ''}
+            ${!isExclusao ? `
+              <div class="auto-ia-row" id="autoIA-${grupo.id}" style="margin-top:10px;">
+                <span class="label" id="autoIAStatus-${grupo.id}">🤖 Auto-análise IA: <em>carregando...</em></span>
+                <button class="btn btn-ghost btn-sm" onclick="abrirAgendamentoIA(${grupo.id}, '${(grupo.nome || '').replace(/'/g, '&#39;')}')">Configurar</button>
+              </div>
+            ` : ''}
+          </div>
+          <div class="section section-footer">
+            <span>${grupo.palavras ? grupo.palavras.length : 0} palavra(s)</span>
+            <button class="btn btn-primary btn-sm" onclick="pesquisarGrupo(${grupo.id})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px;">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21l-4.35-4.35"/>
+              </svg>
+              Pesquisar
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderizarCheckboxesExclusao(gruposVinculadosIds = []) {
+      const container = document.getElementById('gruposExclusaoCheckboxes');
+
+      console.log('[Debug] Grupos de exclusao disponiveis:', gruposExclusao.length, gruposExclusao);
+
+      if (!gruposExclusao || gruposExclusao.length === 0) {
+        container.innerHTML = '<span style="color: #999; font-size: 13px;">Nenhum grupo de exclusao disponivel. Crie um grupo de exclusao primeiro.</span>';
+        return;
+      }
+
+      container.innerHTML = gruposExclusao.map(ge => `
+        <label class="checkbox-item">
+          <input type="checkbox" value="${ge.id}" ${gruposVinculadosIds.includes(ge.id) ? 'checked' : ''}>
+          <span class="card-avatar sm" style="background: ${ge.cor || '#f44336'}"></span>
+          <span class="item-label">${ge.nome}</span>
+          <span class="item-count">${ge.palavras ? ge.palavras.length : 0} palavras</span>
+        </label>
+      `).join('');
+    }
+
+    function abrirModalNovo(tipo = 'pesquisa') {
+      const isExclusao = tipo === 'exclusao';
+      document.getElementById('modalTitulo').textContent = isExclusao ? 'Novo Grupo de Exclusao' : 'Novo Grupo de Pesquisa';
+      document.getElementById('grupoId').value = '';
+      document.getElementById('grupoTipo').value = tipo;
+      document.getElementById('grupoNome').value = '';
+      document.getElementById('grupoDescricao').value = '';
+      document.getElementById('grupoPalavras').value = '';
+
+      // Reset cor - vermelho para exclusão, azul para pesquisa
+      document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
+      const corPadrao = isExclusao ? '#f44336' : '#2196F3';
+      const corEl = document.querySelector(`.color-option[data-cor="${corPadrao}"]`);
+      if (corEl) corEl.classList.add('selected');
+      corSelecionada = corPadrao;
+
+      // Mostrar/esconder container de grupos de exclusão
+      const exclusaoContainer = document.getElementById('vinculoExclusaoContainer');
+      if (isExclusao) {
+        exclusaoContainer.hidden = true;
+      } else {
+        exclusaoContainer.hidden = false;
+        renderizarCheckboxesExclusao([]);
+      }
+
+      document.getElementById('modalGrupo').classList.add('active');
+    }
+
+    function editarGrupo(id) {
+      const grupo = [...gruposPesquisa, ...gruposExclusao].find(g => g.id === id);
+      if (!grupo) return;
+
+      const isExclusao = grupo.tipo === 'exclusao';
+      document.getElementById('modalTitulo').textContent = isExclusao ? 'Editar Grupo de Exclusao' : 'Editar Grupo de Pesquisa';
+      document.getElementById('grupoId').value = id;
+      document.getElementById('grupoTipo').value = grupo.tipo || 'pesquisa';
+      document.getElementById('grupoNome').value = grupo.nome;
+      document.getElementById('grupoDescricao').value = grupo.descricao || '';
+      document.getElementById('grupoPalavras').value = grupo.palavras ? grupo.palavras.join(', ') : '';
+
+      // Selecionar cor
+      document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
+      const corEl = document.querySelector(`.color-option[data-cor="${grupo.cor}"]`);
+      if (corEl) {
+        corEl.classList.add('selected');
+        corSelecionada = grupo.cor;
+      }
+
+      // Mostrar/esconder container de grupos de exclusão e carregar vínculos
+      const exclusaoContainer = document.getElementById('vinculoExclusaoContainer');
+      if (isExclusao) {
+        exclusaoContainer.hidden = true;
+      } else {
+        exclusaoContainer.hidden = false;
+        const vinculadosIds = grupo.gruposExclusaoVinculados
+          ? grupo.gruposExclusaoVinculados.map(g => g.id)
+          : [];
+        renderizarCheckboxesExclusao(vinculadosIds);
+      }
+
+      document.getElementById('modalGrupo').classList.add('active');
+    }
+
+    function fecharModal() {
+      document.getElementById('modalGrupo').classList.remove('active');
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && document.getElementById('modalGrupo').classList.contains('active')) fecharModal();
+    });
+
+    async function salvarGrupo() {
+      const id = document.getElementById('grupoId').value;
+      const tipo = document.getElementById('grupoTipo').value;
+      const nome = document.getElementById('grupoNome').value.trim();
+      const descricao = document.getElementById('grupoDescricao').value.trim();
+      const palavrasText = document.getElementById('grupoPalavras').value;
+
+      if (!nome) {
+        showToast('Nome e obrigatorio', 'error');
+        return;
+      }
+
+      // Parse palavras (separadas por virgula ou linha)
+      const palavras = palavrasText
+        .split(/[,\n]/)
+        .map(p => p.trim().toLowerCase())
+        .filter(p => p.length > 0);
+
+      // Coletar grupos de exclusão selecionados (apenas para grupos de pesquisa)
+      let gruposExclusaoIds = [];
+      if (tipo === 'pesquisa') {
+        const checkboxes = document.querySelectorAll('#gruposExclusaoCheckboxes input[type="checkbox"]:checked');
+        gruposExclusaoIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+      }
+
+      const dados = {
+        nome,
+        descricao,
+        cor: corSelecionada,
+        palavras,
+        tipo,
+        gruposExclusaoIds
+      };
+
+      try {
+        const url = id ? `${API_URL}/api/grupos-palavras/${id}` : `${API_URL}/api/grupos-palavras`;
+        const method = id ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dados)
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(id ? 'Grupo atualizado!' : 'Grupo criado!', 'success');
+          fecharModal();
+          carregarGrupos();
+        } else {
+          showToast(data.error || 'Erro ao salvar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao salvar grupo', 'error');
+      }
+    }
+
+    async function excluirGrupo(id) {
+      const grupo = [...gruposPesquisa, ...gruposExclusao].find(g => g.id === id);
+      if (!grupo || !confirm(`Excluir o grupo "${grupo.nome}"?`)) return;
+
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast('Grupo excluido!', 'success');
+          carregarGrupos();
+        } else {
+          showToast(data.error || 'Erro ao excluir', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao excluir grupo', 'error');
+      }
+    }
+
+    async function adicionarPalavra(grupoId) {
+      const input = document.getElementById(`novaPalavra${grupoId}`);
+      const palavra = input.value.trim().toLowerCase();
+
+      if (!palavra) return;
+
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras/${grupoId}/palavras`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ palavra })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          input.value = '';
+          carregarGrupos();
+        } else {
+          showToast(data.error || 'Erro ao adicionar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao adicionar palavra', 'error');
+      }
+    }
+
+    async function removerPalavra(grupoId, palavra) {
+      try {
+        const res = await fetch(`${API_URL}/api/grupos-palavras/${grupoId}/palavras/${encodeURIComponent(palavra)}`, {
+          method: 'DELETE'
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          carregarGrupos();
+        }
+      } catch (error) {
+        showToast('Erro ao remover palavra', 'error');
+      }
+    }
+
+    function pesquisarGrupo(id) {
+      // Redireciona para a pagina principal com o grupo selecionado
+      window.location.href = `/?grupo=${id}`;
+    }
+
+    // ==================== AGENDAMENTO AUTO-ANÁLISE IA ====================
+
+    async function carregarStatusAutoIA(grupos) {
+      // Para cada grupo de pesquisa, busca config do agendamento em paralelo
+      const pesquisas = grupos.filter(g => g.tipo !== 'exclusao');
+      await Promise.all(pesquisas.map(async (g) => {
+        try {
+          const resp = await fetch(`/api/analise/agendamento/${g.id}`);
+          const j = await resp.json();
+          const el = document.getElementById(`autoIAStatus-${g.id}`);
+          if (!el || !j.success) return;
+          const cfg = j.config;
+          if (cfg.ultimo_scan_status === 'em_andamento') {
+            const feitos = cfg.ultimo_scan_analisadas || 0;
+            const total = cfg.ultimo_scan_total || 0;
+            el.className = 'label rodando';
+            el.innerHTML = `🤖 Auto-análise IA: <em>rodando ${feitos}/${total}</em>`;
+          } else if (cfg.ativo) {
+            const limite = cfg.limite_diario || 100;
+            const ult = cfg.ultimo_scan_em ? new Date(cfg.ultimo_scan_em).toLocaleDateString('pt-BR') : 'nunca';
+            el.className = 'label ativo';
+            el.innerHTML = `🤖 Auto-análise IA: <em>ativa</em> · até ${limite}/dia · último: ${ult}`;
+          } else {
+            el.className = 'label inativo';
+            el.innerHTML = `🤖 Auto-análise IA: <em>desativada</em>`;
+          }
+        } catch (e) {}
+      }));
+
+      // Se algum grupo está rodando, agenda refresh em 5s
+      const algumRodando = pesquisas.some(g => {
+        const el = document.getElementById(`autoIAStatus-${g.id}`);
+        return el && el.classList.contains('rodando');
+      });
+      if (algumRodando) {
+        clearTimeout(_autoIARefreshTimer);
+        _autoIARefreshTimer = setTimeout(() => carregarStatusAutoIA(grupos).catch(() => {}), 5000);
+      }
+    }
+    let _autoIARefreshTimer = null;
+
+    async function abrirAgendamentoIA(grupoId, nomeGrupo) {
+      document.getElementById('agendamentoGrupoId').value = grupoId;
+      document.getElementById('agendamentoNomeGrupo').textContent = nomeGrupo;
+      // Reset
+      document.getElementById('agendamentoAtivo').checked = false;
+      document.getElementById('agendamentoUfs').value = '';
+      document.getElementById('agendamentoModalidades').value = '';
+      document.getElementById('agendamentoValorMin').value = '';
+      document.getElementById('agendamentoLimite').value = '100';
+      document.getElementById('agendamentoProdutos').value = '';
+      document.getElementById('agendamentoAutoInteresse').checked = false;
+      document.getElementById('agendamentoAutoTelegram').checked = false;
+      document.getElementById('agendamentoAutoScoreMin').value = '70';
+      document.getElementById('agendamentoStatusBox').hidden = true;
+
+      try {
+        const resp = await fetch(`/api/analise/agendamento/${grupoId}`);
+        const j = await resp.json();
+        if (j.success) {
+          const c = j.config;
+          document.getElementById('agendamentoAtivo').checked = !!c.ativo;
+          document.getElementById('agendamentoUfs').value = (c.ufs || []).join(', ');
+          document.getElementById('agendamentoModalidades').value = (c.modalidades || []).join(', ');
+          document.getElementById('agendamentoValorMin').value = c.valor_minimo || '';
+          document.getElementById('agendamentoLimite').value = c.limite_diario || 100;
+          document.getElementById('agendamentoProdutos').value = c.produtos_que_vendo || '';
+          document.getElementById('agendamentoAutoInteresse').checked = !!c.auto_interesse_ativo;
+          document.getElementById('agendamentoAutoTelegram').checked = !!c.auto_telegram_ativo;
+          document.getElementById('agendamentoAutoScoreMin').value = c.auto_score_min ?? 70;
+
+          if (c.ultimo_scan_em) {
+            document.getElementById('agendamentoStatusBox').hidden = false;
+            document.getElementById('statusQuando').textContent = new Date(c.ultimo_scan_em).toLocaleString('pt-BR');
+            document.getElementById('statusTotal').textContent = c.ultimo_scan_total ?? '—';
+            document.getElementById('statusAnalisadas').textContent = c.ultimo_scan_analisadas ?? '—';
+            document.getElementById('statusErros').textContent = c.ultimo_scan_erros ?? '—';
+            document.getElementById('statusStatus').textContent = c.ultimo_scan_status || '—';
+            const msg = document.getElementById('statusMensagem');
+            if (c.ultimo_scan_mensagem) { msg.textContent = c.ultimo_scan_mensagem; msg.hidden = false; }
+            else { msg.hidden = true; }
+
+            // Auto-refresh enquanto rodando
+            clearTimeout(_modalRefreshTimer);
+            if (c.ultimo_scan_status === 'em_andamento'
+                && document.getElementById('modalAgendamentoIA').classList.contains('active')) {
+              _modalRefreshTimer = setTimeout(() => {
+                abrirAgendamentoIA(grupoId, document.getElementById('agendamentoNomeGrupo').textContent);
+              }, 3000);
+            }
+          }
+        }
+      } catch (e) {
+        showToast('Erro ao carregar agendamento', 'error');
+      }
+      document.getElementById('modalAgendamentoIA').classList.add('active');
+    }
+    let _modalRefreshTimer = null;
+
+    function fecharAgendamentoIA() {
+      clearTimeout(_modalRefreshTimer);
+      document.getElementById('modalAgendamentoIA').classList.remove('active');
+    }
+
+    function parsearLista(s) {
+      return String(s || '').split(',').map(x => x.trim()).filter(Boolean);
+    }
+
+    async function salvarAgendamentoIA() {
+      const grupoId = document.getElementById('agendamentoGrupoId').value;
+      const payload = {
+        ativo: document.getElementById('agendamentoAtivo').checked,
+        ufs: parsearLista(document.getElementById('agendamentoUfs').value).map(s => s.toUpperCase()),
+        modalidades: parsearLista(document.getElementById('agendamentoModalidades').value).map(n => parseInt(n)).filter(n => !isNaN(n)),
+        valor_minimo: parseFloat(document.getElementById('agendamentoValorMin').value) || null,
+        limite_diario: parseInt(document.getElementById('agendamentoLimite').value) || 100,
+        produtos_que_vendo: document.getElementById('agendamentoProdutos').value.trim() || null,
+        auto_interesse_ativo: document.getElementById('agendamentoAutoInteresse').checked,
+        auto_telegram_ativo: document.getElementById('agendamentoAutoTelegram').checked,
+        auto_score_min: parseInt(document.getElementById('agendamentoAutoScoreMin').value) || 70,
+      };
+      try {
+        const resp = await fetch(`/api/analise/agendamento/${grupoId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const j = await resp.json();
+        if (j.success) {
+          showToast('Agendamento salvo', 'success');
+          fecharAgendamentoIA();
+          // Refresh badges
+          if (gruposPesquisa && gruposPesquisa.length) carregarStatusAutoIA(gruposPesquisa);
+        } else {
+          showToast('Erro: ' + (j.error || 'falha ao salvar'), 'error');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, 'error');
+      }
+    }
+
+    async function executarScanAgora() {
+      const grupoId = document.getElementById('agendamentoGrupoId').value;
+      const btn = document.getElementById('btnExecutarScan');
+      btn.disabled = true;
+      btn.textContent = '⏳ Rodando...';
+      try {
+        const resp = await fetch(`/api/analise/agendamento/${grupoId}/executar`, { method: 'POST' });
+        const j = await resp.json();
+        if (j.success) {
+          showToast('Scan iniciado em background. Recarregue em alguns minutos.', 'success');
+          setTimeout(() => abrirAgendamentoIA(grupoId, document.getElementById('agendamentoNomeGrupo').textContent), 1500);
+        } else {
+          showToast('Erro: ' + (j.error || 'falha'), 'error');
+        }
+      } catch (e) {
+        showToast('Erro: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ Rodar agora';
+      }
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast show ' + type;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('grupos-palavras');</script>
+</body>
+</html>

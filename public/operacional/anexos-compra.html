@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anexos da Compra · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Anexos da Compra</h1>
+      <small id="subTitulo">Envie certidões de habilitação e gerencie os anexos por item no Comprasnet</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/operacional/relatorio-participacoes.html">← Participações</a>
+      <button class="btn btn-primary" onclick="recarregar()">Recarregar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <label style="font-size:0.85em;color:var(--text-2);">Adicionar item nº
+      <input type="number" id="itemManual" min="1" placeholder="ex: 15" style="width:90px;margin-left:4px;">
+    </label>
+    <button class="btn btn-secondary" onclick="adicionarItemManual()">Carregar item</button>
+    <span id="compraInfo" style="font-size:0.85em;color:var(--text-3);margin-left:auto;"></span>
+  </div>
+
+  <div id="itens"></div>
+</main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('anexos-compra');</script>
+<script>
+const params = new URLSearchParams(location.search);
+const COMPRA = params.get('compra');
+let PNCP = null;            // { cnpj, sequencial, ano }
+let DOCS = [];             // documentos de habilitação com arquivo
+const itensCarregados = new Set();
+
+function alerta(msg, tipo) {
+  const el = document.getElementById('alertGlobal');
+  el.innerHTML = `<div class="alert alert-${tipo || 'info'}">${msg}</div>`;
+  if (tipo === 'success') setTimeout(() => { el.innerHTML = ''; }, 4000);
+}
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function carregarDocs() {
+  try {
+    const r = await fetch('/api/habilitacao');
+    const j = await r.json();
+    DOCS = (j.documentos || []).filter(d => d.temArquivo);
+  } catch (e) { DOCS = []; }
+}
+
+function optionsDocs() {
+  if (!DOCS.length) return '<option value="">(sem certidões com arquivo)</option>';
+  return '<option value="">Escolha uma certidão…</option>' +
+    DOCS.map(d => `<option value="${d.id}">${esc(d.tipo)}${d.dataValidade ? ' — val. ' + esc(d.dataValidade) : ''} (${esc(d.status)})</option>`).join('');
+}
+
+async function carregarCompra() {
+  if (!COMPRA) { alerta('Abra esta página a partir de uma participação (falta ?compra=…).', 'warning'); return; }
+  try {
+    const r = await fetch('/api/comprasnet/anexos/compra?compra=' + encodeURIComponent(COMPRA));
+    const j = await r.json();
+    if (!j.success) { alerta('Não consegui carregar a compra: ' + esc(j.error || ''), 'error'); return; }
+    PNCP = j.pncp;
+    const c = j.compra;
+    document.getElementById('subTitulo').textContent = `${c.orgao || ''} — ${c.objeto || ''}`.slice(0, 160);
+    document.getElementById('compraInfo').textContent = `Compra ${COMPRA} · UASG ${c.uasg} · ${c.uf || ''}`;
+  } catch (e) { alerta('Erro ao carregar a compra: ' + esc(e.message), 'error'); }
+}
+
+// tenta auto-listar os itens do catálogo local (best-effort; se falhar, entrada manual)
+async function autoListarItens() {
+  if (!PNCP) return;
+  try {
+    const r = await fetch(`/api/licitacoes/${PNCP.cnpj}/${PNCP.sequencial}/${PNCP.ano}/itens`);
+    if (!r.ok) return;
+    const j = await r.json();
+    const arr = Array.isArray(j) ? j : (j.itens || j.documentos || []);
+    for (const it of arr) {
+      const n = it.numeroItem || it.numero;
+      if (n) await adicionarItem(n, it.descricao);
+    }
+  } catch (e) { /* silencioso — cai no manual */ }
+}
+
+async function adicionarItemManual() {
+  const n = parseInt(document.getElementById('itemManual').value, 10);
+  if (!n) { alerta('Informe o número do item.', 'warning'); return; }
+  document.getElementById('itemManual').value = '';
+  await adicionarItem(n);
+}
+
+async function adicionarItem(numero, descricaoConhecida) {
+  numero = parseInt(numero, 10);
+  if (!numero || itensCarregados.has(numero)) return;
+  itensCarregados.add(numero);
+
+  const card = document.createElement('div');
+  card.className = 'tbl-wrap';
+  card.style.marginBottom = '18px';
+  card.id = 'item-' + numero;
+  card.innerHTML = `<div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;">
+      <strong>Item ${numero}</strong><span id="desc-${numero}" style="color:var(--text-2);font-size:0.9em;">${esc(descricaoConhecida || '…')}</span>
+    </div>
+    <div id="anexos-${numero}" style="padding:10px 12px;">Carregando anexos…</div>
+    <div class="toolbar" style="padding:10px 12px;border-top:1px solid var(--border);">
+      <select id="doc-${numero}" style="min-width:260px;">${optionsDocs()}</select>
+      <button class="btn btn-primary" onclick="anexar(${numero})">Anexar certidão</button>
+    </div>`;
+  document.getElementById('itens').appendChild(card);
+
+  if (!descricaoConhecida) {
+    fetch(`/api/comprasnet/anexos/item?compra=${encodeURIComponent(COMPRA)}&item=${numero}`)
+      .then(r => r.json()).then(j => { if (j.success) document.getElementById('desc-' + numero).textContent = j.descricao || ''; })
+      .catch(() => {});
+  }
+  await listarAnexos(numero);
+}
+
+async function listarAnexos(numero) {
+  const box = document.getElementById('anexos-' + numero);
+  try {
+    const r = await fetch(`/api/comprasnet/anexos?compra=${encodeURIComponent(COMPRA)}&item=${numero}`);
+    const j = await r.json();
+    if (!j.success) { box.innerHTML = `<span style="color:var(--text-3)">Não foi possível listar (${esc(j.error || j.status)})</span>`; return; }
+    if (!j.anexos.length) { box.innerHTML = '<span style="color:var(--text-3)">Nenhum anexo neste item.</span>'; return; }
+    box.innerHTML = '<table style="width:100%"><tbody>' + j.anexos.map(a => `
+      <tr>
+        <td>📎 ${esc(a.nomeOriginal)}</td>
+        <td style="color:var(--text-3);font-size:0.85em;">${esc((a.dataHora || '').replace('T', ' ').slice(0, 16))}</td>
+        <td style="text-align:right">${a.permitidoExcluir ? `<button class="btn btn-secondary" onclick="excluir(${numero}, '${encodeURIComponent(a.nome)}', '${esc(a.nomeOriginal)}')">Excluir</button>` : '<span style="color:var(--text-3)">—</span>'}</td>
+      </tr>`).join('') + '</tbody></table>';
+  } catch (e) { box.innerHTML = `<span style="color:var(--text-3)">Erro: ${esc(e.message)}</span>`; }
+}
+
+async function anexar(numero) {
+  const sel = document.getElementById('doc-' + numero);
+  const documentoId = sel.value;
+  if (!documentoId) { alerta('Escolha uma certidão para anexar.', 'warning'); return; }
+  const nome = sel.options[sel.selectedIndex].text;
+  if (!confirm(`Anexar "${nome}" ao item ${numero} da compra ${COMPRA}?`)) return;
+  sel.disabled = true;
+  try {
+    const r = await fetch('/api/comprasnet/anexos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compra: COMPRA, item: numero, documentoId: Number(documentoId) }),
+    });
+    const j = await r.json();
+    if (j.success) { alerta(esc(j.message || 'Anexado com sucesso!'), 'success'); await listarAnexos(numero); }
+    else alerta('Falha ao anexar: ' + esc(j.error || j.message || j.status), 'error');
+  } catch (e) { alerta('Erro: ' + esc(e.message), 'error'); }
+  finally { sel.disabled = false; sel.value = ''; }
+}
+
+async function excluir(numero, nomeEnc, nomeOriginal) {
+  if (!confirm(`Excluir o anexo "${nomeOriginal}" do item ${numero}? Esta ação remove o arquivo do Comprasnet.`)) return;
+  try {
+    const r = await fetch('/api/comprasnet/anexos', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compra: COMPRA, item: numero, nome: decodeURIComponent(nomeEnc) }),
+    });
+    const j = await r.json();
+    if (j.success) { alerta('Anexo excluído.', 'success'); await listarAnexos(numero); }
+    else alerta('Falha ao excluir: ' + esc(j.error || j.message || j.status), 'error');
+  } catch (e) { alerta('Erro: ' + esc(e.message), 'error'); }
+}
+
+async function recarregar() {
+  document.getElementById('itens').innerHTML = '';
+  itensCarregados.clear();
+  await init();
+}
+
+async function init() {
+  await Promise.all([carregarDocs(), carregarCompra()]);
+  const itemUrl = params.get('item');
+  if (itemUrl) await adicionarItem(itemUrl);
+  await autoListarItens();
+  if (!itensCarregados.size) alerta('Nenhum item carregado automaticamente. Informe o número do item acima para gerenciar seus anexos.', 'info');
+}
+init();
+</script>
+</body>
+</html>

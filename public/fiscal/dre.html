@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DRE · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* Page-local: árvore do plano de contas + sumário DRE */
+.dre-table { width:100%; border-collapse:collapse; }
+.dre-table td, .dre-table th { padding:8px 10px; border-bottom:1px solid var(--border); }
+.dre-table th { text-align:left; color:var(--text-2); font-weight:600; font-size:0.72em; text-transform:uppercase; letter-spacing:0.06em; }
+.dre-table td.num { text-align:right; font-family:'SF Mono', Menlo, Monaco, Consolas, monospace; font-variant-numeric:tabular-nums; }
+.dre-row-nivel-1 { font-weight:700; background:var(--bg-1); }
+.dre-row-nivel-2 td:first-child { padding-left:32px; }
+.dre-row-nivel-3 td:first-child { padding-left:56px; }
+.dre-row-zero { opacity:0.45; }
+
+.dre-summary { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-lg); padding:16px 20px; margin-top:14px; }
+.dre-summary .row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--border); }
+.dre-summary .row:last-child { border-bottom:none; }
+.dre-summary .label { color:var(--text-2); }
+.dre-summary .value { font-family:'SF Mono', Menlo, Monaco, Consolas, monospace; font-variant-numeric:tabular-nums; font-weight:600; }
+.dre-summary .destaque { color:var(--success); font-size:1.1em; }
+.dre-summary .destaque.neg { color:var(--danger); }
+
+.tipo-receita { color:var(--success); }
+.tipo-deducao, .tipo-custo, .tipo-despesa, .tipo-financeiro_despesa { color:var(--danger); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>DRE — Demonstrativo de Resultados</h1>
+      <small>Resultado gerencial do período (regime de caixa por padrão)</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Imprimir</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="date" id="fIni" onchange="carregar()" style="width:auto;">
+    <input type="date" id="fFim" onchange="carregar()" style="width:auto;">
+    <select id="fRegime" onchange="carregar()" style="width:auto;">
+      <option value="caixa">Regime de caixa (pago)</option>
+      <option value="competencia">Regime de competência (emitido)</option>
+    </select>
+    <select id="fCentro" onchange="carregar()" style="min-width:200px;">
+      <option value="">Todos os centros de custo</option>
+    </select>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h3 id="periodoLbl" style="margin-top:0;">Período</h3>
+    <div id="dreContainer">Selecione um período…</div>
+  </div>
+
+  <div id="dreSummary"></div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('dre');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+async function carregarFiltros(){
+  const r = await fetch('/api/centros-custo');
+  const d = await r.json();
+  if (d.success) {
+    document.getElementById('fCentro').innerHTML = '<option value="">Todos os centros de custo</option>' +
+      d.centros.map(c=>`<option value="${c.id}">${c.codigo?c.codigo+' — ':''}${c.nome}</option>`).join('');
+  }
+  // default período: mês atual
+  const hoje = new Date();
+  const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0,10);
+  const fim = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).toISOString().slice(0,10);
+  document.getElementById('fIni').value = ini;
+  document.getElementById('fFim').value = fim;
+}
+
+async function carregar(){
+  const ini = document.getElementById('fIni').value;
+  const fim = document.getElementById('fFim').value;
+  if (!ini || !fim) return;
+  const params = new URLSearchParams({ dataIni: ini, dataFim: fim, regime: document.getElementById('fRegime').value });
+  const centro = document.getElementById('fCentro').value;
+  if (centro) params.set('centroCustoId', centro);
+  document.getElementById('periodoLbl').textContent = `Período: ${ini} a ${fim}`;
+  document.getElementById('dreContainer').innerHTML = 'Carregando…';
+  const r = await fetch('/api/dre?'+params);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  renderArvore(d.arvore);
+  renderSumario(d.sumario, d.semClassificacao);
+}
+
+function renderArvore(arvore){
+  if (!arvore.length) {
+    document.getElementById('dreContainer').innerHTML = '<div class="muted" style="text-align:center;padding:30px;">Sem plano de contas configurado</div>';
+    return;
+  }
+  let html = `<table class="dre-table"><thead><tr>
+    <th>Conta</th><th>Tipo</th><th class="num">Valor</th>
+  </tr></thead><tbody>`;
+  function row(n) {
+    const v = n.totalConsolidado || 0;
+    const cls = `dre-row-nivel-${n.nivel}` + (v === 0 ? ' dre-row-zero' : '');
+    html += `<tr class="${cls}">
+      <td>${n.codigo} ${n.nome}</td>
+      <td><small class="muted tipo-${n.tipo}">${labelTipo(n.tipo)}</small></td>
+      <td class="num tipo-${n.tipo}">${fmtBRL(v)}</td>
+    </tr>`;
+    n.children.forEach(row);
+  }
+  arvore.forEach(row);
+  html += '</tbody></table>';
+  document.getElementById('dreContainer').innerHTML = html;
+}
+
+function labelTipo(t){
+  return ({
+    receita: 'Receita',
+    deducao: 'Dedução',
+    custo: 'Custo',
+    despesa: 'Despesa',
+    financeiro_receita: 'Receita Fin.',
+    financeiro_despesa: 'Despesa Fin.',
+    investimento: 'Investimento',
+    transferencia: 'Transferência'
+  })[t] || t;
+}
+
+function renderSumario(s, semClass){
+  const margBruta = s.receitaLiquida ? (s.lucroBruto / s.receitaLiquida * 100) : 0;
+  const margEbitda = s.receitaLiquida ? (s.ebitda / s.receitaLiquida * 100) : 0;
+  const margLiq = s.receitaLiquida ? (s.resultado / s.receitaLiquida * 100) : 0;
+  const cls = s.resultado >= 0 ? '' : 'neg';
+  const semClassAlerta = (semClass.receitas + semClass.despesas) > 0
+    ? `<div class="muted" style="margin-top:8px;font-size:12px;color:var(--warn);">⚠ Sem classificação: ${fmtBRL(semClass.receitas + semClass.despesas)} (configure planoContaId nas categorias)</div>`
+    : '';
+  document.getElementById('dreSummary').innerHTML = `
+    <div class="dre-summary">
+      <h3 style="margin-top:0;">Resumo</h3>
+      <div class="row"><span class="label">Receita Bruta</span><span class="value tipo-receita">${fmtBRL(s.totalReceitas)}</span></div>
+      <div class="row"><span class="label">(–) Deduções</span><span class="value tipo-deducao">${fmtBRL(s.totalDeducoes)}</span></div>
+      <div class="row"><span class="label"><strong>Receita Líquida</strong></span><span class="value"><strong>${fmtBRL(s.receitaLiquida)}</strong></span></div>
+      <div class="row"><span class="label">(–) Custos</span><span class="value tipo-custo">${fmtBRL(s.totalCustos)}</span></div>
+      <div class="row"><span class="label"><strong>Lucro Bruto</strong></span><span class="value"><strong>${fmtBRL(s.lucroBruto)}</strong> (${margBruta.toFixed(1)}%)</span></div>
+      <div class="row"><span class="label">(–) Despesas Operacionais</span><span class="value tipo-despesa">${fmtBRL(s.totalDespesas)}</span></div>
+      <div class="row"><span class="label"><strong>EBITDA</strong></span><span class="value"><strong>${fmtBRL(s.ebitda)}</strong> (${margEbitda.toFixed(1)}%)</span></div>
+      <div class="row"><span class="label">(+) Receitas Financeiras</span><span class="value tipo-receita">${fmtBRL(s.finReceita)}</span></div>
+      <div class="row"><span class="label">(–) Despesas Financeiras</span><span class="value tipo-financeiro_despesa">${fmtBRL(s.finDespesa)}</span></div>
+      <div class="row"><span class="label"><strong>Resultado Líquido</strong></span><span class="value destaque ${cls}">${fmtBRL(s.resultado)} (${margLiq.toFixed(1)}%)</span></div>
+      ${semClassAlerta}
+    </div>
+  `;
+}
+
+carregarFiltros().then(carregar);
+</script>
+</body></html>

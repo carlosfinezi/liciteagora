@@ -6,12 +6,16 @@ const { emitirNfseInterno, carregarCertificado, dataBrasilia } = require('./nfse
 const { NfseClient } = require('./nfse-client');
 const { enviarEmailNfse, loadSmtpConfig } = require('./email-client');
 
-let recorrenciaTimeout = null;
+// Multi-tenant: um timeout por instância de db. Antes era um único `let`
+// global, o que fazia cada chamada de agendarRecorrencias(db) cancelar o
+// agendamento do tenant anterior — só o último tenant ficava agendado.
+const recorrenciaTimeouts = new Map();
 
 function agendarRecorrencias(db) {
-  if (recorrenciaTimeout) {
-    clearTimeout(recorrenciaTimeout);
-    recorrenciaTimeout = null;
+  const existing = recorrenciaTimeouts.get(db);
+  if (existing) {
+    clearTimeout(existing);
+    recorrenciaTimeouts.delete(db);
   }
 
   // Proximo 08:00 BRT (UTC-3 = 11:00 UTC)
@@ -27,7 +31,7 @@ function agendarRecorrencias(db) {
   const brt = new Date(proxima.getTime() - 3 * 60 * 60 * 1000);
   console.log(`[Recorrencia] Proximo check: ${brt.toISOString().replace('T', ' ').substring(0, 19)} BRT`);
 
-  recorrenciaTimeout = setTimeout(async () => {
+  const timer = setTimeout(async () => {
     // Verificar se e dia 1
     const hojeBrt = dataBrasilia(); // YYYY-MM-DD
     const dia = parseInt(hojeBrt.substring(8, 10), 10);
@@ -42,13 +46,14 @@ function agendarRecorrencias(db) {
     // Reagendar
     agendarRecorrencias(db);
   }, msAteProxima);
+  recorrenciaTimeouts.set(db, timer);
 }
 
 async function executarRecorrencias(db) {
   const competencia = dataBrasilia().substring(0, 7); // YYYY-MM
 
   const recorrencias = db.prepare(`
-    SELECT r.*, p.cpfCnpj, p.razaoSocial, p.inscricaoMunicipal, p.email,
+    SELECT r.*, p.cpfCnpj, p.razaoSocial, p.inscricaoMunicipal, p.email, p.emailsAdicionais,
       p.endereco, p.numero, p.complemento, p.bairro, p.codigoMunicipio, p.uf, p.cep
     FROM nfse_recorrencias r
     JOIN pessoas p ON p.id = r.pessoaId
@@ -189,8 +194,13 @@ async function executarUmaRecorrencia(db, rec, competencia) {
             boletoUrl = boleto?.externalUrl || null;
           }
 
+          const ccList = rec.emailsAdicionais
+            ? rec.emailsAdicionais.split(',').map(e => e.trim()).filter(Boolean)
+            : [];
+
           await enviarEmailNfse(db, {
             to: rec.email,
+            cc: ccList.length ? ccList.join(', ') : undefined,
             nfseNumero: resultado.nfse?.nNFSe || resultado.nfse?.idDps || '',
             descricao: rec.descricao,
             valor: rec.valorServico,

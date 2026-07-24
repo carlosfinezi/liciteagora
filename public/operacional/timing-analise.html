@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análise de Timing · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        .mono { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.88em; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .kpi { padding: 12px 14px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--border); }
+        .kpi .label { font-size: 0.75em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+        .kpi .value { font-size: 1.4em; font-weight: 700; color: var(--text-0); margin-top: 4px; font-family: 'SF Mono', Menlo, Monaco, monospace; }
+        .kpi .sub { font-size: 0.72em; color: var(--text-3); margin-top: 2px; }
+        .kpi.good .value { color: var(--success); }
+        .kpi.warn .value { color: var(--warn); }
+        .kpi.danger .value { color: var(--danger); }
+
+        .sugestao { padding: 10px 14px; border-left: 3px solid; border-radius: 4px; margin-bottom: 8px; background: var(--bg-1); }
+        .sugestao.warn { border-color: var(--warn); }
+        .sugestao.danger { border-color: var(--danger); }
+        .sugestao.good { border-color: var(--success); }
+        .sugestao .tipo { font-size: 0.7em; text-transform: uppercase; color: var(--text-3); font-weight: 700; letter-spacing: 0.06em; }
+        .sugestao .msg { color: var(--text-0); margin-top: 2px; }
+
+        table.timing-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        table.timing-table th { background: var(--bg-3); color: var(--text-2); text-align: left; padding: 8px 10px; font-weight: 600; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+        table.timing-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+        table.timing-table tr:hover { background: var(--bg-hover); }
+        .delta-ok    { color: var(--success); font-weight: 600; }
+        .delta-warn  { color: var(--warn); font-weight: 600; }
+        .delta-danger{ color: var(--danger); font-weight: 700; }
+        .empty { text-align: center; padding: 30px; color: var(--text-3); }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Análise de Timing das Blitzes</h1>
+        <small>Calibração do auto-cálculo de milésimo (oneWay / intervaloRR / bufferSpike) pra rajadas mais precisas.</small>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="carregar()">Atualizar</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+        <label style="font-size:0.85em;color:var(--text-2)">Últimas <input type="number" id="filtUltimas" value="20" min="1" max="200" style="width:70px;" onchange="carregar()"> blitzes</label>
+        <input type="text" id="filtCompra" placeholder="Filtrar compraId…" style="width:200px;" onkeydown="if(event.key==='Enter')carregar()">
+        <span id="resumo" style="margin-left:auto;font-size:0.85em;color:var(--text-3)"></span>
+    </div>
+
+    <div id="kpis" class="kpi-grid"></div>
+
+    <div id="sugestoes" style="margin-bottom:16px"></div>
+
+    <div class="panel">
+        <h3 style="margin-bottom:10px">Últimas blitzes</h3>
+        <div id="tabelaContainer">
+            <table class="timing-table">
+                <thead>
+                    <tr>
+                        <th>Quando</th>
+                        <th>CompraId / Item</th>
+                        <th>Tag</th>
+                        <th title="Diferença entre quando o timer realmente disparou e o alvo configurado. Positivo = atraso.">Desvio inicial</th>
+                        <th title="RTT médio dos lances enviados (latência rede + Comprasnet).">RTT méd / máx</th>
+                        <th>Lances</th>
+                        <th title="Encerramento previsto do item no momento do disparo.">FimContagem (T-0)</th>
+                        <th title="Quão antes/depois do encerramento o último lance chegou ao Comprasnet. Negativo = antes (bom).">Δ vs encerramento</th>
+                        <th title="Quantos itens disparam juntos (round-robin).">Coalesc</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+</main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('timing-analise');</script>
+<script>
+const API = '';
+const fmt = (v) => v == null ? '—' : String(v);
+const fmtMs = (v) => v == null ? '—' : (v > 0 ? '+' : '') + v + 'ms';
+const fmtTs = (iso) => {
+    if(!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false }) + ' (' + d.toLocaleDateString('pt-BR') + ')';
+};
+const fmtFimContagem = (s) => {
+    if(!s) return '—';
+    try {
+        const d = new Date(s);
+        return d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+    } catch { return s; }
+};
+
+function classeDelta(d) {
+    if (d == null) return '';
+    if (d > 0) return 'delta-danger';      // chegou DEPOIS do encerramento
+    if (d > -50) return 'delta-warn';      // muito justo
+    return 'delta-ok';                      // tem folga
+}
+
+async function carregar() {
+    const ultimas = document.getElementById('filtUltimas').value || 20;
+    const compraId = document.getElementById('filtCompra').value.trim();
+    let url = `${API}/api/sniper/timing-analise?ultimas=${encodeURIComponent(ultimas)}`;
+    if (compraId) url += `&compraId=${encodeURIComponent(compraId)}`;
+    try {
+        const r = await fetch(url);
+        const d = await r.json();
+        if (!d.success) { alert('Erro: ' + (d.error||'desconhecido')); return; }
+        renderKpis(d.agregados);
+        renderSugestoes(d.sugestoes);
+        renderTabela(d.amostras);
+        document.getElementById('resumo').textContent = `${d.agregados.amostras} blitz(es) analisada(s)`;
+    } catch(e) {
+        document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="empty" style="color:var(--danger)">Erro: '+e.message+'</td></tr>';
+    }
+}
+
+function renderKpis(a) {
+    if (!a) return;
+    const classeDesvio = a.desvioInicialMedioMs == null ? '' : (Math.abs(a.desvioInicialMedioMs) < 20 ? 'good' : (Math.abs(a.desvioInicialMedioMs) < 50 ? 'warn' : 'danger'));
+    const classeRtt = a.rttMedioMs == null ? '' : (a.rttMedioMs < 150 ? 'good' : (a.rttMedioMs < 250 ? 'warn' : 'danger'));
+    const classeDelta = a.deltaVsEncMedioMs == null ? '' : (a.deltaVsEncMedioMs > 0 ? 'danger' : (a.deltaVsEncMedioMs > -100 ? 'warn' : 'good'));
+    const taxaSuc = a.lancesTotal > 0 ? Math.round(a.sucessosTotal / a.lancesTotal * 100) : 0;
+    document.getElementById('kpis').innerHTML = `
+        <div class="kpi ${classeDesvio}">
+            <div class="label">Desvio inicial (timer)</div>
+            <div class="value">${fmtMs(a.desvioInicialMedioMs)}</div>
+            <div class="sub">médio (p95: ${fmtMs(a.desvioInicialP95Ms)})</div>
+        </div>
+        <div class="kpi ${classeRtt}">
+            <div class="label">RTT por lance</div>
+            <div class="value">${a.rttMedioMs ?? '—'}ms</div>
+            <div class="sub">médio (p95 máx: ${a.rttP95Ms ?? '—'}ms)</div>
+        </div>
+        <div class="kpi ${classeDelta}">
+            <div class="label">Δ vs encerramento</div>
+            <div class="value">${fmtMs(a.deltaVsEncMedioMs)}</div>
+            <div class="sub">${a.deltasAtrasados}/${a.deltasTotal} atrasaram (p95: ${fmtMs(a.deltaVsEncP95Ms)})</div>
+        </div>
+        <div class="kpi ${taxaSuc >= 95 ? 'good' : (taxaSuc >= 80 ? 'warn' : 'danger')}">
+            <div class="label">Taxa de sucesso</div>
+            <div class="value">${taxaSuc}%</div>
+            <div class="sub">${a.sucessosTotal}/${a.lancesTotal} lances</div>
+        </div>
+    `;
+}
+
+function renderSugestoes(sugestoes) {
+    const el = document.getElementById('sugestoes');
+    if (!sugestoes || sugestoes.length === 0) {
+        el.innerHTML = '<div class="sugestao good"><span class="tipo">Calibração</span><div class="msg">Sem ajustes recomendados — sistema operando dentro da faixa.</div></div>';
+        return;
+    }
+    el.innerHTML = sugestoes.map(s => {
+        const cls = s.tipo === 'atrasou' || s.tipo === 'rtt_alto' ? 'danger' : 'warn';
+        return `<div class="sugestao ${cls}"><span class="tipo">${s.tipo}</span><div class="msg">${s.mensagem}</div></div>`;
+    }).join('');
+}
+
+function renderTabela(rows) {
+    const tb = document.getElementById('tbody');
+    if (!rows || rows.length === 0) {
+        tb.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma blitz registrada ainda.</td></tr>';
+        return;
+    }
+    tb.innerHTML = rows.map(r => `
+        <tr>
+            <td class="mono">${fmtTs(r.criadoEm)}</td>
+            <td class="mono">${r.compraId}<br><span style="opacity:0.7">item ${r.itemNumero}</span></td>
+            <td><small>${r.tag || '—'}</small></td>
+            <td class="mono">${fmtMs(r.desvioInicialMs)}</td>
+            <td class="mono">${r.rttMedioMs ?? '—'} / ${r.rttMaxMs ?? '—'}ms</td>
+            <td class="mono">${r.sucessos}/${r.numLances} <span style="opacity:0.6">(${r.falhas} ✗)</span></td>
+            <td class="mono">${fmtFimContagem(r.fimContagemNoT0)}</td>
+            <td class="mono ${classeDelta(r.deltaVsEncerramentoMs)}">${fmtMs(r.deltaVsEncerramentoMs)}</td>
+            <td>${r.numItensCoalescidos}</td>
+        </tr>
+    `).join('');
+}
+
+carregar();
+setInterval(carregar, 30000); // refresh a cada 30s
+</script>
+</body>
+</html>

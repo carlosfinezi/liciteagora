@@ -87,7 +87,14 @@ function cell(doc, x, y, w, h, label, value, opts = {}) {
   doc.restore();
 }
 
-function gerarDanfsePdf(xml) {
+function logoBufferDeBase64(b64) {
+  if (!b64 || typeof b64 !== 'string') return null;
+  const m = b64.match(/^data:image\/(png|jpe?g);base64,(.+)$/i);
+  const payload = m ? m[2] : b64;
+  try { return Buffer.from(payload, 'base64'); } catch { return null; }
+}
+
+function gerarDanfsePdf(xml, dadosComplementares = {}) {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 25 });
@@ -101,18 +108,27 @@ function gerarDanfsePdf(xml) {
       let y = M;
 
       // ===== Extrair dados do XML =====
+      // O XML autorizado tem 2 escopos: <infNFSe> (capa NFS-e) e <infDPS> (DPS
+      // gerada pelo contribuinte, dentro de <DPS>). Vários elementos têm o
+      // mesmo nome nos dois (`<valores>`, `<verAplic>`) — sempre extrair pelo
+      // contexto certo pra não pegar o errado pela ordem do regex.
+      const infDPS = tag(xml, 'infDPS') || xml; // fallback: XML inteiro
+
       const nNFSe = tag(xml, 'nNFSe');
-      const nDPS = tag(xml, 'nDPS');
-      const serDPS = tag(xml, 'serDPS') || tag(xml, 'serie');
+      const nDPS = tag(infDPS, 'nDPS');
+      const serDPS = tag(infDPS, 'serDPS') || tag(infDPS, 'serie');
       const dhProc = tag(xml, 'dhProc');
-      const dhEmi = tag(xml, 'dhEmi') || dhProc;
-      const chaveAcesso = tag(xml, 'Id') || tag(xml, 'chNFSe');
-      const competencia = tag(xml, 'cmpNFSe') || (dhProc ? dhProc.substring(0, 7) : '');
+      const dhEmi = tag(infDPS, 'dhEmi') || dhProc;
+      // Chave de acesso: atributo Id do <infNFSe> (formato "NFS" + 50 dígitos),
+      // ou elemento <chNFSe> em respostas SEFIN. Strip do prefixo "NFS".
+      const infNFSeIdMatch = xml.match(/<(?:[A-Za-z_][\w.-]*:)?infNFSe[^>]*\sId\s*=\s*"([^"]+)"/);
+      const chaveAcesso = (infNFSeIdMatch && infNFSeIdMatch[1].replace(/^NFS/, '')) || tag(xml, 'chNFSe');
+      const competencia = tag(infDPS, 'dCompet') || tag(xml, 'cmpNFSe') || (dhProc ? dhProc.substring(0, 7) : '');
       const xLocEmi = tag(xml, 'xLocEmi');
 
-      // Emitente
+      // Emitente (capa do infNFSe)
       const emit = tag(xml, 'emit');
-      const emitCnpj = tag(emit, 'CNPJ');
+      const emitCnpj = tag(emit, 'CNPJ') || tag(emit, 'CPF');
       const emitIM = tag(emit, 'IM');
       const emitFone = tag(emit, 'fone');
       const emitNome = tag(emit, 'xNome');
@@ -123,84 +139,117 @@ function gerarDanfsePdf(xml) {
       const emitCpl = tag(emitEnder, 'xCpl');
       const emitBairro = tag(emitEnder, 'xBairro');
       const emitCep = tag(emitEnder, 'CEP');
+      // XML real só traz cMun (IBGE); xMun é raro. xLocEmi é o nome legível.
       const emitMun = tag(emitEnder, 'xMun') || xLocEmi;
       const emitUF = tag(emitEnder, 'UF');
-      const simplesNac = tag(xml, 'opSN') || tag(emit, 'opSN');
-      const regApTrib = tag(xml, 'regApTrib') || tag(emit, 'regApTrib');
 
-      // Tomador
-      const toma = tag(xml, 'toma');
+      // Regime tributário do prestador (vive em <prest><regTrib>... no infDPS)
+      const prest = tag(infDPS, 'prest');
+      const regTrib = tag(prest, 'regTrib');
+      const simplesNac = tag(regTrib, 'opSimpNac');
+      const regApTrib = tag(regTrib, 'regApTribSN');
+      const regEspTrib = tag(regTrib, 'regEspTrib') || '';
+
+      // Tomador (no infDPS). Estrutura é <toma>...<end><endNac>cMun,CEP</endNac>
+      // <xLgr/><nro/><xCpl/><xBairro/></end></toma> — nota o wrapper <end>.
+      const toma = tag(infDPS, 'toma');
       const tomaCnpj = tag(toma, 'CNPJ') || tag(toma, 'CPF');
       const tomaIM = tag(toma, 'IM');
       const tomaFone = tag(toma, 'fone');
       const tomaNome = tag(toma, 'xNome');
       const tomaEmail = tag(toma, 'email');
-      const tomaEnder = tag(toma, 'enderNac');
-      const tomaLgr = tag(tomaEnder, 'xLgr');
-      const tomaNro = tag(tomaEnder, 'nro');
-      const tomaCpl = tag(tomaEnder, 'xCpl');
-      const tomaBairro = tag(tomaEnder, 'xBairro');
-      const tomaCep = tag(tomaEnder, 'CEP');
-      const tomaMun = tag(tomaEnder, 'xMun');
-      const tomaUF = tag(tomaEnder, 'UF');
+      const tomaEnd = tag(toma, 'end');
+      const tomaEnderNac = tag(tomaEnd, 'endNac');
+      const tomaLgr = tag(tomaEnd, 'xLgr');
+      const tomaNro = tag(tomaEnd, 'nro');
+      const tomaCpl = tag(tomaEnd, 'xCpl');
+      const tomaBairro = tag(tomaEnd, 'xBairro');
+      const tomaCep = tag(tomaEnderNac, 'CEP');
+      // Nome do município raramente vem no XML; cai pro código IBGE como info.
+      const tomaMun = tag(tomaEnderNac, 'xMun') || tag(tomaEnderNac, 'cMun') || '';
+      const tomaUF = tag(tomaEnderNac, 'UF') || tag(tomaEnd, 'UF') || '';
 
       // Serviço
-      const xDescServ = tag(xml, 'xDescServ');
+      const serv = tag(infDPS, 'serv');
+      const cServ = tag(serv, 'cServ');
+      const xDescServ = tag(cServ, 'xDescServ') || tag(xml, 'xDescServ');
       const xTribNac = tag(xml, 'xTribNac');
-      const cTribNac = tag(xml, 'cTribNac');
+      const cTribNac = tag(cServ, 'cTribNac') || tag(xml, 'cTribNac');
       const xTribMun = tag(xml, 'xTribMun');
-      const cTribMun = tag(xml, 'cTribMun');
-      const xLocPrest = tag(xml, 'xLocPrest') || xLocEmi;
+      const cTribMun = tag(cServ, 'cTribMun') || tag(xml, 'cTribMun');
+      const cNBS = tag(cServ, 'cNBS');
+      const xNBS = tag(xml, 'xNBS');
+      const xLocPrest = tag(xml, 'xLocPrestacao') || tag(xml, 'xLocPrest') || xLocEmi;
       const xPaisPrest = tag(xml, 'xPaisPrest') || '';
 
-      // Valores
-      const valores = tag(xml, 'valores');
-      const vServ = tag(valores, 'vServ') || tag(valores, 'vServPrest') || '0';
-      const vLiq = tag(valores, 'vLiq') || vServ;
-      const vISS = tag(valores, 'vISS') || '0';
-      const vBCISS = tag(valores, 'vBCISS') || tag(valores, 'vBC') || '0';
-      const pAliq = tag(valores, 'pAliq') || '';
-      const vDescIncond = tag(valores, 'vDescIncond') || '';
-      const vDescCond = tag(valores, 'vDescCond') || '';
-      const vDedRed = tag(valores, 'vDedRed') || '';
-      const vCalcBM = tag(valores, 'vCalcBM') || '';
-      const retISSQN = tag(valores, 'retISSQN') || tag(xml, 'retISSQN') || '';
+      // Valores: HÁ DOIS <valores> no XML (infNFSe e infDPS). vLiq vive na capa,
+      // detalhamento (vServ, trib) vive no DPS.
+      const nfseValores = tag(xml, 'valores');
+      const vLiq = tag(nfseValores, 'vLiq');
+      const dpsValores = tag(infDPS, 'valores');
+      const vServPrest = tag(dpsValores, 'vServPrest');
+      const vServ = tag(vServPrest, 'vServ') || '0';
+      const vISS = tag(dpsValores, 'vISS') || '0';
+      const vBCISS = tag(dpsValores, 'vBCISS') || tag(dpsValores, 'vBC') || '0';
+      const pAliq = tag(dpsValores, 'pAliq') || '';
+      const vDescIncond = tag(vServPrest, 'vDescIncond') || tag(dpsValores, 'vDescIncond') || '';
+      const vDescCond = tag(vServPrest, 'vDescCond') || tag(dpsValores, 'vDescCond') || '';
+      const vDedRed = tag(dpsValores, 'vDedRed') || '';
+      const vCalcBM = tag(dpsValores, 'vCalcBM') || '';
 
-      // Tributação
-      const tpTrib = tag(xml, 'tpTrib') || '';
-      const munInc = tag(xml, 'xMunInc') || xLocEmi;
-      const regEspTrib = tag(xml, 'regEspTrib') || '';
-      const tpImunidade = tag(xml, 'tpImunidade') || '';
+      // Tributação ISSQN (em valores/trib/tribMun no infDPS)
+      const dpsTrib = tag(dpsValores, 'trib');
+      const dpsTribMun = tag(dpsTrib, 'tribMun');
+      const tpTrib = tag(dpsTribMun, 'tribISSQN') || '';
+      const retISSQN = tag(dpsTribMun, 'tpRetISSQN') || '';
+
+      // Município de incidência: xLocIncid vem na capa do infNFSe
+      const munInc = tag(xml, 'xLocIncid') || xLocEmi;
+      const tpImunidade = tag(dpsTribMun, 'tpImunidade') || '';
       const tpSusp = tag(xml, 'tpSusp') || '';
       const nProcesso = tag(xml, 'nProcesso') || '';
       const benMun = tag(xml, 'benMun') || '';
 
-      // Tributação federal
-      const vIRRF = tag(valores, 'trib') ? tag(tag(valores, 'trib'), 'vIRRF') : '';
-      const vContPrev = tag(valores, 'trib') ? tag(tag(valores, 'trib'), 'vCSLL') : '';
-      const vContSoc = tag(valores, 'trib') ? tag(tag(valores, 'trib'), 'vCOFINS') : '';
-      const vPIS = tag(valores, 'trib') ? tag(tag(valores, 'trib'), 'vPIS') : '';
+      // Tributação federal (em trib/tribFed no infDPS)
+      const dpsTribFed = tag(dpsTrib, 'tribFed');
+      const dpsPiscofins = tag(dpsTribFed, 'piscofins');
+      const vIRRF = tag(dpsTribFed, 'vIRRF') || '';
+      const vContPrev = tag(dpsTribFed, 'vCSLL') || '';
+      const vContSoc = tag(dpsPiscofins, 'vCOFINS') || '';
+      const vPIS = tag(dpsPiscofins, 'vPIS') || '';
 
-      // Tributos aproximados
-      const tribFed = tag(xml, 'totTribFed') || '';
-      const tribEst = tag(xml, 'totTribEst') || '';
-      const tribMun = tag(xml, 'totTribMun') || '';
+      // Tributos aproximados (totTrib no infDPS)
+      const dpsTotTrib = tag(dpsTrib, 'totTrib');
+      const tribFed = tag(dpsTotTrib, 'pTotTribFed') || tag(xml, 'totTribFed') || '';
+      const tribEst = tag(dpsTotTrib, 'pTotTribEst') || tag(xml, 'totTribEst') || '';
+      const tribMun = tag(dpsTotTrib, 'pTotTribMun') || tag(xml, 'totTribMun') || '';
 
-      // Info complementar
-      const infCpl = tag(xml, 'xInfCpl') || '';
+      // Info complementar: <infoCompl><xInfComp/></infoCompl> no <serv>
+      const infoCompl = tag(serv, 'infoCompl');
+      const infCpl = tag(infoCompl, 'xInfComp') || tag(xml, 'xInfCpl') || '';
 
-      const simplesLabels = { '1': 'Simples Nacional na Data de Competência', '2': 'Não optante', '3': 'MEI' };
-      const regApLabels = { '1': 'Regime de apuração dos tributos federais e municipal pelo Simples Nacional', '2': 'Regime fixo', '3': 'Regime normal' };
-      const tribLabels = { '1': 'ISSQN', '2': 'ISSQN fixo', '3': 'Imune', '4': 'Isenta', '5': 'Não tributável', '6': 'Exportação' };
+      const simplesLabels = { '1': 'Não optante', '2': 'Optante MEI', '3': 'Optante Simples Nacional' };
+      const regApLabels = { '1': 'Regime de Apuração SN — Microempresa de Pequeno Porte', '2': 'Regime de Apuração SN — Microempreendedor Individual' };
+      const tribLabels = { '1': 'Operação tributável', '2': 'Exportação de Serviço', '3': 'Não Incidência', '4': 'Imunidade', '5': 'ISSQN suspenso por decisão judicial/administrativa' };
       const retLabels = { '1': 'Não Retido', '2': 'Retido pelo Tomador', '3': 'Retido pelo Intermediário' };
       const regEspLabels = { '0': 'Nenhum', '1': 'Cooperativa', '2': 'Estimativa', '3': 'Sociedade de Profissionais', '4': 'Micro Empreendedor Individual' };
 
       // ===== CABEÇALHO =====
       const headerH = 50;
       doc.rect(M, y, W, headerH).stroke('#000');
-      // Logo NFSe (texto)
-      doc.fontSize(14).font('Helvetica-Bold').fillColor('#006633').text('NFSe', M + 5, y + 8);
-      doc.fontSize(5).font('Helvetica').fillColor('#666').text('Nota Fiscal de\nServiço eletrônica', M + 5, y + 26);
+      // Logo: imagem da empresa (fornecedor.logoBase64) com fallback texto "NFSe"
+      const logoBuf = logoBufferDeBase64(dadosComplementares?.fornecedor?.logoBase64);
+      if (logoBuf) {
+        try {
+          doc.image(logoBuf, M + 5, y + 5, { fit: [110, headerH - 10], align: 'left', valign: 'center' });
+        } catch {
+          doc.fontSize(14).font('Helvetica-Bold').fillColor('#006633').text('NFSe', M + 5, y + 8);
+          doc.fontSize(5).font('Helvetica').fillColor('#666').text('Nota Fiscal de\nServiço eletrônica', M + 5, y + 26);
+        }
+      } else {
+        doc.fontSize(14).font('Helvetica-Bold').fillColor('#006633').text('NFSe', M + 5, y + 8);
+        doc.fontSize(5).font('Helvetica').fillColor('#666').text('Nota Fiscal de\nServiço eletrônica', M + 5, y + 26);
+      }
       // Centro
       doc.fontSize(12).font('Helvetica-Bold').fillColor('#000').text('DANFSe v1.0', M + 120, y + 10, { width: W - 240, align: 'center' });
       doc.fontSize(8).font('Helvetica').fillColor('#000').text('Documento Auxiliar da NFS-e', M + 120, y + 26, { width: W - 240, align: 'center' });
@@ -369,10 +418,10 @@ function gerarDanfsePdf(xml) {
 /**
  * Gera PDF da DANFSE a partir do XML compactado em GZip+Base64 (formato SEFIN)
  */
-async function gerarDanfseDeGzipB64(gzipB64) {
+async function gerarDanfseDeGzipB64(gzipB64, dadosComplementares = {}) {
   const gzipBuf = Buffer.from(gzipB64, 'base64');
   const xml = zlib.gunzipSync(gzipBuf).toString('utf-8');
-  return gerarDanfsePdf(xml);
+  return gerarDanfsePdf(xml, dadosComplementares);
 }
 
-module.exports = { gerarDanfsePdf, gerarDanfseDeGzipB64 };
+module.exports = { gerarDanfsePdf, gerarDanfseDeGzipB64, tag };

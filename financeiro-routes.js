@@ -443,7 +443,7 @@ function registrarRotasFinanceiro(app, db) {
     'rg', 'rgOrgaoEmissor', 'rgDataExpedicao', 'dataNascimento',
     'sexo', 'estadoCivil', 'profissao', 'nomeMae', 'nomePai', 'nacionalidade',
     // Comercial
-    'categorias', 'origem', 'vendedorId',
+    'categorias', 'origem', 'vendedorId', 'tabelaPrecoId',
     'limiteCredito', 'prazoMedioDias', 'condicaoPagamentoPadrao', 'tags',
     // LGPD
     'lgpdConsentimento', 'lgpdDataConsentimento', 'lgpdFonte',

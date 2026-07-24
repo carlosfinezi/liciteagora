@@ -45,6 +45,7 @@ const cnetFetch = require('./portals/comprasnet/fetch');
 const cnetApiHandlersFactory = require('./portals/comprasnet/api-handlers');
 const bncPortal = require('./portals/bnc');
 const bllPortal = require('./portals/bll');
+const licitanetCollector = require('./portals/licitanet');
 const tokenManager = require('./token-manager');
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -90,33 +91,18 @@ if (_persistedCfg) {
   if (!apiKeyArg) apiKeyArg = _persistedCfg.apiKey;
 }
 
-// userData ao lado do exe (portátil, fora do asar). Para builds NSIS
-// instaladas em Program Files o diretório do exe é read-only — nesse
-// caso, usa app.getPath('userData') (= %APPDATA%\LiciteAgora Browser),
-// que persiste entre reboots e o Chromium aceita escrever.
+// userData: SEMPRE em app.getPath('userData') (= %APPDATA%\LiciteAgora Browser)
+// para builds empacotados (v5.2.26, 2026-07-07). O esquema antigo "ao lado do
+// exe" (.electron-profile) era APAGADO a cada auto-update: o electron-updater/
+// NSIS substitui a pasta do app ao instalar, levando junto o perfil e o
+// device-trust do acesso.gov.br → hCaptcha voltava a CADA atualização (e ao
+// fechar com update pendente). %APPDATA% fica FORA da pasta do app e sobrevive
+// a qualquer update. Dev (!IS_PACKAGED): perfil local ao lado do fonte.
 const IS_PACKAGED = app.isPackaged;
-function isExeDirWritable() {
-  if (!IS_PACKAGED) return true;
-  // fs.accessSync(W_OK) é NÃO-confiável no Windows: não enxerga as ACLs do
-  // Program Files (retorna "gravável" e só dá EPERM na hora de escrever).
-  // Faz um teste de escrita real: cria e apaga um arquivo-sonda.
-  const probe = path.join(path.dirname(process.execPath), `.write-test-${process.pid}`);
-  try {
-    fs.writeFileSync(probe, '');
-    fs.unlinkSync(probe);
-    return true;
-  } catch (_) { return false; }
-}
-const USE_NEXT_TO_EXE = isExeDirWritable();
-// Profile path único (v5.1.0+, 2026-05-20): janela única hospeda Comprasnet
-// e BNC em paralelo, isolados pelo `partition` do webview tag
-// (persist:comprasnet / persist:bnc). Profile path agora é só `.electron-profile`.
 const PROFILE_DIR_NAME = '.electron-profile';
-const USER_DATA_DIR = !IS_PACKAGED
-  ? path.join(__dirname, PROFILE_DIR_NAME)
-  : USE_NEXT_TO_EXE
-    ? path.join(path.dirname(process.execPath), PROFILE_DIR_NAME)
-    : app.getPath('userData');
+const USER_DATA_DIR = IS_PACKAGED
+  ? app.getPath('userData')
+  : path.join(__dirname, PROFILE_DIR_NAME);
 const RECORDINGS_DIR = path.join(USER_DATA_DIR, 'recordings');
 const LOG_DIR = path.join(USER_DATA_DIR, 'logs');
 const TOKEN_MAX_AGE_MS = 540000; // 9 min
@@ -226,6 +212,7 @@ let autoLoginModule = null;            // criado por cnetAutoLogin.create({ ctx,
 let portalCtxSingleton = null;         // ctx único reusado por integration.start, etc.
 let comprasnetFetch = null;            // helper criado por cnetFetch.create({ ctx })
 let cnetApiHandlers = null;            // dispatcher dos endpoints HTTP do portal
+let licitanetCollectorHandle = null;   // coletor de marca do Licitanet (janela oculta)
 
 // ctx exposto aos módulos do portal — getters/setters pro state mutável
 // que continua vivendo neste arquivo. Construído depois que mainWindow +
@@ -258,6 +245,19 @@ function buildPortalCtx() {
 
 // ─── Electron App ────────────────────────────────────────────────────────────
 
+// Flags anti-hCaptcha do Chromium — DEVEM vir ANTES de qualquer outra operação
+// do app (setName / requestSingleInstanceLock / setPath). Se aplicadas depois,
+// a linha de comando já pode estar fixada e as flags NÃO pegam → navigator.webdriver
+// fica exposto → hCaptcha. O estável (v1.0.0) aplica no topo; o multi-portal as
+// tinha DEPOIS do requestSingleInstanceLock (provável causa do hCaptcha voltar). v5.2.26.
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+app.commandLine.appendSwitch('disable-features', 'IsolateOrigins,site-per-process');
+app.commandLine.appendSwitch('ignore-certificate-errors');
+app.commandLine.appendSwitch('lang', 'pt-BR');
+app.commandLine.appendSwitch('disable-infobars');
+app.commandLine.appendSwitch('ignore-gpu-blocklist'); // WebGL p/ fingerprint hCaptcha
+
 // v5.1.0+ (2026-05-20): app único hospeda Comprasnet + BNC na mesma janela.
 // Single-instance global pra evitar 2 cópias do binário rodando.
 app.setName('LiciteAgora Browser');
@@ -277,17 +277,6 @@ app.on('second-instance', () => {
 
 // User data dir persistente (cookies, sessão)
 app.setPath('userData', USER_DATA_DIR);
-
-// Remover flags de automação do Chromium
-app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
-app.commandLine.appendSwitch('disable-features', 'IsolateOrigins,site-per-process');
-app.commandLine.appendSwitch('ignore-certificate-errors');
-app.commandLine.appendSwitch('lang', 'pt-BR');
-app.commandLine.appendSwitch('disable-infobars');
-
-// GPU — manter ignore-gpu-blocklist para hCaptcha WebGL
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
 
 // Ignorar erros de certificado ICP-Brasil (SERPRO) e BNC autoassinados
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
@@ -493,12 +482,17 @@ app.whenReady().then(async () => {
   }
 
   // Sessions paralelas (v5.1.0+, 2026-05-20):
-  // - persist:comprasnet — webview Comprasnet (era default session)
+  // - Comprasnet — session DEFAULT (sem partition). A partition nomeada
+  //   persist:comprasnet perdia o device-trust do acesso.gov.br no restart;
+  //   a session default preserva os cookies de trust (validado na máquina do
+  //   cliente 2026-07-07, ver ANALISE-HCAPTCHA-DIFF.md). O webview wv-comprasnet
+  //   também é sem partition, então wvContents.session === session.defaultSession.
   // - persist:bnc — webview BNC
+  // - persist:bll — webview BLL
   // bearer-interceptor é registrado só na session Comprasnet pois o filter
   // por host (cnetmobile.estaleiro.serpro.gov.br) só capta lá. captcha-relay
   // do BNC consome a session BNC pra grecaptcha.execute.
-  const sesComprasnet = session.fromPartition('persist:comprasnet');
+  const sesComprasnet = session.defaultSession;
   const sesBnc = session.fromPartition('persist:bnc');
   const sesBll = session.fromPartition('persist:bll');
 
@@ -648,7 +642,7 @@ app.whenReady().then(async () => {
 
   // Bearer interceptor registrado na session Comprasnet (filtro por host
   // só captura cnetmobile.estaleiro.serpro.gov.br).
-  registerBearerInterceptor(sesComprasnet, 'persist:comprasnet');
+  registerBearerInterceptor(sesComprasnet, 'session-default-comprasnet');
 
   // v5.1.0+: did-attach-webview dispara 2x (1 por webview). Diferenciamos
   // pela session — wvContents.session === sesBnc identifica o webview BNC.
@@ -737,6 +731,15 @@ app.whenReady().then(async () => {
   }
   state = 'connected';
   log(`Carregados Comprasnet (${COMPRASNET_DEFAULT_URL}) + BNC (${BNC_DEFAULT_URL}) + BLL (${BLL_DEFAULT_URL})`);
+
+  // Coletor de marca do Licitanet (Abordagem A): job em background que roda
+  // no IP residencial do cliente (janela oculta própria). Auto-guarda em apiKey
+  // e só faz o 1º ciclo após ~90s. Ver PLANO_COLETOR_LICITANET.md.
+  try {
+    licitanetCollectorHandle = licitanetCollector.start({ ctx: portalCtxSingleton });
+  } catch (e) {
+    log(`[Licitanet] falha ao iniciar coletor: ${e.message}`);
+  }
 
   // Receber notificações de navegação do webview
   // IPC: aplicar update do navbar

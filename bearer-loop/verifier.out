@@ -1,0 +1,76 @@
+[verifier 01:56:30] === iniciado method=M1 log=M1.log ===
+[verifier 01:58:00] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:00:01] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:02:01] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:04:01] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:06:02] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:08:02] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:10:03] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:12:04] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:14:04] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:16:05] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:18:06] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:20:06] M1 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 02:22:07] M1 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 02:24:07] M1 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 02:26:08] M1 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 02:28:08] M1 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 02:30:09] M1 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 02:31:42] === iniciado method=M2 log=M2.log ===
+[verifier 02:32:09] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:33:13] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:34:10] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:35:13] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:36:10] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:37:14] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:38:11] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:39:14] M2 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 02:40:11] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:41:15] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:42:12] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:43:15] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:44:12] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:45:16] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:46:13] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:47:16] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:48:13] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:49:17] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:50:14] M1 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:51:17] M2 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:52:14] === encerrado method=M1 MAX_STREAK=0s ===
+[verifier 02:52:17] === encerrado method=M2 MAX_STREAK=0s ===
+[verifier 02:54:42] === iniciado method=M3 log=M3.log ===
+[verifier 02:56:13] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 02:58:13] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:00:14] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:02:14] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:04:15] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:06:15] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:08:16] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:10:16] M3 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 03:11:02] === iniciado method=M4 log=M4.log ===
+[verifier 03:12:17] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:12:33] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:14:17] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:14:33] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:16:18] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:16:34] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:18:18] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:18:34] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:20:19] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:20:35] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:22:19] M3 valid=0 streak=0s max=0s deliveries=0 alive=
+[verifier 03:22:35] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:24:20] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:24:36] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:26:20] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:26:36] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:28:21] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:28:37] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:30:22] M3 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:30:37] M4 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:31:52] === encerrado method=M3 MAX_STREAK=0s ===
+[verifier 03:32:07] === encerrado method=M4 MAX_STREAK=0s ===
+[verifier 03:35:41] === iniciado method=M6 log=M6.log ===
+[verifier 03:37:11] M6 valid=0 streak=0s max=0s deliveries=0 alive=sim
+[verifier 03:38:11] === encerrado method=M6 MAX_STREAK=0s ===

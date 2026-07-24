@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vendas Perdidas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Vendas Perdidas</h1>
+      <small>Demanda não atendida — alimenta a sugestão de compra e mostra onde o estoque/preço está custando venda</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Registrar perda</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="date" id="filtInicio" onchange="carregar()">
+    <input type="date" id="filtFim" onchange="carregar()">
+    <select id="filtMotivo" onchange="carregar()">
+      <option value="">Todos motivos</option>
+      <option value="sem_estoque">Sem estoque</option>
+      <option value="preco">Preço</option>
+      <option value="prazo">Prazo</option>
+      <option value="outro">Outro</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Data</th><th>Produto/Descrição</th><th style="text-align:right;">Qtd</th>
+        <th style="text-align:right;">Preço alvo</th><th style="text-align:right;">Valor perdido</th>
+        <th>Motivo</th><th>Cliente</th><th></th>
+      </tr></thead>
+      <tbody id="tbVP"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNova">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Registrar venda perdida</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Produto (ou deixe vazio e descreva)</label><select id="nProduto"><option value="">— avulso —</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição livre (se avulso)</label><input type="text" id="nDescLivre"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Quantidade *</label><input type="number" id="nQtd" min="0.001" step="any"></div>
+      <div class="form-group"><label>Preço alvo (R$)</label><input type="number" id="nPreco" step="0.01"></div>
+      <div class="form-group"><label>Motivo</label>
+        <select id="nMotivo">
+          <option value="sem_estoque">Sem estoque</option>
+          <option value="preco">Preço</option>
+          <option value="prazo">Prazo</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Data</label><input type="date" id="nData"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Registrar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('comercial-vendas-perdidas');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(){ document.getElementById('modalNova').classList.remove('open'); }
+
+const MOTIVO_TXT = { sem_estoque:'📦 Sem estoque', preco:'💰 Preço', prazo:'⏱️ Prazo', outro:'❓ Outro' };
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const i=document.getElementById('filtInicio').value, f=document.getElementById('filtFim').value, m=document.getElementById('filtMotivo').value;
+  if(i) p.set('inicio',i); if(f) p.set('fim',f); if(m) p.set('motivo',m);
+  const r = await fetch('/api/vendas-perdidas?'+p); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+
+  document.getElementById('kpis').innerHTML = (d.porMotivo||[]).map(x=>`
+    <div class="kpi"><div class="kpi-label">${MOTIVO_TXT[x.motivo]||x.motivo}</div>
+    <div class="kpi-value">${x.n}</div><small class="muted">R$ ${fmt(x.valor)}</small></div>`).join('');
+
+  document.getElementById('tbVP').innerHTML = d.registros.length ? d.registros.map(x=>`<tr>
+    <td>${x.data}</td>
+    <td>${x.sku ? x.sku+' — '+x.produtoDescricao : (x.descricaoLivre||'-')}</td>
+    <td style="text-align:right;">${fmt(x.quantidade)}</td>
+    <td style="text-align:right;">${x.precoAlvo!=null?'R$ '+fmt(x.precoAlvo):'-'}</td>
+    <td style="text-align:right;">${x.precoAlvo!=null?'<strong>R$ '+fmt(x.quantidade*x.precoAlvo)+'</strong>':'-'}</td>
+    <td>${MOTIVO_TXT[x.motivo]||x.motivo}</td>
+    <td>${x.clienteNome||'-'}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="excluir(${x.id})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum registro no filtro</td></tr>';
+}
+
+async function abrirNova(){
+  const r = await fetch('/api/produtos'); const d = await r.json();
+  document.getElementById('nProduto').innerHTML = '<option value="">— avulso —</option>' +
+    (d.produtos||[]).map(p=>`<option value="${p.id}">${p.sku} — ${p.descricao}</option>`).join('');
+  ['nDescLivre','nQtd','nPreco','nObs'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('nData').value = new Date().toISOString().slice(0,10);
+  document.getElementById('modalNova').classList.add('open');
+}
+
+async function salvar(){
+  const body = {
+    produtoId: Number(document.getElementById('nProduto').value)||null,
+    descricaoLivre: document.getElementById('nDescLivre').value.trim()||null,
+    quantidade: Number(document.getElementById('nQtd').value),
+    precoAlvo: Number(document.getElementById('nPreco').value)||null,
+    motivo: document.getElementById('nMotivo').value,
+    data: document.getElementById('nData').value||null,
+    observacao: document.getElementById('nObs').value.trim()||null
+  };
+  const r = await fetch('/api/vendas-perdidas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar(); showAlert('Registrado'); carregar();
+}
+
+async function excluir(id){
+  if (!confirm('Excluir este registro?')) return;
+  const r = await fetch('/api/vendas-perdidas/'+id, { method:'DELETE' }); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
+const hj = new Date();
+document.getElementById('filtInicio').value = hj.getFullYear()+'-'+String(hj.getMonth()+1).padStart(2,'0')+'-01';
+document.getElementById('filtFim').value = hj.toISOString().slice(0,10);
+carregar();
+</script>
+</body></html>

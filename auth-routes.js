@@ -93,9 +93,16 @@ function registrarRotasAuthPublicas(app, db) {
 
     _loginAttempts.delete(ip); // sucesso limpa contador
     db.prepare('UPDATE users SET ultimoLogin = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
-    req.session.userId = user.id;
-    req.session.username = user.username;
-    res.json({ success: true, username: user.username, nome: user.nome, role: user.role });
+
+    // regenerate: SID novo a cada login (previne session fixation e
+    // reforça isolamento entre tenants — cookie é per-subdomain desde
+    // a mudança em auth-bootstrap.js).
+    req.session.regenerate((err) => {
+      if (err) return res.status(500).json({ success: false, error: 'Falha ao criar sessão' });
+      req.session.userId = user.id;
+      req.session.username = user.username;
+      res.json({ success: true, username: user.username, nome: user.nome, role: user.role });
+    });
   });
 
   // Logout (público)

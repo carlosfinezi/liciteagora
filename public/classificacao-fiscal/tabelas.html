@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tabelas & Relatórios Fiscais · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Tabelas & Relatórios Fiscais</h1>
+      <small>Explore as bases importadas por NCM: IPI, II, PIS/COFINS, ICMS-ST/MVA, ICMS interno e benefícios fiscais. Filtre, busque e exporte.</small>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <select id="tabela" onchange="trocarTabela()"></select>
+    <input type="text" id="q" placeholder="Busca geral (NCM/CEST ou descrição)…" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')carregar(1)">
+    <button class="btn btn-primary" onclick="carregar(1)">🔎 Buscar</button>
+    <button class="btn btn-ghost" onclick="limparFiltros()">Limpar</button>
+    <button class="btn btn-ghost" id="btnCsv" onclick="exportar()">⬇ CSV</button>
+  </div>
+  <small style="color:var(--text-3)">Filtre por coluna nos campos abaixo do cabeçalho — texto/NCM (contém/prefixo), números aceitam operador (ex.: <code>&gt;0</code>, <code>&lt;5</code>, <code>=18</code>), e Sim/Não nas colunas booleanas.</small>
+
+  <div id="info" style="margin:6px 0;color:var(--text-3);"></div>
+  <div id="saida"></div>
+
+  <div class="toolbar" id="pager" style="display:none;justify-content:center;margin-top:10px;">
+    <button class="btn btn-secondary btn-sm" onclick="mudarPagina(-1)">← Anterior</button>
+    <span id="pageInfo" style="align-self:center;color:var(--text-2);"></span>
+    <button class="btn btn-secondary btn-sm" onclick="mudarPagina(1)">Próxima →</button>
+  </div>
+
+</main>
+</div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('tabelas-fiscais');</script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const pct = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '%');
+const fmtCest = (c) => String(c || '').replace(/^(\d{2})(\d{3})(\d{2})$/, '$1.$2.$3');
+let META = {}, ATUAL = null, PAGE = 1, LIMIT = 50, TOTAL = 0, COLF = {};
+
+async function init() {
+  const r = await fetch('/api/fiscal/relatorio/meta').then((x) => x.json());
+  if (!r.success) return toast('Falha ao carregar meta', 'warn');
+  META = Object.fromEntries(r.tabelas.map((t) => [t.id, t]));
+  $('tabela').innerHTML = r.tabelas.map((t) => `<option value="${t.id}">${esc(t.titulo)}</option>`).join('');
+  trocarTabela();
+}
+
+function trocarTabela() {
+  ATUAL = META[$('tabela').value];
+  COLF = {}; $('q').value = '';
+  renderSkeleton(); carregar(1);
+}
+function limparFiltros() { COLF = {}; $('q').value = ''; renderSkeleton(); carregar(1); }
+
+// atualiza o filtro de uma coluna e recarrega (mantém foco fluido via debounce leve)
+let _deb = null;
+function setColF(c, v) {
+  if (v == null || v === '') delete COLF[c]; else COLF[c] = v;
+  clearTimeout(_deb); _deb = setTimeout(() => carregar(1), 250);
+}
+
+function filtrosAtuais() {
+  const p = new URLSearchParams();
+  for (const [c, v] of Object.entries(COLF)) if (v) p.set('col_' + c, v);
+  const q = $('q').value.trim(); if (q) p.set('q', q);
+  return p;
+}
+
+// controle de filtro por coluna (persistente no cabeçalho)
+function controlFiltro(col) {
+  if (!col.f) return '';
+  if (col.f === 'bool') {
+    const v = COLF[col.c] || '';
+    return `<select style="width:100%;font-size:.82em" onchange="setColF('${col.c}',this.value)">
+      <option value="">—</option>
+      <option value="true"${v === 'true' ? ' selected' : ''}>Sim</option>
+      <option value="false"${v === 'false' ? ' selected' : ''}>Não</option></select>`;
+  }
+  const ph = col.f === 'num' ? '&gt;0 / =18' : col.f === 'ncm' ? 'prefixo' : 'contém';
+  return `<input type="text" value="${esc(COLF[col.c] || '')}" placeholder="${ph}" style="width:100%;box-sizing:border-box;font-size:.82em" oninput="setColF('${col.c}',this.value)">`;
+}
+
+// desenha a estrutura da tabela (labels + linha de filtros) 1x; o corpo é atualizado à parte
+function renderSkeleton() {
+  const cols = ATUAL.colunas;
+  const labels = cols.map((c) => `<th${c.t === 'pct' ? ' style="text-align:right"' : ''}>${esc(c.l)}</th>`).join('');
+  const filtros = cols.map((c) => `<th style="padding:3px 5px">${controlFiltro(c)}</th>`).join('');
+  $('saida').innerHTML = `<div class="tbl-wrap"><table><thead><tr>${labels}</tr><tr>${filtros}</tr></thead><tbody id="tbody"></tbody></table></div>`;
+}
+
+function celula(row, col) {
+  const v = row[col.c];
+  if (col.t === 'pct') return `<td style="text-align:right;white-space:nowrap">${pct(v)}</td>`;
+  if (col.t === 'bool') return `<td style="text-align:center">${v === true ? 'Sim' : v === false ? 'Não' : '—'}</td>`;
+  if (col.t === 'cest') return `<td style="font-family:var(--font-mono,monospace);white-space:nowrap">${esc(fmtCest(v))}</td>`;
+  if (col.c === 'ncm') return `<td style="font-family:var(--font-mono,monospace);white-space:nowrap">${esc(v)}</td>`;
+  return `<td style="color:var(--text-2)">${esc(v)}</td>`;
+}
+
+async function carregar(page) {
+  PAGE = page || PAGE;
+  if (!$('tbody')) renderSkeleton();
+  const p = filtrosAtuais();
+  p.set('tabela', $('tabela').value); p.set('page', PAGE); p.set('limit', LIMIT);
+  $('info').textContent = 'carregando…';
+  try {
+    const r = await fetch('/api/fiscal/relatorio?' + p.toString()).then((x) => x.json());
+    if (!r.success) { $('info').textContent = r.error || 'erro'; return; }
+    TOTAL = r.total;
+    const cols = ATUAL.colunas;
+    $('tbody').innerHTML = r.rows.length
+      ? r.rows.map((row) => `<tr>${cols.map((c) => celula(row, c)).join('')}</tr>`).join('')
+      : `<tr><td colspan="${cols.length}" style="padding:16px;color:var(--text-3);text-align:center">Nenhum registro com esses filtros.</td></tr>`;
+    $('info').textContent = `${r.total.toLocaleString('pt-BR')} registros`;
+    atualizarPager();
+  } catch (e) { $('info').textContent = 'Erro: ' + e.message; }
+}
+
+function atualizarPager() {
+  const paginas = Math.max(1, Math.ceil(TOTAL / LIMIT));
+  $('pager').style.display = TOTAL > LIMIT ? 'flex' : 'none';
+  $('pageInfo').textContent = `Página ${PAGE} de ${paginas}`;
+}
+function mudarPagina(d) {
+  const paginas = Math.max(1, Math.ceil(TOTAL / LIMIT));
+  const nova = Math.min(Math.max(PAGE + d, 1), paginas);
+  if (nova !== PAGE) carregar(nova);
+}
+
+async function exportar() {
+  const p = filtrosAtuais();
+  p.set('tabela', $('tabela').value); p.set('page', 1); p.set('limit', 5000);
+  toast('Gerando CSV…');
+  try {
+    const r = await fetch('/api/fiscal/relatorio?' + p.toString()).then((x) => x.json());
+    if (!r.success || !r.rows.length) return toast('Nada para exportar', 'warn');
+    const cols = r.colunas;
+    const linhas = [cols.map((c) => c.l)].concat(r.rows.map((row) => cols.map((c) => {
+      const v = row[c.c];
+      if (c.t === 'cest') return fmtCest(v);
+      if (c.t === 'bool') return v === true ? 'sim' : v === false ? 'nao' : '';
+      return v == null ? '' : v;
+    })));
+    const csv = linhas.map((l) => l.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'fiscal-' + $('tabela').value + '.csv'; a.click();
+  } catch (e) { toast('Erro: ' + e.message, 'warn'); }
+}
+
+function toast(msg, tipo) {
+  const box = $('toasts'); const el = document.createElement('div');
+  el.className = 'toast ' + (tipo || 'success'); el.textContent = msg;
+  box.appendChild(el); setTimeout(() => el.remove(), 3000);
+}
+init();
+</script>
+</body>
+</html>

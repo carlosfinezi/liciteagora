@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notas Fiscais · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Notas Fiscais</h1>
+      <small>Entrada e saída em uma só visão · soft-delete reversível</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <div class="form-row" style="align-items:end;flex-wrap:wrap;">
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="fTipo" onchange="carregar()">
+          <option value="todas">Todas</option>
+          <option value="entrada">Entrada</option>
+          <option value="saida">Saída</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:2;min-width:240px;">
+        <label>Busca <small class="muted">(chave, número, razão social, CPF/CNPJ)</small></label>
+        <input type="text" id="fBusca" placeholder="Filtrar…" oninput="onBusca()">
+      </div>
+      <div class="form-group">
+        <label>Data início</label>
+        <input type="date" id="fDataIni" onchange="carregar()">
+      </div>
+      <div class="form-group">
+        <label>Data fim</label>
+        <input type="date" id="fDataFim" onchange="carregar()">
+      </div>
+      <div class="form-group" style="flex:0 0 100px;">
+        <label>CFOP</label>
+        <input type="text" id="fCfop" placeholder="Ex.: 5102" maxlength="4" oninput="onBusca()">
+      </div>
+      <div class="form-group" style="flex:0 0 200px;">
+        <label>Tipo de operação</label>
+        <select id="fTipoOperacao" onchange="carregar()">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:0 0 180px;">
+        <label>Status SEFAZ</label>
+        <select id="fStatusSefaz" onchange="carregar()">
+          <option value="">Todos</option>
+          <optgroup label="Saída (NF emitida)">
+            <option value="autorizada">Autorizada</option>
+            <option value="rejeitada">Rejeitada</option>
+            <option value="cancelada_sefaz">Cancelada (SEFAZ)</option>
+            <option value="nao_fiscal">Não fiscal</option>
+            <option value="aguardando">Aguardando</option>
+          </optgroup>
+          <optgroup label="Entrada (NF recebida)">
+            <option value="recebida">Recebida</option>
+            <option value="processada">Processada</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Status interno</label>
+        <select id="fStatus" onchange="carregar()">
+          <option value="ativa">Ativas</option>
+          <option value="excluida">Excluídas</option>
+          <option value="todas">Todas</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:0 0 auto;">
+        <button class="btn btn-secondary btn-sm" onclick="carregar()">Atualizar</button>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Tipo</th>
+          <th>Nº/Série</th>
+          <th>Emissão</th>
+          <th>Pessoa</th>
+          <th>Chave</th>
+          <th>CFOP</th>
+          <th>Tipo Op.</th>
+          <th class="num">Valor</th>
+          <th>SEFAZ</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<!-- Modal: editar metadados -->
+<div class="modal-bg" id="modalMeta">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Editar metadados internos</h3>
+        <small class="muted">Apenas observação interna · campos fiscais permanecem imutáveis</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharMeta()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="metaTipo">
+    <input type="hidden" id="metaId">
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observação interna</label>
+        <textarea id="metaObs" rows="4" placeholder="Anotações internas, contexto da entrada/saída, referências…"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharMeta()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarMeta()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: excluir -->
+<div class="modal-bg" id="modalExcluir">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Excluir lançamento interno</h3>
+        <small class="muted">Soft-delete reversível · reverte estoque e contas em aberto</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharExcluir()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="excluirTipo">
+    <input type="hidden" id="excluirId">
+    <p class="muted" id="excluirAviso" style="font-size:13px;margin:6px 0 12px 0;"></p>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Motivo *</label>
+        <textarea id="excluirMotivo" rows="3" placeholder="Por que está excluindo? (obrigatório)"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharExcluir()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarExcluir()">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('notas-fiscais');</script>
+<script>
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => e.style.display='none', 5000);
+}
+function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function fmtBRL(v){ if (v == null || v === '') return '—'; return Number(v).toLocaleString('pt-BR', {style:'currency', currency:'BRL'}); }
+function fmtData(s){ if (!s) return '—'; const d = new Date(s); if (isNaN(d)) return s.slice(0,10); return d.toLocaleDateString('pt-BR'); }
+function trunc(s, n){ if (!s) return '—'; return s.length > n ? s.slice(0, n) + '…' : s; }
+
+let notas = [];
+let buscaTimer = null;
+
+function onBusca(){
+  clearTimeout(buscaTimer);
+  buscaTimer = setTimeout(carregar, 350);
+}
+
+async function carregarTiposOperacao(){
+  try {
+    const r = await fetch('/api/tipos-operacao');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.success) return;
+    const sel = document.getElementById('fTipoOperacao');
+    const tipos = d.tipos || [];
+    sel.innerHTML = '<option value="">Todos</option>' +
+      tipos.map(t => `<option value="${escTxt(t.codigo)}">${escTxt(t.codigo)} — ${escTxt(t.descricao)}</option>`).join('');
+  } catch (_) { /* mantém só Todos */ }
+}
+
+async function carregar(){
+  const q = new URLSearchParams({
+    tipo: document.getElementById('fTipo').value,
+    status: document.getElementById('fStatus').value,
+    busca: document.getElementById('fBusca').value.trim(),
+    dataInicio: document.getElementById('fDataIni').value,
+    dataFim: document.getElementById('fDataFim').value,
+    cfop: document.getElementById('fCfop').value.trim(),
+    tipoOperacao: document.getElementById('fTipoOperacao').value,
+    statusSefaz: document.getElementById('fStatusSefaz').value
+  });
+  try {
+    const r = await fetch('/api/notas-fiscais?' + q.toString());
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    notas = d.notas || [];
+    renderTabela();
+  } catch (e) {
+    showAlert('Erro ao carregar: ' + e.message, 'error');
+    document.getElementById('tb').innerHTML = '<tr><td colspan="10" class="empty">Falha ao carregar</td></tr>';
+  }
+}
+
+function badgeStatusSefaz(s){
+  if (!s) return '<span class="badge">—</span>';
+  const sLow = String(s).toLowerCase();
+  let cls = 'info';
+  let label = String(s);
+  if (sLow === 'autorizada')         { cls = 'success'; label = 'Autorizada'; }
+  else if (sLow === 'rejeitada')     { cls = 'danger';  label = 'Rejeitada'; }
+  else if (sLow === 'cancelada_sefaz'){ cls = 'danger'; label = 'Cancelada (SEFAZ)'; }
+  else if (sLow === 'aguardando')    { cls = 'warning'; label = 'Aguardando'; }
+  else if (sLow === 'nao_fiscal')    { cls = '';        label = 'Não fiscal'; }
+  else if (sLow === 'recebida')      { cls = 'info';    label = 'Recebida'; }
+  else if (sLow === 'processada')    { cls = 'success'; label = 'Processada'; }
+  else                                 label = String(s).charAt(0).toUpperCase() + String(s).slice(1);
+  return `<span class="badge ${cls}">${escTxt(label)}</span>`;
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tb');
+  if (!notas.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhuma nota encontrada</td></tr>'; return; }
+  tb.innerHTML = notas.map(n => {
+    const tipoLabel = n.tipo === 'entrada'
+      ? '<span class="badge success">Entrada</span>'
+      : '<span class="badge info">Saída</span>';
+    const excluidaBadge = n.excluida
+      ? `<br><span class="badge warning" title="${escTxt(n.motivoExclusao || '')}">EXCLUÍDA</span>`
+      : '';
+
+    const tipoOpCell = n.tipoOperacaoCodigo
+      ? `<small><strong>${escTxt(n.tipoOperacaoCodigo)}</strong>${n.tipoOperacaoDescricao ? '<br><span class="muted">' + escTxt(n.tipoOperacaoDescricao) + '</span>' : ''}</small>`
+      : (n.tipoOperacaoDescricao
+          ? `<small class="muted">${escTxt(n.tipoOperacaoDescricao)}</small>`
+          : '<small class="muted">—</small>');
+
+    const sefazCell = `${badgeStatusSefaz(n.statusSefaz)}${n.status && n.status !== n.statusSefaz ? '<br><small class="muted">' + escTxt(n.status) + '</small>' : ''}`;
+
+    // Item DANFE — só habilita se backend retornou link (statusSefaz=autorizada + xml disponível)
+    const danfeItem = n.links && n.links.danfe
+      ? `<a href="${escTxt(n.links.danfe)}" target="_blank">📄 Gerar DANFE</a>`
+      : `<button disabled title="DANFE indisponível (NF não autorizada ou XML não baixado)">📄 Gerar DANFE</button>`;
+
+    let menuItens;
+    if (n.excluida) {
+      menuItens = `<button class="success" onclick="restaurar('${n.tipo}', ${n.id})">Restaurar lançamento</button>`;
+    } else if (n.tipo === 'entrada') {
+      menuItens = `
+        <a href="${escTxt(n.links.detalhe)}">Abrir detalhe</a>
+        ${danfeItem}
+        <button onclick='abrirMeta(${JSON.stringify({tipo:n.tipo,id:n.id,obs:n.observacaoInterna||""})})'>Editar observação</button>
+        <div class="divider"></div>
+        <button onclick="reverterEstoque(${n.id})">Reverter estoque</button>
+        <button onclick="reverterContasPagar(${n.id})">Reverter contas a pagar</button>
+        <div class="divider"></div>
+        <button class="danger" onclick="abrirExcluir('${n.tipo}', ${n.id}, '${escTxt(String(n.numero || ''))}')">Excluir lançamento</button>
+      `;
+    } else {
+      // Saída: notas emitidas são permanentes — sem opção de exclusão
+      menuItens = `
+        <a href="${escTxt(n.links.detalhe)}">Abrir detalhe</a>
+        ${danfeItem}
+        <button onclick='abrirMeta(${JSON.stringify({tipo:n.tipo,id:n.id,obs:n.observacaoInterna||""})})'>Editar observação</button>
+      `;
+    }
+
+    const dropdownId = `menu-${n.tipo}-${n.id}`;
+    return `<tr style="${n.excluida ? 'opacity:0.55;' : ''}">
+      <td>${tipoLabel}${excluidaBadge}</td>
+      <td><strong>${escTxt(n.numero || '—')}</strong>${n.serie ? '<small class="muted"> /' + escTxt(n.serie) + '</small>' : ''}</td>
+      <td>${fmtData(n.dataEmissao)}</td>
+      <td><strong>${escTxt(n.pessoa.nome || '—')}</strong>${n.pessoa.cpfCnpj ? '<br><small class="muted">' + escTxt(n.pessoa.cpfCnpj) + '</small>' : ''}</td>
+      <td><code title="${escTxt(n.chaveAcesso || '')}" style="font-size:11px;cursor:pointer;" onclick="copiarChave('${escTxt(n.chaveAcesso || '')}')">${escTxt(trunc(n.chaveAcesso, 14))}</code></td>
+      <td><code style="font-size:12px;">${escTxt(n.cfop || '—')}</code></td>
+      <td>${tipoOpCell}</td>
+      <td class="num">${fmtBRL(n.valor)}</td>
+      <td>${sefazCell}</td>
+      <td style="text-align:right;">
+        <div class="dropdown" id="${dropdownId}">
+          <button class="btn btn-ghost btn-sm" onclick="toggleAcoes('${dropdownId}', event)">Ações ▾</button>
+          <div class="dropdown-menu">${menuItens}</div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function fecharDropdowns(){
+  document.querySelectorAll('.dropdown.open').forEach(d => {
+    d.classList.remove('open');
+    const m = d.querySelector('.dropdown-menu');
+    if (m) { m.style.position = ''; m.style.top = ''; m.style.left = ''; m.style.right = ''; m.style.minWidth = ''; }
+  });
+}
+function toggleAcoes(id, ev){
+  ev.stopPropagation();
+  const el = document.getElementById(id);
+  if (!el) return;
+  const jaAberto = el.classList.contains('open');
+  fecharDropdowns();
+  if (jaAberto) return;
+  el.classList.add('open');
+  const btn = el.querySelector('button');
+  const menu = el.querySelector('.dropdown-menu');
+  if (!btn || !menu) return;
+  // Posiciona em fixed pra escapar do overflow da tabela
+  const r = btn.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.minWidth = '200px';
+  // Mede após aplicar estilos pra calcular alinhamento à direita
+  const mw = Math.max(menu.offsetWidth, 200);
+  menu.style.top = (r.bottom + 4) + 'px';
+  menu.style.left = Math.max(8, r.right - mw) + 'px';
+  menu.style.right = 'auto';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.dropdown')) fecharDropdowns();
+});
+window.addEventListener('scroll', fecharDropdowns, true);
+window.addEventListener('resize', fecharDropdowns);
+
+async function copiarChave(c){
+  if (!c) return;
+  try { await navigator.clipboard.writeText(c); showAlert('Chave copiada'); } catch (_) {}
+}
+
+// === Editar metadados ===
+function abrirMeta(n){
+  document.getElementById('metaTipo').value = n.tipo;
+  document.getElementById('metaId').value = n.id;
+  document.getElementById('metaObs').value = n.obs || '';
+  document.getElementById('modalMeta').classList.add('open');
+}
+function fecharMeta(){ document.getElementById('modalMeta').classList.remove('open'); }
+async function salvarMeta(){
+  const tipo = document.getElementById('metaTipo').value;
+  const id = document.getElementById('metaId').value;
+  const obs = document.getElementById('metaObs').value.trim();
+  const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/metadados` : `/api/faturas/${id}/metadados`;
+  try {
+    const r = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ observacaoInterna: obs }) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert('Observação salva');
+    fecharMeta();
+    carregar();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+// === Excluir / Restaurar ===
+function abrirExcluir(tipo, id, numero){
+  document.getElementById('excluirTipo').value = tipo;
+  document.getElementById('excluirId').value = id;
+  document.getElementById('excluirMotivo').value = '';
+  document.getElementById('excluirAviso').textContent = tipo === 'entrada'
+    ? `Excluir NF-e de entrada ${numero}: reverte estoque (se aplicado) e remove contas a pagar em aberto.`
+    : `Excluir lançamento da fatura ${numero} (já cancelada): remove contas a receber em aberto e marca como excluída.`;
+  document.getElementById('modalExcluir').classList.add('open');
+}
+function fecharExcluir(){ document.getElementById('modalExcluir').classList.remove('open'); }
+async function confirmarExcluir(){
+  const tipo = document.getElementById('excluirTipo').value;
+  const id = document.getElementById('excluirId').value;
+  const motivo = document.getElementById('excluirMotivo').value.trim();
+  if (!motivo) return showAlert('Motivo obrigatório', 'error');
+  const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/excluir` : `/api/faturas/${id}/excluir`;
+  try {
+    const r = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert('Lançamento excluído');
+    fecharExcluir();
+    carregar();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function restaurar(tipo, id){
+  if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
+  const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/restaurar` : `/api/faturas/${id}/restaurar`;
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert(d.aviso || 'Restaurado');
+    carregar();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function reverterEstoque(id){
+  if (!confirm('Reverter estoque desta NF-e de entrada? As movimentações criadas pela NF serão removidas.')) return;
+  try {
+    const r = await fetch(`/api/nfe-entrada/${id}/reverter-estoque`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert(d.aviso || 'Estoque revertido');
+    carregar();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function reverterContasPagar(id){
+  if (!confirm('Reverter contas a pagar em aberto desta NF-e?')) return;
+  try {
+    const r = await fetch(`/api/nfe-entrada/${id}/reverter-contas-pagar`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert('Contas a pagar revertidas');
+    carregar();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    fecharMeta(); fecharExcluir();
+  }
+});
+
+carregarTiposOperacao();
+carregar();
+</script>
+</body>
+</html>

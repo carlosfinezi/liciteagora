@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WhatsApp · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>WhatsApp</h1>
+      <small>Conecte o WhatsApp da sua empresa, receba e responda — módulo Comunicações</small>
+    </div>
+    <button class="btn btn-secondary" id="btnRefresh">Atualizar</button>
+  </div>
+
+  <div class="card" id="conexaoCard" style="margin-bottom:16px">
+    <h3 style="margin-top:0">Conexão</h3>
+    <p id="statusLine">Carregando…</p>
+    <small class="text-3" id="statusMeta"></small>
+    <div style="margin-top:12px">
+      <button class="btn btn-primary" id="btnConnect" style="display:none">Conectar WhatsApp</button>
+      <button class="btn btn-secondary" id="btnDisconnect" style="display:none">Desconectar</button>
+    </div>
+    <div id="qrArea" style="display:none;margin-top:16px;text-align:center">
+      <p>Abra o WhatsApp → <strong>Aparelhos conectados</strong> → <strong>Conectar aparelho</strong> e escaneie:</p>
+      <img id="qrImg" alt="QR Code" style="max-width:280px;border:1px solid var(--border-1);border-radius:8px">
+      <p class="text-3" id="qrHint" style="margin-top:8px">Aguardando leitura…</p>
+    </div>
+  </div>
+
+  <div class="card" id="inboxCard" style="display:none;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">Inbox</h3>
+      <button class="btn btn-secondary" id="btnInboxRefresh">Atualizar</button>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap">
+      <div style="flex:1 1 240px;min-width:220px;max-height:420px;overflow:auto;border:1px solid var(--border-1);border-radius:8px">
+        <div id="convList"><p class="text-3" style="padding:12px">Nenhuma conversa ainda.</p></div>
+      </div>
+      <div style="flex:2 1 360px;min-width:280px;display:flex;flex-direction:column">
+        <div id="thread" style="flex:1;min-height:240px;max-height:360px;overflow:auto;background:var(--bg-1);border-radius:8px;padding:12px">
+          <p class="text-3">Selecione uma conversa.</p>
+        </div>
+        <div id="replyBox" style="display:none;gap:8px;margin-top:8px">
+          <input type="text" id="replyText" class="form-control" placeholder="Responder…" style="flex:1">
+          <button class="btn btn-primary" id="btnReply">Enviar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="aiCard" style="display:none;margin-bottom:16px">
+    <h3 style="margin-top:0">Auto-resposta IA</h3>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <input type="checkbox" id="aiEnabled" style="width:auto">
+      Responder automaticamente com IA (usa as chaves de IA do tenant)
+    </label>
+    <div class="form-group">
+      <label>Instruções (persona / regras)</label>
+      <textarea id="aiPrompt" class="form-control" rows="4" placeholder="Ex: Você é o atendente da [empresa]. Tom cordial e breve. Não peça senha/dado bancário..."></textarea>
+    </div>
+    <div class="form-group">
+      <label>Base de conhecimento (o que a IA precisa saber — produtos, planos, contatos, FAQ)</label>
+      <textarea id="aiKb" class="form-control" rows="8" placeholder="Cole aqui as informações da empresa/produto que a IA deve usar para responder."></textarea>
+    </div>
+    <button class="btn btn-primary" id="btnAiSave">Salvar</button>
+    <span id="aiSaveMsg" class="text-3" style="margin-left:8px"></span>
+    <p class="text-3" style="font-size:12px;margin-top:8px">Só responde a mensagens recebidas (1:1). Pausa 4h se você responder manualmente; máx. 15 respostas/hora por contato; "parar/sair" não recebe resposta.</p>
+  </div>
+
+  <div class="card" id="testCard" style="display:none">
+    <h3 style="margin-top:0">Enviar mensagem de teste</h3>
+    <div class="form-group"><label>Número (com DDD)</label><input type="text" id="tel" class="form-control" placeholder="94991112936"></div>
+    <div class="form-group"><label>Mensagem</label><textarea id="txt" class="form-control" rows="2">Teste do módulo Comunicações do LiciteAgora.</textarea></div>
+    <button class="btn btn-primary" id="btnSend">Enviar teste</button>
+    <p id="sendResult" style="margin-top:10px"></p>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('whatsapp');</script>
+<script>
+let pollTimer = null, currentJid = null;
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const jidNum = (j) => String(j || '').split('@')[0];
+
+function render(state, meta) {
+  el('statusMeta').textContent = meta || '';
+  const open = state === 'open';
+  el('inboxCard').style.display = open ? '' : 'none';
+  el('aiCard').style.display = open ? '' : 'none';
+  el('testCard').style.display = open ? '' : 'none';
+  if (open) {
+    el('statusLine').innerHTML = '🟢 <strong>Conectado</strong>';
+    el('btnConnect').style.display = 'none'; el('btnDisconnect').style.display = ''; el('qrArea').style.display = 'none';
+  } else if (state === 'connecting') {
+    el('statusLine').innerHTML = '🟡 Conectando… (escaneie o QR)';
+    el('btnConnect').style.display = 'none'; el('btnDisconnect').style.display = '';
+  } else {
+    el('statusLine').innerHTML = state === 'sem-config' ? '⚪ Não conectado' : ('🔴 ' + (state || 'desconectado'));
+    el('btnConnect').style.display = ''; el('btnDisconnect').style.display = 'none';
+  }
+}
+
+async function carregarStatus() {
+  try {
+    const d = await (await fetch('/api/whatsapp/status')).json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    render(d.state, d.instance ? ('instância: ' + d.instance) : '');
+    if (d.state === 'open') { loadConversations(); loadAiConfig(); }
+    return d.state;
+  } catch (e) { el('statusLine').innerHTML = '⚠️ erro: ' + e.message; return null; }
+}
+
+// ---- Inbox ----
+async function loadConversations() {
+  try {
+    const d = await (await fetch('/api/whatsapp/conversations')).json();
+    if (!d.success) return;
+    const box = el('convList');
+    if (!d.conversas.length) { box.innerHTML = '<p class="text-3" style="padding:12px">Nenhuma conversa ainda.</p>'; return; }
+    box.innerHTML = d.conversas.map(c => `
+      <div class="conv-item" data-jid="${esc(c.jid)}" style="padding:10px 12px;border-bottom:1px solid var(--border-1);cursor:pointer${c.jid===currentJid?';background:var(--bg-1)':''}">
+        <div style="font-weight:600">${esc(c.nome || jidNum(c.jid))}</div>
+        <div class="text-3" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.ultimo || '')}</div>
+      </div>`).join('');
+    box.querySelectorAll('.conv-item').forEach(it => it.addEventListener('click', () => openThread(it.dataset.jid)));
+  } catch (_) {}
+}
+
+async function openThread(jid) {
+  currentJid = jid;
+  el('replyBox').style.display = 'flex';
+  const th = el('thread');
+  try {
+    const d = await (await fetch('/api/whatsapp/messages?jid=' + encodeURIComponent(jid))).json();
+    if (!d.success) throw new Error(d.error);
+    th.innerHTML = d.mensagens.map(m => `
+      <div style="margin-bottom:8px;text-align:${m.from_me ? 'right' : 'left'}">
+        <span style="display:inline-block;max-width:75%;text-align:left;padding:6px 10px;border-radius:10px;background:${m.from_me ? 'var(--primary,#2563eb)' : 'var(--bg-2,#e5e7eb)'};color:${m.from_me ? '#fff' : 'inherit'}">${esc(m.texto || '('+(m.message_type||'sem texto')+')')}</span>
+      </div>`).join('') || '<p class="text-3">Sem mensagens.</p>';
+    th.scrollTop = th.scrollHeight;
+    loadConversations();
+  } catch (e) { th.innerHTML = '<p class="text-3">erro: ' + esc(e.message) + '</p>'; }
+}
+
+el('btnReply').addEventListener('click', async () => {
+  const texto = el('replyText').value.trim();
+  if (!texto || !currentJid) return;
+  el('btnReply').disabled = true;
+  try {
+    const d = await (await fetch('/api/whatsapp/send', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ jid: currentJid, texto }) })).json();
+    if (d.success) { el('replyText').value = ''; openThread(currentJid); }
+    else alert('erro: ' + (d.error || 'falha'));
+  } catch (e) { alert('erro: ' + e.message); }
+  finally { el('btnReply').disabled = false; }
+});
+el('btnInboxRefresh').addEventListener('click', () => { loadConversations(); if (currentJid) openThread(currentJid); });
+
+// ---- Auto-resposta IA ----
+async function loadAiConfig() {
+  try {
+    const d = await (await fetch('/api/whatsapp/ai-config')).json();
+    if (!d.success) return;
+    el('aiEnabled').checked = !!d.enabled;
+    el('aiPrompt').value = d.prompt || '';
+    el('aiKb').value = d.kb || '';
+  } catch (_) {}
+}
+el('btnAiSave').addEventListener('click', async () => {
+  const msg = el('aiSaveMsg'); msg.textContent = 'salvando…';
+  try {
+    const d = await (await fetch('/api/whatsapp/ai-config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: el('aiEnabled').checked, prompt: el('aiPrompt').value, kb: el('aiKb').value }) })).json();
+    msg.textContent = d.success ? '✅ salvo' : ('erro: ' + (d.error||''));
+  } catch (e) { msg.textContent = 'erro: ' + e.message; }
+});
+
+// ---- Conexão ----
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  let tries = 0;
+  pollTimer = setInterval(async () => {
+    tries++;
+    if ((await carregarStatus()) === 'open' || tries > 40) { clearInterval(pollTimer); pollTimer = null; }
+  }, 3000);
+}
+el('btnRefresh').addEventListener('click', carregarStatus);
+el('btnConnect').addEventListener('click', async () => {
+  const btn = el('btnConnect'); btn.disabled = true; btn.textContent = 'Gerando QR…';
+  try {
+    const d = await (await fetch('/api/whatsapp/connect', { method: 'POST' })).json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (d.connected) { await carregarStatus(); return; }
+    if (d.qr) { el('qrImg').src = d.qr; el('qrArea').style.display = ''; el('qrHint').textContent = 'Aguardando leitura…'; render('connecting', 'instância: ' + d.instance); startPolling(); }
+    else throw new Error('QR não retornado');
+  } catch (e) { el('statusLine').innerHTML = '⚠️ erro: ' + e.message; }
+  finally { btn.disabled = false; btn.textContent = 'Conectar WhatsApp'; }
+});
+el('btnDisconnect').addEventListener('click', async () => {
+  if (!confirm('Desconectar o WhatsApp deste tenant?')) return;
+  try { await fetch('/api/whatsapp/disconnect', { method: 'POST' }); if (pollTimer) clearInterval(pollTimer); el('qrArea').style.display = 'none'; await carregarStatus(); }
+  catch (e) { alert('erro: ' + e.message); }
+});
+el('btnSend').addEventListener('click', async () => {
+  const btn = el('btnSend'), res = el('sendResult');
+  const telefone = el('tel').value.trim(), texto = el('txt').value.trim();
+  if (!telefone || !texto) { res.innerHTML = '⚠️ preencha número e mensagem'; return; }
+  btn.disabled = true; res.textContent = 'Enviando…';
+  try {
+    const d = await (await fetch('/api/whatsapp/test', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ telefone, texto }) })).json();
+    if (d.success) res.innerHTML = '✅ Enviado' + (d.providerMessageId ? ' (id: ' + d.providerMessageId + ')' : '');
+    else if (d.queued) res.innerHTML = '📥 Enfileirado — id ' + d.queueId;
+    else res.innerHTML = '❌ ' + (d.error || 'falha');
+  } catch (e) { res.innerHTML = '⚠️ erro: ' + e.message; }
+  finally { btn.disabled = false; }
+});
+
+carregarStatus();
+</script>
+</body>
+</html>

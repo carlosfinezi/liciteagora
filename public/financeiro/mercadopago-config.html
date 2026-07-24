@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Configuração MercadoPago · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Configuração MercadoPago</h1>
+      <small>Access Token para emissão de boletos e cobrança automática</small>
+    </div>
+    <div class="actions">
+      <a href="/financeiro/contas-a-receber.html" class="btn btn-ghost btn-sm">← Contas a Receber</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel" style="max-width:720px;">
+    <p style="color:var(--text-2); margin-bottom:18px; font-size:0.9em; line-height:1.55;">
+      Configure seu <strong>Access Token</strong> do MercadoPago para permitir emissão de boletos direto do sistema. Obtenha em
+      <a href="https://www.mercadopago.com.br/developers/panel/app" target="_blank" style="color:var(--accent);">Suas integrações</a>
+      → Credenciais de produção.
+    </p>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Access Token</label>
+        <input type="password" id="mpAccessToken" placeholder="APP_USR-..." style="font-family: monospace;">
+        <small class="muted" style="font-size:12px;">Mantido criptografado no banco. Só digite o novo token para sobrescrever.</small>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+      <button class="btn btn-ghost" onclick="testarConexaoMP()">Testar conexão</button>
+      <button class="btn btn-primary" onclick="salvarConfigMP()">Salvar configuração</button>
+    </div>
+
+    <div id="mpTestResult" style="margin-top:16px;"></div>
+
+    <hr style="margin:24px 0;border:none;border-top:1px solid var(--border);">
+
+    <div style="padding:12px 14px;background:var(--bg-1);border-radius:var(--r-md);font-size:0.85em;color:var(--text-2);">
+      <strong style="color:var(--text-1);">Status atual:</strong>
+      <span id="mpStatusCard" class="muted">Consultando…</span>
+    </div>
+  </div>
+
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('mercadopago-config');</script>
+<script>
+function showAlert(msg, tipo='success') {
+  const el = document.getElementById('alertGlobal');
+  el.className = 'alert ' + tipo;
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 5000);
+}
+
+async function carregarConfigMP() {
+  try {
+    const r = await fetch('/api/mp/config');
+    const d = await r.json();
+    if (!d.success) return;
+    const c = d.config;
+    if (c.access_token && c.access_token !== '***') {
+      document.getElementById('mpAccessToken').value = c.access_token;
+    }
+  } catch {}
+}
+
+async function carregarStatus() {
+  const el = document.getElementById('mpStatusCard');
+  try {
+    const r = await fetch('/api/mp/status');
+    const d = await r.json();
+    if (d.connected) {
+      el.innerHTML = `<span style="color:var(--success);">● Conectado</span> — ${d.user?.nickname || d.user?.email || ''} (ID ${d.user?.id || '—'})`;
+    } else {
+      el.innerHTML = `<span style="color:var(--warn);">● ${d.message || 'Não conectado'}</span>`;
+    }
+  } catch (e) {
+    el.innerHTML = `<span style="color:var(--danger);">Erro: ${e.message}</span>`;
+  }
+}
+
+async function salvarConfigMP() {
+  const token = document.getElementById('mpAccessToken').value.trim();
+  if (!token) return showAlert('Informe o Access Token', 'error');
+  try {
+    const r = await fetch('/api/mp/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: token })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Configuração salva!');
+    carregarStatus();
+  } catch (err) {
+    showAlert('Erro: ' + err.message, 'error');
+  }
+}
+
+async function testarConexaoMP() {
+  const el = document.getElementById('mpTestResult');
+  el.innerHTML = '<span style="color:var(--warn);">Testando…</span>';
+  try {
+    const r = await fetch('/api/mp/status');
+    const d = await r.json();
+    if (d.connected) {
+      el.innerHTML = `<span style="color:var(--success);">✓ Conexão OK — ${d.user?.nickname || d.user?.email || ''} (ID: ${d.user?.id || ''})</span>`;
+    } else {
+      el.innerHTML = `<span style="color:var(--danger);">✗ ${d.message || 'Não conectado'}</span>`;
+    }
+  } catch (err) {
+    el.innerHTML = `<span style="color:var(--danger);">✗ Erro: ${err.message}</span>`;
+  }
+}
+
+carregarConfigMP();
+carregarStatus();
+</script>
+</body>
+</html>

@@ -9,7 +9,35 @@
 // Dependências externas: apenas `app` (Express) e `db` (better-sqlite3).
 // Nada de axios, telegram ou filesystem aqui.
 
+// Fase 3g (2026-05-23): pesquisar usa catalog via PG
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+// Editar um grupo invalida a membership pré-computada (bi_grupo_item).
+const grupoMembership = require('./bi-grupo-membership');
+const { currentTenant } = require('./tenant-middleware');
+
 function registrarRotasGruposPalavras(app, db) {
+
+  // Recomputa (async, best-effort) a membership afetada por uma edição de grupo.
+  // - grupo de pesquisa → recomputa ele mesmo.
+  // - grupo de exclusão → recomputa os grupos de pesquisa que o vinculam.
+  // (edições de exclusão em grupos não-vinculados são cobertas pelo TTL.)
+  function _rebuildMembershipParaGrupo(grupoId) {
+    if (!USE_PG) return;
+    const tenant = (currentTenant() || {}).slug;
+    if (!tenant) return;
+    try {
+      const g = db.prepare(`SELECT id, tipo FROM grupos_palavras WHERE id = ?`).get(grupoId);
+      if (!g) return;
+      if (!g.tipo || g.tipo === 'pesquisa') {
+        grupoMembership.rebuildGrupoAsync({ catalogPg, tenantDb: db, tenant, grupoId });
+      } else {
+        db.prepare(`SELECT grupoPesquisaId AS id FROM grupos_pesquisa_exclusao WHERE grupoExclusaoId = ?`)
+          .all(grupoId)
+          .forEach(r => grupoMembership.rebuildGrupoAsync({ catalogPg, tenantDb: db, tenant, grupoId: r.id }));
+      }
+    } catch (_) { /* best-effort */ }
+  }
 
   // Listar todos os grupos (filtrar por tipo via query param: ?tipo=pesquisa ou ?tipo=exclusao)
   app.get('/api/grupos-palavras', (req, res) => {
@@ -139,6 +167,7 @@ function registrarRotasGruposPalavras(app, db) {
       }
 
       console.log(`[Grupos] Grupo "${nome}" (${tipoGrupo}) criado com ID ${grupoId}`);
+      _rebuildMembershipParaGrupo(grupoId);
       res.json({ success: true, id: grupoId });
     } catch (error) {
       if (error.message.includes('UNIQUE')) {
@@ -210,6 +239,7 @@ function registrarRotasGruposPalavras(app, db) {
       }
 
       console.log(`[Grupos] Grupo "${nome || grupo.nome}" atualizado`);
+      _rebuildMembershipParaGrupo(parseInt(id, 10));
       res.json({ success: true });
     } catch (error) {
       if (error.message.includes('UNIQUE')) {
@@ -225,10 +255,16 @@ function registrarRotasGruposPalavras(app, db) {
       const { id } = req.params;
 
       // Verificar se grupo existe
-      const grupo = db.prepare(`SELECT nome FROM grupos_palavras WHERE id = ?`).get(id);
+      const grupo = db.prepare(`SELECT nome, tipo FROM grupos_palavras WHERE id = ?`).get(id);
       if (!grupo) {
         return res.status(404).json({ success: false, error: 'Grupo não encontrado' });
       }
+
+      // Captura grupos de pesquisa afetados ANTES do delete (FK CASCADE apaga
+      // os vínculos em grupos_pesquisa_exclusao).
+      const pesquisaAfetados = (grupo.tipo === 'exclusao')
+        ? db.prepare(`SELECT grupoPesquisaId AS id FROM grupos_pesquisa_exclusao WHERE grupoExclusaoId = ?`).all(id)
+        : [];
 
       // Excluir palavras do grupo
       db.prepare(`DELETE FROM grupos_palavras_itens WHERE grupoId = ?`).run(id);
@@ -237,6 +273,15 @@ function registrarRotasGruposPalavras(app, db) {
       db.prepare(`DELETE FROM grupos_palavras WHERE id = ?`).run(id);
 
       console.log(`[Grupos] Grupo "${grupo.nome}" excluído`);
+      // Limpa a membership do grupo apagado (rebuild acha grupo inexistente →
+      // zera bi_grupo_item) e recomputa os grupos de pesquisa que o vinculavam.
+      if (USE_PG) {
+        const tenant = (currentTenant() || {}).slug;
+        if (tenant) {
+          grupoMembership.rebuildGrupoAsync({ catalogPg, tenantDb: db, tenant, grupoId: parseInt(id, 10) });
+          pesquisaAfetados.forEach(r => grupoMembership.rebuildGrupoAsync({ catalogPg, tenantDb: db, tenant, grupoId: r.id }));
+        }
+      }
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -257,6 +302,7 @@ function registrarRotasGruposPalavras(app, db) {
         INSERT OR IGNORE INTO grupos_palavras_itens (grupoId, palavra) VALUES (?, ?)
       `).run(id, palavra.trim().toLowerCase());
 
+      _rebuildMembershipParaGrupo(parseInt(id, 10));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -272,6 +318,7 @@ function registrarRotasGruposPalavras(app, db) {
         DELETE FROM grupos_palavras_itens WHERE grupoId = ? AND palavra = ?
       `).run(id, decodeURIComponent(palavra));
 
+      _rebuildMembershipParaGrupo(parseInt(id, 10));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -323,33 +370,50 @@ function registrarRotasGruposPalavras(app, db) {
       const dataLimiteStr = dataLimite.toISOString().split('T')[0];
 
       // Etapa 1: Busca rápida no objetoCompra
-      const conditionsObjeto = palavras.map(() => `objetoCompra LIKE ?`).join(' OR ');
-      const paramsObjeto = palavras.map(p => `%${p}%`);
+      let licitacoesObjeto, licitacoesItens;
+      if (USE_PG) {
+        const condObj = palavras.map((_, j) => `"objetoCompra" ILIKE $${j + 2}`).join(' OR ');
+        licitacoesObjeto = await catalogPg.query(`
+          SELECT *, COALESCE("dataEncerramentoPortal", "dataEncerramentoProposta") AS "dataEncerramentoProposta" FROM licitacoes
+           WHERE "dataPublicacaoPncp" >= $1 AND (${condObj})
+        ORDER BY "dataPublicacaoPncp" DESC
+           LIMIT 100
+        `, [dataLimiteStr, ...palavras.map(p => `%${p}%`)]);
 
-      const licitacoesObjeto = db.prepare(`
-        SELECT * FROM licitacoes
-        WHERE dataPublicacaoPncp >= ? AND (${conditionsObjeto})
-        ORDER BY dataPublicacaoPncp DESC
-        LIMIT 100
-      `).all(dataLimiteStr, ...paramsObjeto);
-
-      // Etapa 2: Busca nos itens - usando subquery para limitar primeiro as licitações
-      const idsEncontrados = new Set(licitacoesObjeto.map(l => l.id));
-
-      const conditionsItens = palavras.map(() => `i.descricao LIKE ?`).join(' OR ');
-      const paramsItens = palavras.map(p => `%${p}%`);
-
-      // Primeiro pega os IDs das licitações recentes, depois busca nos itens
-      const licitacoesItens = db.prepare(`
-        SELECT DISTINCT l.* FROM licitacoes l
-        WHERE l.id IN (
-          SELECT DISTINCT i.licitacaoId FROM itens i
-          WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE dataPublicacaoPncp >= ?)
-            AND (${conditionsItens})
+        const condItens = palavras.map((_, j) => `i."descricao" ILIKE $${j + 2}`).join(' OR ');
+        licitacoesItens = await catalogPg.query(`
+          SELECT DISTINCT l.*, COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta" FROM licitacoes l
+           WHERE l."id" IN (
+             SELECT DISTINCT i."licitacaoId" FROM itens i
+              WHERE i."licitacaoId" IN (SELECT "id" FROM licitacoes WHERE "dataPublicacaoPncp" >= $1)
+                AND (${condItens})
+              LIMIT 100
+           )
+        ORDER BY l."dataPublicacaoPncp" DESC
+        `, [dataLimiteStr, ...palavras.map(p => `%${p}%`)]);
+      } else {
+        const conditionsObjeto = palavras.map(() => `objetoCompra LIKE ?`).join(' OR ');
+        const paramsObjeto = palavras.map(p => `%${p}%`);
+        licitacoesObjeto = db.prepare(`
+          SELECT * FROM licitacoes
+          WHERE dataPublicacaoPncp >= ? AND (${conditionsObjeto})
+          ORDER BY dataPublicacaoPncp DESC
           LIMIT 100
-        )
-        ORDER BY l.dataPublicacaoPncp DESC
-      `).all(dataLimiteStr, ...paramsItens);
+        `).all(dataLimiteStr, ...paramsObjeto);
+
+        const conditionsItens = palavras.map(() => `i.descricao LIKE ?`).join(' OR ');
+        const paramsItens = palavras.map(p => `%${p}%`);
+        licitacoesItens = db.prepare(`
+          SELECT DISTINCT l.* FROM licitacoes l
+          WHERE l.id IN (
+            SELECT DISTINCT i.licitacaoId FROM itens i
+            WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE dataPublicacaoPncp >= ?)
+              AND (${conditionsItens})
+            LIMIT 100
+          )
+          ORDER BY l.dataPublicacaoPncp DESC
+        `).all(dataLimiteStr, ...paramsItens);
+      }
 
       // Combinar resultados únicos
       const licitacoesMap = new Map();
@@ -363,6 +427,27 @@ function registrarRotasGruposPalavras(app, db) {
 
       // Aplicar filtro de exclusão automático (grupos de exclusão vinculados)
       if (palavrasExclusao.length > 0) {
+        // Batch-prefetch descricoes de itens (evita N+1)
+        const licIds = licitacoesRaw.map(l => l.id);
+        let descsPorLic = new Map();
+        if (licIds.length > 0) {
+          let rows;
+          if (USE_PG) {
+            rows = await catalogPg.query(
+              `SELECT "licitacaoId" AS "licitacaoId", "descricao" AS descricao FROM itens WHERE "licitacaoId" = ANY($1::bigint[])`,
+              [licIds]
+            );
+          } else {
+            const ph = licIds.map(() => '?').join(',');
+            rows = db.prepare(`SELECT licitacaoId, descricao FROM itens WHERE licitacaoId IN (${ph})`).all(...licIds);
+          }
+          for (const r of rows) {
+            const lid = r.licitacaoId;
+            if (!descsPorLic.has(lid)) descsPorLic.set(lid, '');
+            descsPorLic.set(lid, descsPorLic.get(lid) + ' ' + (r.descricao || '').toLowerCase());
+          }
+        }
+
         licitacoesRaw = licitacoesRaw.filter(lic => {
           let texto = (
             (lic.objetoCompra || '') + ' ' +
@@ -370,14 +455,7 @@ function registrarRotasGruposPalavras(app, db) {
             (lic.razaoSocial || '') + ' ' +
             (lic.nomeUnidade || '')
           ).toLowerCase();
-
-          // Buscar itens da licitação para verificar também
-          const itensRows = db.prepare('SELECT descricao FROM itens WHERE licitacaoId = ?').all(lic.id);
-          itensRows.forEach(item => {
-            texto += ' ' + (item.descricao || '').toLowerCase();
-          });
-
-          // Retorna TRUE se NENHUMA palavra de exclusão está no texto
+          texto += descsPorLic.get(lic.id) || '';
           return !palavrasExclusao.some(exc => texto.includes(exc));
         });
 
@@ -389,7 +467,9 @@ function registrarRotasGruposPalavras(app, db) {
         let dados = {};
 
         // Se dadosCompletos existir e não estiver vazio, usar ele
-        if (row.dadosCompletos && row.dadosCompletos !== '{}') {
+        if (row.dadosCompletos && typeof row.dadosCompletos === 'object') {
+          dados = row.dadosCompletos;
+        } else if (row.dadosCompletos && row.dadosCompletos !== '{}') {
           dados = JSON.parse(row.dadosCompletos);
         } else {
           // Construir objeto a partir dos campos da tabela

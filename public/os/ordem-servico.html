@@ -1,0 +1,1326 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OS · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* page-local: .tabs/.tab vêm de app-modern.css */
+.tab-pane { display:none; } .tab-pane.active { display:block; }
+.cards-grid { display:grid; grid-template-columns:1fr 320px; gap:14px; }
+@media (max-width:980px) { .cards-grid { grid-template-columns:1fr; } }
+/* sub-abas (próprias / terceiros) dentro de uma aba */
+.subtabs { display:flex; gap:6px; margin-bottom:14px; padding-bottom:8px; border-bottom:1px solid #2a3a5c; }
+.subtab { padding:6px 14px; border-radius:6px; background:transparent; border:1px solid transparent; cursor:pointer; color:#94a3b8; font-size:13px; }
+.subtab:hover { background:#0f1a30; color:#cbd5e1; }
+.subtab.active { background:#1a2540; color:#fff; border-color:#2a3a5c; }
+.sec-pane { display:none; } .sec-pane.active { display:block; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 id="pgTitulo">OS</h1>
+      <small id="pgSub"></small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/os/ordens-servico.html">← Lista</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="cards-grid">
+    <div class="card">
+      <div class="tabs">
+        <div class="tab active" onclick="trocarTab('info')">Informações</div>
+        <div class="tab" onclick="trocarTab('checklist')">✓ Checklist</div>
+        <div class="tab" onclick="trocarTab('pecas')">Peças</div>
+        <div class="tab" onclick="trocarTab('servicos')">Serviços</div>
+        <div class="tab" onclick="trocarTab('apont')">Apontamentos</div>
+        <div class="tab" onclick="trocarTab('anexos')">📎 Anexos</div>
+        <div class="tab" onclick="trocarTab('assinaturas')">✍ Assinaturas</div>
+        <div class="tab" onclick="trocarTab('timeline')">📅 Timeline</div>
+        <div class="tab" onclick="trocarTab('pagamento')">Pagamento</div>
+      </div>
+
+      <div class="tab-pane active" id="tab-info">
+        <div id="info">Carregando…</div>
+      </div>
+
+      <div class="tab-pane" id="tab-pecas">
+        <div class="subtabs">
+          <button class="subtab active" onclick="trocarSecao('pecas','propria')">📦 Próprias (estoque)</button>
+          <button class="subtab" onclick="trocarSecao('pecas','terceiro')">🛒 Terceiros</button>
+        </div>
+
+        <!-- Seção: Peças próprias (estoque) -->
+        <div class="sec-pane active" id="sec-pecas-propria">
+          <div class="form-row">
+            <div class="form-group" style="flex:2;position:relative;">
+              <label>Produto *</label>
+              <input type="text" id="pProdBusca" placeholder="SKU ou descrição…" oninput="acProd()" autocomplete="off">
+              <input type="hidden" id="pProdId">
+              <input type="hidden" id="pRastreiaLote">
+              <input type="hidden" id="pRastreiaSerial">
+              <div id="acProdList" class="ac-list"></div>
+            </div>
+            <div class="form-group">
+              <label>Qtd *</label>
+              <input type="number" id="pQtd" step="any" min="0.001" value="1">
+            </div>
+            <div class="form-group">
+              <label>Valor unit. *</label>
+              <input type="number" id="pValor" step="0.01" min="0" value="0">
+            </div>
+          </div>
+          <div class="form-row" id="pRowLote" style="display:none;">
+            <div class="form-group full-width">
+              <label>Lote</label>
+              <select id="pLote"><option value="">— escolha —</option></select>
+            </div>
+          </div>
+          <div class="actions-bar">
+            <button class="btn btn-primary btn-sm" onclick="addPecaPropria()">+ Adicionar peça do estoque</button>
+          </div>
+          <table style="margin-top:10px;">
+            <thead><tr><th>SKU</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Valor</th><th class="num">Total</th><th>Lote</th><th></th></tr></thead>
+            <tbody id="tbPecasProprias"></tbody>
+          </table>
+        </div>
+
+        <!-- Seção: Peças de terceiros -->
+        <div class="sec-pane" id="sec-pecas-terceiro">
+          <small class="muted" style="display:block;margin-bottom:10px;">Peça comprada de terceiro especificamente para esta OS. Gera contas a pagar ao fornecedor; CR do cliente fica intacta. Vincular a um produto do catálogo é opcional — se vincular, gera entrada+saída de estoque (saldo zero, histórico real).</small>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label>Descrição *</label>
+              <input type="text" id="ptDesc" placeholder="Ex.: Filtro de óleo XPTO">
+            </div>
+            <div class="form-group">
+              <label>Qtd *</label>
+              <input type="number" id="ptQtd" step="any" min="0.001" value="1">
+            </div>
+            <div class="form-group">
+              <label>Valor cobrado R$ *</label>
+              <input type="number" id="ptValor" step="0.01" min="0" value="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;position:relative;">
+              <label>Produto do catálogo <small class="muted">(opcional — gera mov. de estoque)</small></label>
+              <input type="text" id="ptProdBusca" placeholder="SKU ou descrição…" oninput="acProdT()" autocomplete="off">
+              <input type="hidden" id="ptProdId">
+              <div id="acProdListT" class="ac-list"></div>
+            </div>
+            <div class="form-group" style="flex:0 0 auto;align-self:end;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="document.getElementById('ptProdId').value='';document.getElementById('ptProdBusca').value='';">Limpar</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;position:relative;">
+              <label>Fornecedor *</label>
+              <input type="text" id="ptForBusca" placeholder="CNPJ ou razão social…" oninput="acFor('pt')" autocomplete="off">
+              <input type="hidden" id="ptForId">
+              <div id="acForListPT" class="ac-list"></div>
+            </div>
+            <div class="form-group">
+              <label>Custo real R$ *</label>
+              <input type="number" id="ptCustoT" step="0.01" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nota fiscal/Cupom</label>
+              <input type="text" id="ptNFT" placeholder="Nº da nota">
+            </div>
+            <div class="form-group">
+              <label>Data da compra</label>
+              <input type="date" id="ptDataC">
+            </div>
+            <div class="form-group">
+              <label>Forma pgto</label>
+              <select id="ptFormaT">
+                <option value="">—</option><option value="dinheiro">Dinheiro</option><option value="pix">PIX</option>
+                <option value="boleto">Boleto</option><option value="cartao">Cartão</option><option value="prazo">A prazo</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Vencimento</label>
+              <input type="date" id="ptVencT">
+            </div>
+          </div>
+          <div class="actions-bar">
+            <button class="btn btn-primary btn-sm" onclick="addPecaTerceira()">+ Adicionar peça de terceiro</button>
+          </div>
+          <table style="margin-top:10px;">
+            <thead><tr><th>Descrição</th><th>Produto</th><th class="num">Qtd</th><th class="num">Cobrado</th><th class="num">Custo</th><th>Fornecedor</th><th>NF</th><th>AP</th><th></th></tr></thead>
+            <tbody id="tbPecasTerceiras"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-servicos">
+        <div class="subtabs">
+          <button class="subtab active" onclick="trocarSecao('servicos','propria')">🔧 Próprios</button>
+          <button class="subtab" onclick="trocarSecao('servicos','terceiro')">🛒 Terceiros</button>
+        </div>
+
+        <!-- Seção: Serviços próprios -->
+        <div class="sec-pane active" id="sec-servicos-propria">
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label>Serviço do catálogo <small class="muted">(opcional — preenche descrição e valor)</small></label>
+              <select id="sServicoSel" onchange="aplicarServicoCatalogo()">
+                <option value="">— preencher manualmente —</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:3;">
+              <label>Descrição *</label>
+              <input type="text" id="sDesc" placeholder="Ex.: Diagnóstico técnico">
+            </div>
+            <div class="form-group">
+              <label>Horas</label>
+              <input type="number" id="sHoras" step="0.5" min="0">
+            </div>
+            <div class="form-group">
+              <label>R$/hora</label>
+              <input type="number" id="sValor" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+              <label>Total (alternativo)</label>
+              <input type="number" id="sTotal" step="0.01" min="0">
+            </div>
+          </div>
+          <div class="actions-bar">
+            <button class="btn btn-primary btn-sm" onclick="addServicoProprio()">+ Adicionar serviço</button>
+          </div>
+          <div id="servFiscalStatus" class="muted" style="margin-top:10px;font-size:12px;"></div>
+          <table style="margin-top:6px;">
+            <thead><tr><th>Descrição</th><th>NBS</th><th class="num">Horas</th><th class="num">R$/h</th><th class="num">Total</th><th></th></tr></thead>
+            <tbody id="tbServicosProprios"></tbody>
+          </table>
+        </div>
+
+        <!-- Seção: Serviços de terceiros -->
+        <div class="sec-pane" id="sec-servicos-terceiro">
+          <small class="muted" style="display:block;margin-bottom:10px;">Serviço terceirizado (ex.: usinagem, retífica, mão-de-obra contratada). Gera contas a pagar ao prestador; CR do cliente fica intacta.</small>
+          <div class="form-row">
+            <div class="form-group" style="flex:3;">
+              <label>Descrição *</label>
+              <input type="text" id="stDesc" placeholder="Ex.: Retífica do cabeçote">
+            </div>
+            <div class="form-group">
+              <label>Valor cobrado R$ *</label>
+              <input type="number" id="stValor" step="0.01" min="0" value="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;position:relative;">
+              <label>Fornecedor *</label>
+              <input type="text" id="stForBusca" placeholder="CNPJ ou razão social…" oninput="acFor('st')" autocomplete="off">
+              <input type="hidden" id="stForId">
+              <div id="acForListST" class="ac-list"></div>
+            </div>
+            <div class="form-group">
+              <label>Custo real R$ *</label>
+              <input type="number" id="stCustoT" step="0.01" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nota fiscal/Cupom</label>
+              <input type="text" id="stNFT" placeholder="Nº da nota">
+            </div>
+            <div class="form-group">
+              <label>Data da compra</label>
+              <input type="date" id="stDataC">
+            </div>
+            <div class="form-group">
+              <label>Forma pgto</label>
+              <select id="stFormaT">
+                <option value="">—</option><option value="dinheiro">Dinheiro</option><option value="pix">PIX</option>
+                <option value="boleto">Boleto</option><option value="cartao">Cartão</option><option value="prazo">A prazo</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Vencimento</label>
+              <input type="date" id="stVencT">
+            </div>
+          </div>
+          <div class="actions-bar">
+            <button class="btn btn-primary btn-sm" onclick="addServicoTerceiro()">+ Adicionar serviço de terceiro</button>
+          </div>
+          <table style="margin-top:10px;">
+            <thead><tr><th>Descrição</th><th class="num">Cobrado</th><th class="num">Custo</th><th>Fornecedor</th><th>NF</th><th>AP</th><th></th></tr></thead>
+            <tbody id="tbServicosTerceiros"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-apont">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Início *</label>
+            <input type="datetime-local" id="aIni">
+          </div>
+          <div class="form-group">
+            <label>Fim</label>
+            <input type="datetime-local" id="aFim">
+          </div>
+          <div class="form-group">
+            <label>Horas (opcional)</label>
+            <input type="number" id="aHoras" step="0.1" min="0">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Descrição</label>
+            <input type="text" id="aDesc">
+          </div>
+        </div>
+        <div class="actions-bar">
+          <button class="btn btn-primary btn-sm" onclick="addApont()">+ Adicionar apontamento</button>
+        </div>
+        <table style="margin-top:10px;">
+          <thead><tr><th>Início</th><th>Fim</th><th>Horas</th><th>Técnico</th><th>Descrição</th><th></th></tr></thead>
+          <tbody id="tbApont"></tbody>
+        </table>
+      </div>
+
+      <!-- CHECKLIST -->
+      <div class="tab-pane" id="tab-checklist">
+        <small class="muted">Itens obrigatórios (marcados com *) devem ser concluídos antes de fechar a OS.</small>
+        <div class="form-row" style="margin-top:12px;">
+          <div class="form-group" style="flex:3;">
+            <label>Novo item</label>
+            <input type="text" id="ckDesc" placeholder="Ex.: Testar inicialização do sistema">
+          </div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="ckObrig" style="width:auto;margin:0;transform:scale(1.2);">
+              <span>Obrigatório</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <button class="btn btn-primary btn-sm" onclick="addChecklist()" style="margin-top:22px;">+ Adicionar</button>
+          </div>
+        </div>
+        <div id="checklistList" style="margin-top:14px;"></div>
+      </div>
+
+      <!-- ANEXOS (fotos / PDFs) -->
+      <div class="tab-pane" id="tab-anexos">
+        <small class="muted">Fotos antes/depois, laudo técnico em PDF, termo de aceite. Máx 15 MB por arquivo.</small>
+        <div class="form-row" style="margin-top:12px;">
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="anCat">
+              <option value="antes">Antes</option>
+              <option value="depois">Depois</option>
+              <option value="laudo">Laudo técnico</option>
+              <option value="garantia">Garantia</option>
+              <option value="aceite">Aceite do cliente</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:2;">
+            <label>Arquivo</label>
+            <input type="file" id="anFile" accept="image/*,application/pdf,video/*">
+          </div>
+          <div class="form-group">
+            <button class="btn btn-primary btn-sm" onclick="enviarAnexo()" style="margin-top:22px;">⬆ Enviar</button>
+          </div>
+        </div>
+        <div id="anexosList" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;"></div>
+      </div>
+
+      <!-- ASSINATURAS digitais (canvas HTML5) -->
+      <div class="tab-pane" id="tab-assinaturas">
+        <small class="muted">Capture a assinatura do cliente e do técnico ao concluir. Usadas no PDF de entrega.</small>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;">
+          <div>
+            <h4>Cliente</h4>
+            <canvas id="sigCliente" width="360" height="130" style="border:1px solid #2a3a5c;border-radius:var(--r-sm);background:#fff;cursor:crosshair;width:100%;max-width:360px;"></canvas>
+            <div class="actions-bar" style="margin-top:8px;">
+              <button class="btn btn-ghost btn-sm" onclick="limparSig('cliente')">Limpar</button>
+              <button class="btn btn-primary btn-sm" onclick="salvarSig('cliente')">Salvar</button>
+            </div>
+            <div id="sigClienteStatus" class="muted" style="font-size:12px;margin-top:4px;"></div>
+          </div>
+          <div>
+            <h4>Técnico</h4>
+            <canvas id="sigTecnico" width="360" height="130" style="border:1px solid #2a3a5c;border-radius:var(--r-sm);background:#fff;cursor:crosshair;width:100%;max-width:360px;"></canvas>
+            <div class="actions-bar" style="margin-top:8px;">
+              <button class="btn btn-ghost btn-sm" onclick="limparSig('tecnico')">Limpar</button>
+              <button class="btn btn-primary btn-sm" onclick="salvarSig('tecnico')">Salvar</button>
+            </div>
+            <div id="sigTecnicoStatus" class="muted" style="font-size:12px;margin-top:4px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TIMELINE de eventos -->
+      <div class="tab-pane" id="tab-timeline">
+        <small class="muted">Histórico completo de eventos desta OS (abertura, execução, anexos, assinaturas…).</small>
+        <div id="timelineList" style="margin-top:14px;"></div>
+      </div>
+
+      <div class="tab-pane" id="tab-pagamento">
+        <small class="muted">Configuração aplicada no faturamento. Pode ser ajustada aqui ou no momento de faturar.</small>
+        <div class="form-row" style="margin-top:10px;">
+          <div class="form-group">
+            <label>Forma de pagamento</label>
+            <select id="fFormaPag"></select>
+          </div>
+          <div class="form-group">
+            <label>Data de vencimento (1ª parcela)</label>
+            <input type="date" id="fDataVenc">
+          </div>
+          <div class="form-group">
+            <label>Número de parcelas</label>
+            <input type="number" id="fParcelas" min="1" max="60" value="1">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:500;">
+              <input type="checkbox" id="fNaoEmitirNFe" style="width:auto;margin:0;transform:scale(1.2);">
+              <span>📄 Documento interno — não emitir NFSe / NF-e</span>
+            </label>
+            <small class="muted" style="margin-left:32px;margin-top:6px;display:block;">
+              Quando marcado, ao emitir nota (Phase 2) a nota <strong>não</strong> será enviada para a SEFAZ.
+              As contas a receber são geradas normalmente.
+            </small>
+          </div>
+        </div>
+        <div class="actions-bar">
+          <button class="btn btn-primary btn-sm" onclick="salvarPagamento()">Salvar configuração de pagamento</button>
+        </div>
+
+        <h4 style="margin-top:20px;">Contas a Receber geradas</h4>
+        <div id="crList"><small class="muted">—</small></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Resumo</h3>
+      <div id="resumo" class="muted">…</div>
+      <hr style="margin:14px 0;border:0;border-top:1px solid #2a3a5c;">
+      <h3>Ações</h3>
+      <div id="acoes"></div>
+    </div>
+  </div>
+</main></div>
+
+<!-- Modal Faturar OS -->
+<div class="modal-bg" id="modalFaturar">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Faturar ordem de serviço</h3>
+        <small class="muted" id="ftSub">Gera pedido e contas a receber</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharFaturar()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div id="ftResumo" style="background:var(--bg-1);padding:10px;border-radius:var(--r-md);margin-bottom:12px;font-size:0.9em;"></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Forma de pagamento</label>
+        <select id="ftFormaPag"></select>
+      </div>
+      <div class="form-group">
+        <label>Vencimento (1ª parcela)</label>
+        <input type="date" id="ftDataVenc">
+      </div>
+      <div class="form-group">
+        <label>Parcelas</label>
+        <input type="number" id="ftParcelas" min="1" max="60" value="1">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="ftNaoEmitirNFe" style="width:auto;margin:0;transform:scale(1.2);">
+          <span>📄 Não emitir NFSe / NF-e (documento interno)</span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharFaturar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarFaturar()">💰 Faturar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ordens-servico');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const id = new URLSearchParams(window.location.search).get('id');
+let osData = null;
+
+const MEIOS_PAGAMENTO = [['','—'],
+  ['01','01 · Dinheiro'],['02','02 · Cheque'],['03','03 · Cartão de crédito'],['04','04 · Cartão de débito'],
+  ['05','05 · Crédito loja'],['10','10 · Vale alimentação'],['11','11 · Vale refeição'],
+  ['12','12 · Vale presente'],['13','13 · Vale combustível'],['14','14 · Duplicata mercantil'],
+  ['15','15 · Boleto bancário'],['16','16 · Depósito bancário'],['17','17 · PIX'],
+  ['18','18 · Transferência bancária'],['19','19 · Carteira digital'],['90','90 · Sem pagamento'],['99','99 · Outros']];
+
+function popularFormasPag(selectId, selected){
+  document.getElementById(selectId).innerHTML = MEIOS_PAGAMENTO.map(([v,l]) =>
+    `<option value="${v}" ${(selected||'')===v?'selected':''}>${l}</option>`).join('');
+}
+
+function addDiasISO(iso, n){ const d = new Date((iso||new Date().toISOString().slice(0,10))+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+
+function trocarTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+}
+
+async function carregar(){
+  if (!id) return showAlert('ID não informado','error');
+  const r = await fetch('/api/os/'+id);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  osData = d;
+  document.getElementById('pgTitulo').textContent = d.os.numero;
+  document.getElementById('pgSub').textContent = d.os.titulo;
+  renderInfo();
+  renderPecas(d.pecas);
+  renderServicos(d.servicos);
+  renderApontamentos(d.apontamentos);
+  renderChecklist(d.checklist || []);
+  renderAnexos(d.anexos || []);
+  renderTimeline(d.eventos || []);
+  renderAssinaturas();
+  renderResumo();
+  renderAcoes();
+  renderPagamento();
+  renderCRs();
+  // default datetime para apontamento
+  const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('aIni').value = now.toISOString().slice(0,16);
+}
+
+function renderInfo(){
+  const o = osData.os;
+  document.getElementById('info').innerHTML = `
+    <table style="width:100%;font-size:13px;">
+      <tr><td class="muted">Cliente</td><td>${o.clienteNome} <small class="muted">${o.clienteCpfCnpj||''}</small></td></tr>
+      <tr><td class="muted">Técnico</td><td>${o.tecnicoNomeExibicao||o.tecnicoNome||'—'}</td></tr>
+      <tr><td class="muted">Equipamento</td><td>${[o.equipamento,o.marca,o.modelo].filter(Boolean).join(' ') || '—'}</td></tr>
+      <tr><td class="muted">Nº de série</td><td class="mono">${o.numeroSerieEquipamento||'—'}</td></tr>
+      <tr><td class="muted">Garantia</td><td>${o.garantiaDias||0} dia(s)</td></tr>
+      <tr><td class="muted">Aberta em</td><td>${o.dataAbertura}</td></tr>
+      ${o.dataInicioExecucao ? `<tr><td class="muted">Iniciada em</td><td>${o.dataInicioExecucao}</td></tr>` : ''}
+      ${o.dataConclusao ? `<tr><td class="muted">Concluída em</td><td>${o.dataConclusao}</td></tr>` : ''}
+      ${o.dataFaturamento ? `<tr><td class="muted">Faturada em</td><td>${o.dataFaturamento} (pedido #${o.pedidoId})</td></tr>` : ''}
+    </table>
+    ${o.defeitoRelatado ? `<h4 style="margin-top:14px;">Defeito relatado</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.defeitoRelatado)}</div>` : ''}
+    ${o.diagnostico ? `<h4 style="margin-top:14px;">Diagnóstico</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.diagnostico)}</div>` : ''}
+    ${o.solucao ? `<h4 style="margin-top:14px;">Solução</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.solucao)}</div>` : ''}
+    ${o.observacoes ? `<h4 style="margin-top:14px;">Observações</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.observacoes)}</div>` : ''}
+  `;
+}
+
+function renderPecas(pecas){
+  const proprias = pecas.filter(p => !p.compradoTerceiro);
+  const terceiras = pecas.filter(p => p.compradoTerceiro);
+
+  document.getElementById('tbPecasProprias').innerHTML = proprias.length ? proprias.map(p=>`<tr>
+    <td class="mono">${escapeHtml(p.sku||'—')}</td>
+    <td>${escapeHtml(p.descricao||'')}</td>
+    <td class="num">${p.quantidade}</td>
+    <td class="num">${fmtBRL(p.valorUnitario)}</td>
+    <td class="num">${fmtBRL(p.valorTotal)}</td>
+    <td>${p.loteNumero||'—'}</td>
+    <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-danger btn-sm" onclick="remPeca(${p.id})">×</button>`}</td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Sem peças</td></tr>';
+
+  document.getElementById('tbPecasTerceiras').innerHTML = terceiras.length ? terceiras.map(p=>{
+    const apSt = p.terceiroStatusAP || 'aberta';
+    const apCls = apSt === 'paga' ? 'success' : apSt === 'cancelada' ? 'inativo' : 'pendente';
+    return `<tr>
+      <td>${escapeHtml(p.descricao||'')}</td>
+      <td>${p.sku ? '<span class="mono">'+escapeHtml(p.sku)+'</span>' : '<small class="muted">livre</small>'}</td>
+      <td class="num">${p.quantidade}</td>
+      <td class="num">${fmtBRL(p.valorTotal)}</td>
+      <td class="num">${p.custoTerceiro!=null?fmtBRL(p.custoTerceiro):'—'}</td>
+      <td>${escapeHtml(p.terceiroFornecedorNome||'—')}</td>
+      <td>${escapeHtml(p.notaFiscalTerceiro||'—')}</td>
+      <td><span class="badge ${apCls}">${apSt}</span></td>
+      <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-danger btn-sm" onclick="remPeca(${p.id})">×</button>`}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="9" class="empty">Sem peças de terceiro</td></tr>';
+}
+
+function renderServicos(servicos){
+  const proprios = servicos.filter(s => !s.compradoTerceiro);
+  const terceiros = servicos.filter(s => s.compradoTerceiro);
+
+  document.getElementById('tbServicosProprios').innerHTML = proprios.length ? proprios.map(s=>{
+    const nbsCell = s.servicoCnbs
+      ? `<code title="${escapeHtml(s.servicoXnbs||'')}">${s.servicoCnbs}</code>`
+      : (s.servicoId ? '<small class="muted">sem NBS</small>' : '<small class="muted">—</small>');
+    return `<tr>
+      <td>${escapeHtml(s.descricao)}${s.servicoCodigo?'<br><small class="muted">['+escapeHtml(s.servicoCodigo)+']</small>':''}</td>
+      <td>${nbsCell}</td>
+      <td class="num">${s.horas||'—'}</td>
+      <td class="num">${s.valorHora?fmtBRL(s.valorHora):'—'}</td>
+      <td class="num">${fmtBRL(s.valorTotal)}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="remServico(${s.id})">×</button></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty">Sem serviços próprios</td></tr>';
+
+  document.getElementById('tbServicosTerceiros').innerHTML = terceiros.length ? terceiros.map(s=>{
+    const apSt = s.terceiroStatusAP || 'aberta';
+    const apCls = apSt === 'paga' ? 'success' : apSt === 'cancelada' ? 'inativo' : 'pendente';
+    return `<tr>
+      <td>${escapeHtml(s.descricao)}</td>
+      <td class="num">${fmtBRL(s.valorTotal)}</td>
+      <td class="num">${s.custoTerceiro!=null?fmtBRL(s.custoTerceiro):'—'}</td>
+      <td>${escapeHtml(s.terceiroFornecedorNome||'—')}</td>
+      <td>${escapeHtml(s.notaFiscalTerceiro||'—')}</td>
+      <td><span class="badge ${apCls}">${apSt}</span></td>
+      <td><button class="btn btn-danger btn-sm" onclick="remServico(${s.id})">×</button></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" class="empty">Sem serviços de terceiro</td></tr>';
+
+  // Badge de status fiscal — calcula sobre serviços próprios (terceiros não emitem NFS-e)
+  const statusEl = document.getElementById('servFiscalStatus');
+  if (!statusEl) return;
+  const comCatalogo = proprios.filter(s => s.servicoCnbs);
+  const nbsDistintos = new Set(comCatalogo.map(s => s.servicoCnbs));
+  if (!proprios.length) { statusEl.innerHTML = ''; return; }
+  if (!comCatalogo.length) {
+    statusEl.innerHTML = '<span class="badge">fiscal: padrão global</span> <small>nenhum serviço de catálogo — NFS-e usará o cTribNac configurado em NFSe › Config (sem &lt;cNBS&gt;).</small>';
+  } else if (nbsDistintos.size === 1) {
+    const [unico] = nbsDistintos;
+    statusEl.innerHTML = `<span class="badge success">fiscal: catálogo · NBS ${unico}</span>`;
+  } else {
+    const dominante = comCatalogo.reduce((a,b)=> (Number(b.valorTotal)||0) > (Number(a.valorTotal)||0) ? b : a);
+    statusEl.innerHTML = `<span class="badge" style="background:#fff3cd;color:#664d03;">⚠ múltiplos NBS detectados — emitirá com NBS ${dominante.servicoCnbs} (item de maior valor)</span>`;
+  }
+}
+
+function renderApontamentos(ap){
+  document.getElementById('tbApont').innerHTML = ap.length ? ap.map(a=>`<tr>
+    <td>${a.dataInicio}</td>
+    <td>${a.dataFim||'—'}</td>
+    <td>${a.horas?Number(a.horas).toFixed(2):'—'}</td>
+    <td>${a.tecnicoNome||'—'}</td>
+    <td>${a.descricao||'—'}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="remApont(${a.id})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty">Sem apontamentos</td></tr>';
+}
+
+function renderResumo(){
+  const o = osData.os;
+  document.getElementById('resumo').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span class="badge ${o.status==='concluida'||o.status==='faturada'?'entrada':o.status==='cancelada'?'inativo':'pendente'}">${o.status}</span>
+    </div>
+    <div style="font-size:13px;">
+      <div style="display:flex;justify-content:space-between;padding:4px 0;"><span class="muted">Peças</span><strong>${fmtBRL(o.valorPecas)}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;"><span class="muted">Serviços</span><strong>${fmtBRL(o.valorServicos)}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #2a3a5c;margin-top:4px;font-size:15px;"><span><strong>Total</strong></span><strong style="color:#69db7c;">${fmtBRL(o.valorTotal)}</strong></div>
+    </div>
+  `;
+}
+
+function renderAcoes(){
+  const o = osData.os;
+  let html = '';
+  // Fase 9.2: orçamento público
+  const orcSt = o.orcamentoStatus || 'rascunho';
+  if (['rascunho','enviado','orcamento'].includes(orcSt) && !['aprovado','rejeitado'].includes(orcSt) && !['faturada','cancelada'].includes(o.status)) {
+    const label = orcSt === 'enviado' ? '🔁 Reenviar orçamento' : '📤 Enviar orçamento ao cliente';
+    html += `<button class="btn btn-primary" style="width:100%;margin-bottom:6px;" onclick="abrirEnviarOrcamento()">${label}</button>`;
+    if (o.orcamentoToken) {
+      html += `<a class="btn btn-secondary" href="/orcamento.html?token=${o.orcamentoToken}" target="_blank" style="display:block;text-align:center;margin-bottom:6px;font-size:12px;">🔗 Abrir link público</a>`;
+    }
+  }
+  if (orcSt === 'aprovado' && o.status === 'aberta') {
+    html += `<div style="padding:8px;text-align:center;font-size:12px;color:#34d399;margin-bottom:6px;border:1px solid rgba(52,211,153,0.3);border-radius:6px;background:rgba(52,211,153,0.08);">✓ Orçamento aprovado pelo cliente</div>`;
+  }
+  if (o.status === 'aberta' || o.status === 'aguardando-peca') html += `<button class="btn btn-primary" style="width:100%;margin-bottom:6px;" onclick="iniciar()">▶ Iniciar execução</button>`;
+  if (o.status === 'em-andamento' || o.status === 'aberta') html += `<button class="btn btn-secondary" style="width:100%;margin-bottom:6px;" onclick="aguardar()">⏳ Aguardando peça</button>`;
+  if (['aberta','em-andamento','aguardando-peca'].includes(o.status)) html += `<button class="btn btn-success" style="width:100%;margin-bottom:6px;" onclick="concluir()">✓ Concluir</button>`;
+  if (o.status === 'concluida') html += `<button class="btn btn-primary" style="width:100%;margin-bottom:6px;" onclick="faturar()">💰 Faturar (gera pedido)</button>`;
+  if (!['faturada','cancelada'].includes(o.status)) html += `<button class="btn btn-danger" style="width:100%;" onclick="cancelar()">✖ Cancelar</button>`;
+  if (o.status === 'faturada' && o.pedidoId) {
+    html += `<a class="btn btn-secondary" href="/comercial/pedido.html?id=${o.pedidoId}" style="display:block;text-align:center;margin-bottom:6px;">Ver pedido #${o.pedidoId}</a>`;
+    const temServicos = (osData.servicos||[]).length > 0;
+    const temPecas = (osData.pecas||[]).length > 0;
+    const temNfse = (osData.contasReceber||[]).some(c => c.nfseId);
+    const temNfe = (osData.contasReceber||[]).some(c => c.faturaId);
+    if (temServicos && !temNfse) html += `<button class="btn btn-primary" style="width:100%;margin-bottom:6px;" onclick="emitirNfse()">🧾 Emitir NFSe (serviços)</button>`;
+    if (temPecas && !temNfe) html += `<button class="btn btn-primary" style="width:100%;margin-bottom:6px;" onclick="emitirNfe()">📑 Emitir NF-e (peças)</button>`;
+    if (o.statusFiscal) html += `<div style="padding:6px;text-align:center;font-size:12px;color:var(--text-2);">Status fiscal: <strong>${o.statusFiscal}</strong></div>`;
+  }
+  document.getElementById('acoes').innerHTML = html || '<small class="muted">Nenhuma ação disponível</small>';
+}
+
+// Peças autocomplete + add
+let acTimer;
+function acProd(){
+  clearTimeout(acTimer);
+  const q = document.getElementById('pProdBusca').value.trim();
+  if (q.length<2){ document.getElementById('acProdList').innerHTML=''; return; }
+  acTimer = setTimeout(async()=>{
+    const r=await fetch('/api/produtos/autocomplete?q='+encodeURIComponent(q));
+    const d=await r.json();
+    document.getElementById('acProdList').innerHTML = (d.produtos||[]).map(p=>
+      `<div onclick='selProd(${p.id}, ${JSON.stringify(p.sku)}, ${JSON.stringify(p.descricao||"")}, ${p.precoVenda||0}, ${p.rastreiaLote||0}, ${p.rastreiaSerial||0})'>${p.sku} — ${p.descricao||''}</div>`
+    ).join('');
+  },200);
+}
+async function selProd(id, sku, descricao, preco, rL, rS){
+  document.getElementById('pProdId').value=id;
+  document.getElementById('pProdBusca').value=sku+' — '+descricao;
+  document.getElementById('pValor').value=preco;
+  document.getElementById('pRastreiaLote').value=rL;
+  document.getElementById('pRastreiaSerial').value=rS;
+  document.getElementById('acProdList').innerHTML='';
+  if (rL) {
+    document.getElementById('pRowLote').style.display='';
+    const r = await fetch('/api/lotes?produtoId='+id+'&comSaldo=1');
+    const d = await r.json();
+    document.getElementById('pLote').innerHTML = '<option value="">— escolha —</option>' + (d.lotes||[]).map(l=>`<option value="${l.id}">${l.numero}</option>`).join('');
+  } else {
+    document.getElementById('pRowLote').style.display='none';
+  }
+}
+
+// Troca a seção visível dentro de uma aba (subtab "Próprias / Terceiros")
+function trocarSecao(aba, secao){
+  document.querySelectorAll(`#tab-${aba} .subtab`).forEach(b => b.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.querySelectorAll(`#tab-${aba} .sec-pane`).forEach(p => p.classList.remove('active'));
+  document.getElementById(`sec-${aba}-${secao}`).classList.add('active');
+}
+
+// Autocomplete de fornecedor — prefixos: pt (peça terceira), st (serviço terceiro)
+let acForTimer;
+function acFor(prefix){
+  clearTimeout(acForTimer);
+  const q = document.getElementById(prefix+'ForBusca').value.trim();
+  const listEl = document.getElementById('acForList' + prefix.toUpperCase());
+  if (q.length < 2){ listEl.innerHTML=''; return; }
+  acForTimer = setTimeout(async()=>{
+    const r = await fetch('/api/fornecedores/autocomplete?q='+encodeURIComponent(q));
+    const d = await r.json();
+    listEl.innerHTML = (d.fornecedores||[]).map(f =>
+      `<div onclick='selFor(${JSON.stringify(prefix)}, ${f.id}, ${JSON.stringify(f.razaoSocial||'')}, ${JSON.stringify(f.cpfCnpj||'')})'>${escapeHtml(f.razaoSocial||'')} <small class="muted">${escapeHtml(f.cpfCnpj||'')}</small></div>`
+    ).join('');
+  }, 200);
+}
+function selFor(prefix, fid, razao, cnpj){
+  document.getElementById(prefix+'ForId').value = fid;
+  document.getElementById(prefix+'ForBusca').value = razao + (cnpj?' · '+cnpj:'');
+  document.getElementById('acForList' + prefix.toUpperCase()).innerHTML = '';
+}
+
+// Autocomplete de produto na seção de peça terceira (vínculo opcional ao catálogo)
+let acProdTTimer;
+function acProdT(){
+  clearTimeout(acProdTTimer);
+  const q = document.getElementById('ptProdBusca').value.trim();
+  if (q.length < 2){ document.getElementById('acProdListT').innerHTML=''; return; }
+  acProdTTimer = setTimeout(async()=>{
+    const r = await fetch('/api/produtos/autocomplete?q='+encodeURIComponent(q));
+    const d = await r.json();
+    document.getElementById('acProdListT').innerHTML = (d.produtos||[]).map(p =>
+      `<div onclick='selProdT(${p.id}, ${JSON.stringify(p.sku)}, ${JSON.stringify(p.descricao||"")})'>${escapeHtml(p.sku)} — ${escapeHtml(p.descricao||'')}</div>`
+    ).join('');
+  }, 200);
+}
+function selProdT(id, sku, descricao){
+  document.getElementById('ptProdId').value = id;
+  document.getElementById('ptProdBusca').value = sku + ' — ' + descricao;
+  // Default da descrição livre se ainda vazia
+  const desc = document.getElementById('ptDesc');
+  if (!desc.value) desc.value = descricao;
+  document.getElementById('acProdListT').innerHTML = '';
+}
+
+async function addPecaPropria(){
+  const body = {
+    produtoId: Number(document.getElementById('pProdId').value),
+    descricao: document.getElementById('pProdBusca').value,
+    quantidade: Number(document.getElementById('pQtd').value),
+    valorUnitario: Number(document.getElementById('pValor').value),
+    loteId: document.getElementById('pLote').value ? Number(document.getElementById('pLote').value) : null,
+    compradoTerceiro: 0,
+  };
+  if (!body.produtoId || !body.quantidade) return showAlert('Produto e quantidade obrigatórios','error');
+  const r = await fetch('/api/os/'+id+'/pecas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  ['pProdId','pProdBusca'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('pQtd').value='1'; document.getElementById('pValor').value='0';
+  carregar();
+}
+
+async function addPecaTerceira(){
+  const desc = document.getElementById('ptDesc').value.trim();
+  const qtd = Number(document.getElementById('ptQtd').value);
+  const valor = Number(document.getElementById('ptValor').value);
+  const fornecedorId = document.getElementById('ptForId').value ? Number(document.getElementById('ptForId').value) : null;
+  const custoTerceiro = document.getElementById('ptCustoT').value ? Number(document.getElementById('ptCustoT').value) : null;
+  if (!desc) return showAlert('Descrição obrigatória','error');
+  if (!qtd) return showAlert('Quantidade obrigatória','error');
+  if (!fornecedorId || custoTerceiro == null) return showAlert('Fornecedor e custo real são obrigatórios','error');
+  const body = {
+    produtoId: document.getElementById('ptProdId').value ? Number(document.getElementById('ptProdId').value) : null,
+    descricao: desc, quantidade: qtd, valorUnitario: valor, loteId: null,
+    compradoTerceiro: 1,
+    fornecedorId, custoTerceiro,
+    notaFiscalTerceiro: document.getElementById('ptNFT').value || null,
+    dataCompraTerceiro: document.getElementById('ptDataC').value || null,
+    formaPagamentoTerceiro: document.getElementById('ptFormaT').value || null,
+    dataVencimentoTerceiro: document.getElementById('ptVencT').value || null,
+  };
+  const r = await fetch('/api/os/'+id+'/pecas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  ['ptDesc','ptProdId','ptProdBusca','ptForId','ptForBusca','ptCustoT','ptNFT','ptDataC','ptVencT'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('ptQtd').value='1'; document.getElementById('ptValor').value='0';
+  document.getElementById('ptFormaT').value='';
+  carregar();
+}
+
+async function remPeca(itemId){
+  if (!confirm('Remover esta peça?')) return;
+  const r = await fetch('/api/os/pecas/'+itemId, { method:'DELETE' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+let catalogoServicos = [];
+async function carregarCatalogoServicos(){
+  try {
+    const r = await fetch('/api/servicos?ativo=1');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.success) return;
+    catalogoServicos = d.servicos || [];
+    const sel = document.getElementById('sServicoSel');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— preencher manualmente —</option>' +
+      catalogoServicos.map(s => {
+        const labelCodigo = s.codigo ? `[${s.codigo}] ` : '';
+        return `<option value="${s.id}">${labelCodigo}${escapeHtml(s.nome)}${s.cNBS ? ' · NBS ' + s.cNBS : ''}</option>`;
+      }).join('');
+  } catch (_) { /* silencioso */ }
+}
+function aplicarServicoCatalogo(){
+  const sel = document.getElementById('sServicoSel');
+  const id = sel.value;
+  if (!id) return;
+  const s = catalogoServicos.find(x => x.id === Number(id));
+  if (!s) return;
+  const fDesc = document.getElementById('sDesc');
+  const fTotal = document.getElementById('sTotal');
+  if (!fDesc.value) fDesc.value = s.descricao || s.nome || '';
+  if (!fTotal.value && s.valorPadrao != null) fTotal.value = s.valorPadrao;
+}
+
+async function addServicoProprio(){
+  const servicoId = document.getElementById('sServicoSel')?.value || null;
+  const body = {
+    servicoId: servicoId ? Number(servicoId) : null,
+    descricao: document.getElementById('sDesc').value.trim(),
+    horas: document.getElementById('sHoras').value ? Number(document.getElementById('sHoras').value) : null,
+    valorHora: document.getElementById('sValor').value ? Number(document.getElementById('sValor').value) : null,
+    valorTotal: document.getElementById('sTotal').value ? Number(document.getElementById('sTotal').value) : null,
+    compradoTerceiro: 0,
+  };
+  if (!body.descricao && !body.servicoId) return showAlert('Descrição obrigatória (ou escolha um serviço do catálogo)','error');
+  const r = await fetch('/api/os/'+id+'/servicos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  ['sDesc','sHoras','sValor','sTotal'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('sServicoSel').value = '';
+  carregar();
+}
+
+async function addServicoTerceiro(){
+  const desc = document.getElementById('stDesc').value.trim();
+  const valor = Number(document.getElementById('stValor').value);
+  const fornecedorId = document.getElementById('stForId').value ? Number(document.getElementById('stForId').value) : null;
+  const custoTerceiro = document.getElementById('stCustoT').value ? Number(document.getElementById('stCustoT').value) : null;
+  if (!desc) return showAlert('Descrição obrigatória','error');
+  if (!valor) return showAlert('Valor cobrado obrigatório','error');
+  if (!fornecedorId || custoTerceiro == null) return showAlert('Fornecedor e custo real são obrigatórios','error');
+  const body = {
+    descricao: desc, valorTotal: valor, horas: null, valorHora: null, servicoId: null,
+    compradoTerceiro: 1,
+    fornecedorId, custoTerceiro,
+    notaFiscalTerceiro: document.getElementById('stNFT').value || null,
+    dataCompraTerceiro: document.getElementById('stDataC').value || null,
+    formaPagamentoTerceiro: document.getElementById('stFormaT').value || null,
+    dataVencimentoTerceiro: document.getElementById('stVencT').value || null,
+  };
+  const r = await fetch('/api/os/'+id+'/servicos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  ['stDesc','stForId','stForBusca','stCustoT','stNFT','stDataC','stVencT'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('stValor').value='0';
+  document.getElementById('stFormaT').value='';
+  carregar();
+}
+async function remServico(id){
+  if (!confirm('Remover este serviço?')) return;
+  const r = await fetch('/api/os/servicos/'+id, { method:'DELETE' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+async function addApont(){
+  const body = {
+    dataInicio: document.getElementById('aIni').value,
+    dataFim: document.getElementById('aFim').value || null,
+    horas: document.getElementById('aHoras').value ? Number(document.getElementById('aHoras').value) : null,
+    descricao: document.getElementById('aDesc').value || null
+  };
+  if (!body.dataInicio) return showAlert('Início obrigatório','error');
+  const r = await fetch('/api/os/'+id+'/apontamentos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('aDesc').value=''; document.getElementById('aHoras').value='';
+  carregar();
+}
+async function remApont(id){
+  if (!confirm('Remover apontamento?')) return;
+  const r = await fetch('/api/os/apontamentos/'+id, { method:'DELETE' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+async function iniciar(){
+  const r = await fetch(`/api/os/${id}/iniciar`, { method:'POST' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('OS em execução'); carregar();
+}
+async function aguardar(){
+  const r = await fetch(`/api/os/${id}/aguardar-peca`, { method:'POST' });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+async function concluir(){
+  const solucao = prompt('Solução aplicada (opcional, mas recomendada):');
+  if (solucao === null) return;
+  const baixar = confirm('Baixar peças do estoque agora? (Cancelar = não baixar)');
+  const r = await fetch(`/api/os/${id}/concluir`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ solucao, baixarEstoque: baixar }) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  showAlert('OS concluída'); carregar();
+}
+async function cancelar(){
+  const motivo = prompt('Motivo do cancelamento (mín. 5 caracteres):');
+  if (!motivo) return;
+  const r = await fetch(`/api/os/${id}/cancelar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+function renderPagamento(){
+  const o = osData.os;
+  popularFormasPag('fFormaPag', o.formaPagamento);
+  document.getElementById('fDataVenc').value = o.dataVencimento || '';
+  document.getElementById('fParcelas').value = o.numeroParcelas || 1;
+  document.getElementById('fNaoEmitirNFe').checked = !!o.naoEmitirNFe;
+  const bloqueado = ['faturada','cancelada'].includes(o.status);
+  ['fFormaPag','fDataVenc','fParcelas','fNaoEmitirNFe'].forEach(fid => {
+    document.getElementById(fid).disabled = bloqueado;
+  });
+}
+
+function renderCRs(){
+  const box = document.getElementById('crList');
+  const lista = osData.contasReceber || [];
+  if (!lista.length) { box.innerHTML = '<small class="muted">Nenhuma CR gerada. Faturamento ainda não foi feito.</small>'; return; }
+  const statusBadge = s => ({'aberta':'pendente','pago':'entrada','paga':'entrada','cancelada':'inativo','vencida':'danger'})[s] || '';
+  box.innerHTML = `<table style="width:100%;font-size:13px;">
+    <thead><tr><th>#</th><th>Descrição</th><th class="num">Valor</th><th>Vencimento</th><th>Status</th><th>Nota</th><th></th></tr></thead>
+    <tbody>${lista.map(c => `<tr>
+      <td class="mono">#${c.id}</td>
+      <td>${escapeHtml(c.descricao)}</td>
+      <td class="num">${fmtBRL(c.valor)}</td>
+      <td>${c.dataVencimento||'—'}</td>
+      <td><span class="badge ${statusBadge(c.status)}">${c.status}</span></td>
+      <td>${c.nfseId?`NFSe #${c.nfseId}`:c.faturaId?`NF-e #${c.faturaId}`:'<small class="muted">—</small>'}</td>
+      <td><a class="btn btn-ghost btn-sm" href="/financeiro/contas-a-receber-detalhe.html?id=${c.id}">Abrir →</a></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function salvarPagamento(){
+  const body = {
+    formaPagamento: document.getElementById('fFormaPag').value || null,
+    dataVencimento: document.getElementById('fDataVenc').value || null,
+    numeroParcelas: Number(document.getElementById('fParcelas').value) || 1,
+    naoEmitirNFe: document.getElementById('fNaoEmitirNFe').checked ? 1 : 0,
+  };
+  const r = await fetch('/api/os/'+id, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Configuração de pagamento salva');
+  carregar();
+}
+
+function faturar(){
+  const o = osData.os;
+  const valorPecas = Number(o.valorPecas)||0;
+  const valorServicos = Number(o.valorServicos)||0;
+  const misto = valorPecas>0 && valorServicos>0;
+  document.getElementById('ftSub').textContent = misto
+    ? 'OS mista — serão criadas 2 CRs separadas (peças + serviços)'
+    : 'Gera pedido + CR(s) de acordo com as parcelas';
+  document.getElementById('ftResumo').innerHTML = `
+    <div style="display:flex;justify-content:space-between;"><span class="muted">Peças</span><strong>${fmtBRL(valorPecas)}</strong></div>
+    <div style="display:flex;justify-content:space-between;"><span class="muted">Serviços</span><strong>${fmtBRL(valorServicos)}</strong></div>
+    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:4px;padding-top:4px;"><strong>Total</strong><strong style="color:#69db7c;">${fmtBRL(valorPecas+valorServicos)}</strong></div>
+  `;
+  popularFormasPag('ftFormaPag', o.formaPagamento);
+  document.getElementById('ftDataVenc').value = o.dataVencimento || addDiasISO(null, 30);
+  document.getElementById('ftParcelas').value = o.numeroParcelas || 1;
+  document.getElementById('ftNaoEmitirNFe').checked = !!o.naoEmitirNFe;
+  document.getElementById('modalFaturar').classList.add('open');
+}
+function fecharFaturar(){ document.getElementById('modalFaturar').classList.remove('open'); }
+
+async function emitirNfse(){
+  const aviso = osData.os.naoEmitirNFe
+    ? 'A OS está marcada como "documento interno" — NFSe NÃO será enviada à SEFIN (apenas registrada localmente). Continuar?'
+    : 'Emitir NFSe dos serviços para a SEFIN? Esta ação transmite a nota fiscal eletrônica.';
+  if (!confirm(aviso)) return;
+  const r = await fetch(`/api/os/${id}/emitir-nfse`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error || 'Falha ao emitir NFSe', 'error');
+  showAlert(d.naoFiscal ? d.message : `NFSe emitida (#${d.nfse?.id}) — status: ${d.nfse?.status}`);
+  carregar();
+}
+
+async function emitirNfe(){
+  const aviso = osData.os.naoEmitirNFe
+    ? 'A OS está marcada como "documento interno" — NF-e NÃO será enviada à SEFAZ. Continuar?'
+    : 'Emitir NF-e das peças para a SEFAZ? Esta ação transmite a nota fiscal eletrônica.';
+  if (!confirm(aviso)) return;
+  const r = await fetch(`/api/os/${id}/emitir-nfe`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error || 'Falha ao emitir NF-e', 'error');
+  showAlert(d.naoFiscal ? d.message : `NF-e emitida — fatura #${d.faturaId}`);
+  carregar();
+}
+
+async function confirmarFaturar(){
+  const body = {
+    formaPagamento: document.getElementById('ftFormaPag').value || null,
+    dataVencimento: document.getElementById('ftDataVenc').value || null,
+    numeroParcelas: Number(document.getElementById('ftParcelas').value) || 1,
+    naoEmitirNFe: document.getElementById('ftNaoEmitirNFe').checked ? 1 : 0,
+  };
+  const r = await fetch(`/api/os/${id}/faturar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  fecharFaturar();
+  const nCR = (d.crIds||[]).length;
+  showAlert(`OS faturada — pedido #${d.pedidoId} + ${nCR} CR(s) gerada(s)`);
+  carregar();
+}
+
+// ==================== CHECKLIST ====================
+function renderChecklist(items) {
+  const el = document.getElementById('checklistList');
+  if (!items || !items.length) {
+    el.innerHTML = '<div class="muted" style="padding:14px;">Sem itens de checklist — adicione acima ou selecione um tipo de OS com template.</div>';
+    return;
+  }
+  el.innerHTML = items.map(it => `
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;">
+      <input type="checkbox" ${it.concluido ? 'checked' : ''} onchange="toggleChecklist(${it.id}, this.checked)" style="width:auto;transform:scale(1.3);margin:0;">
+      <span style="flex:1;">
+        ${it.obrigatorio ? '<span style="color:#ff6b6b;font-weight:700;">*</span> ' : ''}
+        ${escapeHtml(it.descricao)}
+      </span>
+      ${it.concluido && it.responsavel ? `<small class="muted">${escapeHtml(it.responsavel)} · ${(it.dataConclusao||'').slice(0,16).replace('T',' ')}</small>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick="event.preventDefault();removeChecklist(${it.id})" title="Remover">✕</button>
+    </label>
+  `).join('');
+}
+async function addChecklist() {
+  const desc = document.getElementById('ckDesc').value.trim();
+  if (!desc) return;
+  const obrigatorio = document.getElementById('ckObrig').checked;
+  const r = await fetch(`/api/os/${id}/checklist`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ descricao: desc, obrigatorio })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('ckDesc').value = '';
+  document.getElementById('ckObrig').checked = false;
+  carregar();
+}
+async function toggleChecklist(itemId, concluido) {
+  const r = await fetch(`/api/os/checklist/${itemId}`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ concluido })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+async function removeChecklist(itemId) {
+  if (!confirm('Remover este item?')) return;
+  const r = await fetch(`/api/os/checklist/${itemId}`, { method: 'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+// ==================== ANEXOS ====================
+function renderAnexos(anexos) {
+  const el = document.getElementById('anexosList');
+  if (!anexos || !anexos.length) {
+    el.innerHTML = '<div class="muted" style="grid-column:1/-1;padding:14px;">Nenhum anexo.</div>';
+    return;
+  }
+  el.innerHTML = anexos.map(a => {
+    const isImg = /^image\//.test(a.mimeType || '');
+    return `
+      <div style="border:1px solid #1e293b;border-radius:var(--r-md);padding:8px;background:var(--bg-1);">
+        ${isImg
+          ? `<img src="/${a.caminho}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--r-sm);cursor:pointer;" onclick="window.open('/${a.caminho}','_blank')">`
+          : `<div style="height:120px;display:flex;align-items:center;justify-content:center;font-size:36px;">📄</div>`}
+        <div style="font-size:12px;margin-top:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="badge ${a.categoria==='antes'?'pendente':a.categoria==='depois'?'entrada':'inativo'}" style="font-size:10px;">${escapeHtml(a.categoria)}</span>
+            <button class="btn btn-ghost btn-sm" onclick="removerAnexo(${a.id})" title="Remover" style="padding:2px 6px;">✕</button>
+          </div>
+          <div style="margin-top:4px;word-break:break-all;">${escapeHtml(a.nomeOriginal)}</div>
+          <a href="/api/os/anexos/${a.id}/download" style="color:#4dabf7;font-size:11px;">⬇ baixar</a>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+async function enviarAnexo() {
+  const file = document.getElementById('anFile').files[0];
+  if (!file) return showAlert('Selecione um arquivo','error');
+  const cat = document.getElementById('anCat').value;
+  const fd = new FormData();
+  fd.append('arquivo', file);
+  fd.append('categoria', cat);
+  const r = await fetch(`/api/os/${id}/anexos`, { method:'POST', body: fd });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('anFile').value = '';
+  carregar();
+}
+async function removerAnexo(anexoId) {
+  if (!confirm('Remover este anexo?')) return;
+  const r = await fetch(`/api/os/anexos/${anexoId}`, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+// ==================== TIMELINE ====================
+function renderTimeline(eventos) {
+  const el = document.getElementById('timelineList');
+  if (!eventos || !eventos.length) {
+    el.innerHTML = '<div class="muted" style="padding:14px;">Sem eventos registrados.</div>';
+    return;
+  }
+  const ICONS = { abertura:'🆕', orcamento:'📋', enviado:'📤', aprovado:'✅', rejeitado:'❌',
+                  inicio:'▶', pausa:'⏸', retomada:'▶', conclusao:'✓', faturamento:'💰',
+                  cancelamento:'🚫', anexo:'📎', assinatura:'✍', edicao:'✎' };
+  el.innerHTML = eventos.map(e => `
+    <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #1e293b;">
+      <div style="font-size:22px;">${ICONS[e.tipo]||'•'}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;">
+          <strong style="color:#4dabf7;">${e.tipo.toUpperCase()}</strong>
+          <span style="color:#bbb;">${escapeHtml(e.descricao||'')}</span>
+        </div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">
+          ${(e.data||'').replace('T',' ').slice(0,19)} · ${escapeHtml(e.usuario||'sistema')}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ==================== ASSINATURAS ====================
+function setupCanvas(canvasId) {
+  const c = document.getElementById(canvasId);
+  if (!c || c.__wired) return;
+  c.__wired = true;
+  const ctx = c.getContext('2d');
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  let drawing = false, lastX = 0, lastY = 0;
+  function pos(e) {
+    const rect = c.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: (t.clientX - rect.left) * (c.width/rect.width), y: (t.clientY - rect.top) * (c.height/rect.height) };
+  }
+  function start(e){ e.preventDefault(); drawing = true; const p = pos(e); lastX = p.x; lastY = p.y; }
+  function move(e){ if (!drawing) return; e.preventDefault(); const p = pos(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX = p.x; lastY = p.y; }
+  function end(){ drawing = false; }
+  c.addEventListener('mousedown', start); c.addEventListener('mousemove', move);
+  c.addEventListener('mouseup', end); c.addEventListener('mouseleave', end);
+  c.addEventListener('touchstart', start); c.addEventListener('touchmove', move); c.addEventListener('touchend', end);
+}
+function renderAssinaturas() {
+  setupCanvas('sigCliente');
+  setupCanvas('sigTecnico');
+  const o = osData.os;
+  if (o.assinaturaClienteDataUrl) {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.getElementById('sigCliente');
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      document.getElementById('sigClienteStatus').textContent = '✓ assinado em ' + (o.assinaturaClienteData||'').replace('T',' ').slice(0,19);
+    };
+    img.src = o.assinaturaClienteDataUrl;
+  } else {
+    document.getElementById('sigClienteStatus').textContent = '— sem assinatura';
+  }
+  if (o.assinaturaTecnicoDataUrl) {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.getElementById('sigTecnico');
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      document.getElementById('sigTecnicoStatus').textContent = '✓ assinado em ' + (o.assinaturaTecnicoData||'').replace('T',' ').slice(0,19);
+    };
+    img.src = o.assinaturaTecnicoDataUrl;
+  } else {
+    document.getElementById('sigTecnicoStatus').textContent = '— sem assinatura';
+  }
+}
+function limparSig(ator) {
+  const c = document.getElementById(ator==='cliente' ? 'sigCliente' : 'sigTecnico');
+  c.getContext('2d').clearRect(0, 0, c.width, c.height);
+}
+async function salvarSig(ator) {
+  const c = document.getElementById(ator==='cliente' ? 'sigCliente' : 'sigTecnico');
+  const dataUrl = c.toDataURL('image/png');
+  // Detecta canvas vazio (quase todos os pixels brancos/transparentes)
+  if (dataUrl.length < 1200) return showAlert('Desenhe a assinatura primeiro','error');
+  const r = await fetch(`/api/os/${id}/assinar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ator, dataUrl })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Assinatura do ${ator} salva`);
+  carregar();
+}
+
+// ==================== ORÇAMENTO PÚBLICO (envio) ====================
+function abrirEnviarOrcamento() {
+  const o = osData.os;
+  const m = document.getElementById('modalEnvOrc');
+  document.getElementById('envOrcCanal').value = o.clienteEmail ? 'email' : (o.clienteTelefone ? 'whatsapp' : 'email');
+  document.getElementById('envOrcEmail').value = o.clienteEmail || '';
+  document.getElementById('envOrcWhats').value = o.clienteTelefone || '';
+  document.getElementById('envOrcExtra').value = '';
+  toggleCanalFields();
+  m.classList.add('open');
+}
+function fecharEnviarOrcamento() { document.getElementById('modalEnvOrc').classList.remove('open'); }
+function toggleCanalFields() {
+  const c = document.getElementById('envOrcCanal').value;
+  document.getElementById('rowEmail').style.display = (c === 'email' || c === 'ambos') ? '' : 'none';
+  document.getElementById('rowWhats').style.display = (c === 'whatsapp' || c === 'ambos') ? '' : 'none';
+}
+async function confirmarEnviarOrcamento() {
+  const body = {
+    canal: document.getElementById('envOrcCanal').value,
+    destinoEmail: document.getElementById('envOrcEmail').value.trim() || null,
+    destinoWhatsApp: document.getElementById('envOrcWhats').value.trim() || null,
+    mensagemExtra: document.getElementById('envOrcExtra').value.trim() || null,
+  };
+  const btn = document.getElementById('envOrcBtn');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    const r = await fetch(`/api/os/${id}/enviar-orcamento`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.success) { btn.disabled=false; btn.textContent='Enviar'; return showAlert(d.error,'error'); }
+    const canais = (d.canais || []).map(c => `${c.canal}: ${c.destino}`).join(', ');
+    showAlert(`Enviado (${canais})${d.erros?.length ? ' — alguns erros: ' + d.erros.join('; ') : ''}`);
+    fecharEnviarOrcamento();
+    carregar();
+  } catch (e) {
+    btn.disabled=false; btn.textContent='Enviar';
+    showAlert('Erro: '+e.message,'error');
+  }
+}
+
+carregar();
+carregarCatalogoServicos();
+</script>
+
+<!-- Modal Enviar Orçamento (Fase 9.2) -->
+<div class="modal-bg" id="modalEnvOrc">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Enviar orçamento ao cliente</h3>
+        <small class="muted">O cliente receberá um link público para aprovar ou rejeitar</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharEnviarOrcamento()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Canal</label>
+        <select id="envOrcCanal" onchange="toggleCanalFields()">
+          <option value="email">E-mail</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="ambos">E-mail + WhatsApp</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="rowEmail">
+      <div class="form-group full-width">
+        <label>E-mail</label>
+        <input type="email" id="envOrcEmail" placeholder="cliente@exemplo.com">
+      </div>
+    </div>
+    <div class="form-row" id="rowWhats">
+      <div class="form-group full-width">
+        <label>WhatsApp</label>
+        <input type="text" id="envOrcWhats" placeholder="(11) 99999-9999">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Mensagem adicional (opcional)</label>
+        <textarea id="envOrcExtra" rows="2" placeholder="Ex.: Fica à disposição para dúvidas."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharEnviarOrcamento()">Cancelar</button>
+      <button class="btn btn-primary" id="envOrcBtn" onclick="confirmarEnviarOrcamento()">Enviar</button>
+    </div>
+  </div>
+</div>
+</body></html>

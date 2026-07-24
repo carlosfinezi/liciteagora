@@ -1,0 +1,35 @@
+[Unit]
+Description=BLL session service (1bit) — login bllcompras.com server-side + cookie + relay de token de lance
+After=network-online.target
+Wants=network-online.target
+# Anti crash-loop (não martelar o BLL nem queimar solves NopeCHA): 5 restarts/10min para.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=carlosfinezi
+WorkingDirectory=/home/carlosfinezi/web/liciteagora.com.br/private
+Environment=HOME=/home/carlosfinezi
+Environment=USE_EXTENSION=1
+Environment=SERVICE=1
+Environment=DELIVER=1
+Environment=RELAY=1
+Environment=TENANT=1bit
+Environment=NOPECHA_KEY=I-1CNJHEXNNA95
+Environment=PROBE_SEC=45
+Environment=REDELIVER_SEC=600
+# ROTATE_MIN=0 (off): rotação reciclaria o Chrome mas causa blackout no relay de
+# lance durante o restart (~50s). Ligue só se houver vazamento de renderers.
+Environment=ROTATE_MIN=0
+# Descomente p/ furar bloqueio de IP datacenter no BLL (SOCKS residencial da loja):
+# Environment=PROXY=socks5://127.0.0.1:1080
+# xvfb dá display virtual; Chrome real resolve o reCAPTCHA via extensão (política /etc).
+ExecStart=/usr/bin/xvfb-run -a /usr/bin/node bll-session-service.js
+Restart=always
+RestartSec=30
+StandardOutput=append:/home/carlosfinezi/web/liciteagora.com.br/private/bll-session.log
+StandardError=append:/home/carlosfinezi/web/liciteagora.com.br/private/bll-session.log
+
+[Install]
+WantedBy=multi-user.target

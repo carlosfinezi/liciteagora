@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agenda de Cartões · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Agenda de Recebíveis de Cartão</h1>
+      <small>Previsto (venda − taxa da adquirente) × liquidado no extrato — divergência = taxa cobrada errada</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="gerar()">↻ Gerar previsões das vendas</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="">Todos</option>
+      <option value="previsto" selected>Previstos</option>
+      <option value="conciliado">Conciliados</option>
+      <option value="divergente">Divergentes</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Pedido</th><th>Adquirente</th><th>Venda</th><th>Liquidação prevista</th>
+        <th style="text-align:right;">Bruto</th><th style="text-align:right;">Taxa</th>
+        <th style="text-align:right;">Líquido</th><th>Status</th><th></th></tr></thead>
+      <tbody id="tbAgenda"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="sugWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;"><div><h2 id="sugTitulo" style="margin:0;"></h2><small>Entradas do extrato com valor ≈ líquido e data próxima</small></div></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Data</th><th>Descrição</th><th style="text-align:right;">Valor</th><th></th></tr></thead>
+        <tbody id="tbSug"></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('fin-cartoes');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+const ST = { previsto:'<span class="badge saida">PREVISTO</span>', conciliado:'<span class="badge entrada">CONCILIADO</span>', divergente:'<span class="badge cancelado">DIVERGENTE</span>' };
+let agAtual = null;
+
+async function carregar(){
+  const st = document.getElementById('filtStatus').value;
+  const r = await fetch('/api/cartoes/agenda' + (st?'?status='+st:'')); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbAgenda').innerHTML = d.agenda.length ? d.agenda.map(a=>`<tr>
+    <td>${a.pedidoNumero||a.pedidoId||'-'}</td><td>${a.adquirenteNome||'-'}</td>
+    <td>${a.dataVenda||'-'}</td><td>${a.dataPrevistaLiquidacao||'-'}</td>
+    <td style="text-align:right;">${fmt(a.valorBruto)}</td>
+    <td style="text-align:right;">${fmt(a.taxa)}</td>
+    <td style="text-align:right;"><strong>R$ ${fmt(a.valorLiquido)}</strong></td>
+    <td>${ST[a.status]||a.status}${a.observacao?'<br><small class="muted">'+a.observacao+'</small>':''}</td>
+    <td>${a.status==='previsto'?`<button class="btn btn-ghost btn-sm" onclick="verSugestoes(${a.id}, '${a.valorLiquido}')">Conciliar</button>`:''}</td>
+  </tr>`).join('') : '<tr><td colspan="9" class="empty">Nada na agenda — use "Gerar previsões" após vender no cartão</td></tr>';
+}
+
+async function gerar(){
+  const r = await fetch('/api/cartoes/agenda/gerar', { method:'POST' }); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.geradas} previsão(ões) gerada(s)`); carregar();
+}
+
+async function verSugestoes(id, liquido){
+  agAtual = id;
+  const r = await fetch(`/api/cartoes/agenda/${id}/sugestoes`); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('sugWrap').style.display='block';
+  document.getElementById('sugTitulo').textContent = `Conciliar previsão #${id} (líquido R$ ${fmt(liquido)})`;
+  document.getElementById('tbSug').innerHTML = d.sugestoes.length ? d.sugestoes.map(t=>`<tr>
+    <td>${t.data}</td><td>${t.descricao||t.memo||'-'}</td>
+    <td style="text-align:right;">R$ ${fmt(t.valor)}</td>
+    <td><button class="btn btn-primary btn-sm" onclick="conciliar(${t.id})">Vincular</button></td>
+  </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhuma entrada compatível no extrato — importe o OFX primeiro</td></tr>';
+  document.getElementById('sugWrap').scrollIntoView({behavior:'smooth'});
+}
+
+async function conciliar(trxId){
+  const r = await fetch(`/api/cartoes/agenda/${agAtual}/conciliar`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ transacaoBancariaId: trxId }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert(d.divergente ? 'Conciliado com DIVERGÊNCIA de valor — confira a taxa' : 'Conciliado');
+  document.getElementById('sugWrap').style.display='none';
+  carregar();
+}
+
+carregar();
+</script>
+</body></html>

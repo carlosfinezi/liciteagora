@@ -140,7 +140,7 @@ function registrarRotasRecorrencia(app, db) {
     try {
       const log = db.prepare(`
         SELECT l.*, r.descricao, r.valorServico, r.enviarEmail,
-          p.email, n.nNFSe, n.chaveAcesso, n.tpAmb
+          p.email, p.emailsAdicionais, n.nNFSe, n.chaveAcesso, n.tpAmb
         FROM nfse_recorrencias_log l
         JOIN nfse_recorrencias r ON r.id = l.recorrenciaId
         JOIN pessoas p ON p.id = r.pessoaId
@@ -171,8 +171,13 @@ function registrarRotasRecorrencia(app, db) {
         boletoUrl = boleto?.externalUrl || null;
       }
 
+      const ccList = log.emailsAdicionais
+        ? log.emailsAdicionais.split(',').map(e => e.trim()).filter(Boolean)
+        : [];
+
       await enviarEmailNfse(db, {
         to: log.email,
+        cc: ccList.length ? ccList.join(', ') : undefined,
         nfseNumero: log.nNFSe || '',
         descricao: log.descricao,
         valor: log.valorServico,
@@ -256,7 +261,16 @@ function registrarRotasRecorrencia(app, db) {
         LIMIT 24
       `).all(req.params.id);
 
-      res.json({ success: true, recorrencia: rec, logs });
+      // Integração (4): retorna contrato vinculado (se houver) para o
+      // front mostrar "vinculada ao contrato #X" e link cruzado.
+      let contrato = null;
+      try {
+        contrato = db.prepare(
+          'SELECT id, numero, status, valorMensal, dataInicio, dataFim FROM contratos WHERE recorrenciaNfseId = ? LIMIT 1'
+        ).get(req.params.id) || null;
+      } catch (_) { /* tabela contratos pode não existir em instalações antigas */ }
+
+      res.json({ success: true, recorrencia: rec, logs, contrato });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -419,7 +433,21 @@ function registrarRotasRecorrencia(app, db) {
       )`);
 
       const limit = parseInt(req.query.limit) || 100;
-      const logs = db.prepare(`SELECT * FROM email_log ORDER BY dataEnvio DESC LIMIT ?`).all(limit);
+      const { busca, tipo, status, dataInicio, dataFim } = req.query;
+      const where = [];
+      const params = [];
+      if (busca) {
+        where.push('(destinatario LIKE ? OR nfseNumero LIKE ? OR descricao LIKE ? OR assunto LIKE ?)');
+        const term = `%${busca}%`;
+        params.push(term, term, term, term);
+      }
+      if (tipo) { where.push('tipo = ?'); params.push(tipo); }
+      if (status) { where.push('status = ?'); params.push(status); }
+      if (dataInicio) { where.push('dataEnvio >= ?'); params.push(dataInicio + ' 00:00:00'); }
+      if (dataFim) { where.push('dataEnvio <= ?'); params.push(dataFim + ' 23:59:59'); }
+      const sql = `SELECT * FROM email_log${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY dataEnvio DESC LIMIT ?`;
+      params.push(limit);
+      const logs = db.prepare(sql).all(...params);
       res.json({ success: true, logs });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

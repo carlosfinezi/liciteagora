@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notificações · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Notificações</h1>
+      <small>Canais usados pelos alertas do sniper (token inválido, disputa sem blitz, digest diário, resultado de rajada)</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card" style="max-width:720px;">
+    <h3>Canais ativos</h3>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label style="text-transform:none;font-size:0.95em;display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="canalTelegram" style="width:auto;"> Enviar pelo Telegram
+        </label>
+        <small class="muted">Requer <code>telegram_config</code> cadastrado (botToken + chatId).</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label style="text-transform:none;font-size:0.95em;display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="canalEmail" style="width:auto;"> Enviar por email
+        </label>
+        <small class="muted">Requer SMTP configurado em <a href="/configuracoes/email.html">E-mail (SMTP)</a>.</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Destinatários de email</label>
+        <input type="text" id="destinatarios" placeholder="alguem@empresa.com.br, outro@empresa.com.br">
+        <small class="muted">Lista separada por vírgula. Vazio = nenhum email enviado mesmo com canal ligado.</small>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="border-top:0;padding-top:8px;">
+      <button class="btn btn-secondary" onclick="testar()">Enviar teste</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('notificacoes');</script>
+
+<script>
+function showAlert(msg, tipo = 'success') {
+  const el = document.getElementById('alertGlobal');
+  el.className = 'alert ' + tipo;
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 6000);
+}
+
+async function carregar() {
+  try {
+    const r = await fetch('/api/alertas/config');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao carregar');
+    document.getElementById('canalTelegram').checked = !!d.config.telegram;
+    document.getElementById('canalEmail').checked    = !!d.config.email;
+    document.getElementById('destinatarios').value   = (d.config.destinatarios || []).join(', ');
+  } catch (e) {
+    showAlert('Erro ao carregar: ' + e.message, 'error');
+  }
+}
+
+async function salvar() {
+  try {
+    const body = {
+      telegram: document.getElementById('canalTelegram').checked,
+      email:    document.getElementById('canalEmail').checked,
+      destinatarios: document.getElementById('destinatarios').value,
+    };
+    const r = await fetch('/api/alertas/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao salvar');
+    showAlert('Configuração salva.');
+    await carregar();
+  } catch (e) {
+    showAlert('Erro ao salvar: ' + e.message, 'error');
+  }
+}
+
+async function testar() {
+  try {
+    const r = await fetch('/api/alertas/teste', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao testar');
+    showAlert('Teste disparado nos canais ativos. Confira Telegram/email.');
+  } catch (e) {
+    showAlert('Erro no teste: ' + e.message, 'error');
+  }
+}
+
+carregar();
+</script>
+</body>
+</html>

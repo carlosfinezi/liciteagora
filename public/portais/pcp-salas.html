@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salas PCP · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Disputa · Portal de Compras Públicas</h1>
+      <small>Acompanha a sessão pública ao vivo pela sessão do servidor e envia lances item a item. Todo lance real exige confirmação.</small>
+    </div>
+    <div class="actions">
+      <span id="sessaoBadge" class="badge">sessão: —</span>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel" id="painelSalas">
+    <h2>Sessões públicas</h2>
+    <p style="color: var(--text-2); font-size: 0.85em;">
+      Suas sessões no PCP (as que têm disputa). Clique em <em>Abrir sala</em>.
+      <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="carregarSalas()">🔄 Atualizar</button>
+      <a href="#" style="margin-left:8px; font-size:0.9em;" onclick="event.preventDefault(); toggleManual()">informar chave/URL ▾</a>
+    </p>
+    <div id="listaSalas" style="font-size:0.85em;">carregando…</div>
+    <div id="painelManual" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+      <p style="color: var(--text-3); font-size: 0.8em; margin:0 0 6px;">A URL da sessão (<code>…/SessaoPublica/?ttCD_CHAVE=…</code>) ou só o número da chave:</p>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <input id="inpUrl" class="form-control" style="flex:1; min-width:320px;" placeholder="493366  ou  https://operacao.portaldecompraspublicas.com.br/4/SessaoPublica/?ttCD_CHAVE=493366">
+        <button class="btn btn-primary btn-sm" onclick="abrirSalaManual()">Abrir sala</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="painelSala" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+      <div>
+        <h2 style="margin-bottom:4px;">Sala <span id="salaChave"></span></h2>
+        <div id="ctxSala" style="font-size:0.85em; color:var(--text-2);"></div>
+      </div>
+      <div style="text-align:right; font-size:0.8em; color:var(--text-2);">
+        <div>Hora do portal: <strong id="horaPortal">—</strong></div>
+        <label style="display:block; margin-top:6px; cursor:pointer;">
+          <input type="checkbox" id="chkAuto" checked onchange="agendarPoll()"> atualizar a cada 10s
+        </label>
+      </div>
+    </div>
+
+    <div style="margin:12px 0; display:flex; gap:6px; flex-wrap:wrap;" id="abas"></div>
+
+    <div class="tbl-wrap">
+      <table id="tblItens">
+        <thead><tr>
+          <th style="width:50px;">Item</th>
+          <th>Descrição</th>
+          <th style="width:120px;">Melhor lance</th>
+          <th style="width:120px;">Nossa melhor</th>
+          <th style="width:100px;">Posição</th>
+          <th style="width:90px;">Situação</th>
+          <th style="width:80px;">Fecha</th>
+          <th style="width:210px;">Lance</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" id="painelResultado" style="display:none;">
+    <div id="outResultado"></div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer; font-size:0.8em; color:var(--text-3);">detalhes técnicos</summary>
+      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:0.75em; background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
+    </details>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('pcp-salas');</script>
+<script>
+const API = '';
+const ABAS = [
+  ['todos', 'Todos'], ['abertos', 'Abertos'], ['seus', 'Seus'],
+  ['desempate', 'Desempate'], ['encerrados', 'Encerrados'], ['lancesFechados', 'Lances Fechados'],
+];
+let currentChave = null;
+let abaAtual = 'todos';
+let casasDecimais = 2;
+let pollTimer = null;
+let enviando = false;
+
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function toggleManual() { const p = document.getElementById('painelManual'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
+function alerta(msg, tipo) {
+  const el = document.getElementById('alertGlobal');
+  el.innerHTML = '<div class="alert alert-' + (tipo || 'info') + '">' + msg + '</div>';
+  if (tipo === 'ok') setTimeout(() => { el.innerHTML = ''; }, 4000);
+}
+function mostrarResultado(kind, corpoHtml, jsonObj) {
+  const cor = kind === 'ok' ? '#1a7f37' : (kind === 'err' ? '#c0392b' : '#2563eb');
+  document.getElementById('painelResultado').style.display = '';
+  document.getElementById('outResultado').innerHTML =
+    '<div style="padding:14px 16px; border-radius:var(--r-sm); background:' + cor + '14; border-left:4px solid ' + cor + '; line-height:1.5;">' + corpoHtml + '</div>';
+  document.getElementById('outJson').textContent = JSON.stringify(jsonObj, null, 2);
+}
+function moeda(v) {
+  return v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function chaveDe(txt) {
+  const t = String(txt || '').trim();
+  if (/^\d+$/.test(t)) return t;
+  return (t.match(/ttCD_CHAVE=(\d+)/i) || t.match(/-(\d+)\/?$/) || [])[1] || null;
+}
+
+async function carregarSessao() {
+  try {
+    const r = await fetch(API + '/api/pcp/session');
+    const d = await r.json();
+    const b = document.getElementById('sessaoBadge');
+    if (d.configurado) {
+      b.textContent = 'sessão: ' + (d.sessaoAtiva ? (d.expirando ? '⚠ expirando' : '✅ ok') : '⏻ dorme') + (d.usuario ? ' (' + d.usuario + ')' : '');
+    } else { b.textContent = 'sessão: ❌ credenciais PCP não configuradas'; }
+  } catch (e) { document.getElementById('sessaoBadge').textContent = 'sessão: erro'; }
+}
+
+async function carregarSalas() {
+  const el = document.getElementById('listaSalas');
+  el.textContent = 'carregando…';
+  try {
+    const r = await fetch(API + '/api/pcp/sessoes-publicas');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (!d.pregoes || !d.pregoes.length) { el.innerHTML = '<em style="color:var(--text-3)">Nenhuma sessão pública no momento.</em>'; return; }
+    el.innerHTML = '<table><thead><tr><th style="width:110px;">Número</th><th>Órgão / objeto</th>' +
+      '<th style="width:130px;">Abertura</th><th style="width:110px;">Situação</th><th style="width:110px;"></th></tr></thead><tbody>' +
+      d.pregoes.map((p) => '<tr>' +
+        '<td>' + escapeHtml(p.numero) + '</td>' +
+        '<td><div>' + escapeHtml(p.unidade) + '</div><div style="color:var(--text-3); font-size:0.9em;">' + escapeHtml((p.objeto || '').slice(0, 120)) + '</div></td>' +
+        '<td>' + escapeHtml(p.abertura) + '</td>' +
+        '<td>' + escapeHtml(p.situacao) + '</td>' +
+        '<td>' + (p.chaveId ? '<button class="btn btn-primary btn-sm" onclick="abrirSala(\'' + p.chaveId + '\')">Abrir sala</button>' : '') + '</td>' +
+      '</tr>').join('') + '</tbody></table>';
+  } catch (e) { el.innerHTML = '<span style="color:#c0392b">Erro: ' + escapeHtml(e.message) + '</span>'; }
+}
+
+function abrirSalaManual() {
+  const c = chaveDe(document.getElementById('inpUrl').value);
+  if (!c) return alerta('Informe a chave (número) ou a URL da sessão.', 'warn');
+  abrirSala(c);
+}
+
+function abrirSala(chave) {
+  currentChave = chave;
+  document.getElementById('painelSala').style.display = '';
+  document.getElementById('salaChave').textContent = chave;
+  renderAbas();
+  atualizarSala();
+  agendarPoll();
+}
+
+function renderAbas() {
+  document.getElementById('abas').innerHTML = ABAS.map(([k, label]) =>
+    '<button class="btn btn-sm ' + (k === abaAtual ? 'btn-primary' : 'btn-ghost') + '" onclick="trocarAba(\'' + k + '\')">' + label + '</button>'
+  ).join('');
+}
+function trocarAba(k) { abaAtual = k; renderAbas(); atualizarSala(); }
+
+function agendarPoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  if (document.getElementById('chkAuto').checked && currentChave) {
+    pollTimer = setInterval(atualizarSala, 10000);
+  }
+}
+
+async function atualizarSala() {
+  if (!currentChave || enviando) return;
+  try {
+    const r = await fetch(API + '/api/pcp/lances/sala?chave=' + encodeURIComponent(currentChave) + '&aba=' + encodeURIComponent(abaAtual));
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    casasDecimais = d.cabecalho?.casasDecimais || 2;
+    document.getElementById('horaPortal').textContent = d.horaAtual || d.cabecalho?.horaAtual || '—';
+    const c = d.cabecalho || {};
+    document.getElementById('ctxSala').innerHTML =
+      '<strong>' + escapeHtml(c.situacao || '?') + '</strong> · ' + escapeHtml(c.orgao || '') +
+      '<br>Processo ' + escapeHtml(c.processo || '—') + ' · Modo de disputa: ' + escapeHtml(c.modoDisputa || '—') +
+      ' · <a href="https://operacao.portaldecompraspublicas.com.br/4/SessaoPublica/?ttCD_CHAVE=' + encodeURIComponent(currentChave) + '" target="_blank" rel="noopener">abrir no portal ↗</a>';
+    renderItens(d.itens || []);
+  } catch (e) { alerta('Erro ao ler a sala: ' + escapeHtml(e.message), 'warn'); }
+}
+
+function renderItens(itens) {
+  const tb = document.querySelector('#tblItens tbody');
+  if (!itens.length) { tb.innerHTML = '<tr><td colspan="8" style="color:var(--text-3)">Nenhum item nesta aba.</td></tr>'; return; }
+  tb.innerHTML = itens.map((i) => {
+    // Preserva o que o usuário já digitou entre os polls de 10s.
+    const digitado = document.getElementById('val-' + i.idItem)?.value || '';
+    const cor = i.vencendo ? '#1a7f37' : (i.posicao ? '#c0392b' : 'var(--text-2)');
+    const fechado = !i.podeLance && i.podeLanceFechado;
+    const celLance = (i.podeLance || fechado)
+      ? '<div style="display:flex; gap:4px;">' +
+          '<input id="val-' + i.idItem + '" class="form-control" style="width:110px;" placeholder="0,00" value="' + escapeHtml(digitado) + '">' +
+          '<button class="btn btn-ghost btn-sm" onclick="lancar(\'' + i.idItem + '\', false, ' + fechado + ')" title="Só monta o lance, não envia">prévia</button>' +
+          '<button class="btn btn-primary btn-sm" onclick="lancar(\'' + i.idItem + '\', true, ' + fechado + ')">' + (fechado ? '🔒 Lance fechado' : 'Lançar') + '</button>' +
+        '</div>'
+      : '<span style="color:var(--text-3)">' + escapeHtml(i.motivoSemLance || '—') + '</span>';
+    return '<tr>' +
+      '<td>' + escapeHtml(i.numero) + '</td>' +
+      '<td title="' + escapeHtml(i.descricao) + '">' + escapeHtml((i.descricao || '').slice(0, 90)) + '</td>' +
+      '<td>' + moeda(i.melhorLance) + '</td>' +
+      '<td>' + moeda(i.minhaMelhor) + '</td>' +
+      '<td style="color:' + cor + '; font-weight:600;">' + escapeHtml(i.posicaoTxt || '—') + '</td>' +
+      '<td>' + escapeHtml(i.statusTitulo || i.status || '—') + '</td>' +
+      '<td>' + escapeHtml(i.horaFechamento || '—') + '</td>' +
+      '<td>' + celLance + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+async function lancar(idItem, real, fechado) {
+  const inp = document.getElementById('val-' + idItem);
+  const bruto = (inp?.value || '').trim();
+  if (!bruto) return alerta('Informe o valor do lance.', 'warn');
+  const valor = Number(bruto.replace(/\./g, '').replace(',', '.'));
+  if (!isFinite(valor) || valor <= 0) return alerta('Valor de lance inválido: ' + escapeHtml(bruto), 'warn');
+
+  if (real && !confirm((fechado ? 'Enviar LANCE FECHADO de R$ ' : 'Enviar lance de R$ ') +
+      valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) +
+      ' no item ' + idItem + '?\n\nO lance é IRREVERSÍVEL e vinculante.' +
+      (fechado ? '\nNa fase fechada o portal aceita UM lance por item.' : ''))) return;
+
+  enviando = true;
+  try {
+    const r = await fetch(API + '/api/pcp/lances/enviar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chave: currentChave, idItem, valor, casasDecimais, fechado: fechado === true, confirmar: real === true }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (d.dryRun) {
+      mostrarResultado('info', '<strong>Prévia</strong> — nada foi enviado. Valor formatado: <strong>' + escapeHtml(d.valorBR) + '</strong>', d);
+    } else {
+      mostrarResultado('ok', '<strong>Lance enviado</strong> no item ' + escapeHtml(idItem) + ' por <strong>R$ ' + escapeHtml(d.valorBR) + '</strong>.' +
+        (d.mensagem ? '<br>Portal: ' + escapeHtml(d.mensagem) : ''), d);
+      if (inp) inp.value = '';
+    }
+  } catch (e) {
+    mostrarResultado('err', '<strong>Falhou:</strong> ' + escapeHtml(e.message), { erro: e.message });
+  } finally {
+    enviando = false;
+    atualizarSala();
+  }
+}
+
+carregarSessao();
+carregarSalas();
+const qs = new URLSearchParams(location.search);
+if (qs.get('chave')) abrirSala(qs.get('chave'));
+</script>
+</body>
+</html>

@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inteligência de Negócio - LiciteAgora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* Barra de busca/resultados */
+        .search-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+        .search-row label { display: block; font-size: 0.72em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 5px; }
+        .search-row input[type=text] { width: 100%; box-sizing: border-box; }
+        .search-row select { width: auto; }
+        .search-hint { font-size: 0.78em; color: var(--text-3); margin-top: 10px; }
+
+        /* Layout */
+        /* Item flex (.layout > .main-content) precisa de min-width:0 pra encolher
+           e deixar o .results-scroll conter a tabela — senão a página rola no eixo X. */
+        .main-content { min-width: 0; overflow-x: hidden; }
+        .content-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        /* Item de grid tem min-width:auto (não encolhe) — força min-width:0 pro
+           .results-scroll conter a tabela em vez de estourar rente à direita. */
+        .content-grid > .panel { min-width: 0; }
+        .panels-row   { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+
+        /* Tabela de resultados */
+        .results-card   { overflow: hidden; }
+        body.no-sugestao .col-sugestao { display: none; }
+        .results-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .results-header h3 { color: var(--text-2); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 0; }
+        .results-table  { width: 100%; border-collapse: collapse; }
+        .results-table th { background: var(--bg-3); padding: 9px 14px; text-align: left; font-size: 0.7em; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; position: sticky; top: 0; z-index: 1; }
+        .results-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 0.85em; vertical-align: top; color: var(--text-1); }
+        .results-table tbody tr:hover td { background: var(--bg-hover); color: var(--text-0); }
+        .results-table .desc  { max-width: 450px; line-height: 1.4; }
+        .results-table .valor { text-align: right; white-space: nowrap; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+        .results-table .orgao { color: var(--text-3); font-size: 0.78em; }
+        /* SEM altura fixa: só o scroll natural do <main> rola — elimina duplo scrollbar. */
+        .results-scroll       { overflow-x: auto; }
+
+        /* ===== Filtros: principais + accordion ===== */
+        .filtros-principais { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+        .filtros-avancados { margin-top: 12px; }
+        .filtros-avancados-toggle { background: none; border: none; cursor: pointer; color: var(--accent); font-size: 0.82em; font-weight: 500; padding: 4px 0; display: inline-flex; align-items: center; gap: 5px; }
+        .filtros-avancados-toggle .chev { transition: transform 0.2s; display: inline-block; }
+        .filtros-avancados.open .filtros-avancados-toggle .chev { transform: rotate(90deg); }
+        .filtros-avancados-body { display: none; padding-top: 14px; border-top: 1px dashed var(--border); margin-top: 10px; }
+        .filtros-avancados.open .filtros-avancados-body { display: block; }
+
+        /* ===== Chips dos filtros ativos ===== */
+        .chips-bar { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 0; min-height: 0; }
+        .chips-bar:empty { margin: 0; }
+        .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent); padding: 3px 10px 3px 12px; border-radius: 999px; font-size: 0.78em; font-weight: 500; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+        .chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 4px; opacity: 0.7; }
+        .chip button:hover { opacity: 1; }
+        .chip.limpar-tudo { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); cursor: pointer; }
+
+        /* ===== Abas ===== */
+        .tabs-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tab-btn { padding: 10px 16px; background: none; border: none; cursor: pointer; color: var(--text-2); font-size: 0.85em; font-weight: 500; border-bottom: 2px solid transparent; white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
+        .tab-btn:hover { color: var(--text-0); }
+        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+
+        /* ===== Histórico de buscas ===== */
+        .historico-buscas { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .historico-buscas .label { font-size: 0.72em; color: var(--text-3); }
+        .historico-chip { background: var(--bg-3); color: var(--text-1); padding: 3px 10px; border-radius: 999px; font-size: 0.78em; cursor: pointer; border: 1px solid var(--border); transition: border-color 0.15s, color 0.15s; }
+        .historico-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* ===== Mobile: tabela vira cards ===== */
+        @media (max-width: 640px) {
+            .results-table thead { display: none; }
+            .results-table, .results-table tbody, .results-table tr, .results-table td { display: block; width: 100%; }
+            .results-table tr { border-bottom: 1px solid var(--border); padding: 10px 12px; }
+            .results-table td { border: none; padding: 4px 0; font-size: 0.85em; }
+            .results-table td::before { content: attr(data-label); display: inline-block; font-weight: 600; color: var(--text-3); text-transform: uppercase; font-size: 0.7em; letter-spacing: 0.04em; margin-right: 6px; min-width: 90px; }
+            .results-table td.desc::before { display: block; margin-bottom: 4px; }
+            .results-table .valor { text-align: left; }
+        }
+
+        /* Badge de status do vencedor */
+        .winner-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 0.7em; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; }
+        .winner-badge.homologado    { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+        .winner-badge.pendente      { background: var(--warn-soft);    color: var(--warn);    border-color: #b45309; }
+        .winner-badge.sem-resultado { background: #37415160;            color: var(--text-3);  border-color: #475569; }
+        .winner-badge.erro          { background: var(--danger-soft);   color: var(--danger);  border-color: #991b1b; }
+        .winner-info .fornecedor    { color: var(--accent);  font-weight: 600; font-size: 0.82em; }
+        .winner-info .cnpj          { color: var(--text-3);  font-size: 0.72em; }
+        .winner-info .valor-h       { color: var(--success); font-weight: 600; }
+
+        /* Painéis analíticos (Top Fornecedores, Marcas, etc.) */
+        .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+        .panel-header h3 { color: var(--text-2); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 0; }
+        .panel-body   { padding: 12px 16px; }
+        .rank-item    { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); gap: 10px; }
+        .rank-item:last-child { border: none; }
+        .rank-item .rank-name  { font-size: 0.86em; color: var(--text-0); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rank-item .rank-count { background: var(--accent-soft); color: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 0.72em; font-weight: 600; min-width: 28px; text-align: center; }
+        .rank-item .rank-valor { color: var(--success); font-size: 0.78em; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+
+        /* Progress */
+        .progress-bar  { width: 100%; height: 4px; background: var(--bg-3); border-radius: 2px; overflow: hidden; margin-top: 10px; border: 1px solid var(--border); }
+        .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-strong)); transition: width 0.3s; }
+        .progress-text { font-size: 0.72em; color: var(--text-3); margin-top: 4px; }
+
+        /* Paginação */
+        .pagination     { padding: 14px; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+        .pagination .btn { padding: 5px 12px; font-size: 0.8em; }
+
+        /* Link PNCP */
+        a.pncp-link         { color: var(--accent); text-decoration: none; font-size: 0.72em; }
+        a.pncp-link:hover   { text-decoration: underline; }
+
+        /* Empty state específico (com ícone grande) */
+        .empty-state        { padding: 60px 20px; text-align: center; color: var(--text-3); }
+        .empty-state .icon  { font-size: 48px; margin-bottom: 15px; }
+        .empty-state p      { font-size: 0.9em; }
+
+        /* Spinner local (usa keyframes lct-spin do app-modern.css) */
+        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: lct-spin 0.8s linear infinite; }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Inteligência de Negócio</h1>
+        <small>Pesquise itens licitados e descubra quem venceu, por quanto e quais marcas foram homologadas</small>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="panel" style="padding:20px;">
+        <form id="searchForm" onsubmit="pesquisar(event)">
+            <!-- Filtros principais (sempre visíveis) -->
+            <div class="filtros-principais">
+                <div style="flex:1;min-width:260px;">
+                    <label>Pesquisar item</label>
+                    <input type="text" id="txtBusca" placeholder="Ex: servidor NAS, switch 48 portas, notebook i7…" autocomplete="off">
+                </div>
+                <div style="min-width:200px;">
+                    <label>Ou usar grupo</label>
+                    <select id="fltGrupo">
+                        <option value="">— Busca livre —</option>
+                    </select>
+                </div>
+                <div>
+                    <label>UF</label>
+                    <select id="fltUF"><option value="">Todas</option></select>
+                </div>
+                <div>
+                    <label>Status</label>
+                    <select id="fltStatus">
+                        <option value="">Qualquer</option>
+                        <option value="homologado">Homologados</option>
+                        <option value="sem_resultado">Sem resultado</option>
+                        <option value="pendente">Pendentes</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Resultados</label>
+                    <select id="selTamanho">
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" id="btnBuscar">Buscar</button>
+                <button type="button" class="btn btn-secondary" onclick="limparFiltros()" title="Limpar todos os filtros">↺ Limpar</button>
+            </div>
+
+            <!-- Filtros avançados (collapse) -->
+            <div class="filtros-avancados" id="filtrosAvancados">
+                <button type="button" class="filtros-avancados-toggle" onclick="toggleFiltrosAvancados()">
+                    <span class="chev">▸</span> Filtros avançados
+                </button>
+                <div class="filtros-avancados-body">
+                    <div class="search-row">
+                        <div>
+                            <label>Encerramento de</label>
+                            <input type="date" id="fltDataInicio">
+                        </div>
+                        <div>
+                            <label>até</label>
+                            <input type="date" id="fltDataFim">
+                        </div>
+                        <div>
+                            <label>Modalidade</label>
+                            <select id="fltModalidade"><option value="">Todas</option></select>
+                        </div>
+                        <div>
+                            <label>Situação PNCP</label>
+                            <select id="fltSituacao"><option value="">Todas</option></select>
+                        </div>
+                        <div style="flex:1;min-width:180px;">
+                            <label>Marca citada no edital</label>
+                            <select id="fltMarca"><option value="">Todas</option></select>
+                        </div>
+                        <div style="flex:1;min-width:200px;">
+                            <label>Fornecedor (nome ou CNPJ)</label>
+                            <input type="text" id="fltFornecedor" placeholder="Razão social ou CNPJ">
+                        </div>
+                        <div>
+                            <label>Valor homol. mín</label>
+                            <input type="number" id="fltValorMin" placeholder="R$" step="0.01" style="width:110px;">
+                        </div>
+                        <div>
+                            <label>Valor homol. máx</label>
+                            <input type="number" id="fltValorMax" placeholder="R$" step="0.01" style="width:110px;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="grupoPreview" class="search-hint" style="display:none;margin-top:8px;padding:8px 10px;background:var(--bg-3);border-radius:6px;border-left:3px solid var(--accent);"></div>
+            <div id="iaFiltroPanel" style="display:none;margin-top:8px;padding:10px 12px;background:rgba(102,187,106,0.08);border-radius:6px;border-left:3px solid var(--success);">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-1);">
+                    <input type="checkbox" id="fltApenasIaValidados" style="width:auto;">
+                    <span>🤖 <strong>Apenas validados pela IA</strong></span>
+                    <span id="iaFiltroStatus" style="margin-left:auto;color:var(--text-3);font-size:12px;"></span>
+                </label>
+                <button type="button" id="btnClassificarIA" class="btn btn-sm btn-secondary" style="display:none;margin-top:8px;font-size:11px;padding:4px 10px;" onclick="classificarItensPendentes()">▶ Classificar pendentes</button>
+            </div>
+
+            <!-- Painel de sugestão de produto (TerraMaster) — só aparece com grupo selecionado -->
+            <div id="sugestaoPanel" style="display:none;margin-top:8px;padding:10px 12px;background:rgba(79,195,247,0.08);border-radius:6px;border-left:3px solid var(--accent);">
+                <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-1);">
+                    <span>🎯 <strong>Sugestão de Produto</strong> <span id="sugestaoMarcaLabel" style="color:var(--text-3);font-weight:400;font-size:12px"></span></span>
+                    <span id="sugestaoStatus" style="margin-left:auto;color:var(--text-3);font-size:12px;"></span>
+                </div>
+                <button type="button" id="btnSugerir" class="btn btn-sm btn-secondary" style="display:none;margin-top:8px;font-size:11px;padding:4px 10px;" onclick="sugerirProdutosPendentes()">▶ Sugerir produtos pendentes</button>
+            </div>
+
+            <!-- Chips dos filtros ativos -->
+            <div class="chips-bar" id="chipsAtivos"></div>
+
+            <!-- Histórico de buscas recentes -->
+            <div class="historico-buscas" id="historicoBuscas" style="display:none;">
+                <span class="label">Recentes:</span>
+            </div>
+        </form>
+    </div>
+
+    <!-- Content com abas -->
+    <div class="content-grid" id="contentGrid" style="display:none;">
+        <div class="panel" style="padding:0;">
+            <!-- Tabs -->
+            <div class="tabs-bar">
+                <button type="button" class="tab-btn active" data-tab="resultados" onclick="mostrarTab('resultados')">📋 Resultados</button>
+                <button type="button" class="tab-btn" data-tab="fornecedores" onclick="mostrarTab('fornecedores')">🏆 Top Fornecedores</button>
+                <button type="button" class="tab-btn" data-tab="precos" onclick="mostrarTab('precos')">💰 Preços</button>
+                <button type="button" class="tab-btn" data-tab="marcas" onclick="mostrarTab('marcas')">🏭 Marcas</button>
+                <button type="button" class="tab-btn" data-tab="ufs" onclick="mostrarTab('ufs')">📍 Por UF</button>
+                <div style="flex:1;"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnAnaliseIA" onclick="abrirAnaliseIA()" title="Análise de preços via DeepSeek sobre o filtro atual" style="margin:6px 12px;align-self:center;">
+                    🧠 Análise IA
+                </button>
+            </div>
+
+            <!-- Pane: Resultados -->
+            <div class="tab-pane active" data-pane="resultados">
+                <div class="results-header">
+                    <h3 id="resultsTitle">Itens encontrados</h3>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnExportar" onclick="exportarExcel()" title="Exporta a página de resultados atual para Excel (.xlsx)">⬇ Exportar Excel</button>
+                        <div id="paginationTop"></div>
+                    </div>
+                </div>
+                <div class="results-scroll">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Órgão / Licitação</th>
+                                <th>Valor est.</th>
+                                <th class="col-sugestao">Sugestão de Produto</th>
+                                <th>Resultado</th>
+                                <th>Fornecedor</th>
+                                <th>Marca / Modelo</th>
+                                <th>Valor homol.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyResults"></tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="paginationBottom"></div>
+            </div>
+
+            <!-- Panes analíticos (escondidos por padrão; mostrados via mostrarTab) -->
+            <div class="tab-pane" data-pane="fornecedores">
+                <div class="panel-header"><h3>🏆 Top Fornecedores</h3></div>
+                <div class="panel-body" id="listFornecedores"></div>
+                <div id="panelFornecedoresEmpty" style="display:none;padding:30px;text-align:center;color:var(--text-3);">Sem dados de fornecedores para os filtros atuais.</div>
+            </div>
+            <div class="tab-pane" data-pane="precos">
+                <div class="panel-header"><h3>💰 Faixa de Preços Homologados</h3></div>
+                <div class="panel-body" id="listPrecos"></div>
+                <div id="panelPrecosEmpty" style="display:none;padding:30px;text-align:center;color:var(--text-3);">Sem dados de preços.</div>
+            </div>
+            <div class="tab-pane" data-pane="marcas">
+                <div class="panel-header"><h3>🏭 Marcas / Fabricantes</h3></div>
+                <div class="panel-body" id="listMarcas"></div>
+                <div id="panelMarcasEmpty" style="display:none;padding:30px;text-align:center;color:var(--text-3);">Sem dados de marcas.</div>
+            </div>
+            <div class="tab-pane" data-pane="ufs">
+                <div class="panel-header"><h3>📍 Por Estado</h3></div>
+                <div class="panel-body" id="listUFs"></div>
+                <div id="panelUFsEmpty" style="display:none;padding:30px;text-align:center;color:var(--text-3);">Sem dados por estado.</div>
+            </div>
+        </div>
+
+        <!-- Painéis antigos (mantidos ocultos pra compat com JS legado que usa display:block) -->
+        <div class="panels-row" style="display:none;">
+            <div class="panel" id="panelFornecedores"></div>
+            <div class="panel" id="panelPrecos"></div>
+            <div class="panel" id="panelMarcas"></div>
+            <div class="panel" id="panelUFs"></div>
+        </div>
+    </div>
+
+    <div class="empty-state" id="emptyState" style="padding:40px 20px;">
+        <div class="icon" style="font-size:36px;margin-bottom:10px;">📊</div>
+        <p style="margin-bottom:18px;">Pesquise um item para ver análises de mercado</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:600px;margin:0 auto;">
+            <span style="font-size:0.78em;color:var(--text-3);align-self:center;">Tente:</span>
+            <span class="historico-chip" onclick="document.getElementById('txtBusca').value='switch 48 portas';pesquisar();">switch 48 portas</span>
+            <span class="historico-chip" onclick="document.getElementById('txtBusca').value='notebook i7';pesquisar();">notebook i7</span>
+            <span class="historico-chip" onclick="document.getElementById('txtBusca').value='servidor';pesquisar();">servidor</span>
+            <span class="historico-chip" onclick="document.getElementById('txtBusca').value='impressora multifuncional';pesquisar();">impressora multifuncional</span>
+            <span class="historico-chip" onclick="document.getElementById('txtBusca').value='cadeira ergonômica';pesquisar();">cadeira ergonômica</span>
+        </div>
+    </div>
+
+    <script>
+    // State
+    let itensAtuais = [];
+    let resultadosMap = {}; // key: "cnpj/ano/seq/num" -> resultado
+    let paginaAtual = 1;
+    let ultimoFornecedoresMap = {};
+    let ultimoHomologados = [];
+    let totalPaginas = 1;
+    let totalItens = 0;
+    let buscando = false;
+    // Cache dos grupos carregados (id -> {nome, palavras, exclusoes:[{nome,palavras}]})
+    let gruposCache = {};
+    // Mapa de sugestão TerraMaster: { itemId: {modelo, score, motivo, requisitos} }
+    // Populado por carregarSugestoes() após pesquisar()
+    let sugestaoMap = {};
+    // Marca de sugestão vem da config do tenant (/api/bi/sugestao-config).
+    // null = tenant sem catálogo configurado → painel e coluna ficam ocultos.
+    let SUGESTAO_MARCA = null;
+
+    function formatarMoeda(v) {
+        if (v == null || isNaN(v)) return '-';
+        return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function formatarData(d) {
+        if (!d) return '-';
+        try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
+    }
+
+    function chaveItem(item) {
+        return `${item.cnpj}/${item.anoCompra}/${item.sequencialCompra}/${item.numeroItem}`;
+    }
+
+    // Monta os parâmetros do filtro a partir dos campos da UI.
+    // Modo grupo (fltGrupo != '') substitui q: backend ignora q quando grupoId vem.
+    function montarParamsFiltro() {
+        const params = new URLSearchParams();
+        const grupoId = document.getElementById('fltGrupo').value;
+        if (grupoId) {
+            params.set('grupoId', grupoId);
+            // Filtro IA só vale em modo grupo (escopo é por grupo)
+            const iaChk = document.getElementById('fltApenasIaValidados');
+            if (iaChk && iaChk.checked) params.set('apenasIaValidados', 'true');
+        } else {
+            params.set('q', document.getElementById('txtBusca').value.trim());
+        }
+        const map = {
+            dataInicio:   'fltDataInicio',
+            dataFim:      'fltDataFim',
+            uf:           'fltUF',
+            modalidadeId: 'fltModalidade',
+            situacao:     'fltSituacao',
+            status:       'fltStatus',
+            marca:        'fltMarca',
+            fornecedor:   'fltFornecedor',
+            valorHomolMin:'fltValorMin',
+            valorHomolMax:'fltValorMax',
+        };
+        Object.entries(map).forEach(([k, id]) => {
+            const el = document.getElementById(id);
+            if (el && el.value !== '' && el.value != null) params.set(k, el.value);
+        });
+        return params;
+    }
+
+    // Search
+    async function pesquisar(e) {
+        if (e) e.preventDefault();
+        const grupoId = document.getElementById('fltGrupo').value;
+        const q = document.getElementById('txtBusca').value.trim();
+        if (!grupoId && q.length < 3) return alert('Digite pelo menos 3 caracteres ou selecione um grupo');
+
+        const tam = document.getElementById('selTamanho').value;
+        document.getElementById('btnBuscar').disabled = true;
+        document.getElementById('btnBuscar').textContent = 'Buscando...';
+        resultadosMap = {};
+
+        try {
+            const params = montarParamsFiltro();
+            params.set('pagina', paginaAtual);
+            params.set('tamanhoPagina', tam);
+
+            const resp = await fetch(`/api/bi/pesquisar?${params.toString()}`);
+            const data = await resp.json();
+
+            itensAtuais = data.itens || [];
+            // Backend agora não calcula total exato (custaria 30s+ no LIKE).
+            // Usa flag `temMais` para habilitar "próxima página".
+            totalItens = data.temMais ? `${itensAtuais.length}+` : itensAtuais.length;
+            totalPaginas = data.temMais ? paginaAtual + 1 : paginaAtual;
+            window.__temMaisPaginas = !!data.temMais;
+
+            // Itens com vencedor já cacheado vêm direto na resposta — pré-popula
+            // resultadosMap para que renderResults exiba o vencedor inline. Tudo
+            // local, sem chamada PNCP ao vivo.
+            itensAtuais.forEach(it => {
+                if (it.niFornecedor) {
+                    resultadosMap[chaveItem(it)] = [{
+                        niFornecedor: it.niFornecedor,
+                        nomeRazaoSocialFornecedor: it.nomeRazaoSocialFornecedor,
+                        valorUnitarioHomologado: it.valorUnitarioHomologado,
+                        valorTotalHomologado: it.valorTotalHomologado,
+                        marcaFabricante: it.marcaFabricante,
+                        modeloVersao: it.modeloVersao,
+                        dataResultado: it.dataResultado,
+                    }];
+                }
+            });
+            popularDadosModal();
+
+            renderResults();
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('contentGrid').style.display = 'grid';
+
+            // Agregados server-side em paralelo (cobre TODO o universo filtrado,
+            // não só a página atual). Não bloqueia a renderização da tabela.
+            carregarAgregadosServidor();
+            // Sugestão TerraMaster — só faz sentido em modo grupo. Não bloqueia.
+            if (grupoId) carregarSugestoes(grupoId, itensAtuais.map(i => i.itemId));
+
+        } catch (err) {
+            alert('Erro: ' + err.message);
+        } finally {
+            document.getElementById('btnBuscar').disabled = false;
+            document.getElementById('btnBuscar').textContent = 'Buscar Itens';
+        }
+    }
+
+    async function carregarAgregadosServidor() {
+        try {
+            const params = montarParamsFiltro();
+            const resp = await fetch(`/api/bi/aggregates?${params.toString()}`);
+            if (!resp.ok) throw new Error('aggregates http ' + resp.status);
+            const agg = await resp.json();
+            renderAgregadosServidor(agg);
+        } catch (err) {
+            console.warn('Falha em aggregates:', err.message);
+        }
+    }
+
+    function renderAgregadosServidor(agg) {
+        const t = agg.totais || {};
+        const meta = agg.meta || {};
+        // Cache para os modais
+        ultimoFornecedoresMap = {};
+        (agg.topFornecedores || []).forEach(f => {
+            ultimoFornecedoresMap[f.nome || 'N/I'] = { count: f.itens, valorTotal: f.valorTotal || 0, cnpj: f.cnpj };
+        });
+
+        const fornecedores = agg.topFornecedores || [];
+        if (fornecedores.length > 0) {
+            document.getElementById('panelFornecedores').style.display = 'block';
+            document.getElementById('listFornecedores').innerHTML = fornecedores.slice(0, 15).map(f => `
+                <div class="rank-item">
+                    <div class="rank-name" title="${f.nome || ''}\n${formatarCNPJ(f.cnpj || '')}">${f.nome || 'N/I'}</div>
+                    <div class="rank-count">${f.itens}x</div>
+                    <div class="rank-valor" style="margin-left:8px">${formatarMoeda(f.valorTotal || 0)}</div>
+                </div>
+            `).join('');
+        } else {
+            document.getElementById('panelFornecedores').style.display = 'none';
+        }
+
+        const precoBox = (t.precoMin != null);
+        if (precoBox) {
+            document.getElementById('panelPrecos').style.display = 'block';
+            const med = agg.precos?.mediana;
+            document.getElementById('listPrecos').innerHTML = `
+                <div class="rank-item"><div class="rank-name">Menor</div><div class="rank-valor">${formatarMoeda(t.precoMin)}</div></div>
+                <div class="rank-item"><div class="rank-name">Mediana</div><div class="rank-valor">${med != null ? formatarMoeda(med) : '-'}</div></div>
+                <div class="rank-item"><div class="rank-name">Média</div><div class="rank-valor">${formatarMoeda(t.precoMedio)}</div></div>
+                <div class="rank-item"><div class="rank-name">Maior</div><div class="rank-valor">${formatarMoeda(t.precoMax)}</div></div>
+                <div class="rank-item"><div class="rank-name">Valor total global</div><div class="rank-valor">${formatarMoeda(t.valorTotalGlobal || 0)}</div></div>
+                <div class="rank-item"><div class="rank-name">Amostra (mediana)</div><div class="rank-count">${(agg.precos?.amostra || 0).toLocaleString('pt-BR')}</div></div>
+            `;
+        } else {
+            document.getElementById('panelPrecos').style.display = 'none';
+        }
+
+        const marcas = agg.topMarcas || [];
+        if (marcas.length > 0) {
+            document.getElementById('panelMarcas').style.display = 'block';
+            document.getElementById('listMarcas').innerHTML = marcas.slice(0, 10).map(m => `
+                <div class="rank-item">
+                    <div class="rank-name">${m.marca}</div>
+                    <div class="rank-count">${m.itens}x</div>
+                    <div class="rank-valor" style="margin-left:8px">${formatarMoeda(m.valorTotal || 0)}</div>
+                </div>
+            `).join('');
+        } else {
+            document.getElementById('panelMarcas').style.display = 'none';
+        }
+
+        const ufs = agg.topUFs || [];
+        if (ufs.length > 0) {
+            document.getElementById('panelUFs').style.display = 'block';
+            document.getElementById('listUFs').innerHTML = ufs.slice(0, 10).map(u => `
+                <div class="rank-item">
+                    <div class="rank-name">${u.uf}</div>
+                    <div class="rank-count">${u.itens}x</div>
+                    <div class="rank-valor" style="margin-left:8px">${formatarMoeda(u.valorTotal || 0)}</div>
+                </div>
+            `).join('');
+        } else {
+            document.getElementById('panelUFs').style.display = 'none';
+        }
+    }
+
+    function renderResults() {
+        const tbody = document.getElementById('tbodyResults');
+        if (itensAtuais.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#78909c">Nenhum item encontrado</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = itensAtuais.map(item => {
+            const chave = chaveItem(item);
+            const res = resultadosMap[chave];
+            let statusHTML = '<span class="winner-badge pendente">Não consultado</span>';
+            let fornecedorHTML = '-';
+            let marcaHTML = '-';
+            let valorHomolHTML = '-';
+
+            if (res === 'loading') {
+                statusHTML = '<span class="loading-spinner"></span>';
+            } else if (res && res.length > 0) {
+                const r = res[0];
+                statusHTML = `<span class="winner-badge homologado">Homologado</span>
+                    ${r.dataResultado ? `<div style="color:#78909c;font-size:10px;margin-top:3px">${formatarData(r.dataResultado)}</div>` : ''}`;
+                fornecedorHTML = `<div class="fornecedor" style="font-size:12px">${r.nomeRazaoSocialFornecedor || 'N/I'}</div>
+                    <div class="cnpj" style="font-size:11px;color:#78909c">${formatarCNPJ(r.niFornecedor)}</div>`;
+                const marca = r.marcaFabricante || r.marca || '';
+                const modelo = r.modeloVersao || '';
+                if (marca || modelo) {
+                    marcaHTML = `${marca ? `<div style="color:#ffb74d;font-weight:600;font-size:12px">${marca}</div>` : ''}
+                        ${modelo ? `<div style="color:#b0bec5;font-size:11px">${modelo}</div>` : ''}`;
+                }
+                valorHomolHTML = `<div class="valor-h" style="font-weight:600">${formatarMoeda(r.valorUnitarioHomologado)}</div>
+                    <div style="color:#b0bec5;font-size:11px">${formatarMoeda(r.valorTotalHomologado)} total</div>`;
+            } else if (item.situacaoOrigem) {
+                // Resultado vindo do portal de origem (ex: PCP) quando o PNCP não homologou.
+                const so = item.situacaoOrigem;
+                const fonteTag = `<div style="color:#5c6bc0;font-size:10px;margin-top:3px">via ${item.fonteOrigem || 'origem'}</div>`;
+                if (item.valorOrigem != null) {
+                    statusHTML = `<span class="winner-badge homologado">${so}</span>${fonteTag}`;
+                    fornecedorHTML = `<div style="font-size:11px;color:#78909c">vencedor não publicado no PNCP</div>`;
+                    valorHomolHTML = `<div class="valor-h" style="font-weight:600">${formatarMoeda(item.valorOrigem)}</div>`;
+                } else {
+                    statusHTML = `<span class="winner-badge sem-resultado">${so}</span>${fonteTag}`;
+                }
+            } else if (res !== undefined) {
+                statusHTML = '<span class="winner-badge sem-resultado">Sem resultado</span>';
+            }
+
+            const pncpLink = `https://pncp.gov.br/app/editais/${item.cnpj}/${item.anoCompra}/${String(item.sequencialCompra).padStart(6,'0')}`;
+
+            return `<tr>
+                <td class="desc" data-label="Item">
+                    <div>${highlightTerms(item.itemDescricao)}</div>
+                    <div style="margin-top:4px;font-size:11px;color:#78909c">Item ${item.numeroItem} · Qtd: ${item.quantidade || '-'} ${item.unidadeMedida || ''}</div>
+                </td>
+                <td data-label="Órgão">
+                    <div style="font-weight:600;font-size:12px">${item.nomeUnidade || item.orgao}</div>
+                    <div class="orgao">${item.modalidadeNome || ''} · UASG ${item.uasg || '-'}</div>
+                    <div class="orgao">${item.ufSigla || ''}${item.municipioNome ? ' - '+item.municipioNome : ''}</div>
+                    <div class="orgao">${formatarData(item.dataPublicacaoPncp)}</div>
+                    <a href="${pncpLink}" target="_blank" class="pncp-link">Ver no PNCP ↗</a>
+                </td>
+                <td class="valor" data-label="Valor est.">${formatarMoeda(item.valorUnitarioEstimado)}</td>
+                <td class="col-sugestao" data-label="Sugestão">${renderSugestaoCell(item.itemId)}</td>
+                <td data-label="Resultado">${statusHTML}</td>
+                <td data-label="Fornecedor">${fornecedorHTML}</td>
+                <td data-label="Marca">${marcaHTML}</td>
+                <td class="valor" data-label="Valor homol.">${valorHomolHTML}</td>
+            </tr>`;
+        }).join('');
+
+        // Pagination
+        renderPagination();
+    }
+
+    function highlightTerms(text) {
+        if (!text) return '';
+        const grupoId = document.getElementById('fltGrupo').value;
+        let palavras;
+        if (grupoId && gruposCache[grupoId]) {
+            palavras = gruposCache[grupoId].palavras || [];
+        } else {
+            const q = document.getElementById('txtBusca').value.trim();
+            palavras = q.split(/\s+/).filter(p => p.length >= 2);
+        }
+        let result = escapeHtml(text);
+        palavras.forEach(p => {
+            const regex = new RegExp(`(${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+            result = result.replace(regex, '<mark style="background:#4fc3f733;color:#4fc3f7;padding:0 2px;border-radius:2px">$1</mark>');
+        });
+        return result;
+    }
+
+    function escapeHtml(t) {
+        const div = document.createElement('div');
+        div.textContent = t;
+        return div.innerHTML;
+    }
+
+    function formatarCNPJ(ni) {
+        if (!ni) return '';
+        const s = ni.replace(/\D/g, '');
+        if (s.length === 14) return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+        if (s.length === 11) return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        return ni;
+    }
+
+    function renderPagination() {
+        const temMais = !!window.__temMaisPaginas;
+        if (paginaAtual <= 1 && !temMais) {
+            document.getElementById('paginationBottom').innerHTML = '';
+            return;
+        }
+        document.getElementById('paginationBottom').innerHTML = `
+            <button class="btn btn-secondary" onclick="mudarPagina(-1)" ${paginaAtual<=1?'disabled':''}>← Anterior</button>
+            <span style="padding:6px 12px;font-size:12px;color:#90a4ae">Página ${paginaAtual}</span>
+            <button class="btn btn-secondary" onclick="mudarPagina(1)" ${!temMais?'disabled':''}>Próxima →</button>
+        `;
+    }
+
+    function mudarPagina(delta) {
+        paginaAtual += delta;
+        if (paginaAtual < 1) paginaAtual = 1;
+        pesquisar();
+    }
+
+    // ===== Exportação Excel (.xlsx) do universo FILTRADO completo =====
+    // Bate no endpoint server-side /api/bi/exportar-xlsx com os MESMOS filtros
+    // da busca (montarParamsFiltro) — exporta tudo que casa o filtro, não só a
+    // página exibida. O .xlsx é gerado no servidor; aqui só baixamos o blob.
+    async function exportarExcel() {
+        const grupoId = document.getElementById('fltGrupo').value;
+        const q = document.getElementById('txtBusca').value.trim();
+        if (!grupoId && q.length < 3) { alert('Faça uma busca (ou selecione um grupo) antes de exportar.'); return; }
+        const btn = document.getElementById('btnExportar');
+        const txtOriginal = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Gerando…'; }
+        try {
+            const params = montarParamsFiltro();
+            const resp = await fetch(`/api/bi/exportar-xlsx?${params.toString()}`);
+            if (!resp.ok) {
+                let msg = 'HTTP ' + resp.status;
+                try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (_) {}
+                throw new Error(msg);
+            }
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const termo = (q || grupoId ? (q || 'grupo') : 'busca').replace(/[^\w]+/g, '-').slice(0, 30) || 'busca';
+            a.href = url;
+            a.download = `inteligencia_${termo}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Erro ao exportar: ' + err.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = txtOriginal; }
+        }
+    }
+
+    // Popula ultimoHomologados (escopo da página atual) usado pelo modal
+    // "Homologados ▸". Os agregados (Top Fornecedores/Marcas/UFs) e os
+    // KPIs vêm do /api/bi/aggregates server-side em renderAgregadosServidor.
+    function popularDadosModal() {
+        const todosResultados = [];
+        itensAtuais.forEach(item => {
+            const chave = chaveItem(item);
+            const res = resultadosMap[chave];
+            if (res && Array.isArray(res) && res.length > 0) {
+                res.forEach(r => todosResultados.push({ ...r, item, uf: item.ufSigla }));
+            }
+        });
+        ultimoHomologados = todosResultados;
+    }
+
+    // Enter to search
+    document.getElementById('txtBusca').addEventListener('keypress', e => {
+        if (e.key === 'Enter') pesquisar(e);
+    });
+
+    // Carrega facets (UFs, modalidades, situações) para popular os selects
+    async function carregarFacets() {
+        try {
+            const resp = await fetch('/api/bi/facets');
+            const f = await resp.json();
+            const selUF = document.getElementById('fltUF');
+            (f.ufs || []).forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u.uf;
+                opt.textContent = `${u.uf} (${u.total.toLocaleString('pt-BR')})`;
+                selUF.appendChild(opt);
+            });
+            const selMod = document.getElementById('fltModalidade');
+            (f.modalidades || []).forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = `${m.nome} (${m.total.toLocaleString('pt-BR')})`;
+                selMod.appendChild(opt);
+            });
+            const selSit = document.getElementById('fltSituacao');
+            (f.situacoes || []).forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.nome;
+                opt.textContent = `${s.nome} (${s.total.toLocaleString('pt-BR')})`;
+                selSit.appendChild(opt);
+            });
+        } catch (err) {
+            console.warn('Falha ao carregar facets:', err.message);
+        }
+    }
+    carregarFacets();
+
+    // Marcas disponíveis (extraídas pelo backfill heurístico). Pode ser vazio
+    // no início, antes do backfill rodar — daí o select fica só com "Todas".
+    async function carregarMarcas() {
+        try {
+            const resp = await fetch('/api/bi/marcas-disponiveis');
+            const data = await resp.json();
+            const sel = document.getElementById('fltMarca');
+            (data.marcas || []).forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.marca;
+                opt.textContent = `${m.marca} (${m.total.toLocaleString('pt-BR')})`;
+                sel.appendChild(opt);
+            });
+        } catch (err) {
+            console.warn('Falha ao carregar marcas:', err.message);
+        }
+    }
+    carregarMarcas();
+
+    // Carrega grupos de pesquisa pro select "Ou usar grupo". Quando o usuário
+    // escolhe um, txtBusca fica desabilitado e mostramos as palavras como preview.
+    async function carregarGrupos() {
+        try {
+            const resp = await fetch('/api/grupos-palavras');
+            const data = await resp.json();
+            if (!data.success) return;
+            const grupos = (data.data || []).filter(g => !g.tipo || g.tipo === 'pesquisa');
+            grupos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+            const sel = document.getElementById('fltGrupo');
+            grupos.forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g.id;
+                opt.textContent = `${g.nome} (${(g.palavras || []).length})`;
+                sel.appendChild(opt);
+                gruposCache[g.id] = {
+                    nome: g.nome,
+                    palavras: g.palavras || [],
+                    exclusoes: g.gruposExclusaoVinculados || [],
+                };
+            });
+            // Permite linkar direto: /operacional/inteligencia.html?grupoId=N
+            const urlGrupo = new URLSearchParams(location.search).get('grupoId');
+            if (urlGrupo && gruposCache[urlGrupo]) {
+                sel.value = urlGrupo;
+                aoMudarGrupo();
+                pesquisar();
+            }
+        } catch (err) {
+            console.warn('Falha ao carregar grupos:', err.message);
+        }
+    }
+    // Sugestão de produto: descobre a marca configurada pelo tenant (se houver)
+    // antes de carregar grupos (que pode auto-pesquisar via ?grupoId=).
+    async function carregarSugestaoConfig() {
+        try {
+            const resp = await fetch('/api/bi/sugestao-config');
+            if (!resp.ok) { SUGESTAO_MARCA = null; }
+            else {
+                const data = await resp.json();
+                const ativo = data.catalogo ? (data.catalogo.ativo == null || data.catalogo.ativo == 1 || data.catalogo.ativo === true) : false;
+                SUGESTAO_MARCA = (data.marca && ativo) ? data.marca : null;
+            }
+        } catch (e) { SUGESTAO_MARCA = null; }
+        document.body.classList.toggle('no-sugestao', !SUGESTAO_MARCA);
+    }
+    document.body.classList.add('no-sugestao'); // oculto até a config carregar
+    carregarSugestaoConfig().finally(() => carregarGrupos());
+
+    function aoMudarGrupo() {
+        const sel = document.getElementById('fltGrupo');
+        const txt = document.getElementById('txtBusca');
+        const preview = document.getElementById('grupoPreview');
+        const iaPanel = document.getElementById('iaFiltroPanel');
+        const grupoId = sel.value;
+        if (grupoId && gruposCache[grupoId]) {
+            const g = gruposCache[grupoId];
+            txt.disabled = true;
+            txt.value = '';
+            txt.placeholder = `Usando grupo: ${g.nome}`;
+            const palavrasTxt = (g.palavras || []).join(', ') || '(grupo vazio)';
+            let exclTxt = '';
+            if (g.exclusoes && g.exclusoes.length > 0) {
+                const nomes = g.exclusoes.map(e => e.nome).join(', ');
+                exclTxt = ` <span style="color:var(--danger)">· excluindo:</span> ${nomes}`;
+            }
+            preview.innerHTML = `🔎 <strong>${g.nome}</strong> · palavras: <em>${palavrasTxt}</em>${exclTxt}`;
+            preview.style.display = 'block';
+            iaPanel.style.display = 'block';
+            if (SUGESTAO_MARCA) {
+                document.getElementById('sugestaoPanel').style.display = 'block';
+                document.getElementById('sugestaoMarcaLabel').textContent = `(marca: ${SUGESTAO_MARCA})`;
+                atualizarStatusSugestao();
+            } else {
+                document.getElementById('sugestaoPanel').style.display = 'none';
+            }
+            atualizarStatusIA();
+        } else {
+            txt.disabled = false;
+            txt.placeholder = 'Ex: servidor NAS, switch 48 portas, notebook i7…';
+            preview.style.display = 'none';
+            iaPanel.style.display = 'none';
+            document.getElementById('sugestaoPanel').style.display = 'none';
+            document.getElementById('fltApenasIaValidados').checked = false;
+            sugestaoMap = {};
+        }
+        paginaAtual = 1;
+    }
+    document.getElementById('fltGrupo').addEventListener('change', aoMudarGrupo);
+    document.getElementById('fltApenasIaValidados').addEventListener('change', () => { paginaAtual = 1; pesquisar(); });
+
+    // Mostra contagens da classificação IA pro grupo selecionado
+    async function atualizarStatusIA() {
+        const grupoId = document.getElementById('fltGrupo').value;
+        if (!grupoId) return;
+        const statusEl = document.getElementById('iaFiltroStatus');
+        const btnClass = document.getElementById('btnClassificarIA');
+        statusEl.textContent = 'verificando...';
+        btnClass.style.display = 'none';
+        try {
+            const resp = await fetch(`/api/bi/classificar-ia/status?grupoId=${grupoId}`);
+            const s = await resp.json();
+            if (!resp.ok) { statusEl.textContent = '(erro)'; return; }
+            const txt = `validados: ${s.aprovados||0} · ruído: ${s.ruido||0} · pendentes: ${s.pendentes||0} / ${s.total_universo||0}`;
+            statusEl.textContent = txt;
+            if ((s.pendentes||0) > 0) {
+                btnClass.textContent = `▶ Classificar ${s.pendentes} pendentes (~${Math.ceil(s.pendentes/30 * 15)}s)`;
+                btnClass.style.display = 'inline-block';
+            }
+            if (s.rodando) {
+                btnClass.textContent = '⏳ Classificando...';
+                btnClass.style.display = 'inline-block';
+                btnClass.disabled = true;
+            } else {
+                btnClass.disabled = false;
+            }
+        } catch (e) { statusEl.textContent = '(falha)'; }
+    }
+
+    async function classificarItensPendentes() {
+        const grupoId = document.getElementById('fltGrupo').value;
+        if (!grupoId) return;
+        const btn = document.getElementById('btnClassificarIA');
+        btn.disabled = true;
+        btn.textContent = '⏳ Classificando (pode demorar 1-2 min)...';
+        try {
+            // Loop até zerar pendentes (cada chamada processa até 100 itens)
+            while (true) {
+                const resp = await fetch(`/api/bi/classificar-ia?grupoId=${grupoId}&maxItens=100`, { method: 'POST' });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    alert('Erro: ' + (data.error || resp.status));
+                    break;
+                }
+                if (data.processados === 0 || data.restantes === 0) break;
+                await atualizarStatusIA();
+            }
+            await atualizarStatusIA();
+            // Auto-marca o checkbox quando termina
+            const chk = document.getElementById('fltApenasIaValidados');
+            if (!chk.checked) chk.checked = true;
+            pesquisar();
+        } catch (e) {
+            alert('Erro: ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // ============================================================
+    // Sugestão de produto TerraMaster (overlay na tabela)
+
+    async function carregarSugestoes(grupoId, itemIds) {
+        if (!SUGESTAO_MARCA || !grupoId || !itemIds || itemIds.length === 0) {
+            sugestaoMap = {};
+            return;
+        }
+        try {
+            const ids = itemIds.filter(x => x).join(',');
+            const resp = await fetch(`/api/bi/sugestoes-mapa?grupoId=${grupoId}&marca=${encodeURIComponent(SUGESTAO_MARCA)}&itemIds=${ids}`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            sugestaoMap = data.mapa || {};
+            // Re-render só as células da sugestão (mais simples: re-render tudo)
+            renderResults();
+        } catch (e) { /* silencioso */ }
+    }
+
+    function renderSugestaoCell(itemId) {
+        const s = sugestaoMap[itemId];
+        if (!s) {
+            return '<span style="color:var(--text-3);font-size:11px">não analisado</span>';
+        }
+        if (!s.modelo || s.modelo.toLowerCase() === 'nenhum' || s.score === 0) {
+            return '<span style="color:var(--text-3);font-size:11px" title="' + escapeHtml(s.motivo || '') + '">sem match</span>';
+        }
+        let cor = 'var(--text-3)';
+        let icone = '⚪';
+        if (s.score >= 90) { cor = 'var(--success)'; icone = '🟢'; }
+        else if (s.score >= 70) { cor = '#ffb74d'; icone = '🟡'; }
+        else if (s.score >= 50) { cor = '#ff9800'; icone = '🟠'; }
+        const tooltip = (s.requisitos ? 'Requisitos: ' + s.requisitos + '\n' : '') + (s.motivo || '');
+        return `<div style="font-weight:600;color:${cor};font-size:12px" title="${escapeHtml(tooltip)}">${icone} ${escapeHtml(s.modelo)}</div>
+                <div style="color:var(--text-3);font-size:10px">score ${s.score}</div>`;
+    }
+
+    async function atualizarStatusSugestao() {
+        const grupoId = document.getElementById('fltGrupo').value;
+        if (!grupoId) return;
+        const statusEl = document.getElementById('sugestaoStatus');
+        const btn = document.getElementById('btnSugerir');
+        statusEl.textContent = 'verificando...';
+        btn.style.display = 'none';
+        try {
+            const resp = await fetch(`/api/bi/sugerir-produto/status?grupoId=${grupoId}&marca=${encodeURIComponent(SUGESTAO_MARCA)}`);
+            const s = await resp.json();
+            if (!resp.ok) { statusEl.textContent = '(erro)'; return; }
+            const txt = `com match: ${s.comMatch||0} · sem match: ${s.semMatch||0} · pendentes: ${s.pendentes||0} / ${s.universo||0}`;
+            statusEl.textContent = txt;
+            if ((s.pendentes||0) > 0) {
+                btn.textContent = `▶ Sugerir ${s.pendentes} pendentes (~${Math.ceil(s.pendentes/8 * 10)}s)`;
+                btn.style.display = 'inline-block';
+            }
+            if (s.rodando) {
+                btn.textContent = '⏳ Sugerindo...';
+                btn.style.display = 'inline-block';
+                btn.disabled = true;
+            } else {
+                btn.disabled = false;
+            }
+        } catch (e) { statusEl.textContent = '(falha)'; }
+    }
+
+    async function sugerirProdutosPendentes() {
+        const grupoId = document.getElementById('fltGrupo').value;
+        if (!grupoId) return;
+        const btn = document.getElementById('btnSugerir');
+        btn.disabled = true;
+        btn.textContent = '⏳ Sugerindo (pode demorar 1-3 min)...';
+        try {
+            while (true) {
+                const resp = await fetch(`/api/bi/sugerir-produto?grupoId=${grupoId}&marca=${encodeURIComponent(SUGESTAO_MARCA)}&maxItens=80`, { method: 'POST' });
+                const data = await resp.json();
+                if (!resp.ok) { alert('Erro: ' + (data.error || resp.status)); break; }
+                if (data.processados === 0 || data.restantes === 0) break;
+                await atualizarStatusSugestao();
+            }
+            await atualizarStatusSugestao();
+            // Re-fetch mapa pra atualizar coluna
+            if (itensAtuais.length > 0) {
+                await carregarSugestoes(grupoId, itensAtuais.map(i => i.itemId));
+            }
+        } catch (e) {
+            alert('Erro: ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+
+    function limparFiltros() {
+        ['fltDataInicio','fltDataFim','fltUF','fltModalidade','fltSituacao',
+         'fltStatus','fltMarca','fltFornecedor','fltValorMin','fltValorMax','fltGrupo']
+            .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        aoMudarGrupo();
+        paginaAtual = 1;
+    }
+
+    // Focus on load
+    document.getElementById('txtBusca').focus();
+
+    function mostrarHomologados() {
+        if (ultimoHomologados.length === 0) { alert('Aguarde a busca de vencedores finalizar.'); return; }
+
+        const old = document.getElementById('modalHomologados');
+        if (old) old.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'modalHomologados';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.8);overflow-y:auto;padding:30px';
+        modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+        const rows = ultimoHomologados.map((r, i) => {
+            const marca = r.marcaFabricante || r.marca || '';
+            const modelo = r.modeloVersao || '';
+            const marcaTxt = [marca, modelo].filter(Boolean).join(' · ') || '-';
+            const item = r.item || {};
+            const pncpLink = `https://pncp.gov.br/app/editais/${item.cnpj}/${item.anoCompra}/${String(item.sequencialCompra || '').padStart(6,'0')}`;
+            return `
+            <tr>
+                <td style="text-align:center;color:#78909c">${i + 1}</td>
+                <td style="font-size:12px">
+                    <div>${item.nomeUnidade || item.orgao || '-'}</div>
+                    <div style="color:#78909c;font-size:11px">UASG ${item.uasg || '-'} · ${item.numeroControlePNCP || ''}</div>
+                    <a href="${pncpLink}" target="_blank" style="color:#4fc3f7;font-size:11px;text-decoration:none">Ver no PNCP ↗</a>
+                </td>
+                <td style="font-size:12px">${item.itemDescricao || '-'}</td>
+                <td style="color:#4fc3f7;font-size:12px">${r.nomeRazaoSocialFornecedor || 'N/I'}<br><span style="color:#78909c;font-size:11px">${formatarCNPJ(r.niFornecedor)}</span></td>
+                <td style="color:#ffb74d;font-size:12px">${marcaTxt}</td>
+                <td style="text-align:right">${formatarMoeda(r.valorUnitarioHomologado)}</td>
+                <td style="text-align:right">${formatarMoeda(r.valorTotalHomologado)}</td>
+                <td style="color:#78909c;font-size:11px">${formatarData(r.dataResultado)}</td>
+            </tr>`;
+        }).join('');
+
+        modal.innerHTML = `
+            <div style="max-width:1200px;margin:0 auto;background:rgba(15,32,39,0.95);border-radius:12px;border:1px solid rgba(255,255,255,0.1);padding:25px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+                    <h3 style="color:#4fc3f7;margin:0">Itens Homologados (${ultimoHomologados.length})</h3>
+                    <button onclick="document.getElementById('modalHomologados').remove()" class="btn btn-secondary">✕ Fechar</button>
+                </div>
+                <div style="overflow-x:auto">
+                    <table class="results-table">
+                        <thead><tr>
+                            <th style="width:40px">#</th>
+                            <th>Licitação</th>
+                            <th>Descrição</th>
+                            <th>Fornecedor</th>
+                            <th>Marca/Modelo</th>
+                            <th style="text-align:right">Valor Unit.</th>
+                            <th style="text-align:right">Valor Total</th>
+                            <th>Data</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        document.body.appendChild(modal);
+    }
+
+    function mostrarFornecedores() {
+        const entries = Object.entries(ultimoFornecedoresMap);
+        if (entries.length === 0) { alert('Aguarde a busca de vencedores finalizar.'); return; }
+
+        entries.sort((a, b) => b[1].count - a[1].count);
+
+        const old = document.getElementById('modalFornecedores');
+        if (old) old.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'modalFornecedores';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.8);overflow-y:auto;padding:30px';
+        modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+        const rows = entries.map(([nome, d], i) => `
+            <tr>
+                <td style="text-align:center;color:#78909c">${i + 1}</td>
+                <td style="color:#4fc3f7">${nome}</td>
+                <td style="color:#90a4ae">${formatarCNPJ(d.cnpj)}</td>
+                <td style="text-align:center">${d.count}</td>
+                <td style="text-align:right">${formatarMoeda(d.valorTotal)}</td>
+            </tr>
+        `).join('');
+
+        modal.innerHTML = `
+            <div style="max-width:900px;margin:0 auto;background:rgba(15,32,39,0.95);border-radius:12px;border:1px solid rgba(255,255,255,0.1);padding:25px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+                    <h3 style="color:#4fc3f7;margin:0">Fornecedores (${entries.length})</h3>
+                    <button onclick="document.getElementById('modalFornecedores').remove()" class="btn btn-secondary">✕ Fechar</button>
+                </div>
+                <div style="overflow-x:auto">
+                    <table class="results-table">
+                        <thead><tr>
+                            <th style="width:40px">#</th>
+                            <th>Fornecedor</th>
+                            <th>CNPJ/CPF</th>
+                            <th style="text-align:center">Itens</th>
+                            <th style="text-align:right">Valor Total</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        document.body.appendChild(modal);
+    }
+
+    // Pesquisa de Preço via Dados Abertos
+    async function buscarPesquisaPreco() {
+        const q = document.getElementById('txtBusca').value.trim();
+        if (q.length < 3) return alert('Digite pelo menos 3 caracteres');
+
+        const btn = document.getElementById('btnPesquisaPreco');
+        btn.disabled = true; btn.textContent = '⏳ Buscando...';
+
+        try {
+            const resp = await fetch(`/api/bi/pesquisa-preco?descricao=${encodeURIComponent(q)}&pagina=1&tamanhoPagina=50`);
+            const data = await resp.json();
+            const resultados = data.resultado || [];
+
+            if (resultados.length === 0) {
+                alert('Nenhum resultado na Pesquisa de Preço para: ' + q);
+                return;
+            }
+
+            // Mostrar em modal/painel lateral
+            const total = data.totalRegistros || resultados.length;
+            mostrarResultadosDadosAbertos(resultados, `Pesquisa de Preço: "${q}" (${total} registros)`);
+        } catch (err) {
+            alert('Erro: ' + err.message);
+        } finally {
+            btn.disabled = false; btn.textContent = '💰 Pesquisa de Preço (Dados Abertos)';
+        }
+    }
+
+    // Itens de Contratações via Dados Abertos (Lei 14.133)
+    async function buscarDadosAbertos() {
+        const q = document.getElementById('txtBusca').value.trim();
+        if (q.length < 3) return alert('Digite pelo menos 3 caracteres');
+
+        const btn = document.getElementById('btnDadosAbertos');
+        btn.disabled = true; btn.textContent = '⏳ Buscando...';
+
+        try {
+            const resp = await fetch(`/api/bi/dadosabertos/itens?descricao=${encodeURIComponent(q)}&pagina=1&tamanhoPagina=50`);
+            const data = await resp.json();
+            const resultados = data.resultado || [];
+
+            if (resultados.length === 0) {
+                alert('Nenhum item na API Dados Abertos para: ' + q);
+                return;
+            }
+
+            const total = data.totalRegistros || resultados.length;
+            mostrarResultadosDadosAbertos(resultados, `Itens Contratações 14.133: "${q}" (${total} registros)`);
+        } catch (err) {
+            alert('Erro: ' + err.message);
+        } finally {
+            btn.disabled = false; btn.textContent = '📋 Itens Contratações (Lei 14.133)';
+        }
+    }
+
+    // Modal para exibir resultados do Dados Abertos
+    function mostrarResultadosDadosAbertos(resultados, titulo) {
+        // Remove modal anterior se existir
+        const old = document.getElementById('modalDadosAbertos');
+        if (old) old.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'modalDadosAbertos';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.8);overflow-y:auto;padding:30px';
+
+        const campos = resultados.length > 0 ? Object.keys(resultados[0]) : [];
+        const temMarca = campos.some(c => /marca|fabricante|modelo|versao/i.test(c));
+
+        let html = `
+            <div style="max-width:1200px;margin:0 auto;background:rgba(15,32,39,0.95);border-radius:12px;border:1px solid rgba(255,255,255,0.1);padding:25px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+                    <h3 style="color:#4fc3f7">${titulo}</h3>
+                    <button onclick="document.getElementById('modalDadosAbertos').remove()" class="btn btn-secondary">✕ Fechar</button>
+                </div>
+                ${temMarca ? '<div style="background:rgba(102,187,106,0.1);border:1px solid rgba(102,187,106,0.3);padding:10px;border-radius:8px;margin-bottom:15px;color:#66bb6a">✅ <strong>Marca/Modelo encontrado!</strong> Esta fonte contém dados de marca e fabricante.</div>' : ''}
+                <div style="font-size:11px;color:#78909c;margin-bottom:10px">Campos disponíveis: ${campos.join(', ')}</div>
+                <div style="overflow-x:auto">
+                <table class="results-table">
+                    <thead><tr>`;
+
+        // Determinar colunas relevantes para exibir
+        const colunasRelevantes = campos.filter(c => 
+            /descricao|marca|modelo|fabricante|versao|valor|fornecedor|cnpj|razao|orgao|uasg|quantidade|unidade|data|situacao|numero/i.test(c)
+        ).slice(0, 10);
+
+        colunasRelevantes.forEach(c => {
+            const highlight = /marca|fabricante|modelo|versao/i.test(c) ? ' style="color:#66bb6a"' : '';
+            html += `<th${highlight}>${c}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        resultados.forEach(r => {
+            html += '<tr>';
+            colunasRelevantes.forEach(c => {
+                let val = r[c];
+                if (val == null) val = '-';
+                if (typeof val === 'number' && c.toLowerCase().includes('valor')) {
+                    val = val.toLocaleString('pt-BR', {style:'currency',currency:'BRL'});
+                }
+                const highlight = /marca|fabricante|modelo|versao/i.test(c) ? ' style="color:#66bb6a;font-weight:600"' : '';
+                html += `<td${highlight}>${String(val).substring(0, 100)}</td>`;
+            });
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div></div>';
+        modal.innerHTML = html;
+        document.body.appendChild(modal);
+    }
+
+    // ============= ANÁLISE IA (DeepSeek) =============
+    async function abrirAnaliseIA() {
+        if (itensAtuais.length === 0) {
+            return alert('Faça uma busca primeiro.');
+        }
+        const old = document.getElementById('modalAnaliseIA');
+        if (old) old.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'modalAnaliseIA';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.85);overflow-y:auto;padding:30px';
+        modal.onclick = e => { if (e.target === modal) modal.remove(); };
+        modal.innerHTML = `
+            <div style="max-width:1100px;margin:0 auto;background:rgba(15,32,39,0.97);border-radius:12px;border:1px solid rgba(255,255,255,0.1);padding:25px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+                    <h3 style="color:#4fc3f7;margin:0">🧠 Análise IA de Preços (DeepSeek)</h3>
+                    <button onclick="document.getElementById('modalAnaliseIA').remove()" class="btn btn-secondary">✕ Fechar</button>
+                </div>
+                <div id="iaContent" style="min-height:200px;">
+                    <div style="text-align:center;padding:60px 20px;color:var(--text-2)">
+                        <div class="loading-spinner" style="width:32px;height:32px;border-width:3px;margin:0 auto 18px"></div>
+                        <p style="margin:0">Analisando preços com DeepSeek…</p>
+                        <p style="color:var(--text-3);font-size:12px;margin-top:8px">Latência: ~40–60s na primeira chamada · instantânea no recall (cache do dia).</p>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+
+        try {
+            // Backend usa amostra estratificada fixa (~20 itens) — não precisa
+            // mais passar maxItens, o tamanho da amostra é determinístico.
+            const params = montarParamsFiltro();
+            const resp = await fetch(`/api/bi/analise-precos?${params.toString()}`);
+            const data = await resp.json();
+
+            if (!resp.ok || !data.success) {
+                renderIAError(data.error || `HTTP ${resp.status}`);
+                return;
+            }
+            renderIAResultado(data.analise, data.meta, data.agregados);
+        } catch (err) {
+            renderIAError(err.message);
+        }
+    }
+
+    function renderIAError(msg) {
+        const el = document.getElementById('iaContent');
+        if (!el) return;
+        el.innerHTML = `
+            <div style="padding:30px;color:var(--danger);text-align:center">
+                <div style="font-size:42px;margin-bottom:14px">⚠️</div>
+                <p style="font-weight:600;margin:0 0 6px">Falha na análise</p>
+                <p style="color:var(--text-2);font-size:14px;margin:0">${escapeHtml(msg)}</p>
+            </div>`;
+    }
+
+    function renderIAResultado(a, meta, agregados) {
+        const el = document.getElementById('iaContent');
+        if (!el) return;
+        const sec = (title, body) => `<section style="margin-bottom:22px"><h4 style="color:var(--accent);font-size:13px;text-transform:uppercase;letter-spacing:0.06em;margin:0 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px">${title}</h4>${body}</section>`;
+        const fmt = v => v == null ? '-' : Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+
+        const subtipos = (a.subtipos || []).map(s => `
+            <tr>
+                <td style="font-weight:600;color:var(--text-0)">${escapeHtml(s.nome || '-')}</td>
+                <td style="text-align:center">${s.n_itens_amostra || s.n_itens || 0}</td>
+                <td style="font-family:'SF Mono',Menlo,monospace;color:var(--success)">${escapeHtml(s.faixa_preco || '-')}</td>
+                <td style="color:var(--text-2);font-size:12px">${escapeHtml(s.comentario || '')}</td>
+            </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text-3);padding:14px">—</td></tr>';
+
+        const ruido = (a.ruido || []).map(r => `
+            <li style="padding:8px 12px;background:rgba(244,67,54,0.08);border-left:3px solid var(--danger);margin-bottom:6px;border-radius:4px;font-size:13px">
+                <strong>[${r.indice}]</strong>
+                <span style="color:var(--text-2);margin-left:6px">${escapeHtml(r.motivo || '')}</span>
+            </li>`).join('') || '<p style="color:var(--text-3);font-size:13px;margin:0">Nenhum ruído identificado — todos os itens da amostra são coerentes com o escopo.</p>';
+
+        const insights = (a.insights || []).map(i =>
+            `<li style="padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-1)">${escapeHtml(i)}</li>`
+        ).join('') || '<p style="color:var(--text-3);font-size:13px;margin:0">—</p>';
+
+        // Estatísticas globais vindas do SQL (não da IA) — números confiáveis.
+        const t = agregados?.totais || {};
+        const med = agregados?.precos?.mediana;
+        const statsHtml = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+                <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Itens (universo)</div>
+                    <div style="font-size:18px;color:var(--text-0);font-weight:600;margin-top:4px">${(t.itensTotal||0).toLocaleString('pt-BR')}</div>
+                </div>
+                <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Homologados</div>
+                    <div style="font-size:18px;color:var(--success);font-weight:600;margin-top:4px">${(t.itensComResultado||0).toLocaleString('pt-BR')}</div>
+                </div>
+                <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Mediana unit.</div>
+                    <div style="font-size:14px;color:var(--text-0);font-weight:600;margin-top:4px;font-family:'SF Mono',Menlo,monospace">${med != null ? fmt(med) : '-'}</div>
+                </div>
+                <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Faixa unit.</div>
+                    <div style="font-size:12px;color:var(--text-0);margin-top:4px;font-family:'SF Mono',Menlo,monospace">${fmt(t.precoMin)} a ${fmt(t.precoMax)}</div>
+                </div>
+                <div style="padding:10px;background:var(--bg-3);border-radius:6px;text-align:center">
+                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase">Fornecedores</div>
+                    <div style="font-size:18px;color:var(--accent);font-weight:600;margin-top:4px">${(t.fornecedoresUnicos||0).toLocaleString('pt-BR')}</div>
+                </div>
+            </div>`;
+
+        const cacheBadge = meta.cache === 'hit'
+            ? `<span style="display:inline-block;margin-left:10px;padding:3px 9px;background:rgba(102,187,106,0.15);color:var(--success);border:1px solid rgba(102,187,106,0.3);border-radius:10px;font-size:11px;font-weight:600">♻ Cache do dia</span>`
+            : '';
+        // Atualiza o título (h3) com badge — atalho simples: reescreve via querySelector.
+        const headerH3 = document.querySelector('#modalAnaliseIA h3');
+        if (headerH3 && !headerH3.dataset.cached) {
+            headerH3.innerHTML = headerH3.innerHTML + cacheBadge;
+            headerH3.dataset.cached = '1';
+        }
+
+        el.innerHTML = `
+            ${a.resumo_executivo ? sec('📋 Resumo executivo',
+                `<p style="font-size:14px;line-height:1.6;color:var(--text-0);margin:0;padding:14px;background:var(--bg-3);border-radius:8px;border-left:3px solid var(--accent)">${escapeHtml(a.resumo_executivo)}</p>`) : ''}
+
+            ${sec('📊 Estatísticas globais (SQL)', statsHtml)}
+
+            ${sec('🔬 Subtipos identificados pela IA', `
+                <table class="results-table">
+                    <thead><tr>
+                        <th>Subtipo</th>
+                        <th style="text-align:center">Amostra</th>
+                        <th>Faixa de preço</th>
+                        <th>Comentário</th>
+                    </tr></thead>
+                    <tbody>${subtipos}</tbody>
+                </table>`)}
+
+            ${sec('🚫 Ruído (não pertence ao escopo)', `<ul style="list-style:none;padding:0;margin:0">${ruido}</ul>`)}
+
+            ${sec('💡 Insights acionáveis', `<ul style="list-style:none;padding:0;margin:0">${insights}</ul>`)}
+
+            <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);text-align:right">
+                Amostra: ${meta.n_amostra||'-'} itens de ${(meta.n_itens_universo||0).toLocaleString('pt-BR')} no universo · escopo "${escapeHtml(meta.escopo)}" · ${meta.modelo} · ${(meta.tempo_ms/1000).toFixed(1)}s
+            </div>`;
+    }
+
+    // ===== UX adicional (2026-05-22): abas, chips, debounce, histórico =====
+
+    // ---- Abas ----
+    function mostrarTab(nome) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === nome));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === nome));
+    }
+
+    // ---- Toggle filtros avançados (accordion) ----
+    function toggleFiltrosAvancados() {
+        const el = document.getElementById('filtrosAvancados');
+        el.classList.toggle('open');
+    }
+
+    // ---- Mapping de filtros pra chips ----
+    const FILT_MAP = [
+        { id: 'txtBusca',      label: 'Termo',         skip: () => !!document.getElementById('fltGrupo').value },
+        { id: 'fltGrupo',      label: 'Grupo',         transform: (v, el) => el.options[el.selectedIndex]?.text || v },
+        { id: 'fltUF',         label: 'UF' },
+        { id: 'fltStatus',     label: 'Status',        transform: (v, el) => el.options[el.selectedIndex]?.text || v },
+        { id: 'fltDataInicio', label: 'De' },
+        { id: 'fltDataFim',    label: 'Até' },
+        { id: 'fltModalidade', label: 'Modalidade',    transform: (v, el) => el.options[el.selectedIndex]?.text || v },
+        { id: 'fltSituacao',   label: 'Situação',      transform: (v, el) => el.options[el.selectedIndex]?.text || v },
+        { id: 'fltMarca',      label: 'Marca' },
+        { id: 'fltFornecedor', label: 'Fornecedor' },
+        { id: 'fltValorMin',   label: 'Valor ≥',       transform: (v) => 'R$ ' + Number(v).toLocaleString('pt-BR') },
+        { id: 'fltValorMax',   label: 'Valor ≤',       transform: (v) => 'R$ ' + Number(v).toLocaleString('pt-BR') },
+    ];
+
+    function atualizarChips() {
+        const bar = document.getElementById('chipsAtivos');
+        const chips = [];
+        for (const f of FILT_MAP) {
+            const el = document.getElementById(f.id);
+            if (!el) continue;
+            if (f.skip && f.skip()) continue;
+            const v = (el.value || '').trim();
+            if (!v) continue;
+            const txt = f.transform ? f.transform(v, el) : v;
+            chips.push(`<span class="chip">${f.label}: ${escapeHtml(String(txt))}<button type="button" title="Remover" onclick="removerFiltro('${f.id}')">✕</button></span>`);
+        }
+        if (chips.length) chips.push(`<span class="chip limpar-tudo" onclick="limparFiltros()">Limpar tudo ✕</span>`);
+        bar.innerHTML = chips.join('');
+    }
+    function removerFiltro(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.value = '';
+        atualizarChips();
+        paginaAtual = 1;
+        if (deveAutoBuscar()) pesquisar();
+    }
+
+    // ---- Debounce ----
+    let _debounceTimer = null;
+    function deveAutoBuscar() {
+        // Auto-busca só se já há algum resultado renderizado (evita disparar antes da 1ª busca)
+        return document.getElementById('contentGrid').style.display !== 'none';
+    }
+    function dispararBuscaDebounced() {
+        if (_debounceTimer) clearTimeout(_debounceTimer);
+        _debounceTimer = setTimeout(() => {
+            atualizarChips();
+            if (deveAutoBuscar()) { paginaAtual = 1; pesquisar(); }
+        }, 500);
+    }
+    // Aplica debounce em TODOS os filtros (selects e inputs)
+    ['txtBusca','fltGrupo','fltUF','fltStatus','fltDataInicio','fltDataFim','fltModalidade','fltSituacao','fltMarca','fltFornecedor','fltValorMin','fltValorMax']
+        .forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const evt = (el.tagName === 'SELECT' || el.type === 'date') ? 'change' : 'input';
+            el.addEventListener(evt, dispararBuscaDebounced);
+        });
+
+    // ---- Histórico de buscas (localStorage) ----
+    const HIST_KEY = 'bi_historico_buscas';
+    const HIST_MAX = 5;
+    function salvarHistorico(q) {
+        const termo = String(q || '').trim();
+        if (!termo || termo.length < 3) return;
+        let h = [];
+        try { h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch (_) {}
+        h = [termo, ...h.filter(x => x.toLowerCase() !== termo.toLowerCase())].slice(0, HIST_MAX);
+        try { localStorage.setItem(HIST_KEY, JSON.stringify(h)); } catch (_) {}
+        renderHistorico();
+    }
+    function renderHistorico() {
+        const bar = document.getElementById('historicoBuscas');
+        let h = [];
+        try { h = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch (_) {}
+        if (h.length === 0) { bar.style.display = 'none'; return; }
+        bar.style.display = 'flex';
+        bar.innerHTML = '<span class="label">Recentes:</span>' + h.map(termo =>
+            `<span class="historico-chip" onclick="document.getElementById('txtBusca').value=${JSON.stringify(termo)}; pesquisar();">${escapeHtml(termo)}</span>`
+        ).join('');
+    }
+    renderHistorico();
+
+    // Intercepta `pesquisar()` pra salvar histórico (wraps a função existente)
+    (function () {
+        const orig = window.pesquisar;
+        window.pesquisar = async function (e) {
+            const q = document.getElementById('txtBusca').value.trim();
+            if (q) salvarHistorico(q);
+            atualizarChips();
+            return orig.apply(this, arguments);
+        };
+    })();
+
+    </script>
+</main>
+</div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('inteligencia');</script>
+</body>
+</html>

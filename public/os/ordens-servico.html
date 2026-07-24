@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ordens de Serviço · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Ordens de Serviço</h1>
+      <small>Assistência, manutenção e instalação</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNova()">+ Nova OS</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="fQ" placeholder="Buscar nº, título, equipamento ou cliente…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="aberta">Aberta</option>
+      <option value="em-andamento">Em andamento</option>
+      <option value="aguardando-peca">Aguardando peça</option>
+      <option value="concluida">Concluída</option>
+      <option value="faturada">Faturada</option>
+      <option value="cancelada">Cancelada</option>
+    </select>
+    <select id="fTecnico" onchange="carregar()" style="min-width:160px;"><option value="">Todos técnicos</option></select>
+    <select id="fSla" onchange="carregar()" style="min-width:140px;">
+      <option value="">SLA: todos</option>
+      <option value="atrasado">🚨 Atrasados</option>
+      <option value="risco">⚠ Em risco</option>
+      <option value="no-prazo">✓ No prazo</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th>
+        <th>Cliente</th>
+        <th>Título</th>
+        <th>Equipamento</th>
+        <th>Técnico</th>
+        <th>Status</th>
+        <th>SLA</th>
+        <th>Prazo</th>
+        <th>Aberta</th>
+        <th class="num">Total</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Nova OS -->
+<div class="modal-bg" id="modalOs">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Nova ordem de serviço</h3>
+        <small class="muted">Cadastre cliente, equipamento e defeito relatado</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Tipo de OS * <a href="/os/cadastro-os-tipos.html" target="_blank" style="font-size:11px;font-weight:normal;margin-left:8px;">⚙ gerenciar</a></label>
+        <select id="fTipoSel" onchange="mostrarInfoTipo()">
+          <option value="">— carregando —</option>
+        </select>
+        <small id="fTipoInfo" class="muted" style="font-size:11px;display:block;margin-top:4px;"></small>
+      </div>
+      <div class="form-group">
+        <label>SLA (dias)</label>
+        <input type="number" id="fSLA" min="0" placeholder="Padrão do tipo">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1;position:relative;">
+        <label>Cliente *</label>
+        <input type="text" id="fCliBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCli()" autocomplete="off">
+        <input type="hidden" id="fClienteId">
+        <div id="acCliList" class="ac-list"></div>
+      </div>
+      <div class="form-group">
+        <label>Técnico</label>
+        <select id="fTecnicoSel"><option value="">— atribuir depois —</option></select>
+      </div>
+    </div>
+    <div id="enderecoExecRow" style="display:none;">
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Endereço de execução (obrigatório para OS de campo)</label>
+          <input type="text" id="fEndExec" placeholder="Rua, número">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Cidade</label>
+          <input type="text" id="fMunExec">
+        </div>
+        <div class="form-group">
+          <label>UF</label>
+          <input type="text" id="fUfExec" maxlength="2">
+        </div>
+        <div class="form-group">
+          <label>CEP</label>
+          <input type="text" id="fCepExec">
+        </div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Título *</label>
+        <input type="text" id="fTit" placeholder="Ex.: Troca de fonte do notebook">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Equipamento</label>
+        <input type="text" id="fEq" placeholder="Ex.: Notebook">
+      </div>
+      <div class="form-group">
+        <label>Marca</label>
+        <input type="text" id="fMarca" onblur="verificarGarantia()">
+      </div>
+      <div class="form-group">
+        <label>Modelo</label>
+        <input type="text" id="fModelo" onblur="verificarGarantia()">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Nº de série do equipamento</label>
+        <input type="text" id="fSerieEq" oninput="verificarGarantia()" onblur="verificarGarantia()">
+      </div>
+      <div class="form-group">
+        <label>Garantia (dias)</label>
+        <input type="number" id="fGarantia" min="0" value="0">
+      </div>
+    </div>
+    <div id="garantiaAviso" style="display:none;margin:0 0 10px 0;padding:10px 14px;background:#dcfce7;border:1px solid #86efac;color:#166534;border-radius:8px;font-size:13px;"></div>
+    <input type="hidden" id="fOsPaiId">
+    <input type="hidden" id="fEmGarantia">
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Defeito relatado</label>
+        <textarea id="fDefeito" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observações</label>
+        <textarea id="fObs" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Criar OS</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ordens-servico');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+async function carregarTecnicos(){
+  const r = await fetch('/api/usuarios').catch(()=>null);
+  if (!r) return;
+  const d = await r.json();
+  if (!d.success) return;
+  const opts = d.usuarios.map(u=>`<option value="${u.id}">${u.nome||u.username}</option>`).join('');
+  document.getElementById('fTecnico').innerHTML = '<option value="">Todos técnicos</option>' + opts;
+  document.getElementById('fTecnicoSel').innerHTML = '<option value="">— atribuir depois —</option>' + opts;
+}
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const q = document.getElementById('fQ').value.trim();   if (q) p.set('q', q);
+  const s = document.getElementById('fStatus').value;     if (s) p.set('status', s);
+  const t = document.getElementById('fTecnico').value;    if (t) p.set('tecnicoId', t);
+  const sla = document.getElementById('fSla').value;      if (sla) p.set('sla', sla);
+  const r = await fetch('/api/os?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${d.kpis.total||0}</div></div>
+    <div class="kpi warn"><div class="label">Abertas</div><div class="value">${d.kpis.abertas||0}</div></div>
+    <div class="kpi"><div class="label">Em andamento</div><div class="value">${d.kpis.execucao||0}</div></div>
+    <div class="kpi danger"><div class="label">Atrasadas (SLA)</div><div class="value">${d.kpis.atrasadas||0}</div></div>
+    <div class="kpi warn"><div class="label">Em risco (SLA)</div><div class="value">${d.kpis.risco||0}</div></div>
+    <div class="kpi success"><div class="label">No prazo</div><div class="value">${d.kpis.noPrazo||0}</div></div>
+    <div class="kpi success"><div class="label">Receita</div><div class="value">${fmtBRL(d.kpis.receita)}</div></div>
+    <div class="kpi warn"><div class="label">Faturadas sem nota</div><div class="value">${d.kpis.faturadasSemNota||0}</div></div>
+    <div class="kpi danger"><div class="label">Rejeitadas SEFAZ</div><div class="value">${d.kpis.rejeitadas||0}</div></div>
+  `;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = d.ordens.length ? d.ordens.map(o=>`<tr>
+    <td class="mono"><strong>${o.numero}</strong></td>
+    <td>${o.clienteNome}</td>
+    <td>${o.titulo}</td>
+    <td><small>${o.equipamento||''} ${o.marca||''} ${o.modelo||''}</small></td>
+    <td>${o.tecnicoNomeExibicao||o.tecnicoNome||'<small class="muted">—</small>'}</td>
+    <td><span class="badge ${badgeClass(o.status)}">${o.status}</span>${o.statusFiscal?`<br><small class="muted" style="font-size:10px;">${o.statusFiscal}</small>`:''}</td>
+    <td>${slaBadge(o.slaStatus)}</td>
+    <td>${o.dataPromessa ? `<small>${o.dataPromessa}</small>` : '<small class="muted">—</small>'}</td>
+    <td>${(o.dataAbertura||'').slice(0,10)}</td>
+    <td class="num">${fmtBRL(o.valorTotal)}</td>
+    <td style="text-align:right;"><a class="btn btn-ghost btn-sm" href="/os/ordem-servico.html?id=${o.id}" style="text-decoration:none;">Abrir →</a></td>
+  </tr>`).join('') : '<tr><td colspan="11" class="empty">Nenhuma OS</td></tr>';
+}
+
+function badgeClass(s){
+  return ({
+    'aberta':'pendente',
+    'em-andamento':'em_separacao',
+    'aguardando-peca':'pendente',
+    'concluida':'entregue',
+    'faturada':'faturado',
+    'cancelada':'cancelado'
+  })[s] || '';
+}
+function slaBadge(s){
+  if (!s) return '<small class="muted">—</small>';
+  const map = {
+    'atrasado':  { cls: 'cancelado',   txt: '🚨 atrasado' },
+    'risco':     { cls: 'pendente',    txt: '⚠ risco' },
+    'no-prazo':  { cls: 'entregue',    txt: '✓ no prazo' },
+    'cumprido':  { cls: 'faturado',    txt: '✓ cumprido' },
+    'estourado': { cls: 'cancelado',   txt: '✖ estourado' },
+  };
+  const c = map[s] || { cls: '', txt: s };
+  return `<span class="badge ${c.cls}" style="font-size:11px;">${c.txt}</span>`;
+}
+
+let tiposOS = [];
+async function carregarTipos(){
+  try {
+    const r = await fetch('/api/os-tipos');
+    const d = await r.json();
+    tiposOS = d.tipos || [];
+    const sel = document.getElementById('fTipoSel');
+    sel.innerHTML = '<option value="">— selecione —</option>' + tiposOS.map(t =>
+      `<option value="${t.id}" data-sla="${t.slaDiasPadrao||''}" data-endereco="${t.exigeEnderecoExec}" data-orc="${t.exigeOrcamentoAprovado}" data-sign="${t.exigeAssinaturaCliente}" data-fiscal="${t.modoFiscal}">${t.nome}</option>`
+    ).join('');
+  } catch (e) {
+    console.error('[tipos]', e);
+  }
+}
+
+
+function mostrarInfoTipo(){
+  const sel = document.getElementById('fTipoSel');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) {
+    document.getElementById('fTipoInfo').textContent = '';
+    document.getElementById('enderecoExecRow').style.display = 'none';
+    return;
+  }
+  const sla = opt.dataset.sla;
+  const end = opt.dataset.endereco === '1';
+  const orc = opt.dataset.orc === '1';
+  const sign = opt.dataset.sign === '1';
+  const fiscal = opt.dataset.fiscal;
+  const flags = [];
+  if (sla) flags.push(`SLA padrão ${sla} dias`);
+  if (orc) flags.push('exige orçamento aprovado');
+  if (sign) flags.push('exige assinatura do cliente');
+  if (end) flags.push('exige endereço de execução');
+  flags.push(`fiscal: ${fiscal}`);
+  document.getElementById('fTipoInfo').textContent = flags.join(' · ');
+  document.getElementById('enderecoExecRow').style.display = end ? '' : 'none';
+  if (sla && !document.getElementById('fSLA').value) document.getElementById('fSLA').value = sla;
+}
+
+function abrirNova(){
+  ['fCliBusca','fClienteId','fTit','fEq','fMarca','fModelo','fSerieEq','fDefeito','fObs',
+   'fSLA','fEndExec','fMunExec','fUfExec','fCepExec','fOsPaiId','fEmGarantia'].forEach(id=>{
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  document.getElementById('fGarantia').value='0';
+  document.getElementById('fTecnicoSel').value='';
+  document.getElementById('fTipoSel').value='';
+  document.getElementById('fTipoInfo').textContent = '';
+  document.getElementById('enderecoExecRow').style.display = 'none';
+  document.getElementById('garantiaAviso').style.display = 'none';
+  document.getElementById('modalOs').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modalOs').classList.remove('open'); }
+
+let acTimer;
+function acCli(){
+  clearTimeout(acTimer);
+  const q = document.getElementById('fCliBusca').value.trim();
+  if (q.length<2){ document.getElementById('acCliList').innerHTML=''; return; }
+  acTimer = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = d.pessoas || d.data || [];
+    document.getElementById('acCliList').innerHTML = lista.slice(0,10).map(p=>
+      `<div onclick='selCli(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${p.razaoSocial} <small class="muted">${p.cpfCnpj||""}</small></div>`
+    ).join('');
+  },200);
+}
+function selCli(id,nome){ document.getElementById('fClienteId').value=id; document.getElementById('fCliBusca').value=nome; document.getElementById('acCliList').innerHTML=''; verificarGarantia(); }
+
+// Fase 9.6: verifica se equipamento está em garantia (OS anterior do mesmo
+// cliente + serial, ou marca+modelo, faturada e dentro do prazo).
+let _garTimer;
+async function verificarGarantia(){
+  clearTimeout(_garTimer);
+  _garTimer = setTimeout(async () => {
+    const clienteId = document.getElementById('fClienteId').value;
+    const serial = document.getElementById('fSerieEq').value.trim();
+    const marca = document.getElementById('fMarca').value.trim();
+    const modelo = document.getElementById('fModelo').value.trim();
+    const aviso = document.getElementById('garantiaAviso');
+    if (!clienteId || (!serial && !(marca || modelo))) {
+      aviso.style.display = 'none';
+      document.getElementById('fOsPaiId').value = '';
+      document.getElementById('fEmGarantia').value = '';
+      return;
+    }
+    const q = new URLSearchParams({ clienteId });
+    if (serial) q.set('numeroSerie', serial);
+    if (marca)  q.set('marca', marca);
+    if (modelo) q.set('modelo', modelo);
+    try {
+      const d = await fetch('/api/os/garantia-sugestoes?' + q).then(r => r.json());
+      if (!d.success || !d.sugestoes.length) {
+        aviso.style.display = 'none';
+        document.getElementById('fOsPaiId').value = '';
+        document.getElementById('fEmGarantia').value = '';
+        return;
+      }
+      const s = d.sugestoes[0];
+      document.getElementById('fOsPaiId').value = s.id;
+      document.getElementById('fEmGarantia').value = '1';
+      aviso.innerHTML = `⚠️ <strong>Equipamento em garantia!</strong> OS <a href="/os/ordem-servico.html?id=${s.id}" target="_blank">${s.numero}</a> faturada em ${s.dataFaturamento?.slice(0,10)} com ${s.garantiaDias} dias de garantia — <strong>${s.diasRestantes} dia(s) restante(s)</strong>. Esta OS será criada como <strong>em garantia</strong> (sem cobrança).`;
+      aviso.style.display = 'block';
+    } catch (_) { aviso.style.display = 'none'; }
+  }, 300);
+}
+
+async function salvar(){
+  const tipoId = document.getElementById('fTipoSel').value ? Number(document.getElementById('fTipoSel').value) : null;
+  // tipoOperacaoId não é mais enviado pelo front: o backend deriva via
+  // os_tipos.tipoOperacaoPadraoId (configurado em cadastro-os-tipos.html)
+  // → flags da OS (emGarantia/ambienteFiscal) → fallback OS-NORMAL.
+  const body = {
+    clienteId: Number(document.getElementById('fClienteId').value),
+    tecnicoId: document.getElementById('fTecnicoSel').value ? Number(document.getElementById('fTecnicoSel').value) : null,
+    titulo: document.getElementById('fTit').value.trim(),
+    equipamento: document.getElementById('fEq').value || null,
+    marca: document.getElementById('fMarca').value || null,
+    modelo: document.getElementById('fModelo').value || null,
+    numeroSerieEquipamento: document.getElementById('fSerieEq').value || null,
+    defeitoRelatado: document.getElementById('fDefeito').value || null,
+    garantiaDias: Number(document.getElementById('fGarantia').value)||0,
+    observacoes: document.getElementById('fObs').value || null,
+    // Fase 9.1: tipo + SLA + endereço de execução
+    tipoId,
+    prazoSLADias: document.getElementById('fSLA').value ? Number(document.getElementById('fSLA').value) : null,
+    enderecoExecucao: document.getElementById('fEndExec')?.value || null,
+    municipioExecucao: document.getElementById('fMunExec')?.value || null,
+    ufExecucao: document.getElementById('fUfExec')?.value || null,
+    cepExecucao: document.getElementById('fCepExec')?.value || null,
+    // Fase 9.6: sugestão de garantia (osPaiId faz backend aplicar emGarantia + ambienteFiscal=interno)
+    osPaiId: document.getElementById('fOsPaiId').value ? Number(document.getElementById('fOsPaiId').value) : null,
+  };
+  if (!body.clienteId || !body.titulo) return showAlert('Cliente e título obrigatórios','error');
+  if (!tipoId) return showAlert('Escolha um tipo de OS','error');
+  const r = await fetch('/api/os', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('OS criada: '+d.os.numero);
+  fecharModal();
+  setTimeout(()=>window.location.href='/os/ordem-servico.html?id='+d.os.id, 600);
+}
+
+// Renderiza a tabela/KPIs o mais rápido possível (é o que o usuário vê).
+// Os dropdowns de filtro de técnico e tipos de OS são populados em paralelo,
+// não precisam bloquear o primeiro paint.
+
+carregar();
+carregarTecnicos();
+carregarTipos();
+</script>
+</body></html>

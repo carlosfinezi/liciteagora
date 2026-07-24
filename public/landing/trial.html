@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Testar grátis por 14 dias — Licite Agora</title>
+<meta name="description" content="Comece o teste grátis agora. Subdomínio próprio com SSL pronto em menos de 2 minutos. Sem cartão.">
+<link rel="canonical" href="https://liciteagora.app/trial.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/landing.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo"><span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span><span>Licite Agora</span></a>
+    <nav class="nav-links" id="navLinks">
+      <a href="/recursos.html">Recursos</a>
+      <a href="/planos.html">Planos</a>
+      <a href="/contato.html">Contato</a>
+    </nav>
+    <div class="nav-actions">
+      <a href="https://admin.liciteagora.app/admin/login.html" class="btn btn-ghost">Entrar</a>
+      <button class="menu-toggle" id="btnMenu">☰</button>
+    </div>
+  </div>
+</header>
+
+<section class="hero" style="padding-bottom:40px;">
+  <div class="container text-center">
+    <div class="hero-badge"><span class="hero-badge-dot"></span>Provisionamento em menos de 2 minutos</div>
+    <h1>Seu teste <span class="gradient-text">começa agora</span></h1>
+    <p class="hero-subtitle" style="margin:16px auto 0;">14 dias grátis, sem cartão de crédito. Seu subdomínio, seu banco, seus dados — isolados desde o minuto zero.</p>
+  </div>
+</section>
+
+<section style="padding:0 0 80px;">
+  <div class="container">
+    <div class="form-container">
+      <form id="formTrial" class="glass" style="padding:32px;">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nome *</label>
+            <input type="text" name="nome" required maxlength="120" autocomplete="name">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="tel" name="telefone" maxlength="20" placeholder="(91) 99999-9999" autocomplete="tel">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" name="email" required autocomplete="email" placeholder="voce@empresa.com.br">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Empresa *</label>
+            <input type="text" name="empresa" required maxlength="120" placeholder="Razão social">
+          </div>
+          <div class="form-group">
+            <label>CNPJ</label>
+            <input type="text" name="cnpj" maxlength="18" placeholder="00.000.000/0000-00">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Seu subdomínio *</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="text" name="slug" id="slugInput" required maxlength="30" pattern="[a-z][a-z0-9-]{2,29}" placeholder="suaempresa" style="flex:1;">
+            <span class="muted" style="font-size:var(--fs-sm);">.liciteagora.app</span>
+          </div>
+          <div class="hint" id="slugHint">3–30 caracteres, minúsculas, números e hífens. Começando com letra.</div>
+        </div>
+
+        <div class="form-group">
+          <label>Plano de interesse</label>
+          <select name="plano" id="planoSelect">
+            <option value="starter">Starter — R$297/mês</option>
+            <option value="profissional" selected>Profissional — R$697/mês (mais escolhido)</option>
+            <option value="avancado">Avançado — R$1.497/mês</option>
+          </select>
+          <div class="hint">Enterprise? <a href="/contato.html?plano=enterprise" style="color:var(--accent-soft);">Fale com comercial</a></div>
+        </div>
+
+        <button type="submit" class="btn btn-primary form-submit">Criar meu ambiente →</button>
+
+        <p class="muted text-center mt-3" style="font-size:var(--fs-xs);">
+          Ao continuar você concorda com os <a href="/termos.html" style="color:var(--accent-soft);">termos de uso</a>
+          e a <a href="/privacidade.html" style="color:var(--accent-soft);">política de privacidade</a>.
+        </p>
+      </form>
+    </div>
+
+    <p class="muted text-center mt-4">
+      Já tem conta? <a href="https://admin.liciteagora.app/admin/login.html" style="color:var(--accent-soft);">Acesse aqui</a>
+    </p>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <div><a href="/" class="logo"><span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span><span>Licite Agora</span></a></div>
+    <div><h5>Produto</h5><ul><li><a href="/recursos.html">Recursos</a></li><li><a href="/planos.html">Planos</a></li></ul></div>
+    <div><h5>Empresa</h5><ul><li><a href="/contato.html">Contato</a></li></ul></div>
+    <div><h5>Legal</h5><ul><li><a href="/termos.html">Termos</a></li><li><a href="/privacidade.html">Privacidade</a></li></ul></div>
+    <div class="copyright" style="grid-column:1/-1;">© 2026 Licite Agora · 1bit Tecnologia</div>
+  </div>
+</footer>
+
+<script src="/landing.js"></script>
+<script>
+// Pré-popula plano da URL (?plano=starter)
+(function() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('plano')) {
+    const sel = document.getElementById('planoSelect');
+    const v = params.get('plano').toLowerCase();
+    if ([...sel.options].some(o => o.value === v)) sel.value = v;
+  }
+})();
+
+// Slug live validation
+const slugInput = document.getElementById('slugInput');
+const slugHint = document.getElementById('slugHint');
+let slugTimer;
+slugInput.addEventListener('input', () => {
+  slugInput.value = slugInput.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+  clearTimeout(slugTimer);
+  slugHint.className = 'hint';
+  slugHint.textContent = 'Verificando…';
+  slugTimer = setTimeout(async () => {
+    if (slugInput.value.length < 3) {
+      slugHint.className = 'hint';
+      slugHint.textContent = '3–30 caracteres, minúsculas, números e hífens.';
+      return;
+    }
+    try {
+      const r = await fetch('/api/landing/trial/check-slug?slug=' + encodeURIComponent(slugInput.value));
+      const d = await r.json();
+      if (d.available) {
+        slugHint.className = 'hint ok';
+        slugHint.textContent = `✓ ${slugInput.value}.liciteagora.app está disponível.`;
+      } else {
+        slugHint.className = 'hint error';
+        slugHint.textContent = d.reason || 'Indisponível.';
+      }
+    } catch (_) {
+      slugHint.textContent = 'Erro ao verificar.';
+    }
+  }, 300);
+});
+
+// Form submit
+document.getElementById('formTrial').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Criando seu ambiente…';
+  const body = {};
+  new FormData(form).forEach((v, k) => body[k] = String(v).trim());
+  try {
+    const r = await fetch('/api/landing/trial', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.success) {
+      toast(data.error || 'Erro ao criar conta', 'error');
+      btn.disabled = false; btn.textContent = 'Criar meu ambiente →';
+      return;
+    }
+    // Guarda credenciais temporariamente em sessionStorage para a página de aguardando
+    sessionStorage.setItem('trialCreds', JSON.stringify({
+      slug: data.slug,
+      username: data.username,
+      senha: data.senhaTemp,
+      subdomainUrl: data.subdomainUrl,
+      email: body.email,
+    }));
+    location.href = '/aguardando.html?slug=' + encodeURIComponent(data.slug);
+  } catch (err) {
+    toast('Falha na rede: ' + err.message, 'error');
+    btn.disabled = false; btn.textContent = 'Criar meu ambiente →';
+  }
+});
+</script>
+</body>
+</html>

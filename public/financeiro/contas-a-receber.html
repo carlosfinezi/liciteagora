@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contas a Receber · Licite Agora</title>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+  <style>
+    /* Page-local: barra fixa para ações em lote + autocomplete de pessoa */
+    .barra-lote {
+      display: none;
+      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+      background: var(--bg-2); border: 1px solid var(--border-strong);
+      border-radius: var(--r-lg); padding: 10px 16px; gap: 10px;
+      align-items: center; z-index: 50;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .barra-lote.show { display: flex; }
+    .pessoa-result {
+      max-height: 200px; overflow-y: auto;
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: var(--r-sm); margin-top: 2px;
+    }
+    .pessoa-result .item {
+      padding: 8px 11px; cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88em; color: var(--text-1);
+    }
+    .pessoa-result .item:hover { background: var(--bg-hover); color: var(--text-0); }
+    .pessoa-result .item:last-child { border-bottom: none; }
+    .pessoa-sel {
+      margin-top: 6px; font-size: 0.85em; color: var(--success);
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>💰 Contas a Receber</h1>
+        <small>Cobranças a clientes — manuais, de NFSe ou parceladas</small>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="abrirNova()">+ Nova</button>
+        <button class="btn btn-secondary" onclick="abrirCategorias()">🏷️ Categorias</button>
+        <button class="btn btn-secondary" onclick="exportarCSV()">⤓ CSV</button>
+        <button class="btn btn-secondary" onclick="exportarPDF()">📄 PDF</button>
+        <a class="btn btn-secondary" href="/financeiro/recorrencias.html" style="text-decoration:none;">↻ Recorrências NFSe</a>
+        <a class="btn btn-ghost" href="/financeiro/mercadopago-config.html" style="text-decoration:none;" title="Access Token do MercadoPago para boletos">⚙ MercadoPago</a>
+      </div>
+    </div>
+
+    <div class="kpi-grid" id="totalizadores"></div>
+
+    <div class="panel">
+      <div class="filtros">
+        <select id="fStatus" onchange="carregar()">
+          <option value="">Todos</option>
+          <option value="aberta" selected>Abertas</option>
+          <option value="parcial">Parciais</option>
+          <option value="vencida">Vencidas</option>
+          <option value="paga">Pagas</option>
+          <option value="cancelada">Canceladas</option>
+        </select>
+        <select id="fCategoria" onchange="carregar()"><option value="">Todas categorias</option></select>
+        <select id="fNota" onchange="carregar()">
+          <option value="">Com/sem NFSe</option>
+          <option value="com">Com NFSe</option>
+          <option value="sem">Sem NFSe</option>
+        </select>
+        <input type="date" id="fVencIni" onchange="carregar()" title="Vence de">
+        <input type="date" id="fVencFim" onchange="carregar()" title="Vence até">
+        <input type="text" id="fBusca" placeholder="Cliente ou descrição…" oninput="debounce(carregar)" style="flex:1; min-width: 200px;">
+      </div>
+    </div>
+
+    <div class="panel" style="padding: 0;">
+      <table>
+        <thead><tr>
+          <th style="width:28px;"><input type="checkbox" id="chkAll" onchange="toggleAll(this)"></th>
+          <th>Vencimento</th>
+          <th>Cliente</th>
+          <th>Descrição</th>
+          <th>Categoria</th>
+          <th style="text-align:right;">Valor</th>
+          <th style="text-align:right;">Saldo</th>
+          <th style="text-align:right;" title="Saldo + juros + multa quando em atraso">Com atraso</th>
+          <th>Status</th>
+          <th style="text-align:center;" title="Nota fiscal">📄</th>
+          <th style="text-align:center;" title="Anexos">📎</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="12" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<div class="barra-lote" id="barraLote">
+  <span id="loteCount">0 selecionadas</span>
+  <button class="btn btn-success btn-sm" onclick="abrirLote()">💰 Receber selecionadas</button>
+  <button class="btn btn-secondary btn-sm" onclick="limparSelecao()">Limpar</button>
+</div>
+
+<!-- Modal NOVA -->
+<div class="modal-bg" id="modalNova">
+  <div class="modal" style="max-width: 640px;">
+    <h2>Nova conta a receber</h2>
+    <div class="tabs" style="margin-bottom:14px;">
+      <button class="tab active" data-tab="unica" onclick="selTab('unica')">Única</button>
+      <button class="tab" data-tab="parcelada" onclick="selTab('parcelada')">Parcelada</button>
+    </div>
+
+    <div class="row">
+      <label>Cliente *</label>
+      <input type="text" id="nPessoaBusca" placeholder="CPF/CNPJ ou nome..." oninput="debouncePessoa()">
+      <div id="nPessoaList" class="pessoa-result"></div>
+      <div id="nPessoaSel" class="pessoa-sel"></div>
+    </div>
+    <div class="row-2">
+      <div class="row">
+        <label>Categoria</label>
+        <select id="nCategoria" onchange="aplicarPlanoDaCategoria()"><option value="">— sem —</option></select>
+      </div>
+      <div class="row">
+        <label>Forma de pagamento (prevista)</label>
+        <select id="nForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="row">
+        <label>Plano de contas</label>
+        <select id="nPlanoConta"><option value="">— sem —</option></select>
+        <small style="color:var(--text-3);">Usado no DRE e classificação contábil</small>
+      </div>
+      <div class="row">
+        <label>Centro de custo</label>
+        <select id="nCentroCusto"><option value="">— sem —</option></select>
+      </div>
+    </div>
+    <div class="row">
+      <label>Descrição *</label>
+      <input type="text" id="nDesc" placeholder="ex: Consultoria mês de abril">
+    </div>
+
+    <div class="tab-content active" data-tab="unica">
+      <div class="row-2">
+        <div class="row"><label>Valor *</label><input type="number" step="0.01" id="nValor"></div>
+        <div class="row"><label>Vencimento *</label><input type="date" id="nVenc"></div>
+      </div>
+    </div>
+
+    <div class="tab-content" data-tab="parcelada">
+      <div class="row-2">
+        <div class="row"><label>Valor TOTAL *</label><input type="number" step="0.01" id="nValorTot"></div>
+        <div class="row"><label>Nº parcelas *</label><input type="number" min="2" value="3" id="nParcelas"></div>
+      </div>
+      <div class="row-2">
+        <div class="row"><label>1º vencimento *</label><input type="date" id="nVenc1"></div>
+        <div class="row"><label>Intervalo (meses)</label><input type="number" min="1" value="1" id="nIntervalo"></div>
+      </div>
+      <small style="color:var(--text-2);">O valor será dividido igualmente (último absorve arredondamento).</small>
+    </div>
+
+    <div class="row"><label>Observações</label><textarea id="nObs" rows="2"></textarea></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharNova()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNova()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal BAIXA EM LOTE -->
+<div class="modal-bg" id="modalLote">
+  <div class="modal">
+    <h2>Baixa em lote</h2>
+    <p style="color:var(--text-2); margin-bottom:12px;"><span id="loteResumo"></span></p>
+    <div class="row"><label>Conta financeira (entrada) *</label><select id="lContaFin"></select></div>
+    <div class="row-2">
+      <div class="row"><label>Data do recebimento</label><input type="date" id="lData"></div>
+      <div class="row">
+        <label>Forma</label>
+        <select id="lForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <label>Valor total recebido (R$) *</label>
+      <input type="number" id="lValorTotal" step="0.01" min="0.01" oninput="atualizarPreviaLote()">
+      <small style="color:var(--text-3);" id="lDistribHint">Distribuição FIFO: contas mais antigas primeiro. Juros/multa configurados em <a href="/financeiro/cobrancas-config.html" target="_blank">Cobranças</a>.</small>
+    </div>
+    <div class="row">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
+        <input type="checkbox" id="lQuitarArredondando" onchange="atualizarPreviaLote()">
+        <span>Quitar título integralmente (arredondar o juros)</span>
+      </label>
+      <small style="color:var(--text-3);">Marcado: principal é coberto primeiro; o que sobrar vai pra multa e juros (sobras do cliente caem como juros recebidos menores). Desmarcado: imputa juros → multa → principal (Art. 354 CC), título pode ficar parcial.</small>
+    </div>
+    <div id="lPrevia" style="font-size:0.82em;color:var(--text-2);margin-top:4px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharLote()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmarLote()">Confirmar recebimento</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal CATEGORIAS -->
+<div class="modal-bg" id="modalCat">
+  <div class="modal">
+    <h2>Gerenciar categorias</h2>
+    <small style="color:var(--text-3);">Mapear categoria → Plano de Contas preenche automaticamente no lançamento (DRE).</small>
+    <div id="catList" style="max-height: 300px; overflow-y:auto; margin: 12px 0;"></div>
+    <div class="row-2">
+      <div class="row"><label>Nova categoria</label><input type="text" id="catNome" placeholder="ex: Consultoria"></div>
+      <div class="row"><label>Ícone (emoji)</label><input type="text" id="catIcone" placeholder="💼" maxlength="3"></div>
+    </div>
+    <div class="row">
+      <label>Plano de contas (opcional)</label>
+      <select id="catPlano"><option value="">— sem mapeamento —</option></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharCategorias()">Fechar</button>
+      <button class="btn btn-primary" onclick="criarCategoria()">+ Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('contas-a-receber');</script>
+<script>
+let tm; function debounce(fn){ clearTimeout(tm); tm = setTimeout(fn, 300); }
+function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(iso){ if(!iso) return '-'; const d = new Date((iso||'').length===10?iso+'T12:00:00':iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
+function hoje(){ const d = new Date(Date.now() - 3*60*60*1000); return d.toISOString().slice(0,10); }
+
+let CONTAS = [], CATEGORIAS = [], PLANO_CONTAS = [], CENTROS_CUSTO = [];
+// Config de juros/multa — carregada 1x no boot e reusada em cada render.
+// Fonte: /api/financeiro/config-juros (painel "Juros & Multa" em /financeiro/cobrancas-config.html)
+let CFG_JUROS = { jurosMesPct: 0, multaAtrasoPct: 0, carenciaDias: 0, jurosModo: 'simples' };
+
+async function carregarConfigJuros() {
+  try {
+    const r = await fetch('/api/financeiro/config-juros');
+    const d = await r.json();
+    if (d.success) {
+      CFG_JUROS = {
+        jurosMesPct:    Number(d.jurosMesPct)    || 0,
+        multaAtrasoPct: Number(d.multaAtrasoPct) || 0,
+        carenciaDias:   Number(d.carenciaDias)   || 0,
+        jurosModo:      d.jurosModo || 'simples',
+      };
+    }
+  } catch (_) { /* usa defaults */ }
+}
+
+// Calcula juros+multa de uma conta (se vencida E aberta/parcial).
+// Retorna { juros, multa, total, diasAtraso } — total = saldo + juros + multa.
+function calcJurosMulta(conta) {
+  const saldo = Number(conta.saldoRestante) || 0;
+  const h = hoje();
+  const vencida = ['aberta','parcial'].includes(conta.status) && conta.dataVencimento && conta.dataVencimento < h;
+  if (!vencida || saldo <= 0) return { juros: 0, multa: 0, total: saldo, diasAtraso: 0 };
+  const vData = new Date(conta.dataVencimento.slice(0,10) + 'T12:00:00Z');
+  const hData = new Date(h + 'T12:00:00Z');
+  const atraso = Math.max(0, Math.floor((hData - vData) / 86400000));
+  const efetivos = Math.max(0, atraso - (CFG_JUROS.carenciaDias || 0));
+  if (efetivos <= 0) return { juros: 0, multa: 0, total: saldo, diasAtraso: atraso };
+  const jPct = CFG_JUROS.jurosMesPct;
+  const mPct = CFG_JUROS.multaAtrasoPct;
+  let juros;
+  if (CFG_JUROS.jurosModo === 'composto') {
+    juros = saldo * (Math.pow(1 + jPct/100, efetivos/30) - 1);
+  } else {
+    juros = saldo * (jPct/100) * (efetivos/30);
+  }
+  const multa = saldo * (mPct/100);
+  return {
+    juros:  Math.max(0, Math.round(juros * 100) / 100),
+    multa:  Math.max(0, Math.round(multa * 100) / 100),
+    total:  Math.round((saldo + juros + multa) * 100) / 100,
+    diasAtraso: atraso,
+  };
+}
+const SELECIONADAS = new Set();
+
+async function carregarCategorias(){
+  try {
+    const r = await fetch('/api/cr-categorias');
+    const d = await r.json();
+    CATEGORIAS = d.categorias || [];
+    const opts = '<option value="">— sem —</option>' + CATEGORIAS.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+    document.getElementById('nCategoria').innerHTML = opts;
+    document.getElementById('fCategoria').innerHTML = '<option value="">Todas categorias</option>' + CATEGORIAS.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+  } catch(e){}
+}
+
+async function carregarPlanoContas(){
+  try {
+    const r = await fetch('/api/plano-contas');
+    const d = await r.json();
+    // Para CR priorizamos receita/dedução/financeiro_receita; demais vão depois
+    const TIPOS_CR = ['receita','deducao','financeiro_receita'];
+    const todas = (d.plano || []).filter(c => c.ativo);
+    PLANO_CONTAS = [
+      ...todas.filter(c => TIPOS_CR.includes(c.tipo)),
+      ...todas.filter(c => !TIPOS_CR.includes(c.tipo)),
+    ];
+    const opts = '<option value="">— sem —</option>' + PLANO_CONTAS
+      .map(c => `<option value="${c.id}">${c.codigo} · ${c.nome}${c.tipo && !TIPOS_CR.includes(c.tipo)?' ('+c.tipo+')':''}</option>`).join('');
+    document.getElementById('nPlanoConta').innerHTML = opts;
+  } catch(e){ console.error('Plano contas:', e); }
+}
+
+async function carregarCentrosCusto(){
+  try {
+    const r = await fetch('/api/centros-custo');
+    const d = await r.json();
+    CENTROS_CUSTO = (d.centros || []);
+    const opts = '<option value="">— sem —</option>' + CENTROS_CUSTO
+      .map(c => `<option value="${c.id}">${c.codigo?c.codigo+' · ':''}${c.nome}</option>`).join('');
+    document.getElementById('nCentroCusto').innerHTML = opts;
+  } catch(e){ console.error('Centros custo:', e); }
+}
+
+// Quando o usuário escolhe uma categoria, se ela tem plano de contas mapeado,
+// pré-preenche o dropdown de plano de contas (pode ser sobrescrito manualmente)
+function aplicarPlanoDaCategoria(){
+  const catId = Number(document.getElementById('nCategoria').value);
+  if (!catId) return;
+  const cat = CATEGORIAS.find(c => c.id === catId);
+  if (cat && cat.planoContaId && !document.getElementById('nPlanoConta').value) {
+    document.getElementById('nPlanoConta').value = String(cat.planoContaId);
+  }
+}
+
+async function carregar(){
+  const p = new URLSearchParams();
+  for (const [id, key] of [['fStatus','status'],['fCategoria','categoriaId'],['fNota','nota'],['fVencIni','dataVencIni'],['fVencFim','dataVencFim'],['fBusca','busca']]) {
+    const v = document.getElementById(id).value;
+    if (v) p.set(key, v);
+  }
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch('/api/contas-a-receber?' + p).then(x => x.json()),
+      fetch('/api/contas-a-receber/resumo').then(x => x.json())
+    ]);
+    if (!r1.success) throw new Error(r1.error);
+    CONTAS = r1.contas;
+    renderTabela();
+    renderTotalizadores(r2.resumo || {});
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+function renderTotalizadores(r){
+  const cards = [
+    { label: 'Aberto', value: fmt(r.aberto), cls: 'primary' },
+    { label: 'Vencido', value: fmt(r.vencido), cls: 'danger' },
+    { label: 'Vence hoje', value: fmt(r.venceHoje), cls: 'warn' },
+    { label: 'Próx. 7 dias', value: fmt(r.prox7), cls: 'warn' },
+    { label: 'Próx. 30 dias', value: fmt(r.prox30), cls: 'primary' },
+    { label: 'Recebido (mês)', value: fmt(r.recebidoMes), cls: 'success' }
+  ];
+  document.getElementById('totalizadores').innerHTML = cards.map(c => {
+    const mod = c.cls === 'primary' ? '' : c.cls;
+    return `<div class="kpi ${mod}"><div class="label">${c.label}</div>
+      <div class="value">R$ ${c.value}</div></div>`;
+  }).join('');
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tb');
+  if (!CONTAS.length) { tb.innerHTML = '<tr><td colspan="12" class="empty">Nenhuma conta encontrada.</td></tr>'; return; }
+  const h = hoje();
+  tb.innerHTML = CONTAS.map(c => {
+    const vencida = ['aberta','parcial'].includes(c.status) && c.dataVencimento < h;
+    const statusDisplay = vencida ? 'vencida' : c.status;
+    const selecionada = SELECIONADAS.has(c.id);
+    const parcelaInfo = c.parcelaNumero ? `<br><small style="color:var(--text-3);">${c.parcelaNumero}/${c.totalParcelas}</small>` : '';
+    const origemInfo = c.nfseId ? `<br><small style="color:var(--text-3);">NFSe ${c.nfseNumero||c.nfseId}</small>` : '';
+    return `<tr class="${selecionada?'selected':''}">
+      <td>${['aberta','parcial'].includes(c.status) ? `<input type="checkbox" ${selecionada?'checked':''} onchange="toggleSel(${c.id}, this.checked)">` : ''}</td>
+      <td>${fmtData(c.dataVencimento)}${parcelaInfo}</td>
+      <td><strong>${c.pessoaNome||'—'}</strong><br><small style="color:var(--text-3);">${c.pessoaCpfCnpj||''}</small></td>
+      <td>${c.descricao}${origemInfo}</td>
+      <td>${c.categoriaNome ? (c.categoriaIcone||'') + ' ' + c.categoriaNome : '<span style="color:var(--text-3);">—</span>'}</td>
+      <td style="text-align:right;"><strong>R$ ${fmt(c.valor)}</strong></td>
+      <td style="text-align:right;"><strong style="color:${c.saldoRestante>0?'var(--warn)':'var(--success)'}">R$ ${fmt(c.saldoRestante)}</strong></td>
+      <td style="text-align:right;">${(() => {
+        const jm = calcJurosMulta(c);
+        if (jm.juros + jm.multa === 0) return '<span style="color:var(--text-3);">—</span>';
+        const tip = `${jm.diasAtraso} dias de atraso\\n+ Juros: R$ ${fmt(jm.juros)}\\n+ Multa: R$ ${fmt(jm.multa)}`;
+        return `<strong style="color:var(--danger);" title="${tip}">R$ ${fmt(jm.total)}</strong>`;
+      })()}</td>
+      <td><span class="badge ${statusDisplay}">${statusDisplay}</span></td>
+      <td style="text-align:center;">${c.boletoStatus ? `<span title="boleto ${c.boletoStatus}">📄</span>` : ''}</td>
+      <td style="text-align:center;">${c.totalAnexos>0?`<span title="${c.totalAnexos} anexo(s)">📎${c.totalAnexos}</span>`:''}</td>
+      <td><a class="btn btn-secondary btn-sm" href="/financeiro/contas-a-receber-detalhe.html?id=${c.id}" style="text-decoration:none;">Abrir</a></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('chkAll').checked = false;
+  atualizarBarraLote();
+}
+
+function toggleSel(id, checked){
+  if (checked) SELECIONADAS.add(id); else SELECIONADAS.delete(id);
+  atualizarBarraLote(); renderTabela();
+}
+function toggleAll(cb){
+  CONTAS.forEach(c => {
+    if (['aberta','parcial'].includes(c.status)) {
+      if (cb.checked) SELECIONADAS.add(c.id); else SELECIONADAS.delete(c.id);
+    }
+  });
+  renderTabela();
+}
+function limparSelecao(){ SELECIONADAS.clear(); renderTabela(); }
+function atualizarBarraLote(){
+  const n = SELECIONADAS.size;
+  document.getElementById('loteCount').textContent = `${n} conta(s) selecionada(s)`;
+  document.getElementById('barraLote').classList.toggle('show', n > 0);
+}
+
+// ===== Modal Nova =====
+let PESSOA_SEL = null;
+let tmrP, TAB_ATIVA = 'unica';
+function debouncePessoa(){ clearTimeout(tmrP); tmrP = setTimeout(buscarPessoa, 250); }
+function selTab(t){
+  TAB_ATIVA = t;
+  document.querySelectorAll('.modal .tab').forEach(el => el.classList.toggle('active', el.dataset.tab === t));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.toggle('active', el.dataset.tab === t));
+}
+function abrirNova(){
+  PESSOA_SEL = null;
+  ['nPessoaBusca','nDesc','nValor','nVenc','nValorTot','nVenc1','nObs'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('nParcelas').value = 3;
+  document.getElementById('nIntervalo').value = 1;
+  document.getElementById('nCategoria').value = '';
+  document.getElementById('nForma').value = '';
+  document.getElementById('nPlanoConta').value = '';
+  document.getElementById('nCentroCusto').value = '';
+  document.getElementById('nPessoaList').innerHTML = '';
+  document.getElementById('nPessoaSel').textContent = '';
+  selTab('unica');
+  document.getElementById('modalNova').classList.add('open');
+}
+function fecharNova(){ document.getElementById('modalNova').classList.remove('open'); }
+
+async function buscarPessoa(){
+  const q = document.getElementById('nPessoaBusca').value.trim();
+  const list = document.getElementById('nPessoaList');
+  if (q.length < 2) { list.innerHTML = ''; return; }
+  try {
+    const r = await fetch('/api/pessoas?q=' + encodeURIComponent(q));
+    const d = await r.json();
+    const ps = d.pessoas || [];
+    if (!ps.length) { list.innerHTML = '<div class="item" style="color:var(--text-3);">Nenhum cliente — cadastre em /pessoas.html</div>'; return; }
+    list.innerHTML = ps.slice(0,20).map(p => `<div class="item" onclick="selecionarPessoa(${p.id}, ${JSON.stringify(p.razaoSocial||'').replace(/"/g,'&quot;')}, '${p.cpfCnpj}')"><strong>${p.razaoSocial}</strong> <span style="color:var(--text-3);">${p.cpfCnpj}</span></div>`).join('');
+  } catch(e){ list.innerHTML = '<div class="item" style="color:var(--danger);">Erro: '+e.message+'</div>'; }
+}
+function selecionarPessoa(id, nome, cpfCnpj){
+  PESSOA_SEL = { id, nome, cpfCnpj };
+  document.getElementById('nPessoaList').innerHTML = '';
+  document.getElementById('nPessoaBusca').value = nome;
+  document.getElementById('nPessoaSel').textContent = `✓ ${nome} (${cpfCnpj})`;
+}
+
+async function salvarNova(){
+  if (!PESSOA_SEL) { alert('Selecione um cliente'); return; }
+  const desc = document.getElementById('nDesc').value.trim();
+  if (!desc) { alert('Descrição obrigatória'); return; }
+  const body = {
+    pessoaId: PESSOA_SEL.id,
+    categoriaId: document.getElementById('nCategoria').value || null,
+    planoContaId: document.getElementById('nPlanoConta').value || null,
+    centroCustoId: document.getElementById('nCentroCusto').value || null,
+    descricao: desc,
+    formaPagamento: document.getElementById('nForma').value || null,
+    observacoes: document.getElementById('nObs').value || null
+  };
+  if (TAB_ATIVA === 'unica') {
+    body.valor = Number(document.getElementById('nValor').value);
+    body.dataVencimento = document.getElementById('nVenc').value;
+    if (!body.valor || !body.dataVencimento) { alert('Valor e vencimento obrigatórios'); return; }
+  } else {
+    body.valor = Number(document.getElementById('nValorTot').value);
+    body.parcelas = Number(document.getElementById('nParcelas').value);
+    body.intervaloMeses = Number(document.getElementById('nIntervalo').value);
+    body.dataVencimento = document.getElementById('nVenc1').value;
+    if (!body.valor || !body.parcelas || body.parcelas < 2 || !body.dataVencimento) { alert('Valor, parcelas (≥2) e 1º vencimento obrigatórios'); return; }
+  }
+  try {
+    const r = await fetch('/api/contas-a-receber', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharNova(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== Baixa em lote =====
+function _contasLoteOrdenadas(){
+  return CONTAS.filter(c => SELECIONADAS.has(c.id) && c.saldoRestante > 0)
+    .sort((a,b) => String(a.dataVencimento||'').localeCompare(String(b.dataVencimento||'')) || (a.id - b.id));
+}
+async function abrirLote(){
+  const n = SELECIONADAS.size;
+  if (!n) return;
+  const lista = _contasLoteOrdenadas();
+  // Pré-preenche com soma de saldo + juros + multa projetados (config aplicada).
+  let totalDevido = 0, totalSaldo = 0, totalJuros = 0, totalMulta = 0;
+  for (const c of lista) {
+    const jm = calcJurosMulta(c);
+    totalSaldo += c.saldoRestante;
+    totalJuros += jm.juros;
+    totalMulta += jm.multa;
+    totalDevido += jm.total;
+  }
+  const breakdown = (totalJuros + totalMulta > 0)
+    ? ` · principal R$ ${fmt(totalSaldo)} + juros R$ ${fmt(totalJuros)} + multa R$ ${fmt(totalMulta)}`
+    : '';
+  document.getElementById('loteResumo').innerHTML =
+    `<strong>${n} conta(s)</strong> · total devido <strong style="color:var(--accent);">R$ ${fmt(totalDevido)}</strong>${breakdown}`;
+  document.getElementById('lData').value = hoje();
+  document.getElementById('lForma').value = '';
+  document.getElementById('lValorTotal').value = totalDevido.toFixed(2);
+  try {
+    const r = await fetch('/api/contas-financeiras');
+    const d = await r.json();
+    document.getElementById('lContaFin').innerHTML = (d.contas || []).filter(c => c.ativo).map(c => `<option value="${c.id}">${c.nome} (${c.tipo})</option>`).join('');
+  } catch(e){}
+  atualizarPreviaLote();
+  document.getElementById('modalLote').classList.add('open');
+}
+function atualizarPreviaLote(){
+  const lista = _contasLoteOrdenadas();
+  // Projeção juros/multa por conta — mesmo cálculo do detalhe individual.
+  let somaTotal = 0;
+  for (const c of lista) {
+    const jm = calcJurosMulta(c);
+    c._jurosProj = jm.juros;
+    c._multaProj = jm.multa;
+    c._totalDevido = jm.total;
+    somaTotal += jm.total;
+  }
+  const vt = Number(document.getElementById('lValorTotal').value) || 0;
+  const prev = document.getElementById('lPrevia');
+  if (vt <= 0) { prev.innerHTML = ''; return; }
+  if (vt > somaTotal + 0.01) {
+    prev.innerHTML = `<span style="color:var(--danger);">Valor R$ ${fmt(vt)} excede total devido R$ ${fmt(somaTotal)}.</span>`;
+    return;
+  }
+  // Simula distribuição FIFO. Modo de imputação dentro de cada conta:
+  //   quitar=true  → principal → multa → juros (título quita, juros arredondado)
+  //   quitar=false → juros → multa → principal (CC 354, título pode ficar parcial)
+  const quitar = document.getElementById('lQuitarArredondando').checked;
+  let restante = vt, linhas = [], contasAtingidas = 0, parciais = 0;
+  let totBase = 0, totJuros = 0, totMulta = 0;
+  for (const c of lista) {
+    if (restante <= 0.005) break;
+    let b = 0, j = 0, m = 0;
+    if (quitar) {
+      b = Math.min(c.saldoRestante, Math.round(restante*100)/100); restante = Math.round((restante-b)*100)/100;
+      m = Math.min(c._multaProj, Math.round(restante*100)/100);    restante = Math.round((restante-m)*100)/100;
+      j = Math.min(c._jurosProj, Math.round(restante*100)/100);    restante = Math.round((restante-j)*100)/100;
+    } else {
+      j = Math.min(c._jurosProj, Math.round(restante*100)/100);    restante = Math.round((restante-j)*100)/100;
+      m = Math.min(c._multaProj, Math.round(restante*100)/100);    restante = Math.round((restante-m)*100)/100;
+      b = Math.min(c.saldoRestante, Math.round(restante*100)/100); restante = Math.round((restante-b)*100)/100;
+    }
+    if (j+m+b <= 0) continue;
+    const isParcial = b < c.saldoRestante - 0.01;
+    if (isParcial) parciais++;
+    totBase += b; totJuros += j; totMulta += m;
+    linhas.push(`#${c.id} ${fmtData(c.dataVencimento)}: principal R$ ${fmt(b)}${j>0?', juros R$ '+fmt(j):''}${m>0?', multa R$ '+fmt(m):''}${isParcial?' <em style="color:var(--warn);">(parcial)</em>':''}`);
+    contasAtingidas++;
+  }
+  const naoAtingidas = lista.length - contasAtingidas;
+  prev.innerHTML = `
+    <div><strong>${contasAtingidas}</strong> conta(s)${parciais ? ', ' + parciais + ' parcial(is)' : ''}${naoAtingidas ? ', <strong>' + naoAtingidas + '</strong> intactas' : ''}.</div>
+    <div style="margin-top:2px;">Principal: <strong>R$ ${fmt(totBase)}</strong> · Juros: <strong style="color:var(--warn);">R$ ${fmt(totJuros)}</strong> · Multa: <strong style="color:var(--warn);">R$ ${fmt(totMulta)}</strong></div>
+    ${linhas.length <= 6 ? '<div style="margin-top:4px;font-size:0.92em;">' + linhas.join('<br>') + '</div>' : ''}
+  `;
+}
+function fecharLote(){ document.getElementById('modalLote').classList.remove('open'); }
+async function confirmarLote(){
+  const ids = [...SELECIONADAS];
+  const vt = Number(document.getElementById('lValorTotal').value) || 0;
+  if (!vt || vt <= 0) { alert('Informe o valor total recebido'); return; }
+  const body = {
+    ids,
+    contaFinanceiraId: Number(document.getElementById('lContaFin').value),
+    dataPagamento: document.getElementById('lData').value,
+    formaPagamento: document.getElementById('lForma').value || null,
+    valorTotal: vt,
+    imputacao: document.getElementById('lQuitarArredondando').checked
+      ? 'quitar-arredondando-juros' : 'cc354',
+  };
+  if (!body.contaFinanceiraId) { alert('Selecione conta financeira'); return; }
+  try {
+    const r = await fetch('/api/contas-a-receber/baixar-lote', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alert(`${d.sucessos.length} conta(s) recebida(s).${d.falhas.length?' Falhas: '+d.falhas.length:''}`);
+    SELECIONADAS.clear();
+    fecharLote(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== Categorias =====
+async function abrirCategorias(){
+  await Promise.all([carregarCategorias(), carregarPlanoContas()]);
+  const list = document.getElementById('catList');
+  list.innerHTML = CATEGORIAS.map(c => {
+    const planoOpts = '<option value="">— sem —</option>' + PLANO_CONTAS
+      .map(p => `<option value="${p.id}" ${p.id==c.planoContaId?'selected':''}>${p.codigo} · ${p.nome}</option>`).join('');
+    return `
+    <div style="display:grid; grid-template-columns: 1fr 2fr auto; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border);">
+      <span>${c.icone||''} ${c.nome}</span>
+      <select onchange="mapearCategoria(${c.id}, this.value)" style="padding:4px;">${planoOpts}</select>
+      <button class="btn btn-link btn-sm" onclick="removerCategoria(${c.id})">remover</button>
+    </div>`;
+  }).join('') || '<p style="color:var(--text-3);">Nenhuma categoria.</p>';
+  document.getElementById('catNome').value = '';
+  document.getElementById('catIcone').value = '';
+  // Popula select de plano para nova categoria
+  const planoOpts = '<option value="">— sem mapeamento —</option>' + PLANO_CONTAS
+    .map(p => `<option value="${p.id}">${p.codigo} · ${p.nome}</option>`).join('');
+  document.getElementById('catPlano').innerHTML = planoOpts;
+  document.getElementById('catPlano').value = '';
+  document.getElementById('modalCat').classList.add('open');
+}
+function fecharCategorias(){ document.getElementById('modalCat').classList.remove('open'); }
+async function criarCategoria(){
+  const nome = document.getElementById('catNome').value.trim();
+  if (!nome) return;
+  const icone = document.getElementById('catIcone').value.trim() || null;
+  const planoContaId = document.getElementById('catPlano').value || null;
+  try {
+    const r = await fetch('/api/cr-categorias', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nome, icone, planoContaId })});
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    abrirCategorias();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function mapearCategoria(id, planoContaId){
+  try {
+    const r = await fetch('/api/cr-categorias/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ planoContaId: planoContaId || null }) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    await carregarCategorias();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+async function removerCategoria(id){
+  if (!confirm('Remover esta categoria?')) return;
+  await fetch('/api/cr-categorias/'+id, { method:'DELETE' });
+  abrirCategorias(); carregarCategorias();
+}
+
+function paramsFiltros(){
+  const p = new URLSearchParams();
+  for (const [id, key] of [['fStatus','status'],['fCategoria','categoriaId'],['fNota','nota'],['fVencIni','dataVencIni'],['fVencFim','dataVencFim'],['fBusca','busca']]) {
+    const v = document.getElementById(id).value;
+    if (v) p.set(key, v);
+  }
+  return p;
+}
+function exportarCSV(){
+  window.location.href = '/api/contas-a-receber/csv?' + paramsFiltros().toString();
+}
+function exportarPDF(){
+  window.open('/api/contas-a-receber/pdf?' + paramsFiltros().toString(), '_blank');
+}
+
+['modalNova','modalLote','modalCat'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) e.target.classList.remove('open'); });
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  ['modalNova','modalLote','modalCat'].forEach(id => document.getElementById(id).classList.remove('open'));
+});
+
+Promise.all([carregarCategorias(), carregarPlanoContas(), carregarCentrosCusto(), carregarConfigJuros()]).then(carregar);
+</script>
+</body></html>

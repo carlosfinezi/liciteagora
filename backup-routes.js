@@ -17,6 +17,24 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// Fase 3g (2026-05-23): stats catalog via PG
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
+async function _catalogStats() {
+  if (USE_PG) {
+    // COUNT(*) exato em `itens` (18M+ linhas) estoura o statement_timeout de 30s.
+    // São números de display: usar estimativa de pg_class.reltuples (instantâneo).
+    const est = await catalogPg.queryOne(
+      `SELECT
+         (SELECT reltuples::bigint FROM pg_class WHERE oid = 'licitacoes'::regclass) AS lic,
+         (SELECT reltuples::bigint FROM pg_class WHERE oid = 'itens'::regclass) AS itens`
+    );
+    return { licitacoes: Number(est?.lic || 0), itens: Number(est?.itens || 0) };
+  }
+  return null;
+}
+
 function registrarRotasBackup(app, db, { dbPath, PORT }) {
   const backupsDir = path.join(__dirname, 'backups');
 
@@ -26,7 +44,7 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   }
 
   // Criar backup do banco de dados
-  app.post('/api/backup/criar', (req, res) => {
+  app.post('/api/backup/criar', async (req, res) => {
     try {
       const { descricao } = req.body;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -42,11 +60,14 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
         descricao: descricao || 'Backup manual',
         dataHora: new Date().toISOString(),
         tamanho: fs.statSync(caminhoBackup).size,
-        stats: {
-          licitacoes: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
-          itens: db.prepare('SELECT COUNT(*) as count FROM itens').get().count,
-          interesses: db.prepare('SELECT COUNT(*) as count FROM interesses').get().count
-        }
+        stats: await (async () => {
+          const catStats = USE_PG ? await _catalogStats() : null;
+          return {
+            licitacoes: catStats ? catStats.licitacoes : db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
+            itens: catStats ? catStats.itens : db.prepare('SELECT COUNT(*) as count FROM itens').get().count,
+            interesses: db.prepare('SELECT COUNT(*) as count FROM interesses').get().count
+          };
+        })()
       };
 
       const metadadosPath = path.join(backupsDir, `${nomeArquivo}.json`);
@@ -151,7 +172,7 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   });
 
   // Obter informações de versão do Git
-  app.get('/api/versao', (req, res) => {
+  app.get('/api/versao', async (req, res) => {
     try {
       let gitInfo = { disponivel: false };
 
@@ -175,9 +196,10 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
         // Git não disponível ou não é um repositório
       }
 
+      const catStats = USE_PG ? await _catalogStats() : null;
       const stats = {
-        licitacoes: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
-        itens: db.prepare('SELECT COUNT(*) as count FROM itens').get().count,
+        licitacoes: catStats ? catStats.licitacoes : db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
+        itens: catStats ? catStats.itens : db.prepare('SELECT COUNT(*) as count FROM itens').get().count,
         interesses: db.prepare('SELECT COUNT(*) as count FROM interesses').get().count
       };
 

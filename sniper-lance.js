@@ -1,8 +1,8 @@
 /**
  * sniper-lance.js — Sistema de lance sniper para Comprasnet
- * 
+ *
  * Envia lances via chamadas HTTP diretas usando Bearer token.
- * O token é recebido da extensão Chrome (Token Relay).
+ * O token é recebido do Electron Standalone (electron-standalone/).
  * NÃO depende de Puppeteer, CDP ou túnel SSH.
  * 
  * API Comprasnet:
@@ -12,6 +12,18 @@
  */
 
 const axios = require('axios');
+const https = require('https');
+
+// Pool de sockets TLS reutilizáveis contra Comprasnet.
+// Sem isso, cada request faz handshake novo (~100ms); com keepAlive cai pra ~50ms.
+// Essencial pro Guard poll a >5Hz e pra rajada (múltiplos POSTs em <1s).
+const keepAliveAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 20,
+  maxFreeSockets: 10,
+  timeout: 60000,
+});
 
 const BASE_URL = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const TOKEN_MAX_AGE_S = 600; // 10 minutos — tokens Comprasnet expiram por volta disso
@@ -42,7 +54,7 @@ const API_HEADERS = {
   'Accept': 'application/json, text/plain, */*',
   'Content-Type': 'application/json',
   'x-device-platform': 'web',
-  'x-version-number': '6.0.0',
+  'x-version-number': '6.0.2',
   'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
 };
 
@@ -58,6 +70,25 @@ class SniperLance {
     this.historico = [];               // últimos 50 lances
     this.logs = [];
     this.maxLogs = 500;
+
+    // Phase B/C (2026-04-23): state de closure global migrado para instance
+    // fields para isolar por-tenant. Antes vazava entre tenants.
+    this.disputasCache = { disputas: [], atualizadoEm: null };
+    this.filaLances = [];
+    this.resultadosLances = [];
+    this.filaTarefas = [];
+    this.tarefaIdCounter = 0;
+    this.autoLanceAtivo = false;
+    this.autoLanceTimerNormal = null;
+    this.autoLanceTimerRapido = null;
+    this.autoLanceTimerUltra = null;
+    this.autoLancePendentes = {};
+    this.autoLanceComprasFast = {};
+    this.autoLanceLog = [];
+    this.autoLanceStats = { ciclos: 0, lancesEnviados: 0, ultimoCiclo: null };
+    this.blitzDisparados = {};
+    this.guardLoops = {};
+    this.guardStats = { totalPolls: 0, detections: 0, lancesEnqueued: 0 };
 
     // Cache de validação de token
     this._lastValidatedToken = null;
@@ -142,11 +173,74 @@ class SniperLance {
       }
     }
 
+    const tokenAntigo = this.bearerToken;
     this.bearerToken = newToken;
     this.tokenRecebidoEm = new Date().toISOString();
     this.tokenSource = source;
+    this._tokenMortoAlertado = false; // novo token chegou → libera próximo alerta de morte
     this.log(`🔑 Bearer recebido (${source}): ${this.bearerToken.substring(0, 30)}...`);
     this._persistirToken();
+    // Registrar no histórico com expiração real do JWT
+    this._registrarNoHistorico(newToken, source, tokenAntigo);
+  }
+
+  // Decodifica claims do JWT (payload) sem validar assinatura. Retorna null se inválido.
+  _decodeJwtPayload(bearerToken) {
+    try {
+      const raw = bearerToken.replace(/^Bearer\s+/, '');
+      const parts = raw.split('.');
+      if (parts.length !== 3) return null;
+      const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padLen = padded.length % 4 === 0 ? 0 : (4 - padded.length % 4);
+      const fixed = padded + '='.repeat(padLen);
+      const json = Buffer.from(fixed, 'base64').toString('utf8');
+      return JSON.parse(json);
+    } catch (_) { return null; }
+  }
+
+  _fingerprint(bearerToken) {
+    try {
+      const raw = bearerToken.replace(/^Bearer\s+/, '');
+      const crypto = require('crypto');
+      return crypto.createHash('sha1').update(raw.substring(0, 40)).digest('hex').substring(0, 12);
+    } catch (_) { return null; }
+  }
+
+  _registrarNoHistorico(newToken, source, tokenAntigo) {
+    if (!this.db) return;
+    try {
+      const payload = this._decodeJwtPayload(newToken) || {};
+      const fp = this._fingerprint(newToken);
+      const expEm = payload.exp ? new Date(payload.exp * 1000).toISOString() : null;
+      const subject = payload.sub || payload.preferred_username || null;
+      const jti = payload.jti || null;
+      const duracaoEsperada = payload.exp && payload.iat ? (payload.exp - payload.iat) : null;
+      const agora = new Date().toISOString();
+      // Marca o anterior como substituído
+      if (tokenAntigo) {
+        const fpAnt = this._fingerprint(tokenAntigo);
+        this.db.prepare(`UPDATE bearer_history SET substituidoEm = ? WHERE tokenFingerprint = ? AND substituidoEm IS NULL`).run(agora, fpAnt);
+      }
+      this.db.prepare(`INSERT OR IGNORE INTO bearer_history
+        (source, tokenFingerprint, jti, subject, recebidoEm, expEm, duracaoEsperadaSeg)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(source, fp, jti, subject, agora, expEm, duracaoEsperada);
+    } catch (e) {
+      this.log('Erro ao registrar token no histórico: ' + e.message);
+    }
+  }
+
+  // Retorna timestamp de expiração real (do JWT) ou null se não conseguir decodificar
+  expiraEm() {
+    if (!this.bearerToken) return null;
+    const payload = this._decodeJwtPayload(this.bearerToken);
+    return payload?.exp ? new Date(payload.exp * 1000) : null;
+  }
+
+  // Segundos até expirar (negativo = já expirou). null se não decodificou.
+  segundosAteExpirar() {
+    const exp = this.expiraEm();
+    return exp ? Math.floor((exp.getTime() - Date.now()) / 1000) : null;
   }
 
   /**
@@ -179,6 +273,7 @@ class SniperLance {
         headers: { ...API_HEADERS, Authorization: token },
         timeout: 8000,
         validateStatus: () => true,
+        httpsAgent: keepAliveAgent,
       });
 
       const valid = resp.status === 200;
@@ -208,7 +303,7 @@ class SniperLance {
 
   getToken() {
     if (!this.bearerToken) {
-      throw new Error('Sem Bearer token. Abra o Comprasnet no Chrome com a extensão Token Relay.');
+      throw new Error('Sem Bearer token. Abra o Comprasnet pelo Electron LiciteAgora.');
     }
     return this.bearerToken;
   }
@@ -254,6 +349,7 @@ class SniperLance {
       headers: { ...API_HEADERS, Authorization: token },
       timeout: 10000,
       validateStatus: () => true,
+      httpsAgent: keepAliveAgent,
     });
     return { status: resp.status, data: resp.data };
   }
@@ -271,6 +367,7 @@ class SniperLance {
       headers: { ...API_HEADERS, Authorization: token },
       timeout: 15000,
       validateStatus: () => true,
+      httpsAgent: keepAliveAgent,
     });
     return { status: resp.status, data: resp.data };
   }
@@ -285,6 +382,7 @@ class SniperLance {
       headers: { ...API_HEADERS, Authorization: token },
       timeout: 10000,
       validateStatus: () => true,
+      httpsAgent: keepAliveAgent,
     });
     return { status: resp.status, data: resp.data };
   }
@@ -296,6 +394,7 @@ class SniperLance {
       headers: { ...API_HEADERS, Authorization: token },
       timeout: 10000,
       validateStatus: () => true,
+      httpsAgent: keepAliveAgent,
     });
     return { status: resp.status, data: resp.data };
   }
@@ -307,6 +406,7 @@ class SniperLance {
       headers: { ...API_HEADERS, Authorization: token },
       timeout: 10000,
       validateStatus: () => true,
+      httpsAgent: keepAliveAgent,
     });
     return { status: resp.status, data: resp.data };
   }
@@ -376,8 +476,35 @@ class SniperLance {
 
   /**
    * Envia um lance imediatamente via API HTTP direta.
+   * Plano 16: Gate global 'sniper_motor_enabled' — se desligado, o lance
+   * NÃO vai para o Comprasnet. Todos os caminhos (manual ⚡, agendado,
+   * rajada individual e Rajada Global) passam por aqui, então o gate
+   * pega todos. Cache 5s pra não bater no DB em cada lance de um lote.
    */
+  _motorLigado() {
+    const agora = Date.now();
+    if (!this._motorCache || agora > this._motorCache.expira) {
+      let ligado = true;
+      try {
+        const row = this.db && this.db.prepare("SELECT valor FROM config WHERE chave='sniper_motor_enabled'").get();
+        ligado = row ? row.valor !== '0' : true; // default on
+      } catch (_) { ligado = true; }
+      this._motorCache = { valor: ligado, expira: agora + 5000 };
+    }
+    return this._motorCache.valor;
+  }
+  invalidarMotorCache() { this._motorCache = null; }
+
   async enviarLance(compraId, itemNumero, valor, faseItem = 'LA') {
+    if (!this._motorLigado()) {
+      return {
+        sucesso: false,
+        status: 0,
+        tempoMs: 0,
+        resposta: '[motor de lances desligado — lance não enviado]',
+        bloqueado: true,
+      };
+    }
     const inicio = Date.now();
 
     const { status, data } = await this.apiPost(
@@ -741,95 +868,6 @@ class SniperLance {
     return { total: totalSync, paginas: pagina };
   }
 
-  // ==================== MENSAGENS (HTTP direto) ====================
-
-  /**
-   * Captura mensagens de uma licitação via HTTP.
-   * Requer Bearer + Captcha token.
-   */
-  async capturarMensagens(compraId, db) {
-    if (!this.temCaptcha()) {
-      throw new Error('Sem captcha token');
-    }
-
-    let pagina = 0;
-    let totalNovas = 0;
-
-    while (true) {
-      const { status, data } = await this.apiGetCaptcha(
-        `/comprasnet-mensagem/v2/chat/${compraId}?size=20&page=${pagina}&legadoAsp=false`
-      );
-
-      if (status !== 200 && status !== 206) {
-        if (pagina === 0) this.log(`⚠️ Mensagens ${compraId}: HTTP ${status}`);
-        break;
-      }
-
-      const mensagens = Array.isArray(data) ? data : [];
-      if (mensagens.length === 0) break;
-
-      for (const msg of mensagens) {
-        const id = msg.id || msg.identificador;
-        if (!id) continue;
-
-        const existe = db.prepare('SELECT id FROM chat_mensagens WHERE mensagemId = ?').get(String(id));
-        if (existe) continue;
-
-        try {
-          db.prepare(`INSERT INTO chat_mensagens
-            (compraId, mensagemId, cnpjOrgao, ano, sequencial, dataHoraMensagem,
-             remetente, conteudo, tipo, notificado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
-            compraId,
-            String(id),
-            msg.cnpjOrgao || '',
-            msg.ano || 0,
-            msg.sequencial || 0,
-            msg.dataHora || msg.dataHoraMensagem || new Date().toISOString(),
-            msg.remetente || msg.nomeRemetente || '',
-            msg.mensagem || msg.conteudo || '',
-            msg.tipo || 'MSG',
-          );
-          totalNovas++;
-        } catch (e) {
-          // Duplicate or schema mismatch — skip
-        }
-      }
-
-      pagina++;
-      if (mensagens.length < 20) break;
-      await new Promise(r => setTimeout(r, 300));
-    }
-
-    if (totalNovas > 0) {
-      this.log(`💬 ${compraId}: ${totalNovas} novas mensagens`);
-    }
-    return totalNovas;
-  }
-
-  /**
-   * Captura mensagens de TODAS as participações ativas.
-   */
-  async capturarTodasMensagens(db) {
-    const participacoes = db.prepare(
-      'SELECT compraId FROM participacoes_comprasnet WHERE ativo = 1'
-    ).all();
-
-    this.log(`💬 Capturando mensagens de ${participacoes.length} participações...`);
-    let total = 0;
-
-    for (const p of participacoes) {
-      try {
-        total += await this.capturarMensagens(p.compraId, db);
-      } catch (e) {
-        // Skip silently
-      }
-    }
-
-    this.log(`✅ Total: ${total} novas mensagens de ${participacoes.length} licitações`);
-    return total;
-  }
-
   // ==================== STATUS ====================
 
   getStatus() {
@@ -855,7 +893,27 @@ class SniperLance {
   }
 }
 
+// Classifica um 422 do Comprasnet pra decidir se vale continuar a rajada.
+// Hoje o batch loop trata 422 como fatal — mas várias 422 são regra-de-negócio
+// específica do lance individual (colisão de valor, valor abaixo do mínimo) que
+// não impedem os próximos lances do batch de serem aceitos. Só fase encerrada
+// é fatal de verdade.
+function classificar422(resposta) {
+  let msg = '';
+  try {
+    const parsed = typeof resposta === 'string' ? JSON.parse(resposta) : resposta;
+    msg = (parsed && parsed.message ? String(parsed.message) : '').toLowerCase();
+  } catch (_) {
+    msg = String(resposta || '').toLowerCase();
+  }
+  if (/diferente.*registrado|j[áa] registrado.*outr|igual.*outr/.test(msg)) return 'colisao';
+  if (/abaixo.*m[íi]nimo|menor.*m[íi]nimo|valor.*m[íi]nimo/.test(msg))      return 'valor-baixo';
+  if (/fase.*inv[áa]lid|encerrad|fora.*disputa|n[ãa]o.*permitido.*fase/.test(msg)) return 'fase-invalida';
+  return 'outro';
+}
+
 module.exports = SniperLance;
 module.exports.TOKEN_MAX_AGE_S = TOKEN_MAX_AGE_S;
 module.exports.TOKEN_SAFE_MARGIN_S = TOKEN_SAFE_MARGIN_S;
 module.exports.buildCompraId = buildCompraId;
+module.exports.classificar422 = classificar422;

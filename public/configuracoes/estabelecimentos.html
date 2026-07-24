@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estabelecimentos - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: lista de estabelecimentos + selos de estado */
+        .estab-table { width: 100%; border-collapse: collapse; }
+        .estab-table th, .estab-table td {
+            text-align: left; padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+        .estab-table th {
+            font-size: 0.75em; text-transform: uppercase; letter-spacing: .05em;
+            color: var(--text-3); font-weight: 600;
+        }
+        .estab-table tr:last-child td { border-bottom: none; }
+        .estab-nome { font-weight: 600; color: var(--text-0); }
+        .estab-cnpj { font-size: 0.85em; color: var(--text-3); font-variant-numeric: tabular-nums; }
+        .badge {
+            display: inline-block; padding: 3px 9px; border-radius: 999px;
+            font-size: 0.72em; font-weight: 600; white-space: nowrap;
+        }
+        .badge-matriz { background: var(--accent); color: #fff; }
+        .badge-filial { background: var(--bg-2); color: var(--text-2); }
+        .badge-pj { background: var(--bg-2); color: var(--text-2); }
+        .badge-ativa { background: color-mix(in srgb, var(--success, #2f8f5b) 18%, transparent); color: var(--success, #2f8f5b); }
+        .badge-bloqueada { background: color-mix(in srgb, var(--warning, #b4772c) 20%, transparent); color: var(--warning, #b4772c); }
+        .badge-inativa { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+        .row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+        .estab-empty { text-align: center; color: var(--text-3); padding: 32px; }
+        .form-hint { font-size: 12px; color: var(--text-3); margin-top: 6px; }
+        .required::after { content: ' *'; color: var(--danger); }
+        #formPanel { display: none; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Estabelecimentos</h1>
+                <small>Matriz e filiais do seu grupo — cada um com seu CNPJ. A matriz espelha os dados de Minha Empresa.</small>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn btn-primary btn-sm" id="btnNova" onclick="novaFilial()">➕ Nova filial</button>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert" style="display:none;"></div>
+
+            <!-- Lista -->
+            <div class="panel" id="listPanel">
+                <h3><span>🏪</span> Meus estabelecimentos</h3>
+                <div id="listContainer">
+                    <div class="estab-empty">Carregando…</div>
+                </div>
+            </div>
+
+            <!-- Formulário (criar/editar) -->
+            <div class="panel" id="formPanel">
+                <h3><span>🏢</span> <span id="formTitulo">Nova filial</span></h3>
+                <div id="matrizHint" class="form-hint" style="display:none;">
+                    Editando a <b>matriz</b>: as alterações são espelhadas automaticamente em Minha Empresa e usadas por todo o módulo fiscal.
+                </div>
+                <form id="formEstab" onsubmit="return false;">
+                    <input type="hidden" id="estabId">
+                    <input type="hidden" id="isMatriz" value="0">
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="tipo_vinculo">Tipo de vínculo</label>
+                            <select id="tipo_vinculo" name="tipo_vinculo">
+                                <option value="FILIAL_MESMA_PJ">Filial — mesma empresa (mesma raiz de CNPJ)</option>
+                                <option value="PJ_DISTINTA">Empresa distinta (outro CNPJ/PJ)</option>
+                            </select>
+                            <div class="form-hint" id="tipoHint">
+                                Filial da mesma PJ compartilha atestado técnico e herda INSS/FGTS da matriz. Empresa distinta habilita-se sozinha.
+                            </div>
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="razaoSocial" class="required">Razão Social</label>
+                            <input type="text" id="razaoSocial" name="razaoSocial" placeholder="Razão social completa">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="nomeFantasia">Nome Fantasia</label>
+                            <input type="text" id="nomeFantasia" name="nomeFantasia" placeholder="Nome fantasia">
+                        </div>
+                        <div class="form-group">
+                            <label for="cnpj" class="required">CNPJ</label>
+                            <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00">
+                        </div>
+                        <div class="form-group">
+                            <label for="inscricaoEstadual">Inscrição Estadual</label>
+                            <input type="text" id="inscricaoEstadual" name="inscricaoEstadual" placeholder="IE">
+                        </div>
+                        <div class="form-group">
+                            <label for="inscricaoMunicipal">Inscrição Municipal</label>
+                            <input type="text" id="inscricaoMunicipal" name="inscricaoMunicipal" placeholder="IM">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="regimeTributario">Regime Tributário</label>
+                            <select id="regimeTributario" name="regimeTributario">
+                                <option value="">— não definido —</option>
+                                <option value="SIMPLES_NACIONAL">Simples Nacional</option>
+                                <option value="MEI">MEI</option>
+                                <option value="NAO_OPTANTE">Não optante (Lucro Presumido/Real)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="regimeApuracaoPISCOFINS">Apuração PIS/COFINS</label>
+                            <select id="regimeApuracaoPISCOFINS" name="regimeApuracaoPISCOFINS">
+                                <option value="">— não definido —</option>
+                                <option value="cumulativo">Cumulativo</option>
+                                <option value="nao_cumulativo">Não cumulativo</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="align-self:end;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                <input type="checkbox" id="contribuinteIPI" name="contribuinteIPI" style="width:auto;">
+                                Contribuinte de IPI (indústria)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="endereco">Endereço</label>
+                            <input type="text" id="endereco" name="endereco" placeholder="Logradouro">
+                        </div>
+                        <div class="form-group">
+                            <label for="numero">Número</label>
+                            <input type="text" id="numero" name="numero" placeholder="Nº">
+                        </div>
+                        <div class="form-group">
+                            <label for="complemento">Complemento</label>
+                            <input type="text" id="complemento" name="complemento" placeholder="Sala, andar…">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="bairro">Bairro</label>
+                            <input type="text" id="bairro" name="bairro" placeholder="Bairro">
+                        </div>
+                        <div class="form-group">
+                            <label for="cidade">Cidade</label>
+                            <input type="text" id="cidade" name="cidade" placeholder="Cidade">
+                        </div>
+                        <div class="form-group">
+                            <label for="uf">UF</label>
+                            <input type="text" id="uf" name="uf" placeholder="UF" maxlength="2" style="text-transform:uppercase;">
+                        </div>
+                        <div class="form-group">
+                            <label for="cep">CEP</label>
+                            <input type="text" id="cep" name="cep" placeholder="00000-000">
+                        </div>
+                        <div class="form-group">
+                            <label for="codigoMunicipio">Cód. Município (IBGE)</label>
+                            <input type="text" id="codigoMunicipio" name="codigoMunicipio" placeholder="7 dígitos">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="telefone">Telefone</label>
+                            <input type="text" id="telefone" name="telefone" placeholder="Telefone">
+                        </div>
+                        <div class="form-group">
+                            <label for="celular">Celular</label>
+                            <input type="text" id="celular" name="celular" placeholder="Celular">
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="email">E-mail</label>
+                            <input type="email" id="email" name="email" placeholder="email@empresa.com">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cscId">CSCid (NFC-e)</label>
+                            <input type="text" id="cscId" name="cscId" placeholder="ID do token CSC">
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="csc">CSC (NFC-e)</label>
+                            <input type="text" id="csc" name="csc" placeholder="Código de Segurança do Contribuinte">
+                            <div class="form-hint">Necessário só para emitir NFC-e nesta filial. É por CNPJ, emitido pela SEFAZ. A matriz usa o CSC da configuração de NFC-e.</div>
+                        </div>
+                    </div>
+
+                    <div class="actions" style="margin-top:16px; display:flex; gap:10px;">
+                        <button type="button" class="btn btn-primary" onclick="salvar()">💾 Salvar</button>
+                        <button type="button" class="btn btn-secondary" onclick="fecharForm()">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('estabelecimentos');</script>
+    <script>
+    let lista = [];
+
+    function alerta(msg, tipo = 'success') {
+        const box = document.getElementById('alertBox');
+        box.textContent = msg;
+        box.style.display = 'block';
+        box.style.padding = '12px 16px';
+        box.style.borderRadius = '8px';
+        box.style.marginBottom = '16px';
+        if (tipo === 'success') {
+            box.style.background = 'color-mix(in srgb, var(--success, #2f8f5b) 15%, transparent)';
+            box.style.color = 'var(--success, #2f8f5b)';
+        } else {
+            box.style.background = 'color-mix(in srgb, var(--danger) 15%, transparent)';
+            box.style.color = 'var(--danger)';
+        }
+        clearTimeout(alerta._t);
+        alerta._t = setTimeout(() => { box.style.display = 'none'; }, 4000);
+    }
+
+    function fmtCnpj(v) {
+        const d = (v || '').replace(/\D/g, '');
+        if (d.length !== 14) return v || '—';
+        return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
+    }
+
+    function selosTipo(e) {
+        if (e.matriz) return '<span class="badge badge-matriz">Matriz</span>';
+        if (e.tipo_vinculo === 'PJ_DISTINTA') return '<span class="badge badge-pj">Empresa distinta</span>';
+        return '<span class="badge badge-filial">Filial (mesma PJ)</span>';
+    }
+
+    function seloStatus(e) {
+        if (!e.ativo) return '<span class="badge badge-inativa">Inativa</span>';
+        if (e.bloqueado) return '<span class="badge badge-bloqueada">Aguardando contratação</span>';
+        return '<span class="badge badge-ativa">Ativa</span>';
+    }
+
+    async function carregar() {
+        try {
+            const r = await fetch('/api/estabelecimentos');
+            const j = await r.json();
+            if (!j.success) throw new Error(j.error || 'Falha ao carregar');
+            lista = j.data || [];
+            render();
+        } catch (e) {
+            document.getElementById('listContainer').innerHTML =
+                `<div class="estab-empty">Erro ao carregar: ${e.message}</div>`;
+        }
+    }
+
+    function render() {
+        const c = document.getElementById('listContainer');
+        if (!lista.length) {
+            c.innerHTML = '<div class="estab-empty">Nenhum estabelecimento. A matriz aparece aqui após preencher Minha Empresa.</div>';
+            return;
+        }
+        const linhas = lista.map(e => {
+            const nome = e.nomeFantasia || e.razaoSocial || '(sem nome)';
+            let acoes = `<button class="btn btn-secondary btn-sm" onclick="editar(${e.id})">✏️ Editar</button>`;
+            if (!e.matriz) {
+                if (e.bloqueado) {
+                    acoes += `<button class="btn btn-primary btn-sm" onclick="contratar(${e.id})">✅ Contratar</button>`;
+                } else {
+                    acoes += `<button class="btn btn-secondary btn-sm" onclick="bloquear(${e.id})">⏸️ Bloquear</button>`;
+                }
+                acoes += e.ativo
+                    ? `<button class="btn btn-secondary btn-sm" onclick="setAtivo(${e.id},0)">🗑️ Desativar</button>`
+                    : `<button class="btn btn-secondary btn-sm" onclick="setAtivo(${e.id},1)">♻️ Reativar</button>`;
+            }
+            return `<tr>
+                <td><div class="estab-nome">${nome}</div><div class="estab-cnpj">${fmtCnpj(e.cnpj)}</div></td>
+                <td>${selosTipo(e)}</td>
+                <td>${e.uf || '—'}</td>
+                <td>${seloStatus(e)}</td>
+                <td><div class="row-actions">${acoes}</div></td>
+            </tr>`;
+        }).join('');
+        c.innerHTML = `<table class="estab-table">
+            <thead><tr><th>Estabelecimento</th><th>Tipo</th><th>UF</th><th>Status</th><th></th></tr></thead>
+            <tbody>${linhas}</tbody></table>`;
+    }
+
+    function preencher(e) {
+        document.getElementById('estabId').value = e.id || '';
+        document.getElementById('isMatriz').value = e.matriz ? '1' : '0';
+        const campos = ['razaoSocial','nomeFantasia','cnpj','inscricaoEstadual','inscricaoMunicipal',
+            'regimeTributario','regimeApuracaoPISCOFINS','endereco','numero','complemento','bairro',
+            'cidade','uf','cep','codigoMunicipio','telefone','celular','email','csc','cscId'];
+        campos.forEach(k => { document.getElementById(k).value = e[k] ?? ''; });
+        document.getElementById('contribuinteIPI').checked = !!e.contribuinteIPI;
+
+        const isMatriz = !!e.matriz;
+        const tipoSel = document.getElementById('tipo_vinculo');
+        tipoSel.value = isMatriz ? 'FILIAL_MESMA_PJ' : (e.tipo_vinculo || 'FILIAL_MESMA_PJ');
+        tipoSel.disabled = isMatriz;
+        document.getElementById('matrizHint').style.display = isMatriz ? 'block' : 'none';
+        document.getElementById('tipoHint').style.display = isMatriz ? 'none' : 'block';
+        document.getElementById('formTitulo').textContent =
+            isMatriz ? 'Editar matriz' : (e.id ? 'Editar filial' : 'Nova filial');
+    }
+
+    function abrirForm() {
+        document.getElementById('formPanel').style.display = 'block';
+        document.getElementById('formPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function fecharForm() {
+        document.getElementById('formPanel').style.display = 'none';
+    }
+
+    function novaFilial() {
+        preencher({ matriz: 0, tipo_vinculo: 'FILIAL_MESMA_PJ' });
+        abrirForm();
+    }
+
+    async function editar(id) {
+        try {
+            const r = await fetch('/api/estabelecimentos/' + id);
+            const j = await r.json();
+            if (!j.success) throw new Error(j.error);
+            preencher(j.data);
+            abrirForm();
+        } catch (e) { alerta('Erro ao abrir: ' + e.message, 'error'); }
+    }
+
+    function coletar() {
+        const g = id => document.getElementById(id).value.trim();
+        return {
+            tipo_vinculo: document.getElementById('tipo_vinculo').value,
+            razaoSocial: g('razaoSocial'),
+            nomeFantasia: g('nomeFantasia'),
+            cnpj: g('cnpj'),
+            inscricaoEstadual: g('inscricaoEstadual'),
+            inscricaoMunicipal: g('inscricaoMunicipal'),
+            regimeTributario: g('regimeTributario'),
+            regimeApuracaoPISCOFINS: g('regimeApuracaoPISCOFINS'),
+            contribuinteIPI: document.getElementById('contribuinteIPI').checked ? 1 : 0,
+            endereco: g('endereco'), numero: g('numero'), complemento: g('complemento'),
+            bairro: g('bairro'), cidade: g('cidade'), uf: g('uf').toUpperCase(), cep: g('cep'),
+            codigoMunicipio: g('codigoMunicipio'),
+            telefone: g('telefone'), celular: g('celular'), email: g('email'),
+            csc: g('csc'), cscId: g('cscId')
+        };
+    }
+
+    async function salvar() {
+        const id = document.getElementById('estabId').value;
+        const dados = coletar();
+        if (!dados.razaoSocial) return alerta('Informe a razão social.', 'error');
+        if (!dados.cnpj) return alerta('Informe o CNPJ.', 'error');
+        try {
+            const url = id ? '/api/estabelecimentos/' + id : '/api/estabelecimentos';
+            const metodo = id ? 'PUT' : 'POST';
+            const r = await fetch(url, {
+                method: metodo,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dados)
+            });
+            const j = await r.json();
+            if (!j.success) throw new Error(j.error);
+            alerta(j.message || 'Salvo.');
+            fecharForm();
+            carregar();
+        } catch (e) { alerta('Erro ao salvar: ' + e.message, 'error'); }
+    }
+
+    async function patchStatus(id, body, okMsg) {
+        try {
+            const r = await fetch(`/api/estabelecimentos/${id}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const j = await r.json();
+            if (!j.success) throw new Error(j.error);
+            alerta(okMsg);
+            carregar();
+        } catch (e) { alerta('Erro: ' + e.message, 'error'); }
+    }
+    const contratar = (id) => patchStatus(id, { bloqueado: 0 }, 'Filial contratada e liberada.');
+    const bloquear  = (id) => patchStatus(id, { bloqueado: 1 }, 'Filial bloqueada.');
+    const setAtivo  = (id, v) => patchStatus(id, { ativo: v }, v ? 'Filial reativada.' : 'Filial desativada.');
+
+    carregar();
+    </script>
+</body>
+</html>

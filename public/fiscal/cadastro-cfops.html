@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CFOPs · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Page-local: toolbar com labels acima; tabela CFOP customizada; form grid 2 colunas; card testador */
+
+  /* Toolbar específica (labels verticais acima dos inputs) — diferente da .toolbar canônica */
+  .cfop-toolbar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+  .cfop-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
+  .cfop-toolbar label { font-size: 0.72em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+
+  .tbl { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+  .tbl th { text-align: left; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--bg-3); }
+  .tbl td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .tbl tr:hover td { background: var(--bg-hover); }
+  .tbl td.codigo { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-weight: 700; color: var(--accent); }
+  .tbl td.acoes { text-align: right; white-space: nowrap; }
+
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .tag.interno       { background: var(--success-soft); color: var(--success); }
+  .tag.interestadual { background: var(--warn-soft);    color: var(--warn); }
+  .tag.exterior      { background: var(--danger-soft);  color: var(--danger); }
+  .tag.saida         { background: var(--accent-soft);  color: var(--accent); }
+  .tag.entrada       { background: var(--bg-hover);     color: var(--text-1); }
+
+  .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-grid label { font-size: 0.72em; color: var(--text-2); margin-bottom: 4px; display: block; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+
+  .testador { background: var(--bg-1); padding: 14px; border-radius: var(--r-md); margin-top: 14px; border: 1px solid var(--border); }
+  .testador .resultado { margin-top: 10px; padding: 12px; background: var(--bg-2); border-radius: var(--r-sm); font-size: 0.9em; border: 1px solid var(--border); }
+  .testador .resultado .cfop-big { font-size: 2em; color: var(--accent); font-weight: 700; font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+  .testador .resultado .desc { color: var(--text-1); margin-top: 4px; }
+  .testador .resultado .contexto { color: var(--text-2); font-size: 0.82em; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>CFOPs</h1>
+      <small>Catálogo, regras de aplicação automática e testador</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="catalogo" onclick="trocar('catalogo')">📋 Catálogo</div>
+    <div class="tab" data-tab="depara" onclick="trocar('depara')">📥 De/Para XML</div>
+    <div class="tab" data-tab="testar" onclick="trocar('testar')">🧪 Testar sugestão</div>
+  </div>
+
+  <div class="alert" style="background:var(--bg-hover);display:block;margin-bottom:14px;font-size:0.88em;">
+    💡 <strong>Regras de CFOP migraram para <a href="/configuracoes/cadastro-tipos-operacao.html" style="color:var(--accent);">Tipos de Operação</a></strong> — lá você define se a operação gera financeiro, movimenta estoque, qual CFOP default por destino, e a natureza fiscal da NF-e.
+  </div>
+
+  <!-- Aba Catálogo -->
+  <div class="tab-content active" id="panel-catalogo">
+    <div class="card">
+      <div class="cfop-toolbar">
+        <div class="field"><label>Buscar</label><input type="text" id="fBusca" placeholder="código ou descrição" oninput="debounce(carregarCfops)"></div>
+        <div class="field"><label>Tipo</label>
+          <select id="fTipo" onchange="carregarCfops()">
+            <option value="">Todos</option>
+            <option value="saida">Saída</option>
+            <option value="entrada">Entrada</option>
+          </select>
+        </div>
+        <div class="field"><label>Destino</label>
+          <select id="fDestino" onchange="carregarCfops()">
+            <option value="">Todos</option>
+            <option value="interno">Interno</option>
+            <option value="interestadual">Interestadual</option>
+            <option value="exterior">Exterior</option>
+          </select>
+        </div>
+        <div class="field"><label>&nbsp;</label>
+          <button class="btn btn-primary btn-sm" onclick="abrirNovoCfop()">+ Novo CFOP</button>
+        </div>
+      </div>
+      <table class="tbl">
+        <thead><tr>
+          <th>Código</th>
+          <th>Descrição</th>
+          <th>Tipo</th>
+          <th>Destino</th>
+          <th>Categoria</th>
+          <th>Contrap.</th>
+          <th title="Finalidade NF-e">Fin.</th>
+          <th title="Movimenta estoque / Gera financeiro / Gera crédito ICMS">Flags</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tbCfops"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Aba De/Para XML -->
+  <div class="tab-content" id="panel-depara">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <p style="color:var(--text-2);margin:0;font-size:0.9em;">
+          Quando importamos XML de fornecedor, o CFOP dele é de saída (5xxx/6xxx). Este de/para
+          converte para o CFOP de entrada correspondente (1xxx/2xxx) ao gravar no nosso estoque/fiscal.
+        </p>
+        <button class="btn btn-primary btn-sm" onclick="abrirNovoMap()">+ Novo mapeamento</button>
+      </div>
+      <table class="tbl">
+        <thead><tr>
+          <th>CFOP Fornecedor (saída)</th>
+          <th>→</th>
+          <th>CFOP Nosso (entrada)</th>
+          <th>Descrição</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tbMap"></tbody>
+      </table>
+      <div id="pendentesBox" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <!-- Aba Testar -->
+  <div class="tab-content" id="panel-testar">
+    <div class="card">
+      <h3>Testar qual CFOP seria aplicado</h3>
+      <p style="color:var(--text-2);font-size:0.9em;">Informe os parâmetros e veja qual CFOP o motor sugere para esse contexto.</p>
+      <div class="form-grid">
+        <div>
+          <label>Tipo de operação</label>
+          <select id="tTipoOp"><option value="">— carregando —</option></select>
+        </div>
+        <div>
+          <label>Cliente ID (opcional)</label>
+          <input type="number" id="tClienteId" placeholder="deixe vazio para usar UF direta">
+        </div>
+        <div>
+          <label>Produto ID (opcional)</label>
+          <input type="number" id="tProdutoId">
+        </div>
+        <div>
+          <label>UF de entrega (se não houver cliente)</label>
+          <input type="text" id="tUf" maxlength="2" placeholder="PA">
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btn-primary" onclick="testar()">🧪 Testar</button>
+      </div>
+      <div class="testador" id="testadorResultado" style="display:none;"></div>
+    </div>
+  </div>
+</main></div>
+
+<!-- Modal CFOP -->
+<div class="modal-bg" id="modalCfop">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="mcTitulo" style="margin:0;">Novo CFOP</h3>
+        <small class="muted">Código, tipo, destino e natureza fiscal</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal('modalCfop')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="mcCodigoOrig">
+    <div class="form-grid">
+      <div><label>Código *</label><input type="text" id="mcCodigo" maxlength="4"></div>
+      <div><label>Tipo *</label>
+        <select id="mcTipo"><option value="saida">Saída</option><option value="entrada">Entrada</option></select>
+      </div>
+      <div class="full"><label>Descrição *</label><input type="text" id="mcDesc"></div>
+      <div><label>Destino *</label>
+        <select id="mcDestino">
+          <option value="interno">Interno (mesma UF)</option>
+          <option value="interestadual">Interestadual</option>
+          <option value="exterior">Exterior</option>
+        </select>
+      </div>
+      <div><label>Categoria da operação</label>
+        <select id="mcCategoria">
+          <option value="">—</option>
+          <option value="venda">Venda</option>
+          <option value="compra">Compra</option>
+          <option value="devolucao_venda">Devolução de venda</option>
+          <option value="devolucao_compra">Devolução de compra</option>
+          <option value="bonificacao">Bonificação/brinde</option>
+          <option value="transferencia">Transferência</option>
+          <option value="remessa">Remessa</option>
+          <option value="retorno">Retorno</option>
+          <option value="exportacao">Exportação</option>
+          <option value="servico">Serviço</option>
+          <option value="compra_uso_consumo">Uso/consumo</option>
+          <option value="outros">Outros</option>
+        </select>
+      </div>
+      <div><label>Natureza (texto livre)</label><input type="text" id="mcNatureza" placeholder="venda_revenda, compra_industrializacao..."></div>
+      <div><label>CFOP contrapartida (devolução)</label>
+        <select id="mcContrap"><option value="">— nenhum —</option></select>
+      </div>
+      <div><label>Finalidade NF-e</label>
+        <select id="mcFinalidade">
+          <option value="1">1 · Normal</option>
+          <option value="2">2 · Complementar</option>
+          <option value="3">3 · Ajuste</option>
+          <option value="4">4 · Devolução</option>
+        </select>
+      </div>
+      <div><label>Movimenta estoque?</label>
+        <select id="mcMovEst"><option value="1">Sim</option><option value="0">Não</option></select>
+      </div>
+      <div><label>Gera financeiro (duplicata)?</label>
+        <select id="mcGerFin"><option value="1">Sim</option><option value="0">Não</option></select>
+      </div>
+      <div><label>Gera crédito ICMS?</label>
+        <select id="mcGerCred"><option value="0">Não</option><option value="1">Sim</option></select>
+      </div>
+      <div><label>Exige cliente contribuinte?</label>
+        <select id="mcExige"><option value="0">Não</option><option value="1">Sim</option></select>
+      </div>
+      <div><label>CST padrão (Lucro)</label><input type="text" id="mcCst" maxlength="3" placeholder="ex: 00, 41, 60"></div>
+      <div><label>CSOSN padrão (SN)</label><input type="text" id="mcCsosn" maxlength="3" placeholder="ex: 102, 400, 500"></div>
+      <div><label>Alíquota ICMS sugerida (%)</label><input type="number" id="mcIcms" step="0.01"></div>
+      <div><label>Alíquota PIS sugerida (%)</label><input type="number" id="mcPis" step="0.01" placeholder="ex: 1.65"></div>
+      <div><label>Alíquota COFINS sugerida (%)</label><input type="number" id="mcCofins" step="0.01" placeholder="ex: 7.6"></div>
+      <div class="full"><label>Observações</label><textarea id="mcObs" rows="2"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal('modalCfop')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCfop()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Regra -->
+<!-- Modal De/Para -->
+<div class="modal-bg" id="modalMap">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="mmTitulo" style="margin:0;">Novo mapeamento</h3>
+        <small class="muted">Converte o CFOP do fornecedor em CFOP nosso ao importar XML</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal('modalMap')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="mmId">
+    <div class="form-grid">
+      <div>
+        <label>CFOP do fornecedor (saída) *</label>
+        <input type="text" list="cfops-datalist-saida" id="mmFornecedor" maxlength="4" placeholder="5102" style="font-family:monospace;">
+      </div>
+      <div>
+        <label>CFOP nosso (entrada) *</label>
+        <input type="text" list="cfops-datalist-entrada" id="mmNosso" maxlength="4" placeholder="1102" style="font-family:monospace;">
+      </div>
+      <div class="full">
+        <label>Descrição (opcional)</label>
+        <input type="text" id="mmDesc" placeholder="Ex: Compra para revenda (interno)">
+      </div>
+    </div>
+    <datalist id="cfops-datalist-saida"></datalist>
+    <datalist id="cfops-datalist-entrada"></datalist>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal('modalMap')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarMap()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('cadastro-cfops');</script>
+<script>
+let cfopsCache = [];
+let tm;
+
+function val(id){ return document.getElementById(id).value; }
+function setVal(id, v){ document.getElementById(id).value = v ?? ''; }
+function debounce(fn){ clearTimeout(tm); tm = setTimeout(fn, 250); }
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(()=>e.style.display='none', 5000);
+}
+function escape(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function trocar(tab){
+  document.querySelectorAll('.tabs .tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.toggle('active', el.id === 'panel-' + tab));
+  if (tab === 'depara') carregarMap();
+}
+
+async function carregarCfops(){
+  try {
+    const p = new URLSearchParams();
+    if (val('fBusca')) p.set('busca', val('fBusca'));
+    if (val('fTipo')) p.set('tipoOperacao', val('fTipo'));
+    if (val('fDestino')) p.set('destino', val('fDestino'));
+    const r = await fetch('/api/cfops?' + p);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    cfopsCache = d.cfops;
+    renderCfops(d.cfops);
+  } catch (e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+function renderCfops(lista){
+  const tb = document.getElementById('tbCfops');
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-2);padding:18px;">Nenhum CFOP.</td></tr>'; return; }
+  tb.innerHTML = lista.map(c => {
+    const flags = [
+      c.movimentaEstoque ? 'E' : '·',
+      c.geraFinanceiro   ? 'F' : '·',
+      c.geraCreditoIcms  ? 'C' : '·'
+    ].join('');
+    return `
+    <tr>
+      <td class="codigo">${c.codigo}</td>
+      <td>${escape(c.descricao)}</td>
+      <td><span class="tag ${c.tipoOperacao}">${c.tipoOperacao}</span></td>
+      <td><span class="tag ${c.destino}">${c.destino}</span></td>
+      <td><small style="color:var(--text-2);">${escape(c.categoriaOperacao || '—')}</small></td>
+      <td class="codigo" style="color:var(--text-2);">${c.cfopContrapartida || '—'}</td>
+      <td>${c.finalidadeNFe || 1}</td>
+      <td><code style="font-size:0.78em;letter-spacing:2px;" title="E=estoque · F=financeiro · C=crédito ICMS">${flags}</code></td>
+      <td class="acoes">
+        <button class="btn btn-ghost btn-sm" onclick='editarCfop(${JSON.stringify(c)})'>Editar</button>
+      </td>
+    </tr>
+  `;}).join('');
+}
+
+function popularContrapartidaSelect(codigoAtual){
+  const sel = document.getElementById('mcContrap');
+  sel.innerHTML = '<option value="">— nenhum —</option>' +
+    cfopsCache
+      .filter(c => c.ativo && c.codigo !== codigoAtual)
+      .map(c => `<option value="${c.codigo}">${c.codigo} — ${escape(c.descricao).substring(0, 50)}</option>`)
+      .join('');
+}
+
+function abrirNovoCfop(){
+  popularContrapartidaSelect('');
+  setVal('mcCodigoOrig', '');
+  setVal('mcCodigo', '');
+  setVal('mcTipo', 'saida');
+  setVal('mcDesc', '');
+  setVal('mcDestino', 'interno');
+  setVal('mcCategoria', '');
+  setVal('mcNatureza', '');
+  setVal('mcContrap', '');
+  setVal('mcFinalidade', '1');
+  setVal('mcMovEst', '1');
+  setVal('mcGerFin', '1');
+  setVal('mcGerCred', '0');
+  setVal('mcExige', '0');
+  setVal('mcCst', '');
+  setVal('mcCsosn', '');
+  setVal('mcIcms', '');
+  setVal('mcPis', '');
+  setVal('mcCofins', '');
+  setVal('mcObs', '');
+  document.getElementById('mcTitulo').textContent = 'Novo CFOP';
+  document.getElementById('mcCodigo').disabled = false;
+  document.getElementById('modalCfop').classList.add('open');
+}
+
+function editarCfop(c){
+  popularContrapartidaSelect(c.codigo);
+  setVal('mcCodigoOrig', c.codigo);
+  setVal('mcCodigo', c.codigo);
+  setVal('mcTipo', c.tipoOperacao);
+  setVal('mcDesc', c.descricao);
+  setVal('mcDestino', c.destino);
+  setVal('mcCategoria', c.categoriaOperacao || '');
+  setVal('mcNatureza', c.natureza || '');
+  setVal('mcContrap', c.cfopContrapartida || '');
+  setVal('mcFinalidade', String(c.finalidadeNFe || 1));
+  setVal('mcMovEst', c.movimentaEstoque ? '1' : '0');
+  setVal('mcGerFin', c.geraFinanceiro ? '1' : '0');
+  setVal('mcGerCred', c.geraCreditoIcms ? '1' : '0');
+  setVal('mcExige', c.exigeContribuinte ? '1' : '0');
+  setVal('mcCst', c.cstPadrao || '');
+  setVal('mcCsosn', c.csosnPadrao || '');
+  setVal('mcIcms', c.icmsAliquotaSugerida || '');
+  setVal('mcPis', c.aliquotaPisPadrao || '');
+  setVal('mcCofins', c.aliquotaCofinsPadrao || '');
+  setVal('mcObs', c.observacoes || '');
+  document.getElementById('mcTitulo').textContent = 'Editar CFOP ' + c.codigo;
+  document.getElementById('mcCodigo').disabled = true;
+  document.getElementById('modalCfop').classList.add('open');
+}
+
+async function salvarCfop(){
+  const codigoOrig = val('mcCodigoOrig');
+  const body = {
+    codigo: val('mcCodigo').trim(),
+    descricao: val('mcDesc').trim(),
+    tipoOperacao: val('mcTipo'),
+    destino: val('mcDestino'),
+    categoriaOperacao: val('mcCategoria') || null,
+    natureza: val('mcNatureza').trim() || null,
+    cfopContrapartida: val('mcContrap') || null,
+    finalidadeNFe: Number(val('mcFinalidade')) || 1,
+    movimentaEstoque: Number(val('mcMovEst')),
+    geraFinanceiro: Number(val('mcGerFin')),
+    geraCreditoIcms: Number(val('mcGerCred')),
+    exigeContribuinte: Number(val('mcExige')),
+    cstPadrao: val('mcCst').trim() || null,
+    csosnPadrao: val('mcCsosn').trim() || null,
+    icmsAliquotaSugerida: val('mcIcms') ? Number(val('mcIcms')) : null,
+    aliquotaPisPadrao: val('mcPis') ? Number(val('mcPis')) : null,
+    aliquotaCofinsPadrao: val('mcCofins') ? Number(val('mcCofins')) : null,
+    observacoes: val('mcObs').trim() || null
+  };
+  if (!body.codigo || !body.descricao) return showAlert('Código e descrição obrigatórios', 'error');
+  try {
+    const url = codigoOrig ? '/api/cfops/' + codigoOrig : '/api/cfops';
+    const method = codigoOrig ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(codigoOrig ? 'CFOP atualizado' : 'CFOP criado');
+    fecharModal('modalCfop');
+    carregarCfops();
+  } catch (e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+function fecharModal(id){ document.getElementById(id).classList.remove('open'); }
+
+// DE/PARA XML
+async function carregarMap(){
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch('/api/cfops-entrada-map'),
+      fetch('/api/cfops-entrada-map/pendentes')
+    ]);
+    const d1 = await r1.json();
+    const d2 = await r2.json();
+    if (!d1.success) throw new Error(d1.error);
+    renderMap(d1.mapeamentos);
+    if (d2.success) renderPendentes(d2.pendentes);
+  } catch (e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+function renderMap(lista){
+  const tb = document.getElementById('tbMap');
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-2);padding:18px;">Nenhum mapeamento cadastrado.</td></tr>'; return; }
+  tb.innerHTML = lista.map(m => `
+    <tr>
+      <td class="codigo">${m.cfopFornecedor}<br><small class="muted" style="font-family:inherit;font-weight:normal;">${escape(m.cfopFornecedorDescricao||'').substring(0,50)}</small></td>
+      <td style="text-align:center;color:var(--text-2);">→</td>
+      <td class="codigo">${m.cfopNosso}<br><small class="muted" style="font-family:inherit;font-weight:normal;">${escape(m.cfopNossoDescricao||'').substring(0,50)}</small></td>
+      <td>${escape(m.descricao||'—')}</td>
+      <td class="acoes">
+        <button class="btn btn-ghost btn-sm" onclick='editarMap(${JSON.stringify(m)})'>Editar</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick='removerMap(${m.id})'>🗑️</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderPendentes(lista){
+  const box = document.getElementById('pendentesBox');
+  if (!lista?.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div class="alert danger" style="display:block;">
+      <strong>⚠ CFOPs sem mapeamento observados em NF-es importadas:</strong>
+      <ul style="margin-top:6px;padding-left:20px;">
+        ${lista.map(p => `<li class="mono">${p.cfopFornecedor} — ${p.ocorrencias} itens</li>`).join('')}
+      </ul>
+      <small>Cadastre o de/para acima e o CFOP será convertido automaticamente nas próximas importações.</small>
+    </div>`;
+}
+
+function popularDatalistsMap(){
+  const dlS = document.getElementById('cfops-datalist-saida');
+  const dlE = document.getElementById('cfops-datalist-entrada');
+  dlS.innerHTML = cfopsCache.filter(c => c.ativo && c.tipoOperacao === 'saida').map(c =>
+    `<option value="${c.codigo}">${escape(c.descricao).substring(0,60)}</option>`).join('');
+  dlE.innerHTML = cfopsCache.filter(c => c.ativo && c.tipoOperacao === 'entrada').map(c =>
+    `<option value="${c.codigo}">${escape(c.descricao).substring(0,60)}</option>`).join('');
+}
+
+async function abrirNovoMap(){
+  if (!cfopsCache.length) await carregarCfops();
+  popularDatalistsMap();
+  setVal('mmId', '');
+  setVal('mmFornecedor', '');
+  setVal('mmNosso', '');
+  setVal('mmDesc', '');
+  document.getElementById('mmTitulo').textContent = 'Novo mapeamento';
+  document.getElementById('modalMap').classList.add('open');
+}
+
+async function editarMap(m){
+  if (!cfopsCache.length) await carregarCfops();
+  popularDatalistsMap();
+  setVal('mmId', m.id);
+  setVal('mmFornecedor', m.cfopFornecedor);
+  setVal('mmNosso', m.cfopNosso);
+  setVal('mmDesc', m.descricao || '');
+  document.getElementById('mmTitulo').textContent = 'Editar mapeamento';
+  document.getElementById('modalMap').classList.add('open');
+}
+
+async function salvarMap(){
+  const id = val('mmId');
+  const body = {
+    cfopFornecedor: val('mmFornecedor').trim(),
+    cfopNosso: val('mmNosso').trim(),
+    descricao: val('mmDesc').trim() || null
+  };
+  if (!body.cfopFornecedor || !body.cfopNosso) return showAlert('Ambos CFOPs são obrigatórios', 'error');
+  try {
+    const url = id ? '/api/cfops-entrada-map/' + id : '/api/cfops-entrada-map';
+    const method = id ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(id ? 'Mapeamento atualizado' : 'Mapeamento criado');
+    fecharModal('modalMap');
+    carregarMap();
+  } catch (e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+async function removerMap(id){
+  if (!confirm('Remover este mapeamento?')) return;
+  try {
+    const r = await fetch('/api/cfops-entrada-map/' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregarMap();
+  } catch (e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+// TESTAR
+async function carregarTiposOp(){
+  try {
+    const r = await fetch('/api/tipos-operacao');
+    const d = await r.json();
+    if (d.success) {
+      const sel = document.getElementById('tTipoOp');
+      sel.innerHTML = d.tipos.map(t => `<option value="${t.id}">${t.codigo} — ${escape(t.descricao)}</option>`).join('');
+    }
+  } catch (e) { console.warn(e); }
+}
+
+async function testar(){
+  const params = new URLSearchParams();
+  if (val('tTipoOp')) params.set('tipoOperacaoId', val('tTipoOp'));
+  if (val('tClienteId')) params.set('clienteId', val('tClienteId'));
+  if (val('tProdutoId')) params.set('produtoId', val('tProdutoId'));
+  if (val('tUf')) params.set('ufEntrega', val('tUf').toUpperCase());
+  try {
+    // Chama o motor v2 via endpoint interno — reaproveita sugestão usada em /api/pedidos/.../itens
+    // através do próprio registro de rotas de tipos-operacao (via GET parametrizado).
+    // Como não expusemos endpoint GET diretamente, usamos o sugerir via cenário simples:
+    //   chamamos o endpoint de sugestão do motor v2
+    const r = await fetch('/api/tipos-operacao/sugerir-cfop?' + params);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Endpoint /sugerir-cfop não disponível');
+    const box = document.getElementById('testadorResultado');
+    box.style.display = 'block';
+    const flags = d.tipo
+      ? [
+          d.tipo.emiteNFe ? '✓ NF-e' : '✗ sem NF-e',
+          d.tipo.geraFinanceiro ? '✓ Financeiro' : '✗ sem CR',
+          d.tipo.movimentaEstoque ? '✓ Estoque' : '✗ sem estoque',
+          d.tipo.gerencial ? '✓ DRE' : '✗ fora DRE'
+        ].join(' · ')
+      : '';
+    box.innerHTML = `
+      <div class="resultado">
+        <div class="cfop-big">${d.cfop || '(sem CFOP — doc interno)'}</div>
+        <div class="desc">${escape(d.cfopDescricao || '')}</div>
+        <div class="contexto">
+          <strong>Tipo:</strong> ${escape(d.contexto?.tipoOperacao || '—')} ${d.contexto?.tipoOperacaoDescricao ? '· ' + escape(d.contexto.tipoOperacaoDescricao) : ''}<br>
+          <strong>Flags:</strong> ${flags}<br>
+          <strong>Contexto:</strong> destino=${d.contexto?.destino || '—'} · contribuinte=${d.contexto?.clienteEhContribuinte ?? 'n/d'} ·
+          UF ${d.contexto?.ufEmitente || '?'}→${d.contexto?.ufDestino || '?'}
+        </div>
+      </div>`;
+  } catch (e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  ['modalCfop','modalMap'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('open');
+  });
+});
+
+carregarCfops();
+carregarTiposOp();
+</script>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salas BNC · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Salas de Disputa BNC</h1>
+      <small>Cadastre as salas BNC que o robô deve monitorar e operar lances.</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirCadastro()">+ Cadastrar sala</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <h2>📡 Como usar</h2>
+    <ol style="color: var(--text-2); font-size: 0.85em; line-height: 1.6;">
+      <li>Abra o Electron BNC (<code>LiciteAgora-Browser.exe --portal=bnc</code>) e faça login.</li>
+      <li>Entre na sala de disputa da licitação (<code>/BatchList?param1=...&amp;param2=7</code>).</li>
+      <li>Copie a URL completa da sala e cole no botão acima.</li>
+      <li>O sistema vai descobrir o processo, os lotes e marcar a sala como ativa. O robô passa a escutar via SignalR.</li>
+      <li>Em <a href="/operacional/lances.html">Lances</a>, a sala aparecerá com badge <strong>BNC</strong>.</li>
+    </ol>
+  </div>
+
+  <div class="tbl-wrap" style="margin-top: 16px;">
+    <table id="tblSalas">
+      <thead>
+        <tr>
+          <th>Processo</th>
+          <th>Órgão</th>
+          <th>Status</th>
+          <th>Lotes</th>
+          <th>Ativo</th>
+          <th>Modo</th>
+          <th>Cadastrado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tbodySalas">
+        <tr><td colspan="8" style="text-align:center; color:var(--text-3); padding:24px;">Carregando…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal config auto-lance por lote -->
+<div id="modalAutoLance" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:1000;">
+  <div style="max-width:760px; margin:60px auto; background:var(--bg-1); border-radius:var(--r-md); border:1px solid var(--border); padding:24px; max-height:80vh; overflow:auto;">
+    <h2 style="margin-top:0;">Auto-lance por lote</h2>
+    <p style="color: var(--text-2); font-size: 0.85em;" id="autoLanceSalaInfo"></p>
+    <div id="autoLanceLotes" style="margin-top:12px;"></div>
+    <div style="text-align:right; margin-top:16px;">
+      <button class="btn btn-primary btn-sm" onclick="fecharAutoLance()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal cadastro -->
+<div id="modalCadastro" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:1000;">
+  <div style="max-width:640px; margin:80px auto; background:var(--bg-1); border-radius:var(--r-md); border:1px solid var(--border); padding:24px;">
+    <h2 style="margin-top:0;">Cadastrar sala BNC</h2>
+    <p style="color: var(--text-2); font-size: 0.85em;">Cole a URL da sala de disputa que está aberta no Electron BNC.</p>
+    <div style="margin-bottom:12px;">
+      <label style="display:block; font-size:0.85em; color:var(--text-2); margin-bottom:4px;">URL da sala</label>
+      <input type="text" id="inpUrl" style="width:100%; font-size:0.85em;" placeholder="https://bnccompras.com/BatchList?param1=[gkz]...&param2=7" />
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-size:0.85em; color:var(--text-2); margin-bottom:4px;">Notas (opcional)</label>
+      <input type="text" id="inpNotas" style="width:100%; font-size:0.85em;" placeholder="ex: Pregão FESURV 33/2026" />
+    </div>
+    <div id="msgModal" style="font-size:0.85em; margin-bottom:12px;"></div>
+    <div style="text-align:right;">
+      <button class="btn btn-ghost btn-sm" onclick="fecharCadastro()">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="btnCadastrar" onclick="cadastrar()">Cadastrar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function esc(s) { return String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+function fmtDate(iso) { try { return new Date(iso).toLocaleString('pt-BR'); } catch { return iso; } }
+
+async function carregar() {
+  try {
+    const r = await fetch('/api/bnc/salas');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    render(d.salas || []);
+  } catch (e) {
+    document.getElementById('tbodySalas').innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--danger);">'+esc(e.message)+'</td></tr>';
+  }
+}
+
+function render(salas) {
+  const tb = document.getElementById('tbodySalas');
+  if (!salas.length) {
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-3); padding:24px;">Nenhuma sala cadastrada ainda. Clique em <strong>+ Cadastrar sala</strong>.</td></tr>';
+    return;
+  }
+  tb.innerHTML = salas.map(s => {
+    const dryRun = s.dryRun === undefined || s.dryRun === null || Number(s.dryRun) === 1;
+    const modoBadge = dryRun
+      ? '<span style="background:#664400; color:#ffd166; padding:2px 8px; border-radius:4px; font-size:0.75em; font-weight:bold;">DRY-RUN</span>'
+      : '<span style="background:#003300; color:#7fef9e; padding:2px 8px; border-radius:4px; font-size:0.75em; font-weight:bold;">AO VIVO</span>';
+    return `
+    <tr>
+      <td><strong>${esc(s.processNumber || s.compraId)}</strong><br><small style="color:var(--text-3);">${esc(s.compraId)}</small></td>
+      <td>${esc(s.title || '—')}${s.notas ? '<br><small style="color:var(--text-3);">'+esc(s.notas)+'</small>' : ''}</td>
+      <td>${esc(s.statusName || '—')}</td>
+      <td>${(s.lotes || []).length}</td>
+      <td>
+        <label style="cursor:pointer;">
+          <input type="checkbox" ${s.ativo ? 'checked' : ''} onchange="toggleAtivo(${s.id}, this.checked)"> ${s.ativo ? 'Sim' : 'Não'}
+        </label>
+      </td>
+      <td>${modoBadge}
+        <br><label style="cursor:pointer; font-size:0.75em; color:var(--text-3);">
+          <input type="checkbox" ${dryRun ? '' : 'checked'} onchange="toggleDryRun(${s.id}, this.checked)"> Ao vivo
+        </label>
+      </td>
+      <td><small>${fmtDate(s.cadastradoEm)}</small></td>
+      <td style="text-align:right; white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="abrirAutoLance(${s.id}, ${JSON.stringify(s.processNumber || s.compraId).replace(/"/g,'&quot;')})" title="Configurar auto-lance por lote">⚙️</button>
+        <button class="btn btn-ghost btn-sm" onclick="redescobrir(${s.id})" title="Re-buscar info da sala">🔄</button>
+        <button class="btn btn-ghost btn-sm" onclick="remover(${s.id})" title="Remover">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function toggleDryRun(id, aoVivo) {
+  try {
+    const r = await fetch('/api/bnc/salas/'+id+'/dry-run', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ dryRun: !aoVivo })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    if (aoVivo && !confirm('⚠️ Modo AO VIVO ativado. O robô vai enviar lances REAIS quando atender às regras. Tem certeza?')) {
+      // re-toggle back if user cancels confirm
+      await fetch('/api/bnc/salas/'+id+'/dry-run', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ dryRun: true }) });
+    }
+    carregar();
+  } catch (e) { alert(e.message); }
+}
+
+async function abrirAutoLance(salaId, label) {
+  document.getElementById('autoLanceSalaInfo').textContent = 'Sala ' + label;
+  document.getElementById('autoLanceLotes').innerHTML = '<div style="color:var(--text-3);">Carregando lotes…</div>';
+  document.getElementById('modalAutoLance').style.display = 'block';
+  try {
+    const r = await fetch('/api/bnc/salas/'+salaId+'/auto-lance');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const lotes = d.lotes || [];
+    if (!lotes.length) {
+      document.getElementById('autoLanceLotes').innerHTML = '<div style="color:var(--text-3);">Esta sala ainda não tem lotes descobertos. Aguarde primeiro updateStatus do SignalR ou clique em 🔄 Redescobrir.</div>';
+      return;
+    }
+    document.getElementById('autoLanceLotes').innerHTML = lotes.map(l => `
+      <div style="border:1px solid var(--border); border-radius:var(--r-sm); padding:12px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <strong>${esc(l.title || ('LOTE '+l.batchNumber))}</strong>
+          <label style="cursor:pointer;">
+            <input type="checkbox" ${l.ativo ? 'checked' : ''} id="al-ativo-${l.loteId}"> Auto-lance ativo
+          </label>
+        </div>
+        <div style="font-size:0.78em; color:var(--text-3); margin-bottom:8px;">
+          Base ${l.baseValue != null ? Number(l.baseValue).toFixed(2) : '—'} · Atual ${l.currentBest != null ? Number(l.currentBest).toFixed(2) : '—'}
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; font-size:0.85em;">
+          <label>Limite mínimo (R$)
+            <input type="number" step="0.01" id="al-lim-${l.loteId}" value="${l.limiteMinimo != null ? l.limiteMinimo : 0}" style="width:100%;">
+          </label>
+          <label>Decremento (R$)
+            <input type="number" step="0.01" id="al-dec-${l.loteId}" value="${l.decremento != null ? l.decremento : 1}" style="width:100%;">
+          </label>
+          <label>Throttle (ms)
+            <input type="number" step="100" id="al-thr-${l.loteId}" value="${l.throttleMs != null ? l.throttleMs : 2000}" style="width:100%;">
+          </label>
+        </div>
+        <div style="text-align:right; margin-top:8px;">
+          <button class="btn btn-primary btn-sm" onclick="salvarAutoLance(${l.loteId})">Salvar</button>
+          <span id="al-msg-${l.loteId}" style="font-size:0.75em; margin-left:8px;"></span>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('autoLanceLotes').innerHTML = '<div style="color:var(--danger);">'+esc(e.message)+'</div>';
+  }
+}
+
+function fecharAutoLance() { document.getElementById('modalAutoLance').style.display = 'none'; }
+
+async function salvarAutoLance(loteId) {
+  const msg = document.getElementById('al-msg-'+loteId);
+  msg.textContent = 'salvando…';
+  try {
+    const ativo = document.getElementById('al-ativo-'+loteId).checked;
+    const limiteMinimo = parseFloat(document.getElementById('al-lim-'+loteId).value);
+    const decremento = parseFloat(document.getElementById('al-dec-'+loteId).value);
+    const throttleMs = parseInt(document.getElementById('al-thr-'+loteId).value, 10);
+    const r = await fetch('/api/bnc/lotes/'+loteId+'/auto-lance', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ativo, limiteMinimo, decremento, throttleMs })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    msg.style.color = 'var(--success)'; msg.textContent = '✅ salvo';
+    setTimeout(() => { msg.textContent = ''; }, 1500);
+  } catch (e) {
+    msg.style.color = 'var(--danger)'; msg.textContent = '❌ '+e.message;
+  }
+}
+
+function abrirCadastro() {
+  document.getElementById('inpUrl').value = '';
+  document.getElementById('inpNotas').value = '';
+  document.getElementById('msgModal').innerHTML = '';
+  document.getElementById('modalCadastro').style.display = 'block';
+  setTimeout(() => document.getElementById('inpUrl').focus(), 80);
+}
+function fecharCadastro() { document.getElementById('modalCadastro').style.display = 'none'; }
+
+async function cadastrar() {
+  const url = document.getElementById('inpUrl').value.trim();
+  const notas = document.getElementById('inpNotas').value.trim();
+  const msg = document.getElementById('msgModal');
+  const btn = document.getElementById('btnCadastrar');
+  if (!url) { msg.innerHTML = '<span style="color:var(--danger);">URL obrigatória</span>'; return; }
+  btn.disabled = true;
+  msg.innerHTML = '<span class="spinner"></span> Descobrindo info da sala…';
+  try {
+    const r = await fetch('/api/bnc/salas/cadastrar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, notas })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    msg.innerHTML = `<span style="color:var(--success);">✅ Cadastrado: ${esc(d.sala.processNumber || d.sala.compraId)} — ${d.lotesInseridos}/${d.lotesTotal} lotes</span>`;
+    setTimeout(() => { fecharCadastro(); carregar(); }, 1200);
+  } catch (e) {
+    msg.innerHTML = '<span style="color:var(--danger);">❌ '+esc(e.message)+'</span>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleAtivo(id, ativo) {
+  try {
+    const r = await fetch('/api/bnc/salas/'+id+'/ativo', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ativo }) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch (e) { alert(e.message); }
+}
+
+async function redescobrir(id) {
+  try {
+    const r = await fetch('/api/bnc/salas/'+id+'/redescobrir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch (e) { alert(e.message); }
+}
+
+async function remover(id) {
+  if (!confirm('Remover esta sala? O robô vai parar de monitorar.')) return;
+  try {
+    const r = await fetch('/api/bnc/salas/'+id, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch (e) { alert(e.message); }
+}
+
+carregar();
+</script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('bnc-salas');</script>
+</body>
+</html>

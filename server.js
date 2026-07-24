@@ -72,6 +72,14 @@ if (MULTI_TENANT) {
 }
 
 
+// dataEncerramentoPortal: prazo remarcado pelo portal de origem (PCP) quando o
+// órgão altera o edital sem republicar no PNCP — ver pcp-monitor/reconciliarDatasPcp.
+// Toda leitura de prazo virou COALESCE(portal, pncp), então a coluna precisa
+// existir antes das rotas subirem. Idempotente; o catálogo PG não tem migrador.
+require('./catalog-pg')
+  .execute('ALTER TABLE licitacoes ADD COLUMN IF NOT EXISTS "dataEncerramentoPortal" timestamptz')
+  .catch((e) => console.error('[catalog] ensure dataEncerramentoPortal:', e.message));
+
 // NFSE-M06 onda 6.43 (2026-04-20): wiring completo da autenticação
 // consolidado em auth-pipeline.js. Multi-tenant: passa controlDb
 // (fonte do session_secret único). Em multi-tenant o registro de rotas
@@ -98,6 +106,11 @@ if (MULTI_TENANT) {
   // pra qualquer path no apex) dentro do installPipeline; registrar aqui garante que o
   // /callback vem na frente. Resolve o tenant pelo state e grava os tokens no DB dele.
   try { require('./marketplaces-ml').registrarRotasGlobal(app, { tenantManager }); } catch (e) { console.error('[ML callback global]', e.message); }
+
+  // Webhook público do WhatsApp (Evolution -> inbox por tenant). Antes da barreira de
+  // auth, como o callback ML acima. Path liberado no bypass do tenant-middleware.
+  try { require('./whatsapp-webhook').registrarRotaWebhook(app, { tenantManager }); } catch (e) { console.error('[whatsapp webhook]', e.message); }
+  try { require('./wa-scheduler').iniciarScheduler(tenantManager); } catch (e) { console.error('[wa-scheduler]', e.message); }
 
   runInBootContext(installPipeline);
 

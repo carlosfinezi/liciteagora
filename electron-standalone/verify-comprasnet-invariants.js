@@ -65,6 +65,21 @@ never(/wipe-profile-on-start|wipeAndRelaunch|profile-recovery/.test(ebC + ssC + 
 never(/clearStorageData\((?![^)]*\/\* ok)/.test(alC + integC) && /clearStorageData\([^)]*cookies|clearStorageData\(\s*\)/.test(alC + integC),
   "clearStorageData apagando cookies em portals/comprasnet. Use limparSessaoComprasnet (remove só cookies do comprasnet.gov.br, preserva acesso.gov.br).");
 
+// ─── 4. Gravador de rede: SÓ webRequest/fetch, NUNCA CDP, NUNCA Comprasnet ────
+const nr = read('net-recorder.js');
+if (nr !== null) {
+  const nrC = code(nr);
+  never(/\bdebugger\b|\.attach\(/.test(nrC),
+    "net-recorder.js usando debugger/CDP. Anexar o debugger é sinal de automação → hCaptcha. Só webRequest/fetch. (regressão do 'Gravar rede' com CDP)");
+  never(/comprasnet/i.test(nrC),
+    "net-recorder.js referenciando Comprasnet. O gravador NUNCA toca o Comprasnet (device-trust sagrado) — só bnc/bll.");
+  must(/portal\s*!==\s*'bnc'[\s\S]{0,40}portal\s*!==\s*'bll'/.test(nrC),
+    "net-recorder.js precisa da blindagem que RECUSA portal != bnc/bll (protege o Comprasnet por construção).");
+}
+// electron-browser.js só pode instalar o gravador dentro do gate bnc/bll.
+never(/netRecorder\.install/.test(ebC) && !/isBncWv\s*\|\|\s*isBllWv/.test(ebC),
+  "netRecorder.install em electron-browser.js sem o gate (isBncWv || isBllWv). O gravador NUNCA roda no Comprasnet.");
+
 // ─── 4. Renovação = re-auth SSO (NÃO retoken, que nunca funcionou: 0/850) ────
 never(/function\s+retokenHTTP|function\s+retokenWebview/.test(ssC),
   "retoken (retokenHTTP/retokenWebview) reintroduzido em server-sync.js. Nunca funcionou (0/850 — endpoint exige cookie de sessão). Renovação é via re-auth SSO.");

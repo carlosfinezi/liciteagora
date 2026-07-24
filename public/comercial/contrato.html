@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contrato · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.evt-item { padding:10px; border-left:3px solid var(--accent); background:var(--bg-1); margin-bottom:8px; border-radius:var(--r-md); }
+.evt-item.reajuste { border-left-color:var(--warn); }
+.evt-item.encerramento, .evt-item.suspensao { border-left-color:var(--danger); }
+.evt-item.renovacao, .evt-item.reativacao { border-left-color:var(--success); }
+.evt-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 id="pgTitulo">Contrato</h1>
+      <small id="pgSub"></small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/comercial/contratos.html">← Lista</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="cards-grid" style="display:grid;grid-template-columns:1fr 360px;gap:14px;">
+    <div class="card">
+      <h3>Resumo</h3>
+      <div id="resumo" class="muted">Carregando…</div>
+
+      <h3 style="margin-top:18px;">Faturamento (NFSe Recorrente)</h3>
+      <div id="faturamento" class="muted">Carregando…</div>
+
+      <h3 style="margin-top:18px;">Histórico</h3>
+      <div id="eventos">Carregando…</div>
+    </div>
+
+    <div class="card">
+      <h3>Ações</h3>
+      <button class="btn btn-success" onclick="renovar()" style="width:100%;margin-bottom:8px;">🔁 Renovar</button>
+      <button class="btn btn-primary" onclick="reajustar()" style="width:100%;margin-bottom:8px;">📈 Reajustar</button>
+      <button class="btn btn-secondary" onclick="aditivo()" style="width:100%;margin-bottom:8px;">📎 Registrar aditivo</button>
+      <hr style="margin:14px 0;border:0;border-top:1px solid #2a3a5c;">
+      <button class="btn btn-secondary" id="btnSuspender" onclick="suspender()" style="width:100%;margin-bottom:8px;">⏸ Suspender</button>
+      <button class="btn btn-secondary" id="btnReativar"  onclick="reativar()"  style="width:100%;margin-bottom:8px;display:none;">▶ Reativar</button>
+      <button class="btn btn-danger"    onclick="encerrar()"  style="width:100%;">✖ Encerrar</button>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('contratos');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function fmtDataHora(s){ if (!s) return '—'; const d = new Date(s.includes('T')?s:s+'Z'); return d.toLocaleString('pt-BR'); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const id = new URLSearchParams(window.location.search).get('id');
+let contrato = null;
+
+async function carregar(){
+  if (!id) return showAlert('ID não informado','error');
+  const r = await fetch('/api/contratos/'+id);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  contrato = d.contrato;
+  document.getElementById('pgTitulo').textContent = contrato.numero;
+  document.getElementById('pgSub').textContent = contrato.descricao;
+  renderResumo();
+  renderFaturamento(d.recorrencia);
+  renderEventos(d.eventos);
+  // toggle suspender/reativar
+  document.getElementById('btnSuspender').style.display = contrato.status === 'ativo' ? '' : 'none';
+  document.getElementById('btnReativar').style.display  = contrato.status === 'suspenso' ? '' : 'none';
+}
+
+// Bloco de faturamento — mostra recorrência vinculada OU convite
+// para criar uma. Integração (4) 2026-04-22.
+function renderFaturamento(rec) {
+  const el = document.getElementById('faturamento');
+  if (!el) return;
+  if (!rec) {
+    el.innerHTML = `
+      <div class="muted" style="font-size:13px;padding:12px;border:1px dashed #2a3a5c;border-radius:6px;">
+        Este contrato ainda não tem uma recorrência NFSe vinculada.
+        <a href="/financeiro/recorrencias.html" style="color:#4dabf7;">Criar agora →</a>
+      </div>`;
+    return;
+  }
+  const ativoBadge = rec.ativo
+    ? '<span class="badge entrada">ATIVA</span>'
+    : '<span class="badge inativo">INATIVA</span>';
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      ${ativoBadge}
+      <strong style="color:#69db7c;">${fmtBRL(rec.valorServico)} <small style="color:#888;font-size:11px;">/mês</small></strong>
+    </div>
+    <table style="width:100%;font-size:13px;">
+      <tr><td class="muted">Recorrência #</td><td>${rec.id}</td></tr>
+      <tr><td class="muted">Descrição</td><td>${escapeHtml(rec.descricao||'')}</td></tr>
+      <tr><td class="muted">Código tributação</td><td class="mono">${escapeHtml(rec.codigoTributacaoNacional||'—')}</td></tr>
+      <tr><td class="muted">Dia vencimento</td><td>${rec.diaVencimentoBoleto||'—'}</td></tr>
+      <tr><td class="muted">Gera boleto</td><td>${rec.gerarBoleto ? 'Sim' : 'Não'}</td></tr>
+      <tr><td class="muted">Envia email</td><td>${rec.enviarEmail ? 'Sim' : 'Não'}</td></tr>
+      <tr><td class="muted">Última emissão</td><td>${rec.ultimaEmissao || '—'}</td></tr>
+      <tr><td class="muted">Total emissões</td><td>${rec.totalEmissoes || 0}</td></tr>
+    </table>
+    <a href="/financeiro/recorrencias.html?id=${rec.id}" style="display:inline-block;margin-top:10px;font-size:13px;color:#4dabf7;">Ver recorrência completa →</a>
+  `;
+}
+
+function renderResumo(){
+  document.getElementById('resumo').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span class="badge ${contrato.status==='ativo'?'entrada':contrato.status==='suspenso'?'pendente':'inativo'}">${contrato.status}</span>
+      <strong style="color:#69db7c;font-size:18px;">${fmtBRL(contrato.valorMensal)} <small style="color:#888;font-size:11px;">/mês</small></strong>
+    </div>
+    <table style="width:100%;font-size:13px;">
+      <tr><td class="muted">Cliente</td><td>${contrato.clienteNome}</td></tr>
+      <tr><td class="muted">CPF/CNPJ</td><td class="mono">${contrato.clienteCpfCnpj||'—'}</td></tr>
+      <tr><td class="muted">Vigência</td><td>${contrato.dataInicio} → ${contrato.dataFim||'<small class="muted">indeterminado</small>'}</td></tr>
+      <tr><td class="muted">Vencimento</td><td>dia ${contrato.diaVencimento}</td></tr>
+      <tr><td class="muted">Renovação automática</td><td>${contrato.renovacaoAutomatica?'Sim — '+contrato.prazoRenovacaoMeses+' meses':'Não'}</td></tr>
+      <tr><td class="muted">Índice de reajuste</td><td>${contrato.indiceReajuste||'—'} ${contrato.percentualReajuste!=null?'('+contrato.percentualReajuste+'%)':''}</td></tr>
+      <tr><td class="muted">Próximo reajuste</td><td>${contrato.dataProximoReajuste||'—'}</td></tr>
+    </table>
+    ${contrato.observacoes ? `<div style="margin-top:12px;padding:8px;background:#0f1a30;border-radius:6px;font-size:13px;">${escapeHtml(contrato.observacoes)}</div>` : ''}
+  `;
+}
+
+function renderEventos(evs){
+  if (!evs.length) { document.getElementById('eventos').innerHTML = '<div class="muted">Sem eventos</div>'; return; }
+  document.getElementById('eventos').innerHTML = evs.map(e=>{
+    let extra = '';
+    if (e.valorAntes != null && e.valorDepois != null) extra = ` <strong>${fmtBRL(e.valorAntes)} → ${fmtBRL(e.valorDepois)}</strong>`;
+    if (e.dataFimAntes != null && e.dataFimDepois != null) extra = ` <strong>${e.dataFimAntes||'—'} → ${e.dataFimDepois}</strong>`;
+    return `<div class="evt-item ${e.tipo}">
+      <div><strong>${e.tipo.toUpperCase()}</strong>${extra}</div>
+      <div style="font-size:13px;color:#bbb;">${escapeHtml(e.descricao||'')}</div>
+      <div class="evt-meta">${fmtDataHora(e.data)} · ${e.usuario||'—'}</div>
+    </div>`;
+  }).join('');
+}
+
+async function renovar(){
+  const meses = prompt('Renovar por quantos meses?', contrato.prazoRenovacaoMeses || 12);
+  if (!meses) return;
+  const r = await fetch(`/api/contratos/${id}/renovar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ meses: Number(meses) }) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Renovado até ${d.dataFim}`);
+  carregar();
+}
+
+async function reajustar(){
+  const tipo = prompt('Reajuste por % (digite "perc") ou novo valor (digite "valor")?', 'perc');
+  if (!tipo) return;
+  let body = {};
+  if (tipo === 'perc') {
+    const p = prompt('Percentual de reajuste (ex: 5 para +5%):', '');
+    if (!p) return;
+    body.percentual = Number(p);
+  } else {
+    const v = prompt('Novo valor mensal (R$):', contrato.valorMensal);
+    if (!v) return;
+    body.novoValor = Number(v);
+  }
+  const prox = prompt('Próximo reajuste (YYYY-MM-DD, opcional):', '');
+  if (prox) body.dataProximoReajuste = prox;
+  const r = await fetch(`/api/contratos/${id}/reajustar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Reajustado de ${fmtBRL(d.valorAnterior)} para ${fmtBRL(d.valorNovo)}`);
+  carregar();
+}
+
+async function aditivo(){
+  const desc = prompt('Descrição do aditivo:');
+  if (!desc) return;
+  const r = await fetch(`/api/contratos/${id}/aditivo`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ descricao: desc }) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Aditivo registrado');
+  carregar();
+}
+
+async function suspender(){
+  const motivo = prompt('Motivo da suspensão:');
+  if (motivo === null) return;
+  const r = await fetch(`/api/contratos/${id}/suspender`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Contrato suspenso');
+  carregar();
+}
+
+async function reativar(){
+  if (!confirm('Reativar este contrato?')) return;
+  const r = await fetch(`/api/contratos/${id}/reativar`, { method:'POST' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Contrato reativado');
+  carregar();
+}
+
+async function encerrar(){
+  const motivo = prompt('Motivo do encerramento (mín. 5 caracteres):');
+  if (!motivo) return;
+  const r = await fetch(`/api/contratos/${id}/encerrar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Contrato encerrado');
+  carregar();
+}
+
+carregar();
+</script>
+</body></html>

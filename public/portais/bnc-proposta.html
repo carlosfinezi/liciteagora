@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposta BNC · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Enviar Proposta · BNC</h1>
+      <small>Carrega a tela de proposta do BNC pela sessão do servidor, revisa os valores e envia. O envio real exige confirmação.</small>
+    </div>
+    <div class="actions">
+      <span id="sessaoBadge" class="badge">sessão: —</span>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel" id="painelEditais">
+    <h2>Escolha a licitação</h2>
+    <p style="color: var(--text-2); font-size: 0.85em;">
+      Seus editais de origem <strong>BNC</strong> (dos seus Interesses). Clique em <em>Carregar</em> — sem colar link nenhum.
+      <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="carregarEditais()">🔄 Atualizar</button>
+      <a href="#" style="margin-left:8px; font-size:0.9em;" onclick="event.preventDefault(); toggleManual()">colar URL manualmente ▾</a>
+    </p>
+    <div id="listaEditais" style="font-size:0.85em;">carregando…</div>
+    <div id="painelManual" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+      <p style="color: var(--text-3); font-size: 0.8em; margin:0 0 6px;">Avançado — URL da tela de proposta (<code>/Proposal/Proposal?param1=…</code>) ou o token <code>param1</code>:</p>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <input id="inpUrl" class="form-control" style="flex:1; min-width:320px;" placeholder="https://bnccompras.com/Proposal/Proposal?param1=[gkz]…">
+        <button class="btn btn-primary btn-sm" id="btnCarregar" onclick="carregarItens()">Carregar itens</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="painelItens" style="display:none;">
+    <h2>Itens &amp; valores</h2>
+    <div id="ctxEdital" style="font-size:0.9em; color:var(--text-2); margin-bottom:10px;"></div>
+    <div style="margin-bottom:10px;">
+      Declaração ME/EPP (IsMe):
+      <label style="margin-left:8px;"><input type="radio" name="isMe" value="true"> Sim</label>
+      <label style="margin-left:8px;"><input type="radio" name="isMe" value="false"> Não</label>
+    </div>
+    <div class="tbl-wrap">
+      <table id="tblItens">
+        <thead><tr><th style="width:60px;">Item</th><th>Descrição / referência</th><th style="width:200px;">Valor unitário (R$)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="docsSection" style="margin-top:14px;"></div>
+    <div style="margin-top:14px; display:flex; gap:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="previa()">Gerar prévia (não envia)</button>
+      <button class="btn btn-primary btn-sm" id="btnEnviar" onclick="enviar()">⚠️ Enviar proposta ao BNC</button>
+    </div>
+  </div>
+
+  <div class="panel" id="painelResultado" style="display:none;">
+    <div id="outResultado"></div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer; font-size:0.8em; color:var(--text-3);">detalhes técnicos</summary>
+      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:0.75em; background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
+    </details>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('bnc-proposta');</script>
+<script>
+const API = '';
+const ANEXAR_URL = '/api/bnc/proposta/anexar';
+let itensCarregados = [];
+let currentPncp = null; // id PNCP do edital selecionado (p/ trazer o valor de referência)
+
+function fmtBR(n) { return (Number(n) || 0).toFixed(2).replace('.', ','); }
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function toggleManual() { const p = document.getElementById('painelManual'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
+function mostrarResultado(kind, corpoHtml, jsonObj) {
+  const cor = kind === 'ok' ? '#1a7f37' : (kind === 'err' ? '#c0392b' : '#2563eb');
+  document.getElementById('painelResultado').style.display = '';
+  document.getElementById('outResultado').innerHTML =
+    '<div style="padding:14px 16px; border-radius:var(--r-sm); background:' + cor + '14; border-left:4px solid ' + cor + '; line-height:1.5;">' + corpoHtml + '</div>';
+  document.getElementById('outJson').textContent = JSON.stringify(jsonObj, null, 2);
+  document.getElementById('painelResultado').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function itensResumoHtml(itens) {
+  return (itens || []).map((i) => 'Item ' + (i.index + 1) + ': <strong>R$ ' + escapeHtml(i.valor) + '</strong>').join('<br>');
+}
+function renderDocumentos(docs) {
+  const el = document.getElementById('docsSection');
+  if (!docs || !docs.length) { el.innerHTML = ''; return; }
+  const linhas = docs.map((d) => {
+    const st = d.anexado ? ('✅ anexado' + (d.nomeArquivo ? ' (' + escapeHtml(d.nomeArquivo) + ')' : '')) : (d.obrigatorio ? '⛔ falta anexar arquivo' : '— opcional (sem arquivo)');
+    const cor = d.anexado ? 'var(--text-2)' : (d.obrigatorio ? '#c0392b' : 'var(--text-3)');
+    const up = !d.anexado ? ('<div style="margin-top:5px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">' +
+      '<input type="file" id="file_' + d.index + '" accept="application/pdf,image/*" style="font-size:0.82em;">' +
+      '<button class="btn btn-primary btn-sm" onclick="anexarArquivo(' + d.index + ')">Anexar</button>' +
+      '<span id="upst_' + d.index + '" style="font-size:0.85em; color:var(--text-2);"></span></div>') : '';
+    return '<div style="padding:6px 0; border-top:1px solid var(--border);"><div style="color:' + cor + ';">' + (d.obrigatorio ? '<strong>[obrigatório]</strong> ' : '') + escapeHtml(d.label) + ' — ' + st + '</div>' + up + '</div>';
+  }).join('');
+  el.innerHTML = '<div style="font-weight:600; margin-bottom:6px;">📎 Documentos exigidos</div>' + linhas;
+}
+async function anexarArquivo(docIndex) {
+  const inp = document.getElementById('file_' + docIndex);
+  const st = document.getElementById('upst_' + docIndex);
+  if (!inp || !inp.files || !inp.files[0]) { if (st) st.textContent = 'escolha um arquivo'; return; }
+  if (st) st.textContent = 'enviando…';
+  try {
+    const fd = new FormData();
+    fd.append('arquivo', inp.files[0]);
+    fd.append('urlOuToken', urlInput());
+    fd.append('docIndex', String(docIndex));
+    const r = await fetch(ANEXAR_URL, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao anexar');
+    if (st) st.textContent = '✅ anexado';
+    await carregarItens(); // recarrega p/ refletir o doc anexado
+  } catch (e) { if (st) st.textContent = '⚠ ' + e.message; }
+}
+
+async function carregarEditais() {
+  const cont = document.getElementById('listaEditais');
+  cont.textContent = 'Carregando…';
+  try {
+    const r = await fetch(API + '/api/bnc/proposta/editais');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (!d.editais || !d.editais.length) {
+      cont.innerHTML = '<div style="color:var(--text-3);">Nenhum edital BNC nos seus Interesses. Use o botão “📝 Enviar proposta BNC” num edital das Análises IA, ou cole a URL abaixo.</div>';
+      return;
+    }
+    const rows = d.editais.map((e) => {
+      const enc = e.encerra ? new Date(e.encerra).toLocaleString('pt-BR') : '';
+      return '<tr>' +
+        '<td>' + escapeHtml(e.orgao) + '</td>' +
+        '<td style="max-width:340px; color:var(--text-2);">' + escapeHtml((e.objeto || '').slice(0, 110)) + '…</td>' +
+        '<td style="white-space:nowrap;">' + escapeHtml(e.situacao) + '</td>' +
+        '<td style="white-space:nowrap;">' + enc + '</td>' +
+        '<td><button class="btn btn-primary btn-sm" data-url="' + escapeHtml(e.url) + '" data-org="' + escapeHtml(e.orgao) + '" data-pncp="' + escapeHtml(e.pncp) + '">Carregar</button></td>' +
+        '</tr>';
+    }).join('');
+    cont.innerHTML = '<div class="tbl-wrap"><table><thead><tr><th>Órgão</th><th>Objeto</th><th>Situação</th><th>Encerra</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    cont.querySelectorAll('button[data-url]').forEach((b) => {
+      b.onclick = () => {
+        document.getElementById('inpUrl').value = b.getAttribute('data-url');
+        currentPncp = b.getAttribute('data-pncp') || null;
+        document.getElementById('ctxEdital').innerHTML = '📄 <strong>' + escapeHtml(b.getAttribute('data-org')) + '</strong>';
+        carregarItens();
+      };
+    });
+  } catch (e) { cont.innerHTML = '<span style="color:var(--danger,#c00)">erro: ' + escapeHtml(e.message) + '</span>'; }
+}
+
+function alerta(msg, tipo) {
+  const el = document.getElementById('alertGlobal');
+  el.innerHTML = '<div class="alert alert-' + (tipo || 'info') + '">' + msg + '</div>';
+  if (tipo === 'ok') setTimeout(() => { el.innerHTML = ''; }, 4000);
+}
+function urlInput() { return document.getElementById('inpUrl').value.trim(); }
+function isMeSelecionado() {
+  const r = document.querySelector('input[name="isMe"]:checked');
+  return r ? r.value === 'true' : true; // default: Sim
+}
+function valoresArray() {
+  const arr = [];
+  for (const it of itensCarregados) {
+    const inp = document.getElementById('val_' + it.index);
+    arr[it.index] = inp ? parseFloat((inp.value || '').replace(',', '.')) : null;
+  }
+  return arr;
+}
+
+async function carregarSessao() {
+  try {
+    const r = await fetch(API + '/api/bnc/session');
+    const d = await r.json();
+    const b = document.getElementById('sessaoBadge');
+    if (d.configurado) {
+      const min = d.idadeMs != null ? Math.round(d.idadeMs / 60000) : '?';
+      b.textContent = 'sessão: ' + (d.expirando ? '⚠ expirando' : '✅ ok') + ' (' + min + 'min · ' + (d.usuario || '') + ')';
+    } else { b.textContent = 'sessão: ❌ não configurada'; }
+  } catch (e) { document.getElementById('sessaoBadge').textContent = 'sessão: erro'; }
+}
+
+async function carregarItens() {
+  const url = urlInput();
+  if (!url) return alerta('Informe a URL/token da tela de proposta.', 'warn');
+  const btn = document.getElementById('btnCarregar');
+  btn.disabled = true; btn.textContent = 'Carregando...';
+  try {
+    const qs = '/api/bnc/proposta/itens?token=' + encodeURIComponent(url) + (currentPncp ? '&pncp=' + encodeURIComponent(currentPncp) : '');
+    const r = await fetch(API + qs);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao carregar');
+    itensCarregados = d.itens || [];
+    document.querySelector('input[name="isMe"][value="' + (d.isMe === 'True' || d.isMe === true ? 'true' : 'false') + '"]').checked = true;
+    const tb = document.querySelector('#tblItens tbody');
+    tb.innerHTML = '';
+    let temRef = false;
+    for (const it of itensCarregados) {
+      const ref = (it.valorReferencia != null) ? it.valorReferencia : null;
+      if (ref != null) temRef = true;
+      const desc = it.descricao ? escapeHtml(it.descricao.slice(0, 90)) + '…' : ('idBatchItem ' + (it.idBatchItem || '').slice(0, 20) + '…');
+      const refTxt = ref != null ? ('referência: R$ ' + fmtBR(ref) + (it.unidade ? ' /' + escapeHtml(it.unidade) : '') + (it.quantidade ? ' × ' + it.quantidade : '')) : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (it.index + 1) + '</td>' +
+        '<td style="font-size:0.8em;">' + desc + (refTxt ? '<div style="color:var(--text-3); font-size:0.9em; margin-top:2px;">' + refTxt + '</div>' : '') + '</td>' +
+        '<td><input id="val_' + it.index + '" class="form-control form-control-sm" type="text" inputmode="decimal" value="' + (ref != null ? fmtBR(ref) : '') + '" placeholder="0,00"></td>';
+      tb.appendChild(tr);
+    }
+    renderDocumentos(d.documentos || []);
+    document.getElementById('painelItens').style.display = '';
+    alerta(temRef ? 'Itens carregados com o valor de REFERÊNCIA pré-preenchido — ajuste se quiser e gere a prévia.' : 'Itens carregados. Informe os valores e gere a prévia antes de enviar.', 'ok');
+  } catch (e) {
+    alerta('Erro: ' + e.message, 'err');
+  } finally { btn.disabled = false; btn.textContent = 'Carregar itens'; }
+}
+
+async function previa() {
+  try {
+    const r = await fetch(API + '/api/bnc/proposta/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urlOuToken: urlInput(), valores: valoresArray(), isMe: isMeSelecionado() }),
+    });
+    const d = await r.json();
+    if (!d.success) return mostrarResultado('err', '⚠️ <strong>Erro ao gerar a prévia.</strong><br>' + escapeHtml(d.error || ''), d);
+    mostrarResultado('info', '🔎 <strong>Prévia gerada — nada foi enviado.</strong><div style="margin-top:8px; font-size:0.95em;">Ao confirmar, será enviado ao BNC:<div style="margin-top:6px;">' + itensResumoHtml(d.itens) + '</div></div>', d);
+  } catch (e) { alerta('Erro: ' + e.message, 'err'); }
+}
+
+async function enviar() {
+  const vals = valoresArray();
+  if (vals.some((v) => !(v > 0))) return alerta('Informe um valor válido (> 0) para todos os itens.', 'warn');
+  const total = vals.reduce((a, b) => a + (b || 0), 0);
+  if (!confirm('ENVIAR proposta ao BNC agora?\n\nItens: ' + itensCarregados.length +
+    '\nSoma dos valores unitários: R$ ' + total.toFixed(2).replace('.', ',') +
+    '\n\nEsta ação é REAL e irreversível.')) return;
+  const btn = document.getElementById('btnEnviar');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    const r = await fetch(API + '/api/bnc/proposta/enviar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urlOuToken: urlInput(), valores: vals, isMe: isMeSelecionado(), confirmar: true }),
+    });
+    const d = await r.json();
+    if (d.success && (d.enviada || d.jaEnviada)) {
+      mostrarResultado('ok',
+        '✅ <strong>Proposta enviada ao BNC.</strong>' +
+        '<div style="font-size:0.95em; margin-top:4px;">O portal confirmou: <em>Proposta Salva</em>.' + (d.jaEnviada ? ' (já constava enviada)' : '') + '</div>' +
+        '<div style="margin-top:8px;">' + itensResumoHtml(d.itens) + '</div>' +
+        (d.comprovanteUrl ? '<div style="margin-top:8px;"><a href="' + escapeHtml(d.comprovanteUrl) + '" target="_blank">Ver comprovante</a></div>' : ''),
+        d);
+      btn.textContent = '✅ Enviada'; // trava reenvio acidental
+      return;
+    }
+    mostrarResultado('err', '⚠️ <strong>Não confirmou o envio.</strong><br>' + escapeHtml(d.error || d.mensagem || 'veja os detalhes técnicos'), d);
+  } catch (e) { mostrarResultado('err', '⚠️ <strong>Erro de rede.</strong><br>' + escapeHtml(e.message), {}); }
+  finally { if (btn.textContent !== '✅ Enviada') { btn.disabled = false; btn.textContent = '⚠️ Enviar proposta ao BNC'; } }
+}
+
+// Auto-resolução: ?pncp=CNPJ-ANO-SEQ acha a URL da proposta sozinho (sem colar).
+// Fallback: ?url= pré-preenche direto.
+async function resolverPorPncp(pncp) {
+  currentPncp = pncp;
+  const ctx = document.getElementById('ctxEdital');
+  ctx.textContent = 'Resolvendo edital ' + pncp + '…';
+  try {
+    const r = await fetch(API + '/api/bnc/proposta/resolver?pncp=' + encodeURIComponent(pncp));
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (!d.portalBnc) { ctx.innerHTML = '⚠ ' + (d.error || 'não é BNC') + (d.portalOrigem ? ' (origem: ' + d.portalOrigem + ')' : ''); return; }
+    if (!d.url) { ctx.innerHTML = '⚠ ' + (d.error || 'sem URL derivável'); return; }
+    document.getElementById('inpUrl').value = d.url;
+    ctx.innerHTML = '📄 <strong>' + (d.orgao || '') + '</strong> — ' + ((d.objeto || '').slice(0, 160)) + '…';
+    await carregarItens();  // carrega os itens automaticamente
+  } catch (e) { ctx.innerHTML = '⚠ auto-resolução falhou: ' + e.message + '. Cole a URL manualmente.'; }
+}
+
+// Editar a URL manualmente desassocia o edital (não dá pra saber o valor de referência).
+document.getElementById('inpUrl').addEventListener('input', () => { currentPncp = null; });
+
+(function () {
+  const q = new URLSearchParams(location.search);
+  carregarEditais();
+  if (q.get('pncp')) resolverPorPncp(q.get('pncp'));
+  else if (q.get('url')) document.getElementById('inpUrl').value = q.get('url');
+})();
+carregarSessao();
+</script>
+</body>
+</html>

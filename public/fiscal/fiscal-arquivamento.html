@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arquivamento Fiscal · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Page-local: toolbar label-acima + tabela anual de arquivamento */
+  .fa-toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+  .fa-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
+  .fa-toolbar label { font-size: 0.72em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+
+  .fa-tbl { width: 100%; border-collapse: collapse; background: var(--bg-2); border-radius: var(--r-lg); overflow: hidden; }
+  .fa-tbl th { text-align: left; font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); padding: 10px 12px; background: var(--bg-3); border-bottom: 1px solid var(--border); }
+  .fa-tbl td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 0.92em; color: var(--text-1); }
+  .fa-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .fa-tbl td.acoes { text-align: right; white-space: nowrap; }
+  .fa-tbl tfoot td { background: var(--bg-3); font-weight: 700; color: var(--accent); }
+  .fa-tbl .zero { color: var(--text-3); }
+  .fa-tbl td.num a { color: var(--accent); text-decoration: none; cursor: pointer; border-bottom: 1px dashed currentColor; }
+  .fa-tbl td.num a:hover { opacity: 0.75; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Arquivamento Fiscal</h1>
+      <small>Exportação de XMLs (NF-e saída, NF-e entrada, NFS-e) · guarda obrigatória 5 anos — LC 123/06</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="alert info" style="display:block;margin:10px 0 16px;">
+    📂 XMLs são armazenados no banco. Faça export periódico (anual recomendado) e mantenha backup externo para cumprir a obrigação de guarda por 5 anos.
+  </div>
+
+  <div class="fa-toolbar">
+    <div class="field">
+      <label>Ano</label>
+      <select id="fAno" onchange="carregar()" style="width:auto;min-width:120px;"></select>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn btn-primary btn-sm" onclick="exportarAno()">⬇ Exportar ano inteiro</button>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn btn-secondary btn-sm" onclick="exportarAnoTipo('saida')">NF-e saída</button>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn btn-secondary btn-sm" onclick="exportarAnoTipo('entrada')">NF-e entrada</button>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn btn-secondary btn-sm" onclick="exportarAnoTipo('nfse')">NFS-e</button>
+    </div>
+  </div>
+
+  <table class="fa-tbl">
+    <thead>
+      <tr>
+        <th>Mês</th>
+        <th style="text-align:right;">NF-e saída</th>
+        <th style="text-align:right;">NF-e entrada</th>
+        <th style="text-align:right;">NFS-e</th>
+        <th style="text-align:right;">Total</th>
+        <th style="text-align:right;"></th>
+      </tr>
+    </thead>
+    <tbody id="tbody"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+    <tfoot id="tfoot"></tfoot>
+  </table>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('fiscal-arquivamento');</script>
+<script>
+function val(id){ return document.getElementById(id).value; }
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(()=>e.style.display='none', 5000);
+}
+
+function popularAnos(){
+  const sel = document.getElementById('fAno');
+  const anoAtual = new Date().getUTCFullYear();
+  for (let a = anoAtual; a >= anoAtual - 6; a--) {
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    if (a === anoAtual) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function mesNome(ym){
+  const [y,m] = ym.split('-');
+  const nomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  return `${nomes[Number(m)-1]} / ${y}`;
+}
+
+function ultimoDiaMes(ym){
+  const [y,m] = ym.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0,10);
+}
+
+async function carregar(){
+  const ano = val('fAno');
+  try {
+    const r = await fetch('/api/fiscal/xmls/sumario?ano=' + ano);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    render(d);
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+
+function render(d){
+  const tb = document.getElementById('tbody');
+  const tf = document.getElementById('tfoot');
+  tb.innerHTML = d.meses.map(m => {
+    const total = m.saida + m.entrada + m.nfse;
+    return `<tr>
+      <td>${mesNome(m.ym)}</td>
+      ${celula(m.saida, m.ym, 'saida')}
+      ${celula(m.entrada, m.ym, 'entrada')}
+      ${celula(m.nfse, m.ym, 'nfse')}
+      <td class="num">${total}</td>
+      <td class="acoes">
+        ${total > 0 ? `<button class="btn btn-ghost btn-sm" onclick="exportarMes('${m.ym}')">⬇ ZIP</button>` : '<small class="muted">—</small>'}
+      </td>
+    </tr>`;
+  }).join('');
+  const t = d.totais;
+  tf.innerHTML = `<tr>
+    <td>Total do ano</td>
+    <td class="num">${t.saida}</td>
+    <td class="num">${t.entrada}</td>
+    <td class="num">${t.nfse}</td>
+    <td class="num">${t.saida + t.entrada + t.nfse}</td>
+    <td></td>
+  </tr>`;
+}
+
+// Célula de contagem: número vira link de download daquele tipo+mês quando > 0.
+function celula(valor, ym, tipo){
+  if (!valor) return `<td class="num zero">0</td>`;
+  const nomes = { saida: 'NF-e saída', entrada: 'NF-e entrada', nfse: 'NFS-e' };
+  return `<td class="num"><a onclick="exportarMesTipo('${ym}','${tipo}')" title="Baixar ${nomes[tipo]} de ${mesNome(ym)}">${valor}</a></td>`;
+}
+
+function exportarMes(ym){
+  const dataInicio = ym + '-01';
+  const dataFim = ultimoDiaMes(ym);
+  window.open(`/api/fiscal/xmls/export?dataInicio=${dataInicio}&dataFim=${dataFim}&tipo=todos`, '_blank');
+}
+
+function exportarMesTipo(ym, tipo){
+  const dataInicio = ym + '-01';
+  const dataFim = ultimoDiaMes(ym);
+  window.open(`/api/fiscal/xmls/export?dataInicio=${dataInicio}&dataFim=${dataFim}&tipo=${tipo}`, '_blank');
+}
+
+function exportarAno(){
+  const ano = val('fAno');
+  window.open(`/api/fiscal/xmls/export?dataInicio=${ano}-01-01&dataFim=${ano}-12-31&tipo=todos`, '_blank');
+}
+
+function exportarAnoTipo(tipo){
+  const ano = val('fAno');
+  window.open(`/api/fiscal/xmls/export?dataInicio=${ano}-01-01&dataFim=${ano}-12-31&tipo=${tipo}`, '_blank');
+}
+
+popularAnos();
+carregar();
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@
 const faturasPdf = require('./faturas-pdf');
 const { lancarMovimentacao, getContaPadrao } = require('./contas-financeiras-routes');
 const { cancelarFaturaLocal } = require('./fatura-cancelamento');
+const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
 
 const MEIOS_AVISTA_CAIXA = new Set(['01']);      // Dinheiro
 const MEIOS_AVISTA_BANCO = new Set([]);          // PIX (17) agora gera cobrança QR/link (baixa via webhook), não auto-baixa
@@ -123,7 +124,15 @@ function carregarFaturaCompleta(db, faturaId) {
   const itens = db.prepare('SELECT * FROM fatura_itens WHERE faturaId = ? ORDER BY id ASC').all(faturaId);
   const parcelas = db.prepare(`SELECT id, descricao, valor, valorPago, dataVencimento, dataPagamento, status
     FROM contas_a_receber WHERE faturaId = ? ORDER BY dataVencimento ASC, id ASC`).all(faturaId);
-  return { ...f, itens, parcelas };
+  // Pedido com múltiplas faturas (ex.: tentativa cancelada + reemissão): aponta
+  // qual outra fatura carrega a NF-e autorizada, pra UI orientar o usuário.
+  let nfeAtivaEmOutraFatura = null;
+  if (f.pedidoId) {
+    nfeAtivaEmOutraFatura = db.prepare(`SELECT id, numero, numeroNFe FROM faturas
+      WHERE pedidoId = ? AND id != ? AND statusSefaz = 'autorizada' AND COALESCE(excluida, 0) = 0
+      ORDER BY id DESC LIMIT 1`).get(f.pedidoId, f.id) || null;
+  }
+  return { ...f, itens, parcelas, nfeAtivaEmOutraFatura };
 }
 
 function registrarRotasFaturas(app, db) {
@@ -179,18 +188,26 @@ function registrarRotasFaturas(app, db) {
       // ehNaoFiscal: tipoOperacao.emiteNFe=0 (preferido) ou legado pedido.naoEmitirNFe=1.
       const ehNaoFiscal = tipoOp ? !tipoOp.emiteNFe : !!pedido.naoEmitirNFe;
 
+      // Multi-loja: carimba o estabelecimento ativo da sessão na fatura. Só vira
+      // não-nulo quando uma FILIAL contratada está selecionada — matriz e "sem
+      // seleção" gravam NULL (caminho legado). A emissão lê isto para escolher
+      // emitente/certificado/série do CNPJ certo.
+      const _estabAtivo = getEstabelecimentoAtivo(db, req);
+      const estabId = (_estabAtivo && !_estabAtivo.matriz) ? _estabAtivo.id : null;
+
       let faturaId;
       const tx = db.transaction(() => {
         faturaId = db.prepare(`
           INSERT INTO faturas (numero, pedidoId, clienteId, dataEmissao, dataVencimento,
             valorBruto, valorFrete, valorDesconto, valorTotal, meioPagamento, observacao, statusSefaz,
-            tipoOperacaoId)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            tipoOperacaoId, estabelecimentoId)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(numero, pedido.id, pedido.clienteId, dataEmissao, dataVencimento,
           valorBruto, valorFrete, valorDesconto, valorTotal,
           pedido.meioPagamento || null, b.observacao || null,
           ehNaoFiscal ? 'nao_fiscal' : null,
-          pedido.tipoOperacaoId || null
+          pedido.tipoOperacaoId || null,
+          estabId
         ).lastInsertRowid;
 
         for (const it of itensPedido) {

@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta de Licitações - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* Legacy theme reset removido — agora herda app-modern.css.
+           Componentes page-local abaixo (cards, badges, modais) seguem
+           usando vars do design system (--bg-2, --border, --accent...). */
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* label / input / select / button / .btn-primary / .btn-secondary
+           globals removidos — herdam de app-modern.css. */
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .results-info {
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            padding: 15px 25px;
+            border-radius: var(--r-md);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .results-count {
+            font-size: 16px;
+            color: var(--text-0);
+            font-weight: 600;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            background: var(--bg-2);
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .loading::after {
+            content: '⏳';
+            font-size: 48px;
+            display: block;
+            margin: 20px 0;
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results-grid {
+            display: grid;
+            gap: 15px;
+        }
+
+        .licitacao-card {
+            background: var(--bg-2);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .licitacao-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .licitacao-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .licitacao-titulo {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-0);
+            flex: 1;
+        }
+
+        .licitacao-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 15px;
+        }
+
+        .badge-modalidade {
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .licitacao-badges {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-lida {
+            background: var(--success-soft);
+            color: var(--success);
+        }
+
+        .badge-interesse {
+            background: var(--warn-soft);
+            color: var(--warn);
+            border: 1px solid var(--warn);
+        }
+
+        .badge-ia {
+            font-weight: 700;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 20px;
+        }
+
+        .btn-analise-ia {
+            padding: 8px 14px;
+            background: var(--accent);
+            color: var(--bg-2);
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-analise-ia:hover { background: var(--accent-strong); transform: translateY(-1px); }
+
+        .licitacao-card.com-interesse {
+            border-left: 4px solid var(--warn);
+        }
+
+        .licitacao-card.lida.com-interesse {
+            border-left: 4px solid var(--warn);
+        }
+
+        .licitacao-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .info-label {
+            font-size: 12px;
+            color: var(--text-0) !important;
+            margin-bottom: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-value {
+            font-size: 14px;
+            color: var(--text-0) !important;
+            font-weight: 500;
+        }
+
+        .licitacao-objeto {
+            background: var(--bg-3);
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .objeto-label {
+            font-size: 12px;
+            color: var(--text-3);
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .objeto-text {
+            font-size: 14px;
+            color: var(--text-1);
+            line-height: 1.6;
+        }
+
+        .licitacao-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 15px;
+            border-top: 1px solid var(--border);
+        }
+
+        .valor-estimado {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--success);
+        }
+
+        .btn-detalhes {
+            padding: 8px 20px;
+            background: var(--accent);
+            color: var(--bg-2);
+            border: none;
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn-detalhes:hover {
+            background: var(--accent-strong);
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+            background: var(--bg-2);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .pagination button {
+            padding: 10px 20px;
+            background: var(--bg-3);
+            color: var(--text-2);
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: var(--accent);
+            color: var(--bg-2);
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination .page-info {
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            font-weight: 600;
+            color: var(--text-0);
+        }
+
+        .error-message {
+            background: var(--danger-soft);
+            color: var(--danger);
+            padding: 15px 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--danger);
+        }
+
+        .empty-state {
+            background: var(--bg-2);
+            padding: 60px 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .empty-state::before {
+            content: '📋';
+            font-size: 64px;
+            display: block;
+            margin-bottom: 20px;
+        }
+
+        .empty-state-title {
+            font-size: 20px;
+            color: var(--text-0);
+            margin-bottom: 10px;
+        }
+
+        .empty-state-text {
+            font-size: 14px;
+            color: var(--text-2);
+        }
+
+        .btn-ver-itens {
+            padding: 8px 15px; background: var(--warn); color: var(--bg-2);
+            border: none; border-radius: 5px; font-size: 13px;
+            font-weight: 600; cursor: pointer; margin-right: 10px;
+        }
+        .btn-ver-itens:hover { background: var(--warn); }
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.7);
+            z-index: 1000; overflow-y: auto; padding: 20px;
+        }
+        .modal-content {
+            background: var(--bg-2); border-radius: 10px; max-width: 1200px;
+            margin: 20px auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .modal-header {
+            padding: 20px 25px; border-bottom: 2px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-title { font-size: 20px; font-weight: 600; color: var(--text-0); }
+        .modal-subtitle { font-size: 14px; color: var(--text-2); margin-top: 5px; }
+        .modal-close {
+            background: none; border: none; font-size: 28px;
+            cursor: pointer; color: var(--text-2); padding: 0; line-height: 1;
+        }
+        .modal-close:hover { color: var(--text-0); }
+        .modal-body { padding: 25px; max-height: 60vh; overflow-y: auto; }
+
+        /* Filtros de itens */
+        .filtros-itens {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            padding: 15px;
+            background: var(--bg-3);
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .filtro-grupo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .filtro-input {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .filtro-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(102,126,234,0.2);
+        }
+        .filtro-input[type="text"] { width: 250px; }
+        .filtro-valor { width: 100px; }
+        .btn-limpar-filtros {
+            padding: 8px 15px;
+            background: var(--border);
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .btn-limpar-filtros:hover { background: var(--border); }
+        .filtro-resultado {
+            margin-left: auto;
+            color: var(--text-2);
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .highlight {
+            background: var(--warn);
+            padding: 1px 3px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .itens-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .itens-table th {
+            background: var(--accent); color: var(--bg-2); padding: 12px 10px;
+            text-align: left; font-weight: 600;
+        }
+        .itens-table td {
+            padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
+        }
+        .itens-table tr:hover { background: var(--bg-3); }
+        .itens-table tr.item-selecionado { background: var(--success-soft); }
+        .item-checkbox { width: 20px; height: 20px; cursor: pointer; }
+        .modal-footer {
+            padding: 20px 25px; border-top: 2px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .itens-selecionados-info strong { color: var(--success); }
+        .btn-salvar-interesse {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, var(--success) 0%, var(--success) 100%);
+            color: var(--bg-2); border: none; border-radius: 5px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        .btn-salvar-interesse:hover { box-shadow: 0 4px 12px rgba(76,175,80,0.4); }
+        .footer-buttons { display: flex; gap: 10px; }
+
+        /* Estilo para licitações lidas */
+        .licitacao-card.lida {
+            opacity: 0.6;
+            background: var(--bg-3);
+            border-left: 4px solid var(--text-3);
+        }
+        .licitacao-card.lida .licitacao-titulo {
+            color: var(--text-3);
+        }
+        .licitacao-card.lida::before {
+            content: '✓ Lida';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--text-3);
+            color: var(--bg-2);
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .licitacao-card {
+            position: relative;
+        }
+        .btn-marcar-lida {
+            padding: 6px 12px;
+            background: var(--text-2);
+            color: var(--bg-2);
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+        .btn-marcar-lida:hover { background: var(--text-1); }
+        .btn-marcar-lida.lida { background: var(--success); }
+
+        .btn-sem-interesse {
+            padding: 6px 12px;
+            background: var(--danger);
+            color: var(--bg-2);
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+        .btn-sem-interesse:hover { background: var(--danger); }
+        .btn-sem-interesse.marcado { background: var(--text-3); }
+        .btn-sem-interesse.marcado:hover { background: var(--text-2); }
+
+        .licitacao-card.sem-interesse {
+            opacity: 0.4;
+            border-left: 4px solid var(--danger);
+        }
+        .licitacao-card.sem-interesse .licitacao-titulo {
+            text-decoration: line-through;
+            color: var(--text-3);
+        }
+
+        .badge-sem-interesse {
+            background: var(--danger-soft);
+            color: var(--danger);
+        }
+
+        #modalSemInteresse {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        #modalSemInteresse .modal-box {
+            background: var(--bg-2);
+            border-radius: 8px;
+            padding: 24px;
+            width: 400px;
+            max-width: 90vw;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        #modalSemInteresse .modal-box h3 {
+            margin: 0 0 16px 0;
+            font-size: 18px;
+            color: var(--text-0);
+        }
+        #modalSemInteresse textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 14px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        #modalSemInteresse .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        #modalSemInteresse .btn-confirmar {
+            padding: 8px 20px;
+            background: var(--danger);
+            color: var(--bg-2);
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #modalSemInteresse .btn-confirmar:hover { background: var(--danger); }
+        #modalSemInteresse .btn-cancelar {
+            padding: 8px 20px;
+            background: var(--text-3);
+            color: var(--bg-2);
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #modalSemInteresse .btn-cancelar:hover { background: var(--text-2); }
+
+        .filtros-visualizacao {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 15px;
+            background: var(--bg-3);
+            border-radius: 5px;
+        }
+        .filtros-visualizacao label {
+            font-size: 13px;
+            color: var(--text-1);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin: 0;
+            padding: 5px 10px;
+            background: var(--bg-2);
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+        .filtros-visualizacao label:hover {
+            background: var(--accent-soft);
+            border-color: var(--accent);
+        }
+        .filtros-visualizacao input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        .filtros-visualizacao input[type="checkbox"]:checked + span,
+        .filtros-visualizacao label:has(input:checked) {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* IA Analysis Badge */
+        .badge-ia {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .badge-ia:hover { transform: scale(1.05); }
+        .badge-ia.score-alto { background: var(--success-soft); color: var(--success); border: 1px solid var(--success-soft); }
+        .badge-ia.score-medio { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-soft); }
+        .badge-ia.score-baixo { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-soft); }
+        .badge-ia.sem-analise { background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border); }
+        /* Modal Análise IA — criado dinamicamente por abrirAnaliseIA em app.js */
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Buscar licitações</h1>
+      <small>Consulta global no PNCP / Comprasnet — filtros, ordenação e marcação de interesse</small>
+    </div>
+  </div>
+
+  <section class="panel" style="padding:20px;margin-bottom:20px;">
+    <h3 style="margin:0 0 16px 0;">🔍 Filtros de busca</h3>
+    <form id="searchForm">
+                <div class="filters-grid">
+                    <div class="form-group">
+                        <label for="numeroLicitacao">Nº Licitação</label>
+                        <input type="text" id="numeroLicitacao" name="numeroLicitacao"
+                               placeholder="Ex: 069, 123...">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="uasg">UASG</label>
+                        <input type="text" id="uasg" name="uasg"
+                               placeholder="Ex: 929714...">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="palavraChave">Palavra-chave</label>
+                        <input type="text" id="palavraChave" name="palavraChave"
+                               placeholder="Ex: computador, obra, serviço...">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="grupoPalavras">
+                            Grupo de Palavras
+                            <a href="/operacional/grupos-palavras.html" style="font-size: 11px; margin-left: 5px; color: var(--accent);">Configurar</a>
+                        </label>
+                        <select id="grupoPalavras" name="grupoPalavras" onchange="aplicarGrupoPalavras()">
+                            <option value="">Selecione um grupo...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="palavraExclusao">Excluir palavras</label>
+                        <input type="text" id="palavraExclusao" name="palavraExclusao"
+                               placeholder="Ex: manutenção, reforma..." style="border-color: var(--danger);">
+                        <small style="color: var(--text-3); font-size: 11px; margin-top: 3px;">Separe por vírgula</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="grupoExclusao">
+                            Grupo de Exclusão
+                            <a href="/operacional/grupos-palavras.html" style="font-size: 11px; margin-left: 5px; color: var(--danger);">Configurar</a>
+                        </label>
+                        <select id="grupoExclusao" name="grupoExclusao" style="border-color: var(--danger);">
+                            <option value="">Nenhum grupo selecionado</option>
+                        </select>
+                        <small style="color: var(--text-3); font-size: 11px; margin-top: 3px;">Exclui licitações com palavras do grupo</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="modalidade">Modalidade</label>
+                        <select id="modalidade" name="modalidade" data-loading="1">
+                            <option value="">Carregando…</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="uf">Estado (UF)</label>
+                        <select id="uf" name="uf">
+                            <option value="">Todos os Estados</option>
+                            <option value="AC">Acre (AC)</option>
+                            <option value="AL">Alagoas (AL)</option>
+                            <option value="AP">Amapá (AP)</option>
+                            <option value="AM">Amazonas (AM)</option>
+                            <option value="BA">Bahia (BA)</option>
+                            <option value="CE">Ceará (CE)</option>
+                            <option value="DF">Distrito Federal (DF)</option>
+                            <option value="ES">Espírito Santo (ES)</option>
+                            <option value="GO">Goiás (GO)</option>
+                            <option value="MA">Maranhão (MA)</option>
+                            <option value="MT">Mato Grosso (MT)</option>
+                            <option value="MS">Mato Grosso do Sul (MS)</option>
+                            <option value="MG">Minas Gerais (MG)</option>
+                            <option value="PA">Pará (PA)</option>
+                            <option value="PB">Paraíba (PB)</option>
+                            <option value="PR">Paraná (PR)</option>
+                            <option value="PE">Pernambuco (PE)</option>
+                            <option value="PI">Piauí (PI)</option>
+                            <option value="RJ">Rio de Janeiro (RJ)</option>
+                            <option value="RN">Rio Grande do Norte (RN)</option>
+                            <option value="RS">Rio Grande do Sul (RS)</option>
+                            <option value="RO">Rondônia (RO)</option>
+                            <option value="RR">Roraima (RR)</option>
+                            <option value="SC">Santa Catarina (SC)</option>
+                            <option value="SP">São Paulo (SP)</option>
+                            <option value="SE">Sergipe (SE)</option>
+                            <option value="TO">Tocantins (TO)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="portal">Portal/Sistema</label>
+                        <select id="portal" name="portal">
+                            <option value="">Todos os Portais</option>
+                            <option value="comprasnet">Comprasnet / Compras.gov.br</option>
+                            <option value="portalcompras">Portal de Compras Públicas</option>
+                            <option value="licitacoese">Licitações-e (Banco do Brasil)</option>
+                            <option value="bll">BLL Compras</option>
+                            <option value="licitardigital">Licitar Digital</option>
+                            <option value="licitanet">Licitanet</option>
+                            <option value="banrisul">Pregão Banrisul</option>
+                            <option value="comprasrs">Compras RS</option>
+                            <option value="comprasmg">Compras MG</option>
+                            <option value="semlink">Sem link (apenas PNCP)</option>
+                            <option value="outros">Outros portais</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+                    <h3 style="font-size: 16px; font-weight: 600; color: var(--text-1); margin-bottom: 15px;">Filtros de Data</h3>
+
+                    <div class="filters-grid">
+                        <div class="form-group">
+                            <label for="dataPublicacaoInicial">Publicação - Data Inicial</label>
+                            <input type="date" id="dataPublicacaoInicial" name="dataPublicacaoInicial">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="dataPublicacaoFinal">Publicação - Data Final</label>
+                            <input type="date" id="dataPublicacaoFinal" name="dataPublicacaoFinal">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="dataAberturaInicial">Fim Propostas - De</label>
+                            <input type="date" id="dataAberturaInicial" name="dataAberturaInicial">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="dataAberturaFinal">Fim Propostas - Até</label>
+                            <input type="date" id="dataAberturaFinal" name="dataAberturaFinal">
+                        </div>
+                    </div>
+                </div>
+
+                
+
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
+                    <div class="filters-grid">
+                        <div class="form-group">
+                            <label for="ordenacao">Ordenar por</label>
+                            <select id="ordenacao" name="ordenacao">
+                                <option value="dataEncerramentoProposta_asc">Data Fim Propostas (mais próxima)</option>
+                                <option value="dataEncerramentoProposta_desc">Data Fim Propostas (mais distante)</option>
+                                <option value="dataPublicacaoPncp_desc">Data Publicação (mais recente)</option>
+                                <option value="dataPublicacaoPncp_asc">Data Publicação (mais antiga)</option>
+                                <option value="valorTotalEstimado_desc">Valor Estimado (maior)</option>
+                                <option value="valorTotalEstimado_asc">Valor Estimado (menor)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button type="button" class="btn btn-secondary" onclick="limparFiltros()">
+                        Limpar
+                    </button>
+                    <button type="submit" class="btn btn-primary" id="btnBuscar">
+                        Buscar Licitações
+                    </button>
+                </div>
+            </form>
+  </section>
+
+        <div id="errorContainer"></div>
+
+        <div id="resultsInfo" style="display: none;" class="results-info">
+            <div class="results-count">
+                <span id="resultsCount">0</span> licitações encontradas
+                <span id="lidasCount" style="margin-left: 10px; color: var(--text-3); font-size: 13px;"></span>
+            </div>
+            <div class="filtros-visualizacao">
+                <label>
+                    <input type="checkbox" id="filtroNaoLidas" onchange="aplicarFiltros()">
+                    Apenas não lidas
+                </label>
+                <label style="margin-left: 15px;">
+                    <input type="checkbox" id="filtroComInteresse" onchange="aplicarFiltros()">
+                    Apenas com interesse
+                </label>
+                <label style="margin-left: 15px;">
+                    <input type="checkbox" id="filtroSemInteresse" onchange="aplicarFiltros()" checked>
+                    Ocultar sem interesse
+                </label>
+            </div>
+            <div>Página <span id="currentPage">1</span></div>
+        </div>
+
+        <div id="loadingContainer" style="display: none;" class="loading">
+            <h3>Carregando licitações...</h3>
+        </div>
+
+        <div id="resultsContainer" class="results-grid"></div>
+
+        <div id="paginationContainer" style="display: none;" class="pagination">
+            <button id="btnPrevPage">← Anterior</button>
+            <div class="page-info">
+                Página <span id="pageNumber">1</span>
+            </div>
+            <button id="btnNextPage">Próxima →</button>
+        </div>
+
+        <div id="emptyState" style="display: none;" class="empty-state">
+            <div class="empty-state-title">Nenhuma licitação encontrada</div>
+            <div class="empty-state-text">Tente ajustar os filtros de busca</div>
+        </div>
+
+    <!-- Modal de Itens -->
+    <div id="modalItens" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title">Itens da Licitacao</div>
+                    <div class="modal-subtitle" id="modalSubtitle"></div>
+                </div>
+                <button class="modal-close" onclick="fecharModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <div class="loading-itens">Carregando itens...</div>
+            </div>
+            <div class="modal-footer">
+                <div class="itens-selecionados-info">
+                    <strong id="qtdSelecionados">0</strong> itens selecionados para participar
+                </div>
+                <div class="footer-buttons">
+                    <button class="btn btn-secondary" onclick="fecharModal()">Fechar</button>
+                    <button class="btn-salvar-interesse" id="btnSalvarInteresse" onclick="salvarInteresse()">
+                        Salvar Interesse
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+</div>
+
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script src="/app.js?v=20260520b"></script>
+    <script>
+        initSidebar('consulta');
+
+        // Grupos de palavras-chave
+        let gruposPalavras = [];
+        let _carregarGruposPalavrasPromise = null; // deduplica requests concorrentes
+
+        async function carregarGruposPalavras() {
+            // Se uma chamada já está em andamento, reusa a Promise (evita dupla fetch)
+            if (_carregarGruposPalavrasPromise) return _carregarGruposPalavrasPromise;
+
+            _carregarGruposPalavrasPromise = (async () => {
+                try {
+                    const response = await fetch('/api/grupos-palavras?tipo=pesquisa', { credentials: 'same-origin' });
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    const data = await response.json();
+                    if (!data.success) throw new Error(data.error || 'Resposta inválida');
+
+                    gruposPalavras = data.data || [];
+                    const select = document.getElementById('grupoPalavras');
+                    if (select) {
+                        const valorAtual = select.value;
+                        select.innerHTML = '<option value="">Selecione um grupo...</option>';
+                        gruposPalavras.forEach(grupo => {
+                            const opt = document.createElement('option');
+                            opt.value = grupo.id;
+                            opt.textContent = `${grupo.nome} (${grupo.palavras ? grupo.palavras.length : 0} palavras)`;
+                            opt.style.color = grupo.cor;
+                            select.appendChild(opt);
+                        });
+                        // Preserva seleção se o valor ainda existe após recarga
+                        if (valorAtual && gruposPalavras.find(g => String(g.id) === valorAtual)) {
+                            select.value = valorAtual;
+                        }
+
+                        // Verifica se veio grupo na URL
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const grupoId = urlParams.get('grupo');
+                        if (grupoId) {
+                            select.value = grupoId;
+                            aplicarGrupoPalavras();
+                        }
+                    }
+                    return true;
+                } catch (e) {
+                    console.error('Erro ao carregar grupos:', e);
+                    return false;
+                } finally {
+                    _carregarGruposPalavrasPromise = null;
+                }
+            })();
+            return _carregarGruposPalavrasPromise;
+        }
+
+        async function aplicarGrupoPalavras() {
+            const select = document.getElementById('grupoPalavras');
+            const grupoId = select.value;
+
+            if (!grupoId) {
+                document.getElementById('palavraChave').value = '';
+                document.getElementById('palavraExclusao').value = '';
+                const selExclusao = document.getElementById('grupoExclusao');
+                if (selExclusao) selExclusao.value = '';
+                return;
+            }
+
+            // BFCache / race: se o cache em memória está vazio mas o select tem opções
+            // (restauração BFCache ou clique antes do fetch), força recarregar antes.
+            if (!gruposPalavras.length) {
+                await carregarGruposPalavras();
+                // restaura seleção pós-recarga (innerHTML pode ter sobrescrito)
+                select.value = grupoId;
+            }
+
+            const grupo = gruposPalavras.find(g => g.id == grupoId);
+            if (grupo && grupo.palavras && grupo.palavras.length > 0) {
+                // Preenche o campo de palavra-chave com as palavras do grupo
+                document.getElementById('palavraChave').value = grupo.palavras.join(', ');
+
+                // Aplica grupos de exclusão vinculados
+                if (grupo.gruposExclusaoVinculados && grupo.gruposExclusaoVinculados.length > 0) {
+                    const idsVinculados = grupo.gruposExclusaoVinculados.map(g => g.id);
+                    const palavrasExclusao = [];
+                    idsVinculados.forEach(id => {
+                        const ge = gruposExclusao.find(g => g.id == id);
+                        if (ge && ge.palavras) {
+                            palavrasExclusao.push(...ge.palavras);
+                        }
+                    });
+                    document.getElementById('palavraExclusao').value = palavrasExclusao.join(', ');
+                    // Seleciona o primeiro grupo de exclusão vinculado no dropdown
+                    const selExclusao = document.getElementById('grupoExclusao');
+                    if (selExclusao) {
+                        selExclusao.value = idsVinculados[0];
+                    }
+                } else {
+                    document.getElementById('palavraExclusao').value = '';
+                    const selExclusao = document.getElementById('grupoExclusao');
+                    if (selExclusao) selExclusao.value = '';
+                }
+
+                // Dispara a pesquisa automaticamente
+                if (typeof pesquisar === 'function') {
+                    pesquisar();
+                } else if (document.getElementById('searchForm')) {
+                    document.getElementById('searchForm').dispatchEvent(new Event('submit'));
+                }
+            }
+        }
+
+        
+        // Grupos de exclusão
+        let gruposExclusao = [];
+        let _carregarGruposExclusaoPromise = null;
+
+        async function carregarGruposExclusao() {
+            if (_carregarGruposExclusaoPromise) return _carregarGruposExclusaoPromise;
+            _carregarGruposExclusaoPromise = (async () => {
+                try {
+                    const response = await fetch('/api/grupos-palavras?tipo=exclusao', { credentials: 'same-origin' });
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    const data = await response.json();
+                    if (!data.success) throw new Error(data.error || 'Resposta inválida');
+
+                    gruposExclusao = data.data || [];
+                    const select = document.getElementById('grupoExclusao');
+                    if (select) {
+                        const valorAtual = select.value;
+                        select.innerHTML = '<option value="">Nenhum grupo selecionado</option>';
+                        gruposExclusao.forEach(grupo => {
+                            const opt = document.createElement('option');
+                            opt.value = grupo.id;
+                            opt.textContent = grupo.nome + ' (' + (grupo.palavras ? grupo.palavras.length : 0) + ' palavras)';
+                            opt.style.color = grupo.cor || 'var(--danger)';
+                            select.appendChild(opt);
+                        });
+                        if (valorAtual && gruposExclusao.find(g => String(g.id) === valorAtual)) {
+                            select.value = valorAtual;
+                        }
+                    }
+                    return true;
+                } catch (e) {
+                    console.error('Erro ao carregar grupos de exclusão:', e);
+                    return false;
+                } finally {
+                    _carregarGruposExclusaoPromise = null;
+                }
+            })();
+            return _carregarGruposExclusaoPromise;
+        }
+
+        // Tabela PNCP (Lei 14.133) — fallback estático se /api/bi/facets falhar.
+        // IDs autoritativos do catálogo PNCP, não confundir com Lei 8.666.
+        const MODALIDADES_PNCP_FALLBACK = [
+            { id: 1, nome: 'Leilão - Eletrônico' },
+            { id: 2, nome: 'Diálogo Competitivo' },
+            { id: 3, nome: 'Concurso' },
+            { id: 4, nome: 'Concorrência - Eletrônica' },
+            { id: 5, nome: 'Concorrência - Presencial' },
+            { id: 6, nome: 'Pregão - Eletrônico' },
+            { id: 7, nome: 'Pregão - Presencial' },
+            { id: 8, nome: 'Dispensa' },
+            { id: 9, nome: 'Inexigibilidade' },
+            { id: 10, nome: 'Manifestação de Interesse' },
+            { id: 11, nome: 'Pré-qualificação' },
+            { id: 12, nome: 'Credenciamento' },
+            { id: 13, nome: 'Leilão - Presencial' },
+            { id: 14, nome: 'Inaplicabilidade da Licitação' },
+        ];
+
+        async function popularModalidades() {
+            const sel = document.getElementById('modalidade');
+            if (!sel) return;
+            const valorAtual = sel.value;
+            try {
+                const r = await fetch('/api/bi/facets');
+                const j = await r.json();
+                const modalidades = (j.modalidades || []).filter(m => m.id != null);
+                if (modalidades.length === 0) throw new Error('facets vazias');
+                sel.innerHTML = '<option value="">Todas</option>' +
+                    modalidades.map(m =>
+                        `<option value="${m.id}">${m.nome} (${(m.total || 0).toLocaleString('pt-BR')})</option>`
+                    ).join('');
+            } catch (e) {
+                sel.innerHTML = '<option value="">Todas</option>' +
+                    MODALIDADES_PNCP_FALLBACK.map(m =>
+                        `<option value="${m.id}">${m.nome}</option>`
+                    ).join('');
+            }
+            sel.removeAttribute('data-loading');
+            if (valorAtual) sel.value = valorAtual;
+        }
+
+        // Carregamento inicial + re-carga em paralelo (não dependentes)
+        function carregarTodosGrupos() {
+            return Promise.all([carregarGruposExclusao(), carregarGruposPalavras(), popularModalidades()]);
+        }
+
+        carregarTodosGrupos();
+
+        // Re-carregar quando a aba volta ao foco ou o browser restaura via BFCache
+        // (back/forward) — caso contrário o select tem HTML antigo e gruposPalavras fica []
+        window.addEventListener('pageshow', (e) => {
+            if (e.persisted) carregarTodosGrupos();
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && gruposPalavras.length === 0) {
+                carregarTodosGrupos();
+            }
+        });
+    </script>
+
+    <div id="modalSemInteresse" onclick="if(event.target===this)fecharModalSemInteresse()">
+        <div class="modal-box">
+            <h3>🚫 Não tenho interesse</h3>
+            <textarea id="motivoSemInteresse" placeholder="Motivo (opcional)"></textarea>
+            <div class="modal-actions">
+                <button class="btn-cancelar" onclick="fecharModalSemInteresse()">Cancelar</button>
+                <button class="btn-confirmar" onclick="confirmarSemInteresse()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+

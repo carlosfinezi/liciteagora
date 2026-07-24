@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modelos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Modelos</h1>
+      <small>Catálogo de modelos de produto (Wayfarer RB2140, iPhone 15, etc.) — usado em <a href="/catalogo/produtos.html">Produtos</a></small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo modelo</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <input type="text" id="filtBusca" placeholder="Buscar…" oninput="render()" style="flex:1;min-width:240px;">
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Modelo</th><th>Status</th><th></th></tr></thead>
+        <tbody id="tb"><tr><td colspan="3" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Novo modelo</h3>
+        <small class="muted">Cadastra um novo valor</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Modelo *</label>
+        <input type="text" id="fValor" placeholder="ex.: Wayfarer RB2140">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('cadastro-modelos');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+let cache = [];
+
+async function carregar(){
+  const tb = document.getElementById('tb');
+  tb.innerHTML = '<tr><td colspan="3" class="empty">Carregando…</td></tr>';
+  try {
+    const r = await fetch('/api/produto-lookup/modelo');
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    cache = d.itens || [];
+    render();
+  } catch (e) { tb.innerHTML = '<tr><td colspan="3" class="empty">Erro: '+escTxt(e.message)+'</td></tr>'; }
+}
+
+function render(){
+  const q = (document.getElementById('filtBusca').value || '').toLowerCase().trim();
+  const lista = q ? cache.filter(i => (i.valor||'').toLowerCase().includes(q)) : cache;
+  const tb = document.getElementById('tb');
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="3" class="empty">Nenhum item</td></tr>'; return; }
+  tb.innerHTML = lista.map(i => `<tr>
+    <td>${escTxt(i.valor)}</td>
+    <td><span class="badge success">ativo</span></td>
+    <td><button class="btn btn-ghost btn-sm" onclick='inativar(${JSON.stringify(i.valor)})'>Inativar</button></td>
+  </tr>`).join('');
+}
+
+function abrirNovo(){
+  document.getElementById('fValor').value = '';
+  document.getElementById('modal').classList.add('open');
+  setTimeout(() => document.getElementById('fValor').focus(), 50);
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const valor = document.getElementById('fValor').value.trim();
+  if (!valor) return showAlert('Valor obrigatório','error');
+  try {
+    const r = await fetch('/api/produto-lookup/modelo', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ valor })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    showAlert('Modelo adicionado');
+    fecharModal();
+    await carregar();
+  } catch (e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+async function inativar(valor){
+  if (!confirm('Inativar modelo "'+valor+'"?')) return;
+  try {
+    const r = await fetch('/api/produto-lookup/modelo/'+encodeURIComponent(valor), { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    showAlert('Inativado');
+    await carregar();
+  } catch (e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
+});
+
+carregar();
+</script>
+</body>
+</html>

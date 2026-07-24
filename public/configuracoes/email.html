@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E-mail (SMTP) · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>E-mail (SMTP)</h1>
+      <small>Servidor de envio usado por NFS-e, recorrências e demais notificações</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card" style="max-width:720px;">
+    <h3>Servidor SMTP</h3>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Servidor</label>
+        <input type="text" id="smtpHost" placeholder="smtp.gmail.com">
+      </div>
+      <div class="form-group">
+        <label>Porta</label>
+        <input type="number" id="smtpPort" value="587">
+      </div>
+      <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;">
+        <label class="switch">
+          <input type="checkbox" id="smtpSecure">
+          <span class="slider"></span>
+        </label>
+        <span>SSL/TLS</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Usuário</label>
+        <input type="text" id="smtpUser" placeholder="email@exemplo.com" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="smtpPass" placeholder="Senha ou App Password" autocomplete="new-password">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Nome do remetente</label>
+        <input type="text" id="smtpFromName" placeholder="Minha Empresa">
+      </div>
+      <div class="form-group">
+        <label>E-mail do remetente</label>
+        <input type="email" id="smtpFromEmail" placeholder="nfse@empresa.com">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <input type="email" id="emailTeste" placeholder="E-mail para teste" style="min-width:240px;">
+        <button class="btn btn-secondary btn-sm" onclick="testarSmtp()">Enviar teste</button>
+      </div>
+      <button class="btn btn-primary" onclick="salvarSmtp()">Salvar</button>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('email');</script>
+<script>
+function showAlert(msg, type = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + type;
+  e.textContent = msg;
+  e.style.display = 'block';
+  setTimeout(() => e.style.display = 'none', 5000);
+}
+
+async function carregarSmtp() {
+  try {
+    const resp = await fetch('/api/smtp/config');
+    const data = await resp.json();
+    if (!data.success) return;
+    const c = data.config || {};
+    document.getElementById('smtpHost').value = c.host || '';
+    document.getElementById('smtpPort').value = c.port || '587';
+    document.getElementById('smtpSecure').checked = c.secure === '1';
+    document.getElementById('smtpUser').value = c.user || '';
+    document.getElementById('smtpPass').value = c.pass || '';
+    document.getElementById('smtpFromName').value = c.fromName || '';
+    document.getElementById('smtpFromEmail').value = c.fromEmail || '';
+  } catch (_) { /* silent */ }
+}
+
+async function salvarSmtp() {
+  try {
+    const body = {
+      host: document.getElementById('smtpHost').value,
+      port: parseInt(document.getElementById('smtpPort').value) || 587,
+      secure: document.getElementById('smtpSecure').checked,
+      user: document.getElementById('smtpUser').value,
+      pass: document.getElementById('smtpPass').value,
+      fromName: document.getElementById('smtpFromName').value,
+      fromEmail: document.getElementById('smtpFromEmail').value,
+    };
+    const resp = await fetch('/api/smtp/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+    showAlert('Configuração SMTP salva');
+  } catch (err) {
+    showAlert('Erro: ' + err.message, 'error');
+  }
+}
+
+async function testarSmtp() {
+  const email = document.getElementById('emailTeste').value;
+  if (!email) return showAlert('Informe um e-mail para teste', 'error');
+  try {
+    showAlert('Enviando teste...', 'info');
+    const resp = await fetch('/api/smtp/testar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+    showAlert('E-mail teste enviado. Verifique a caixa de entrada.');
+  } catch (err) {
+    showAlert('Erro: ' + err.message, 'error');
+  }
+}
+
+carregarSmtp();
+</script>
+</body>
+</html>

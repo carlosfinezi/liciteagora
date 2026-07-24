@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plano de Contas Contábil · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Plano de Contas Contábil</h1>
+      <small>Estrutura sintética/analítica em partida dobrada — lançamentos só em contas analíticas</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova conta</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Natureza</th><th>Status</th><th></th></tr></thead>
+      <tbody id="tbContas"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalConta">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 id="mTitulo" style="margin:0;">Nova conta</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Código *</label><input type="text" id="cCodigo" placeholder="Ex.: 1.1.001"></div>
+      <div class="form-group full-width"><label>Nome *</label><input type="text" id="cNome"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Tipo</label>
+        <select id="cTipo"><option value="analitica">Analítica (recebe lançamento)</option><option value="sintetica">Sintética (agrupadora)</option></select>
+      </div>
+      <div class="form-group"><label>Natureza</label>
+        <select id="cNatureza"><option value="D">Devedora (ativo/despesa)</option><option value="C">Credora (passivo/receita)</option></select>
+      </div>
+      <div class="form-group full-width"><label>Conta pai (sintética)</label><select id="cPai"><option value="">— raiz —</option></select></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ctb-plano');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fechar(){ document.getElementById('modalConta').classList.remove('open'); }
+
+let contas = [], contaEdit = null;
+
+async function carregar(){
+  const r = await fetch('/api/contabilidade/contas'); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  contas = d.contas;
+  document.getElementById('tbContas').innerHTML = contas.length ? contas.map(c=>`<tr${c.ativo?'':' style="opacity:0.55;"'}>
+    <td style="padding-left:${(c.nivel-1)*22+8}px;"><code>${c.codigo}</code></td>
+    <td>${c.tipoConta==='sintetica'?'<strong>'+c.nome+'</strong>':c.nome}</td>
+    <td>${c.tipoConta==='sintetica'?'<span class="badge ajuste">SINTÉTICA</span>':'<span class="badge entrada">ANALÍTICA</span>'}</td>
+    <td>${c.natureza==='D'?'Devedora':'Credora'}</td>
+    <td>${c.ativo?'ativa':'inativa'}</td>
+    <td>
+      <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(c).replace(/'/g,"&#39;")})'>Editar</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleAtivo(${c.id}, ${c.ativo?0:1})">${c.ativo?'Inativar':'Reativar'}</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty">Plano vazio</td></tr>';
+}
+
+function abrirNova(){
+  contaEdit = null;
+  document.getElementById('mTitulo').textContent = 'Nova conta';
+  ['cCodigo','cNome'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('cTipo').value='analitica'; document.getElementById('cNatureza').value='D';
+  document.getElementById('cPai').innerHTML = '<option value="">— raiz —</option>' +
+    contas.filter(c=>c.tipoConta==='sintetica' && c.ativo).map(c=>`<option value="${c.id}">${c.codigo} — ${c.nome}</option>`).join('');
+  ['cCodigo','cTipo','cPai'].forEach(i=>document.getElementById(i).disabled=false);
+  document.getElementById('modalConta').classList.add('open');
+}
+
+function editar(c){
+  contaEdit = c;
+  document.getElementById('mTitulo').textContent = 'Editar conta ' + c.codigo;
+  document.getElementById('cCodigo').value = c.codigo;
+  document.getElementById('cNome').value = c.nome;
+  document.getElementById('cTipo').value = c.tipoConta;
+  document.getElementById('cNatureza').value = c.natureza;
+  document.getElementById('cPai').innerHTML = '<option value="">—</option>';
+  // código/tipo/pai imutáveis na edição (integridade do histórico)
+  ['cCodigo','cTipo','cPai'].forEach(i=>document.getElementById(i).disabled=true);
+  document.getElementById('modalConta').classList.add('open');
+}
+
+async function salvar(){
+  if (contaEdit) {
+    const r = await fetch('/api/contabilidade/contas/'+contaEdit.id, { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nome: document.getElementById('cNome').value.trim() }) });
+    const d = await r.json();
+    if(!d.success) return showAlert(d.error,'error');
+  } else {
+    const body = {
+      codigo: document.getElementById('cCodigo').value.trim(),
+      nome: document.getElementById('cNome').value.trim(),
+      tipoConta: document.getElementById('cTipo').value,
+      natureza: document.getElementById('cNatureza').value,
+      parentId: Number(document.getElementById('cPai').value) || null
+    };
+    if (!body.codigo || !body.nome) return showAlert('Código e nome obrigatórios','error');
+    const r = await fetch('/api/contabilidade/contas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if(!d.success) return showAlert(d.error,'error');
+  }
+  fechar(); showAlert('Conta salva'); carregar();
+}
+
+async function toggleAtivo(id, ativo){
+  const r = await fetch('/api/contabilidade/contas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ativo }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
+carregar();
+</script>
+</body></html>

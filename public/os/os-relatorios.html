@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatórios de OS · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Relatórios de Ordem de Serviço</h1>
+      <small>Lucratividade, SLA, comissões e desempenho por técnico/cliente/equipamento</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card">
+    <div class="toolbar">
+      <label>De: <input type="date" id="fDe"></label>
+      <label>Até: <input type="date" id="fAte"></label>
+      <select id="fRel">
+        <option value="por-tecnico">Por técnico (produtividade + comissão)</option>
+        <option value="por-cliente">Por cliente</option>
+        <option value="por-equipamento">Por equipamento</option>
+        <option value="lucratividade">Lucratividade (OS a OS)</option>
+        <option value="sla">SLA (cumprimento de prazos)</option>
+        <option value="comissoes">Comissões (OS faturadas)</option>
+      </select>
+      <button class="btn btn-primary" onclick="carregar()">Gerar</button>
+    </div>
+  </div>
+
+  <div id="conteudo" style="margin-top:16px;"></div>
+
+</main></div>
+
+<script>
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pct(n, total){ if (!total) return '0%'; return Math.round((n/total)*100) + '%'; }
+
+async function carregar(){
+  const rel = document.getElementById('fRel').value;
+  const de  = document.getElementById('fDe').value;
+  const ate = document.getElementById('fAte').value;
+  const q = new URLSearchParams();
+  if (de) q.set('de', de); if (ate) q.set('ate', ate);
+  const r = await fetch(`/api/os/relatorios/${rel}?${q}`).then(r=>r.json());
+  const div = document.getElementById('conteudo');
+  if (!r.success) return div.innerHTML = `<div class="alert alert-error">Erro: ${escapeHtml(r.error)}</div>`;
+  div.innerHTML = RENDERERS[rel](r);
+}
+
+const RENDERERS = {
+  'por-tecnico': (r) => {
+    if (!r.linhas.length) return '<div class="card">Sem dados no período.</div>';
+    const rows = r.linhas.map(x => `
+      <tr>
+        <td>${escapeHtml(x.tecnicoNome||'— (sem técnico)')}</td>
+        <td class="num">${x.totalOS}</td>
+        <td class="num">${x.faturadas}</td>
+        <td class="num">${x.canceladas}</td>
+        <td class="num">${fmtBRL(x.valorPecas)}</td>
+        <td class="num">${fmtBRL(x.valorServicos)}</td>
+        <td class="num"><strong>${fmtBRL(x.valorTotal)}</strong></td>
+        <td class="num">${x.comissaoPercentual ? x.comissaoPercentual + '%' : '—'}</td>
+        <td class="num" style="color:#059669;"><strong>${fmtBRL(x.comissaoDevida)}</strong></td>
+      </tr>`).join('');
+    return `<div class="card"><table class="table">
+      <thead><tr>
+        <th>Técnico</th><th class="num">Total</th><th class="num">Faturadas</th><th class="num">Canc.</th>
+        <th class="num">Peças</th><th class="num">Serviços</th><th class="num">Total</th>
+        <th class="num">%</th><th class="num">Comissão</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  },
+  'por-cliente': (r) => {
+    if (!r.linhas.length) return '<div class="card">Sem dados no período.</div>';
+    const rows = r.linhas.map(x => `
+      <tr>
+        <td>${escapeHtml(x.clienteNome)} <small class="muted">${x.cpfCnpj||''}</small></td>
+        <td class="num">${x.totalOS}</td>
+        <td class="num">${x.faturadas}</td>
+        <td class="num">${fmtBRL(x.valorTotal)}</td>
+        <td class="num"><strong>${fmtBRL(x.receitaFaturada)}</strong></td>
+        <td>${x.ultimaAbertura?.slice(0,10)||'—'}</td>
+      </tr>`).join('');
+    return `<div class="card"><table class="table">
+      <thead><tr>
+        <th>Cliente</th><th class="num">Total</th><th class="num">Faturadas</th>
+        <th class="num">Total R$</th><th class="num">Receita faturada</th><th>Última</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  },
+  'por-equipamento': (r) => {
+    if (!r.linhas.length) return '<div class="card">Sem dados no período.</div>';
+    const rows = r.linhas.map(x => `
+      <tr>
+        <td>${escapeHtml(x.equipamento)}</td>
+        <td>${escapeHtml(x.marca)}</td>
+        <td>${escapeHtml(x.modelo)}</td>
+        <td class="num">${x.totalOS}</td>
+        <td class="num">${x.emGarantia}</td>
+        <td class="num">${fmtBRL(x.valorTotal)}</td>
+      </tr>`).join('');
+    return `<div class="card"><table class="table">
+      <thead><tr>
+        <th>Equipamento</th><th>Marca</th><th>Modelo</th>
+        <th class="num">Total OS</th><th class="num">Em garantia</th><th class="num">Receita</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  },
+  'lucratividade': (r) => {
+    if (!r.linhas.length) return '<div class="card">Sem OS concluídas/faturadas no período.</div>';
+    const tot = r.linhas.reduce((a,x)=>{ a.valor += x.valorTotal; a.custo += x.custoPecas; a.margem += x.margemBruta; return a; }, {valor:0,custo:0,margem:0});
+    const rows = r.linhas.map(x => {
+      const mpct = x.valorTotal ? (x.margemBruta/x.valorTotal*100).toFixed(1) : '0.0';
+      return `<tr>
+        <td><a href="/os/ordem-servico.html?id=${x.osId}">${escapeHtml(x.numero)}</a></td>
+        <td>${x.dataAbertura?.slice(0,10)}</td>
+        <td>${escapeHtml(x.clienteNome||'')}</td>
+        <td>${escapeHtml(x.tecnicoNome||'—')}</td>
+        <td class="num">${fmtBRL(x.valorTotal)}</td>
+        <td class="num">${fmtBRL(x.custoPecas)}</td>
+        <td class="num"><strong style="color:${x.margemBruta>=0?'#059669':'#dc2626'};">${fmtBRL(x.margemBruta)}</strong></td>
+        <td class="num">${mpct}%</td>
+      </tr>`;
+    }).join('');
+    return `<div class="card">
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">Receita total</div><div class="value">${fmtBRL(tot.valor)}</div></div>
+        <div class="kpi"><div class="label">Custo de peças</div><div class="value">${fmtBRL(tot.custo)}</div></div>
+        <div class="kpi"><div class="label">Margem bruta</div><div class="value" style="color:${tot.margem>=0?'#059669':'#dc2626'};">${fmtBRL(tot.margem)}</div></div>
+      </div>
+      <table class="table">
+        <thead><tr>
+          <th>OS</th><th>Abertura</th><th>Cliente</th><th>Técnico</th>
+          <th class="num">Receita</th><th class="num">Custo peças</th>
+          <th class="num">Margem</th><th class="num">%</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+  'sla': (r) => {
+    const s = r.resumo;
+    const porTec = r.porTecnico || [];
+    const semSla = s.total - (s.cumpridos + s.estourados + s.atrasados + s.emRisco + s.noPrazo);
+    const base = s.cumpridos + s.estourados;
+    const taxa = base ? Math.round(s.cumpridos/base*100) : 0;
+    const tecRows = porTec.map(t => `
+      <tr>
+        <td>${escapeHtml(t.tecnicoNome||'—')}</td>
+        <td class="num">${t.total}</td>
+        <td class="num" style="color:#059669;">${t.cumpridos}</td>
+        <td class="num" style="color:#dc2626;">${t.estourados}</td>
+        <td class="num" style="color:#dc2626;">${t.atrasados}</td>
+        <td class="num">${t.total ? Math.round((t.cumpridos/(t.cumpridos+t.estourados||1))*100) : 0}%</td>
+      </tr>`).join('');
+    return `<div class="card">
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">Total</div><div class="value">${s.total}</div></div>
+        <div class="kpi"><div class="label">Cumpridos</div><div class="value" style="color:#059669;">${s.cumpridos}</div></div>
+        <div class="kpi"><div class="label">Estourados</div><div class="value" style="color:#dc2626;">${s.estourados}</div></div>
+        <div class="kpi"><div class="label">Atrasados</div><div class="value" style="color:#dc2626;">${s.atrasados}</div></div>
+        <div class="kpi"><div class="label">Em risco</div><div class="value" style="color:#d97706;">${s.emRisco}</div></div>
+        <div class="kpi"><div class="label">No prazo</div><div class="value">${s.noPrazo}</div></div>
+        <div class="kpi"><div class="label">Taxa de cumprimento</div><div class="value">${taxa}%</div></div>
+        <div class="kpi"><div class="label">Sem SLA</div><div class="value">${semSla||0}</div></div>
+      </div>
+      <h3 style="margin-top:20px;">Por técnico</h3>
+      <table class="table">
+        <thead><tr>
+          <th>Técnico</th><th class="num">Total</th>
+          <th class="num">Cumpridos</th><th class="num">Estourados</th><th class="num">Atrasados</th>
+          <th class="num">Taxa</th>
+        </tr></thead>
+        <tbody>${tecRows||'<tr><td colspan="6" class="muted">Sem dados</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  },
+  'comissoes': (r) => {
+    if (!r.linhas.length) return '<div class="card">Sem OS faturadas com comissão no período.</div>';
+    const rows = r.linhas.map(x => `
+      <tr>
+        <td>${x.dataFaturamento?.slice(0,10)}</td>
+        <td><a href="/os/ordem-servico.html?id=${x.osId}">${escapeHtml(x.numero)}</a></td>
+        <td>${escapeHtml(x.tecnicoNome)}</td>
+        <td class="num">${fmtBRL(x.valorServicos)}</td>
+        <td class="num">${x.comissaoPercentual}%</td>
+        <td class="num" style="color:#059669;"><strong>${fmtBRL(x.comissao)}</strong></td>
+      </tr>`).join('');
+    return `<div class="card">
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">Serviços faturados</div><div class="value">${fmtBRL(r.totais.valorServicos)}</div></div>
+        <div class="kpi"><div class="label">Comissão total</div><div class="value" style="color:#059669;">${fmtBRL(r.totais.comissao)}</div></div>
+      </div>
+      <table class="table">
+        <thead><tr>
+          <th>Faturamento</th><th>OS</th><th>Técnico</th>
+          <th class="num">Serviços</th><th class="num">%</th><th class="num">Comissão</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+};
+
+// Default: mês atual
+(function iniciar(){
+  const hoje = new Date();
+  const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  document.getElementById('fDe').value  = ini.toISOString().slice(0,10);
+  document.getElementById('fAte').value = hoje.toISOString().slice(0,10);
+  carregar();
+})();
+</script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('os-relatorios');</script>
+</body></html>

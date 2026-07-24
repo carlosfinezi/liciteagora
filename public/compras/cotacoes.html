@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cotações de Compra · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Cotações de Compra</h1>
+      <small>Solicite preços a vários fornecedores pelo link público, compare e gere o pedido de compra do vencedor</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova cotação</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="rascunho">Rascunho</option>
+      <option value="enviada">Enviada</option>
+      <option value="em_resposta">Em resposta</option>
+      <option value="concluida">Concluída</option>
+      <option value="cancelada">Cancelada</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th><th>Descrição</th><th>Prazo</th>
+        <th style="text-align:right;">Itens</th><th style="text-align:right;">Respostas</th>
+        <th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="tbCot"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="detalheWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;">
+      <div><h2 id="detTitulo" style="margin:0;"></h2><small id="detSub"></small></div>
+      <div class="actions" id="detAcoes"></div>
+    </div>
+    <div id="linksWrap" style="display:none;margin-bottom:12px;" class="card card-info">
+      <strong>Links para os fornecedores</strong> (copie e envie por e-mail/WhatsApp):
+      <div id="linksLista" style="margin-top:6px;font-size:0.88em;"></div>
+    </div>
+    <div class="tbl-wrap">
+      <table id="tabComparativo"><thead id="cmpHead"></thead><tbody id="cmpBody"></tbody></table>
+    </div>
+    <small class="muted">Menor preço de cada item destacado. Clique no preço para escolher o vencedor do item; depois use "Gerar pedidos".</small>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNova">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Nova cotação</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição</label><input type="text" id="nDescricao" placeholder="Ex.: Itens do pregão 90012/2026"></div>
+      <div class="form-group"><label>Prazo p/ resposta</label><input type="date" id="nDataLimite"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Fornecedores (segure Ctrl para multi-seleção)</label>
+        <select id="nFornecedores" multiple size="4"></select>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:8px;">
+      <table>
+        <thead><tr><th>Produto (opcional)</th><th>Descrição *</th><th style="width:100px;">Qtd *</th><th style="width:70px;">Un</th><th style="width:40px;"></th></tr></thead>
+        <tbody id="tbItensNova"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="addLinhaItem()" style="margin-top:8px;">+ Adicionar item</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNova()">Criar cotação</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('compras-cotacoes');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(){ document.getElementById('modalNova').classList.remove('open'); }
+
+const STATUS_BADGE = {
+  rascunho:'<span class="badge ajuste">RASCUNHO</span>',
+  enviada:'<span class="badge saida">ENVIADA</span>',
+  em_resposta:'<span class="badge saida">EM RESPOSTA</span>',
+  concluida:'<span class="badge entrada">CONCLUÍDA</span>',
+  cancelada:'<span class="badge cancelado">CANCELADA</span>'
+};
+
+let produtosCache = null, cotAtual = null, escolhas = {}; // cotacaoItemId -> cotacaoFornecedorId
+
+async function carregar(){
+  const st = document.getElementById('filtStatus').value;
+  const r = await fetch('/api/cotacoes' + (st?'?status='+st:'')); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbCot').innerHTML = d.cotacoes.length ? d.cotacoes.map(c=>`<tr>
+    <td><strong>${c.numero}</strong></td>
+    <td>${c.descricao||'-'}</td>
+    <td>${c.dataLimite||'-'}</td>
+    <td style="text-align:right;">${c.qtdItens}</td>
+    <td style="text-align:right;">${c.qtdRespostas}/${c.qtdFornecedores}</td>
+    <td>${STATUS_BADGE[c.status]||c.status}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick="verDetalhe(${c.id})">Abrir</button>
+      ${c.status==='rascunho' ? `<button class="btn btn-primary btn-sm" onclick="enviar(${c.id})">Enviar</button>` : ''}
+      ${['rascunho','enviada','em_resposta'].includes(c.status) ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelar(${c.id})">Cancelar</button>` : ''}
+    </td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma cotação</td></tr>';
+}
+
+async function enviar(id){
+  const r = await fetch(`/api/cotacoes/${id}/enviar`, { method:'POST' }); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Cotação enviada — links gerados'); carregar(); verDetalhe(id);
+}
+
+async function cancelar(id){
+  if (!confirm('Cancelar esta cotação?')) return;
+  const r = await fetch(`/api/cotacoes/${id}/cancelar`, { method:'POST' }); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+async function verDetalhe(id){
+  const r = await fetch('/api/cotacoes/'+id); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  if (!cotAtual || cotAtual.cotacao.id !== d.cotacao.id) escolhas = {};
+  cotAtual = d;
+  document.getElementById('detalheWrap').style.display='block';
+  document.getElementById('detTitulo').textContent = `${d.cotacao.numero} — ${d.cotacao.descricao||''}`;
+  document.getElementById('detSub').textContent = `Status: ${d.cotacao.status} · prazo ${d.cotacao.dataLimite||'—'}`;
+  document.getElementById('detAcoes').innerHTML = ['enviada','em_resposta'].includes(d.cotacao.status)
+    ? '<button class="btn btn-primary btn-sm" onclick="gerarPedidos()">Gerar pedidos dos vencedores</button>' : '';
+
+  // links públicos
+  const comToken = d.fornecedores.filter(f=>f.tokenPublico);
+  document.getElementById('linksWrap').style.display = comToken.length ? 'block' : 'none';
+  document.getElementById('linksLista').innerHTML = comToken.map(f=>{
+    const url = location.origin + '/portal/cotacao.html?t=' + f.tokenPublico;
+    return `<div style="margin:3px 0;">${f.razaoSocial} — <code style="user-select:all;">${url}</code>
+      <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${url}').then(()=>showAlert('Link copiado'))">copiar</button>
+      <small class="muted">(${f.status}${f.dataResposta?' em '+f.dataResposta:''})</small></div>`;
+  }).join('');
+
+  // comparativo item × fornecedor
+  const mapResp = {};
+  d.respostas.forEach(rr => { mapResp[rr.cotacaoItemId + ':' + rr.cotacaoFornecedorId] = rr; });
+  document.getElementById('cmpHead').innerHTML = '<tr><th>Item</th><th style="text-align:right;">Qtd</th>' +
+    d.fornecedores.map(f=>`<th style="text-align:right;">${f.razaoSocial}</th>`).join('') + '</tr>';
+  document.getElementById('cmpBody').innerHTML = d.itens.map(it=>{
+    const precos = d.fornecedores.map(f => (mapResp[it.id+':'+f.id]||{}).precoUnitario).filter(p=>p>0);
+    const menor = precos.length ? Math.min(...precos) : null;
+    const cels = d.fornecedores.map(f=>{
+      const rr = mapResp[it.id+':'+f.id];
+      if (!rr || !(rr.precoUnitario>0)) return '<td style="text-align:right;color:var(--text-3);">—</td>';
+      const ehMenor = rr.precoUnitario === menor;
+      const escolhido = escolhas[it.id] === f.id;
+      const extra = [rr.marcaOferecida, rr.prazoEntregaDias!=null?rr.prazoEntregaDias+'d':null].filter(Boolean).join(' · ');
+      return `<td style="text-align:right;">
+        <a href="#" onclick="escolher(${it.id},${f.id});return false;"
+           style="font-weight:${ehMenor?'700':'400'};color:${escolhido?'var(--success)':(ehMenor?'var(--primary)':'inherit')};text-decoration:none;">
+          ${escolhido?'✔ ':''}R$ ${fmt(rr.precoUnitario)}</a>
+        ${extra?`<br><small class="muted">${extra}</small>`:''}</td>`;
+    }).join('');
+    return `<tr><td>${it.sku?it.sku+' — ':''}${it.descricao}</td><td style="text-align:right;">${fmt(it.quantidade)} ${it.unidade||''}</td>${cels}</tr>`;
+  }).join('');
+}
+
+function escolher(itemId, fornecedorCfId){
+  escolhas[itemId] = escolhas[itemId] === fornecedorCfId ? undefined : fornecedorCfId;
+  if (escolhas[itemId] === undefined) delete escolhas[itemId];
+  verDetalheRender();
+}
+function verDetalheRender(){ if (cotAtual) verDetalhe(cotAtual.cotacao.id); }
+
+async function gerarPedidos(){
+  const lista = Object.entries(escolhas).map(([itemId, cfId]) => ({ cotacaoItemId: Number(itemId), cotacaoFornecedorId: cfId }));
+  if (!lista.length) return showAlert('Escolha o vencedor de ao menos 1 item (clique no preço)','error');
+  const r = await fetch(`/api/cotacoes/${cotAtual.cotacao.id}/concluir`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ escolhas: lista })
+  });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const aviso = d.itensSemProduto?.length ? ` (${d.itensSemProduto.length} item(ns) sem produto ignorado(s))` : '';
+  showAlert(`${d.pedidos.length} pedido(s) de compra gerado(s): ${d.pedidos.map(p=>p.numero).join(', ')}${aviso}`);
+  carregar(); verDetalhe(cotAtual.cotacao.id);
+}
+
+// ---------- nova cotação ----------
+async function getProdutos(){
+  if (produtosCache) return produtosCache;
+  const r = await fetch('/api/produtos'); const d = await r.json();
+  produtosCache = (d.produtos||[]).map(p=>({id:p.id, sku:p.sku, descricao:p.descricao, unidade:p.unidade}));
+  return produtosCache;
+}
+
+async function addLinhaItem(){
+  const prods = await getProdutos();
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><select class="selProd" style="width:100%;" onchange="preencherDesc(this)">
+      <option value="">— avulso —</option>
+      ${prods.map(p=>`<option value="${p.id}" data-desc="${(p.descricao||'').replace(/"/g,'&quot;')}" data-un="${p.unidade||'UN'}">${p.sku}</option>`).join('')}
+    </select></td>
+    <td><input type="text" class="descItem" style="width:100%;"></td>
+    <td><input type="number" class="qtdItem" min="0.001" step="any" style="width:90px;"></td>
+    <td><input type="text" class="unItem" value="UN" style="width:60px;"></td>
+    <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove()">×</button></td>`;
+  document.getElementById('tbItensNova').appendChild(tr);
+}
+
+function preencherDesc(sel){
+  const opt = sel.selectedOptions[0]; if (!opt || !opt.value) return;
+  const tr = sel.closest('tr');
+  tr.querySelector('.descItem').value = opt.dataset.desc;
+  tr.querySelector('.unItem').value = opt.dataset.un;
+}
+
+async function abrirNova(){
+  const r = await fetch('/api/fornecedores'); const d = await r.json();
+  document.getElementById('nFornecedores').innerHTML = (d.fornecedores||[])
+    .map(f=>`<option value="${f.id}">${f.razaoSocial}</option>`).join('');
+  document.getElementById('nDescricao').value='';
+  const dt = new Date(); dt.setDate(dt.getDate()+5);
+  document.getElementById('nDataLimite').value = dt.toISOString().slice(0,10);
+  document.getElementById('tbItensNova').innerHTML='';
+  await addLinhaItem();
+  document.getElementById('modalNova').classList.add('open');
+}
+
+async function salvarNova(){
+  const itens = [...document.querySelectorAll('#tbItensNova tr')].map(tr=>({
+    produtoId: Number(tr.querySelector('.selProd').value) || null,
+    descricao: tr.querySelector('.descItem').value.trim(),
+    quantidade: Number(tr.querySelector('.qtdItem').value),
+    unidade: tr.querySelector('.unItem').value.trim() || 'UN'
+  })).filter(i=>i.descricao && i.quantidade>0);
+  const fornecedoresIds = [...document.getElementById('nFornecedores').selectedOptions].map(o=>Number(o.value));
+  if (!itens.length) return showAlert('Adicione ao menos 1 item válido','error');
+  if (!fornecedoresIds.length) return showAlert('Selecione ao menos 1 fornecedor','error');
+  const body = {
+    descricao: document.getElementById('nDescricao').value.trim() || null,
+    dataLimite: document.getElementById('nDataLimite').value || null,
+    itens, fornecedoresIds
+  };
+  const r = await fetch('/api/cotacoes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar(); showAlert('Cotação criada (rascunho) — use Enviar para gerar os links'); carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
+carregar();
+</script>
+</body></html>

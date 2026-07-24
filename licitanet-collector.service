@@ -1,0 +1,27 @@
+[Unit]
+Description=Coletor de marca do Licitanet (server-side, Chrome via túnel loja)
+After=network-online.target wg-quick@wg-loja.service
+Wants=network-online.target wg-quick@wg-loja.service
+StartLimitIntervalSec=600
+StartLimitBurst=6
+
+[Service]
+Type=simple
+User=carlosfinezi
+WorkingDirectory=/home/carlosfinezi/web/liciteagora.com.br/private
+Environment=HOME=/home/carlosfinezi
+Environment=TENANT=1bit
+Environment=SERVICE=1
+Environment=LOOP_MIN=30
+Environment=LIMIT=5
+Environment=SPACING_MS=8000
+# LICITANET_IP e FP têm defaults no script. Requer a rota dos IPs do licitanet
+# pelo túnel da loja (ppp0 agora; wg-loja quando estável) — ver notas.
+ExecStart=/usr/bin/xvfb-run -a /usr/bin/node licitanet-collector-server.js
+Restart=always
+RestartSec=60
+StandardOutput=append:/home/carlosfinezi/web/liciteagora.com.br/private/licitanet-collector.log
+StandardError=append:/home/carlosfinezi/web/liciteagora.com.br/private/licitanet-collector.log
+
+[Install]
+WantedBy=multi-user.target

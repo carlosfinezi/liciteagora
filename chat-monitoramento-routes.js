@@ -1,7 +1,7 @@
 // chat-monitoramento-routes.js
 //
 // Rotas administrativas do fluxo de monitoramento de chat/mensagens
-// do Comprasnet (painel web + extensão Chrome). Extraído de server.js
+// do Comprasnet (painel web + Electron Standalone). Extraído de server.js
 // em NFSE-M06 onda 6.23.
 //
 // Agrupa 3 subseções do monolito que eram banners distintos mas compõem
@@ -299,6 +299,42 @@ function registrarRotasChatMonitoramento(app, db) {
       const { ativo } = req.body;
       db.prepare('UPDATE licitacoes_monitorar SET ativo = ? WHERE id = ?').run(ativo ? 1 : 0, id);
       res.json({ success: true, message: 'Status atualizado' });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ==================== PREGÕES SILENCIADOS (alerta Telegram) ====================
+  // Suprime o alerta Telegram de um pregão sem parar a captura das mensagens.
+  // Chave = compraId (mesmo identificador usado nos handlers /api/sync/*).
+
+  // Listar compraIds silenciados
+  app.get('/api/chat/pregoes-silenciados', (req, res) => {
+    try {
+      const linhas = db.prepare('SELECT compraId FROM chat_pregoes_silenciados').all();
+      res.json({ success: true, data: linhas.map(l => l.compraId) });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Silenciar um pregão
+  app.post('/api/chat/pregoes/:compraId/silenciar', (req, res) => {
+    try {
+      const { compraId } = req.params;
+      db.prepare('INSERT OR IGNORE INTO chat_pregoes_silenciados (compraId) VALUES (?)').run(compraId);
+      res.json({ success: true, silenciado: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Reativar (remover do silêncio)
+  app.delete('/api/chat/pregoes/:compraId/silenciar', (req, res) => {
+    try {
+      const { compraId } = req.params;
+      db.prepare('DELETE FROM chat_pregoes_silenciados WHERE compraId = ?').run(compraId);
+      res.json({ success: true, silenciado: false });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }

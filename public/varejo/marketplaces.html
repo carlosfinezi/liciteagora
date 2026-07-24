@@ -227,10 +227,10 @@ async function carregarMl(){
     }
     if (d.conectado) {
       st.innerHTML = `✅ conectado como <strong>${d.integracao.mlNickname||d.integracao.mlUserId}</strong>`;
-      ac.innerHTML = '<a class="btn btn-ghost btn-sm" href="/api/marketplaces/ml/connect">Reconectar</a>';
+      ac.innerHTML = '<a class="btn btn-ghost btn-sm" href="/api/marketplaces/ml/connect" target="_top">Reconectar</a>';
     } else {
       st.textContent = '— não conectado';
-      ac.innerHTML = '<a class="btn btn-primary btn-sm" href="/api/marketplaces/ml/connect">Conectar Mercado Livre</a>';
+      ac.innerHTML = '<a class="btn btn-primary btn-sm" href="/api/marketplaces/ml/connect" target="_top">Conectar Mercado Livre</a>';
     }
   } catch(e){ st.textContent = '— erro ao verificar'; }
 }

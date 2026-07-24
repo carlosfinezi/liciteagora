@@ -1,5 +1,8 @@
 // tracking-routes.js
 //
+// Fase 3e (2026-05-23): /api/agenda usa PG pra catalog.licitacoes quando
+// CATALOG_BACKEND_PG=1 (cross-DB JOIN não rola — quebra em 2 passos).
+//
 // Rotas HTTP do "tracking" de licitações — o conjunto de marcadores
 // que o operador usa para acompanhar/ignorar licitações no dia-a-dia.
 // Extraído de server.js em NFSE-M06 onda 6.14.
@@ -45,10 +48,42 @@
 // interesse), mas nenhum outro lugar FAZ WRITE nessas tabelas senão
 // estas rotas — a extração é segura e atômica por domínio.
 
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
 function registrarRotasTracking(app, db) {
   // ==================== KANBAN ====================
-  app.get('/api/kanban', (req, res) => {
+  app.get('/api/kanban', async (req, res) => {
     try {
+      if (USE_PG) {
+        // Cross-DB: kanban + interesse tenant; licitacoes catalog
+        const kRows = db.prepare(`
+          SELECT k.*,
+                 (SELECT COUNT(*) FROM interesse i WHERE i.cnpj=k.cnpj AND i.ano=k.ano AND i.sequencial=k.sequencial) as qtdItens
+            FROM kanban_status k
+        `).all();
+        if (kRows.length === 0) return res.json({ success: true, data: [] });
+        const values = kRows.map((_, j) => `($${j*3+1}::text,$${j*3+2}::int,$${j*3+3}::bigint)`).join(',');
+        const params = [];
+        for (const r of kRows) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial));
+        const lic = await catalogPg.query(`
+          WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+          SELECT k.cnpj, k.ano, k.sequencial,
+                 l."objetoCompra" AS "objetoCompra",
+                 l."razaoSocial" AS "nomeOrgao",
+                 l."codigoUnidade" AS "codigoUnidade",
+                 COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta",
+                 l."linkSistemaOrigem" AS "linkSistemaOrigem",
+                 l."modalidadeNome" AS "modalidadeNome"
+            FROM keys k
+       LEFT JOIN licitacoes l ON l."cnpj"=k.cnpj AND l."anoCompra"=k.ano AND l."sequencialCompra"=k.sequencial
+        `, params);
+        const licMap = new Map();
+        for (const l of lic) licMap.set(`${l.cnpj}|${l.ano}|${l.sequencial}`, l);
+        const rows = kRows.map(k => ({ ...k, ...(licMap.get(`${k.cnpj}|${k.ano}|${k.sequencial}`) || {}) }))
+          .sort((a, b) => new Date(a.dataEncerramentoProposta || '9999') - new Date(b.dataEncerramentoProposta || '9999'));
+        return res.json({ success: true, data: rows });
+      }
       const sql = `
         SELECT
           k.*,
@@ -105,38 +140,119 @@ function registrarRotasTracking(app, db) {
   });
 
   // ==================== AGENDA ====================
-  app.get('/api/agenda', (req, res) => {
+  // Plano 13 (2026-04-23): reescrita para evitar SCAN catalog.licitacoes.
+  // - Inverte o JOIN: começa por agregação de `interesse` (poucas dezenas)
+  //   e busca licitacoes via índice idx_licitacoes_cnpj.
+  // - Filtro por data range (BETWEEN) usa idx_licitacoes_encerramento.
+  // - Default: hoje até hoje+90d se não vier filtro (evita trazer histórico).
+  app.get('/api/agenda', async (req, res) => {
     try {
-      const { mes, ano } = req.query;
+      const { mes, ano, dataIni: pIni, dataFim: pFim } = req.query;
 
-      let sql = `
-        SELECT DISTINCT
+      // Determina a janela de datas
+      let dataIni, dataFim;
+      if (pIni && pFim) {
+        dataIni = pIni;
+        dataFim = pFim;
+      } else if (mes && ano) {
+        const m = Number(mes); // 1-12 (front manda mes+1)
+        const a = Number(ano);
+        const ini = new Date(a, m - 1, 1);
+        const fim = new Date(a, m, 1);
+        dataIni = ini.toISOString().slice(0, 10);
+        dataFim = fim.toISOString().slice(0, 10);
+      } else {
+        // Default: hoje até hoje+90 dias
+        const hoje = new Date();
+        const futuro = new Date(hoje.getTime() + 90 * 86400 * 1000);
+        dataIni = hoje.toISOString().slice(0, 10);
+        dataFim = futuro.toISOString().slice(0, 10);
+      }
+
+      if (USE_PG) {
+        // 1) agrega interesse + kanban no tenant SQLite
+        const intAgg = db.prepare(`
+          WITH int_agg AS (
+            SELECT cnpj, ano, sequencial, COUNT(*) AS qtdItens
+              FROM interesse
+             GROUP BY cnpj, ano, sequencial
+          )
+          SELECT ia.cnpj, ia.ano, ia.sequencial, ia.qtdItens, k.status
+            FROM int_agg ia
+       LEFT JOIN kanban_status k
+              ON k.cnpj = ia.cnpj AND k.ano = ia.ano AND k.sequencial = ia.sequencial
+        `).all();
+        if (intAgg.length === 0) return res.json({ success: true, data: [], dataIni, dataFim });
+
+        // 2) busca licitacoes em PG usando ANY de tuplas (cnpj, ano, sequencial)
+        // Postgres aceita VALUES + JOIN; mais simples que UNROW de array de tuplas.
+        const values = intAgg.map((_, i) => `($${i*3+3}::text,$${i*3+4}::int,$${i*3+5}::bigint)`).join(',');
+        const params = [dataIni, dataFim];
+        for (const r of intAgg) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial));
+        const sql = `
+          WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+          SELECT l."cnpj" AS cnpj,
+                 l."anoCompra" AS ano,
+                 l."sequencialCompra" AS sequencial,
+                 l."objetoCompra" AS "objetoCompra",
+                 l."razaoSocial" AS "nomeOrgao",
+                 COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta",
+                 l."linkSistemaOrigem" AS "linkSistemaOrigem",
+                 l."modalidadeNome" AS "modalidadeNome"
+            FROM licitacoes l
+            JOIN keys k
+              ON k.cnpj = l."cnpj" AND k.ano = l."anoCompra" AND k.sequencial = l."sequencialCompra"
+           WHERE COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") IS NOT NULL
+             AND COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") >= $1::timestamptz
+             AND COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") <  $2::timestamptz
+        ORDER BY COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") ASC
+           LIMIT 1000
+        `;
+        const licRows = await catalogPg.query(sql, params);
+
+        // 3) enriquece com qtdItens + status do tenant
+        const tenantMap = new Map();
+        for (const r of intAgg) tenantMap.set(`${r.cnpj}|${r.ano}|${r.sequencial}`, r);
+        const rows = licRows.map(l => {
+          const t = tenantMap.get(`${l.cnpj}|${l.ano}|${l.sequencial}`) || {};
+          return { ...l, status: t.status || null, qtdItens: t.qtdItens || 0 };
+        });
+        return res.json({ success: true, data: rows, dataIni, dataFim });
+      }
+
+      const sql = `
+        WITH int_agg AS (
+          SELECT cnpj, ano, sequencial, COUNT(*) AS qtdItens
+          FROM interesse
+          GROUP BY cnpj, ano, sequencial
+        )
+        SELECT
           l.cnpj,
-          l.anoCompra as ano,
-          l.sequencialCompra as sequencial,
+          l.anoCompra AS ano,
+          l.sequencialCompra AS sequencial,
           l.objetoCompra,
-          l.razaoSocial as nomeOrgao,
+          l.razaoSocial AS nomeOrgao,
           l.dataEncerramentoProposta,
           l.linkSistemaOrigem,
           l.modalidadeNome,
           k.status,
-          (SELECT COUNT(*) FROM interesse i WHERE i.cnpj = l.cnpj AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra) as qtdItens
-        FROM licitacoes l
-        INNER JOIN interesse i ON l.cnpj = i.cnpj AND l.anoCompra = i.ano AND l.sequencialCompra = i.sequencial
-        LEFT JOIN kanban_status k ON l.cnpj = k.cnpj AND l.anoCompra = k.ano AND l.sequencialCompra = k.sequencial
+          ia.qtdItens
+        FROM int_agg ia
+        JOIN catalog.licitacoes l
+          ON l.cnpj = ia.cnpj
+         AND l.anoCompra = ia.ano
+         AND l.sequencialCompra = ia.sequencial
+        LEFT JOIN kanban_status k
+          ON k.cnpj = ia.cnpj AND k.ano = ia.ano AND k.sequencial = ia.sequencial
         WHERE l.dataEncerramentoProposta IS NOT NULL
+          AND l.dataEncerramentoProposta >= ?
+          AND l.dataEncerramentoProposta <  ?
+        ORDER BY l.dataEncerramentoProposta ASC
+        LIMIT 1000
       `;
 
-      const params = [];
-      if (mes && ano) {
-        sql += ` AND strftime('%Y-%m', l.dataEncerramentoProposta) = ?`;
-        params.push(`${ano}-${mes.toString().padStart(2, '0')}`);
-      }
-
-      sql += ' ORDER BY l.dataEncerramentoProposta ASC';
-
-      const rows = db.prepare(sql).all(...params);
-      res.json({ success: true, data: rows });
+      const rows = db.prepare(sql).all(dataIni, dataFim);
+      res.json({ success: true, data: rows, dataIni, dataFim });
     } catch (error) {
       console.error('Erro ao buscar agenda:', error.message);
       res.status(500).json({ success: false, error: error.message });
@@ -306,8 +422,31 @@ function registrarRotasTracking(app, db) {
     }
   });
 
-  app.get('/api/sem-interesse/detalhado', (req, res) => {
+  app.get('/api/sem-interesse/detalhado', async (req, res) => {
     try {
+      if (USE_PG) {
+        const sRows = db.prepare(`SELECT cnpj, ano, sequencial, motivo, dataCriacao FROM sem_interesse ORDER BY dataCriacao DESC`).all();
+        if (sRows.length === 0) return res.json({ success: true, licitacoes: [], total: 0 });
+        const values = sRows.map((_, j) => `($${j*3+1}::text,$${j*3+2}::int,$${j*3+3}::bigint)`).join(',');
+        const params = [];
+        for (const r of sRows) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial));
+        const lic = await catalogPg.query(`
+          WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+          SELECT k.cnpj, k.ano, k.sequencial,
+                 l."objetoCompra" AS "objetoCompra", l."nomeUnidade" AS "nomeUnidade",
+                 l."razaoSocial" AS "razaoSocial", l."ufSigla" AS "ufSigla",
+                 l."municipioNome" AS "municipioNome", l."valorTotalEstimado" AS "valorTotalEstimado",
+                 COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta", l."modalidadeNome" AS "modalidadeNome",
+                 l."situacaoCompraNome" AS "situacaoCompraNome", l."linkSistemaOrigem" AS "linkSistemaOrigem",
+                 l."numeroCompra" AS "numeroCompra"
+            FROM keys k
+       LEFT JOIN licitacoes l ON l."cnpj"=k.cnpj AND l."anoCompra"=k.ano AND l."sequencialCompra"=k.sequencial
+        `, params);
+        const licMap = new Map();
+        for (const l of lic) licMap.set(`${l.cnpj}|${l.ano}|${l.sequencial}`, l);
+        const rows = sRows.map(s => ({ ...s, ...(licMap.get(`${s.cnpj}|${s.ano}|${s.sequencial}`) || {}) }));
+        return res.json({ success: true, licitacoes: rows, total: rows.length });
+      }
       const rows = db.prepare(`
         SELECT s.cnpj, s.ano, s.sequencial, s.motivo, s.dataCriacao,
           l.objetoCompra, l.nomeUnidade, l.razaoSocial, l.ufSigla, l.municipioNome,

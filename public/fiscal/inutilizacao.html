@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inutilização de Numeração NF-e · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Inutilização de Numeração NF-e</h1>
+      <small>Declara à SEFAZ que uma faixa de números não será usada (pulos por rejeição). Irreversível.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card" style="max-width:760px;margin-bottom:18px;">
+    <div class="form-row">
+      <div class="form-group"><label>Série *</label><input type="number" id="iSerie" value="1" style="width:80px;"></div>
+      <div class="form-group"><label>Número inicial *</label><input type="number" id="iIni" min="1"></div>
+      <div class="form-group"><label>Número final *</label><input type="number" id="iFin" min="1"></div>
+      <div class="form-group"><label>Ano</label><input type="number" id="iAno" style="width:90px;"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Justificativa * (mín. 15 caracteres)</label>
+        <input type="text" id="iJust" placeholder="Ex.: Numeração pulada por rejeições consecutivas na emissão"></div>
+    </div>
+    <button class="btn btn-danger" onclick="inutilizar()">Inutilizar na SEFAZ</button>
+  </div>
+
+  <h2 style="margin:0 0 8px;">Histórico</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Data</th><th>Série</th><th>Faixa</th><th>Ano</th><th>Justificativa</th><th>cStat</th><th>Protocolo</th></tr></thead>
+      <tbody id="tbHist"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('fiscal-inutilizacao');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',7000); }
+
+async function carregar(){
+  const r = await fetch('/api/nfe/inutilizacoes'); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbHist').innerHTML = d.inutilizacoes.length ? d.inutilizacoes.map(x=>`<tr>
+    <td>${(x.dataCriacao||'').slice(0,16)}</td><td>${x.serie}</td>
+    <td>${x.numeroInicial} – ${x.numeroFinal}</td><td>${x.ano}</td>
+    <td>${x.justificativa}</td>
+    <td>${x.cStat==='102' ? '<span class="badge entrada">102 OK</span>' : `<span class="badge cancelado">${x.cStat||'?'}</span> <small class="muted">${x.xMotivo||''}</small>`}</td>
+    <td>${x.protocolo||'-'}</td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma inutilização</td></tr>';
+}
+
+async function inutilizar(){
+  const body = {
+    serie: Number(document.getElementById('iSerie').value),
+    numeroInicial: Number(document.getElementById('iIni').value),
+    numeroFinal: Number(document.getElementById('iFin').value),
+    ano: Number(document.getElementById('iAno').value)||undefined,
+    justificativa: document.getElementById('iJust').value.trim()
+  };
+  if (body.justificativa.length < 15) return showAlert('Justificativa mínima de 15 caracteres','error');
+  if (!confirm(`Inutilizar série ${body.serie}, números ${body.numeroInicial} a ${body.numeroFinal}? Esta ação é IRREVERSÍVEL na SEFAZ.`)) return;
+  const r = await fetch('/api/nfe/inutilizar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(`${d.error || (d.cStat+' '+d.xMotivo)}`,'error');
+  showAlert(`Inutilizada — protocolo ${d.protocolo}`); carregar();
+}
+
+document.getElementById('iAno').value = new Date().getFullYear();
+carregar();
+</script>
+</body></html>

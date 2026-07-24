@@ -51,11 +51,35 @@ function registerPreAuthRoutes(app, db, { apiKey }) {
     res.download(filePath);
   });
 
+  // ==================== COTAÇÃO PÚBLICA (link do fornecedor, sem login) ====================
+  const { registrarRotasCotacaoPublica } = require('./cotacoes-routes');
+  registrarRotasCotacaoPublica(app, db);
+
   // ==================== COMPRASNET AUTO-LOGIN (Público - antes do auth) ====================
   app.use('/api/comprasnet', comprasnetLoginRoutes);
 
   // ==================== ELECTRON REMOTO (antes do auth) ====================
   registrarRotasElectron(app, db, { apiKey });
+
+  // ==================== WEBHOOK DE BOLETOS (público — provedor valida assinatura) ====================
+  // Cada banco/provedor (MercadoPago, Sicredi, BB, etc.) envia POST de notificação de
+  // liquidação pra esta URL. O orquestrador resolve o provedor pelo slug, chama o
+  // módulo dele pra interpretar o payload, e aplica baixa automática na CR + boleto.
+  // Validação de origem (HMAC, IP allowlist, token) fica a cargo de cada módulo.
+  //
+  // Tenant é resolvido pelo subdomínio (middleware de tenant já atachado antes do pre-auth).
+  // Ex.: POST https://1bit.liciteagora.app/webhook/boleto/mercadopago
+  app.post('/webhook/boleto/:provedor', async (req, res) => {
+    try {
+      const { processarWebhook } = require('./boleto-orchestrator');
+      const resultado = await processarWebhook(db, req.params.provedor, req);
+      res.json({ ok: true, ...resultado });
+    } catch (err) {
+      console.error(`[Webhook boleto/${req.params.provedor}]`, err.message);
+      // Responde 200 mesmo em erro pra evitar retries agressivos; log registra pra auditoria
+      res.status(200).json({ ok: false, error: err.message });
+    }
+  });
 }
 
 module.exports = { registerPreAuthRoutes };

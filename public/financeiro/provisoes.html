@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Provisões · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Provisões</h1>
+    <small>Lançamentos previstos manuais (13º, férias, impostos anuais) — aparecem no fluxo de caixa projetado com 📌</small></div>
+    <div class="actions"><button class="btn btn-primary btn-sm" onclick="abrir()">+ Nova provisão</button></div>
+  </div>
+  <div id="alertGlobal"></div>
+  <div class="toolbar">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="ativa" selected>Ativas</option><option value="">Todas</option>
+      <option value="realizada">Realizadas</option><option value="cancelada">Canceladas</option>
+    </select>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Data prevista</th><th>Descrição</th><th>Tipo</th><th style="text-align:right;">Valor</th><th>Conta gerencial</th><th>Status</th><th></th></tr></thead>
+    <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+  </table></div>
+</main></div>
+<div class="modal-bg" id="modal"><div class="modal" style="max-width:560px;">
+  <div class="modal-header"><h3 style="margin:0;">Nova provisão</h3>
+    <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button></div>
+  <div class="form-row">
+    <div class="form-group full-width"><label>Descrição *</label><input type="text" id="nDesc" placeholder="Ex.: 13º salário, IPTU"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Tipo</label><select id="nTipo"><option value="saida">Saída</option><option value="entrada">Entrada</option></select></div>
+    <div class="form-group"><label>Valor (R$) *</label><input type="number" id="nValor" step="0.01"></div>
+    <div class="form-group"><label>Data prevista *</label><input type="date" id="nData"></div>
+    <div class="form-group"><label>Repetir (meses)</label><input type="number" id="nRep" value="1" min="1" max="60" style="width:80px;"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvar()">Lançar</button>
+  </div>
+</div></div>
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script>initSidebar('fin-provisoes');</script>
+<script>
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',5000);}
+function fmt(v){return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fechar(){document.getElementById('modal').classList.remove('open');}
+const ST={ativa:'<span class="badge saida">ATIVA</span>',realizada:'<span class="badge entrada">REALIZADA</span>',cancelada:'<span class="badge cancelado">CANCELADA</span>'};
+async function carregar(){
+  const st=document.getElementById('filtStatus').value;
+  const r=await fetch('/api/provisoes'+(st?'?status='+st:''));const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  document.getElementById('tb').innerHTML=d.provisoes.length?d.provisoes.map(p=>`<tr>
+    <td>${p.dataPrevista}</td><td>${p.descricao}</td>
+    <td>${p.tipo==='entrada'?'📥 entrada':'📤 saída'}</td>
+    <td style="text-align:right;"><strong>R$ ${fmt(p.valor)}</strong></td>
+    <td>${p.planoContaNome||'-'}</td><td>${ST[p.status]||p.status}</td>
+    <td>${p.status==='ativa'?`<button class="btn btn-ghost btn-sm" onclick="mudar(${p.id},'realizada')">✓ Realizada</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="mudar(${p.id},'cancelada')">Cancelar</button>`:''}</td>
+  </tr>`).join(''):'<tr><td colspan="7" class="empty">Nenhuma provisão</td></tr>';
+}
+function abrir(){['nDesc','nValor'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('nRep').value='1';
+  document.getElementById('nData').value=new Date().toISOString().slice(0,10);
+  document.getElementById('modal').classList.add('open');}
+async function salvar(){
+  const body={descricao:document.getElementById('nDesc').value.trim(),tipo:document.getElementById('nTipo').value,
+    valor:Number(document.getElementById('nValor').value),dataPrevista:document.getElementById('nData').value,
+    repetirMeses:Number(document.getElementById('nRep').value)||1};
+  const r=await fetch('/api/provisoes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  fechar();showAlert(`${d.ids.length} provisão(ões) lançada(s)`);carregar();
+}
+async function mudar(id,status){
+  const r=await fetch('/api/provisoes/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');carregar();
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')fechar();});
+carregar();
+</script>
+</body></html>

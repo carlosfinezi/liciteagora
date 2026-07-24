@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Detalhes da OS</title>
+<link rel="stylesheet" href="/portal/portal-style.css">
+<style>
+  .cards { display:grid;grid-template-columns:1fr 320px;gap:16px;margin-top:16px; }
+  @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
+  .card { background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px; }
+  .card h3 { margin:0 0 10px;font-size:15px;color:#111; }
+  .kv { display:grid;grid-template-columns:130px 1fr;gap:6px;font-size:13px; }
+  .kv dt { color:#6b7280; }
+  .timeline li { list-style:none;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13px; }
+  .timeline li:last-child { border-bottom:0; }
+  .timeline .t { color:#6b7280;font-size:11px; }
+  canvas { border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:crosshair;width:100%;max-width:360px;height:130px; }
+  .btn-sign { background:#2563eb;color:white;border:0;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer; }
+  .btn-clear { background:transparent;color:#6b7280;border:1px solid #cbd5e1;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer; }
+  .badge { display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600; }
+  .st-aberta,.st-em-andamento,.st-aguardando-peca { background:#fef3c7;color:#92400e; }
+  .st-concluida { background:#dcfce7;color:#166534; }
+  .st-faturada { background:#dbeafe;color:#1e40af; }
+  .anexos-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px; }
+  .anexo { border:1px solid #e5e7eb;border-radius:6px;padding:6px;font-size:11px;text-align:center; }
+  .anexo img { width:100%;height:80px;object-fit:cover;border-radius:4px;margin-bottom:4px; }
+</style>
+</head>
+<body>
+<header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
+<nav>
+  <a href="/portal/index.html">Início</a>
+  <a href="/portal/pedidos.html">Pedidos</a>
+  <a href="/portal/os.html" class="active">Ordens de Serviço</a>
+  <a href="/portal/cobrancas.html">Cobranças</a>
+  <a href="/portal/nfses.html">NF-e/NFS-e</a>
+  <a href="/portal/contratos.html">Contratos</a>
+  <a href="/portal/perfil.html">Trocar senha</a>
+</nav>
+<main>
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h2 id="titulo">Carregando…</h2>
+    <a href="/portal/os.html">← Voltar</a>
+  </div>
+  <div id="content" style="display:none;">
+    <div class="cards">
+      <div>
+        <div class="card">
+          <h3>Informações</h3>
+          <dl class="kv" id="kvInfo"></dl>
+        </div>
+        <div class="card" id="cardPecas" style="display:none;">
+          <h3>Peças</h3>
+          <table><thead><tr><th>SKU</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Valor un.</th><th class="num">Total</th></tr></thead><tbody id="tbPecas"></tbody></table>
+        </div>
+        <div class="card" id="cardServ" style="display:none;">
+          <h3>Serviços</h3>
+          <table><thead><tr><th>Descrição</th><th class="num">Horas</th><th class="num">R$/h</th><th class="num">Total</th></tr></thead><tbody id="tbServ"></tbody></table>
+        </div>
+        <div class="card" id="cardCheck" style="display:none;">
+          <h3>Procedimentos executados</h3>
+          <ul id="ulCheck" style="list-style:none;padding:0;"></ul>
+        </div>
+        <div class="card" id="cardAnexos" style="display:none;">
+          <h3>Anexos</h3>
+          <div class="anexos-grid" id="anexosGrid"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h3>Totais</h3>
+          <dl class="kv">
+            <dt>Peças</dt><dd id="totPecas">—</dd>
+            <dt>Serviços</dt><dd id="totServ">—</dd>
+            <dt style="font-weight:700;">Total</dt><dd id="totTotal" style="font-weight:700;color:#059669;">—</dd>
+          </dl>
+          <p style="margin-top:12px;">
+            <a id="pdfLink" href="#" target="_blank" style="color:#2563eb;">📄 Baixar PDF</a>
+          </p>
+        </div>
+        <div class="card" id="cardAssinar" style="display:none;">
+          <h3>Assinar aceite</h3>
+          <p style="font-size:12px;color:#6b7280;margin-bottom:8px;">
+            Desenhe sua assinatura no quadro abaixo para confirmar o recebimento do serviço.
+          </p>
+          <canvas id="sig" width="360" height="130"></canvas>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn-clear" onclick="limparSig()">Limpar</button>
+            <button class="btn-sign" onclick="salvarSig()">Enviar assinatura</button>
+          </div>
+          <div id="sigStatus" style="font-size:12px;color:#6b7280;margin-top:6px;"></div>
+        </div>
+        <div class="card">
+          <h3>Timeline</h3>
+          <ul class="timeline" id="timeline" style="margin:0;padding:0;"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="/portal/portal-common.js"></script>
+<script>
+const id = new URLSearchParams(location.search).get('id');
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function carregar(){
+  if (!await initMe()) return;
+  if (!id) return alert('ID inválido');
+  const r = await fetch('/portal/api/os/'+id).then(r=>r.json());
+  if (!r.success) { document.getElementById('titulo').textContent = 'Erro: '+r.error; return; }
+  render(r);
+}
+
+function render(d){
+  const o = d.os;
+  document.getElementById('titulo').innerHTML = `${escapeHtml(o.numero)} — ${escapeHtml(o.titulo||'')} <span class="badge st-${o.status}">${o.status}</span>`;
+  document.getElementById('pdfLink').href = '/portal/api/os/'+o.id+'/pdf';
+  document.getElementById('content').style.display = '';
+
+  const kv = document.getElementById('kvInfo');
+  kv.innerHTML = `
+    <dt>Tipo</dt><dd>${escapeHtml(o.tipoNome||'—')}</dd>
+    <dt>Abertura</dt><dd>${(o.dataAbertura||'').slice(0,10)}</dd>
+    <dt>Prazo</dt><dd>${o.dataPromessa||'—'}${o.slaStatus?` <span class="badge sla-${o.slaStatus}">${o.slaStatus}</span>`:''}</dd>
+    <dt>Técnico</dt><dd>${escapeHtml(o.tecnicoNomeExibicao||o.tecnicoNome||'—')}</dd>
+    <dt>Equipamento</dt><dd>${escapeHtml([o.equipamento,o.marca,o.modelo].filter(Boolean).join(' ')||'—')}</dd>
+    ${o.numeroSerieEquipamento?`<dt>Nº série</dt><dd>${escapeHtml(o.numeroSerieEquipamento)}</dd>`:''}
+    ${o.defeitoRelatado?`<dt>Defeito</dt><dd>${escapeHtml(o.defeitoRelatado)}</dd>`:''}
+    ${o.diagnostico?`<dt>Diagnóstico</dt><dd>${escapeHtml(o.diagnostico)}</dd>`:''}
+    ${o.solucao?`<dt>Solução</dt><dd>${escapeHtml(o.solucao)}</dd>`:''}
+    ${o.garantiaDias?`<dt>Garantia</dt><dd>${o.garantiaDias} dia(s)</dd>`:''}
+  `;
+
+  if (d.pecas.length) {
+    document.getElementById('cardPecas').style.display = '';
+    document.getElementById('tbPecas').innerHTML = d.pecas.map(p => `
+      <tr><td>${escapeHtml(p.sku||'')}</td><td>${escapeHtml(p.descricao)}</td>
+      <td class="num">${p.quantidade}</td>
+      <td class="num">${fmtBRL(p.valorUnitario)}</td>
+      <td class="num">${fmtBRL(p.valorTotal)}</td></tr>`).join('');
+  }
+  if (d.servicos.length) {
+    document.getElementById('cardServ').style.display = '';
+    document.getElementById('tbServ').innerHTML = d.servicos.map(s => `
+      <tr><td>${escapeHtml(s.descricao)}</td>
+      <td class="num">${s.horas ?? '—'}</td>
+      <td class="num">${s.valorHora ? fmtBRL(s.valorHora) : '—'}</td>
+      <td class="num">${fmtBRL(s.valorTotal)}</td></tr>`).join('');
+  }
+  if (d.checklist.length) {
+    document.getElementById('cardCheck').style.display = '';
+    document.getElementById('ulCheck').innerHTML = d.checklist.map(c => `
+      <li style="padding:4px 0;">${c.concluido?'✅':'⬜'} ${escapeHtml(c.descricao)}${c.obrigatorio?' <small style="color:#dc2626;">*</small>':''}</li>
+    `).join('');
+  }
+  if (d.anexos.length) {
+    document.getElementById('cardAnexos').style.display = '';
+    document.getElementById('anexosGrid').innerHTML = d.anexos.map(a => {
+      const isImg = /^image\//.test(a.mimeType||'');
+      return `<div class="anexo">
+        ${isImg ? `<img src="/${escapeHtml(a.caminho)}" alt="">` : `<div style="font-size:40px;">📄</div>`}
+        <div>${escapeHtml(a.categoria)}</div>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('totPecas').textContent = fmtBRL(o.valorPecas);
+  document.getElementById('totServ').textContent = fmtBRL(o.valorServicos);
+  document.getElementById('totTotal').textContent = fmtBRL(o.valorTotal);
+
+  // Assinatura disponível quando status=concluida|faturada
+  if (['concluida','faturada'].includes(o.status)) {
+    document.getElementById('cardAssinar').style.display = '';
+    setupCanvas();
+    if (o.assinaturaClienteDataUrl) {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.getElementById('sig');
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        document.getElementById('sigStatus').textContent = '✓ Assinado';
+      };
+      img.src = o.assinaturaClienteDataUrl;
+    }
+  }
+
+  const ICONS = { abertura:'🆕', enviado:'📤', aprovado:'✅', rejeitado:'❌',
+                  inicio:'▶', conclusao:'✓', faturamento:'💰', assinatura:'✍' };
+  document.getElementById('timeline').innerHTML = d.eventos.map(e => `
+    <li><strong>${ICONS[e.tipo]||'•'} ${e.tipo}</strong> — ${escapeHtml(e.descricao||'')}<br>
+    <span class="t">${(e.data||'').replace('T',' ').slice(0,19)}</span></li>
+  `).join('') || '<li>Sem eventos.</li>';
+}
+
+// ==================== ASSINATURA ====================
+function setupCanvas() {
+  const c = document.getElementById('sig');
+  if (c.__wired) return; c.__wired = true;
+  const ctx = c.getContext('2d');
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  let drawing = false, lastX = 0, lastY = 0;
+  function pos(e) {
+    const rect = c.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: (t.clientX - rect.left) * (c.width/rect.width), y: (t.clientY - rect.top) * (c.height/rect.height) };
+  }
+  c.addEventListener('mousedown', e => { e.preventDefault(); drawing = true; const p = pos(e); lastX=p.x; lastY=p.y; });
+  c.addEventListener('mousemove', e => { if(!drawing) return; e.preventDefault(); const p=pos(e); ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(p.x,p.y);ctx.stroke();lastX=p.x;lastY=p.y; });
+  c.addEventListener('mouseup',   () => { drawing = false; });
+  c.addEventListener('mouseleave',() => { drawing = false; });
+  c.addEventListener('touchstart',e => { e.preventDefault(); drawing=true; const p=pos(e); lastX=p.x; lastY=p.y; });
+  c.addEventListener('touchmove', e => { if(!drawing) return; e.preventDefault(); const p=pos(e); ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(p.x,p.y);ctx.stroke();lastX=p.x;lastY=p.y; });
+  c.addEventListener('touchend',  () => { drawing=false; });
+}
+function limparSig() { const c = document.getElementById('sig'); c.getContext('2d').clearRect(0,0,c.width,c.height); }
+async function salvarSig() {
+  const c = document.getElementById('sig');
+  const dataUrl = c.toDataURL('image/png');
+  if (dataUrl.length < 1200) return alert('Desenhe a assinatura primeiro');
+  const r = await fetch('/portal/api/os/'+id+'/assinar', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ dataUrl })
+  });
+  const d = await r.json();
+  if (!d.success) return alert('Erro: ' + d.error);
+  document.getElementById('sigStatus').textContent = '✓ Assinatura enviada!';
+  setTimeout(carregar, 500);
+}
+
+carregar();
+</script>
+</body></html>

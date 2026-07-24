@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simular conversa · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Simular conversa</h1>
+      <small>Testa a resposta sem enviar nada ao WhatsApp nem gravar na conversa real.</small>
+    </div>
+  </div>
+  <div id="body"></div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('wa-simular');</script>
+<script>
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Interface unificada (motor único da Parte 1): UM histórico, UM render. O contexto do
+// dropdown decide só se a conversa começa com a M1 (campanha) ou com o cliente (Atendimento IA).
+let hist = [], camps = [];
+
+function bubble(role, content, tag) {
+  const mine = role === 'user';
+  const who = mine ? 'cliente' : ('robô' + (tag ? ' · ' + tag : ''));
+  return `<div style="margin-bottom:10px;text-align:${mine?'right':'left'}">
+    <div style="display:inline-block;max-width:80%;text-align:left;padding:8px 12px;border-radius:10px;background:${mine?'var(--primary,#2563eb)':'var(--bg-2,#e5e7eb)'};color:${mine?'#fff':'inherit'}">
+      <div style="font-size:10px;opacity:.7;margin-bottom:2px">${who}</div>${esc(content).replace(/\n/g,'<br>')}
+    </div></div>`;
+}
+
+const isCampanha = () => !!el('sel').value;
+
+function drawChat() {
+  const c = el('chat'); if (!c) return;
+  const vazio = isCampanha() ? 'clique "Gerar M1" para começar' : 'digite abaixo para começar';
+  c.innerHTML = hist.length ? hist.map(m => bubble(m.role, m.content, m.tag)).join('')
+    : `<p class="text-3" style="padding:20px;text-align:center">${vazio}</p>`;
+  c.scrollTop = c.scrollHeight;
+}
+
+// Mostra/esconde os controles que só fazem sentido numa campanha.
+// A edição da base (atendimento_*) NÃO fica aqui — é só na aba Campanhas WA (fonte única).
+function toggleCamp() {
+  const camp = isCampanha();
+  el('nome').style.display  = camp ? '' : 'none';
+  el('genM1').style.display = camp ? '' : 'none';
+}
+
+// Trocar de contexto = conversa LIMPA (nada de uma seleção vaza pra outra).
+function onCtxChange() {
+  hist = [];
+  toggleCamp();
+  drawChat();
+}
+
+// Só no modo campanha: dispara a M1 (começa a conversa limpa).
+async function genM1() {
+  const id = el('sel').value; if (!id) return;
+  hist = []; drawChat();
+  el('chat').innerHTML = '<p class="text-3">gerando M1…</p>';
+  const nome = el('nome').value.trim();
+  try {
+    const d = await (await fetch('/api/wa-campanhas/' + id + '/sim-m1', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ contact: nome ? { nome } : {} }) })).json();
+    if (d.success) hist.push({ role:'assistant', content:d.reply, tag:'M1' });
+    else alert('erro: ' + d.error);
+  } catch (e) { alert('erro: ' + e.message); }
+  drawChat();
+}
+
+// Mensagem do cliente → a MESMA IA (com campanha_id quando é campanha, sem quando é geral).
+async function send() {
+  const t = el('inp').value.trim(); if (!t) return;
+  el('inp').value = ''; hist.push({ role:'user', content:t }); drawChat();
+  el('chat').innerHTML += '<p class="text-3" style="font-size:12px">robô digitando…</p>';
+  try {
+    const campanha_id = el('sel').value ? +el('sel').value : undefined;
+    const historico = hist.map(m => ({ role: m.role, content: m.content }));
+    const d = await (await fetch('/api/whatsapp/sim-atendimento', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ history: historico, campanha_id }) })).json();
+    if (d.success) hist.push({ role:'assistant', content:d.reply });
+    else { hist.pop(); alert('erro: ' + d.error); }
+  } catch (e) { hist.pop(); alert('erro: ' + e.message); }
+  drawChat();
+}
+
+async function render() {
+  try { camps = (await (await fetch('/api/wa-campanhas')).json()).campanhas || []; } catch (_) {}
+  el('body').innerHTML = `
+    <p class="text-3" style="font-size:13px">A simulação roda <strong>exatamente</strong> o que o atendimento real faria — a mesma IA. Escolha o contexto: <strong>Atendimento IA</strong> (o cliente inicia, KB do tenant) ou uma <strong>campanha</strong> (gera a M1 e o lead responde, na base da campanha). Nada é enviado.</p>
+    <div class="toolbar">
+      <label class="text-3" style="font-size:12px">Contexto:</label>
+      <select id="sel" class="form-control" style="width:260px">
+        <option value="">Atendimento IA</option>
+        ${camps.map(c => `<option value="${c.id}">Campanha: ${esc(c.nome)}</option>`).join('')}
+      </select>
+      <input type="text" id="nome" class="form-control" placeholder="nome do contato" style="width:180px;display:none">
+      <button class="btn btn-primary" id="genM1" style="display:none">Gerar M1</button>
+      <button class="btn btn-secondary" id="reset">Reiniciar</button>
+    </div>
+    <div class="card">
+      <div id="chat" style="max-height:440px;overflow:auto;background:var(--bg-1);padding:12px;border-radius:8px;min-height:120px"></div>
+      <div class="row" style="margin-top:10px;gap:8px;display:flex">
+        <textarea id="inp" class="form-control" rows="2" placeholder="Mensagem do cliente…" style="flex:1"></textarea>
+        <button class="btn btn-primary" id="send">Enviar</button>
+      </div>
+    </div>`;
+  toggleCamp();
+  drawChat();
+  el('sel').addEventListener('change', onCtxChange);
+  el('genM1').addEventListener('click', genM1);
+  el('reset').addEventListener('click', () => { hist = []; drawChat(); });
+  el('send').addEventListener('click', send);
+  el('inp').addEventListener('keydown', e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+}
+
+render();
+</script>
+</body>
+</html>

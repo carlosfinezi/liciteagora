@@ -39,11 +39,12 @@ const { registrarRotasUsuarios } = require('./usuarios-routes');
 const { registrarRotasAuditoria } = require('./audit-log');
 const { registrarRotasDevolucoes } = require('./devolucoes-routes');
 const { registrarRotasCrm } = require('./crm-routes');
-const { registrarRotasPropostasComerciais } = require('./propostas-comerciais-routes');
 const { registrarRotasGerencial } = require('./gerencial-routes');
 const { registrarRotasConciliacao } = require('./conciliacao-routes');
 const { registrarRotasComissoes } = require('./comissoes-routes');
 const { registrarRotasContratos } = require('./contratos-routes');
+const { registrarRotasHabilitacao } = require('./habilitacao-routes');
+const { registrarRotasComprasnetAnexos } = require('./comprasnet-anexos-routes');
 const { registrarRotasOS } = require('./os-routes');
 const { registrarRotasComm } = require('./comm-routes');
 const { registrarRotasMDFe } = require('./mdfe-routes');
@@ -98,6 +99,7 @@ const { registrarRotasDefis } = require('./defis-routes');
 const { registrarRotasNFCe } = require('./nfce-routes');
 const { registrarRotasImportacao } = require('./importacao-routes');
 const { registrarRotasCFOPs } = require('./cfops-routes');
+const { registrarRotasFiscalClassificacao } = require('./fiscal-classificacao-routes');
 const { registrarRotasTiposOperacao } = require('./tipos-operacao-routes');
 const { registrarRotasServicos } = require('./servicos-routes');
 const { registrarRotasOptica } = require('./optica/optica-routes');
@@ -116,11 +118,13 @@ const { registrarRotasJornal } = require('./jornal-routes');
 const { registrarRotasCertificado } = require('./certificado-routes');
 const { registrarRotasProxy } = require('./proxy-routes');
 const { registrarRotasFornecedor } = require('./fornecedor-routes');
+const { registrarRotasEstabelecimentos } = require('./estabelecimentos-routes');
 const { registrarRotasTelegram } = require('./telegram-routes');
 const { registrarRotasLances } = require('./lances-routes');
 const { registrarRotasCredenciais } = require('./credenciais-routes');
 const { registrarRotasPortaisIntegracao } = require('./portais-integracao-routes');
 const { registrarRotasBNCSalas } = require('./bnc-salas-routes');
+const { registrarRotasBNC } = require('./bnc-routes');
 const { registrarRotasBLL } = require('./bll-routes');
 const { registrarRotasBLLSalas } = require('./bll-salas-routes');
 const { registrarRotasPcp } = require('./pcp-routes');
@@ -136,6 +140,7 @@ const { registrarRotasChatMonitoramento } = require('./chat-monitoramento-routes
 const { registrarRotasChatMensagens } = require('./chat-mensagens-routes');
 const { registrarRotasParticipacaoMonitoramento } = require('./participacao-monitoramento-routes');
 const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
+const { registrarRotasWaCampanhas } = require('./wa-campaigns-routes');
 const { registrarRotasPortalAdmin } = require('./portal-routes');
 const { sendTelegram } = require('./telegram-client');
 
@@ -181,6 +186,7 @@ function registerProtectedRoutes(app, deps) {
   // ==================== COBRANÇAS + WHATSAPP ====================
   registrarRotasCobrancas(app, db);
   registrarRotasWhatsApp(app, db);
+  registrarRotasWaCampanhas(app, db);
 
   // ==================== RECORRÊNCIAS NFSE ====================
   registrarRotasRecorrencia(app, db);
@@ -228,6 +234,7 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasNFCe(app, db);
   registrarRotasImportacao(app, db);
   registrarRotasCFOPs(app, db);
+  registrarRotasFiscalClassificacao(app, db);
   registrarRotasTiposOperacao(app, db);
   registrarRotasCfopsEntradaMap(app, db);
 
@@ -243,7 +250,6 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasDevolucoes(app, db);
   require('./devolucao-compra').registrar(app, db); // Fase 1: migra schema espelho (rotas na Fase 3)
   registrarRotasCrm(app, db);
-  registrarRotasPropostasComerciais(app, db);
   registrarRotasGerencial(app, db);
   registrarRotasConciliacao(app, db);
   registrarRotasTesouraria(app, db);
@@ -252,6 +258,8 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasIbsCbs(app, db);
   registrarRotasComissoes(app, db);
   registrarRotasContratos(app, db);
+  registrarRotasHabilitacao(app, db);
+  registrarRotasComprasnetAnexos(app, db);
   registrarRotasPortalAdmin(app, db);
   registrarRotasServicos(app, db);
   registrarRotasOS(app, db);
@@ -277,6 +285,8 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasCertificado(app, db);
   registrarRotasProxy(app, db);
   registrarRotasFornecedor(app, db);
+  // Multi-loja: cadastro de estabelecimentos (matriz + filiais). Fase 1.
+  registrarRotasEstabelecimentos(app, db);
 
   // ==================== TELEGRAM / LANCES / CREDENCIAIS / ROBÔ / TRACKING / PROPOSTA ====================
   registrarRotasTelegram(app, db, { enviarTelegram });
@@ -286,6 +296,8 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasPortaisIntegracao(app, db);
   // BNC: cadastro de salas de disputa (processId, lotes) — alimenta scheduler.
   registrarRotasBNCSalas(app, db);
+  // BNC: sessão + envio de proposta server-side (espelha o BLL).
+  registrarRotasBNC(app, db);
   // BLL: sessão + envio de proposta (Fase 1/2). Lance (SignalR) vem na Fase 3.
   registrarRotasBLL(app, db);
   // BLL: cadastro de salas de disputa + auto-lance (Fase 3) — alimenta scheduler.

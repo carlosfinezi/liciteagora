@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minhas Ordens de Serviço</title>
+<link rel="stylesheet" href="/portal/portal-style.css">
+<style>
+  .badge { display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600; }
+  .st-aberta,.st-em-andamento,.st-aguardando-peca { background:#fef3c7;color:#92400e; }
+  .st-concluida { background:#dcfce7;color:#166534; }
+  .st-faturada { background:#dbeafe;color:#1e40af; }
+  .st-cancelada { background:#fee2e2;color:#991b1b; }
+  .st-rascunho,.st-orcamento { background:#e5e7eb;color:#374151; }
+  .sla-atrasado { background:#fee2e2;color:#991b1b; }
+  .sla-risco { background:#fef3c7;color:#92400e; }
+  .sla-cumprido,.sla-no-prazo { background:#dcfce7;color:#166534; }
+  .sla-estourado { background:#fee2e2;color:#991b1b; }
+</style>
+</head>
+<body>
+<header><h1>Portal do Cliente</h1><div class="user"><span id="razao">…</span><button onclick="logout()">Sair</button></div></header>
+<nav>
+  <a href="/portal/index.html">Início</a>
+  <a href="/portal/pedidos.html">Pedidos</a>
+  <a href="/portal/os.html" class="active">Ordens de Serviço</a>
+  <a href="/portal/cobrancas.html">Cobranças</a>
+  <a href="/portal/nfses.html">NF-e/NFS-e</a>
+  <a href="/portal/contratos.html">Contratos</a>
+  <a href="/portal/perfil.html">Trocar senha</a>
+</nav>
+<main>
+  <h2>Minhas ordens de serviço</h2>
+  <table><thead><tr>
+    <th>Número</th><th>Tipo</th><th>Título</th><th>Equipamento</th>
+    <th>Status</th><th>SLA</th><th>Prazo</th><th class="num">Valor</th><th></th>
+  </tr></thead><tbody id="tb"><tr><td colspan="9">Carregando…</td></tr></tbody></table>
+</main>
+<script src="/portal/portal-common.js"></script>
+<script>
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+async function carregar(){
+  if (!await initMe()) return;
+  const r = await fetch('/portal/api/os').then(r=>r.json());
+  if (!r.success) { document.getElementById('tb').innerHTML = `<tr><td colspan="9">Erro: ${escapeHtml(r.error)}</td></tr>`; return; }
+  const tb = document.getElementById('tb');
+  if (!r.ordens.length) return tb.innerHTML = '<tr><td colspan="9">Nenhuma OS registrada.</td></tr>';
+  tb.innerHTML = r.ordens.map(o => `
+    <tr>
+      <td><strong>${escapeHtml(o.numero)}</strong></td>
+      <td>${escapeHtml(o.tipoNome||'—')}</td>
+      <td>${escapeHtml(o.titulo||'—')}</td>
+      <td>${escapeHtml([o.equipamento,o.marca,o.modelo].filter(Boolean).join(' ')||'—')}</td>
+      <td><span class="badge st-${o.status}">${o.status}</span></td>
+      <td>${o.slaStatus ? `<span class="badge sla-${o.slaStatus}">${o.slaStatus}</span>` : '—'}</td>
+      <td>${o.dataPromessa || '—'}</td>
+      <td class="num">${fmtBRL(o.valorTotal)}</td>
+      <td><a href="/portal/os-detalhe.html?id=${o.id}">Detalhes →</a></td>
+    </tr>
+  `).join('');
+}
+carregar();
+</script>
+</body></html>

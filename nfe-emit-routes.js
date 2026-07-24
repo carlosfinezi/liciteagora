@@ -49,20 +49,49 @@ function migrar(db) {
     );
   `);
   db.prepare('INSERT OR IGNORE INTO nfe_config (id, tpAmb, serie, proximoNumero) VALUES (1, 2, 1, 1)').run();
+  // Multi-loja (Inc 2.2): série/numeração por estabelecimento. A MATRIZ continua
+  // no nfe_config legado (numeração intacta); FILIAIS usam esta tabela — linha
+  // criada sob demanda (serie=1, proximoNumero=1). modelo: '55' NF-e, '65' NFC-e.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS estabelecimento_serie (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      estabelecimentoId INTEGER NOT NULL,
+      modelo TEXT NOT NULL,
+      serie INTEGER NOT NULL DEFAULT 1,
+      proximoNumero INTEGER NOT NULL DEFAULT 1,
+      dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(estabelecimentoId, modelo, serie)
+    );
+  `);
   // Reforma tributária (item 3.1): grupo IBS/CBS opt-in + alíquotas do ano-teste
   for (const col of ['ibsCbsAtivo INTEGER DEFAULT 0', 'pIBSUF REAL DEFAULT 0.1',
                      'pIBSMun REAL DEFAULT 0', 'pCBS REAL DEFAULT 0.9']) {
     alterSafe(db, `ALTER TABLE nfe_config ADD COLUMN ${col}`);
   }
   alterSafe(db, 'ALTER TABLE faturas ADD COLUMN rejeicaoMotivo TEXT');
+  // Multi-loja: estabelecimento emissor da fatura (NULL = matriz). Fase 2.
+  alterSafe(db, 'ALTER TABLE faturas ADD COLUMN estabelecimentoId INTEGER');
   alterSafe(db, 'ALTER TABLE produtos ADD COLUMN cstPIS TEXT');
   alterSafe(db, 'ALTER TABLE produtos ADD COLUMN cstCOFINS TEXT');
   alterSafe(db, 'ALTER TABLE produtos ADD COLUMN csosn TEXT');
   alterSafe(db, 'ALTER TABLE fornecedor ADD COLUMN codigoMunicipio TEXT');
 }
 
-function carregarEmitente(db) {
-  const f = db.prepare('SELECT * FROM fornecedor ORDER BY id DESC LIMIT 1').get();
+// Multi-loja: resolve o estabelecimento emissor a partir do id carimbado na
+// fatura. Devolve null quando é a matriz (ou não há id) — nesse caso o emitente
+// vem do `fornecedor` singleton e o certificado da linha legada id=1, mantendo
+// a emissão single-CNPJ byte-a-byte idêntica. Para filial, devolve a linha de
+// `estabelecimentos`, que já carrega todos os campos que a NF-e usa.
+function resolverEstab(db, estabId) {
+  if (!estabId) return null;
+  const row = db.prepare('SELECT * FROM estabelecimentos WHERE id = ?').get(estabId);
+  return (row && !row.matriz) ? row : null;
+}
+
+function carregarEmitente(db, estab = null) {
+  const f = (estab && !estab.matriz)
+    ? estab
+    : db.prepare('SELECT * FROM fornecedor ORDER BY id DESC LIMIT 1').get();
   if (!f) throw new Error('Emitente (fornecedor) não cadastrado');
   if (!f.cnpj) throw new Error('Emitente sem CNPJ');
   if (!f.uf) throw new Error('Emitente sem UF');
@@ -70,8 +99,30 @@ function carregarEmitente(db) {
   return f;
 }
 
-function carregarCert(db) {
-  const cert = db.prepare('SELECT certificadoBase64, senhaCriptografada FROM certificado_digital WHERE id = 1').get();
+// Numeração por estabelecimento. Matriz (estab=null) usa o nfe_config legado;
+// filial usa estabelecimento_serie (linha criada sob demanda). modelo: '55'/'65'.
+function serieAtual(db, estab, cfg, modelo) {
+  if (!estab) return { serie: cfg.serie, proximoNumero: cfg.proximoNumero };
+  let row = db.prepare('SELECT serie, proximoNumero FROM estabelecimento_serie WHERE estabelecimentoId = ? AND modelo = ? ORDER BY serie LIMIT 1').get(estab.id, modelo);
+  if (!row) {
+    db.prepare('INSERT INTO estabelecimento_serie (estabelecimentoId, modelo, serie, proximoNumero) VALUES (?, ?, 1, 1)').run(estab.id, modelo);
+    row = { serie: 1, proximoNumero: 1 };
+  }
+  return row;
+}
+
+function avancarSerie(db, estab, modelo, novoProximo, tabelaMatriz = 'nfe_config') {
+  if (!estab) {
+    db.prepare(`UPDATE ${tabelaMatriz} SET proximoNumero = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = 1`).run(novoProximo);
+  } else {
+    db.prepare('UPDATE estabelecimento_serie SET proximoNumero = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE estabelecimentoId = ? AND modelo = ?').run(novoProximo, estab.id, modelo);
+  }
+}
+
+function carregarCert(db, estab = null) {
+  const cert = (estab && !estab.matriz)
+    ? db.prepare('SELECT certificadoBase64, senhaCriptografada FROM certificado_digital WHERE estabelecimentoId = ?').get(estab.id)
+    : db.prepare('SELECT certificadoBase64, senhaCriptografada FROM certificado_digital WHERE id = 1').get();
   if (!cert) throw new Error('Certificado digital não cadastrado');
   return {
     pfx: Buffer.from(cert.certificadoBase64, 'base64'),
@@ -103,12 +154,12 @@ const CUF_TO_UF_SVRS = {
   '17':'SVRS', // TO
 };
 
-async function getTools(db) {
+async function getTools(db, estab = null) {
   const mod = await import('node-sped-nfe');
   const { Tools } = mod;
   const cfg = db.prepare('SELECT * FROM nfe_config WHERE id = 1').get();
-  const f = carregarEmitente(db);
-  const cert = carregarCert(db);
+  const f = carregarEmitente(db, estab);
+  const cert = carregarCert(db, estab);
   const ufRoteamento = (cfg.tpAmb === 1 && UF_ROTEIA_SVRS.has(f.uf)) ? 'SVRS' : f.uf;
   const cnpjLimpo = (f.cnpj || '').replace(/\D/g,'');
 
@@ -133,9 +184,6 @@ function tag(xml, name) {
 
 async function emitirNFe(db, faturaId) {
   const { Make } = await import('node-sped-nfe');
-  const tools = await getTools(db);
-  const cfg = db.prepare('SELECT * FROM nfe_config WHERE id = 1').get();
-  const emit = carregarEmitente(db);
   const fatura = db.prepare(`
     SELECT f.*, p.razaoSocial AS clienteNome, p.cpfCnpj AS clienteCpfCnpj, p.tipo AS clienteTipo,
       p.inscricaoMunicipal AS clienteIM,
@@ -153,6 +201,15 @@ async function emitirNFe(db, faturaId) {
   if (fatura.statusSefaz === 'nao_fiscal') throw new Error('Fatura marcada como documento interno (não-fiscal) — NF-e não pode ser emitida');
   if (fatura.statusSefaz === 'autorizada') throw new Error('Fatura já tem NF-e autorizada');
   if (fatura.status !== 'emitida') throw new Error('Fatura não está emitida');
+
+  // Multi-loja: estabelecimento emissor carimbado na fatura (NULL = matriz).
+  // Emitente e certificado saem desse estabelecimento; ambos mudam juntos para
+  // manter o CNPJ do certificado coerente com o CNPJ do emitente (senão a SEFAZ
+  // rejeita). Série/numeração ainda é global — Incremento 2.2.
+  const estab = resolverEstab(db, fatura.estabelecimentoId);
+  const tools = await getTools(db, estab);
+  const cfg = db.prepare('SELECT * FROM nfe_config WHERE id = 1').get();
+  const emit = carregarEmitente(db, estab);
 
   const itens = db.prepare('SELECT * FROM fatura_itens WHERE faturaId = ? ORDER BY id ASC').all(faturaId);
   if (!itens.length) throw new Error('Fatura sem itens');
@@ -172,9 +229,10 @@ async function emitirNFe(db, faturaId) {
     espelhoTotais = calc.totais;
   }
 
-  // Reservar número (transação)
-  const nNF = cfg.proximoNumero;
-  const serie = cfg.serie;
+  // Reservar número (transação) — matriz usa nfe_config; filial, sua própria série.
+  const _res = serieAtual(db, estab, cfg, '55');
+  const nNF = _res.proximoNumero;
+  const serie = _res.serie;
   const cUF = codigoUF(emit.uf);
   if (!cUF) throw new Error(`UF "${emit.uf}" inválida`);
 
@@ -378,7 +436,7 @@ async function emitirNFe(db, faturaId) {
   const produtoIds = ehDevolucaoCompra ? [] : [...new Set(itens.map(it => it.produtoId).filter(Boolean))];
   const produtosPor = new Map();
   if (produtoIds.length) {
-    const rows = db.prepare(`SELECT id, csosn, cstPIS, cstCOFINS, CSTBS, cClassTrib FROM produtos WHERE id IN (${produtoIds.map(()=>'?').join(',')})`).all(...produtoIds);
+    const rows = db.prepare(`SELECT id, csosn, cstPIS, cstCOFINS, cstIBS, cClassTrib FROM produtos WHERE id IN (${produtoIds.map(()=>'?').join(',')})`).all(...produtoIds);
     for (const r of rows) produtosPor.set(r.id, r);
   }
   itens.forEach((it, i) => {
@@ -422,7 +480,7 @@ async function emitirNFe(db, faturaId) {
       const vIBSMun = vBC * (cfg.pIBSMun || 0) / 100;
       const vCBS = vBC * (cfg.pCBS || 0) / 100;
       NFe.tagProdIBSCBS(i, {
-        CST: (prod?.CSTBS || '000').trim(),
+        CST: (prod?.cstIBS || '000').trim(),
         cClassTrib: (prod?.cClassTrib || '000001').trim(),
         gIBSCBS: {
           vBC: vBC.toFixed(2),
@@ -579,7 +637,7 @@ async function emitirNFe(db, faturaId) {
         numeroNFe=?, serieNFe=?, xmlAssinado=?, dataAutorizacaoSefaz=CURRENT_TIMESTAMP,
         rejeicaoMotivo=NULL, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?`)
         .run(chave, protocolo, nNF, String(serie), xmlProc, faturaId);
-      db.prepare('UPDATE nfe_config SET proximoNumero = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = 1').run(nNF + 1);
+      avancarSerie(db, estab, '55', nNF + 1);
     } else {
       db.prepare(`UPDATE faturas SET statusSefaz='rejeitada', rejeicaoMotivo=?,
         dataAtualizacao=CURRENT_TIMESTAMP WHERE id=?`)
@@ -852,4 +910,4 @@ function registrarRotas(app, db) {
   });
 }
 
-module.exports = { registrarRotasNfeEmit: registrarRotas, getTools, emitirNFe };
+module.exports = { registrarRotasNfeEmit: registrarRotas, getTools, emitirNFe, resolverEstab, carregarEmitente, carregarCert, serieAtual, avancarSerie, migrar };

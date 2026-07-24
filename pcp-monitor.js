@@ -17,14 +17,20 @@
 
 const pcp = require('./pcp-client');
 const { migratePcpSchema } = require('./pcp-schema');
+const catalogPg = require('./catalog-pg');
+const { fetchPcpDatas, divergem } = require('./pcp-datas');
 
 const PCP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const PCP_FIRST_DELAY_MS = 60 * 1000;
+const PCP_DATAS_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const PCP_DATAS_FIRST_DELAY_MS = 3 * 60 * 1000;
+const PCP_DATAS_MAX_EDITAIS = 300;
 const FINALIZADAS_RE = /finalizad|cancelad|deserto|fracassad|revog|anulad/i;
 const APIPCP_BASE = 'https://apipcp.portaldecompraspublicas.com.br';
 const OPERACAO_BASE = 'https://operacao.portaldecompraspublicas.com.br';
 
 const timersByDb = new Map(); // dbName → { first, interval }
+const datasTimersByDb = new Map(); // dbName → { first, interval } — reconciliação de datas
 
 function dbKey(db) {
   return db.name || db.filename || 'unknown';
@@ -39,6 +45,125 @@ function temCredenciais(db) {
   return r.c >= 2;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Reconcilia o prazo dos editais PCP dos Interesses do tenant.
+ *
+ * O órgão pode remarcar o edital dentro do PCP sem republicar no PNCP — o
+ * catálogo, que espelha o PNCP, fica com o prazo antigo e a agenda/kanban
+ * mandam o usuário descartar um edital ainda vivo.
+ *
+ * Grava a data do portal em `licitacoes.dataEncerramentoPortal`, SEM tocar em
+ * `dataEncerramentoProposta` (o catálogo continua espelho fiel do PNCP). Quem
+ * lê prazo faz COALESCE(portal, pncp).
+ *
+ * Usa só a API PÚBLICA do PCP — não exige credenciais do tenant, por isso roda
+ * mesmo em tenant que não configurou login no portal.
+ *
+ * Janela: editais PCP dos Interesses com encerramento nos últimos 90 dias ou no
+ * futuro. Inclui os já vencidos DE PROPÓSITO — a remarcação normalmente aparece
+ * depois do prazo original ter passado (foi exatamente o caso do PE-000023/2026).
+ */
+async function reconciliarDatasPcp(db) {
+  const key = dbKey(db);
+  const stats = { verificados: 0, remarcados: 0, limpos: 0, erros: 0, truncado: 0 };
+
+  let interesses = [];
+  try {
+    interesses = db.prepare('SELECT DISTINCT cnpj, ano, sequencial FROM interesse').all();
+  } catch (e) {
+    return stats; // tenant sem tabela interesse
+  }
+  if (!interesses.length) return stats;
+
+  const values = interesses.map((_, i) => `($${i * 3 + 1}::text,$${i * 3 + 2}::int,$${i * 3 + 3}::bigint)`).join(',');
+  const params = [];
+  for (const r of interesses) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial));
+
+  let rows;
+  try {
+    rows = await catalogPg.query(
+      `WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+       SELECT l."cnpj", l."anoCompra", l."sequencialCompra", l."linkSistemaOrigem",
+              l."dataEncerramentoProposta", l."dataEncerramentoPortal"
+         FROM licitacoes l
+         JOIN keys k ON k.cnpj = l."cnpj" AND k.ano = l."anoCompra" AND k.sequencial = l."sequencialCompra"
+        WHERE l."linkSistemaOrigem" ILIKE '%portaldecompraspublicas%'
+          AND (l."dataEncerramentoProposta" IS NULL
+               OR l."dataEncerramentoProposta" >= now() - interval '90 days')
+        ORDER BY l."dataEncerramentoProposta" DESC NULLS LAST
+        LIMIT ${PCP_DATAS_MAX_EDITAIS + 1}`,
+      params
+    );
+  } catch (e) {
+    console.error(`[PCP-datas][${key}] consulta ao catálogo falhou:`, e.message);
+    stats.erros++;
+    return stats;
+  }
+
+  if (rows.length > PCP_DATAS_MAX_EDITAIS) {
+    stats.truncado = rows.length - PCP_DATAS_MAX_EDITAIS;
+    rows = rows.slice(0, PCP_DATAS_MAX_EDITAIS);
+  }
+
+  // Sequencial e com respiro entre requisições — nada de rajada paralela no portal.
+  for (const row of rows) {
+    stats.verificados++;
+    let datas;
+    try {
+      datas = await fetchPcpDatas(row.linkSistemaOrigem);
+    } catch (e) {
+      stats.erros++;
+      continue;
+    }
+    if (!datas || !datas.encerramento) continue;
+
+    const remarcado = divergem(row.dataEncerramentoProposta, datas.encerramento);
+    const jaGravado = row.dataEncerramentoPortal != null;
+    // Nada mudou desde o último ciclo → não escreve à toa.
+    if (remarcado && jaGravado && !divergem(row.dataEncerramentoPortal, datas.encerramento)) continue;
+    if (!remarcado && !jaGravado) continue;
+
+    try {
+      await catalogPg.execute(
+        `UPDATE licitacoes SET "dataEncerramentoPortal" = $4
+          WHERE "cnpj" = $1 AND "anoCompra" = $2 AND "sequencialCompra" = $3`,
+        [row.cnpj, row.anoCompra, row.sequencialCompra, remarcado ? datas.encerramento : null]
+      );
+      if (remarcado) {
+        stats.remarcados++;
+        console.log(`[PCP-datas][${key}] ${row.cnpj}-${row.anoCompra}-${row.sequencialCompra} remarcado no portal: ` +
+          `${row.dataEncerramentoProposta && row.dataEncerramentoProposta.toISOString()} → ${datas.encerramento}`);
+      } else {
+        // Portal voltou a bater com o PNCP (ex.: o órgão republicou) → tira o override.
+        stats.limpos++;
+      }
+    } catch (e) {
+      stats.erros++;
+      console.error(`[PCP-datas][${key}] update falhou:`, e.message);
+    }
+    await sleep(300);
+  }
+
+  if (stats.remarcados + stats.limpos + stats.erros > 0 || stats.truncado) {
+    console.log(`[PCP-datas][${key}] verificados=${stats.verificados} remarcados=${stats.remarcados}` +
+      ` limpos=${stats.limpos} erros=${stats.erros}` +
+      (stats.truncado ? ` (${stats.truncado} editais além do teto de ${PCP_DATAS_MAX_EDITAIS} ficaram de fora)` : ''));
+  }
+  return stats;
+}
+
+function agendarReconciliacaoDatas(db) {
+  const key = dbKey(db);
+  if (datasTimersByDb.has(key)) return;
+  const run = () => reconciliarDatasPcp(db).catch((e) => console.error(`[PCP-datas][${key}] erro:`, e.message));
+  const first = setTimeout(run, PCP_DATAS_FIRST_DELAY_MS);
+  const interval = setInterval(run, PCP_DATAS_INTERVAL_MS);
+  datasTimersByDb.set(key, { first, interval });
+  console.log(`[PCP-datas][${key}] agendado a cada ${PCP_DATAS_INTERVAL_MS / 3600000}h`);
+}
+
 function agendarPcpMonitor(db) {
   const key = dbKey(db);
   if (timersByDb.has(key)) return;
@@ -49,6 +174,11 @@ function agendarPcpMonitor(db) {
     console.error(`[PCP-monitor][${key}] migrate erro:`, e.message);
     return;
   }
+
+  // Reconciliação de datas usa API pública — independe de credenciais, então é
+  // agendada ANTES do early-return abaixo (tenant sem login no PCP ainda pode
+  // ter editais PCP nos Interesses, e a agenda dele precisa do prazo certo).
+  agendarReconciliacaoDatas(db);
 
   if (!temCredenciais(db)) {
     // tenant não usa PCP — não agenda; agendar novamente quando credenciais forem salvas
@@ -69,6 +199,12 @@ function agendarPcpMonitor(db) {
 
 function pararPcpMonitor(db) {
   const key = dbKey(db);
+  const d = datasTimersByDb.get(key);
+  if (d) {
+    clearTimeout(d.first);
+    clearInterval(d.interval);
+    datasTimersByDb.delete(key);
+  }
   const t = timersByDb.get(key);
   if (!t) return;
   clearTimeout(t.first);
@@ -251,4 +387,4 @@ async function sincronizarPcp(db, opts = {}) {
   return stats;
 }
 
-module.exports = { agendarPcpMonitor, pararPcpMonitor, sincronizarPcp };
+module.exports = { agendarPcpMonitor, pararPcpMonitor, sincronizarPcp, reconciliarDatasPcp };

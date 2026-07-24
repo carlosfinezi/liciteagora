@@ -155,6 +155,9 @@ function formatarData(date) {
  * @param {Object} [dados.tomador.endereco]
  * @param {Object} dados.servico
  * @param {string} dados.servico.codigoTributacaoNacional - cTribNac (6 dígitos)
+ * @param {string} [dados.servico.codigoListaServico] - cTribMun (item LC 116, default '001')
+ * @param {string} [dados.servico.cNBS] - Código NBS (9 dígitos, X.XXXX.XX.XX)
+ * @param {string} [dados.servico.xNBS] - Descrição NBS
  * @param {string} dados.servico.descricao
  * @param {number} dados.servico.valorServico
  * @param {number} [dados.servico.aliquota] - Alíquota ISS (percentual)
@@ -199,8 +202,13 @@ function construirDPS(dados) {
   // regTrib é obrigatório no prestador
   xml += `<regTrib>`;
   xml += `<opSimpNac>${prestador.opSimpNac || 1}</opSimpNac>`;
-  // regApTribSN obrigatório para optantes SN (opSimpNac=3)
-  if ((prestador.opSimpNac || 1) == 3 || (prestador.opSimpNac || 1) == 2) {
+  // regApTribSN: caller pode passar `null` explícito (ex: MEI) pra omitir;
+  // legacy default presume optantes SN (opSimpNac=2 ou 3).
+  const regApTribSNExplicit = prestador.regApTribSN !== undefined;
+  const incluirRegAp = regApTribSNExplicit
+    ? prestador.regApTribSN !== null
+    : ((prestador.opSimpNac || 1) == 3 || (prestador.opSimpNac || 1) == 2);
+  if (incluirRegAp) {
     xml += `<regApTribSN>${prestador.regApTribSN || 1}</regApTribSN>`;
   }
   xml += `<regEspTrib>${prestador.regEspTrib || 0}</regEspTrib>`;
@@ -243,10 +251,23 @@ function construirDPS(dados) {
   xml += `<locPrest>`;
   xml += `<cLocPrestacao>${servico.codigoMunicipioPrestacao || prestador.codigoMunicipio}</cLocPrestacao>`;
   xml += `</locPrest>`;
+  // Ordem dos filhos de TCCServ no schema SEFIN v1.01:
+  //   cTribNac (obrig.) → cTribMun (opc.) → xDescServ (obrig.) → cNBS (opc.) → cIntContrib (opc.)
+  // xNBS NÃO existe no schema — é metadado interno (usado no cadastro/PDF), não vai pro XML.
   xml += `<cServ>`;
   xml += `<cTribNac>${escapeXml(servico.codigoTributacaoNacional)}</cTribNac>`;
-  xml += `<cTribMun>${escapeXml(servico.codigoListaServico || '001')}</cTribMun>`;
+  // TCCodTribMun: pattern [0-9]{3}, minOccurs=0. Se a fonte mandou algo que
+  // não bate (ex: '0106' do cadastro de serviço), omite o elemento.
+  const cTribMunRaw = String(servico.codigoListaServico || '').trim();
+  if (/^\d{3}$/.test(cTribMunRaw)) {
+    xml += `<cTribMun>${cTribMunRaw}</cTribMun>`;
+  }
   xml += `<xDescServ>${escapeXml(servico.descricao)}</xDescServ>`;
+  // TSCodNBS: pattern [0-9]{9}, minOccurs=0. Vai DEPOIS de xDescServ.
+  const cNBSRaw = String(servico.cNBS || '').trim();
+  if (/^\d{9}$/.test(cNBSRaw)) {
+    xml += `<cNBS>${cNBSRaw}</cNBS>`;
+  }
   xml += `</cServ>`;
   xml += `</serv>`;
 
@@ -267,18 +288,20 @@ function construirDPS(dados) {
   xml += `<tpRetISSQN>${servico.tpRetISSQN || 1}</tpRetISSQN>`; // 1=Não retido
   xml += `</tribMun>`;
 
-  // tribFed (PIS/COFINS para Simples Nacional)
-  if ((prestador.opSimpNac || 1) >= 2) {
+  // tribFed (PIS/COFINS) e totTrib variam pelo regime:
+  //   opSimpNac=1 (não optante): sem tribFed, indTotTrib=0
+  //   opSimpNac=2 (MEI):         sem tribFed, indTotTrib=0  (XML EmissorWeb)
+  //   opSimpNac=3 (SN regular):  com tribFed PIS/COFINS, pTotTribSN
+  const opSN = prestador.opSimpNac || 1;
+  if (opSN === 3) {
     xml += `<tribFed><piscofins><CST>00</CST></piscofins></tribFed>`;
   }
 
-  // totTrib (obrigatório)
   xml += `<totTrib>`;
-  if ((prestador.opSimpNac || 1) >= 2) {
-    // Optante SN: informar alíquota SN (indTotTrib não permitido para ME/EPP)
+  if (opSN === 3) {
     xml += `<pTotTribSN>${Number(dados.pTotTribSN || 6.00).toFixed(2)}</pTotTribSN>`;
   } else {
-    xml += `<indTotTrib>0</indTotTrib>`; // 0 = Não informar valor estimado
+    xml += `<indTotTrib>0</indTotTrib>`;
   }
   xml += `</totTrib>`;
 
@@ -333,6 +356,107 @@ function assinarDPS(dpsXml, privateKeyPem, certDerBase64) {
 }
 
 /**
+ * Constrói XML do evento de cancelamento de NFS-e (tpEvento=101101).
+ *
+ * Schema base (PedidoRegistroEvento_v1.00.xsd):
+ *   <pedRegEvento>
+ *     <evento versao="1.00">
+ *       <infEvento Id="EVT...">
+ *         <cOrgao/> <tpAmb/> <CNPJAutor/> <chNFSe/> <dhEvento/>
+ *         <nSeqEvento/> <verEvento/> <tpEvento>101101</tpEvento>
+ *         <detEvento versao="1.00">
+ *           <descEvento>Cancelamento</descEvento>
+ *           <verAplic/> <cMotivo/> <xMotivo/>
+ *         </detEvento>
+ *       </infEvento>
+ *     </evento>
+ *   </pedRegEvento>
+ *
+ * @param {object} dados
+ * @param {string} dados.chaveAcesso - Chave de acesso (50 dígitos)
+ * @param {number} dados.tpAmb - 1=Produção, 2=Homologação
+ * @param {number} dados.nSeqEvento - Número sequencial do evento (1 para primeiro cancelamento)
+ * @param {number} dados.codigoMotivo - Código do motivo (1=Erro, 2=Serviço não prestado, 9=Outros)
+ * @param {string} dados.justificativa - Texto livre (15 a 255 chars)
+ * @param {string} dados.cnpjAutor - CNPJ do prestador (autor do evento)
+ * @param {string} [dados.codMunicipio] - Código IBGE do município (cOrgao)
+ * @returns {string} XML do evento (não assinado)
+ */
+function construirEventoCancelamento({ chaveAcesso, tpAmb, nSeqEvento, codigoMotivo, justificativa, cnpjAutor, codMunicipio }) {
+  const cnpj = String(cnpjAutor || '').replace(/\D/g, '').padStart(14, '0');
+  const chave = String(chaveAcesso || '').replace(/\D/g, '');
+  const tpEvento = '101101';
+  // ID do <infPedReg> (TSIdPedRegEvt v1.01 atual):
+  //   "PRE" + chNFSe(50) + tpEvento(6) = 59 chars
+  // SEFIN espera os campos do evento DIRETO dentro de <infPedReg>, sem
+  // wrapper <evento>/<infEvento> (erro RNG6110 anterior: "infPedReg has
+  // invalid child element 'evento' ... expected 'tpAmb' ...").
+  const idPedReg = `PRE${chave}${tpEvento}`;
+  const dhEvento = formatarDataBrasilia(new Date());
+
+  // Após chNFSe, SEFIN espera elemento específico do evento `<e{tpEvento}>`
+  // (ex: <e101101> p/ cancelamento). Contém campos próprios do evento.
+  // (RNG6110 anterior listou: e101101, e101103, e105102, e105104, e105105,
+  //  e202201, e203202, e204203, e205204, e202205, e203206, e204207, e205208,
+  //  e305101, e305102, e305103)
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>`;
+  xml += `<pedRegEvento xmlns="${NFSE_NS}" versao="1.00">`;
+  xml += `<infPedReg Id="${idPedReg}">`;
+  xml += `<tpAmb>${tpAmb}</tpAmb>`;
+  xml += `<verAplic>${VER_APLIC}</verAplic>`;
+  xml += `<dhEvento>${dhEvento}</dhEvento>`;
+  xml += `<CNPJAutor>${cnpj}</CNPJAutor>`;
+  xml += `<chNFSe>${chave}</chNFSe>`;
+  xml += `<e${tpEvento}>`;
+  xml += `<xDesc>Cancelamento de NFS-e</xDesc>`;
+  xml += `<cMotivo>${codigoMotivo || 1}</cMotivo>`;
+  xml += `<xMotivo>${escapeXml(justificativa)}</xMotivo>`;
+  xml += `</e${tpEvento}>`;
+  xml += `</infPedReg>`;
+  xml += `</pedRegEvento>`;
+
+  return xml;
+}
+
+/**
+ * Assina XML de evento (cancelamento etc.) com XMLDSIG. Reference URI aponta
+ * pro Id do <infPedReg>; signature appendada como sibling de <infPedReg>
+ * dentro do <pedRegEvento>.
+ */
+function assinarEvento(eventoXml, privateKeyPem, certDerBase64) {
+  const idMatch = eventoXml.match(/<infPedReg\s+Id="([^"]+)"/);
+  if (!idMatch) {
+    throw new Error('ID do infPedReg não encontrado no XML');
+  }
+  const refId = idMatch[1];
+
+  const certPem = `-----BEGIN CERTIFICATE-----\n${certDerBase64.match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----`;
+
+  const sig = new SignedXml({
+    privateKey: privateKeyPem,
+    publicCert: certPem,
+    canonicalizationAlgorithm: 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
+    signatureAlgorithm: 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
+  });
+
+  sig.addReference({
+    xpath: `//*[@Id='${refId}']`,
+    transforms: [
+      'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
+      'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
+    ],
+    digestAlgorithm: 'http://www.w3.org/2001/04/xmlenc#sha256',
+  });
+
+  // Signature como sibling de <infPedReg>, dentro de <pedRegEvento>.
+  sig.computeSignature(eventoXml, {
+    location: { reference: '//*[local-name()="pedRegEvento"]', action: 'append' },
+  });
+
+  return sig.getSignedXml();
+}
+
+/**
  * Extrai chave privada (PEM) e certificado (DER base64) de um arquivo PKCS#12
  */
 function extrairChavesCertificado(p12Buffer, senha) {
@@ -367,6 +491,8 @@ module.exports = {
   gerarIdDps,
   construirDPS,
   assinarDPS,
+  construirEventoCancelamento,
+  assinarEvento,
   extrairChavesCertificado,
   formatarDataBrasilia,
   formatarData,

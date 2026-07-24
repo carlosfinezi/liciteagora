@@ -141,7 +141,10 @@ function criarUsuarioInicial(db) {
     "email TEXT",
     "role TEXT NOT NULL DEFAULT 'admin'",
     "ativo INTEGER NOT NULL DEFAULT 1",
-    "ultimoLogin TEXT"
+    "ultimoLogin TEXT",
+    // Multi-loja RBAC (Fase 4.3): NULL = acesso a todos os estabelecimentos;
+    // um id = usuário restrito àquela loja (escopo forçado em getEstabelecimentoAtivo).
+    "estabelecimentoId INTEGER"
   ]) {
     alterSafe(db, `ALTER TABLE users ADD COLUMN ${col}`);
   }
@@ -249,7 +252,7 @@ function getApiKey(db) {
  */
 function requireAuth(apiKey, db) {
   const stmt = createStmtCache();
-  const SQL_GET_USER = 'SELECT id, username, nome, email, role, ativo FROM users WHERE id = ?';
+  const SQL_GET_USER = 'SELECT id, username, nome, email, role, ativo, estabelecimentoId FROM users WHERE id = ?';
   const SQL_GET_API_KEY = "SELECT valor FROM config WHERE chave = 'api_key'";
 
   return (req, res, next) => {

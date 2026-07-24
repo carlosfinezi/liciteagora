@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regras de Conciliação · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Regras de Conciliação (OFX)</h1>
+      <small>Aplicadas automaticamente a cada import de extrato: ignorar lançamentos (tarifas internas) ou sugerir categoria</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="rPadrao" placeholder='Texto contido na descrição (ex.: "TARIFA PACOTE")' style="flex:1;min-width:220px;">
+    <select id="rTipo">
+      <option value="ambos">Entradas e saídas</option>
+      <option value="entrada">Só entradas</option>
+      <option value="saida">Só saídas</option>
+    </select>
+    <select id="rAcao">
+      <option value="categorizar">Sugerir categoria</option>
+      <option value="ignorar">Ignorar (marca conciliada)</option>
+    </select>
+    <input type="text" id="rCategoria" placeholder="Categoria" style="width:140px;">
+    <button class="btn btn-primary btn-sm" onclick="addRegra()">+ Regra</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Padrão</th><th>Lançamentos</th><th>Ação</th><th>Categoria</th><th>Conta</th><th>Status</th><th></th></tr></thead>
+      <tbody id="tbRegras"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card card-info" style="margin-top:14px;max-width:720px;font-size:0.9em;">
+    Para reaplicar as regras às transações já importadas de uma conta, use o botão abaixo.
+    <div class="toolbar" style="margin-top:10px;">
+      <select id="aplicarConta"></select>
+      <button class="btn btn-secondary btn-sm" onclick="reaplicar()">Reaplicar regras</button>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('fin-conciliacao-regras');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+
+async function carregar(){
+  const r = await fetch('/api/conciliacao/regras'); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbRegras').innerHTML = d.regras.length ? d.regras.map(x=>`<tr${x.ativo?'':' style="opacity:0.55;"'}>
+    <td><code>${x.padraoTexto}</code></td>
+    <td>${x.tipoLancamento}</td>
+    <td>${x.acao==='ignorar'?'🚫 ignorar':'🏷️ categorizar'}</td>
+    <td>${x.categoria||'-'}</td>
+    <td>${x.contaNome||'todas'}</td>
+    <td>${x.ativo?'ativa':'inativa'}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="toggle(${x.id}, ${x.ativo?0:1})">${x.ativo?'Desativar':'Reativar'}</button></td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma regra</td></tr>';
+}
+
+async function addRegra(){
+  const body = {
+    padraoTexto: document.getElementById('rPadrao').value.trim(),
+    tipoLancamento: document.getElementById('rTipo').value,
+    acao: document.getElementById('rAcao').value,
+    categoria: document.getElementById('rCategoria').value.trim() || null
+  };
+  if (body.padraoTexto.length < 3) return showAlert('Padrão de texto (mín. 3 caracteres)','error');
+  const r = await fetch('/api/conciliacao/regras', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('rPadrao').value=''; showAlert('Regra criada'); carregar();
+}
+
+async function toggle(id, ativo){
+  const r = await fetch('/api/conciliacao/regras/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ativo }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+async function reaplicar(){
+  const contaFinanceiraId = Number(document.getElementById('aplicarConta').value);
+  const r = await fetch('/api/conciliacao/regras/aplicar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contaFinanceiraId }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.aplicadas} transação(ões) processada(s)`);
+}
+
+(async () => {
+  const r = await fetch('/api/contas-financeiras'); const d = await r.json();
+  document.getElementById('aplicarConta').innerHTML = (d.contas||[]).map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+})();
+carregar();
+</script>
+</body></html>

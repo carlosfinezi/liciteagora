@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sem Interesse · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Licitações Sem Interesse</h1>
+        <small>Licitações marcadas como "Sem interesse" na busca</small>
+      </div>
+      <div class="actions">
+        <span class="badge vencida" id="totalBadge" style="font-size:0.85em;padding:5px 12px;">—</span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <input type="text" id="filtBusca" placeholder="Buscar objeto, órgão, motivo…" onkeydown="if(event.key==='Enter')filtrar()" style="flex:1;min-width:240px;">
+      <button class="btn btn-primary btn-sm" onclick="filtrar()">Filtrar</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('filtBusca').value='';filtrar()">Limpar</button>
+    </div>
+
+    <div id="lista">
+      <div class="loading"><h3>Carregando…</h3></div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('sem-interesse');</script>
+<script>
+let dadosCache = [];
+
+async function carregar() {
+    try {
+        const resp = await fetch('/api/sem-interesse/detalhado');
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error);
+        dadosCache = data.licitacoes;
+        document.getElementById('totalBadge').textContent = data.total;
+        filtrar();
+    } catch (err) {
+        document.getElementById('lista').innerHTML = `<div class="empty">Erro: ${esc(err.message)}</div>`;
+    }
+}
+
+function filtrar() {
+    const busca = document.getElementById('filtBusca').value.trim().toLowerCase();
+    const filtrados = busca
+        ? dadosCache.filter(l => [l.objetoCompra, l.nomeUnidade, l.razaoSocial, l.motivo, l.municipioNome].filter(Boolean).join(' ').toLowerCase().includes(busca))
+        : dadosCache;
+    renderizar(filtrados);
+}
+
+function renderizar(lista) {
+    if (!lista.length) {
+        document.getElementById('lista').innerHTML = '<div class="empty">Nenhuma licitação sem interesse encontrada</div>';
+        return;
+    }
+
+    const fmtData = d => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; } };
+    const fmtValor = v => v ? Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '';
+
+    const html = lista.map(l => {
+        const encerrada = l.dataEncerramentoProposta && new Date(l.dataEncerramentoProposta) < new Date();
+        return `<div class="card" style="margin-bottom:10px;">
+            <div style="display:flex;gap:14px;align-items:flex-start;">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:0.92em;color:var(--text-0);line-height:1.4;margin-bottom:6px;">${esc(l.objetoCompra || 'Objeto não disponível')}</div>
+                    <div style="font-size:0.8em;color:var(--text-2);margin-bottom:8px;">
+                        ${esc(l.nomeUnidade || l.razaoSocial || '')}${l.municipioNome ? ' · ' + esc(l.municipioNome) : ''}${l.ufSigla ? '/' + l.ufSigla : ''}
+                    </div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                        <span class="badge cancelado">${esc(l.motivo || 'Sem motivo informado')}</span>
+                        <span class="badge inativo">Marcado em ${fmtData(l.dataCriacao)}</span>
+                        ${l.modalidadeNome ? `<span class="badge confirmado">${esc(l.modalidadeNome)}</span>` : ''}
+                        ${l.valorTotalEstimado ? `<span class="badge ativo">${fmtValor(l.valorTotalEstimado)}</span>` : ''}
+                        ${l.dataEncerramentoProposta ? `<span class="badge ${encerrada ? 'vencida' : 'aberta'}">${encerrada ? 'Encerrada' : 'Aberta'} ${fmtData(l.dataEncerramentoProposta)}</span>` : ''}
+                        ${l.numeroCompra ? `<span class="badge inativo">Nº ${esc(l.numeroCompra)}</span>` : ''}
+                    </div>
+                </div>
+                <button class="btn btn-success btn-sm" onclick="removerSemInteresse('${l.cnpj}', ${l.ano}, ${l.sequencial}, this)" title="Restaurar interesse">Restaurar</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    document.getElementById('lista').innerHTML = html;
+}
+
+async function removerSemInteresse(cnpj, ano, seq, btn) {
+    if (!confirm('Restaurar interesse nesta licitação?')) return;
+    btn.disabled = true; btn.textContent = '…';
+    try {
+        const resp = await fetch(`/api/sem-interesse/${cnpj}/${ano}/${seq}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error);
+        dadosCache = dadosCache.filter(l => !(l.cnpj === cnpj && l.ano === ano && l.sequencial === seq));
+        document.getElementById('totalBadge').textContent = dadosCache.length;
+        filtrar();
+    } catch (err) {
+        alert('Erro: ' + err.message);
+        btn.disabled = false; btn.textContent = 'Restaurar';
+    }
+}
+
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+carregar();
+</script>
+</body>
+</html>

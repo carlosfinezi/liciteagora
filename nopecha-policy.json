@@ -1,0 +1,5 @@
+{
+  "ExtensionInstallForcelist": ["ogomknllijkjboianknlncoagialpnlm;http://127.0.0.1:8899/updates.xml"],
+  "ExtensionInstallSources": ["http://127.0.0.1:8899/*"],
+  "ExtensionAllowedTypes": ["extension", "user_script"]
+}

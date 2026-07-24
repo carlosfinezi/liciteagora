@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fatura · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 id="pgTitulo">Fatura</h1>
+      <small id="pgSub" class="muted"></small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary btn-sm" href="/fiscal/notas-fiscais.html">← Notas Fiscais</a>
+      <a class="btn btn-ghost btn-sm" id="btnPdf" href="#" target="_blank">Baixar PDF</a>
+      <button class="btn btn-ghost btn-sm" id="btnCancelar" style="color:var(--danger);display:none;" onclick="cancelarFatura()">Cancelar</button>
+      <a class="btn btn-ghost btn-sm" id="btnXml" href="#" target="_blank" style="display:none;">Baixar XML</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div id="conteudo"><p class="muted">Carregando…</p></div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('notas-fiscais');</script>
+<script>
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => e.style.display='none', 5000);
+}
+function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function fmtBRL(v){ if (v == null || v === '') return 'R$ 0,00'; return Number(v).toLocaleString('pt-BR', {style:'currency', currency:'BRL'}); }
+function fmtData(s){ if (!s) return '—'; const d = new Date(s); if (isNaN(d)) return s.slice(0,10); return d.toLocaleDateString('pt-BR'); }
+function fmtCpfCnpj(s){ if (!s) return '—'; const d = String(s).replace(/\D/g,''); if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'); if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'); return s; }
+function fmtTelefone(s){ if (!s) return '—'; const d = String(s).replace(/\D/g,''); if (d.length === 11) return d.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3'); if (d.length === 10) return d.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3'); return s; }
+
+const MEIOS = {
+  '01':'Dinheiro','02':'Cheque','03':'Cartão de crédito','04':'Cartão de débito',
+  '05':'Crédito loja','10':'Vale alimentação','11':'Vale refeição','12':'Vale presente',
+  '13':'Vale combustível','14':'Duplicata mercantil','15':'Boleto bancário',
+  '16':'Depósito bancário','17':'PIX','18':'Transferência bancária','19':'Carteira digital',
+  '90':'Sem pagamento','99':'Outros'
+};
+
+const STATUS_PARCELA = {
+  'aberta':'<span class="badge">aberta</span>',
+  'paga':'<span class="badge success">paga</span>',
+  'parcial':'<span class="badge info">parcial</span>',
+  'cancelada':'<span class="badge warning">cancelada</span>'
+};
+
+const STATUS_FATURA = {
+  'emitida':'<span class="badge success">emitida</span>',
+  'cancelada':'<span class="badge warning">cancelada</span>'
+};
+
+const STATUS_SEFAZ = {
+  'autorizada':'<span class="badge success">autorizada</span>',
+  'rejeitada':'<span class="badge" style="background:#f8d7da;color:#721c24;">rejeitada</span>',
+  'processando':'<span class="badge info">processando</span>',
+  'cancelada':'<span class="badge warning">cancelada</span>',
+  'cancelada_sefaz':'<span class="badge warning">cancelada na SEFAZ</span>'
+};
+
+const id = new URLSearchParams(window.location.search).get('id');
+if (!id) { document.getElementById('conteudo').innerHTML = '<p class="alert error">Parâmetro <code>id</code> ausente na URL.</p>'; }
+
+async function carregar(){
+  if (!id) return;
+  try {
+    const r = await fetch('/api/faturas/' + id);
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    if (r.status === 404) { document.getElementById('conteudo').innerHTML = '<p class="alert error">Fatura não encontrada.</p>'; return; }
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    render(d.fatura);
+  } catch (e) {
+    showAlert('Erro: ' + e.message, 'error');
+  }
+}
+
+let faturaAtual = null;
+
+function render(f){
+  faturaAtual = f;
+  document.getElementById('pgTitulo').textContent = `Fatura ${f.numero}`;
+  document.getElementById('pgSub').innerHTML = `${escTxt(f.clienteNome || '—')} · emissão ${fmtData(f.dataEmissao)} · ${STATUS_FATURA[f.status] || escTxt(f.status)}`;
+  document.getElementById('btnPdf').href = `/api/faturas/${f.id}/pdf`;
+  const podeCancelar = f.status === 'emitida' || (f.statusSefaz === 'autorizada' && f.chaveAcesso);
+  document.getElementById('btnCancelar').style.display = podeCancelar ? '' : 'none';
+
+  const meio = f.meioPagamento ? (MEIOS[f.meioPagamento] || f.meioPagamento) : '—';
+  const enderecoPartes = [f.clienteEndereco, f.clienteNumero, f.clienteComplemento, f.clienteBairro, f.clienteCidade, f.clienteUf, f.clienteCep].filter(Boolean);
+  const endereco = enderecoPartes.length ? enderecoPartes.join(', ') : '—';
+
+  let nfeBlock = '';
+  if (f.chaveAcesso || f.statusSefaz) {
+    nfeBlock = `
+      <div class="panel">
+        <h3>NF-e</h3>
+        <div class="grid-info">
+          <div><label class="muted">Status SEFAZ</label><div>${STATUS_SEFAZ[f.statusSefaz] || '<small class="muted">—</small>'}</div></div>
+          <div><label class="muted">Número/Série NF-e</label><div>${escTxt(f.numeroNFe || '—')}${f.serieNFe ? ' / ' + escTxt(f.serieNFe) : ''}</div></div>
+          <div><label class="muted">Data autorização</label><div>${fmtData(f.dataAutorizacaoSefaz)}</div></div>
+          <div style="grid-column:1/-1;"><label class="muted">Chave de acesso</label><div><code style="font-size:11px;cursor:pointer;" onclick="copiar('${escTxt(f.chaveAcesso || '')}')">${escTxt(f.chaveAcesso || '—')}</code></div></div>
+          <div style="grid-column:1/-1;"><label class="muted">Protocolo de autorização</label><div><code>${escTxt(f.protocoloAutorizacao || '—')}</code></div></div>
+        </div>
+      </div>
+    `;
+  }
+
+  const itensRows = (f.itens || []).map((it, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td><code>${escTxt(it.sku || '—')}</code></td>
+      <td>${escTxt(it.descricao || '—')}</td>
+      <td><code>${escTxt(it.ncm || '—')}</code></td>
+      <td><code>${escTxt(it.cfop || '—')}</code></td>
+      <td>${escTxt(it.unidade || '—')}</td>
+      <td class="num">${Number(it.quantidade).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 4})}</td>
+      <td class="num">${fmtBRL(it.precoUnitario)}</td>
+      <td class="num">${fmtBRL(it.valorTotal)}</td>
+    </tr>
+  `).join('');
+
+  const parcelasRows = (f.parcelas || []).map((p, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${escTxt(p.descricao || '—')}</td>
+      <td>${fmtData(p.dataVencimento)}</td>
+      <td class="num">${fmtBRL(p.valor)}</td>
+      <td class="num">${fmtBRL(p.valorPago)}</td>
+      <td>${fmtData(p.dataPagamento)}</td>
+      <td>${STATUS_PARCELA[p.status] || escTxt(p.status)}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">Sem parcelas registradas</td></tr>';
+
+  const obsInternaBlock = f.observacaoInterna
+    ? `<div class="panel"><h3>Observação interna</h3><p style="white-space:pre-wrap;margin:0;">${escTxt(f.observacaoInterna)}</p></div>`
+    : '';
+
+  const obsBlock = f.observacao
+    ? `<div class="panel"><h3>Observação na fatura</h3><p style="white-space:pre-wrap;margin:0;">${escTxt(f.observacao)}</p></div>`
+    : '';
+
+  // Fatura sem NF-e autorizada, mas o pedido tem a nota ativa em OUTRA fatura
+  // (ex.: tentativa cancelada + reemissão) — orienta pra fatura certa.
+  const avisoNfeOutra = f.nfeAtivaEmOutraFatura
+    ? `<div class="alert" style="background:var(--warn-soft,#78350f30);border:1px solid var(--warn,#fbbf24);color:var(--warn,#fbbf24);display:block;">
+        Esta fatura <strong>não</strong> carrega a NF-e ativa do pedido. A NF-e nº <strong>${escTxt(String(f.nfeAtivaEmOutraFatura.numeroNFe || '—'))}</strong> está autorizada na fatura
+        <a href="/financeiro/fatura-detalhe.html?id=${f.nfeAtivaEmOutraFatura.id}" style="color:inherit;font-weight:bold;">${escTxt(f.nfeAtivaEmOutraFatura.numero)}</a>.
+      </div>`
+    : '';
+
+  document.getElementById('conteudo').innerHTML = `
+    ${avisoNfeOutra}
+    <style>
+      .grid-info { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px 18px; }
+      .grid-info label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; }
+      .grid-info > div > div { font-size:14px; }
+      .totais-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px 24px; max-width:480px; margin-left:auto; }
+      .totais-grid .label { color:var(--text-2); }
+      .totais-grid .valor { text-align:right; font-variant-numeric:tabular-nums; }
+      .totais-grid .total-final { font-weight:bold; font-size:1.1em; padding-top:8px; border-top:1px solid var(--border); margin-top:8px; }
+    </style>
+
+    <div class="panel">
+      <h3>Dados gerais</h3>
+      <div class="grid-info">
+        <div><label class="muted">Número fatura</label><div><strong>${escTxt(f.numero)}</strong></div></div>
+        <div><label class="muted">Data emissão</label><div>${fmtData(f.dataEmissao)}</div></div>
+        <div><label class="muted">Data vencimento</label><div>${fmtData(f.dataVencimento)}</div></div>
+        <div><label class="muted">Status fatura</label><div>${STATUS_FATURA[f.status] || escTxt(f.status)}</div></div>
+        <div><label class="muted">Meio de pagamento</label><div>${escTxt(meio)}</div></div>
+        <div><label class="muted">Pedido vinculado</label><div>${f.pedidoNumero ? `<a href="/pedido.html?id=${f.pedidoId}">${escTxt(f.pedidoNumero)}</a>` : '—'}</div></div>
+      </div>
+    </div>
+
+    ${nfeBlock}
+
+    <div class="panel">
+      <h3>Cliente</h3>
+      <div class="grid-info">
+        <div><label class="muted">Razão social / Nome</label><div><strong>${escTxt(f.clienteNome || '—')}</strong></div></div>
+        <div><label class="muted">CPF / CNPJ</label><div><code>${escTxt(fmtCpfCnpj(f.clienteCpfCnpj))}</code></div></div>
+        <div><label class="muted">Inscrição Estadual</label><div>${escTxt(f.clienteInscricaoEstadual || '—')}</div></div>
+        <div><label class="muted">Inscrição Municipal</label><div>${escTxt(f.clienteInscricaoMunicipal || '—')}</div></div>
+        <div><label class="muted">Telefone</label><div>${escTxt(fmtTelefone(f.clienteTelefone))}</div></div>
+        <div><label class="muted">E-mail</label><div>${escTxt(f.clienteEmail || '—')}</div></div>
+        <div style="grid-column:1/-1;"><label class="muted">Endereço</label><div>${escTxt(endereco)}</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Itens (${(f.itens || []).length})</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>SKU</th><th>Descrição</th><th>NCM</th><th>CFOP</th><th>Un.</th>
+            <th class="num">Qtd</th><th class="num">Valor unit.</th><th class="num">Total</th>
+          </tr></thead>
+          <tbody>${itensRows || '<tr><td colspan="9" class="empty">Sem itens</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Totais</h3>
+      <div class="totais-grid">
+        <div class="label">Valor bruto</div><div class="valor">${fmtBRL(f.valorBruto)}</div>
+        <div class="label">Frete</div><div class="valor">${fmtBRL(f.valorFrete)}</div>
+        <div class="label">Desconto</div><div class="valor">- ${fmtBRL(f.valorDesconto)}</div>
+        <div class="label total-final">Valor total</div><div class="valor total-final">${fmtBRL(f.valorTotal)}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Parcelas / Contas a Receber (${(f.parcelas || []).length})</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Descrição</th><th>Vencimento</th>
+            <th class="num">Valor</th><th class="num">Pago</th>
+            <th>Pagamento em</th><th>Status</th>
+          </tr></thead>
+          <tbody>${parcelasRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    ${obsBlock}
+    ${obsInternaBlock}
+  `;
+}
+
+async function copiar(s){
+  if (!s) return;
+  try { await navigator.clipboard.writeText(s); showAlert('Copiado'); } catch (_) {}
+}
+
+// Cancelamento — mesmo fluxo de faturas.html (backend cancela NF-e na SEFAZ
+// ANTES da fatura local; nunca deixa NF-e válida com fatura cancelada):
+//   A) só fatura local (sem NF-e autorizada)          → confirm padrão
+//   B) fatura local + NF-e autorizada                 → prompt motivo, cancela ambas
+//   C) só NF-e autorizada (fatura local já cancelada) → prompt motivo, cancela só na SEFAZ
+async function cancelarFatura(){
+  const f = faturaAtual;
+  if (!f) return;
+  const temNFe = f.statusSefaz === 'autorizada' && f.chaveAcesso;
+  const faturaJaCancelada = f.status === 'cancelada';
+
+  let motivo = null;
+  let mensagemSucesso = 'Fatura cancelada';
+
+  if (faturaJaCancelada && temNFe) {
+    motivo = prompt('A fatura já está cancelada localmente, mas a NF-e ainda está autorizada na SEFAZ. Informe o motivo do cancelamento da NF-e (mínimo 15 caracteres):');
+    if (motivo === null) return;
+    mensagemSucesso = 'NF-e cancelada na SEFAZ';
+  } else if (temNFe) {
+    motivo = prompt('Esta fatura tem NF-e autorizada na SEFAZ. A NF-e será cancelada junto com a fatura. Informe o motivo (mínimo 15 caracteres):');
+    if (motivo === null) return;
+    mensagemSucesso = 'Fatura e NF-e canceladas';
+  } else {
+    if (!confirm('Cancelar fatura? A conta a receber também será cancelada e o pedido voltará para "rascunho".')) return;
+  }
+
+  if (motivo !== null && motivo.trim().length < 15) {
+    showAlert('Motivo precisa ter pelo menos 15 caracteres', 'error');
+    return;
+  }
+
+  try {
+    const r = await fetch(`/api/faturas/${f.id}/cancelar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(motivo !== null ? { motivo: motivo.trim() } : {})
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || (d.xMotivo ? `SEFAZ: ${d.xMotivo}` : 'falha'));
+    showAlert(mensagemSucesso);
+    carregar();
+  } catch (e) {
+    showAlert('Erro: ' + e.message, 'error');
+  }
+}
+
+carregar();
+</script>
+</body>
+</html>

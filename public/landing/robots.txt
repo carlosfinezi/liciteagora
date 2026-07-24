@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /aguardando.html
+Disallow: /api/
+
+Sitemap: https://liciteagora.app/sitemap.xml

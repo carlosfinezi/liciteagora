@@ -1,0 +1,17 @@
+appId: com.liciteagora.hctest
+productName: hCaptcha Test LiciteAgora
+directories:
+  output: dist-hctest
+extraMetadata:
+  main: _test-hcaptcha/main.js
+  name: hcaptcha-test
+files:
+  - _test-hcaptcha/main.js
+  - package.json
+win:
+  target:
+    - target: portable
+      arch: [x64]
+  icon: assets/icon.ico
+portable:
+  artifactName: hCaptcha-Test-LiciteAgora.exe

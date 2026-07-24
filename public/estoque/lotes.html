@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lotes · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Lotes</h1>
+      <small>Controle de lotes de produtos com rastreabilidade de validade</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/estoque/estoque.html" style="text-decoration:none;">← Estoque</a>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo lote</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="filtProduto" placeholder="Filtrar por produtoId…" oninput="carregar()" style="width:180px;">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="comSaldo">Com saldo</option>
+      <option value="todos">Todos (incluindo zerados)</option>
+    </select>
+    <select id="filtVencimento" onchange="carregar()">
+      <option value="">Qualquer validade</option>
+      <option value="7">Vence em 7 dias</option>
+      <option value="30">Vence em 30 dias</option>
+      <option value="90">Vence em 90 dias</option>
+      <option value="180">Vence em 180 dias</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Produto</th>
+        <th>Lote</th>
+        <th>Fabricação</th>
+        <th>Validade</th>
+        <th style="text-align:right;">Qtd inicial</th>
+        <th style="text-align:right;">Saldo atual</th>
+        <th style="text-align:right;">Custo unit.</th>
+        <th>Fornecedor</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Novo/Editar Lote -->
+<div class="modal-bg" id="modalLote">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="mlTitulo" style="margin:0;">Novo lote</h3>
+        <small class="muted">Rastreabilidade de produto + validade + custo</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="mlId">
+    <div class="form-row">
+      <div class="form-group full-width" style="position:relative;">
+        <label>Produto *</label>
+        <input type="text" id="mlProdBusca" placeholder="SKU ou descrição…" oninput="acProd()" autocomplete="off">
+        <input type="hidden" id="mlProdId">
+        <div id="mlProdList" class="ac-list"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Número do lote *</label><input type="text" id="mlNumero"></div>
+      <div class="form-group"><label>Data fabricação</label><input type="date" id="mlFab"></div>
+      <div class="form-group"><label>Data validade</label><input type="date" id="mlVal"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Quantidade inicial *</label><input type="number" id="mlQtd" step="0.01"></div>
+      <div class="form-group"><label>Custo unitário</label><input type="number" id="mlCusto" step="0.01"></div>
+      <div class="form-group" style="position:relative;">
+        <label>Fornecedor</label>
+        <input type="text" id="mlFornBusca" placeholder="CNPJ ou razão social…" oninput="acForn()" autocomplete="off">
+        <input type="hidden" id="mlFornId">
+        <div id="mlFornList" class="ac-list"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observações</label><textarea id="mlObs" rows="2"></textarea></div>
+    </div>
+    <small class="muted">Ao criar, gera automaticamente movimentação de entrada no estoque pelo saldo inicial.</small>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('estoque-lotes');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(iso){ if(!iso) return '—'; const d=new Date(iso+'T12:00:00'); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
+function diasAte(iso){ if(!iso) return null; const d=new Date(iso+'T12:00:00'); return Math.ceil((d-Date.now())/(1000*60*60*24)); }
+
+async function carregar(){
+  const produtoId=document.getElementById('filtProduto').value;
+  const status=document.getElementById('filtStatus').value;
+  const venc=document.getElementById('filtVencimento').value;
+  const p=new URLSearchParams();
+  if(produtoId) p.set('produtoId', produtoId);
+  if(status==='comSaldo') p.set('comSaldo','1');
+  if(venc) p.set('vencendoDias', venc);
+  const r=await fetch('/api/lotes?'+p);
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+
+  const lotes = d.lotes;
+  const comSaldo = lotes.filter(l=>l.saldoAtual>0).length;
+  const vencendoProximos = lotes.filter(l=>{const dd=diasAte(l.dataValidade); return dd!=null && dd>=0 && dd<=30 && l.saldoAtual>0;}).length;
+  const vencidos = lotes.filter(l=>{const dd=diasAte(l.dataValidade); return dd!=null && dd<0 && l.saldoAtual>0;}).length;
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total de lotes</div><div class="value">${lotes.length}</div></div>
+    <div class="kpi success"><div class="label">Com saldo</div><div class="value">${comSaldo}</div></div>
+    <div class="kpi warn"><div class="label">Vencendo em 30d</div><div class="value">${vencendoProximos}</div></div>
+    <div class="kpi danger"><div class="label">Vencidos</div><div class="value">${vencidos}</div></div>
+  `;
+
+  const tb=document.getElementById('tb');
+  tb.innerHTML = lotes.length ? lotes.map(l=>{
+    const dias = diasAte(l.dataValidade);
+    let validadeBadge = fmtData(l.dataValidade);
+    if (dias != null && l.saldoAtual > 0) {
+      if (dias < 0) validadeBadge = `<span class="badge cancelado">Vencido ${Math.abs(dias)}d</span>`;
+      else if (dias <= 7) validadeBadge = `<span class="badge vencida">${fmtData(l.dataValidade)} (${dias}d)</span>`;
+      else if (dias <= 30) validadeBadge = `<span class="badge em_separacao">${fmtData(l.dataValidade)} (${dias}d)</span>`;
+      else validadeBadge = fmtData(l.dataValidade);
+    }
+    return `<tr>
+      <td><strong>${l.sku}</strong> <span class="muted">${l.descricao}</span></td>
+      <td><strong>${l.numero}</strong></td>
+      <td>${fmtData(l.dataFabricacao)}</td>
+      <td>${validadeBadge}</td>
+      <td style="text-align:right;">${fmt(l.quantidadeInicial)}</td>
+      <td style="text-align:right;font-weight:600;${l.saldoAtual<=0?'color:var(--text-3);':''}">${fmt(l.saldoAtual)}</td>
+      <td style="text-align:right;">${l.custoUnitario!=null?'R$ '+fmt(l.custoUnitario):'—'}</td>
+      <td>${l.fornecedorNome||'—'}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" onclick="verDetalhe(${l.id})">Ver</button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirEdicao(${l.id})">Editar</button>
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="9" class="empty">Nenhum lote</td></tr>';
+}
+
+function abrirNovo(){
+  document.getElementById('mlTitulo').textContent = 'Novo lote';
+  ['mlId','mlProdId','mlProdBusca','mlNumero','mlFab','mlVal','mlQtd','mlCusto','mlFornId','mlFornBusca','mlObs']
+    .forEach(id=>document.getElementById(id).value='');
+  document.getElementById('modalLote').classList.add('open');
+}
+
+async function abrirEdicao(id){
+  const r=await fetch('/api/lotes/'+id);
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const l=d.lote;
+  document.getElementById('mlTitulo').textContent = 'Editar lote ' + l.numero;
+  document.getElementById('mlId').value = l.id;
+  document.getElementById('mlProdId').value = l.produtoId;
+  document.getElementById('mlProdBusca').value = l.sku + ' — ' + l.descricao;
+  document.getElementById('mlNumero').value = l.numero;
+  document.getElementById('mlFab').value = (l.dataFabricacao||'').slice(0,10);
+  document.getElementById('mlVal').value = (l.dataValidade||'').slice(0,10);
+  document.getElementById('mlQtd').value = l.quantidadeInicial;
+  document.getElementById('mlCusto').value = l.custoUnitario != null ? l.custoUnitario : '';
+  document.getElementById('mlFornId').value = l.fornecedorId || '';
+  document.getElementById('mlFornBusca').value = l.fornecedorNome || '';
+  document.getElementById('mlObs').value = l.observacoes || '';
+  document.getElementById('modalLote').classList.add('open');
+}
+
+function fecharModal(){ document.getElementById('modalLote').classList.remove('open'); }
+
+async function verDetalhe(id){
+  const r=await fetch('/api/lotes/'+id);
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const l=d.lote;
+  const movs = (d.movimentacoes||[]).map(m=>`${m.data} · ${m.tipo} · qtd ${m.quantidade}`).join('\n') || '(sem movimentações)';
+  const serial = (d.serial||[]).length;
+  alert(`Lote ${l.numero}\nProduto: ${l.sku} — ${l.descricao}\nSaldo: ${l.saldoAtual} / ${l.quantidadeInicial}\nValidade: ${fmtData(l.dataValidade)}\nCusto: R$ ${fmt(l.custoUnitario)}\nSeriais vinculados: ${serial}\n\nMovimentações:\n${movs}`);
+}
+
+let acTimer;
+async function acProd(){
+  clearTimeout(acTimer);
+  const q=document.getElementById('mlProdBusca').value;
+  if(q.length<2){ document.getElementById('mlProdList').innerHTML=''; return; }
+  acTimer=setTimeout(async()=>{
+    const r=await fetch('/api/produtos/autocomplete?q='+encodeURIComponent(q));
+    const d=await r.json();
+    if(!d.success) return;
+    document.getElementById('mlProdList').innerHTML = (d.produtos||[]).map(p=>
+      `<div onclick="selProd(${p.id}, ${JSON.stringify(p.sku+' — '+(p.descricao||'')).replace(/"/g,'&quot;')})">${p.sku} — ${p.descricao||''}</div>`
+    ).join('');
+  },200);
+}
+function selProd(id,txt){
+  document.getElementById('mlProdId').value=id;
+  document.getElementById('mlProdBusca').value=txt;
+  document.getElementById('mlProdList').innerHTML='';
+}
+
+let acFTimer;
+async function acForn(){
+  clearTimeout(acFTimer);
+  const q=document.getElementById('mlFornBusca').value;
+  if(q.length<2){ document.getElementById('mlFornList').innerHTML=''; return; }
+  acFTimer=setTimeout(async()=>{
+    const r=await fetch('/api/fornecedores/autocomplete?q='+encodeURIComponent(q));
+    const d=await r.json();
+    if(!d.success) return;
+    document.getElementById('mlFornList').innerHTML = (d.fornecedores||[]).map(f=>
+      `<div onclick="selForn(${f.id}, ${JSON.stringify(f.razaoSocial||'').replace(/"/g,'&quot;')})">${f.razaoSocial} — ${f.cpfCnpj||''}</div>`
+    ).join('');
+  },200);
+}
+function selForn(id,txt){
+  document.getElementById('mlFornId').value=id;
+  document.getElementById('mlFornBusca').value=txt;
+  document.getElementById('mlFornList').innerHTML='';
+}
+
+async function salvar(){
+  const id=document.getElementById('mlId').value;
+  const body={
+    produtoId: Number(document.getElementById('mlProdId').value)||null,
+    numero: document.getElementById('mlNumero').value.trim(),
+    dataFabricacao: document.getElementById('mlFab').value||null,
+    dataValidade: document.getElementById('mlVal').value||null,
+    quantidadeInicial: parseFloat(document.getElementById('mlQtd').value)||0,
+    custoUnitario: parseFloat(document.getElementById('mlCusto').value)||null,
+    fornecedorId: Number(document.getElementById('mlFornId').value)||null,
+    observacoes: document.getElementById('mlObs').value||null
+  };
+  if(!id && !body.produtoId) return showAlert('Selecione um produto','error');
+  if(!body.numero) return showAlert('Informe o número do lote','error');
+
+  try {
+    const r=await fetch(id?'/api/lotes/'+id:'/api/lotes', {
+      method: id?'PUT':'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json();
+    if(!d.success) throw new Error(d.error);
+
+    // Se é novo lote, criar movimentação de entrada correspondente
+    if(!id && body.quantidadeInicial > 0){
+      await fetch('/api/estoque/movimentacoes', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          produtoId: body.produtoId,
+          tipo: 'entrada',
+          quantidade: body.quantidadeInicial,
+          custoUnitario: body.custoUnitario,
+          origem: 'lote_manual',
+          origemId: d.lote.id,
+          loteId: d.lote.id,
+          observacao: 'Entrada inicial do lote ' + body.numero
+        })
+      });
+    }
+
+    showAlert(id?'Lote atualizado':'Lote criado');
+    fecharModal();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modalLote').classList.contains('open')) fecharModal();
+});
+
+carregar();
+</script>
+</body></html>

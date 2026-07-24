@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minha Empresa - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: upload de logo (único em fornecedor) + marcação de campo obrigatório */
+        .logo-upload { display: flex; align-items: center; gap: 20px; }
+        .logo-preview {
+            width: 150px; height: 80px;
+            background: var(--bg-0);
+            border: 2px dashed var(--border);
+            border-radius: var(--r-md);
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-3); font-size: 0.9em; overflow: hidden;
+        }
+        .logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .logo-actions { display: flex; flex-direction: column; gap: 10px; }
+        .logo-actions input[type="file"] { display: none; }
+        .logo-actions label {
+            background: var(--bg-1); color: var(--accent);
+            padding: 8px 16px; border-radius: var(--r-sm);
+            cursor: pointer; font-size: 0.9em; text-align: center;
+        }
+        .logo-actions label:hover { background: var(--bg-2); }
+        .logo-actions button {
+            background: transparent; color: var(--danger);
+            border: 1px solid var(--danger);
+            padding: 6px 12px; border-radius: var(--r-sm);
+            cursor: pointer; font-size: 0.85em;
+        }
+        .logo-actions button:hover { background: var(--danger); color: var(--text-0); }
+        .required::after { content: ' *'; color: var(--danger); }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Minha Empresa</h1>
+                <small>Dados da sua empresa usados nas propostas e documentos</small>
+              </div>
+              <div class="actions">
+                <button type="submit" form="formFornecedor" class="btn btn-primary btn-sm" id="btnSalvarTopo">💾 Salvar</button>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div id="loadingContainer" class="loading">
+                <h3>Carregando dados...</h3>
+            </div>
+
+            <form id="formFornecedor" style="display: none;">
+                <!-- Dados da Empresa -->
+                <div class="panel">
+                    <h3><span>🏢</span> Dados da Empresa</h3>
+                    <div class="form-row">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="razaoSocial" class="required">Razão Social</label>
+                            <input type="text" id="razaoSocial" name="razaoSocial" placeholder="Razão social completa">
+                        </div>
+                        <div class="form-group">
+                            <label for="nomeFantasia">Nome Fantasia</label>
+                            <input type="text" id="nomeFantasia" name="nomeFantasia" placeholder="Nome fantasia">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cnpj" class="required">CNPJ</label>
+                            <div style="display:flex; gap:6px;">
+                                <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" style="flex:1;">
+                                <button type="button" id="btnBuscarCnpj" class="btn btn-secondary btn-sm" onclick="buscarDadosCnpj()" style="white-space:nowrap;">🔎 Buscar</button>
+                            </div>
+                            <small id="cnpjStatus" style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;"></small>
+                        </div>
+                        <div class="form-group">
+                            <label for="inscricaoEstadual">Inscrição Estadual</label>
+                            <input type="text" id="inscricaoEstadual" name="inscricaoEstadual" placeholder="Inscrição estadual">
+                        </div>
+                        <div class="form-group">
+                            <label for="inscricaoMunicipal">Inscrição Municipal</label>
+                            <input type="text" id="inscricaoMunicipal" name="inscricaoMunicipal" placeholder="Inscrição municipal">
+                        </div>
+                        <div class="form-group">
+                            <label for="regimeTributario">Regime Tributário (NFS-e)</label>
+                            <select id="regimeTributario" name="regimeTributario">
+                                <option value="">Selecione</option>
+                                <option value="MEI">MEI (Microempreendedor Individual)</option>
+                                <option value="SIMPLES_NACIONAL">Simples Nacional</option>
+                                <option value="NAO_OPTANTE">Não optante (Lucro Real/Presumido)</option>
+                            </select>
+                            <small style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;">
+                                Define opSimpNac na DPS. MEI: omite Inscrição Municipal e regApTribSN.
+                            </small>
+                        </div>
+                        <div class="form-group">
+                            <label for="regimeApuracaoPISCOFINS">Apuração PIS/COFINS</label>
+                            <select id="regimeApuracaoPISCOFINS" name="regimeApuracaoPISCOFINS">
+                                <option value="">Não definido</option>
+                                <option value="cumulativo">Cumulativo (Lucro Presumido)</option>
+                                <option value="nao_cumulativo">Não-cumulativo (Lucro Real)</option>
+                            </select>
+                            <small style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;">
+                                Não-cumulativo deduz PIS/COFINS do custo de aquisição da NF-e.
+                            </small>
+                        </div>
+                        <div class="form-group">
+                            <label for="contribuinteIPI">Contribuinte do IPI?</label>
+                            <select id="contribuinteIPI" name="contribuinteIPI">
+                                <option value="0">Não (revenda — IPI é custo)</option>
+                                <option value="1">Sim (indústria — IPI recuperável)</option>
+                            </select>
+                            <small style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;">
+                                Indústria: IPI sai do custo de aquisição (creditado).
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Endereço -->
+                <div class="panel">
+                    <h3><span>📍</span> Endereço</h3>
+                    <div class="form-row">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="endereco">Logradouro</label>
+                            <input type="text" id="endereco" name="endereco" placeholder="Rua, Avenida, etc.">
+                        </div>
+                        <div class="form-group">
+                            <label for="numero">Número</label>
+                            <input type="text" id="numero" name="numero" placeholder="Nº">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="complemento">Complemento</label>
+                            <input type="text" id="complemento" name="complemento" placeholder="Sala, Andar, etc.">
+                        </div>
+                        <div class="form-group">
+                            <label for="bairro">Bairro</label>
+                            <input type="text" id="bairro" name="bairro" placeholder="Bairro">
+                        </div>
+                        <div class="form-group">
+                            <label for="cidade">Cidade</label>
+                            <input type="text" id="cidade" name="cidade" placeholder="Cidade">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="uf">UF</label>
+                            <select id="uf" name="uf">
+                                <option value="">Selecione</option>
+                                <option value="AC">AC</option>
+                                <option value="AL">AL</option>
+                                <option value="AP">AP</option>
+                                <option value="AM">AM</option>
+                                <option value="BA">BA</option>
+                                <option value="CE">CE</option>
+                                <option value="DF">DF</option>
+                                <option value="ES">ES</option>
+                                <option value="GO">GO</option>
+                                <option value="MA">MA</option>
+                                <option value="MT">MT</option>
+                                <option value="MS">MS</option>
+                                <option value="MG">MG</option>
+                                <option value="PA">PA</option>
+                                <option value="PB">PB</option>
+                                <option value="PR">PR</option>
+                                <option value="PE">PE</option>
+                                <option value="PI">PI</option>
+                                <option value="RJ">RJ</option>
+                                <option value="RN">RN</option>
+                                <option value="RS">RS</option>
+                                <option value="RO">RO</option>
+                                <option value="RR">RR</option>
+                                <option value="SC">SC</option>
+                                <option value="SP">SP</option>
+                                <option value="SE">SE</option>
+                                <option value="TO">TO</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cep">CEP</label>
+                            <input type="text" id="cep" name="cep" placeholder="00000-000">
+                        </div>
+                        <div class="form-group">
+                            <label for="codigoMunicipio">Código IBGE do Município</label>
+                            <input type="text" id="codigoMunicipio" name="codigoMunicipio" placeholder="Preenchido pela busca de CNPJ" maxlength="7">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contato -->
+                <div class="panel">
+                    <h3><span>📞</span> Contato</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="telefone">Telefone</label>
+                            <input type="text" id="telefone" name="telefone" placeholder="(00) 0000-0000">
+                        </div>
+                        <div class="form-group">
+                            <label for="celular">Celular</label>
+                            <input type="text" id="celular" name="celular" placeholder="(00) 00000-0000">
+                        </div>
+                        <div class="form-group">
+                            <label for="email">E-mail</label>
+                            <input type="email" id="email" name="email" placeholder="email@empresa.com.br">
+                        </div>
+                        <div class="form-group">
+                            <label for="site">Site</label>
+                            <input type="text" id="site" name="site" placeholder="www.empresa.com.br">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Representante Legal -->
+                <div class="panel">
+                    <h3><span>👤</span> Representante Legal</h3>
+                    <div class="form-row">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="representanteLegal">Nome Completo</label>
+                            <input type="text" id="representanteLegal" name="representanteLegal" placeholder="Nome do representante legal">
+                        </div>
+                        <div class="form-group">
+                            <label for="cpfRepresentante">CPF</label>
+                            <input type="text" id="cpfRepresentante" name="cpfRepresentante" placeholder="000.000.000-00">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cargoRepresentante">Cargo</label>
+                            <input type="text" id="cargoRepresentante" name="cargoRepresentante" placeholder="Ex: Sócio-Administrador">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Credenciais Gov.br -->
+                <div class="panel">
+                    <h3><span>🔐</span> Login Gov.br (Comprasnet)</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="govbrCpf">CPF</label>
+                            <input type="text" id="govbrCpf" placeholder="00000000000" maxlength="11">
+                        </div>
+                        <div class="form-group">
+                            <label for="govbrSenha">Senha</label>
+                            <input type="password" id="govbrSenha" placeholder="Senha do gov.br" autocomplete="off">
+                        </div>
+                    </div>
+                    <div id="govbrStatus" style="margin-top:8px; font-size:13px; color:var(--text-3);"></div>
+                </div>
+
+                <!-- Dados Bancários -->
+                <div class="panel">
+                    <h3><span>🏦</span> Dados Bancários</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="banco">Banco</label>
+                            <input type="text" id="banco" name="banco" placeholder="Nome do banco">
+                        </div>
+                        <div class="form-group">
+                            <label for="agencia">Agência</label>
+                            <input type="text" id="agencia" name="agencia" placeholder="0000">
+                        </div>
+                        <div class="form-group">
+                            <label for="conta">Conta</label>
+                            <input type="text" id="conta" name="conta" placeholder="00000-0">
+                        </div>
+                        <div class="form-group">
+                            <label for="tipoConta">Tipo de Conta</label>
+                            <select id="tipoConta" name="tipoConta">
+                                <option value="">Selecione</option>
+                                <option value="corrente">Conta Corrente</option>
+                                <option value="poupanca">Conta Poupança</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logo -->
+                <div class="panel">
+                    <h3><span>🖼️</span> Logo da Empresa</h3>
+                    <div class="logo-upload">
+                        <div class="logo-preview" id="logoPreview">
+                            <span>Sem logo</span>
+                        </div>
+                        <div class="logo-actions">
+                            <input type="file" id="logoFile" accept="image/*">
+                            <label for="logoFile">Selecionar Imagem</label>
+                            <button type="button" onclick="removerLogo()">Remover Logo</button>
+                        </div>
+                    </div>
+                    <input type="hidden" id="logoBase64" name="logoBase64">
+                </div>
+
+                <!-- Certificado Digital -->
+                <div class="panel">
+                    <h3><span>🔐</span> Certificado Digital A1</h3>
+                    <p style="color: var(--text-3); font-size: 0.9em; margin-bottom: 15px;">
+                        Faça upload do seu certificado digital A1 (.pfx ou .p12) para assinar propostas automaticamente.
+                    </p>
+                    <div id="statusCertificado" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; background: var(--bg-1);">
+                        <span style="color: var(--warn);">⚠ Nenhum certificado configurado</span>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="certificadoFile">Arquivo do Certificado (.pfx ou .p12)</label>
+                            <input type="file" id="certificadoFile" accept=".pfx,.p12" style="padding: 8px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="certificadoSenha">Senha do Certificado</label>
+                            <input type="password" id="certificadoSenha" placeholder="Senha do certificado">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button type="button" class="btn btn-secondary" onclick="removerCertificado()" style="padding: 8px 16px; background: #f44336; color: #fff;">
+                            Remover Certificado
+                        </button>
+                    </div>
+                    <input type="hidden" id="certificadoBase64" name="certificadoBase64">
+                </div>
+
+                <!-- Declarações para Licitações -->
+                <div class="panel">
+                    <h3><span>📋</span> Declarações para Licitações</h3>
+                    <p style="color: var(--text-3); font-size: 0.9em; margin-bottom: 15px;">
+                        Configure as declarações padrão que serão usadas automaticamente ao enviar propostas.
+                    </p>
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="declaracaoMeEpp" name="declaracaoMeEpp" value="1" checked
+                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                            <span>Declaro ME/EPP (microempresa ou empresa de pequeno porte)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="declaracaoProgramasIntegridade" name="declaracaoProgramasIntegridade" value="1"
+                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                            <span>Programa de Integridade</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="declaracaoEquidadeGenero" name="declaracaoEquidadeGenero" value="1"
+                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                            <span>Equidade de Gênero</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Análise IA -->
+                <div class="panel">
+                    <h3><span>🤖</span> Análise IA</h3>
+                    <p style="color: var(--text-3); font-size: 0.9em; margin-bottom: 15px;">
+                        Configure as chaves de IA para análise automática de licitações.
+                        Extrai documentos do edital, identifica requisitos, pontos de atenção e calcula score de viabilidade.
+                        <strong>Cadeia: Cerebras > Gemini > DeepSeek > Groq > Claude.</strong>
+                    </p>
+                    <div id="statusIA" style="margin-bottom: 15px; padding: 12px; border-radius: 6px; background: var(--bg-1);">
+                        <span style="color: var(--warn);">⚠ Verificando...</span>
+                    </div>
+
+                    <!-- Cerebras -->
+                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #ff6b35;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <strong style="color: #ff6b35;">Cerebras (Qwen 3 235B)</strong>
+                            <span style="background: var(--success); color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">GRATUITO</span>
+                            <span id="statusCerebras" style="margin-left: auto; font-size: 0.85em;"></span>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 10px;">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="cerebrasKey">Chave da API Cerebras</label>
+                                <input type="password" id="cerebrasKey" placeholder="csk-..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('cerebras')">
+                                Remover
+                            </button>
+                            <a href="https://cloud.cerebras.ai" target="_blank" style="color: #ff6b35; font-size: 0.85em; align-self: center;">Obter chave (free 1M tok/dia)</a>
+                        </div>
+                    </div>
+
+                    <!-- Groq -->
+                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #f55036;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <strong style="color: #f55036;">Groq (Llama 3.3 70B)</strong>
+                            <span style="background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">BARATO</span>
+                            <span id="statusGroq" style="margin-left: auto; font-size: 0.85em;"></span>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 10px;">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="groqKey">Chave da API Groq</label>
+                                <input type="password" id="groqKey" placeholder="gsk_..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('groq')">
+                                Remover
+                            </button>
+                            <a href="https://console.groq.com/keys" target="_blank" style="color: #f55036; font-size: 0.85em; align-self: center;">Obter chave (free tier disponível)</a>
+                        </div>
+                    </div>
+
+                    <!-- Gemini -->
+                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #4285f4;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <strong style="color: #4285f4;">Google Gemini</strong>
+                            <span style="background: var(--success); color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">GRATUITO</span>
+                            <span id="statusGemini" style="margin-left: auto; font-size: 0.85em;"></span>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 10px;">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="geminiKey">Chave da API Gemini</label>
+                                <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('gemini')">
+                                Remover
+                            </button>
+                            <a href="https://aistudio.google.com/apikey" target="_blank" style="color: #4285f4; font-size: 0.85em; align-self: center;">Obter chave gratuita</a>
+                        </div>
+                    </div>
+
+                    <!-- DeepSeek -->
+                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #2563eb;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <strong style="color: #2563eb;">DeepSeek V3</strong>
+                            <span style="background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">BARATO</span>
+                            <span id="statusDeepseek" style="margin-left: auto; font-size: 0.85em;"></span>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 10px;">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="deepseekKey">Chave da API DeepSeek</label>
+                                <input type="password" id="deepseekKey" placeholder="sk-..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('deepseek')">
+                                Remover
+                            </button>
+                            <a href="https://platform.deepseek.com" target="_blank" style="color: #2563eb; font-size: 0.85em; align-self: center;">Obter chave (pago, ~$0.003/análise)</a>
+                        </div>
+                    </div>
+
+                    <!-- Claude -->
+                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #d97706;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <strong style="color: #d97706;">Anthropic Claude</strong>
+                            <span style="background: #555; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">PAGO</span>
+                            <span id="statusAnthropic" style="margin-left: auto; font-size: 0.85em;"></span>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 10px;">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="anthropicKey">Chave da API Anthropic</label>
+                                <input type="password" id="anthropicKey" placeholder="sk-ant-..." autocomplete="off">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('anthropic')">
+                                Remover
+                            </button>
+                            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color: #d97706; font-size: 0.85em; align-self: center;">Obter chave (pago)</a>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" class="btn btn-primary" onclick="processarFilaIA()" id="btnProcessarIA" style="padding: 8px 16px;">
+                            Processar Fila (10 licitações)
+                        </button>
+                    </div>
+
+                    <div id="statsIA" style="margin-top: 15px; display: none;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+                            <div style="background: var(--bg-1); padding: 12px; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 24px; font-weight: 700; color: #4dabf7;" id="statTotal">0</div>
+                                <div style="font-size: 0.8em; color: var(--text-3);">Analisadas</div>
+                            </div>
+                            <div style="background: var(--bg-1); padding: 12px; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 24px; font-weight: 700; color: var(--warn);" id="statPendentes">0</div>
+                                <div style="font-size: 0.8em; color: var(--text-3);">Pendentes</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Observações -->
+                <div class="panel">
+                    <h3><span>📝</span> Observações</h3>
+                    <div class="form-group full-width">
+                        <label for="observacoes">Observações adicionais</label>
+                        <textarea id="observacoes" name="observacoes" placeholder="Informações adicionais sobre a empresa..."></textarea>
+                    </div>
+                </div>
+
+                <!-- Botão de cancelar alterações (Salvar fica só no header sticky — id="btnSalvarTopo") -->
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+                    <button type="button" class="btn btn-ghost" onclick="carregarDados()">Cancelar alterações</button>
+                </div>
+            </form>
+        </main>
+    </div>
+
+    <script>
+        // Carregar dados ao iniciar
+        document.addEventListener('DOMContentLoaded', () => {
+            carregarDados();
+            configurarMascaras();
+            configurarUploadLogo();
+            verificarCertificado();
+            verificarChaveIA();
+            carregarGovBr();
+        });
+
+        async function carregarDados() {
+            const loadingContainer = document.getElementById('loadingContainer');
+            const form = document.getElementById('formFornecedor');
+
+            try {
+                const response = await fetch('/api/fornecedor');
+                const result = await response.json();
+
+                loadingContainer.style.display = 'none';
+                form.style.display = 'block';
+
+                if (result.success && result.data) {
+                    preencherFormulario(result.data);
+                }
+            } catch (error) {
+                console.error('Erro ao carregar dados:', error);
+                loadingContainer.innerHTML = '<h3 style="color: var(--danger);">Erro ao carregar dados</h3>';
+            }
+        }
+
+        function preencherFormulario(dados) {
+            const campos = [
+                'razaoSocial', 'nomeFantasia', 'cnpj', 'inscricaoEstadual', 'inscricaoMunicipal',
+                'regimeTributario', 'regimeApuracaoPISCOFINS',
+                'endereco', 'numero', 'complemento', 'bairro', 'cidade', 'uf', 'cep', 'codigoMunicipio',
+                'telefone', 'celular', 'email', 'site',
+                'representanteLegal', 'cpfRepresentante', 'cargoRepresentante',
+                'banco', 'agencia', 'conta', 'tipoConta',
+                'logoBase64', 'observacoes'
+            ];
+
+            campos.forEach(campo => {
+                const elemento = document.getElementById(campo);
+                if (elemento && dados[campo]) {
+                    elemento.value = dados[campo];
+                }
+            });
+
+            // contribuinteIPI é INTEGER (0|1) — preencher mesmo quando 0.
+            const ipiEl = document.getElementById('contribuinteIPI');
+            if (ipiEl) ipiEl.value = String(dados.contribuinteIPI ? 1 : 0);
+
+            // Preencher checkboxes de declarações
+            document.getElementById('declaracaoMeEpp').checked = dados.declaracaoMeEpp == 1 || dados.declaracaoMeEpp === true;
+            document.getElementById('declaracaoProgramasIntegridade').checked = dados.declaracaoProgramasIntegridade == 1 || dados.declaracaoProgramasIntegridade === true;
+            document.getElementById('declaracaoEquidadeGenero').checked = dados.declaracaoEquidadeGenero == 1 || dados.declaracaoEquidadeGenero === true;
+
+            // Exibir logo se existir
+            if (dados.logoBase64) {
+                const preview = document.getElementById('logoPreview');
+                preview.innerHTML = `<img src="${dados.logoBase64}" alt="Logo">`;
+            }
+        }
+
+        function configurarUploadLogo() {
+            const input = document.getElementById('logoFile');
+            input.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        const base64 = event.target.result;
+                        document.getElementById('logoBase64').value = base64;
+                        document.getElementById('logoPreview').innerHTML = `<img src="${base64}" alt="Logo">`;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        function removerLogo() {
+            document.getElementById('logoBase64').value = '';
+            document.getElementById('logoFile').value = '';
+            document.getElementById('logoPreview').innerHTML = '<span>Sem logo</span>';
+        }
+
+        // Consulta BrasilAPI e preenche razão social, endereço, contato etc.
+        // Mesma pattern usada em pessoas.html e pedido.html.
+        let _ultimoCnpjBuscado = '';
+        async function buscarDadosCnpj(opts = {}) {
+            const silencioso = !!opts.silencioso;
+            const raw = (document.getElementById('cnpj').value || '').replace(/\D/g, '');
+            const status = document.getElementById('cnpjStatus');
+            if (raw.length !== 14) {
+                if (!silencioso) {
+                    status.textContent = 'Informe um CNPJ válido (14 dígitos)';
+                    status.style.color = '#c33';
+                }
+                return;
+            }
+            // Evita refazer a mesma consulta ao borrar o campo várias vezes
+            if (raw === _ultimoCnpjBuscado && silencioso) return;
+
+            const btn = document.getElementById('btnBuscarCnpj');
+            if (btn) btn.disabled = true;
+            status.textContent = 'Consultando BrasilAPI…';
+            status.style.color = '#4dabf7';
+
+            try {
+                const resp = await fetch('https://brasilapi.com.br/api/cnpj/v1/' + raw);
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.message || 'CNPJ não encontrado');
+                }
+                const d = await resp.json();
+                _ultimoCnpjBuscado = raw;
+
+                const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+
+                // Identificação
+                set('razaoSocial', d.razao_social);
+                set('nomeFantasia', d.nome_fantasia);
+
+                // Endereço
+                const logr = d.descricao_tipo_de_logradouro
+                    ? d.descricao_tipo_de_logradouro + ' ' + (d.logradouro || '')
+                    : d.logradouro;
+                set('endereco', (logr || '').trim());
+                set('numero', d.numero);
+                set('complemento', d.complemento);
+                set('bairro', d.bairro);
+                set('cidade', d.municipio);
+                set('uf', d.uf);
+                set('cep', d.cep);
+                set('codigoMunicipio', d.codigo_municipio_ibge);
+
+                // Contato
+                set('telefone', d.ddd_telefone_1);
+                if (d.email) set('email', String(d.email).toLowerCase());
+
+                const situacao = d.descricao_situacao_cadastral || '';
+                status.textContent = '✓ Dados preenchidos' + (situacao ? ' — Situação: ' + situacao : '');
+                status.style.color = '#2a2';
+
+                // Segunda etapa: buscar Inscrição Estadual via publica.cnpj.ws
+                // (BrasilAPI não expõe IE). Não bloqueia o preenchimento acima.
+                buscarInscricaoEstadual(raw, d.uf);
+            } catch (err) {
+                status.textContent = 'Erro: ' + err.message;
+                status.style.color = '#c33';
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        // Complementa com a Inscrição Estadual ativa (só preenche se
+        // o campo estiver vazio — não sobrescreve o que o usuário digitou).
+        async function buscarInscricaoEstadual(cnpjRaw, ufEsperada) {
+            const ieEl = document.getElementById('inscricaoEstadual');
+            if (!ieEl || ieEl.value.trim()) return; // já preenchido, respeita o usuário
+            const status = document.getElementById('cnpjStatus');
+            try {
+                const r = await fetch('https://publica.cnpj.ws/cnpj/' + cnpjRaw);
+                if (!r.ok) return; // rate limit 429 ou 404 — silencia
+                const d = await r.json();
+                const inscricoes = d?.estabelecimento?.inscricoes_estaduais || [];
+                // prefere IE ativa do estado da empresa, senão a primeira ativa, senão a primeira qualquer
+                const ativa = inscricoes.find(i => i.ativo && i.estado?.sigla === ufEsperada)
+                    || inscricoes.find(i => i.ativo)
+                    || inscricoes[0];
+                if (ativa?.inscricao_estadual) {
+                    ieEl.value = ativa.inscricao_estadual;
+                    if (status && !status.textContent.includes('IE')) {
+                        status.textContent += ' · IE preenchida';
+                    }
+                }
+            } catch (_) { /* silêncio — campo manual disponível */ }
+        }
+
+        function configurarMascaras() {
+            // Máscara CNPJ + auto-busca quando sai do campo com 14 dígitos
+            const cnpjEl = document.getElementById('cnpj');
+            cnpjEl.addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                value = value.replace(/^(\d{2})(\d)/, '$1.$2');
+                value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+                value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
+                value = value.replace(/(\d{4})(\d)/, '$1-$2');
+                e.target.value = value.substring(0, 18);
+            });
+            cnpjEl.addEventListener('blur', function() {
+                const raw = (this.value || '').replace(/\D/g, '');
+                if (raw.length === 14 && raw !== _ultimoCnpjBuscado) {
+                    buscarDadosCnpj({ silencioso: true });
+                }
+            });
+
+            // Máscara CPF
+            document.getElementById('cpfRepresentante').addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                value = value.replace(/(\d{3})(\d)/, '$1.$2');
+                value = value.replace(/(\d{3})(\d)/, '$1.$2');
+                value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                e.target.value = value.substring(0, 14);
+            });
+
+            // Máscara CEP
+            document.getElementById('cep').addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                value = value.replace(/(\d{5})(\d)/, '$1-$2');
+                e.target.value = value.substring(0, 9);
+            });
+
+            // Máscara Telefone
+            document.getElementById('telefone').addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                value = value.replace(/(\d{2})(\d)/, '($1) $2');
+                value = value.replace(/(\d{4})(\d)/, '$1-$2');
+                e.target.value = value.substring(0, 14);
+            });
+
+            // Máscara Celular
+            document.getElementById('celular').addEventListener('input', function(e) {
+                let value = e.target.value.replace(/\D/g, '');
+                value = value.replace(/(\d{2})(\d)/, '($1) $2');
+                value = value.replace(/(\d{5})(\d)/, '$1-$2');
+                e.target.value = value.substring(0, 15);
+            });
+        }
+
+        // Salvar tudo em uma só ação — botão único no header (#btnSalvarTopo).
+        // Cada seção é salva no endpoint próprio, mas só quando há dados a enviar
+        // (senha gov.br digitada, arquivo de certificado selecionado, chave IA preenchida).
+        document.getElementById('formFornecedor').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const btnSalvar = document.getElementById('btnSalvarTopo');
+            btnSalvar.disabled = true;
+            btnSalvar.innerHTML = '⏳ Salvando...';
+
+            const erros = [];
+            const tarefas = [];
+
+            // 1) Cadastro principal
+            tarefas.push((async () => {
+                const formData = new FormData(document.getElementById('formFornecedor'));
+                const dados = Object.fromEntries(formData.entries());
+                dados.declaracaoMeEpp = document.getElementById('declaracaoMeEpp').checked;
+                dados.declaracaoProgramasIntegridade = document.getElementById('declaracaoProgramasIntegridade').checked;
+                dados.declaracaoEquidadeGenero = document.getElementById('declaracaoEquidadeGenero').checked;
+                try {
+                    const r = await fetch('/api/fornecedor', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(dados)
+                    });
+                    const j = await r.json();
+                    if (!j.success) erros.push('Cadastro: ' + (j.error || 'erro desconhecido'));
+                } catch (err) {
+                    erros.push('Cadastro: ' + err.message);
+                }
+            })());
+
+            // 2) Gov.br — só envia se senha foi digitada
+            const govbrSenha = document.getElementById('govbrSenha').value;
+            if (govbrSenha) {
+                const govbrCpf = document.getElementById('govbrCpf').value.replace(/\D/g, '');
+                if (govbrCpf.length !== 11) {
+                    erros.push('Gov.br: CPF deve ter 11 dígitos');
+                } else {
+                    tarefas.push((async () => {
+                        try {
+                            const r = await fetch('/api/govbr/config', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ cpf: govbrCpf, senha: govbrSenha })
+                            });
+                            const j = await r.json();
+                            if (j.success) {
+                                document.getElementById('govbrSenha').value = '';
+                                document.getElementById('govbrSenha').placeholder = '(salva)';
+                            } else {
+                                erros.push('Gov.br: ' + (j.error || 'erro'));
+                            }
+                        } catch (err) {
+                            erros.push('Gov.br: ' + err.message);
+                        }
+                    })());
+                }
+            }
+
+            // 3) Certificado A1 — só envia se arquivo foi selecionado
+            const certFile = document.getElementById('certificadoFile').files[0];
+            if (certFile) {
+                const certSenha = document.getElementById('certificadoSenha').value;
+                if (!certSenha) {
+                    erros.push('Certificado: informe a senha');
+                } else {
+                    tarefas.push(new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onload = async (ev) => {
+                            const base64 = ev.target.result.split(',')[1];
+                            try {
+                                const r = await fetch('/api/certificado', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ certificado: base64, senha: certSenha })
+                                });
+                                const j = await r.json();
+                                if (j.success) {
+                                    document.getElementById('certificadoFile').value = '';
+                                    document.getElementById('certificadoSenha').value = '';
+                                } else {
+                                    erros.push('Certificado: ' + (j.error || 'erro'));
+                                }
+                            } catch (err) {
+                                erros.push('Certificado: ' + err.message);
+                            }
+                            resolve();
+                        };
+                        reader.readAsDataURL(certFile);
+                    }));
+                }
+            }
+
+            // 4) Chaves IA — Cerebras, Gemini, DeepSeek, Groq, Claude (só envia se preenchidas)
+            const inputsIA = { cerebras: 'cerebrasKey', gemini: 'geminiKey', deepseek: 'deepseekKey', groq: 'groqKey', anthropic: 'anthropicKey' };
+            const nomesIA = { cerebras: 'Cerebras', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', anthropic: 'Claude' };
+            for (const provider of ['cerebras', 'gemini', 'deepseek', 'groq', 'anthropic']) {
+                const input = document.getElementById(inputsIA[provider]);
+                const key = input.value.trim();
+                if (!key) continue;
+                const nome = nomesIA[provider];
+                tarefas.push((async () => {
+                    try {
+                        const r = await fetch('/api/config/ia-keys', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ provider, key })
+                        });
+                        const j = await r.json();
+                        if (j.success) {
+                            input.value = '';
+                        } else {
+                            erros.push(`${nome}: ${j.error || 'erro'}`);
+                        }
+                    } catch (err) {
+                        erros.push(`${nome}: ${err.message}`);
+                    }
+                })());
+            }
+
+            await Promise.all(tarefas);
+
+            if (erros.length === 0) {
+                mostrarAlerta('Dados salvos com sucesso!', 'success');
+            } else {
+                mostrarAlerta('Salvo com avisos — ' + erros.join('; '), 'error');
+            }
+
+            verificarCertificado();
+            verificarChaveIA();
+            carregarGovBr();
+
+            btnSalvar.disabled = false;
+            btnSalvar.innerHTML = '💾 Salvar';
+        });
+
+        function mostrarAlerta(mensagem, tipo) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.className = `alert alert-${tipo}`;
+            alertBox.textContent = mensagem;
+            alertBox.style.display = 'block';
+
+            setTimeout(() => {
+                alertBox.style.display = 'none';
+            }, 5000);
+
+            // Scroll para o topo
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // ==================== CERTIFICADO DIGITAL ====================
+
+        async function verificarCertificado() {
+            try {
+                const response = await fetch('/api/certificado/status');
+                const result = await response.json();
+                const statusDiv = document.getElementById('statusCertificado');
+
+                if (result.success && result.configurado) {
+                    statusDiv.innerHTML = `
+                        <span style="color: #4caf50;">✓ Certificado configurado</span><br>
+                        <span style="color: var(--text-3); font-size: 0.85em;">
+                            Titular: ${result.titular || 'N/A'}<br>
+                            Validade: ${result.validade || 'N/A'}
+                        </span>
+                    `;
+                } else {
+                    statusDiv.innerHTML = '<span style="color: var(--warn);">⚠ Nenhum certificado configurado</span>';
+                }
+            } catch (error) {
+                console.error('Erro ao verificar certificado:', error);
+            }
+        }
+
+        async function removerCertificado() {
+            if (!confirm('Tem certeza que deseja remover o certificado digital?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/certificado', {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta('Certificado removido com sucesso', 'success');
+                    verificarCertificado();
+                } else {
+                    mostrarAlerta('Erro: ' + result.error, 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao remover certificado', 'error');
+                console.error(error);
+            }
+        }
+
+        // ==================== ANÁLISE IA ====================
+
+        async function verificarChaveIA() {
+            const statusDiv = document.getElementById('statusIA');
+            try {
+                const [keyResp, statsResp] = await Promise.all([
+                    fetch('/api/config/ia-keys'),
+                    fetch('/api/analise/stats')
+                ]);
+                const keyData = await keyResp.json();
+                const statsData = await statsResp.json();
+
+                // Status geral
+                if (keyData.success && keyData.alguma_configurada) {
+                    const providers = [];
+                    if (keyData.cerebras?.configurada) providers.push('Cerebras');
+                    if (keyData.gemini?.configurada) providers.push('Gemini');
+                    if (keyData.deepseek?.configurada) providers.push('DeepSeek');
+                    if (keyData.groq?.configurada) providers.push('Groq');
+                    if (keyData.anthropic?.configurada) providers.push('Claude');
+                    statusDiv.innerHTML = `<span style="color: #4caf50;">✓ Análise IA ativa</span>` +
+                        `<span style="color: var(--text-3); font-size: 0.85em; margin-left: 10px;">Provider: ${providers.join(' + ')}</span>`;
+                } else {
+                    statusDiv.innerHTML = '<span style="color: var(--warn);">⚠ Nenhuma chave configurada — análise IA desabilitada</span>';
+                }
+
+                // Status individual
+                const setStatus = (elId, dados) => {
+                    const el = document.getElementById(elId);
+                    if (!el) return;
+                    if (dados?.configurada) el.innerHTML = `<span style="color: #4caf50;">✓ ${dados.preview}</span>`;
+                    else el.innerHTML = '<span style="color: var(--text-3);">Não configurada</span>';
+                };
+                setStatus('statusCerebras', keyData.cerebras);
+                setStatus('statusGemini', keyData.gemini);
+                setStatus('statusDeepseek', keyData.deepseek);
+                setStatus('statusGroq', keyData.groq);
+                setStatus('statusAnthropic', keyData.anthropic);
+
+                // Estatísticas
+                if (statsData.success) {
+                    document.getElementById('statTotal').textContent = statsData.stats.total;
+                    document.getElementById('statPendentes').textContent = statsData.stats.pendentes;
+                    document.getElementById('statsIA').style.display = 'block';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<span style="color: var(--danger);">Erro ao verificar configuração IA</span>';
+                console.error('Erro ao verificar IA:', error);
+            }
+        }
+
+        async function removerChaveIA(provider) {
+            const nomes = { cerebras: 'Cerebras', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', anthropic: 'Claude' };
+            const nome = nomes[provider] || provider;
+            if (!confirm(`Remover a chave ${nome}?`)) return;
+
+            try {
+                const response = await fetch('/api/config/ia-key-remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta(`Chave ${nome} removida.`, 'success');
+                    verificarChaveIA();
+                } else {
+                    mostrarAlerta('Erro ao remover chave', 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao remover chave', 'error');
+                console.error(error);
+            }
+        }
+
+        async function processarFilaIA() {
+            const btn = document.getElementById('btnProcessarIA');
+            btn.disabled = true;
+            btn.textContent = 'Processando...';
+
+            try {
+                const response = await fetch('/api/analise/processar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limite: 10 })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta(`${result.processadas} licitações analisadas!`, 'success');
+                    verificarChaveIA();
+                } else {
+                    mostrarAlerta('Erro: ' + result.error, 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao processar fila', 'error');
+                console.error(error);
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Processar Fila (10 licitações)';
+        }
+
+        // ─── Gov.br Login ─────────────────────────────────────────────────
+
+        async function carregarGovBr() {
+            try {
+                const resp = await fetch('/api/govbr/status');
+                const data = await resp.json();
+                const cpfEl = document.getElementById('govbrCpf');
+                const statusEl = document.getElementById('govbrStatus');
+
+                if (data.configurado) {
+                    cpfEl.value = data.cpf || '';
+                    document.getElementById('govbrSenha').placeholder = '(salva)';
+                    statusEl.textContent = 'Credenciais configuradas';
+                    statusEl.style.color = '#2a2';
+                } else {
+                    statusEl.textContent = 'Credenciais não configuradas';
+                    statusEl.style.color = '#c33';
+                }
+            } catch (e) {
+                console.error('Erro ao carregar gov.br:', e);
+            }
+        }
+
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('minha-empresa');</script>
+</body>
+</html>

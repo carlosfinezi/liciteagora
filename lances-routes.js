@@ -1,7 +1,7 @@
 // lances-routes.js
 //
-// Rotas HTTP da API de Lances / Disputa — 10 endpoints consumidos pela
-// extensão do Chrome (token-relay) para reportar e coordenar lances
+// Rotas HTTP da API de Lances / Disputa — 10 endpoints consumidos pelo
+// Electron Standalone (lance-processor.js) para reportar e coordenar lances
 // durante a fase de disputa da licitação. Extraído de server.js em
 // NFSE-M06 onda 6.11.
 //
@@ -14,10 +14,10 @@
 //
 // Não confundir com o SNIPER (lance-engine.js) que é um motor autônomo
 // com persistência em SQLite e configuração por licitação. Este módulo
-// é a coordenação leve com a extensão: a extensão roda no Chrome do
-// usuário, observa o pregão em tempo real, reporta eventos via POST
-// /api/lance/evento, e em eventos importantes (lance_enviado, melhor_lance,
-// perdemos) o worker dispara alerta no Telegram.
+// é a coordenação leve com o Electron: o Electron Standalone roda na
+// máquina do usuário, observa o pregão em tempo real via webview, reporta
+// eventos via POST /api/lance/evento, e em eventos importantes
+// (lance_enviado, melhor_lance, perdemos) o worker dispara alerta no Telegram.
 //
 // enviarTelegram vem via DI — mesmo padrão da onda 6.10 (centralização
 // de helpers fica para onda 7).

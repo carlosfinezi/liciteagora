@@ -1,0 +1,28 @@
+[Unit]
+Description=govbr Bearer service (1bit) — login gov.br + re-mint + deliver ao sniper
+After=network-online.target
+Wants=network-online.target
+# Proteção contra crash-loop (não martelar gov.br / não queimar solves NopeCHA):
+# se reiniciar 5x em 10min, systemd para o serviço.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=carlosfinezi
+WorkingDirectory=/home/carlosfinezi/web/liciteagora.com.br/private
+Environment=HOME=/home/carlosfinezi
+Environment=USE_EXTENSION=1
+Environment=SERVICE=1
+Environment=DELIVER=1
+Environment=TENANT=1bit
+Environment=RENEW_SEC=180
+# xvfb dá display virtual; Chrome real resolve o hCaptcha via extensão (política /etc).
+ExecStart=/usr/bin/xvfb-run -a /usr/bin/node govbr-bearer-service.js
+Restart=always
+RestartSec=30
+StandardOutput=append:/home/carlosfinezi/web/liciteagora.com.br/private/govbr-bearer.log
+StandardError=append:/home/carlosfinezi/web/liciteagora.com.br/private/govbr-bearer.log
+
+[Install]
+WantedBy=multi-user.target

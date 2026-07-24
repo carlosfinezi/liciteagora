@@ -33,12 +33,26 @@
 const { initAuthAndSession, installAuthBarrier, installProtectedStatic } = require('./auth-bootstrap');
 const { registrarRotasAuthPublicas, registrarRotasAuthProtegidas } = require('./auth-routes');
 const { registerPreAuthRoutes } = require('./pre-auth-routes');
+const { registerControlPlaneRoutes } = require('./control-plane-routes');
+const { registerLandingRoutes } = require('./landing-routes');
 
-function installAuthPipeline(app, db) {
-  const { apiKey } = initAuthAndSession(app, db);
+// Multi-tenant (2026-04-22): quando `controlDb` é passado, o pipeline
+// entra em modo multi-tenant — session_secret vem do control.db,
+// o api_key é resolvido por-request no requireAuth via req.tenantDb,
+// e o control plane (/api/admin/*) é montado antes do authBarrier
+// (auth própria via super_admins). Quando omitido, mantém o
+// comportamento single-tenant legado.
+function installAuthPipeline(app, db, { controlDb = null, tenantManager = null } = {}) {
+  const { apiKey } = initAuthAndSession(app, db, { controlDb });
 
   registrarRotasAuthPublicas(app, db);
   registerPreAuthRoutes(app, db, { apiKey });
+
+  if (controlDb && tenantManager) {
+    registerControlPlaneRoutes(app, { controlDb, manager: tenantManager });
+    // Landing page no apex — público (GET / e assets + POST /api/landing/signup + trial)
+    registerLandingRoutes(app, { controlDb, tenantManager });
+  }
 
   installAuthBarrier(app, db, { apiKey });
 

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuração de Cobranças - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+      /* Page-local: régua de cobrança (etapas + variáveis disponíveis) */
+      .variaveis-info {
+        background: var(--bg-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        padding: 10px 14px;
+        margin-bottom: 18px;
+        font-size: 0.82em;
+        color: var(--text-2);
+        line-height: 1.9;
+      }
+      .variaveis-info code {
+        display: inline-block;
+        background: var(--bg-3);
+        color: var(--accent);
+        padding: 2px 8px;
+        border-radius: var(--r-sm);
+        font-size: 0.85em;
+        margin: 0 2px;
+      }
+      .etapa-box {
+        background: var(--bg-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        padding: 14px 16px;
+        margin-bottom: 14px;
+      }
+      .etapa-box h4 {
+        margin: 0 0 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .etapa-box .canais {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 12px;
+        font-size: 0.9em;
+      }
+      .etapa-box .canais label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 0.95em;
+      }
+      .etapa-box .canais input[type="checkbox"] { width: auto; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Configuração de Cobranças</h1>
+                <small>Régua de cobrança automática, templates e regras de execução</small>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary btn-sm" onclick="salvar()">Salvar configuração</button>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div class="panel">
+                <h3>Execução automática</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Horário diário (BRT)</label>
+                        <input type="number" id="horaExecucao" min="0" max="23" value="9">
+                    </div>
+                    <div class="form-group">
+                        <label>Pular fim de semana e feriados</label>
+                        <select id="executarDiasUteis">
+                            <option value="true">Sim (só dias úteis)</option>
+                            <option value="false">Não (todos os dias)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Máx. disparos por conta/dia</label>
+                        <input type="number" id="limitePorDia" min="0" max="10" value="1">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>E‑mail em cópia interna (opcional)</label>
+                        <input type="email" id="ccInterno" placeholder="financeiro@empresa.com.br">
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Juros & Multa por atraso</h3>
+                <small style="color:var(--text-2);display:block;margin-bottom:10px;">
+                    Aplicados automaticamente ao abrir baixa de uma conta vencida.
+                    O usuário pode editar os valores sugeridos na hora da baixa.
+                </small>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Juros ao mês (%)</label>
+                        <input type="number" id="jurosMesPct" step="0.01" min="0" max="100" value="1" placeholder="ex: 1">
+                        <small style="color:var(--text-3);">Calculado pro rata: valor × % / 30 × dias de atraso</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Multa por atraso (%)</label>
+                        <input type="number" id="multaAtrasoPct" step="0.01" min="0" max="100" value="2" placeholder="ex: 2">
+                        <small style="color:var(--text-3);">Valor fixo sobre o saldo em atraso</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Carência (dias)</label>
+                        <input type="number" id="carenciaDias" min="0" max="60" value="0" placeholder="ex: 0">
+                        <small style="color:var(--text-3);">Dias após vencimento sem cobrar juros</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Modo de juros</label>
+                        <select id="jurosModo">
+                            <option value="simples">Simples (padrão)</option>
+                            <option value="composto">Composto</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Régua de cobrança</h3>
+                <div class="variaveis-info">
+                    <strong>Variáveis disponíveis nos templates:</strong>
+                    <code>{{nome}}</code><code>{{descricao}}</code><code>{{valor}}</code>
+                    <code>{{vencimento}}</code><code>{{diasAtraso}}</code>
+                    <code>{{linhaDigitavel}}</code><code>{{linkBoleto}}</code>
+                    <code>{{nfseNumero}}</code>
+                </div>
+                <div id="etapas"></div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+                <button class="btn btn-primary" onclick="salvar()">Salvar configuração</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let configAtual = null;
+
+        document.addEventListener('DOMContentLoaded', carregar);
+
+        async function carregar() {
+            try {
+                const [respR, respJ] = await Promise.all([
+                    fetch('/api/cobrancas/config'),
+                    fetch('/api/financeiro/config-juros'),
+                ]);
+                const data = await respR.json();
+                if (!data.success) throw new Error(data.error);
+                configAtual = data.config;
+                renderForm();
+
+                const dataJ = await respJ.json();
+                if (dataJ.success) {
+                    document.getElementById('jurosMesPct').value    = dataJ.jurosMesPct ?? 1;
+                    document.getElementById('multaAtrasoPct').value = dataJ.multaAtrasoPct ?? 2;
+                    document.getElementById('carenciaDias').value   = dataJ.carenciaDias ?? 0;
+                    document.getElementById('jurosModo').value      = dataJ.jurosModo || 'simples';
+                }
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        function renderForm() {
+            document.getElementById('horaExecucao').value = configAtual.horaExecucao ?? 9;
+            document.getElementById('executarDiasUteis').value = String(configAtual.executarDiasUteis !== false);
+            document.getElementById('limitePorDia').value = configAtual.limitePorDia ?? 1;
+            document.getElementById('ccInterno').value = configAtual.ccInterno || '';
+
+            const container = document.getElementById('etapas');
+            container.innerHTML = configAtual.regua.map((e, idx) => `
+                <div class="etapa-box">
+                    <h4>
+                        <span>Etapa ${e.etapa}</span>
+                        <span style="color:var(--text-2);font-weight:normal;font-size:0.82em;">
+                            Dispara D+<input type="number" id="diasApos_${idx}" value="${e.diasApos}" min="1" style="width:64px;padding:3px 6px;text-align:center;"> dias após vencer
+                        </span>
+                    </h4>
+                    <div class="canais">
+                        <label><input type="checkbox" id="canalEmail_${idx}" ${e.canais?.includes('email') ? 'checked' : ''}> E‑mail</label>
+                        <label><input type="checkbox" id="canalWa_${idx}" ${e.canais?.includes('whatsapp') ? 'checked' : ''}> WhatsApp</label>
+                        <span style="color:var(--text-3);font-size:0.82em;">(desmarque tudo para desativar a etapa)</span>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Assunto do e‑mail</label>
+                            <input type="text" id="assunto_${idx}" value="${escAttr(e.assunto || '')}">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Corpo do e‑mail</label>
+                            <textarea id="emailTexto_${idx}">${escHtml(e.emailTexto || '')}</textarea>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Texto do WhatsApp</label>
+                            <textarea id="whatsappTexto_${idx}" style="min-height:60px;">${escHtml(e.whatsappTexto || '')}</textarea>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function salvar() {
+            const novaRegua = configAtual.regua.map((e, idx) => {
+                const canais = [];
+                if (document.getElementById('canalEmail_'+idx).checked) canais.push('email');
+                if (document.getElementById('canalWa_'+idx).checked) canais.push('whatsapp');
+                return {
+                    etapa: e.etapa,
+                    diasApos: Number(document.getElementById('diasApos_'+idx).value) || e.diasApos,
+                    canais,
+                    assunto: document.getElementById('assunto_'+idx).value,
+                    emailTexto: document.getElementById('emailTexto_'+idx).value,
+                    whatsappTexto: document.getElementById('whatsappTexto_'+idx).value,
+                };
+            });
+
+            const payload = {
+                horaExecucao: Number(document.getElementById('horaExecucao').value) || 9,
+                executarDiasUteis: document.getElementById('executarDiasUteis').value === 'true',
+                limitePorDia: Number(document.getElementById('limitePorDia').value) || 1,
+                ccInterno: document.getElementById('ccInterno').value.trim(),
+                regua: novaRegua,
+            };
+
+            try {
+                const payloadJuros = {
+                    jurosMesPct:    Number(document.getElementById('jurosMesPct').value) || 0,
+                    multaAtrasoPct: Number(document.getElementById('multaAtrasoPct').value) || 0,
+                    carenciaDias:   parseInt(document.getElementById('carenciaDias').value) || 0,
+                    jurosModo:      document.getElementById('jurosModo').value || 'simples',
+                };
+                await fetch('/api/financeiro/config-juros', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payloadJuros),
+                });
+
+                const resp = await fetch('/api/cobrancas/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    mostrarAlerta('Configuração salva. As alterações valerão no próximo disparo.', 'success');
+                    configAtual = data.config;
+                } else {
+                    mostrarAlerta('Erro: ' + data.error, 'error');
+                }
+            } catch (err) {
+                mostrarAlerta('Erro: ' + err.message, 'error');
+            }
+        }
+
+        function mostrarAlerta(msg, tipo) {
+            const el = document.getElementById('alertBox');
+            el.textContent = msg;
+            el.className = 'alert ' + tipo;
+            setTimeout(() => { el.className = 'alert'; }, 6000);
+        }
+
+        function escHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        function escAttr(str) {
+            return escHtml(str).replace(/"/g, '&quot;');
+        }
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('cobrancas-config');</script>
+</body>
+</html>

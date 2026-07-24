@@ -5,6 +5,24 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* ====== Ícones SVG premium (usados via /js/icons.js) ====== */
+svg.ic, svg.ic-sm, svg.ic-lg, svg.ic-xl {
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+  vertical-align: -3px;
+  display: inline-block;
+}
+svg.ic    { width: 18px; height: 18px; }
+svg.ic-sm { width: 14px; height: 14px; vertical-align: -2px; }
+svg.ic-lg { width: 22px; height: 22px; vertical-align: -4px; }
+svg.ic-xl { width: 32px; height: 32px; vertical-align: -6px; }
+.btn svg.ic, .btn svg.ic-sm { margin-right: 6px; }
+.btn.btn-icon-only svg.ic { margin-right: 0; }
+
 :root {
   /* Backgrounds */
   --bg-0: #0b1120;
@@ -728,166 +746,336 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 .filtro-bar .filtro-info { color: var(--text-2) !important; }
 
 /* ============================================================
-   KANBAN — alinhar com paleta slate/navy
+   KANBAN — base layout + paleta slate/navy
    ============================================================ */
-.kanban-board { gap: 16px !important; }
+.kanban-board {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  align-items: flex-start;
+}
 .kanban-column {
-  background: var(--bg-2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--r-lg) !important;
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  max-height: calc(100vh - 140px);
 }
 .column-header {
-  border-bottom: 1px solid var(--border) !important;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+}
+.column-title {
+  font-size: 0.82em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-1);
 }
 .column-count {
-  background: var(--bg-3) !important;
-  color: var(--text-2) !important;
-  border: 1px solid var(--border) !important;
+  background: var(--bg-3);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75em;
+  font-weight: 600;
 }
-.column-header.analise { border-left-color: var(--warn) !important; }
-.column-header.proposta { border-left-color: var(--accent) !important; }
-.column-header.enviada { border-left-color: var(--success) !important; }
-.column-header.vencida { border-left-color: var(--text-3) !important; }
+.column-header.analise { border-left-color: var(--warn); }
+.column-header.proposta { border-left-color: var(--accent); }
+.column-header.enviada { border-left-color: var(--success); }
+.column-header.vencida { border-left-color: var(--text-3); }
+
+.column-cards {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  min-height: 120px;
+  transition: background 0.15s ease;
+}
+.column-cards.drag-over {
+  background: var(--accent-soft);
+}
+.empty-column {
+  color: var(--text-3);
+  text-align: center;
+  padding: 20px 10px;
+  font-size: 0.85em;
+  font-style: italic;
+}
 
 .kanban-card {
-  background: var(--bg-1) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--r-md) !important;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  cursor: grab;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .kanban-card:hover {
-  border-color: var(--accent) !important;
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
-.card-title { color: var(--text-0) !important; }
-.card-info { color: var(--text-2) !important; background: transparent !important; border: none !important; padding: 0 !important; }
-.card-date { color: var(--accent) !important; }
-.card-date.urgente { color: var(--danger) !important; }
-.card-date.hoje { color: var(--warn) !important; }
-
-.card-btn { border-radius: var(--r-md) !important; font-weight: 500 !important; }
-.card-btn.abrir {
-  background: rgba(251,191,36,0.15) !important;
-  color: var(--warn) !important;
-  border: 1px solid rgba(251,191,36,0.4) !important;
+.kanban-card.dragging { opacity: 0.5; cursor: grabbing; }
+.card-title {
+  color: var(--text-0);
+  font-size: 0.86em;
+  font-weight: 600;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.card-btn.abrir:hover { background: rgba(251,191,36,0.25) !important; }
-.card-btn.proposta {
-  background: rgba(96,165,250,0.15) !important;
-  color: var(--accent) !important;
-  border: 1px solid rgba(96,165,250,0.4) !important;
+.card-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 0.78em;
 }
-.card-btn.proposta:hover { background: var(--accent) !important; color: #0b1120 !important; }
-.card-btn.remover {
-  background: rgba(239,68,68,0.12) !important;
-  color: #fca5a5 !important;
-  border: 1px solid rgba(239,68,68,0.3) !important;
-}
-.card-btn.remover:hover { background: rgba(239,68,68,0.25) !important; }
+.card-date { color: var(--accent); }
+.card-date.urgente { color: var(--danger); font-weight: 600; }
+.card-date.hoje { color: var(--warn); font-weight: 600; }
 
 .card-obs {
-  background: var(--bg-0) !important;
-  color: var(--text-2) !important;
-  border: 1px solid var(--border) !important;
-}
-.card-obs-input {
-  background: var(--bg-0) !important;
-  border: 1px solid var(--accent) !important;
-  color: var(--text-0) !important;
+  background: var(--bg-0);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  font-size: 0.78em;
+  line-height: 1.4;
 }
 
-.empty-column { color: var(--text-3) !important; }
+.card-actions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+.card-btn {
+  padding: 4px 9px;
+  border-radius: var(--r-sm);
+  font-weight: 500;
+  font-size: 0.75em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+}
+.card-btn.abrir {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: rgba(251,191,36,0.4);
+}
+.card-btn.abrir:hover { background: rgba(251,191,36,0.25); }
+.card-btn.proposta {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(96,165,250,0.4);
+}
+.card-btn.proposta:hover { background: var(--accent); color: var(--bg-0); }
+.card-btn.remover {
+  background: var(--danger-soft);
+  color: #fca5a5;
+  border-color: rgba(239,68,68,0.3);
+}
+.card-btn.remover:hover { background: rgba(239,68,68,0.28); color: var(--danger); }
 
-.add-from-interesse { border-top: 1px solid var(--border) !important; }
+.add-from-interesse {
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
 .add-from-interesse button {
-  background: transparent !important;
-  color: var(--accent) !important;
-  border: 1px dashed var(--border-strong) !important;
+  width: 100%;
+  background: transparent;
+  color: var(--accent);
+  border: 1px dashed var(--border-strong);
+  padding: 7px 10px;
+  border-radius: var(--r-md);
+  font-size: 0.82em;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
 }
 .add-from-interesse button:hover {
-  background: var(--accent) !important;
-  color: #0b1120 !important;
-  border-style: solid !important;
+  background: var(--accent);
+  color: var(--bg-0);
+  border-style: solid;
 }
 
-/* Kanban modal overrides */
-.modal.show { display: flex !important; }
-.interesse-list { max-height: 400px; }
-.interesse-item {
-  background: var(--bg-1) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text-1) !important;
+/* Lista de interesses dentro do modal do kanban */
+.interesse-list {
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.interesse-item:hover { border-color: var(--accent) !important; }
-.interesse-item h4 { color: var(--text-0) !important; }
-.interesse-item p { color: var(--text-2) !important; }
+.interesse-item {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-1);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.interesse-item:hover { border-color: var(--accent); background: var(--bg-hover); }
+.interesse-item.added { opacity: 0.6; cursor: default; }
+.interesse-item.added:hover { border-color: var(--border); background: var(--bg-1); }
+.interesse-item h4 { color: var(--text-0); font-size: 0.88em; font-weight: 600; margin-bottom: 4px; line-height: 1.4; }
+.interesse-item p { color: var(--text-2); font-size: 0.8em; margin: 0; }
 
 /* Sidebar é controlado inteiramente por /css/sidebar.css — não sobrescrever aqui */
 
 /* ============================================================
-   AGENDA (calendar page) — alinha classes próprias com paleta
+   AGENDA (calendar page) — layout base + paleta slate/navy
    ============================================================ */
+.calendar-nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.calendar-nav .current-month {
+  color: var(--text-0);
+  font-size: 0.95em;
+  font-weight: 600;
+  min-width: 160px;
+  text-align: center;
+}
+
 .calendar {
-  background: var(--bg-2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--r-lg) !important;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
 .calendar-weekdays {
-  background: var(--bg-3) !important;
-  border-bottom: 1px solid var(--border) !important;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--border);
 }
-.calendar-weekdays div { color: var(--accent) !important; }
+.calendar-weekdays div {
+  padding: 10px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
 .calendar-day {
-  background: transparent !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text-1) !important;
+  min-height: 110px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  position: relative;
+  color: var(--text-1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.calendar-day.other-month { background: var(--bg-1) !important; }
-.calendar-day.today { border: 2px solid var(--accent) !important; }
-.day-number { color: var(--text-2) !important; }
-.calendar-day.today .day-number { color: var(--accent) !important; font-weight: 700; }
-.calendar-day.other-month .day-number { color: var(--text-3) !important; }
-
-.day-event { background: var(--accent) !important; color: #0b1120 !important; }
-.day-event:hover { background: var(--accent-strong) !important; color: #fff !important; }
-.day-event.status-analise { background: var(--warn) !important; color: #0b1120 !important; }
-.day-event.status-proposta { background: var(--accent) !important; color: #0b1120 !important; }
-.day-event.status-enviada { background: var(--success) !important; color: #064e3b !important; }
-.day-event.status-vencida { background: var(--text-3) !important; color: #fff !important; }
-
-.calendar-nav button {
-  background: var(--bg-3) !important;
-  color: var(--accent) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--r-md) !important;
+.calendar-day:nth-child(7n) { border-right: none; }
+.calendar-day.other-month { background: var(--bg-1); }
+.calendar-day.today {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--accent-soft);
 }
-.calendar-nav button:hover { background: var(--accent) !important; color: #0b1120 !important; }
-.calendar-nav .current-month { color: var(--text-0) !important; }
-.btn-hoje { background: var(--accent) !important; color: #0b1120 !important; }
-
-.event-modal { background: rgba(0,0,0,0.75) !important; backdrop-filter: blur(4px); }
-.event-modal-content {
-  background: var(--bg-2) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--r-lg) !important;
+.day-number {
+  font-weight: 600;
+  font-size: 0.82em;
+  color: var(--text-2);
 }
-.event-modal h3 { color: var(--accent) !important; }
-.event-detail label { color: var(--text-2) !important; }
-.event-detail span { color: var(--text-0) !important; }
+.calendar-day.today .day-number { color: var(--accent); font-weight: 700; }
+.calendar-day.other-month .day-number { color: var(--text-3); }
 
-.btn-fechar {
-  background: var(--bg-3) !important;
-  color: var(--text-1) !important;
-  border: 1px solid var(--border) !important;
+.day-events {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 80px;
+  overflow-y: auto;
 }
-.btn-fechar:hover { background: var(--bg-hover) !important; }
-.btn-abrir {
-  background: rgba(251,191,36,0.15) !important;
-  color: var(--warn) !important;
-  border: 1px solid rgba(251,191,36,0.4) !important;
+.day-event {
+  background: var(--accent);
+  color: var(--bg-0);
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  font-size: 0.72em;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: filter 0.15s ease;
 }
-.btn-abrir:hover { background: rgba(251,191,36,0.28) !important; }
+.day-event:hover { filter: brightness(1.15); }
+.day-event.status-analise { background: var(--warn); color: var(--bg-0); }
+.day-event.status-proposta { background: var(--accent); color: var(--bg-0); }
+.day-event.status-enviada { background: var(--success); color: #064e3b; }
+.day-event.status-vencida { background: var(--text-3); color: #fff; }
 
-.legenda-item { color: var(--text-1) !important; font-size: 0.85em; }
-.legenda-cor { border: 1px solid var(--border) !important; }
+/* Detalhe dentro do modal de evento */
+.event-detail { margin-bottom: 12px; }
+.event-detail label {
+  display: block;
+  color: var(--text-2);
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.event-detail span {
+  color: var(--text-0);
+  font-size: 0.9em;
+}
+
+/* Legenda */
+.legenda {
+  display: flex;
+  gap: 20px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+.legenda-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+  font-size: 0.82em;
+}
+.legenda-cor {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  display: inline-block;
+}
 
 /* ============================================================
    CATCH-ALL para páginas legacy que usam paleta navy antiga
@@ -1327,3 +1515,288 @@ h1, h2, h3 { color: var(--text-0) !important; }
 .status-card .card-icon  { font-size: 1.8em; margin-bottom: 6px; }
 .status-card .card-label { color: var(--text-3); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
 .status-card .card-value { font-size: 1em; font-weight: 600; }
+
+/* ============================================================
+   Cards-grid: lista auto-fill de cards (grupos, tenants, etc.)
+   ============================================================ */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+/* ============================================================
+   Card sectional: card com header/body/footer separados por bordas
+   Pattern: .card-sections > .section + .section + .section-footer
+   ============================================================ */
+.card-sections {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.card-sections:hover { transform: translateY(-2px); border-color: var(--accent); }
+.card-sections > .section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.card-sections > .section:last-child { border-bottom: 0; }
+.card-sections > .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.card-sections > .section-footer {
+  padding: 12px 20px;
+  background: var(--bg-1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-3);
+  border-bottom: 0;
+}
+
+/* ============================================================
+   Card avatar: círculo colorido com inicial
+   ============================================================ */
+.card-avatar {
+  width: 40px; height: 40px;
+  border-radius: var(--r-md);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 1.2rem;
+  flex-shrink: 0;
+}
+.card-avatar.sm { width: 12px; height: 12px; border-radius: 50%; font-size: 0; }
+
+/* ============================================================
+   Icon button: botão quadrado só com ícone (32x32)
+   ============================================================ */
+.icon-btn {
+  width: 32px; height: 32px;
+  border: none; border-radius: var(--r-sm);
+  background: var(--bg-1);
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover { background: var(--bg-0); color: var(--text-0); }
+.icon-btn.danger:hover { background: rgba(244, 67, 54, 0.2); color: var(--danger); }
+.icon-btn svg { width: 16px; height: 16px; }
+
+/* ============================================================
+   Color picker: palette de cores em forms
+   ============================================================ */
+.color-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.color-option {
+  width: 36px; height: 36px;
+  border-radius: var(--r-md);
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.color-option:hover { transform: scale(1.1); }
+.color-option.selected { border-color: var(--text-0); }
+
+/* ============================================================
+   Chip remove button (extensão do .chip-item canônico)
+   ============================================================ */
+.chip-item .chip-remove {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; line-height: 1;
+  color: var(--text-2);
+  margin-left: 6px;
+  padding: 0;
+}
+.chip-item .chip-remove:hover { background: var(--danger); color: #fff; }
+
+/* ============================================================
+   Status grid: mini KPIs (último scan, contadores rápidos)
+   ============================================================ */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-0);
+  border-radius: var(--r-md);
+}
+.status-grid .status-item { font-size: 12px; }
+.status-grid .status-item .label {
+  color: var(--text-3);
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.status-grid .status-item .value { color: var(--text-0); font-weight: 600; }
+
+/* ============================================================
+   Auto-IA row: linha de status inline com botão de ação
+   ============================================================ */
+.auto-ia-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-0);
+  border-radius: var(--r-md);
+  font-size: 12px;
+}
+.auto-ia-row .label { color: var(--text-2); }
+.auto-ia-row .label em { font-style: normal; color: var(--text-3); }
+.auto-ia-row .label.ativo em    { color: var(--success); font-weight: 600; }
+.auto-ia-row .label.inativo em  { color: var(--text-3); }
+.auto-ia-row .label.erro em     { color: var(--danger); font-weight: 600; }
+.auto-ia-row .label.rodando em  { color: var(--accent); font-weight: 600; }
+
+/* ============================================================
+   Modal overlay (fullscreen): .modal-overlay > .modal > .modal-header/.modal-body/.modal-footer
+   Ativa com .active. Page-locals legacy de .modal-overlay já existem acima;
+   estes complementam comportamento de animação e tamanho.
+   ============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, visibility 0.3s;
+}
+.modal-overlay.active { opacity: 1; visibility: visible; }
+.modal-overlay > .modal {
+  width: 90%;
+  max-width: 500px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-20px);
+  transition: transform 0.3s;
+  padding: 0;
+  margin: 0;
+}
+.modal-overlay.active > .modal { transform: translateY(0); }
+.modal-overlay > .modal > .modal-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0;
+}
+.modal-overlay > .modal > .modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-overlay > .modal > .modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0;
+}
+.modal-overlay .modal-close {
+  width: 32px; height: 32px;
+  border: none; border-radius: var(--r-sm);
+  background: var(--bg-1);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.modal-overlay .modal-close:hover { background: var(--bg-0); color: var(--text-0); }
+
+/* ============================================================
+   Empty state com SVG (placeholder de listas vazias)
+   ============================================================ */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  grid-column: 1 / -1;
+}
+.empty-state svg { width: 80px; height: 80px; color: var(--text-3); margin-bottom: 20px; }
+.empty-state h3 { color: var(--text-2); margin-bottom: 10px; }
+.empty-state p { color: var(--text-3); margin-bottom: 20px; }
+
+/* ============================================================
+   Checkbox group (lista de items com checkbox + cor + nome + count)
+   ============================================================ */
+.checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--bg-1);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+}
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.checkbox-item:hover { background: var(--bg-0); }
+.checkbox-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+.checkbox-item .item-label { flex: 1; font-size: 14px; color: var(--text-0); }
+.checkbox-item .item-count { font-size: 12px; color: var(--text-3); }
+
+/* ============================================================
+   Form helpers: linha inline (checkbox + label), grids, hints
+   ============================================================ */
+.form-inline {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.form-inline input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; flex: 0 0 auto; }
+/* Override .form-group label (uppercase + tiny) quando combinado com form-inline */
+.form-inline label {
+  margin: 0;
+  cursor: pointer;
+  text-transform: none !important;
+  font-size: 0.92em !important;
+  font-weight: 500 !important;
+  letter-spacing: normal !important;
+  color: var(--text-1) !important;
+}
+.form-inline .hint { margin: 0; flex: 1; }
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 600px) { .form-grid-2 { grid-template-columns: 1fr; } }
+.section-title {
+  font-size: 13px;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+.input-narrow { width: 80px !important; flex: 0 0 80px; }
+.hint { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.4; }
+.hint-error { color: var(--danger); }

@@ -9,6 +9,33 @@ let todasLicitacoesAtuais = [];
 // Configuração da API local
 const API_BASE_URL = '/api';
 
+// ==================== Resolução assíncrona de compraId ====================
+// Quando um interesse é adicionado, já dispara em background a resolução
+// do compraId Comprasnet (15–20 dígitos) para as interessantes que ainda
+// não têm um. Isso evita que o usuário precise dar refresh na tela de
+// Propostas. Chamadas duplicadas no mesmo ciclo são deduplicadas (debounce
+// de 2s) para não martelar os endpoints quando o usuário adiciona vários
+// interesses em sequência.
+let _compraIdResolveTimer = null;
+let _compraIdResolveInFlight = false;
+function resolverCompraIdBackground() {
+    if (_compraIdResolveTimer) clearTimeout(_compraIdResolveTimer);
+    _compraIdResolveTimer = setTimeout(async () => {
+        if (_compraIdResolveInFlight) return;
+        _compraIdResolveInFlight = true;
+        try {
+            // Passo 1: backfill de chaveCompraPncp nas participações (necessário
+            // para os métodos 2 e 3 de resolução funcionarem).
+            await fetch('/api/proposta/backfill-chave-pncp', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+            // Passo 2: resolve interesses sem compraId via linkSistemaOrigem,
+            // chave PNCP esperada ou LIKE por CNPJ (tudo idempotente).
+            await fetch('/api/proposta/interesses/auto-compra-id', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+        } finally {
+            _compraIdResolveInFlight = false;
+        }
+    }, 2000);
+}
+
 // Estado da aplicação
 let currentPage = 1;
 let currentFilters = {};
@@ -32,14 +59,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const umAnoAtras = new Date(hoje);
     umAnoAtras.setFullYear(hoje.getFullYear() - 1);
 
-    // Fim Propostas: hoje até próximos 30 dias
-
+    // Fim Propostas: D+1 (amanhã) até próximos 30 dias.
+    // Não faz sentido mostrar licitações que encerram hoje — não dá tempo de participar.
+    const amanha = new Date(hoje);
+    amanha.setDate(hoje.getDate() + 1);
     const trintaDiasFrente = new Date(hoje);
     trintaDiasFrente.setDate(hoje.getDate() + 30);
 
     document.getElementById('dataPublicacaoInicial').valueAsDate = umAnoAtras;
     document.getElementById('dataPublicacaoFinal').valueAsDate = hoje;
-    document.getElementById('dataAberturaInicial').valueAsDate = hoje;
+    document.getElementById('dataAberturaInicial').valueAsDate = amanha;
     document.getElementById('dataAberturaFinal').valueAsDate = trintaDiasFrente;
 
     // Event listeners
@@ -336,14 +365,16 @@ function limparFiltros() {
     const umAnoAtras = new Date(hoje);
     umAnoAtras.setFullYear(hoje.getFullYear() - 1);
 
-    // Fim Propostas: hoje até próximos 30 dias
-
+    // Fim Propostas: D+1 (amanhã) até próximos 30 dias.
+    // Não faz sentido mostrar licitações que encerram hoje — não dá tempo de participar.
+    const amanha = new Date(hoje);
+    amanha.setDate(hoje.getDate() + 1);
     const trintaDiasFrente = new Date(hoje);
     trintaDiasFrente.setDate(hoje.getDate() + 30);
 
     document.getElementById('dataPublicacaoInicial').valueAsDate = umAnoAtras;
     document.getElementById('dataPublicacaoFinal').valueAsDate = hoje;
-    document.getElementById('dataAberturaInicial').valueAsDate = hoje;
+    document.getElementById('dataAberturaInicial').valueAsDate = amanha;
     document.getElementById('dataAberturaFinal').valueAsDate = trintaDiasFrente;
 
     // Limpar resultados
@@ -446,17 +477,39 @@ function formatarCNPJ(cnpj) {
     return cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 }
 
+// Coerce qualquer valor (string, null, objeto, array) para array.
+// IA às vezes devolve "atencao" como string única em vez de array — backend
+// salva via JSON.stringify, GET re-parseia e devolve a string crua → .map quebra.
+function asArr(v) {
+    if (Array.isArray(v)) return v;
+    if (v == null || v === '') return [];
+    if (typeof v === 'string') {
+        // Pode ser JSON string ainda ("foo") ou texto cru — envolve no array
+        try {
+            const parsed = JSON.parse(v);
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch { return [v]; }
+    }
+    return [v];
+}
+
 function getModalidadeNome(codigo) {
+    // Tabela PNCP (Lei 14.133). Não confundir com a numeração da Lei 8.666 antiga.
     const modalidades = {
-        1: 'Concorrência',
-        2: 'Tomada de Preços',
-        3: 'Convite',
-        4: 'Concurso',
-        5: 'Leilão',
-        6: 'Pregão',
-        7: 'Dispensa de Licitação',
-        8: 'Inexigibilidade',
-        9: 'Diálogo Competitivo'
+        1: 'Leilão - Eletrônico',
+        2: 'Diálogo Competitivo',
+        3: 'Concurso',
+        4: 'Concorrência - Eletrônica',
+        5: 'Concorrência - Presencial',
+        6: 'Pregão - Eletrônico',
+        7: 'Pregão - Presencial',
+        8: 'Dispensa',
+        9: 'Inexigibilidade',
+        10: 'Manifestação de Interesse',
+        11: 'Pré-qualificação',
+        12: 'Credenciamento',
+        13: 'Leilão - Presencial',
+        14: 'Inaplicabilidade da Licitação',
     };
 
     return modalidades[codigo] || 'Não especificada';
@@ -508,6 +561,7 @@ async function abrirModalItens(cnpj, ano, sequencial) {
     modalSubtitle.textContent = "CNPJ: " + cnpj + " | Ano: " + ano + " | Seq: " + sequencial;
     modalBody.innerHTML = '<div class="loading-itens">Carregando itens...</div>';
     modal.style.display = 'block';
+    modal.classList.add('active');
     document.body.style.overflow = 'hidden';
 
     atualizarContadorSelecionados();
@@ -668,7 +722,9 @@ function atualizarContadorSelecionados() {
 }
 
 function fecharModal() {
-    document.getElementById('modalItens').style.display = 'none';
+    const modal = document.getElementById('modalItens');
+    modal.style.display = 'none';
+    modal.classList.remove('active');
     document.body.style.overflow = 'auto';
     currentLicitacao = null;
     itensSelecionados = new Set();
@@ -700,6 +756,13 @@ async function salvarInteresse() {
             const key = currentLicitacao.cnpj + '-' + currentLicitacao.ano + '-' + currentLicitacao.sequencial;
             const qtdAtual = licitacoesComInteresse[key] || 0;
             licitacoesComInteresse[key] = qtdAtual + itensSelecionados.size;
+
+            // Dispara resolução de compraId em background — assim quando
+            // o usuário abrir propostas-api.html o compraId já estará
+            // cacheado em interesse_compra_id. Fire-and-forget: não bloqueia
+            // o fluxo de UX, se falhar o propostas-api resolve por conta
+            // própria mesmo.
+            resolverCompraIdBackground();
 
             // Atualizar visual do card
             atualizarCardInteresse(currentLicitacao.cnpj, currentLicitacao.ano, currentLicitacao.sequencial);
@@ -1138,7 +1201,7 @@ function criarBadgeIA(cnpj, ano, seq) {
     if (analise) {
         const score = analise.viabilidade_score || 0;
         const cls = getScoreClass(score);
-        return `<span class="badge-ia ${cls}" onclick="event.stopPropagation(); abrirModalAnalise('${cnpj}', ${ano}, ${seq})" title="${analise.segmento || ''} - ${analise.complexidade || ''}">
+        return `<span class="badge-ia ${cls}" onclick="event.stopPropagation(); abrirAnaliseIA('${cnpj}', ${ano}, ${seq})" title="${analise.segmento || ''} - ${analise.complexidade || ''}">
             IA ${score}
         </span>`;
     }
@@ -1161,7 +1224,7 @@ function atualizarBadgesIA() {
         if (!badgesDiv) return;
 
         // Remove badge IA antigo se existir
-        const oldBadge = badgesDiv.querySelector('.badge-ia, .btn-analisar-ia');
+        const oldBadge = badgesDiv.querySelector('.badge-ia');
         if (oldBadge) oldBadge.remove();
 
         // Insere novo badge
@@ -1200,141 +1263,11 @@ async function analisarLicitacao(cnpj, ano, seq, btn) {
     }
 }
 
-function abrirModalAnalise(cnpj, ano, seq) {
-    const key = cnpj + '-' + ano + '-' + seq;
-    const analise = analisesIA[key];
-    if (!analise) return;
-
-    const modal = document.getElementById('modalAnaliseIA');
-    const body = document.getElementById('modalAnaliseBody');
-
-    const score = analise.viabilidade_score || 0;
-    const cls = getScoreClass(score);
-    const complexCls = analise.complexidade === 'alta' ? 'complexidade-alta' :
-                       analise.complexidade === 'baixa' ? 'complexidade-baixa' : 'complexidade-media';
-
-    const itensDestaque = analise.itens_destaque || [];
-    const requisitos = analise.requisitos || [];
-    const atencao = analise.atencao || [];
-
-    // Parse JSON strings if needed
-    const parseArr = (v) => {
-        if (Array.isArray(v)) return v;
-        if (typeof v === 'string') { try { return JSON.parse(v); } catch(e) { return []; } }
-        return [];
-    };
-
-    body.innerHTML = `
-        <div class="analise-score-grande">
-            <div class="score-numero ${cls}" style="color: ${score >= 70 ? '#2e7d32' : score >= 40 ? '#f57f17' : '#c62828'}">${score}</div>
-            <div class="score-label">Score de Viabilidade</div>
-        </div>
-
-        <div class="analise-secao">
-            <h4>Resumo</h4>
-            <p>${analise.resumo || 'N/A'}</p>
-        </div>
-
-        <div class="analise-secao">
-            <h4>Justificativa do Score</h4>
-            <p>${analise.viabilidade_justificativa || 'N/A'}</p>
-        </div>
-
-        <div class="analise-meta">
-            <div class="analise-meta-item">
-                <div class="meta-label">Segmento</div>
-                <div class="meta-value">${analise.segmento || 'N/A'}</div>
-            </div>
-            <div class="analise-meta-item">
-                <div class="meta-label">Complexidade</div>
-                <div class="meta-value"><span class="complexidade-badge ${complexCls}">${analise.complexidade || 'N/A'}</span></div>
-            </div>
-            <div class="analise-meta-item">
-                <div class="meta-label">Critério de Julgamento</div>
-                <div class="meta-value">${analise.criterio_julgamento || 'N/A'}</div>
-            </div>
-            <div class="analise-meta-item">
-                <div class="meta-label">Prazo de Entrega</div>
-                <div class="meta-value">${analise.prazo_entrega || 'N/A'}</div>
-            </div>
-            <div class="analise-meta-item">
-                <div class="meta-label">Local de Entrega</div>
-                <div class="meta-value">${analise.local_entrega || 'N/A'}</div>
-            </div>
-            <div class="analise-meta-item">
-                <div class="meta-label">Vistoria Obrigatória</div>
-                <div class="meta-value">${analise.vistoria_obrigatoria ? 'Sim' : 'Não'}</div>
-            </div>
-            <div class="analise-meta-item">
-                <div class="meta-label">Exclusivo ME/EPP</div>
-                <div class="meta-value">${analise.exclusivo_mei_epp ? 'Sim' : 'Não'}</div>
-            </div>
-            <div class="analise-meta-item">
-                <div class="meta-label">Documentos Analisados</div>
-                <div class="meta-value">${analise.textos_extraidos || 0} doc(s)</div>
-            </div>
-        </div>
-
-        ${parseArr(itensDestaque).length > 0 ? `
-        <div class="analise-secao">
-            <h4>Itens em Destaque</h4>
-            <ul>${parseArr(itensDestaque).map(i => '<li>' + i + '</li>').join('')}</ul>
-        </div>` : ''}
-
-        ${parseArr(requisitos).length > 0 ? `
-        <div class="analise-secao">
-            <h4>Requisitos Técnicos</h4>
-            <ul>${parseArr(requisitos).map(r => '<li>' + r + '</li>').join('')}</ul>
-        </div>` : ''}
-
-        ${parseArr(atencao).length > 0 ? `
-        <div class="analise-secao">
-            <h4>Pontos de Atenção</h4>
-            <ul>${parseArr(atencao).map(a => '<li class="atencao">' + a + '</li>').join('')}</ul>
-        </div>` : ''}
-
-        <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-            <small style="color: #999;">Análise gerada em ${analise.dataAnalise ? new Date(analise.dataAnalise).toLocaleString('pt-BR') : 'N/A'}</small>
-            <br>
-            <button class="btn-analisar-ia" style="margin-top: 10px; padding: 8px 20px; font-size: 13px;" onclick="reanalisarLicitacao('${cnpj}', ${ano}, ${seq})">Reanalisar</button>
-        </div>
-    `;
-
-    modal.style.display = 'block';
-    document.body.style.overflow = 'hidden';
-}
-
-function fecharModalAnalise() {
-    document.getElementById('modalAnaliseIA').style.display = 'none';
-    document.body.style.overflow = 'auto';
-}
-
-async function reanalisarLicitacao(cnpj, ano, seq) {
-    const body = document.getElementById('modalAnaliseBody');
-    body.innerHTML = '<div style="text-align: center; padding: 40px;"><h3>Analisando...</h3><p>Extraindo documentos e processando com IA...</p></div>';
-
-    try {
-        const resp = await fetch(`/api/licitacoes/${cnpj}/${ano}/${seq}/analisar`, { method: 'POST' });
-        const data = await resp.json();
-
-        if (data.success && data.analise) {
-            const key = cnpj + '-' + ano + '-' + seq;
-            analisesIA[key] = data.analise;
-            atualizarBadgesIA();
-            abrirModalAnalise(cnpj, ano, seq); // Re-render modal
-        } else {
-            body.innerHTML = `<div style="text-align: center; padding: 40px; color: #c62828;"><h3>Erro na análise</h3><p>${data.error || 'Falha ao processar'}</p></div>`;
-        }
-    } catch (e) {
-        body.innerHTML = '<div style="text-align: center; padding: 40px; color: #c62828;"><h3>Erro de conexão</h3></div>';
-    }
-}
-
-// Escape fecha modal de análise
+// Escape fecha o modal IA (abrirAnaliseIA cria #modal-analise-ia dinamicamente)
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && document.getElementById('modalAnaliseIA').style.display === 'block') {
-        fecharModalAnalise();
-    }
+    if (e.key !== 'Escape') return;
+    const m = document.getElementById('modal-analise-ia');
+    if (m && m.style.display !== 'none') m.style.display = 'none';
 });
 
 // Carregar lidas, interesses e sem interesse ao iniciar
@@ -1355,7 +1288,7 @@ async function carregarBadgesIA() {
         const id = btnIA.id.replace('btn-ia-', '');
         const [cnpj, ano, seq] = id.split('-');
         try {
-            const resp = await fetch(`/api/licitacoes/${cnpj}/${seq}/${ano}/analise`);
+            const resp = await fetch(`/api/licitacoes/${cnpj}/${ano}/${seq}/analise`);
             const data = await resp.json();
             const badge = document.getElementById(`badge-ia-${cnpj}-${ano}-${seq}`);
             if (data.analise && badge) {
@@ -1406,7 +1339,7 @@ async function abrirAnaliseIA(cnpj, ano, seq) {
     </div>`;
 
     try {
-        let resp = await fetch(`/api/licitacoes/${cnpj}/${seq}/${ano}/analise`);
+        let resp = await fetch(`/api/licitacoes/${cnpj}/${ano}/${seq}/analise`);
         let data = await resp.json();
 
         // Se não há análise, solicitar
@@ -1438,7 +1371,7 @@ async function solicitarAnaliseIA(cnpj, ano, seq) {
     </div>`;
 
     try {
-        const resp = await fetch(`/api/licitacoes/${cnpj}/${seq}/${ano}/analisar`, { method: 'POST' });
+        const resp = await fetch(`/api/licitacoes/${cnpj}/${ano}/${seq}/analisar`, { method: 'POST' });
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
         renderAnaliseModal(body, data.analise, cnpj, ano, seq);
@@ -1453,6 +1386,35 @@ async function solicitarAnaliseIA(cnpj, ano, seq) {
             ` : ''}
         </div>`;
     }
+}
+
+function renderItensDetalhados(itens) {
+    if (!Array.isArray(itens) || itens.length === 0) return '';
+    return itens.map(i => {
+        if (typeof i === 'string') {
+            return `<span style="background:#1e3a5f;color:#93c5fd;padding:4px 10px;border-radius:5px;font-size:13px;display:inline-block;margin:3px;">${i}</span>`;
+        }
+        const escape = (s) => s == null ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const linha = (label, valor) => valor == null || valor === '' ? '' :
+            `<div style="font-size:13px;color:#cbd5e1;margin-top:4px;"><span style="color:#64748b;font-weight:600;">${label}:</span> ${escape(valor)}</div>`;
+        const cabecalho = i.numero ? `Item ${escape(i.numero)}${i.descricao ? ' — ' + escape(i.descricao) : ''}` : escape(i.descricao || 'Item');
+        const qtde = (i.quantidade || i.unidade) ? `${escape(i.quantidade || '')} ${escape(i.unidade || '')}`.trim() : null;
+        const sugestaoBloco = i.sugestao_cotacao ? `
+            <div style="background:#0a1f3d;border-left:3px solid #22c55e;border-radius:6px;padding:10px 12px;margin-top:10px;">
+                <div style="font-size:11px;color:#22c55e;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">💡 Sugestão para cotar</div>
+                <div style="font-size:13px;color:#e2e8f0;line-height:1.5;">${escape(i.sugestao_cotacao)}</div>
+            </div>` : '';
+        return `
+        <div style="background:#0f172a;border-left:3px solid #3b82f6;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+            <div style="font-weight:700;color:#e2e8f0;font-size:14px;">${cabecalho}</div>
+            ${linha('Quantidade', qtde)}
+            ${linha('Especificações', i.especificacoes_tecnicas)}
+            ${linha('Marca de referência', i.marca_referencia)}
+            ${linha('Garantia', i.garantia)}
+            ${linha('Observações', i.observacoes)}
+            ${sugestaoBloco}
+        </div>`;
+    }).join('');
 }
 
 function renderAnaliseModal(container, a, cnpj, ano, seq) {
@@ -1472,7 +1434,33 @@ function renderAnaliseModal(container, a, cnpj, ano, seq) {
             ${content}
         </div>` : '';
 
+    // Badge de compatibilidade com produto vendido (preenchido se grupo tem
+    // produtos_que_vendo definido). Aparece logo acima do score.
+    let badgeCompat = '';
+    if (a.produto_compativel === 1 || a.produto_compativel === true) {
+        badgeCompat = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;
+                                  background:rgba(34,197,94,0.12);border-left:3px solid #22c55e;
+                                  border-radius:8px;padding:10px 14px;">
+            <span style="font-size:18px;">✅</span>
+            <div>
+                <div style="font-weight:700;color:#22c55e;font-size:13px;">Compatível com seu portfólio</div>
+                <div style="font-size:12px;color:#cbd5e1;margin-top:2px;">${a.motivo_compativel || ''}</div>
+            </div>
+        </div>`;
+    } else if (a.produto_compativel === 0 || a.produto_compativel === false) {
+        badgeCompat = `<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;
+                                  background:rgba(239,68,68,0.12);border-left:3px solid #ef4444;
+                                  border-radius:8px;padding:10px 14px;">
+            <span style="font-size:18px;">❌</span>
+            <div>
+                <div style="font-weight:700;color:#ef4444;font-size:13px;">Não compatível com seu portfólio</div>
+                <div style="font-size:12px;color:#cbd5e1;margin-top:2px;">${a.motivo_compativel || ''}</div>
+            </div>
+        </div>`;
+    }
+
     container.innerHTML = `
+        ${badgeCompat}
         <!-- Score -->
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:22px;
                     background:#0f172a;border-radius:12px;padding:16px;">
@@ -1485,7 +1473,7 @@ function renderAnaliseModal(container, a, cnpj, ano, seq) {
 
         ${section('📋 Resumo', `<p style="font-size:14px;color:#cbd5e1;line-height:1.6;background:#0f172a;padding:14px;border-radius:10px;">${a.resumo || '—'}</p>`)}
 
-        ${section('📦 Itens em Destaque', (a.itens_destaque||[]).map(i => badge(i)).join(''))}
+        ${section('📦 Itens em Destaque', renderItensDetalhados(a.itens_destaque))}
         ${section('🏷️ Segmento', a.segmento ? badge(a.segmento, '#1e3a5f', '#93c5fd') : '')}
 
         <!-- Info grid -->
@@ -1498,22 +1486,28 @@ function renderAnaliseModal(container, a, cnpj, ano, seq) {
             ${infoBox('Exclusivo ME/EPP', a.exclusivo_mei_epp ? '✅ Sim' : 'Não')}
         </div>
 
-        ${section('📎 Requisitos de Habilitação', (a.requisitos||[]).map(r => badge(r, '#1e293b', '#cbd5e1')).join(''))}
-        ${section('⚠️ Pontos de Atenção', (a.atencao||[]).map(p => badge(p, '#451a03', '#fbbf24')).join(''))}
+        ${section('📎 Requisitos de Habilitação', asArr(a.requisitos).map(r => badge(r, '#1e293b', '#cbd5e1')).join(''))}
+        ${section('⚠️ Pontos de Atenção', asArr(a.atencao).map(p => badge(p, '#451a03', '#fbbf24')).join(''))}
 
-        ${section('📁 Arquivos Analisados', (a.arquivos_info||[]).length > 0
-            ? (a.arquivos_info||[]).map(f => badge(`📄 ${f.nome}`, '#0f172a', '#64748b')).join('')
-            : `<span style="font-size:13px;color:#64748b">Análise baseada nos dados da API PNCP (instale pdf-parse e mammoth para leitura de documentos)</span>`
+        ${section('📁 Arquivos Analisados', asArr(a.arquivos_info).length > 0
+            ? `<div style="font-size:12px;color:#64748b;margin-bottom:6px;">${a.textos_extraidos || 0} de ${asArr(a.arquivos_info).length} anexo(s) com texto extraído</div>` +
+              asArr(a.arquivos_info).map(f => badge(`📄 ${f.titulo || f.nome || 'arquivo'}`, '#0f172a', '#64748b')).join('')
+            : `<span style="font-size:13px;color:#64748b">Sem anexos no PNCP — análise baseada apenas nos metadados.</span>`
         )}
 
         <!-- Decisão -->
         <div style="background:#1e3a5f;border-radius:12px;padding:20px;margin-top:8px;text-align:center;">
             <p style="color:#93c5fd;margin-bottom:16px;font-weight:600;">Deseja registrar interesse nesta licitação?</p>
-            <div style="display:flex;gap:12px;justify-content:center;" id="ia-decision-btns">
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;" id="ia-decision-btns">
                 <button onclick="registrarInteresseIA('${cnpj}','${ano}','${seq}')"
                     style="background:#10b981;color:#fff;border:none;padding:12px 28px;
                            border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;">
                     ⭐ Sim, tenho interesse
+                </button>
+                <button onclick="solicitarAnaliseIA('${cnpj}','${ano}','${seq}')"
+                    style="background:#3b82f6;color:#fff;border:none;padding:12px 20px;
+                           border-radius:10px;cursor:pointer;font-size:15px;">
+                    🔄 Reanalisar
                 </button>
                 <button onclick="document.getElementById('modal-analise-ia').style.display='none'"
                     style="background:#334155;color:#94a3b8;border:none;padding:12px 20px;
@@ -1559,6 +1553,9 @@ async function registrarInteresseIA(cnpj, ano, seq) {
         if (btns) btns.innerHTML = `<div style="color:#34d399;font-weight:700;font-size:16px;">
             ✅ Interesse registrado em ${itens.length} item(s)!
         </div>`;
+
+        // Dispara resolução de compraId em background (ver salvarInteresse)
+        resolverCompraIdBackground();
 
         // Atualiza card
         await carregarInteresses();

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contabilização Automática · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Contabilização Automática</h1>
+    <small>Mapeie evento → contas D/C (analíticas, por código) e processe o período — idempotente, nunca contabiliza a mesma origem duas vezes</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <h2 style="margin:10px 0 8px;">Mapeamentos</h2>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Evento</th><th>Débito (código)</th><th>Crédito (código)</th><th>Status</th><th></th></tr></thead>
+    <tbody id="tbCfg"></tbody>
+  </table></div>
+
+  <h2 style="margin:22px 0 8px;">Processar período</h2>
+  <div class="toolbar">
+    <input type="date" id="pInicio"> <input type="date" id="pFim">
+    <button class="btn btn-secondary btn-sm" onclick="verPendencias()">Ver pendências</button>
+    <button class="btn btn-primary btn-sm" onclick="processar()">⚙️ Contabilizar período</button>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Evento</th><th>Configurado</th><th style="text-align:right;">Total no período</th>
+      <th style="text-align:right;">Pendentes</th><th style="text-align:right;">Valor pendente</th></tr></thead>
+    <tbody id="tbPend"><tr><td colspan="5" class="empty">Use "Ver pendências"</td></tr></tbody>
+  </table></div>
+
+  <h2 style="margin:22px 0 8px;">Exportação para o contador</h2>
+  <div class="toolbar">
+    <input type="month" id="expComp">
+    <button class="btn btn-primary btn-sm" onclick="exportar()">⬇️ Baixar pacote (zip)</button>
+    <small class="muted" style="align-self:center;">XMLs autorizados + lançamentos + balancete + extrato financeiro</small>
+  </div>
+</main></div>
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script>initSidebar('ctb-contabilizacao');</script>
+<script>
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',7000);}
+function fmt(v){return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+let disponiveis=[];
+async function carregarCfg(){
+  const r=await fetch('/api/contabilidade/eventos-config');const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  disponiveis=d.eventosDisponiveis;
+  const cfgPor=Object.fromEntries((d.configs||[]).map(c=>[c.evento,c]));
+  document.getElementById('tbCfg').innerHTML=disponiveis.map(ev=>{
+    const c=cfgPor[ev.evento]||{};
+    return `<tr data-ev="${ev.evento}">
+      <td>${ev.nome}<br><small class="muted">${ev.evento}</small></td>
+      <td><input type="text" class="cD" value="${c.contaDebitoCodigo||''}" placeholder="ex.: 1.1.001" style="width:130px;"></td>
+      <td><input type="text" class="cC" value="${c.contaCreditoCodigo||''}" placeholder="ex.: 3.1.001" style="width:130px;"></td>
+      <td>${c.id?(c.ativo?'<span class="badge entrada">ATIVO</span>':'<span class="badge cancelado">INATIVO</span>'):'<span class="badge ajuste">NÃO CONFIG.</span>'}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="salvarCfg('${ev.evento}', this)">Salvar</button>
+      ${c.id?`<button class="btn btn-ghost btn-sm" onclick="toggleCfg('${ev.evento}', ${c.ativo?0:1}, this)">${c.ativo?'Desativar':'Ativar'}</button>`:''}</td>
+    </tr>`;
+  }).join('');
+}
+async function salvarCfg(evento, btn){
+  const tr=btn.closest('tr');
+  const body={evento,contaDebitoCodigo:tr.querySelector('.cD').value.trim(),contaCreditoCodigo:tr.querySelector('.cC').value.trim(),ativo:1};
+  if(!body.contaDebitoCodigo||!body.contaCreditoCodigo)return showAlert('Informe os dois códigos','error');
+  const r=await fetch('/api/contabilidade/eventos-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');
+  showAlert('Mapeamento salvo');carregarCfg();
+}
+async function toggleCfg(evento, ativo, btn){
+  const tr=btn.closest('tr');
+  const body={evento,contaDebitoCodigo:tr.querySelector('.cD').value.trim(),contaCreditoCodigo:tr.querySelector('.cC').value.trim(),ativo};
+  const r=await fetch('/api/contabilidade/eventos-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');carregarCfg();
+}
+async function verPendencias(){
+  const i=document.getElementById('pInicio').value,f=document.getElementById('pFim').value;
+  if(!i||!f)return showAlert('Informe o período','error');
+  const r=await fetch(`/api/contabilidade/pendencias?inicio=${i}&fim=${f}`);const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  document.getElementById('tbPend').innerHTML=d.pendencias.map(p=>`<tr>
+    <td>${p.nome}</td><td>${p.configurado?'✅':'—'}</td>
+    <td style="text-align:right;">${p.total}</td>
+    <td style="text-align:right;"><strong>${p.pendentes}</strong></td>
+    <td style="text-align:right;">R$ ${fmt(p.valorPendente)}</td></tr>`).join('');
+}
+async function processar(){
+  const i=document.getElementById('pInicio').value,f=document.getElementById('pFim').value;
+  if(!i||!f)return showAlert('Informe o período','error');
+  if(!confirm(`Contabilizar todos os eventos pendentes de ${i} a ${f}?`))return;
+  const r=await fetch('/api/contabilidade/processar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({inicio:i,fim:f})});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');
+  showAlert(`${d.gerados} lançamento(s) gerado(s)${d.erros.length?` · ${d.erros.length} erro(s): ${d.erros[0].erro}`:''}`,d.erros.length?'error':'success');
+  verPendencias();
+}
+function exportar(){
+  const comp=document.getElementById('expComp').value;
+  if(!comp)return showAlert('Informe a competência','error');
+  window.location.href='/api/contabilidade/exportar-contador?competencia='+comp;
+}
+const hj=new Date();
+document.getElementById('pInicio').value=hj.getFullYear()+'-'+String(hj.getMonth()+1).padStart(2,'0')+'-01';
+document.getElementById('pFim').value=hj.toISOString().slice(0,10);
+document.getElementById('expComp').value=hj.toISOString().slice(0,7);
+carregarCfg();
+</script>
+</body></html>

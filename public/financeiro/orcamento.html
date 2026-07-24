@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orçamento · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Orçamento — Previsto × Realizado</h1>
+    <small>Meta por conta do plano gerencial × competência; realizado vem dos pagamentos efetivos de CR/CP</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+  <div class="toolbar">
+    <input type="number" id="ano" style="width:100px;" onchange="carregar()">
+    <select id="oConta" style="min-width:240px;"></select>
+    <input type="month" id="oComp">
+    <input type="number" id="oValor" placeholder="Previsto (R$)" step="0.01" style="width:140px;">
+    <button class="btn btn-primary btn-sm" onclick="salvarPrevisto()">Definir previsto</button>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Conta</th><th>Competência</th>
+      <th style="text-align:right;">Previsto</th><th style="text-align:right;">Realizado</th>
+      <th style="text-align:right;">Desvio</th><th style="text-align:right;">%</th></tr></thead>
+    <tbody id="tb"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+  </table></div>
+</main></div>
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script>initSidebar('fin-orcamento');</script>
+<script>
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',5000);}
+function fmt(v){return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+async function carregar(){
+  const ano=document.getElementById('ano').value;
+  const r=await fetch('/api/orcamento/previsto-realizado?ano='+ano);const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  document.getElementById('tb').innerHTML=d.linhas.length?d.linhas.map(l=>{
+    const pct=l.previsto>0?(l.realizado/l.previsto*100):null;
+    const cor=l.desvio>=0?(l.tipo==='receita'?'var(--success)':'var(--danger)'):(l.tipo==='receita'?'var(--danger)':'var(--success)');
+    return `<tr><td>${l.codigo||''} ${l.nome||'#'+l.planoContaId}</td><td>${l.competencia}</td>
+      <td style="text-align:right;">${fmt(l.previsto)}</td>
+      <td style="text-align:right;"><strong>${fmt(l.realizado)}</strong></td>
+      <td style="text-align:right;color:${cor};">${fmt(l.desvio)}</td>
+      <td style="text-align:right;">${pct!=null?pct.toFixed(0)+'%':'-'}</td></tr>`;
+  }).join(''):'<tr><td colspan="6" class="empty">Sem dados no ano — defina previstos acima</td></tr>';
+}
+async function salvarPrevisto(){
+  const body={planoContaId:Number(document.getElementById('oConta').value),
+    competencia:document.getElementById('oComp').value,
+    valorPrevisto:Number(document.getElementById('oValor').value)};
+  if(!body.planoContaId||!body.competencia)return showAlert('Conta e competência obrigatórias','error');
+  const r=await fetch('/api/orcamento',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');
+  showAlert('Previsto salvo');carregar();
+}
+(async()=>{
+  const hoje=new Date();
+  document.getElementById('ano').value=hoje.getFullYear();
+  document.getElementById('oComp').value=hoje.toISOString().slice(0,7);
+  const r=await fetch('/api/gerencial/plano-contas').catch(()=>null);
+  let contas=[];
+  if(r){const d=await r.json().catch(()=>({}));contas=d.contas||d.planoContas||[];}
+  if(!contas.length){const r2=await fetch('/api/plano-contas').catch(()=>null);
+    if(r2){const d2=await r2.json().catch(()=>({}));contas=d2.contas||d2.planoContas||[];}}
+  document.getElementById('oConta').innerHTML='<option value="">— conta gerencial —</option>'+
+    contas.map(c=>`<option value="${c.id}">${c.codigo||''} ${c.nome}</option>`).join('');
+  carregar();
+})();
+</script>
+</body></html>

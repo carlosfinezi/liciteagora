@@ -39,6 +39,7 @@
 // (onda 6.7).
 
 const forge = require('node-forge');
+const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
 const { SignPdf } = require('@signpdf/signpdf');
 const { P12Signer } = require('@signpdf/signer-p12');
 const { plainAddPlaceholder } = require('@signpdf/placeholder-plain');
@@ -161,8 +162,11 @@ function registrarRotasPdf(app, db) {
         return res.status(400).json({ success: false, error: 'PDF não fornecido' });
       }
 
-      // Buscar certificado
-      const cert = db.prepare('SELECT certificadoBase64, senhaCriptografada, titular, validade FROM certificado_digital WHERE id = 1').get();
+      // Buscar certificado do estabelecimento ativo (matriz → id=1; filial → sua linha)
+      const _estab = getEstabelecimentoAtivo(db, req);
+      const cert = (_estab && !_estab.matriz)
+        ? db.prepare('SELECT certificadoBase64, senhaCriptografada, titular, validade FROM certificado_digital WHERE estabelecimentoId = ?').get(_estab.id)
+        : db.prepare('SELECT certificadoBase64, senhaCriptografada, titular, validade FROM certificado_digital WHERE id = 1').get();
 
       if (!cert) {
         return res.status(400).json({ success: false, error: 'Certificado não configurado. Configure em Dados do Fornecedor.' });

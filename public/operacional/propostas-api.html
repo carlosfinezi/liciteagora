@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Propostas via API · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* Page-local: componentes específicos da página de propostas.
+           Componentes canônicos (.btn, .badge, .panel, .card, .toolbar) vêm de app-modern.css */
+
+        .token-status { padding: 5px 12px; border-radius: var(--r-md); font-size: 0.8em; font-weight: 500; border: 1px solid transparent; }
+        .token-status.ok   { background: var(--success-soft); color: var(--success); border-color: rgba(52,211,153,0.35); }
+        .token-status.warn { background: var(--warn-soft);    color: var(--warn);    border-color: rgba(251,191,36,0.35); }
+        .token-status.err  { background: var(--danger-soft);  color: var(--danger);  border-color: rgba(248,113,113,0.35); }
+        .stats-info { font-size: 0.8em; color: var(--text-3); margin-left: auto; }
+
+        .filtro-resultado { font-size: 0.78em; color: var(--text-3); margin: 6px 0 12px; }
+
+        /* Cabeçalho da participação */
+        .participacao-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+        .participacao-info   { flex: 1; min-width: 0; }
+        .participacao-objeto { font-size: 0.92em; font-weight: 600; color: var(--text-0); line-height: 1.4; margin-bottom: 4px; }
+        .participacao-orgao  { font-size: 0.8em; color: var(--text-2); margin-bottom: 6px; }
+        .participacao-meta   { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .participacao-acoes  { flex-shrink: 0; }
+
+        .badge-compra   { background: var(--accent-soft); color: var(--accent); padding: 2px 8px; border-radius: var(--r-sm); font-size: 0.76em; font-family: 'SF Mono', Menlo, Monaco, monospace; }
+        .badge-situacao { padding: 2px 8px; border-radius: var(--r-sm); font-size: 0.76em; font-weight: 600; }
+        .badge-sit-PD, .badge-sit-AB, .badge-sit-5 { background: var(--accent-soft); color: var(--accent); }
+        .badge-sit-EN, .badge-sit-FR, .badge-sit-2 { background: var(--danger-soft); color: var(--danger); }
+        .badge-sit-PE                              { background: var(--success-soft); color: var(--success); }
+        .badge-fase     { background: var(--warn-soft); color: var(--warn); padding: 2px 8px; border-radius: var(--r-sm); font-size: 0.76em; }
+        .meta-data      { color: var(--text-3); font-size: 0.76em; }
+
+        .btn-comprasnet { padding: 5px 12px; border-radius: var(--r-sm); background: var(--accent-strong); color: #fff; text-decoration: none; font-size: 0.8em; font-weight: 500; white-space: nowrap; transition: background 0.15s; }
+        .btn-comprasnet:hover { background: var(--accent); }
+
+        /* Barra selecionar todos */
+        .select-all-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 10px; background: var(--bg-3); border-radius: var(--r-sm); }
+        .select-all-bar label { color: var(--text-2); font-size: 0.82em; cursor: pointer; }
+        .badge-qtd { margin-left: auto; background: var(--accent-soft); color: var(--accent); padding: 2px 10px; border-radius: 10px; font-size: 0.76em; font-weight: 600; }
+
+        /* Itens grid */
+        .item-header-row, .item-row { display: grid; grid-template-columns: 30px 1fr 70px 120px 1fr; gap: 6px; padding: 6px 8px; font-size: 0.78em; }
+        .item-header-row { color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+        .item-row        { align-items: center; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+        .item-row:hover       { background: var(--bg-hover); }
+        .item-row.selecionado { background: var(--accent-soft); border-left: 3px solid var(--accent); }
+
+        .item-checkbox { width: 16px; height: 16px; cursor: pointer; }
+        .item-desc     { min-width: 0; }
+        .item-num      { font-weight: 600; color: var(--accent); font-size: 0.82em; margin-right: 6px; }
+        .item-texto    { font-size: 0.85em; color: var(--text-1); }
+        .item-ref      { display: block; font-size: 0.76em; color: var(--text-3); margin-top: 2px; }
+        .item-valor    { text-align: right; font-size: 0.85em; color: var(--text-3); }
+        .valor-ganhando     { color: var(--success); font-weight: 600; }
+        .valor-participando { color: var(--accent); }
+
+        .item-input-cell  input[type=number] { padding: 5px 6px; font-size: 0.86em; text-align: right; }
+        .item-extras-cell { display: flex; flex-direction: column; gap: 3px; }
+        .item-extras-cell input { padding: 3px 6px; font-size: 0.78em; }
+
+        .badge-sit { padding: 2px 6px; border-radius: var(--r-sm); font-size: 0.74em; font-weight: 600; }
+        .badge-sit-G { background: var(--success-soft); color: var(--success); }
+        .badge-sit-P { background: var(--accent-soft);  color: var(--accent); }
+        .badge-sit-C { background: var(--warn-soft);    color: var(--warn); }
+        .badge-sit-D, .badge-sit-I, .badge-sit-A, .badge-sit-F, .badge-sit-R { background: var(--danger-soft); color: var(--danger); }
+
+        /* Ações da participação */
+        .participacao-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+        .btn-action { padding: 5px 12px; border-radius: var(--r-sm); border: 1px solid transparent; cursor: pointer; font-size: 0.8em; font-weight: 500; transition: background 0.15s; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-family: inherit; }
+        .btn-enviar       { background: var(--success-soft); color: var(--success); border-color: rgba(52,211,153,0.35); }
+        .btn-enviar:hover { background: rgba(52,211,153,0.25); }
+        .btn-excluir      { background: var(--danger-soft);  color: var(--danger);  border-color: rgba(248,113,113,0.35); }
+        .btn-excluir:hover{ background: rgba(248,113,113,0.25); }
+        .btn-pdf          { background: var(--warn-soft);    color: var(--warn);    border-color: rgba(251,191,36,0.35); }
+        .btn-pdf:hover    { background: rgba(251,191,36,0.25); }
+        .btn-pdf-assinado { background: var(--purple-soft);  color: var(--purple);  border-color: rgba(167,139,250,0.35); }
+        .btn-pdf-assinado:hover { background: rgba(167,139,250,0.22); }
+
+        .itens-loading, .empty-itens { text-align: center; padding: 16px; color: var(--text-3); font-size: 0.85em; }
+
+        /* Cruzamento com catálogo de produtos */
+        .produto-match-cell { display: flex; flex-direction: column; gap: 3px; font-size: 0.78em; min-width: 0; }
+        .match-badge { background: var(--success-soft); color: var(--success); padding: 3px 8px; border-radius: var(--r-sm);
+            cursor: pointer; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(52,211,153,0.35);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .match-badge:hover { background: rgba(52,211,153,0.25); }
+        .match-badge.gold { background: rgba(250,204,21,0.18); color: #fbbf24; border-color: rgba(250,204,21,0.35); }
+        .match-select { font-size: 0.78em; padding: 3px 6px; max-width: 100%; }
+        .btn-cadastrar-produto { background: var(--accent-soft); color: var(--accent); padding: 3px 8px; border-radius: var(--r-sm);
+            cursor: pointer; border: 1px dashed rgba(96,165,250,0.4); font-size: 0.76em; font-family: inherit;
+            white-space: nowrap; }
+        .btn-cadastrar-produto:hover { background: rgba(96,165,250,0.22); }
+        .match-loading { color: var(--text-3); font-size: 0.76em; font-style: italic; }
+        .match-precos { color: var(--text-3); font-size: 0.74em; }
+
+        /* Modal cadastro produto */
+        .form-grid-produto { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+        .form-grid-produto label { display: flex; flex-direction: column; font-size: 0.82em; color: var(--text-2); gap: 4px; }
+        .form-grid-produto label.full { grid-column: 1 / -1; }
+        .form-grid-produto input, .form-grid-produto textarea { padding: 6px 10px; font-size: 0.88em; }
+        .form-grid-produto textarea { min-height: 60px; font-family: inherit; resize: vertical; }
+
+        /* Resumo */
+        .resumo-item  { display: flex; justify-content: space-between; padding: 6px 0; font-size: 0.9em; border-bottom: 1px solid var(--border); }
+        .resumo-total { display: flex; justify-content: space-between; padding: 10px 0 0; font-size: 1.05em; font-weight: 700; color: var(--success); }
+
+        /* Modal envio */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay.open { display: flex; }
+        .modal-content { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 22px; max-width: 640px; width: 90%; max-height: 85vh; overflow-y: auto; }
+        .modal-content h3 { color: var(--text-0); margin-bottom: 14px; }
+        .modal-close { float: right; background: transparent; border: none; color: var(--text-3); font-size: 1.4em; cursor: pointer; }
+        .modal-close:hover { color: var(--text-0); }
+
+        .envio-info-box { background: var(--bg-1); border: 1px solid var(--border); padding: 12px; border-radius: var(--r-md); margin-bottom: 12px; }
+        .envio-objeto   { font-weight: 600; color: var(--text-0); margin-bottom: 4px; }
+        .envio-orgao    { color: var(--text-2); font-size: 0.86em; margin-bottom: 4px; }
+        .envio-meta     { color: var(--accent); font-size: 0.84em; }
+
+        .progress-bar   { height: 6px; background: var(--bg-1); border-radius: 3px; margin: 12px 0; overflow: hidden; border: 1px solid var(--border); }
+        .progress-fill  { height: 100%; background: var(--success); border-radius: 3px; width: 0%; transition: width 0.4s; }
+
+        .envio-log { max-height: 260px; overflow-y: auto; font-family: 'SF Mono', Menlo, Monaco, monospace; font-size: 0.78em; background: var(--bg-0); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px; margin-top: 10px; }
+        .log-info  { color: var(--accent);  margin-bottom: 3px; }
+        .log-ok    { color: var(--success); margin-bottom: 3px; }
+        .log-err   { color: var(--danger);  margin-bottom: 3px; }
+        .log-link  { margin-top: 10px; padding: 8px; background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-sm); }
+
+        /* Interesses */
+        .badge-interesse  { background: var(--warn-soft);   color: var(--warn);    padding: 2px 8px; border-radius: var(--r-sm); font-size: 0.76em; font-weight: 600; }
+        .badge-sem-compra { background: var(--danger-soft); color: var(--danger);  padding: 2px 8px; border-radius: var(--r-sm); font-size: 0.74em; }
+        .badge-com-compra { background: var(--success-soft);color: var(--success); padding: 2px 8px; border-radius: var(--r-sm); font-size: 0.74em; }
+        .interesse-panel  { border-left: 3px solid var(--warn); }
+        .compra-id-bar    { display: flex; gap: 8px; align-items: center; margin: 10px 0; padding: 10px; background: var(--bg-3); border-radius: var(--r-sm); flex-wrap: wrap; }
+        .compra-id-bar input[type=text] { flex: 1; min-width: 180px; padding: 6px 10px; font-size: 0.86em; font-family: 'SF Mono', Menlo, Monaco, monospace; }
+        .compra-id-bar .btn-verificar   { padding: 6px 12px; border-radius: var(--r-sm); border: 1px solid rgba(96,165,250,0.4); background: var(--accent-soft); color: var(--accent); cursor: pointer; font-size: 0.82em; font-weight: 500; transition: background 0.15s; }
+        .compra-id-bar .btn-verificar:hover { background: rgba(96,165,250,0.28); }
+        .compra-id-bar .status-msg      { font-size: 0.8em; }
+
+        /* Section headers (interesses / participações) */
+        .section-header        { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer; user-select: none; }
+        .section-header h3     { margin: 0; font-size: 0.95em; font-weight: 600; }
+        .section-header.amber h3 { color: var(--warn); }
+        .section-header.blue  h3 { color: var(--accent); }
+        .section-toggle        { color: var(--text-3); font-size: 0.8em; margin-left: auto; }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .item-header-row, .item-row { grid-template-columns: 30px 1fr 120px; }
+            .item-header-row > div:nth-child(3), .item-row > div:nth-child(3),
+            .item-extras-cell,
+            .item-header-row > div:nth-child(5), .item-row > div:nth-child(5) { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Propostas via API</h1>
+        <small>Participações Comprasnet → configure valores → envie direto via API do servidor</small>
+      </div>
+      <div class="actions">
+        <div id="tokenStatus" class="token-status err"><span>Verificando token…</span></div>
+        <span id="statsInfo" class="stats-info"></span>
+      </div>
+    </div>
+
+    <div id="filtrosContainer" style="display:none;">
+      <div class="toolbar">
+        <input type="text" id="filtroTexto" placeholder="Filtrar por nome, órgão ou número da compra…" oninput="aplicarFiltros()" style="flex:1;min-width:200px;">
+        <select id="filtroSituacao" onchange="aplicarFiltros()"><option value="">Todas as licitações</option></select>
+        <select id="filtroOrgao" onchange="aplicarFiltros()"><option value="">Todos os órgãos</option></select>
+        <select id="filtroData" onchange="aplicarFiltros()">
+          <option value="">Qualquer data</option>
+          <option value="hoje">Encerram hoje</option>
+          <option value="amanha">Encerram amanhã</option>
+          <option value="7dias">Próximos 7 dias</option>
+          <option value="vencidas">Já vencidas</option>
+          <option value="sem-data">Sem data</option>
+        </select>
+        <select id="filtroGrupo" onchange="aplicarFiltros()"><option value="">Todos os grupos</option></select>
+        <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar</button>
+      </div>
+      <div class="filtro-resultado" id="filtroResultado"></div>
+    </div>
+
+    <div id="interessesSection" style="display:none;">
+      <div class="section-header amber" onclick="toggleInteresses()">
+        <h3>Licitações de Interesse</h3>
+        <span id="interessesBadge" class="badge-qtd" style="background:var(--warn-soft);color:var(--warn);">0</span>
+        <span id="interessesToggle" class="section-toggle">▼</span>
+      </div>
+      <div id="interessesContainer"></div>
+    </div>
+
+    <div id="separadorSections" style="display:none; border-top:1px solid var(--border); margin:20px 0; padding-top:14px;">
+      <div class="section-header blue" style="cursor:default;">
+        <h3>Participações Comprasnet</h3>
+      </div>
+    </div>
+
+    <div id="loadingContainer" class="loading">
+      <h3>Carregando participações…</h3>
+    </div>
+
+    <div id="emptyState" class="empty" style="display:none;">
+      Nenhuma participação encontrada. O Electron Standalone sincroniza participações automaticamente quando você está logado no Comprasnet.
+    </div>
+
+    <div id="participacoesContainer" style="display:none;"></div>
+
+    <div class="panel" id="resumoGeral" style="display:none;">
+      <h3 style="margin-bottom:12px;">Resumo</h3>
+      <div id="resumoConteudo"></div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toasts"></div>
+
+<!-- Modal cadastrar produto a partir de item -->
+<div id="modalCadastroProduto" class="modal-overlay">
+  <div class="modal-content" style="max-width: 580px;">
+    <button type="button" class="modal-close" onclick="fecharCadastroProduto()">×</button>
+    <h3>Cadastrar produto no catálogo</h3>
+    <p style="font-size:0.82em; color:var(--text-3); margin-bottom:10px;">
+      Campos pré-preenchidos com a descrição do item e a sugestão de marca/modelo da análise IA.
+      Após salvar, o produto vira match automático para outros itens semelhantes.
+    </p>
+    <form id="formCadastroProduto" onsubmit="event.preventDefault(); salvarNovoProdutoMatch();">
+      <div class="form-grid-produto">
+        <label class="full">Descrição
+          <input type="text" id="formProd_descricao" required maxlength="200">
+        </label>
+        <label>SKU
+          <input type="text" id="formProd_sku" required maxlength="40">
+        </label>
+        <label>Unidade
+          <input type="text" id="formProd_unidade" value="UN" maxlength="8">
+        </label>
+        <label>Marca
+          <input type="text" id="formProd_marca" maxlength="80">
+        </label>
+        <label>Modelo
+          <input type="text" id="formProd_modelo" maxlength="80">
+        </label>
+        <label>Preço de custo (R$)
+          <input type="number" id="formProd_custo" step="0.01" min="0" value="0">
+        </label>
+        <label>Preço de venda (R$)
+          <input type="number" id="formProd_venda" step="0.01" min="0" value="0">
+        </label>
+        <label class="full">Especificações técnicas (observações)
+          <textarea id="formProd_obs"></textarea>
+        </label>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="fecharCadastroProduto()">Cancelar</button>
+        <button type="submit" class="btn btn-primary btn-sm">Salvar produto</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('propostas-api');</script>
+<script src="propostas-api.js?v=20260720"></script>
+</body>
+</html>

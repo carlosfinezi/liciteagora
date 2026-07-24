@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Devoluções · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Devoluções</h1>
+      <small>RMA: devoluções de venda, retorno de estoque e crédito ao cliente</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNova()">+ Nova devolução</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="fQ" placeholder="Buscar por número ou cliente…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="aberta">Aberta</option>
+      <option value="efetivada">Efetivada</option>
+      <option value="cancelada">Cancelada</option>
+    </select>
+    <input type="date" id="fIni" onchange="carregar()" title="De">
+    <input type="date" id="fFim" onchange="carregar()" title="Até">
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th>
+        <th>Data</th>
+        <th>Cliente</th>
+        <th>Pedido</th>
+        <th>Status</th>
+        <th class="num">Valor</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Nova/Editar -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:880px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Nova devolução</h3>
+        <small class="muted">Cliente, itens devolvidos e retorno ao estoque</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group" style="flex:1;position:relative;">
+        <label>Cliente *</label>
+        <input type="text" id="fClienteBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCliente()" autocomplete="off">
+        <input type="hidden" id="fClienteId">
+        <div id="acClienteList" class="ac-list"></div>
+      </div>
+      <div class="form-group" style="flex:1;position:relative;">
+        <label>Pedido origem (opcional)</label>
+        <input type="text" id="fPedidoBusca" placeholder="Número do pedido…" oninput="acPedido()" autocomplete="off">
+        <input type="hidden" id="fPedidoId">
+        <div id="acPedidoList" class="ac-list"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Tipo de operação *</label>
+        <select id="fTipoOp"></select>
+        <small class="muted">Define o CFOP e a natureza fiscal (defeito / arrependimento / troca)</small>
+      </div>
+      <div class="form-group" style="flex:2;">
+        <label>Motivo (texto livre)</label>
+        <input type="text" id="fMotivo" placeholder="Detalhe adicional do motivo…">
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;">Itens</h4>
+    <div id="alertItens"></div>
+    <div class="tbl-wrap" style="max-height:300px;overflow:auto;">
+      <table>
+        <thead><tr>
+          <th>SKU</th>
+          <th>Descrição</th>
+          <th class="num">Qtd</th>
+          <th class="num">Valor unit.</th>
+          <th class="num">Total</th>
+          <th>Lote/Série</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tbItens"><tr><td colspan="7" class="empty">Adicione um item</td></tr></tbody>
+      </table>
+    </div>
+    <div style="margin-top:8px;">
+      <button class="btn btn-secondary btn-sm" onclick="abrirAddItem()">+ Adicionar item</button>
+      <span id="totalGeral" class="muted" style="margin-left:16px;font-weight:600;">Total: R$ 0,00</span>
+    </div>
+
+    <div class="form-row" style="margin-top:16px;">
+      <div class="form-group full-width">
+        <label>Observações</label>
+        <textarea id="fObs" rows="2"></textarea>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="salvar(false)">Salvar como aberta</button>
+      <button class="btn btn-primary" onclick="salvar(true)">Salvar e efetivar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Adicionar item -->
+<div class="modal-bg" id="modalItem">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Adicionar item</h3>
+        <small class="muted">Selecione o produto devolvido e informe quantidade e valor</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharAddItem()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width" style="position:relative;">
+        <label>Produto *</label>
+        <input type="text" id="iProdBusca" placeholder="SKU ou descrição…" oninput="acProd()" autocomplete="off">
+        <input type="hidden" id="iProdId">
+        <input type="hidden" id="iRastreiaLote">
+        <input type="hidden" id="iRastreiaSerial">
+        <div id="acProdList" class="ac-list"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Quantidade *</label>
+        <input type="number" id="iQtd" step="any" min="0.001" value="1">
+      </div>
+      <div class="form-group">
+        <label>Valor unitário (R$) *</label>
+        <input type="number" id="iValor" step="0.01" min="0" value="0">
+      </div>
+    </div>
+    <div class="form-row" id="rowLote" style="display:none;">
+      <div class="form-group full-width">
+        <label>Lote *</label>
+        <select id="iLote"><option value="">— escolha —</option></select>
+      </div>
+    </div>
+    <div class="form-row" id="rowSerial" style="display:none;">
+      <div class="form-group full-width">
+        <label>Números de série * <small class="muted">(escolha exatamente <span id="qtdSerialNeeded">N</span> serial(is) baixados)</small></label>
+        <select id="iSerials" multiple style="height:120px;font-family:monospace;"></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Motivo do item (opcional)</label>
+        <input type="text" id="iMotivo">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharAddItem()">Cancelar</button>
+      <button class="btn btn-primary" onclick="adicionarItem()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('devolucoes');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function showItemAlert(m,t='error'){ const e=document.getElementById('alertItens'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',4000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+// ----- Listagem -----
+
+async function carregar(){
+  const p = new URLSearchParams();
+  ['fQ','fStatus','fIni','fFim'].forEach(id=>{
+    const v = document.getElementById(id).value.trim();
+    if (v) p.set(id.slice(1).toLowerCase().replace('q','q').replace('status','status').replace('ini','dataIni').replace('fim','dataFim'), v);
+  });
+  // mapeamento manual mais claro:
+  p.delete('q'); p.delete('status'); p.delete('dataIni'); p.delete('dataFim');
+  const q=document.getElementById('fQ').value.trim(); if(q) p.set('q',q);
+  const st=document.getElementById('fStatus').value;  if(st) p.set('status',st);
+  const ini=document.getElementById('fIni').value;    if(ini) p.set('dataIni',ini);
+  const fim=document.getElementById('fFim').value;    if(fim) p.set('dataFim',fim);
+  const r=await fetch('/api/devolucoes?'+p);
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  renderKPIs(d.devolucoes);
+  const tb=document.getElementById('tb');
+  tb.innerHTML = d.devolucoes.length ? d.devolucoes.map(x=>`<tr>
+    <td class="mono"><strong>${x.numero}</strong></td>
+    <td>${(x.dataAbertura||'').slice(0,10)}</td>
+    <td>${x.clienteNome}</td>
+    <td>${x.pedidoNumero||'—'}</td>
+    <td><span class="badge ${x.status==='efetivada'?'entrada':x.status==='aberta'?'pendente':'cancelado'}">${x.status}</span></td>
+    <td class="num">${fmtBRL(x.valorTotal)}</td>
+    <td style="text-align:right;white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick="abrirEditar(${x.id})">Abrir →</button>
+      ${x.status==='efetivada' ? `<button class="btn btn-ghost btn-sm" onclick="emitirNFeDev(${x.id})" title="Emitir NF-e de devolução (finNFe=4) na SEFAZ">📄 NF-e</button>` : ''}
+      ${x.status==='aberta' ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelar(${x.id})">Cancelar</button>` : ''}
+    </td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma devolução</td></tr>';
+}
+
+function renderKPIs(ds){
+  const total = ds.length;
+  const abertas  = ds.filter(d=>d.status==='aberta').length;
+  const efet     = ds.filter(d=>d.status==='efetivada').length;
+  const valor    = ds.filter(d=>d.status==='efetivada').reduce((s,d)=>s+Number(d.valorTotal||0),0);
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${total}</div></div>
+    <div class="kpi warn"><div class="label">Abertas</div><div class="value">${abertas}</div></div>
+    <div class="kpi success"><div class="label">Efetivadas</div><div class="value">${efet}</div></div>
+    <div class="kpi"><div class="label">Crédito gerado</div><div class="value">${fmtBRL(valor)}</div></div>
+  `;
+}
+
+// ----- Modal devolução -----
+
+let itensBuffer = [];
+
+let TIPOS_OP_DEV = [];
+
+async function carregarTiposOpDevolucao(){
+  if (TIPOS_OP_DEV.length) return;
+  try {
+    const r = await fetch('/api/tipos-operacao?categoria=devolucao_venda');
+    const d = await r.json();
+    if (d.success) {
+      TIPOS_OP_DEV = d.tipos;
+      const sel = document.getElementById('fTipoOp');
+      sel.innerHTML = TIPOS_OP_DEV.map(t => `<option value="${t.id}">${t.codigo} — ${t.descricao}</option>`).join('');
+    }
+  } catch(e) { console.warn(e); }
+}
+
+async function abrirNova(){
+  await carregarTiposOpDevolucao();
+  document.getElementById('modalTitulo').textContent='Nova devolução';
+  document.getElementById('fId').value='';
+  ['fClienteBusca','fClienteId','fPedidoBusca','fPedidoId','fMotivo','fObs'].forEach(id=>document.getElementById(id).value='');
+  itensBuffer = [];
+  renderItens();
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function abrirEditar(id){
+  await carregarTiposOpDevolucao();
+  const r=await fetch('/api/devolucoes/'+id);
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const dev = d.devolucao;
+  document.getElementById('modalTitulo').textContent = `Devolução ${dev.numero} (${dev.status})`;
+  document.getElementById('fId').value = dev.id;
+  document.getElementById('fClienteBusca').value = dev.clienteNome;
+  document.getElementById('fClienteId').value = dev.clienteId;
+  document.getElementById('fPedidoBusca').value = dev.pedidoNumero || '';
+  document.getElementById('fPedidoId').value = dev.pedidoId || '';
+  if (dev.tipoOperacaoId) document.getElementById('fTipoOp').value = dev.tipoOperacaoId;
+  document.getElementById('fMotivo').value = dev.motivo || '';
+  document.getElementById('fObs').value = dev.observacoes || '';
+  itensBuffer = d.itens.map(i => ({
+    pedidoItemId: i.pedidoItemId,
+    produtoId: i.produtoId, sku: i.sku, descricao: i.descricao || i.produtoDescricao,
+    quantidade: i.quantidade, valorUnitario: i.valorUnitario,
+    loteId: i.loteId, loteNumero: i.loteNumero,
+    serialIds: i.serialIds ? JSON.parse(i.serialIds) : [],
+    rastreiaLote: i.rastreiaLote, rastreiaSerial: i.rastreiaSerial,
+    motivo: i.motivo
+  }));
+  renderItens();
+  document.getElementById('modal').classList.add('open');
+}
+
+function renderItens(){
+  const tb = document.getElementById('tbItens');
+  tb.innerHTML = itensBuffer.length ? itensBuffer.map((i,idx)=>{
+    const total = Number(i.quantidade)*Number(i.valorUnitario);
+    let trace = '—';
+    if (i.loteNumero) trace = 'Lote: '+i.loteNumero;
+    if (i.serialIds && i.serialIds.length) trace = (trace==='—'?'':trace+' / ') + 'Serial: '+i.serialIds.length;
+    return `<tr>
+      <td class="mono">${i.sku}</td>
+      <td>${i.descricao||''}</td>
+      <td class="num">${i.quantidade}</td>
+      <td class="num">${fmtBRL(i.valorUnitario)}</td>
+      <td class="num">${fmtBRL(total)}</td>
+      <td>${trace}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="removerItem(${idx})">×</button></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" class="empty">Adicione um item</td></tr>';
+  const total = itensBuffer.reduce((s,i)=>s+Number(i.quantidade)*Number(i.valorUnitario),0);
+  document.getElementById('totalGeral').textContent = 'Total: '+fmtBRL(total);
+}
+function removerItem(idx){ itensBuffer.splice(idx,1); renderItens(); }
+
+// ----- Autocomplete cliente -----
+let acTimerCli;
+function acCliente(){
+  clearTimeout(acTimerCli);
+  const q = document.getElementById('fClienteBusca').value.trim();
+  if (q.length<2){ document.getElementById('acClienteList').innerHTML=''; return; }
+  acTimerCli = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = (d.pessoas || d.data || []);
+    document.getElementById('acClienteList').innerHTML = lista.slice(0,12).map(p=>
+      `<div onclick='selCliente(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${p.razaoSocial} <small class="muted">${p.cpfCnpj||''}</small></div>`
+    ).join('');
+  },200);
+}
+function selCliente(id, nome){
+  document.getElementById('fClienteId').value = id;
+  document.getElementById('fClienteBusca').value = nome;
+  document.getElementById('acClienteList').innerHTML='';
+}
+
+// ----- Autocomplete pedido -----
+let acTimerPed;
+function acPedido(){
+  clearTimeout(acTimerPed);
+  const q = document.getElementById('fPedidoBusca').value.trim();
+  if (q.length<1){ document.getElementById('acPedidoList').innerHTML=''; return; }
+  acTimerPed = setTimeout(async()=>{
+    const r=await fetch('/api/pedidos?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = (d.pedidos || []);
+    document.getElementById('acPedidoList').innerHTML = lista.slice(0,12).map(p=>
+      `<div onclick="selPedido(${p.id}, '${p.numero}', ${p.clienteId||'null'}, ${JSON.stringify(p.clienteNome||'').replace(/"/g,'&quot;')})">${p.numero} <small class="muted">${p.clienteNome||''}</small></div>`
+    ).join('');
+  },200);
+}
+async function selPedido(id, numero, clienteId, clienteNome){
+  document.getElementById('fPedidoId').value = id;
+  document.getElementById('fPedidoBusca').value = numero;
+  document.getElementById('acPedidoList').innerHTML='';
+  if (clienteId && !document.getElementById('fClienteId').value) {
+    document.getElementById('fClienteId').value = clienteId;
+    document.getElementById('fClienteBusca').value = clienteNome;
+  }
+  // Pré-popula itens disponíveis do pedido (se a devolução ainda não tiver itens)
+  if (!itensBuffer.length) {
+    const r = await fetch('/api/devolucoes/pedido/'+id+'/disponivel');
+    const d = await r.json();
+    if (d.success) {
+      const disponiveis = d.itens.filter(i => i.qtdDisponivel > 0);
+      if (disponiveis.length && confirm(`Pedido tem ${disponiveis.length} item(ns) disponível(is) para devolução. Importar todos?`)) {
+        itensBuffer = disponiveis.map(i => ({
+          pedidoItemId: i.pedidoItemId,
+          produtoId: i.produtoId, sku: i.sku, descricao: i.descricao,
+          quantidade: i.qtdDisponivel, valorUnitario: i.precoUnitario,
+          loteId: null, loteNumero: null, serialIds: [],
+          rastreiaLote: i.rastreiaLote, rastreiaSerial: i.rastreiaSerial,
+          motivo: null
+        }));
+        renderItens();
+      }
+    }
+  }
+}
+
+// ----- Modal adicionar item -----
+
+function abrirAddItem(){
+  ['iProdBusca','iProdId','iMotivo'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('iQtd').value='1';
+  document.getElementById('iValor').value='0';
+  document.getElementById('iRastreiaLote').value='';
+  document.getElementById('iRastreiaSerial').value='';
+  document.getElementById('rowLote').style.display='none';
+  document.getElementById('rowSerial').style.display='none';
+  document.getElementById('iLote').innerHTML='<option value="">— escolha —</option>';
+  document.getElementById('iSerials').innerHTML='';
+  document.getElementById('modalItem').classList.add('open');
+}
+function fecharAddItem(){ document.getElementById('modalItem').classList.remove('open'); }
+
+let acTimerProd;
+function acProd(){
+  clearTimeout(acTimerProd);
+  const q = document.getElementById('iProdBusca').value.trim();
+  if (q.length<2){ document.getElementById('acProdList').innerHTML=''; return; }
+  acTimerProd = setTimeout(async()=>{
+    const r=await fetch('/api/produtos/autocomplete?q='+encodeURIComponent(q));
+    const d=await r.json();
+    document.getElementById('acProdList').innerHTML = (d.produtos||[]).map(p=>
+      `<div onclick='selProd(${p.id}, ${JSON.stringify(p.sku)}, ${JSON.stringify(p.descricao||"")}, ${p.precoVenda||0}, ${p.rastreiaLote||0}, ${p.rastreiaSerial||0})'>${p.sku} — ${p.descricao||''}</div>`
+    ).join('');
+  },200);
+}
+async function selProd(id, sku, descricao, precoVenda, rastreiaLote, rastreiaSerial){
+  document.getElementById('iProdId').value = id;
+  document.getElementById('iProdBusca').value = sku+' — '+descricao;
+  document.getElementById('iValor').value = precoVenda || 0;
+  document.getElementById('iRastreiaLote').value = rastreiaLote;
+  document.getElementById('iRastreiaSerial').value = rastreiaSerial;
+  document.getElementById('acProdList').innerHTML='';
+
+  if (rastreiaLote) {
+    document.getElementById('rowLote').style.display='';
+    const r = await fetch('/api/lotes?produtoId='+id);
+    const d = await r.json();
+    document.getElementById('iLote').innerHTML = '<option value="">— escolha —</option>' +
+      (d.lotes||[]).map(l=>`<option value="${l.id}">${l.numero}</option>`).join('');
+  }
+  if (rastreiaSerial) {
+    document.getElementById('rowSerial').style.display='';
+    document.getElementById('qtdSerialNeeded').textContent = document.getElementById('iQtd').value;
+    // Busca seriais baixados (status=baixado) — são os candidatos a retornar via devolução
+    const r = await fetch('/api/serial?produtoId='+id+'&status=baixado&limit=500');
+    const d = await r.json();
+    document.getElementById('iSerials').innerHTML = (d.serial||[]).map(s=>
+      `<option value="${s.id}">${s.numero}</option>`
+    ).join('');
+  }
+}
+
+document.addEventListener('input', e=>{
+  if (e.target.id==='iQtd') document.getElementById('qtdSerialNeeded').textContent = e.target.value;
+});
+
+function adicionarItem(){
+  const produtoId = Number(document.getElementById('iProdId').value);
+  if (!produtoId) return alert('Selecione um produto');
+  const qtd = Number(document.getElementById('iQtd').value);
+  const valor = Number(document.getElementById('iValor').value);
+  if (!(qtd > 0)) return alert('Quantidade inválida');
+  if (!(valor >= 0)) return alert('Valor inválido');
+  const rL = Number(document.getElementById('iRastreiaLote').value);
+  const rS = Number(document.getElementById('iRastreiaSerial').value);
+  const loteId = document.getElementById('iLote').value || null;
+  const loteNumero = document.getElementById('iLote').selectedOptions[0]?.textContent || null;
+  if (rL && !loteId) return alert('Produto rastreia lote — escolha o lote');
+  let serialIds = [];
+  if (rS) {
+    const sels = Array.from(document.getElementById('iSerials').selectedOptions).map(o=>Number(o.value));
+    if (sels.length !== qtd) return alert(`Selecione exatamente ${qtd} serial(is)`);
+    serialIds = sels;
+  }
+  const partes = document.getElementById('iProdBusca').value.split(' — ');
+  itensBuffer.push({
+    produtoId,
+    sku: partes[0] || '',
+    descricao: partes.slice(1).join(' — '),
+    quantidade: qtd, valorUnitario: valor,
+    loteId: loteId ? Number(loteId) : null, loteNumero: loteId ? loteNumero : null,
+    serialIds,
+    rastreiaLote: rL, rastreiaSerial: rS,
+    motivo: document.getElementById('iMotivo').value || null
+  });
+  renderItens();
+  fecharAddItem();
+}
+
+// ----- Salvar / Efetivar -----
+
+async function salvar(efetivar){
+  const id = document.getElementById('fId').value;
+  const clienteId = Number(document.getElementById('fClienteId').value);
+  if (!clienteId) return showItemAlert('Selecione o cliente');
+  if (!itensBuffer.length) return showItemAlert('Adicione ao menos um item');
+
+  const body = {
+    clienteId,
+    pedidoId: document.getElementById('fPedidoId').value ? Number(document.getElementById('fPedidoId').value) : null,
+    tipoOperacaoId: document.getElementById('fTipoOp').value ? Number(document.getElementById('fTipoOp').value) : null,
+    motivo: document.getElementById('fMotivo').value || null,
+    observacoes: document.getElementById('fObs').value || null,
+    itens: itensBuffer.map(i => ({
+      pedidoItemId: i.pedidoItemId || null,
+      produtoId: i.produtoId,
+      descricao: i.descricao,
+      quantidade: i.quantidade,
+      valorUnitario: i.valorUnitario,
+      loteId: i.loteId,
+      serialIds: i.serialIds,
+      motivo: i.motivo
+    }))
+  };
+
+  try {
+    let devId;
+    if (id) {
+      const r = await fetch('/api/devolucoes/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error);
+      devId = id;
+    } else {
+      const r = await fetch('/api/devolucoes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error);
+      devId = d.devolucao.id;
+    }
+    if (efetivar) {
+      const r = await fetch('/api/devolucoes/'+devId+'/efetivar', { method:'POST' });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error);
+      showAlert('Devolução efetivada — estoque retornado e crédito gerado');
+    } else {
+      showAlert(id ? 'Devolução atualizada' : 'Devolução salva');
+    }
+    fecharModal();
+    carregar();
+  } catch(e) { showItemAlert('Erro: '+e.message); }
+}
+
+async function emitirNFeDev(id){
+  if (!confirm('Emitir NF-e de devolução (finNFe=4) na SEFAZ?\n\nSerá gerada uma NF-e de entrada referenciando a NF-e original do pedido.')) return;
+  showAlert('Emitindo NF-e de devolução… aguarde','success');
+  try {
+    const r = await fetch('/api/devolucoes/'+id+'/emitir-nfe', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    if (d.statusSefaz === 'autorizada') {
+      showAlert('NF-e autorizada · chave '+(d.chaveAcesso||'—').slice(0,10)+'…','success');
+    } else if (d.statusSefaz === 'rejeitada') {
+      showAlert('NF-e rejeitada: '+(d.motivo||'motivo não informado'),'error');
+    } else {
+      showAlert('Emissão concluída — status: '+(d.statusSefaz||'desconhecido'),'success');
+    }
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+async function cancelar(id){
+  if (!confirm('Cancelar esta devolução?')) return;
+  const r = await fetch('/api/devolucoes/'+id, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Devolução cancelada');
+  carregar();
+}
+
+carregar();
+</script>
+</body></html>

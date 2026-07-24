@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatório de Participações · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Relatório de Participações</h1>
+      <small>Licitações em que participamos — ganhas, perdidas, pendentes de homologação</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="sincronizarFunil()" title="Move cards no funil CRM conforme resultados homologados no PNCP">Sincronizar com Funil</button>
+      <button class="btn btn-secondary" onclick="exportarCSV()">Exportar CSV</button>
+      <button class="btn btn-primary" onclick="carregar()">Recarregar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="filtBusca" placeholder="Buscar órgão, objeto ou número…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="ganha">Ganhas</option>
+      <option value="perdida">Perdidas</option>
+      <option value="pendente">Pendentes homologação</option>
+      <option value="agendada">Agendadas</option>
+      <option value="sem-disputa">Sem disputa</option>
+    </select>
+    <label style="font-size:0.85em;color:var(--text-2);">De
+      <input type="date" id="filtDataInicio" onchange="carregar()" style="margin-left:4px;">
+    </label>
+    <label style="font-size:0.85em;color:var(--text-2);">Até
+      <input type="date" id="filtDataFim" onchange="carregar()" style="margin-left:4px;">
+    </label>
+  </div>
+
+  <div class="tbl-wrap">
+    <table id="tabela">
+      <thead>
+        <tr>
+          <th>Órgão / Objeto</th>
+          <th style="text-align:center">Compra</th>
+          <th style="text-align:center">Fim da disputa</th>
+          <th style="text-align:center">Status</th>
+          <th style="text-align:right">Itens (ganhos / homol.)</th>
+          <th style="text-align:right">Valor ganho</th>
+          <th style="text-align:right">Lances</th>
+          <th style="text-align:center">Links</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:20px;">Carregando…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('relatorio-participacoes');</script>
+<script>
+const API = window.location.origin;
+let _debounceTimer = null;
+let _ultimoResultado = { participacoes: [], kpis: null };
+
+function debounce(fn) { clearTimeout(_debounceTimer); _debounceTimer = setTimeout(fn, 300); }
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fmtR$(v) {
+  if (v == null || v === '') return '—';
+  return 'R$ ' + Number(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function fmtData(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso.substring(0, 10);
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function badgeStatus(status) {
+  // Mapeamento para classes de badge existentes em app-modern.css
+  const map = {
+    'ganha':      { label: 'Ganha',      cls: 'entregue'    },
+    'perdida':    { label: 'Perdida',    cls: 'cancelado'   },
+    'pendente':   { label: 'Pendente',   cls: 'em_separacao'},
+    'agendada':   { label: 'Agendada',   cls: 'confirmado'  },
+    'sem-disputa':{ label: 'Sem disputa',cls: 'inativo'     },
+  };
+  const m = map[status] || { label: status, cls: 'inativo' };
+  return `<span class="badge ${m.cls}">${m.label}</span>`;
+}
+
+function renderKPIs(k) {
+  if (!k) { document.getElementById('kpis').innerHTML = ''; return; }
+  // Usa .kpi + .kpi.success/.warn/.danger (classes já existentes em app-modern.css)
+  const kpis = [
+    { label: 'Total',       valor: k.total,         tom: ''        },
+    { label: 'Disputadas',  valor: k.disputadas,    tom: ''        },
+    { label: 'Ganhas',      valor: k.ganhas,        tom: 'success' },
+    { label: 'Perdidas',    valor: k.perdidas,      tom: 'danger'  },
+    { label: 'Pendentes',   valor: k.pendentes,     tom: 'warn'    },
+    { label: 'Taxa vitória',valor: k.taxaVitoria + '%', tom: k.taxaVitoria > 50 ? 'success' : (k.taxaVitoria > 0 ? 'warn' : 'danger') },
+    { label: 'Valor ganho', valor: fmtR$(k.valorTotalGanho), tom: 'success' },
+    { label: 'Ticket médio',valor: fmtR$(k.ticketMedio),     tom: ''        },
+  ];
+  document.getElementById('kpis').innerHTML = kpis.map(k =>
+    `<div class="kpi ${k.tom}">
+      <div class="label">${esc(k.label)}</div>
+      <div class="value">${esc(k.valor)}</div>
+    </div>`).join('');
+}
+
+function linksCol(p) {
+  const pncp = p.linkPncp ? `<a href="${esc(p.linkPncp)}" target="_blank" rel="noopener" title="Abrir no PNCP">PNCP</a>` : '';
+  const cn   = p.urlCompra ? `<a href="${esc(p.urlCompra)}" target="_blank" rel="noopener" title="Abrir no Comprasnet">CN</a>` : '';
+  const anx  = p.compraId ? `<a href="/operacional/anexos-compra.html?compra=${encodeURIComponent(p.compraId)}" title="Gerenciar anexos (certidões) da compra">Anexos</a>` : '';
+  return [pncp, cn, anx].filter(Boolean).join(' · ') || '—';
+}
+
+function renderLinha(p) {
+  const orgaoObjeto = `
+    <div style="font-weight:600;color:var(--text-0);">${esc(p.orgao || '—')}</div>
+    <div style="font-size:0.85em;color:var(--text-2);margin-top:2px;">${esc((p.objeto || '').slice(0, 120))}${(p.objeto || '').length > 120 ? '…' : ''}</div>
+  `;
+  const compra = `
+    <div style="font-family:monospace;font-size:0.85em;">${esc(p.numero || '—')}</div>
+    <div style="font-size:0.75em;color:var(--text-3);margin-top:2px;">${esc(p.ano)}/${esc(p.sequencial)}</div>
+  `;
+  const itens = p.itens_homologados > 0
+    ? `<strong style="color:${p.itens_ganhos > 0 ? 'var(--success)' : 'var(--danger)'};">${p.itens_ganhos}</strong> / ${p.itens_homologados}`
+    : '—';
+  const lances = (p.lances_ok + p.lances_falha) > 0
+    ? `<span style="color:var(--success)">${p.lances_ok} ✓</span>${p.lances_falha ? ` <span style="color:var(--danger)">${p.lances_falha} ✗</span>` : ''}`
+    : '—';
+  const enviada = p.propostaEnviadaEm
+    ? `<div style="margin-top:4px;"><span class="badge emitida" title="Proposta enviada via API · ${esc(fmtData(p.propostaEnviadaEm))}">✓ Proposta enviada</span></div>`
+    : '';
+  return `<tr>
+    <td>${orgaoObjeto}</td>
+    <td style="text-align:center;">${compra}</td>
+    <td style="text-align:center;font-size:0.85em;">${esc(fmtData(p.dataHoraFimDisputa))}</td>
+    <td style="text-align:center;">${badgeStatus(p.statusLogico)}${enviada}</td>
+    <td style="text-align:right;">${itens}</td>
+    <td style="text-align:right;font-weight:600;color:${p.valor_ganho > 0 ? 'var(--success)' : 'var(--text-3)'};">${p.valor_ganho > 0 ? fmtR$(p.valor_ganho) : '—'}</td>
+    <td style="text-align:right;font-size:0.88em;">${lances}</td>
+    <td style="text-align:center;font-size:0.85em;">${linksCol(p)}</td>
+  </tr>`;
+}
+
+async function carregar() {
+  const params = new URLSearchParams();
+  const q = document.getElementById('filtBusca').value.trim();
+  const status = document.getElementById('filtStatus').value;
+  const dataInicio = document.getElementById('filtDataInicio').value;
+  const dataFim = document.getElementById('filtDataFim').value;
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  if (dataInicio) params.set('dataInicio', dataInicio);
+  if (dataFim) params.set('dataFim', dataFim);
+
+  document.getElementById('tbody').innerHTML =
+    '<tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:20px;">Carregando…</td></tr>';
+
+  try {
+    const r = await fetch(API + '/api/relatorios/participacoes?' + params.toString());
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Erro desconhecido');
+
+    _ultimoResultado = d;
+    renderKPIs(d.kpis);
+
+    if (!d.participacoes || d.participacoes.length === 0) {
+      document.getElementById('tbody').innerHTML =
+        '<tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:30px;">Nenhuma participação encontrada com os filtros aplicados.</td></tr>';
+      return;
+    }
+    document.getElementById('tbody').innerHTML = d.participacoes.map(renderLinha).join('');
+  } catch (e) {
+    document.getElementById('tbody').innerHTML =
+      `<tr><td colspan="8" style="text-align:center;color:var(--danger);padding:20px;">Erro: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function sincronizarFunil() {
+  const alerta = document.getElementById('alertGlobal');
+  alerta.innerHTML = '<div class="alert alert-info">Sincronizando com o funil CRM…</div>';
+  try {
+    const r = await fetch(API + '/api/relatorios/participacoes/sincronizar-funil', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Erro desconhecido');
+    alerta.innerHTML =
+      `<div class="alert alert-success">
+        Sincronização concluída — <strong>${d.candidatas}</strong> candidatas:
+        <strong>${d.movidas}</strong> movidas,
+        <strong>${d.criadas}</strong> criadas,
+        <strong>${d.semAlteracao}</strong> já corretas${d.erros ? `, <strong>${d.erros}</strong> erros` : ''}.
+        <a href="/comercial/crm-funil.html">Abrir funil →</a>
+      </div>`;
+    carregar();
+  } catch (e) {
+    alerta.innerHTML = `<div class="alert alert-error">Erro na sincronização: ${esc(e.message)}</div>`;
+  }
+}
+
+function exportarCSV() {
+  if (!_ultimoResultado.participacoes || _ultimoResultado.participacoes.length === 0) {
+    alert('Nada para exportar — carregue dados primeiro.');
+    return;
+  }
+  const cols = ['orgao','objeto','numero','ano','sequencial','compraId','dataHoraFimDisputa','statusLogico','propostaEnviadaEm','itens_homologados','itens_ganhos','valor_ganho','lances_ok','lances_falha'];
+  const header = cols.join(';');
+  const linhas = _ultimoResultado.participacoes.map(p =>
+    cols.map(c => {
+      const v = p[c] == null ? '' : String(p[c]).replace(/;/g, ',').replace(/[\r\n]+/g, ' ');
+      return `"${v}"`;
+    }).join(';')
+  );
+  const csv = '﻿' + [header, ...linhas].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `participacoes-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+carregar();
+</script>
+</body>
+</html>

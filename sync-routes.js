@@ -41,6 +41,10 @@ function _rejeitaSyncNoWorker(res) {
   });
 }
 
+// Fase 3g (2026-05-23): stats catalog via PG
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
 function registrarRotasSync(app, db, { pncpSync }) {
   if (!pncpSync) {
     throw new Error('sync-routes: pncpSync é obrigatório (import do pncp-sync-scheduler)');
@@ -49,11 +53,24 @@ function registrarRotasSync(app, db, { pncpSync }) {
   /**
    * Endpoint para consultar status da sincronização
    */
-  app.get('/api/sync/status', (req, res) => {
+  app.get('/api/sync/status', async (req, res) => {
     try {
       // Estatísticas do banco
-      const licitacoesCount = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count;
-      const itensCount = db.prepare('SELECT COUNT(*) as count FROM itens').get().count;
+      let licitacoesCount, itensCount;
+      if (USE_PG) {
+        // COUNT(*) exato em `itens` (18M+ linhas) estoura o statement_timeout de 30s.
+        // São números de display: usar estimativa de pg_class.reltuples (instantâneo).
+        const _est = await catalogPg.queryOne(
+          `SELECT
+             (SELECT reltuples::bigint FROM pg_class WHERE oid = 'licitacoes'::regclass) AS lic,
+             (SELECT reltuples::bigint FROM pg_class WHERE oid = 'itens'::regclass) AS itens`
+        );
+        licitacoesCount = Number(_est?.lic || 0);
+        itensCount = Number(_est?.itens || 0);
+      } else {
+        licitacoesCount = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count;
+        itensCount = db.prepare('SELECT COUNT(*) as count FROM itens').get().count;
+      }
 
       // Configurações de sync
       const lastFullSync = db.prepare("SELECT valor FROM config WHERE chave = 'lastFullSync'").get();
@@ -73,11 +90,16 @@ function registrarRotasSync(app, db, { pncpSync }) {
       }
 
       // Licitações futuras (data de encerramento > hoje)
-      const licitacoesFuturasResult = db.prepare("SELECT COUNT(*) as count FROM licitacoes WHERE dataEncerramentoProposta > datetime('now')").get();
-      const licitacoesFuturas = licitacoesFuturasResult ? licitacoesFuturasResult.count : 0;
-
-      // Cobertura futura em dias
-      const maxDataFutura = db.prepare("SELECT MAX(date(dataEncerramentoProposta)) as maxData FROM licitacoes WHERE dataEncerramentoProposta > datetime('now') AND dataEncerramentoProposta < datetime('now', '+365 days')").get();
+      let licitacoesFuturas, maxDataFutura;
+      if (USE_PG) {
+        const fr = await catalogPg.queryOne(`SELECT COUNT(*)::int AS count FROM licitacoes WHERE "dataEncerramentoProposta" > now()`);
+        licitacoesFuturas = Number(fr?.count || 0);
+        maxDataFutura = await catalogPg.queryOne(`SELECT to_char(MAX("dataEncerramentoProposta")::date, 'YYYY-MM-DD') AS "maxData" FROM licitacoes WHERE "dataEncerramentoProposta" > now() AND "dataEncerramentoProposta" < now() + interval '365 days'`);
+      } else {
+        const licitacoesFuturasResult = db.prepare("SELECT COUNT(*) as count FROM licitacoes WHERE dataEncerramentoProposta > datetime('now')").get();
+        licitacoesFuturas = licitacoesFuturasResult ? licitacoesFuturasResult.count : 0;
+        maxDataFutura = db.prepare("SELECT MAX(date(dataEncerramentoProposta)) as maxData FROM licitacoes WHERE dataEncerramentoProposta > datetime('now') AND dataEncerramentoProposta < datetime('now', '+365 days')").get();
+      }
 
       let coberturaFuturaDias = 0;
       if (maxDataFutura && maxDataFutura.maxData) {
@@ -145,7 +167,7 @@ function registrarRotasSync(app, db, { pncpSync }) {
   /**
    * Endpoint legado (mantido para compatibilidade)
    */
-  app.post('/api/sync/start', (req, res) => {
+  app.post('/api/sync/start', async (req, res) => {
     if ((process.env.ROLE || 'master') !== 'master') return _rejeitaSyncNoWorker(res);
     const { diasAtras = 30, diasFrente = 7 } = req.body || {};
 
@@ -154,8 +176,10 @@ function registrarRotasSync(app, db, { pncpSync }) {
     }
 
     // Se já tem dados, faz incremental; senão, faz completa
-    const stats = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get();
-    if (stats.count > 0) {
+    let count;
+    if (USE_PG) count = Number((await catalogPg.queryOne('SELECT COUNT(*) AS count FROM licitacoes'))?.count || 0);
+    else count = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count;
+    if (count > 0) {
       pncpSync.sincronizarIncremental();
       res.json({ success: true, message: 'Sincronização incremental iniciada', status: pncpSync.getSyncStatus() });
     } else {

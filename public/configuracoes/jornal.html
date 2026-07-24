@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jornal de Licitacoes | Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+  <style>
+    /* Botões canônicos vêm de app-modern.css; use .btn-ghost em vez de .btn-outline */
+
+    .card-header {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card-header h2 {
+      font-size: 1.2rem;
+      color: var(--text-0);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-body { padding: 20px; }
+
+    .switch-container { display: flex; align-items: center; gap: 12px; }
+    .switch { position: relative; width: 50px; height: 26px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #495057;
+      transition: 0.4s;
+      border-radius: 26px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #fff;
+      transition: 0.4s;
+      border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--success); }
+    input:checked + .slider:before { transform: translateX(24px); }
+
+    .grupos-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 12px;
+    }
+
+    .grupo-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border: 2px solid var(--border);
+      border-radius: var(--r-md);
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--bg-1);
+    }
+    .grupo-item:hover { border-color: var(--accent); }
+    .grupo-item.selected { border-color: var(--success); background: rgba(76, 175, 80, 0.15); }
+    .grupo-item input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
+
+    .grupo-cor {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--r-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: bold;
+    }
+    .grupo-info { flex: 1; }
+    .grupo-nome { font-weight: 500; color: var(--text-0); }
+    .grupo-palavras { font-size: 12px; color: var(--text-3); }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .status-badge.ativo { background: rgba(76, 175, 80, 0.2); color: var(--success); }
+    .status-badge.inativo { background: rgba(244, 67, 54, 0.2); color: var(--danger); }
+
+    .preview-container {
+      background: var(--bg-0);
+      border-radius: var(--r-md);
+      padding: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .preview-grupo {
+      margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .preview-grupo:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+    .preview-grupo-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .preview-grupo-header h4 { font-size: 1rem; color: var(--text-0); }
+
+    .preview-licitacao {
+      background: var(--bg-1);
+      padding: 12px;
+      border-radius: var(--r-sm);
+      margin-bottom: 8px;
+      border-left: 3px solid var(--accent);
+    }
+    .preview-licitacao h5 { font-size: 0.9rem; color: var(--text-0); margin-bottom: 4px; }
+    .preview-licitacao p { font-size: 0.85rem; color: var(--text-2); margin-bottom: 4px; }
+    .preview-licitacao .meta { display: flex; gap: 15px; font-size: 0.8rem; color: var(--text-3); }
+
+    .historico-table { width: 100%; border-collapse: collapse; }
+    .historico-table th,
+    .historico-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .historico-table th { background: var(--bg-1); font-weight: 600; color: var(--text-0); }
+    .historico-table tr:hover { background: var(--bg-1); }
+
+    .status-sucesso { color: var(--success); }
+    .status-erro { color: var(--danger); }
+    .status-vazio { color: var(--warn); }
+
+    .empty-state { text-align: center; padding: 40px; color: var(--text-3); }
+
+    /* .toast: vem do app-modern.css. Aqui só overrides page-local (animação de entrada). */
+    .toast { transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 1002; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.error { background: var(--danger); color: #fff; }
+
+    .loading { text-align: center; padding: 20px; color: var(--text-3); }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h1>📰 Jornal de Licitações</h1>
+          <small>Receba diariamente as licitações dos seus grupos de interesse</small>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary btn-sm" onclick="carregarPreview()">👁 Preview</button>
+          <button class="btn btn-warning btn-sm" onclick="executarAgora()">▶ Enviar agora</button>
+        </div>
+      </div>
+
+      <div>
+        <!-- Configuracao -->
+        <div class="card">
+          <div class="card-header">
+            <h2>⚙️ Configuração</h2>
+            <div id="statusBadge" class="status-badge inativo">
+              <span>●</span> Inativo
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Status do Jornal</label>
+                <div class="switch-container">
+                  <label class="switch">
+                    <input type="checkbox" id="jornalAtivo">
+                    <span class="slider"></span>
+                  </label>
+                  <span id="statusTexto">Desativado</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="horario">Horário de envio</label>
+                <input type="time" id="horario" value="08:00">
+              </div>
+
+              <div class="form-group">
+                <label for="diasAntecedencia">Dias de antecedência</label>
+                <select id="diasAntecedencia">
+                  <option value="3">3 dias</option>
+                  <option value="5">5 dias</option>
+                  <option value="7" selected>7 dias</option>
+                  <option value="14">14 dias</option>
+                  <option value="30">30 dias</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="enviarTelegram" checked>
+                Enviar notificação no Telegram
+              </label>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+              <button class="btn btn-primary" onclick="salvarConfiguracao()">💾 Salvar configuração</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grupos -->
+        <div class="card">
+          <div class="card-header">
+            <h2>🏷️ Grupos de palavras</h2>
+            <a href="/operacional/grupos-palavras.html" class="btn btn-ghost btn-sm" style="text-decoration:none;">Gerenciar grupos</a>
+          </div>
+          <div class="card-body">
+            <p style="margin-bottom:15px;color:var(--text-2);">Selecione os grupos que deseja monitorar no jornal:</p>
+            <div id="gruposList" class="grupos-list">
+              <div class="loading">Carregando grupos...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview -->
+        <div class="card" id="previewCard" style="display: none;">
+          <div class="card-header">
+            <h2>👁️ Preview do Jornal</h2>
+            <span id="previewInfo"></span>
+          </div>
+          <div class="card-body">
+            <div id="previewContainer" class="preview-container">
+            </div>
+          </div>
+        </div>
+
+        <!-- Historico -->
+        <div class="card">
+          <div class="card-header">
+            <h2>📜 Historico de Envios</h2>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <table class="historico-table">
+              <thead>
+                <tr>
+                  <th>Data/Hora</th>
+                  <th>Licitacoes</th>
+                  <th>Grupos</th>
+                  <th>Status</th>
+                  <th>Mensagem</th>
+                </tr>
+              </thead>
+              <tbody id="historicoBody">
+                <tr>
+                  <td colspan="5" class="empty-state">Carregando...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let config = {};
+    let grupos = [];
+    let gruposSelecionados = [];
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Sequencial: config primeiro (preenche gruposSelecionados), depois grupos (renderiza com seleção)
+      await carregarConfiguracao();
+      await carregarGrupos();
+      carregarHistorico();
+
+      document.getElementById('jornalAtivo').addEventListener('change', (e) => {
+        const ativo = e.target.checked;
+        document.getElementById('statusTexto').textContent = ativo ? 'Ativado' : 'Desativado';
+        atualizarBadge(ativo);
+      });
+    });
+
+    function atualizarBadge(ativo) {
+      const badge = document.getElementById('statusBadge');
+      if (ativo) {
+        badge.className = 'status-badge ativo';
+        badge.innerHTML = '<span>●</span> Ativo';
+      } else {
+        badge.className = 'status-badge inativo';
+        badge.innerHTML = '<span>●</span> Inativo';
+      }
+    }
+
+    async function carregarConfiguracao() {
+      try {
+        const res = await fetch('/api/jornal/config');
+        const data = await res.json();
+
+        if (data.success) {
+          config = data.data;
+
+          document.getElementById('jornalAtivo').checked = config.ativo === 1;
+          document.getElementById('horario').value = config.horario || '08:00';
+          document.getElementById('diasAntecedencia').value = config.diasAntecedencia || 7;
+          document.getElementById('enviarTelegram').checked = config.enviarTelegram === 1;
+
+          document.getElementById('statusTexto').textContent = config.ativo === 1 ? 'Ativado' : 'Desativado';
+          atualizarBadge(config.ativo === 1);
+
+          if (config.gruposAtivos) {
+            gruposSelecionados = config.gruposAtivos.map(g => g.grupoId);
+          }
+        }
+      } catch (error) {
+        showToast('Erro ao carregar configuracao', 'error');
+      }
+    }
+
+    async function carregarGrupos() {
+      try {
+        const res = await fetch('/api/grupos-palavras');
+        const data = await res.json();
+
+        if (data.success) {
+          grupos = data.data;
+          renderizarGrupos();
+        }
+      } catch (error) {
+        showToast('Erro ao carregar grupos', 'error');
+      }
+    }
+
+    function renderizarGrupos() {
+      const container = document.getElementById('gruposList');
+
+      if (grupos.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state" style="grid-column: 1 / -1;">
+            <p>Nenhum grupo criado</p>
+            <a href="/operacional/grupos-palavras.html" class="btn btn-primary" style="margin-top: 10px;">Criar Grupos</a>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = grupos.map(grupo => {
+        const selecionado = gruposSelecionados.includes(grupo.id);
+        return `
+          <div class="grupo-item ${selecionado ? 'selected' : ''}" data-grupo-id="${grupo.id}" onclick="toggleGrupo(${grupo.id}, event)">
+            <input type="checkbox" id="chk-grupo-${grupo.id}" ${selecionado ? 'checked' : ''} onclick="toggleGrupo(${grupo.id}, event)">
+            <div class="grupo-cor" style="background: ${grupo.cor || '#1a5f7a'}">
+              ${grupo.nome.charAt(0).toUpperCase()}
+            </div>
+            <div class="grupo-info">
+              <div class="grupo-nome">${grupo.nome}</div>
+              <div class="grupo-palavras">${grupo.palavras ? grupo.palavras.length : 0} palavras</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function toggleGrupo(id, ev) {
+      if (ev) ev.stopPropagation();
+      const checkbox = document.getElementById(`chk-grupo-${id}`);
+      const item = checkbox.closest('.grupo-item');
+      // Se o click foi no div (não no próprio checkbox), precisamos flipar manualmente
+      if (!ev || ev.target !== checkbox) {
+        checkbox.checked = !checkbox.checked;
+      }
+      // Sincroniza gruposSelecionados com o estado real do checkbox (idempotente)
+      if (checkbox.checked) {
+        if (!gruposSelecionados.includes(id)) gruposSelecionados.push(id);
+        item.classList.add('selected');
+      } else {
+        gruposSelecionados = gruposSelecionados.filter(g => g !== id);
+        item.classList.remove('selected');
+      }
+    }
+
+    async function salvarConfiguracao() {
+      try {
+        const dados = {
+          ativo: document.getElementById('jornalAtivo').checked,
+          horario: document.getElementById('horario').value,
+          diasAntecedencia: parseInt(document.getElementById('diasAntecedencia').value),
+          enviarTelegram: document.getElementById('enviarTelegram').checked,
+          gruposIds: gruposSelecionados
+        };
+
+        const res = await fetch('/api/jornal/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dados)
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          showToast('Configuracao salva!', 'success');
+        } else {
+          showToast(data.error || 'Erro ao salvar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao salvar configuracao', 'error');
+      }
+    }
+
+    async function carregarPreview() {
+      document.getElementById('previewCard').style.display = 'block';
+      document.getElementById('previewContainer').innerHTML = '<div class="loading">Gerando preview...</div>';
+
+      try {
+        const res = await fetch('/api/jornal/preview');
+        const data = await res.json();
+
+        if (data.success) {
+          renderizarPreview(data.data);
+        } else {
+          document.getElementById('previewContainer').innerHTML = `<div class="empty-state">${data.error}</div>`;
+        }
+      } catch (error) {
+        document.getElementById('previewContainer').innerHTML = `<div class="empty-state">Erro ao gerar preview</div>`;
+      }
+    }
+
+    function renderizarPreview(preview) {
+      const container = document.getElementById('previewContainer');
+      const info = document.getElementById('previewInfo');
+
+      const periodoStr = preview.periodo
+        ? `${preview.periodo.dataInicial} a ${preview.periodo.dataFinal}`
+        : '—';
+      info.textContent = `${preview.totalLicitacoes || 0} licitações | Período: ${periodoStr}`;
+
+      if (!preview.grupos || preview.grupos.length === 0) {
+        const msg = preview.mensagem || 'Nenhuma licitação encontrada no período';
+        container.innerHTML = `<div class="empty-state">${msg}</div>`;
+        return;
+      }
+
+      container.innerHTML = preview.grupos.map(grupo => `
+        <div class="preview-grupo">
+          <div class="preview-grupo-header">
+            <div class="grupo-cor" style="background: ${grupo.cor}; width: 28px; height: 28px; font-size: 14px;">
+              ${grupo.grupo.charAt(0)}
+            </div>
+            <h4>${grupo.grupo}</h4>
+            <span style="color: #888; font-size: 13px;">(${grupo.total} licitacoes)</span>
+          </div>
+          ${grupo.licitacoes.slice(0, 3).map(lic => `
+            <div class="preview-licitacao">
+              <h5>${lic.nomeUnidade}</h5>
+              <p>${lic.objetoCompra?.substring(0, 150)}${lic.objetoCompra?.length > 150 ? '...' : ''}</p>
+              <div class="meta">
+                <span>💰 ${lic.valorTotalEstimado ? 'R$ ' + Number(lic.valorTotalEstimado).toLocaleString('pt-BR') : 'Nao informado'}</span>
+                <span>📅 ${new Date(lic.dataEncerramentoProposta).toLocaleDateString('pt-BR')}</span>
+                <span>📍 ${lic.ufSigla}</span>
+              </div>
+            </div>
+          `).join('')}
+          ${grupo.total > 3 ? `<p style="color: #888; font-size: 13px; text-align: center;">...e mais ${grupo.total - 3} licitacoes</p>` : ''}
+        </div>
+      `).join('');
+    }
+
+    async function carregarHistorico() {
+      try {
+        const res = await fetch('/api/jornal/historico');
+        const data = await res.json();
+
+        if (data.success) {
+          renderizarHistorico(data.data);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar historico:', error);
+      }
+    }
+
+    function renderizarHistorico(historico) {
+      const tbody = document.getElementById('historicoBody');
+
+      if (historico.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum envio registrado</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = historico.map(h => {
+        const data = new Date(h.dataEnvio).toLocaleString('pt-BR');
+        const grupos = h.gruposProcessados ? JSON.parse(h.gruposProcessados).join(', ') : '-';
+        const statusClass = h.status === 'sucesso' ? 'status-sucesso' : (h.status === 'erro' ? 'status-erro' : 'status-vazio');
+
+        return `
+          <tr>
+            <td>${data}</td>
+            <td>${h.totalLicitacoes}</td>
+            <td>${grupos}</td>
+            <td class="${statusClass}">${h.status}</td>
+            <td>${h.mensagem || '-'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function executarAgora() {
+      if (!confirm('Deseja enviar o jornal agora?')) return;
+
+      showToast('Enviando jornal...', '');
+
+      try {
+        const res = await fetch('/api/jornal/executar', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(`Jornal enviado! ${data.data.totalLicitacoes} licitacoes`, 'success');
+          carregarHistorico();
+        } else {
+          showToast(data.error || 'Erro ao enviar', 'error');
+        }
+      } catch (error) {
+        showToast('Erro ao executar jornal', 'error');
+      }
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast show ' + type;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('jornal');</script>
+</body>
+</html>

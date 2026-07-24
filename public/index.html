@@ -1,1153 +1,291 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consulta de Licitações - Licite Agora</title>
-    <link rel="stylesheet" href="/css/sidebar.css">
-    <link rel="stylesheet" href="/css/app-modern.css">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        header {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-        }
-
-        h1 {
-            color: #333;
-            font-size: 28px;
-            margin-bottom: 10px;
-        }
-
-        .subtitle {
-            color: #666;
-            font-size: 14px;
-        }
-
-        .filters-card {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-        }
-
-        .filters-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-        }
-
-        .filters-title::before {
-            content: '🔍';
-            margin-right: 10px;
-            font-size: 20px;
-        }
-
-        .filters-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-
-        label {
-            font-size: 14px;
-            font-weight: 500;
-            color: #555;
-            margin-bottom: 5px;
-        }
-
-        input[type="text"],
-        input[type="date"],
-        select {
-            padding: 10px;
-            border: 2px solid #e0e0e0;
-            border-radius: 5px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-
-        input[type="text"]:focus,
-        input[type="date"]:focus,
-        select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .button-group {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-
-        button {
-            padding: 12px 30px;
-            border: none;
-            border-radius: 5px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-primary:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            background: #f5f5f5;
-            color: #666;
-        }
-
-        .btn-secondary:hover {
-            background: #e0e0e0;
-        }
-
-        .results-info {
-            background: white;
-            padding: 15px 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .results-count {
-            font-size: 16px;
-            color: #333;
-            font-weight: 600;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .loading::after {
-            content: '⏳';
-            font-size: 48px;
-            display: block;
-            margin: 20px 0;
-            animation: spin 2s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .results-grid {
-            display: grid;
-            gap: 15px;
-        }
-
-        .licitacao-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s, box-shadow 0.3s;
-        }
-
-        .licitacao-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-        }
-
-        .licitacao-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #f0f0f0;
-        }
-
-        .licitacao-titulo {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-            flex: 1;
-        }
-
-        .licitacao-badge {
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-left: 15px;
-        }
-
-        .badge-modalidade {
-            background: #e3f2fd;
-            color: #1976d2;
-        }
-
-        .licitacao-badges {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .status-badge {
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
-        .badge-lida {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-
-        .badge-interesse {
-            background: #fff8e1;
-            color: #f57c00;
-            border: 1px solid #ffb74d;
-        }
-
-        .badge-ia {
-            font-weight: 700;
-            font-size: 12px;
-            padding: 2px 8px;
-            border-radius: 20px;
-        }
-
-        .btn-analise-ia {
-            padding: 8px 14px;
-            background: #6366f1;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .btn-analise-ia:hover { background: #4f46e5; transform: translateY(-1px); }
-
-        .licitacao-card.com-interesse {
-            border-left: 4px solid #f57c00;
-        }
-
-        .licitacao-card.lida.com-interesse {
-            border-left: 4px solid #f57c00;
-        }
-
-        .licitacao-info {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-
-        .info-item {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .info-label {
-            font-size: 12px;
-            color: #888;
-            margin-bottom: 3px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .info-value {
-            font-size: 14px;
-            color: #333;
-            font-weight: 500;
-        }
-
-        .licitacao-objeto {
-            background: #f9f9f9;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 15px;
-        }
-
-        .objeto-label {
-            font-size: 12px;
-            color: #888;
-            margin-bottom: 5px;
-            text-transform: uppercase;
-        }
-
-        .objeto-text {
-            font-size: 14px;
-            color: #555;
-            line-height: 1.6;
-        }
-
-        .licitacao-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-top: 15px;
-            border-top: 1px solid #f0f0f0;
-        }
-
-        .valor-estimado {
-            font-size: 16px;
-            font-weight: 700;
-            color: #4caf50;
-        }
-
-        .btn-detalhes {
-            padding: 8px 20px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .btn-detalhes:hover {
-            background: #5568d3;
-        }
-
-        .pagination {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin-top: 20px;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .pagination button {
-            padding: 10px 20px;
-            background: #f5f5f5;
-            color: #666;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .pagination button:hover:not(:disabled) {
-            background: #667eea;
-            color: white;
-        }
-
-        .pagination button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .pagination .page-info {
-            display: flex;
-            align-items: center;
-            padding: 0 15px;
-            font-weight: 600;
-            color: #333;
-        }
-
-        .error-message {
-            background: #ffebee;
-            color: #c62828;
-            padding: 15px 20px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            border-left: 4px solid #c62828;
-        }
-
-        .empty-state {
-            background: white;
-            padding: 60px 20px;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .empty-state::before {
-            content: '📋';
-            font-size: 64px;
-            display: block;
-            margin-bottom: 20px;
-        }
-
-        .empty-state-title {
-            font-size: 20px;
-            color: #333;
-            margin-bottom: 10px;
-        }
-
-        .empty-state-text {
-            font-size: 14px;
-            color: #666;
-        }
-
-        .btn-ver-itens {
-            padding: 8px 15px; background: #ff9800; color: white;
-            border: none; border-radius: 5px; font-size: 13px;
-            font-weight: 600; cursor: pointer; margin-right: 10px;
-        }
-        .btn-ver-itens:hover { background: #f57c00; }
-        .modal-overlay {
-            display: none; position: fixed; top: 0; left: 0;
-            width: 100%; height: 100%; background: rgba(0,0,0,0.7);
-            z-index: 1000; overflow-y: auto; padding: 20px;
-        }
-        .modal-content {
-            background: white; border-radius: 10px; max-width: 1200px;
-            margin: 20px auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        }
-        .modal-header {
-            padding: 20px 25px; border-bottom: 2px solid #f0f0f0;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .modal-title { font-size: 20px; font-weight: 600; color: #333; }
-        .modal-subtitle { font-size: 14px; color: #666; margin-top: 5px; }
-        .modal-close {
-            background: none; border: none; font-size: 28px;
-            cursor: pointer; color: #666; padding: 0; line-height: 1;
-        }
-        .modal-close:hover { color: #333; }
-        .modal-body { padding: 25px; max-height: 60vh; overflow-y: auto; }
-
-        /* Filtros de itens */
-        .filtros-itens {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            align-items: center;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            margin-bottom: 15px;
-        }
-        .filtro-grupo {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .filtro-input {
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        .filtro-input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 2px rgba(102,126,234,0.2);
-        }
-        .filtro-input[type="text"] { width: 250px; }
-        .filtro-valor { width: 100px; }
-        .btn-limpar-filtros {
-            padding: 8px 15px;
-            background: #e0e0e0;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 13px;
-        }
-        .btn-limpar-filtros:hover { background: #d0d0d0; }
-        .filtro-resultado {
-            margin-left: auto;
-            color: #666;
-            font-size: 13px;
-            font-weight: 500;
-        }
-        .highlight {
-            background: #ffeb3b;
-            padding: 1px 3px;
-            border-radius: 3px;
-            font-weight: 600;
-        }
-
-        .itens-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        .itens-table th {
-            background: #667eea; color: white; padding: 12px 10px;
-            text-align: left; font-weight: 600;
-        }
-        .itens-table td {
-            padding: 12px 10px; border-bottom: 1px solid #e0e0e0; vertical-align: top;
-        }
-        .itens-table tr:hover { background: #f5f5f5; }
-        .itens-table tr.item-selecionado { background: #e8f5e9; }
-        .item-checkbox { width: 20px; height: 20px; cursor: pointer; }
-        .modal-footer {
-            padding: 20px 25px; border-top: 2px solid #f0f0f0;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .itens-selecionados-info strong { color: #4caf50; }
-        .btn-salvar-interesse {
-            padding: 12px 30px;
-            background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
-            color: white; border: none; border-radius: 5px;
-            font-size: 14px; font-weight: 600; cursor: pointer;
-        }
-        .btn-salvar-interesse:hover { box-shadow: 0 4px 12px rgba(76,175,80,0.4); }
-        .footer-buttons { display: flex; gap: 10px; }
-
-        /* Estilo para licitações lidas */
-        .licitacao-card.lida {
-            opacity: 0.6;
-            background: #f5f5f5;
-            border-left: 4px solid #9e9e9e;
-        }
-        .licitacao-card.lida .licitacao-titulo {
-            color: #888;
-        }
-        .licitacao-card.lida::before {
-            content: '✓ Lida';
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: #9e9e9e;
-            color: white;
-            padding: 3px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .licitacao-card {
-            position: relative;
-        }
-        .btn-marcar-lida {
-            padding: 6px 12px;
-            background: #607d8b;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
-            margin-right: 8px;
-        }
-        .btn-marcar-lida:hover { background: #455a64; }
-        .btn-marcar-lida.lida { background: #4caf50; }
-
-        .btn-sem-interesse {
-            padding: 6px 12px;
-            background: #e53935;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
-            margin-right: 8px;
-        }
-        .btn-sem-interesse:hover { background: #c62828; }
-        .btn-sem-interesse.marcado { background: #9e9e9e; }
-        .btn-sem-interesse.marcado:hover { background: #757575; }
-
-        .licitacao-card.sem-interesse {
-            opacity: 0.4;
-            border-left: 4px solid #e53935;
-        }
-        .licitacao-card.sem-interesse .licitacao-titulo {
-            text-decoration: line-through;
-            color: #999;
-        }
-
-        .badge-sem-interesse {
-            background: #ffebee;
-            color: #c62828;
-        }
-
-        #modalSemInteresse {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 2000;
-            align-items: center;
-            justify-content: center;
-        }
-        #modalSemInteresse .modal-box {
-            background: white;
-            border-radius: 8px;
-            padding: 24px;
-            width: 400px;
-            max-width: 90vw;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-        }
-        #modalSemInteresse .modal-box h3 {
-            margin: 0 0 16px 0;
-            font-size: 18px;
-            color: #333;
-        }
-        #modalSemInteresse textarea {
-            width: 100%;
-            min-height: 80px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            resize: vertical;
-            box-sizing: border-box;
-        }
-        #modalSemInteresse .modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            margin-top: 16px;
-        }
-        #modalSemInteresse .btn-confirmar {
-            padding: 8px 20px;
-            background: #e53935;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        #modalSemInteresse .btn-confirmar:hover { background: #c62828; }
-        #modalSemInteresse .btn-cancelar {
-            padding: 8px 20px;
-            background: #9e9e9e;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        #modalSemInteresse .btn-cancelar:hover { background: #757575; }
-
-        .filtros-visualizacao {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 10px 15px;
-            background: #f5f5f5;
-            border-radius: 5px;
-        }
-        .filtros-visualizacao label {
-            font-size: 13px;
-            color: #555;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin: 0;
-            padding: 5px 10px;
-            background: white;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-        }
-        .filtros-visualizacao label:hover {
-            background: #e3f2fd;
-            border-color: #1976d2;
-        }
-        .filtros-visualizacao input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
-        }
-        .filtros-visualizacao input[type="checkbox"]:checked + span,
-        .filtros-visualizacao label:has(input:checked) {
-            color: #1976d2;
-            font-weight: 600;
-        }
-
-        /* IA Analysis Badge */
-        .badge-ia {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .badge-ia:hover { transform: scale(1.05); }
-        .badge-ia.score-alto { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
-        .badge-ia.score-medio { background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; }
-        .badge-ia.score-baixo { background: #fce4ec; color: #c62828; border: 1px solid #ef9a9a; }
-        .badge-ia.sem-analise { background: #f5f5f5; color: #999; border: 1px solid #e0e0e0; }
-        .btn-analisar-ia {
-            padding: 5px 10px;
-            background: #7c4dff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 11px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        .btn-analisar-ia:hover { background: #651fff; }
-        .btn-analisar-ia:disabled { background: #ccc; cursor: wait; }
-
-        /* Modal Análise IA */
-        #modalAnaliseIA { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; overflow-y: auto; padding: 20px; }
-        #modalAnaliseIA .modal-content { background: white; border-radius: 10px; max-width: 800px; margin: 30px auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-        #modalAnaliseIA .modal-header { padding: 20px 25px; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
-        #modalAnaliseIA .modal-title { font-size: 20px; font-weight: 600; color: #333; }
-        #modalAnaliseIA .modal-body { padding: 25px; }
-        .analise-score-grande { text-align: center; margin-bottom: 20px; }
-        .analise-score-grande .score-numero { font-size: 48px; font-weight: 700; }
-        .analise-score-grande .score-label { font-size: 14px; color: #666; }
-        .analise-secao { margin-bottom: 20px; }
-        .analise-secao h4 { font-size: 14px; color: #667eea; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #e0e0e0; }
-        .analise-secao p { font-size: 14px; color: #555; line-height: 1.6; }
-        .analise-secao ul { list-style: none; padding: 0; }
-        .analise-secao ul li { padding: 6px 0; font-size: 14px; color: #555; border-bottom: 1px solid #f5f5f5; }
-        .analise-secao ul li::before { content: '•'; color: #667eea; font-weight: bold; margin-right: 8px; }
-        .analise-secao ul li.atencao::before { content: '⚠'; color: #f57c00; }
-        .analise-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-        .analise-meta-item { background: #f9f9f9; padding: 10px 15px; border-radius: 6px; }
-        .analise-meta-item .meta-label { font-size: 11px; color: #888; text-transform: uppercase; }
-        .analise-meta-item .meta-value { font-size: 14px; color: #333; font-weight: 500; margin-top: 3px; }
-        .complexidade-badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
-        .complexidade-baixa { background: #e8f5e9; color: #2e7d32; }
-        .complexidade-media { background: #fff8e1; color: #f57f17; }
-        .complexidade-alta { background: #fce4ec; color: #c62828; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
 </head>
 <body>
-    <div class="app-container">
-        <main class="main-content">
-            <div class="container">
+<div class="layout">
+<main class="main-content">
 
-        <div class="filters-card">
-            <div class="filters-title">Filtros de Busca</div>
-
-            <form id="searchForm">
-                <div class="filters-grid">
-                    <div class="form-group">
-                        <label for="numeroLicitacao">Nº Licitação</label>
-                        <input type="text" id="numeroLicitacao" name="numeroLicitacao"
-                               placeholder="Ex: 069, 123...">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="uasg">UASG</label>
-                        <input type="text" id="uasg" name="uasg"
-                               placeholder="Ex: 929714...">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="palavraChave">Palavra-chave</label>
-                        <input type="text" id="palavraChave" name="palavraChave"
-                               placeholder="Ex: computador, obra, serviço...">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="grupoPalavras">
-                            Grupo de Palavras
-                            <a href="/grupos-palavras.html" style="font-size: 11px; margin-left: 5px; color: #667eea;">Configurar</a>
-                        </label>
-                        <select id="grupoPalavras" name="grupoPalavras" onchange="aplicarGrupoPalavras()">
-                            <option value="">Selecione um grupo...</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="palavraExclusao">Excluir palavras</label>
-                        <input type="text" id="palavraExclusao" name="palavraExclusao"
-                               placeholder="Ex: manutenção, reforma..." style="border-color: #f44336;">
-                        <small style="color: #888; font-size: 11px; margin-top: 3px;">Separe por vírgula</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="grupoExclusao">
-                            Grupo de Exclusão
-                            <a href="/grupos-palavras.html" style="font-size: 11px; margin-left: 5px; color: #f44336;">Configurar</a>
-                        </label>
-                        <select id="grupoExclusao" name="grupoExclusao" style="border-color: #f44336;">
-                            <option value="">Nenhum grupo selecionado</option>
-                        </select>
-                        <small style="color: #888; font-size: 11px; margin-top: 3px;">Exclui licitações com palavras do grupo</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="modalidade">Modalidade</label>
-                        <select id="modalidade" name="modalidade">
-                            <option value="">Todas</option>
-                            <option value="1">Concorrência</option>
-                            <option value="2">Tomada de Preços</option>
-                            <option value="3">Convite</option>
-                            <option value="4">Concurso</option>
-                            <option value="5">Leilão</option>
-                            <option value="6">Pregão</option>
-                            <option value="7">Dispensa de Licitação</option>
-                            <option value="8">Inexigibilidade</option>
-                            <option value="9">Diálogo Competitivo</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="uf">Estado (UF)</label>
-                        <select id="uf" name="uf">
-                            <option value="">Todos os Estados</option>
-                            <option value="AC">Acre (AC)</option>
-                            <option value="AL">Alagoas (AL)</option>
-                            <option value="AP">Amapá (AP)</option>
-                            <option value="AM">Amazonas (AM)</option>
-                            <option value="BA">Bahia (BA)</option>
-                            <option value="CE">Ceará (CE)</option>
-                            <option value="DF">Distrito Federal (DF)</option>
-                            <option value="ES">Espírito Santo (ES)</option>
-                            <option value="GO">Goiás (GO)</option>
-                            <option value="MA">Maranhão (MA)</option>
-                            <option value="MT">Mato Grosso (MT)</option>
-                            <option value="MS">Mato Grosso do Sul (MS)</option>
-                            <option value="MG">Minas Gerais (MG)</option>
-                            <option value="PA">Pará (PA)</option>
-                            <option value="PB">Paraíba (PB)</option>
-                            <option value="PR">Paraná (PR)</option>
-                            <option value="PE">Pernambuco (PE)</option>
-                            <option value="PI">Piauí (PI)</option>
-                            <option value="RJ">Rio de Janeiro (RJ)</option>
-                            <option value="RN">Rio Grande do Norte (RN)</option>
-                            <option value="RS">Rio Grande do Sul (RS)</option>
-                            <option value="RO">Rondônia (RO)</option>
-                            <option value="RR">Roraima (RR)</option>
-                            <option value="SC">Santa Catarina (SC)</option>
-                            <option value="SP">São Paulo (SP)</option>
-                            <option value="SE">Sergipe (SE)</option>
-                            <option value="TO">Tocantins (TO)</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="portal">Portal/Sistema</label>
-                        <select id="portal" name="portal">
-                            <option value="">Todos os Portais</option>
-                            <option value="comprasnet">Comprasnet / Compras.gov.br</option>
-                            <option value="portalcompras">Portal de Compras Públicas</option>
-                            <option value="licitacoese">Licitações-e (Banco do Brasil)</option>
-                            <option value="bll">BLL Compras</option>
-                            <option value="licitardigital">Licitar Digital</option>
-                            <option value="licitanet">Licitanet</option>
-                            <option value="banrisul">Pregão Banrisul</option>
-                            <option value="comprasrs">Compras RS</option>
-                            <option value="comprasmg">Compras MG</option>
-                            <option value="semlink">Sem link (apenas PNCP)</option>
-                            <option value="outros">Outros portais</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-                    <h3 style="font-size: 16px; font-weight: 600; color: #555; margin-bottom: 15px;">Filtros de Data</h3>
-
-                    <div class="filters-grid">
-                        <div class="form-group">
-                            <label for="dataPublicacaoInicial">Publicação - Data Inicial</label>
-                            <input type="date" id="dataPublicacaoInicial" name="dataPublicacaoInicial">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="dataPublicacaoFinal">Publicação - Data Final</label>
-                            <input type="date" id="dataPublicacaoFinal" name="dataPublicacaoFinal">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="dataAberturaInicial">Fim Propostas - De</label>
-                            <input type="date" id="dataAberturaInicial" name="dataAberturaInicial">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="dataAberturaFinal">Fim Propostas - Até</label>
-                            <input type="date" id="dataAberturaFinal" name="dataAberturaFinal">
-                        </div>
-                    </div>
-                </div>
-
-                
-
-                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
-                    <div class="filters-grid">
-                        <div class="form-group">
-                            <label for="ordenacao">Ordenar por</label>
-                            <select id="ordenacao" name="ordenacao">
-                                <option value="dataEncerramentoProposta_asc">Data Fim Propostas (mais próxima)</option>
-                                <option value="dataEncerramentoProposta_desc">Data Fim Propostas (mais distante)</option>
-                                <option value="dataPublicacaoPncp_desc">Data Publicação (mais recente)</option>
-                                <option value="dataPublicacaoPncp_asc">Data Publicação (mais antiga)</option>
-                                <option value="valorTotalEstimado_desc">Valor Estimado (maior)</option>
-                                <option value="valorTotalEstimado_asc">Valor Estimado (menor)</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="button-group">
-                    <button type="button" class="btn-secondary" onclick="limparFiltros()">
-                        Limpar
-                    </button>
-                    <button type="submit" class="btn-primary" id="btnBuscar">
-                        Buscar Licitações
-                    </button>
-                </div>
-            </form>
-        </div>
-
-        <div id="errorContainer"></div>
-
-        <div id="resultsInfo" style="display: none;" class="results-info">
-            <div class="results-count">
-                <span id="resultsCount">0</span> licitações encontradas
-                <span id="lidasCount" style="margin-left: 10px; color: #888; font-size: 13px;"></span>
-            </div>
-            <div class="filtros-visualizacao">
-                <label>
-                    <input type="checkbox" id="filtroNaoLidas" onchange="aplicarFiltros()">
-                    Apenas não lidas
-                </label>
-                <label style="margin-left: 15px;">
-                    <input type="checkbox" id="filtroComInteresse" onchange="aplicarFiltros()">
-                    Apenas com interesse
-                </label>
-                <label style="margin-left: 15px;">
-                    <input type="checkbox" id="filtroSemInteresse" onchange="aplicarFiltros()" checked>
-                    Ocultar sem interesse
-                </label>
-            </div>
-            <div>Página <span id="currentPage">1</span></div>
-        </div>
-
-        <div id="loadingContainer" style="display: none;" class="loading">
-            <h3>Carregando licitações...</h3>
-        </div>
-
-        <div id="resultsContainer" class="results-grid"></div>
-
-        <div id="paginationContainer" style="display: none;" class="pagination">
-            <button id="btnPrevPage">← Anterior</button>
-            <div class="page-info">
-                Página <span id="pageNumber">1</span>
-            </div>
-            <button id="btnNextPage">Próxima →</button>
-        </div>
-
-        <div id="emptyState" style="display: none;" class="empty-state">
-            <div class="empty-state-title">Nenhuma licitação encontrada</div>
-            <div class="empty-state-text">Tente ajustar os filtros de busca</div>
-        </div>
-            </div>
-
-    <!-- Modal de Itens -->
-    <div id="modalItens" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <div>
-                    <div class="modal-title">Itens da Licitacao</div>
-                    <div class="modal-subtitle" id="modalSubtitle"></div>
-                </div>
-                <button class="modal-close" onclick="fecharModal()">&times;</button>
-            </div>
-            <div class="modal-body" id="modalBody">
-                <div class="loading-itens">Carregando itens...</div>
-            </div>
-            <div class="modal-footer">
-                <div class="itens-selecionados-info">
-                    <strong id="qtdSelecionados">0</strong> itens selecionados para participar
-                </div>
-                <div class="footer-buttons">
-                    <button class="btn-secondary" onclick="fecharModal()">Fechar</button>
-                    <button class="btn-salvar-interesse" id="btnSalvarInteresse" onclick="salvarInteresse()">
-                        Salvar Interesse
-                    </button>
-                </div>
-            </div>
-        </div>
+  <div class="page-header">
+    <div>
+      <h1>Painel</h1>
+      <small>Visão operacional consolidada — atualiza a cada 60 segundos</small>
     </div>
-
-                </div>
-        </main>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="atualizar()" id="btnAtualizar">↻ Atualizar</button>
     </div>
+  </div>
 
-    <script src="/js/menu-config.js"></script>
-    <script src="/js/sidebar.js"></script>
-    <script src="app.js?v=20260330"></script>
-    <script>
-        initSidebar('index');
-
-        // Grupos de palavras-chave
-        let gruposPalavras = [];
-
-        async function carregarGruposPalavras() {
-            try {
-                const response = await fetch('/api/grupos-palavras?tipo=pesquisa');
-                const data = await response.json();
-                if (data.success) {
-                    gruposPalavras = data.data;
-                    const select = document.getElementById('grupoPalavras');
-                    if (select) {
-                        select.innerHTML = '<option value="">Selecione um grupo...</option>';
-                        gruposPalavras.forEach(grupo => {
-                            const opt = document.createElement('option');
-                            opt.value = grupo.id;
-                            opt.textContent = `${grupo.nome} (${grupo.palavras ? grupo.palavras.length : 0} palavras)`;
-                            opt.style.color = grupo.cor;
-                            select.appendChild(opt);
-                        });
-
-                        // Verifica se veio grupo na URL
-                        const urlParams = new URLSearchParams(window.location.search);
-                        const grupoId = urlParams.get('grupo');
-                        if (grupoId) {
-                            select.value = grupoId;
-                            aplicarGrupoPalavras();
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('Erro ao carregar grupos:', e);
-            }
-        }
-
-        function aplicarGrupoPalavras() {
-            const select = document.getElementById('grupoPalavras');
-            const grupoId = select.value;
-
-            if (!grupoId) {
-                document.getElementById('palavraChave').value = '';
-                document.getElementById('palavraExclusao').value = '';
-                const selExclusao = document.getElementById('grupoExclusao');
-                if (selExclusao) selExclusao.value = '';
-                return;
-            }
-
-            const grupo = gruposPalavras.find(g => g.id == grupoId);
-            if (grupo && grupo.palavras && grupo.palavras.length > 0) {
-                // Preenche o campo de palavra-chave com as palavras do grupo
-                document.getElementById('palavraChave').value = grupo.palavras.join(', ');
-
-                // Aplica grupos de exclusão vinculados
-                if (grupo.gruposExclusaoVinculados && grupo.gruposExclusaoVinculados.length > 0) {
-                    const idsVinculados = grupo.gruposExclusaoVinculados.map(g => g.id);
-                    const palavrasExclusao = [];
-                    idsVinculados.forEach(id => {
-                        const ge = gruposExclusao.find(g => g.id == id);
-                        if (ge && ge.palavras) {
-                            palavrasExclusao.push(...ge.palavras);
-                        }
-                    });
-                    document.getElementById('palavraExclusao').value = palavrasExclusao.join(', ');
-                    // Seleciona o primeiro grupo de exclusão vinculado no dropdown
-                    const selExclusao = document.getElementById('grupoExclusao');
-                    if (selExclusao) {
-                        selExclusao.value = idsVinculados[0];
-                    }
-                } else {
-                    document.getElementById('palavraExclusao').value = '';
-                    const selExclusao = document.getElementById('grupoExclusao');
-                    if (selExclusao) selExclusao.value = '';
-                }
-
-                // Dispara a pesquisa automaticamente
-                if (typeof pesquisar === 'function') {
-                    pesquisar();
-                } else if (document.getElementById('searchForm')) {
-                    document.getElementById('searchForm').dispatchEvent(new Event('submit'));
-                }
-            }
-        }
-
-        
-        // Grupos de exclusão
-        let gruposExclusao = [];
-
-        async function carregarGruposExclusao() {
-            try {
-                const response = await fetch('/api/grupos-palavras?tipo=exclusao');
-                const data = await response.json();
-                if (data.success) {
-                    gruposExclusao = data.data;
-                    const select = document.getElementById('grupoExclusao');
-                    if (select) {
-                        select.innerHTML = '<option value="">Nenhum grupo selecionado</option>';
-                        gruposExclusao.forEach(grupo => {
-                            const opt = document.createElement('option');
-                            opt.value = grupo.id;
-                            opt.textContent = grupo.nome + ' (' + (grupo.palavras ? grupo.palavras.length : 0) + ' palavras)';
-                            opt.style.color = grupo.cor || '#f44336';
-                            select.appendChild(opt);
-                        });
-                    }
-                }
-            } catch (e) {
-                console.error('Erro ao carregar grupos de exclusão:', e);
-            }
-        }
-
-        carregarGruposExclusao().then(() => carregarGruposPalavras());
-    </script>
-
-    <!-- Modal Análise IA -->
-    <div id="modalAnaliseIA" onclick="if(event.target===this)fecharModalAnalise()">
-        <div class="modal-content">
-            <div class="modal-header">
-                <div class="modal-title">Análise IA da Licitação</div>
-                <button class="modal-close" onclick="fecharModalAnalise()">&times;</button>
-            </div>
-            <div class="modal-body" id="modalAnaliseBody">
-                <p>Carregando análise...</p>
-            </div>
-        </div>
+  <div class="kpi-grid">
+    <div class="kpi" id="kpiParticipacoes">
+      <div class="label">Participações ativas</div>
+      <div class="value">—</div>
     </div>
-
-    <div id="modalSemInteresse" onclick="if(event.target===this)fecharModalSemInteresse()">
-        <div class="modal-box">
-            <h3>🚫 Não tenho interesse</h3>
-            <textarea id="motivoSemInteresse" placeholder="Motivo (opcional)"></textarea>
-            <div class="modal-actions">
-                <button class="btn-cancelar" onclick="fecharModalSemInteresse()">Cancelar</button>
-                <button class="btn-confirmar" onclick="confirmarSemInteresse()">Confirmar</button>
-            </div>
-        </div>
+    <div class="kpi" id="kpiDisputas">
+      <div class="label">Disputas em andamento</div>
+      <div class="value">—</div>
     </div>
+    <div class="kpi" id="kpiSessoesHoje">
+      <div class="label">Sessões hoje</div>
+      <div class="value">—</div>
+    </div>
+    <div class="kpi" id="kpiMensagens">
+      <div class="label">Mensagens não lidas</div>
+      <div class="value">—</div>
+    </div>
+    <div class="kpi" id="kpiSaldo">
+      <div class="label">Saldo total</div>
+      <div class="value">—</div>
+    </div>
+    <div class="kpi" id="kpiCobertura">
+      <div class="label">Cobertura futura</div>
+      <div class="value">—</div>
+    </div>
+  </div>
+
+  <div class="dash-row">
+    <section class="card">
+      <h3>Status Comprasnet</h3>
+      <div id="statusComprasnet"><div class="dash-empty">Carregando…</div></div>
+    </section>
+
+    <section class="card">
+      <h3>Financeiro · próximos 7 dias</h3>
+      <div id="statusFinanceiro"><div class="dash-empty">Carregando…</div></div>
+    </section>
+  </div>
+
+  <div class="dash-row">
+    <section class="card">
+      <h3>Agenda de hoje</h3>
+      <div id="agendaHoje"><div class="dash-empty">Carregando…</div></div>
+    </section>
+
+    <section class="card">
+      <h3>Atalhos</h3>
+      <div class="dash-shortcuts">
+        <a href="/licitacoes/consulta.html" class="btn btn-secondary">🔍 Buscar licitação</a>
+        <a href="/operacional/propostas-api.html" class="btn btn-secondary">📝 Nova proposta</a>
+        <a href="/operacional/lances.html" class="btn btn-secondary">🎯 Lances automáticos</a>
+        <a href="/licitacoes/agenda.html" class="btn btn-secondary">📅 Agenda completa</a>
+        <a href="/comercial/pedidos.html" class="btn btn-secondary">🧾 Novo pedido</a>
+        <a href="/financeiro/contas-a-receber.html" class="btn btn-secondary">📥 A receber</a>
+        <a href="/financeiro/contas-a-pagar.html" class="btn btn-secondary">📤 A pagar</a>
+        <a href="/operacional/monitoramento-chat.html" class="btn btn-secondary">💬 Chat</a>
+      </div>
+    </section>
+  </div>
+
+</main>
+</div>
+
+<style>
+  .dash-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .card { padding: 16px 18px; }
+  .card h3 { margin: 0 0 12px 0; }
+  .dash-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dash-shortcuts .btn { text-decoration: none; }
+  .dash-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9em;
+  }
+  .dash-line:last-child { border-bottom: none; }
+  .dash-line .lbl { color: var(--text-2); }
+  .dash-line .val { color: var(--text-0); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dash-line .val.danger { color: var(--danger); }
+  .dash-line .val.success { color: var(--success); }
+  .dash-line .val.warn { color: var(--warn); }
+  .dash-empty { color: var(--text-3); font-size: 0.88em; padding: 14px 0; text-align: center; }
+  .dash-status { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .dash-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dash-dot.ok { background: var(--success); }
+  .dash-dot.warn { background: var(--warn); }
+  .dash-dot.bad { background: var(--danger); }
+  .dash-agenda-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .dash-agenda-item:last-child { border-bottom: none; }
+  .dash-agenda-item .ag-time { font-family: ui-monospace, monospace; color: var(--text-2); font-size: 0.78em; }
+  .dash-agenda-item .ag-orgao { font-weight: 600; font-size: 0.9em; margin-top: 2px; }
+  .dash-agenda-item .ag-obj { color: var(--text-1); font-size: 0.84em; line-height: 1.4; margin-top: 2px; }
+</style>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>
+  initSidebar('home');
+</script>
+<script>
+const fmtMoney = v => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtNum = v => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+async function jget(url) {
+  try {
+    const r = await fetch(url, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch (e) {
+    console.warn('[dashboard] fetch falhou:', url, e.message);
+    return null;
+  }
+}
+
+function setKpi(id, value, modifier) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.querySelector('.value').textContent = value;
+  el.classList.remove('success', 'warn', 'danger');
+  if (modifier) el.classList.add(modifier);
+}
+
+const hojeIso = () => new Date().toISOString().slice(0, 10);
+
+async function carregarKpis() {
+  const [parts, disp, ag, msg, fin, sync] = await Promise.all([
+    jget('/api/proposta/participacoes?situacao=ativas'),
+    jget('/api/sniper/disputas-ativas'),
+    jget('/api/agenda?dataIni=' + hojeIso() + '&dataFim=' + hojeIso()),
+    jget('/api/chat/nao-lidas'),
+    jget('/api/contas-financeiras/resumo'),
+    jget('/api/sync/status')
+  ]);
+
+  if (parts) {
+    const n = parts.stats?.emAndamento ?? parts.stats?.total ?? 0;
+    setKpi('kpiParticipacoes', fmtNum(n), n > 0 ? 'success' : null);
+  }
+  if (disp) {
+    const n = (disp.disputas || []).length;
+    setKpi('kpiDisputas', fmtNum(n), n > 0 ? 'warn' : null);
+  }
+  if (ag) {
+    const sessoes = (ag.data || []).filter(s => (s.dataEncerramentoProposta || '').slice(0, 10) === hojeIso()).length;
+    setKpi('kpiSessoesHoje', fmtNum(sessoes), sessoes > 0 ? 'warn' : null);
+  }
+  if (msg) {
+    const n = msg.total || 0;
+    setKpi('kpiMensagens', fmtNum(n), n > 0 ? 'warn' : null);
+  }
+  if (fin) {
+    setKpi('kpiSaldo', fmtMoney(fin.resumo?.total));
+  }
+  if (sync) {
+    const cob = sync.coberturaFuturaDias || 0;
+    const mod = cob >= 30 ? 'success' : cob >= 7 ? 'warn' : 'danger';
+    setKpi('kpiCobertura', cob + 'd', mod);
+  }
+}
+
+async function carregarStatusComprasnet() {
+  const [sync, lance] = await Promise.all([
+    jget('/api/sync/status'),
+    jget('/api/lance/status')
+  ]);
+  const el = document.getElementById('statusComprasnet');
+  if (!sync) { el.innerHTML = '<div class="dash-empty">Sem dados</div>'; return; }
+
+  const dot = sync.running ? 'warn' : (sync.dadosAtualizados ? 'ok' : (sync.diasDesatualizados <= 1 ? 'warn' : 'bad'));
+  const estado = sync.running
+    ? `Sincronizando… ${sync.progress || 0}/${sync.total || 0}`
+    : (sync.dadosAtualizados ? 'Em dia' : `${sync.diasDesatualizados} dia(s) atrasado`);
+
+  let lanceLinha = '';
+  if (lance && lance.ultimoLance) {
+    const dt = new Date(lance.ultimoLance.dataHora || lance.ultimoLance.data || 0);
+    let tempo = '—';
+    if (!isNaN(dt)) {
+      const diff = Math.round((dt - Date.now()) / 60000);
+      tempo = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' }).format(diff, 'minute');
+    }
+    lanceLinha = `<div class="dash-line"><span class="lbl">Último lance</span><span class="val">${esc(tempo)}</span></div>`;
+  }
+
+  const ultimaSync = sync.lastIncrementalSync
+    ? new Date(sync.lastIncrementalSync).toLocaleString('pt-BR')
+    : '—';
+
+  el.innerHTML = `
+    <div class="dash-status"><div class="dash-dot ${dot}"></div><strong>${esc(estado)}</strong></div>
+    <div class="dash-line"><span class="lbl">Licitações no banco</span><span class="val">${fmtNum(sync.licitacoesNoBanco)}</span></div>
+    <div class="dash-line"><span class="lbl">Cobertura futura</span><span class="val">${fmtNum(sync.coberturaFuturaDias)} dias</span></div>
+    <div class="dash-line"><span class="lbl">Última sync</span><span class="val">${esc(ultimaSync)}</span></div>
+    ${lanceLinha}
+  `;
+}
+
+async function carregarFinanceiro() {
+  const [pag, rec] = await Promise.all([
+    jget('/api/contas-a-pagar/resumo'),
+    jget('/api/contas-a-receber/resumo')
+  ]);
+  const el = document.getElementById('statusFinanceiro');
+  if (!pag && !rec) { el.innerHTML = '<div class="dash-empty">Sem dados</div>'; return; }
+
+  const r = rec?.resumo || rec || {};
+  const p = pag?.resumo || pag || {};
+
+  el.innerHTML = `
+    <div class="dash-line"><span class="lbl">A receber · vencidos</span><span class="val ${(r.vencido || 0) > 0 ? 'danger' : ''}">${fmtMoney(r.vencido)}</span></div>
+    <div class="dash-line"><span class="lbl">A receber · vencendo em 7d</span><span class="val">${fmtMoney(r.prox7)}</span></div>
+    <div class="dash-line"><span class="lbl">A pagar · vencidos</span><span class="val ${(p.vencido || 0) > 0 ? 'danger' : ''}">${fmtMoney(p.vencido)}</span></div>
+    <div class="dash-line"><span class="lbl">A pagar · vencendo em 7d</span><span class="val">${fmtMoney(p.prox7)}</span></div>
+  `;
+}
+
+async function carregarAgenda() {
+  const ag = await jget('/api/agenda?dataIni=' + hojeIso() + '&dataFim=' + hojeIso());
+  const el = document.getElementById('agendaHoje');
+  const lista = (ag?.data || []).filter(s => (s.dataEncerramentoProposta || '').slice(0, 10) === hojeIso());
+  if (!lista.length) {
+    el.innerHTML = '<div class="dash-empty">Nenhuma sessão hoje</div>';
+    return;
+  }
+  el.innerHTML = lista.slice(0, 8).map(s => {
+    const dt = s.dataEncerramentoProposta ? new Date(s.dataEncerramentoProposta) : null;
+    const hora = dt && !isNaN(dt) ? dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+    const orgao = (s.nomeOrgao || '').slice(0, 80);
+    const obj = (s.objetoCompra || '').slice(0, 140);
+    const mod = s.modalidadeNome || '';
+    return `
+      <div class="dash-agenda-item">
+        <div class="ag-time">${esc(hora)}${mod ? ' · ' + esc(mod) : ''}</div>
+        <div class="ag-orgao">${esc(orgao)}</div>
+        <div class="ag-obj">${esc(obj)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function atualizar() {
+  const btn = document.getElementById('btnAtualizar');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Atualizando…'; }
+  try {
+    await Promise.all([
+      carregarKpis(),
+      carregarStatusComprasnet(),
+      carregarFinanceiro(),
+      carregarAgenda()
+    ]);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Atualizar'; }
+  }
+}
+
+atualizar();
+setInterval(atualizar, 60000);
+</script>
 </body>
 </html>
-

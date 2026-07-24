@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saúde Comprasnet · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* .kpi / .kpi-grid / .badge (base) / .empty vêm do app-modern.css (design-system).
+           Aqui ficam só os componentes próprios desta página. */
+        .mono { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.88em; }
+
+        .veredito { padding: 12px 16px; border-radius: var(--r-md); font-weight: 700; text-align: center; margin-bottom: 14px; font-size: 1.05em; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .veredito.good { background: var(--success-soft); color: var(--success); border: 1px solid var(--success); }
+        .veredito.warn { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn); }
+        .veredito.danger { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
+
+        .timeline { display: flex; gap: 2px; height: 60px; padding: 6px; background: var(--bg-1); border-radius: var(--r-md); overflow-x: auto; align-items: flex-end; }
+        .tl-bar { flex: 0 0 14px; min-height: 4px; background: var(--success); border-radius: 2px 2px 0 0; position: relative; cursor: pointer; }
+        .tl-bar.degraded { background: var(--warn); }
+        .tl-bar.down { background: var(--danger); }
+        .tl-bar:hover::after {
+            content: attr(data-tip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+            background: var(--bg-0); color: var(--text-0); padding: 4px 8px; border-radius: 4px;
+            white-space: nowrap; font-size: 0.75em; z-index: 10; border: 1px solid var(--border);
+        }
+
+        table.tbl { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        table.tbl th { background: var(--bg-3); color: var(--text-2); text-align: left; padding: 8px 10px; font-weight: 600; }
+        table.tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+        /* variantes de cor do .badge (base do design-system) */
+        .badge.ok { background: var(--success-soft); color: var(--success); }
+        .badge.fail { background: var(--danger-soft); color: var(--danger); }
+        .badge svg, .veredito svg { vertical-align: -2px; }
+
+        /* legenda da timeline — quadradinhos de status (sem emoji) */
+        .lg-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: middle; margin-right: 3px; }
+        .lg-dot.good { background: var(--success); }
+        .lg-dot.warn { background: var(--warn); }
+        .lg-dot.danger { background: var(--danger); }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Saúde do Comprasnet</h1>
+        <small>Monitoramento de latência e disponibilidade — base pros alertas de blitz.</small>
+      </div>
+      <div class="actions">
+        <select id="janela" onchange="carregar()">
+          <option value="600">Últimos 10 min</option>
+          <option value="3600" selected>Última 1h</option>
+          <option value="21600">Últimas 6h</option>
+          <option value="86400">Últimas 24h</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="carregar()">Atualizar</button>
+        <button class="btn btn-primary btn-sm" onclick="testarAgora()"><svg class="ic-sm"><use href="#i-zap"/></svg> Testar agora</button>
+      </div>
+    </div>
+
+    <div id="veredito" class="veredito">Carregando…</div>
+
+    <div id="kpis" class="kpi-grid"></div>
+
+    <div class="panel" style="margin-bottom:14px">
+        <h3 style="margin-bottom:10px">Timeline (por minuto)</h3>
+        <div id="timeline" class="timeline"></div>
+        <small style="color:var(--text-3); margin-top:8px; display:block">
+            <span class="lg-dot good"></span> saudável (>95% OK) · <span class="lg-dot warn"></span> instável (80-95%) · <span class="lg-dot danger"></span> degradado (&lt;80%) · cada barra = 1 minuto · passe o mouse pra ver detalhes
+        </small>
+    </div>
+
+    <div class="panel" style="margin-bottom:14px">
+        <h3 style="margin-bottom:10px">Status codes</h3>
+        <div id="statusBreakdown"></div>
+    </div>
+
+    <div class="panel">
+        <h3 style="margin-bottom:10px">Últimas falhas</h3>
+        <div id="falhas"></div>
+    </div>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('health-comprasnet');</script>
+<script>
+function toast(msg, tipo = 'success') {
+    const cont = document.getElementById('toasts');
+    if (!cont) return;
+    const el = document.createElement('div');
+    el.className = 'toast ' + tipo;
+    const ic = tipo === 'error' ? icon('x-circle', 'ic-sm') : icon('check-circle', 'ic-sm');
+    el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px">${ic}<span>${msg}</span></span>`;
+    el.onclick = () => el.remove();
+    cont.appendChild(el);
+    setTimeout(() => el.remove(), 4500);
+}
+
+const fmtMs = (v) => v == null ? '—' : v + 'ms';
+const fmtTs = (iso) => {
+    if(!iso) return '—';
+    const d = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+    return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
+};
+
+async function carregar() {
+    const janela = document.getElementById('janela').value || 3600;
+    try {
+        const r = await fetch(`/api/sniper/comprasnet-health?janela=${janela}`);
+        const d = await r.json();
+        if (!d.success) { toast('Erro: ' + (d.error || 'falha ao carregar'), 'error'); return; }
+        renderVeredito(d.veredito, d.taxaSucesso, d.total);
+        renderKpis(d);
+        renderTimeline(d.timeline);
+        renderStatuses(d.statusCount);
+        renderFalhas(d.ultimasFalhas);
+    } catch(e) {
+        document.getElementById('veredito').textContent = 'Erro: ' + e.message;
+    }
+}
+
+function renderVeredito(ver, taxa, total) {
+    const el = document.getElementById('veredito');
+    const cls = ver === 'saudável' ? 'good' : (ver === 'instável' ? 'warn' : 'danger');
+    el.className = 'veredito ' + cls;
+    const icone = ver === 'saudável' ? icon('check-circle') : (ver === 'instável' ? icon('alert-triangle') : icon('x-circle'));
+    el.innerHTML = `${icone} <span>Comprasnet ${ver.toUpperCase()} — ${taxa != null ? taxa+'% OK' : 'sem amostras'} (${total} chamadas no período)</span>`;
+}
+
+function renderKpis(d) {
+    const taxa = d.taxaSucesso;
+    const claTaxa = taxa == null ? '' : (taxa >= 95 ? 'success' : (taxa >= 80 ? 'warn' : 'danger'));
+    const claLat = d.tempoMedio == null ? '' : (d.tempoMedio < 150 ? 'success' : (d.tempoMedio < 400 ? 'warn' : 'danger'));
+    document.getElementById('kpis').innerHTML = `
+        <div class="kpi ${claTaxa}">
+            <div class="label">Taxa de sucesso</div>
+            <div class="value">${taxa != null ? taxa+'%' : '—'}</div>
+            <div class="sub">${d.okCount}/${d.total} OK</div>
+        </div>
+        <div class="kpi ${d.failCount > 0 ? 'warn' : 'success'}">
+            <div class="label">Falhas (5xx/timeout)</div>
+            <div class="value">${d.failCount}</div>
+            <div class="sub">no período</div>
+        </div>
+        <div class="kpi ${claLat}">
+            <div class="label">Latência média</div>
+            <div class="value">${fmtMs(d.tempoMedio)}</div>
+            <div class="sub">máx: ${fmtMs(d.tempoMax)}</div>
+        </div>
+        <div class="kpi">
+            <div class="label">Total amostras</div>
+            <div class="value">${d.total}</div>
+            <div class="sub">guard + ping</div>
+        </div>
+    `;
+}
+
+function renderTimeline(timeline) {
+    if (!timeline || timeline.length === 0) {
+        document.getElementById('timeline').innerHTML = '<div class="empty">Sem dados na janela</div>';
+        return;
+    }
+    document.getElementById('timeline').innerHTML = timeline.map(t => {
+        const taxa = t.total > 0 ? t.ok / t.total : 0;
+        const cls = taxa >= 0.95 ? '' : (taxa >= 0.8 ? 'degraded' : 'down');
+        const altura = Math.max(8, Math.min(60, t.total * 3));
+        const tip = `${t.ts}: ${t.ok}/${t.total} OK (${Math.round(taxa*100)}%) — statuses: ${Object.entries(t.statuses).map(([k,v])=>`${k}=${v}`).join(', ')}`;
+        return `<div class="tl-bar ${cls}" style="height:${altura}px" data-tip="${tip.replace(/"/g,'&quot;')}"></div>`;
+    }).join('');
+}
+
+function renderStatuses(statusCount) {
+    if (!statusCount || Object.keys(statusCount).length === 0) {
+        document.getElementById('statusBreakdown').innerHTML = '<div class="empty">Sem dados</div>';
+        return;
+    }
+    const entries = Object.entries(statusCount).sort((a,b) => b[1] - a[1]);
+    document.getElementById('statusBreakdown').innerHTML = entries.map(([k, v]) => {
+        const isOk = k.startsWith('OK');
+        return `<span class="badge ${isOk ? 'ok' : 'fail'}" style="margin:2px 4px;display:inline-block">${k}: <strong>${v}</strong></span>`;
+    }).join('');
+}
+
+function renderFalhas(falhas) {
+    if (!falhas || falhas.length === 0) {
+        document.getElementById('falhas').innerHTML = `<div class="empty">${icon('check-circle','ic-sm')} Sem falhas registradas</div>`;
+        return;
+    }
+    document.getElementById('falhas').innerHTML = `
+        <table class="tbl">
+            <thead><tr><th>Quando</th><th>Tipo</th><th>Status</th><th>Latência</th><th>Erro</th><th>Endpoint</th></tr></thead>
+            <tbody>
+            ${falhas.map(f => `<tr>
+                <td class="mono">${fmtTs(f.ts)}</td>
+                <td>${f.tipo}</td>
+                <td class="mono"><span class="badge fail">${f.httpStatus || 'TO'}</span></td>
+                <td class="mono">${fmtMs(f.tempoMs)}</td>
+                <td><small>${f.erro || '—'}</small></td>
+                <td class="mono" style="font-size:0.75em">${f.endpoint || '—'}</td>
+            </tr>`).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function testarAgora() {
+    try {
+        const r = await fetch('/api/sniper/test-warmup?n=5');
+        const d = await r.json();
+        toast(`<strong>Teste: ${d.veredito}</strong> — ${d.ok}/${d.n} OK em ${d.totalMs}ms · RTT ${d.rttMedio}ms (min ${d.rttMin} / max ${d.rttMax})`,
+              /saud/i.test(d.veredito || '') ? 'success' : 'error');
+        carregar();
+    } catch(e) { toast('Erro: ' + e.message, 'error'); }
+}
+
+carregar();
+setInterval(carregar, 30000);
+</script>
+</body>
+</html>

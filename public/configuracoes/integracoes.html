@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integrações · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Integrações com Portais</h1>
+      <small>Credenciais de fornecedor por portal externo (BNC, BLL, etc.). Comprasnet e SC têm telas próprias.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div id="cards"></div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('integracoes');</script>
+
+<script>
+function showAlert(msg, tipo = 'success') {
+  const el = document.getElementById('alertGlobal');
+  el.className = 'alert ' + tipo;
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 6000);
+}
+
+function fmtData(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso.replace(' ', 'T') + 'Z').toLocaleString('pt-BR'); }
+  catch { return iso; }
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function carregar() {
+  const cont = document.getElementById('cards');
+  cont.innerHTML = '<div class="card" style="max-width:720px;">Carregando…</div>';
+  try {
+    const r = await fetch('/api/integracoes/portais');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Falha ao carregar portais');
+    renderCards(d.portais);
+  } catch (e) {
+    cont.innerHTML = '';
+    showAlert('Erro: ' + e.message, 'error');
+  }
+}
+
+function renderCards(portais) {
+  const cont = document.getElementById('cards');
+  if (!portais.length) {
+    cont.innerHTML = '<div class="card" style="max-width:720px;"><p>Nenhum portal cadastrado no registry.</p></div>';
+    return;
+  }
+
+  cont.innerHTML = portais.map((p) => {
+    const status = p.configurado
+      ? `<span class="badge ativo">configurado</span> <small class="muted">desde ${fmtData(p.atualizadoEm)}</small>`
+      : `<span class="badge cancelado">não configurado</span>`;
+
+    const usuarioAtual = p.configurado
+      ? `<small class="muted">Usuário atual: <code>${escapeHtml(p.usuario)}</code></small>`
+      : '';
+
+    return `
+      <div class="card" style="max-width:720px; margin-bottom:16px;" data-portal="${escapeHtml(p.key)}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <h3 style="margin:0 0 4px 0;">${escapeHtml(p.label)}</h3>
+            <small class="muted">${escapeHtml(p.descricao)}</small>
+            ${p.site ? ` · <a href="${escapeHtml(p.site)}" target="_blank" rel="noopener" style="font-size:0.85em;">abrir portal ↗</a>` : ''}
+          </div>
+          <div style="text-align:right;">${status}</div>
+        </div>
+
+        <div style="margin-top:8px;">${usuarioAtual}</div>
+
+        <div class="form-row" style="margin-top:14px;">
+          <div class="form-group">
+            <label>${escapeHtml(p.rotuloUsuario || 'Usuário')}</label>
+            <input type="text" id="u-${escapeHtml(p.key)}" placeholder="${escapeHtml(p.rotuloUsuario || 'Usuário')}" autocomplete="username" value="${escapeHtml(p.usuario || '')}">
+          </div>
+          <div class="form-group">
+            <label>${escapeHtml(p.rotuloSenha || 'Senha')}</label>
+            <input type="password" id="s-${escapeHtml(p.key)}" placeholder="${p.configurado ? '••••••••  (deixe em branco para manter)' : (escapeHtml(p.rotuloSenha || 'Senha'))}" autocomplete="new-password">
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="salvar('${escapeHtml(p.key)}')">Salvar</button>
+          ${p.probe && p.configurado ? `<button class="btn btn-ghost btn-sm" onclick="testar('${escapeHtml(p.key)}', '${escapeHtml(p.label)}')">Testar conexão</button>` : ''}
+          ${p.configurado ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="remover('${escapeHtml(p.key)}', '${escapeHtml(p.label)}')">Remover credenciais</button>` : ''}
+        </div>
+        <div id="probe-${escapeHtml(p.key)}" style="margin-top:12px;"></div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function salvar(key) {
+  const usuario = document.getElementById('u-' + key).value.trim();
+  const senha = document.getElementById('s-' + key).value;
+  if (!usuario) return showAlert('Informe o usuário', 'error');
+  if (!senha) return showAlert('Informe a senha', 'error');
+
+  try {
+    const r = await fetch('/api/integracoes/portais/' + encodeURIComponent(key) + '/credenciais', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario, senha }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Falha ao salvar');
+    showAlert(d.message || 'Credenciais salvas');
+    carregar();
+  } catch (e) {
+    showAlert('Erro: ' + e.message, 'error');
+  }
+}
+
+async function testar(key, label) {
+  const out = document.getElementById('probe-' + key);
+  out.innerHTML = '<small class="muted">Testando login no portal…</small>';
+  try {
+    const r = await fetch('/api/integracoes/portais/' + encodeURIComponent(key) + '/probe', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Falha no probe');
+    const res = d.result;
+    if (res.ok) {
+      const expIso = res.payload?.exp ? new Date(res.payload.exp * 1000).toLocaleString('pt-BR') : '—';
+      out.innerHTML = `
+        <div class="alert success" style="margin:0;">
+          <strong>Login ${escapeHtml(label)} OK</strong><br>
+          <small>
+            Usuário: <code>${escapeHtml(res.payload?.preferred_username || '—')}</code> ·
+            Nome: ${escapeHtml(res.payload?.name || '—')} ·
+            Token expira: ${escapeHtml(expIso)} (${res.expiresIn}s) ·
+            Roles: ${escapeHtml((res.payload?.roles || []).join(', ') || '—')}
+          </small>
+        </div>`;
+    } else {
+      out.innerHTML = `
+        <div class="alert error" style="margin:0;">
+          <strong>Falha em <code>${escapeHtml(res.etapa || '?')}</code></strong>${res.status ? ` (HTTP ${res.status})` : ''}<br>
+          <small>${escapeHtml(res.error || '—')}</small>
+          ${res.trace ? `<details style="margin-top:6px;"><summary><small>trace</small></summary><pre style="font-size:11px; margin:4px 0 0 0; white-space:pre-wrap;">${escapeHtml(res.trace.join('\n'))}</pre></details>` : ''}
+        </div>`;
+    }
+  } catch (e) {
+    out.innerHTML = `<div class="alert error" style="margin:0;">Erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function remover(key, label) {
+  if (!confirm('Remover credenciais de ' + label + '?')) return;
+  try {
+    const r = await fetch('/api/integracoes/portais/' + encodeURIComponent(key) + '/credenciais', { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Falha ao remover');
+    showAlert(d.message || 'Credenciais removidas');
+    carregar();
+  } catch (e) {
+    showAlert('Erro: ' + e.message, 'error');
+  }
+}
+
+carregar();
+</script>
+</body>
+</html>

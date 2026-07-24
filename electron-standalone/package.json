@@ -1,6 +1,6 @@
 {
   "name": "liciteagora-electron",
-  "version": "5.2.20",
+  "version": "5.2.28",
   "description": "Browser CEF para Comprasnet — login + sync + lances",
   "main": "electron-browser.js",
   "scripts": {

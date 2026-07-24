@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Depósitos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Depósitos</h1>
+      <small>Locais de estoque — saldos independentes por depósito</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/estoque/transferencias.html" style="text-decoration:none;">🔀 Transferências</a>
+      <button class="btn btn-primary btn-sm" onclick="abrirModal()">+ Novo depósito</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Nome</th><th>Tipo</th><th>Endereço</th>
+        <th style="text-align:right;">Produtos c/ saldo</th>
+        <th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="tbDep"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="page-header" style="margin-top:28px;">
+    <div><h2 id="tituloSaldos" style="margin:0;">Saldos por depósito</h2>
+    <small>Selecione um depósito acima ("ver saldos") para detalhar</small></div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>SKU</th><th>Descrição</th><th>Unidade</th><th style="text-align:right;">Saldo</th></tr></thead>
+      <tbody id="tbSaldos"><tr><td colspan="4" class="empty">Nenhum depósito selecionado</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalDep">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <h3 id="modalTitulo" style="margin:0;">Novo depósito</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Nome <span style="color:var(--danger);">*</span></label>
+        <input type="text" id="depNome" placeholder="Ex.: Galpão 2, Loja Centro">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="depTipo">
+          <option value="interno">Interno</option>
+          <option value="terceiro">Terceiro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Padrão</label>
+        <select id="depPadrao">
+          <option value="0">Não</option>
+          <option value="1">Sim — usar como padrão</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Endereço (opcional)</label>
+        <input type="text" id="depEndereco">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarDep()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('estoque-depositos');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+let depEdit = null;
+
+async function carregar(){
+  const r = await fetch('/api/depositos?todos=1&comSaldos=1'); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tbDep');
+  tb.innerHTML = d.depositos.map(dep => `<tr${dep.ativo?'':' style="opacity:0.55;"'}>
+    <td><strong>${dep.nome}</strong>${dep.padrao?' <span class="badge entrada">PADRÃO</span>':''}</td>
+    <td>${dep.tipo}</td>
+    <td>${dep.enderecoTexto||'-'}</td>
+    <td style="text-align:right;">${dep.produtos||0}</td>
+    <td>${dep.ativo?'<span class="badge entrada">ATIVO</span>':'<span class="badge cancelado">INATIVO</span>'}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick="verSaldos(${dep.id}, '${dep.nome.replace(/'/g,"&#39;")}')">Ver saldos</button>
+      <button class="btn btn-ghost btn-sm" onclick='editarDep(${JSON.stringify(dep).replace(/'/g,"&#39;")})'>Editar</button>
+      ${dep.padrao ? '' : `<button class="btn btn-ghost btn-sm" onclick="toggleAtivo(${dep.id}, ${dep.ativo?0:1})">${dep.ativo?'Desativar':'Reativar'}</button>`}
+    </td>
+  </tr>`).join('') || '<tr><td colspan="6" class="empty">Sem depósitos</td></tr>';
+}
+
+async function verSaldos(id, nome){
+  document.getElementById('tituloSaldos').textContent = 'Saldos — ' + nome;
+  const r = await fetch('/api/depositos/'+id+'/saldos'); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbSaldos').innerHTML = d.saldos.length ? d.saldos.map(s =>
+    `<tr><td>${s.sku}</td><td>${s.descricao}</td><td>${s.unidade||'-'}</td><td style="text-align:right;">${fmt(s.saldo)}</td></tr>`
+  ).join('') : '<tr><td colspan="4" class="empty">Sem saldo neste depósito</td></tr>';
+}
+
+function abrirModal(){ depEdit=null; document.getElementById('modalTitulo').textContent='Novo depósito';
+  ['depNome','depEndereco'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('depTipo').value='interno'; document.getElementById('depPadrao').value='0';
+  document.getElementById('modalDep').classList.add('open'); }
+function editarDep(dep){ depEdit=dep; document.getElementById('modalTitulo').textContent='Editar depósito';
+  document.getElementById('depNome').value=dep.nome; document.getElementById('depTipo').value=dep.tipo;
+  document.getElementById('depEndereco').value=dep.enderecoTexto||''; document.getElementById('depPadrao').value=dep.padrao?'1':'0';
+  document.getElementById('modalDep').classList.add('open'); }
+function fecharModal(){ document.getElementById('modalDep').classList.remove('open'); }
+
+async function salvarDep(){
+  const body = {
+    nome: document.getElementById('depNome').value.trim(),
+    tipo: document.getElementById('depTipo').value,
+    enderecoTexto: document.getElementById('depEndereco').value.trim() || null,
+    padrao: document.getElementById('depPadrao').value === '1'
+  };
+  if(!body.nome) return showAlert('Nome obrigatório','error');
+  const url = depEdit ? '/api/depositos/'+depEdit.id : '/api/depositos';
+  const r = await fetch(url, { method: depEdit?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fecharModal(); showAlert('Depósito salvo'); carregar();
+}
+
+async function toggleAtivo(id, ativo){
+  const r = await fetch('/api/depositos/'+id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ativo }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fecharModal(); });
+carregar();
+</script>
+</body></html>

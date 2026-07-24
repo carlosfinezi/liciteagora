@@ -50,6 +50,10 @@
 // só dispara se ainda não houver linha, então os dois módulos
 // convivem bem.
 
+// Fase 3g-hotfix (2026-05-23): JOIN licitacoes/itens via PG quando flag ativa
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
 function registrarRotasProposta(app, db) {
   // ==================== INTERESSE ====================
   app.post('/api/interesse', (req, res) => {
@@ -101,9 +105,70 @@ function registrarRotasProposta(app, db) {
     }
   });
 
-  app.get('/api/interesse', (req, res) => {
+  app.get('/api/interesse', async (req, res) => {
     try {
       const { cnpj, ano, sequencial } = req.query;
+
+      if (USE_PG) {
+        // Cross-DB: tenant (interesse + grupos_palavras + kanban_status) + catalog (licitacoes + itens)
+        let tenantSql = `
+          SELECT
+            i.id, i.cnpj, i.ano, i.sequencial, i.numeroItem, i.dataCriacao, i.grupoId,
+            g.nome as grupoNome,
+            k.status as kanbanStatus, k.dataAtualizacao as kanbanDataAtualizacao
+          FROM interesse i
+          LEFT JOIN grupos_palavras g ON g.id = i.grupoId
+          LEFT JOIN kanban_status k ON k.cnpj = i.cnpj AND k.ano = i.ano AND k.sequencial = i.sequencial
+        `;
+        const tenantParams = [];
+        if (cnpj && ano && sequencial) {
+          tenantSql += ' WHERE i.cnpj = ? AND i.ano = ? AND i.sequencial = ?';
+          tenantParams.push(cnpj, ano, sequencial);
+        }
+        tenantSql += ' ORDER BY i.dataCriacao DESC';
+        const tenantRows = db.prepare(tenantSql).all(...tenantParams);
+        if (tenantRows.length === 0) return res.json({ success: true, data: [] });
+
+        // Busca licitações + itens em PG via VALUES (cnpj, ano, sequencial, numeroItem)
+        const values = tenantRows.map((_, j) => `($${j*4+1}::text,$${j*4+2}::int,$${j*4+3}::bigint,$${j*4+4}::int)`).join(',');
+        const params = [];
+        for (const r of tenantRows) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial), Number(r.numeroItem));
+        const lic = await catalogPg.query(`
+          WITH keys(cnpj, ano, sequencial, "numeroItem") AS (VALUES ${values})
+          SELECT k.cnpj, k.ano, k.sequencial, k."numeroItem" AS "numeroItem",
+                 l."objetoCompra" AS "objetoCompra", l."razaoSocial" AS "nomeOrgao",
+                 l."codigoUnidade" AS "codigoUnidadeCompradora", l."valorTotalEstimado" AS "valorTotalLicitacao",
+                 l."dataAberturaProposta" AS "dataAberturaProposta", COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta",
+                 l."linkSistemaOrigem" AS "linkSistemaOrigem", l."modalidadeNome" AS "modalidadeNome",
+                 l."numeroCompra" AS "numeroCompra",
+                 it."descricao" AS descricao, it."quantidade" AS quantidade,
+                 it."unidadeMedida" AS "unidadeMedida", it."valorUnitarioEstimado" AS "valorUnitarioEstimado",
+                 it."valorTotal" AS "valorTotal"
+            FROM keys k
+       LEFT JOIN licitacoes l ON l."cnpj"=k.cnpj AND l."anoCompra"=k.ano AND l."sequencialCompra"=k.sequencial
+       LEFT JOIN itens it ON it."licitacaoId" = l."id" AND it."numeroItem" = k."numeroItem"
+        `, params);
+
+        const licMap = new Map();
+        for (const l of lic) licMap.set(`${l.cnpj}|${l.ano}|${l.sequencial}|${l.numeroItem}`, l);
+        const interesses = tenantRows.map(t => {
+          const l = licMap.get(`${t.cnpj}|${t.ano}|${t.sequencial}|${t.numeroItem}`) || {};
+          return { ...t, ...l, cnpj: t.cnpj, ano: t.ano, sequencial: t.sequencial, numeroItem: t.numeroItem };
+        });
+
+        // Aplica ORDER BY dataAberturaProposta ASC, dataCriacao DESC em JS
+        interesses.sort((a, b) => {
+          const ad = a.dataAberturaProposta, bd = b.dataAberturaProposta;
+          if (ad && bd) {
+            const cmp = new Date(ad) - new Date(bd);
+            if (cmp !== 0) return cmp;
+          } else if (ad) return -1;
+          else if (bd) return 1;
+          return new Date(b.dataCriacao) - new Date(a.dataCriacao);
+        });
+
+        return res.json({ success: true, data: interesses });
+      }
 
       let sql = `
         SELECT
@@ -128,11 +193,14 @@ function registrarRotasProposta(app, db) {
           it.quantidade,
           it.unidadeMedida,
           it.valorUnitarioEstimado,
-          it.valorTotal
+          it.valorTotal,
+          k.status as kanbanStatus,
+          k.dataAtualizacao as kanbanDataAtualizacao
         FROM interesse i
         LEFT JOIN grupos_palavras g ON g.id = i.grupoId
         LEFT JOIN licitacoes l ON i.cnpj = l.cnpj AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra
         LEFT JOIN itens it ON l.id = it.licitacaoId AND i.numeroItem = it.numeroItem
+        LEFT JOIN kanban_status k ON k.cnpj = i.cnpj AND k.ano = i.ano AND k.sequencial = i.sequencial
       `;
       let params = [];
 
@@ -199,6 +267,29 @@ function registrarRotasProposta(app, db) {
         error: 'Erro ao remover interesses',
         details: error.message
       });
+    }
+  });
+
+  // Remove em lote — { ids: number[] }
+  app.post('/api/interesse/bulk-delete', (req, res) => {
+    try {
+      const ids = Array.isArray(req.body && req.body.ids)
+        ? req.body.ids.map(Number).filter(Number.isFinite)
+        : [];
+      if (ids.length === 0) {
+        return res.status(400).json({ success: false, error: 'ids vazio' });
+      }
+      const stmt = db.prepare('DELETE FROM interesse WHERE id = ?');
+      const tx = db.transaction((arr) => {
+        let removidos = 0;
+        for (const id of arr) removidos += stmt.run(id).changes;
+        return removidos;
+      });
+      const removidos = tx(ids);
+      res.json({ success: true, removidos });
+    } catch (error) {
+      console.error('Erro ao remover interesses em lote:', error.message);
+      res.status(500).json({ success: false, error: 'Erro ao remover interesses', details: error.message });
     }
   });
 
@@ -308,6 +399,19 @@ function registrarRotasProposta(app, db) {
     }
   });
 
+  app.get('/api/valores-proposta', (req, res) => {
+    try {
+      const rows = db.prepare(`
+        SELECT cnpj, ano, sequencial, numeroItem, valorUnitario, marca, modelo, fabricante, selecionado
+        FROM valores_proposta
+      `).all();
+      res.json({ success: true, valores: rows });
+    } catch (error) {
+      console.error('Erro ao listar valores_proposta:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   app.delete('/api/valores-proposta/:cnpj/:ano/:sequencial', (req, res) => {
     try {
       const { cnpj, ano, sequencial } = req.params;
@@ -329,26 +433,56 @@ function registrarRotasProposta(app, db) {
   });
 
   // ==================== PROPOSTAS PENDENTES ====================
-  app.get('/api/comprasnet/propostas-pendentes', (req, res) => {
+  app.get('/api/comprasnet/propostas-pendentes', async (req, res) => {
     try {
-      // Busca licitacoes que estao prontas para enviar proposta
-      const sql = `
-        SELECT DISTINCT
-          k.cnpj, k.ano, k.sequencial,
-          l.objetoCompra,
-          l.codigoUnidade as uasg,
-          l.linkSistemaOrigem,
-          vp.numeroItem as numero,
-          vp.valor
-        FROM kanban_status k
-        JOIN licitacoes l ON k.cnpj = l.cnpj AND k.ano = l.anoCompra AND k.sequencial = l.sequencialCompra
-        JOIN valores_proposta vp ON k.cnpj = vp.cnpj AND k.ano = vp.ano AND k.sequencial = vp.sequencial
-        WHERE k.status = 'pronto'
-        ORDER BY l.dataEncerramentoProposta ASC
-        LIMIT 10
-      `;
-
-      const rows = db.prepare(sql).all();
+      let rows;
+      if (USE_PG) {
+        // Cross-DB: kanban_status + valores_proposta tenant; licitacoes catalog
+        const tenantRows = db.prepare(`
+          SELECT DISTINCT k.cnpj, k.ano, k.sequencial, vp.numeroItem as numero, vp.valor
+            FROM kanban_status k
+            JOIN valores_proposta vp ON k.cnpj = vp.cnpj AND k.ano = vp.ano AND k.sequencial = vp.sequencial
+           WHERE k.status = 'pronto'
+        `).all();
+        if (tenantRows.length === 0) return res.json([]);
+        const values = tenantRows.map((_, j) => `($${j*3+1}::text,$${j*3+2}::int,$${j*3+3}::bigint)`).join(',');
+        const params = [];
+        for (const r of tenantRows) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial));
+        const lic = await catalogPg.query(`
+          WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+          SELECT k.cnpj, k.ano, k.sequencial,
+                 l."objetoCompra" AS "objetoCompra",
+                 l."codigoUnidade" AS uasg,
+                 l."linkSistemaOrigem" AS "linkSistemaOrigem",
+                 COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta"
+            FROM keys k
+            JOIN licitacoes l ON l."cnpj"=k.cnpj AND l."anoCompra"=k.ano AND l."sequencialCompra"=k.sequencial
+        `, params);
+        const licMap = new Map();
+        for (const l of lic) licMap.set(`${l.cnpj}|${l.ano}|${l.sequencial}`, l);
+        rows = tenantRows
+          .map(t => ({ ...t, ...(licMap.get(`${t.cnpj}|${t.ano}|${t.sequencial}`) || {}) }))
+          .filter(r => r.objetoCompra) // só licitações que existem no catalog
+          .sort((a, b) => new Date(a.dataEncerramentoProposta || '9999') - new Date(b.dataEncerramentoProposta || '9999'))
+          .slice(0, 10);
+      } else {
+        const sql = `
+          SELECT DISTINCT
+            k.cnpj, k.ano, k.sequencial,
+            l.objetoCompra,
+            l.codigoUnidade as uasg,
+            l.linkSistemaOrigem,
+            vp.numeroItem as numero,
+            vp.valor
+          FROM kanban_status k
+          JOIN licitacoes l ON k.cnpj = l.cnpj AND k.ano = l.anoCompra AND k.sequencial = l.sequencialCompra
+          JOIN valores_proposta vp ON k.cnpj = vp.cnpj AND k.ano = vp.ano AND k.sequencial = vp.sequencial
+          WHERE k.status = 'pronto'
+          ORDER BY l.dataEncerramentoProposta ASC
+          LIMIT 10
+        `;
+        rows = db.prepare(sql).all();
+      }
 
       // Agrupa por licitacao
       const licitacoes = {};

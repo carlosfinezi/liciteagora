@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orçamento — Licite Agora</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0b1120;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 780px; margin: 0 auto; }
+    header { text-align: center; padding: 28px 0 20px; border-bottom: 1px solid #1e293b; }
+    header h1 { font-size: 22px; color: #f1f5f9; }
+    header h1 span { color: #60a5fa; }
+    header p { color: #94a3b8; font-size: 13px; margin-top: 4px; }
+
+    .card {
+      background: #111827; border: 1px solid #1e293b;
+      border-radius: 10px; padding: 24px; margin: 20px 0;
+    }
+    .card h2 { font-size: 17px; color: #60a5fa; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table td { padding: 6px 0; }
+    table td.label { color: #94a3b8; width: 180px; }
+    table tr { border-bottom: 1px solid #1e293b; }
+    table tr:last-child { border-bottom: 0; }
+
+    .items th, .items td { padding: 9px 10px; text-align: left; font-size: 13px; border-bottom: 1px solid #1e293b; }
+    .items th { color: #94a3b8; font-size: 11px; font-weight: 600; text-transform: uppercase; background: #0f172a; }
+    .items td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .totals {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+      margin-top: 14px; text-align: right;
+    }
+    .totals .box { background: #0f172a; padding: 12px; border-radius: 8px; }
+    .totals .box .lbl { color: #94a3b8; font-size: 11px; text-transform: uppercase; }
+    .totals .box .val { color: #e2e8f0; font-size: 18px; font-weight: 700; margin-top: 4px; }
+    .totals .box.total .val { color: #34d399; font-size: 22px; }
+
+    .status {
+      display: inline-block; padding: 4px 14px; border-radius: 12px;
+      font-size: 12px; font-weight: 700;
+    }
+    .status.rascunho  { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    .status.enviado   { background: rgba(96,165,250,0.15); color: #60a5fa; }
+    .status.aprovado  { background: rgba(52,211,153,0.15); color: #34d399; }
+    .status.rejeitado { background: rgba(239,68,68,0.15); color: #fca5a5; }
+
+    .actions {
+      display: flex; gap: 12px; margin-top: 20px;
+    }
+    button {
+      flex: 1; padding: 14px; border: 0; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: transform 0.1s;
+    }
+    button:hover:not(:disabled) { transform: translateY(-1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-approve { background: linear-gradient(135deg, #10b981, #059669); color: white; }
+    .btn-reject  { background: transparent; color: #fca5a5; border: 1px solid #7f1d1d; }
+    .btn-reject:hover { background: #7f1d1d20; }
+
+    .msg {
+      padding: 14px; border-radius: 8px; margin: 16px 0;
+      font-size: 14px; display: none;
+    }
+    .msg.success { background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.3); color: #6ee7b7; }
+    .msg.error   { background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.3);  color: #fca5a5; }
+
+    input, textarea {
+      width: 100%; padding: 10px 12px; border: 1px solid #334155; border-radius: 6px;
+      background: #0f172a; color: #e2e8f0; font-size: 14px; font-family: inherit;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #60a5fa; }
+
+    footer { text-align: center; padding: 24px 0; color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Orçamento de serviço <span>Licite Agora</span></h1>
+      <p>Analise os detalhes abaixo e aprove ou rejeite o orçamento. Sua resposta fica registrada.</p>
+    </header>
+
+    <div id="msg" class="msg"></div>
+    <div id="loading" style="text-align:center;padding:40px;color:#94a3b8;">Carregando…</div>
+    <div id="content" style="display:none;">
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h2 style="margin:0;">Orçamento <span id="numero"></span></h2>
+          <span id="statusBadge" class="status"></span>
+        </div>
+
+        <table style="margin-top:14px;">
+          <tr><td class="label">Prestador</td><td id="prestadorNome"></td></tr>
+          <tr><td class="label">CNPJ</td><td id="prestadorCnpj"></td></tr>
+          <tr><td class="label">Cliente</td><td id="clienteNome"></td></tr>
+          <tr><td class="label">Equipamento</td><td id="equipamento"></td></tr>
+          <tr><td class="label">Defeito relatado</td><td id="defeito"></td></tr>
+          <tr id="rowDiag" style="display:none;"><td class="label">Diagnóstico</td><td id="diagnostico"></td></tr>
+          <tr id="rowPrazo" style="display:none;"><td class="label">Prazo estimado</td><td id="prazo"></td></tr>
+          <tr id="rowGar" style="display:none;"><td class="label">Garantia</td><td><span id="garantia"></span> dias</td></tr>
+        </table>
+      </div>
+
+      <div class="card" id="cardPecas" style="display:none;">
+        <h2>Peças</h2>
+        <table class="items">
+          <thead><tr><th>SKU</th><th>Descrição</th><th class="num">Qtd</th><th class="num">Valor unit.</th><th class="num">Total</th></tr></thead>
+          <tbody id="tbPecas"></tbody>
+        </table>
+      </div>
+
+      <div class="card" id="cardServicos" style="display:none;">
+        <h2>Serviços</h2>
+        <table class="items">
+          <thead><tr><th>Descrição</th><th class="num">Horas</th><th class="num">R$/hora</th><th class="num">Total</th></tr></thead>
+          <tbody id="tbServicos"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Totais</h2>
+        <div class="totals">
+          <div class="box"><div class="lbl">Peças</div><div class="val" id="totPecas">—</div></div>
+          <div class="box"><div class="lbl">Serviços</div><div class="val" id="totServ">—</div></div>
+          <div class="box total"><div class="lbl">Total</div><div class="val" id="totTotal">—</div></div>
+        </div>
+      </div>
+
+      <div class="card" id="cardAcoes">
+        <h2>Sua resposta</h2>
+        <p style="color:#cbd5e1;font-size:13px;margin-bottom:14px;">
+          Informe seu nome para registrar a aprovação:
+        </p>
+        <input type="text" id="assinante" placeholder="Seu nome completo" autocomplete="name">
+        <div class="actions">
+          <button class="btn-reject" onclick="abrirRejeitar()">✕ Rejeitar</button>
+          <button class="btn-approve" onclick="aprovar()">✓ Aprovar orçamento</button>
+        </div>
+      </div>
+
+      <div class="card" id="cardRejeitar" style="display:none;">
+        <h2>Rejeitar orçamento</h2>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:10px;">Informe o motivo (mín. 3 caracteres):</p>
+        <textarea id="motivoRej" rows="3" placeholder="Ex: Valor acima do orçado por outra empresa"></textarea>
+        <div class="actions">
+          <button class="btn-reject" onclick="cancelarRejeitar()" style="background:#1e293b;color:#cbd5e1;border:1px solid #334155;">Voltar</button>
+          <button class="btn-reject" onclick="rejeitar()" style="background:#7f1d1d;color:white;border:none;">Confirmar rejeição</button>
+        </div>
+      </div>
+
+    </div>
+    <footer>
+      © 2026 Licite Agora — todos os direitos reservados
+    </footer>
+  </div>
+
+  <script>
+    const token = new URLSearchParams(location.search).get('token') || '';
+    const msg = document.getElementById('msg');
+    const content = document.getElementById('content');
+    const loading = document.getElementById('loading');
+
+    function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+    function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function showMsg(kind, text){ msg.className = 'msg ' + kind; msg.textContent = text; msg.style.display = 'block'; }
+
+    async function carregar() {
+      if (!token) { loading.textContent = 'Link inválido.'; return; }
+      try {
+        const r = await fetch('/api/orcamento/' + encodeURIComponent(token));
+        const d = await r.json();
+        if (!r.ok || !d.success) {
+          loading.innerHTML = `<strong style="color:#fca5a5;">${escapeHtml(d.error||'Orçamento não encontrado')}</strong>`;
+          return;
+        }
+        render(d);
+        loading.style.display = 'none';
+        content.style.display = '';
+      } catch (e) {
+        loading.textContent = 'Erro de conexão.';
+      }
+    }
+
+    function render(d) {
+      const o = d.orcamento;
+      document.getElementById('numero').textContent = o.numero;
+      const badge = document.getElementById('statusBadge');
+      const st = o.orcamentoStatus || 'rascunho';
+      badge.className = 'status ' + st;
+      badge.textContent = st.toUpperCase();
+
+      document.getElementById('prestadorNome').textContent = d.prestador?.razaoSocial || '—';
+      document.getElementById('prestadorCnpj').textContent = d.prestador?.cnpj || '—';
+      document.getElementById('clienteNome').textContent = d.cliente?.nome + (d.cliente?.cpfCnpj ? ` (${d.cliente.cpfCnpj})` : '');
+      document.getElementById('equipamento').textContent = o.equipamento || '—';
+      document.getElementById('defeito').textContent = o.defeitoRelatado || '—';
+      if (o.diagnostico) { document.getElementById('rowDiag').style.display = ''; document.getElementById('diagnostico').textContent = o.diagnostico; }
+      if (o.dataPromessa) { document.getElementById('rowPrazo').style.display = ''; document.getElementById('prazo').textContent = o.dataPromessa; }
+      if (o.garantiaDias) { document.getElementById('rowGar').style.display = ''; document.getElementById('garantia').textContent = o.garantiaDias; }
+
+      if (d.pecas && d.pecas.length) {
+        document.getElementById('cardPecas').style.display = '';
+        document.getElementById('tbPecas').innerHTML = d.pecas.map(p => `
+          <tr>
+            <td>${escapeHtml(p.sku||'')}</td>
+            <td>${escapeHtml(p.descricao)}</td>
+            <td class="num">${Number(p.quantidade).toLocaleString('pt-BR')}</td>
+            <td class="num">${fmtBRL(p.valorUnitario)}</td>
+            <td class="num">${fmtBRL(p.valorTotal)}</td>
+          </tr>`).join('');
+      }
+      if (d.servicos && d.servicos.length) {
+        document.getElementById('cardServicos').style.display = '';
+        document.getElementById('tbServicos').innerHTML = d.servicos.map(s => `
+          <tr>
+            <td>${escapeHtml(s.descricao)}</td>
+            <td class="num">${s.horas != null ? Number(s.horas).toLocaleString('pt-BR') : '—'}</td>
+            <td class="num">${s.valorHora != null ? fmtBRL(s.valorHora) : '—'}</td>
+            <td class="num">${fmtBRL(s.valorTotal)}</td>
+          </tr>`).join('');
+      }
+
+      document.getElementById('totPecas').textContent = fmtBRL(o.valorPecas);
+      document.getElementById('totServ').textContent = fmtBRL(o.valorServicos);
+      document.getElementById('totTotal').textContent = fmtBRL(o.valorTotal);
+
+      // Se já aprovou/rejeitou, oculta botões e mostra estado
+      if (st === 'aprovado') {
+        document.getElementById('cardAcoes').innerHTML =
+          `<h2 style="color:#34d399;">✓ Orçamento aprovado</h2>
+           <p style="color:#cbd5e1;font-size:13px;">Aprovado em ${(o.dataRespostaOrcamento||'').slice(0,19).replace('T',' ')}. O prestador foi notificado.</p>`;
+      } else if (st === 'rejeitado') {
+        document.getElementById('cardAcoes').innerHTML =
+          `<h2 style="color:#fca5a5;">✕ Orçamento rejeitado</h2>
+           <p style="color:#cbd5e1;font-size:13px;">Motivo: ${escapeHtml(o.motivoRejeicao||'—')}</p>`;
+      }
+    }
+
+    async function aprovar() {
+      const assinanteNome = document.getElementById('assinante').value.trim();
+      if (!assinanteNome || assinanteNome.length < 3) return showMsg('error', 'Informe seu nome completo para aprovar.');
+      if (!confirm('Confirma aprovação do orçamento? Esta ação é definitiva.')) return;
+      try {
+        const r = await fetch('/api/orcamento/' + encodeURIComponent(token) + '/aprovar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assinanteNome })
+        });
+        const d = await r.json();
+        if (!r.ok || !d.success) return showMsg('error', d.error || 'Erro ao aprovar');
+        showMsg('success', 'Orçamento aprovado! O prestador foi notificado.');
+        setTimeout(() => carregar(), 800);
+      } catch (e) { showMsg('error', 'Erro de conexão'); }
+    }
+
+    function abrirRejeitar() {
+      document.getElementById('cardAcoes').style.display = 'none';
+      document.getElementById('cardRejeitar').style.display = '';
+    }
+    function cancelarRejeitar() {
+      document.getElementById('cardRejeitar').style.display = 'none';
+      document.getElementById('cardAcoes').style.display = '';
+    }
+    async function rejeitar() {
+      const motivo = document.getElementById('motivoRej').value.trim();
+      if (motivo.length < 3) return showMsg('error', 'Informe um motivo (mín. 3 caracteres).');
+      try {
+        const r = await fetch('/api/orcamento/' + encodeURIComponent(token) + '/rejeitar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ motivo })
+        });
+        const d = await r.json();
+        if (!r.ok || !d.success) return showMsg('error', d.error || 'Erro ao rejeitar');
+        showMsg('success', 'Orçamento rejeitado.');
+        setTimeout(() => carregar(), 800);
+      } catch (e) { showMsg('error', 'Erro de conexão'); }
+    }
+
+    carregar();
+  </script>
+</body>
+</html>

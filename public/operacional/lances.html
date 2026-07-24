@@ -210,7 +210,7 @@
     <!-- ===== BNC: salas de disputa BNC (acima do Comprasnet) ===== -->
     <div class="panel" id="panelBNC" style="display:none;">
         <h3>📡 BNC — Salas de Disputa
-            <a href="/configuracoes/bnc-salas.html" class="btn btn-ghost btn-sm" style="float:right; font-size:0.75em;">⚙️ Cadastrar</a>
+            <a href="/portais/bnc-salas.html" class="btn btn-ghost btn-sm" style="float:right; font-size:0.75em;">⚙️ Cadastrar</a>
         </h3>
         <div id="bncStatus" style="font-size:0.78em; color:var(--text-3); margin-bottom:6px;"></div>
         <div id="bncSalas"></div>
@@ -785,6 +785,7 @@ function renderItens(compraId, itensLive) {
             variacaoMinima: cfg.variacaoMinima != null ? cfg.variacaoMinima : (lv.variacaoMinima != null ? lv.variacaoMinima : null),
             valorLance: cfg.valorLance,
             valorMinimo: cfg.valorMinimo,
+            agressividadePct: cfg.agressividadePct,
             descontoMinimo: cfg.descontoMinimo,
             descontoMaximo: cfg.descontoMaximo,
             horarioAlvo: cfg.horarioAlvo,
@@ -866,8 +867,9 @@ function renderItens(compraId, itensLive) {
             '<td class="desc-cell" title="'+esc(m.descricao)+'">'+esc((m.descricao||'').substring(0,50))+'</td>' +
             '<td class="stacked-cell"><span class="valor-melhor">'+fmtR$(m.melhorValor)+'</span><br><span class="'+nossoClass+'">'+nossoLabel+'</span><br><span class="sub" title="V.Estimado">Est '+fmtR$(m.valorEstimado)+'</span></td>' +
             '<td class="stacked-cell"><input type="number" step="0.01" value="'+(m.custo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'custo\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Custo" style="width:72px"><br><span class="sub mv-cell" id="mv-'+compraId+'-'+m.numero+'">--</span> · <span class="sugerido-cell" id="sg-'+compraId+'-'+m.numero+'" style="font-size:0.85em">--</span></td>' +
-            '<td><input type="number" step="0.01" id="vm-'+compraId+'-'+m.numero+'" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Mín" style="width:72px"></td>' +
-            '<td><input type="number" step="0.01" value="'+(m.variacaoMinima||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'variacaoMinima\',this.value)" placeholder="Var" style="width:55px" title="Variação mínima entre lances (R$)"></td>' +
+            '<td><input type="number" step="0.01" id="vm-'+compraId+'-'+m.numero+'" value="'+(m.valorMinimo||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorMinimo\',this.value)" placeholder="Mín" style="width:72px">' +
+                '<br><input type="number" min="0" max="100" step="5" id="merg-'+compraId+'-'+m.numero+'" value="'+(m.agressividadePct!=null?m.agressividadePct:20)+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'agressividadePct\',this.value)" title="Mergulho %: quão fundo mergulhar rumo ao piso quando perdendo. 0 = cobre o concorrente no talo (margem máx, risco máx); 100 = vai ao piso (vitória máx). Vale na rajada Cobrir e no contínuo." placeholder="merg%" style="width:72px;margin-top:3px;color:#8b5cf6"></td>' +
+            '<td><input type="text" inputmode="decimal" value="'+(m.variacaoMinima||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'variacaoMinima\',this.value)" placeholder="Var" style="width:55px" title="Variação mínima entre lances (R$) — aceita vírgula"></td>' +
             '<td>' +
                 '<div style="display:flex;gap:4px;align-items:center">' +
                     '<input type="number" step="0.01" id="vl-'+compraId+'-'+m.numero+'" value="'+(m.valorLance||'')+'" onchange="salvar(\''+compraId+'\','+m.numero+',\'valorLance\',this.value);recalcLucro(\''+compraId+'\','+m.numero+')" placeholder="Lance" style="width:72px">' +
@@ -876,17 +878,24 @@ function renderItens(compraId, itensLive) {
             '</td>' +
             '<td>' +
                 '<div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">' +
+                    '<button class="btn btn-sm '+(m.modoAuto==='continuo'?'btn-success':'btn-ghost')+'" onclick="setAuto(\''+compraId+'\','+m.numero+','+(m.modoAuto==='continuo'?'null':'\'continuo\'')+')" title="Auto-Lance Contínuo: cobre o concorrente sempre que você está perdendo, respeitando o Valor Mínimo (piso). Requer Valor Mínimo + Variação mínima + Motor de lances ligado.">🤖 Auto: '+(m.modoAuto==='continuo'?'ON':'OFF')+'</button>' +
                     '<input type="time" step="1" id="agendar-hora-'+compraId+'-'+m.numero+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:0.75em;padding:2px 4px;font-family:monospace;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:4px;width:90px" title="Horário agendamento (dispensa: pré-preenchido = encerramento − 1s)">' +
                     '<input type="number" min="1" max="50" id="max-lances-'+compraId+'-'+m.numero+'" value="'+(m.maxLances||5)+'" style="width:40px;font-size:0.75em;padding:2px;border:1px solid #0f3460;background:#1a1a2e;color:#ff6b00;border-radius:4px;text-align:center;font-weight:600" title="Máx lances na rajada" onchange="salvar(\''+compraId+'\','+m.numero+',\'maxLances\',this.value)">' +
                     '<label style="font-size:0.7em;color:#aaa;display:inline-flex;align-items:center;gap:2px;cursor:pointer" title="Ignorar Máx e descer até o Valor Mínimo"><input type="checkbox" id="ignore-max-'+compraId+'-'+m.numero+'" style="margin:0">∞</label>' +
                     '<button class="btn-rajada" onclick="agendarBlitz(\''+compraId+'\','+m.numero+')" title="Agendar rajada (blitz) — milésimo auto-calculado (alvo 970ms)">'+icon('rocket','ic-sm')+'<span>Rajada</span></button>' +
+                    '<button class="btn-historico" onclick="toggleEscada(\''+compraId+'\','+m.numero+')" title="Posição — lances dos concorrentes e sugestão do lance para a melhor colocação possível preservando margem">🪜<span>Posição</span></button>' +
                     '<button class="btn-historico" onclick="toggleHistorico(\''+compraId+'\','+m.numero+')" title="Histórico do item '+m.numero+'">'+icon('file-text','ic-sm')+'<span>Histórico</span></button>' +
                 '</div>' +
                 '<div id="fim-'+compraId+'-'+m.numero+'" data-fim="'+(m.fimContagem||'')+'" style="font-size:0.72em;color:#fbbf24;margin-top:2px;font-family:monospace"></div>' +
                 '<div id="agendado-'+compraId+'-'+m.numero+'" style="font-size:0.78em;color:#8b5cf6;margin-top:2px"></div>' +
             '</td>' +
             '</tr>' +
-            '<tr id="historico-'+compraId+'-'+m.numero+'" style="display:none"><td colspan="9"></td></tr>';
+            '<tr id="historico-'+compraId+'-'+m.numero+'" style="display:none"><td colspan="9"></td></tr>' +
+            '<tr id="escada-'+compraId+'-'+m.numero+'" style="display:none"><td colspan="9"></td></tr>';
+
+        // Stash de contexto p/ análise da escada (nossoValor não é input no DOM)
+        window.__escCtx = window.__escCtx || {};
+        window.__escCtx[compraId+'-'+m.numero] = { nossoValor: m.nossoValor, melhorValor: m.melhorValor, tipoVar: m.tipoVariacao||'V' };
 
     });
 
@@ -1011,9 +1020,11 @@ async function abrirHistoricoBlitz(compraId, itemNumero) {
 // ==================== SAVE CONFIG ====================
 function salvar(compraId, itemNumero, campo, valor) {
     var body = { compraId: compraId, itemNumero: itemNumero };
+    // Aceita vírgula decimal (BR) e não confunde 0 com vazio: só vira null se realmente não-numérico.
+    var _num = function(v){ if(v===''||v==null) return null; var n = parseFloat((''+v).replace(',','.')); return isNaN(n) ? null : n; };
     if(campo === 'maxLances') { body[campo] = parseInt(valor)||null; }
-    else if(campo === 'valorLance' || campo === 'valorMinimo' || campo === 'custo' || campo === 'variacaoMinima') body[campo] = parseFloat(valor)||null;
-    else if(campo === 'descontoMinimo' || campo === 'descontoMaximo') body[campo] = parseFloat(valor)||null;
+    else if(campo === 'valorLance' || campo === 'valorMinimo' || campo === 'custo' || campo === 'variacaoMinima') body[campo] = _num(valor);
+    else if(campo === 'descontoMinimo' || campo === 'descontoMaximo') body[campo] = _num(valor);
     else body[campo] = valor || null;
     // Update local cache
     var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
@@ -1453,6 +1464,127 @@ function statusLanceBadge(h) {
     else                                              { cls = 'err';    label = 'Erro ' + code; }
     var tip = 'HTTP ' + (code || 'n/a') + (msg ? ' — ' + msg : '');
     return '<span class="lance-badge lance-'+cls+'" title="'+esc(tip)+'">'+label+'</span>';
+}
+
+// ==================== ESCADA DE LANCES (análise de colocação — Vetor B) ====================
+// Um degrau abaixo de `v` respeitando a variação mínima (espelha calcularProximoDegrau do backend).
+function _cobrir(v, varMin, tipoVar) {
+    if (tipoVar === 'P') return Math.floor(v * (1 - varMin/100) * 100) / 100;
+    return Math.round((v - varMin) * 100) / 100;
+}
+
+async function toggleEscada(compraId, itemNumero) {
+    var row = document.getElementById('escada-'+compraId+'-'+itemNumero);
+    if(!row) return;
+    if(row.style.display !== 'none') { row.style.display = 'none'; return; }
+    row.style.display = '';
+    var div = row.querySelector('td');
+    div.innerHTML = '<p style="color:#888;padding:8px"><span class="spinner"></span> Puxando posição dos lances do Comprasnet...</p>';
+    try {
+        var r = await fetch(API+'/api/sniper/escada?compraId='+compraId+'&item='+itemNumero);
+        var d = await r.json();
+        if(!d.success) {
+            var extra = d.ipBound ? ' — o captcha aparenta estar preso ao IP do navegador (não roda server-side).' : '';
+            div.innerHTML = '<p style="color:#f0a020;padding:8px">⚠ '+esc(d.error||'Falha')+extra+'</p>';
+            return;
+        }
+        if((d.escada||[]).length === 0 && d.aviso) {
+            div.innerHTML = '<p style="color:#888;padding:8px">'+esc(d.aviso)+'</p>';
+            return;
+        }
+        div.innerHTML = renderEscada(compraId, itemNumero, d);
+    } catch(e) {
+        div.innerHTML = '<p style="color:#f44336;padding:8px">Erro: '+esc(e.message)+'</p>';
+    }
+}
+
+function renderEscada(compraId, itemNumero, d) {
+    var escada = (d && d.escada) || [];
+    var ctx = (window.__escCtx||{})[compraId+'-'+itemNumero] || {};
+    // "Nosso ao vivo" do backend tem prioridade sobre o valor do contexto de render.
+    var nossoValor = (d && d.nossoAoVivo != null) ? Number(d.nossoAoVivo)
+                     : (ctx.nossoValor != null ? Number(ctx.nossoValor) : null);
+    var tipoVar = ctx.tipoVar || 'V';
+    // piso e variação mínima: lidos ao vivo dos inputs (podem ter mudado após render)
+    var pisoEl = document.getElementById('vm-'+compraId+'-'+itemNumero);
+    var piso = pisoEl && pisoEl.value !== '' ? Number(pisoEl.value) : null;
+    // variação mínima está no input com onchange que grava 'variacaoMinima' — buscar pela linha do item
+    var varMin = null;
+    var inputs = document.querySelectorAll('#body-'+compraId+' input[onchange*="variacaoMinima"]');
+    for (var k=0;k<inputs.length;k++){ if(inputs[k].getAttribute('onchange').indexOf(","+itemNumero+",")>=0){ varMin = inputs[k].value!==''?Number(inputs[k].value):null; break; } }
+
+    if(escada.length === 0) return '<p style="color:#888;padding:8px">Nenhum lance registrado ainda neste item.</p>';
+
+    // Nossa posição atual e separação concorrentes vs nós
+    var eps = 0.005;
+    var competidores = escada.filter(function(e){ return nossoValor==null || Math.abs(e.valor - nossoValor) > eps; }).map(function(e){ return e.valor; });
+    var nossaPos = nossoValor==null ? null : (1 + competidores.filter(function(c){ return c < nossoValor - eps; }).length);
+
+    // Tabela da escada (marca a nossa linha)
+    var html = '<div style="padding:8px">';
+    if(d && d.fonte === 'propostas-iniciais') {
+        html += '<div style="font-size:0.78em;color:#f0a020;margin-bottom:6px;padding:6px;border-radius:6px;background:#f0a02015;border:1px solid #f0a02040">' +
+            '⚠ Concorrentes = <b>propostas iniciais</b> (ranking ao vivo por fornecedor exige captcha). ' +
+            (d.liderAoVivo!=null?('Líder <b>ao vivo</b>: '+fmtR$(d.liderAoVivo)+'. '):'') +
+            (d.nossoAoVivo!=null?('Você <b>ao vivo</b>: '+fmtR$(d.nossoAoVivo)+'.'):'') +
+        '</div>';
+    } else if(d && (d.liderAoVivo!=null || d.nossoAoVivo!=null)) {
+        html += '<div style="font-size:0.78em;color:#4dabf7;margin-bottom:6px">Ao vivo — ' +
+            (d.liderAoVivo!=null?('líder <b>'+fmtR$(d.liderAoVivo)+'</b>'):'') +
+            (d.nossoAoVivo!=null?(' · você <b>'+fmtR$(d.nossoAoVivo)+'</b>'):'') + '</div>';
+    }
+    var rotuloLinha = (d && d.fonte === 'propostas-iniciais') ? 'proposta(s) inicial(is)' : 'participante(s) com lance';
+    html += '<div style="font-size:0.82em;color:#4dabf7;font-weight:600;margin-bottom:4px">🪜 Posição — '+escada.length+' '+rotuloLinha+'</div>';
+    html += '<table class="itens-table" style="max-width:420px"><thead><tr><th>#</th><th>Valor</th><th>Quando</th><th></th></tr></thead><tbody>';
+    escada.forEach(function(e, idx){
+        var nosso = nossoValor!=null && Math.abs(e.valor - nossoValor) <= eps;
+        html += '<tr'+(nosso?' style="background:#0f346040"':'')+'>' +
+            '<td>'+(idx+1)+'º</td>' +
+            '<td>'+fmtR$(e.valor)+'</td>' +
+            '<td style="color:#888;font-size:0.85em">'+(e.dataHora?e.dataHora.substring(11,19):'--')+'</td>' +
+            '<td>'+(nosso?'<span style="color:#4dabf7;font-weight:600">você</span>':'')+'</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+
+    // Vetor B: melhor colocação possível pelo maior preço
+    if(piso == null || varMin == null) {
+        html += '<p style="color:#f0a020;font-size:0.82em;margin-top:6px">Defina <b>Mín (piso)</b> e <b>Var</b> no item para calcular o lance sugerido por colocação.</p>';
+    } else if(competidores.length === 0) {
+        html += '<p style="color:#4caf50;font-size:0.82em;margin-top:6px">Sem concorrentes — você já é 1º. Não precisa baixar.</p>';
+    } else {
+        // quantos concorrentes NÃO dá pra ultrapassar respeitando o piso (prefixo do topo da escada)
+        var bloqueados = competidores.filter(function(c){ return _cobrir(c, varMin, tipoVar) < piso - eps; }).length;
+        var melhorRank = bloqueados + 1;
+        var alvo, msg, cor;
+        if(bloqueados < competidores.length) {
+            alvo = Math.max(piso, _cobrir(competidores[bloqueados], varMin, tipoVar));
+            var margem = alvo - piso;
+            cor = melhorRank === 1 ? '#4caf50' : '#4dabf7';
+            msg = 'Melhor colocação possível: <b>'+melhorRank+'º</b> · lance sugerido <b>'+fmtR$(alvo)+'</b>';
+            if(margem > eps) msg += ' — preserva <b>'+fmtR$(margem)+'</b> de margem sobre o piso';
+            else msg += ' (no piso)';
+        } else {
+            alvo = piso;
+            cor = '#f0a020';
+            msg = 'Nem no piso ('+fmtR$(piso)+') você passa algum concorrente — o piso não melhora a colocação.';
+        }
+        html += '<div style="margin-top:8px;padding:8px;border-radius:6px;background:'+cor+'18;border:1px solid '+cor+'55;font-size:0.85em;color:'+cor+'">' +
+            (nossaPos!=null?('Sua posição atual: <b>'+nossaPos+'º</b> · '):'') + msg +
+            ' <button class="btn btn-sm btn-ghost" style="margin-left:6px" onclick="aplicarAlvoEscada(\''+compraId+'\','+itemNumero+','+alvo+')">↧ Usar no Lance Manual</button>' +
+        '</div>';
+    }
+    html += '<p style="color:#666;font-size:0.75em;margin-top:6px">Análise sob demanda — não envia lance. Use o ⚡ para enviar o valor.</p>';
+    html += '</div>';
+    return html;
+}
+
+function aplicarAlvoEscada(compraId, itemNumero, alvo) {
+    var inp = document.getElementById('vl-'+compraId+'-'+itemNumero);
+    if(!inp) return;
+    inp.value = (Math.round(alvo*100)/100).toFixed(2);
+    salvar(compraId, itemNumero, 'valorLance', inp.value);
+    recalcLucro(compraId, itemNumero);
 }
 
 async function toggleHistorico(compraId, itemNumero) {

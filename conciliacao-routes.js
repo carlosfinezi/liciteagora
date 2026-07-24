@@ -123,10 +123,16 @@ function registrarRotasConciliacao(app, db) {
         }
       });
       trx();
+      // Regras de conciliação (tesouraria): ignora/categoriza automaticamente
+      let regrasAplicadas = 0;
+      try {
+        const { aplicarRegrasConciliacao } = require('./tesouraria-routes');
+        regrasAplicadas = aplicarRegrasConciliacao(db, contaFinanceiraId);
+      } catch { /* módulo indisponível — segue sem regras */ }
       logAction(db, req, 'upload-ofx', 'conciliacao', null, {
-        conta: conta.nome, total: parsed.transacoes.length, novas, duplicadas: dup
+        conta: conta.nome, total: parsed.transacoes.length, novas, duplicadas: dup, regrasAplicadas
       });
-      res.json({ success: true, total: parsed.transacoes.length, novas, duplicadas: dup, conta: conta.nome });
+      res.json({ success: true, total: parsed.transacoes.length, novas, duplicadas: dup, regrasAplicadas, conta: conta.nome });
     } catch (err) {
       res.status(400).json({ success: false, error: err.message });
     }

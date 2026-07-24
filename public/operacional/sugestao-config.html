@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sugestão de Produto · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Sugestão de Produto</h1>
+      <small>Configure a marca que você vende — a IA sugere, na Inteligência, qual modelo seu equivale ao item do edital</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+
+  <div id="avisoModulo" class="alert danger" style="display:none;padding:14px 18px;">
+    Este recurso faz parte do módulo <strong>BI / IA</strong>, que não está habilitado no seu plano. Fale com o suporte para ativar.
+  </div>
+
+  <div class="panel">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Ativar sugestão de produto</label>
+        <select id="ativo">
+          <option value="1">Ativada</option>
+          <option value="0">Desativada</option>
+        </select>
+        <small>Quando desativada, o painel e a coluna de sugestão não aparecem na Inteligência.</small>
+      </div>
+      <div class="form-group">
+        <label>Marca <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="marca" placeholder="Ex: TerraMaster, Dell, Multilaser…" maxlength="120">
+        <small>A marca que você oferta. A IA busca equivalência técnica com o que o edital pede.</small>
+      </div>
+      <div class="form-group">
+        <label>Categoria</label>
+        <input type="text" id="categoria" placeholder="Ex: gabinetes NAS/DAS, mobiliário de escritório…" maxlength="200">
+        <small>Tipo de produto da marca. Ajuda a IA a contextualizar.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Regras da marca</label>
+        <textarea id="regras" rows="6" placeholder="O que a marca fabrica e o que NÃO fabrica; quando responder &quot;nenhum&quot;. Ex: 'Só fabrica X e Y. Não fabrica acessórios avulsos → modelo nenhum, score 0.'"></textarea>
+        <small>Texto livre com as regras de equivalência. Reduz sugestões erradas.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Catálogo de specs (opcional)</label>
+        <textarea id="specs" rows="10" placeholder="Uma linha por modelo, com os specs que importam. Ex:&#10;MODELO-A | 2 baias | desktop | 4GB | 40TB&#10;MODELO-B | 4 baias | rack | 8GB | 80TB" style="font-family:monospace;font-size:12px;"></textarea>
+        <small>Tabela curada de modelos+specs. Sem ela, a IA usa o conhecimento próprio (menos preciso).</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Modelos válidos (opcional)</label>
+        <textarea id="modelos" rows="3" placeholder="Lista de códigos válidos, separados por vírgula ou quebra de linha. Ex: MODELO-A, MODELO-B, MODELO-C"></textarea>
+        <small>Se preenchido, qualquer modelo fora desta lista é descartado (anti-alucinação). Sem lista, não há validação de catálogo.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin-bottom:10px;">Como funciona</h3>
+    <ul style="color:var(--text-2); font-size:0.9em; padding-left:20px; line-height:1.7;">
+      <li>A sugestão aparece na <a href="/operacional/inteligencia.html">Inteligência</a>, ao selecionar um grupo de pesquisa.</li>
+      <li>É <strong>equivalência técnica</strong>: a marca não é citada no edital — a IA acha o modelo seu cujos specs atendem ao pedido.</li>
+      <li>As sugestões são calculadas por marca e reaproveitadas; depende da sua chave de IA configurada (BYOAI).</li>
+    </ul>
+  </div>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('sugestao-produto');</script>
+<script>
+  function toast(msg, tipo) {
+    const box = document.getElementById('toasts');
+    const el = document.createElement('div');
+    el.className = 'toast ' + (tipo || 'info');
+    el.textContent = msg;
+    box.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+
+  async function carregar() {
+    try {
+      const r = await fetch('/api/bi/sugestao-config');
+      if (r.status === 403) { document.getElementById('avisoModulo').style.display = 'block'; return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const c = data.catalogo || {};
+      document.getElementById('marca').value = data.marca || '';
+      document.getElementById('categoria').value = c.categoria || '';
+      document.getElementById('regras').value = c.regras || '';
+      document.getElementById('specs').value = c.specs || '';
+      document.getElementById('modelos').value = c.modelos || '';
+      document.getElementById('ativo').value = (c.ativo === 0 || c.ativo === false) ? '0' : '1';
+    } catch (e) {
+      toast('Falha ao carregar: ' + e.message, 'erro');
+    }
+  }
+
+  async function salvar() {
+    const marca = document.getElementById('marca').value.trim();
+    if (!marca) { toast('Informe a marca.', 'erro'); return; }
+    const body = {
+      marca,
+      ativo: document.getElementById('ativo').value === '1',
+      categoria: document.getElementById('categoria').value.trim(),
+      regras: document.getElementById('regras').value,
+      specs: document.getElementById('specs').value,
+      modelos: document.getElementById('modelos').value,
+    };
+    try {
+      const r = await fetch('/api/bi/sugestao-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (r.status === 403) { toast('Módulo BI/IA não habilitado no seu plano.', 'erro'); return; }
+      const data = await r.json();
+      if (!r.ok || !data.success) throw new Error(data.error || ('HTTP ' + r.status));
+      toast('Configuração salva.', 'sucesso');
+    } catch (e) {
+      toast('Falha ao salvar: ' + e.message, 'erro');
+    }
+  }
+
+  carregar();
+</script>
+</body>
+</html>

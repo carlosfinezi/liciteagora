@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contato — Licite Agora</title>
+<meta name="description" content="Fale com o time comercial para conhecer o Licite Agora ou com o suporte se já é cliente.">
+<link rel="canonical" href="https://liciteagora.app/contato.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/landing.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo"><span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span><span>Licite Agora</span></a>
+    <nav class="nav-links" id="navLinks">
+      <a href="/recursos.html">Recursos</a>
+      <a href="/planos.html">Planos</a>
+      <a href="/contato.html" class="active">Contato</a>
+    </nav>
+    <div class="nav-actions">
+      <a href="https://admin.liciteagora.app/admin/login.html" class="btn btn-ghost">Entrar</a>
+      <a href="/trial.html" class="btn btn-primary">Testar grátis</a>
+      <button class="menu-toggle" id="btnMenu">☰</button>
+    </div>
+  </div>
+</header>
+
+<section class="hero" style="padding-bottom:40px;">
+  <div class="container text-center">
+    <h1>Vamos <span class="gradient-text">conversar</span></h1>
+    <p class="hero-subtitle" style="margin:16px auto 0;">Agendar uma demonstração, tirar dúvidas sobre integrações ou discutir plano Enterprise — conta com a gente.</p>
+  </div>
+</section>
+
+<section style="padding:0 0 80px;">
+  <div class="container">
+    <div class="form-container">
+      <form id="formContato" class="glass" style="padding:32px;">
+
+        <div class="form-group">
+          <label>Eu quero *</label>
+          <select name="observacoes" id="motivo">
+            <option value="demo">Agendar uma demonstração ao vivo</option>
+            <option value="comercial">Conversar com o comercial sobre plano Enterprise</option>
+            <option value="integracao">Tirar dúvidas sobre integrações/API</option>
+            <option value="suporte">Suporte (sou cliente)</option>
+            <option value="outros">Outros</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nome *</label>
+            <input type="text" name="nome" required maxlength="120" autocomplete="name">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="tel" name="telefone" maxlength="20" autocomplete="tel">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" name="email" required autocomplete="email">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Empresa *</label>
+            <input type="text" name="empresa" required maxlength="120">
+          </div>
+          <div class="form-group">
+            <label>CNPJ</label>
+            <input type="text" name="cnpj" maxlength="18" placeholder="00.000.000/0000-00">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Plano de interesse</label>
+          <select name="plano" id="planoSel">
+            <option value="">Ainda avaliando</option>
+            <option value="starter">Starter</option>
+            <option value="profissional">Profissional</option>
+            <option value="avancado">Avançado</option>
+            <option value="enterprise">Enterprise</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Como podemos ajudar?</label>
+          <textarea name="mensagem" rows="4" placeholder="Conte seu desafio, tamanho da empresa, módulos de interesse…"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary form-submit">Enviar mensagem</button>
+
+        <p class="muted text-center mt-3" style="font-size:var(--fs-xs);">
+          Respondemos em até 1 dia útil.
+        </p>
+      </form>
+    </div>
+
+    <div class="grid-3 mt-4" style="max-width:800px;margin:48px auto 0;">
+      <div class="glass text-center">
+        <div class="persona-icon" style="margin-bottom:12px;"><svg class="icon"><use href="#i-mail"/></svg></div>
+        <h4>Email</h4>
+        <p class="muted"><a href="mailto:atendimento@1bit.net.br" style="color:var(--accent-soft);">atendimento@1bit.net.br</a></p>
+      </div>
+      <div class="glass text-center">
+        <div class="persona-icon" style="margin-bottom:12px;"><svg class="icon"><use href="#i-phone"/></svg></div>
+        <h4>WhatsApp</h4>
+        <p class="muted">Disponível após primeiro contato</p>
+      </div>
+      <div class="glass text-center">
+        <div class="persona-icon" style="margin-bottom:12px;"><svg class="icon"><use href="#i-map-pin"/></svg></div>
+        <h4>Empresa</h4>
+        <p class="muted">1bit Tecnologia<br><span style="font-size:var(--fs-xs);">CNPJ 19.884.430/0001-41</span></p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <div><a href="/" class="logo"><span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span><span>Licite Agora</span></a></div>
+    <div><h5>Produto</h5><ul><li><a href="/recursos.html">Recursos</a></li><li><a href="/planos.html">Planos</a></li></ul></div>
+    <div><h5>Empresa</h5><ul><li><a href="/contato.html">Contato</a></li></ul></div>
+    <div><h5>Legal</h5><ul><li><a href="/termos.html">Termos</a></li><li><a href="/privacidade.html">Privacidade</a></li></ul></div>
+    <div class="copyright" style="grid-column:1/-1;">© 2026 Licite Agora · 1bit Tecnologia · CNPJ 19.884.430/0001-41</div>
+  </div>
+</footer>
+
+<script src="/landing.js"></script>
+<script>
+// Pré-popula plano/motivo da URL
+(function() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('plano')) {
+    const sel = document.getElementById('planoSel');
+    const v = params.get('plano').toLowerCase();
+    if ([...sel.options].some(o => o.value === v)) sel.value = v;
+  }
+  if (params.get('motivo')) document.getElementById('motivo').value = params.get('motivo');
+})();
+
+document.getElementById('formContato').addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitForm(e.target, '/api/landing/signup', () => {
+    toast('Mensagem recebida. Respondemos em até 1 dia útil.', 'success');
+    setTimeout(() => { location.href = '/'; }, 2500);
+  });
+});
+</script>
+</body>
+</html>

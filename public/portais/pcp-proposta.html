@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proposta PCP · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Enviar Proposta · Portal de Compras Públicas</h1>
+      <small>Carrega a proposta do PCP pela sessão do servidor, revisa valores/marca/descrição e envia. O envio salva as declarações e cada item; o envio real exige confirmação.</small>
+    </div>
+    <div class="actions">
+      <span id="sessaoBadge" class="badge">sessão: —</span>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div id="avisoDatas"></div>
+
+  <div class="panel" id="painelEditais">
+    <h2>Escolha a licitação</h2>
+    <p style="color: var(--text-2); font-size: 0.85em;">
+      Seus editais de origem <strong>Portal de Compras Públicas</strong> (dos seus Interesses). Clique em <em>Carregar</em> — sem colar link.
+      <button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="carregarEditais()">🔄 Atualizar</button>
+      <a href="#" style="margin-left:8px; font-size:0.9em;" onclick="event.preventDefault(); toggleManual()">informar chave/URL ▾</a>
+    </p>
+    <div id="listaEditais" style="font-size:0.85em;">carregando…</div>
+    <div id="painelManual" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+      <p style="color: var(--text-3); font-size: 0.8em; margin:0 0 6px;">Avançado — a URL da tela (<code>…/RegistroProposta/?ttCD_CHAVE=…</code>) ou só o número da chave:</p>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <input id="inpUrl" class="form-control" style="flex:1; min-width:320px;" placeholder="493366  ou  https://operacao.portaldecompraspublicas.com.br/4/Pregoes/RegistroProposta/?ttCD_CHAVE=493366">
+        <button class="btn btn-primary btn-sm" id="btnCarregar" onclick="carregarItens()">Carregar itens</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="painelItens" style="display:none;">
+    <h2>Itens &amp; valores</h2>
+    <div id="ctxEdital" style="font-size:0.9em; color:var(--text-2); margin-bottom:10px;"></div>
+    <div id="declInfo" style="margin-bottom:10px; font-size:0.85em; color:var(--text-2);"></div>
+    <div id="statusEnvio"></div>
+    <div class="tbl-wrap">
+      <table id="tblItens">
+        <thead><tr>
+          <th style="width:44px;">Item</th>
+          <th>Descrição / referência</th>
+          <th style="width:140px;">Valor unit. (R$)</th>
+          <th style="width:110px;">Marca</th>
+          <th style="width:110px;">Fabricante</th>
+          <th style="width:220px;">Descrição detalhada</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div style="margin-top:14px; display:flex; gap:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="previa()">Gerar prévia (não envia)</button>
+      <button class="btn btn-primary btn-sm" id="btnEnviar" onclick="enviar()">⚠️ Enviar proposta ao PCP</button>
+    </div>
+  </div>
+
+  <div class="panel" id="painelResultado" style="display:none;">
+    <div id="outResultado"></div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer; font-size:0.8em; color:var(--text-3);">detalhes técnicos</summary>
+      <pre id="outJson" style="white-space:pre-wrap; word-break:break-all; font-size:0.75em; background:var(--bg-2); padding:12px; border-radius:var(--r-sm); margin-top:6px;"></pre>
+    </details>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('pcp-proposta');</script>
+<script>
+const API = '';
+let itensCarregados = [];
+let currentPncp = null;
+let currentChave = null;
+let currentPrefs = { epp: false, validade: 60 };
+
+// ── rascunho local (persiste os valores digitados entre recarregamentos) ──
+function draftKey() { return currentChave ? 'pcp-proposta-draft-' + currentChave : null; }
+function salvarRascunho() {
+  const k = draftKey(); if (!k) return;
+  try { localStorage.setItem(k, JSON.stringify(coletarItens())); } catch (e) {}
+}
+function limparRascunho() { const k = draftKey(); if (k) try { localStorage.removeItem(k); } catch (e) {} }
+function restaurarRascunho() {
+  const k = draftKey(); if (!k) return false;
+  let draft; try { draft = JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { draft = null; }
+  if (!Array.isArray(draft) || !draft.length) return false;
+  let aplicou = false;
+  for (const it of itensCarregados) {
+    const d = draft[it.index]; if (!d) continue;
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') { el.value = v; aplicou = true; } };
+    set('val_' + it.index, d.valorUnitario); set('marca_' + it.index, d.marca);
+    set('fab_' + it.index, d.fabricante); set('det_' + it.index, d.detalhe);
+  }
+  return aplicou;
+}
+
+// Banner verde + estado do botão quando a proposta já está gravada no PCP.
+function atualizarStatusEnvio(jaEnviada, gravados, total) {
+  const el = document.getElementById('statusEnvio');
+  const btn = document.getElementById('btnEnviar');
+  if (jaEnviada) {
+    el.innerHTML = '<div style="padding:12px 14px; border-radius:var(--r-sm); background:rgba(52,211,153,0.14); border-left:4px solid #1a7f37; color:#1a7f37; font-weight:600; margin-bottom:10px;">✅ Proposta já enviada ao PCP — ' + gravados + '/' + total + ' itens gravados. Os valores abaixo são os que estão registrados no portal; reenvie só se quiser alterar.</div>';
+    if (btn) { btn.textContent = '♻️ Reenviar (alterar valores)'; btn.classList.remove('btn-primary'); btn.classList.add('btn-ghost'); }
+  } else {
+    el.innerHTML = '';
+    if (btn) { btn.textContent = '⚠️ Enviar proposta ao PCP'; btn.classList.remove('btn-ghost'); btn.classList.add('btn-primary'); }
+  }
+}
+
+function fmtBR(n) { return (Number(n) || 0).toFixed(2).replace('.', ','); }
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function toggleManual() { const p = document.getElementById('painelManual'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
+function alerta(msg, tipo) {
+  const el = document.getElementById('alertGlobal');
+  el.innerHTML = '<div class="alert alert-' + (tipo || 'info') + '">' + msg + '</div>';
+  if (tipo === 'ok') setTimeout(() => { el.innerHTML = ''; }, 4000);
+}
+function urlInput() { return document.getElementById('inpUrl').value.trim(); }
+function mostrarResultado(kind, corpoHtml, jsonObj) {
+  const cor = kind === 'ok' ? '#1a7f37' : (kind === 'err' ? '#c0392b' : '#2563eb');
+  document.getElementById('painelResultado').style.display = '';
+  document.getElementById('outResultado').innerHTML =
+    '<div style="padding:14px 16px; border-radius:var(--r-sm); background:' + cor + '14; border-left:4px solid ' + cor + '; line-height:1.5;">' + corpoHtml + '</div>';
+  document.getElementById('outJson').textContent = JSON.stringify(jsonObj, null, 2);
+  document.getElementById('painelResultado').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function itensResumoHtml(itens) {
+  return (itens || []).map((i) => 'Item ' + (i.index + 1) + ': <strong>R$ ' + escapeHtml(i.valorUnitario || i.valor) + '</strong>' + (i.marca && i.marca !== 'N/C' ? ' · ' + escapeHtml(i.marca) : '')).join('<br>');
+}
+
+// itens[] = [{ valorUnitario, marca, fabricante, detalhe }] alinhado por índice
+function coletarItens() {
+  const arr = [];
+  for (const it of itensCarregados) {
+    arr[it.index] = {
+      valorUnitario: (document.getElementById('val_' + it.index) || {}).value || '',
+      marca: (document.getElementById('marca_' + it.index) || {}).value || '',
+      fabricante: (document.getElementById('fab_' + it.index) || {}).value || '',
+      detalhe: (document.getElementById('det_' + it.index) || {}).value || '',
+    };
+  }
+  return arr;
+}
+
+async function carregarSessao() {
+  try {
+    const r = await fetch(API + '/api/pcp/session');
+    const d = await r.json();
+    const b = document.getElementById('sessaoBadge');
+    if (d.configurado) {
+      b.textContent = 'sessão: ' + (d.sessaoAtiva ? (d.expirando ? '⚠ expirando' : '✅ ok') : '⏻ dorme') + (d.usuario ? ' (' + d.usuario + ')' : '');
+    } else { b.textContent = 'sessão: ❌ credenciais PCP não configuradas'; }
+  } catch (e) { document.getElementById('sessaoBadge').textContent = 'sessão: erro'; }
+}
+
+async function carregarEditais() {
+  const cont = document.getElementById('listaEditais');
+  cont.textContent = 'Carregando…';
+  try {
+    const r = await fetch(API + '/api/pcp/proposta/editais');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (!d.editais || !d.editais.length) {
+      cont.innerHTML = '<div style="color:var(--text-3);">Nenhum edital PCP nos seus Interesses. Use “informar chave/URL” acima.</div>';
+      return;
+    }
+    const rows = d.editais.map((e) => {
+      const enc = e.encerra ? new Date(e.encerra).toLocaleString('pt-BR') : '';
+      return '<tr>' +
+        '<td>' + escapeHtml(e.orgao) + '</td>' +
+        '<td style="max-width:340px; color:var(--text-2);">' + escapeHtml((e.objeto || '').slice(0, 110)) + '…</td>' +
+        '<td style="white-space:nowrap;">' + escapeHtml(e.situacao) + '</td>' +
+        '<td style="white-space:nowrap;">' + enc + '</td>' +
+        '<td><button class="btn btn-primary btn-sm" data-chave="' + escapeHtml(e.chave) + '" data-org="' + escapeHtml(e.orgao) + '" data-pncp="' + escapeHtml(e.pncp) + '">Carregar</button></td>' +
+        '</tr>';
+    }).join('');
+    cont.innerHTML = '<div class="tbl-wrap"><table><thead><tr><th>Órgão</th><th>Objeto</th><th>Situação</th><th>Encerra</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    cont.querySelectorAll('button[data-chave]').forEach((b) => {
+      b.onclick = () => {
+        document.getElementById('inpUrl').value = b.getAttribute('data-chave');
+        currentPncp = b.getAttribute('data-pncp') || null;
+        document.getElementById('ctxEdital').innerHTML = '📄 <strong>' + escapeHtml(b.getAttribute('data-org')) + '</strong>';
+        // Com o pncp, passa pelo resolver p/ também conferir as datas PNCP × PCP.
+        if (currentPncp) resolverPorPncp(currentPncp); else carregarItens();
+      };
+    });
+  } catch (e) { cont.innerHTML = '<span style="color:var(--danger,#c00)">erro: ' + escapeHtml(e.message) + '</span>'; }
+}
+
+async function carregarItens() {
+  const url = urlInput();
+  if (!url) return alerta('Informe a chave ou a URL da proposta.', 'warn');
+  const btn = document.getElementById('btnCarregar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Carregando...'; }
+  try {
+    const qs = '/api/pcp/proposta/itens?chave=' + encodeURIComponent(url) + (currentPncp ? '&pncp=' + encodeURIComponent(currentPncp) : '');
+    const r = await fetch(API + qs);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao carregar');
+    itensCarregados = d.itens || [];
+    currentChave = d.chave || currentChave;
+    currentPrefs = { epp: !!d.epp, validade: d.validade || 60 };
+
+    const ctx = d.contexto || {};
+    if (Object.keys(ctx).length) {
+      document.getElementById('ctxEdital').innerHTML = Object.entries(ctx).map(([k, v]) => '<strong>' + escapeHtml(k) + ':</strong> ' + escapeHtml(v)).join(' · ');
+    }
+    const declTxt = (d.declaracoesSalvas
+      ? '✅ Declarações já salvas no PCP. '
+      : '📝 A proposta ainda <strong>não foi iniciada</strong> no PCP — ao enviar, as declarações serão salvas primeiro. ');
+    document.getElementById('declInfo').innerHTML = declTxt +
+      'ME/EPP: <strong>' + (currentPrefs.epp ? 'Sim' : 'Não') + '</strong> · validade: <strong>' + currentPrefs.validade + ' dias</strong> ' +
+      '<span style="color:var(--text-3);">(ME/EPP vem de Configurações → Minha Empresa; validade = pcp_validade, padrão 60)</span>';
+
+    const tb = document.querySelector('#tblItens tbody');
+    tb.innerHTML = '';
+    if (!itensCarregados.length) {
+      tb.innerHTML = '<tr><td colspan="6" style="color:var(--text-3);">' + escapeHtml(d.avisoPreview || 'Sem itens para exibir.') + '</td></tr>';
+    }
+    let temRef = false;
+    for (const it of itensCarregados) {
+      const ref = (it.valorReferencia != null) ? it.valorReferencia : null;
+      if (ref != null) temRef = true;
+      const desc = it.descricao ? escapeHtml(it.descricao.slice(0, 120)) + (it.descricao.length > 120 ? '…' : '') : ('item ' + (it.index + 1));
+      const refTxt = ref != null ? ('referência: R$ ' + fmtBR(ref) + (it.unidade ? ' /' + escapeHtml(it.unidade) : '') + (it.quantidade ? ' × ' + escapeHtml(String(it.quantidade)) : '')) : '';
+      const valPre = it.valorUnitario != null ? fmtBR(it.valorUnitario) : (ref != null ? fmtBR(ref) : '');
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (it.index + 1) + (it.gravado ? ' ✅' : '') + '</td>' +
+        '<td style="font-size:0.8em;">' + desc + (refTxt ? '<div style="color:var(--text-3); font-size:0.9em; margin-top:2px;">' + refTxt + '</div>' : '') + '</td>' +
+        '<td><input id="val_' + it.index + '" class="form-control form-control-sm" type="text" inputmode="decimal" value="' + valPre + '" placeholder="0,00"></td>' +
+        '<td><input id="marca_' + it.index + '" class="form-control form-control-sm" type="text" value="' + escapeHtml(it.marca || '') + '" placeholder="N/C"></td>' +
+        '<td><input id="fab_' + it.index + '" class="form-control form-control-sm" type="text" value="' + escapeHtml(it.fabricante || '') + '" placeholder="N/C"></td>' +
+        '<td><textarea id="det_' + it.index + '" class="form-control form-control-sm" rows="2" placeholder="descrição detalhada">' + escapeHtml(it.detalhe || it.descricao || '') + '</textarea></td>';
+      if (it.gravado) tr.style.background = 'rgba(52,211,153,0.10)'; // já registrado no PCP
+      tb.appendChild(tr);
+    }
+    document.getElementById('painelItens').style.display = '';
+
+    // Status de envio: se TODOS os itens estão gravados no PCP, a proposta já foi enviada.
+    const gravados = itensCarregados.filter((x) => x.gravado).length;
+    const jaEnviada = itensCarregados.length > 0 && gravados === itensCarregados.length;
+    atualizarStatusEnvio(jaEnviada, gravados, itensCarregados.length);
+
+    // Rascunho: só restaura valores locais se a proposta ainda NÃO foi enviada
+    // (se já enviada, o que vale é o que está gravado no portal).
+    if (jaEnviada) limparRascunho(); else restaurarRascunho();
+
+    alerta(jaEnviada ? 'Esta proposta já foi enviada ao PCP — os valores abaixo são os que estão registrados.'
+      : (temRef ? 'Itens carregados com o valor de REFERÊNCIA pré-preenchido — ajuste e gere a prévia.' : 'Itens carregados. Informe os valores e gere a prévia antes de enviar.'),
+      'ok');
+  } catch (e) {
+    alerta('Erro: ' + e.message, 'err');
+  } finally { if (btn) { btn.disabled = false; btn.textContent = 'Carregar itens'; } }
+}
+
+async function previa() {
+  try {
+    const r = await fetch(API + '/api/pcp/proposta/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chave: urlInput(), itens: coletarItens(), pncp: currentPncp }),
+    });
+    const d = await r.json();
+    if (!d.success) return mostrarResultado('err', '⚠️ <strong>Erro ao gerar a prévia.</strong><br>' + escapeHtml(d.error || ''), d);
+    const nota = d.declaracoesSalvas ? '' : '<div style="font-size:0.85em; color:var(--text-3); margin-top:6px;">Obs.: as declarações serão salvas no PCP no momento do envio (ME/EPP=' + (d.epp ? 'Sim' : 'Não') + ', validade ' + d.validade + ' dias).</div>';
+    mostrarResultado('info', '🔎 <strong>Prévia gerada — nada foi enviado.</strong><div style="margin-top:8px; font-size:0.95em;">Ao confirmar, será enviado ao PCP:<div style="margin-top:6px;">' + itensResumoHtml(d.itens) + '</div>' + nota + '</div>', d);
+  } catch (e) { alerta('Erro: ' + e.message, 'err'); }
+}
+
+async function enviar() {
+  const itens = coletarItens();
+  const invalidos = itens.some((v) => !(parseFloat((v.valorUnitario || '').replace(/\./g, '').replace(',', '.')) > 0));
+  if (invalidos) return alerta('Informe um valor válido (> 0) para todos os itens.', 'warn');
+  if (!confirm('ENVIAR proposta ao Portal de Compras Públicas agora?\n\nItens: ' + itens.length +
+    '\nSerão salvas as declarações (ME/EPP=' + (currentPrefs.epp ? 'Sim' : 'Não') + ', validade ' + currentPrefs.validade + ' dias) e cada item.' +
+    '\n\nEsta ação é REAL.')) return;
+  const btn = document.getElementById('btnEnviar');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  let sucesso = false;
+  try {
+    const r = await fetch(API + '/api/pcp/proposta/enviar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chave: urlInput(), itens, pncp: currentPncp, confirmar: true }),
+    });
+    const d = await r.json();
+    if (d.success && (d.enviada || d.jaEnviada)) {
+      sucesso = true;
+      limparRascunho(); // enviado → o portal passa a ser a fonte da verdade
+      mostrarResultado('ok',
+        '✅ <strong>Proposta enviada ao PCP.</strong>' +
+        '<div style="font-size:0.95em; margin-top:4px;">' + (d.gravados != null ? d.gravados + '/' + d.total + ' itens gravados.' : '') + (d.jaEnviada ? ' (já constava enviada)' : '') + '</div>' +
+        '<div style="margin-top:8px;">' + itensResumoHtml(d.itens) + '</div>', d);
+      await carregarItens(); // recarrega → banner verde "já enviada" + linhas gravadas
+      return;
+    }
+    mostrarResultado('err', '⚠️ <strong>Não confirmou o envio.</strong><br>' + escapeHtml(d.error || d.mensagem || 'veja os detalhes técnicos'), d);
+  } catch (e) { mostrarResultado('err', '⚠️ <strong>Erro de rede.</strong><br>' + escapeHtml(e.message), {}); }
+  finally { if (!sucesso) { btn.disabled = false; btn.textContent = '⚠️ Enviar proposta ao PCP'; } }
+}
+
+// O órgão pode remarcar o processo dentro do PCP sem republicar no PNCP — o
+// catálogo (que espelha o PNCP) fica defasado em silêncio. O resolver compara
+// as duas fontes; aqui só avisamos. A data que vale é a do PCP.
+function mostrarAvisoDatas(d) {
+  const el = document.getElementById('avisoDatas');
+  if (!d || !d.divergente) { el.innerHTML = ''; return; }
+  const linha = (rot, novo, antigo, mudou) => !novo ? '' :
+    '<div style="margin-top:2px;">• <strong>' + rot + ':</strong> ' + escapeHtml(novo) +
+    (mudou && antigo ? ' <span style="opacity:0.75; text-decoration:line-through;">' + escapeHtml(antigo) + '</span>' : '') + '</div>';
+  el.innerHTML =
+    '<div style="padding:12px 14px; border-radius:var(--r-sm); background:rgba(245,158,11,0.14); border-left:4px solid #b45309; color:#b45309; margin-bottom:10px;">' +
+    '<strong>⚠️ O portal remarcou este edital — as datas do PNCP estão desatualizadas.</strong>' +
+    '<div style="margin-top:6px; font-weight:600;">Vale o que está no PCP:</div>' +
+    linha('Início das propostas', d.pcp.abertura, d.pncp.abertura, d.campos.abertura) +
+    linha('Limite para propostas', d.pcp.encerramento, d.pncp.encerramento, d.campos.encerramento) +
+    linha('Abertura da sessão', d.pcp.sessao, null, false) +
+    '<div style="margin-top:6px; font-size:0.9em; font-weight:400;">O órgão não republicou a alteração no PNCP, por isso a Agenda/Kanban ainda mostram a data antiga.</div>' +
+    '</div>';
+}
+
+async function resolverPorPncp(pncp) {
+  currentPncp = pncp;
+  mostrarAvisoDatas(null);
+  const ctx = document.getElementById('ctxEdital');
+  ctx.textContent = 'Resolvendo edital ' + pncp + '…';
+  try {
+    const r = await fetch(API + '/api/pcp/proposta/resolver?pncp=' + encodeURIComponent(pncp));
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (!d.portalPcp) { ctx.innerHTML = '⚠ ' + (d.error || 'não é PCP') + (d.portalOrigem ? ' (origem: ' + d.portalOrigem + ')' : ''); return; }
+    if (!d.chave) { ctx.innerHTML = '⚠ ' + (d.error || 'sem chave derivável'); return; }
+    document.getElementById('inpUrl').value = d.chave;
+    ctx.innerHTML = '📄 <strong>' + escapeHtml(d.orgao || '') + '</strong> — ' + escapeHtml((d.objeto || '').slice(0, 160)) + '…';
+    mostrarAvisoDatas(d.datas);
+    await carregarItens();
+  } catch (e) { ctx.innerHTML = '⚠ auto-resolução falhou: ' + escapeHtml(e.message) + '. Informe a chave manualmente.'; }
+}
+
+// Editar a chave/URL manualmente desassocia o edital (perde o pncp p/ referência).
+document.getElementById('inpUrl').addEventListener('input', () => { currentPncp = null; mostrarAvisoDatas(null); });
+
+// Auto-salva o rascunho a cada digitação (delegação — o tbody persiste entre recargas).
+document.querySelector('#tblItens tbody').addEventListener('input', salvarRascunho);
+
+(function () {
+  const q = new URLSearchParams(location.search);
+  carregarEditais();
+  if (q.get('pncp')) resolverPorPncp(q.get('pncp'));
+  else if (q.get('chave')) { document.getElementById('inpUrl').value = q.get('chave'); carregarItens(); }
+})();
+carregarSessao();
+</script>
+</body>
+</html>

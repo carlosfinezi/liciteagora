@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Licite Agora — ERP completo para empresas que vivem de licitações</title>
+<meta name="description" content="Do PNCP ao financeiro: 70+ módulos integrados, Sniper de lances em milissegundos, IA que lê edital, NFS-e e NF-e automáticas. 14 dias grátis.">
+<meta property="og:title" content="Licite Agora — ERP completo para empresas de licitação">
+<meta property="og:description" content="Do PNCP ao financeiro: 70+ módulos, Sniper de lances, IA no edital e fiscal completo. 14 dias grátis.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://liciteagora.app/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://liciteagora.app/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/landing.css">
+</head>
+<body>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" aria-hidden="true">
+  <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3v2m0 14v2M5.22 5.22l1.42 1.42m10.72 10.72l1.42 1.42M3 12h2m14 0h2M5.22 18.78l1.42-1.42m10.72-10.72l1.42-1.42"/><path d="M12 8l1.5 3L16 12.5 13.5 14 12 17l-1.5-3L8 12.5 10.5 11 12 8z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></symbol>
+  <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M16 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4h-4z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
+  <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M4 4h16l-1 6a4 4 0 0 1-4 3H9a4 4 0 0 1-4-3L4 4z"/><path d="M6 13v8h12v-8"/><path d="M10 16h4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-megaphone" viewBox="0 0 24 24"><path d="M3 11l18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="9" y1="22" x2="9" y2="18"/><line x1="15" y1="22" x2="15" y2="18"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></symbol>
+  <symbol id="i-trending-up" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+</svg>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo">
+      <span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span>
+      <span>Licite Agora</span>
+    </a>
+    <nav class="nav-links" id="navLinks">
+      <a href="/recursos.html">Recursos</a>
+      <a href="/planos.html">Planos</a>
+      <a href="/contato.html">Contato</a>
+    </nav>
+    <div class="nav-actions">
+      <a href="https://admin.liciteagora.app/admin/login.html" class="btn btn-ghost">Entrar</a>
+      <a href="/trial.html" class="btn btn-primary">Testar grátis</a>
+      <button class="menu-toggle" id="btnMenu" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid-2col">
+      <div>
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          322 mil licitações sincronizadas · SEFAZ certificado
+        </div>
+        <h1>
+          O <span class="gradient-text">ERP completo</span><br>
+          <span class="tw-stack">
+            <span class="tw-phantom" aria-hidden="true">para empresas que não param de crescer</span>
+            <span class="tw-real">para empresas <span id="typewriter"></span><span class="typewriter-cursor"></span></span>
+          </span>
+        </h1>
+        <p class="hero-subtitle">
+          Do PNCP ao fechamento do mês: 70+ módulos integrados — busca inteligente, Sniper de lances em milissegundos, IA que lê o edital, emissão fiscal completa, CRM, estoque, financeiro. Tudo numa plataforma só.
+        </p>
+        <div class="hero-ctas">
+          <a href="/trial.html" class="btn btn-primary btn-xl">Testar 14 dias grátis →</a>
+          <a href="/planos.html" class="btn btn-ghost btn-xl">Ver planos e preços</a>
+        </div>
+      </div>
+
+      <div class="dashboard-mockup">
+        <div class="float-card top-left">
+          <div class="fc-icon"><svg class="icon"><use href="#i-target"/></svg></div>
+          <div class="fc-title">Lance enviado</div>
+          <div class="fc-value">R$ 12.450,00</div>
+          <div class="fc-sub">✓ 92ms de latência</div>
+        </div>
+
+        <div class="float-card top-right">
+          <div class="fc-icon"><svg class="icon"><use href="#i-sparkles"/></svg></div>
+          <div class="fc-title">IA analisou edital</div>
+          <div class="fc-value">Viabilidade 87%</div>
+          <div class="fc-sub">em 28 segundos</div>
+        </div>
+
+        <div class="browser-frame">
+          <div class="browser-chrome">
+            <div class="browser-dots"><span></span><span></span><span></span></div>
+            <div class="browser-url"><svg class="icon icon-sm" style="vertical-align:-2px;margin-right:4px;opacity:0.6;"><use href="#i-lock"/></svg>1bit.liciteagora.app/lances.html</div>
+          </div>
+          <div class="browser-body">
+            <div class="mock-page-head">
+              <div class="mock-page-title">Lances Automáticos — ao vivo</div>
+              <div class="mock-page-badge">● 12 ativos</div>
+            </div>
+
+            <div class="mock-kpis">
+              <div class="mock-kpi"><div class="l">Ganhos mês</div><div class="v">R$ 284k</div><div class="d">+23%</div></div>
+              <div class="mock-kpi"><div class="l">Disputas</div><div class="v">47</div><div class="d">+8 hoje</div></div>
+              <div class="mock-kpi"><div class="l">Taxa win</div><div class="v">68%</div><div class="d">+4pp</div></div>
+            </div>
+
+            <div class="mock-chart">
+              <div class="mock-chart-head">
+                <span>Homologações por semana</span>
+                <span style="color:var(--accent-soft);">últimas 7 semanas ↗</span>
+              </div>
+              <div class="mock-bars">
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                <div class="bar"></div>
+              </div>
+            </div>
+
+            <div id="lanceTicker" style="display:flex;flex-direction:column;gap:6px;">
+              <div class="mock-row">
+                <div class="mock-dot"></div>
+                <div class="mock-label">Pregão 31/2026 · item 7</div>
+                <div class="mock-valor">R$ 8.990,00</div>
+              </div>
+              <div class="mock-row">
+                <div class="mock-dot" style="background:#f59e0b;box-shadow:0 0 8px #f59e0b;"></div>
+                <div class="mock-label">Pregão 45/2026 · item 2</div>
+                <div class="mock-valor" style="color:#f59e0b;">R$ 4.120,00</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="float-card bottom-right">
+          <div class="fc-icon"><svg class="icon"><use href="#i-trophy"/></svg></div>
+          <div class="fc-title">Homologado</div>
+          <div class="fc-value">R$ 47.200</div>
+          <div class="fc-sub">há 2 minutos</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-diagram" style="margin-top:60px;">
+      <div class="flow-steps">
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-search"/></svg></div><div class="label">Busca no PNCP</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-sparkles"/></svg></div><div class="label">Análise IA do edital</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-edit"/></svg></div><div class="label">Proposta</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-target"/></svg></div><div class="label">Lance automático</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-trophy"/></svg></div><div class="label">Homologação</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-file-text"/></svg></div><div class="label">Contrato</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-receipt"/></svg></div><div class="label">NF-e + NFS-e</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><div class="dot"><svg class="icon"><use href="#i-wallet"/></svg></div><div class="label">Financeiro</div></div>
+      </div>
+    </div>
+
+    <div class="hero-stats">
+      <div class="hero-stat"><div class="value" data-count="322206" data-final="322k+">0</div><div class="label">Licitações no catálogo</div></div>
+      <div class="hero-stat"><div class="value" data-count="70" data-final="70+" data-suffix="">0</div><div class="label">Módulos integrados</div></div>
+      <div class="hero-stat"><div class="value" data-count="92" data-final="&lt; 100" data-suffix="ms">0</div><div class="label">Latência de lance</div></div>
+      <div class="hero-stat"><div class="value" data-count="100" data-final="100" data-suffix="%">0</div><div class="label">Compliance fiscal</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="section reveal">
+  <div class="container">
+    <div class="section-head">
+      <h2>Tudo que um <span class="gradient-text">ERP de licitações</span> precisa — em um só lugar</h2>
+      <p>9 grandes áreas totalmente integradas. Um dado só atravessa sua empresa da busca do edital à DRE.</p>
+    </div>
+
+    <div class="grid-3">
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-search"/></svg></span><span class="secao-nome">Licitações</span></div>
+        <div class="resumo">322 mil licitações do PNCP sincronizadas em tempo real. Filtros avançados, grupos de palavras, alertas por email.</div>
+        <div class="modulos-list"><span class="chip">Buscar</span><span class="chip">Interesses</span><span class="chip">Agenda</span><span class="chip">Grupos de palavras</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-target"/></svg></span><span class="secao-nome">Operacional</span></div>
+        <div class="resumo">Propostas, Sniper de lances, monitor de chat do pregoeiro e análises IA que leem edital extraindo prazo, vistoria e viabilidade.</div>
+        <div class="modulos-list"><span class="chip">Propostas</span><span class="chip">Lances</span><span class="chip">Monitor de chat</span><span class="chip">Análises IA</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-briefcase"/></svg></span><span class="secao-nome">Comercial</span></div>
+        <div class="resumo">CRM Kanban, pedidos, contratos recorrentes e Ordens de Serviço profissionais com checklist, SLA e assinatura digital.</div>
+        <div class="modulos-list"><span class="chip">CRM Funil</span><span class="chip">Pedidos</span><span class="chip">Contratos</span><span class="chip">OS</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-box"/></svg></span><span class="secao-nome">Produtos & Estoque</span></div>
+        <div class="resumo">Produtos, estoque multi-armazém, lotes, serial, reservas automáticas ao vincular pedidos/OS e sugestão de compra.</div>
+        <div class="modulos-list"><span class="chip">Estoque</span><span class="chip">Lotes</span><span class="chip">Serial</span><span class="chip">PO</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-store"/></svg></span><span class="secao-nome">Varejo</span></div>
+        <div class="resumo">PDV rápido com NFC-e, TEF integrado (Stone/Cielo/Rede), marketplaces (ML, Shopee) e romaneios de entrega.</div>
+        <div class="modulos-list"><span class="chip">PDV</span><span class="chip">TEF</span><span class="chip">Marketplaces</span><span class="chip">Romaneios</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-wallet"/></svg></span><span class="secao-nome">Financeiro</span></div>
+        <div class="resumo">CR/CP, conciliação bancária OFX/CNAB, cobrança automática por email/WhatsApp, fluxo de caixa projetado, DRE e 15 módulos.</div>
+        <div class="modulos-list"><span class="chip">Contas a receber</span><span class="chip">Conciliação</span><span class="chip">DRE</span><span class="chip">Cobrança</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-receipt"/></svg></span><span class="secao-nome">Fiscal</span></div>
+        <div class="resumo">NFS-e para centenas de prefeituras, NF-e 4.00, NFC-e, MDF-e, CT-e, DRE, Apuração do Simples Nacional e DEFIS.</div>
+        <div class="modulos-list"><span class="chip">NF-e</span><span class="chip">NFS-e</span><span class="chip">Apuração SN</span><span class="chip">DEFIS</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-users"/></svg></span><span class="secao-nome">RH & Acesso</span></div>
+        <div class="resumo">Funcionários, controle de comissões por vendedor/técnico, patrimônio e gestão fina de usuários e permissões.</div>
+        <div class="modulos-list"><span class="chip">Funcionários</span><span class="chip">Comissões</span><span class="chip">Patrimônio</span><span class="chip">Usuários</span></div>
+      </div>
+
+      <div class="module-showcase">
+        <div class="secao-header"><span class="secao-icon"><svg class="icon"><use href="#i-megaphone"/></svg></span><span class="secao-nome">Comunicação & Admin</span></div>
+        <div class="resumo">Central de email/WhatsApp/Telegram, log completo de comunicações, auditoria LGPD-ready e integrações.</div>
+        <div class="modulos-list"><span class="chip">Email/WhatsApp</span><span class="chip">Auditoria</span><span class="chip">Conexões</span><span class="chip">LGPD</span></div>
+      </div>
+    </div>
+
+    <div class="text-center mt-4">
+      <a href="/recursos.html" class="btn btn-ghost btn-lg">Ver todos os 70+ módulos →</a>
+    </div>
+  </div>
+</section>
+
+<section class="section reveal">
+  <div class="container">
+    <div class="section-head">
+      <h2>Diferenciais que <span class="gradient-text">concorrentes não têm</span></h2>
+      <p>Não é um ERP genérico adaptado. Foi construído de ponta a ponta para quem vive de pregão.</p>
+    </div>
+
+    <div class="grid-4">
+      <div class="diff-card">
+        <div class="diff-icon"><svg class="icon"><use href="#i-target"/></svg></div>
+        <h3>Sniper de Lances</h3>
+        <p>Calibração de relógio, latência média 122ms, envio em milissegundos no ComprasNet. Modos contínuo e racha configuráveis.</p>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon"><svg class="icon"><use href="#i-globe"/></svg></div>
+        <h3>Browser Dedicado</h3>
+        <p>Electron browser que mantém sessão ComprasNet 24/7, renova token automaticamente e envia lances pelo seu IP.</p>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon"><svg class="icon"><use href="#i-sparkles"/></svg></div>
+        <h3>IA lê o Edital</h3>
+        <p>Gemini/Claude extraem: viabilidade, prazo de entrega, vistoria obrigatória, exigências, pontos de atenção — em 30s.</p>
+      </div>
+      <div class="diff-card">
+        <div class="diff-icon"><svg class="icon"><use href="#i-shield"/></svg></div>
+        <h3>Multi-tenant real</h3>
+        <p>Banco SQLite isolado por empresa, subdomínio próprio (<code>suaempresa.liciteagora.app</code>), SSL wildcard, LGPD.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section reveal">
+  <div class="container">
+    <div class="section-head">
+      <h2>Para quem é o Licite Agora</h2>
+      <p>Qualquer empresa que venda ao governo — com ou sem varejo, com ou sem estoque.</p>
+    </div>
+
+    <div class="grid-4">
+      <div class="glass persona">
+        <div class="persona-icon"><svg class="icon"><use href="#i-code"/></svg></div>
+        <h4>Distribuidoras de TI</h4>
+        <p>Ganha tempo com lance automático, rastreia serial por lote e emite NF para órgão público com CFOP correto.</p>
+      </div>
+      <div class="glass persona">
+        <div class="persona-icon"><svg class="icon"><use href="#i-building"/></svg></div>
+        <h4>Construtoras & Serviços</h4>
+        <p>Contratos de longa duração com faturamento recorrente, OS com checklist e SLA, NFS-e municipal.</p>
+      </div>
+      <div class="glass persona">
+        <div class="persona-icon"><svg class="icon"><use href="#i-wrench"/></svg></div>
+        <h4>Assistência Técnica</h4>
+        <p>OS profissional com tipos (bancada/campo/garantia), assinatura digital, portal do cliente e relatórios.</p>
+      </div>
+      <div class="glass persona">
+        <div class="persona-icon"><svg class="icon"><use href="#i-cart"/></svg></div>
+        <h4>Varejo + Licitações</h4>
+        <p>PDV, TEF, marketplaces e pregão no mesmo ERP — estoque único, financeiro consolidado, DRE unificada.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section reveal">
+  <div class="container">
+    <div class="section-head">
+      <h2>Como funciona — 4 etapas, zero planilhas</h2>
+    </div>
+
+    <div class="grid-4">
+      <div class="glass">
+        <div class="glass-icon"><span style="font-weight:700;color:var(--accent-soft);">01</span></div>
+        <h3>Descubra</h3>
+        <p>Busca full-text no catálogo PNCP atualizado em tempo real. Marque interesse com um clique — IA analisa o edital em 30s.</p>
+      </div>
+      <div class="glass">
+        <div class="glass-icon"><span style="font-weight:700;color:var(--accent-soft);">02</span></div>
+        <h3>Participe</h3>
+        <p>Electron Browser mantém ComprasNet logado 24/7. Envie proposta, monitore chat do pregoeiro, dispare lance automático.</p>
+      </div>
+      <div class="glass">
+        <div class="glass-icon"><span style="font-weight:700;color:var(--accent-soft);">03</span></div>
+        <h3>Execute</h3>
+        <p>Ganhou? Contrato + OS gerados automaticamente. Estoque reservado, técnico notificado, SLA monitorado.</p>
+      </div>
+      <div class="glass">
+        <div class="glass-icon"><span style="font-weight:700;color:var(--accent-soft);">04</span></div>
+        <h3>Fature</h3>
+        <p>NF-e + NFS-e emitidas com um clique. Boleto gerado, cobrança agendada, conciliação bancária automática.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section reveal">
+  <div class="container text-center">
+    <h2>Pronto para deixar a planilha de lado?</h2>
+    <p class="muted" style="font-size:var(--fs-lg);margin:16px auto 32px;max-width:640px;">
+      14 dias grátis. Sem cartão de crédito. Seu subdomínio próprio com SSL e dados isolados — provisionamento em menos de 2 minutos.
+    </p>
+    <div class="hero-ctas" style="justify-content:center;">
+      <a href="/trial.html" class="btn btn-primary btn-xl">Começar teste grátis →</a>
+      <a href="/contato.html" class="btn btn-ghost btn-xl">Falar com especialista</a>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <div>
+      <a href="/" class="logo" style="margin-bottom:12px;">
+        <span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span>
+        <span>Licite Agora</span>
+      </a>
+      <p class="muted" style="font-size:var(--fs-sm);max-width:280px;">ERP multi-tenant para empresas que vivem de licitações públicas.</p>
+    </div>
+    <div>
+      <h5>Produto</h5>
+      <ul>
+        <li><a href="/recursos.html">Todos os módulos</a></li>
+        <li><a href="/planos.html">Planos e preços</a></li>
+        <li><a href="/trial.html">Testar grátis</a></li>
+      </ul>
+    </div>
+    <div>
+      <h5>Empresa</h5>
+      <ul>
+        <li><a href="/contato.html">Contato</a></li>
+        <li><a href="mailto:atendimento@1bit.net.br">atendimento@1bit.net.br</a></li>
+      </ul>
+    </div>
+    <div>
+      <h5>Legal</h5>
+      <ul>
+        <li><a href="/termos.html">Termos de uso</a></li>
+        <li><a href="/privacidade.html">Privacidade · LGPD</a></li>
+      </ul>
+    </div>
+    <div class="copyright" style="grid-column:1/-1;">
+      © 2026 Licite Agora · 1bit Tecnologia · CNPJ 19.884.430/0001-41
+    </div>
+  </div>
+</footer>
+
+<script src="/landing.js"></script>
+</body>
+</html>

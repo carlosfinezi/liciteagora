@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-mails Enviados - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>E-mails Enviados</h1>
+                <small>Relatório de todos os e-mails enviados pelo sistema (NFSe, boletos, cancelamentos)</small>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div class="kpi-grid" id="stats"></div>
+
+            <div class="filtros">
+                <input type="text" id="filtBusca" placeholder="Buscar por destinatário, NFS-e, descrição…" style="flex: 1; min-width: 220px;">
+                <input type="date" id="filtDataInicio" title="Data início" style="width:140px;">
+                <input type="date" id="filtDataFim" title="Data fim" style="width:140px;">
+                <select id="filtTipo">
+                    <option value="">Todos os tipos</option>
+                    <option value="nfse">NFS-e</option>
+                    <option value="boleto">Boleto</option>
+                    <option value="cancelamento">Cancelamento</option>
+                </select>
+                <select id="filtStatus">
+                    <option value="">Todos os status</option>
+                    <option value="enviado">Enviado</option>
+                    <option value="erro">Erro</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" onclick="carregarLogs()">Filtrar</button>
+            </div>
+
+            <div class="panel">
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>Tipo</th>
+                                <th>Destinatário</th>
+                                <th>Assunto</th>
+                                <th>NFS-e</th>
+                                <th>Valor</th>
+                                <th>Anexos</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabela">
+                            <tr>
+                                <td colspan="8">
+                                    <div class="empty-state">
+                                        <div class="icon">📭</div>
+                                        <p>Carregando...</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="modal-bg" id="modalDetalhes">
+        <div class="modal">
+            <div class="modal-header">
+              <div>
+                <h3 style="margin:0;">Detalhes do envio</h3>
+                <small class="muted">Dados completos do e-mail + Message-ID SMTP</small>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+            </div>
+            <div id="modalConteudo"></div>
+        </div>
+    </div>
+
+    <script>
+        let logsCache = [];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            carregarLogs();
+        });
+
+        async function carregarLogs() {
+            const busca = document.getElementById('filtBusca').value.trim();
+            const tipo = document.getElementById('filtTipo').value;
+            const status = document.getElementById('filtStatus').value;
+            const dataInicio = document.getElementById('filtDataInicio').value;
+            const dataFim = document.getElementById('filtDataFim').value;
+
+            let url = '/api/emails/log?limit=300';
+            if (busca) url += '&busca=' + encodeURIComponent(busca);
+            if (tipo) url += '&tipo=' + encodeURIComponent(tipo);
+            if (status) url += '&status=' + encodeURIComponent(status);
+            if (dataInicio) url += '&dataInicio=' + dataInicio;
+            if (dataFim) url += '&dataFim=' + dataFim;
+
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+
+                logsCache = data.logs;
+                renderStats(data.logs);
+                renderTabela(data.logs);
+            } catch (error) {
+                mostrarAlerta('Erro ao carregar: ' + error.message, 'error');
+            }
+        }
+
+        function renderStats(logs) {
+            const total = logs.length;
+            const enviados = logs.filter(l => l.status === 'enviado').length;
+            const erros = logs.filter(l => l.status === 'erro').length;
+            const nfse = logs.filter(l => l.tipo === 'nfse').length;
+
+            document.getElementById('stats').innerHTML = `
+                <div class="kpi"><div class="label">Total</div><div class="value">${total}</div></div>
+                <div class="kpi success"><div class="label">Enviados</div><div class="value">${enviados}</div></div>
+                <div class="kpi danger"><div class="label">Erros</div><div class="value">${erros}</div></div>
+                <div class="kpi"><div class="label">NFS-e</div><div class="value">${nfse}</div></div>
+            `;
+        }
+
+        function renderTabela(logs) {
+            const tbody = document.getElementById('tabela');
+            if (!logs.length) {
+                tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="icon">📭</div><p>Nenhum e-mail encontrado</p></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = logs.map(l => {
+                const anexos = [];
+                if (l.temPdf) anexos.push('PDF');
+                if (l.temBoleto) anexos.push('Boleto');
+                return `
+                    <tr style="cursor:pointer;" onclick="verDetalhes(${l.id})">
+                        <td>${formatarDataHora(l.dataEnvio)}</td>
+                        <td><span class="badge ${l.tipo}">${l.tipo}</span></td>
+                        <td>${escHtml(l.destinatario)}</td>
+                        <td title="${escHtml(l.assunto || '')}">${escHtml((l.assunto || '').substring(0, 40))}${(l.assunto || '').length > 40 ? '...' : ''}</td>
+                        <td>${escHtml(l.nfseNumero ? l.nfseNumero.substring(0, 15) + (l.nfseNumero.length > 15 ? '...' : '') : '-')}</td>
+                        <td>${l.valor ? 'R$ ' + Number(l.valor).toFixed(2) : '-'}</td>
+                        <td>${anexos.join(', ') || '-'}</td>
+                        <td><span class="badge ${l.status}">${l.status}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function verDetalhes(id) {
+            const l = logsCache.find(x => x.id === id);
+            if (!l) return;
+            document.getElementById('modalConteudo').innerHTML = `
+                <div class="detail-row"><span class="detail-label">Data/Hora:</span><span class="detail-value">${formatarDataHora(l.dataEnvio)}</span></div>
+                <div class="detail-row"><span class="detail-label">Tipo:</span><span class="detail-value">${escHtml(l.tipo)}</span></div>
+                <div class="detail-row"><span class="detail-label">Status:</span><span class="detail-value"><span class="badge ${l.status}">${l.status}</span></span></div>
+                <div class="detail-row"><span class="detail-label">Destinatário:</span><span class="detail-value">${escHtml(l.destinatario)}</span></div>
+                <div class="detail-row"><span class="detail-label">Assunto:</span><span class="detail-value">${escHtml(l.assunto || '-')}</span></div>
+                <div class="detail-row"><span class="detail-label">NFSe:</span><span class="detail-value">${escHtml(l.nfseNumero || '-')}</span></div>
+                <div class="detail-row"><span class="detail-label">Descrição:</span><span class="detail-value">${escHtml(l.descricao || '-')}</span></div>
+                <div class="detail-row"><span class="detail-label">Valor:</span><span class="detail-value">${l.valor ? 'R$ ' + Number(l.valor).toFixed(2) : '-'}</span></div>
+                <div class="detail-row"><span class="detail-label">Competência:</span><span class="detail-value">${escHtml(l.competencia || '-')}</span></div>
+                <div class="detail-row"><span class="detail-label">Anexos:</span><span class="detail-value">${l.temPdf ? 'DANFSE PDF' : ''}${l.temPdf && l.temBoleto ? ', ' : ''}${l.temBoleto ? 'Boleto' : ''}${!l.temPdf && !l.temBoleto ? 'Nenhum' : ''}</span></div>
+                <div class="detail-row"><span class="detail-label">Message ID:</span><span class="detail-value">${escHtml(l.messageId || '-')}</span></div>
+                ${l.erro ? `<div class="detail-row"><span class="detail-label">Erro:</span><span class="detail-value" style="color:var(--danger);">${escHtml(l.erro)}</span></div>` : ''}
+            `;
+            document.getElementById('modalDetalhes').classList.add('open');
+        }
+
+        function fecharModal() {
+            document.getElementById('modalDetalhes').classList.remove('open');
+        }
+
+        document.addEventListener('keydown', e => {
+          if (e.key === 'Escape' && document.getElementById('modalDetalhes').classList.contains('open')) fecharModal();
+        });
+
+        function mostrarAlerta(msg, tipo) {
+            const el = document.getElementById('alertBox');
+            el.textContent = msg;
+            el.className = 'alert ' + tipo;
+            setTimeout(() => { el.className = 'alert'; }, 6000);
+        }
+
+        function escHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        function formatarDataHora(str) {
+            if (!str) return '-';
+            const d = new Date(str.replace(' ', 'T') + 'Z');
+            if (isNaN(d.getTime())) return str;
+            return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        }
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('email-log');</script>
+</body>
+</html>

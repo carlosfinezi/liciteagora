@@ -75,3 +75,38 @@ public/*.zip
 
 # Builds de referência do Electron (grandes; manter em disco, fora do git)
 /electron-standalone-*.zip
+
+cndt-shots/
+cndt-downloads/
+cndt-renovar.log
+.crf-profile
+crf-downloads
+crf-shots
+crf-recon.js
+habilitacao-renovar.log
+cndfed-recon.js
+cndfed-shots
+cndfed-downloads
+sefa-recon.js
+sefa-shots
+sefa-downloads
+.sefa-profile
+mrb-recon.js
+mrb-shots
+mrb-downloads
+
+# --- perfis de browser efêmeros (cache/cookies de sessão — NUNCA versionar) ---
+.chrome-profile/
+.electron-profile/
+.govbr-chrome-profile/
+.govbr-clean-profile/
+.pocprofile/
+# --- build artifacts Electron ---
+electron-standalone/dist*/
+# --- extensão NopeCHA: chave privada e pacote ---
+nopecha-ext.pem
+*.crx
+# --- segredos dos scripts (fora do git) ---
+bearer-loop/secrets.env
+# capturas de rede (contêm tokens/senhas)
+recordings/

@@ -37,6 +37,10 @@
 // UPDATE` — a chave única precisa existir na tabela (definida na
 // migração inicial, ver server.js seção de DDL).
 
+// Fase 3g (2026-05-23): JOIN licitacoes via PG
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
 function registrarRotasRobo(app, db) {
   // Listar configurações de lances de uma licitação
   app.get('/api/robo/config/:cnpj/:ano/:sequencial', (req, res) => {
@@ -187,29 +191,61 @@ function registrarRotasRobo(app, db) {
   });
 
   // Listar licitações com interesse para configurar robô
-  app.get('/api/robo/licitacoes', (req, res) => {
+  app.get('/api/robo/licitacoes', async (req, res) => {
     try {
-      const sql = `
-        SELECT DISTINCT
-          l.cnpj,
-          l.anoCompra as ano,
-          l.sequencialCompra as sequencial,
-          l.objetoCompra,
-          l.razaoSocial as nomeOrgao,
-          l.dataEncerramentoProposta,
-          l.linkSistemaOrigem,
-          l.modalidadeNome,
-          k.status as kanbanStatus,
-          (SELECT COUNT(*) FROM interesse i WHERE i.cnpj = l.cnpj AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra) as qtdItensInteresse,
-          (SELECT COUNT(*) FROM config_lances cl WHERE cl.cnpj = l.cnpj AND cl.ano = l.anoCompra AND cl.sequencial = l.sequencialCompra AND cl.ativo = 1) as qtdItensConfigurados
-        FROM licitacoes l
-        INNER JOIN interesse i ON l.cnpj = i.cnpj AND l.anoCompra = i.ano AND l.sequencialCompra = i.sequencial
-        LEFT JOIN kanban_status k ON l.cnpj = k.cnpj AND l.anoCompra = k.ano AND l.sequencialCompra = k.sequencial
-        WHERE l.dataEncerramentoProposta >= datetime('now')
-        ORDER BY l.dataEncerramentoProposta ASC
-      `;
-
-      const rows = db.prepare(sql).all();
+      let rows;
+      if (USE_PG) {
+        // Cross-DB: pega interesses + kanban + config_lances no tenant, lookup PG
+        const intRows = db.prepare(`
+          SELECT DISTINCT i.cnpj, i.ano, i.sequencial,
+                 (SELECT COUNT(*) FROM interesse i2 WHERE i2.cnpj=i.cnpj AND i2.ano=i.ano AND i2.sequencial=i.sequencial) AS qtdItensInteresse,
+                 (SELECT COUNT(*) FROM config_lances cl WHERE cl.cnpj=i.cnpj AND cl.ano=i.ano AND cl.sequencial=i.sequencial AND cl.ativo=1) AS qtdItensConfigurados,
+                 (SELECT status FROM kanban_status k WHERE k.cnpj=i.cnpj AND k.ano=i.ano AND k.sequencial=i.sequencial) AS kanbanStatus
+            FROM interesse i
+        `).all();
+        if (intRows.length === 0) return res.json({ success: true, data: [] });
+        const values = intRows.map((_, j) => `($${j*3+1}::text,$${j*3+2}::int,$${j*3+3}::bigint)`).join(',');
+        const params = [];
+        for (const r of intRows) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial));
+        const lic = await catalogPg.query(`
+          WITH keys(cnpj, ano, sequencial) AS (VALUES ${values})
+          SELECT k.cnpj, k.ano, k.sequencial,
+                 l."objetoCompra" AS "objetoCompra", l."razaoSocial" AS "nomeOrgao",
+                 COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta",
+                 l."linkSistemaOrigem" AS "linkSistemaOrigem", l."modalidadeNome" AS "modalidadeNome"
+            FROM keys k
+            JOIN licitacoes l ON l."cnpj"=k.cnpj AND l."anoCompra"=k.ano AND l."sequencialCompra"=k.sequencial
+           WHERE COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") >= now()
+        ORDER BY COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") ASC
+        `, params);
+        const intMap = new Map();
+        for (const r of intRows) intMap.set(`${r.cnpj}|${r.ano}|${r.sequencial}`, r);
+        rows = lic.map(l => {
+          const t = intMap.get(`${l.cnpj}|${l.ano}|${l.sequencial}`) || {};
+          return { ...l, kanbanStatus: t.kanbanStatus || null, qtdItensInteresse: t.qtdItensInteresse || 0, qtdItensConfigurados: t.qtdItensConfigurados || 0 };
+        });
+      } else {
+        const sql = `
+          SELECT DISTINCT
+            l.cnpj,
+            l.anoCompra as ano,
+            l.sequencialCompra as sequencial,
+            l.objetoCompra,
+            l.razaoSocial as nomeOrgao,
+            l.dataEncerramentoProposta,
+            l.linkSistemaOrigem,
+            l.modalidadeNome,
+            k.status as kanbanStatus,
+            (SELECT COUNT(*) FROM interesse i WHERE i.cnpj = l.cnpj AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra) as qtdItensInteresse,
+            (SELECT COUNT(*) FROM config_lances cl WHERE cl.cnpj = l.cnpj AND cl.ano = l.anoCompra AND cl.sequencial = l.sequencialCompra AND cl.ativo = 1) as qtdItensConfigurados
+          FROM licitacoes l
+          INNER JOIN interesse i ON l.cnpj = i.cnpj AND l.anoCompra = i.ano AND l.sequencialCompra = i.sequencial
+          LEFT JOIN kanban_status k ON l.cnpj = k.cnpj AND l.anoCompra = k.ano AND l.sequencialCompra = k.sequencial
+          WHERE l.dataEncerramentoProposta >= datetime('now')
+          ORDER BY l.dataEncerramentoProposta ASC
+        `;
+        rows = db.prepare(sql).all();
+      }
       res.json({ success: true, data: rows });
     } catch (error) {
       console.error('Erro ao buscar licitações robô:', error.message);
@@ -218,9 +254,40 @@ function registrarRotasRobo(app, db) {
   });
 
   // Buscar itens de interesse de uma licitação para configurar
-  app.get('/api/robo/itens/:cnpj/:ano/:sequencial', (req, res) => {
+  app.get('/api/robo/itens/:cnpj/:ano/:sequencial', async (req, res) => {
     try {
       const { cnpj, ano, sequencial } = req.params;
+
+      if (USE_PG) {
+        // Cross-DB: lê interesse + config_lances tenant, busca catalog itens em PG por par (licitacaoId, numeroItem)
+        const intRows = db.prepare(`
+          SELECT i.numeroItem,
+                 cl.id as configId, cl.precoMinimo, cl.descontoPercentual, cl.descontoFixo,
+                 cl.tipoDesconto, cl.horaExataTermino, cl.tempoAntecedencia, cl.observacao, cl.ativo
+            FROM interesse i
+       LEFT JOIN config_lances cl ON i.cnpj = cl.cnpj AND i.ano = cl.ano AND i.sequencial = cl.sequencial AND i.numeroItem = cl.numeroItem
+           WHERE i.cnpj = ? AND i.ano = ? AND i.sequencial = ?
+        ORDER BY i.numeroItem
+        `).all(cnpj, parseInt(ano), parseInt(sequencial));
+        if (intRows.length === 0) return res.json({ success: true, data: [] });
+
+        // Busca licitação + itens em PG
+        const lic = await catalogPg.queryOne(
+          `SELECT "id" FROM licitacoes WHERE "cnpj"=$1 AND "anoCompra"=$2 AND "sequencialCompra"=$3`,
+          [cnpj, parseInt(ano), parseInt(sequencial)]
+        );
+        const itens = lic ? await catalogPg.query(
+          `SELECT "numeroItem" AS "numeroItem", "descricao" AS descricao, "quantidade" AS quantidade,
+                  "unidadeMedida" AS "unidadeMedida", "valorUnitarioEstimado" AS "valorUnitarioEstimado",
+                  "valorTotal" AS "valorTotal"
+             FROM itens WHERE "licitacaoId"=$1`,
+          [lic.id]
+        ) : [];
+        const itMap = new Map();
+        for (const it of itens) itMap.set(it.numeroItem, it);
+        const rows = intRows.map(i => ({ ...i, ...(itMap.get(i.numeroItem) || {}) }));
+        return res.json({ success: true, data: rows });
+      }
 
       const sql = `
         SELECT

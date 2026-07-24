@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produto · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .back-link { display:inline-flex; align-items:center; gap:6px; color:var(--text-2); background:none; border:none; cursor:pointer; padding:0; margin-bottom:8px; font-size:0.85em; font-family:inherit; }
+  .back-link:hover { color:var(--accent); }
+
+  details.sec { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: 14px; overflow: hidden; }
+  details.sec > summary { cursor: pointer; list-style: none; padding: 14px 20px; color: var(--text-0); font-weight: 600; font-size: 0.95em; display: flex; justify-content: space-between; align-items: center; background: var(--bg-2); transition: background 0.15s; }
+  details.sec > summary:hover { background: var(--bg-hover); }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::after { content: '▾'; color: var(--text-3); font-size: 0.8em; transition: transform 0.15s; }
+  details.sec[open] > summary::after { transform: rotate(180deg); }
+  details.sec > .sec-body { padding: 16px 20px 20px; border-top: 1px solid var(--border); }
+
+  .img-preview { width: 140px; height: 140px; object-fit: cover; border-radius: var(--r-md); border: 1px solid var(--border); }
+
+  .chk-label { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 0.9em; color: var(--text-1); }
+  .chk-label input[type="checkbox"] { width: auto; }
+</style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <button class="back-link" onclick="voltar()">← Voltar aos produtos</button>
+
+  <div class="page-header">
+    <div>
+      <h1 id="pgTitulo">Novo produto</h1>
+      <small id="pgSubtitulo" class="muted">Preencha os dados e clique em Salvar.</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="voltar()">Cancelar</button>
+      <button class="btn btn-danger" id="btnExcluir" onclick="excluir()" style="display:none;">Excluir</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+
+  <input type="hidden" id="prodId">
+
+  <!-- IDENTIFICAÇÃO -->
+  <details class="sec" open>
+    <summary>Identificação</summary>
+    <div class="sec-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>SKU *</label>
+          <input type="text" id="sku">
+          <small>Identificador único do sistema (imutável após criação)</small>
+        </div>
+        <div class="form-group">
+          <label>Código Interno</label>
+          <input type="text" id="codigoInterno">
+          <small>Código ERP / padrão da casa</small>
+        </div>
+        <div class="form-group"><label>Referência Interna</label><input type="text" id="referenciaInterna"></div>
+        <div class="form-group"><label>Código de Barras (EAN)</label><input type="text" id="codigoBarras"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full-width"><label>Descrição *</label><input type="text" id="descricao"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Categoria</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="categoria" list="categoriasList" autocomplete="off" style="flex:1;" oninput="opticaToggleSecao && opticaToggleSecao()">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="cadastrarLookup('categoria')" title="Cadastrar valor digitado">+</button>
+          </div>
+          <datalist id="categoriasList"></datalist>
+          <div id="opticaHintCat" style="display:none;margin-top:6px;font-size:12px;">
+            <span class="muted">Produto óptico?</span>
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:11px;" onclick="document.getElementById('categoria').value='armacao'; opticaToggleSecao();">👓 Definir como armação</button>
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:11px;" onclick="document.getElementById('categoria').value='lente'; opticaToggleSecao();">🔎 Definir como lente</button>
+            <small class="muted" style="display:block;margin-top:4px;">Libera campos específicos (Tipo, Índice, Tratamentos, etc.) na seção <strong>Especificações Óticas</strong> abaixo.</small>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Marca</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="marca" list="marcasList" autocomplete="off" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="cadastrarLookup('marca')" title="Cadastrar valor digitado">+</button>
+          </div>
+          <datalist id="marcasList"></datalist>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Modelo</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="modelo" list="modelosList" autocomplete="off" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="cadastrarLookup('modelo')" title="Cadastrar valor digitado">+</button>
+          </div>
+          <datalist id="modelosList"></datalist>
+        </div>
+        <div class="form-group">
+          <label>Cor</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="cor" list="coresList" autocomplete="off" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="cadastrarLookup('cor')" title="Cadastrar valor digitado">+</button>
+          </div>
+          <datalist id="coresList"></datalist>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Material</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="material" list="materiaisList" autocomplete="off" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="cadastrarLookup('material')" title="Cadastrar valor digitado">+</button>
+          </div>
+          <datalist id="materiaisList"></datalist>
+        </div>
+        <div class="form-group">
+          <label>Gênero alvo</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="genero" list="generosList" autocomplete="off" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="cadastrarLookup('genero')" title="Cadastrar valor digitado">+</button>
+          </div>
+          <datalist id="generosList"></datalist>
+        </div>
+      </div>
+
+    </div>
+  </details>
+
+  <!-- CATÁLOGO PÚBLICO -->
+  <details class="sec">
+    <summary>Catálogo público (Compras.gov.br / PNCP)</summary>
+    <div class="sec-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Código CATMAT</label>
+          <input type="text" id="codigoCatmat" maxlength="20">
+          <small>Material padronizado — permite casar itens de licitação com este SKU</small>
+        </div>
+        <div class="form-group">
+          <label>Código CATSER</label>
+          <input type="text" id="codigoCatser" maxlength="20">
+          <small>Somente para serviços</small>
+        </div>
+        <div class="form-group">
+          <label>PDM</label>
+          <input type="text" id="codigoPDM" maxlength="20">
+          <small>Padrão Descritivo de Material</small>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- FORNECEDOR -->
+  <details class="sec">
+    <summary>Fornecedor</summary>
+    <div class="sec-body">
+      <div class="form-row">
+        <div class="form-group full-width" style="position:relative;">
+          <label>Fornecedor</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="fornBusca" placeholder="Digite CNPJ ou razão social…" oninput="acFornecedor()" autocomplete="off" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" onclick="abrirModalFornecedor()" type="button">+ Novo fornecedor</button>
+          </div>
+          <input type="hidden" id="fornecedorId">
+          <div id="fornList" class="ac-list"></div>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- PREÇOS -->
+  <details class="sec" open>
+    <summary>Preços e markup</summary>
+    <div class="sec-body">
+      <div class="form-row">
+        <div class="form-group"><label>Preço de custo (R$)</label><input type="number" id="precoCusto" value="0" step="0.01" oninput="recalcFromCusto()"></div>
+        <div class="form-group"><label>Markup mínimo (%)</label><input type="number" id="markupMinimo" step="0.01" oninput="recalcMinFromMarkup()"><small>Atualiza o preço mín. automaticamente</small></div>
+        <div class="form-group"><label>Preço mínimo de venda (R$)</label><input type="number" id="precoMinimoVenda" step="0.01"><small>Trava venda abaixo deste valor</small></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Markup de venda (%)</label><input type="number" id="markupVenda" step="0.01" oninput="recalcVendaFromMarkup()"></div>
+        <div class="form-group"><label>Preço de venda (R$)</label><input type="number" id="precoVenda" value="0" step="0.01" oninput="recalcMarkupFromVenda()"></div>
+      </div>
+    </div>
+  </details>
+
+  <!-- ESTOQUE -->
+  <details class="sec">
+    <summary>Estoque e logística</summary>
+    <div class="sec-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Unidade</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="unidade" value="UN" list="unidadesList" autocomplete="off" style="flex:1;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="cadastrarLookup('unidade')" title="Cadastrar valor digitado">+</button>
+          </div>
+          <datalist id="unidadesList"></datalist>
+        </div>
+        <div class="form-group"><label>Estoque mínimo</label><input type="number" id="estoqueMinimo" value="0" step="0.01"></div>
+        <div class="form-group"><label>Ponto de reposição</label><input type="number" id="pontoReposicao" value="0" step="0.01"></div>
+        <div class="form-group"><label>Estoque máximo</label><input type="number" id="estoqueMaximo" value="0" step="0.01"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Lead time (dias)</label><input type="number" id="leadTimeDias" step="1" title="Tempo médio entre pedir ao fornecedor e receber"></div>
+        <div class="form-group"><label>Localização (prateleira)</label><input type="text" id="localizacao" placeholder="Ex: Corredor A, estante 3"></div>
+        <div class="form-group"><label>Validade (dias)</label><input type="number" id="validadeDias" step="1"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="chk-label"><input type="checkbox" id="rastreiaLote"> Rastreia lote/validade</label>
+          <small class="muted">Produtos com validade, medicamentos, alimentos</small>
+        </div>
+        <div class="form-group">
+          <label class="chk-label"><input type="checkbox" id="rastreiaSerial"> Rastreia número de série</label>
+          <small class="muted">Eletrônicos, equipamentos individualizados</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Peso bruto (kg)</label><input type="number" id="pesoBruto" step="0.001"></div>
+        <div class="form-group"><label>Peso líquido (kg)</label><input type="number" id="pesoLiquido" step="0.001"></div>
+      </div>
+
+      <h4 style="color:var(--text-1);margin-top:14px;margin-bottom:10px;font-weight:500;">Dimensões da embalagem</h4>
+      <p class="muted" style="font-size:0.85em;margin-bottom:12px;">
+        Usado para cálculo de frete e armazenamento. Volume é calculado automaticamente.
+      </p>
+      <div class="form-row">
+        <div class="form-group"><label>Altura (cm)</label><input type="number" id="altura" step="0.01" oninput="recalcVolume()"></div>
+        <div class="form-group"><label>Largura (cm)</label><input type="number" id="largura" step="0.01" oninput="recalcVolume()"></div>
+        <div class="form-group"><label>Profundidade (cm)</label><input type="number" id="profundidade" step="0.01" oninput="recalcVolume()"></div>
+        <div class="form-group">
+          <label>Volume</label>
+          <input type="text" id="volumeCalc" disabled>
+          <small>a × l × p (calculado)</small>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- FISCAL -->
+  <details class="sec">
+    <summary>Fiscal (NF-e)</summary>
+    <div class="sec-body">
+      <div class="form-row">
+        <div class="form-group"><label>NCM</label><input type="text" id="ncm" maxlength="10"></div>
+        <div class="form-group"><label>CEST</label><input type="text" id="cest" maxlength="10"></div>
+        <div class="form-group"><label>CFOP padrão</label><input type="text" id="cfopPadrao" maxlength="6"></div>
+        <div class="form-group">
+          <label>Origem fiscal</label>
+          <select id="tipoOrigemProduto">
+            <option value="">— (default: revenda)</option>
+            <option value="revenda">Revenda (adquirido de terceiros)</option>
+            <option value="proprio">Produção própria</option>
+          </select>
+          <small>Usado para sugestão automática de CFOP</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo de produto (SEFAZ)</label>
+          <select id="tipoProduto">
+            <option value="">—</option>
+            <option value="00">00 - Mercadoria para revenda</option>
+            <option value="01">01 - Matéria-prima</option>
+            <option value="02">02 - Embalagem</option>
+            <option value="03">03 - Produto em processo</option>
+            <option value="04">04 - Produto acabado</option>
+            <option value="05">05 - Subproduto</option>
+            <option value="06">06 - Produto intermediário</option>
+            <option value="07">07 - Material de uso e consumo</option>
+            <option value="99">99 - Outros</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Origem (SEFAZ)</label>
+          <select id="origem">
+            <option value="">—</option>
+            <option value="0">0 - Nacional</option>
+            <option value="1">1 - Estrangeira (importação direta)</option>
+            <option value="2">2 - Estrangeira (mercado interno)</option>
+            <option value="3">3 - Nacional com + de 40% conteúdo estrangeiro</option>
+            <option value="4">4 - Nacional produzida conforme PPB</option>
+            <option value="5">5 - Nacional com ≤ 40% conteúdo estrangeiro</option>
+            <option value="6">6 - Estrangeira (importação direta), sem similar nacional</option>
+            <option value="7">7 - Estrangeira (mercado interno), sem similar nacional</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Alíquota ICMS (%)</label><input type="number" id="icmsAliquota" step="0.01"></div>
+        <div class="form-group"><label>Código FCI</label><input type="text" id="codigoFCI" maxlength="36"><small>Ficha de conteúdo de importação</small></div>
+      </div>
+
+      <h4 style="color:var(--text-1);margin-top:14px;margin-bottom:10px;font-weight:500;">Simples Nacional — CSOSN / PIS / COFINS</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label>CSOSN (ICMS)</label>
+          <select id="csosn">
+            <option value="">— (usa 400 padrão)</option>
+            <option value="101">101 — Tributada com permissão de crédito</option>
+            <option value="102">102 — Tributada sem permissão de crédito</option>
+            <option value="103">103 — Isenção do ICMS (faixa de receita bruta)</option>
+            <option value="201">201 — Tributada com crédito + ST</option>
+            <option value="202">202 — Tributada sem crédito + ST</option>
+            <option value="203">203 — Isenção + ST</option>
+            <option value="300">300 — Imune</option>
+            <option value="400">400 — Não tributada pelo Simples</option>
+            <option value="500">500 — ICMS cobrado anteriormente por ST</option>
+            <option value="900">900 — Outros</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>CST PIS</label>
+          <select id="cstPIS">
+            <option value="">— (usa 49 padrão)</option>
+            <option value="01">01 — Operação tributável (alíquota básica)</option>
+            <option value="02">02 — Op. tributável (alíquota diferenciada)</option>
+            <option value="04">04 — Op. tributável (monofásico — alíquota zero)</option>
+            <option value="05">05 — Op. tributável (ST)</option>
+            <option value="06">06 — Op. tributável (alíquota zero)</option>
+            <option value="07">07 — Op. isenta</option>
+            <option value="08">08 — Op. sem incidência</option>
+            <option value="09">09 — Op. com suspensão</option>
+            <option value="49">49 — Outras operações de saída</option>
+            <option value="99">99 — Outras operações</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>CST COFINS</label>
+          <select id="cstCOFINS">
+            <option value="">— (usa 49 padrão)</option>
+            <option value="01">01 — Operação tributável (alíquota básica)</option>
+            <option value="02">02 — Op. tributável (alíquota diferenciada)</option>
+            <option value="04">04 — Op. tributável (monofásico — alíquota zero)</option>
+            <option value="05">05 — Op. tributável (ST)</option>
+            <option value="06">06 — Op. tributável (alíquota zero)</option>
+            <option value="07">07 — Op. isenta</option>
+            <option value="08">08 — Op. sem incidência</option>
+            <option value="09">09 — Op. com suspensão</option>
+            <option value="49">49 — Outras operações de saída</option>
+            <option value="99">99 — Outras operações</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="chk-label"><input type="checkbox" id="escalaRelevante"> Escala relevante</label>
+        </div>
+      </div>
+
+      <h4 style="color:var(--text-1);margin-top:14px;margin-bottom:10px;font-weight:500;">Reforma Tributária — IBS / CBS (NF-e 2026+)</h4>
+      <p class="muted" style="font-size:0.85em;margin-bottom:12px;">
+        Obrigatório a partir de jan/2026 para empresas fora do Simples Nacional. Simples/MEI: obrigatório em jan/2027. Conforme NT 2025.002.
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>CST IBS</label>
+          <input type="text" id="cstIBS" maxlength="3" placeholder="ex: 000">
+          <small>3 dígitos — situação tributária IBS</small>
+        </div>
+        <div class="form-group">
+          <label>CST CBS</label>
+          <input type="text" id="cstCBS" maxlength="3" placeholder="ex: 000">
+          <small>3 dígitos — situação tributária CBS</small>
+        </div>
+        <div class="form-group">
+          <label>cClassTrib</label>
+          <input type="text" id="cClassTrib" maxlength="6" placeholder="ex: 000001">
+          <small>Código de classificação tributária (6 dígitos)</small>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- IMAGEM -->
+  <details class="sec">
+    <summary>Imagem</summary>
+    <div class="sec-body">
+      <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
+        <img id="imgPreview" class="img-preview" src="" alt="" style="display:none;">
+        <div style="flex:1;min-width:260px;">
+          <input type="file" id="imgFile" accept="image/*" onchange="preverImagem()">
+          <div style="margin-top:10px;">
+            <button class="btn btn-danger btn-sm" type="button" id="btnRemoverImg" onclick="removerImagem()" style="display:none;">Remover imagem salva</button>
+          </div>
+          <small id="imgMsg" class="muted" style="display:block;margin-top:8px;">A imagem será enviada automaticamente ao salvar o produto.</small>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- ESPECIFICAÇÕES ÓTICAS (oculta a menos que módulo Ótica esteja ativo + categoria armacao/lente) -->
+  <details class="sec" id="secOptica" style="display:none;" open>
+    <summary>Especificações Óticas</summary>
+    <div class="sec-body">
+      <p class="muted" style="margin-top:0;font-size:12px;">Aparecem porque o módulo Ótica está ativo e a categoria deste produto é <span id="opticaCatBadge"></span>. Salvas atomicamente com o produto.</p>
+
+      <!-- ARMAÇÃO -->
+      <div id="opticaArmacaoBox" style="display:none;">
+        <p class="muted" style="font-size:12px;margin:0 0 10px 0;">Marca, Modelo, Cor, Material e Gênero estão na seção <strong>Identificação</strong> acima.</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Aro (mm)</label>
+            <input type="number" id="optArmAro" min="30" max="80" placeholder="52">
+          </div>
+          <div class="form-group">
+            <label>Ponte (mm)</label>
+            <input type="number" id="optArmPonte" min="10" max="30" placeholder="18">
+          </div>
+          <div class="form-group">
+            <label>Haste (mm)</label>
+            <input type="number" id="optArmHaste" min="100" max="160" placeholder="140">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Observações da armação</label>
+            <input type="text" id="optArmObs">
+          </div>
+        </div>
+      </div>
+
+      <!-- LENTE -->
+      <div id="opticaLenteBox" style="display:none;">
+        <p class="muted" style="font-size:12px;margin:0 0 10px 0;">Material está na seção <strong>Identificação</strong> acima.</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px;" onclick="opticaAbrirLookupLente('tipos')" title="Gerenciar tipos">⚙</button></label>
+            <select id="optLenTipo"><option value="">—</option></select>
+          </div>
+          <div class="form-group">
+            <label>Índice <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px;" onclick="opticaAbrirLookupLente('indices')" title="Gerenciar índices">⚙</button></label>
+            <select id="optLenIndice"><option value="">—</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Tratamentos <small class="muted">(marque os aplicáveis)</small> <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px;" onclick="opticaAbrirLookupLente('tratamentos')" title="Gerenciar tratamentos">⚙</button></label>
+            <div id="optLenTrats" style="display:flex;flex-wrap:wrap;gap:10px 16px;padding:8px 10px;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-sm);min-height:40px;">
+              <span class="muted" style="font-size:12px;">Carregando…</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Observações da lente</label>
+            <input type="text" id="optLenObs">
+          </div>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- OBSERVAÇÕES -->
+  <details class="sec" id="secCodigos" style="display:none;">
+    <summary>Códigos alternativos</summary>
+    <div class="sec-body">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Código</th><th>Tipo</th><th>Fornecedor</th><th style="width:40px;"></th></tr></thead>
+          <tbody id="tbCodigos"><tr><td colspan="4" class="empty">Nenhum código alternativo</td></tr></tbody>
+        </table>
+      </div>
+      <div class="form-row" style="margin-top:10px;">
+        <div class="form-group"><label>Código</label><input type="text" id="novoCodigo"></div>
+        <div class="form-group"><label>Tipo</label>
+          <select id="novoCodigoTipo">
+            <option value="ean">EAN/GTIN</option>
+            <option value="fornecedor">Código do fornecedor</option>
+            <option value="fabricante">Código do fabricante</option>
+            <option value="anterior">Código anterior (sistema antigo)</option>
+            <option value="outro" selected>Outro</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Fornecedor (se tipo fornecedor)</label><select id="novoCodigoFornecedor"><option value="">—</option></select></div>
+        <div class="form-group" style="align-self:flex-end;"><button class="btn btn-secondary" type="button" onclick="addCodigo()">+ Adicionar</button></div>
+      </div>
+      <small class="muted">Códigos do fornecedor são aprendidos automaticamente ao vincular itens de NF-e de entrada.</small>
+    </div>
+  </details>
+
+  <details class="sec" id="secKit" style="display:none;">
+    <summary>Kit / Composição</summary>
+    <div class="sec-body">
+      <small class="muted" style="display:block;margin-bottom:8px;">Kit não tem saldo próprio: a reserva e a baixa de estoque acontecem nos componentes. Salve a composição com o botão abaixo.</small>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Componente</th><th style="width:130px;">Qtd por kit</th><th style="width:40px;"></th></tr></thead>
+          <tbody id="tbKit"></tbody>
+        </table>
+      </div>
+      <div class="form-row" style="margin-top:10px;">
+        <div class="form-group full-width"><label>Adicionar componente</label>
+          <select id="novoComponente"><option value="">— selecione —</option></select>
+        </div>
+        <div class="form-group"><label>Qtd</label><input type="number" id="novoComponenteQtd" value="1" min="0.001" step="any" style="width:100px;"></div>
+        <div class="form-group" style="align-self:flex-end;"><button class="btn btn-secondary" type="button" onclick="addComponente()">+ Adicionar</button></div>
+      </div>
+      <div style="margin-top:10px;"><button class="btn btn-primary btn-sm" type="button" onclick="salvarKit()">Salvar composição</button></div>
+    </div>
+  </details>
+
+  <details class="sec">
+    <summary>Observações</summary>
+    <div class="sec-body">
+      <div class="form-row">
+        <div class="form-group full-width">
+          <textarea id="observacoes" rows="4"></textarea>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <div class="actions-bar">
+    <button class="btn btn-ghost" onclick="voltar()">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+  </div>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+<!-- Modal Novo Fornecedor -->
+<div class="modal-bg" id="modalForn">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 style="margin:0;">Novo fornecedor</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalFornecedor()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>CPF/CNPJ *</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="fCpfCnpj" style="flex:1;">
+          <button class="btn btn-secondary btn-sm" onclick="consultarCnpjForn()" type="button">Consultar</button>
+        </div>
+        <small id="fCnpjStatus"></small>
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="fTipo"><option value="PJ">PJ</option><option value="PF">PF</option></select>
+      </div>
+    </div>
+    <div class="form-row"><div class="form-group full-width"><label>Razão social *</label><input type="text" id="fRazaoSocial"></div></div>
+    <div class="form-row">
+      <div class="form-group"><label>Nome fantasia</label><input type="text" id="fNomeFantasia"></div>
+      <div class="form-group"><label>Inscrição estadual</label><input type="text" id="fInscricaoEstadual"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:3;"><label>Endereço</label><input type="text" id="fEndereco"></div>
+      <div class="form-group"><label>Número</label><input type="text" id="fNumero"></div>
+      <div class="form-group"><label>Bairro</label><input type="text" id="fBairro"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Cidade</label><input type="text" id="fCidade"></div>
+      <div class="form-group"><label>UF</label><input type="text" id="fUf" maxlength="2"></div>
+      <div class="form-group"><label>CEP</label><input type="text" id="fCep"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Telefone</label><input type="text" id="fTelefone"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="fEmail"></div>
+      <div class="form-group"><label>Contato</label><input type="text" id="fContato"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalFornecedor()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarFornecedor()">Salvar fornecedor</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('produtos');</script>
+<script>
+const prodIdUrl = new URLSearchParams(location.search).get('id');
+
+function showAlert(m, t='success'){
+  const box = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast ' + (t==='error'?'error':'success');
+  el.innerHTML = `<span class="toast-close" onclick="this.parentElement.remove()">×</span>${m}`;
+  box.appendChild(el);
+  setTimeout(()=>el.remove(), t==='error'?8000:4000);
+}
+function val(id){ const e=document.getElementById(id); return e?e.value:''; }
+function num(id){ const v = parseFloat(val(id)); return isNaN(v)?null:v; }
+function set(id, v){ const el = document.getElementById(id); if (el && v!=null) el.value = v; }
+
+function voltar(){ location.href = '/catalogo/produtos.html'; }
+
+// ==================== MARKUP BIDIRECIONAL ====================
+function recalcVendaFromMarkup(){
+  const c = num('precoCusto'), m = num('markupVenda');
+  if (c != null && m != null) document.getElementById('precoVenda').value = (c * (1 + m/100)).toFixed(2);
+}
+function recalcMarkupFromVenda(){
+  const c = num('precoCusto'), v = num('precoVenda');
+  if (c && v != null) document.getElementById('markupVenda').value = ((v/c - 1) * 100).toFixed(2);
+}
+function recalcMinFromMarkup(){
+  const c = num('precoCusto'), m = num('markupMinimo');
+  if (c != null && m != null) document.getElementById('precoMinimoVenda').value = (c * (1 + m/100)).toFixed(2);
+}
+function recalcFromCusto(){ recalcMinFromMarkup(); recalcVendaFromMarkup(); }
+
+function recalcVolume(){
+  const a = num('altura'), l = num('largura'), p = num('profundidade');
+  const out = document.getElementById('volumeCalc');
+  if (!out) return;
+  if (a == null || l == null || p == null || a <= 0 || l <= 0 || p <= 0) { out.value = ''; return; }
+  const cm3 = a * l * p;
+  const m3 = cm3 / 1_000_000;
+  out.value = `${cm3.toLocaleString('pt-BR',{maximumFractionDigits:2})} cm³  ·  ${m3.toLocaleString('pt-BR',{minimumFractionDigits:6,maximumFractionDigits:6})} m³`;
+}
+
+// ==================== LOOKUPS ====================
+const LOOKUP_DATALIST_ID = {
+  categoria: 'categoriasList', marca: 'marcasList',
+  modelo: 'modelosList', cor: 'coresList',
+  material: 'materiaisList', genero: 'generosList',
+  unidade: 'unidadesList',
+};
+
+async function carregarLookups(){
+  for (const tipo of Object.keys(LOOKUP_DATALIST_ID)) {
+    try {
+      const r = await fetch('/api/produto-lookup/'+tipo);
+      const d = await r.json();
+      if (!d.success) continue;
+      const el = document.getElementById(LOOKUP_DATALIST_ID[tipo]);
+      if (el) el.innerHTML = d.itens.map(i => `<option value="${i.valor.replace(/"/g,'&quot;')}">`).join('');
+    } catch {}
+  }
+}
+
+async function cadastrarLookup(tipo){
+  const inputId = tipo;
+  const valor = val(inputId).trim();
+  if (!valor) return showAlert('Digite o valor primeiro no campo', 'error');
+  try {
+    const r = await fetch('/api/produto-lookup/'+tipo, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ valor })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(`${tipo} cadastrada: ${valor}`);
+    carregarLookups();
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+// ==================== CARREGAR PRODUTO ====================
+async function carregarProduto(){
+  if (!prodIdUrl) {
+    document.getElementById('pgTitulo').textContent = 'Novo produto';
+    document.getElementById('pgSubtitulo').textContent = 'Preencha os dados e clique em Salvar.';
+    document.getElementById('btnExcluir').style.display = 'none';
+    return;
+  }
+  try {
+    const r = await fetch('/api/produtos/'+prodIdUrl);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const p = d.produto;
+    document.getElementById('prodId').value = p.id;
+    document.getElementById('pgTitulo').textContent = 'Produto · ' + p.sku;
+    document.getElementById('pgSubtitulo').textContent = p.descricao || '';
+    document.getElementById('btnExcluir').style.display = 'inline-flex';
+
+    const campos = ['sku','codigoInterno','referenciaInterna','codigoBarras','descricao','categoria','marca','modelo','cor','material','genero','tipoProduto','tipoOrigemProduto',
+      'codigoCatmat','codigoCatser','codigoPDM',
+      'unidade','estoqueMinimo','pontoReposicao','estoqueMaximo','leadTimeDias','localizacao',
+      'validadeDias','pesoBruto','pesoLiquido','altura','largura','profundidade',
+      'precoCusto','markupMinimo','precoMinimoVenda','markupVenda','precoVenda',
+      'ncm','cest','cfopPadrao','origem','icmsAliquota','codigoFCI','csosn','cstPIS','cstCOFINS',
+      'cstIBS','cstCBS','cClassTrib',
+      'observacoes'];
+    campos.forEach(k => {
+      const el = document.getElementById(k);
+      if (el) el.value = p[k] == null ? '' : p[k];
+    });
+    recalcVolume();
+    document.getElementById('escalaRelevante').checked = !!p.escalaRelevante;
+    document.getElementById('rastreiaLote').checked = !!p.rastreiaLote;
+    document.getElementById('rastreiaSerial').checked = !!p.rastreiaSerial;
+    document.getElementById('sku').setAttribute('readonly', true);
+
+    if (p.fornecedorId) {
+      document.getElementById('fornecedorId').value = p.fornecedorId;
+      try {
+        const fr = await fetch('/api/fornecedores/'+p.fornecedorId);
+        const fd = await fr.json();
+        if (fd.success) document.getElementById('fornBusca').value = fd.fornecedor.razaoSocial;
+      } catch {}
+    }
+
+    if (p.imagemPath) {
+      document.getElementById('imgPreview').src = p.imagemPath + '?t=' + Date.now();
+      document.getElementById('imgPreview').style.display = 'block';
+      document.getElementById('btnRemoverImg').style.display = 'inline-flex';
+    }
+  } catch(e) { showAlert('Erro ao carregar produto: '+e.message, 'error'); }
+}
+
+// ==================== SALVAR ====================
+async function salvar(){
+  const id = val('prodId');
+  const body = {
+    sku: val('sku').trim(),
+    codigoInterno: val('codigoInterno').trim() || null,
+    referenciaInterna: val('referenciaInterna').trim() || null,
+    codigoBarras: val('codigoBarras').trim() || null,
+    descricao: val('descricao').trim(),
+    categoria: val('categoria').trim() || null,
+    marca: val('marca').trim() || null,
+    modelo: val('modelo').trim() || null,
+    cor: val('cor').trim() || null,
+    material: val('material').trim() || null,
+    genero: val('genero').trim() || null,
+    tipoProduto: val('tipoProduto') || null,
+    tipoOrigemProduto: val('tipoOrigemProduto') || null,
+    codigoCatmat: val('codigoCatmat').trim() || null,
+    codigoCatser: val('codigoCatser').trim() || null,
+    codigoPDM: val('codigoPDM').trim() || null,
+    fornecedorId: val('fornecedorId') ? Number(val('fornecedorId')) : null,
+    unidade: val('unidade').trim() || 'UN',
+    estoqueMinimo: num('estoqueMinimo') || 0,
+    pontoReposicao: num('pontoReposicao') || 0,
+    estoqueMaximo: num('estoqueMaximo') || 0,
+    leadTimeDias: num('leadTimeDias'),
+    localizacao: val('localizacao').trim() || null,
+    rastreiaLote: document.getElementById('rastreiaLote').checked ? 1 : 0,
+    rastreiaSerial: document.getElementById('rastreiaSerial').checked ? 1 : 0,
+    validadeDias: num('validadeDias'),
+    pesoBruto: num('pesoBruto'),
+    pesoLiquido: num('pesoLiquido'),
+    altura: num('altura'),
+    largura: num('largura'),
+    profundidade: num('profundidade'),
+    escalaRelevante: document.getElementById('escalaRelevante').checked,
+    precoCusto: num('precoCusto') || 0,
+    markupMinimo: num('markupMinimo'),
+    precoMinimoVenda: num('precoMinimoVenda'),
+    markupVenda: num('markupVenda'),
+    precoVenda: num('precoVenda') || 0,
+    ncm: val('ncm').trim() || null,
+    cest: val('cest').trim() || null,
+    cfopPadrao: val('cfopPadrao').trim() || null,
+    origem: val('origem') || null,
+    icmsAliquota: num('icmsAliquota'),
+    codigoFCI: val('codigoFCI').trim() || null,
+    csosn: val('csosn') || null,
+    cstPIS: val('cstPIS') || null,
+    cstCOFINS: val('cstCOFINS') || null,
+    cstIBS: val('cstIBS').trim() || null,
+    cstCBS: val('cstCBS').trim() || null,
+    cClassTrib: val('cClassTrib').trim() || null,
+    observacoes: val('observacoes').trim() || null,
+  };
+  // Anexa specs óticas quando aplicável (módulo ativo + categoria armacao/lente)
+  const opticaSpecs = opticaColetarSpecs(body.categoria);
+  if (opticaSpecs) body.opticaSpecs = opticaSpecs;
+  if (!body.sku || !body.descricao) return showAlert('SKU e descrição são obrigatórios', 'error');
+  try {
+    const r = await fetch(id ? '/api/produtos/'+id : '/api/produtos', {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const produtoId = id || d.produto.id;
+
+    const file = document.getElementById('imgFile').files[0];
+    if (file) {
+      const fd = new FormData(); fd.append('imagem', file);
+      const ur = await fetch('/api/produtos/'+produtoId+'/imagem', { method:'POST', body: fd });
+      const ud = await ur.json();
+      if (!ud.success) showAlert('Produto salvo, mas falha na imagem: '+ud.error, 'error');
+      else showAlert(id ? 'Produto e imagem atualizados' : 'Produto e imagem cadastrados');
+    } else {
+      showAlert(id ? 'Produto atualizado' : 'Produto cadastrado');
+    }
+
+    if (!id) setTimeout(() => location.href = '/catalogo/produto.html?id=' + produtoId, 400);
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+async function excluir(){
+  const id = val('prodId');
+  if (!id) return;
+  const nome = val('descricao') || val('sku');
+  if (!confirm('Desativar "'+nome+'"?')) return;
+  try {
+    const r = await fetch('/api/produtos/'+id, { method:'DELETE' });
+    const d = await r.json();
+    if (r.status === 409 && d.bloqueios) {
+      const b = d.bloqueios;
+      const partes = [];
+      if (b.saldo) partes.push(`saldo de ${b.saldo}`);
+      if (b.reservas) partes.push(`${b.reservas} reserva(s) ativa(s)`);
+      if (b.lotesComSaldo) partes.push(`${b.lotesComSaldo} lote(s) com saldo`);
+      return showAlert('Não é possível inativar. Produto possui: ' + partes.join(', ') + '. Zere via estorno/ajuste antes.', 'error');
+    }
+    if (!d.success) throw new Error(d.error);
+    showAlert('Produto desativado');
+    setTimeout(voltar, 400);
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+// ==================== IMAGEM ====================
+function preverImagem(){
+  const file = document.getElementById('imgFile').files[0];
+  const preview = document.getElementById('imgPreview');
+  const msg = document.getElementById('imgMsg');
+  if (!file) { preview.style.display = 'none'; return; }
+  const reader = new FileReader();
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; };
+  reader.readAsDataURL(file);
+  msg.textContent = val('prodId') ? 'Será enviada ao clicar em Salvar.' : 'Será enviada junto com o cadastro do produto.';
+}
+
+async function removerImagem(){
+  const id = val('prodId');
+  if (!id) return;
+  if (!confirm('Remover imagem?')) return;
+  try {
+    const r = await fetch('/api/produtos/'+id+'/imagem', { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    document.getElementById('imgPreview').src = '';
+    document.getElementById('imgPreview').style.display = 'none';
+    document.getElementById('btnRemoverImg').style.display = 'none';
+    showAlert('Imagem removida');
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+// ==================== FORNECEDOR (autocomplete + modal) ====================
+let acTimer;
+async function acFornecedor(){
+  clearTimeout(acTimer);
+  const q = val('fornBusca');
+  if (q.length < 2) { document.getElementById('fornList').innerHTML = ''; return; }
+  acTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/fornecedores/autocomplete?q='+encodeURIComponent(q));
+      const d = await r.json();
+      if (!d.success) return;
+      document.getElementById('fornList').innerHTML = d.fornecedores.map(f =>
+        `<div onclick="selFornecedor(${f.id}, ${JSON.stringify(f.razaoSocial||'').replace(/"/g,'&quot;')})">${f.razaoSocial} — ${f.cpfCnpj}</div>`
+      ).join('');
+    } catch {}
+  }, 200);
+}
+function selFornecedor(id, nome){
+  document.getElementById('fornecedorId').value = id;
+  document.getElementById('fornBusca').value = nome;
+  document.getElementById('fornList').innerHTML = '';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#fornBusca') && !e.target.closest('#fornList')) {
+    document.getElementById('fornList').innerHTML = '';
+  }
+});
+
+function abrirModalFornecedor(){ document.getElementById('modalForn').classList.add('open'); }
+function fecharModalFornecedor(){
+  document.getElementById('modalForn').classList.remove('open');
+  ['fCpfCnpj','fRazaoSocial','fNomeFantasia','fInscricaoEstadual','fEndereco','fNumero','fBairro','fCidade','fUf','fCep','fTelefone','fEmail','fContato']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('fCnpjStatus').textContent = '';
+}
+
+async function consultarCnpjForn(){
+  const raw = val('fCpfCnpj').replace(/\D/g, '');
+  if (raw.length !== 14) return showAlert('CNPJ deve ter 14 dígitos', 'error');
+  const st = document.getElementById('fCnpjStatus');
+  st.textContent = 'Consultando…';
+  st.style.color = 'var(--accent)';
+  try {
+    const r = await fetch('https://brasilapi.com.br/api/cnpj/v1/'+raw);
+    if (!r.ok) throw new Error('CNPJ não encontrado');
+    const d = await r.json();
+    set('fRazaoSocial', d.razao_social);
+    set('fNomeFantasia', d.nome_fantasia);
+    set('fEndereco', d.logradouro ? (d.descricao_tipo_de_logradouro ? d.descricao_tipo_de_logradouro+' ' : '') + d.logradouro : '');
+    set('fNumero', d.numero);
+    set('fBairro', d.bairro);
+    set('fCidade', d.municipio);
+    set('fUf', d.uf);
+    set('fCep', d.cep);
+    set('fTelefone', d.ddd_telefone_1);
+    set('fEmail', (d.email||'').toLowerCase());
+    st.textContent = 'Dados preenchidos';
+    st.style.color = 'var(--success)';
+  } catch(e) {
+    st.textContent = 'Erro: '+e.message;
+    st.style.color = 'var(--danger)';
+  }
+}
+
+async function salvarFornecedor(){
+  const body = {
+    cpfCnpj: val('fCpfCnpj'),
+    tipo: val('fTipo'),
+    razaoSocial: val('fRazaoSocial'),
+    nomeFantasia: val('fNomeFantasia') || null,
+    inscricaoEstadual: val('fInscricaoEstadual') || null,
+    endereco: val('fEndereco') || null,
+    numero: val('fNumero') || null,
+    bairro: val('fBairro') || null,
+    cidade: val('fCidade') || null,
+    uf: val('fUf').toUpperCase() || null,
+    cep: val('fCep') || null,
+    telefone: val('fTelefone') || null,
+    email: val('fEmail') || null,
+    contato: val('fContato') || null,
+  };
+  if (!body.cpfCnpj || !body.razaoSocial) return showAlert('CNPJ e razão social obrigatórios', 'error');
+  try {
+    const r = await fetch('/api/fornecedores', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    selFornecedor(d.fornecedor.id, d.fornecedor.razaoSocial);
+    showAlert('Fornecedor cadastrado');
+    fecharModalFornecedor();
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+// ==================== MÓDULO ÓTICA — seção de specs (opcional) ====================
+let opticaAtiva = false;
+const opticaArmacaoLook = { materiais: [], generos: [], cores: [] };
+const opticaLenteLook = { tipos: [], materiais: [], indices: [], tratamentos: [] };
+let opticaMarcas = [];
+const opticaModelosCache = {};
+
+async function opticaInit(){
+  try {
+    const r = await fetch('/api/optica/status');
+    if (!r.ok) return;
+    const d = await r.json();
+    opticaAtiva = !!d.enabled;
+    if (!opticaAtiva) return;
+    // Carrega tudo em paralelo (rápido — todas tabelas pequenas)
+    await Promise.all([
+      ...['materiais','generos','cores'].map(async t => {
+        const rr = await fetch('/api/optica/armacoes-lookup/'+t);
+        const dd = await rr.json();
+        if (dd.success) opticaArmacaoLook[t] = dd.itens || [];
+      }),
+      ...['tipos','indices','tratamentos'].map(async t => {
+        const rr = await fetch('/api/optica/lentes-lookup/'+t);
+        const dd = await rr.json();
+        if (dd.success) opticaLenteLook[t] = dd.itens || [];
+      }),
+      (async () => {
+        const rr = await fetch('/api/optica/marcas');
+        const dd = await rr.json();
+        if (dd.success) opticaMarcas = dd.marcas || [];
+      })(),
+    ]);
+    opticaPopularSelects();
+    document.getElementById('categoria').addEventListener('input', opticaToggleSecao);
+    document.getElementById('categoria').addEventListener('change', opticaToggleSecao);
+    // Mostra hint + botões rápidos
+    document.getElementById('opticaHintCat').style.display = '';
+    // Garante "armacao" e "lente" como sugestões no datalist mesmo se ainda não foram cadastradas
+    const dl = document.getElementById('categoriasList');
+    if (dl) {
+      const existentes = new Set(Array.from(dl.querySelectorAll('option')).map(o => o.value.toLowerCase()));
+      ['armacao','lente'].forEach(v => {
+        if (!existentes.has(v)) dl.insertAdjacentHTML('afterbegin', `<option value="${v}">`);
+      });
+    }
+    opticaToggleSecao();
+  } catch (_) {}
+}
+
+// Resolve nome de marca digitado → id em optica_marcas (cria se preciso, on-the-fly)
+async function opticaResolverMarcaId(criarSeFaltar){
+  const nome = (val('marca') || '').trim();
+  if (!nome) return null;
+  let m = opticaMarcas.find(x => (x.nome||'').toLowerCase() === nome.toLowerCase());
+  if (m) return m.id;
+  if (!criarSeFaltar) return null;
+  try {
+    const r = await fetch('/api/optica/marcas', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nome })
+    });
+    const d = await r.json();
+    if (d.success) {
+      opticaMarcas.push({ id: d.id, nome, ativo: 1 });
+      return d.id;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function opticaPopularSelects(){
+  const opt = (sel, items, current) => {
+    sel.innerHTML = '<option value="">—</option>' + items.map(i =>
+      `<option value="${i.codigo.replace(/"/g,'&quot;')}">${(i.label||i.codigo).replace(/"/g,'&quot;')}</option>`
+    ).join('');
+    sel.value = current || '';
+  };
+  opt(document.getElementById('optLenTipo'), opticaLenteLook.tipos);
+  opt(document.getElementById('optLenIndice'), opticaLenteLook.indices);
+  // Tratamentos (checkboxes)
+  const tBox = document.getElementById('optLenTrats');
+  if (!opticaLenteLook.tratamentos.length) {
+    tBox.innerHTML = '<span class="muted" style="font-size:12px;">Nenhum tratamento cadastrado</span>';
+  } else {
+    tBox.innerHTML = opticaLenteLook.tratamentos.map(i =>
+      `<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" value="${i.codigo.replace(/"/g,'&quot;')}"> ${(i.label||i.codigo).replace(/</g,'&lt;')}</label>`
+    ).join('');
+  }
+}
+
+function opticaToggleSecao(){
+  if (!opticaAtiva) return;
+  const cat = (document.getElementById('categoria').value || '').toLowerCase().trim();
+  const isArmacao = cat === 'armacao';
+  const isLente = cat === 'lente';
+  const sec = document.getElementById('secOptica');
+  if (!isArmacao && !isLente) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  document.getElementById('opticaCatBadge').textContent = isArmacao ? 'armação' : 'lente';
+  document.getElementById('opticaArmacaoBox').style.display = isArmacao ? '' : 'none';
+  document.getElementById('opticaLenteBox').style.display = isLente ? '' : 'none';
+}
+
+async function opticaCarregarModelos(){
+  const sel = document.getElementById('optModeloId');
+  if (!sel) return;
+  const nome = (val('marca') || '').trim();
+  if (!nome) {
+    sel.innerHTML = '<option value="">— preencha a Marca primeiro —</option>';
+    return;
+  }
+  // Resolve por nome (sem criar). Modelo só carrega se a marca já existe em optica_marcas.
+  const m = opticaMarcas.find(x => (x.nome||'').toLowerCase() === nome.toLowerCase());
+  if (!m) {
+    sel.innerHTML = '<option value="">— marca não cadastrada em ótica (use ⚙ para criar) —</option>';
+    return;
+  }
+  if (!opticaModelosCache[m.id]) {
+    try {
+      const r = await fetch('/api/optica/marcas/'+m.id+'/modelos');
+      const d = await r.json();
+      opticaModelosCache[m.id] = d.success ? (d.modelos || []) : [];
+    } catch { opticaModelosCache[m.id] = []; }
+  }
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">—</option>' + opticaModelosCache[m.id].map(mod =>
+    `<option value="${mod.id}">${(mod.nome||'').replace(/"/g,'&quot;')}</option>`
+  ).join('');
+  sel.value = cur || '';
+}
+
+async function opticaCarregarSpecsDoProduto(produto){
+  if (!opticaAtiva || !produto || !produto.opticaSpecs) return;
+  const s = produto.opticaSpecs;
+  if (produto.categoria === 'armacao') {
+    // Marca/modelo/cor/material/gênero vivem nos campos principais — preenche se vazio
+    const set = (id, v) => { const el = document.getElementById(id); if (el && !el.value && v) el.value = v; };
+    set('marca', s.marca);
+    set('modelo', s.modelo);
+    set('cor', s.cor);
+    set('material', s.material);
+    set('genero', s.generoAlvo);
+    document.getElementById('optArmAro').value = s.aroMm != null ? s.aroMm : '';
+    document.getElementById('optArmPonte').value = s.ponteMm != null ? s.ponteMm : '';
+    document.getElementById('optArmHaste').value = s.hasteMm != null ? s.hasteMm : '';
+    document.getElementById('optArmObs').value = s.observacoes || '';
+  } else if (produto.categoria === 'lente') {
+    // Material vive no campo principal — preenche se vazio
+    const setMain = (id, v) => { const el = document.getElementById(id); if (el && !el.value && v) el.value = v; };
+    setMain('material', s.material);
+    document.getElementById('optLenTipo').value = s.tipo || '';
+    document.getElementById('optLenIndice').value = s.indiceRefracao || '';
+    document.getElementById('optLenObs').value = s.observacoes || '';
+    const trats = new Set((s.tratamentos||'').split(',').map(x => x.trim()).filter(Boolean));
+    document.querySelectorAll('#optLenTrats input[type=checkbox]').forEach(cb => cb.checked = trats.has(cb.value));
+  }
+}
+
+function opticaColetarSpecs(categoria){
+  if (!opticaAtiva) return null;
+  if (categoria === 'armacao') {
+    return {
+      tipo: 'armacao',
+      // marca/modelo/cor/material/gênero vêm dos campos principais — duplicamos
+      // aqui só pra manter optica_armacao_specs sincronizado pra consultas legadas.
+      marca: (val('marca') || '').trim() || null,
+      modelo: (val('modelo') || '').trim() || null,
+      cor: (val('cor') || '').trim() || null,
+      material: (val('material') || '').trim() || null,
+      generoAlvo: (val('genero') || '').trim() || null,
+      aroMm: val('optArmAro') !== '' ? Number(val('optArmAro')) : null,
+      ponteMm: val('optArmPonte') !== '' ? Number(val('optArmPonte')) : null,
+      hasteMm: val('optArmHaste') !== '' ? Number(val('optArmHaste')) : null,
+      observacoes: val('optArmObs').trim() || null,
+    };
+  }
+  if (categoria === 'lente') {
+    const trats = Array.from(document.querySelectorAll('#optLenTrats input[type=checkbox]:checked')).map(cb => cb.value).join(',');
+    return {
+      tipo: 'lente',
+      lenteTipo: val('optLenTipo') || null,
+      // material vem do campo principal — espelha pra manter optica_lente_specs sincronizado
+      material: (val('material') || '').trim() || null,
+      indiceRefracao: val('optLenIndice') || null,
+      tratamentos: trats || null,
+      observacoes: val('optLenObs').trim() || null,
+    };
+  }
+  return null;
+}
+
+function opticaAbrirLookupLente(tipo){
+  const mapa = {
+    tipos: '/optica/lentes-tipos.html',
+    indices: '/optica/lentes-indices.html',
+    tratamentos: '/optica/lentes-tratamentos.html',
+  };
+  window.open(mapa[tipo] || '/catalogo/produtos.html', '_blank');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modalForn').classList.contains('open')) fecharModalFornecedor();
+});
+
+(async function init(){
+  // carregarLookups ANTES — opticaInit injeta sugestões fixas (armacao, lente)
+  // por cima do datalist já populado.
+  await carregarLookups();
+  await opticaInit();
+  await carregarProduto();
+  // Especulativamente popula specs após carregar produto
+  if (prodIdUrl && opticaAtiva) {
+    try {
+      const r = await fetch('/api/produtos/'+prodIdUrl);
+      const d = await r.json();
+      if (d.success && d.produto) await opticaCarregarSpecsDoProduto(d.produto);
+    } catch (_) {}
+    opticaToggleSecao();
+  }
+})();
+
+// ==================== CÓDIGOS ALTERNATIVOS + KIT ====================
+let kitItens = [];
+
+async function carregarCodigosEKit(){
+  const id = val('prodId') || prodIdUrl;
+  if (!id) return;
+  document.getElementById('secCodigos').style.display = '';
+  document.getElementById('secKit').style.display = '';
+
+  const rc = await fetch(`/api/produtos/${id}/codigos`); const dc = await rc.json();
+  const tb = document.getElementById('tbCodigos');
+  tb.innerHTML = (dc.codigos||[]).length ? dc.codigos.map(c =>
+    `<tr><td>${c.codigo}</td><td>${c.tipo}</td><td>${c.fornecedorNome||'-'}</td>
+     <td><button class="btn btn-ghost btn-sm" type="button" onclick="rmCodigo(${c.id})">×</button></td></tr>`
+  ).join('') : '<tr><td colspan="4" class="empty">Nenhum código alternativo</td></tr>';
+
+  const rk = await fetch(`/api/produtos/${id}/kit`); const dk = await rk.json();
+  kitItens = (dk.itens||[]).map(i => ({ produtoFilhoId: i.produtoFilhoId, quantidade: i.quantidade, sku: i.sku, descricao: i.descricao }));
+  renderKit();
+
+  try {
+    const rf = await fetch('/api/fornecedores'); const df = await rf.json();
+    document.getElementById('novoCodigoFornecedor').innerHTML = '<option value="">—</option>' +
+      (df.fornecedores||[]).map(f=>`<option value="${f.id}">${f.razaoSocial}</option>`).join('');
+  } catch {}
+  try {
+    const rp = await fetch('/api/produtos'); const dp = await rp.json();
+    document.getElementById('novoComponente').innerHTML = '<option value="">— selecione —</option>' +
+      (dp.produtos||[]).filter(x => String(x.id) !== String(id) && x.tipoProduto !== 'kit')
+        .map(x=>`<option value="${x.id}" data-sku="${x.sku}" data-desc="${(x.descricao||'').replace(/"/g,'&quot;')}">${x.sku} — ${x.descricao}</option>`).join('');
+  } catch {}
+}
+
+async function addCodigo(){
+  const id = val('prodId');
+  const body = {
+    codigo: document.getElementById('novoCodigo').value.trim(),
+    tipo: document.getElementById('novoCodigoTipo').value,
+    fornecedorId: Number(document.getElementById('novoCodigoFornecedor').value) || null
+  };
+  if (!body.codigo) return showAlert('Informe o código','error');
+  const r = await fetch(`/api/produtos/${id}/codigos`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('novoCodigo').value = '';
+  carregarCodigosEKit();
+}
+
+async function rmCodigo(codigoId){
+  const id = val('prodId');
+  const r = await fetch(`/api/produtos/${id}/codigos/${codigoId}`, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregarCodigosEKit();
+}
+
+function renderKit(){
+  const tb = document.getElementById('tbKit');
+  tb.innerHTML = kitItens.length ? kitItens.map((k,i) =>
+    `<tr><td>${k.sku} — ${k.descricao}</td>
+     <td><input type="number" min="0.001" step="any" value="${k.quantidade}" style="width:110px;" onchange="kitItens[${i}].quantidade=Number(this.value)"></td>
+     <td><button class="btn btn-ghost btn-sm" type="button" onclick="kitItens.splice(${i},1);renderKit()">×</button></td></tr>`
+  ).join('') : '<tr><td colspan="3" class="empty">Sem componentes — produto comum</td></tr>';
+}
+
+function addComponente(){
+  const sel = document.getElementById('novoComponente');
+  const opt = sel.selectedOptions[0];
+  if (!sel.value) return showAlert('Selecione o componente','error');
+  const qtd = Number(document.getElementById('novoComponenteQtd').value) || 1;
+  if (kitItens.some(k => String(k.produtoFilhoId) === sel.value)) return showAlert('Componente já está no kit','error');
+  kitItens.push({ produtoFilhoId: Number(sel.value), quantidade: qtd, sku: opt.dataset.sku, descricao: opt.dataset.desc });
+  renderKit();
+}
+
+async function salvarKit(){
+  const id = val('prodId');
+  const r = await fetch(`/api/produtos/${id}/kit`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ itens: kitItens.map(k => ({ produtoFilhoId: k.produtoFilhoId, quantidade: k.quantidade })) })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(d.ehKit ? 'Composição salva — produto marcado como kit' : 'Composição removida — produto comum');
+  carregarCodigosEKit();
+}
+
+carregarCodigosEKit();
+</script>
+</body>
+</html>

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rajadas (Blitz) · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        .tabs { display:flex; gap:2px; margin-bottom:16px; border-bottom:1px solid var(--border); }
+        .tab { padding:10px 18px; cursor:pointer; background:transparent; border:none; color:var(--text-2); font-size:0.95em; border-bottom:2px solid transparent; }
+        .tab:hover { color:var(--text-1); }
+        .tab.active { color:var(--primary, #4dabf7); border-bottom-color:var(--primary, #4dabf7); }
+        .tab-pane { display:none; }
+        .tab-pane.active { display:block; }
+        .badge-status { padding:2px 8px; border-radius:4px; font-size:0.8em; font-weight:600; text-transform:uppercase; }
+        .badge-agendada { background:#fbbf2433; color:#fbbf24; }
+        .badge-executada { background:#4caf5033; color:#4caf50; }
+        .badge-cancelada { background:#88888833; color:#aaa; }
+        .badge-expirada  { background:#f9731633; color:#f97316; }
+        .filters-bar { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:14px; padding:12px; background:var(--bg-1); border:1px solid var(--border); border-radius:6px; }
+        .filters-bar label { display:flex; flex-direction:column; gap:4px; font-size:0.85em; color:var(--text-2); }
+        .filters-bar input, .filters-bar select { padding:6px 8px; }
+        .info-line { color:var(--text-2); font-size:0.85em; margin-bottom:8px; }
+    </style>
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Rajadas (Blitz)</h1>
+        <small>Agendamentos ativos e histórico de execuções</small>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost btn-sm" onclick="recarregar()">Recarregar</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">Agendadas (pendentes)</div><div class="value" id="kpiAgendadas">—</div></div>
+      <div class="kpi success"><div class="label">Executadas (total)</div><div class="value" id="kpiExecutadas">—</div></div>
+      <div class="kpi"><div class="label">Canceladas (total)</div><div class="value" id="kpiCanceladas">—</div></div>
+      <div class="kpi danger"><div class="label">Expiradas (total)</div><div class="value" id="kpiExpiradas">—</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="agendadas" onclick="switchTab('agendadas')">Agendadas</button>
+      <button class="tab" data-tab="historico" onclick="switchTab('historico')">Histórico</button>
+    </div>
+
+    <!-- ABA AGENDADAS -->
+    <div id="pane-agendadas" class="tab-pane active">
+      <div class="info-line">Próximas rajadas pendentes (ordenadas pelo horário do disparo).</div>
+      <div id="agendadasLoading" class="loading"><h3>Carregando agendamentos…</h3></div>
+      <div id="agendadasContainer"></div>
+      <div id="agendadasEmpty" class="empty" style="display:none;">Nenhuma rajada agendada.</div>
+    </div>
+
+    <!-- ABA HISTÓRICO -->
+    <div id="pane-historico" class="tab-pane">
+      <div class="filters-bar">
+        <label>Status
+          <select id="filtStatus" onchange="carregarHistorico()">
+            <option value="">Todos</option>
+            <option value="agendada">Agendada</option>
+            <option value="executada">Executada</option>
+            <option value="cancelada">Cancelada</option>
+            <option value="expirada">Expirada</option>
+          </select>
+        </label>
+        <label>CompraId
+          <input type="text" id="filtCompraId" placeholder="ex: 92614306..." onkeydown="if(event.key==='Enter')carregarHistorico()" style="min-width:200px">
+        </label>
+        <label>Item
+          <input type="number" id="filtItem" placeholder="nº" onkeydown="if(event.key==='Enter')carregarHistorico()" style="width:80px">
+        </label>
+        <label>Limite
+          <select id="filtLimit" onchange="carregarHistorico()">
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+          </select>
+        </label>
+        <button class="btn btn-primary btn-sm" onclick="carregarHistorico()">Filtrar</button>
+      </div>
+      <div id="historicoLoading" class="loading"><h3>Carregando histórico…</h3></div>
+      <div id="historicoContainer"></div>
+      <div id="historicoEmpty" class="empty" style="display:none;">Nenhum registro com esses filtros.</div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('blitz');</script>
+<script>
+function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+function fmtData(s){ if(!s) return '--'; var d=new Date(s); if(isNaN(d)) return s; return d.toLocaleString('pt-BR'); }
+
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + name));
+    if (name === 'agendadas') carregarAgendadas();
+    if (name === 'historico') carregarHistorico();
+}
+
+function recarregar() {
+    carregarAgendadas();
+    carregarHistorico();
+    carregarKpis();
+}
+
+async function carregarKpis() {
+    try {
+        // Agendadas (in-memory ativas)
+        var r1 = await fetch('/api/sniper/blitz-agendadas');
+        var d1 = await r1.json();
+        document.getElementById('kpiAgendadas').textContent = (d1.agendadas || []).length;
+    } catch(e) { document.getElementById('kpiAgendadas').textContent = '?'; }
+
+    // Histórico por status — 3 chamadas leves, só pra contagem
+    var statusList = ['executada','cancelada','expirada'];
+    var ids = { executada: 'kpiExecutadas', cancelada: 'kpiCanceladas', expirada: 'kpiExpiradas' };
+    for (var s of statusList) {
+        try {
+            var r = await fetch('/api/sniper/blitz-historico?status='+s+'&limit=500');
+            var d = await r.json();
+            document.getElementById(ids[s]).textContent = (d.historico || []).length + (d.historico && d.historico.length >= 500 ? '+' : '');
+        } catch(e) { document.getElementById(ids[s]).textContent = '?'; }
+    }
+}
+
+async function carregarAgendadas() {
+    var loading = document.getElementById('agendadasLoading');
+    var container = document.getElementById('agendadasContainer');
+    var empty = document.getElementById('agendadasEmpty');
+    loading.style.display = '';
+    container.innerHTML = '';
+    empty.style.display = 'none';
+
+    try {
+        var r = await fetch('/api/sniper/blitz-agendadas');
+        var d = await r.json();
+        var lista = d.agendadas || [];
+        // Ordena por horário (ascendente)
+        lista.sort(function(a,b){ return (a.horario||'').localeCompare(b.horario||''); });
+
+        loading.style.display = 'none';
+        if (lista.length === 0) { empty.style.display = ''; return; }
+
+        var html = '<div class="tbl-wrap"><table><thead><tr>'+
+            '<th>Horário alvo</th><th>CompraId</th><th>Item</th><th>Modo</th>'+
+            '<th style="text-align:right">Máx lances</th><th>Agendada em</th><th>Ações</th>'+
+            '</tr></thead><tbody>';
+        lista.forEach(function(b){
+            html += '<tr>'+
+                '<td><strong>'+esc(b.horario||'--')+'</strong></td>'+
+                '<td style="font-family:monospace;font-size:0.85em">'+esc(b.compraId)+'</td>'+
+                '<td><strong>'+esc(b.itemNumero)+'</strong></td>'+
+                '<td>'+esc(b.modoBlitz||'cobrir')+'</td>'+
+                '<td style="text-align:right">'+(b.maxLances||50)+'</td>'+
+                '<td style="color:var(--text-2);font-size:0.85em">'+fmtData(b.agendadoEm)+'</td>'+
+                '<td>'+
+                  '<button class="btn btn-ghost btn-sm" onclick="abrirLance(\''+esc(b.compraId)+'\')">Abrir em Lances</button> '+
+                  '<button class="btn btn-danger btn-sm" onclick="cancelar(\''+esc(b.compraId)+'\','+b.itemNumero+')">Cancelar</button>'+
+                '</td>'+
+            '</tr>';
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    } catch (e) {
+        loading.style.display = 'none';
+        container.innerHTML = '<p style="color:var(--danger)">Erro: '+esc(e.message)+'</p>';
+    }
+}
+
+async function carregarHistorico() {
+    var loading = document.getElementById('historicoLoading');
+    var container = document.getElementById('historicoContainer');
+    var empty = document.getElementById('historicoEmpty');
+    loading.style.display = '';
+    container.innerHTML = '';
+    empty.style.display = 'none';
+
+    var params = new URLSearchParams();
+    var s = document.getElementById('filtStatus').value;
+    var c = document.getElementById('filtCompraId').value.trim();
+    var i = document.getElementById('filtItem').value.trim();
+    var lim = document.getElementById('filtLimit').value || 100;
+    if (s) params.set('status', s);
+    if (c) params.set('compraId', c);
+    if (i) params.set('itemNumero', i);
+    params.set('limit', lim);
+
+    try {
+        var r = await fetch('/api/sniper/blitz-historico?'+params.toString());
+        var d = await r.json();
+        var lista = d.historico || [];
+        loading.style.display = 'none';
+        if (lista.length === 0) { empty.style.display = ''; return; }
+
+        var html = '<div class="info-line">'+lista.length+' registro(s) — ordenados por data de agendamento (mais recentes primeiro).</div>';
+        html += '<div class="tbl-wrap"><table><thead><tr>'+
+            '<th>Agendada</th><th>Horário alvo</th><th>CompraId</th><th>Item</th>'+
+            '<th>Status</th><th style="text-align:right">Lances</th><th>Modo</th>'+
+            '<th>Executada/Cancelada</th><th>Observação</th>'+
+            '</tr></thead><tbody>';
+        lista.forEach(function(h){
+            var fim = h.executadoEm || h.canceladoEm || '--';
+            html += '<tr>'+
+                '<td style="color:var(--text-2);font-size:0.85em">'+fmtData(h.agendadoEm)+'</td>'+
+                '<td><strong>'+esc(h.horarioAlvo||'--')+'</strong></td>'+
+                '<td style="font-family:monospace;font-size:0.85em">'+esc(h.compraId)+'</td>'+
+                '<td><strong>'+esc(h.itemNumero)+'</strong></td>'+
+                '<td><span class="badge-status badge-'+esc(h.status)+'">'+esc(h.status)+'</span></td>'+
+                '<td style="text-align:right">'+(h.lancesEnviados||0)+(h.maxLances?' / '+h.maxLances:'')+'</td>'+
+                '<td>'+esc(h.modoBlitz||'--')+'</td>'+
+                '<td style="color:var(--text-2);font-size:0.85em">'+(fim==='--'?'--':fmtData(fim))+'</td>'+
+                '<td style="color:var(--text-2);font-size:0.85em;max-width:280px;">'+esc(h.observacao||'')+'</td>'+
+            '</tr>';
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    } catch (e) {
+        loading.style.display = 'none';
+        container.innerHTML = '<p style="color:var(--danger)">Erro: '+esc(e.message)+'</p>';
+    }
+}
+
+async function cancelar(compraId, itemNumero) {
+    if (!confirm('Cancelar a rajada agendada do item '+itemNumero+'?')) return;
+    try {
+        var r = await fetch('/api/sniper/cancelar-blitz', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ compraId, itemNumero })
+        });
+        var d = await r.json();
+        if (!d.success) { alert('Falha: '+(d.error||'')); return; }
+        carregarAgendadas();
+        carregarKpis();
+    } catch (e) {
+        alert('Erro: '+e.message);
+    }
+}
+
+function abrirLance(compraId) {
+    // Abre lances.html com hash do compraId pra UI poder rolar/expandir
+    window.open('/operacional/lances.html#compra='+encodeURIComponent(compraId), '_blank');
+}
+
+// Init: carrega tudo
+carregarKpis();
+carregarAgendadas();
+</script>
+</body>
+</html>

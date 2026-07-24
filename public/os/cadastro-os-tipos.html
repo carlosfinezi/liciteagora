@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tipos de OS · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Tipos de OS</h1>
+      <small>Catálogo dos tipos de ordem de serviço — usados em <a href="/os/ordens-servico.html">Ordens de Serviço</a></small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo tipo</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <p class="muted" style="margin-bottom:10px;">
+      Define o comportamento de cada tipo de OS: SLA padrão, modo fiscal, e o que é obrigatório
+      no cadastro (endereço de execução, orçamento aprovado, assinatura do cliente).
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th></th>
+          <th>Nome</th>
+          <th>Slug</th>
+          <th>SLA</th>
+          <th>Exigências</th>
+          <th>Status</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Novo tipo de OS</h3>
+        <small class="muted">Comportamento padrão das ordens deste tipo</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Nome *</label>
+        <input type="text" id="fNome" placeholder="Ex.: Manutenção em campo">
+      </div>
+      <div class="form-group" style="flex:0 0 90px;">
+        <label>Cor</label>
+        <input type="color" id="fCor" value="#4dabf7">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Slug <small class="muted">(usado internamente; gerado do nome se vazio)</small></label>
+        <input type="text" id="fSlug" placeholder="manutencao-em-campo">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição</label>
+        <textarea id="fDesc" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>SLA padrão (dias)</label>
+        <input type="number" id="fSla" min="0" placeholder="ex: 7">
+      </div>
+      <div class="form-group" style="flex:0 0 110px;">
+        <label>Status</label>
+        <select id="fAtivo"><option value="1">Ativo</option><option value="0">Inativo</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Tipo de Operação padrão
+          <small class="muted">(natureza fiscal: NFS-e, CFOP, finalidade — usada como padrão ao criar OS deste tipo)</small>
+        </label>
+        <select id="fTipoOperacaoPadrao">
+          <option value="">— sem padrão (usa VDA-NORMAL) —</option>
+        </select>
+        <small class="muted" style="font-size:11px;">
+          Cadastre novos em <a href="/configuracoes/cadastro-tipos-operacao.html" target="_blank">Tipos de Operação</a>.
+        </small>
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;margin-bottom:8px;">Exigências da OS</h4>
+    <div class="form-row" style="gap:14px;flex-wrap:wrap;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+        <input type="checkbox" id="fEndereco"> Exige endereço de execução
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+        <input type="checkbox" id="fOrcamento"> Exige orçamento aprovado
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+        <input type="checkbox" id="fAssinatura"> Exige assinatura do cliente
+      </label>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="btnInativar" onclick="inativar()" style="display:none;">Inativar</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('cadastro-os-tipos');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+
+let tipos = [];
+let tiposOperacao = [];
+
+async function carregarTiposOperacao(){
+  try {
+    const r = await fetch('/api/tipos-operacao?categoria=servico');
+    const d = await r.json();
+    if (!d.success) return;
+    tiposOperacao = d.tipos || [];
+    const sel = document.getElementById('fTipoOperacaoPadrao');
+    sel.innerHTML = '<option value="">— sem padrão (usa VDA-NORMAL) —</option>' +
+      tiposOperacao.map(t => `<option value="${t.id}">${escTxt(t.codigo)} — ${escTxt(t.descricao)}</option>`).join('');
+  } catch (_) { /* select fica só com a opção vazia */ }
+}
+
+async function carregar(){
+  try {
+    const r = await fetch('/api/os-tipos?todos=1');
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    tipos = d.tipos || [];
+    renderTabela();
+  } catch (e) {
+    showAlert('Erro ao carregar: '+e.message, 'error');
+    document.getElementById('tb').innerHTML = '<tr><td colspan="7" class="empty">Falha ao carregar</td></tr>';
+  }
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tb');
+  if (!tipos.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhum tipo cadastrado</td></tr>'; return; }
+  tb.innerHTML = tipos.map(t => {
+    const exig = [];
+    if (t.exigeEnderecoExec) exig.push('endereço');
+    if (t.exigeOrcamentoAprovado) exig.push('orçamento');
+    if (t.exigeAssinaturaCliente) exig.push('assinatura');
+    return `<tr style="${t.ativo?'':'opacity:0.5;'}">
+      <td><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${t.cor||'#4dabf7'};border:1px solid #0002;vertical-align:middle;"></span></td>
+      <td><strong>${escTxt(t.nome)}</strong>${t.descricao?'<br><small class="muted">'+escTxt(t.descricao)+'</small>':''}</td>
+      <td><code>${escTxt(t.slug)}</code></td>
+      <td>${t.slaDiasPadrao ? t.slaDiasPadrao+'d' : '—'}</td>
+      <td>${exig.length ? exig.join(', ') : '—'}</td>
+      <td>${t.ativo ? '<span class="badge success">ativo</span>' : '<span class="badge">inativo</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="editar(${t.id})">Editar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function abrirNovo(){
+  document.getElementById('modalTitulo').textContent = 'Novo tipo de OS';
+  document.getElementById('fId').value = '';
+  document.getElementById('fNome').value = '';
+  document.getElementById('fSlug').value = '';
+  document.getElementById('fDesc').value = '';
+  document.getElementById('fSla').value = '';
+  document.getElementById('fCor').value = '#4dabf7';
+  document.getElementById('fAtivo').value = '1';
+  document.getElementById('fEndereco').checked = false;
+  document.getElementById('fOrcamento').checked = false;
+  document.getElementById('fAssinatura').checked = false;
+  document.getElementById('fTipoOperacaoPadrao').value = '';
+  document.getElementById('btnInativar').style.display = 'none';
+  document.getElementById('modal').classList.add('open');
+}
+
+function editar(id){
+  const t = tipos.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('modalTitulo').textContent = 'Editar tipo de OS';
+  document.getElementById('fId').value = t.id;
+  document.getElementById('fNome').value = t.nome || '';
+  document.getElementById('fSlug').value = t.slug || '';
+  document.getElementById('fDesc').value = t.descricao || '';
+  document.getElementById('fSla').value = t.slaDiasPadrao || '';
+  document.getElementById('fCor').value = t.cor || '#4dabf7';
+  document.getElementById('fAtivo').value = t.ativo ? '1' : '0';
+  document.getElementById('fEndereco').checked = !!t.exigeEnderecoExec;
+  document.getElementById('fOrcamento').checked = !!t.exigeOrcamentoAprovado;
+  document.getElementById('fAssinatura').checked = !!t.exigeAssinaturaCliente;
+  document.getElementById('fTipoOperacaoPadrao').value = t.tipoOperacaoPadraoId || '';
+  document.getElementById('btnInativar').style.display = t.ativo ? '' : 'none';
+  document.getElementById('modal').classList.add('open');
+}
+
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const id = document.getElementById('fId').value;
+  const body = {
+    nome: document.getElementById('fNome').value.trim(),
+    slug: document.getElementById('fSlug').value.trim() || undefined,
+    descricao: document.getElementById('fDesc').value.trim(),
+    slaDiasPadrao: document.getElementById('fSla').value || null,
+    cor: document.getElementById('fCor').value,
+    ativo: document.getElementById('fAtivo').value === '1',
+    exigeEnderecoExec: document.getElementById('fEndereco').checked,
+    exigeOrcamentoAprovado: document.getElementById('fOrcamento').checked,
+    exigeAssinaturaCliente: document.getElementById('fAssinatura').checked,
+    tipoOperacaoPadraoId: document.getElementById('fTipoOperacaoPadrao').value
+      ? Number(document.getElementById('fTipoOperacaoPadrao').value)
+      : null,
+  };
+  if (!body.nome) return showAlert('Nome obrigatório', 'error');
+  const url = id ? '/api/os-tipos/'+id : '/api/os-tipos';
+  try {
+    const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    showAlert(id ? 'Tipo atualizado' : 'Tipo criado');
+    fecharModal();
+    await carregar();
+  } catch (e) {
+    showAlert('Erro ao salvar: '+e.message, 'error');
+  }
+}
+
+async function inativar(){
+  const id = document.getElementById('fId').value;
+  if (!id) return;
+  if (!confirm('Inativar este tipo? OS já criadas não são afetadas, mas ele não aparecerá em novas OS.')) return;
+  try {
+    const r = await fetch('/api/os-tipos/'+id, { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    showAlert('Tipo inativado');
+    fecharModal();
+    await carregar();
+  } catch (e) {
+    showAlert('Erro ao inativar: '+e.message, 'error');
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
+});
+
+carregar();
+carregarTiposOperacao();
+</script>
+</body>
+</html>

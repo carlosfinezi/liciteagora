@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg-0); }
+  #conteudo {
+    position: fixed;
+    top: 0;
+    left: 250px;
+    width: calc(100% - 250px);
+    height: 100%;
+    border: 0;
+    background: var(--bg-0);
+  }
+  @media (max-width: 768px) {
+    #conteudo { left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<iframe id="conteudo" name="conteudo" title="Conteúdo"></iframe>
+<!-- A flag precisa existir ANTES de sidebar.js: é ela que impede o redirect do shell -->
+<script>window.__liciteShell = true;</script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initShell();</script>
+</body>
+</html>

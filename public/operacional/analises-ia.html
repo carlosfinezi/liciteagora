@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análises IA - LiciteAgora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* Filtros */
+        .filter-group { display: flex; flex-direction: column; }
+        .filter-group label { font-size: 0.72em; color: var(--text-2); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+        .filter-group input[type=text] { min-width: 240px; }
+        .filter-group select, .filter-group input[type=number] { width: auto; min-width: 140px; }
+        .score-range { display: flex; align-items: center; gap: 8px; }
+        .score-range input[type=number] { width: 70px; min-width: 70px; text-align: center; }
+        .score-range span { color: var(--text-3); font-size: 0.82em; }
+
+        /* Cabeçalho da lista de resultados */
+        .results-header { padding: 12px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .results-header h3 { color: var(--text-2); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin: 0; }
+        .results-count  { color: var(--text-3); font-size: 0.78em; }
+
+        /* Cards de análise */
+        .cards-grid { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+        .analise-card {
+            background: var(--bg-1); border: 1px solid var(--border);
+            border-radius: var(--r-md); padding: 16px; cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .analise-card:hover          { background: var(--bg-hover); border-color: var(--border-strong); }
+        .analise-card.expanded       { background: var(--bg-hover); border-color: var(--accent); }
+
+        .card-top   { display: flex; gap: 14px; align-items: flex-start; }
+        .card-score {
+            min-width: 60px; height: 60px; border-radius: var(--r-md); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; font-weight: 700; font-size: 1.3em;
+            border: 1px solid transparent;
+        }
+        .card-score .score-label { font-size: 0.52em; font-weight: 500; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.04em; }
+        .score-alto  { background: var(--success-soft); color: var(--success); border-color: #065f46; }
+        .score-medio { background: var(--warn-soft);    color: var(--warn);    border-color: #b45309; }
+        .score-baixo { background: var(--danger-soft);  color: var(--danger);  border-color: #991b1b; }
+
+        .card-info   { flex: 1; min-width: 0; }
+        .card-objeto { font-size: 0.9em; color: var(--text-0); line-height: 1.4; margin-bottom: 6px;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .analise-card.expanded .card-objeto { -webkit-line-clamp: unset; }
+        .card-meta   { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .card-tag    { font-size: 0.72em; padding: 2px 8px; border-radius: var(--r-sm); background: var(--bg-3); color: var(--text-2); }
+        .card-tag.grupo               { background: var(--accent-soft);   color: var(--accent); }
+        .card-tag.complexidade-alta   { background: var(--danger-soft);   color: var(--danger); }
+        .card-tag.complexidade-media  { background: var(--warn-soft);     color: var(--warn); }
+        .card-tag.complexidade-baixa  { background: var(--success-soft);  color: var(--success); }
+        .card-tag.encerrada           { background: var(--danger-soft);   color: var(--danger); }
+        .card-tag.aberta              { background: var(--success-soft);  color: var(--success); }
+
+        .card-right  { text-align: right; min-width: 130px; }
+        .card-valor  { font-size: 0.95em; font-weight: 600; color: var(--success); font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; }
+        .card-orgao  { font-size: 0.72em; color: var(--text-3); margin-top: 4px; }
+        .card-uf     { font-size: 0.72em; color: var(--text-2); }
+
+        /* Detalhe expandido */
+        .card-detail { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+        .analise-card.expanded .card-detail { display: block; }
+        .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 800px) { .detail-grid { grid-template-columns: 1fr; } }
+
+        .detail-section h4 { font-size: 0.75em; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; font-weight: 600; }
+        .detail-section p  { font-size: 0.85em; color: var(--text-1); line-height: 1.5; }
+        .detail-section ul { list-style: none; padding: 0; }
+        .detail-section ul li { font-size: 0.85em; color: var(--text-1); padding: 4px 0 4px 16px; position: relative; line-height: 1.4; }
+        .detail-section ul li::before { content: ''; position: absolute; left: 0; top: 10px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+        .detail-section.atencao ul li::before { background: var(--warn); }
+
+        .detail-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
+        .detail-meta-item { font-size: 0.78em; }
+        .detail-meta-item .meta-label { color: var(--text-3); }
+        .detail-meta-item .meta-value { color: var(--text-0); font-weight: 500; }
+
+        .detail-justificativa   { background: var(--bg-0); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; margin-top: 12px; }
+        .detail-justificativa p { font-size: 0.85em; color: var(--text-2); font-style: italic; }
+
+        .btn-link-comprasnet { display: inline-block; margin-top: 10px; padding: 5px 12px; background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(96,165,250,0.4); border-radius: var(--r-sm); font-size: 0.78em; text-decoration: none; transition: background 0.15s; }
+        .btn-link-comprasnet:hover { background: rgba(96,165,250,0.28); }
+
+        /* Cards de item detalhado */
+        .item-card { background: var(--bg-0); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 8px; }
+        .item-titulo { font-weight: 600; color: var(--text-0); font-size: 0.88em; margin-bottom: 6px; }
+        .item-linha { font-size: 0.82em; color: var(--text-1); margin-top: 4px; line-height: 1.5; }
+        .item-label { color: var(--text-3); font-weight: 600; }
+        .item-sugestao { background: rgba(34,197,94,0.08); border-left: 3px solid var(--success); border-radius: var(--r-sm); padding: 8px 10px; margin-top: 8px; }
+        .item-sugestao-titulo { font-size: 0.7em; color: var(--success); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+        .item-sugestao-corpo  { font-size: 0.82em; color: var(--text-0); line-height: 1.5; }
+
+        /* Paginação */
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 14px; flex-wrap: wrap; }
+        .pagination .btn       { min-width: 36px; }
+        .pagination .page-info { color: var(--text-3); font-size: 0.82em; }
+
+        /* Empty + loading overrides */
+        .empty-state { text-align: center; padding: 60px 20px; color: var(--text-3); }
+        .empty-state .emoji { font-size: 48px; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Análises IA</h1>
+        <small>Resultados das análises automáticas de licitações por inteligência artificial</small>
+      </div>
+    </div>
+
+    <div id="deepLinkBanner" class="panel" style="display:none;padding:12px 16px;margin-bottom:12px;border-left:4px solid var(--primary);">
+      <strong>Filtrando por uma licitação específica.</strong>
+      <span id="deepLinkPncp" style="color:var(--text-2);margin-left:6px;"></span>
+      <a href="/operacional/analises-ia.html" class="btn btn-ghost btn-sm" style="margin-left:12px;">Limpar filtro</a>
+    </div>
+
+    <div class="kpi-grid" id="statsRow">
+        <div class="kpi"><div class="label">Total analisadas</div><div class="value" id="statTotal">—</div></div>
+        <div class="kpi success"><div class="label">Score alto (70+)</div><div class="value" id="statAlta">—</div></div>
+        <div class="kpi warn"><div class="label">Score médio (40–69)</div><div class="value" id="statMedia">—</div></div>
+        <div class="kpi danger"><div class="label">Score baixo (&lt;40)</div><div class="value" id="statBaixa">—</div></div>
+    </div>
+
+    <div class="panel" style="padding:16px;">
+        <div class="filters-row" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="filter-group" style="flex:1;">
+                <label>Buscar</label>
+                <input type="text" id="filtBusca" placeholder="Objeto, resumo ou órgão…" onkeydown="if(event.key==='Enter')carregarAnalises()">
+            </div>
+            <div class="filter-group">
+                <label>Grupo de palavras</label>
+                <select id="filtGrupo"><option value="">Todos</option></select>
+            </div>
+            <div class="filter-group">
+                <label>UF</label>
+                <select id="filtUf" onchange="carregarAnalises()"><option value="">Todas</option></select>
+            </div>
+            <div class="filter-group">
+                <label>Complexidade</label>
+                <select id="filtComplexidade">
+                    <option value="">Todas</option>
+                    <option value="baixa">Baixa</option>
+                    <option value="média">Média</option>
+                    <option value="alta">Alta</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Score</label>
+                <div class="score-range">
+                    <input type="number" id="filtScoreMin" placeholder="0" min="0" max="100">
+                    <span>a</span>
+                    <input type="number" id="filtScoreMax" placeholder="100" min="0" max="100">
+                </div>
+            </div>
+            <div class="filter-group">
+                <label>Analisada de</label>
+                <input type="date" id="filtDataInicial" onchange="carregarAnalises()">
+            </div>
+            <div class="filter-group">
+                <label>até</label>
+                <input type="date" id="filtDataFinal" onchange="carregarAnalises()">
+            </div>
+            <div class="filter-group">
+                <label>Encerramento de</label>
+                <input type="date" id="filtEncerramentoInicial" onchange="carregarAnalises()">
+            </div>
+            <div class="filter-group">
+                <label>até</label>
+                <input type="date" id="filtEncerramentoFinal" onchange="carregarAnalises()">
+            </div>
+            <div class="filter-group" style="align-self:center;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" id="filtApenasAbertas" checked onchange="carregarAnalises()">
+                    Ocultar encerradas
+                </label>
+            </div>
+            <div class="filter-group">
+                <label>Ordenar por</label>
+                <select id="filtOrdem">
+                    <option value="score_desc">Maior score</option>
+                    <option value="score_asc">Menor score</option>
+                    <option value="data_desc">Mais recente</option>
+                    <option value="data_asc">Mais antiga</option>
+                    <option value="encerramento">Encerramento</option>
+                    <option value="valor_desc">Maior valor</option>
+                </select>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="carregarAnalises()">Filtrar</button>
+            <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar</button>
+        </div>
+        <div class="filters-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+            <span class="hint" style="margin:0 4px 0 0;">Atalhos:</span>
+            <button class="btn btn-ghost btn-sm" onclick="atalhoData('hoje')">Hoje</button>
+            <button class="btn btn-ghost btn-sm" onclick="atalhoData('ontem')">Ontem</button>
+            <button class="btn btn-ghost btn-sm" onclick="atalhoData('7d')">Últimos 7 dias</button>
+            <button class="btn btn-ghost btn-sm" onclick="atalhoData('30d')">Últimos 30 dias</button>
+            <button class="btn btn-ghost btn-sm" onclick="atalhoData('mes')">Este mês</button>
+            <button class="btn btn-ghost btn-sm" onclick="atalhoData('limpar')">Limpar datas</button>
+        </div>
+    </div>
+
+    <div class="panel" style="padding:0;">
+        <div class="results-header">
+            <h3>Resultados</h3>
+            <span class="results-count" id="resultsCount"></span>
+        </div>
+        <div id="resultsArea">
+            <div class="loading"><h3>Carregando análises…</h3></div>
+        </div>
+        <div class="pagination" id="pagination" style="display:none;"></div>
+    </div>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('analises-ia');</script>
+    <script>
+        let paginaAtual = 1;
+        const LIMITE = 30;
+
+        // Deep-link via URL: ?pncp=cnpj-ano-seq trava o filtro numa licitação só
+        // (vindo de outras páginas, ex.: /licitacoes/interesse.html). Quando
+        // presente, ignora os outros filtros — o objetivo é abrir a análise
+        // específica daquela licitação.
+        const pncpDeepLink = new URLSearchParams(window.location.search).get('pncp');
+
+        async function carregarAnalises(pagina = 1) {
+            paginaAtual = pagina;
+            const params = new URLSearchParams();
+            params.set('pagina', pagina);
+            params.set('limite', LIMITE);
+
+            if (pncpDeepLink) {
+                params.set('pncp', pncpDeepLink);
+            } else {
+                const busca = document.getElementById('filtBusca').value.trim();
+                const grupoId = document.getElementById('filtGrupo').value;
+                const uf = document.getElementById('filtUf').value;
+                const complexidade = document.getElementById('filtComplexidade').value;
+                const scoreMin = document.getElementById('filtScoreMin').value;
+                const scoreMax = document.getElementById('filtScoreMax').value;
+                const ordem = document.getElementById('filtOrdem').value;
+                const dataInicial = document.getElementById('filtDataInicial').value;
+                const dataFinal = document.getElementById('filtDataFinal').value;
+                const encerramentoInicial = document.getElementById('filtEncerramentoInicial').value;
+                const encerramentoFinal = document.getElementById('filtEncerramentoFinal').value;
+                const apenasAbertas = document.getElementById('filtApenasAbertas').checked;
+
+                if (busca) params.set('busca', busca);
+                if (grupoId) params.set('grupoId', grupoId);
+                if (uf) params.set('uf', uf);
+                if (complexidade) params.set('complexidade', complexidade);
+                if (scoreMin) params.set('scoreMin', scoreMin);
+                if (scoreMax) params.set('scoreMax', scoreMax);
+                if (ordem) params.set('ordem', ordem);
+                if (dataInicial) params.set('dataInicial', dataInicial);
+                if (dataFinal) params.set('dataFinal', dataFinal);
+                if (encerramentoInicial) params.set('encerramentoInicial', encerramentoInicial);
+                if (encerramentoFinal) params.set('encerramentoFinal', encerramentoFinal);
+                if (apenasAbertas) params.set('apenasAbertas', '1');
+            }
+
+            document.getElementById('resultsArea').innerHTML = '<div class="loading"><div class="spinner"></div><p style="margin-top:12px">Carregando...</p></div>';
+
+            try {
+                const resp = await fetch('/api/analise/lista?' + params.toString());
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+
+                renderStats(data);
+                renderGrupos(data.grupos);
+                renderUfs(data.ufs);
+                renderCards(data.analises);
+                renderPagination(data.total, data.pagina, data.limite);
+                document.getElementById('resultsCount').textContent = `${data.total} análise${data.total !== 1 ? 's' : ''} encontrada${data.total !== 1 ? 's' : ''}`;
+            } catch (err) {
+                document.getElementById('resultsArea').innerHTML = `<div class="empty-state"><div class="emoji">⚠️</div><p>Erro: ${err.message}</p></div>`;
+            }
+        }
+
+        function renderStats(data) {
+            document.getElementById('statTotal').textContent = data.total;
+            // Count by score range from visible data (approximate from total)
+            const analises = data.analises || [];
+            // We'll update these from a separate stats call
+            fetch('/api/analise/lista?limite=9999&scoreMin=70').then(r => r.json()).then(d => {
+                if (d.success) document.getElementById('statAlta').textContent = d.total;
+            });
+            fetch('/api/analise/lista?limite=1&scoreMin=40&scoreMax=69').then(r => r.json()).then(d => {
+                if (d.success) document.getElementById('statMedia').textContent = d.total;
+            });
+            fetch('/api/analise/lista?limite=1&scoreMax=39').then(r => r.json()).then(d => {
+                if (d.success) document.getElementById('statBaixa').textContent = d.total;
+            });
+        }
+
+        let gruposCarregados = false;
+        function renderGrupos(grupos) {
+            if (gruposCarregados) return;
+            gruposCarregados = true;
+            const sel = document.getElementById('filtGrupo');
+            for (const g of (grupos || [])) {
+                const opt = document.createElement('option');
+                opt.value = g.id;
+                opt.textContent = g.nome;
+                sel.appendChild(opt);
+            }
+        }
+
+        let ufsCarregadas = false;
+        function renderUfs(ufs) {
+            if (ufsCarregadas) return;
+            ufsCarregadas = true;
+            const sel = document.getElementById('filtUf');
+            for (const uf of (ufs || [])) {
+                const opt = document.createElement('option');
+                opt.value = uf;
+                opt.textContent = uf;
+                sel.appendChild(opt);
+            }
+        }
+
+        function getScoreClass(score) {
+            if (score >= 70) return 'score-alto';
+            if (score >= 40) return 'score-medio';
+            return 'score-baixo';
+        }
+
+        function getComplexidadeClass(c) {
+            if (c === 'alta') return 'complexidade-alta';
+            if (c === 'baixa') return 'complexidade-baixa';
+            return 'complexidade-media';
+        }
+
+        function fmtValor(v) {
+            if (!v) return '-';
+            return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+
+        function fmtData(d) {
+            if (!d) return '-';
+            try { return new Date(d).toLocaleDateString('pt-BR'); } catch { return d; }
+        }
+
+        function isEncerrada(dataEnc) {
+            if (!dataEnc) return false;
+            return new Date(dataEnc) < new Date();
+        }
+
+        function renderItensCard(itens) {
+            if (!Array.isArray(itens) || itens.length === 0) return '';
+            return itens.map(i => {
+                if (typeof i === 'string') return `<div class="item-card"><div class="item-titulo">${esc(i)}</div></div>`;
+                const linha = (label, valor) => valor == null || valor === '' ? '' :
+                    `<div class="item-linha"><span class="item-label">${label}:</span> ${esc(valor)}</div>`;
+                const titulo = i.numero ? `Item ${esc(i.numero)}${i.descricao ? ' — ' + esc(i.descricao) : ''}` : esc(i.descricao || 'Item');
+                const qtde = (i.quantidade || i.unidade) ? `${esc(i.quantidade || '')} ${esc(i.unidade || '')}`.trim() : null;
+                const sugestao = i.sugestao_cotacao ? `
+                    <div class="item-sugestao">
+                        <div class="item-sugestao-titulo">💡 Sugestão para cotar</div>
+                        <div class="item-sugestao-corpo">${esc(i.sugestao_cotacao)}</div>
+                    </div>` : '';
+                return `
+                <div class="item-card">
+                    <div class="item-titulo">${titulo}</div>
+                    ${linha('Quantidade', qtde)}
+                    ${linha('Especificações', i.especificacoes_tecnicas)}
+                    ${linha('Marca de referência', i.marca_referencia)}
+                    ${linha('Garantia', i.garantia)}
+                    ${linha('Observações', i.observacoes)}
+                    ${sugestao}
+                </div>`;
+            }).join('');
+        }
+
+        function renderCards(analises) {
+            if (!analises.length) {
+                document.getElementById('resultsArea').innerHTML = '<div class="empty-state"><div class="emoji">🔍</div><p>Nenhuma análise encontrada com esses filtros</p></div>';
+                return;
+            }
+
+            const html = analises.map((a, i) => {
+                const scoreCls = getScoreClass(a.viabilidade_score || 0);
+                const complexCls = getComplexidadeClass(a.complexidade);
+                const encerrada = isEncerrada(a.dataEncerramentoProposta);
+
+                const toArr = v => Array.isArray(v) ? v : (v == null || v === '' ? [] : [v]);
+                const itensList = renderItensCard(toArr(a.itens_destaque));
+                const reqList = toArr(a.requisitos).map(r => `<li>${esc(typeof r === 'string' ? r : JSON.stringify(r))}</li>`).join('');
+                const atencaoList = toArr(a.atencao).map(at => `<li>${esc(typeof at === 'string' ? at : JSON.stringify(at))}</li>`).join('');
+
+                return `
+                <div class="analise-card" onclick="this.classList.toggle('expanded')">
+                    <div class="card-top">
+                        <div class="card-score ${scoreCls}">
+                            ${a.viabilidade_score || 0}
+                            <span class="score-label">score</span>
+                        </div>
+                        <div class="card-info">
+                            <div class="card-objeto">${esc(a.objetoCompra || a.resumo || 'Sem descrição')}</div>
+                            <div class="card-meta">
+                                ${(a.grupos_matched || []).map(g => `<span class="card-tag grupo"${g.cor ? ` style="background:${esc(g.cor)}22;color:${esc(g.cor)};"` : ''}>${esc(g.nome)}</span>`).join('')}
+                                ${a.complexidade ? `<span class="card-tag ${complexCls}">${esc(a.complexidade)}</span>` : ''}
+                                ${a.modalidadeNome ? `<span class="card-tag">${esc(a.modalidadeNome)}</span>` : ''}
+                                <span class="card-tag ${encerrada ? 'encerrada' : 'aberta'}">${encerrada ? 'Encerrada' : 'Aberta'} ${fmtData(a.dataEncerramentoProposta)}</span>
+                            </div>
+                        </div>
+                        <div class="card-right">
+                            <div class="card-valor">${fmtValor(a.valorTotalEstimado)}</div>
+                            <div class="card-orgao">${esc(a.nomeUnidade || '')}</div>
+                            <div class="card-uf">${esc(a.municipioNome || '')}${a.ufSigla ? '/' + a.ufSigla : ''}</div>
+                        </div>
+                    </div>
+                    <div class="card-detail">
+                        ${a.resumo ? `<div class="detail-section" style="margin-bottom:14px"><h4>Resumo da IA</h4><p>${esc(a.resumo)}</p></div>` : ''}
+
+                        ${a.viabilidade_justificativa ? `<div class="detail-justificativa"><p>${esc(a.viabilidade_justificativa)}</p></div>` : ''}
+
+                        ${itensList ? `<div class="detail-section" style="margin-top:14px"><h4>Itens em Destaque</h4>${itensList}</div>` : ''}
+                        ${reqList ? `<div class="detail-section" style="margin-top:14px"><h4>Documentos de Habilitação</h4><ul>${reqList}</ul></div>` : ''}
+                        ${atencaoList ? `<div class="detail-section atencao" style="margin-top:14px"><h4>Pontos de Atenção</h4><ul>${atencaoList}</ul></div>` : ''}
+
+                        <div class="detail-meta-grid">
+                            ${a.criterio_julgamento ? `<div class="detail-meta-item"><span class="meta-label">Critério: </span><span class="meta-value">${esc(a.criterio_julgamento)}</span></div>` : ''}
+                            ${a.prazo_entrega ? `<div class="detail-meta-item"><span class="meta-label">Prazo: </span><span class="meta-value">${esc(a.prazo_entrega)}</span></div>` : ''}
+                            ${a.local_entrega ? `<div class="detail-meta-item"><span class="meta-label">Local: </span><span class="meta-value">${esc(a.local_entrega)}</span></div>` : ''}
+                            <div class="detail-meta-item"><span class="meta-label">Vistoria: </span><span class="meta-value">${a.vistoria_obrigatoria ? 'Sim' : 'Não'}</span></div>
+                            <div class="detail-meta-item"><span class="meta-label">Exclusivo ME/EPP: </span><span class="meta-value">${a.exclusivo_mei_epp ? 'Sim' : 'Não'}</span></div>
+                            ${a.textos_extraidos ? `<div class="detail-meta-item"><span class="meta-label">Docs analisados: </span><span class="meta-value">${a.textos_extraidos}</span></div>` : ''}
+                            <div class="detail-meta-item"><span class="meta-label">Analisada em: </span><span class="meta-value">${fmtData(a.dataAnalise)}</span></div>
+                        </div>
+
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                          <a href="/licitacoes/interesse.html?lic=${esc(a.cnpj)}-${esc(a.ano)}-${esc(a.sequencial)}" class="btn-link-comprasnet" style="background:var(--accent-soft);color:var(--accent);" onclick="event.stopPropagation()" title="Ver/marcar interesse nesta licitação">Ver em Interesses</a>
+                          <a href="https://pncp.gov.br/app/editais/${esc(a.cnpj)}/${esc(a.ano)}/${esc(a.sequencial)}" target="_blank" class="btn-link-comprasnet" onclick="event.stopPropagation()" title="Abrir o edital no Portal Nacional de Contratações Públicas">Abrir no PNCP</a>
+                          ${a.linkSistemaOrigem ? `<a href="${esc(a.linkSistemaOrigem)}" target="_blank" class="btn-link-comprasnet" onclick="event.stopPropagation()" title="Link de origem informado pelo órgão (pode ser genérico)">Site de origem</a>` : ''}
+                          ${(a.linkSistemaOrigem && /bnccompras\.com/i.test(a.linkSistemaOrigem)) ? `<a href="/portais/bnc-proposta.html?pncp=${esc(a.cnpj)}-${esc(a.ano)}-${esc(a.sequencial)}" class="btn-link-comprasnet" style="background:var(--accent-soft);color:var(--accent);" onclick="event.stopPropagation()" title="Enviar proposta pelo BNC (server-side, sem Electron)">📝 Enviar proposta BNC</a>` : ''}
+                          ${(a.linkSistemaOrigem && /bllcompras\.com/i.test(a.linkSistemaOrigem)) ? `<a href="/portais/bll-proposta.html?pncp=${esc(a.cnpj)}-${esc(a.ano)}-${esc(a.sequencial)}" class="btn-link-comprasnet" style="background:var(--accent-soft);color:var(--accent);" onclick="event.stopPropagation()" title="Enviar proposta pelo BLL (server-side, sem Electron)">📝 Enviar proposta BLL</a>` : ''}
+                          ${(a.linkSistemaOrigem && /portaldecompraspublicas\.com\.br/i.test(a.linkSistemaOrigem)) ? `<a href="/portais/pcp-proposta.html?pncp=${esc(a.cnpj)}-${esc(a.ano)}-${esc(a.sequencial)}" class="btn-link-comprasnet" style="background:var(--accent-soft);color:var(--accent);" onclick="event.stopPropagation()" title="Enviar proposta pelo Portal de Compras Públicas (server-side)">📝 Enviar proposta PCP</a>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            document.getElementById('resultsArea').innerHTML = `<div class="cards-grid">${html}</div>`;
+        }
+
+        function renderPagination(total, pagina, limite) {
+            const totalPags = Math.ceil(total / limite);
+            const pag = document.getElementById('pagination');
+            if (totalPags <= 1) { pag.style.display = 'none'; return; }
+
+            pag.style.display = 'flex';
+            let html = '';
+            if (pagina > 1) html += `<button class="btn btn-secondary" onclick="carregarAnalises(${pagina - 1})">&#9664;</button>`;
+
+            const start = Math.max(1, pagina - 3);
+            const end = Math.min(totalPags, pagina + 3);
+            for (let i = start; i <= end; i++) {
+                html += `<button class="btn ${i === pagina ? 'btn-primary' : 'btn-secondary'}" onclick="carregarAnalises(${i})">${i}</button>`;
+            }
+
+            if (pagina < totalPags) html += `<button class="btn btn-secondary" onclick="carregarAnalises(${pagina + 1})">&#9654;</button>`;
+            html += `<span class="page-info">${pagina} de ${totalPags}</span>`;
+            pag.innerHTML = html;
+        }
+
+        function limparFiltros() {
+            document.getElementById('filtBusca').value = '';
+            document.getElementById('filtGrupo').value = '';
+            document.getElementById('filtUf').value = '';
+            document.getElementById('filtComplexidade').value = '';
+            document.getElementById('filtScoreMin').value = '';
+            document.getElementById('filtScoreMax').value = '';
+            document.getElementById('filtOrdem').value = 'score_desc';
+            document.getElementById('filtDataInicial').value = '';
+            document.getElementById('filtDataFinal').value = '';
+            document.getElementById('filtEncerramentoInicial').value = '';
+            document.getElementById('filtEncerramentoFinal').value = '';
+            document.getElementById('filtApenasAbertas').checked = true;
+            carregarAnalises();
+        }
+
+        // Atalhos rápidos de data — usa fuso de Brasília (data sem hora)
+        function atalhoData(preset) {
+            const fmt = (d) => {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${dd}`;
+            };
+            const hoje = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+            const ini = document.getElementById('filtDataInicial');
+            const fim = document.getElementById('filtDataFinal');
+            if (preset === 'limpar') { ini.value = ''; fim.value = ''; }
+            else if (preset === 'hoje')  { ini.value = fmt(hoje); fim.value = fmt(hoje); }
+            else if (preset === 'ontem') { const d = new Date(hoje); d.setDate(d.getDate() - 1); ini.value = fmt(d); fim.value = fmt(d); }
+            else if (preset === '7d')    { const d = new Date(hoje); d.setDate(d.getDate() - 6); ini.value = fmt(d); fim.value = fmt(hoje); }
+            else if (preset === '30d')   { const d = new Date(hoje); d.setDate(d.getDate() - 29); ini.value = fmt(d); fim.value = fmt(hoje); }
+            else if (preset === 'mes')   { ini.value = fmt(new Date(hoje.getFullYear(), hoje.getMonth(), 1)); fim.value = fmt(hoje); }
+            carregarAnalises();
+        }
+
+        function esc(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        // Init
+        if (pncpDeepLink) {
+            const banner = document.getElementById('deepLinkBanner');
+            document.getElementById('deepLinkPncp').textContent = pncpDeepLink;
+            banner.style.display = '';
+        }
+        carregarAnalises();
+    </script>
+</body>
+</html>

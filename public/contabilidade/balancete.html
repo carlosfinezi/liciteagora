@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Balancete · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Balancete de Verificação</h1>
+      <small>Saldo anterior + movimento do mês por conta; clique numa analítica para ver o razão</small>
+    </div>
+    <div class="actions" id="acoesPeriodo"></div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="month" id="competencia" onchange="carregar()">
+    <span id="statusPeriodo" class="badge ajuste" style="align-self:center;"></span>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Código</th><th>Conta</th>
+        <th style="text-align:right;">Saldo anterior</th>
+        <th style="text-align:right;">Débitos</th>
+        <th style="text-align:right;">Créditos</th>
+        <th style="text-align:right;">Saldo final</th>
+      </tr></thead>
+      <tbody id="tbBal"><tr><td colspan="6" class="empty">Escolha a competência</td></tr></tbody>
+      <tfoot id="ftBal"></tfoot>
+    </table>
+  </div>
+
+  <div id="razaoWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;"><div><h2 id="razaoTitulo" style="margin:0;"></h2><small id="razaoSub"></small></div></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Data</th><th>Lanç.</th><th>Histórico</th><th style="text-align:right;">Débito</th><th style="text-align:right;">Crédito</th><th style="text-align:right;">Saldo</th></tr></thead>
+        <tbody id="tbRazao"></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ctb-balancete');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+async function carregar(){
+  const comp = document.getElementById('competencia').value;
+  if (!comp) return;
+  const r = await fetch('/api/contabilidade/balancete?competencia='+comp); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+
+  const st = document.getElementById('statusPeriodo');
+  st.textContent = d.statusPeriodo === 'fechado' ? '🔒 FECHADO' : '🔓 ABERTO';
+  st.className = 'badge ' + (d.statusPeriodo === 'fechado' ? 'cancelado' : 'entrada');
+  document.getElementById('acoesPeriodo').innerHTML = d.statusPeriodo === 'fechado'
+    ? `<button class="btn btn-ghost btn-sm" onclick="periodo('reabrir')">Reabrir competência</button>`
+    : `<button class="btn btn-primary btn-sm" onclick="periodo('fechar')">🔒 Fechar competência</button>`;
+
+  document.getElementById('tbBal').innerHTML = d.linhas.length ? d.linhas.map(l=>{
+    const sint = l.tipoConta==='sintetica';
+    const nome = sint ? `<strong>${l.nome}</strong>` :
+      `<a href="#" onclick="verRazao(${l.id},'${l.codigo}','${l.nome.replace(/'/g,"&#39;")}');return false;">${l.nome}</a>`;
+    return `<tr${sint?' style="background:var(--bg-2,#f8fafc);"':''}>
+      <td style="padding-left:${(l.nivel-1)*20+8}px;"><code>${l.codigo}</code></td>
+      <td>${nome}</td>
+      <td style="text-align:right;">${fmt(l.saldoAnterior)}</td>
+      <td style="text-align:right;">${fmt(l.debitos)}</td>
+      <td style="text-align:right;">${fmt(l.creditos)}</td>
+      <td style="text-align:right;"><strong>${fmt(l.saldoFinal)}</strong></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty">Sem movimento na competência</td></tr>';
+
+  const bate = Math.abs(d.totais.debitos - d.totais.creditos) < 0.01;
+  document.getElementById('ftBal').innerHTML = `<tr>
+    <td colspan="3" style="text-align:right;"><strong>Totais (analíticas):</strong></td>
+    <td style="text-align:right;"><strong>${fmt(d.totais.debitos)}</strong></td>
+    <td style="text-align:right;"><strong>${fmt(d.totais.creditos)}</strong></td>
+    <td style="text-align:right;">${bate?'<span style="color:var(--success);font-weight:700;">✔ D = C</span>':'<span style="color:var(--danger);font-weight:700;">✘ diferença!</span>'}</td>
+  </tr>`;
+}
+
+async function periodo(acao){
+  const comp = document.getElementById('competencia').value;
+  if (acao==='fechar' && !confirm(`Fechar a competência ${comp}? Novos lançamentos nela serão rejeitados.`)) return;
+  const r = await fetch(`/api/contabilidade/periodos/${comp}/${acao}`, { method:'POST' });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+async function verRazao(contaId, codigo, nome){
+  const comp = document.getElementById('competencia').value;
+  const inicio = comp + '-01';
+  const fim = new Date(Number(comp.slice(0,4)), Number(comp.slice(5,7)), 0).toISOString().slice(0,10);
+  const r = await fetch(`/api/contabilidade/razao?contaId=${contaId}&inicio=${inicio}&fim=${fim}`); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('razaoWrap').style.display='block';
+  document.getElementById('razaoTitulo').textContent = `Razão — ${codigo} ${nome}`;
+  document.getElementById('razaoSub').textContent = `Saldo anterior: R$ ${fmt(d.saldoAnterior)} · Saldo final: R$ ${fmt(d.saldoFinal)}`;
+  document.getElementById('tbRazao').innerHTML = d.linhas.length ? d.linhas.map(x=>`<tr>
+    <td>${x.data}</td><td>#${x.lancamentoId}</td><td>${x.historico}${x.historicoComplemento?' — '+x.historicoComplemento:''}</td>
+    <td style="text-align:right;">${x.dc==='D'?fmt(x.valor):''}</td>
+    <td style="text-align:right;">${x.dc==='C'?fmt(x.valor):''}</td>
+    <td style="text-align:right;"><strong>${fmt(x.saldoCorrente)}</strong></td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty">Sem movimento no período</td></tr>';
+  document.getElementById('razaoWrap').scrollIntoView({behavior:'smooth'});
+}
+
+document.getElementById('competencia').value = new Date().toISOString().slice(0,7);
+carregar();
+</script>
+</body></html>

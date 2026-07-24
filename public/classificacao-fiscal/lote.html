@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Classificação em lote · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Classificação em lote</h1>
+      <small>Um item por linha (descrição ou código NCM). Ou carregue um arquivo .csv/.txt (usa a 1ª coluna). Máx. 100 por vez; linhas iguais são deduplicadas. Para um item só, use <a href="/classificacao-fiscal/classificacao.html">Classificação individual</a>.</small>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <select id="uf" title="UF para impostos estaduais (ICMS/ST)" onchange="reprocessar()"></select>
+    <select id="regime" title="Regime tributário da empresa — define a alíquota de PIS/COFINS" onchange="setRegime(this.value)"></select>
+    <span style="color:var(--text-3);align-self:center;"><b>UF</b> → ICMS/ST · <b>regime</b> → PIS/COFINS. Trocar o regime não reprocessa o lote.</span>
+  </div>
+
+  <textarea id="lote" rows="6" placeholder="Parafuso sextavado de aço inox&#10;2523.21.00&#10;Refrigerante lata cola 350ml&#10;..."
+            style="width:100%;box-sizing:border-box;font-family:inherit;padding:10px;background:var(--bg-1);color:var(--text-0);border:1px solid var(--border);border-radius:var(--r-md);"></textarea>
+
+  <div class="toolbar" style="margin-top:8px;">
+    <label class="btn btn-secondary" style="cursor:pointer;">
+      📄 Carregar arquivo
+      <input type="file" accept=".csv,.txt,text/csv,text/plain" style="display:none;" onchange="carregarArquivo(this.files[0])">
+    </label>
+    <button class="btn btn-primary" onclick="rodarLote()">▶ Classificar lote</button>
+    <button class="btn btn-ghost" id="btnExport" style="display:none;" onclick="exportarLote()">⬇ Baixar CSV</button>
+    <span id="loteInfo" style="color:var(--text-3);align-self:center;"></span>
+  </div>
+
+  <div id="saida" style="margin-top:10px;"></div>
+  <div id="saidaLote" style="margin-top:10px;"></div>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('classificacao-lote');</script>
+<script src="/classificacao-fiscal/fiscal-common.js"></script>
+<script>
+let __ultimoLote = [];
+function reprocessar() { if (__ultimoLote.length) rodarLote(); }
+// Trocar regime é só apresentação (PIS/COFINS): re-renderiza sem re-classificar na IA.
+function onRegimeChange() { if (__ultimoLote.length) renderLote(tabelaLote(__ultimoLote)); }
+
+function carregarArquivo(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const linhas = String(reader.result).split(/\r?\n/).map((l) => l.split(/[;,\t]/)[0].trim()).filter(Boolean);
+    // descarta cabeçalho óbvio
+    if (linhas.length && /descri|produto|item|ncm/i.test(linhas[0]) && soDig(linhas[0]).length !== 8) linhas.shift();
+    $('lote').value = linhas.join('\n');
+    toast(linhas.length + ' itens carregados de ' + file.name);
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+async function rodarLote() {
+  const itens = $('lote').value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (!itens.length) return toast('Cole itens ou carregue um arquivo.', 'warn');
+  if (itens.length > 100) return toast(`Máx. 100 por vez (você tem ${itens.length}). Divida em partes.`, 'warn');
+  $('btnExport').style.display = 'none';
+  $('loteInfo').textContent = '';
+  renderLote(`<div class="card" style="padding:16px;color:var(--text-3)">Classificando ${itens.length} itens… itens em texto usam IA, pode levar alguns segundos.</div>`);
+  try {
+    const r = await fetch('/api/fiscal/classificacao/lote', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itens, uf: getUf() }),
+    }).then((x) => x.json());
+    if (!r.success) return renderLote(errCard(r.error));
+    __ultimoLote = r.resultados;
+    renderLote(tabelaLote(r.resultados));
+    $('btnExport').style.display = '';
+    const baixa = r.resultados.filter((x) => x.confianca === 'baixa' || x.ncm_valido === false).length;
+    $('loteInfo').textContent = `${r.total} itens · ${baixa} para revisar`;
+  } catch (e) { renderLote(errCard(e.message)); }
+}
+
+const celImposto = (v) => `<td style="white-space:nowrap;text-align:right;color:var(--text-1)">${v}</td>`;
+const ipiCel = (i) => !i || !i.ipi ? '—' : (i.ipi.nt ? 'NT' : pct(i.ipi.aliquota));
+const iiCel = (i) => i && i.ii ? pct(i.ii.aliquota) : '—';
+const icmsCel = (i) => i && i.icms ? pct(i.icms.aliquota_interna) : '—';
+const pcCel = (i) => pisCofinsDados(i && i.pis_cofins).valor;
+const mvaCel = (i) => { const st = i && i.icms_st; if (!st) return '—'; if (!st.tem_st) return 'não'; return st.mva_original != null ? pct(st.mva_original) : 'ST'; };
+const benefCel = (i) => { const b = i && i.beneficio; return b && b.carga_efetiva != null ? `≈${pct(b.carga_efetiva)}` : '—'; };
+
+function tabelaLote(rows) {
+  const linhas = rows.map((r) => {
+    const cest = (r.cest || []).map((c) => esc(c.cest_fmt)).join('<br>') || '—';
+    const av = r.ncm_valido === false ? ' ⚠️' : '';
+    const i = r.impostos;
+    return `<tr>
+      <td style="color:var(--text-2)">${esc(r.entrada)}</td>
+      <td style="font-family:var(--font-mono,monospace);white-space:nowrap"><a href="#" onclick="verNcm('${esc(r.ncm)}');return false">${esc(r.ncm_fmt || '-')}</a>${av}</td>
+      <td style="white-space:nowrap;color:var(--text-3)">${cest}</td>
+      ${celImposto(ipiCel(i))}
+      ${celImposto(iiCel(i))}
+      ${celImposto(icmsCel(i))}
+      ${celImposto(mvaCel(i))}
+      ${celImposto(benefCel(i))}
+      <td style="white-space:nowrap;color:var(--text-1)">${pcCel(i)}</td>
+      <td style="white-space:nowrap">${badge(r.confianca || 'baixa')}<br><span style="font-size:.72em;color:var(--text-3)">${nomeFonte(r.fonte)}</span></td>
+    </tr>`;
+  }).join('');
+  const uf = esc(getUf());
+  return `<div class="tbl-wrap"><table><thead><tr>
+      <th>Entrada</th><th>NCM</th><th>CEST</th>
+      <th style="text-align:right">IPI</th><th style="text-align:right">II</th><th style="text-align:right">ICMS (${uf})</th><th style="text-align:right">MVA-ST</th><th style="text-align:right">Benef.</th>
+      <th>PIS/COFINS</th><th>Confiança</th>
+    </tr></thead><tbody>${linhas}</tbody></table></div>
+    <small style="color:var(--text-3)">⚠️ = código fora da base vigente ou confiança baixa. IPI/II oficiais · ICMS interno (${uf}, FCP embutido) · MVA-ST: número=MVA interna, 'ST'=sujeito mas MVA no convênio, 'não'=fora da ST, '—'=UF sem fonte · PIS/COFINS = regime especial.</small>`;
+}
+
+function exportarLote() {
+  const ipiCsv = (r) => !r.impostos || !r.impostos.ipi ? '' : (r.impostos.ipi.nt ? 'NT' : r.impostos.ipi.aliquota);
+  const i = (r) => r.impostos || {};
+  const head = ['entrada', 'ncm', 'descricao', 'cest', 'uf', 'ipi', 'ii', 'icms_interno', 'icms_st_mva', 'icms_st_aliq_interna', 'beneficio_tipo', 'beneficio_carga_efetiva', 'beneficio_reducao_pp', 'pis_cofins_regime', 'pis', 'cofins', 'confianca', 'fonte', 'ncm_valido'];
+  const rows = [head].concat(__ultimoLote.map((r) => [
+    r.entrada, r.ncm_fmt || '', r.ncm_descricao || '',
+    (r.cest || []).map((c) => c.cest_fmt).join(' '),
+    i(r).uf || getUf(),
+    ipiCsv(r), i(r).ii ? i(r).ii.aliquota : '',
+    i(r).icms ? i(r).icms.aliquota_interna : '',
+    i(r).icms_st && i(r).icms_st.tem_st && i(r).icms_st.mva_original != null ? i(r).icms_st.mva_original : '',
+    i(r).icms_st && i(r).icms_st.aliquota_interna != null ? i(r).icms_st.aliquota_interna : '',
+    i(r).beneficio ? i(r).beneficio.tipo : '',
+    i(r).beneficio && i(r).beneficio.carga_efetiva != null ? i(r).beneficio.carga_efetiva : '',
+    i(r).beneficio && i(r).beneficio.reducao_pp != null ? i(r).beneficio.reducao_pp : '',
+    i(r).pis_cofins ? i(r).pis_cofins.regime : '',
+    i(r).pis_cofins && i(r).pis_cofins.pis != null ? i(r).pis_cofins.pis : '',
+    i(r).pis_cofins && i(r).pis_cofins.cofins != null ? i(r).pis_cofins.cofins : '',
+    r.confianca || '', nomeFonte(r.fonte), r.ncm_valido === false ? 'NAO' : 'sim',
+  ]));
+  const csv = rows.map((r) => r.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'classificacao-fiscal.csv';
+  a.click();
+}
+
+function renderLote(html) { $('saidaLote').innerHTML = html; }
+</script>
+</body>
+</html>

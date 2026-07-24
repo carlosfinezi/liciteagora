@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sugestão de Compra · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Sugestão de Compra</h1>
+      <small>Produtos com disponível abaixo do ponto de reposição</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/estoque/estoque.html" style="text-decoration:none;">← Estoque</a>
+      <a class="btn btn-secondary btn-sm" href="/compras/pedidos.html" style="text-decoration:none;">Pedidos de compra</a>
+      <button class="btn btn-primary btn-sm" onclick="gerarPedidos()">Gerar pedido(s) selecionados</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <!-- ============ SEÇÃO: OPORTUNIDADES DE MERCADO ============ -->
+  <!-- Lista modelos com alta demanda em licitações públicas (vide /operacional/inteligencia.html). -->
+  <div id="mercadoSection" style="display:none;margin-bottom:30px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <h2 style="margin:0;font-size:1.1em;color:var(--text-1);">🎯 Oportunidades de Mercado</h2>
+      <span style="color:var(--text-3);font-size:13px;" id="mercadoSub">tamanho potencial de mercado · baseado em demanda de licitações públicas (homologado + estimativa do edital)</span>
+    </div>
+
+    <div class="alert" id="syncWarning" style="display:none;background:rgba(255,183,77,0.12);border-left:3px solid #ffb74d;color:#ffb74d;padding:10px 14px;margin-bottom:14px;border-radius:4px;font-size:13px;">
+      ⚠️ <strong>Sync histórico em andamento</strong> — dados de 2022-2025 ainda incompletos (cobertura parcial). Volume mensal recente (2026) é confiável; meses anteriores serão atualizados conforme sync conclui.
+    </div>
+
+    <div class="kpi-grid" id="kpisMercado" style="margin-bottom:14px;"></div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Modelo</th>
+          <th style="text-align:right;">Pedidos</th>
+          <th style="text-align:right;">Vendidos</th>
+          <th style="text-align:right;">Taxa venda</th>
+          <th style="text-align:right;">Ticket médio</th>
+          <th style="text-align:right;">Total vendido</th>
+          <th style="text-align:right;">UFs</th>
+          <th>Tendência (6m)</th>
+          <th style="text-align:right;">Score</th>
+          <th>Decisão</th>
+        </tr></thead>
+        <tbody id="tbMercado"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ SEÇÃO: REPOSIÇÃO DE ESTOQUE (existente) ============ -->
+  <div style="margin-bottom:14px;">
+    <h2 style="margin:0;font-size:1.1em;color:var(--text-1);">📦 Reposição de Estoque</h2>
+    <span style="color:var(--text-3);font-size:13px;">produtos cadastrados com saldo abaixo do ponto de reposição</span>
+  </div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);">
+      <input type="checkbox" id="checkTodos" onchange="toggleTodos()"> Selecionar todos
+    </label>
+    <input type="text" id="filtQ" placeholder="Filtrar por SKU ou descrição…" oninput="debounce(renderItens)" style="flex:1;min-width:220px;">
+    <select id="filtFornec" onchange="renderItens()">
+      <option value="">Todos fornecedores</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th style="width:32px;"></th>
+        <th>SKU</th><th>Descrição</th>
+        <th style="text-align:right;">Disponível</th>
+        <th style="text-align:right;">Limite</th>
+        <th style="text-align:right;">Consumo diário</th>
+        <th style="text-align:right;">Qtd sugerida</th>
+        <th style="text-align:right;">Cobertura proj.</th>
+        <th style="text-align:right;">Custo estimado</th>
+        <th>Fornecedor</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('compras-sugestao');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtInt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn, 300); }
+
+let itensCache = [];
+
+async function carregar(){
+  const r=await fetch('/api/compras/sugestao');
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  itensCache = d.itens;
+
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi warn"><div class="label">Itens para comprar</div><div class="value">${d.resumo.totalItens}</div></div>
+    <div class="kpi"><div class="label">Custo total estimado</div><div class="value">R$ ${fmt(d.resumo.custoTotalEstimado)}</div></div>
+    <div class="kpi success"><div class="label">Fornecedores</div><div class="value">${d.resumo.fornecedoresDistintos}</div></div>
+  `;
+
+  // Popula select de fornecedores
+  const fornecs = [...new Map(itensCache.filter(i=>i.fornecedorId).map(i=>[i.fornecedorId,i.fornecedorNome])).entries()];
+  document.getElementById('filtFornec').innerHTML = '<option value="">Todos fornecedores</option>' +
+    fornecs.map(([id,nome])=>`<option value="${id}">${nome}</option>`).join('');
+
+  renderItens();
+}
+
+function renderItens(){
+  const q = document.getElementById('filtQ').value.toLowerCase();
+  const fornec = document.getElementById('filtFornec').value;
+  const itens = itensCache.filter(i => {
+    if (q && !((i.sku||'').toLowerCase().includes(q) || (i.descricao||'').toLowerCase().includes(q))) return false;
+    if (fornec && String(i.fornecedorId||'') !== fornec) return false;
+    return true;
+  });
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = itens.length ? itens.map(i=>{
+    const cobertura = i.coberturaProjetadaDias != null ? `${fmt(i.coberturaProjetadaDias)}d` : '—';
+    return `<tr>
+      <td><input type="checkbox" class="check-item" data-id="${i.id}" data-fornec="${i.fornecedorId||''}"
+                 data-qtd="${i.quantidadeSugerida}" data-custo="${i.custoMedio||i.precoCusto||0}"></td>
+      <td class="mono">${i.sku}</td>
+      <td>${i.descricao}</td>
+      <td style="text-align:right;color:var(--danger);font-weight:700;">${fmt(i.disponivel)}</td>
+      <td style="text-align:right;color:var(--text-2);">${fmt(i.limite)}</td>
+      <td style="text-align:right;">${fmt(i.consumoDiarioMedio)}</td>
+      <td style="text-align:right;font-weight:600;">
+        <input type="number" class="qtd-input" value="${i.quantidadeSugerida}" step="0.01" data-id="${i.id}"
+               style="width:90px;text-align:right;font-weight:600;" onchange="atualizarCusto(${i.id})">
+      </td>
+      <td style="text-align:right;">${cobertura}</td>
+      <td style="text-align:right;" id="custoEst-${i.id}">R$ ${fmt(i.custoSugerido)}</td>
+      <td>${i.fornecedorNome||'<span class="muted">—</span>'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="10" class="empty">Nenhum produto precisa ser comprado 🎉</td></tr>';
+}
+
+function atualizarCusto(id){
+  const inp = document.querySelector(`.qtd-input[data-id="${id}"]`);
+  const qtd = Number(inp.value) || 0;
+  const item = itensCache.find(i => i.id === id);
+  if (!item) return;
+  const custoUnit = item.custoMedio || item.precoCusto || 0;
+  document.getElementById('custoEst-'+id).textContent = 'R$ ' + fmt(qtd * custoUnit);
+}
+
+function toggleTodos(){
+  const check = document.getElementById('checkTodos').checked;
+  document.querySelectorAll('.check-item').forEach(c => c.checked = check);
+}
+
+async function gerarPedidos(){
+  const checks = document.querySelectorAll('.check-item:checked');
+  if (!checks.length) return showAlert('Selecione ao menos um item', 'error');
+
+  // Agrupar por fornecedor (1 pedido por fornecedor)
+  const grupos = {};
+  for (const c of checks) {
+    const id = Number(c.dataset.id);
+    const fornec = c.dataset.fornec || '0';  // '0' = sem fornecedor
+    const qtdInp = document.querySelector(`.qtd-input[data-id="${id}"]`);
+    const qtd = Number(qtdInp.value) || 0;
+    if (qtd <= 0) continue;
+    const item = itensCache.find(i => i.id === id);
+    if (!item) continue;
+    if (!grupos[fornec]) grupos[fornec] = { fornecedorId: fornec==='0' ? null : Number(fornec), itens: [] };
+    grupos[fornec].itens.push({
+      produtoId: item.id,
+      quantidade: qtd,
+      custoUnitario: item.custoMedio || item.precoCusto || 0,
+      observacoes: `Sugestão: disponível ${fmt(item.disponivel)} / limite ${fmt(item.limite)}`
+    });
+  }
+
+  const gruposArr = Object.values(grupos);
+  if (!gruposArr.length) return showAlert('Nenhum item válido selecionado','error');
+
+  if (!confirm(`Gerar ${gruposArr.length} pedido(s) de compra com um total de ${checks.length} item(ns)?`)) return;
+
+  const criados = [];
+  for (const g of gruposArr) {
+    try {
+      const r = await fetch('/api/pedidos-compra', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          fornecedorId: g.fornecedorId,
+          observacoes: 'Gerado automaticamente pela sugestão de compra',
+          itens: g.itens
+        })
+      });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error);
+      criados.push(d.pedido.numero);
+    } catch(e){
+      showAlert(`Erro no grupo: ${e.message}`, 'error');
+      return;
+    }
+  }
+
+  showAlert(`${criados.length} pedido(s) criado(s): ${criados.join(', ')}`);
+  setTimeout(() => window.location.href = '/compras/pedidos.html', 1500);
+}
+
+// ============ Oportunidades de Mercado ============
+// Carrega ranking de modelos demandados em licitações públicas (vide
+// /api/compras/sugestao-mercado). Permite querystring ?grupoId=N&marca=X
+// para customizar por tenant. Default: grupoId=14 (APENAS NAS do 1bit), marca=TerraMaster.
+async function carregarMercado() {
+  const qs = new URLSearchParams(location.search);
+  const grupoId = qs.get('grupoId') || '14';
+  const marca = qs.get('marca') || 'TerraMaster';
+  try {
+    const r = await fetch(`/api/compras/sugestao-mercado?grupoId=${grupoId}&marca=${encodeURIComponent(marca)}`);
+    const d = await r.json();
+    if (!d.success) return;  // silencioso — não tem dados pra esse grupo+marca
+    if (!d.oportunidades || d.oportunidades.length === 0) return;
+
+    document.getElementById('mercadoSection').style.display = 'block';
+    document.getElementById('mercadoSub').textContent = `marca: ${d.marca} · ${d.oportunidades.length} modelos analisados`;
+    document.getElementById('syncWarning').style.display = 'block';
+
+    const res = d.resumo;
+    document.getElementById('kpisMercado').innerHTML = `
+      <div class="kpi success"><div class="label">🟢 Estocar</div><div class="value">${res.estocar}</div></div>
+      <div class="kpi warn"><div class="label">🟡 Sob demanda</div><div class="value">${res.sobDemanda}</div></div>
+      <div class="kpi"><div class="label">🔴 Evitar</div><div class="value">${res.evitar}</div></div>
+      <div class="kpi"><div class="label">Mercado total vendido</div><div class="value">R$ ${fmt(res.valorMercadoTotal)}</div></div>
+    `;
+
+    const tb = document.getElementById('tbMercado');
+    tb.innerHTML = d.oportunidades.map(o => {
+      const cor = o.decisao === 'ESTOCAR' ? 'var(--success)' : o.decisao === 'SOB_DEMANDA' ? '#ffb74d' : '#ef5350';
+      const icone = o.decisao === 'ESTOCAR' ? '🟢' : o.decisao === 'SOB_DEMANDA' ? '🟡' : '🔴';
+      const decisaoLabel = o.decisao === 'SOB_DEMANDA' ? 'SOB DEMANDA' : o.decisao;
+      return `<tr>
+        <td><strong>${o.modelo}</strong><div style="color:var(--text-3);font-size:11px">UFs: ${(o.topUFs||[]).join(', ')}</div></td>
+        <td style="text-align:right">${o.pedidos}</td>
+        <td style="text-align:right">${o.vendidos}</td>
+        <td style="text-align:right">${o.taxaVendaPct}%</td>
+        <td style="text-align:right">R$ ${fmt(o.ticketMedio)}</td>
+        <td style="text-align:right">R$ ${fmt(o.totalVendido)}</td>
+        <td style="text-align:right">${o.capilaridade}</td>
+        <td>${sparkline(o.historicoMensal, o.mesesLabels)}</td>
+        <td style="text-align:right"><strong style="color:${cor}">${o.score}</strong></td>
+        <td><span style="color:${cor};font-weight:600;font-size:12px">${icone} ${decisaoLabel}</span></td>
+      </tr>`;
+    }).join('');
+}
+
+// Sparkline SVG: barras dos últimos 6 meses. Tooltip mostra valor exato por mês.
+// Última barra (mês corrente) destacada em cor de acento.
+function sparkline(valores, labels) {
+  if (!valores || valores.length === 0) return '<span style="color:var(--text-3);font-size:11px">-</span>';
+  const max = Math.max(...valores, 1);
+  const W = 90, H = 24, gap = 2;
+  const bw = (W - gap * (valores.length - 1)) / valores.length;
+  const total = valores.reduce((a,b) => a+b, 0);
+  const tooltip = labels.map((m, i) => `${m}: ${valores[i]}`).join(' · ');
+  const bars = valores.map((v, i) => {
+    const h = (v / max) * H;
+    const x = i * (bw + gap);
+    const y = H - h;
+    const cor = i === valores.length - 1 ? 'var(--accent)' : 'var(--text-3)';
+    return `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${cor}" rx="1"/>`;
+  }).join('');
+  return `<div style="display:flex;align-items:center;gap:6px" title="${tooltip}">
+    <svg width="${W}" height="${H}" style="display:block">${bars}</svg>
+    <span style="color:var(--text-3);font-size:10px;white-space:nowrap">${total} em 6m</span>
+  </div>`;
+  } catch (e) { /* silencioso */ }
+}
+
+carregar();
+carregarMercado();
+</script>
+</body></html>

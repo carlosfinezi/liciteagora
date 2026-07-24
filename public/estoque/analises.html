@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análises de Estoque · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Gráfico de barras simples em SVG */
+  .chart-wrap { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 20px; margin-bottom: 16px; }
+  .chart-wrap h3 { font-size: 0.95em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
+  .evolucao-svg { width: 100%; height: 240px; }
+  .evolucao-svg .bar { fill: var(--accent); transition: fill 0.15s; }
+  .evolucao-svg .bar:hover { fill: var(--accent-strong); }
+  .evolucao-svg .grid { stroke: var(--border); stroke-width: 1; }
+  .evolucao-svg .label { fill: var(--text-2); font-size: 10px; font-family: inherit; }
+  .abc-barra {
+    height: 16px; background: var(--bg-3); border-radius: 999px; overflow: hidden;
+    display: flex;
+  }
+  .abc-barra .seg-a { background: var(--success); }
+  .abc-barra .seg-b { background: var(--warn); }
+  .abc-barra .seg-c { background: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Análises de Estoque</h1>
+      <small>Valorização, curva ABC, giro e CMV</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/estoque/estoque.html" style="text-decoration:none;">← Estoque</a>
+      <select id="periodoMeses" onchange="recarregar()" style="width:auto;">
+        <option value="3">Últimos 3 meses</option>
+        <option value="6">Últimos 6 meses</option>
+        <option value="12" selected>Últimos 12 meses</option>
+        <option value="24">Últimos 24 meses</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="valorizacao" onclick="switchTab('valorizacao')">Valorização</button>
+    <button class="tab" data-tab="abc" onclick="switchTab('abc')">Curva ABC</button>
+    <button class="tab" data-tab="giro" onclick="switchTab('giro')">Giro & Cobertura</button>
+    <button class="tab" data-tab="cmv" onclick="switchTab('cmv')">CMV</button>
+  </div>
+
+  <!-- ============= VALORIZAÇÃO ============= -->
+  <div class="tab-content" id="tab-valorizacao">
+    <div class="kpi-grid" id="kpisVal"></div>
+
+    <div class="chart-wrap">
+      <h3>Evolução do valor do estoque</h3>
+      <svg class="evolucao-svg" id="svgEvol" viewBox="0 0 800 240" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="chart-wrap">
+      <h3>Top 10 produtos por valor de estoque</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>SKU</th><th>Descrição</th>
+            <th style="text-align:right;">Saldo</th>
+            <th style="text-align:right;">Custo médio</th>
+            <th style="text-align:right;">Valor</th>
+            <th style="text-align:right;">% do total</th>
+          </tr></thead>
+          <tbody id="tbValTop"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= ABC ============= -->
+  <div class="tab-content" id="tab-abc" style="display:none;">
+    <div class="kpi-grid" id="kpisAbc"></div>
+
+    <div class="chart-wrap">
+      <h3>Distribuição A / B / C</h3>
+      <div class="abc-barra" id="abcBarra"></div>
+      <small class="muted" style="display:block;margin-top:8px;" id="abcLegenda"></small>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Classe</th><th>SKU</th><th>Descrição</th>
+          <th style="text-align:right;">Qtd saída</th>
+          <th style="text-align:right;">Valor saída</th>
+          <th style="text-align:right;">% periodo</th>
+          <th style="text-align:right;">% acum.</th>
+        </tr></thead>
+        <tbody id="tbAbc"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============= GIRO ============= -->
+  <div class="tab-content" id="tab-giro" style="display:none;">
+    <div class="kpi-grid" id="kpisGiro"></div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>SKU</th><th>Descrição</th>
+          <th style="text-align:right;">Saldo atual</th>
+          <th style="text-align:right;">Saída período</th>
+          <th style="text-align:right;">Giro</th>
+          <th style="text-align:right;">Cobertura (dias)</th>
+          <th style="text-align:right;">Últ. saída</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody id="tbGiro"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============= CMV ============= -->
+  <div class="tab-content" id="tab-cmv" style="display:none;">
+    <div class="toolbar">
+      <label style="color:var(--text-2);font-size:0.85em;">De</label>
+      <input type="date" id="cmvInicio" onchange="carregarCmv()" style="width:auto;">
+      <label style="color:var(--text-2);font-size:0.85em;">até</label>
+      <input type="date" id="cmvFim" onchange="carregarCmv()" style="width:auto;">
+    </div>
+
+    <div class="kpi-grid" id="kpisCmv"></div>
+
+    <div class="chart-wrap">
+      <h3>CMV por mês</h3>
+      <svg class="evolucao-svg" id="svgCmv" viewBox="0 0 800 240" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="chart-wrap">
+      <h3>CMV por produto</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>SKU</th><th>Descrição</th>
+            <th style="text-align:right;">Qtd vendida</th>
+            <th style="text-align:right;">CMV</th>
+            <th style="text-align:right;">% do total</th>
+          </tr></thead>
+          <tbody id="tbCmv"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('estoque-analises');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtInt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'); }
+
+function switchTab(t){
+  document.querySelectorAll('.tab-content').forEach(x=>x.style.display='none');
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.getElementById('tab-'+t).style.display='';
+  document.querySelector(`.tab[data-tab="${t}"]`).classList.add('active');
+  if (t==='valorizacao' && !dadosCarregados.valorizacao) carregarValorizacao();
+  if (t==='abc' && !dadosCarregados.abc) carregarAbc();
+  if (t==='giro' && !dadosCarregados.giro) carregarGiro();
+  if (t==='cmv' && !dadosCarregados.cmv) carregarCmv();
+}
+
+const dadosCarregados = { valorizacao: false, abc: false, giro: false, cmv: false };
+
+function getMeses(){ return Number(document.getElementById('periodoMeses').value) || 12; }
+
+function recarregar(){
+  Object.keys(dadosCarregados).forEach(k => dadosCarregados[k] = false);
+  const atual = document.querySelector('.tab.active')?.dataset.tab || 'valorizacao';
+  switchTab(atual);
+}
+
+// ======== VALORIZAÇÃO ========
+
+async function carregarValorizacao(){
+  const [vr, ev] = await Promise.all([
+    fetch('/api/estoque/valorizacao').then(r=>r.json()),
+    fetch('/api/estoque/evolucao-valor?meses='+getMeses()).then(r=>r.json())
+  ]);
+  if (!vr.success) return showAlert(vr.error,'error');
+
+  document.getElementById('kpisVal').innerHTML = `
+    <div class="kpi"><div class="label">Valor total do estoque</div><div class="value">R$ ${fmt(vr.valorTotal)}</div></div>
+    <div class="kpi success"><div class="label">Produtos com saldo</div><div class="value">${fmtInt(vr.produtosComSaldo)}</div></div>
+    <div class="kpi"><div class="label">Produtos ativos</div><div class="value">${fmtInt(vr.qtdProdutos)}</div></div>
+    <div class="kpi warn"><div class="label">Top 10 representam</div><div class="value">R$ ${fmt(vr.top10.reduce((s,i)=>s+i.valor,0))}</div></div>
+  `;
+
+  // Tabela Top 10
+  document.getElementById('tbValTop').innerHTML = vr.top10.map(i => {
+    const pct = vr.valorTotal > 0 ? (i.valor / vr.valorTotal * 100) : 0;
+    return `<tr>
+      <td class="mono">${i.sku}</td>
+      <td>${i.descricao}</td>
+      <td style="text-align:right;">${fmt(i.saldo)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.custoMedio)}</td>
+      <td style="text-align:right;font-weight:600;">R$ ${fmt(i.valor)}</td>
+      <td style="text-align:right;">${fmt(pct)}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty">Sem produtos com saldo</td></tr>';
+
+  // SVG evolução
+  renderBarsSvg('svgEvol', ev.pontos || [], p => p.valor, p => p.mes, v => 'R$ ' + fmt(v));
+
+  dadosCarregados.valorizacao = true;
+}
+
+function renderBarsSvg(svgId, pontos, getY, getLabel, fmtY){
+  const svg = document.getElementById(svgId);
+  if (!pontos || !pontos.length) { svg.innerHTML = '<text x="400" y="120" text-anchor="middle" class="label" fill="#94a3b8">Sem dados</text>'; return; }
+  const W = 800, H = 240, pad = 40;
+  const max = Math.max(...pontos.map(getY), 1);
+  const barW = (W - 2*pad) / pontos.length;
+  let html = '';
+  // Grid horizontal
+  for (let i = 0; i <= 4; i++) {
+    const y = pad + (H - 2*pad) * i / 4;
+    const val = max * (1 - i/4);
+    html += `<line class="grid" x1="${pad}" y1="${y}" x2="${W-pad}" y2="${y}"/>`;
+    html += `<text class="label" x="${pad-5}" y="${y+3}" text-anchor="end">${fmtY(val)}</text>`;
+  }
+  pontos.forEach((p, idx) => {
+    const v = getY(p);
+    const bh = (H - 2*pad) * (v / max);
+    const x = pad + barW * idx + 6;
+    const y = H - pad - bh;
+    html += `<rect class="bar" x="${x}" y="${y}" width="${barW - 12}" height="${bh}">
+      <title>${getLabel(p)}: ${fmtY(v)}</title>
+    </rect>`;
+    html += `<text class="label" x="${x + (barW-12)/2}" y="${H - pad + 14}" text-anchor="middle">${getLabel(p)}</text>`;
+  });
+  svg.innerHTML = html;
+}
+
+// ======== ABC ========
+
+async function carregarAbc(){
+  const r = await fetch('/api/estoque/abc?meses='+getMeses());
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+
+  document.getElementById('kpisAbc').innerHTML = `
+    <div class="kpi success"><div class="label">Classe A (80% valor)</div><div class="value">${d.resumo.A.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.A.valor)}</small></div>
+    <div class="kpi warn"><div class="label">Classe B (15% valor)</div><div class="value">${d.resumo.B.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.B.valor)}</small></div>
+    <div class="kpi"><div class="label">Classe C (5% valor)</div><div class="value">${d.resumo.C.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.C.valor)}</small></div>
+    <div class="kpi danger"><div class="label">Total movimentado</div><div class="value">R$ ${fmt(d.valorTotal)}</div><small class="muted">${d.totalItens} produtos</small></div>
+  `;
+
+  // Barra de distribuição por qtd de itens
+  const total = d.totalItens || 1;
+  document.getElementById('abcBarra').innerHTML = `
+    <div class="seg-a" style="width:${100*d.resumo.A.itens/total}%;" title="A: ${d.resumo.A.itens} itens"></div>
+    <div class="seg-b" style="width:${100*d.resumo.B.itens/total}%;" title="B: ${d.resumo.B.itens} itens"></div>
+    <div class="seg-c" style="width:${100*d.resumo.C.itens/total}%;" title="C: ${d.resumo.C.itens} itens"></div>
+  `;
+  document.getElementById('abcLegenda').textContent = `A (verde): alta importância — ${d.resumo.A.itens} itens. B (âmbar): média — ${d.resumo.B.itens}. C (cinza): baixa — ${d.resumo.C.itens}. Ordenado por valor de saída no período.`;
+
+  // Tabela
+  document.getElementById('tbAbc').innerHTML = d.itens.map(i => `
+    <tr>
+      <td><span class="badge ${i.classe==='A'?'entregue':i.classe==='B'?'em_separacao':'inativo'}">${i.classe}</span></td>
+      <td class="mono">${i.sku}</td>
+      <td>${i.descricao}</td>
+      <td style="text-align:right;">${fmt(i.qtdSaida)}</td>
+      <td style="text-align:right;font-weight:600;">R$ ${fmt(i.valorSaida)}</td>
+      <td style="text-align:right;">${fmt(i.percentual)}%</td>
+      <td style="text-align:right;color:var(--text-2);">${fmt(i.percentualAcumulado)}%</td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">Sem saídas no período</td></tr>';
+
+  dadosCarregados.abc = true;
+}
+
+// ======== GIRO ========
+
+async function carregarGiro(){
+  const r = await fetch('/api/estoque/giro?meses='+getMeses());
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+
+  document.getElementById('kpisGiro').innerHTML = `
+    <div class="kpi"><div class="label">Produtos com saldo</div><div class="value">${d.resumo.comSaldo}</div></div>
+    <div class="kpi warn"><div class="label">Parados (&gt; 90d sem saída)</div><div class="value">${d.resumo.parados}</div><small class="muted">R$ ${fmt(d.resumo.valorParado)} em estoque</small></div>
+    <div class="kpi danger"><div class="label">Cobertura ≤ 30 dias</div><div class="value">${d.resumo.cobertura30dias}</div></div>
+    <div class="kpi"><div class="label">Sem estoque com saída</div><div class="value">${d.resumo.semCobertura}</div></div>
+  `;
+
+  document.getElementById('tbGiro').innerHTML = d.itens.map(i => {
+    let status, statusClass;
+    if (i.saldoAtual <= 0 && i.qtdSaidaPeriodo > 0) { status = 'SEM ESTOQUE'; statusClass = 'cancelado'; }
+    else if (i.parado) { status = 'PARADO'; statusClass = 'inativo'; }
+    else if (i.coberturaDias != null && i.coberturaDias <= 30) { status = 'CRÍTICO'; statusClass = 'vencida'; }
+    else if (i.coberturaDias != null && i.coberturaDias <= 60) { status = 'ATENÇÃO'; statusClass = 'em_separacao'; }
+    else { status = 'OK'; statusClass = 'entregue'; }
+    return `<tr>
+      <td class="mono">${i.sku}</td>
+      <td>${i.descricao}</td>
+      <td style="text-align:right;">${fmt(i.saldoAtual)}</td>
+      <td style="text-align:right;">${fmt(i.qtdSaidaPeriodo)}</td>
+      <td style="text-align:right;">${i.giro != null ? fmt(i.giro) : '—'}</td>
+      <td style="text-align:right;">${i.coberturaDias != null ? fmt(i.coberturaDias) : '—'}</td>
+      <td style="text-align:right;color:var(--text-2);">${i.diasSemSaida != null ? i.diasSemSaida + 'd' : '—'}</td>
+      <td><span class="badge ${statusClass}">${status}</span></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="8" class="empty">Sem produtos ativos</td></tr>';
+
+  dadosCarregados.giro = true;
+}
+
+// ======== CMV ========
+
+async function carregarCmv(){
+  // Default: mês atual
+  let inicio = document.getElementById('cmvInicio').value;
+  let fim = document.getElementById('cmvFim').value;
+  if (!inicio || !fim) {
+    const now = new Date();
+    const primeiroDia = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    const ultimoDia = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().slice(0,10);
+    inicio = inicio || primeiroDia;
+    fim = fim || ultimoDia;
+    document.getElementById('cmvInicio').value = inicio;
+    document.getElementById('cmvFim').value = fim;
+  }
+
+  const r = await fetch(`/api/estoque/cmv?inicio=${inicio}&fim=${fim}`);
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+
+  document.getElementById('kpisCmv').innerHTML = `
+    <div class="kpi"><div class="label">CMV total</div><div class="value">R$ ${fmt(d.cmvTotal)}</div><small class="muted">${inicio} a ${fim}</small></div>
+    <div class="kpi"><div class="label">Quantidade vendida</div><div class="value">${fmt(d.qtdTotal)}</div></div>
+    <div class="kpi success"><div class="label">Produtos distintos</div><div class="value">${d.produtos}</div></div>
+  `;
+
+  // SVG por mês
+  renderBarsSvg('svgCmv', d.porMes || [], p => p.cmv, p => p.mes, v => 'R$ ' + fmt(v));
+
+  document.getElementById('tbCmv').innerHTML = d.porProduto.map(p => {
+    const pct = d.cmvTotal > 0 ? (p.cmv / d.cmvTotal * 100) : 0;
+    return `<tr>
+      <td class="mono">${p.sku}</td>
+      <td>${p.descricao}</td>
+      <td style="text-align:right;">${fmt(p.qtdSaida)}</td>
+      <td style="text-align:right;font-weight:600;">R$ ${fmt(p.cmv)}</td>
+      <td style="text-align:right;">${fmt(pct)}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty">Sem saídas no período</td></tr>';
+
+  dadosCarregados.cmv = true;
+}
+
+// Inicial
+carregarValorizacao();
+</script>
+</body></html>

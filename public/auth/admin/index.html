@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Tenants</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0b1120;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+    header {
+      background: #111827;
+      border-bottom: 1px solid #1e293b;
+      padding: 16px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 { font-size: 17px; font-weight: 600; color: #f1f5f9; }
+    header .meta { color: #94a3b8; font-size: 13px; }
+    header a.logout {
+      color: #f87171; text-decoration: none; font-size: 13px;
+      padding: 6px 12px; border: 1px solid #7f1d1d60; border-radius: 6px;
+      margin-left: 16px;
+    }
+    header a.logout:hover { background: #7f1d1d20; }
+    main { max-width: 1200px; margin: 0 auto; padding: 28px; }
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+    button.primary {
+      background: #3b82f6; color: white; border: none;
+      padding: 9px 18px; border-radius: 6px; font-size: 13px;
+      font-weight: 600; cursor: pointer;
+    }
+    button.primary:hover { background: #2563eb; }
+    button.ghost {
+      background: transparent; color: #cbd5e1;
+      border: 1px solid #334155; padding: 6px 12px;
+      border-radius: 6px; font-size: 12px; cursor: pointer;
+    }
+    button.ghost:hover { background: #1e293b; }
+    button.danger {
+      background: transparent; color: #fca5a5;
+      border: 1px solid #7f1d1d; padding: 6px 12px;
+      border-radius: 6px; font-size: 12px; cursor: pointer;
+    }
+    button.danger:hover { background: #7f1d1d20; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #111827;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e293b;
+      font-size: 13px;
+    }
+    th {
+      background: #0f172a;
+      color: #94a3b8;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    td { color: #e2e8f0; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #0f172a40; }
+    .slug { font-family: 'SF Mono', Monaco, monospace; font-weight: 600; color: #60a5fa; }
+    .status {
+      display: inline-block; padding: 2px 10px; border-radius: 12px;
+      font-size: 11px; font-weight: 600;
+    }
+    .status.ACTIVE { background: rgba(52,211,153,0.15); color: #34d399; }
+    .status.TRIAL { background: rgba(96,165,250,0.15); color: #60a5fa; }
+    .status.OVERDUE { background: rgba(251,146,60,0.15); color: #fb923c; }
+    .status.SUSPENDED { background: rgba(239,68,68,0.15); color: #fca5a5; }
+    .status.CANCELLED { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    .venc-ok { color: #34d399; font-size: 12px; }
+    .venc-soon { color: #fbbf24; font-size: 12px; font-weight: 600; }
+    .venc-overdue { color: #fb923c; font-size: 12px; font-weight: 600; }
+    .venc-suspended { color: #fca5a5; font-size: 12px; font-weight: 600; }
+    .venc-vitalicio { color: #94a3b8; font-size: 12px; }
+    .venc-none { color: #64748b; font-size: 12px; }
+    .plano-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 12px;
+      font-size: 11px; font-weight: 500;
+      background: rgba(96,165,250,0.10); color: #93c5fd;
+    }
+    .tabs {
+      display: flex; gap: 2px; border-bottom: 1px solid #1e293b;
+      margin-bottom: 18px;
+    }
+    .tab-btn {
+      background: transparent; color: #94a3b8;
+      border: none; padding: 10px 18px; font-size: 13px;
+      font-weight: 600; cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    .tab-btn:hover { color: #e2e8f0; }
+    .tab-btn.active { color: #f1f5f9; border-bottom-color: #3b82f6; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .status.READY { background: rgba(52,211,153,0.15); color: #34d399; }
+    .status.PROVISIONING { background: rgba(251,191,36,0.15); color: #fbbf24; }
+    .status.WAITING_DNS { background: rgba(251,191,36,0.15); color: #fbbf24; }
+    .status.FAILED { background: rgba(239,68,68,0.15); color: #fca5a5; }
+    .status.NOT_STARTED { background: rgba(148,163,184,0.15); color: #94a3b8; }
+
+    /* Modal */
+    .modal-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);
+      z-index: 100; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      background: #111827; border: 1px solid #1e293b;
+      border-radius: 12px;
+      width: 100%; min-width: 460px; max-width: 640px;
+      max-height: 90vh;
+      display: flex; flex-direction: column;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid #1e293b;
+      flex-shrink: 0;
+    }
+    .modal-header h2 { font-size: 15px; color: #f1f5f9; font-weight: 600; }
+    .modal-header .subtitle { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+    .modal-body {
+      padding: 18px 24px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+    }
+    .modal-body label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; margin-bottom: 6px; }
+    .modal-body input, .modal-body select {
+      width: 100%; padding: 9px 12px;
+      border: 1px solid #334155; border-radius: 6px;
+      background: #0f172a; color: #e2e8f0; font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .modal-body input:focus, .modal-body select:focus {
+      outline: none; border-color: #3b82f6;
+    }
+    .modal-footer {
+      padding: 14px 24px;
+      border-top: 1px solid #1e293b;
+      display: flex; justify-content: flex-end; gap: 10px;
+      flex-shrink: 0;
+      background: #0c1320;
+    }
+
+    /* Feature item */
+    .feature-item {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; padding: 12px 14px;
+      border: 1px solid #1e293b; border-radius: 8px;
+      margin-bottom: 8px;
+      background: #0f172a;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .feature-item:last-child { margin-bottom: 0; }
+    .feature-item:hover { border-color: #334155; }
+    .feature-item.active { border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.05); }
+    .feature-item .info { flex: 1 1 auto; min-width: 0; }
+    .feature-item .label-name { font-weight: 600; font-size: 13px; color: #f1f5f9; }
+    .feature-item .desc { font-size: 12px; color: #94a3b8; margin-top: 3px; line-height: 1.4; }
+
+    /* Toggle switch */
+    .switch { position: relative; display: inline-block; width: 38px; height: 22px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: #334155; transition: 0.2s;
+      border-radius: 22px;
+    }
+    .switch .slider::before {
+      position: absolute; content: ""; height: 16px; width: 16px;
+      left: 3px; top: 3px;
+      background: white; transition: 0.2s;
+      border-radius: 50%;
+    }
+    .switch input:checked + .slider { background: #22c55e; }
+    .switch input:checked + .slider::before { transform: translateX(16px); }
+
+    .result {
+      margin-top: 14px; padding: 14px;
+      background: #0f172a; border: 1px solid #1e293b;
+      border-radius: 6px; font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px; white-space: pre-wrap; word-break: break-all;
+    }
+    .result .label { color: #94a3b8; }
+    .result .value { color: #34d399; font-weight: 600; }
+
+    .empty { text-align: center; padding: 60px 20px; color: #94a3b8; }
+    .features-loading { text-align: center; padding: 40px 20px; color: #64748b; font-size: 13px; }
+
+    /* Dropdown actions menu */
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-trigger {
+      background: transparent; color: #cbd5e1;
+      border: 1px solid #334155; padding: 6px 14px;
+      border-radius: 6px; font-size: 12px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .dropdown-trigger:hover { background: #1e293b; border-color: #475569; }
+    .dropdown-menu {
+      display: none;
+      background: #111827; border: 1px solid #1e293b;
+      border-radius: 8px; padding: 5px; min-width: 200px;
+      box-shadow: 0 10px 25px -8px rgba(0,0,0,0.6);
+      z-index: 200;
+    }
+    .dropdown.open .dropdown-menu { display: block; }
+    .dropdown-menu button {
+      display: block; width: 100%; text-align: left;
+      background: transparent; color: #cbd5e1;
+      border: none; padding: 8px 12px;
+      border-radius: 4px; font-size: 12px; cursor: pointer;
+    }
+    .dropdown-menu button:hover { background: #1e293b; color: #f1f5f9; }
+    .dropdown-menu button.danger { color: #fca5a5; }
+    .dropdown-menu button.danger:hover { background: #7f1d1d20; }
+    .dropdown-menu button.success { color: #34d399; }
+    .dropdown-menu button.success:hover { background: rgba(52,211,153,0.08); }
+    .dropdown-menu .divider { height: 1px; background: #1e293b; margin: 5px 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Licite Agora — Control Plane</h1>
+    <div>
+      <span class="meta" id="meEmail">…</span>
+      <a class="logout" href="#" id="logoutBtn">Sair</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="tenants" onclick="openTab('tenants')">Tenants</button>
+      <button class="tab-btn" data-tab="planos" onclick="openTab('planos')">Planos</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-tenants">
+      <div class="actions">
+        <div></div>
+        <div style="display:flex;gap:8px;">
+          <button class="ghost" onclick="rodarExpiryCheck()" title="Aplica regras de vencimento agora (sem esperar 03:00)">↻ Expiry check</button>
+          <button class="primary" onclick="openCreate()">+ Novo tenant</button>
+        </div>
+      </div>
+      <table id="tenantsTable">
+        <thead>
+          <tr>
+            <th>Slug</th>
+            <th>Nome</th>
+            <th>Status</th>
+            <th>Provision</th>
+            <th>Plano</th>
+            <th>Vencimento</th>
+            <th>Owner</th>
+            <th>Módulos</th>
+            <th>Criado</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tenantsBody">
+          <tr><td colspan="10" class="empty">Carregando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tab-panel" id="tab-planos">
+      <div class="actions">
+        <h2 style="font-size: 15px; color: #cbd5e1;">Catálogo de planos</h2>
+        <button class="primary" onclick="openPlanoModal()">+ Novo plano</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Slug</th>
+            <th>Nome</th>
+            <th>Tipo</th>
+            <th>Duração</th>
+            <th>Carência</th>
+            <th>Preço</th>
+            <th>Ativo</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="planosBody">
+          <tr><td colspan="8" class="empty">Carregando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Features modal -->
+  <div class="modal-bg" id="featuresModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Módulos do tenant</h2>
+        <div class="subtitle"><span class="slug" id="featuresSlug"></span></div>
+      </div>
+      <div class="modal-body" id="featuresBody">
+        <div class="features-loading">Carregando…</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="ghost" onclick="closeFeatures()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Plano modal (criar/editar) -->
+  <div class="modal-bg" id="planoModal">
+    <div class="modal">
+      <form id="planoForm">
+        <div class="modal-header">
+          <h2 id="planoModalTitle">Novo plano</h2>
+          <div class="subtitle">Define duração, carência e tipo do ciclo</div>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="id" id="planoFormId">
+          <label>Slug *</label>
+          <input name="slug" id="planoFormSlug" required pattern="[a-z0-9-]+" placeholder="ex: mensal-99" autocomplete="off">
+
+          <label>Nome *</label>
+          <input name="nome" id="planoFormNome" required placeholder="ex: Mensal — R$ 99" autocomplete="off">
+
+          <label>Tipo *</label>
+          <select name="tipo" id="planoFormTipo" required>
+            <option value="TRIAL">Trial (período grátis)</option>
+            <option value="MENSAL">Mensal</option>
+            <option value="ANUAL">Anual</option>
+            <option value="VITALICIO">Vitalício / Interno (sem vencimento)</option>
+            <option value="CUSTOM">Custom</option>
+          </select>
+
+          <label>Duração em dias <small style="text-transform:none;color:#64748b;">(deixe vazio para vitalício)</small></label>
+          <input name="duracao_dias" id="planoFormDuracao" type="number" min="0" placeholder="ex: 30">
+
+          <label>Dias de carência</label>
+          <input name="dias_carencia" id="planoFormCarencia" type="number" min="0" value="0" placeholder="0">
+
+          <label>Preço em centavos <small style="text-transform:none;color:#64748b;">(informativo)</small></label>
+          <input name="preco_centavos" id="planoFormPreco" type="number" min="0" placeholder="ex: 9990">
+
+          <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+            <input type="checkbox" name="ativo" id="planoFormAtivo" checked style="width:auto;margin:0;">
+            Ativo (aparece na criação de tenants)
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="ghost" onclick="closePlanoModal()">Cancelar</button>
+          <button type="submit" class="primary" id="planoFormSubmit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Trocar plano de tenant -->
+  <div class="modal-bg" id="trocarPlanoModal">
+    <div class="modal">
+      <form id="trocarPlanoForm">
+        <div class="modal-header">
+          <h2>Trocar plano</h2>
+          <div class="subtitle"><span class="slug" id="trocarPlanoSlug"></span></div>
+        </div>
+        <div class="modal-body">
+          <label>Plano</label>
+          <select name="planoId" id="trocarPlanoSelect" required></select>
+          <label>Novo vencimento <small style="text-transform:none;color:#64748b;">(opcional — vazio = recalcula a partir de hoje)</small></label>
+          <input name="novoVencimento" id="trocarPlanoData" type="date">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="ghost" onclick="closeTrocarPlano()">Cancelar</button>
+          <button type="submit" class="primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Estender vencimento (override manual) -->
+  <div class="modal-bg" id="vencimentoModal">
+    <div class="modal">
+      <form id="vencimentoForm">
+        <div class="modal-header">
+          <h2>Estender vencimento</h2>
+          <div class="subtitle"><span class="slug" id="vencimentoSlug"></span></div>
+        </div>
+        <div class="modal-body">
+          <label>Nova data de vencimento</label>
+          <input name="periodoTerminaEm" id="vencimentoData" type="date" required>
+          <p style="font-size:12px;color:#94a3b8;margin-top:6px;">Override manual sem mexer em plano. Para renovar conforme o plano atual, use "Renovar" no menu.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="ghost" onclick="closeVencimentoModal()">Cancelar</button>
+          <button type="submit" class="primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create tenant modal -->
+  <div class="modal-bg" id="createModal">
+    <div class="modal">
+      <form id="createForm">
+        <div class="modal-header">
+          <h2>Criar tenant</h2>
+          <div class="subtitle">Provisionamento automático após criação</div>
+        </div>
+        <div class="modal-body">
+          <label>Slug (subdomínio) *</label>
+          <input name="slug" required pattern="[a-z0-9][a-z0-9-]{0,30}[a-z0-9]"
+                 placeholder="ex: empresaX" autocomplete="off">
+
+          <label>Nome completo *</label>
+          <input name="name" required placeholder="ex: Empresa X Ltda" autocomplete="off">
+
+          <label>Email do owner</label>
+          <input name="ownerEmail" type="email" placeholder="dono@empresa.com" autocomplete="off">
+
+          <label>Plano</label>
+          <select name="planoId" id="createPlanoSelect">
+            <option value="">— selecione —</option>
+          </select>
+          <p style="font-size:11px;color:#64748b;margin-top:-10px;margin-bottom:14px;">A duração e carência vêm do plano. Para criar planos novos, use a aba "Planos".</p>
+
+          <div class="result" id="createResult" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="ghost" onclick="closeCreate()">Cancelar</button>
+          <button type="submit" class="primary" id="createBtn">Criar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    async function api(method, path, body) {
+      const opts = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      return data;
+    }
+
+    async function init() {
+      try {
+        const me = await api('GET', '/api/admin/me');
+        document.getElementById('meEmail').textContent = me.admin.email;
+      } catch (_) {
+        window.location.href = '/admin/login.html';
+        return;
+      }
+      loadTenants();
+    }
+
+    let featuresCatalog = [];
+    let planosCache = [];
+
+    function fmtVencimento(t) {
+      if (t.status === 'SUSPENDED') return `<span class="venc-suspended">suspenso</span>`;
+      if (t.status === 'CANCELLED') return `<span class="venc-none">cancelado</span>`;
+      const venc = t.periodo_termina_em;
+      if (!venc) {
+        if (t.plano_tipo === 'VITALICIO') return `<span class="venc-vitalicio">vitalício</span>`;
+        return `<span class="venc-none">—</span>`;
+      }
+      const now = Date.now();
+      const diffDias = Math.ceil((venc - now) / 86400000);
+      const dataStr = new Date(+venc).toLocaleDateString('pt-BR');
+      if (t.status === 'OVERDUE' || diffDias < 0) {
+        const atraso = Math.abs(diffDias);
+        const carencia = t.plano_dias_carencia || 0;
+        const sufixo = t.status === 'OVERDUE'
+          ? ` (carência ${carencia}d)`
+          : '';
+        return `<span class="venc-overdue" title="${dataStr}">vencido há ${atraso}d${sufixo}</span>`;
+      }
+      if (diffDias <= 7) return `<span class="venc-soon" title="${dataStr}">vence em ${diffDias}d</span>`;
+      return `<span class="venc-ok" title="${dataStr}">vence em ${diffDias}d</span>`;
+    }
+
+    async function loadTenants() {
+      const tbody = document.getElementById('tenantsBody');
+      try {
+        const data = await api('GET', '/api/admin/tenants');
+        const tenants = data.tenants || [];
+        featuresCatalog = data.featuresCatalog || [];
+        planosCache = data.planos || [];
+        // Atualiza select de criação com planos ativos.
+        const sel = document.getElementById('createPlanoSelect');
+        if (sel) {
+          const ativos = planosCache.filter(p => p.ativo);
+          sel.innerHTML = '<option value="">— selecione —</option>' +
+            ativos.map(p => `<option value="${p.id}">${escapeHtml(p.nome)} (${escapeHtml(p.tipo)}${p.duracao_dias ? ', '+p.duracao_dias+'d' : ''})</option>`).join('');
+        }
+        if (tenants.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="10" class="empty">Nenhum tenant ainda — clique em "+ Novo tenant" para criar.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = tenants.map(t => {
+          const prov = t.provision_status || 'NOT_STARTED';
+          const needsProvAction = prov === 'FAILED' || prov === 'NOT_STARTED' || prov === 'WAITING_DNS';
+          const features = t.features || {};
+          const ativos = featuresCatalog.filter(f => features[f.key]);
+          const totalCatalog = featuresCatalog.length;
+          const tooltipFeats = ativos.length
+            ? ativos.map(f => f.label).join(', ')
+            : 'Nenhum módulo ativo — clique para configurar';
+          const featResumo = ativos.length
+            ? `<span class="status ACTIVE" title="${escapeHtml(tooltipFeats)}" style="cursor:pointer;" onclick="openFeatures('${escapeHtml(t.slug)}')">${ativos.length}${totalCatalog ? '/' + totalCatalog : ''}</span>`
+            : `<span class="meta" style="cursor:pointer;text-decoration:underline dotted;" title="${escapeHtml(tooltipFeats)}" onclick="openFeatures('${escapeHtml(t.slug)}')">—</span>`;
+          const planoLabel = t.plano_nome
+            ? `<span class="plano-badge" title="${escapeHtml(t.plano_slug || '')}">${escapeHtml(t.plano_nome)}</span>`
+            : `<span class="meta">—</span>`;
+          const renovavel = t.plano_tipo && t.plano_tipo !== 'VITALICIO';
+          return `
+          <tr>
+            <td><a class="slug" href="https://${escapeHtml(t.slug)}.liciteagora.app/" target="_blank">${escapeHtml(t.slug)}</a></td>
+            <td>${escapeHtml(t.name)}</td>
+            <td><span class="status ${escapeHtml(t.status)}">${escapeHtml(t.status)}</span></td>
+            <td>
+              <span class="status ${escapeHtml(prov)}" title="${escapeHtml(t.provision_message || '')}">${escapeHtml(prov)}</span>
+              ${needsProvAction ? `<button class="ghost" style="margin-left:6px" onclick="reprovision('${escapeHtml(t.slug)}')">↻</button>` : ''}
+            </td>
+            <td>${planoLabel}</td>
+            <td>${fmtVencimento(t)}</td>
+            <td>${escapeHtml(t.owner_email || '—')}</td>
+            <td>${featResumo}</td>
+            <td>${fmtDate(t.created_at)}</td>
+            <td style="text-align:right;">
+              <div class="dropdown" id="acoes-${escapeHtml(t.slug)}">
+                <button class="dropdown-trigger" onclick="toggleAcoes('acoes-${escapeHtml(t.slug)}', event)">Ações ▾</button>
+                <div class="dropdown-menu">
+                  <button onclick="openTrocarPlano('${escapeHtml(t.slug)}', ${t.plano_id || 'null'})">Trocar plano</button>
+                  ${renovavel ? `<button class="success" onclick="renovar('${escapeHtml(t.slug)}')">Renovar (+${t.plano_duracao_dias}d)</button>` : ''}
+                  <button onclick="openVencimentoModal('${escapeHtml(t.slug)}', ${t.periodo_termina_em || 'null'})">Estender vencimento…</button>
+                  <div class="divider"></div>
+                  <button onclick="openFeatures('${escapeHtml(t.slug)}')">Módulos</button>
+                  <button onclick="registerPayment('${escapeHtml(t.slug)}')">Registrar pagamento</button>
+                  <div class="divider"></div>
+                  <button onclick="resetPassword('${escapeHtml(t.slug)}')">Resetar senha do owner</button>
+                  <div class="divider"></div>
+                  ${t.status !== 'SUSPENDED'
+                    ? `<button class="danger" onclick="setStatus('${escapeHtml(t.slug)}', 'SUSPENDED')">Suspender tenant</button>`
+                    : `<button class="success" onclick="setStatus('${escapeHtml(t.slug)}', 'ACTIVE')">Reativar tenant</button>`}
+                </div>
+              </div>
+            </td>
+          </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="10" class="empty">Erro: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    // ========== Planos (catálogo) ==========
+
+    function openTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+      if (tab === 'planos') loadPlanos();
+    }
+
+    async function loadPlanos() {
+      const tbody = document.getElementById('planosBody');
+      try {
+        const data = await api('GET', '/api/admin/planos');
+        const planos = data.planos || [];
+        if (!planos.length) {
+          tbody.innerHTML = '<tr><td colspan="8" class="empty">Nenhum plano cadastrado.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = planos.map(p => `
+          <tr>
+            <td class="slug">${escapeHtml(p.slug)}</td>
+            <td>${escapeHtml(p.nome)}</td>
+            <td><span class="status ${escapeHtml(p.tipo === 'TRIAL' ? 'TRIAL' : p.tipo === 'VITALICIO' ? 'CANCELLED' : 'ACTIVE')}">${escapeHtml(p.tipo)}</span></td>
+            <td>${p.duracao_dias != null ? p.duracao_dias + 'd' : '<span class="venc-vitalicio">∞</span>'}</td>
+            <td>${p.dias_carencia || 0}d</td>
+            <td>${p.preco_centavos != null ? 'R$ ' + (p.preco_centavos/100).toLocaleString('pt-BR',{minimumFractionDigits:2}) : '—'}</td>
+            <td>${p.ativo ? '<span class="status ACTIVE">sim</span>' : '<span class="status CANCELLED">não</span>'}</td>
+            <td style="text-align:right;">
+              <button class="ghost" onclick='openPlanoModal(${JSON.stringify(p)})'>Editar</button>
+              ${p.ativo ? `<button class="danger" onclick="desativarPlano(${p.id})">Desativar</button>` : `<button class="ghost" onclick="reativarPlano(${p.id})">Reativar</button>`}
+            </td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty">Erro: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function openPlanoModal(plano) {
+      const isEdit = !!plano;
+      document.getElementById('planoModalTitle').textContent = isEdit ? 'Editar plano' : 'Novo plano';
+      document.getElementById('planoFormId').value = isEdit ? plano.id : '';
+      document.getElementById('planoFormSlug').value = isEdit ? plano.slug : '';
+      document.getElementById('planoFormSlug').disabled = isEdit;
+      document.getElementById('planoFormNome').value = isEdit ? plano.nome : '';
+      document.getElementById('planoFormTipo').value = isEdit ? plano.tipo : 'MENSAL';
+      document.getElementById('planoFormDuracao').value = isEdit ? (plano.duracao_dias ?? '') : '30';
+      document.getElementById('planoFormCarencia').value = isEdit ? (plano.dias_carencia || 0) : 0;
+      document.getElementById('planoFormPreco').value = isEdit ? (plano.preco_centavos ?? '') : '';
+      document.getElementById('planoFormAtivo').checked = isEdit ? !!plano.ativo : true;
+      document.getElementById('planoModal').classList.add('open');
+    }
+    function closePlanoModal() {
+      document.getElementById('planoModal').classList.remove('open');
+    }
+
+    document.getElementById('planoForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('planoFormId').value;
+      const body = {
+        slug: document.getElementById('planoFormSlug').value.trim(),
+        nome: document.getElementById('planoFormNome').value.trim(),
+        tipo: document.getElementById('planoFormTipo').value,
+        duracao_dias: document.getElementById('planoFormDuracao').value || null,
+        dias_carencia: document.getElementById('planoFormCarencia').value || 0,
+        preco_centavos: document.getElementById('planoFormPreco').value || null,
+        ativo: document.getElementById('planoFormAtivo').checked ? 1 : 0,
+      };
+      try {
+        if (id) {
+          delete body.slug; // imutável
+          await api('PATCH', '/api/admin/planos/' + id, body);
+        } else {
+          await api('POST', '/api/admin/planos', body);
+        }
+        closePlanoModal();
+        loadPlanos();
+        loadTenants(); // refresca cache de planos no select de criação
+      } catch (err) { alert('Erro: ' + err.message); }
+    });
+
+    async function desativarPlano(id) {
+      if (!confirm('Desativar este plano?')) return;
+      try { await api('DELETE', '/api/admin/planos/' + id); loadPlanos(); loadTenants(); }
+      catch (err) { alert('Erro: ' + err.message); }
+    }
+    async function reativarPlano(id) {
+      try { await api('PATCH', '/api/admin/planos/' + id, { ativo: 1 }); loadPlanos(); loadTenants(); }
+      catch (err) { alert('Erro: ' + err.message); }
+    }
+
+    // ========== Trocar plano / Renovar / Estender ==========
+
+    let _trocarPlanoSlug = null;
+    function openTrocarPlano(slug, planoIdAtual) {
+      _trocarPlanoSlug = slug;
+      document.getElementById('trocarPlanoSlug').textContent = slug;
+      const sel = document.getElementById('trocarPlanoSelect');
+      const ativos = planosCache.filter(p => p.ativo);
+      sel.innerHTML = ativos.map(p =>
+        `<option value="${p.id}" ${p.id === planoIdAtual ? 'selected' : ''}>${escapeHtml(p.nome)} (${escapeHtml(p.tipo)}${p.duracao_dias ? ', '+p.duracao_dias+'d' : ''})</option>`
+      ).join('');
+      document.getElementById('trocarPlanoData').value = '';
+      document.getElementById('trocarPlanoModal').classList.add('open');
+    }
+    function closeTrocarPlano() {
+      document.getElementById('trocarPlanoModal').classList.remove('open');
+      _trocarPlanoSlug = null;
+    }
+    document.getElementById('trocarPlanoForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!_trocarPlanoSlug) return;
+      const body = { planoId: Number(document.getElementById('trocarPlanoSelect').value) };
+      const dataStr = document.getElementById('trocarPlanoData').value;
+      if (dataStr) body.novoVencimento = new Date(dataStr + 'T12:00:00').getTime();
+      try {
+        await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_trocarPlanoSlug)}/plano`, body);
+        closeTrocarPlano();
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    });
+
+    async function renovar(slug) {
+      if (!confirm(`Renovar ${slug} pelo plano atual?`)) return;
+      try {
+        await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/renovar`);
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    }
+
+    let _vencimentoSlug = null;
+    function openVencimentoModal(slug, atualMs) {
+      _vencimentoSlug = slug;
+      document.getElementById('vencimentoSlug').textContent = slug;
+      const inp = document.getElementById('vencimentoData');
+      inp.value = atualMs ? new Date(+atualMs).toISOString().slice(0, 10) : '';
+      document.getElementById('vencimentoModal').classList.add('open');
+    }
+    function closeVencimentoModal() {
+      document.getElementById('vencimentoModal').classList.remove('open');
+      _vencimentoSlug = null;
+    }
+    document.getElementById('vencimentoForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!_vencimentoSlug) return;
+      const dataStr = document.getElementById('vencimentoData').value;
+      const ts = dataStr ? new Date(dataStr + 'T12:00:00').getTime() : null;
+      try {
+        await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_vencimentoSlug)}/vencimento`, { periodoTerminaEm: ts });
+        closeVencimentoModal();
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    });
+
+    async function rodarExpiryCheck() {
+      try {
+        const r = await api('POST', '/api/admin/expiry-check');
+        const msg = r.transitions.length
+          ? r.transitions.length + ' transição(ões):\n' + r.transitions.map(t => `${t.slug}: ${t.from} → ${t.to}`).join('\n')
+          : 'Nenhuma transição (todos dentro do prazo ou já no estado correto).';
+        alert(msg);
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    }
+
+    let _featuresSlug = null;
+    async function openFeatures(slug) {
+      _featuresSlug = slug;
+      document.getElementById('featuresSlug').textContent = slug;
+      document.getElementById('featuresBody').innerHTML = '<div class="features-loading">Carregando…</div>';
+      document.getElementById('featuresModal').classList.add('open');
+      try {
+        const { features } = await api('GET', `/api/admin/tenants/${encodeURIComponent(slug)}/features`);
+        if (!features.length) {
+          document.getElementById('featuresBody').innerHTML = '<div class="empty">Nenhum módulo disponível no catálogo.</div>';
+          return;
+        }
+        document.getElementById('featuresBody').innerHTML = features.map(f => `
+          <div class="feature-item ${f.enabled ? 'active' : ''}">
+            <div class="info">
+              <div class="label-name">${escapeHtml(f.label)}</div>
+              <div class="desc">${escapeHtml(f.desc)}</div>
+            </div>
+            <label class="switch" title="${f.enabled ? 'Desativar' : 'Ativar'} ${escapeHtml(f.label)}">
+              <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleFeature('${escapeHtml(f.key)}', this.checked)">
+              <span class="slider"></span>
+            </label>
+          </div>
+        `).join('');
+      } catch (err) {
+        document.getElementById('featuresBody').innerHTML = `<div class="empty" style="color:#fca5a5;">Erro: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+    function closeFeatures() {
+      document.getElementById('featuresModal').classList.remove('open');
+      _featuresSlug = null;
+      loadTenants();
+    }
+    async function toggleFeature(key, enabled) {
+      if (!_featuresSlug) return;
+      try {
+        await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_featuresSlug)}/features`, { key, enabled });
+        await openFeatures(_featuresSlug);
+      } catch (err) {
+        alert('Erro: ' + err.message);
+        await openFeatures(_featuresSlug);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function fmtDate(ms) {
+      if (!ms) return '—';
+      return new Date(+ms).toLocaleDateString('pt-BR');
+    }
+
+    // Dropdown de ações por linha — position:fixed pra escapar do overflow da tabela
+    function fecharDropdowns() {
+      document.querySelectorAll('.dropdown.open').forEach(d => {
+        d.classList.remove('open');
+        const m = d.querySelector('.dropdown-menu');
+        if (m) { m.style.position = ''; m.style.top = ''; m.style.left = ''; m.style.right = ''; m.style.minWidth = ''; }
+      });
+    }
+    function toggleAcoes(id, ev) {
+      ev.stopPropagation();
+      const el = document.getElementById(id);
+      if (!el) return;
+      const aberto = el.classList.contains('open');
+      fecharDropdowns();
+      if (aberto) return;
+      el.classList.add('open');
+      const btn = el.querySelector('.dropdown-trigger');
+      const menu = el.querySelector('.dropdown-menu');
+      if (!btn || !menu) return;
+      const r = btn.getBoundingClientRect();
+      menu.style.position = 'fixed';
+      menu.style.minWidth = '200px';
+      const mw = Math.max(menu.offsetWidth, 200);
+      menu.style.top = (r.bottom + 4) + 'px';
+      menu.style.left = Math.max(8, r.right - mw) + 'px';
+      menu.style.right = 'auto';
+    }
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.dropdown')) fecharDropdowns();
+    });
+    window.addEventListener('scroll', fecharDropdowns, true);
+    window.addEventListener('resize', fecharDropdowns);
+
+    function openCreate() {
+      document.getElementById('createModal').classList.add('open');
+      document.getElementById('createResult').style.display = 'none';
+      document.getElementById('createForm').reset();
+    }
+    function closeCreate() {
+      document.getElementById('createModal').classList.remove('open');
+      loadTenants();
+    }
+
+    document.getElementById('createForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('createBtn');
+      btn.disabled = true;
+      btn.textContent = 'Criando…';
+      const fd = new FormData(e.target);
+      const planoIdRaw = fd.get('planoId');
+      const planoId = planoIdRaw ? Number(planoIdRaw) : null;
+      // Compat: deriva trialDays/plan a partir do plano selecionado (informativos
+      // apenas; a fonte da verdade do vencimento é planoId no servidor).
+      const planoSel = planosCache.find(p => p.id === planoId) || null;
+      const trialDays = planoSel && planoSel.tipo === 'TRIAL' ? (planoSel.duracao_dias || 0) : 0;
+      try {
+        const data = await api('POST', '/api/admin/tenants', {
+          slug: fd.get('slug').trim(),
+          name: fd.get('name').trim(),
+          ownerEmail: fd.get('ownerEmail').trim() || null,
+          plan: planoSel ? planoSel.slug : 'basic',
+          planoId,
+          trialDays,
+        });
+        document.getElementById('createResult').style.display = 'block';
+        document.getElementById('createResult').innerHTML = `
+          <div><span class="label">URL:</span> <span class="value">${escapeHtml(data.loginUrl)}</span></div>
+          <div><span class="label">Usuário:</span> <span class="value">${escapeHtml(data.ownerCredentials.username)}</span></div>
+          <div><span class="label">Senha temporária:</span> <span class="value">${escapeHtml(data.ownerCredentials.password)}</span></div>
+          <div><span class="label">API Key do tenant:</span> <span class="value">${escapeHtml(data.apiKey)}</span></div>
+          <div style="margin-top: 10px; color: #fbbf24;">⚠ Salve essas credenciais — a senha temporária não é armazenada em plain text.</div>
+        `;
+        btn.textContent = 'OK — fechar';
+        btn.onclick = closeCreate;
+      } catch (err) {
+        alert('Erro: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Criar';
+      }
+    });
+
+    async function setStatus(slug, status) {
+      if (!confirm(`Confirma marcar ${slug} como ${status}?`)) return;
+      try {
+        await api('PATCH', `/api/admin/tenants/${encodeURIComponent(slug)}/status`, { status });
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    }
+
+    async function resetPassword(slug) {
+      if (!confirm(`Gerar nova senha admin para ${slug}?`)) return;
+      try {
+        const data = await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/reset-password`);
+        alert(`Nova senha para ${slug}:\n\nUsuário: ${data.username}\nSenha: ${data.password}\n\nEntregue essas credenciais ao cliente e peça para trocar na primeira entrada.`);
+      } catch (err) { alert('Erro: ' + err.message); }
+    }
+
+    async function reprovision(slug) {
+      if (!confirm(`Re-disparar provisionamento de vhost/SSL para ${slug}?`)) return;
+      try {
+        await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/reprovision`);
+        alert('Provisionamento iniciado em background. Atualize a página em ~60s para ver o status.');
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    }
+
+    async function registerPayment(slug) {
+      const method = prompt('Método (PIX/boleto/cartão):', 'PIX');
+      if (!method) return;
+      const amount = prompt('Valor em centavos (ex: 9990 = R$ 99,90):', '0');
+      if (amount === null) return;
+      const next = prompt('Próximo vencimento (ISO: 2026-05-22) ou vazio:', '');
+      try {
+        const body = { method, amountCents: Number(amount) || 0 };
+        if (next) body.nextDueAt = new Date(next + 'T12:00:00').getTime();
+        await api('POST', `/api/admin/tenants/${encodeURIComponent(slug)}/billing/paid`, body);
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await api('POST', '/api/admin/logout');
+      window.location.href = '/admin/login.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

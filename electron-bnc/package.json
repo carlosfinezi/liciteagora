@@ -1,0 +1,57 @@
+{
+  "name": "liciteagora-electron-bnc",
+  "version": "1.0.0",
+  "description": "Browser CEF para BNC Compras — login + captura de sessão",
+  "main": "electron-bnc.js",
+  "scripts": {
+    "start": "electron --no-sandbox electron-bnc.js",
+    "build:win": "electron-builder --win --x64",
+    "build:win:portable": "electron-builder --win portable --x64",
+    "build:win:nsis": "electron-builder --win nsis --x64",
+    "build:linux": "electron-builder --linux --x64"
+  },
+  "build": {
+    "appId": "com.liciteagora.electron.bnc",
+    "productName": "LiciteAgora BNC",
+    "files": [
+      "electron-bnc.js",
+      "nav.html",
+      "bnc-login.js",
+      "bnc-cookie-sync.js",
+      "server-bridge.js",
+      "store.js",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "portable": {
+      "artifactName": "LiciteAgora-BNC.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LiciteAgora BNC",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "artifactName": "LiciteAgora-BNC-Setup.exe"
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^41.0.2",
+    "electron-builder": "^26.0.0"
+  }
+}

@@ -28,6 +28,45 @@
 
 const axios = require('axios');
 
+// Fase 3g (2026-05-23): leitura de catalog (licitacoes/itens) via PG quando
+// CATALOG_BACKEND_PG=1. Helper abaixo transforma SQL SQLite genérico em PG
+// — quota camelCase + troca ? por $N — pra reaproveitar builder dinâmico.
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
+// Colunas das tabelas catalog que precisam de quoting em PG (case-sensitive).
+const _CATALOG_QUOTED_COLS = [
+  'numeroControlePNCP','razaoSocial','ufSigla','municipioNome','nomeUnidade','codigoUnidade',
+  'anoCompra','sequencialCompra','numeroCompra','modalidadeId','modalidadeNome','objetoCompra',
+  'informacaoComplementar','valorTotalEstimado','dataPublicacaoPncp','dataAberturaProposta',
+  'dataEncerramentoPortal','dataEncerramentoProposta','situacaoCompraNome','linkSistemaOrigem','usuarioNome','dadosCompletos',
+  'dataAtualizacao','licitacaoId','numeroItem','unidadeMedida','valorUnitarioEstimado','valorTotal',
+  'marcaExtraida','marcaConfianca','marcaExtraidaEm','niFornecedor','nomeRazaoSocialFornecedor',
+  'valorUnitarioHomologado','valorTotalHomologado','marcaFabricante','modeloVersao',
+  'dataResultado','dataCache',
+];
+const _CATALOG_QUOTE_RE = new RegExp(`\\b(${_CATALOG_QUOTED_COLS.join('|')})\\b`, 'g');
+
+function _sqliteToPg(sql) {
+  // Auto-quota colunas camelCase + datetime('now') → now() + LIKE → ILIKE
+  // (SQLite LIKE é case-insensitive ASCII por default; PG LIKE é case-sensitive
+  // — ILIKE é o equivalente mais próximo.)
+  let out = sql.replace(_CATALOG_QUOTE_RE, '"$1"');
+  out = out.replace(/datetime\(\s*'now'\s*\)/g, 'now()');
+  out = out.replace(/\bLIKE\b/gi, 'ILIKE');
+  return out;
+}
+
+function _placeholdize(sql) {
+  // Substitui ? por $1, $2, ... mantendo ordem
+  let i = 0;
+  return sql.replace(/\?/g, () => '$' + (++i));
+}
+
+function _pgSql(sql) {
+  return _placeholdize(_sqliteToPg(sql));
+}
+
 function registrarRotasLicitacoes(app, db, opts = {}) {
   const { pncpSync, salvarItens, PNCP_API_BASE, PNCP_API_ITENS } = opts;
 
@@ -59,27 +98,28 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
       // Limitar tamanho da página (evitar queries pesadas)
       tamanhoPagina = Math.min(parseInt(tamanhoPagina) || 50, 100);
 
-      // Configurar ordenação (NULLS LAST para colocar valores nulos no final)
+      // Configurar ordenação. NULLS LAST nativo do PG/SQLite — usar CASE WHEN
+      // quebra SELECT DISTINCT no PG (expressão derivada fora do select list).
       const ordenacaoValida = {
-        'dataEncerramentoProposta_asc': 'CASE WHEN dataEncerramentoProposta IS NULL THEN 1 ELSE 0 END, dataEncerramentoProposta ASC',
-        'dataEncerramentoProposta_desc': 'dataEncerramentoProposta DESC',
-        'dataPublicacaoPncp_asc': 'CASE WHEN dataPublicacaoPncp IS NULL THEN 1 ELSE 0 END, dataPublicacaoPncp ASC',
-        'dataPublicacaoPncp_desc': 'dataPublicacaoPncp DESC',
-        'valorTotalEstimado_asc': 'CASE WHEN valorTotalEstimado IS NULL THEN 1 ELSE 0 END, valorTotalEstimado ASC',
-        'valorTotalEstimado_desc': 'valorTotalEstimado DESC'
+        'dataEncerramentoProposta_asc': 'COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) ASC NULLS LAST',
+        'dataEncerramentoProposta_desc': 'COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) DESC NULLS LAST',
+        'dataPublicacaoPncp_asc': 'dataPublicacaoPncp ASC NULLS LAST',
+        'dataPublicacaoPncp_desc': 'dataPublicacaoPncp DESC NULLS LAST',
+        'valorTotalEstimado_asc': 'valorTotalEstimado ASC NULLS LAST',
+        'valorTotalEstimado_desc': 'valorTotalEstimado DESC NULLS LAST'
       };
-      const orderBy = ordenacaoValida[ordenacao] || 'CASE WHEN dataEncerramentoProposta IS NULL THEN 1 ELSE 0 END, dataEncerramentoProposta ASC';
+      const orderBy = ordenacaoValida[ordenacao] || 'COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) ASC NULLS LAST';
 
       // Versão com alias 'l.' para queries com JOIN
       const ordenacaoValidaAlias = {
-        'dataEncerramentoProposta_asc': 'CASE WHEN l.dataEncerramentoProposta IS NULL THEN 1 ELSE 0 END, l.dataEncerramentoProposta ASC',
-        'dataEncerramentoProposta_desc': 'l.dataEncerramentoProposta DESC',
-        'dataPublicacaoPncp_asc': 'CASE WHEN l.dataPublicacaoPncp IS NULL THEN 1 ELSE 0 END, l.dataPublicacaoPncp ASC',
-        'dataPublicacaoPncp_desc': 'l.dataPublicacaoPncp DESC',
-        'valorTotalEstimado_asc': 'CASE WHEN l.valorTotalEstimado IS NULL THEN 1 ELSE 0 END, l.valorTotalEstimado ASC',
-        'valorTotalEstimado_desc': 'l.valorTotalEstimado DESC'
+        'dataEncerramentoProposta_asc': 'COALESCE(l.dataEncerramentoPortal, l.dataEncerramentoProposta) ASC NULLS LAST',
+        'dataEncerramentoProposta_desc': 'COALESCE(l.dataEncerramentoPortal, l.dataEncerramentoProposta) DESC NULLS LAST',
+        'dataPublicacaoPncp_asc': 'l.dataPublicacaoPncp ASC NULLS LAST',
+        'dataPublicacaoPncp_desc': 'l.dataPublicacaoPncp DESC NULLS LAST',
+        'valorTotalEstimado_asc': 'l.valorTotalEstimado ASC NULLS LAST',
+        'valorTotalEstimado_desc': 'l.valorTotalEstimado DESC NULLS LAST'
       };
-      const orderByAlias = ordenacaoValidaAlias[ordenacao] || 'CASE WHEN l.dataEncerramentoProposta IS NULL THEN 1 ELSE 0 END, l.dataEncerramentoProposta ASC';
+      const orderByAlias = ordenacaoValidaAlias[ordenacao] || 'COALESCE(l.dataEncerramentoPortal, l.dataEncerramentoProposta) ASC NULLS LAST';
 
       // Versão simplificada para JavaScript sort
       const orderBySimple = {
@@ -109,11 +149,11 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
       }
 
       if (dataAberturaInicial) {
-        conditions.push('dataEncerramentoProposta >= ?');
+        conditions.push('COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) >= ?');
         params.push(dataAberturaInicial);
       }
       if (dataAberturaFinal) {
-        conditions.push('dataEncerramentoProposta <= ?');
+        conditions.push('COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) <= ?');
         params.push(dataAberturaFinal + 'T23:59:59');
       }
 
@@ -206,7 +246,7 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
           let dateParams = [];
 
           if (dataAberturaInicial && dataAberturaFinal) {
-            dateCondition = 'dataEncerramentoProposta >= ? AND dataEncerramentoProposta <= ?';
+            dateCondition = 'COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) >= ? AND COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) <= ?';
             dateParams = [dataAberturaInicial, dataAberturaFinal + 'T23:59:59'];
           } else {
             const dataLimite = new Date();
@@ -215,80 +255,108 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
             dateParams = [dataLimite.toISOString().split('T')[0]];
           }
 
-          // Etapa 1: Busca rápida no objetoCompra
-          const conditionsObjeto = palavras.map(() => `objetoCompra LIKE ?`).join(' OR ');
-          const paramsObjeto = palavras.map(p => `%${p}%`);
+          // FTS (Postgres) ou substring (SQLite legado). O substring trigram sobre
+          // ~17M itens batia no query_timeout de 30s; FTS usa idx_lic_objeto_fts /
+          // idx_itens_desc_fts (medido ~2x mais rápido). Casa por palavra/radical.
+          if (USE_PG) {
+            // Config 'simple' (não 'portuguese'): o stemmer português DROPA stopwords
+            // como "nas"/"de"/"em", degradando frases discriminantes a tokens genéricos
+            // ("servidor nas"→'servidor', "nas dedicado"→'dedic') e inundando o
+            // resultado de lixo. 'simple' mantém a frase como adjacência precisa.
+            // Índices: idx_itens_desc_simple + idx_lic_objeto_simple.
+            // Cada palavra multi-token (ex "servidor nas") vira frase entre aspas; OR entre elas.
+            const ftsExpr = palavras
+              .map(p => p.includes(' ') ? `"${p.replace(/"/g, ' ')}"` : p.replace(/"/g, ' '))
+              .join(' OR ');
 
-          const licitacoesObjeto = db.prepare(`
-            SELECT * FROM licitacoes
-            WHERE ${dateCondition} AND (${conditionsObjeto})
-            ORDER BY ${orderBy}
-            LIMIT 300
-          `).all(...dateParams, ...paramsObjeto);
-
-          // Etapa 2: Busca nos itens
-          const conditionsItens = palavras.map(() => `i.descricao LIKE ?`).join(' OR ');
-          const paramsItens = palavras.map(p => `%${p}%`);
-
-          const licitacoesItens = db.prepare(`
-            SELECT DISTINCT l.* FROM licitacoes l
-            WHERE l.id IN (
-              SELECT DISTINCT i.licitacaoId FROM itens i
-              WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE ${dateCondition})
-                AND (${conditionsItens})
+            // Etapa 1 (objetoCompra) e Etapa 2 (itens) trazem só colunas leves (id +
+            // chaves de ordenação); as linhas completas vêm de um re-fetch único por id
+            // (evita puxar a coluna dadosCompletos de até 600 linhas à toa).
+            const sqlObjeto = `
+              SELECT id, dataEncerramentoProposta, dataPublicacaoPncp, valorTotalEstimado
+              FROM licitacoes
+              WHERE ${dateCondition}
+                AND to_tsvector('simple', coalesce(objetoCompra,'')) @@ websearch_to_tsquery('simple', ?)
+              ORDER BY ${orderBy}
               LIMIT 300
-            )
-            ORDER BY ${orderBy}
-          `).all(...dateParams, ...paramsItens);
+            `;
+            const rowsObjeto = await catalogPg.query(_pgSql(sqlObjeto), [...dateParams, ftsExpr]);
 
-          // Combinar resultados únicos
-          const licitacoesMap = new Map();
-          [...licitacoesObjeto, ...licitacoesItens].forEach(l => {
-            if (!licitacoesMap.has(l.id)) licitacoesMap.set(l.id, l);
-          });
+            const sqlItens = `
+              SELECT DISTINCT l.id, l.dataEncerramentoProposta, l.dataPublicacaoPncp, l.valorTotalEstimado
+              FROM licitacoes l
+              WHERE l.id IN (
+                SELECT DISTINCT i.licitacaoId FROM itens i
+                WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE ${dateCondition})
+                  AND to_tsvector('simple', coalesce(i.descricao,'')) @@ websearch_to_tsquery('simple', ?)
+                LIMIT 300
+              )
+            `;
+            const rowsItens = await catalogPg.query(_pgSql(sqlItens), [...dateParams, ftsExpr]);
 
-          let todasLicitacoes = Array.from(licitacoesMap.values());
+            const idSet = new Set();
+            [...rowsObjeto, ...rowsItens].forEach(l => idSet.add(l.id));
+            const idsEncontrados = Array.from(idSet);
 
-          // Aplicar ordenação aos resultados combinados (NULL sempre por último)
-          const { field: orderField, dir: orderDir } = orderConfig;
-          todasLicitacoes.sort((a, b) => {
-            let valA = a[orderField];
-            let valB = b[orderField];
-            // NULL sempre por último
-            if (valA == null && valB == null) return 0;
-            if (valA == null) return 1;
-            if (valB == null) return -1;
-            if (typeof valA === 'string') valA = valA.toLowerCase();
-            if (typeof valB === 'string') valB = valB.toLowerCase();
-            if (orderDir === 'DESC') return valA > valB ? -1 : valA < valB ? 1 : 0;
-            return valA < valB ? -1 : valA > valB ? 1 : 0;
-          });
-
-          // Aplicar filtros adicionais se houver
-          if (conditions.length > 0) {
-            // Re-filtrar com as condições adicionais usando SQL
-            const idsEncontrados = todasLicitacoes.map(l => l.id);
-            if (idsEncontrados.length > 0) {
-              const placeholders = idsEncontrados.map(() => '?').join(',');
-              todasLicitacoes = db.prepare(`
-                SELECT * FROM licitacoes
-                ${whereClause}
-                ${conditions.length > 0 ? 'AND' : 'WHERE'} id IN (${placeholders})
-                ORDER BY ${orderBy}
-              `).all(...params, ...idsEncontrados);
+            if (idsEncontrados.length === 0) {
+              var resultadosPreProcessados = [];
             } else {
-              todasLicitacoes = [];
+              const sqlFinal = conditions.length > 0
+                ? `SELECT *, COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) AS dataEncerramentoProposta FROM licitacoes ${whereClause} AND id = ANY($${params.length + 1}::bigint[]) ORDER BY ${orderBy}`
+                : `SELECT *, COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) AS dataEncerramentoProposta FROM licitacoes WHERE id = ANY($1::bigint[]) ORDER BY ${orderBy}`;
+              const finalParams = conditions.length > 0 ? [...params, idsEncontrados] : [idsEncontrados];
+              var resultadosPreProcessados = await catalogPg.query(_pgSql(sqlFinal), finalParams);
             }
+          } else {
+            // SQLite legado — substring (comportamento inalterado)
+            const conditionsObjeto = palavras.map(() => `objetoCompra LIKE ?`).join(' OR ');
+            const paramsObjeto = palavras.map(p => `%${p}%`);
+            const sqlObjeto = `SELECT *, COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) AS dataEncerramentoProposta FROM licitacoes WHERE ${dateCondition} AND (${conditionsObjeto}) ORDER BY ${orderBy} LIMIT 300`;
+            const licitacoesObjeto = db.prepare(sqlObjeto).all(...dateParams, ...paramsObjeto);
+
+            const conditionsItens = palavras.map(() => `i.descricao LIKE ?`).join(' OR ');
+            const paramsItens = palavras.map(p => `%${p}%`);
+            const sqlItens = `SELECT DISTINCT l.*, COALESCE(l.dataEncerramentoPortal, l.dataEncerramentoProposta) AS dataEncerramentoProposta FROM licitacoes l WHERE l.id IN (SELECT DISTINCT i.licitacaoId FROM itens i WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE ${dateCondition}) AND (${conditionsItens}) LIMIT 300) ORDER BY ${orderBy}`;
+            const licitacoesItens = db.prepare(sqlItens).all(...dateParams, ...paramsItens);
+
+            const licitacoesMap = new Map();
+            [...licitacoesObjeto, ...licitacoesItens].forEach(l => {
+              if (!licitacoesMap.has(l.id)) licitacoesMap.set(l.id, l);
+            });
+            let todasLicitacoes = Array.from(licitacoesMap.values());
+
+            const { field: orderField, dir: orderDir } = orderConfig;
+            todasLicitacoes.sort((a, b) => {
+              let valA = a[orderField];
+              let valB = b[orderField];
+              if (valA == null && valB == null) return 0;
+              if (valA == null) return 1;
+              if (valB == null) return -1;
+              if (typeof valA === 'string') valA = valA.toLowerCase();
+              if (typeof valB === 'string') valB = valB.toLowerCase();
+              if (orderDir === 'DESC') return valA > valB ? -1 : valA < valB ? 1 : 0;
+              return valA < valB ? -1 : valA > valB ? 1 : 0;
+            });
+
+            if (conditions.length > 0) {
+              const idsEncontrados = todasLicitacoes.map(l => l.id);
+              if (idsEncontrados.length > 0) {
+                const placeholders = idsEncontrados.map(() => '?').join(',');
+                todasLicitacoes = db.prepare(`SELECT * FROM licitacoes ${whereClause} AND id IN (${placeholders}) ORDER BY ${orderBy}`).all(...params, ...idsEncontrados);
+              } else {
+                todasLicitacoes = [];
+              }
+            }
+            var resultadosPreProcessados = todasLicitacoes;
           }
 
           // Pular para o processamento de exclusão e paginação
           sql = null; // Sinaliza que já temos os resultados
-          var resultadosPreProcessados = todasLicitacoes;
         } else {
           // Palavra única - busca normal
           const palavraParam = `%${palavraChave.toLowerCase()}%`;
           sql = `
-            SELECT DISTINCT l.* FROM licitacoes l
+            SELECT DISTINCT l.*, COALESCE(l.dataEncerramentoPortal, l.dataEncerramentoProposta) AS dataEncerramentoProposta FROM licitacoes l
             LEFT JOIN itens i ON l.id = i.licitacaoId
             ${whereClause}
             ${conditions.length > 0 ? 'AND' : 'WHERE'} (
@@ -304,34 +372,85 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
         }
       } else {
         sql = `
-          SELECT * FROM licitacoes
+          SELECT *, COALESCE(dataEncerramentoPortal, dataEncerramentoProposta) AS dataEncerramentoProposta FROM licitacoes
           ${whereClause}
           ORDER BY ${orderBy}
         `;
       }
 
-      // Se sql é null, já temos os resultados pré-processados
-      let todasLicitacoes = sql ? db.prepare(sql).all(...params) : resultadosPreProcessados;
+      // Fast path: sem filtros JS pós-query (palavraChave, palavraExclusao,
+      // grupoExclusaoId), aplica LIMIT direto no SQL. Carregar 447k linhas com
+      // JSON.parse de cada dadosCompletos estourava heap V8 (OOM kill do
+      // worker). Aqui só carregamos a página requisitada (~20 linhas).
+      // totalRegistros vem de COUNT separado nesse caminho.
+      let totalFastPath = null;
+      let todasLicitacoes;
+      if (sql && !palavraChave && !palavraExclusao && !grupoExclusaoId) {
+        const tamanhoN = parseInt(tamanhoPagina) || 50;
+        const offsetN = ((parseInt(pagina) || 1) - 1) * tamanhoN;
+        if (USE_PG) {
+          // Fase 3g: transforma SQL SQLite (?, camelCase) pra PG ($N, "camelCase")
+          const countRow = await catalogPg.queryOne(_pgSql(`SELECT COUNT(*) AS c FROM licitacoes ${whereClause}`), params);
+          totalFastPath = Number(countRow?.c || 0);
+          const pagSql = _pgSql(sql) + ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+          todasLicitacoes = await catalogPg.query(pagSql, [...params, tamanhoN, offsetN]);
+        } else {
+          totalFastPath = db.prepare(`SELECT COUNT(*) AS c FROM licitacoes ${whereClause}`).get(...params).c;
+          todasLicitacoes = db.prepare(sql + ' LIMIT ? OFFSET ?').all(...params, tamanhoN, offsetN);
+        }
+      } else {
+        if (sql) {
+          todasLicitacoes = USE_PG
+            ? await catalogPg.query(_pgSql(sql), params)
+            : db.prepare(sql).all(...params);
+        } else {
+          todasLicitacoes = resultadosPreProcessados;
+        }
+      }
+
+      // Helper: batch-prefetch descricoes de itens p/ várias licitacoes (evita N+1)
+      const _prefetchItensDesc = async (licIds) => {
+        if (!licIds || licIds.length === 0) return new Map();
+        let rows;
+        if (USE_PG) {
+          rows = await catalogPg.query(
+            `SELECT "licitacaoId","descricao" FROM itens WHERE "licitacaoId" = ANY($1::bigint[])`,
+            [licIds]
+          );
+        } else {
+          const placeholders = licIds.map(() => '?').join(',');
+          rows = db.prepare(`SELECT licitacaoId, descricao FROM itens WHERE licitacaoId IN (${placeholders})`).all(...licIds);
+        }
+        const map = new Map();
+        for (const r of rows) {
+          const id = r.licitacaoId;
+          if (!map.has(id)) map.set(id, '');
+          map.set(id, map.get(id) + ' ' + (r.descricao || '').toLowerCase());
+        }
+        return map;
+      };
+
+      // Prefetch ÚNICO das descrições de itens — reusado pelos dois filtros de
+      // exclusão abaixo (palavraExclusao + grupoExclusao), evitando uma segunda
+      // leitura pesada de itens. O map cobre o superconjunto de ids (os filtros só
+      // removem linhas, nunca adicionam).
+      let itensDescPorLic = new Map();
+      if (palavraExclusao || grupoExclusaoId) {
+        itensDescPorLic = await _prefetchItensDesc(todasLicitacoes.map(l => l.id));
+      }
 
       // Filtrar palavras de exclusão (inclui busca nos itens)
       if (palavraExclusao) {
         const exclusoes = palavraExclusao.toLowerCase().split(',').map(p => p.trim()).filter(p => p);
         if (exclusoes.length > 0) {
           todasLicitacoes = todasLicitacoes.filter(lic => {
-            // Texto da licitação
             let texto = (
               (lic.objetoCompra || '') + ' ' +
               (lic.informacaoComplementar || '') + ' ' +
               (lic.razaoSocial || '') + ' ' +
               (lic.nomeUnidade || '')
             ).toLowerCase();
-
-            // Adicionar descrição dos itens
-            const itensRows = db.prepare('SELECT descricao FROM itens WHERE licitacaoId = ?').all(lic.id);
-            itensRows.forEach(item => {
-              texto += ' ' + (item.descricao || '').toLowerCase();
-            });
-
+            texto += itensDescPorLic.get(lic.id) || '';
             return !exclusoes.some(exc => texto.includes(exc));
           });
         }
@@ -353,23 +472,47 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
                 (lic.razaoSocial || '') + ' ' +
                 (lic.nomeUnidade || '')
               ).toLowerCase();
-
-              const itensRows = db.prepare('SELECT descricao FROM itens WHERE licitacaoId = ?').all(lic.id);
-              itensRows.forEach(item => {
-                texto += ' ' + (item.descricao || '').toLowerCase();
-              });
-
+              texto += itensDescPorLic.get(lic.id) || '';
               return !exclusoesGrupo.some(exc => texto.includes(exc));
             });
           }
         }
       }
 
+      // Batch-prefetch dadosCompletos dos itens se buscaDetalhada (evita N+1)
+      const _itensDadosPorLic = usarBuscaDetalhada
+        ? await (async () => {
+            const ids = todasLicitacoes.map(l => l.id);
+            if (ids.length === 0) return new Map();
+            let rows;
+            if (USE_PG) {
+              rows = await catalogPg.query(
+                `SELECT "licitacaoId","dadosCompletos" FROM itens WHERE "licitacaoId" = ANY($1::bigint[])`,
+                [ids]
+              );
+            } else {
+              const ph = ids.map(() => '?').join(',');
+              rows = db.prepare(`SELECT licitacaoId, dadosCompletos FROM itens WHERE licitacaoId IN (${ph})`).all(...ids);
+            }
+            const m = new Map();
+            for (const r of rows) {
+              if (!m.has(r.licitacaoId)) m.set(r.licitacaoId, []);
+              const d = (typeof r.dadosCompletos === 'object' && r.dadosCompletos)
+                ? r.dadosCompletos
+                : JSON.parse(r.dadosCompletos || '{}');
+              m.get(r.licitacaoId).push(d);
+            }
+            return m;
+          })()
+        : null;
+
       const licitacoesFormatadas = todasLicitacoes.map(row => {
         let dados = {};
 
         // Se dadosCompletos existir e não estiver vazio, usar ele
-        if (row.dadosCompletos && row.dadosCompletos !== '{}') {
+        if (row.dadosCompletos && typeof row.dadosCompletos === 'object') {
+          dados = row.dadosCompletos;
+        } else if (row.dadosCompletos && row.dadosCompletos !== '{}') {
           dados = JSON.parse(row.dadosCompletos);
         } else {
           // Construir objeto a partir dos campos da tabela
@@ -407,8 +550,7 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
         }
 
         if (usarBuscaDetalhada) {
-          const itensRows = db.prepare('SELECT dadosCompletos FROM itens WHERE licitacaoId = ?').all(row.id);
-          dados.itens = itensRows.map(i => JSON.parse(i.dadosCompletos || '{}'));
+          dados.itens = _itensDadosPorLic ? (_itensDadosPorLic.get(row.id) || []) : [];
         }
 
         return dados;
@@ -416,16 +558,18 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
 
       const tamanho = parseInt(tamanhoPagina);
       const paginaInt = parseInt(pagina);
-      const inicio = (paginaInt - 1) * tamanho;
-      const fim = inicio + tamanho;
-      const licitacoesPaginadas = licitacoesFormatadas.slice(inicio, fim);
+      // Fast path: SQL já trouxe a página exata. Slow path: precisamos fatiar.
+      const licitacoesPaginadas = totalFastPath != null
+        ? licitacoesFormatadas
+        : licitacoesFormatadas.slice((paginaInt - 1) * tamanho, paginaInt * tamanho);
+      const totalRegistros = totalFastPath != null ? totalFastPath : licitacoesFormatadas.length;
 
       res.json({
         success: true,
         data: {
           data: licitacoesPaginadas,
-          totalRegistros: licitacoesFormatadas.length,
-          totalPaginas: Math.ceil(licitacoesFormatadas.length / tamanho),
+          totalRegistros,
+          totalPaginas: Math.ceil(totalRegistros / tamanho),
           numeroPagina: paginaInt,
           empty: licitacoesPaginadas.length === 0
         },
@@ -433,8 +577,25 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
         // No worker (quem serve HTTP) os campos in-memory ficam zerados pois sync
         // roda no master; os campos persistidos abaixo + GET /api/sync/status
         // preenchem o estado real da UI.
-        syncStatus: (() => {
+        syncStatus: await (async () => {
           const _ss = pncpSync.getSyncStatus();
+          let licitacoesNoBanco, itensNoBanco;
+          if (USE_PG) {
+            // COUNT(*) exato em `itens` (18M+ linhas) é seq scan de ~66s e estoura
+            // o statement_timeout de 30s, derrubando TODA request /api/licitacoes.
+            // São só números de display ("X no banco"): usar estimativa de
+            // pg_class.reltuples (atualizada por autovacuum/analyze) — instantâneo.
+            const _est = await catalogPg.queryOne(
+              `SELECT
+                 (SELECT reltuples::bigint FROM pg_class WHERE oid = 'licitacoes'::regclass) AS lic,
+                 (SELECT reltuples::bigint FROM pg_class WHERE oid = 'itens'::regclass) AS itens`
+            );
+            licitacoesNoBanco = Number(_est?.lic || 0);
+            itensNoBanco = Number(_est?.itens || 0);
+          } else {
+            licitacoesNoBanco = db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count;
+            itensNoBanco = db.prepare('SELECT COUNT(*) as count FROM itens').get().count;
+          }
           return {
             running: _ss.running,
             type: _ss.type,
@@ -443,8 +604,8 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
             lastSync: _ss.lastSync,
             lastIncrementalSync: _ss.lastIncrementalSync,
             nextScheduledSync: _ss.nextScheduledSync,
-            licitacoesNoBanco: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
-            itensNoBanco: db.prepare('SELECT COUNT(*) as count FROM itens').get().count
+            licitacoesNoBanco,
+            itensNoBanco,
           };
         })()
       });
@@ -469,12 +630,24 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
       const { cnpj, sequencial, ano } = req.params;
 
       const numeroControlePNCP = `${cnpj}-1-${String(sequencial).padStart(6, '0')}/${ano}`;
-      const local = db.prepare('SELECT dadosCompletos FROM licitacoes WHERE numeroControlePNCP = ?').get(numeroControlePNCP);
+      let local;
+      if (USE_PG) {
+        local = await catalogPg.queryOne(
+          'SELECT "dadosCompletos" FROM licitacoes WHERE "numeroControlePNCP" = $1',
+          [numeroControlePNCP]
+        );
+      } else {
+        local = db.prepare('SELECT dadosCompletos FROM licitacoes WHERE numeroControlePNCP = ?').get(numeroControlePNCP);
+      }
 
       if (local) {
+        // PG retorna jsonb já parseado; SQLite retorna TEXT
+        const data = (USE_PG && typeof local.dadosCompletos === 'object')
+          ? local.dadosCompletos
+          : JSON.parse(local.dadosCompletos);
         return res.json({
           success: true,
-          data: JSON.parse(local.dadosCompletos),
+          data,
           source: 'local'
         });
       }
@@ -549,16 +722,28 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
 
       // Primeiro tenta buscar do banco local
       const numeroControlePNCP = cnpj + '-1-' + String(sequencial).padStart(6, '0') + '/' + ano;
-      const localItems = db.prepare(`
-        SELECT i.* FROM itens i
-        INNER JOIN licitacoes l ON i.licitacaoId = l.id
-        WHERE l.numeroControlePNCP = ?
-      `).all(numeroControlePNCP);
+      let localItems;
+      if (USE_PG) {
+        localItems = await catalogPg.query(`
+          SELECT i.* FROM itens i
+          INNER JOIN licitacoes l ON i."licitacaoId" = l."id"
+          WHERE l."numeroControlePNCP" = $1
+        `, [numeroControlePNCP]);
+      } else {
+        localItems = db.prepare(`
+          SELECT i.* FROM itens i
+          INNER JOIN licitacoes l ON i.licitacaoId = l.id
+          WHERE l.numeroControlePNCP = ?
+        `).all(numeroControlePNCP);
+      }
 
       if (localItems.length > 0) {
         const items = localItems.map(item => {
-          // Se dadosCompletos existir e não estiver vazio, usar ele
-          if (item.dadosCompletos && item.dadosCompletos !== '{}' && item.dadosCompletos.length > 2) {
+          // PG retorna jsonb como obj; SQLite retorna text
+          if (item.dadosCompletos && typeof item.dadosCompletos === 'object' && Object.keys(item.dadosCompletos).length > 0) {
+            return item.dadosCompletos;
+          }
+          if (item.dadosCompletos && typeof item.dadosCompletos === 'string' && item.dadosCompletos !== '{}' && item.dadosCompletos.length > 2) {
             try {
               return JSON.parse(item.dadosCompletos);
             } catch (e) {

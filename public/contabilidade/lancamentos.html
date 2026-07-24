@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lançamentos Contábeis · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Lançamentos Contábeis (Diário)</h1>
+      <small>Partida dobrada — débitos = créditos em todo lançamento; estorno cria o inverso, nunca apaga</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo lançamento</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="date" id="filtInicio" onchange="carregar()">
+    <input type="date" id="filtFim" onchange="carregar()">
+    <select id="filtOrigem" onchange="carregar()">
+      <option value="">Todas origens</option>
+      <option value="manual">Manual</option>
+      <option value="migracao">Migração</option>
+      <option value="implantacao">Implantação</option>
+      <option value="estorno">Estorno</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Data</th><th>Histórico</th><th>Partidas</th><th style="text-align:right;">Valor</th><th>Origem</th><th>Status</th><th></th></tr></thead>
+      <tbody id="tbLanc"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNovo">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Novo lançamento</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Data *</label><input type="date" id="nData"></div>
+      <div class="form-group full-width"><label>Histórico *</label><input type="text" id="nHistorico"></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:8px;">
+      <table>
+        <thead><tr><th>Conta analítica *</th><th style="width:80px;">D/C</th><th style="width:130px;">Valor *</th><th style="width:40px;"></th></tr></thead>
+        <tbody id="tbPartidas"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="addPartida()" style="margin-top:8px;">+ Partida</button>
+    <div id="somas" class="card card-info" style="margin-top:10px;font-size:0.9em;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Lançar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ctb-lancamentos');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(){ document.getElementById('modalNovo').classList.remove('open'); }
+
+let contasAnaliticas = [];
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const i=document.getElementById('filtInicio').value, f=document.getElementById('filtFim').value, o=document.getElementById('filtOrigem').value;
+  if(i) p.set('inicio',i); if(f) p.set('fim',f); if(o) p.set('origem',o);
+  const r = await fetch('/api/contabilidade/lancamentos?'+p); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbLanc').innerHTML = d.lancamentos.length ? d.lancamentos.map(l=>{
+    const partidasHtml = l.partidas.map(pt=>`<small>${pt.dc==='D'?'D':'C'} ${pt.codigo} ${pt.contaNome} — R$ ${fmt(pt.valor)}</small>`).join('<br>');
+    const status = l.estornado ? '<span class="badge cancelado">ESTORNADO</span>'
+      : (l.origem==='estorno' ? '<span class="badge saida">ESTORNO</span>' : '<span class="badge entrada">OK</span>');
+    const acao = (!l.estornado && l.origem!=='estorno') ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="estornar(${l.id})">Estornar</button>` : '';
+    return `<tr${l.estornado?' style="opacity:0.6;"':''}>
+      <td>${l.id}</td><td>${l.data}</td><td>${l.historico}</td>
+      <td>${partidasHtml}</td>
+      <td style="text-align:right;"><strong>R$ ${fmt(l.valorTotal)}</strong></td>
+      <td>${l.origem}</td><td>${status}</td><td>${acao}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8" class="empty">Sem lançamentos no filtro</td></tr>';
+}
+
+async function getContas(){
+  if (contasAnaliticas.length) return contasAnaliticas;
+  const r = await fetch('/api/contabilidade/contas'); const d = await r.json();
+  contasAnaliticas = (d.contas||[]).filter(c=>c.tipoConta==='analitica' && c.ativo);
+  return contasAnaliticas;
+}
+
+async function addPartida(dc){
+  const cs = await getContas();
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><select class="pConta" style="width:100%;">
+      <option value="">— selecione —</option>
+      ${cs.map(c=>`<option value="${c.id}">${c.codigo} — ${c.nome}</option>`).join('')}
+    </select></td>
+    <td><select class="pDC"><option value="D">D</option><option value="C"${dc==='C'?' selected':''}>C</option></select></td>
+    <td><input type="number" class="pValor" step="0.01" min="0.01" style="width:110px;text-align:right;" oninput="somar()"></td>
+    <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove();somar()">×</button></td>`;
+  tr.querySelector('.pDC').addEventListener('change', somar);
+  document.getElementById('tbPartidas').appendChild(tr);
+}
+
+function somar(){
+  let D=0,C=0;
+  document.querySelectorAll('#tbPartidas tr').forEach(tr=>{
+    const v = Number(tr.querySelector('.pValor').value)||0;
+    if (tr.querySelector('.pDC').value==='D') D+=v; else C+=v;
+  });
+  const dif = Math.abs(D-C);
+  document.getElementById('somas').innerHTML =
+    `Débitos <strong>R$ ${fmt(D)}</strong> · Créditos <strong>R$ ${fmt(C)}</strong> · ` +
+    (dif < 0.005 ? '<span style="color:var(--success);font-weight:700;">✔ balanceado</span>'
+                 : `<span style="color:var(--danger);font-weight:700;">diferença R$ ${fmt(dif)}</span>`);
+}
+
+async function abrirNovo(){
+  document.getElementById('nData').value = new Date().toISOString().slice(0,10);
+  document.getElementById('nHistorico').value='';
+  document.getElementById('tbPartidas').innerHTML='';
+  await addPartida('D'); await addPartida('C');
+  somar();
+  document.getElementById('modalNovo').classList.add('open');
+}
+
+async function salvar(){
+  const partidas = [...document.querySelectorAll('#tbPartidas tr')].map(tr=>({
+    contaContabilId: Number(tr.querySelector('.pConta').value),
+    dc: tr.querySelector('.pDC').value,
+    valor: Number(tr.querySelector('.pValor').value)
+  })).filter(p=>p.contaContabilId && p.valor>0);
+  const body = {
+    data: document.getElementById('nData').value,
+    historico: document.getElementById('nHistorico').value.trim(),
+    partidas
+  };
+  const r = await fetch('/api/contabilidade/lancamentos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar(); showAlert('Lançamento #'+d.id+' gravado'); carregar();
+}
+
+async function estornar(id){
+  if (!confirm('Estornar o lançamento #'+id+'? Um lançamento inverso será criado na data de hoje.')) return;
+  const r = await fetch(`/api/contabilidade/lancamentos/${id}/estornar`, { method:'POST' });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Estornado pelo lançamento #'+d.estornoId); carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
+const hj = new Date(); document.getElementById('filtInicio').value = hj.getFullYear()+'-'+String(hj.getMonth()+1).padStart(2,'0')+'-01';
+document.getElementById('filtFim').value = hj.toISOString().slice(0,10);
+carregar();
+</script>
+</body></html>

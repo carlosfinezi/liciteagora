@@ -12,6 +12,9 @@
 // ROLE=master.
 
 const { agendarJornal, executarJornal, gerarConteudoJornal } = require('./jornal-scheduler');
+// Fase 3g (2026-05-23): catalog probe via PG
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
 function registrarRotasJornal(app, db) {
   // Obter configuração do jornal
@@ -42,6 +45,11 @@ function registrarRotasJornal(app, db) {
     try {
       const { ativo, horario, diasAntecedencia, enviarTelegram, gruposIds } = req.body;
 
+      // [DEBUG] dump do body recebido pra investigar por que jornal_grupos fica vazio
+      console.log(`[JORNAL][POST config] body recebido:`,
+        JSON.stringify({ ativo, horario, diasAntecedencia, enviarTelegram,
+          gruposIds, gruposIdsLen: Array.isArray(gruposIds) ? gruposIds.length : null }));
+
       // Atualizar configuração
       db.prepare(`
         UPDATE jornal_config
@@ -50,17 +58,29 @@ function registrarRotasJornal(app, db) {
       `).run(ativo ? 1 : 0, horario || '08:00', diasAntecedencia || 7, enviarTelegram ? 1 : 0);
 
       // Atualizar grupos ativos
-      db.prepare('DELETE FROM jornal_grupos').run();
+      const delResult = db.prepare('DELETE FROM jornal_grupos').run();
+      let insOk = 0, insFail = 0;
       if (gruposIds && gruposIds.length > 0) {
         const insertGrupo = db.prepare('INSERT OR IGNORE INTO jornal_grupos (grupoId, ativo) VALUES (?, 1)');
-        gruposIds.forEach(id => insertGrupo.run(id));
+        gruposIds.forEach(id => {
+          try {
+            const r = insertGrupo.run(id);
+            if (r.changes > 0) insOk++; else insFail++;
+          } catch (e) {
+            insFail++;
+            console.error(`[JORNAL][POST config] INSERT grupoId=${id} falhou: ${e.message}`);
+          }
+        });
       }
+      const total = db.prepare('SELECT COUNT(*) c FROM jornal_grupos').get().c;
+      console.log(`[JORNAL][POST config] deleted=${delResult.changes} inserted_ok=${insOk} inserted_fail=${insFail} total_atual=${total}`);
 
       // Reagendar o jornal (rota exposta no worker — jornal-scheduler no-op fora do master)
       agendarJornal(db);
 
-      res.json({ success: true, message: 'Configuração salva!' });
+      res.json({ success: true, message: 'Configuração salva!', debug: { deleted: delResult.changes, insertedOk: insOk, insertedFail: insFail, total } });
     } catch (error) {
+      console.error(`[JORNAL][POST config] ERRO:`, error.message);
       res.status(500).json({ success: false, error: error.message });
     }
   });
@@ -93,9 +113,20 @@ function registrarRotasJornal(app, db) {
   // Preview do jornal (sem enviar)
   app.get('/api/jornal/preview', async (req, res) => {
     try {
+      console.log(`[JORNAL][GET preview] chamado`);
+      const gruposCount = db.prepare('SELECT COUNT(*) c FROM jornal_grupos').get().c;
+      let catalogStatus = 'ok';
+      try {
+        if (USE_PG) await catalogPg.queryOne('SELECT 1 FROM licitacoes LIMIT 1');
+        else db.prepare('SELECT COUNT(*) FROM licitacoes LIMIT 1').get();
+      } catch (e) { catalogStatus = `VIEW_FAIL: ${e.message}`; }
+      console.log(`[JORNAL][GET preview] jornal_grupos.count=${gruposCount} catalog=${catalogStatus}`);
+
       const resultado = await gerarConteudoJornal(db);
+      console.log(`[JORNAL][GET preview] resultado: grupos=${resultado.grupos?.length||0} total=${resultado.totalLicitacoes||0} periodo=${resultado.periodo?.dataInicial}→${resultado.periodo?.dataFinal}`);
       res.json({ success: true, data: resultado });
     } catch (error) {
+      console.error(`[JORNAL][GET preview] ERRO:`, error.message, error.stack);
       res.status(500).json({ success: false, error: error.message });
     }
   });

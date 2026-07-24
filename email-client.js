@@ -535,7 +535,7 @@ async function enviarEmailAlerta(db, { subject, htmlBody, to }) {
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;line-height:1.5;white-space:pre-wrap;">${htmlBody}</div>`;
 
   const info = await transport.sendMail({ from, to: destinatarios, subject, html, text });
-  registrarLog(db, { tipo: 'alerta', destinatario: destinatarios, assunto: subject, status: 'enviado', messageId: info.messageId });
+  registrarLog(db, { tipo: 'alerta', to: destinatarios, subject, status: 'enviado', messageId: info.messageId });
   return info;
 }
 

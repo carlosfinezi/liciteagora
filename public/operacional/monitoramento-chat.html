@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Mensagens - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* Filtros Avançados */
+        .filtros-container {
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: var(--r-lg);
+            padding: 18px;
+            margin-bottom: 20px;
+        }
+        .filtros-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+        .filtro-group { display: flex; flex-direction: column; gap: 4px; }
+        .filtro-group label {
+            font-size: 0.72em;
+            color: var(--text-2);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            font-weight: 600;
+        }
+        .filtro-group select,
+        .filtro-group input { min-width: 180px; }
+
+        .view-toggle { display: flex; gap: 5px; margin-left: auto; }
+        .view-btn {
+            padding: 7px 14px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-2);
+            border-radius: var(--r-sm);
+            cursor: pointer;
+            font-size: 0.8em;
+            font-family: inherit;
+            transition: all 0.15s;
+        }
+        .view-btn:hover { color: var(--text-0); }
+        .view-btn.active { background: var(--accent-strong); color: #fff; border-color: var(--accent-strong); }
+
+        /* Licitacao Group (Accordion) */
+        .licitacao-group {
+            background: var(--bg-1);
+            border-radius: var(--r-md);
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        .licitacao-header {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            cursor: pointer;
+            background: var(--bg-1);
+            transition: background 0.2s;
+        }
+        .licitacao-header:hover { background: var(--bg-2); }
+        .licitacao-header .chevron {
+            margin-right: 15px;
+            transition: transform 0.3s;
+            color: var(--accent);
+            font-size: 12px;
+        }
+        .licitacao-header.expanded .chevron { transform: rotate(90deg); }
+        .licitacao-header:active { background: var(--bg-0); }
+        .licitacao-title { flex: 1; }
+        .licitacao-title .numero { color: var(--accent); font-weight: 600; font-size: 15px; }
+        .licitacao-title .orgao { color: var(--text-3); font-size: 12px; margin-top: 3px; }
+        .licitacao-meta { display: flex; gap: 12px; align-items: center; }
+        /* .badge base vem do app-modern.css (design-system). Só as variantes de cor abaixo. */
+        .licitacao-meta .badge.alerta { background: var(--warn); color: #000; }
+        .licitacao-meta .badge.cnpj { background: var(--danger); color: #fff; }
+        .licitacao-meta .badge svg { vertical-align: -2px; }
+        .licitacao-mensagens {
+            display: none;
+            padding: 0 20px 20px;
+            background: var(--bg-2);
+        }
+        .licitacao-mensagens.expanded { display: block; }
+
+        .mensagem-item {
+            background: var(--bg-0);
+            border-radius: var(--r-md);
+            padding: 15px;
+            margin-top: 10px;
+            border-left: 3px solid var(--accent);
+            position: relative;
+        }
+        .mensagem-item.alerta { border-left-color: var(--warn); }
+        .mensagem-item.cnpj { border-left-color: var(--danger); }
+        .mensagem-item.nao-lido { background: var(--accent-soft); }
+        .mensagem-item.nao-lido::before {
+            content: '';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 10px;
+            height: 10px;
+            background: var(--accent);
+            border-radius: 50%;
+        }
+        .mensagem-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .mensagem-remetente { color: var(--success); font-weight: 600; font-size: 13px; }
+        .mensagem-hora { color: var(--text-3); font-size: 11px; }
+        .mensagem-texto {
+            color: var(--text-1);
+            line-height: 1.6;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .mensagem-texto mark {
+            background: linear-gradient(135deg, var(--warn), var(--danger));
+            color: #fff;
+            padding: 2px 6px;
+            border-radius: var(--r-sm);
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(243, 156, 18, 0.4);
+            animation: pulse-highlight 2s ease-in-out infinite;
+        }
+        @keyframes pulse-highlight {
+            0%, 100% { box-shadow: 0 2px 4px rgba(243, 156, 18, 0.4); }
+            50% { box-shadow: 0 2px 8px rgba(231, 76, 60, 0.6); }
+        }
+        .mensagem-tags { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .tag { padding: 3px 8px; border-radius: var(--r-sm); font-size: 10px; font-weight: 600; }
+        .tag.palavra { background: var(--warn); color: #000; }
+        .tag.cnpj { background: var(--danger); color: #fff; }
+
+        .mensagem-card {
+            background: var(--bg-1);
+            border-radius: var(--r-md);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid var(--accent);
+        }
+        .mensagem-card.alerta { border-left-color: var(--warn); }
+        .mensagem-card.cnpj { border-left-color: var(--danger); background: var(--danger-soft); }
+        .mensagem-card.nao-lido { background: var(--accent-soft); position: relative; }
+        .mensagem-card.nao-lido::after {
+            content: 'Nova';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--accent-strong);
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+        }
+        .btn-lido {
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 4px 10px;
+            border-radius: var(--r-sm);
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 10px;
+            font-family: inherit;
+            transition: background 0.15s;
+        }
+        .btn-lido:hover { background: var(--accent-strong); color: #fff; border-color: var(--accent-strong); }
+        .mensagem-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .mensagem-licitacao {
+            background: var(--bg-2);
+            padding: 5px 10px;
+            border-radius: var(--r-sm);
+            font-size: 12px;
+            color: var(--accent);
+        }
+
+        .palavras-lista { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+        .palavra-tag {
+            background: var(--bg-1);
+            color: var(--accent);
+            padding: 8px 15px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+        .palavra-tag .remover {
+            background: var(--danger);
+            color: #fff;
+            border: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .palavra-tag .remover:hover { background: #b91c1c; }
+        .add-palavra { display: flex; gap: 10px; }
+        .add-palavra input {
+            flex: 1;
+            background: var(--bg-0);
+            border: 1px solid var(--border);
+            border-radius: var(--r-sm);
+            padding: 12px 15px;
+            color: var(--text-0);
+            font-size: 14px;
+        }
+        .add-palavra input:focus { outline: none; border-color: var(--accent); }
+
+        .sem-mensagens { text-align: center; padding: 60px 20px; color: var(--text-3); }
+        .sem-mensagens .icon { font-size: 48px; margin-bottom: 15px; }
+
+        /* .loading, .logs-container, .log-entry, .alert vêm do app-modern.css */
+
+        @media (max-width: 768px) {
+            .filtros-row { flex-direction: column; }
+            .filtro-group select,
+            .filtro-group input { min-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+
+            <div class="page-header">
+              <div>
+                <h1>Monitor de Mensagens</h1>
+                <small>Mensagens capturadas do chat das licitações no Comprasnet</small>
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary btn-sm" onclick="marcarTodasLidas()"><svg class="ic-sm"><use href="#i-check-circle"/></svg> Marcar todas como lidas</button>
+              </div>
+            </div>
+
+            <div id="alertContainer"></div>
+
+            <div class="kpi-grid">
+                <div class="kpi"><div class="label">Mensagens</div><div class="value" id="totalMensagens">0</div></div>
+                <div class="kpi"><div class="label">Licitações</div><div class="value" id="totalLicitacoes">0</div></div>
+                <div class="kpi warn"><div class="label">Com alerta</div><div class="value" id="totalAlertas">0</div></div>
+                <div class="kpi danger"><div class="label">Com meu CNPJ</div><div class="value" id="totalCnpj">0</div></div>
+                <div class="kpi success"><div class="label">Não lidas</div><div class="value" id="totalNaoLidas">0</div></div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="mensagens"><svg class="ic-sm"><use href="#i-message"/></svg> Mensagens</button>
+                <button class="tab" data-tab="palavras"><svg class="ic-sm"><use href="#i-tag"/></svg> Palavras-chave</button>
+                <button class="tab" data-tab="config"><svg class="ic-sm"><use href="#i-send"/></svg> Telegram</button>
+            </div>
+
+            <!-- Tab: Mensagens -->
+            <div class="tab-content active" id="tab-mensagens">
+                <!-- Filtros -->
+                <div class="filtros-container">
+                    <div class="filtros-row">
+                        <div class="filtro-group">
+                            <label>Órgão</label>
+                            <select id="filtroOrgao" style="min-width: 250px;">
+                                <option value="">Todos os órgãos</option>
+                            </select>
+                        </div>
+                        <div class="filtro-group">
+                            <label>UASG</label>
+                            <input type="text" id="filtroUasg" placeholder="Código UASG..." style="min-width: 120px;">
+                        </div>
+                        <div class="filtro-group">
+                            <label>Licitação</label>
+                            <select id="filtroLicitacao">
+                                <option value="">Todas as licitações</option>
+                            </select>
+                        </div>
+                        <div class="filtro-group">
+                            <label>Tipo</label>
+                            <select id="filtroTipo">
+                                <option value="">Todos</option>
+                                <option value="para-mim">Direcionadas a mim</option>
+                                <option value="cnpj">Com meu CNPJ</option>
+                                <option value="alerta">Com palavra-chave</option>
+                            </select>
+                        </div>
+                        <div class="filtro-group">
+                            <label>Data</label>
+                            <select id="filtroData">
+                                <option value="">Qualquer data</option>
+                                <option value="hoje">Hoje</option>
+                                <option value="7dias">Últimos 7 dias</option>
+                                <option value="30dias">Últimos 30 dias</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="filtros-row" style="margin-top: 15px;">
+                        <div class="filtro-group" style="flex: 1;">
+                            <label>Buscar</label>
+                            <input type="text" id="filtroBusca" placeholder="Texto na mensagem..." style="width: 100%;">
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick="carregarMensagens()">Filtrar</button>
+                        <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar</button>
+                        <div class="view-toggle">
+                            <button class="view-btn active" data-view="agrupado" onclick="setView('agrupado')">Agrupar</button>
+                            <button class="view-btn" data-view="lista" onclick="setView('lista')">Lista</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mensagens -->
+                <div id="mensagensContainer">
+                    <div class="loading">Carregando mensagens...</div>
+                </div>
+            </div>
+
+            <!-- Tab: Palavras-chave -->
+            <div class="tab-content" id="tab-palavras">
+                <div class="panel">
+                    <h3 style="margin-bottom:10px; display:flex; align-items:center; gap:8px;"><svg class="ic"><use href="#i-tag"/></svg> Palavras-chave para alerta</h3>
+                    <p style="color:var(--text-2); margin-bottom:18px; font-size:0.9em;">
+                        Ao chegar uma mensagem de chat do Comprasnet contendo qualquer uma destas palavras no
+                        <strong>conteúdo ou título</strong>, um alerta é enviado automaticamente para o Telegram
+                        configurado. Match é case-insensitive. Mínimo 2 caracteres por palavra.
+                    </p>
+                    <div style="display:flex; gap:8px; margin-bottom:14px;">
+                        <input type="text" id="novaPalavra" placeholder="Ex.: habilitação, recurso, diligência"
+                            style="flex:1; padding:8px 11px;" onkeypress="if(event.key==='Enter') adicionarPalavra()">
+                        <button class="btn btn-primary" onclick="adicionarPalavra()">+ Adicionar</button>
+                    </div>
+                    <div id="palavrasLista" style="display:flex; flex-wrap:wrap; gap:8px;">
+                        <small class="muted">Carregando…</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Configurações -->
+            <div class="tab-content" id="tab-config">
+                <!-- Telegram -->
+                <div class="panel">
+                    <h3 style="margin-bottom:10px; display:flex; align-items:center; gap:8px;"><svg class="ic"><use href="#i-send"/></svg> Alertas via Telegram</h3>
+                    <p style="color:var(--text-2); margin-bottom:18px; font-size:0.9em;">
+                        Configure seu bot do Telegram para receber alertas de novas mensagens importantes.
+                    </p>
+
+                    <div id="telegramStatus" style="margin-bottom: 20px;">
+                        <div class="loading">Verificando configuração...</div>
+                    </div>
+
+                    <div id="telegramForm">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div class="filtro-group">
+                                <label>Token do Bot</label>
+                                <input type="text" id="telegramToken" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                            </div>
+                            <div class="filtro-group">
+                                <label>Chat ID</label>
+                                <input type="text" id="telegramChatId" placeholder="-1001234567890">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="salvarTelegram()">Salvar configuração</button>
+                            <button class="btn btn-success" onclick="testarTelegram()">Enviar teste</button>
+                            <button class="btn btn-danger" onclick="desativarTelegram()">Desativar</button>
+                        </div>
+                    </div>
+
+                    <div class="card card-info" style="margin-top:18px;">
+                        <p style="color:var(--accent); font-weight:600; margin-bottom:10px;">Como configurar:</p>
+                        <ol style="color:var(--text-1); font-size:0.86em; line-height:1.8; padding-left:20px;">
+                            <li>Abra o Telegram e busque por <strong>@BotFather</strong></li>
+                            <li>Envie <code>/newbot</code> e siga as instruções</li>
+                            <li>Copie o token gerado e cole acima</li>
+                            <li>Crie um grupo e adicione o bot</li>
+                            <li>Envie uma mensagem no grupo</li>
+                            <li>Acesse: <code>https://api.telegram.org/bot[TOKEN]/getUpdates</code></li>
+                            <li>Copie o "chat id" (número negativo) e cole acima</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        const API_URL = '';
+        let viewMode = 'agrupado';
+        let todasMensagens = [];
+        let palavrasChave = [];
+
+        // Tabs
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'palavras') carregarPalavrasChave();
+            });
+        });
+
+        // ========== PALAVRAS-CHAVE ==========
+        async function carregarPalavrasChave() {
+            const box = document.getElementById('palavrasLista');
+            try {
+                const r = await fetch(`${API_URL}/api/chat/palavras-chave`);
+                const d = await r.json();
+                palavrasChave = (d.data || []).map(p => p.palavra);
+                if (!d.data || d.data.length === 0) {
+                    box.innerHTML = '<small class="muted">Nenhuma palavra cadastrada. Adicione palavras como "habilitação", "recurso", "diligência" para receber alertas automáticos.</small>';
+                    return;
+                }
+                box.innerHTML = d.data.map(p => `
+                    <span style="display:inline-flex; align-items:center; gap:6px; background:var(--bg-2); border:1px solid var(--border); padding:5px 10px; border-radius:999px; font-size:0.88em;">
+                        <strong>${escapeHtml(p.palavra)}</strong>
+                        <button onclick="removerPalavra(${p.id}, '${escapeHtml(p.palavra).replace(/'/g, "\\'")}')" title="Remover"
+                            style="background:none; border:none; color:var(--danger); cursor:pointer; line-height:1; padding:0; display:inline-flex;">${icon('x','ic-sm')}</button>
+                    </span>
+                `).join('');
+            } catch (e) {
+                box.innerHTML = `<small style="color:var(--danger);">Erro ao carregar: ${e.message}</small>`;
+            }
+        }
+
+        async function adicionarPalavra() {
+            const input = document.getElementById('novaPalavra');
+            const palavra = input.value.trim();
+            if (palavra.length < 2) { showAlert('Palavra deve ter ao menos 2 caracteres', 'error'); return; }
+            try {
+                const r = await fetch(`${API_URL}/api/chat/palavras-chave`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ palavra })
+                });
+                const d = await r.json();
+                if (!d.success) throw new Error(d.error || 'Falha');
+                input.value = '';
+                showAlert('Palavra-chave adicionada', 'success');
+                carregarPalavrasChave();
+            } catch (e) {
+                showAlert('Erro: ' + e.message, 'error');
+            }
+        }
+
+        async function removerPalavra(id, palavra) {
+            if (!confirm(`Remover a palavra "${palavra}"?`)) return;
+            try {
+                const r = await fetch(`${API_URL}/api/chat/palavras-chave/${id}`, { method: 'DELETE' });
+                const d = await r.json();
+                if (!d.success) throw new Error(d.error || 'Falha');
+                showAlert('Palavra-chave removida', 'success');
+                carregarPalavrasChave();
+            } catch (e) {
+                showAlert('Erro: ' + e.message, 'error');
+            }
+        }
+
+        function setView(mode) {
+            viewMode = mode;
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === mode);
+            });
+            renderMensagens();
+        }
+
+        function showAlert(message, type = 'info') {
+            const container = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = `${icon(type === 'success' ? 'check-circle' : 'alert-triangle', 'ic-sm')} ${message}`;
+            container.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        // Dados dos órgãos (para mapeamento de código -> nome)
+        let dadosOrgaos = [];
+        let dadosLicitacoes = [];
+        let pregoesSilenciados = new Set(); // compraIds com alerta Telegram desligado
+
+        async function carregarSilenciados() {
+            try {
+                const res = await fetch(`${API_URL}/api/chat/pregoes-silenciados`);
+                const data = await res.json();
+                pregoesSilenciados = new Set(data.data || []);
+            } catch (e) {
+                console.error('Erro ao carregar silenciados:', e);
+            }
+        }
+
+        // Carregar filtros
+        async function carregarFiltros() {
+            try {
+                // Carregar órgãos com nomes
+                const resOrgaos = await fetch(`${API_URL}/api/chat/mensagens/orgaos`);
+                const dataOrgaos = await resOrgaos.json();
+                dadosOrgaos = dataOrgaos.data || [];
+
+                // Carregar licitações
+                const resLic = await fetch(`${API_URL}/api/chat/mensagens/licitacoes`);
+                const dataLic = await resLic.json();
+                dadosLicitacoes = dataLic.data || [];
+
+                const selectOrgao = document.getElementById('filtroOrgao');
+                const selectLic = document.getElementById('filtroLicitacao');
+
+                // Preencher órgãos com nomes
+                selectOrgao.innerHTML = '<option value="">Todos os órgãos</option>';
+                dadosOrgaos.forEach(org => {
+                    const opt = document.createElement('option');
+                    opt.value = org.cnpjOrgao;
+                    // Mostrar nome do órgão se disponível, senão o código
+                    const nomeExibicao = org.nomeOrgao
+                        ? `${org.nomeOrgao} (${org.totalLicitacoes} licitações)`
+                        : `Código ${org.cnpjOrgao} (${org.totalLicitacoes} licitações)`;
+                    opt.textContent = nomeExibicao;
+                    opt.dataset.uasg = org.uasg || org.cnpjOrgao;
+                    selectOrgao.appendChild(opt);
+                });
+
+                // Preencher licitações com nomes do órgão
+                selectLic.innerHTML = '<option value="">Todas as licitações</option>';
+                dadosLicitacoes.forEach(l => {
+                    const opt = document.createElement('option');
+                    opt.value = `${l.cnpjOrgao}|${l.ano}|${l.sequencial}`;
+                    const nomeOrgao = l.nomeOrgao ? l.nomeOrgao.substring(0, 30) : l.cnpjOrgao;
+                    opt.textContent = `${l.sequencial}/${l.ano} - ${nomeOrgao} (${l.totalMensagens} msgs)`;
+                    opt.dataset.orgao = l.cnpjOrgao;
+                    opt.dataset.uasg = l.uasg || l.cnpjOrgao;
+                    selectLic.appendChild(opt);
+                });
+
+                document.getElementById('totalLicitacoes').textContent = dadosLicitacoes.length || 0;
+            } catch (e) {
+                console.error('Erro ao carregar filtros:', e);
+            }
+        }
+
+        function formatCNPJ(cnpj) {
+            if (!cnpj || cnpj.length !== 14) return cnpj;
+            return cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        }
+
+        // Obter nome do órgão pelo código
+        function getNomeOrgao(cnpjOrgao) {
+            const orgao = dadosOrgaos.find(o => o.cnpjOrgao === cnpjOrgao);
+            if (orgao && orgao.nomeOrgao) return orgao.nomeOrgao;
+
+            const lic = dadosLicitacoes.find(l => l.cnpjOrgao === cnpjOrgao);
+            if (lic && lic.nomeOrgao) return lic.nomeOrgao;
+
+            return null;
+        }
+
+        function limparFiltros() {
+            document.getElementById('filtroOrgao').value = '';
+            document.getElementById('filtroUasg').value = '';
+            document.getElementById('filtroLicitacao').value = '';
+            document.getElementById('filtroTipo').value = '';
+            document.getElementById('filtroData').value = '';
+            document.getElementById('filtroBusca').value = '';
+            carregarMensagens();
+        }
+
+        // Carregar mensagens
+        async function carregarMensagens() {
+            const container = document.getElementById('mensagensContainer');
+            container.innerHTML = '<div class="loading">Carregando mensagens...</div>';
+
+            try {
+                // Obter filtros
+                const orgao = document.getElementById('filtroOrgao').value;
+                const uasg = document.getElementById('filtroUasg').value.trim();
+                const lic = document.getElementById('filtroLicitacao').value;
+                const tipo = document.getElementById('filtroTipo').value;
+                const data = document.getElementById('filtroData').value;
+                const busca = document.getElementById('filtroBusca').value;
+
+                let url = `${API_URL}/api/chat/mensagens?limit=100`;
+
+                if (lic) {
+                    const [cnpjOrgao, ano, sequencial] = lic.split('|');
+                    url += `&cnpjOrgao=${cnpjOrgao}&ano=${ano}&sequencial=${sequencial}`;
+                } else if (uasg) {
+                    // Filtrar por UASG (busca no cnpjOrgao que contém o código)
+                    url += `&cnpjOrgao=${uasg}`;
+                } else if (orgao) {
+                    url += `&cnpjOrgao=${orgao}`;
+                }
+
+                if (tipo) url += `&tipo=${tipo}`;
+                if (data) url += `&data=${data}`;
+                if (busca) url += `&busca=${encodeURIComponent(busca)}`;
+
+                const res = await fetch(url);
+                const result = await res.json();
+
+                todasMensagens = result.data || [];
+
+                // Estado de silêncio (alerta Telegram) por pregão
+                await carregarSilenciados();
+
+                // Atualizar stats
+                document.getElementById('totalMensagens').textContent = todasMensagens.length;
+                document.getElementById('totalAlertas').textContent = todasMensagens.filter(m => m.palavrasChaveEncontradas).length;
+                document.getElementById('totalCnpj').textContent = todasMensagens.filter(m => m.temCnpjFornecedor || m.identificadorDestinatario === '19884430000141').length;
+                document.getElementById('totalNaoLidas').textContent = todasMensagens.filter(m => !m.lido).length;
+
+                // Contar licitações únicas
+                const licitacoesUnicas = new Set(todasMensagens.map(m => m.compraId).filter(Boolean));
+                document.getElementById('totalLicitacoes').textContent = licitacoesUnicas.size;
+
+                renderMensagens();
+            } catch (e) {
+                console.error('Erro ao carregar mensagens:', e);
+                container.innerHTML = `<div class="sem-mensagens"><div class="icon">${icon('alert-triangle','ic-xl')}</div><p>Erro ao carregar mensagens</p></div>`;
+            }
+        }
+
+        function renderMensagens() {
+            const container = document.getElementById('mensagensContainer');
+
+            if (todasMensagens.length === 0) {
+                container.innerHTML = `
+                    <div class="sem-mensagens">
+                        <div class="icon">${icon('message-circle','ic-xl')}</div>
+                        <p>Nenhuma mensagem encontrada</p>
+                        <p style="font-size: 13px; margin-top: 10px;">Use a extensão do Chrome para capturar mensagens do Comprasnet</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (viewMode === 'agrupado') {
+                renderAgrupado(container);
+            } else {
+                renderLista(container);
+            }
+        }
+
+        function renderAgrupado(container) {
+            // Agrupar por licitação (compraId)
+            const grupos = new Map();
+            todasMensagens.forEach(msg => {
+                const key = msg.compraId || 'sem-compra';
+                if (!grupos.has(key)) {
+                    grupos.set(key, {
+                        compraId: msg.compraId,
+                        cnpjOrgao: msg.cnpjOrgao,
+                        sequencial: msg.sequencial,
+                        ano: msg.ano,
+                        mensagens: [],
+                        temAlerta: false,
+                        temCnpj: false,
+                        naoLidas: 0
+                    });
+                }
+                const grupo = grupos.get(key);
+                grupo.mensagens.push(msg);
+                if (msg.palavrasChaveEncontradas) grupo.temAlerta = true;
+                if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') grupo.temCnpj = true;
+                if (!msg.lido) grupo.naoLidas++;
+            });
+
+            let html = '';
+            grupos.forEach((grupo, key) => {
+                const badges = [];
+                badges.push(`<span class="badge">${grupo.mensagens.length} msgs</span>`);
+                if (grupo.naoLidas > 0) badges.push(`<span class="badge" style="background: var(--accent); color: #fff;">${grupo.naoLidas} novas</span>`);
+                if (grupo.temAlerta) badges.push(`<span class="badge alerta">Alerta</span>`);
+                if (grupo.temCnpj) badges.push(`<span class="badge cnpj">CNPJ</span>`);
+
+                const compraId = grupo.compraId || key;
+                // Resolve o órgão pelo compraId (a licitação traz o nome via JOIN com
+                // participacoes_comprasnet); fallback para o lookup por cnpjOrgao.
+                const licInfo = grupo.compraId ? dadosLicitacoes.find(l => l.compraId === grupo.compraId) : null;
+                const nomeOrgao = (licInfo && licInfo.nomeOrgao) || getNomeOrgao(grupo.cnpjOrgao);
+                const numeroLic = grupo.sequencial
+                    ? `${grupo.sequencial}/${grupo.ano}`
+                    : (licInfo && licInfo.sequencial ? `${licInfo.sequencial}/${licInfo.ano}` : '');
+                // Linha secundária: nº do pregão (quando houver) + a compra.
+                const linhaSecundaria = `${numeroLic ? 'Pregão ' + escapeHtml(numeroLic) + ' · ' : ''}Compra ${escapeHtml(String(compraId))}`;
+
+                const isSilenciado = grupo.compraId && pregoesSilenciados.has(grupo.compraId);
+                const btnSilenciar = grupo.compraId
+                    ? `<button class="badge" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;background:${isSilenciado ? 'var(--danger)' : 'var(--bg-2)'};color:${isSilenciado ? '#fff' : 'var(--text-3)'};border:none;"
+                                onclick="event.stopPropagation(); toggleSilenciar('${escapeHtml(String(grupo.compraId))}', this)"
+                                title="${isSilenciado ? 'Pregão silenciado — clique para voltar a receber alertas no Telegram' : 'Receber alertas no Telegram — clique para silenciar'}">${isSilenciado ? icon('x-circle','ic-sm') + ' Silenciado' : icon('megaphone','ic-sm')}</button>`
+                    : '';
+
+                html += `
+                    <div class="licitacao-group">
+                        <div class="licitacao-header" data-toggle="grupo">
+                            <span class="chevron">▶</span>
+                            <div class="licitacao-title">
+                                <div class="numero">${nomeOrgao ? escapeHtml(nomeOrgao) : 'Compra ' + escapeHtml(String(compraId))}</div>
+                                <div class="orgao">${linhaSecundaria}</div>
+                            </div>
+                            <div class="licitacao-meta">
+                                ${badges.join('')}
+                                ${btnSilenciar}
+                            </div>
+                        </div>
+                        <div class="licitacao-mensagens">
+                            ${grupo.mensagens.map(msg => renderMensagemItem(msg)).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+
+            // Event delegation para expandir/colapsar grupos
+            container.querySelectorAll('[data-toggle="grupo"]').forEach(header => {
+                header.addEventListener('click', function() {
+                    this.classList.toggle('expanded');
+                    this.nextElementSibling.classList.toggle('expanded');
+                });
+            });
+        }
+
+        function renderLista(container) {
+            container.innerHTML = todasMensagens.map(msg => {
+                let cardClass = 'mensagem-card';
+                if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') cardClass += ' cnpj';
+                else if (msg.palavrasChaveEncontradas) cardClass += ' alerta';
+                if (!msg.lido) cardClass += ' nao-lido';
+
+                const dataMsg = msg.dataHoraMensagem || msg.dataCaptura;
+                const dataFormatada = dataMsg ? new Date(dataMsg).toLocaleString('pt-BR') : '-';
+
+                let texto = escapeHtml(msg.mensagem || '');
+                palavrasChave.forEach(palavra => {
+                    const regex = new RegExp(`(${escapeRegex(palavra)})`, 'gi');
+                    texto = texto.replace(regex, '<mark>$1</mark>');
+                });
+
+                let tags = '';
+                if (msg.palavrasChaveEncontradas) {
+                    const palavras = msg.palavrasChaveEncontradas.split(',').filter(p => p);
+                    tags += palavras.map(p => `<span class="tag palavra">${escapeHtml(p.trim())}</span>`).join('');
+                }
+                if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') {
+                    tags += '<span class="tag cnpj">Meu CNPJ</span>';
+                }
+
+                const btnLido = !msg.lido
+                    ? `<button class="btn-lido" onclick="marcarComoLida(${msg.id}, this)">${icon('check','ic-sm')} Lida</button>`
+                    : '';
+
+                return `
+                    <div class="${cardClass}" id="msg-${msg.id}">
+                        <div class="mensagem-header">
+                            <span class="mensagem-licitacao">${icon('file-text','ic-sm')} ${msg.sequencial || 'N/A'}/${msg.ano || 'N/A'}</span>
+                            <span class="mensagem-hora">${dataFormatada} ${btnLido}</span>
+                        </div>
+                        <div class="mensagem-remetente">${icon('user','ic-sm')} ${escapeHtml(msg.remetente || 'Sistema')}</div>
+                        <div class="mensagem-texto">${texto}</div>
+                        ${tags ? `<div class="mensagem-tags">${tags}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderMensagemItem(msg) {
+            let itemClass = 'mensagem-item';
+            if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') itemClass += ' cnpj';
+            else if (msg.palavrasChaveEncontradas) itemClass += ' alerta';
+            if (!msg.lido) itemClass += ' nao-lido';
+
+            const dataMsg = msg.dataHoraMensagem || msg.dataCaptura;
+            const dataFormatada = dataMsg ? new Date(dataMsg).toLocaleString('pt-BR') : '-';
+
+            let texto = escapeHtml(msg.mensagem || '');
+            palavrasChave.forEach(palavra => {
+                const regex = new RegExp(`(${escapeRegex(palavra)})`, 'gi');
+                texto = texto.replace(regex, '<mark>$1</mark>');
+            });
+
+            let tags = '';
+            if (msg.palavrasChaveEncontradas) {
+                const palavras = msg.palavrasChaveEncontradas.split(',').filter(p => p);
+                tags += palavras.map(p => `<span class="tag palavra">${escapeHtml(p.trim())}</span>`).join('');
+            }
+            if (msg.temCnpjFornecedor || msg.identificadorDestinatario === '19884430000141') {
+                tags += '<span class="tag cnpj">Meu CNPJ</span>';
+            }
+
+            const btnLido = !msg.lido
+                ? `<button class="btn-lido" onclick="marcarComoLida(${msg.id}, this)">${icon('check','ic-sm')} Marcar lida</button>`
+                : `<span style="color: var(--success); font-size: 11px;">${icon('check','ic-sm')} Lida</span>`;
+
+            return `
+                <div class="${itemClass}" id="msg-${msg.id}">
+                    <div class="mensagem-top">
+                        <span class="mensagem-remetente">${icon('user','ic-sm')} ${escapeHtml(msg.remetente || 'Sistema')}</span>
+                        <span class="mensagem-hora">${dataFormatada} ${btnLido}</span>
+                    </div>
+                    <div class="mensagem-texto">${texto}</div>
+                    ${tags ? `<div class="mensagem-tags">${tags}</div>` : ''}
+                </div>
+            `;
+        }
+
+        // Silenciar / reativar alerta Telegram de um pregão
+        async function toggleSilenciar(compraId, btn) {
+            const querSilenciar = !pregoesSilenciados.has(compraId);
+            btn.disabled = true;
+            try {
+                const res = await fetch(`${API_URL}/api/chat/pregoes/${encodeURIComponent(compraId)}/silenciar`, {
+                    method: querSilenciar ? 'POST' : 'DELETE'
+                });
+                if (!res.ok) throw new Error('falha na requisição');
+                if (querSilenciar) pregoesSilenciados.add(compraId);
+                else pregoesSilenciados.delete(compraId);
+
+                const silenciado = pregoesSilenciados.has(compraId);
+                btn.innerHTML = silenciado ? icon('x-circle','ic-sm') + ' Silenciado' : icon('megaphone','ic-sm');
+                btn.style.background = silenciado ? 'var(--danger)' : 'var(--bg-2)';
+                btn.style.color = silenciado ? '#fff' : 'var(--text-3)';
+                btn.title = silenciado
+                    ? 'Pregão silenciado — clique para voltar a receber alertas no Telegram'
+                    : 'Receber alertas no Telegram — clique para silenciar';
+                showAlert(silenciado ? 'Pregão silenciado — sem alertas no Telegram' : 'Alertas reativados', 'success');
+            } catch (e) {
+                showAlert('Erro ao alterar silêncio do pregão', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // Marcar mensagem como lida
+        async function marcarComoLida(id, btn) {
+            try {
+                const res = await fetch(`${API_URL}/api/chat/leitura/marcar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+
+                if (res.ok) {
+                    // Atualizar visualmente
+                    const msgEl = document.getElementById(`msg-${id}`);
+                    if (msgEl) {
+                        msgEl.classList.remove('nao-lido');
+                        btn.outerHTML = `<span style="color: var(--success); font-size: 11px;">${icon('check','ic-sm')} Lida</span>`;
+                    }
+
+                    // Atualizar array local
+                    const msg = todasMensagens.find(m => m.id === id);
+                    if (msg) msg.lido = 1;
+
+                    // Atualizar contador
+                    const naoLidas = todasMensagens.filter(m => !m.lido).length;
+                    document.getElementById('totalNaoLidas').textContent = naoLidas;
+                }
+            } catch (e) {
+                console.error('Erro ao marcar como lida:', e);
+            }
+        }
+
+        // Marcar todas como lidas
+        async function marcarTodasLidas() {
+            if (!confirm('Marcar todas as mensagens como lidas?')) return;
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat/leitura/marcar-todas`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                if (res.ok) {
+                    showAlert('Todas as mensagens marcadas como lidas!', 'success');
+                    carregarMensagens(); // Recarregar lista
+                }
+            } catch (e) {
+                showAlert('Erro ao marcar mensagens', 'error');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Palavras-chave
+        // Filtro por órgão atualiza as licitações disponíveis
+        document.getElementById('filtroOrgao').addEventListener('change', async function() {
+            const orgao = this.value;
+            const selectLic = document.getElementById('filtroLicitacao');
+
+            if (!orgao) {
+                await carregarFiltros();
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat/mensagens/licitacoes`);
+                const data = await res.json();
+
+                selectLic.innerHTML = '<option value="">Todas as licitações</option>';
+                if (data.data) {
+                    data.data
+                        .filter(l => l.cnpjOrgao === orgao)
+                        .forEach(l => {
+                            const opt = document.createElement('option');
+                            opt.value = `${l.cnpjOrgao}|${l.ano}|${l.sequencial}`;
+                            opt.textContent = `${l.sequencial}/${l.ano} (${l.totalMensagens} msgs)`;
+                            selectLic.appendChild(opt);
+                        });
+                }
+            } catch (e) {
+                console.error('Erro ao filtrar licitações:', e);
+            }
+        });
+
+        // Enter para buscar
+        document.getElementById('filtroBusca').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') carregarMensagens();
+        });
+
+        // ========== TELEGRAM ==========
+        async function carregarTelegramStatus() {
+            const statusDiv = document.getElementById('telegramStatus');
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/status`);
+                const data = await res.json();
+
+                if (data.ativo) {
+                    statusDiv.innerHTML = `
+                        <div class="alert alert-success" style="display: flex; align-items: center; gap: 10px;">
+                            ${icon('check-circle','ic')}
+                            <div>
+                                <strong>Telegram Configurado</strong>
+                                <div style="font-size: 12px; opacity: 0.9;">Chat ID: ${data.chatId}</div>
+                            </div>
+                        </div>
+                    `;
+                    // Preencher campos com valores atuais
+                    document.getElementById('telegramChatId').value = data.chatId || '';
+                } else {
+                    statusDiv.innerHTML = `
+                        <div class="alert alert-error" style="display: flex; align-items: center; gap: 10px;">
+                            ${icon('alert-triangle','ic')}
+                            <div>
+                                <strong>Telegram Não Configurado</strong>
+                                <div style="font-size: 12px; opacity: 0.9;">Configure abaixo para receber alertas</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-info">
+                        Erro ao verificar status do Telegram
+                    </div>
+                `;
+            }
+        }
+
+        async function salvarTelegram() {
+            const token = document.getElementById('telegramToken').value.trim();
+            const chatId = document.getElementById('telegramChatId').value.trim();
+
+            if (!token || !chatId) {
+                showAlert('Preencha o Token e o Chat ID', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ botToken: token, chatId })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    showAlert('Telegram configurado com sucesso!', 'success');
+                    document.getElementById('telegramToken').value = '';
+                    carregarTelegramStatus();
+                } else {
+                    showAlert(data.error || 'Erro ao configurar Telegram', 'error');
+                }
+            } catch (e) {
+                showAlert('Erro ao salvar configuração', 'error');
+            }
+        }
+
+        async function testarTelegram() {
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/testar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    showAlert('Mensagem de teste enviada! Verifique o Telegram.', 'success');
+                } else {
+                    showAlert(data.error || 'Erro ao enviar teste', 'error');
+                }
+            } catch (e) {
+                showAlert('Erro ao enviar teste', 'error');
+            }
+        }
+
+        async function desativarTelegram() {
+            if (!confirm('Desativar notificações do Telegram?')) return;
+
+            try {
+                const res = await fetch(`${API_URL}/api/telegram/config`, {
+                    method: 'DELETE'
+                });
+
+                if (res.ok) {
+                    showAlert('Telegram desativado', 'success');
+                    document.getElementById('telegramToken').value = '';
+                    document.getElementById('telegramChatId').value = '';
+                    carregarTelegramStatus();
+                }
+            } catch (e) {
+                showAlert('Erro ao desativar', 'error');
+            }
+        }
+
+        // Inicialização — filtros primeiro (carregam nome do órgão por compraId),
+        // depois as mensagens, para o cabeçalho já renderizar com o órgão.
+        carregarFiltros().then(carregarMensagens);
+        carregarTelegramStatus();
+
+    </script>
+    <script src="/js/icons.js"></script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('monitoramento-chat');</script>
+</body>
+</html>

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TEF/SAT · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* page-local: tab-pane toggle helper — .tabs/.tab vêm de app-modern.css */
+.tab-pane { display:none; } .tab-pane.active { display:block; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>TEF/SAT — Transações de Cartão</h1><small>Registro de transações (sem integração com pinpad físico nesta versão)</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+  <div class="alert warn" style="display:block;margin:10px 0;">
+    ⚠ MVP: registro manual de transações. Integração com pinpad/SDK (SiTef, GerTef) é evolução futura.
+  </div>
+  <div class="kpi-grid" id="kpis"></div>
+  <div class="tabs">
+    <div class="tab active" onclick="trocarTab('trx')">Transações</div>
+    <div class="tab" onclick="trocarTab('term')">Terminais</div>
+  </div>
+
+  <div class="tab-pane active" id="tab-trx">
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="abrirTrx()">+ Registrar transação</button>
+      <select id="fStatus" onchange="carregar()"><option value="">Todos status</option></select>
+      <select id="fTipo" onchange="carregar()"><option value="">Todos tipos</option></select>
+      <input type="text" id="fQ" placeholder="Buscar autorização/NSU…" oninput="debounce(carregar)" style="flex:1;">
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Data</th><th>Terminal</th><th>Tipo</th><th>Bandeira</th><th>Parc.</th><th class="num">Valor</th><th>Pedido</th><th>Aut./NSU</th><th>Status</th><th></th></tr></thead>
+        <tbody id="tbTrx"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="tab-term">
+    <div class="toolbar"><button class="btn btn-primary" onclick="abrirTerm()">+ Cadastrar terminal</button></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Adquirente</th><th>Identificador</th><th></th></tr></thead>
+        <tbody id="tbTerm"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalTrx">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Registrar transação</h3>
+        <small class="muted">Transação TEF/SAT — informe valor, tipo e autorização</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalTrx')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Terminal</label><select id="trxTerm"><option value="">—</option></select></div>
+      <div class="form-group"><label>Tipo</label><select id="trxTipo"></select></div>
+      <div class="form-group"><label>Status</label><select id="trxStatus"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Bandeira</label><select id="trxBand"><option value="">—</option></select></div>
+      <div class="form-group"><label>Parcelas</label><input type="number" id="trxParc" value="1" min="1" max="24"></div>
+      <div class="form-group"><label>Valor *</label><input type="number" id="trxVal" step="0.01" min="0"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Autorização</label><input type="text" id="trxAut"></div>
+      <div class="form-group"><label>NSU</label><input type="text" id="trxNsu"></div>
+      <div class="form-group"><label>Pedido ID</label><input type="number" id="trxPed"></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="trxObs" rows="2"></textarea></div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalTrx')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTrx()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalTerm">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Novo terminal</h3>
+        <small class="muted">Pinpad/SAT — cadastro de terminal físico</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalTerm')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row"><div class="form-group full-width"><label>Nome *</label><input type="text" id="termNome" placeholder="Ex.: Pinpad Caixa 1"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label>Identificador</label><input type="text" id="termId"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label>Observações</label><textarea id="termObs" rows="2"></textarea></div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalTerm')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTerm()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('tef');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+let TIPOS=[], BANDEIRAS=[], STATUS=[], TERMINAIS=[];
+
+function trocarTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+  if (t==='term') carregarTerm();
+}
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const s = document.getElementById('fStatus').value; if (s) p.set('status', s);
+  const ti = document.getElementById('fTipo').value; if (ti) p.set('tipo', ti);
+  const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+  const r = await fetch('/api/tef/transacoes?'+p);
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  TIPOS=d.tipos; BANDEIRAS=d.bandeiras; STATUS=d.status;
+  document.getElementById('fStatus').innerHTML = '<option value="">Todos status</option>' + STATUS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('fTipo').innerHTML   = '<option value="">Todos tipos</option>' + TIPOS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi success"><div class="label">Aprovado no mês</div><div class="value">${fmtBRL(d.kpis.aprovadoMes)}</div></div>
+    <div class="kpi"><div class="label">Aprovadas</div><div class="value">${d.kpis.qtdAprovadas||0}</div></div>
+    <div class="kpi danger"><div class="label">Estornadas</div><div class="value">${d.kpis.qtdEstornadas||0}</div></div>
+  `;
+  document.getElementById('tbTrx').innerHTML = d.transacoes.length ? d.transacoes.map(t=>`<tr>
+    <td>${(t.dataTransacao||'').replace('T',' ').slice(0,16)}</td>
+    <td>${t.terminalNome||'—'}</td>
+    <td>${t.tipo}</td>
+    <td>${t.bandeira||'—'}</td>
+    <td>${t.parcelas}x</td>
+    <td class="num">${fmtBRL(t.valor)}</td>
+    <td>${t.pedidoNumero?'#'+t.pedidoNumero:'—'}</td>
+    <td><small class="mono">${t.autorizacao||'—'}/${t.nsu||'—'}</small></td>
+    <td><span class="badge ${t.status==='aprovada'?'entrada':t.status==='estornada'?'faturado':t.status==='negada'||t.status==='cancelada'?'cancelado':'pendente'}">${t.status}</span></td>
+    <td style="text-align:right;white-space:nowrap;">${t.status==='aprovada'?`<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="estornar(${t.id})">Estornar</button>`:''}</td>
+  </tr>`).join('') : '<tr><td colspan="10" class="empty">Nenhuma transação</td></tr>';
+}
+
+async function carregarTerm(){
+  const r = await fetch('/api/tef/terminais').then(r=>r.json());
+  if (!r.success) return;
+  TERMINAIS = r.terminais;
+  document.getElementById('tbTerm').innerHTML = TERMINAIS.length ? TERMINAIS.map(t=>`<tr>
+    <td><strong>${t.nome}</strong></td><td>${t.adquirenteNome||'—'}</td><td class="mono">${t.identificador||'—'}</td>
+    <td style="text-align:right;white-space:nowrap;"><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="remTerm(${t.id})">Desativar</button></td>
+  </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhum terminal</td></tr>';
+}
+
+function abrirTrx(){
+  if (!TIPOS.length) return showAlert('Carregue a lista primeiro','error');
+  document.getElementById('trxTerm').innerHTML = '<option value="">—</option>' + TERMINAIS.map(t=>`<option value="${t.id}">${t.nome}</option>`).join('');
+  document.getElementById('trxTipo').innerHTML = TIPOS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('trxStatus').innerHTML = STATUS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('trxBand').innerHTML = '<option value="">—</option>' + BANDEIRAS.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('trxStatus').value='aprovada';
+  ['trxAut','trxNsu','trxPed','trxObs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('trxParc').value='1'; document.getElementById('trxVal').value='';
+  document.getElementById('modalTrx').classList.add('open');
+}
+async function salvarTrx(){
+  const body = {
+    terminalId: document.getElementById('trxTerm').value ? Number(document.getElementById('trxTerm').value) : null,
+    tipo: document.getElementById('trxTipo').value, status: document.getElementById('trxStatus').value,
+    bandeira: document.getElementById('trxBand').value || null, parcelas: Number(document.getElementById('trxParc').value)||1,
+    valor: Number(document.getElementById('trxVal').value), autorizacao: document.getElementById('trxAut').value || null,
+    nsu: document.getElementById('trxNsu').value || null,
+    pedidoId: document.getElementById('trxPed').value ? Number(document.getElementById('trxPed').value) : null,
+    observacoes: document.getElementById('trxObs').value || null
+  };
+  if (!body.valor) return showAlert('Valor obrigatório','error');
+  const r = await fetch('/api/tef/transacoes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  fechar('modalTrx'); carregar();
+}
+
+async function estornar(id){
+  const motivo = prompt('Motivo do estorno (mín 5 chars):');
+  if (!motivo) return;
+  const r = await fetch(`/api/tef/transacoes/${id}/estornar`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+function abrirTerm(){ ['termNome','termId','termObs'].forEach(id=>document.getElementById(id).value=''); document.getElementById('modalTerm').classList.add('open'); }
+async function salvarTerm(){
+  const body = { nome: document.getElementById('termNome').value.trim(), identificador: document.getElementById('termId').value || null, observacoes: document.getElementById('termObs').value || null };
+  if (!body.nome) return showAlert('Nome obrigatório','error');
+  const r = await fetch('/api/tef/terminais', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  fechar('modalTerm'); carregarTerm();
+}
+async function remTerm(id){ if(!confirm('Desativar terminal?'))return; await fetch('/api/tef/terminais/'+id,{method:'DELETE'}); carregarTerm(); }
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  ['modalTrx','modalTerm'].forEach(id => document.getElementById(id).classList.remove('open'));
+});
+
+carregar();
+</script>
+</body></html>

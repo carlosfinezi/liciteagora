@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conexões - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: vocabulário canônico (.step*, .status-cards/.status-card, .btn-group, .spinner, cores, .log-view) vem de app-modern.css */
+        .input-group { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+        .input-group label { color: var(--text-2); font-size: 0.85em; white-space: nowrap; }
+        .input-group input[type=text] { padding: 8px 12px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg-1); color: var(--text-0); font-size: 0.9em; font-family: monospace; min-width: 260px; }
+        .input-group input:focus { outline: none; border-color: var(--accent); }
+        /* overrides page-local de .log-area: show/hide + font menor + altura custom */
+        .log-area { display: none; font-size: 0.8em; max-height: 250px; margin-top: 12px; }
+        .log-area.visivel { display: block; }
+        /* .resumo-final — veredicto do teste de conectividade */
+        .resumo-final { margin-top: 16px; padding: 16px; border-radius: var(--r-md); font-size: 0.95em; display: none; }
+        .resumo-final.sucesso { display: block; background: var(--success-soft); border: 1px solid var(--success); color: var(--success); }
+        .resumo-final.falha   { display: block; background: var(--danger-soft);  border: 1px solid var(--danger);  color: var(--danger); }
+        /* .testes-table — tabela compacta de endpoints testados */
+        .testes-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85em; }
+        .testes-table th { color: var(--text-3); text-align: left; padding: 8px; border-bottom: 1px solid var(--border); font-weight: 500; }
+        .testes-table td { padding: 8px; border-bottom: 1px solid var(--border); }
+        .badge-ok    { background: var(--success-soft); color: var(--success); }
+        .badge-falha { background: var(--danger-soft);  color: var(--danger); }
+        .badge-http  { background: var(--accent-soft);  color: var(--accent); font-family: monospace; }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>Conexões</h1>
+        <small>Diagnóstico e validação das conexões do sistema</small>
+      </div>
+    </div>
+
+    <!-- ===== SEÇÃO 1: ELECTRON / API KEY ===== -->
+    <div class="panel">
+        <h2>🔐 Electron · API Key deste tenant</h2>
+        <p style="color: var(--text-2); font-size: 0.9em; margin-bottom: 14px; line-height: 1.5;">
+            Esta chave identifica o Electron standalone como pertencente a este tenant.
+            Informe no <strong>setup dialog</strong> na primeira execução do Electron, junto com o subdomínio <code style="background:var(--bg-2);padding:2px 6px;border-radius:4px;">1bit</code>.
+        </p>
+
+        <div class="input-group">
+            <input type="text" id="inputApiKey" readonly style="min-width: 440px; font-size: 0.85em;" value="Carregando...">
+            <button class="btn btn-secondary btn-sm" id="btnCopiarApiKey" onclick="copiarApiKey()">📋 Copiar</button>
+            <button class="btn btn-ghost btn-sm" id="btnMostrarApiKey" onclick="toggleMostrarApiKey()" style="font-size:0.8em;">👁️ Mostrar</button>
+            <button class="btn btn-danger btn-sm" onclick="rotacionarApiKey()" style="margin-left:auto;">🔄 Gerar nova</button>
+        </div>
+        <p style="color: var(--warn); font-size: 0.78em; margin-top: 8px; display:none;" id="avisoRotacao">
+            ⚠️ Ao gerar uma chave nova, o Electron que está instalado com a chave antiga será desconectado. Você precisará abrir o setup dialog dele e colar a nova.
+        </p>
+        <div id="statusApiKey" style="font-size:0.8em; margin-top:6px; color:var(--text-3);"></div>
+
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);">
+            <a class="btn btn-primary btn-sm" href="/api/electron/download-installer" download>⬇️ Baixar Electron (Windows)</a>
+            <span style="color: var(--text-3); font-size: 0.8em; margin-left: 10px;">LiciteAgora-Setup.exe — instalador recomendado (atalho + inicialização automática)</span>
+        </div>
+        <div style="margin-top: 8px;">
+            <a class="btn btn-ghost btn-sm" href="/api/electron/download-exe" download>📦 Versão portátil</a>
+            <span style="color: var(--text-3); font-size: 0.8em; margin-left: 10px;">LiciteAgora-Browser.exe — roda sem instalação (diagnóstico/dev)</span>
+        </div>
+
+        <!-- Upload genérico de arquivos para o tenant -->
+        <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border);">
+            <h3 style="font-size: 0.95em; margin-bottom: 6px;">📁 Enviar arquivos</h3>
+            <p style="color: var(--text-2); font-size: 0.8em; margin-bottom: 10px; line-height: 1.4;">
+                Envie qualquer arquivo (até 500 MB) — salvo em <code style="background:var(--bg-2);padding:1px 5px;border-radius:3px;">/tmp/uploads-&lt;tenant&gt;/</code> no servidor.
+                O nome original é preservado (com caracteres especiais sanitizados).
+            </p>
+            <div class="input-group">
+                <input type="file" id="fileAsar" style="padding:6px;">
+                <button class="btn btn-secondary btn-sm" onclick="enviarAsar()">📤 Enviar arquivo</button>
+            </div>
+            <div id="statusAsar" style="font-size:0.8em; margin-top:8px; color:var(--text-3);"></div>
+            <div id="listaUploads" style="margin-top:12px;"></div>
+        </div>
+    </div>
+
+    <!-- ===== SEÇÃO 2: CONEXÃO AO SERVIDOR ===== -->
+    <div class="panel">
+        <h2>Conexão ao Servidor</h2>
+
+        <div class="status-cards" id="cardsServidor">
+            <div class="status-card" id="cardServidor">
+                <div class="card-icon">🖥️</div>
+                <div class="card-label">Servidor API</div>
+                <div class="card-value cinza" id="valServidor">Aguardando...</div>
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button class="btn btn-primary" id="btnTestarServidor" onclick="testarServidor()">Testar Conexão ao Servidor</button>
+            <span id="statusServidor" style="font-size:0.85em;color:var(--text-3);"></span>
+        </div>
+
+        <div id="resultServidor" class="step-result"></div>
+    </div>
+
+    <!-- ===== SEÇÃO 2: CONEXÃO COM O COMPRASNET ===== -->
+    <div class="panel">
+        <h2>Conexão com o Comprasnet</h2>
+
+        <div class="status-cards" id="cardsComprasnet">
+            <div class="status-card" id="cardBearer">
+                <div class="card-icon">🔑</div>
+                <div class="card-label">Bearer Token</div>
+                <div class="card-value cinza" id="valBearer">Aguardando...</div>
+            </div>
+            <div class="status-card" id="cardIdade">
+                <div class="card-icon">⏱️</div>
+                <div class="card-label">Idade do Token</div>
+                <div class="card-value cinza" id="valIdade">--</div>
+            </div>
+            <div class="status-card" id="cardCaptcha">
+                <div class="card-icon">🛡️</div>
+                <div class="card-label">hCaptcha</div>
+                <div class="card-value cinza" id="valCaptcha">Aguardando...</div>
+            </div>
+            <div class="status-card" id="cardComprasnet">
+                <div class="card-icon">🌐</div>
+                <div class="card-label">API Comprasnet</div>
+                <div class="card-value cinza" id="valComprasnet">Aguardando teste</div>
+            </div>
+        </div>
+
+        <p style="color:var(--text-2);font-size:0.85em;margin-bottom:14px;">
+            O teste de conectividade verifica se o Bearer token é válido consultando a API do Comprasnet.
+            Opcionalmente, informe um CompraId para verificar se é possível ler dados de participação dessa compra.
+        </p>
+
+        <div class="input-group">
+            <label for="inputCompraId">CompraId (opcional):</label>
+            <input type="text" id="inputCompraId" placeholder="Ex: 00394521000122025">
+        </div>
+
+        <div class="btn-group" style="margin-top:14px">
+            <button class="btn btn-success" id="btnTestarComprasnet" onclick="testarComprasnet()">Testar Conexão com Comprasnet</button>
+            <button class="btn btn-ghost" id="btnTestarTudo" onclick="testarTudo()">Testar Tudo</button>
+            <span id="statusComprasnet" style="font-size:0.85em;color:var(--text-3);"></span>
+        </div>
+
+        <!-- Log de testes -->
+        <div class="log-area" id="logArea"></div>
+
+        <!-- Tabela de resultados -->
+        <table class="testes-table" id="tabelaTestes" style="display:none">
+            <thead>
+                <tr>
+                    <th>Teste</th>
+                    <th>Status</th>
+                    <th>Tempo</th>
+                    <th>Resultado</th>
+                </tr>
+            </thead>
+            <tbody id="tbodyTestes"></tbody>
+        </table>
+
+        <!-- Resumo final -->
+        <div class="resumo-final" id="resumoFinal"></div>
+    </div>
+
+
+</main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('conexoes');</script>
+
+<script>
+const API = '';
+
+// ==================== HELPERS ====================
+function setCard(id, cls, valor) {
+    const card = document.getElementById(id);
+    const val = document.getElementById(id.replace('card', 'val'));
+    card.className = 'status-card ' + cls;
+    val.className = 'card-value ' + (cls === 'ok' ? 'verde' : cls === 'erro' ? 'vermelho' : cls === 'aviso' ? 'amarelo' : cls === 'testando' ? 'azul' : 'cinza');
+    val.textContent = valor;
+}
+
+function addLog(areaId, msg, cls = '') {
+    const area = document.getElementById(areaId);
+    area.classList.add('visivel');
+    const ts = new Date().toLocaleTimeString('pt-BR');
+    area.innerHTML += `<div class="log-entry ${cls}"><span class="ts">[${ts}]</span> ${msg}</div>`;
+    area.scrollTop = area.scrollHeight;
+}
+
+function setResult(id, cls, msg) {
+    const el = document.getElementById(id);
+    el.className = 'step-result ' + cls;
+    el.innerHTML = msg;
+}
+
+// ==================== TESTE SERVIDOR ====================
+async function testarServidor() {
+    const btn = document.getElementById('btnTestarServidor');
+    const status = document.getElementById('statusServidor');
+    btn.disabled = true;
+    status.innerHTML = '<span class="spinner"></span> Testando...';
+
+    setCard('cardServidor', 'testando', 'Testando...');
+
+    try {
+        const resp = await fetch(`${API}/api/conexao/status`);
+        const data = await resp.json();
+
+        if (data.success) {
+            // Servidor
+            setCard('cardServidor', 'ok', 'Online');
+
+            // Bearer (preenche cards do Comprasnet também)
+            if (data.bearer.presente && !data.bearer.expirado) {
+                setCard('cardBearer', 'ok', 'Ativo');
+                setCard('cardIdade', 'ok', data.bearer.idade || '--');
+            } else if (data.bearer.presente && data.bearer.expirado) {
+                setCard('cardBearer', 'aviso', 'Expirado');
+                setCard('cardIdade', 'aviso', data.bearer.idade || '--');
+            } else {
+                setCard('cardBearer', 'erro', 'Ausente');
+                setCard('cardIdade', '', '--');
+            }
+
+            // Captcha
+            if (data.captcha.presente) {
+                setCard('cardCaptcha', 'ok', `Ativo (${data.captcha.idade})`);
+            } else {
+                setCard('cardCaptcha', 'cinza', 'Ausente');
+            }
+
+            status.innerHTML = '<span class="verde">Servidor respondeu com sucesso</span>';
+            setResult('resultServidor', 'sucesso', `Servidor online em ${data.servidor.timestamp}`);
+        } else {
+            throw new Error(data.error || 'Resposta inesperada');
+        }
+    } catch (e) {
+        setCard('cardServidor', 'erro', 'Offline');
+        status.innerHTML = `<span class="vermelho">Erro: ${e.message}</span>`;
+        setResult('resultServidor', 'erro', `Não foi possível conectar ao servidor: ${e.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== HELPER: CRIAR E AGUARDAR TAREFA ====================
+async function criarEAguardarTarefa(tipo, dados, timeoutMs = 30000) {
+    // 1. Criar tarefa na fila
+    const criarResp = await fetch(`${API}/api/tarefas/criar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo, dados }),
+    });
+    const criar = await criarResp.json();
+    if (!criar.success) throw new Error(criar.error || 'Erro ao criar tarefa');
+
+    const tarefaId = criar.id;
+
+    // 2. Poll resultado a cada 1.5s
+    const inicio = Date.now();
+    while (Date.now() - inicio < timeoutMs) {
+        await new Promise(r => setTimeout(r, 1500));
+        const pollResp = await fetch(`${API}/api/tarefas/${tarefaId}`);
+        const poll = await pollResp.json();
+        if (!poll.success) throw new Error(poll.error || 'Tarefa não encontrada');
+
+        const t = poll.tarefa;
+        if (t.status === 'concluida' || t.status === 'falha') {
+            return t;
+        }
+        // Still pendente or processando — continue polling
+    }
+    throw new Error('Timeout: a extensão não processou a tarefa em ' + (timeoutMs/1000) + 's. Verifique se a extensão está ativa e há uma aba do Comprasnet aberta.');
+}
+
+// ==================== TESTE COMPRASNET (via fila de tarefas → extensão) ====================
+async function testarComprasnet() {
+    const btn = document.getElementById('btnTestarComprasnet');
+    const status = document.getElementById('statusComprasnet');
+    const logArea = document.getElementById('logArea');
+    const tabela = document.getElementById('tabelaTestes');
+    const tbody = document.getElementById('tbodyTestes');
+    const resumo = document.getElementById('resumoFinal');
+
+    btn.disabled = true;
+    status.innerHTML = '<span class="spinner"></span> Testando via extensão...';
+    logArea.innerHTML = '';
+    tbody.innerHTML = '';
+    tabela.style.display = 'none';
+    resumo.className = 'resumo-final';
+    resumo.style.display = 'none';
+
+    setCard('cardComprasnet', 'testando', 'Testando...');
+    addLog('logArea', 'Criando tarefa de teste para a extensão processar via browser...', 'info');
+
+    const compraId = document.getElementById('inputCompraId').value.trim();
+    const testes = [];
+
+    try {
+        // Teste 1: testar-conexao (GET /datahorabrasilia via browser)
+        addLog('logArea', 'Aguardando extensão executar teste de conexão...', 'info');
+        const t1 = await criarEAguardarTarefa('testar-conexao', {});
+        const r1 = t1.resultado || {};
+        testes.push({
+            nome: 'Data/Hora Brasília (via browser)',
+            status: r1.status,
+            sucesso: t1.status === 'concluida' && r1.status === 200,
+            tempoMs: t1.tempoMs,
+            resposta: r1.data,
+            erro: t1.erro,
+        });
+
+        // Teste 2: Se compraId fornecido, testar participação
+        if (compraId) {
+            addLog('logArea', `Testando participação na compra ${compraId}...`, 'info');
+            const t2 = await criarEAguardarTarefa('testar-participacao', { compraId });
+            const r2 = t2.resultado || {};
+            testes.push({
+                nome: `Participação (${compraId})`,
+                status: r2.status,
+                sucesso: t2.status === 'concluida' && (r2.status === 200),
+                tempoMs: t2.tempoMs,
+                resumo: r2.resumo,
+                erro: t2.erro,
+            });
+        }
+
+        // Mostrar resultados
+        tabela.style.display = '';
+        for (const teste of testes) {
+            const statusCls = teste.sucesso ? 'badge-ok' : 'badge-falha';
+            const statusTxt = teste.sucesso ? 'OK' : 'FALHA';
+            const httpBadge = teste.status ? `<span class="badge badge-http">HTTP ${teste.status}</span>` : '';
+            const tempo = teste.tempoMs ? `${teste.tempoMs}ms` : '--';
+            let detalhe = '';
+            if (teste.sucesso && teste.resposta) {
+                detalhe = typeof teste.resposta === 'string' ? teste.resposta : JSON.stringify(teste.resposta);
+                if (detalhe.length > 80) detalhe = detalhe.substring(0, 80) + '...';
+            } else if (teste.sucesso && teste.resumo) {
+                detalhe = `Situação: ${teste.resumo.situacao}, Fase: ${teste.resumo.fase}, Itens: ${teste.resumo.itens ?? '?'}`;
+            } else if (teste.erro) {
+                detalhe = teste.erro;
+                if (detalhe.length > 100) detalhe = detalhe.substring(0, 100) + '...';
+            }
+
+            tbody.innerHTML += `<tr>
+                <td>${teste.nome}</td>
+                <td><span class="badge ${statusCls}">${statusTxt}</span> ${httpBadge}</td>
+                <td>${tempo}</td>
+                <td style="color:${teste.sucesso ? '#4caf50' : '#f44336'};font-size:0.85em">${detalhe}</td>
+            </tr>`;
+
+            addLog('logArea', `${teste.sucesso ? 'OK' : 'FALHA'} — ${teste.nome} (${tempo})`, teste.sucesso ? 'ok' : 'erro');
+        }
+
+        const todosSucesso = testes.every(t => t.sucesso);
+        if (todosSucesso) {
+            setCard('cardComprasnet', 'ok', 'Conectado');
+            status.innerHTML = '<span class="verde">Comprasnet conectado e funcional (via browser)</span>';
+            resumo.className = 'resumo-final sucesso';
+            resumo.innerHTML = '<strong>Conexão OK!</strong> A extensão executou o teste via browser (mesmo IP/cookies) e o Comprasnet respondeu com sucesso.';
+            resumo.style.display = 'block';
+            addLog('logArea', 'Todos os testes passaram! Sistema operacional.', 'ok');
+        } else {
+            setCard('cardComprasnet', 'erro', 'Falha');
+            const tem401 = testes.some(t => t.status === 401);
+            const tem403 = testes.some(t => t.status === 403);
+            let diagnostico = '';
+            if (tem401) {
+                diagnostico = '<strong>HTTP 401 — Token rejeitado pelo Comprasnet.</strong><br>' +
+                    'O Bearer token foi invalidado. Recarregue a página do Comprasnet para capturar um novo token.';
+            } else if (tem403) {
+                diagnostico = '<strong>HTTP 403 — Acesso negado.</strong><br>' +
+                    'O Comprasnet recusou a requisição. Verifique se o login SSO está ativo.';
+            } else {
+                diagnostico = '<strong>Falha na conexão.</strong> Verifique os resultados acima.';
+            }
+            status.innerHTML = '<span class="vermelho">Falha em um ou mais testes</span>';
+            resumo.className = 'resumo-final falha';
+            resumo.innerHTML = diagnostico;
+            resumo.style.display = 'block';
+            addLog('logArea', 'Um ou mais testes falharam.', 'erro');
+        }
+    } catch (e) {
+        addLog('logArea', `Erro: ${e.message}`, 'erro');
+        setCard('cardComprasnet', 'erro', 'Erro');
+        status.innerHTML = `<span class="vermelho">Erro: ${e.message}</span>`;
+        resumo.className = 'resumo-final falha';
+        resumo.innerHTML = `<strong>Erro:</strong> ${e.message}`;
+        resumo.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ==================== TESTAR TUDO ====================
+async function testarTudo() {
+    const btn = document.getElementById('btnTestarTudo');
+    btn.disabled = true;
+    await testarServidor();
+    await testarComprasnet();
+    btn.disabled = false;
+}
+
+// ==================== AUTO-REFRESH ====================
+let refreshInterval = null;
+
+async function autoRefresh() {
+    try {
+        const resp = await fetch(`${API}/api/conexao/status`);
+        const data = await resp.json();
+        if (!data.success) return;
+
+        // Servidor sempre OK se chegou aqui
+        setCard('cardServidor', 'ok', 'Online');
+
+        // Bearer
+        if (data.bearer.presente && !data.bearer.expirado) {
+            setCard('cardBearer', 'ok', 'Ativo');
+            setCard('cardIdade', data.bearer.idadeSegundos < 480 ? 'ok' : 'aviso', data.bearer.idade || '--');
+        } else if (data.bearer.presente) {
+            setCard('cardBearer', 'aviso', 'Expirado');
+            setCard('cardIdade', 'aviso', data.bearer.idade || '--');
+        } else {
+            setCard('cardBearer', 'erro', 'Ausente');
+            setCard('cardIdade', '', '--');
+        }
+
+        // Captcha
+        if (data.captcha.presente) {
+            setCard('cardCaptcha', 'ok', `Ativo (${data.captcha.idade})`);
+        } else {
+            setCard('cardCaptcha', 'cinza', 'Ausente');
+        }
+
+    } catch (e) {
+        setCard('cardServidor', 'erro', 'Offline');
+    }
+}
+
+// ==================== API KEY DO TENANT ====================
+
+let _apiKeyValor = '';
+let _apiKeyMasked = true;
+
+function mascarar(k) {
+    if (!k) return '';
+    if (k.length <= 12) return '*'.repeat(k.length);
+    return k.slice(0, 6) + '...' + k.slice(-4);
+}
+
+async function carregarApiKey() {
+    try {
+        const r = await fetch('/api/config/api-key');
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Falha ao ler API key');
+        _apiKeyValor = d.apiKey;
+        _apiKeyMasked = true;
+        document.getElementById('inputApiKey').value = mascarar(_apiKeyValor);
+    } catch (e) {
+        document.getElementById('inputApiKey').value = '';
+        document.getElementById('statusApiKey').innerHTML = `<span class="vermelho">Erro: ${e.message}</span>`;
+    }
+}
+
+function toggleMostrarApiKey() {
+    if (!_apiKeyValor) return;
+    _apiKeyMasked = !_apiKeyMasked;
+    document.getElementById('inputApiKey').value = _apiKeyMasked ? mascarar(_apiKeyValor) : _apiKeyValor;
+    document.getElementById('btnMostrarApiKey').textContent = _apiKeyMasked ? '👁️ Mostrar' : '🙈 Ocultar';
+}
+
+async function copiarApiKey() {
+    if (!_apiKeyValor) return;
+    try {
+        await navigator.clipboard.writeText(_apiKeyValor);
+        const el = document.getElementById('statusApiKey');
+        el.innerHTML = '<span class="verde">✓ Copiada para a área de transferência</span>';
+        setTimeout(() => { el.innerHTML = ''; }, 3000);
+    } catch (e) {
+        document.getElementById('statusApiKey').innerHTML = `<span class="vermelho">Falha ao copiar: ${e.message}</span>`;
+    }
+}
+
+function formatSize(n) {
+    if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${n} B`;
+}
+
+async function enviarAsar() {
+    const fileEl = document.getElementById('fileAsar');
+    const statusEl = document.getElementById('statusAsar');
+    const file = fileEl.files && fileEl.files[0];
+    if (!file) {
+        statusEl.innerHTML = '<span class="vermelho">Selecione um arquivo primeiro</span>';
+        return;
+    }
+    const humanSize = formatSize(file.size);
+    statusEl.innerHTML = `<span class="spinner"></span> Enviando ${humanSize} (pode demorar para arquivos grandes)…`;
+
+    try {
+        const form = new FormData();
+        form.append('asar', file);
+        // XHR para progresso de upload
+        const resp = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/config/upload-asar');
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    statusEl.innerHTML = `<span class="spinner"></span> Enviando ${pct}% (${formatSize(e.loaded)} de ${humanSize})`;
+                }
+            };
+            xhr.onload = () => {
+                try { resolve(JSON.parse(xhr.responseText)); } catch (e) { reject(new Error('Resposta inválida')); }
+            };
+            xhr.onerror = () => reject(new Error('Falha de rede'));
+            xhr.send(form);
+        });
+        if (!resp.success) throw new Error(resp.error || 'Falha no upload');
+        statusEl.innerHTML = `<span class="verde">✓ Enviado: ${resp.filename} (${formatSize(resp.size)})</span>`;
+        fileEl.value = '';
+        carregarUploads();
+    } catch (e) {
+        statusEl.innerHTML = `<span class="vermelho">Erro: ${e.message}</span>`;
+    }
+}
+
+async function carregarUploads() {
+    const box = document.getElementById('listaUploads');
+    try {
+        const r = await fetch('/api/config/uploads');
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Falha');
+        if (!d.files.length) {
+            box.innerHTML = '<div style="color:var(--text-3);font-size:0.8em;">Nenhum arquivo enviado.</div>';
+            return;
+        }
+        const linhas = d.files.map(f => `
+            <tr>
+                <td style="font-family:monospace;font-size:0.85em;">${f.filename}</td>
+                <td style="font-size:0.85em;">${formatSize(f.size)}</td>
+                <td style="font-size:0.8em;color:var(--text-3);">${new Date(f.mtime).toLocaleString('pt-BR')}</td>
+                <td><button class="btn btn-ghost btn-sm" onclick="deletarUpload('${encodeURIComponent(f.filename)}')" style="font-size:0.75em;">🗑️</button></td>
+            </tr>
+        `).join('');
+        box.innerHTML = `
+            <table class="testes-table" style="margin-top:0;">
+                <thead><tr><th>Arquivo</th><th>Tamanho</th><th>Enviado</th><th></th></tr></thead>
+                <tbody>${linhas}</tbody>
+            </table>
+        `;
+    } catch (e) {
+        box.innerHTML = `<div class="vermelho" style="font-size:0.8em;">Erro: ${e.message}</div>`;
+    }
+}
+
+async function deletarUpload(nomeEnc) {
+    if (!confirm('Excluir este arquivo do servidor?')) return;
+    try {
+        const r = await fetch(`/api/config/uploads/${nomeEnc}`, { method: 'DELETE' });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Falha');
+        carregarUploads();
+    } catch (e) {
+        alert('Erro ao excluir: ' + e.message);
+    }
+}
+
+async function rotacionarApiKey() {
+    const ok = confirm('Gerar uma nova API Key?\n\nO Electron que está usando a chave antiga será DESCONECTADO. Você terá que abrir o setup dialog dele e colar a nova chave.\n\nConfirmar?');
+    if (!ok) return;
+    try {
+        const r = await fetch('/api/config/api-key/rotate', { method: 'POST' });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Falha ao rotacionar');
+        _apiKeyValor = d.apiKey;
+        _apiKeyMasked = false;
+        document.getElementById('inputApiKey').value = _apiKeyValor;
+        document.getElementById('btnMostrarApiKey').textContent = '🙈 Ocultar';
+        document.getElementById('avisoRotacao').style.display = 'block';
+        document.getElementById('statusApiKey').innerHTML = '<span class="verde">✓ Nova chave gerada. Copie e use no Electron.</span>';
+    } catch (e) {
+        document.getElementById('statusApiKey').innerHTML = `<span class="vermelho">Erro: ${e.message}</span>`;
+    }
+}
+
+// Iniciar auto-refresh a cada 10s
+refreshInterval = setInterval(autoRefresh, 10000);
+// E executa imediatamente
+autoRefresh();
+carregarApiKey();
+carregarUploads();
+</script>
+</body>
+</html>

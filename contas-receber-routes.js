@@ -19,6 +19,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const PDFDocument = require('pdfkit');
 const { lancarMovimentacao } = require('./contas-financeiras-routes');
 
 function dataBrasilia() {
@@ -26,99 +27,12 @@ function dataBrasilia() {
   return brt.toISOString().slice(0, 10);
 }
 
-function alterSafe(db, sql) {
-  try { db.exec(sql); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
-}
-
 // ==================== MIGRAÇÕES ====================
-
-function migrar(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS categorias_cr (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nome TEXT NOT NULL UNIQUE,
-      icone TEXT,
-      ativo INTEGER DEFAULT 1,
-      dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS contas_receber_pagamentos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      contaReceberId INTEGER NOT NULL,
-      dataPagamento TEXT NOT NULL,
-      valorPago REAL NOT NULL,
-      valorBase REAL NOT NULL,
-      juros REAL DEFAULT 0,
-      multa REAL DEFAULT 0,
-      desconto REAL DEFAULT 0,
-      formaPagamento TEXT,
-      contaFinanceiraId INTEGER NOT NULL,
-      movimentacaoFinanceiraId INTEGER,
-      observacoes TEXT,
-      estornado INTEGER DEFAULT 0,
-      estornadoEm TEXT,
-      origem TEXT,
-      usuario TEXT,
-      dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (contaReceberId) REFERENCES contas_a_receber(id),
-      FOREIGN KEY (contaFinanceiraId) REFERENCES contas_financeiras(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_crp_conta ON contas_receber_pagamentos(contaReceberId);
-
-    CREATE TABLE IF NOT EXISTS contas_receber_anexos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      contaReceberId INTEGER NOT NULL,
-      nomeOriginal TEXT NOT NULL,
-      caminho TEXT NOT NULL,
-      mimeType TEXT,
-      tamanho INTEGER,
-      tipo TEXT,
-      dataUpload TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (contaReceberId) REFERENCES contas_a_receber(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_cra_conta ON contas_receber_anexos(contaReceberId);
-  `);
-
-  alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN categoriaId INTEGER');
-  alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN parcelaNumero INTEGER');
-  alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN totalParcelas INTEGER');
-  alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN grupoParcelaId TEXT');
-
-  const seed = [
-    { nome: 'Vendas', icone: '🛒' },
-    { nome: 'Serviços', icone: '🔧' },
-    { nome: 'Licitações', icone: '📋' },
-    { nome: 'Assinaturas', icone: '🔁' },
-    { nome: 'Aluguel recebido', icone: '🏠' },
-    { nome: 'Juros/Rendimentos', icone: '📈' },
-    { nome: 'Outros', icone: '📌' }
-  ];
-  const stmt = db.prepare('INSERT OR IGNORE INTO categorias_cr (nome, icone) VALUES (?, ?)');
-  for (const c of seed) stmt.run(c.nome, c.icone);
-
-  // Backfill — contas pagas v1 sem histórico
-  // Só fazemos backfill para contas que tinham contaFinanceiraId registrado (NOT NULL),
-  // para preservar a FK. As demais permanecem sem histórico detalhado.
-  const pagasSemHistorico = db.prepare(`
-    SELECT c.* FROM contas_a_receber c
-    WHERE c.status = 'paga' AND c.dataPagamento IS NOT NULL
-      AND c.contaFinanceiraId IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM contas_receber_pagamentos p WHERE p.contaReceberId = c.id)
-  `).all();
-  let puladas = 0;
-  for (const c of pagasSemHistorico) {
-    const contaFin = db.prepare('SELECT id FROM contas_financeiras WHERE id = ?').get(c.contaFinanceiraId);
-    if (!contaFin) { puladas++; continue; }
-    db.prepare(`INSERT INTO contas_receber_pagamentos
-      (contaReceberId, dataPagamento, valorPago, valorBase, formaPagamento,
-       contaFinanceiraId, origem, observacoes)
-      VALUES (?, ?, ?, ?, ?, ?, 'backfill_v1', 'backfill v1')`).run(
-      c.id, c.dataPagamento, c.valorPago || c.valor, c.valorPago || c.valor,
-      c.formaPagamento, c.contaFinanceiraId
-    );
-  }
-  if (puladas) console.log(`[CR backfill] ${puladas} conta(s) paga(s) sem contaFinanceiraId válida — pulado`);
-}
+//
+// Multi-tenant (2026-04-22): schemas e seed de categorias_cr /
+// contas_receber_pagamentos / contas_receber_anexos + ALTER em
+// contas_a_receber migraram para db-schema.js. O backfill de contas
+// pagas v1 sem histórico também roda de lá — idempotente (NOT EXISTS).
 
 // ==================== HELPER EXPORTADO ====================
 
@@ -134,8 +48,8 @@ function registrarBaixaCR(db, opts) {
     observacoes = null, usuario = null, parcial = false
   } = opts;
 
-  if (!contaReceberId || !contaFinanceiraId) {
-    throw new Error('contaReceberId e contaFinanceiraId obrigatórios');
+  if (!contaReceberId) {
+    throw new Error('contaReceberId obrigatório');
   }
   const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(contaReceberId);
   if (!conta) throw new Error('Conta a receber não encontrada');
@@ -153,6 +67,12 @@ function registrarBaixaCR(db, opts) {
   }
   const vBase = Math.min(vBaseSolicitado, saldoAberto);
   const vPago = Number((vBase + Number(juros) + Number(multa) - Number(desconto)).toFixed(2));
+  // Bonificação: vPago=0 (desconto cobre o total) é permitido e NÃO exige conta
+  // financeira nem gera movimentação no caixa. Conta só é obrigatória quando
+  // entra dinheiro de fato.
+  if (vPago > 0 && !contaFinanceiraId) {
+    throw new Error('contaFinanceiraId obrigatório quando o valor recebido é maior que zero');
+  }
   const dp = dataPagamento || dataBrasilia();
   const novoJaPago = Number((jaPago + vBase).toFixed(2));
   const novoStatus = (parcial || novoJaPago < conta.valor - 0.01) ? 'parcial' : 'paga';
@@ -164,27 +84,66 @@ function registrarBaixaCR(db, opts) {
        formaPagamento, contaFinanceiraId, origem, observacoes, usuario)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       contaReceberId, dp, vPago, vBase, juros, multa, desconto,
-      formaPagamento || null, contaFinanceiraId, origem || 'manual',
+      formaPagamento || null, contaFinanceiraId || null, origem || 'manual',
       observacoes, usuario
     );
     pagamentoId = r.lastInsertRowid;
 
-    movId = lancarMovimentacao(db, {
-      contaId: contaFinanceiraId,
-      tipo: 'entrada', valor: vPago, data: dp,
-      descricao: `Baixa CR: ${conta.descricao}`,
-      origem: 'baixa_cr', origemId: conta.id,
-      categoria: 'vendas', usuario
-    });
-    db.prepare('UPDATE contas_receber_pagamentos SET movimentacaoFinanceiraId = ? WHERE id = ?').run(movId, pagamentoId);
+    // Só lança movimentação no caixa quando há valor de fato (vPago>0).
+    // Bonificação (vPago=0) não toca o caixa — fica só o registro do desconto.
+    if (vPago > 0) {
+      movId = lancarMovimentacao(db, {
+        contaId: contaFinanceiraId,
+        tipo: 'entrada', valor: vPago, data: dp,
+        descricao: `Baixa CR: ${conta.descricao}`,
+        origem: 'baixa_cr', origemId: conta.id,
+        categoria: 'vendas', usuario
+      });
+      db.prepare('UPDATE contas_receber_pagamentos SET movimentacaoFinanceiraId = ? WHERE id = ?').run(movId, pagamentoId);
+    }
 
     db.prepare(`UPDATE contas_a_receber SET status = ?,
       valorPago = ?, dataPagamento = CASE WHEN ? = 'paga' THEN ? ELSE dataPagamento END,
       formaPagamento = COALESCE(?, formaPagamento),
-      contaFinanceiraId = ?, dataAtualizacao = CURRENT_TIMESTAMP
+      contaFinanceiraId = COALESCE(?, contaFinanceiraId), dataAtualizacao = CURRENT_TIMESTAMP
       WHERE id = ?`).run(
-      novoStatus, novoJaPago, novoStatus, dp, formaPagamento || null, contaFinanceiraId, contaReceberId
+      novoStatus, novoJaPago, novoStatus, dp, formaPagamento || null, contaFinanceiraId || null, contaReceberId
     );
+
+    // Cria CRs sintéticas de Juros/Multa pra refletir no DRE com plano contábil
+    // correto (Receitas Financeiras). Não geram movimentação financeira nova
+    // — o caixa já recebeu o total via lancarMovimentacao acima. São apenas
+    // registros contábeis pra agrupar corretamente na consulta de DRE.
+    const jurosV = Number(juros) || 0;
+    const multaV = Number(multa) || 0;
+    if (jurosV > 0 || multaV > 0) {
+      const cats = _garantirCategoriasJurosMulta(db);
+      if (cats) {
+        const insSint = db.prepare(`
+          INSERT INTO contas_a_receber
+            (pessoaId, categoriaId, planoContaId, descricao, valor, valorPago,
+             dataEmissao, dataVencimento, dataPagamento, status, formaPagamento,
+             contaFinanceiraId, origem, dataAtualizacao)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paga', ?, ?, ?, CURRENT_TIMESTAMP)
+        `);
+        if (jurosV > 0) {
+          insSint.run(
+            conta.pessoaId, cats.jurosCategId, cats.planoFinReceitaId,
+            `Juros sobre conta #${conta.id} — ${conta.descricao}`,
+            jurosV, jurosV, dp, dp, dp, formaPagamento || null,
+            contaFinanceiraId, 'juros-baixa'
+          );
+        }
+        if (multaV > 0) {
+          insSint.run(
+            conta.pessoaId, cats.multaCategId, cats.planoFinReceitaId,
+            `Multa sobre conta #${conta.id} — ${conta.descricao}`,
+            multaV, multaV, dp, dp, dp, formaPagamento || null,
+            contaFinanceiraId, 'multa-baixa'
+          );
+        }
+      }
+    }
   });
   tx();
 
@@ -219,29 +178,71 @@ const uploadAnexo = multer({
 
 // ==================== ROTAS ====================
 
+// Garante categorias "Juros recebidos" e "Multa recebida" ligadas ao plano de
+// contas "Receitas Financeiras" (tipo financeiro_receita). Usado pela baixa
+// de CR pra criar CRs sintéticas que aparecem corretamente no DRE.
+//
+// Retorna { jurosCategId, multaCategId, planoFinReceitaId } — null se faltar
+// plano contábil de receita financeira (sistema sem seed ainda).
+function _garantirCategoriasJurosMulta(db) {
+  const planoFin = db.prepare(
+    `SELECT id FROM plano_contas WHERE tipo = 'financeiro_receita' AND ativo = 1 ORDER BY codigo LIMIT 1`
+  ).get();
+  if (!planoFin) return null;
+
+  const garantirCateg = (nome, icone) => {
+    const existente = db.prepare(`SELECT id FROM categorias_cr WHERE nome = ? AND ativo = 1`).get(nome);
+    if (existente) {
+      // Atualiza planoContaId se estiver vazio
+      db.prepare(`UPDATE categorias_cr SET planoContaId = COALESCE(planoContaId, ?) WHERE id = ?`)
+        .run(planoFin.id, existente.id);
+      return existente.id;
+    }
+    const r = db.prepare(`INSERT INTO categorias_cr (nome, icone, planoContaId) VALUES (?, ?, ?)`)
+      .run(nome, icone, planoFin.id);
+    return r.lastInsertRowid;
+  };
+
+  return {
+    jurosCategId: garantirCateg('Juros recebidos', '💰'),
+    multaCategId: garantirCateg('Multa recebida', '⚠️'),
+    planoFinReceitaId: planoFin.id,
+  };
+}
+
 function registrarRotas(app, db) {
-  migrar(db);
+  // Seed idempotente das categorias contábeis pra juros/multa
+  try { _garantirCategoriasJurosMulta(db); } catch (e) { console.error('[CR] seed juros/multa:', e.message); }
 
   // ========== CATEGORIAS ==========
   app.get('/api/cr-categorias', (req, res) => {
     try {
-      const rows = db.prepare('SELECT * FROM categorias_cr WHERE ativo = 1 ORDER BY nome ASC').all();
+      const rows = db.prepare(`SELECT c.*, pc.codigo AS planoContaCodigo, pc.nome AS planoContaNome
+        FROM categorias_cr c LEFT JOIN plano_contas pc ON pc.id = c.planoContaId
+        WHERE c.ativo = 1 ORDER BY c.nome ASC`).all();
       res.json({ success: true, categorias: rows });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
   app.post('/api/cr-categorias', (req, res) => {
     try {
-      const { nome, icone } = req.body || {};
+      const { nome, icone, planoContaId } = req.body || {};
       if (!nome) return res.status(400).json({ success: false, error: 'nome obrigatório' });
-      const r = db.prepare('INSERT INTO categorias_cr (nome, icone) VALUES (?, ?)').run(nome.trim(), icone || null);
+      const r = db.prepare('INSERT INTO categorias_cr (nome, icone, planoContaId) VALUES (?, ?, ?)')
+        .run(nome.trim(), icone || null, planoContaId ? Number(planoContaId) : null);
       res.json({ success: true, categoria: db.prepare('SELECT * FROM categorias_cr WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
   app.put('/api/cr-categorias/:id', (req, res) => {
     try {
-      const { nome, icone } = req.body || {};
-      db.prepare('UPDATE categorias_cr SET nome = COALESCE(?, nome), icone = COALESCE(?, icone) WHERE id = ?')
-        .run(nome || null, icone || null, req.params.id);
+      const { nome, icone, planoContaId } = req.body || {};
+      db.prepare(`UPDATE categorias_cr SET
+          nome = COALESCE(?, nome),
+          icone = COALESCE(?, icone),
+          planoContaId = ?
+        WHERE id = ?`)
+        .run(nome || null, icone || null,
+             planoContaId !== undefined ? (planoContaId ? Number(planoContaId) : null) : null,
+             req.params.id);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -368,16 +369,200 @@ function registrarRotas(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
+  /**
+   * GET /api/contas-a-receber/pdf
+   * Gera PDF da listagem com os mesmos filtros do GET /api/contas-a-receber.
+   * Inclui coluna "Com atraso" = saldo + juros + multa (usa config de juros do tenant).
+   */
+  app.get('/api/contas-a-receber/pdf', (req, res) => {
+    try {
+      const { status, pessoaId, categoriaId, origem,
+              dataVencIni, dataVencFim, formaPagamento, busca, nota, nDPS } = req.query;
+
+      // Reusa a query do GET principal (só sem ORDER+LIMIT diferentes).
+      let sql = `SELECT c.id, c.descricao, c.valor, c.dataVencimento, c.status, c.formaPagamento,
+          p.razaoSocial AS pessoaNome, p.cpfCnpj AS pessoaCpfCnpj,
+          cat.nome AS categoriaNome, cat.icone AS categoriaIcone,
+          COALESCE((SELECT SUM(valorPago) FROM contas_receber_pagamentos
+                    WHERE contaReceberId = c.id AND estornado = 0), 0) AS totalPago
+        FROM contas_a_receber c
+        JOIN pessoas p ON p.id = c.pessoaId
+        LEFT JOIN categorias_cr cat ON cat.id = c.categoriaId
+        WHERE 1=1`;
+      const p = [];
+      if (status) {
+        if (status === 'vencida') sql += ` AND c.status IN ('aberta','parcial') AND c.dataVencimento < DATE('now','-3 hours')`;
+        else { sql += ' AND c.status = ?'; p.push(status); }
+      }
+      if (pessoaId)       { sql += ' AND c.pessoaId = ?'; p.push(Number(pessoaId)); }
+      if (categoriaId)    { sql += ' AND c.categoriaId = ?'; p.push(Number(categoriaId)); }
+      if (origem)         { sql += ' AND c.origem = ?'; p.push(origem); }
+      if (formaPagamento) { sql += ' AND c.formaPagamento = ?'; p.push(formaPagamento); }
+      if (dataVencIni)    { sql += ' AND c.dataVencimento >= ?'; p.push(dataVencIni); }
+      if (dataVencFim)    { sql += ' AND c.dataVencimento <= ?'; p.push(dataVencFim); }
+      if (busca) {
+        sql += ' AND (p.razaoSocial LIKE ? OR p.cpfCnpj LIKE ? OR c.descricao LIKE ?)';
+        const t = '%' + busca + '%'; p.push(t, t, t);
+      }
+      if (nota === 'com') sql += ' AND c.nfseId IS NOT NULL';
+      else if (nota === 'sem') sql += ' AND c.nfseId IS NULL';
+      if (nDPS) { sql += ' AND c.nfseId IN (SELECT id FROM nfse WHERE nDPS = ?)'; p.push(Number(nDPS)); }
+      sql += ' ORDER BY c.dataVencimento ASC, c.id DESC LIMIT 1000';
+      const rawContas = db.prepare(sql).all(...p);
+
+      // Config de juros
+      const cfgRows = db.prepare(`SELECT chave, valor FROM config WHERE chave IN (
+        'juros_mes_pct','multa_atraso_pct','carencia_dias','juros_modo')`).all();
+      const cfgMap = Object.fromEntries(cfgRows.map(r => [r.chave, r.valor]));
+      const CFG = {
+        jurosMesPct:    Number(cfgMap.juros_mes_pct)    || 0,
+        multaAtrasoPct: Number(cfgMap.multa_atraso_pct) || 0,
+        carenciaDias:   Number(cfgMap.carencia_dias)    || 0,
+        jurosModo:      cfgMap.juros_modo || 'simples',
+      };
+      const hojeStr = dataBrasilia();
+
+      const contas = rawContas.map(c => {
+        const saldo = Number((c.valor - c.totalPago).toFixed(2));
+        const vencida = ['aberta','parcial'].includes(c.status) && c.dataVencimento && c.dataVencimento < hojeStr;
+        let juros = 0, multa = 0, diasAtraso = 0;
+        if (vencida && saldo > 0) {
+          const v = new Date(c.dataVencimento.slice(0,10) + 'T12:00:00Z');
+          const h = new Date(hojeStr + 'T12:00:00Z');
+          diasAtraso = Math.max(0, Math.floor((h - v) / 86400000));
+          const efetivos = Math.max(0, diasAtraso - CFG.carenciaDias);
+          if (efetivos > 0) {
+            if (CFG.jurosModo === 'composto') {
+              juros = saldo * (Math.pow(1 + CFG.jurosMesPct/100, efetivos/30) - 1);
+            } else {
+              juros = saldo * (CFG.jurosMesPct/100) * (efetivos/30);
+            }
+            multa = saldo * (CFG.multaAtrasoPct/100);
+          }
+        }
+        return {
+          ...c,
+          saldoRestante: saldo,
+          vencida,
+          diasAtraso,
+          juros:      Math.round(juros * 100) / 100,
+          multa:      Math.round(multa * 100) / 100,
+          comAtraso:  Math.round((saldo + juros + multa) * 100) / 100,
+          statusDisplay: vencida ? 'vencida' : c.status,
+        };
+      });
+
+      // Totalizadores
+      const totValor     = contas.reduce((s, c) => s + Number(c.valor || 0), 0);
+      const totSaldo     = contas.reduce((s, c) => s + c.saldoRestante, 0);
+      const totJuros     = contas.reduce((s, c) => s + c.juros, 0);
+      const totMulta     = contas.reduce((s, c) => s + c.multa, 0);
+      const totComAtraso = contas.reduce((s, c) => s + c.comAtraso, 0);
+
+      // Dados do emitente
+      const emp = db.prepare('SELECT razaoSocial, cnpj FROM fornecedor LIMIT 1').get() || {};
+
+      // PDF
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="contas-a-receber-${hojeStr}.pdf"`);
+
+      const doc = new PDFDocument({ size: 'A4', margin: 30, layout: 'landscape' });
+      doc.pipe(res);
+
+      const fmt = v => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtDt = s => s ? String(s).slice(0,10).split('-').reverse().join('/') : '—';
+
+      // Header
+      doc.fontSize(14).font('Helvetica-Bold').text(emp.razaoSocial || 'Contas a Receber', 30, 30);
+      if (emp.cnpj) doc.fontSize(9).font('Helvetica').text(`CNPJ: ${emp.cnpj}`, 30, doc.y);
+      doc.fontSize(12).font('Helvetica-Bold').text('Relatório — Contas a Receber', 30, doc.y + 4);
+      doc.fontSize(8).font('Helvetica').fillColor('#666').text(`Emitido em ${fmtDt(hojeStr)} · ${contas.length} lançamento(s)`, 30, doc.y);
+
+      // Filtros aplicados
+      const filtrosDesc = [];
+      if (status)          filtrosDesc.push(`status=${status}`);
+      if (categoriaId)     filtrosDesc.push(`categoria=${categoriaId}`);
+      if (dataVencIni)     filtrosDesc.push(`venc≥${fmtDt(dataVencIni)}`);
+      if (dataVencFim)     filtrosDesc.push(`venc≤${fmtDt(dataVencFim)}`);
+      if (formaPagamento)  filtrosDesc.push(`forma=${formaPagamento}`);
+      if (busca)           filtrosDesc.push(`busca="${busca}"`);
+      if (nota)            filtrosDesc.push(`nota=${nota}`);
+      if (filtrosDesc.length) {
+        doc.fillColor('#000').fontSize(8).font('Helvetica-Oblique').text(`Filtros: ${filtrosDesc.join(' · ')}`, 30, doc.y + 2);
+      }
+
+      // Tabela
+      const colX = { venc: 30, cliente: 95, descricao: 230, categoria: 400, valor: 490, saldo: 560, comAtraso: 635, status: 720 };
+      const colW = { venc: 60, cliente: 130, descricao: 165, categoria: 85, valor: 65, saldo: 70, comAtraso: 80, status: 85 };
+      let y = Math.max(doc.y + 8, 90);
+
+      const desenharHeader = (yHead) => {
+        doc.fillColor('#000').rect(28, yHead, 794, 14).fillAndStroke('#eee', '#ccc');
+        doc.fillColor('#000').fontSize(8).font('Helvetica-Bold');
+        doc.text('Vencimento', colX.venc, yHead + 3, { width: colW.venc });
+        doc.text('Cliente',    colX.cliente, yHead + 3, { width: colW.cliente });
+        doc.text('Descrição',  colX.descricao, yHead + 3, { width: colW.descricao });
+        doc.text('Categoria',  colX.categoria, yHead + 3, { width: colW.categoria });
+        doc.text('Valor',      colX.valor, yHead + 3, { width: colW.valor, align: 'right' });
+        doc.text('Saldo',      colX.saldo, yHead + 3, { width: colW.saldo, align: 'right' });
+        doc.text('Com atraso', colX.comAtraso, yHead + 3, { width: colW.comAtraso, align: 'right' });
+        doc.text('Status',     colX.status, yHead + 3, { width: colW.status });
+        return yHead + 16;
+      };
+      y = desenharHeader(y);
+
+      doc.font('Helvetica').fontSize(8).fillColor('#000');
+      for (const c of contas) {
+        if (y > 560) { doc.addPage(); y = 50; y = desenharHeader(y); doc.font('Helvetica').fontSize(8); }
+        if (c.vencida) doc.fillColor('#b91c1c'); else doc.fillColor('#000');
+        doc.text(fmtDt(c.dataVencimento), colX.venc, y, { width: colW.venc });
+        doc.text((c.pessoaNome || '—').slice(0, 40), colX.cliente, y, { width: colW.cliente });
+        doc.text((c.descricao || '').slice(0, 60), colX.descricao, y, { width: colW.descricao, height: 10, ellipsis: true });
+        doc.text((c.categoriaNome || '—').slice(0, 25), colX.categoria, y, { width: colW.categoria });
+        doc.text(fmt(c.valor),         colX.valor, y, { width: colW.valor, align: 'right' });
+        doc.text(fmt(c.saldoRestante), colX.saldo, y, { width: colW.saldo, align: 'right' });
+        doc.text(c.comAtraso > c.saldoRestante ? fmt(c.comAtraso) : '—', colX.comAtraso, y, { width: colW.comAtraso, align: 'right' });
+        doc.text(c.statusDisplay, colX.status, y, { width: colW.status });
+        y += 13;
+      }
+
+      // Totais
+      if (y > 540) { doc.addPage(); y = 60; }
+      y += 8;
+      doc.fillColor('#000').rect(28, y, 794, 14).fillAndStroke('#eef', '#99c');
+      doc.fillColor('#000').font('Helvetica-Bold').fontSize(8);
+      doc.text('TOTAIS',                 colX.descricao, y + 3, { width: colW.descricao });
+      doc.text(fmt(totValor),            colX.valor,     y + 3, { width: colW.valor, align: 'right' });
+      doc.text(fmt(totSaldo),            colX.saldo,     y + 3, { width: colW.saldo, align: 'right' });
+      doc.text(fmt(totComAtraso),        colX.comAtraso, y + 3, { width: colW.comAtraso, align: 'right' });
+      y += 18;
+      if (totJuros + totMulta > 0) {
+        doc.fillColor('#555').font('Helvetica').fontSize(7);
+        doc.text(`Juros projetados: R$ ${fmt(totJuros)} · Multa projetada: R$ ${fmt(totMulta)}`, 30, y);
+        doc.text(`Config: juros ${CFG.jurosMesPct}% ao mês (${CFG.jurosModo}) · multa ${CFG.multaAtrasoPct}% · carência ${CFG.carenciaDias} dia(s)`, 30, y + 9);
+      }
+
+      doc.end();
+    } catch (err) {
+      console.error('[CR-PDF]', err);
+      if (!res.headersSent) res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/contas-a-receber/:id', (req, res) => {
     try {
       const conta = db.prepare(`SELECT c.*,
         CASE WHEN c.status IN ('aberta','parcial') AND c.dataVencimento < DATE('now','-3 hours') THEN 'vencida' ELSE c.status END AS statusReal,
         p.razaoSocial AS pessoaNome, p.cpfCnpj AS pessoaCpfCnpj, p.email AS pessoaEmail,
         cat.nome AS categoriaNome, cat.icone AS categoriaIcone,
+        pc.codigo AS planoContaCodigo, pc.nome AS planoContaNome,
+        cc.codigo AS centroCustoCodigo, cc.nome AS centroCustoNome,
         n.nDPS AS nfseNumero, n.status AS nfseStatus
       FROM contas_a_receber c
       JOIN pessoas p ON p.id = c.pessoaId
       LEFT JOIN categorias_cr cat ON cat.id = c.categoriaId
+      LEFT JOIN plano_contas pc ON pc.id = c.planoContaId
+      LEFT JOIN centros_custo cc ON cc.id = c.centroCustoId
       LEFT JOIN nfse n ON n.id = c.nfseId
       WHERE c.id = ?`).get(req.params.id);
       if (!conta) return res.status(404).json({ success: false, error: 'Não encontrada' });
@@ -404,12 +589,22 @@ function registrarRotas(app, db) {
   app.post('/api/contas-a-receber', (req, res) => {
     try {
       const { pessoaId, categoriaId, descricao, valor, dataVencimento, dataEmissao,
-              formaPagamento, observacoes, parcelas, intervaloMeses } = req.body || {};
+              formaPagamento, observacoes, parcelas, intervaloMeses,
+              planoContaId, centroCustoId } = req.body || {};
       if (!pessoaId || !descricao || valor == null || !dataVencimento) {
         return res.status(400).json({ success: false, error: 'pessoaId, descricao, valor e dataVencimento obrigatórios' });
       }
       const pessoa = db.prepare('SELECT id FROM pessoas WHERE id = ? AND ativo = 1').get(Number(pessoaId));
       if (!pessoa) return res.status(404).json({ success: false, error: 'Cliente não encontrado' });
+
+      // Plano 12: se planoContaId não veio mas a categoria tem mapeamento, usa
+      // como fallback (mantém compatibilidade com dados antigos que só têm
+      // categoria sem plano de contas explícito).
+      let planoId = planoContaId ? Number(planoContaId) : null;
+      if (!planoId && categoriaId) {
+        const cat = db.prepare('SELECT planoContaId FROM categorias_cr WHERE id = ?').get(Number(categoriaId));
+        if (cat?.planoContaId) planoId = cat.planoContaId;
+      }
 
       const parcelasN = Math.max(1, Number(parcelas) || 1);
       const intervalo = Math.max(1, Number(intervaloMeses) || 1);
@@ -427,10 +622,11 @@ function registrarRotas(app, db) {
           const vlr = (i === parcelasN - 1) ? (valorParcela + sobra) : valorParcela;
           const desc = parcelasN > 1 ? `${descricao} (${i+1}/${parcelasN})` : descricao;
           const r = db.prepare(`INSERT INTO contas_a_receber
-            (pessoaId, categoriaId, descricao, valor, dataEmissao, dataVencimento,
+            (pessoaId, categoriaId, planoContaId, centroCustoId, descricao, valor, dataEmissao, dataVencimento,
              formaPagamento, observacoes, origem, status, parcelaNumero, totalParcelas, grupoParcelaId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta', ?, ?, ?)`).run(
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta', ?, ?, ?)`).run(
             Number(pessoaId), categoriaId ? Number(categoriaId) : null,
+            planoId, centroCustoId ? Number(centroCustoId) : null,
             desc, vlr, dataEmi, venc, formaPagamento || null, observacoes || null,
             parcelasN > 1 ? (i+1) : null, parcelasN > 1 ? parcelasN : null, grupo
           );
@@ -452,11 +648,12 @@ function registrarRotas(app, db) {
       if (!['aberta','parcial'].includes(existing.status)) {
         return res.status(400).json({ success: false, error: 'Só contas abertas ou parciais podem ser editadas' });
       }
-      const { descricao, valor, dataVencimento, formaPagamento, observacoes, pessoaId, categoriaId } = req.body || {};
+      const { descricao, valor, dataVencimento, formaPagamento, observacoes, pessoaId,
+              categoriaId, planoContaId, centroCustoId } = req.body || {};
       db.prepare(`UPDATE contas_a_receber SET
           descricao = ?, valor = ?, dataVencimento = ?,
           formaPagamento = ?, observacoes = ?,
-          pessoaId = ?, categoriaId = ?,
+          pessoaId = ?, categoriaId = ?, planoContaId = ?, centroCustoId = ?,
           dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = ?`).run(
         descricao || existing.descricao,
@@ -466,6 +663,8 @@ function registrarRotas(app, db) {
         observacoes ?? existing.observacoes,
         pessoaId ? Number(pessoaId) : existing.pessoaId,
         categoriaId != null ? Number(categoriaId) : existing.categoriaId,
+        planoContaId !== undefined ? (planoContaId ? Number(planoContaId) : null) : existing.planoContaId,
+        centroCustoId !== undefined ? (centroCustoId ? Number(centroCustoId) : null) : existing.centroCustoId,
         req.params.id
       );
       res.json({ success: true, conta: db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id) });
@@ -521,9 +720,12 @@ function registrarRotas(app, db) {
       const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
       if (!conta) return res.status(404).json({ success: false, error: 'Conta não encontrada' });
       if (!['aberta','parcial'].includes(conta.status)) return res.status(400).json({ success: false, error: `Conta com status ${conta.status} não pode receber baixa` });
-      if (!contaFinanceiraId) return res.status(400).json({ success: false, error: 'contaFinanceiraId obrigatório' });
-      const contaFin = db.prepare('SELECT * FROM contas_financeiras WHERE id = ? AND ativo = 1').get(contaFinanceiraId);
-      if (!contaFin) return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
+      // Conta financeira é opcional: bonificação (desconto total → vPago=0) não
+      // exige conta. Se informada, valida que existe e está ativa.
+      if (contaFinanceiraId) {
+        const contaFin = db.prepare('SELECT * FROM contas_financeiras WHERE id = ? AND ativo = 1').get(contaFinanceiraId);
+        if (!contaFin) return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
+      }
 
       const result = registrarBaixaCR(db, {
         contaReceberId: Number(req.params.id),
@@ -590,24 +792,142 @@ function registrarRotas(app, db) {
 
   app.post('/api/contas-a-receber/baixar-lote', (req, res) => {
     try {
-      const { ids, contaFinanceiraId, dataPagamento, formaPagamento } = req.body || {};
+      const { ids, contaFinanceiraId, dataPagamento, formaPagamento, valorTotal, imputacao } = req.body || {};
       if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ success: false, error: 'ids obrigatórios' });
       if (!contaFinanceiraId) return res.status(400).json({ success: false, error: 'contaFinanceiraId obrigatório' });
       const contaFin = db.prepare('SELECT * FROM contas_financeiras WHERE id = ? AND ativo = 1').get(contaFinanceiraId);
       if (!contaFin) return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
 
       const dp = dataPagamento || dataBrasilia();
+
+      // Carrega contas válidas com saldo; só modo valorTotal pede ordem FIFO por vencimento.
+      const selConta = db.prepare(`SELECT c.*,
+        COALESCE((SELECT SUM(valorBase) FROM contas_receber_pagamentos
+                  WHERE contaReceberId = c.id AND estornado = 0), 0) AS jaPago
+        FROM contas_a_receber c WHERE c.id = ?`);
+      const elegiveis = [];
+      for (const id of ids) {
+        const c = selConta.get(id);
+        if (!c || !['aberta','parcial'].includes(c.status)) continue;
+        const saldo = Number((c.valor - c.jaPago).toFixed(2));
+        if (saldo > 0) elegiveis.push({ ...c, saldo });
+      }
+
+      // Lê config de juros pra projetar juros+multa por conta (mesma fórmula do detalhe + relatório).
+      const cfgRows = db.prepare(`SELECT chave, valor FROM config WHERE chave IN (
+        'juros_mes_pct','multa_atraso_pct','carencia_dias','juros_modo')`).all();
+      const cfgMap = Object.fromEntries(cfgRows.map(r => [r.chave, r.valor]));
+      const CFG = {
+        jurosMesPct:    Number(cfgMap.juros_mes_pct)    || 0,
+        multaAtrasoPct: Number(cfgMap.multa_atraso_pct) || 0,
+        carenciaDias:   Number(cfgMap.carencia_dias)    || 0,
+        jurosModo:      cfgMap.juros_modo || 'simples',
+      };
+      const hojeStr = dataBrasilia();
+      function jurosMultaProjetado(c) {
+        if (!c.dataVencimento || c.dataVencimento >= hojeStr) return { juros: 0, multa: 0 };
+        const v = new Date(c.dataVencimento.slice(0,10) + 'T12:00:00Z');
+        const h = new Date(hojeStr + 'T12:00:00Z');
+        const atraso = Math.max(0, Math.floor((h - v) / 86400000));
+        const efet = Math.max(0, atraso - CFG.carenciaDias);
+        if (efet <= 0) return { juros: 0, multa: 0 };
+        const j = CFG.jurosModo === 'composto'
+          ? c.saldo * (Math.pow(1 + CFG.jurosMesPct/100, efet/30) - 1)
+          : c.saldo * (CFG.jurosMesPct/100) * (efet/30);
+        const m = c.saldo * (CFG.multaAtrasoPct/100);
+        return { juros: Math.round(j*100)/100, multa: Math.round(m*100)/100 };
+      }
+
+      // Distribuição FIFO quando valorTotal informado: paga contas em ordem de
+      // vencimento. Dentro de cada conta, imputa primeiro juros, depois multa,
+      // depois principal (Art. 354 CC). Última conta atingida pode ficar parcial.
+      let distribuicao = null; // Map<id, { valorBase, juros, multa }>
+      if (valorTotal !== undefined && valorTotal !== null && valorTotal !== '') {
+        const vt = Number(valorTotal);
+        if (!Number.isFinite(vt) || vt <= 0) {
+          return res.status(400).json({ success: false, error: 'valorTotal inválido' });
+        }
+
+        // Ordena FIFO + id desempate
+        elegiveis.sort((a, b) => {
+          const cmp = String(a.dataVencimento || '').localeCompare(String(b.dataVencimento || ''));
+          return cmp !== 0 ? cmp : (a.id - b.id);
+        });
+
+        // Projeta juros+multa por conta + total devido (principal + acessórios)
+        for (const c of elegiveis) {
+          const jm = jurosMultaProjetado(c);
+          c.jurosProj = jm.juros;
+          c.multaProj = jm.multa;
+          c.totalDevido = Math.round((c.saldo + jm.juros + jm.multa) * 100) / 100;
+        }
+        const somaTotal = elegiveis.reduce((s, c) => s + c.totalDevido, 0);
+        if (vt > somaTotal + 0.01) {
+          return res.status(400).json({
+            success: false,
+            error: `valorTotal (R$ ${vt.toFixed(2)}) maior que total devido com juros (R$ ${somaTotal.toFixed(2)})`,
+          });
+        }
+
+        distribuicao = new Map();
+        // Modos de imputação:
+        //   'cc354' (default): juros → multa → principal — quando paga menos que total,
+        //     conta fica parcial. Segue Art. 354 do Código Civil.
+        //   'quitar-arredondando-juros': principal → multa → juros — quita o título primeiro,
+        //     desconta do juros. Útil quando cliente paga valor "redondo" e cobre o principal.
+        const modo = imputacao === 'quitar-arredondando-juros' ? 'principal-primeiro' : 'cc354';
+
+        let restante = vt;
+        for (const c of elegiveis) {
+          if (restante <= 0.005) break;
+          let allocBase = 0, allocJuros = 0, allocMulta = 0;
+          if (modo === 'principal-primeiro') {
+            // Cobre principal antes; sobra vai pra multa, depois juros.
+            allocBase  = Math.min(c.saldo, Math.round(restante * 100) / 100);
+            restante = Math.round((restante - allocBase) * 100) / 100;
+            allocMulta = Math.min(c.multaProj, Math.round(restante * 100) / 100);
+            restante = Math.round((restante - allocMulta) * 100) / 100;
+            allocJuros = Math.min(c.jurosProj, Math.round(restante * 100) / 100);
+            restante = Math.round((restante - allocJuros) * 100) / 100;
+          } else {
+            // CC 354: juros → multa → principal
+            allocJuros = Math.min(c.jurosProj, Math.round(restante * 100) / 100);
+            restante = Math.round((restante - allocJuros) * 100) / 100;
+            allocMulta = Math.min(c.multaProj, Math.round(restante * 100) / 100);
+            restante = Math.round((restante - allocMulta) * 100) / 100;
+            allocBase  = Math.min(c.saldo, Math.round(restante * 100) / 100);
+            restante = Math.round((restante - allocBase) * 100) / 100;
+          }
+          if (allocJuros + allocMulta + allocBase > 0) {
+            distribuicao.set(c.id, { valorBase: allocBase, juros: allocJuros, multa: allocMulta });
+          }
+        }
+      }
+
       const sucessos = [], falhas = [];
       const tx = db.transaction(() => {
-        for (const id of ids) {
+        // Se distribuicao existe, só baixa os que receberam alocação.
+        // Sem valorTotal: baixa todos os IDs elegíveis pelo saldo cheio (comportamento anterior).
+        const iterar = distribuicao ? [...distribuicao.keys()] : elegiveis.map(c => c.id);
+        const naoElegiveis = ids.filter(id => !elegiveis.some(c => c.id === id));
+        for (const id of naoElegiveis) falhas.push({ id, erro: 'status inválido ou saldo zero' });
+
+        for (const id of iterar) {
           try {
-            const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(id);
-            if (!conta || !['aberta','parcial'].includes(conta.status)) { falhas.push({ id, erro: 'status inválido' }); continue; }
-            registrarBaixaCR(db, {
+            const opts = {
               contaReceberId: id, dataPagamento: dp, contaFinanceiraId,
               formaPagamento: formaPagamento || null, origem: 'lote',
-              usuario: req.session?.username || null
-            });
+              usuario: req.session?.username || null,
+            };
+            if (distribuicao) {
+              const a = distribuicao.get(id);
+              opts.valorBase = a.valorBase;
+              opts.juros = a.juros;
+              opts.multa = a.multa;
+              const conta = elegiveis.find(c => c.id === id);
+              if (conta && a.valorBase < conta.saldo - 0.01) opts.parcial = true;
+            }
+            registrarBaixaCR(db, opts);
             db.prepare(`UPDATE boletos SET status = 'pago', dataAtualizacao = CURRENT_TIMESTAMP
               WHERE contaReceberId = ? AND status IN ('pendente','registrado')`).run(id);
             sucessos.push(id);
@@ -661,6 +981,50 @@ function registrarRotas(app, db) {
       db.prepare('DELETE FROM contas_receber_anexos WHERE id = ?').run(req.params.anexoId);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // ==================== CONFIGURAÇÃO DE JUROS & MULTA ====================
+  //
+  // Armazenada em `config` (key-value). Chaves:
+  //   juros_mes_pct        — taxa mensal de juros (%), default 1
+  //   multa_atraso_pct     — multa fixa sobre valor em atraso (%), default 2
+  //   carencia_dias        — dias de carência antes de cobrar juros, default 0
+  //   juros_modo           — 'simples' (padrão) | 'composto' (raramente usado)
+  //
+  // Aplicação: aoAbrir modal de baixa, front calcula juros/multa sugeridos
+  // com base em dias de atraso vs vencimento. Usuário pode editar livremente.
+
+  app.get('/api/financeiro/config-juros', (req, res) => {
+    try {
+      const rows = db.prepare(`SELECT chave, valor FROM config WHERE chave IN (
+        'juros_mes_pct','multa_atraso_pct','carencia_dias','juros_modo')`).all();
+      const map = Object.fromEntries(rows.map(r => [r.chave, r.valor]));
+      res.json({
+        success: true,
+        jurosMesPct:    Number(map.juros_mes_pct)    || 0,
+        multaAtrasoPct: Number(map.multa_atraso_pct) || 0,
+        carenciaDias:   Number(map.carencia_dias)    || 0,
+        jurosModo:      map.juros_modo || 'simples',
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/financeiro/config-juros', (req, res) => {
+    try {
+      const { jurosMesPct, multaAtrasoPct, carenciaDias, jurosModo } = req.body || {};
+      const upsert = db.prepare(`INSERT INTO config (chave, valor) VALUES (?, ?)
+        ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`);
+      const setIfPresent = (k, v) => { if (v !== undefined && v !== null && v !== '') upsert.run(k, String(v)); };
+      setIfPresent('juros_mes_pct',    Number(jurosMesPct));
+      setIfPresent('multa_atraso_pct', Number(multaAtrasoPct));
+      setIfPresent('carencia_dias',    Math.max(0, parseInt(carenciaDias) || 0));
+      if (jurosModo && ['simples','composto'].includes(jurosModo)) upsert.run('juros_modo', jurosModo);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 }
 

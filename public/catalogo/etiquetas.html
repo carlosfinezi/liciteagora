@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Etiquetas de Produtos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style media="print">
+  body * { visibility: hidden; }
+  #folhaPrint, #folhaPrint * { visibility: visible; }
+  #folhaPrint { position: absolute; left: 0; top: 0; width: 100%; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Etiquetas de Produtos</h1>
+      <small>Impressão em A4 (grade) ou térmica Zebra (arquivo ZPL)</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="buscaProd" placeholder="Buscar produto por SKU, descrição ou código…" style="flex:1;min-width:280px;" onkeydown="if(event.key==='Enter')buscar()">
+    <button class="btn btn-ghost btn-sm" onclick="buscar()">Buscar</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>SKU</th><th>Descrição</th><th>Cód. barras</th><th style="width:110px;">Cópias</th><th style="width:40px;"></th></tr></thead>
+      <tbody id="tbFila"><tr><td colspan="5" class="empty">Busque e adicione produtos à fila de impressão</td></tr></tbody>
+    </table>
+  </div>
+  <div id="resultadosBusca" class="tbl-wrap" style="display:none;margin-top:10px;">
+    <table><tbody id="tbBusca"></tbody></table>
+  </div>
+
+  <div class="actions-bar" style="margin-top:16px;">
+    <select id="layoutA4">
+      <option value="3x10">A4 · 3 × 10 (etiqueta 63,5×25,4mm)</option>
+      <option value="2x7">A4 · 2 × 7 (etiqueta 99×38mm)</option>
+    </select>
+    <button class="btn btn-primary" onclick="imprimirA4()">🖨️ Imprimir A4</button>
+    <select id="colunasZpl">
+      <option value="1">Térmica · 1 coluna</option>
+      <option value="2">Térmica · 2 colunas</option>
+    </select>
+    <button class="btn btn-secondary" onclick="baixarZpl()">⬇️ Baixar ZPL (Zebra)</button>
+  </div>
+
+  <div id="folhaPrint"></div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/vendor/JsBarcode.all.min.js"></script>
+<script>initSidebar('catalogo-etiquetas');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+
+const fila = new Map(); // produtoId -> {produto, copias}
+
+async function buscar(){
+  const q = document.getElementById('buscaProd').value.trim();
+  if (!q) return;
+  const r = await fetch('/api/produtos?q='+encodeURIComponent(q)); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tbBusca');
+  const lista = (d.produtos||[]).slice(0,15);
+  tb.innerHTML = lista.length ? lista.map(p =>
+    `<tr><td>${p.sku}</td><td>${p.descricao}</td>
+     <td><button class="btn btn-ghost btn-sm" onclick='addFila(${JSON.stringify({id:p.id,sku:p.sku,descricao:p.descricao,codigoBarras:p.codigoBarras,precoVenda:p.precoVenda}).replace(/'/g,"&#39;")})'>+ Adicionar</button></td></tr>`
+  ).join('') : '<tr><td class="empty">Nada encontrado</td></tr>';
+  document.getElementById('resultadosBusca').style.display = 'block';
+}
+
+function addFila(p){
+  if (!fila.has(p.id)) fila.set(p.id, { produto: p, copias: 1 });
+  renderFila();
+}
+function rmFila(id){ fila.delete(id); renderFila(); }
+function setCopias(id, v){ const f = fila.get(id); if (f) f.copias = Math.max(1, Math.min(500, Number(v)||1)); }
+
+function renderFila(){
+  const tb = document.getElementById('tbFila');
+  tb.innerHTML = fila.size ? [...fila.values()].map(({produto:p, copias}) =>
+    `<tr><td>${p.sku}</td><td>${p.descricao}</td><td>${p.codigoBarras||'(usa SKU)'}</td>
+     <td><input type="number" min="1" max="500" value="${copias}" style="width:90px;" onchange="setCopias(${p.id}, this.value)"></td>
+     <td><button class="btn btn-ghost btn-sm" onclick="rmFila(${p.id})">×</button></td></tr>`
+  ).join('') : '<tr><td colspan="5" class="empty">Busque e adicione produtos à fila de impressão</td></tr>';
+}
+
+const LAYOUTS = {
+  '3x10': { cols: 3, rows: 10, wmm: 63.5, hmm: 25.4, fonte: 9 },
+  '2x7':  { cols: 2, rows: 7,  wmm: 99,  hmm: 38,   fonte: 11 }
+};
+
+async function imprimirA4(){
+  if (!fila.size) return showAlert('Fila vazia','error');
+  const ids = [...fila.keys()].join(',');
+  const r = await fetch('/api/etiquetas/dados?ids='+ids); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const info = Object.fromEntries(d.produtos.map(p=>[p.id,p]));
+  const lay = LAYOUTS[document.getElementById('layoutA4').value];
+
+  const etiquetas = [];
+  for (const [id, {copias}] of fila) {
+    const p = info[id]; if (!p) continue;
+    for (let i=0;i<copias;i++) etiquetas.push(p);
+  }
+
+  const folha = document.getElementById('folhaPrint');
+  folha.innerHTML = `<div style="display:grid;grid-template-columns:repeat(${lay.cols},${lay.wmm}mm);grid-auto-rows:${lay.hmm}mm;gap:0;">` +
+    etiquetas.map((p,i) => `
+      <div style="overflow:hidden;padding:1.5mm;box-sizing:border-box;text-align:center;">
+        <div style="font-size:${lay.fonte}px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.descricao}</div>
+        <div style="font-size:${lay.fonte}px;">${p.precoVenda!=null?('R$ '+Number(p.precoVenda).toFixed(2).replace('.',',')):''}</div>
+        <svg id="bc-${i}"></svg>
+      </div>`).join('') + '</div>';
+
+  etiquetas.forEach((p,i) => {
+    try {
+      JsBarcode('#bc-'+i, p.codigo, {
+        format: p.simbologia === 'ean' ? (p.codigo.length===8?'EAN8':'EAN13') : 'CODE128',
+        height: 28, width: 1.2, fontSize: 10, margin: 0, displayValue: true
+      });
+    } catch { /* código inválido para a simbologia — etiqueta sai sem barra */ }
+  });
+
+  window.print();
+}
+
+function baixarZpl(){
+  if (!fila.size) return showAlert('Fila vazia','error');
+  const itens = [...fila.entries()].map(([id,{copias}])=>`${id}:${copias}`).join(',');
+  const colunas = document.getElementById('colunasZpl').value;
+  window.location.href = `/api/etiquetas/zpl?itens=${itens}&colunas=${colunas}`;
+}
+</script>
+</body></html>

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tokens Bearer · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        .mono { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.88em; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .kpi { padding: 12px 14px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--border); }
+        .kpi .label { font-size: 0.75em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+        .kpi .value { font-size: 1.4em; font-weight: 700; color: var(--text-0); margin-top: 4px; font-family: 'SF Mono', Menlo, Monaco, monospace; }
+        .kpi .sub { font-size: 0.72em; color: var(--text-3); margin-top: 2px; }
+        .kpi.good .value { color: var(--success); }
+        .kpi.warn .value { color: var(--warn); }
+        .kpi.danger .value { color: var(--danger); }
+
+        .atual { padding: 16px 18px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 14px; }
+        .atual.expirou { border-color: var(--danger); background: var(--danger-soft); }
+        .atual.por-expirar { border-color: var(--warn); background: var(--warn-soft); }
+        .atual h3 { margin: 0 0 8px 0; }
+        .atual .restante { font-size: 1.4em; font-weight: 700; font-family: 'SF Mono', Menlo, Monaco, monospace; }
+
+        table.tbl { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        table.tbl th { background: var(--bg-3); color: var(--text-2); text-align: left; padding: 8px 10px; font-weight: 600; }
+        table.tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+        .badge { padding: 1px 8px; border-radius: 8px; font-size: 0.74em; font-weight: 600; display: inline-block; }
+        .badge.electron { background: var(--accent-soft); color: var(--accent); }
+        .badge.extension { background: var(--warn-soft); color: var(--warn); }
+        .badge.manual { background: rgba(120,120,120,0.2); color: var(--text-3); }
+        .badge.atual { background: var(--success-soft); color: var(--success); }
+        .badge.exp { background: var(--danger-soft); color: var(--danger); }
+        .badge.rejeitado { background: var(--danger-soft); color: var(--danger); }
+        .badge.online { background: var(--success-soft); color: var(--success); }
+        .badge.offline { background: var(--danger-soft); color: var(--danger); }
+        .badge.sso-morto { background: var(--danger-soft); color: var(--danger); }
+        .badge.sem-token { background: var(--warn-soft); color: var(--warn); }
+        .empty { text-align: center; padding: 30px; color: var(--text-3); }
+        .electron-status { padding: 16px 18px; border-radius: var(--r-md); margin-bottom: 14px; border: 1px solid var(--border); background: var(--bg-2); }
+        .electron-status.online { border-color: var(--success); }
+        .electron-status.offline { border-color: var(--danger); background: var(--danger-soft); }
+        .electron-status.sso-morto { border-color: var(--danger); background: var(--danger-soft); }
+        .electron-status.sem-token { border-color: var(--warn); background: var(--warn-soft); }
+        .alerta-banner { padding: 14px 16px; border-radius: var(--r-md); margin-bottom: 14px; border: 2px solid var(--warn); background: var(--warn-soft); color: var(--text-0); display: flex; align-items: center; gap: 12px; }
+        .alerta-banner .icone { font-size: 1.8em; }
+        .evento-row { padding: 6px 10px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 160px 220px 1fr; gap: 12px; align-items: center; font-size: 0.85em; }
+        .evento-row .ts { color: var(--text-3); font-family: 'SF Mono', Menlo, Monaco, monospace; }
+        .evento-row .tipo { font-weight: 600; }
+        .evento-row .tipo.ok { color: var(--success); }
+        .evento-row .tipo.fail { color: var(--danger); }
+        .evento-row .tipo.warn { color: var(--warn); }
+        .evento-row .detalhes { color: var(--text-2); font-family: 'SF Mono', Menlo, Monaco, monospace; font-size: 0.88em; word-break: break-all; }
+        .uso-bearer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+        .uso-bearer-card { padding: 10px 12px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--border); text-align: center; }
+        .uso-bearer-card .label { font-size: 0.72em; color: var(--text-3); text-transform: uppercase; }
+        .uso-bearer-card .value { font-size: 1.6em; font-weight: 700; font-family: 'SF Mono', Menlo, Monaco, monospace; }
+        .uso-bearer-card.ok .value { color: var(--success); }
+        .uso-bearer-card.warn .value { color: var(--warn); }
+        .uso-bearer-card.danger .value { color: var(--danger); }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Tokens Bearer</h1>
+        <small>Histórico de tokens Comprasnet recebidos (Electron / Extensão) + expiração JWT real.</small>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="carregar()">Atualizar</button>
+      </div>
+    </div>
+
+    <div id="alertaDedupBanner"></div>
+    <div id="electronStatus"></div>
+    <div id="atualBox"></div>
+    <div id="kpis" class="kpi-grid"></div>
+
+    <div class="panel" style="margin-bottom:14px">
+        <h3 style="margin-bottom:10px">Uso real do Bearer no Comprasnet (últimos 10 min)</h3>
+        <small style="color:var(--text-3)">Mesmo bearer "aceito" pelo servidor pode estar sendo rejeitado em uso real (GUARD, lances). Se taxa de 401/403 sobe, o bearer está podre apesar do dedup OK.</small>
+        <div id="usoBearer" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel">
+        <h3 style="margin-bottom:10px">Histórico de tokens (últimos 50)</h3>
+        <div id="historico"></div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+        <h3 style="margin-bottom:10px">Heartbeats do Electron (últimos 30)</h3>
+        <small style="color:var(--text-3)">Snapshot enviado a cada 30s. Se parar de chegar, Electron caiu/perdeu rede.</small>
+        <div id="heartbeats" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+        <h3 style="margin-bottom:10px">Eventos do Electron (últimas 24h)</h3>
+        <small style="color:var(--text-3)">Retoken, reload do webview pra renovar SSO, dialogs de idle, timeouts. Aqui aparece <b>por que</b> o SSO morre.</small>
+        <div id="eventos" style="margin-top:10px"></div>
+    </div>
+
+</main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('tokens');</script>
+<script>
+const fmtTs = (iso) => {
+    if(!iso) return '—';
+    try {
+        return new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
+    } catch { return iso; }
+};
+const fmtDur = (seg) => {
+    if(seg == null) return '—';
+    if(seg < 60) return seg + 's';
+    if(seg < 3600) return Math.floor(seg/60) + 'm' + (seg%60) + 's';
+    return Math.floor(seg/3600) + 'h' + Math.floor((seg%3600)/60) + 'm';
+};
+
+async function carregar() {
+    try {
+        const [rTok, rHb, rEv, rUso] = await Promise.all([
+            fetch('/api/sniper/tokens/historico?limite=50').then(x => x.json()),
+            fetch('/api/sniper/electron/heartbeat-historico?limite=30').then(x => x.json()),
+            fetch('/api/sniper/electron/eventos-historico?limite=80&janelaMin=1440').then(x => x.json()),
+            fetch('/api/sniper/comprasnet-uso-bearer?janelaMin=10').then(x => x.json()),
+        ]);
+        if (!rTok.success) { alert('Erro: ' + (rTok.error||'')); return; }
+        renderAlertaDedup(rHb);
+        renderElectronStatus(rHb);
+        renderAtual(rTok.atual);
+        renderKpis(rTok);
+        renderUsoBearer(rUso);
+        renderHistorico(rTok.historico);
+        renderHeartbeats(rHb);
+        renderEventos(rEv);
+    } catch(e) {
+        document.getElementById('atualBox').innerHTML = '<div class="atual" style="color:var(--danger)">Erro: '+e.message+'</div>';
+    }
+}
+
+function renderAlertaDedup(hb) {
+    const el = document.getElementById('alertaDedupBanner');
+    if (hb && hb.alertaDedup && hb.alertaDedup.ativo) {
+        el.innerHTML = `<div class="alerta-banner">
+            <span class="icone">⚠️</span>
+            <div>
+                <b>Bearer travado em dedup — Electron pode ter parado de capturar bearer novo</b><br>
+                <small>${hb.alertaDedup.mensagem}</small>
+            </div>
+        </div>`;
+    } else {
+        el.innerHTML = '';
+    }
+}
+
+function renderUsoBearer(uso) {
+    const el = document.getElementById('usoBearer');
+    if (!uso || !uso.success) {
+        el.innerHTML = '<div class="empty">Sem dados de uso real</div>';
+        return;
+    }
+    const taxaClass = uso.taxaRejeicao >= 20 ? 'danger' : (uso.taxaRejeicao >= 5 ? 'warn' : 'ok');
+    el.innerHTML = `
+        <div class="uso-bearer-grid">
+            <div class="uso-bearer-card"><div class="label">Total chamadas</div><div class="value">${uso.total}</div></div>
+            <div class="uso-bearer-card ok"><div class="label">2xx (ok)</div><div class="value">${uso.ok}</div></div>
+            <div class="uso-bearer-card ${uso._401 > 0 ? 'danger' : ''}"><div class="label">401 (bearer rejeitado)</div><div class="value">${uso._401}</div></div>
+            <div class="uso-bearer-card ${uso._403 > 0 ? 'danger' : ''}"><div class="label">403 (proibido)</div><div class="value">${uso._403}</div></div>
+            <div class="uso-bearer-card ${uso._429 > 0 ? 'warn' : ''}"><div class="label">429 (rate limit)</div><div class="value">${uso._429}</div></div>
+            <div class="uso-bearer-card ${uso._5xx > 0 ? 'warn' : ''}"><div class="label">5xx (Comprasnet)</div><div class="value">${uso._5xx}</div></div>
+            <div class="uso-bearer-card ${taxaClass}"><div class="label">Taxa rejeição</div><div class="value">${uso.taxaRejeicao}%</div></div>
+        </div>
+    `;
+}
+
+function renderEventos(ev) {
+    const el = document.getElementById('eventos');
+    if (!ev || !ev.success || !ev.eventos || ev.eventos.length === 0) {
+        el.innerHTML = '<div class="empty">Sem eventos registrados</div>';
+        return;
+    }
+    const classeTipo = (t) => {
+        if (t === 'retoken-http-ok' || t === 'idle-dialog') return 'ok';
+        if (t === 'retoken-http-fail' || t === 'reload-timeout-sso-morto') return 'fail';
+        if (t === 'reload-keepalive') return 'warn';
+        return '';
+    };
+    el.innerHTML = ev.eventos.map(e => `
+        <div class="evento-row">
+            <span class="ts">${fmtTs(e.recebidoEm)}</span>
+            <span class="tipo ${classeTipo(e.tipo)}">${e.tipo}</span>
+            <span class="detalhes">${e.detalhes ? e.detalhes : (e.msg || '')}</span>
+        </div>
+    `).join('');
+}
+
+function renderElectronStatus(hb) {
+    const el = document.getElementById('electronStatus');
+    if (!hb || !hb.success) {
+        el.innerHTML = '<div class="electron-status offline"><h3>📡 Status do Electron desconhecido</h3><small>Endpoint /api/sniper/electron/heartbeat-historico não respondeu.</small></div>';
+        return;
+    }
+    const s = hb.status; // online | offline | sso-morto | sem-token
+    const u = hb.ultimo;
+    const gap = hb.gapDesdeUltimoSeg;
+    const icones = { online: '🟢', offline: '⚫', 'sso-morto': '🔴', 'sem-token': '🟡' };
+    const titulos = {
+        online: 'Electron online',
+        offline: 'Electron offline (sem heartbeat)',
+        'sso-morto': 'Electron rodando mas SSO Comprasnet caiu',
+        'sem-token': 'Electron rodando mas sem Bearer em memória',
+    };
+    if (!u) {
+        el.innerHTML = `<div class="electron-status offline">
+            <h3>${icones.offline} ${titulos.offline}</h3>
+            <small>Nenhum heartbeat registrado ainda. Electron Standalone v5.1.10+ é necessário.</small>
+        </div>`;
+        return;
+    }
+    el.innerHTML = `
+        <div class="electron-status ${s}">
+            <h3>${icones[s] || '❓'} ${titulos[s] || s}</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:8px;">
+                <div><small style="color:var(--text-3)">Último heartbeat</small><br><span class="mono">${fmtTs(u.recebidoEm)}</span><br><small>há ${fmtDur(gap)}</small></div>
+                <div><small style="color:var(--text-3)">Bearer em memória</small><br>${u.tokenPresent ? `<span class="badge online">SIM</span> <span class="mono">${fmtDur(u.tokenAgeSec)} de idade</span>` : '<span class="badge offline">NÃO</span>'}</div>
+                <div><small style="color:var(--text-3)">Última captura</small><br><span class="mono">${fmtTs(u.lastCaptureAt)}</span></div>
+                <div><small style="color:var(--text-3)">Último envio /api/auth/token</small><br><span class="mono">${fmtTs(u.lastSendAttemptAt)}</span><br><small>status: <code>${u.lastSendStatus || '—'}</code></small></div>
+                <div><small style="color:var(--text-3)">SSO Comprasnet</small><br>${u.ssoMorto ? '<span class="badge sso-morto">MORTO</span>' : '<span class="badge online">vivo</span>'}</div>
+                <div><small style="color:var(--text-3)">Portal / versão</small><br><span class="mono">${u.portal || '—'} ${u.versao ? 'v'+u.versao : ''}</span></div>
+            </div>
+        </div>
+    `;
+}
+
+function renderHeartbeats(hb) {
+    const el = document.getElementById('heartbeats');
+    if (!hb || !hb.success || !hb.historico || hb.historico.length === 0) {
+        el.innerHTML = '<div class="empty">Sem heartbeats registrados</div>';
+        return;
+    }
+    el.innerHTML = `
+        <table class="tbl">
+            <thead><tr>
+                <th>Recebido</th>
+                <th>Token</th>
+                <th>Idade</th>
+                <th>Última captura</th>
+                <th>Último envio</th>
+                <th>Status envio</th>
+                <th>SSO</th>
+            </tr></thead>
+            <tbody>
+            ${hb.historico.map(r => `<tr>
+                <td class="mono">${fmtTs(r.recebidoEm)}</td>
+                <td>${r.tokenPresent ? '✅' : '❌'}</td>
+                <td>${fmtDur(r.tokenAgeSec)}</td>
+                <td class="mono">${fmtTs(r.lastCaptureAt)}</td>
+                <td class="mono">${fmtTs(r.lastSendAttemptAt)}</td>
+                <td class="mono"><code>${r.lastSendStatus || '—'}</code></td>
+                <td>${r.ssoMorto ? '🔴' : '🟢'}</td>
+            </tr>`).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function renderAtual(a) {
+    const el = document.getElementById('atualBox');
+    if (!a) {
+        el.innerHTML = '<div class="atual"><h3>⚠️ Nenhum token registrado</h3><small>O Electron Standalone precisa estar logado no Comprasnet pra enviar o Bearer.</small></div>';
+        return;
+    }
+    const cls = a.restanteSeg == null ? '' :
+                a.restanteSeg <= 0 ? 'expirou' :
+                a.restanteSeg <= 120 ? 'por-expirar' : '';
+    const icone = a.restanteSeg == null ? '🔑' :
+                  a.restanteSeg <= 0 ? '❌' :
+                  a.restanteSeg <= 120 ? '⚠️' : '✅';
+    el.innerHTML = `
+        <div class="atual ${cls}">
+            <h3>${icone} Token atual</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;">
+                <div><small style="color:var(--text-3)">Origem</small><br><span class="badge ${a.source}">${a.source}</span></div>
+                <div><small style="color:var(--text-3)">Recebido em</small><br><span class="mono">${fmtTs(a.recebidoEm)}</span></div>
+                <div><small style="color:var(--text-3)">Expira em</small><br><span class="mono">${fmtTs(a.expEm)}</span></div>
+                <div><small style="color:var(--text-3)">Restante</small><br><span class="restante">${a.restanteHumano || '—'}</span></div>
+            </div>
+        </div>
+    `;
+}
+
+function renderKpis(d) {
+    document.getElementById('kpis').innerHTML = `
+        <div class="kpi">
+            <div class="label">Total no histórico</div>
+            <div class="value">${d.total}</div>
+            <div class="sub">tokens registrados</div>
+        </div>
+        <div class="kpi ${d.expirados > 0 ? 'warn' : ''}">
+            <div class="label">Expirados</div>
+            <div class="value">${d.expirados}</div>
+            <div class="sub">já passaram do exp</div>
+        </div>
+        <div class="kpi">
+            <div class="label">Duração média (JWT)</div>
+            <div class="value">${fmtDur(d.duracaoMediaSeg)}</div>
+            <div class="sub">esperada pelo claim exp-iat</div>
+        </div>
+    `;
+}
+
+function renderHistorico(rows) {
+    if (!rows || rows.length === 0) {
+        document.getElementById('historico').innerHTML = '<div class="empty">Sem histórico ainda</div>';
+        return;
+    }
+    document.getElementById('historico').innerHTML = `
+        <table class="tbl">
+            <thead><tr>
+                <th>Recebido</th>
+                <th>Origem</th>
+                <th>Subject (CPF)</th>
+                <th>Expira</th>
+                <th>Dur. esperada</th>
+                <th>Dur. efetiva</th>
+                <th>Status</th>
+                <th>Fingerprint</th>
+            </tr></thead>
+            <tbody>
+            ${rows.map(r => {
+                const expirou = r.expEm && new Date(r.expEm) < new Date();
+                const rejeitado = !!r.motivoRejeicao;
+                const statusBadge = rejeitado
+                    ? `<span class="badge rejeitado" title="${r.motivoRejeicao}">REJEITADO ${r.httpStatusRejeicao||''}</span>`
+                    : (r.atual ? '<span class="badge atual">ATUAL</span>'
+                        : (expirou ? '<span class="badge exp">expirado</span>'
+                            : '<span class="badge">substituído</span>'));
+                return `<tr${rejeitado ? ' style="background:var(--danger-soft)"' : ''}>
+                    <td class="mono">${fmtTs(r.recebidoEm)}</td>
+                    <td><span class="badge ${r.source}">${r.source}</span></td>
+                    <td class="mono">${r.subject || '—'}</td>
+                    <td class="mono">${fmtTs(r.expEm)}</td>
+                    <td>${fmtDur(r.duracaoEsperadaSeg)}</td>
+                    <td>${rejeitado ? '—' : fmtDur(r.duracaoEfetivaSeg)}</td>
+                    <td>${statusBadge}</td>
+                    <td class="mono" style="opacity:0.6">${r.tokenFingerprint || '—'}</td>
+                </tr>`;
+            }).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+carregar();
+setInterval(carregar, 30000);
+</script>
+</body>
+</html>

@@ -39,6 +39,34 @@ function registrarRotasAdmin(app, db, { getConfigValue, setConfigValue }) {
     throw new Error('admin-routes: getConfigValue e setConfigValue são obrigatórios');
   }
 
+  // Upload diagnóstico genérico: aceita QUALQUER arquivo do cliente.
+  // Salva em /tmp/uploads-<tenantSlug>/<nome-sanitizado> — preserva o nome
+  // original (sanitizado) e múltiplos arquivos coexistem (sem sobrescrever
+  // por tipo). Sanitização remove path traversal e caracteres perigosos.
+  const multer = require('multer');
+  const path = require('path');
+  const fs = require('fs');
+  function sanitizeFilename(name) {
+    // Remove diretórios (path traversal) e mantém só basename.
+    const base = path.basename(name || 'arquivo');
+    // Substitui qualquer coisa que não seja letra/dígito/._- por _
+    return base.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 200) || 'arquivo';
+  }
+  const uploadAsar = multer({
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => {
+        const slug = (req.tenantCtx && req.tenantCtx.slug) || 'unknown';
+        const dir = `/tmp/uploads-${slug}`;
+        try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+        cb(null, dir);
+      },
+      filename: (req, file, cb) => {
+        cb(null, sanitizeFilename(file.originalname));
+      },
+    }),
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+  });
+
   // Rota de debug para verificar estrutura da tabela
   app.get('/api/debug/tabela/:nome', (req, res) => {
     try {
@@ -76,6 +104,82 @@ function registrarRotasAdmin(app, db, { getConfigValue, setConfigValue }) {
       url = url.replace(/\/+$/, '');
       setConfigValue('server_url', url);
       res.json({ success: true, url });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ─── API Key do tenant (usada pelo Electron standalone) ──────────────────
+  // Prefixo /api/config/* propositalmente: /api/admin/* é bypass do
+  // requireAuth (reservado ao control plane). /api/config/* passa pela
+  // auth normal do tenant. Isolamento por tenant vem do middleware:
+  // getConfigValue/setConfigValue usam o DB do tenant da request.
+
+  app.get('/api/config/api-key', (req, res) => {
+    try {
+      let apiKey = getConfigValue('api_key');
+      if (!apiKey) {
+        apiKey = require('crypto').randomBytes(32).toString('hex');
+        setConfigValue('api_key', apiKey);
+      }
+      res.json({ success: true, apiKey });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/config/api-key/rotate', (req, res) => {
+    try {
+      const apiKey = require('crypto').randomBytes(32).toString('hex');
+      setConfigValue('api_key', apiKey);
+      res.json({ success: true, apiKey });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/config/upload-asar', uploadAsar.single('asar'), (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ success: false, error: 'Nenhum arquivo recebido' });
+      res.json({
+        success: true,
+        filename: req.file.filename,
+        path: req.file.path,
+        size: req.file.size,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Lista os arquivos enviados pelo tenant (para mostrar na UI).
+  app.get('/api/config/uploads', (req, res) => {
+    try {
+      const slug = (req.tenantCtx && req.tenantCtx.slug) || 'unknown';
+      const dir = `/tmp/uploads-${slug}`;
+      if (!fs.existsSync(dir)) return res.json({ success: true, files: [] });
+      const files = fs.readdirSync(dir).map((name) => {
+        const st = fs.statSync(path.join(dir, name));
+        return { filename: name, size: st.size, mtime: st.mtime };
+      }).sort((a, b) => b.mtime - a.mtime);
+      res.json({ success: true, files });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.delete('/api/config/uploads/:nome', (req, res) => {
+    try {
+      const slug = (req.tenantCtx && req.tenantCtx.slug) || 'unknown';
+      const nome = sanitizeFilename(req.params.nome);
+      const full = path.join(`/tmp/uploads-${slug}`, nome);
+      // Garante que o resolvido continua dentro do diretório do tenant.
+      const baseDir = path.resolve(`/tmp/uploads-${slug}`);
+      if (!path.resolve(full).startsWith(baseDir + path.sep)) {
+        return res.status(400).json({ success: false, error: 'Nome inválido' });
+      }
+      if (fs.existsSync(full)) fs.unlinkSync(full);
+      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }

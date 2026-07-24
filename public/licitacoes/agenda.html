@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenda · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+      .day-event.agend-event { background:var(--accent); color:#fff; border-left:3px solid #fff3; }
+      .day-event.agend-event.agend-done { opacity:.55; text-decoration:line-through; }
+    </style>
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Agenda de Licitações</h1>
+        <small>Datas de encerramento das propostas dos seus interesses</small>
+      </div>
+      <div class="actions calendar-nav">
+        <button class="btn btn-ghost btn-sm" onclick="mesAnterior()" title="Mês anterior">◀</button>
+        <span class="current-month" id="currentMonth">—</span>
+        <button class="btn btn-ghost btn-sm" onclick="proximoMes()" title="Próximo mês">▶</button>
+        <button class="btn btn-primary btn-sm" onclick="irParaHoje()">Hoje</button>
+      </div>
+    </div>
+
+    <div class="calendar">
+      <div class="calendar-weekdays">
+        <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
+      </div>
+      <div class="calendar-days" id="calendarDays"></div>
+    </div>
+
+    <div class="legenda">
+      <div class="legenda-item"><span class="legenda-cor" style="background:var(--warn);"></span>Em análise</div>
+      <div class="legenda-item"><span class="legenda-cor" style="background:var(--accent);"></span>Preparando proposta</div>
+      <div class="legenda-item"><span class="legenda-cor" style="background:var(--success);"></span>Proposta enviada</div>
+      <div class="legenda-item"><span class="legenda-cor" style="background:var(--text-3);"></span>Encerrada</div>
+      <div class="legenda-item"><span class="legenda-cor" style="background:var(--accent);"></span>Agendamento (CRM)</div>
+    </div>
+
+  </main>
+</div>
+
+<div class="modal-bg" id="eventModal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;" id="modalTitle">Detalhes da Licitação</h3>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="event-detail"><label>Objeto</label><span id="modalObjeto"></span></div>
+    <div class="event-detail"><label>Órgão</label><span id="modalOrgao"></span></div>
+    <div class="event-detail"><label>Modalidade</label><span id="modalModalidade"></span></div>
+    <div class="event-detail"><label>Encerramento</label><span id="modalData"></span></div>
+    <div class="event-detail"><label>Itens de interesse</label><span id="modalItens"></span></div>
+    <div class="event-detail"><label>Status</label><span id="modalStatus"></span></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Fechar</button>
+      <button class="btn btn-secondary" onclick="verEmInteresses()">Ver em Interesses</button>
+      <button class="btn btn-primary" id="btnEnviarProposta" style="display:none;" onclick="enviarProposta()">📝 Enviar proposta</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="agendModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Agendamento</h3>
+        <small class="muted" id="agModalTipo"></small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalAgend()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="event-detail"><label>Título</label><span id="agModalTitulo"></span></div>
+    <div class="event-detail"><label>Cliente</label><span id="agModalCliente"></span></div>
+    <div class="event-detail"><label>Oportunidade</label><span id="agModalOp"></span></div>
+    <div class="event-detail"><label>Data / hora</label><span id="agModalData"></span></div>
+    <div class="event-detail"><label>Comentário</label><span id="agModalComent"></span></div>
+    <div class="event-detail"><label>Status</label><span id="agModalStatus"></span></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalAgend()">Fechar</button>
+      <button class="btn btn-secondary" onclick="verOportunidadeAgend()">Ver no CRM</button>
+      <button class="btn btn-primary" id="btnConcluirAgend" onclick="concluirAgend()">✔ Concluir</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="agenda.js?v=20260720"></script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('agenda');</script>
+</body>
+</html>

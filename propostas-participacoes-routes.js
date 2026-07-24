@@ -1,6 +1,6 @@
 // propostas-participacoes-routes.js
 //
-// Fluxo de envio de propostas via extensão Chrome: v1 /api/proposta/enviar
+// Fluxo de envio de propostas via Electron Standalone: v1 /api/proposta/enviar
 // (a partir do fluxo antigo PNCP → interesse) e v2 via participações
 // (participacoes_comprasnet → proposta direta).
 //
@@ -12,19 +12,23 @@
 // módulo telegram-client.js, ao invés do wrapper enviarTelegram(msg) que
 // só existe dentro de server.js.
 
-const axios = require('axios');
 const { sendTelegram } = require('./telegram-client');
+const { resolverCompraIdsTenant } = require('./compra-id-resolver');
+
+// Fase 3g (2026-05-23): SELECT licitacoes via PG
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
 function registrarRotasPropostasParticipacoes(app, db) {
-  // Fila de propostas pendentes para a extensão Chrome processar
+  // Fila de propostas pendentes para o Electron Standalone processar
   let propostasPendentes = [];
 
   // Status do envio de proposta (para acompanhar execução)
   let statusEnvioProposta = { ativo: false, etapa: '', progresso: 0, mensagens: [] };
 
   /**
-   * Endpoint para enviar proposta via Extensão Chrome
-   * A extensão já está logada no Comprasnet e pode executar o envio diretamente
+   * Endpoint para enviar proposta via Electron Standalone
+   * O Electron já está logado no Comprasnet e pode executar o envio diretamente
    */
   app.post('/api/proposta/enviar', async (req, res) => {
     try {
@@ -35,11 +39,22 @@ function registrarRotasPropostasParticipacoes(app, db) {
       }
 
       // Buscar link da licitação
-      const licitacao = db.prepare(`
-        SELECT linkSistemaOrigem, modalidadeNome, objetoCompra, codigoUnidade, numeroCompra, modalidadeId
-        FROM licitacoes
-        WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?
-      `).get(cnpj, parseInt(ano), parseInt(sequencial));
+      let licitacao;
+      if (USE_PG) {
+        licitacao = await catalogPg.queryOne(
+          `SELECT "linkSistemaOrigem" AS "linkSistemaOrigem", "modalidadeNome" AS "modalidadeNome",
+                  "objetoCompra" AS "objetoCompra", "codigoUnidade" AS "codigoUnidade",
+                  "numeroCompra" AS "numeroCompra", "modalidadeId" AS "modalidadeId"
+             FROM licitacoes WHERE "cnpj"=$1 AND "anoCompra"=$2 AND "sequencialCompra"=$3`,
+          [cnpj, parseInt(ano), parseInt(sequencial)]
+        );
+      } else {
+        licitacao = db.prepare(`
+          SELECT linkSistemaOrigem, modalidadeNome, objetoCompra, codigoUnidade, numeroCompra, modalidadeId
+          FROM licitacoes
+          WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?
+        `).get(cnpj, parseInt(ano), parseInt(sequencial));
+      }
 
       if (!licitacao) {
         return res.status(400).json({ success: false, error: 'Licitação não encontrada no banco de dados' });
@@ -138,22 +153,22 @@ function registrarRotasPropostasParticipacoes(app, db) {
       // Atualiza status
       statusEnvioProposta = {
         ativo: true,
-        etapa: 'Aguardando extensão Chrome processar',
+        etapa: 'Aguardando Electron processar',
         progresso: 10,
-        mensagens: [`Proposta adicionada na fila para compra ${compraId}`, 'A extensão Chrome irá processar automaticamente quando você estiver logado no Comprasnet.']
+        mensagens: [`Proposta adicionada na fila para compra ${compraId}`, 'O Electron LiciteAgora irá processar automaticamente quando você estiver logado no Comprasnet.']
       };
 
       console.log(`[PROPOSTA] Adicionada na fila: compraId=${compraId}, uasg=${uasg}`);
 
       res.json({
         success: true,
-        message: 'Proposta adicionada na fila. Abra o Comprasnet e a extensão irá processar automaticamente.',
+        message: 'Proposta adicionada na fila. Abra o Comprasnet pelo Electron LiciteAgora e ele irá processar automaticamente.',
         compraId,
         uasg,
         linkCadastroProposta: `https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/seguro/fornecedor/cadastro-propostas?compra=${compraId}`,
         instrucoes: [
-          '1. Certifique-se de estar logado no Comprasnet',
-          '2. A extensão Chrome irá detectar a proposta pendente',
+          '1. Certifique-se de estar logado no Comprasnet pelo Electron LiciteAgora',
+          '2. O Electron irá detectar a proposta pendente',
           '3. Acompanhe o status na página da licitação'
         ]
       });
@@ -177,7 +192,15 @@ function registrarRotasPropostasParticipacoes(app, db) {
 
       let sql = `
         SELECT compraId, cnpj, codigoUnidade, ano, sequencial, tipo, numero, orgao,
-               objeto, etapa, situacao, urlCompra, dataSessao, ativo, dataAtualizacao
+               objeto, etapa, situacao, faseCompra, urlCompra, dataSessao, ativo, dataAtualizacao,
+               propostaEnviadaEm,
+               CASE
+                 WHEN faseCompra='4' OR situacao IN ('EN','FR','2','EX') THEN 'encerrada'
+                 WHEN faseCompra='3' THEN 'em-disputa'
+                 WHEN situacao='SU' THEN 'suspensa'
+                 WHEN propostaEnviadaEm IS NOT NULL THEN 'enviada'
+                 ELSE 'a-enviar'
+               END AS estadoTrabalho
         FROM participacoes_comprasnet
         WHERE ativo = 1
       `;
@@ -219,30 +242,81 @@ function registrarRotasPropostasParticipacoes(app, db) {
    * Listar licitações de interesse agrupadas, com itens incluídos.
    * Tenta extrair compraId do linkSistemaOrigem quando disponível.
    */
-  app.get('/api/proposta/interesses', (req, res) => {
+  app.get('/api/proposta/interesses', async (req, res) => {
     try {
-      const rows = db.prepare(`
-        SELECT
-          i.id as interesseId,
-          i.cnpj, i.ano, i.sequencial, i.numeroItem,
-          i.grupoId,
-          g.nome as grupoNome,
-          l.objetoCompra, l.razaoSocial as nomeOrgao,
-          l.codigoUnidade, l.modalidadeId, l.modalidadeNome,
-          l.numeroCompra, l.linkSistemaOrigem,
-          l.dataEncerramentoProposta, l.valorTotalEstimado,
-          it.descricao, it.quantidade, it.unidadeMedida,
-          it.valorUnitarioEstimado, it.valorTotal
-        FROM interesse i
-        LEFT JOIN grupos_palavras g ON g.id = i.grupoId
-        LEFT JOIN licitacoes l ON i.cnpj = l.cnpj
-          AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra
-        LEFT JOIN itens it ON l.id = it.licitacaoId AND i.numeroItem = it.numeroItem
-        WHERE l.dataEncerramentoProposta IS NULL
-          OR l.dataEncerramentoProposta = ''
-          OR l.dataEncerramentoProposta > datetime('now', '-3 hours')
+      let rows;
+      if (USE_PG) {
+        // Cross-DB: interesse + grupos_palavras tenant; licitacoes + itens catalog em PG.
+        // Filtro "dataEncerramentoProposta > now - 3h" aplicado no PG após lookup.
+        const intRows = db.prepare(`
+          SELECT i.id as interesseId, i.cnpj, i.ano, i.sequencial, i.numeroItem,
+                 i.grupoId, i.dataCriacao,
+                 g.nome as grupoNome
+            FROM interesse i
+       LEFT JOIN grupos_palavras g ON g.id = i.grupoId
         ORDER BY i.dataCriacao DESC
-      `).all();
+        `).all();
+        if (intRows.length === 0) {
+          return res.json({ success: true, data: [], total: 0 });
+        }
+        const values = intRows.map((_, j) => `($${j*4+1}::text,$${j*4+2}::int,$${j*4+3}::bigint,$${j*4+4}::int)`).join(',');
+        const params = [];
+        for (const r of intRows) params.push(String(r.cnpj), Number(r.ano), Number(r.sequencial), Number(r.numeroItem));
+        const lic = await catalogPg.query(`
+          WITH keys(cnpj, ano, sequencial, "numeroItem") AS (VALUES ${values})
+          SELECT k.cnpj, k.ano, k.sequencial, k."numeroItem" AS "numeroItem",
+                 l."objetoCompra" AS "objetoCompra", l."razaoSocial" AS "nomeOrgao",
+                 l."codigoUnidade" AS "codigoUnidade", l."modalidadeId" AS "modalidadeId",
+                 l."modalidadeNome" AS "modalidadeNome", l."numeroCompra" AS "numeroCompra",
+                 l."linkSistemaOrigem" AS "linkSistemaOrigem",
+                 COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta",
+                 l."valorTotalEstimado" AS "valorTotalEstimado",
+                 it."descricao" AS descricao, it."quantidade" AS quantidade,
+                 it."unidadeMedida" AS "unidadeMedida",
+                 it."valorUnitarioEstimado" AS "valorUnitarioEstimado",
+                 it."valorTotal" AS "valorTotal"
+            FROM keys k
+       LEFT JOIN licitacoes l ON l."cnpj"=k.cnpj AND l."anoCompra"=k.ano AND l."sequencialCompra"=k.sequencial
+       LEFT JOIN itens it ON it."licitacaoId" = l."id" AND it."numeroItem" = k."numeroItem"
+        `, params);
+        const licMap = new Map();
+        for (const l of lic) licMap.set(`${l.cnpj}|${l.ano}|${l.sequencial}|${l.numeroItem}`, l);
+        const limite = Date.now() - 3 * 3600 * 1000;
+        rows = intRows
+          .map(t => {
+            const l = licMap.get(`${t.cnpj}|${t.ano}|${t.sequencial}|${t.numeroItem}`) || {};
+            return { ...t, ...l, cnpj: t.cnpj, ano: t.ano, sequencial: t.sequencial, numeroItem: t.numeroItem };
+          })
+          .filter(r => {
+            const dep = r.dataEncerramentoProposta;
+            if (!dep) return true;
+            const ts = (dep instanceof Date) ? dep.getTime() : new Date(dep).getTime();
+            return isNaN(ts) || ts > limite;
+          });
+      } else {
+        rows = db.prepare(`
+          SELECT
+            i.id as interesseId,
+            i.cnpj, i.ano, i.sequencial, i.numeroItem,
+            i.grupoId,
+            g.nome as grupoNome,
+            l.objetoCompra, l.razaoSocial as nomeOrgao,
+            l.codigoUnidade, l.modalidadeId, l.modalidadeNome,
+            l.numeroCompra, l.linkSistemaOrigem,
+            l.dataEncerramentoProposta, l.valorTotalEstimado,
+            it.descricao, it.quantidade, it.unidadeMedida,
+            it.valorUnitarioEstimado, it.valorTotal
+          FROM interesse i
+          LEFT JOIN grupos_palavras g ON g.id = i.grupoId
+          LEFT JOIN licitacoes l ON i.cnpj = l.cnpj
+            AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra
+          LEFT JOIN itens it ON l.id = it.licitacaoId AND i.numeroItem = it.numeroItem
+          WHERE l.dataEncerramentoProposta IS NULL
+            OR l.dataEncerramentoProposta = ''
+            OR l.dataEncerramentoProposta > datetime('now', '-3 hours')
+          ORDER BY i.dataCriacao DESC
+        `).all();
+      }
 
       // Agrupar por licitação
       const licitacoesMap = new Map();
@@ -269,6 +343,40 @@ function registrarRotasPropostasParticipacoes(app, db) {
             ).get(row.cnpj?.substring(0, 8), row.ano, row.sequencial);
             if (part) compraId = part.compraId;
           }
+          // estadoTrabalho: sem-compraid se compraId ainda é null/NAO_COMPRASNET;
+          // caso contrário, derivar do estado real da participação em participacoes_comprasnet
+          // (mesma lógica do CASE em /api/proposta/participacoes para manter consistência).
+          const semCompraId = !compraId || /^NAO_COMPRASNET:/.test(compraId);
+          let estadoTrabalho = 'sem-compraid';
+          let propostaEnviadaEm = null;
+          let situacaoParticipacao = null;
+          let faseCompraParticipacao = null;
+          if (!semCompraId) {
+            const part = db.prepare(
+              `SELECT situacao, faseCompra, propostaEnviadaEm
+                 FROM participacoes_comprasnet
+                WHERE compraId = ? AND ativo = 1
+                LIMIT 1`
+            ).get(compraId);
+            if (part) {
+              propostaEnviadaEm = part.propostaEnviadaEm || null;
+              situacaoParticipacao = part.situacao || null;
+              faseCompraParticipacao = part.faseCompra || null;
+              if (part.faseCompra === '4' || ['EN','FR','2','EX'].includes(part.situacao)) {
+                estadoTrabalho = 'encerrada';
+              } else if (part.faseCompra === '3') {
+                estadoTrabalho = 'em-disputa';
+              } else if (part.situacao === 'SU') {
+                estadoTrabalho = 'suspensa';
+              } else if (part.propostaEnviadaEm) {
+                estadoTrabalho = 'enviada';
+              } else {
+                estadoTrabalho = 'a-enviar';
+              }
+            } else {
+              estadoTrabalho = 'a-enviar';
+            }
+          }
           licitacoesMap.set(key, {
             cnpj: row.cnpj,
             ano: row.ano,
@@ -281,7 +389,14 @@ function registrarRotasPropostasParticipacoes(app, db) {
             linkSistemaOrigem: row.linkSistemaOrigem || '',
             dataEncerramentoProposta: row.dataEncerramentoProposta || '',
             valorTotalEstimado: row.valorTotalEstimado || 0,
-            compraId,
+            // Mantém o marcador "NAO_COMPRASNET:" para o front exibir como estadual/municipal
+            // (envio via API indisponível); só zera quando realmente não há compraId algum.
+            compraId: compraId || null,
+            semCompraId,
+            estadoTrabalho,
+            propostaEnviadaEm,
+            situacaoParticipacao,
+            faseCompraParticipacao,
             grupoNome: row.grupoNome || '',
             itens: []
           });
@@ -350,125 +465,8 @@ function registrarRotasPropostasParticipacoes(app, db) {
    */
   app.post('/api/proposta/interesses/auto-compra-id', async (req, res) => {
     try {
-      const iRows = db.prepare(`
-        SELECT DISTINCT i.cnpj, i.ano, i.sequencial
-        FROM interesse i
-        LEFT JOIN interesse_compra_id ic ON i.cnpj = ic.cnpj AND i.ano = ic.ano AND i.sequencial = ic.sequencial
-        WHERE ic.compraId IS NULL
-      `).all();
-
-      // Também incluir os que têm linkSistemaOrigem com compra=
-      const licitacoes = db.prepare(`
-        SELECT l.cnpj, l.anoCompra, l.sequencialCompra, l.linkSistemaOrigem
-        FROM licitacoes l
-        INNER JOIN interesse i ON l.cnpj = i.cnpj AND l.anoCompra = i.ano AND l.sequencialCompra = i.sequencial
-        WHERE l.linkSistemaOrigem LIKE '%compra=%'
-      `).all();
-
-      const resolvidos = [];
-
-      // Método 1: Extrair compraId do linkSistemaOrigem
-      for (const lic of licitacoes) {
-        const m = lic.linkSistemaOrigem.match(/[?&]compra=(\d{14,20})/);
-        if (m) {
-          const compraId = m[1];
-          try {
-            db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
-              .run(lic.cnpj, lic.anoCompra, lic.sequencialCompra, compraId);
-            resolvidos.push({ cnpj: lic.cnpj, ano: lic.anoCompra, seq: lic.sequencialCompra, compraId, metodo: 'link' });
-          } catch (e) {}
-        }
-      }
-
-      // Método 2: Construir chaveCompraPncp esperada e buscar nas participações
-      // Formato da chave: {cnpjPncp14}{1}{seqPncp padded 6}{ano4} = 25 chars
-      for (const row of iRows) {
-        const jaResolvido = resolvidos.find(r => r.cnpj === row.cnpj && r.ano === row.ano && r.seq === row.sequencial);
-        if (jaResolvido) continue;
-
-        const seqPadded = String(row.sequencial).padStart(6, '0');
-        const chaveEsperada = `${row.cnpj}1${seqPadded}${row.ano}`;
-
-        const part = db.prepare(`SELECT compraId FROM participacoes_comprasnet WHERE chaveCompraPncp = ?`).get(chaveEsperada);
-        if (part) {
-          try {
-            db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
-              .run(row.cnpj, row.ano, row.sequencial, part.compraId);
-            resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId: part.compraId, metodo: 'chave' });
-          } catch (e) {}
-        }
-      }
-
-      // Método 3: Buscar por LIKE no início da chaveCompraPncp (cnpj match)
-      for (const row of iRows) {
-        const jaResolvido = resolvidos.find(r => r.cnpj === row.cnpj && r.ano === row.ano && r.seq === row.sequencial);
-        if (jaResolvido) continue;
-
-        const part = db.prepare(`SELECT compraId, chaveCompraPncp FROM participacoes_comprasnet WHERE chaveCompraPncp LIKE ? AND ano = ?`)
-          .get(`${row.cnpj}%`, row.ano);
-        if (part) {
-          // Extrair sequencial PNCP da chave (pos 15..21 = depois do cnpj14 + "1")
-          const seqFromChave = parseInt(part.chaveCompraPncp.substring(15, 21), 10);
-          if (seqFromChave === row.sequencial) {
-            try {
-              db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
-                .run(row.cnpj, row.ano, row.sequencial, part.compraId);
-              resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId: part.compraId, metodo: 'cnpj-match' });
-            } catch (e) {}
-          }
-        }
-      }
-
-      // Método 4: Consultar API PNCP diretamente para pendentes restantes
-      const aindaPendentes = iRows.filter(r => !resolvidos.find(x => x.cnpj === r.cnpj && x.ano === r.ano && x.seq === r.sequencial));
-      const naoComprasnet = [];
-      for (const row of aindaPendentes) {
-        try {
-          const url = `https://pncp.gov.br/api/consulta/v1/orgaos/${row.cnpj}/compras/${row.ano}/${row.sequencial}`;
-          const resp = await axios.get(url, { timeout: 8000, validateStatus: () => true });
-          if (resp.status === 200 && resp.data) {
-            const link = resp.data.linkSistemaOrigem || '';
-            // Extrair compraId do link do Comprasnet
-            const m = link.match(/[?&]compra=(\d{14,20})/);
-            if (m) {
-              const compraId = m[1];
-              db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
-                .run(row.cnpj, row.ano, row.sequencial, compraId);
-              resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId, metodo: 'pncp-api' });
-            } else {
-              // Link não contém compra= — tentar construir compraId via UASG+modalidade+numero
-              const licLocal = db.prepare(
-                `SELECT codigoUnidade, modalidadeId, numeroCompra FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?`
-              ).get(row.cnpj, row.ano, row.sequencial);
-
-              if (licLocal && licLocal.codigoUnidade && licLocal.numeroCompra) {
-                const mapMod = { 1:'01', 2:'02', 3:'03', 4:'04', 5:'05', 6:'05', 7:'05', 8:'06', 9:'09' };
-                const uasg = String(licLocal.codigoUnidade).padStart(6, '0');
-                const modComprasnet = mapMod[licLocal.modalidadeId] || '05';
-                const numCompra = String(licLocal.numeroCompra).padStart(5, '0');
-                const compraIdConstruido = `${uasg}${modComprasnet}${numCompra}${row.ano}`;
-                db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 0)`)
-                  .run(row.cnpj, row.ano, row.sequencial, compraIdConstruido);
-                resolvidos.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, compraId: compraIdConstruido, metodo: 'construido-uasg' });
-                console.log(`[AUTO-COMPRA-ID] Construído via UASG: ${compraIdConstruido} (UASG=${uasg}, mod=${modComprasnet}, num=${numCompra})`);
-              } else {
-                // Realmente não é do Comprasnet (sistema estadual/municipal)
-                const sistema = link ? new URL(link).hostname : 'desconhecido';
-                db.prepare(`INSERT OR IGNORE INTO interesse_compra_id (cnpj, ano, sequencial, compraId, verificado) VALUES (?, ?, ?, ?, 1)`)
-                  .run(row.cnpj, row.ano, row.sequencial, `NAO_COMPRASNET:${sistema}`);
-                naoComprasnet.push({ cnpj: row.cnpj, ano: row.ano, seq: row.sequencial, sistema });
-              }
-            }
-          }
-          // Delay entre chamadas PNCP
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) {
-          console.log(`[AUTO-COMPRA-ID] Erro PNCP ${row.cnpj}/${row.ano}/${row.sequencial}: ${e.message}`);
-        }
-      }
-
-      console.log(`[AUTO-COMPRA-ID] ${resolvidos.length} resolvidos, ${naoComprasnet.length} não-Comprasnet, de ${iRows.length} pendentes`);
-      res.json({ success: true, resolvidos, naoComprasnet, pendentes: iRows.length - resolvidos.length - naoComprasnet.length });
+      const r = await resolverCompraIdsTenant(db);
+      res.json({ success: true, ...r });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }

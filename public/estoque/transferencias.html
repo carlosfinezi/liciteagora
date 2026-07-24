@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transferências entre Depósitos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Transferências entre Depósitos</h1>
+      <small>Rascunho → Em trânsito (saldo sai da origem) → Concluída (entra no destino)</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/estoque/depositos.html" style="text-decoration:none;">🏬 Depósitos</a>
+      <button class="btn btn-primary btn-sm" onclick="abrirModal()">+ Nova transferência</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="rascunho">Rascunho</option>
+      <option value="em_transito">Em trânsito</option>
+      <option value="concluida">Concluída</option>
+      <option value="cancelada">Cancelada</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th><th>Origem</th><th>Destino</th><th style="text-align:right;">Itens</th>
+        <th>Status</th><th>Envio</th><th>Recebimento</th><th></th>
+      </tr></thead>
+      <tbody id="tbTransf"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="detalheWrap" style="display:none;">
+    <div class="page-header" style="margin-top:28px;">
+      <div><h2 id="detTitulo" style="margin:0;"></h2></div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>SKU</th><th>Descrição</th><th>Lote</th><th style="text-align:right;">Quantidade</th></tr></thead>
+        <tbody id="tbDetItens"></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalTransf">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Nova transferência</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Origem <span style="color:var(--danger);">*</span></label>
+        <select id="tOrigem"></select>
+      </div>
+      <div class="form-group">
+        <label>Destino <span style="color:var(--danger);">*</span></label>
+        <select id="tDestino"></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observação</label>
+        <input type="text" id="tObs">
+      </div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:10px;">
+      <table>
+        <thead><tr><th>Produto (SKU ou descrição)</th><th style="width:130px;">Quantidade</th><th style="width:40px;"></th></tr></thead>
+        <tbody id="tbItensNova"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="addLinhaItem()" style="margin-top:8px;">+ Adicionar item</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTransf()">Criar transferência</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('estoque-transferencias');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+const STATUS_BADGE = {
+  rascunho: '<span class="badge ajuste">RASCUNHO</span>',
+  em_transito: '<span class="badge saida">EM TRÂNSITO</span>',
+  concluida: '<span class="badge entrada">CONCLUÍDA</span>',
+  cancelada: '<span class="badge cancelado">CANCELADA</span>'
+};
+
+let depositos = [];
+let produtosCache = null;
+
+async function carregar(){
+  const st = document.getElementById('filtStatus').value;
+  const r = await fetch('/api/transferencias' + (st ? '?status='+st : '')); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tbTransf');
+  tb.innerHTML = d.transferencias.length ? d.transferencias.map(t => {
+    const acoes = [];
+    acoes.push(`<button class="btn btn-ghost btn-sm" onclick="verDetalhe(${t.id})">Itens</button>`);
+    if (t.status === 'rascunho') acoes.push(`<button class="btn btn-primary btn-sm" onclick="acao(${t.id},'enviar')">Enviar</button>`);
+    if (t.status === 'em_transito') acoes.push(`<button class="btn btn-primary btn-sm" onclick="acao(${t.id},'receber')">Receber</button>`);
+    if (['rascunho','em_transito'].includes(t.status)) acoes.push(`<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="acao(${t.id},'cancelar')">Cancelar</button>`);
+    return `<tr>
+      <td><strong>${t.numero}</strong></td>
+      <td>${t.origemNome}</td><td>${t.destinoNome}</td>
+      <td style="text-align:right;">${t.qtdItens}</td>
+      <td>${STATUS_BADGE[t.status]||t.status}</td>
+      <td>${t.dataEnvio||'-'}</td><td>${t.dataRecebimento||'-'}</td>
+      <td style="white-space:nowrap;">${acoes.join(' ')}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8" class="empty">Sem transferências</td></tr>';
+}
+
+async function verDetalhe(id){
+  const r = await fetch('/api/transferencias/'+id); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('detalheWrap').style.display='block';
+  document.getElementById('detTitulo').textContent = `${d.transferencia.numero} — ${d.transferencia.origemNome} → ${d.transferencia.destinoNome}`;
+  document.getElementById('tbDetItens').innerHTML = d.itens.map(i =>
+    `<tr><td>${i.sku}</td><td>${i.descricao}</td><td>${i.loteNumero||'-'}</td><td style="text-align:right;">${fmt(i.quantidade)}</td></tr>`
+  ).join('');
+}
+
+async function acao(id, verbo){
+  if (verbo === 'cancelar' && !confirm('Cancelar esta transferência?')) return;
+  const r = await fetch(`/api/transferencias/${id}/${verbo}`, { method: 'POST' });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Transferência atualizada'); carregar();
+}
+
+// ---------- nova transferência ----------
+
+async function carregarDepositos(){
+  const r = await fetch('/api/depositos'); const d = await r.json();
+  depositos = d.depositos || [];
+  const opts = depositos.map(x=>`<option value="${x.id}">${x.nome}</option>`).join('');
+  document.getElementById('tOrigem').innerHTML = opts;
+  document.getElementById('tDestino').innerHTML = opts;
+  if (depositos.length > 1) document.getElementById('tDestino').selectedIndex = 1;
+}
+
+async function getProdutos(){
+  if (produtosCache) return produtosCache;
+  const r = await fetch('/api/produtos?limit=2000'); const d = await r.json();
+  produtosCache = (d.produtos || d.itens || []).map(p => ({ id: p.id, sku: p.sku, descricao: p.descricao }));
+  return produtosCache;
+}
+
+async function addLinhaItem(){
+  const prods = await getProdutos();
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><select class="selProd" style="width:100%;">
+      <option value="">— selecione —</option>
+      ${prods.map(p=>`<option value="${p.id}">${p.sku} — ${p.descricao}</option>`).join('')}
+    </select></td>
+    <td><input type="number" class="qtdProd" min="0.001" step="any" style="width:110px;"></td>
+    <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove()">×</button></td>`;
+  document.getElementById('tbItensNova').appendChild(tr);
+}
+
+async function abrirModal(){
+  await carregarDepositos();
+  if (depositos.length < 2) return showAlert('Cadastre um segundo depósito antes de transferir', 'error');
+  document.getElementById('tObs').value='';
+  document.getElementById('tbItensNova').innerHTML='';
+  await addLinhaItem();
+  document.getElementById('modalTransf').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modalTransf').classList.remove('open'); }
+
+async function salvarTransf(){
+  const itens = [...document.querySelectorAll('#tbItensNova tr')].map(tr => ({
+    produtoId: Number(tr.querySelector('.selProd').value),
+    quantidade: Number(tr.querySelector('.qtdProd').value)
+  })).filter(i => i.produtoId && i.quantidade > 0);
+  if (!itens.length) return showAlert('Adicione ao menos 1 item válido','error');
+  const body = {
+    depositoOrigemId: Number(document.getElementById('tOrigem').value),
+    depositoDestinoId: Number(document.getElementById('tDestino').value),
+    observacao: document.getElementById('tObs').value.trim() || null,
+    itens
+  };
+  const r = await fetch('/api/transferencias', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fecharModal(); showAlert('Transferência criada (rascunho) — use Enviar para efetivar'); carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fecharModal(); });
+carregar();
+</script>
+</body></html>

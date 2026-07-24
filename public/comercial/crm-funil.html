@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Funil de Vendas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.kanban-board { display:flex; gap:14px; overflow-x:auto; padding:6px 2px 12px; }
+.kanban-column { min-width:280px; max-width:280px; background:var(--bg-1); border-radius:var(--r-lg); padding:10px; display:flex; flex-direction:column; max-height:calc(100vh - 230px); }
+.kanban-column h4 { margin:0 0 8px; padding:6px 8px; border-radius:var(--r-md); color:var(--text-0); display:flex; justify-content:space-between; align-items:center; }
+.kanban-cards { flex:1; overflow-y:auto; min-height:60px; display:flex; flex-direction:column; gap:8px; }
+.kanban-cards.drag-over { background:rgba(77,171,247,0.08); outline:2px dashed var(--accent); outline-offset:-2px; border-radius:var(--r-md); }
+.op-card { background:var(--bg-2); border-radius:var(--r-md); padding:10px; cursor:grab; border-left:3px solid var(--accent); }
+.op-card:active { cursor:grabbing; }
+.op-card.dragging { opacity:.4; }
+.op-card .titulo { font-weight:600; color:var(--text-0); font-size:13px; line-height:1.3; }
+.op-card .cliente { color:var(--text-2); font-size:11px; margin-top:4px; }
+.op-card .valor { color:var(--success); font-size:12px; font-weight:600; margin-top:4px; }
+.op-card .meta { color:var(--text-3); font-size:10px; margin-top:6px; display:flex; gap:8px; }
+.op-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; }
+.op-card-actions { display:flex; gap:2px; opacity:0; transition:opacity .12s; flex-shrink:0; }
+.op-card:hover .op-card-actions { opacity:1; }
+.op-card-actions button { background:none; border:none; cursor:pointer; padding:2px 4px; font-size:13px; line-height:1; border-radius:var(--r-sm); color:var(--text-2); }
+.op-card-actions button:hover { background:rgba(255,255,255,0.12); color:var(--text-0); }
+.op-card-actions button.del:hover { color:var(--danger); }
+.col-count { background:rgba(255,255,255,0.15); padding:1px 8px; border-radius:var(--r-lg); font-size:11px; }
+.toolbar .btn-icon { width:30px; height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; line-height:1; flex:0 0 auto; }
+.kanban-column h4 { cursor:grab; }
+.kanban-column h4:active { cursor:grabbing; }
+.kanban-column.col-drag-over h4 { outline:2px dashed rgba(255,255,255,0.9); outline-offset:-2px; }
+.col-title { display:flex; align-items:center; gap:6px; min-width:0; }
+.col-title .grip { opacity:0.55; font-size:12px; }
+.col-title .nome { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.col-actions { display:flex; align-items:center; gap:2px; }
+.col-actions button { background:none; border:none; cursor:pointer; padding:1px 3px; font-size:12px; line-height:1; border-radius:var(--r-sm); color:inherit; opacity:0; transition:opacity .12s; }
+.kanban-column h4:hover .col-actions button { opacity:0.85; }
+.col-actions button:hover { opacity:1; background:rgba(255,255,255,0.18); }
+.col-soma { font-size:11px; opacity:0.85; margin-top:2px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Funil de Vendas</h1>
+      <small>Acompanhamento de oportunidades por etapa</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" id="btnImportarInteresse" onclick="abrirModalImportInteresse()" style="display:none;">Importar de Interesse</button>
+      <button class="btn btn-secondary" onclick="abrirNovaEt()">+ Nova etapa</button>
+      <button class="btn btn-primary" onclick="abrirNovaOp()">+ Nova oportunidade</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <button class="btn btn-ghost btn-sm btn-icon" title="Novo funil" onclick="novoFunil()">＋</button>
+    <select id="fFunil" onchange="carregar()" style="min-width:160px;"></select>
+    <div class="btn-group" style="display:flex;gap:4px;">
+      <button class="btn btn-ghost btn-sm btn-icon" title="Renomear este funil" onclick="editarFunil()">✏️</button>
+      <button class="btn btn-ghost btn-sm btn-icon" title="Excluir este funil" onclick="excluirFunil()" style="color:var(--danger);">🗑️</button>
+    </div>
+    <input type="text" id="fQ" placeholder="Buscar título ou cliente…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <select id="fVendedor" onchange="carregar()" style="min-width:160px;"><option value="">Todos vendedores</option></select>
+  </div>
+
+  <div class="kanban-board" id="board"></div>
+</main></div>
+
+<!-- Modal Importar de Interesse -->
+<div class="modal-bg" id="modalImpInt">
+  <div class="modal" style="max-width:960px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Importar licitação de interesse</h3>
+        <small class="muted">Licitações marcadas como interesse que ainda não viraram oportunidade no funil.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalImportInteresse()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="text" id="impIntBusca" placeholder="Buscar por objeto, órgão ou número…" oninput="debImpInt()" style="margin-bottom:12px;">
+    <div id="impIntLista" style="max-height:56vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-1);"></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="fecharModalImportInteresse()">Fechar</button></div>
+  </div>
+</div>
+
+<!-- Modal Funil -->
+<div class="modal-bg" id="modalFunil">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <h3 id="funilTitulo" style="margin:0;">Novo funil</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalFunil()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="funilId">
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Nome *</label>
+        <input type="text" id="funilNome" placeholder="Ex.: Pós-venda">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição</label>
+        <input type="text" id="funilDesc" placeholder="(opcional)">
+      </div>
+    </div>
+    <small class="muted" id="funilHint" style="display:none;">Um novo funil já vem com as etapas "Novo", "Ganho" e "Perdido" — depois é só editar/arrastar as etapas.</small>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalFunil()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarFunil()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Etapa -->
+<div class="modal-bg" id="modalEt">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <h3 id="etTitulo" style="margin:0;">Nova etapa</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalEt()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="etId">
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Nome *</label>
+        <input type="text" id="etNome" placeholder="Ex.: Qualificado">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="width:90px;">
+        <label>Cor</label>
+        <input type="color" id="etCor" value="#4dabf7" style="height:38px;padding:2px;">
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label>Tipo</label>
+        <select id="etTipo">
+          <option value="normal">Normal</option>
+          <option value="ganho">Ganho (fecha ganho)</option>
+          <option value="perdido">Perdido (fecha perda)</option>
+        </select>
+        <small class="muted">Etapas "Ganho"/"Perdido" encerram a oportunidade ao receber um card.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
+          <input type="checkbox" id="etGeraAgend" style="width:auto;margin:0;">
+          Gerar agendamento ao mover um card para esta etapa
+        </label>
+        <small class="muted">Ao arrastar uma oportunidade para cá, abre um agendamento (data/hora + ação) na Agenda, vinculado ao cliente.</small>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalEt()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEt()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Agendamento (ao mover card para etapa configurada) -->
+<div class="modal-bg" id="modalAgend">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Agendar ação</h3>
+        <small class="muted" id="agendSub"></small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalAgend()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="agendOpId">
+    <div class="form-row">
+      <div class="form-group" style="width:150px;">
+        <label>Ação *</label>
+        <select id="agendTipo">
+          <option value="ligacao">📞 Ligação</option>
+          <option value="reuniao">🤝 Reunião</option>
+          <option value="visita">📍 Visita</option>
+          <option value="whatsapp">📱 WhatsApp</option>
+          <option value="email">✉️ E-mail</option>
+          <option value="tarefa">✅ Tarefa</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label>Data e hora *</label>
+        <input type="datetime-local" id="agendData">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Título *</label>
+        <input type="text" id="agendTitulo" placeholder="Ex.: Ligar para follow-up">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Comentário</label>
+        <textarea id="agendComent" rows="3" placeholder="Detalhes da ação…"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalAgend()">Agora não</button>
+      <button class="btn btn-primary" onclick="salvarAgendamento()">Agendar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Oportunidade -->
+<div class="modal-bg" id="modalOp">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 id="opTitulo">Nova oportunidade</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalOp()">×</button>
+    </div>
+    <input type="hidden" id="opId">
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Título *</label>
+        <input type="text" id="opTit" placeholder="Ex.: Venda de equipamento para Cliente X">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1;position:relative;">
+        <label>Cliente <small class="muted">(escolha um cadastrado ou digite um nome)</small></label>
+        <input type="text" id="opClienteBusca" placeholder="Clique para ver a lista ou digite para buscar…" oninput="acCliente()" onfocus="focoCliente()" autocomplete="off">
+        <input type="hidden" id="opClienteId">
+        <div id="acClienteList" class="ac-list"></div>
+      </div>
+      <div class="form-group" style="width:160px;">
+        <label>Valor (R$)</label>
+        <input type="number" id="opValor" step="0.01" min="0" value="0">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Telefone / WhatsApp <small class="muted">(do cliente)</small></label>
+        <input type="text" id="opTelefone" placeholder="Ex.: (94) 91234-5678 — preenche ao escolher o cliente" autocomplete="off" oninput="maskTelInput(this)">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" id="grpEtapa">
+        <label>Etapa</label>
+        <select id="opEtapa"></select>
+      </div>
+      <div class="form-group">
+        <label>Probabilidade</label>
+        <input type="number" id="opProb" min="0" max="100" value="50">
+      </div>
+      <div class="form-group">
+        <label>Vendedor</label>
+        <select id="opVendedor"><option value="">—</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Fonte</label>
+        <select id="opFonte"><option value="">—</option></select>
+      </div>
+      <div class="form-group">
+        <label>Previsão de fechamento</label>
+        <input type="date" id="opPrev">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <label style="margin:0;">Itens / Produtos</label>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addItem()">+ Adicionar item</button>
+        </div>
+        <div id="opItensHeader" style="display:none;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;padding:0 2px;">
+          <div>Produto</div>
+          <div style="text-align:right;">Quantidade</div>
+          <div style="text-align:right;">Preço un</div>
+          <div style="text-align:right;">Subtotal</div>
+          <div></div>
+        </div>
+        <div id="opItensList" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição</label>
+        <textarea id="opDesc" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalOp()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarOp()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('crm-funil');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+// Telefone BR: (94) 91234-5678 — descarta o prefixo 55 do país quando presente.
+function soDigitosTel(v){
+  let d = String(v||'').replace(/\D/g,'');
+  if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
+  return d.slice(0,11);
+}
+function fmtTel(v){
+  const d = soDigitosTel(v);
+  if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return String(v||'');
+}
+function maskTelInput(el){
+  const d = soDigitosTel(el.value);
+  if (d.length <= 2) { el.value = d; return; }
+  if (d.length <= 6) { el.value = `(${d.slice(0,2)}) ${d.slice(2)}`; return; }
+  const corte = d.length > 10 ? 7 : 6;
+  el.value = `(${d.slice(0,2)}) ${d.slice(2,corte)}-${d.slice(corte)}`;
+}
+
+let funis = [];
+let funilAtual = null;
+let usuarios = [];
+let fontes = [];
+
+async function carregarConfig(){
+  let r1, r2;
+  try {
+    const resp1 = await fetch('/api/crm/funis');
+    if (resp1.status === 401) { window.location.href = '/login.html'; return; }
+    r1 = await resp1.json();
+    r2 = await fetch('/api/usuarios?vendedor=1').then(r=>r.json()).catch(()=>({success:false}));
+  } catch (err) {
+    return showAlert('Erro ao carregar funis: ' + err.message, 'error');
+  }
+  if (!r1.success) return showAlert('Erro ao carregar funis: ' + (r1.error || 'desconhecido'), 'error');
+  funis = r1.funis; fontes = r1.fontes;
+  if (r2.success) usuarios = r2.usuarios;
+
+  const selFunil = document.getElementById('fFunil');
+  selFunil.innerHTML = funis.map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
+  funilAtual = funis[0];
+
+  const selVend = document.getElementById('fVendedor');
+  selVend.innerHTML = '<option value="">Todos vendedores</option>' + usuarios.map(u=>`<option value="${u.id}">${u.nome||u.username}</option>`).join('');
+
+  document.getElementById('opFonte').innerHTML = '<option value="">—</option>' + fontes.map(f=>`<option>${f}</option>`).join('');
+  document.getElementById('opVendedor').innerHTML = '<option value="">—</option>' + usuarios.map(u=>`<option value="${u.id}">${u.nome||u.username}</option>`).join('');
+}
+
+async function carregar(){
+  const fid = Number(document.getElementById('fFunil').value);
+  funilAtual = funis.find(f=>f.id===fid);
+  if (!funilAtual) return;
+  document.getElementById('btnImportarInteresse').style.display = funilAtual.nome === 'Licitações' ? 'inline-flex' : 'none';
+  const p = new URLSearchParams({ funilId: fid });
+  const q = document.getElementById('fQ').value.trim();
+  const v = document.getElementById('fVendedor').value;
+  if (q) p.set('q', q);
+  if (v) p.set('vendedorId', v);
+  const r = await fetch('/api/crm/oportunidades?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  renderBoard(d.oportunidades);
+}
+
+let etapaCounts = {};
+let opsIndex = {};   // id -> oportunidade (p/ o modal de agendamento pós-arrasto)
+function renderBoard(ops){
+  const board = document.getElementById('board');
+  opsIndex = {};
+  ops.forEach(o => { opsIndex[o.id] = o; });
+  const grupos = {};
+  funilAtual.etapas.forEach(e => grupos[e.id] = []);
+  ops.forEach(o => { if (grupos[o.etapaId]) grupos[o.etapaId].push(o); });
+  etapaCounts = {};
+  board.innerHTML = funilAtual.etapas.map(et => {
+    const lista = grupos[et.id] || [];
+    etapaCounts[et.id] = lista.length;
+    const soma = lista.reduce((s,o)=>s+Number(o.valor||0),0);
+    return `<div class="kanban-column" data-etapa-id="${et.id}" ondragover="colDragOver(event)" ondragleave="colDragLeave(event)" ondrop="colDrop(event, ${et.id})">
+      <h4 draggable="true" style="background:${et.cor||'var(--bg-3)'};" ondragstart="colDragStart(event, ${et.id})" ondragend="colDragEnd(event)">
+        <div class="col-title"><span class="grip">⠿</span><span class="nome">${et.nome}</span></div>
+        <div class="col-actions">
+          <button title="Editar etapa" onclick="event.stopPropagation();editarEt(${et.id})">✏️</button>
+          <button title="Excluir etapa" onclick="event.stopPropagation();excluirEt(${et.id})">🗑️</button>
+          <span class="col-count">${lista.length}</span>
+        </div>
+      </h4>
+      <div class="col-soma muted" style="text-align:right;color:var(--text-3);">${fmtBRL(soma)}</div>
+      <div class="kanban-cards" data-etapa-id="${et.id}" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
+        ${lista.map(o=>cardHtml(o)).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function cardHtml(o){
+  return `<div class="op-card" draggable="true" data-id="${o.id}" ondragstart="dragStart(event)" ondragend="dragEndCard(event)" onclick="abrirDetalhe(${o.id})">
+    <div class="op-card-top">
+      <div class="titulo">${o.titulo}</div>
+      <div class="op-card-actions">
+        <button title="Editar" onclick="event.stopPropagation();editarOp(${o.id})">✏️</button>
+        <button title="Excluir" class="del" onclick="event.stopPropagation();excluirOp(${o.id})">🗑️</button>
+      </div>
+    </div>
+    ${o.clienteNome ? `<div class="cliente">👤 ${o.clienteNome}</div>` : ''}
+    ${o.clienteTelefone ? `<div class="cliente"><a href="https://wa.me/${String(o.clienteTelefone).replace(/\D/g,'')}" target="_blank" rel="noopener" onclick="event.stopPropagation()">📱 ${fmtTel(o.clienteTelefone)}</a></div>` : ''}
+    ${Number(o.valor)>0 ? `<div class="valor">${fmtBRL(o.valor)}</div>` : ''}
+    <div class="meta">
+      ${o.vendedorNome ? `<span>${o.vendedorNome}</span>` : ''}
+      ${o.dataPrevisaoFechamento ? `<span>📅 ${o.dataPrevisaoFechamento}</span>` : ''}
+      <span style="margin-left:auto;">${o.probabilidade}%</span>
+    </div>
+  </div>`;
+}
+
+// ----- Drag & Drop de CARDS (oportunidades entre etapas) -----
+let dragId = null;
+let dragFromEtapa = null;   // etapa de origem do card (p/ detectar mudança de coluna)
+let dropHandled = false;    // um drop válido persistiu? (senão, dragend reverte)
+function dragStart(e){
+  dragId = e.currentTarget.dataset.id;
+  dragFromEtapa = Number(e.currentTarget.closest('.kanban-cards')?.dataset.etapaId) || null;
+  dropHandled = false;
+  e.dataTransfer.effectAllowed='move';
+  e.currentTarget.classList.add('dragging');
+}
+// Descobre antes de qual card o item arrastado deve entrar, pela posição do cursor.
+function getDragAfterElement(container, y){
+  const els = [...container.querySelectorAll('.op-card:not(.dragging)')];
+  let closest = { offset: -Infinity, el: null };
+  for (const el of els){
+    const box = el.getBoundingClientRect();
+    const offset = y - (box.top + box.height/2);
+    if (offset < 0 && offset > closest.offset) closest = { offset, el };
+  }
+  return closest.el;
+}
+function dragOver(e){
+  if (draggedCol != null) return;   // arrasto de coluna, não de card
+  e.preventDefault();
+  const container = e.currentTarget;
+  container.classList.add('drag-over');
+  // Move o card ao vivo para a posição sob o cursor (feedback visual + define a ordem).
+  const dragging = document.querySelector('.op-card.dragging');
+  if (!dragging) return;
+  const after = getDragAfterElement(container, e.clientY);
+  if (after == null) container.appendChild(dragging);
+  else container.insertBefore(dragging, after);
+}
+// Só remove o realce quando o cursor sai de fato do container — ignora a troca
+// para cards filhos (senão o dragleave dispara em cada card e a coluna pisca).
+function dragLeave(e){ if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) return; e.currentTarget.classList.remove('drag-over'); }
+
+// Auto-scroll com o card na mão: encostar o cursor na borda lateral do board rola
+// as etapas fora da tela; na borda de cima/baixo da coluna rola os cards dela.
+// O dragover só dispara quando o mouse se move, então um rAF mantém a rolagem
+// contínua com o cursor parado na borda.
+const AS_ZONA = 90;   // px da borda lateral do board onde a rolagem liga
+const AS_VEL  = 24;   // px por frame colado na borda lateral
+const AS_ZONA_Y = 55; // idem, no eixo vertical da coluna (área menor)
+const AS_VEL_Y  = 16;
+let asVel = 0, asVelY = 0, asCol = null, asRaf = null;
+const asProx = (d, zona) => Math.min(1, Math.max(0, 1 - d / zona));   // 0 longe · 1 colado
+function asTick(){
+  const board = document.getElementById('board');
+  if (asVel && board) board.scrollLeft += asVel;
+  if (asVelY && asCol) asCol.scrollTop += asVelY;
+  asRaf = (asVel || asVelY) ? requestAnimationFrame(asTick) : null;
+}
+function autoScrollDrag(e){
+  // Horizontal: board inteiro.
+  const board = document.getElementById('board');
+  let v = 0;
+  if (board && board.scrollWidth > board.clientWidth) {
+    const box = board.getBoundingClientRect();
+    if (e.clientX < box.left + AS_ZONA)       v = -AS_VEL * asProx(e.clientX - box.left, AS_ZONA);
+    else if (e.clientX > box.right - AS_ZONA) v =  AS_VEL * asProx(box.right - e.clientX, AS_ZONA);
+  }
+  asVel = Math.round(v);
+  // Vertical: só a coluna sob o cursor, e só se ela tiver conteúdo escondido.
+  const col = e.target.closest ? e.target.closest('.kanban-cards') : null;
+  let vy = 0;
+  if (col && col.scrollHeight > col.clientHeight) {
+    const cbox = col.getBoundingClientRect();
+    if (e.clientY < cbox.top + AS_ZONA_Y)         vy = -AS_VEL_Y * asProx(e.clientY - cbox.top, AS_ZONA_Y);
+    else if (e.clientY > cbox.bottom - AS_ZONA_Y) vy =  AS_VEL_Y * asProx(cbox.bottom - e.clientY, AS_ZONA_Y);
+  }
+  asCol = vy ? col : null;
+  asVelY = Math.round(vy);
+  if ((asVel || asVelY) && !asRaf) asRaf = requestAnimationFrame(asTick);
+}
+function pararAutoScroll(){
+  asVel = 0; asVelY = 0; asCol = null;
+  if (asRaf) { cancelAnimationFrame(asRaf); asRaf = null; }
+}
+document.addEventListener('dragover', autoScrollDrag);
+document.addEventListener('dragend', pararAutoScroll);
+// Captura: o drop() do card faz stopPropagation, então não chegaria aqui na subida.
+document.addEventListener('drop', pararAutoScroll, true);
+function dragEndCard(e){
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.kanban-cards.drag-over').forEach(c=>c.classList.remove('drag-over'));
+  // Soltou fora de uma coluna válida: desfaz a movimentação visual recarregando.
+  if (!dropHandled) carregar();
+}
+async function drop(e){
+  if (draggedCol != null) return;   // arrasto de coluna, não de card
+  e.preventDefault();
+  e.stopPropagation();
+  dropHandled = true;
+  const container = e.currentTarget;
+  container.classList.remove('drag-over');
+  const etapaId = Number(container.dataset.etapaId);
+  if (!dragId || !etapaId) { carregar(); return; }
+  const etapa = funilAtual.etapas.find(et=>et.id===etapaId);
+  let motivoPerda = null;
+  // Só pede motivo quando o card MUDA para uma etapa do tipo 'perdido'.
+  if (etapa && etapa.tipo === 'perdido' && etapaId !== dragFromEtapa) {
+    motivoPerda = prompt('Motivo da perda:');
+    if (motivoPerda === null) { carregar(); return; }   // cancelou: reverte
+  }
+  // Capturado antes do fetch: dragId é resetado no próximo dragstart.
+  const movedOpId = Number(dragId);
+  const mudouEtapa = etapaId !== dragFromEtapa;
+  // A ordem final já está no DOM (o dragOver inseriu o card na posição certa).
+  const orderedIds = [...container.querySelectorAll('.op-card')].map(c=>Number(c.dataset.id));
+  try {
+    const r = await fetch(`/api/crm/oportunidades/${dragId}/reordenar`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ etapaId, orderedIds, motivoPerda })
+    });
+    const d = await r.json();
+    if (!d.success) showAlert(d.error,'error');
+    // Etapa configurada p/ agendar: só ao ENTRAR na etapa (não ao reordenar dentro dela).
+    else if (mudouEtapa && etapa && etapa.geraAgendamento) abrirAgendamento(movedOpId, etapa);
+  } catch(err){ showAlert('Erro ao reordenar: '+err.message, 'error'); }
+  finally { carregar(); }   // ressincroniza contagens/somas e a ordem canônica
+}
+
+// ----- Agendamento ao mover para etapa configurada -----
+function abrirAgendamento(opId, etapa){
+  const op = opsIndex[opId] || {};
+  document.getElementById('agendOpId').value = opId;
+  document.getElementById('agendSub').textContent =
+    (op.titulo || 'Oportunidade') + (op.clienteNome ? ' · ' + op.clienteNome : '');
+  document.getElementById('agendTipo').value = 'ligacao';
+  // Default: amanhã às 09:00 (hora local, formato do datetime-local).
+  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+  const pad = n => String(n).padStart(2, '0');
+  document.getElementById('agendData').value =
+    `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  document.getElementById('agendTitulo').value = `${etapa.nome}: ${op.titulo || ''}`.trim();
+  document.getElementById('agendComent').value = '';
+  document.getElementById('modalAgend').classList.add('open');
+}
+function fecharModalAgend(){ document.getElementById('modalAgend').classList.remove('open'); }
+async function salvarAgendamento(){
+  const oportunidadeId = Number(document.getElementById('agendOpId').value);
+  const tipo = document.getElementById('agendTipo').value;
+  const dataHora = document.getElementById('agendData').value;
+  const titulo = document.getElementById('agendTitulo').value.trim();
+  const descricao = document.getElementById('agendComent').value.trim() || null;
+  if (!dataHora) return showAlert('Informe a data e hora do agendamento', 'error');
+  if (!titulo) return showAlert('Informe o título do agendamento', 'error');
+  try {
+    const r = await fetch('/api/crm/atividades', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ oportunidadeId, tipo, titulo, descricao, dataHora })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Agendamento criado — veja na Agenda');
+    fecharModalAgend();
+  } catch(e){ showAlert('Erro ao agendar: '+e.message, 'error'); }
+}
+
+// ----- Drag & Drop de COLUNAS (reordenar etapas) -----
+let draggedCol = null;
+function colDragStart(e, etapaId){ draggedCol = etapaId; e.dataTransfer.effectAllowed='move'; }
+function colDragOver(e){
+  if (draggedCol == null) return;
+  e.preventDefault();
+  e.currentTarget.classList.add('col-drag-over');
+}
+function colDragLeave(e){ e.currentTarget.classList.remove('col-drag-over'); }
+function colDragEnd(){
+  draggedCol = null;
+  document.querySelectorAll('.col-drag-over').forEach(c=>c.classList.remove('col-drag-over'));
+}
+async function colDrop(e, alvoId){
+  if (draggedCol == null) return;
+  e.preventDefault();
+  document.querySelectorAll('.col-drag-over').forEach(c=>c.classList.remove('col-drag-over'));
+  const origem = draggedCol;
+  draggedCol = null;
+  if (origem === alvoId) return;
+  const etapas = [...funilAtual.etapas];
+  const from = etapas.findIndex(x=>x.id===origem);
+  const to = etapas.findIndex(x=>x.id===alvoId);
+  if (from < 0 || to < 0) return;
+  const [moved] = etapas.splice(from, 1);
+  etapas.splice(to, 0, moved);
+  // Renumera 1..n e persiste apenas as etapas cuja ordem mudou.
+  const updates = [];
+  etapas.forEach((et, i) => { const ord = i + 1; if (et.ordem !== ord) updates.push({ id: et.id, ordem: ord }); });
+  try {
+    await Promise.all(updates.map(u => fetch('/api/crm/etapas/'+u.id, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ordem: u.ordem })
+    }).then(r=>r.json()).then(d=>{ if(!d.success) throw new Error(d.error); })));
+    await recarregarFunis();
+    carregar();
+  } catch(err){ showAlert('Erro ao reordenar etapas: '+err.message, 'error'); }
+}
+
+// Recarrega os funis (etapas) preservando o funil selecionado.
+async function recarregarFunis(preferId){
+  const r = await fetch('/api/crm/funis');
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  funis = d.funis;
+  const sel = document.getElementById('fFunil');
+  const keep = preferId != null ? Number(preferId) : Number(sel.value);
+  sel.innerHTML = funis.map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
+  sel.value = funis.some(f=>f.id===keep) ? keep : (funis[0] ? funis[0].id : '');
+  funilAtual = funis.find(f=>f.id===Number(sel.value)) || funis[0];
+}
+
+// ----- Funis (renomear / adicionar / excluir) -----
+function novoFunil(){
+  document.getElementById('funilTitulo').textContent = 'Novo funil';
+  document.getElementById('funilId').value = '';
+  document.getElementById('funilNome').value = '';
+  document.getElementById('funilDesc').value = '';
+  document.getElementById('funilHint').style.display = 'block';
+  document.getElementById('modalFunil').classList.add('open');
+}
+function editarFunil(){
+  if (!funilAtual) return;
+  document.getElementById('funilTitulo').textContent = 'Renomear funil';
+  document.getElementById('funilId').value = funilAtual.id;
+  document.getElementById('funilNome').value = funilAtual.nome || '';
+  document.getElementById('funilDesc').value = funilAtual.descricao || '';
+  document.getElementById('funilHint').style.display = 'none';
+  document.getElementById('modalFunil').classList.add('open');
+}
+function fecharModalFunil(){ document.getElementById('modalFunil').classList.remove('open'); }
+async function salvarFunil(){
+  const id = document.getElementById('funilId').value;
+  const nome = document.getElementById('funilNome').value.trim();
+  if (!nome) return showAlert('Informe o nome do funil','error');
+  const body = { nome, descricao: document.getElementById('funilDesc').value.trim() };
+  try {
+    const url = id ? '/api/crm/funis/'+id : '/api/crm/funis';
+    const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(id ? 'Funil atualizado' : 'Funil criado');
+    fecharModalFunil();
+    await recarregarFunis(id ? funilAtual.id : (d.funil && d.funil.id));
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+async function excluirFunil(){
+  if (!funilAtual) return;
+  if (!confirm(`Excluir o funil "${funilAtual.nome}" e suas etapas?\n\nSó é possível se ele não tiver oportunidades.`)) return;
+  try {
+    const r = await fetch('/api/crm/funis/'+funilAtual.id, { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Funil excluído');
+    await recarregarFunis();
+    carregar();
+  } catch(e){ showAlert('Erro ao excluir funil: '+e.message, 'error'); }
+}
+
+// ----- Modal etapa (editar da mesma forma que oportunidades) -----
+function hex6(c){
+  if (!c || c[0] !== '#') return '#4dabf7';
+  if (c.length === 4) return '#' + c.slice(1).split('').map(ch=>ch+ch).join('');  // #abc -> #aabbcc
+  return c.length >= 7 ? c.slice(0,7) : '#4dabf7';
+}
+function abrirNovaEt(){
+  if (!funilAtual) return;
+  document.getElementById('etTitulo').textContent = 'Nova etapa';
+  document.getElementById('etId').value = '';
+  document.getElementById('etNome').value = '';
+  document.getElementById('etCor').value = '#4dabf7';
+  document.getElementById('etTipo').value = 'normal';
+  document.getElementById('etGeraAgend').checked = false;
+  document.getElementById('modalEt').classList.add('open');
+}
+function editarEt(id){
+  const et = funilAtual.etapas.find(e=>e.id===id);
+  if (!et) return;
+  document.getElementById('etTitulo').textContent = 'Editar etapa';
+  document.getElementById('etId').value = et.id;
+  document.getElementById('etNome').value = et.nome || '';
+  document.getElementById('etCor').value = hex6(et.cor);
+  document.getElementById('etTipo').value = et.tipo || 'normal';
+  document.getElementById('etGeraAgend').checked = !!et.geraAgendamento;
+  document.getElementById('modalEt').classList.add('open');
+}
+function fecharModalEt(){ document.getElementById('modalEt').classList.remove('open'); }
+async function salvarEt(){
+  const id = document.getElementById('etId').value;
+  const nome = document.getElementById('etNome').value.trim();
+  if (!nome) return showAlert('Informe o nome da etapa','error');
+  const body = {
+    nome,
+    cor: document.getElementById('etCor').value,
+    tipo: document.getElementById('etTipo').value,
+    geraAgendamento: document.getElementById('etGeraAgend').checked
+  };
+  try {
+    let url, method;
+    if (id) { url = '/api/crm/etapas/'+id; method = 'PUT'; }
+    else {
+      url = '/api/crm/etapas'; method = 'POST';
+      body.funilId = funilAtual.id;
+      body.ordem = (funilAtual.etapas.reduce((m,e)=>Math.max(m, e.ordem||0), 0)) + 1;
+    }
+    const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(id ? 'Etapa atualizada' : 'Etapa criada');
+    fecharModalEt();
+    await recarregarFunis();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+async function excluirEt(id){
+  const et = funilAtual.etapas.find(e=>e.id===id);
+  if (!et) return;
+  if ((funilAtual.etapas.length||0) <= 1) return showAlert('O funil precisa ter pelo menos uma etapa','error');
+  const n = etapaCounts[id] || 0;
+  if (n > 0) return showAlert(`A etapa "${et.nome}" tem ${n} oportunidade(s). Mova-as para outra etapa antes de excluir.`, 'error');
+  if (!confirm(`Excluir a etapa "${et.nome}"?`)) return;
+  try {
+    const r = await fetch('/api/crm/etapas/'+id, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ativo: false })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Etapa excluída');
+    await recarregarFunis();
+    carregar();
+  } catch(e){ showAlert('Erro ao excluir etapa: '+e.message, 'error'); }
+}
+
+// ----- Modal oportunidade -----
+function abrirNovaOp(){
+  document.getElementById('opTitulo').textContent='Nova oportunidade';
+  document.getElementById('opId').value='';
+  ['opTit','opClienteBusca','opClienteId','opDesc','opPrev','opTelefone'].forEach(id=>document.getElementById(id).value='');
+  _clienteTelOrig='';
+  document.getElementById('opValor').value='0';
+  document.getElementById('opProb').value='50';
+  document.getElementById('grpEtapa').style.display='';
+  document.getElementById('opEtapa').innerHTML = funilAtual.etapas.map(e=>`<option value="${e.id}">${e.nome}</option>`).join('');
+  document.getElementById('opFonte').value='';
+  document.getElementById('opVendedor').value='';
+  document.getElementById('opItensList').innerHTML = '';
+  recalcItens();
+  document.getElementById('modalOp').classList.add('open');
+}
+function fecharModalOp(){ document.getElementById('modalOp').classList.remove('open'); }
+
+// ----- Itens / Produtos -----
+let _itemRowSeq = 0;
+function addItem(prefill){
+  _itemRowSeq++;
+  const rid = _itemRowSeq;
+  const list = document.getElementById('opItensList');
+  const row = document.createElement('div');
+  row.className = 'op-item-row';
+  row.dataset.rowId = rid;
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;align-items:start;';
+  row.innerHTML = `
+    <div style="position:relative;">
+      <input type="text" class="op-item-prod" placeholder="SKU ou descrição…" oninput="acProduto(this)" autocomplete="off">
+      <input type="hidden" class="op-item-prod-id">
+      <div class="ac-list op-item-ac"></div>
+    </div>
+    <input type="number" class="op-item-qtd" placeholder="Qtd" step="0.001" min="0" value="1" oninput="recalcItens()">
+    <input type="number" class="op-item-preco" placeholder="Preço un" step="0.01" min="0" value="0" oninput="recalcItens()">
+    <div class="op-item-sub muted" style="font-size:12px;text-align:right;padding-top:10px;">R$ 0,00</div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="removeItem(this)" style="color:var(--danger);padding:4px 8px;">×</button>
+  `;
+  list.appendChild(row);
+  if (prefill) {
+    row.querySelector('.op-item-prod').value = prefill.label || '';
+    row.querySelector('.op-item-prod-id').value = prefill.produtoId || '';
+    row.querySelector('.op-item-qtd').value = prefill.quantidade ?? 1;
+    row.querySelector('.op-item-preco').value = prefill.precoUnitario ?? 0;
+  }
+  recalcItens();
+}
+function removeItem(btn){
+  btn.closest('.op-item-row').remove();
+  recalcItens();
+}
+function recalcItens(){
+  const rows = document.querySelectorAll('#opItensList .op-item-row');
+  let total = 0;
+  rows.forEach(r => {
+    const qtd = Number(r.querySelector('.op-item-qtd').value) || 0;
+    const preco = Number(r.querySelector('.op-item-preco').value) || 0;
+    const sub = qtd * preco;
+    r.querySelector('.op-item-sub').textContent = fmtBRL(sub);
+    total += sub;
+  });
+  document.getElementById('opItensHeader').style.display = rows.length ? 'grid' : 'none';
+  if (rows.length) {
+    // Auto-preenche valor da oportunidade enquanto houver itens.
+    document.getElementById('opValor').value = total.toFixed(2);
+  }
+}
+function collectItens(){
+  const rows = document.querySelectorAll('#opItensList .op-item-row');
+  const itens = [];
+  rows.forEach((r, idx) => {
+    const produtoId = Number(r.querySelector('.op-item-prod-id').value);
+    if (!produtoId) return;
+    itens.push({
+      produtoId,
+      quantidade: Number(r.querySelector('.op-item-qtd').value) || 0,
+      precoUnitario: Number(r.querySelector('.op-item-preco').value) || 0,
+      ordem: idx
+    });
+  });
+  return itens;
+}
+
+let _acProdTimer;
+function acProduto(input){
+  clearTimeout(_acProdTimer);
+  const q = input.value.trim();
+  const row = input.closest('.op-item-row');
+  const ac = row.querySelector('.op-item-ac');
+  // Limpa produtoId quando texto muda (força re-seleção)
+  row.querySelector('.op-item-prod-id').value = '';
+  if (q.length < 2) { ac.innerHTML = ''; return; }
+  _acProdTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/produtos/autocomplete?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      const produtos = d.produtos || [];
+      if (!produtos.length) { ac.innerHTML = '<div class="muted" style="cursor:default;">Nenhum produto</div>'; return; }
+      ac.innerHTML = produtos.map(p =>
+        `<div onclick='selProduto(${row.dataset.rowId}, ${p.id}, ${JSON.stringify(p.sku + " — " + p.descricao)}, ${Number(p.precoVenda)||0})'>
+          <strong>${p.sku}</strong> ${p.descricao} <small class="muted">${fmtBRL(p.precoVenda||0)}/${p.unidade||'un'}</small>
+        </div>`
+      ).join('');
+    } catch (e) {
+      ac.innerHTML = `<div class="muted" style="cursor:default;">Erro: ${e.message}</div>`;
+    }
+  }, 200);
+}
+function selProduto(rowId, produtoId, label, preco){
+  const row = document.querySelector(`#opItensList .op-item-row[data-row-id="${rowId}"]`);
+  if (!row) return;
+  row.querySelector('.op-item-prod').value = label;
+  row.querySelector('.op-item-prod-id').value = produtoId;
+  if (Number(preco) > 0) row.querySelector('.op-item-preco').value = Number(preco).toFixed(2);
+  row.querySelector('.op-item-ac').innerHTML = '';
+  recalcItens();
+}
+// Fecha autocomplete de produto ao clicar fora
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.op-item-row')) {
+    document.querySelectorAll('.op-item-ac').forEach(ac => ac.innerHTML = '');
+  }
+  // Fecha a lista de clientes ao clicar fora do campo/da lista.
+  if (!e.target.closest('#opClienteBusca') && !e.target.closest('#acClienteList')) {
+    document.getElementById('acClienteList').innerHTML = '';
+  }
+});
+
+async function salvarOp(){
+  const id = document.getElementById('opId').value;
+  const itens = collectItens();
+  const body = {
+    funilId: funilAtual.id,
+    etapaId: Number(document.getElementById('opEtapa').value),
+    titulo: document.getElementById('opTit').value.trim(),
+    descricao: document.getElementById('opDesc').value || null,
+    valor: Number(document.getElementById('opValor').value) || 0,
+    probabilidade: Number(document.getElementById('opProb').value) || 0,
+    fonte: document.getElementById('opFonte').value || null,
+    dataPrevisaoFechamento: document.getElementById('opPrev').value || null,
+    clienteId: document.getElementById('opClienteId').value ? Number(document.getElementById('opClienteId').value) : null,
+    vendedorId: document.getElementById('opVendedor').value ? Number(document.getElementById('opVendedor').value) : null,
+    itens
+  };
+  // Sem cliente cadastrado selecionado: guarda o nome digitado só na oportunidade
+  // (não cria cliente novo). Com cliente vinculado, limpa o nome avulso.
+  body.clienteNomeLivre = body.clienteId ? null : (document.getElementById('opClienteBusca').value.trim() || null);
+  if (!body.titulo) return showAlert('Informe o título','error');
+  try {
+    const url = id ? '/api/crm/oportunidades/'+id : '/api/crm/oportunidades';
+    const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+
+    // Telefone pertence ao cadastro do cliente: se um cliente foi escolhido e o
+    // número mudou, atualiza a pessoa. Sem cliente selecionado não há onde salvar.
+    const telNovo = document.getElementById('opTelefone').value.trim();
+    if (body.clienteId && telNovo !== (_clienteTelOrig||'').trim()) {
+      const rp = await fetch('/api/pessoas/'+body.clienteId, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ telefone: telNovo })
+      });
+      const dp = await rp.json().catch(()=>({success:false,error:'resposta inválida'}));
+      if (!dp.success) showAlert('Oportunidade salva, mas o telefone do cliente não foi atualizado: '+(dp.error||''), 'error');
+      else _clienteTelOrig = telNovo;
+    } else if (telNovo && !body.clienteId) {
+      showAlert('Oportunidade salva. Para guardar o telefone, escolha um cliente cadastrado.', 'error');
+    }
+
+    showAlert(id?'Oportunidade atualizada':'Oportunidade criada');
+    fecharModalOp();
+    carregar();
+  } catch(e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+// Autocomplete cliente
+let acTimer;
+function acCliente(){
+  clearTimeout(acTimer);
+  // Digitar invalida qualquer cliente selecionado antes: vira texto livre até
+  // escolher outro na lista. Assim um nome "inventado" não fica preso a um id.
+  document.getElementById('opClienteId').value = '';
+  document.getElementById('opTelefone').value = '';
+  _clienteTelOrig = '';
+  const q = document.getElementById('opClienteBusca').value.trim();
+  acTimer = setTimeout(()=>buscarClientes(q), 200);
+}
+function focoCliente(){
+  // Ao clicar/focar no campo, já mostra uma lista de clientes cadastrados.
+  buscarClientes(document.getElementById('opClienteBusca').value.trim());
+}
+async function buscarClientes(q){
+  try {
+    const r = await fetch('/api/pessoas' + (q ? '?q='+encodeURIComponent(q) : ''));
+    const d = await r.json();
+    const lista = (d.pessoas || d.data || []);
+    renderClienteList(lista.slice(0, 15), q);
+  } catch(e) { /* silencioso */ }
+}
+function renderClienteList(lista, q){
+  const box = document.getElementById('acClienteList');
+  if (!lista.length){
+    box.innerHTML = q
+      ? `<div class="muted" style="cursor:default;padding:8px 10px;">Nenhum cliente cadastrado com “${q}”. Você pode salvar assim mesmo — o nome fica só nesta oportunidade.</div>`
+      : '';
+    return;
+  }
+  box.innerHTML = lista.map(p=>
+    `<div onclick='selCliente(${p.id}, ${JSON.stringify(p.razaoSocial)}, ${JSON.stringify(p.telefone||"")})'>
+      ${p.nomeFantasia ? p.nomeFantasia : p.razaoSocial}
+      <small class="muted">${p.cpfCnpj||''}${p.telefone?' · 📱 '+fmtTel(p.telefone):''}</small>
+    </div>`
+  ).join('');
+}
+let _clienteTelOrig = '';
+function selCliente(id, nome, telefone){
+  document.getElementById('opClienteId').value = id;
+  document.getElementById('opClienteBusca').value = nome;
+  document.getElementById('opTelefone').value = fmtTel(telefone);
+  _clienteTelOrig = fmtTel(telefone);
+  document.getElementById('acClienteList').innerHTML='';
+}
+
+function abrirDetalhe(id){
+  window.location.href = '/comercial/crm-oportunidade.html?id='+id;
+}
+
+// ----- Editar oportunidade (inline no funil) -----
+async function editarOp(id){
+  try {
+    const r = await fetch('/api/crm/oportunidades/'+id);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const o = d.oportunidade;
+    document.getElementById('opTitulo').textContent = 'Editar oportunidade';
+    document.getElementById('opId').value = o.id;
+    document.getElementById('opTit').value = o.titulo || '';
+    document.getElementById('opValor').value = o.valor ?? 0;
+    document.getElementById('opProb').value = o.probabilidade ?? 50;
+    document.getElementById('opDesc').value = o.descricao || '';
+    document.getElementById('opPrev').value = o.dataPrevisaoFechamento || '';
+    document.getElementById('opFonte').value = o.fonte || '';
+    document.getElementById('opVendedor').value = o.vendedorId || '';
+    document.getElementById('opClienteId').value = o.clienteId || '';
+    document.getElementById('opClienteBusca').value = o.clienteNome || '';
+    document.getElementById('opTelefone').value = fmtTel(o.clienteTelefone);
+    _clienteTelOrig = fmtTel(o.clienteTelefone);
+    document.getElementById('acClienteList').innerHTML = '';
+    // Etapa é alterada por arrasto no funil (não pelo PUT) — oculta no modo edição.
+    document.getElementById('grpEtapa').style.display = 'none';
+    // Itens existentes
+    document.getElementById('opItensList').innerHTML = '';
+    (d.itens || []).forEach(it => addItem({
+      produtoId: it.produtoId,
+      label: `${it.sku} — ${it.produtoDescricao}`,
+      quantidade: it.quantidade,
+      precoUnitario: it.precoUnitario
+    }));
+    recalcItens();
+    document.getElementById('modalOp').classList.add('open');
+  } catch(e) { showAlert('Erro ao carregar oportunidade: '+e.message, 'error'); }
+}
+
+// ----- Excluir (soft-delete) -----
+async function excluirOp(id){
+  try {
+    const r = await fetch('/api/crm/oportunidades/'+id, { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Oportunidade excluída');
+    carregar();
+  } catch(e) { showAlert('Erro ao excluir: '+e.message, 'error'); }
+}
+
+// ==================== IMPORTAR DE INTERESSE ====================
+function abrirModalImportInteresse(){
+  document.getElementById('modalImpInt').classList.add('open');
+  document.getElementById('impIntBusca').value = '';
+  carregarInteresses();
+}
+function fecharModalImportInteresse(){ document.getElementById('modalImpInt').classList.remove('open'); }
+
+let impIntTimer;
+function debImpInt(){ clearTimeout(impIntTimer); impIntTimer = setTimeout(carregarInteresses, 250); }
+
+async function carregarInteresses(){
+  const q = document.getElementById('impIntBusca').value.trim();
+  const box = document.getElementById('impIntLista');
+  box.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-3);">Buscando…</div>';
+  try {
+    const r = await fetch('/api/crm/importar-interesse/lista' + (q?'?q='+encodeURIComponent(q):''));
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    if (!d.licitacoes.length) {
+      box.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3);">Nenhuma licitação de interesse disponível para importação.</div>';
+      return;
+    }
+    box.innerHTML = d.licitacoes.map(l => {
+      const prazo = l.dataEncerramentoProposta ? new Date(l.dataEncerramentoProposta) : null;
+      const diasRestantes = prazo ? Math.ceil((prazo - new Date()) / 86400000) : null;
+      const corPrazo = diasRestantes == null ? '' : diasRestantes < 0 ? 'var(--danger)' : diasRestantes <= 3 ? 'var(--warn)' : 'var(--text-2)';
+      return `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto;gap:14px;align-items:start;">
+        <div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+            <strong class="mono">${l.numeroCompra || '—'}</strong>
+            ${l.modalidadeNome ? `<span class="badge">${l.modalidadeNome}</span>` : ''}
+            ${l.nomeOrgao ? `<span style="color:var(--text-1);font-size:0.9em;">${l.nomeOrgao}</span>` : ''}
+          </div>
+          ${l.objetoCompra ? `<div style="color:var(--text-2);font-size:0.88em;line-height:1.4;">${l.objetoCompra.slice(0,200)}${l.objetoCompra.length>200?'…':''}</div>` : ''}
+          <div style="color:var(--text-3);font-size:0.78em;margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;">
+            ${l.dataEncerramentoProposta ? `<span style="color:${corPrazo};">📅 ${l.dataEncerramentoProposta}${diasRestantes!=null?` (${diasRestantes>=0?'em '+diasRestantes+'d':'venceu há '+Math.abs(diasRestantes)+'d'})`:''}</span>` : ''}
+            ${l.valorTotalEstimado ? `<span>💰 ${fmtBRL(l.valorTotalEstimado)}</span>` : ''}
+            ${l.qtdItens ? `<span>📦 ${l.qtdItens} item(ns)</span>` : ''}
+            ${l.linkSistemaOrigem ? `<a href="${l.linkSistemaOrigem}" target="_blank" rel="noopener" style="color:var(--accent);">abrir no portal ↗</a>` : ''}
+          </div>
+        </div>
+        <div>
+          <button class="btn btn-primary btn-sm" onclick="importarLicitacao('${l.cnpj}', ${l.ano}, ${l.sequencial}, this)">Importar →</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    box.innerHTML = `<div style="padding:30px;text-align:center;color:var(--danger);">Erro: ${e.message}</div>`;
+  }
+}
+
+async function importarLicitacao(cnpj, ano, sequencial, btn){
+  btn.disabled = true; btn.textContent = 'Importando…';
+  try {
+    const r = await fetch('/api/crm/importar-interesse', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cnpj, ano, sequencial })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Oportunidade criada no funil Licitações');
+    carregarInteresses();
+    carregar();
+  } catch(e) {
+    showAlert('Erro: '+e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Importar →';
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('modalImpInt').classList.contains('open')) fecharModalImportInteresse();
+  if (document.getElementById('modalAgend').classList.contains('open')) fecharModalAgend();
+});
+
+carregarConfig().then(carregar);
+</script>
+</body></html>

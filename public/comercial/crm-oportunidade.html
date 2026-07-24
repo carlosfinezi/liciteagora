@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oportunidade · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.cards-grid { display:grid; grid-template-columns: 1fr 380px; gap:16px; }
+@media (max-width: 980px) { .cards-grid { grid-template-columns: 1fr; } }
+.ativ-item { padding:10px; border-left:3px solid var(--accent); background:var(--bg-1); margin-bottom:8px; border-radius:var(--r-md); }
+.ativ-item.concluida { border-left-color:var(--success); opacity:.7; }
+.ativ-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
+.tipo-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-lg); font-size:10px; background:var(--border); color:var(--text-2); margin-right:6px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 id="pgTitulo">Oportunidade</h1>
+      <small id="pgSub"></small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/comercial/crm-funil.html" style="text-decoration:none;">← Funil</a>
+      <button class="btn btn-secondary btn-sm" onclick="editar()">Editar</button>
+      <a class="btn btn-ghost btn-sm" id="btnCliente" style="display:none;text-decoration:none;" title="Abrir o cadastro do cliente para editar CPF/CNPJ e demais dados">👤 Cliente</a>
+<button class="btn btn-primary btn-sm" id="btnGerarOS" onclick="gerarOS()">🛠️ Gerar OS</button>
+      <button class="btn btn-danger btn-sm" onclick="arquivar()">Arquivar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="cards-grid">
+    <div class="card">
+      <h3>Resumo</h3>
+      <div id="resumo" class="muted">Carregando…</div>
+
+      <h3 style="margin-top:18px;">Atividades</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="aTipo"></select>
+        </div>
+        <div class="form-group">
+          <label>Data/hora *</label>
+          <input type="datetime-local" id="aData">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Título *</label>
+          <input type="text" id="aTit">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Descrição</label>
+          <textarea id="aDesc" rows="2"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+        <button class="btn btn-primary btn-sm" onclick="addAtividade()">+ Adicionar atividade</button>
+      </div>
+
+      <div id="listaAtiv" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="card">
+      <h3>Mover para etapa</h3>
+      <div id="etapasMover"></div>
+    </div>
+  </div>
+</main></div>
+
+<!-- Modal editar oportunidade -->
+<div class="modal-bg" id="modalEditar">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Editar oportunidade</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharEditar()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Título *</label>
+      <input type="text" id="edTit">
+    </div></div>
+    <div class="form-row"><div class="form-group full-width" style="position:relative;">
+      <label>Cliente</label>
+      <input type="text" id="edClienteBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acClienteEd()" autocomplete="off">
+      <input type="hidden" id="edClienteId">
+      <div id="acClienteListEd" class="ac-list"></div>
+    </div></div>
+    <div class="form-row" id="edClienteTelRow" style="display:none;"><div class="form-group full-width">
+      <label>Telefone / número do cliente</label>
+      <input type="tel" id="edClienteTelefone" placeholder="(00) 00000-0000">
+      <small class="muted">Salvo no cadastro do cliente. Para CPF/CNPJ e demais dados, use o botão “👤 Cliente”.</small>
+    </div></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Valor (R$)</label>
+        <input type="number" id="edValor" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>Probabilidade (%)</label>
+        <input type="number" id="edProb" min="0" max="100">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Etapa</label>
+        <select id="edEtapa"></select>
+      </div>
+      <div class="form-group">
+        <label>Fonte</label>
+        <select id="edFonte"></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Vendedor</label>
+        <select id="edVendedor"></select>
+      </div>
+      <div class="form-group">
+        <label>Previsão de fechamento</label>
+        <input type="date" id="edPrev">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <label style="margin:0;">Itens / Produtos</label>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addItem()">+ Adicionar item</button>
+        </div>
+        <div id="edItensHeader" style="display:none;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;padding:0 2px;">
+          <div>Produto</div>
+          <div style="text-align:right;">Quantidade</div>
+          <div style="text-align:right;">Preço un</div>
+          <div style="text-align:right;">Subtotal</div>
+          <div></div>
+        </div>
+        <div id="edItensList" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Descrição</label>
+      <textarea id="edDesc" rows="3"></textarea>
+    </div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharEditar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEdicao()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('crm-funil');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function fmtDataHora(s){ if (!s) return '—'; const d = new Date(s.includes('T')?s:s+'Z'); return d.toLocaleString('pt-BR'); }
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const opId = new URLSearchParams(window.location.search).get('id');
+let op = null;
+let opItens = [];
+let funis = [];
+let fontes = [];
+let usuarios = [];
+
+async function carregar(){
+  if (!opId) { window.location.href = '/comercial/crm-funil.html'; return; }
+  const [r1, r2, r3] = await Promise.all([
+    fetch('/api/crm/oportunidades/'+opId).then(r=>r.json()),
+    fetch('/api/crm/funis').then(r=>r.json()),
+    fetch('/api/usuarios?vendedor=1').then(r=>r.json()).catch(()=>({success:false}))
+  ]);
+  if (!r1.success) return showAlert(r1.error,'error');
+  if (!r2.success) return showAlert(r2.error,'error');
+  op = r1.oportunidade;
+  opItens = r1.itens || [];
+  funis = r2.funis;
+  fontes = r2.fontes || [];
+  usuarios = r3.success ? (r3.usuarios || []) : [];
+  document.getElementById('aTipo').innerHTML = r2.tiposAtividade.map(t=>`<option>${t}</option>`).join('');
+  document.getElementById('pgTitulo').textContent = op.titulo;
+  document.getElementById('pgSub').textContent = `${op.funilNome} · ${op.etapaNome}`;
+  // Botão "Cliente" só faz sentido para cliente cadastrado (tem página própria).
+  const btnCli = document.getElementById('btnCliente');
+  if (op.clienteId) { btnCli.href = '/comercial/pessoas.html?id=' + op.clienteId; btnCli.style.display = ''; }
+  else { btnCli.style.display = 'none'; }
+renderResumo();
+  renderAtividades(r1.atividades);
+  renderEtapasMover();
+  // default datetime para agora
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('aData').value = now.toISOString().slice(0,16);
+}
+
+function renderResumo(){
+  const html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span class="badge" style="background:${op.etapaCor||'var(--bg-3)'};color:#fff;">${op.etapaNome}</span>
+      <strong style="color:var(--success);font-size:1.1em;">${fmtBRL(op.valor)}</strong>
+    </div>
+    <table style="width:100%;font-size:0.88em;">
+      <tr><td class="muted">Cliente</td><td>${op.clienteNome||'—'}</td></tr>
+      ${op.clienteCpfCnpj ? `<tr><td class="muted">CPF/CNPJ</td><td>${op.clienteCpfCnpj}</td></tr>` : ''}
+      ${op.clienteTelefone ? `<tr><td class="muted">Telefone / WhatsApp</td><td><a href="https://wa.me/${String(op.clienteTelefone).replace(/\D/g,'')}" target="_blank" rel="noopener">📱 ${op.clienteTelefone}</a></td></tr>` : ''}
+      ${op.clienteEmail ? `<tr><td class="muted">E-mail</td><td><a href="mailto:${op.clienteEmail}">${op.clienteEmail}</a></td></tr>` : ''}
+      <tr><td class="muted">Vendedor</td><td>${op.vendedorNome||'—'}</td></tr>
+      <tr><td class="muted">Probabilidade</td><td>${op.probabilidade}%</td></tr>
+      <tr><td class="muted">Fonte</td><td>${op.fonte||'—'}</td></tr>
+      <tr><td class="muted">Aberta em</td><td>${fmtDataHora(op.dataAbertura)}</td></tr>
+      <tr><td class="muted">Previsão</td><td>${op.dataPrevisaoFechamento||'—'}</td></tr>
+      ${op.dataFechamento ? `<tr><td class="muted">Fechada em</td><td>${fmtDataHora(op.dataFechamento)}</td></tr>` : ''}
+      ${op.motivoPerda ? `<tr><td class="muted">Motivo da perda</td><td>${escapeHtml(op.motivoPerda)}</td></tr>` : ''}
+      ${op.osId ? `<tr><td class="muted">OS vinculada</td><td><a href="/os/ordem-servico.html?id=${op.osId}">#${op.osId} →</a></td></tr>` : ''}
+    </table>
+    <div style="margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <label class="muted" style="margin:0;font-size:0.82em;">Descrição</label>
+        <small id="descStatus" class="muted" style="font-size:0.78em;"></small>
+      </div>
+      <textarea id="descInline" rows="3" placeholder="Anotações sobre a oportunidade… (salva sozinho)"
+        oninput="descAutoSave()" onblur="descAutoSave(true)">${escapeHtml(op.descricao||'')}</textarea>
+    </div>
+    ${renderItensResumo()}
+  `;
+  document.getElementById('resumo').innerHTML = html;
+}
+
+// Descrição salva sozinha: 1s depois de parar de digitar (ou ao sair do campo).
+let descTimer, descSalvando = false;
+function descAutoSave(agora){
+  clearTimeout(descTimer);
+  const el = document.getElementById('descInline');
+  if (!el) return;
+  const valor = el.value;
+  if (valor === (op.descricao || '')) { setDescStatus(''); return; }
+  setDescStatus('digitando…');
+  descTimer = setTimeout(() => salvarDescricao(valor), agora ? 0 : 1000);
+}
+function setDescStatus(txt){
+  const s = document.getElementById('descStatus');
+  if (s) s.textContent = txt;
+}
+async function salvarDescricao(valor){
+  if (descSalvando) { descTimer = setTimeout(() => salvarDescricao(valor), 500); return; }
+  descSalvando = true;
+  setDescStatus('salvando…');
+  try {
+    const r = await fetch('/api/crm/oportunidades/'+op.id, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ descricao: valor || null })
+    });
+    const d = await r.json();
+    if (!d.success) { setDescStatus('erro ao salvar'); return showAlert(d.error,'error'); }
+    op.descricao = valor;
+    setDescStatus('✓ salvo');
+    setTimeout(() => { if (document.getElementById('descStatus')?.textContent === '✓ salvo') setDescStatus(''); }, 2500);
+  } catch (e) {
+    setDescStatus('erro ao salvar');
+    showAlert('Falha ao salvar a descrição: '+e.message, 'error');
+  } finally {
+    descSalvando = false;
+  }
+}
+
+function renderItensResumo(){
+  if (!opItens.length) return '';
+  const linhas = opItens.map(i => {
+    const sub = (Number(i.quantidade) || 0) * (Number(i.precoUnitario) || 0) - (Number(i.desconto) || 0);
+    return `<tr>
+      <td><strong>${escapeHtml(i.sku)}</strong> ${escapeHtml(i.produtoDescricao)}</td>
+      <td style="text-align:right;white-space:nowrap;">${Number(i.quantidade)} ${escapeHtml(i.unidade||'')}</td>
+      <td style="text-align:right;white-space:nowrap;">${fmtBRL(i.precoUnitario)}</td>
+      <td style="text-align:right;white-space:nowrap;">${fmtBRL(sub)}</td>
+    </tr>`;
+  }).join('');
+  return `<div style="margin-top:14px;">
+    <h4 style="margin:0 0 6px;font-size:0.95em;">Itens / Produtos</h4>
+    <table style="width:100%;font-size:0.85em;border-collapse:collapse;">
+      <thead><tr style="color:var(--text-3);">
+        <th style="text-align:left;padding:4px 0;">Produto</th>
+        <th style="text-align:right;padding:4px 0;">Qtd</th>
+        <th style="text-align:right;padding:4px 0;">Preço un</th>
+        <th style="text-align:right;padding:4px 0;">Subtotal</th>
+      </tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+  </div>`;
+}
+
+function renderAtividades(ativs){
+  const tb = document.getElementById('listaAtiv');
+  if (!ativs || !ativs.length) { tb.innerHTML = '<div class="muted" style="text-align:center;padding:20px;">Sem atividades</div>'; return; }
+  tb.innerHTML = ativs.map(a=>`
+    <div class="ativ-item ${a.concluida?'concluida':''}">
+      <div>
+        <span class="tipo-badge">${a.tipo}</span>
+        <strong>${escapeHtml(a.titulo)}</strong>
+      </div>
+      ${a.descricao ? `<div style="font-size:0.82em;margin-top:4px;color:var(--text-2);">${escapeHtml(a.descricao)}</div>` : ''}
+      <div class="ativ-meta">
+        📅 ${fmtDataHora(a.dataHora)} · ${a.usuarioNome||'—'}
+        ${a.concluida ? `· ✅ ${fmtDataHora(a.dataConclusao)}` : ''}
+      </div>
+      <div style="margin-top:6px;">
+        ${!a.concluida ? `<button class="btn btn-success btn-sm" onclick="concluir(${a.id})">✓ Concluir</button>` : ''}
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirAtiv(${a.id})">Excluir</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderEtapasMover(){
+  const funil = funis.find(f=>f.id===op.funilId);
+  if (!funil) return;
+  document.getElementById('etapasMover').innerHTML = funil.etapas.filter(e=>e.id!==op.etapaId).map(e=>
+    `<button class="btn btn-sm" style="display:flex;width:100%;margin-bottom:6px;justify-content:flex-start;background:${e.cor||'var(--bg-3)'};color:#fff;border:none;" onclick="moverEtapa(${e.id}, '${e.tipo}')">→ ${e.nome}</button>`
+  ).join('');
+}
+
+async function moverEtapa(etapaId, tipo){
+  let motivoPerda = null;
+  if (tipo === 'perdido') {
+    motivoPerda = prompt('Motivo da perda:');
+    if (motivoPerda === null) return;
+  }
+  const r = await fetch(`/api/crm/oportunidades/${op.id}/mover`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ etapaId, motivoPerda })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Movida com sucesso');
+  carregar();
+}
+
+async function addAtividade(){
+  const body = {
+    oportunidadeId: op.id,
+    tipo: document.getElementById('aTipo').value,
+    titulo: document.getElementById('aTit').value.trim(),
+    descricao: document.getElementById('aDesc').value || null,
+    dataHora: document.getElementById('aData').value
+  };
+  if (!body.titulo || !body.dataHora) return showAlert('Título e data/hora obrigatórios','error');
+  const r = await fetch('/api/crm/atividades', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('aTit').value=''; document.getElementById('aDesc').value='';
+  showAlert('Atividade adicionada');
+  carregar();
+}
+async function concluir(id){
+  const nota = prompt('Resultado / nota (opcional):') || null;
+  const r = await fetch(`/api/crm/atividades/${id}/concluir`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ resultadoNota: nota }) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+async function excluirAtiv(id){
+  if (!confirm('Excluir esta atividade?')) return;
+  const r = await fetch('/api/crm/atividades/'+id, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+function editar(){
+  document.getElementById('edTit').value = op.titulo || '';
+  document.getElementById('edClienteBusca').value = op.clienteNome || '';
+  document.getElementById('edClienteId').value = op.clienteId || '';
+  // Telefone é editável só quando há cliente cadastrado vinculado (mora em pessoas).
+  document.getElementById('edClienteTelefone').value = op.clienteTelefone || '';
+  document.getElementById('edClienteTelRow').style.display = op.clienteId ? '' : 'none';
+  document.getElementById('edValor').value = op.valor || 0;
+  document.getElementById('edProb').value = op.probabilidade || 0;
+  document.getElementById('edPrev').value = op.dataPrevisaoFechamento || '';
+  document.getElementById('edDesc').value = op.descricao || '';
+
+  const funil = funis.find(f=>f.id===op.funilId);
+  const etapasNormais = funil ? funil.etapas.filter(e=>e.tipo==='normal') : [];
+  document.getElementById('edEtapa').innerHTML = etapasNormais.map(e=>
+    `<option value="${e.id}" ${e.id===op.etapaId?'selected':''}>${e.nome}</option>`
+  ).join('');
+
+  document.getElementById('edFonte').innerHTML = '<option value="">—</option>' +
+    fontes.map(f=>`<option ${op.fonte===f?'selected':''}>${f}</option>`).join('');
+
+  document.getElementById('edVendedor').innerHTML = '<option value="">—</option>' +
+    usuarios.map(u=>`<option value="${u.id}" ${u.id===op.vendedorId?'selected':''}>${u.nome||u.username}</option>`).join('');
+
+  document.getElementById('acClienteListEd').innerHTML = '';
+
+  // Popula itens existentes
+  document.getElementById('edItensList').innerHTML = '';
+  opItens.forEach(it => addItem({
+    produtoId: it.produtoId,
+    label: `${it.sku} — ${it.produtoDescricao}`,
+    quantidade: it.quantidade,
+    precoUnitario: it.precoUnitario
+  }));
+  recalcItens();
+
+  document.getElementById('modalEditar').classList.add('open');
+}
+
+// ----- Itens / Produtos (mesma lógica do crm-funil) -----
+let _itemRowSeq = 0;
+function addItem(prefill){
+  _itemRowSeq++;
+  const rid = _itemRowSeq;
+  const row = document.createElement('div');
+  row.className = 'op-item-row';
+  row.dataset.rowId = rid;
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 80px 110px 100px 30px;gap:6px;align-items:start;';
+  row.innerHTML = `
+    <div style="position:relative;">
+      <input type="text" class="op-item-prod" placeholder="SKU ou descrição…" oninput="acProduto(this)" autocomplete="off">
+      <input type="hidden" class="op-item-prod-id">
+      <div class="ac-list op-item-ac"></div>
+    </div>
+    <input type="number" class="op-item-qtd" placeholder="Qtd" step="0.001" min="0" value="1" oninput="recalcItens()">
+    <input type="number" class="op-item-preco" placeholder="Preço un" step="0.01" min="0" value="0" oninput="recalcItens()">
+    <div class="op-item-sub muted" style="font-size:12px;text-align:right;padding-top:10px;">R$ 0,00</div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="removeItem(this)" style="color:var(--danger);padding:4px 8px;">×</button>
+  `;
+  document.getElementById('edItensList').appendChild(row);
+  if (prefill) {
+    row.querySelector('.op-item-prod').value = prefill.label || '';
+    row.querySelector('.op-item-prod-id').value = prefill.produtoId || '';
+    row.querySelector('.op-item-qtd').value = prefill.quantidade ?? 1;
+    row.querySelector('.op-item-preco').value = prefill.precoUnitario ?? 0;
+  }
+  recalcItens();
+}
+function removeItem(btn){
+  btn.closest('.op-item-row').remove();
+  recalcItens();
+}
+function recalcItens(){
+  const rows = document.querySelectorAll('#edItensList .op-item-row');
+  let total = 0;
+  rows.forEach(r => {
+    const qtd = Number(r.querySelector('.op-item-qtd').value) || 0;
+    const preco = Number(r.querySelector('.op-item-preco').value) || 0;
+    const sub = qtd * preco;
+    r.querySelector('.op-item-sub').textContent = fmtBRL(sub);
+    total += sub;
+  });
+  document.getElementById('edItensHeader').style.display = rows.length ? 'grid' : 'none';
+  if (rows.length) {
+    document.getElementById('edValor').value = total.toFixed(2);
+  }
+}
+function collectItens(){
+  const rows = document.querySelectorAll('#edItensList .op-item-row');
+  const itens = [];
+  rows.forEach((r, idx) => {
+    const produtoId = Number(r.querySelector('.op-item-prod-id').value);
+    if (!produtoId) return;
+    itens.push({
+      produtoId,
+      quantidade: Number(r.querySelector('.op-item-qtd').value) || 0,
+      precoUnitario: Number(r.querySelector('.op-item-preco').value) || 0,
+      ordem: idx
+    });
+  });
+  return itens;
+}
+let _acProdTimer;
+function acProduto(input){
+  clearTimeout(_acProdTimer);
+  const q = input.value.trim();
+  const row = input.closest('.op-item-row');
+  const ac = row.querySelector('.op-item-ac');
+  row.querySelector('.op-item-prod-id').value = '';
+  if (q.length < 2) { ac.innerHTML = ''; return; }
+  _acProdTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/produtos/autocomplete?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      const produtos = d.produtos || [];
+      if (!produtos.length) { ac.innerHTML = '<div class="muted" style="cursor:default;">Nenhum produto</div>'; return; }
+      ac.innerHTML = produtos.map(p =>
+        `<div onclick='selProduto(${row.dataset.rowId}, ${p.id}, ${JSON.stringify(p.sku + " — " + p.descricao)}, ${Number(p.precoVenda)||0})'>
+          <strong>${p.sku}</strong> ${escapeHtml(p.descricao)} <small class="muted">${fmtBRL(p.precoVenda||0)}/${escapeHtml(p.unidade||'un')}</small>
+        </div>`
+      ).join('');
+    } catch (e) {
+      ac.innerHTML = `<div class="muted" style="cursor:default;">Erro: ${e.message}</div>`;
+    }
+  }, 200);
+}
+function selProduto(rowId, produtoId, label, preco){
+  const row = document.querySelector(`#edItensList .op-item-row[data-row-id="${rowId}"]`);
+  if (!row) return;
+  row.querySelector('.op-item-prod').value = label;
+  row.querySelector('.op-item-prod-id').value = produtoId;
+  if (Number(preco) > 0) row.querySelector('.op-item-preco').value = Number(preco).toFixed(2);
+  row.querySelector('.op-item-ac').innerHTML = '';
+  recalcItens();
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.op-item-row')) {
+    document.querySelectorAll('.op-item-ac').forEach(ac => ac.innerHTML = '');
+  }
+});
+
+function fecharEditar(){ document.getElementById('modalEditar').classList.remove('open'); }
+
+async function salvarEdicao(){
+  const titulo = document.getElementById('edTit').value.trim();
+  if (!titulo) return showAlert('Informe o título','error');
+  const body = {
+    funilId: op.funilId,
+    etapaId: Number(document.getElementById('edEtapa').value) || op.etapaId,
+    titulo,
+    descricao: document.getElementById('edDesc').value || null,
+    valor: Number(document.getElementById('edValor').value) || 0,
+    probabilidade: Number(document.getElementById('edProb').value) || 0,
+    fonte: document.getElementById('edFonte').value || null,
+    dataPrevisaoFechamento: document.getElementById('edPrev').value || null,
+    clienteId: document.getElementById('edClienteId').value ? Number(document.getElementById('edClienteId').value) : null,
+    vendedorId: document.getElementById('edVendedor').value ? Number(document.getElementById('edVendedor').value) : null,
+    itens: collectItens()
+  };
+  // Cliente avulso (nome digitado que não existe no cadastro): persiste em
+  // clienteNomeLivre. Se um cliente cadastrado foi selecionado, limpa o nome livre.
+  body.clienteNomeLivre = body.clienteId ? null : (document.getElementById('edClienteBusca').value.trim() || null);
+  const r = await fetch('/api/crm/oportunidades/'+op.id, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+
+  // Cliente cadastrado: nome e telefone moram em `pessoas`, não na oportunidade.
+  // Editar aqui atualiza o cadastro REAL do cliente (não vira cliente avulso).
+  if (body.clienteId) {
+    const patch = {};
+    const nome = document.getElementById('edClienteBusca').value.trim();
+    if (nome && nome !== (op.clienteNome || '')) patch.razaoSocial = nome;
+    const telefone = document.getElementById('edClienteTelefone').value.trim();
+    if (telefone !== (op.clienteTelefone || '')) patch.telefone = telefone || null;
+    if (Object.keys(patch).length) {
+      const rt = await fetch('/api/pessoas/'+body.clienteId, {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(patch)
+      });
+      const dt = await rt.json();
+      if (!dt.success) return showAlert('Oportunidade salva, mas o cadastro do cliente falhou: '+dt.error, 'error');
+    }
+  }
+
+  fecharEditar();
+  showAlert('Oportunidade atualizada');
+  carregar();
+}
+
+let acTimerEd;
+function acClienteEd(){
+  clearTimeout(acTimerEd);
+  const q = document.getElementById('edClienteBusca').value.trim();
+  if (q.length<2){ document.getElementById('acClienteListEd').innerHTML=''; return; }
+  acTimerEd = setTimeout(async()=>{
+    const r = await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d = await r.json();
+    const lista = (d.pessoas || d.data || []);
+    document.getElementById('acClienteListEd').innerHTML = lista.slice(0,12).map(p=>
+      `<div onclick='selClienteEd(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${escapeHtml(p.razaoSocial)} <small class="muted">${p.cpfCnpj||''}</small></div>`
+    ).join('');
+  },200);
+}
+function selClienteEd(id, nome){
+  document.getElementById('edClienteId').value = id;
+  document.getElementById('edClienteBusca').value = nome;
+  document.getElementById('acClienteListEd').innerHTML='';
+}
+
+async function arquivar(){
+  if (!confirm('Arquivar esta oportunidade?')) return;
+  const r = await fetch('/api/crm/oportunidades/'+op.id, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  window.location.href='/comercial/crm-funil.html';
+}
+
+async function gerarOS(){
+  if (op.osId) { window.location.href = '/os/ordem-servico.html?id=' + op.osId; return; }
+  if (!op.clienteId) return showAlert('A oportunidade precisa ter um cliente vinculado.', 'error');
+  if (!confirm(`Gerar uma Ordem de Serviço a partir desta oportunidade?\n\nCliente: ${op.clienteNome}\nValor: ${fmtBRL(op.valor)}`)) return;
+  const r = await fetch(`/api/crm/oportunidades/${op.id}/gerar-os`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  window.location.href = '/os/ordem-servico.html?id=' + d.osId;
+}
+
+carregar();
+</script>
+</body></html>

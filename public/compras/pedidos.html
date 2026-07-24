@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pedidos de Compra · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Pedidos de Compra</h1>
+      <small>POs enviados a fornecedores, aguardando recebimento</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary btn-sm" href="/compras/sugestao.html" style="text-decoration:none;">Sugestão de compra</a>
+      <a class="btn btn-primary btn-sm" href="/compras/pedido.html?novo=1" style="text-decoration:none;">+ Novo pedido</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="rascunho">Rascunho</option>
+      <option value="enviado">Enviados</option>
+      <option value="recebido_parcial">Recebido parcial</option>
+      <option value="recebido">Recebidos</option>
+      <option value="cancelado">Cancelados</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th>
+        <th>Emissão</th>
+        <th>Fornecedor</th>
+        <th>Status</th>
+        <th style="text-align:right;">Itens</th>
+        <th style="text-align:right;">Valor total</th>
+        <th>Previsão entrega</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('pedidos-compra');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(iso){ if(!iso) return '—'; const d=new Date(iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
+
+async function carregar(){
+  const status = document.getElementById('filtStatus').value;
+  const p = new URLSearchParams();
+  if (status) p.set('status', status);
+  const r = await fetch('/api/pedidos-compra?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+
+  const peds = d.pedidos;
+  const byStatus = s => peds.filter(p => p.status === s).length;
+  const valorAbertos = peds.filter(p => ['enviado','recebido_parcial'].includes(p.status)).reduce((s,p)=>s+(p.valorTotal||0),0);
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${peds.length}</div></div>
+    <div class="kpi warn"><div class="label">Abertos (enviado + parcial)</div><div class="value">${byStatus('enviado')+byStatus('recebido_parcial')}</div><small class="muted">R$ ${fmt(valorAbertos)}</small></div>
+    <div class="kpi success"><div class="label">Recebidos</div><div class="value">${byStatus('recebido')}</div></div>
+    <div class="kpi"><div class="label">Rascunhos</div><div class="value">${byStatus('rascunho')}</div></div>
+  `;
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = peds.length ? peds.map(p => {
+    const statusClass = p.status==='rascunho'?'pendente':p.status==='enviado'?'em_separacao':p.status==='recebido_parcial'?'parcial':p.status==='recebido'?'entregue':'cancelado';
+    return `<tr>
+      <td class="mono"><a href="/compras/pedido.html?id=${p.id}"><strong>${p.numero}</strong></a></td>
+      <td>${fmtData(p.dataEmissao)}</td>
+      <td>${p.fornecedorNome||'<span class="muted">—</span>'}</td>
+      <td><span class="badge ${statusClass}">${p.status.replace('_',' ')}</span></td>
+      <td style="text-align:right;">${p.qtdItens||0}</td>
+      <td style="text-align:right;font-weight:600;">R$ ${fmt(p.valorTotal)}</td>
+      <td>${fmtData(p.dataPrevistaEntrega)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        <a href="/compras/pedido.html?id=${p.id}" class="btn btn-ghost btn-sm" style="text-decoration:none;">Abrir →</a>
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8" class="empty">Nenhum pedido de compra</td></tr>';
+}
+
+carregar();
+</script>
+</body></html>

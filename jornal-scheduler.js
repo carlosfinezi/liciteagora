@@ -18,7 +18,14 @@
 //   do DB. Mudanças de horário demoram até um ciclo para "pegar" —
 //   trade-off aceitável dado que o jornal roda uma vez ao dia.
 
-let _jornalTimeout = null;
+// Multi-tenant: um timeout por instância de db. Antes era um único `let`
+// global, o que fazia cada chamada de agendarJornal(db) cancelar o
+// agendamento do tenant anterior — só o último tenant ficava agendado.
+const _jornalTimeouts = new Map();
+
+// Fase 3g (2026-05-23): leitura de licitações via PG (catalog)
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
 function escapeHtml(text) {
   if (!text) return '';
@@ -29,7 +36,7 @@ function escapeHtml(text) {
 }
 
 async function gerarConteudoJornal(db) {
-  const config = db.prepare('SELECT * FROM jornal_config WHERE id = 1').get();
+  const config = db.prepare('SELECT * FROM jornal_config WHERE id = 1').get() || {};
   const gruposAtivos = db.prepare(`
     SELECT jg.grupoId, g.nome, g.cor
     FROM jornal_grupos jg
@@ -37,15 +44,21 @@ async function gerarConteudoJornal(db) {
     WHERE jg.ativo = 1
   `).all();
 
-  if (gruposAtivos.length === 0) {
-    return { grupos: [], totalLicitacoes: 0, mensagem: 'Nenhum grupo configurado' };
-  }
-
-  // Calcular período de busca
+  // Calcular período de busca (sempre incluído na resposta, mesmo sem grupos)
   const hoje = new Date();
   const dataInicial = hoje.toISOString().split('T')[0];
   const dataFinal = new Date(hoje.getTime() + (config.diasAntecedencia || 7) * 24 * 60 * 60 * 1000)
     .toISOString().split('T')[0];
+
+  if (gruposAtivos.length === 0) {
+    return {
+      grupos: [],
+      totalLicitacoes: 0,
+      periodo: { dataInicial, dataFinal },
+      dataGeracao: new Date().toISOString(),
+      mensagem: 'Nenhum grupo configurado. Selecione grupos na seção "Grupos monitorados" e clique em Salvar antes de gerar o preview.'
+    };
+  }
 
   const resultados = [];
   let totalLicitacoes = 0;
@@ -58,29 +71,53 @@ async function gerarConteudoJornal(db) {
 
     if (palavras.length === 0) continue;
 
-    // Construir query de busca
-    const conditions = palavras.map(() =>
-      `(LOWER(l.objetoCompra) LIKE ? OR LOWER(l.informacaoComplementar) LIKE ? OR LOWER(i.descricao) LIKE ?)`
-    ).join(' OR ');
-
-    const params = [];
-    palavras.forEach(p => {
-      const termo = `%${p.toLowerCase()}%`;
-      params.push(termo, termo, termo);
-    });
-
-    // Buscar licitações do período
-    const licitacoes = db.prepare(`
-      SELECT DISTINCT l.id, l.numeroControlePNCP, l.objetoCompra, l.razaoSocial,
-        l.nomeUnidade, l.ufSigla, l.municipioNome, l.modalidadeNome,
-        l.valorTotalEstimado, l.dataEncerramentoProposta, l.linkSistemaOrigem
-      FROM licitacoes l
-      LEFT JOIN itens i ON i.licitacaoId = l.id
-      WHERE l.dataEncerramentoProposta >= ? AND l.dataEncerramentoProposta <= ?
-        AND (${conditions})
-      ORDER BY l.dataEncerramentoProposta ASC
-      LIMIT 50
-    `).all(dataInicial, dataFinal + 'T23:59:59', ...params);
+    let licitacoes;
+    if (USE_PG) {
+      // PG: aceita itens via subquery EXISTS; LIKE no PG é case-sensitive em
+      // tabelas sem collation, usamos LOWER() pra paridade com SQLite.
+      const conds = [];
+      const params = [];
+      let p = 1;
+      const ph = (v) => { params.push(v); return '$' + (p++); };
+      const dataIniPh = ph(dataInicial);
+      const dataFimPh = ph(dataFinal + 'T23:59:59');
+      for (const palavra of palavras) {
+        const termo = `%${palavra.toLowerCase()}%`;
+        const t1 = ph(termo), t2 = ph(termo), t3 = ph(termo);
+        conds.push(`(LOWER(l."objetoCompra") LIKE ${t1} OR LOWER(l."informacaoComplementar") LIKE ${t2}
+                    OR EXISTS (SELECT 1 FROM itens i WHERE i."licitacaoId"=l."id" AND LOWER(i."descricao") LIKE ${t3}))`);
+      }
+      licitacoes = await catalogPg.query(`
+        SELECT DISTINCT l."id", l."numeroControlePNCP", l."objetoCompra", l."razaoSocial",
+          l."nomeUnidade", l."ufSigla", l."municipioNome", l."modalidadeNome",
+          l."valorTotalEstimado", COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta", l."linkSistemaOrigem"
+          FROM licitacoes l
+         WHERE COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") >= ${dataIniPh} AND COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") <= ${dataFimPh}
+           AND (${conds.join(' OR ')})
+         ORDER BY COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") ASC
+         LIMIT 50
+      `, params);
+    } else {
+      const conditions = palavras.map(() =>
+        `(LOWER(l.objetoCompra) LIKE ? OR LOWER(l.informacaoComplementar) LIKE ? OR LOWER(i.descricao) LIKE ?)`
+      ).join(' OR ');
+      const params = [];
+      palavras.forEach(p => {
+        const termo = `%${p.toLowerCase()}%`;
+        params.push(termo, termo, termo);
+      });
+      licitacoes = db.prepare(`
+        SELECT DISTINCT l.id, l.numeroControlePNCP, l.objetoCompra, l.razaoSocial,
+          l.nomeUnidade, l.ufSigla, l.municipioNome, l.modalidadeNome,
+          l.valorTotalEstimado, l.dataEncerramentoProposta, l.linkSistemaOrigem
+        FROM licitacoes l
+        LEFT JOIN itens i ON i.licitacaoId = l.id
+        WHERE l.dataEncerramentoProposta >= ? AND l.dataEncerramentoProposta <= ?
+          AND (${conditions})
+        ORDER BY l.dataEncerramentoProposta ASC
+        LIMIT 50
+      `).all(dataInicial, dataFinal + 'T23:59:59', ...params);
+    }
 
     if (licitacoes.length > 0) {
       resultados.push({
@@ -255,10 +292,11 @@ function agendarJornal(db) {
     return;
   }
 
-  // Limpar agendamento anterior
-  if (_jornalTimeout) {
-    clearTimeout(_jornalTimeout);
-    _jornalTimeout = null;
+  // Limpar agendamento anterior deste db
+  const existing = _jornalTimeouts.get(db);
+  if (existing) {
+    clearTimeout(existing);
+    _jornalTimeouts.delete(db);
   }
 
   const config = db.prepare('SELECT ativo, horario FROM jornal_config WHERE id = 1').get();
@@ -284,7 +322,7 @@ function agendarJornal(db) {
 
   console.log(`[JORNAL] Próximo envio agendado para ${proxima.toLocaleString('pt-BR')}`);
 
-  _jornalTimeout = setTimeout(async () => {
+  const timer = setTimeout(async () => {
     try {
       await executarJornal(db);
     } catch (e) {
@@ -293,13 +331,18 @@ function agendarJornal(db) {
     // Reagendar para o próximo dia
     agendarJornal(db);
   }, msAteProxima);
+  _jornalTimeouts.set(db, timer);
 }
 
-function pararJornal() {
-  if (_jornalTimeout) {
-    clearTimeout(_jornalTimeout);
-    _jornalTimeout = null;
+function pararJornal(db) {
+  if (db !== undefined) {
+    const t = _jornalTimeouts.get(db);
+    if (t) { clearTimeout(t); _jornalTimeouts.delete(db); }
+    return;
   }
+  // Sem argumento: para todos
+  for (const t of _jornalTimeouts.values()) clearTimeout(t);
+  _jornalTimeouts.clear();
 }
 
 module.exports = {

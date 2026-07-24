@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produtos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Produtos</h1>
+      <small>Catálogo completo — identificação, preços, fiscal, estoque e imagem</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="abrirModalPlanilha()">Importar planilha</button>
+      <button class="btn btn-secondary" onclick="abrirModalImport()">Importar de licitação</button>
+      <button class="btn btn-primary" onclick="novoProduto()">+ Novo produto</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="filtBusca" placeholder="Buscar por SKU, descrição, marca…" oninput="carregarDebounced()" style="flex:1;min-width:240px;">
+    <button class="btn btn-secondary btn-sm" id="btnFiltros" onclick="togglarPainelFiltros()">Filtros</button>
+    <label id="toggleOpticosWrap" style="display:none;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+      <input type="checkbox" id="toggleOpticos" onchange="carregar()"> Mostrar produtos óticos
+    </label>
+    <div class="dropdown" id="ddColunas">
+      <button class="btn btn-secondary btn-sm" onclick="toggleColunasMenu(event)">Colunas</button>
+      <div class="dropdown-menu" id="colunasMenu" style="padding:10px;max-height:320px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <div class="card" id="painelFiltros" style="display:none;margin-bottom:14px;">
+    <div class="form-row">
+      <div class="form-group"><label>Marca</label><select id="fMarca" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label>Categoria</label><select id="fCategoria" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label>Tipo</label><select id="fTipo" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label>Fornecedor</label><select id="fFornecedor" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label>Unidade</label><select id="fUnidade" onchange="onFiltroChange()"></select></div>
+      <div class="form-group"><label>NCM</label><input type="text" id="fNcm" oninput="onFiltroDebounced()" placeholder="parte do NCM…"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Estoque</label>
+        <select id="fEstoque" onchange="onFiltroChange()">
+          <option value="">— todos —</option>
+          <option value="comSaldo">Com saldo</option>
+          <option value="semSaldo">Sem saldo</option>
+          <option value="baixo">Estoque baixo (saldo &lt; mín)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Imagem</label>
+        <select id="fImagem" onchange="onFiltroChange()">
+          <option value="">— todos —</option>
+          <option value="com">Com imagem</option>
+          <option value="sem">Sem imagem</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Venda mín (R$)</label><input type="number" step="0.01" id="fVendaMin" oninput="onFiltroDebounced()"></div>
+      <div class="form-group"><label>Venda máx (R$)</label><input type="number" step="0.01" id="fVendaMax" oninput="onFiltroDebounced()"></div>
+      <div class="form-group"><label>Custo mín (R$)</label><input type="number" step="0.01" id="fCustoMin" oninput="onFiltroDebounced()"></div>
+      <div class="form-group"><label>Custo máx (R$)</label><input type="number" step="0.01" id="fCustoMax" oninput="onFiltroDebounced()"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar tudo</button>
+    </div>
+  </div>
+
+  <div id="chipsFiltros" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+  <div id="contadorProdutos" class="muted" style="margin-bottom:8px;font-size:0.88em;"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr id="thead"></tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+<!-- Modal Import Licitação -->
+<div class="modal-bg" id="modalImport">
+  <div class="modal" style="max-width:960px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Importar produto de item de licitação</h3>
+        <small class="muted">Selecione um item para criar um produto pré-preenchido.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalImport()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="text" id="impBusca" placeholder="Buscar por descrição ou objeto…" oninput="buscarItensDebounced()" style="margin-bottom:12px;">
+    <div id="impResultados" style="max-height:56vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-1);"></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="fecharModalImport()">Fechar</button></div>
+  </div>
+</div>
+
+<!-- Modal Importar Planilha -->
+<div class="modal-bg" id="modalPlanilha">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Importar produtos de planilha</h3>
+        <small class="muted">Formatos aceitos: .xlsx, .xls ou .csv.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalPlanilha()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="card card-info" style="margin-bottom:14px;">
+      <p class="muted" style="margin-bottom:10px;">1. Baixe o modelo, preencha os produtos e envie.</p>
+      <a href="/api/produtos/importar/template.xlsx" class="btn btn-secondary btn-sm" style="text-decoration:none;">Baixar modelo .xlsx</a>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Arquivo (.xlsx / .xls / .csv)</label>
+        <input type="file" id="planFile" accept=".xlsx,.xls,.csv">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" type="button" onclick="preverPlanilha()">Pré-visualizar</button>
+
+    <div id="planResultado" style="margin-top:18px;display:none;">
+      <div class="card" style="background:var(--bg-1);">
+        <div id="planResumo" style="margin-bottom:12px;"></div>
+        <div id="planCabecalhos" class="muted" style="font-size:0.85em;margin-bottom:10px;"></div>
+
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Política para SKUs já existentes</label>
+            <div style="display:flex;gap:20px;align-items:center;">
+              <label style="text-transform:none;font-size:0.9em;"><input type="radio" name="politicaDup" value="atualizar" checked style="width:auto;margin-right:6px;"> Atualizar existentes</label>
+              <label style="text-transform:none;font-size:0.9em;"><input type="radio" name="politicaDup" value="pular" style="width:auto;margin-right:6px;"> Pular duplicatas</label>
+            </div>
+          </div>
+        </div>
+
+        <div style="max-height:300px;overflow-y:auto;margin-top:10px;" id="planDetalhes"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="fecharModalPlanilha()">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmarImportPlanilha()" id="btnConfirmarImport">Importar agora</button>
+      </div>
+    </div>
+
+    <div class="modal-actions" id="planActionsCancel">
+      <button class="btn btn-ghost" onclick="fecharModalPlanilha()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('produtos');</script>
+<script>
+function showAlert(m, t='success'){
+  const box = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast ' + (t==='error'?'error':'success');
+  el.innerHTML = `<span class="toast-close" onclick="this.parentElement.remove()">×</span>${m}`;
+  box.appendChild(el);
+  setTimeout(()=>el.remove(), t==='error'?8000:4000);
+}
+function fmt(v){ return (v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function val(id){ const e=document.getElementById(id); return e?e.value:''; }
+function esc(s){
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function debounce(fn, ms){
+  let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+const COLUNAS = [
+  { key:'imagem',            label:'Img',          tipo:'img',   default:true },
+  { key:'sku',               label:'SKU',          tipo:'txt',   default:true },
+  { key:'codigoInterno',     label:'Cód.Interno',  tipo:'txt',   default:false },
+  { key:'referenciaInterna', label:'Ref.Interna',  tipo:'txt',   default:false },
+  { key:'codigoBarras',      label:'EAN',          tipo:'txt',   default:false },
+  { key:'descricao',         label:'Descrição',    tipo:'txt',   default:true },
+  { key:'categoria',         label:'Categoria',    tipo:'txt',   default:true },
+  { key:'marca',             label:'Marca',        tipo:'txt',   default:true },
+  { key:'tipoProduto',       label:'Tipo',         tipo:'txt',   default:false },
+  { key:'unidade',           label:'Un',           tipo:'txt',   default:true },
+  { key:'precoCusto',        label:'Custo',        tipo:'money', default:true },
+  { key:'markupVenda',       label:'Markup%',      tipo:'pct',   default:false },
+  { key:'precoMinimoVenda',  label:'Mín.Venda',    tipo:'money', default:false },
+  { key:'precoVenda',        label:'Venda',        tipo:'money', default:true },
+  { key:'saldo',             label:'Saldo',        tipo:'num',   default:true },
+  { key:'estoqueMinimo',     label:'Est.Mín',      tipo:'num',   default:false },
+  { key:'fornecedorId',      label:'Fornecedor',   tipo:'txt',   default:false },
+  { key:'ncm',               label:'NCM',          tipo:'txt',   default:false },
+  { key:'origem',            label:'Origem',       tipo:'txt',   default:false },
+];
+
+let cache = [];
+let sortKey = 'descricao';
+let sortDir = 1;
+let colunasVisiveis = JSON.parse(localStorage.getItem('produtos_colunas') || 'null')
+  || COLUNAS.filter(c => c.default).map(c => c.key);
+
+// ==================== FILTROS CUMULATIVOS ====================
+const FILTROS_DEFAULT = {
+  marca:'', categoria:'', tipo:'', fornecedor:'', unidade:'',
+  estoque:'', imagem:'',
+  vendaMin:'', vendaMax:'', custoMin:'', custoMax:'',
+  ncm:''
+};
+const FILTROS_LABELS = {
+  marca:'Marca', categoria:'Categoria', tipo:'Tipo', fornecedor:'Fornecedor', unidade:'Un',
+  estoque:'Estoque', imagem:'Imagem',
+  vendaMin:'Venda ≥', vendaMax:'Venda ≤', custoMin:'Custo ≥', custoMax:'Custo ≤',
+  ncm:'NCM'
+};
+const ESTOQUE_LABELS = { comSaldo:'Com saldo', semSaldo:'Sem saldo', baixo:'Estoque baixo' };
+const IMAGEM_LABELS  = { com:'Com imagem', sem:'Sem imagem' };
+let filtros = { ...FILTROS_DEFAULT };
+
+function lerFiltrosURL(){
+  const params = new URLSearchParams(location.search);
+  const f = { ...FILTROS_DEFAULT };
+  for (const k of Object.keys(FILTROS_DEFAULT)) {
+    const v = params.get(k);
+    if (v !== null) f[k] = v;
+  }
+  if (params.has('q')) document.getElementById('filtBusca').value = params.get('q');
+  return f;
+}
+function lerFiltrosStorage(){
+  try {
+    const saved = JSON.parse(localStorage.getItem('produtos_filtros') || 'null');
+    if (saved && typeof saved === 'object') return { ...FILTROS_DEFAULT, ...saved };
+  } catch(_) {}
+  return null;
+}
+function salvarFiltros(){
+  const params = new URLSearchParams();
+  const q = val('filtBusca');
+  if (q) params.set('q', q);
+  for (const k of Object.keys(FILTROS_DEFAULT)) {
+    const v = filtros[k];
+    if (v !== '' && v != null) params.set(k, v);
+  }
+  const qs = params.toString();
+  history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+  localStorage.setItem('produtos_filtros', JSON.stringify(filtros));
+}
+
+function lerFormParaFiltros(){
+  filtros.marca      = val('fMarca');
+  filtros.categoria  = val('fCategoria');
+  filtros.tipo       = val('fTipo');
+  filtros.fornecedor = val('fFornecedor');
+  filtros.unidade    = val('fUnidade');
+  filtros.estoque    = val('fEstoque');
+  filtros.imagem     = val('fImagem');
+  filtros.vendaMin   = val('fVendaMin');
+  filtros.vendaMax   = val('fVendaMax');
+  filtros.custoMin   = val('fCustoMin');
+  filtros.custoMax   = val('fCustoMax');
+  filtros.ncm        = val('fNcm').trim();
+}
+function aplicarFiltrosAoForm(){
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  set('fMarca', filtros.marca);
+  set('fCategoria', filtros.categoria);
+  set('fTipo', filtros.tipo);
+  set('fFornecedor', filtros.fornecedor);
+  set('fUnidade', filtros.unidade);
+  set('fEstoque', filtros.estoque);
+  set('fImagem', filtros.imagem);
+  set('fVendaMin', filtros.vendaMin);
+  set('fVendaMax', filtros.vendaMax);
+  set('fCustoMin', filtros.custoMin);
+  set('fCustoMax', filtros.custoMax);
+  set('fNcm', filtros.ncm);
+}
+
+function popularSelectsFiltro(){
+  const unicos = key => [...new Set(cache.map(p => p[key]).filter(v => v != null && v !== ''))]
+    .sort((a,b) => String(a).localeCompare(String(b), 'pt-BR'));
+  const fornecedores = [...new Map(
+    cache.filter(p => p.fornecedorId).map(p => [String(p.fornecedorId), p.fornecedorNome || ('#'+p.fornecedorId)])
+  ).entries()].sort((a,b) => a[1].localeCompare(b[1], 'pt-BR'));
+
+  const popular = (id, opcoes, valorAtual) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— todos —</option>' + opcoes.map(o => {
+      const [v, l] = Array.isArray(o) ? o : [o, o];
+      return `<option value="${esc(v)}">${esc(l)}</option>`;
+    }).join('');
+    sel.value = valorAtual || '';
+  };
+  popular('fMarca',      unicos('marca'),       filtros.marca);
+  popular('fCategoria',  unicos('categoria'),   filtros.categoria);
+  popular('fTipo',       unicos('tipoProduto'), filtros.tipo);
+  popular('fUnidade',    unicos('unidade'),     filtros.unidade);
+  popular('fFornecedor', fornecedores,          filtros.fornecedor);
+}
+
+function filtrarCache(arr){
+  const ncmLow = filtros.ncm.toLowerCase();
+  const vMin = parseFloat(filtros.vendaMin);
+  const vMax = parseFloat(filtros.vendaMax);
+  const cMin = parseFloat(filtros.custoMin);
+  const cMax = parseFloat(filtros.custoMax);
+  return arr.filter(p => {
+    if (filtros.marca      && p.marca       !== filtros.marca)      return false;
+    if (filtros.categoria  && p.categoria   !== filtros.categoria)  return false;
+    if (filtros.tipo       && p.tipoProduto !== filtros.tipo)       return false;
+    if (filtros.unidade    && p.unidade     !== filtros.unidade)    return false;
+    if (filtros.fornecedor && String(p.fornecedorId) !== filtros.fornecedor) return false;
+    if (ncmLow && !String(p.ncm || '').toLowerCase().includes(ncmLow)) return false;
+    if (!isNaN(vMin) && !(Number(p.precoVenda) >= vMin)) return false;
+    if (!isNaN(vMax) && !(Number(p.precoVenda) <= vMax)) return false;
+    if (!isNaN(cMin) && !(Number(p.precoCusto) >= cMin)) return false;
+    if (!isNaN(cMax) && !(Number(p.precoCusto) <= cMax)) return false;
+    if (filtros.estoque === 'comSaldo' && !(Number(p.saldo) > 0)) return false;
+    if (filtros.estoque === 'semSaldo' && !(Number(p.saldo) <= 0)) return false;
+    if (filtros.estoque === 'baixo'    && !(Number(p.estoqueMinimo) > 0 && Number(p.saldo) < Number(p.estoqueMinimo))) return false;
+    if (filtros.imagem === 'com' && !p.imagemPath) return false;
+    if (filtros.imagem === 'sem' &&  p.imagemPath) return false;
+    return true;
+  });
+}
+
+function rotuloChip(campo){
+  const v = filtros[campo];
+  if (v === '' || v == null) return null;
+  if (campo === 'estoque')    return `${FILTROS_LABELS[campo]}: ${ESTOQUE_LABELS[v] || v}`;
+  if (campo === 'imagem')     return `${FILTROS_LABELS[campo]}: ${IMAGEM_LABELS[v]  || v}`;
+  if (campo === 'fornecedor') {
+    const p = cache.find(p => String(p.fornecedorId) === v);
+    return `${FILTROS_LABELS[campo]}: ${p?.fornecedorNome || ('#'+v)}`;
+  }
+  return `${FILTROS_LABELS[campo]}: ${v}`;
+}
+function renderChips(){
+  const box = document.getElementById('chipsFiltros');
+  const chips = [];
+  for (const k of Object.keys(FILTROS_DEFAULT)) {
+    const label = rotuloChip(k);
+    if (label) chips.push(`<span class="badge" style="display:inline-flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;">${esc(label)} <button onclick="removerFiltro('${k}')" title="Remover" style="background:none;border:none;color:inherit;cursor:pointer;font-size:1.1em;line-height:1;padding:0 2px;">×</button></span>`);
+  }
+  if (chips.length) {
+    box.innerHTML = chips.join('') + ` <button class="btn btn-ghost btn-sm" onclick="limparFiltros()" style="margin-left:4px;">Limpar tudo</button>`;
+    box.style.display = 'flex';
+  } else {
+    box.innerHTML = '';
+    box.style.display = 'none';
+  }
+}
+
+function removerFiltro(campo){
+  filtros[campo] = '';
+  aplicarFiltrosAoForm();
+  onFiltroChange();
+}
+function limparFiltros(){
+  filtros = { ...FILTROS_DEFAULT };
+  aplicarFiltrosAoForm();
+  onFiltroChange();
+}
+function onFiltroChange(){
+  lerFormParaFiltros();
+  salvarFiltros();
+  render();
+  renderChips();
+}
+const onFiltroDebounced = debounce(onFiltroChange, 250);
+
+function togglarPainelFiltros(){
+  const p = document.getElementById('painelFiltros');
+  p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+}
+
+function salvarColunas(){ localStorage.setItem('produtos_colunas', JSON.stringify(colunasVisiveis)); }
+
+function toggleColunasMenu(ev){
+  ev.stopPropagation();
+  document.getElementById('ddColunas').classList.toggle('open');
+  const m = document.getElementById('colunasMenu');
+  m.innerHTML = COLUNAS.map(c => `
+    <label style="display:flex;align-items:center;gap:8px;padding:5px;cursor:pointer;font-size:0.88em;text-transform:none;">
+      <input type="checkbox" ${colunasVisiveis.includes(c.key)?'checked':''} onchange="alternarColuna('${c.key}', this.checked)" style="width:auto;">
+      <span>${c.label}</span>
+    </label>`).join('');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#ddColunas')) document.getElementById('ddColunas').classList.remove('open');
+});
+
+function alternarColuna(key, on){
+  if (on && !colunasVisiveis.includes(key)) colunasVisiveis.push(key);
+  else if (!on) colunasVisiveis = colunasVisiveis.filter(k => k!==key);
+  salvarColunas();
+  render();
+}
+
+function sortBy(key){
+  if (sortKey === key) sortDir = -sortDir;
+  else { sortKey = key; sortDir = 1; }
+  render();
+}
+
+let opticaAtiva = false;
+
+async function detectarOptica(){
+  try {
+    const r = await fetch('/api/optica/status');
+    if (!r.ok) return;
+    const d = await r.json();
+    opticaAtiva = !!d.enabled;
+    if (opticaAtiva) document.getElementById('toggleOpticosWrap').style.display = 'inline-flex';
+  } catch (_) { /* sem ótica → toggle fica oculto */ }
+}
+
+let carregarAbort = null;
+async function carregar(){
+  if (carregarAbort) carregarAbort.abort();
+  carregarAbort = new AbortController();
+  try {
+    const q = val('filtBusca');
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (document.getElementById('toggleOpticos')?.checked) params.set('incluirOpticos', '1');
+    const r = await fetch('/api/produtos?' + params.toString(), { signal: carregarAbort.signal });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    cache = d.produtos;
+    popularSelectsFiltro();
+    salvarFiltros();
+    render();
+    renderChips();
+  } catch(e) {
+    if (e.name === 'AbortError') return;
+    showAlert('Erro: '+e.message, 'error');
+  }
+}
+const carregarDebounced = debounce(carregar, 300);
+
+function renderCell(p, col){
+  const v = p[col.key];
+  if (col.key === 'imagem') {
+    return p.imagemPath
+      ? `<img src="${esc(p.imagemPath)}" loading="lazy" style="width:36px;height:36px;object-fit:cover;border-radius:4px;">`
+      : '<span class="muted">—</span>';
+  }
+  if (col.key === 'saldo'){
+    const baixo = p.estoqueMinimo > 0 && p.saldo < p.estoqueMinimo;
+    return `<span${baixo?' class="text-danger" style="font-weight:700;"':''}>${fmt(p.saldo)}</span>`;
+  }
+  if (col.key === 'categoria' && opticaAtiva && (v === 'armacao' || v === 'lente')) {
+    const label = v === 'armacao' ? '🥽 armação' : '🔎 lente';
+    return `<span class="badge" title="Produto óptico — edite pelo cadastro de produto">${label}</span>`;
+  }
+  if (col.key === 'fornecedorId') return esc(p.fornecedorNome) || (v ? '#'+esc(v) : '<span class="muted">—</span>');
+  if (v == null || v === '') return '<span class="muted">—</span>';
+  if (col.tipo === 'money') return 'R$ ' + fmt(v);
+  if (col.tipo === 'num')   return fmt(v);
+  if (col.tipo === 'pct')   return fmt(v) + '%';
+  return esc(v);
+}
+
+function render(){
+  const tb = document.getElementById('tb');
+  const th = document.getElementById('thead');
+  const cols = COLUNAS.filter(c => colunasVisiveis.includes(c.key));
+
+  th.innerHTML = cols.map(c => {
+    const arr = sortKey === c.key ? (sortDir>0?' ▲':' ▼') : '';
+    return `<th style="cursor:pointer;user-select:none;" onclick="sortBy('${c.key}')">${c.label}${arr}</th>`;
+  }).join('') + '<th></th>';
+
+  const filtrado = filtrarCache(cache);
+  const cont = document.getElementById('contadorProdutos');
+  if (cont) cont.textContent = cache.length
+    ? (filtrado.length === cache.length ? `${cache.length} produto(s)` : `${filtrado.length} de ${cache.length} produto(s)`)
+    : '';
+
+  if (!filtrado.length) {
+    const msg = cache.length ? 'Nenhum produto bate com os filtros' : 'Nenhum produto cadastrado';
+    tb.innerHTML = `<tr><td colspan="${cols.length+1}" class="empty">${msg}</td></tr>`;
+    return;
+  }
+
+  const dados = [...filtrado].sort((a,b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (va == null) va = '';
+    if (vb == null) vb = '';
+    if (typeof va === 'number' || typeof vb === 'number') return (Number(va)-Number(vb)) * sortDir;
+    return String(va).localeCompare(String(vb), 'pt-BR', { numeric:true }) * sortDir;
+  });
+
+  tb.innerHTML = dados.map(p => {
+    const tds = cols.map(c => `<td>${renderCell(p, c)}</td>`).join('');
+    const nomeAttr = esc(p.descricao || '');
+    return `<tr style="cursor:pointer;" onclick="abrirProduto(${p.id})">${tds}<td style="text-align:right;">
+      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); abrirProduto(${p.id})">Abrir →</button>
+      <button class="btn btn-ghost btn-sm" data-id="${p.id}" data-nome="${nomeAttr}" onclick="event.stopPropagation(); excluir(this.dataset.id, this.dataset.nome)" style="color:var(--danger);">Excluir</button>
+    </td></tr>`;
+  }).join('');
+}
+
+function novoProduto(){ location.href = '/catalogo/produto.html'; }
+function abrirProduto(id){ location.href = '/catalogo/produto.html?id=' + id; }
+
+async function excluir(id, nome){
+  if (!confirm('Desativar "'+nome+'"?')) return;
+  try {
+    const r = await fetch('/api/produtos/'+Number(id), { method:'DELETE' });
+    const d = await r.json();
+    if (r.status === 409 && d.bloqueios) {
+      const b = d.bloqueios;
+      const partes = [];
+      if (b.saldo) partes.push(`saldo de ${b.saldo}`);
+      if (b.reservas) partes.push(`${b.reservas} reserva(s) ativa(s)`);
+      if (b.lotesComSaldo) partes.push(`${b.lotesComSaldo} lote(s) com saldo`);
+      return showAlert('Não é possível inativar. Produto possui: ' + partes.join(', ') + '. Zere via estorno/ajuste antes.', 'error');
+    }
+    if (!d.success) throw new Error(d.error);
+    showAlert('Produto desativado');
+    carregar();
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+// ==================== IMPORT LICITAÇÃO ====================
+function abrirModalImport(){
+  document.getElementById('modalImport').classList.add('open');
+  document.getElementById('impBusca').value = '';
+  document.getElementById('impResultados').innerHTML = '';
+  buscarItens();
+}
+function fecharModalImport(){ document.getElementById('modalImport').classList.remove('open'); }
+
+let buscarItensAbort = null;
+async function buscarItens(){
+  if (buscarItensAbort) buscarItensAbort.abort();
+  buscarItensAbort = new AbortController();
+  const q = val('impBusca');
+  try {
+    const r = await fetch('/api/produtos/licitacao-itens/search?q='+encodeURIComponent(q), { signal: buscarItensAbort.signal });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const box = document.getElementById('impResultados');
+    if (!d.itens.length) {
+      box.innerHTML = '<div class="empty">Nenhum item</div>';
+      return;
+    }
+    box.innerHTML = '<table><thead><tr><th>Item</th><th>Descrição</th><th>Qtd</th><th>Un</th><th>V.Unit</th><th></th></tr></thead><tbody>' +
+      d.itens.map(i => {
+        const desc = i.descricao || '';
+        const descCurta = desc.substring(0,80) + (desc.length>80?'…':'');
+        const descBtn = desc.substring(0,60);
+        return `<tr>
+          <td>${esc(i.numeroItem) || '—'}</td>
+          <td>${esc(descCurta)}<br><small class="muted">${esc((i.orgao||'').substring(0,60))}</small></td>
+          <td>${fmt(i.quantidade)}</td>
+          <td>${esc(i.unidadeMedida) || '—'}</td>
+          <td>R$ ${fmt(i.valorUnitarioEstimado)}</td>
+          <td><button class="btn btn-primary btn-sm" data-item-id="${i.itemId}" data-desc="${esc(descBtn)}" onclick="importarItem(this.dataset.itemId, this.dataset.desc)">Importar</button></td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
+  } catch(e) {
+    if (e.name === 'AbortError') return;
+    showAlert('Erro: '+e.message, 'error');
+  }
+}
+const buscarItensDebounced = debounce(buscarItens, 300);
+
+async function importarItem(itemId, desc){
+  const sku = prompt('SKU para "'+desc+'":');
+  if (!sku) return;
+  try {
+    const r = await fetch('/api/produtos/importar-item-licitacao', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ itemId: Number(itemId), sku })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Produto importado: ' + d.produto.sku);
+    fecharModalImport();
+    carregar();
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+// ==================== IMPORT PLANILHA ====================
+function abrirModalPlanilha(){
+  document.getElementById('modalPlanilha').classList.add('open');
+  document.getElementById('planFile').value = '';
+  document.getElementById('planResultado').style.display = 'none';
+  document.getElementById('planActionsCancel').style.display = 'flex';
+}
+function fecharModalPlanilha(){ document.getElementById('modalPlanilha').classList.remove('open'); }
+
+async function preverPlanilha(){
+  const file = document.getElementById('planFile').files[0];
+  if (!file) return showAlert('Selecione um arquivo', 'error');
+  const fd = new FormData(); fd.append('arquivo', file);
+  try {
+    const r = await fetch('/api/produtos/importar/preview', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    renderPreviewPlanilha(d);
+  } catch(e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+function renderPreviewPlanilha(d){
+  document.getElementById('planResultado').style.display = 'block';
+  document.getElementById('planActionsCancel').style.display = 'none';
+
+  document.getElementById('planResumo').innerHTML = `
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+      <div><strong class="text-success">${d.validas.length}</strong> <span class="muted">válidas</span></div>
+      <div><strong class="text-danger">${d.erros.length}</strong> <span class="muted">com erro</span></div>
+      <div><strong class="text-warn">${d.avisos.length}</strong> <span class="muted">avisos</span></div>
+      <div><strong style="color:var(--accent);">${d.duplicatasSku.length}</strong> <span class="muted">SKUs já no banco</span></div>
+      <div><span class="muted">Total: ${d.totalLinhas}</span></div>
+    </div>`;
+
+  let cab = '';
+  if (d.cabecalhosReconhecidos?.length) cab += `Reconhecidos: ${esc(d.cabecalhosReconhecidos.join(', '))}. `;
+  if (d.cabecalhosIgnorados?.length)    cab += `<span class="text-warn">Ignorados: ${esc(d.cabecalhosIgnorados.join(', '))}</span>`;
+  document.getElementById('planCabecalhos').innerHTML = cab;
+
+  const rows = [];
+  for (const e of d.erros)  rows.push(`<tr><td>${esc(e.linha)}</td><td><span class="badge cancelado">ERRO</span></td><td>${esc(e.sku) || '—'}</td><td>${esc(e.mensagem)}</td></tr>`);
+  for (const a of d.avisos) rows.push(`<tr><td>${esc(a.linha)}</td><td><span class="badge em_separacao">AVISO</span></td><td>${esc(a.sku) || '—'}</td><td>${esc(a.mensagem)}</td></tr>`);
+  for (const v of d.validas.slice(0,10)) rows.push(`<tr><td>${esc(v.linha)}</td><td><span class="badge entregue">OK</span></td><td>${esc(v.produto.sku) || '—'}</td><td>${esc((v.produto.descricao||'').substring(0,60))}</td></tr>`);
+
+  const det = document.getElementById('planDetalhes');
+  if (rows.length) {
+    det.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Linha</th><th>Status</th><th>SKU</th><th>Detalhe</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+      ${d.validas.length>10?`<small class="muted">+ ${d.validas.length-10} linhas válidas não exibidas</small>`:''}`;
+  } else {
+    det.innerHTML = '<p class="muted">Nenhuma linha processada.</p>';
+  }
+
+  document.getElementById('btnConfirmarImport').disabled = d.validas.length === 0;
+}
+
+async function confirmarImportPlanilha(){
+  const file = document.getElementById('planFile').files[0];
+  if (!file) return showAlert('Selecione o arquivo novamente', 'error');
+  const politica = document.querySelector('input[name="politicaDup"]:checked').value;
+  const fd = new FormData();
+  fd.append('arquivo', file);
+  fd.append('politicaDuplicata', politica);
+  document.getElementById('btnConfirmarImport').disabled = true;
+  try {
+    const r = await fetch('/api/produtos/importar/confirmar', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const msg = `Import concluído: ${d.inseridos} inseridos · ${d.atualizados} atualizados · ${d.pulados} pulados · ${d.fornecedoresCriados} fornecedores criados${d.erros.length?` · ${d.erros.length} erros`:''}`;
+    showAlert(msg, d.erros.length ? 'error' : 'success');
+    fecharModalPlanilha();
+    carregar();
+  } catch(e) {
+    showAlert('Erro: '+e.message, 'error');
+    document.getElementById('btnConfirmarImport').disabled = false;
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  ['modalImport','modalPlanilha'].forEach(id => {
+    const m = document.getElementById(id);
+    if (m.classList.contains('open')) m.classList.remove('open');
+  });
+});
+
+// Boot: URL ganha de localStorage; se a URL não tiver nada, usa storage.
+(function bootFiltros(){
+  const temNaURL = new URLSearchParams(location.search).toString().length > 0;
+  filtros = temNaURL ? lerFiltrosURL() : (lerFiltrosStorage() || { ...FILTROS_DEFAULT });
+  aplicarFiltrosAoForm();
+  const algumAtivo = Object.keys(FILTROS_DEFAULT).some(k => filtros[k] !== '' && filtros[k] != null);
+  if (algumAtivo) document.getElementById('painelFiltros').style.display = 'block';
+})();
+detectarOptica().then(carregar);
+</script>
+</body>
+</html>

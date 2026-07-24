@@ -11,8 +11,8 @@
  * Factory createConfigHelpers(db) retorna o trio
  *   { getConfigValue, setConfigValue, getIAKeys }
  * que é destructurado em server.js e propagado para ~8 registrarRotasX
- * (analise-ia, admin, extensoes, govbr, extensao-chrome, chat-monitoramento,
- * etc.) — a migração é 1:1, mesmos nomes de identificador.
+ * (analise-ia, admin, extensoes, govbr, chat-monitoramento, etc.) —
+ * a migração é 1:1, mesmos nomes de identificador.
  *
  * Os prepared statements ficam escondidos na closure da factory; não há
  * mais estado solto no topo do server.js.
@@ -23,19 +23,24 @@
  * de adicionar acoplamento.
  */
 
+const { createStmtCache } = require('./stmt-cache');
+
+// Multi-tenant (2026-04-22): `db` pode ser um Proxy que resolve para
+// bancos diferentes por request. Em vez de preparar statements na
+// factory e prendê-los a UM db, usamos stmt-cache para preparar
+// lazily por db real. O comportamento em single-tenant é idêntico.
 function createConfigHelpers(db) {
-  const getConfig = db.prepare('SELECT valor FROM config WHERE chave = ?');
-  const setConfig = db.prepare(
-    'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)'
-  );
+  const stmt = createStmtCache();
+  const SQL_GET = 'SELECT valor FROM config WHERE chave = ?';
+  const SQL_SET = 'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)';
 
   function getConfigValue(chave) {
-    const row = getConfig.get(chave);
+    const row = stmt(db, SQL_GET).get(chave);
     return row ? row.valor : null;
   }
 
   function setConfigValue(chave, valor) {
-    setConfig.run(chave, valor);
+    stmt(db, SQL_SET).run(chave, valor);
   }
 
   /**
@@ -44,10 +49,19 @@ function createConfigHelpers(db) {
    * análise IA (que rodam no worker). O master tem cópia interna.
    */
   function getIAKeys() {
+    const cerebras = getConfigValue('cerebras_api_key');
     const gemini = getConfigValue('gemini_api_key');
+    const deepseek = getConfigValue('deepseek_api_key');
+    const groq = getConfigValue('groq_api_key');
     const anthropic = getConfigValue('anthropic_api_key');
-    if (!gemini && !anthropic) return null;
-    return { gemini: gemini || null, anthropic: anthropic || null };
+    if (!cerebras && !gemini && !deepseek && !groq && !anthropic) return null;
+    return {
+      cerebras: cerebras || null,
+      gemini: gemini || null,
+      deepseek: deepseek || null,
+      groq: groq || null,
+      anthropic: anthropic || null,
+    };
   }
 
   return { getConfigValue, setConfigValue, getIAKeys };

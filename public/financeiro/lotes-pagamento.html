@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pagamento em Lote · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Pagamento em Lote</h1>
+      <small>Selecione contas a pagar abertas → processe (PIX via Asaas ou lista manual) → confirme para baixar tudo</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo lote</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Número</th><th>Conta</th><th>Provedor</th>
+        <th style="text-align:right;">Itens</th><th style="text-align:right;">Valor</th>
+        <th>Status</th><th></th></tr></thead>
+      <tbody id="tbLotes"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="detWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;"><div><h2 id="detTitulo" style="margin:0;"></h2></div></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>CP</th><th>Fornecedor</th><th>Vencimento</th><th>Forma</th><th>Chave PIX</th>
+          <th style="text-align:right;">Valor</th><th>Status</th></tr></thead>
+        <tbody id="tbDetItens"></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNovo">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Novo lote de pagamento</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Conta financeira (origem)</label><select id="nConta"></select></div>
+      <div class="form-group"><label>Provedor</label>
+        <select id="nProvedor">
+          <option value="manual">Manual (pago no internet banking)</option>
+          <option value="asaas">Asaas (PIX automático)</option>
+        </select>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="max-height:280px;overflow-y:auto;">
+      <table>
+        <thead><tr><th style="width:30px;"></th><th>CP</th><th>Fornecedor</th><th>Vencimento</th>
+          <th style="text-align:right;">Aberto</th><th style="width:190px;">Chave PIX</th></tr></thead>
+        <tbody id="tbCPs"><tr><td colspan="6" class="empty">Carregando CPs abertas…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="resumoLote" class="card card-info" style="margin-top:10px;font-size:0.9em;">Selecione as contas</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarLote()">Criar lote</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('fin-lotes-pagamento');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',7000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(){ document.getElementById('modalNovo').classList.remove('open'); }
+
+const ST = { rascunho:'<span class="badge ajuste">RASCUNHO</span>', processando:'<span class="badge saida">PROCESSANDO</span>',
+  concluido:'<span class="badge entrada">CONCLUÍDO</span>', erro:'<span class="badge cancelado">ERRO</span>', cancelado:'<span class="badge cancelado">CANCELADO</span>' };
+const STI = { pendente:'pendente', aguardando:'⏳ aguardando confirmação', enviado:'📡 PIX enviado', pago:'✅ pago', erro:'❌ erro', cancelado:'cancelado', bloqueado:'🛡️ alçada' };
+
+async function carregar(){
+  const r = await fetch('/api/lotes-pagamento'); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbLotes').innerHTML = d.lotes.length ? d.lotes.map(l=>{
+    const acoes = [`<button class="btn btn-ghost btn-sm" onclick="verDet(${l.id})">Itens</button>`];
+    if (l.status==='rascunho') acoes.push(`<button class="btn btn-primary btn-sm" onclick="acao(${l.id},'processar')">Processar</button>`);
+    if (l.status==='processando') acoes.push(`<button class="btn btn-primary btn-sm" onclick="acao(${l.id},'confirmar')">Confirmar pagamentos</button>`);
+    if (['rascunho','processando'].includes(l.status)) acoes.push(`<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="acao(${l.id},'cancelar')">Cancelar</button>`);
+    return `<tr><td><strong>${l.numero}</strong></td><td>${l.contaNome}</td><td>${l.provedor}</td>
+      <td style="text-align:right;">${l.qtdPagos}/${l.qtdItens}</td>
+      <td style="text-align:right;"><strong>R$ ${fmt(l.valorTotal)}</strong></td>
+      <td>${ST[l.status]||l.status}</td><td style="white-space:nowrap;">${acoes.join(' ')}</td></tr>`;
+  }).join('') : '<tr><td colspan="7" class="empty">Nenhum lote</td></tr>';
+}
+
+async function verDet(id){
+  const r = await fetch('/api/lotes-pagamento/'+id); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('detWrap').style.display='block';
+  document.getElementById('detTitulo').textContent = `${d.lote.numero} — ${d.lote.contaNome} (${d.lote.provedor})`;
+  document.getElementById('tbDetItens').innerHTML = d.itens.map(i=>`<tr>
+    <td>#${i.contaPagarId} ${i.descricao}</td><td>${i.fornecedorNome||'-'}</td><td>${i.dataVencimento||'-'}</td>
+    <td>${i.formaPagamento}</td><td><code>${i.chavePix||'-'}</code></td>
+    <td style="text-align:right;">R$ ${fmt(i.valor)}</td>
+    <td>${STI[i.status]||i.status}${i.erroMensagem?'<br><small style="color:var(--danger);">'+i.erroMensagem+'</small>':''}</td>
+  </tr>`).join('');
+}
+
+async function acao(id, verbo){
+  if (verbo==='confirmar' && !confirm('Confirmar os pagamentos deste lote? As contas serão baixadas e as saídas lançadas no caixa.')) return;
+  if (verbo==='cancelar' && !confirm('Cancelar este lote?')) return;
+  const r = await fetch(`/api/lotes-pagamento/${id}/${verbo}`, { method:'POST' }); const d = await r.json();
+  if(!d.success){
+    let msg = d.error;
+    if (d.bloqueados) msg += ' — aprovações: #' + d.bloqueados.map(b=>b.aprovacaoId).join(', #');
+    return showAlert(msg,'error');
+  }
+  if (d.erros?.length) showAlert(`Concluído com ${d.erros.length} erro(s) — veja os itens`, 'error');
+  else showAlert(d.totalPago!=null?`R$ ${fmt(d.totalPago)} pagos e baixados`:'Lote atualizado');
+  carregar(); verDet(id);
+}
+
+// ---------- novo lote ----------
+async function abrirNovo(){
+  const rc = await fetch('/api/contas-financeiras'); const dc = await rc.json();
+  document.getElementById('nConta').innerHTML = (dc.contas||[]).map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+  const r = await fetch('/api/contas-a-pagar'); const d = await r.json();
+  const abertas = (d.contas||[]).filter(c=>['aberta','parcial'].includes(c.status));
+  document.getElementById('tbCPs').innerHTML = abertas.length ? abertas.map(c=>{
+    const aberto = c.valor - (c.valorPago||0);
+    return `<tr>
+      <td><input type="checkbox" class="chkCP" value="${c.id}" data-valor="${aberto}" onchange="resumo()"></td>
+      <td>#${c.id} ${c.descricao}</td><td>${c.fornecedorNome||'-'}</td><td>${c.dataVencimento}</td>
+      <td style="text-align:right;">R$ ${fmt(aberto)}</td>
+      <td><input type="text" class="pixCP" placeholder="chave PIX (opcional)" style="width:180px;"></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty">Nenhuma CP aberta</td></tr>';
+  resumo();
+  document.getElementById('modalNovo').classList.add('open');
+}
+
+function resumo(){
+  const sel = [...document.querySelectorAll('.chkCP:checked')];
+  const total = sel.reduce((s,c)=>s+Number(c.dataset.valor),0);
+  document.getElementById('resumoLote').innerHTML = `${sel.length} conta(s) · total <strong>R$ ${fmt(total)}</strong>`;
+}
+
+async function salvarLote(){
+  const itens = [...document.querySelectorAll('.chkCP:checked')].map(c=>({
+    contaPagarId: Number(c.value),
+    chavePix: c.closest('tr').querySelector('.pixCP').value.trim() || null
+  }));
+  if (!itens.length) return showAlert('Selecione ao menos 1 conta','error');
+  const body = {
+    contaFinanceiraId: Number(document.getElementById('nConta').value),
+    provedor: document.getElementById('nProvedor').value,
+    itens
+  };
+  const r = await fetch('/api/lotes-pagamento', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar(); showAlert('Lote criado — use Processar quando estiver pronto'); carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
+carregar();
+</script>
+</body></html>

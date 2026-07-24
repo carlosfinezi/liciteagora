@@ -249,21 +249,25 @@ class NfseClient {
   }
 
   /**
-   * Cancelar NFS-e
-   * @param {string} chaveAcesso - Chave de acesso
-   * @param {string} motivo - Motivo do cancelamento
+   * Cancelar NFS-e — envia evento (tpEvento=101101) já assinado.
+   *
+   * @param {string} chaveAcesso - Chave de acesso (50 dígitos)
+   * @param {string} signedEventoXml - XML do evento já assinado (XMLDSIG)
    * @returns {Promise<Object>}
    */
-  async cancelarNfse(chaveAcesso, motivo) {
+  async cancelarNfse(chaveAcesso, signedEventoXml) {
     const url = `${this.baseUrl}/nfse/${chaveAcesso}/eventos`;
     console.log(`[NFSe] Cancelando NFS-e: ${chaveAcesso}`);
 
-    const evento = JSON.stringify({
-      tpEvento: 'e101101', // cancelamento
-      motivoCancelamento: motivo,
-    });
+    const xmlBuffer = Buffer.from(signedEventoXml, 'utf-8');
+    const gzipped = zlib.gzipSync(xmlBuffer);
+    const pedidoRegistroEventoXmlGZipB64 = gzipped.toString('base64');
 
-    const response = await this._request('POST', url, evento);
+    // Nome do campo espelha o root XML <pedRegEvento>, análogo a
+    // dpsXmlGZipB64 espelhar <DPS> na emissão. Confirmado em backup
+    // pré-refactor (nfse-client.js.bak-20260420-062459).
+    const payload = JSON.stringify({ pedidoRegistroEventoXmlGZipB64 });
+    const response = await this._request('POST', url, payload);
 
     if (response.status >= 400) {
       const errorMsg = typeof response.data === 'object'
@@ -276,9 +280,13 @@ class NfseClient {
   }
 
   /**
-   * Consultar parâmetros municipais
-   * @param {string} codMunicipio - Código IBGE do município
-   * @returns {Promise<Object>}
+   * Consultar parâmetros municipais (endpoint de diagnóstico).
+   *
+   * Nota: na prática esse endpoint retorna 404 HTML genérico para QUALQUER
+   * código IBGE testado (incluindo cidades que emitem com sucesso). Não
+   * é confiável como teste de habilitação — use a estratégia de aprender
+   * com o feedback real da emissão (E0039 cacheado em nfse_config).
+   * Mantido como diagnóstico no modal de config.
    */
   async parametrosMunicipais(codMunicipio) {
     const url = `${this.baseUrl}/parametros_municipais/${codMunicipio}/convenio`;
@@ -287,11 +295,11 @@ class NfseClient {
     // NFSE-H09: GET idempotente — usa retry com backoff
     const response = await this._requestWithRetry('GET', url);
 
-    if (response.status >= 400) {
-      throw new Error(`Erro ao consultar parâmetros: ${response.status}`);
-    }
-
-    return response.data;
+    return {
+      ok: response.status >= 200 && response.status < 300,
+      status: response.status,
+      data: response.data,
+    };
   }
 }
 

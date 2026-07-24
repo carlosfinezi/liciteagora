@@ -239,25 +239,34 @@ function registrarRotas(app, db) {
 
   app.get('/api/cp-categorias', (req, res) => {
     try {
-      const rows = db.prepare(`SELECT * FROM categorias_cp WHERE ativo = 1 ORDER BY nome ASC`).all();
+      const rows = db.prepare(`SELECT c.*, pc.codigo AS planoContaCodigo, pc.nome AS planoContaNome
+        FROM categorias_cp c LEFT JOIN plano_contas pc ON pc.id = c.planoContaId
+        WHERE c.ativo = 1 ORDER BY c.nome ASC`).all();
       res.json({ success: true, categorias: rows });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.post('/api/cp-categorias', (req, res) => {
     try {
-      const { nome, icone } = req.body || {};
+      const { nome, icone, planoContaId } = req.body || {};
       if (!nome) return res.status(400).json({ success: false, error: 'nome obrigatório' });
-      const r = db.prepare('INSERT INTO categorias_cp (nome, icone) VALUES (?, ?)').run(nome.trim(), icone || null);
+      const r = db.prepare('INSERT INTO categorias_cp (nome, icone, planoContaId) VALUES (?, ?, ?)')
+        .run(nome.trim(), icone || null, planoContaId ? Number(planoContaId) : null);
       res.json({ success: true, categoria: db.prepare('SELECT * FROM categorias_cp WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.put('/api/cp-categorias/:id', (req, res) => {
     try {
-      const { nome, icone } = req.body || {};
-      db.prepare('UPDATE categorias_cp SET nome = COALESCE(?, nome), icone = COALESCE(?, icone) WHERE id = ?')
-        .run(nome || null, icone || null, req.params.id);
+      const { nome, icone, planoContaId } = req.body || {};
+      db.prepare(`UPDATE categorias_cp SET
+          nome = COALESCE(?, nome),
+          icone = COALESCE(?, icone),
+          planoContaId = ?
+        WHERE id = ?`)
+        .run(nome || null, icone || null,
+             planoContaId !== undefined ? (planoContaId ? Number(planoContaId) : null) : null,
+             req.params.id);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -393,11 +402,15 @@ function registrarRotas(app, db) {
       const conta = db.prepare(`SELECT cp.*,
           f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
           n.numero AS nfeNumero, n.serie AS nfeSerie, n.chaveAcesso AS nfeChave,
-          cat.nome AS categoriaNome, cat.icone AS categoriaIcone
+          cat.nome AS categoriaNome, cat.icone AS categoriaIcone,
+          pc.codigo AS planoContaCodigo, pc.nome AS planoContaNome,
+          cc.codigo AS centroCustoCodigo, cc.nome AS centroCustoNome
         FROM contas_a_pagar cp
         LEFT JOIN fornecedores f ON f.id = cp.fornecedorId
         LEFT JOIN nfe_entrada n ON n.id = cp.nfeEntradaId
         LEFT JOIN categorias_cp cat ON cat.id = cp.categoriaId
+        LEFT JOIN plano_contas pc ON pc.id = cp.planoContaId
+        LEFT JOIN centros_custo cc ON cc.id = cp.centroCustoId
         WHERE cp.id = ?`).get(req.params.id);
       if (!conta) return res.status(404).json({ success: false, error: 'Não encontrada' });
 
@@ -423,12 +436,20 @@ function registrarRotas(app, db) {
   app.post('/api/contas-a-pagar', (req, res) => {
     try {
       const { fornecedorId, categoriaId, descricao, valor, dataVencimento, dataEmissao,
-              formaPagamento, observacoes, parcelas, intervaloMeses } = req.body || {};
+              formaPagamento, observacoes, parcelas, intervaloMeses,
+              planoContaId, centroCustoId } = req.body || {};
       if (!fornecedorId || !descricao || valor == null || !dataVencimento) {
         return res.status(400).json({ success: false, error: 'fornecedorId, descricao, valor e dataVencimento obrigatórios' });
       }
       const fornec = db.prepare('SELECT id FROM fornecedores WHERE id = ? AND ativo = 1').get(Number(fornecedorId));
       if (!fornec) return res.status(404).json({ success: false, error: 'Fornecedor não encontrado' });
+
+      // Plano 12: fallback — se planoContaId não veio mas categoria tem mapeamento, usa
+      let planoId = planoContaId ? Number(planoContaId) : null;
+      if (!planoId && categoriaId) {
+        const cat = db.prepare('SELECT planoContaId FROM categorias_cp WHERE id = ?').get(Number(categoriaId));
+        if (cat?.planoContaId) planoId = cat.planoContaId;
+      }
 
       const parcelasN = Math.max(1, Number(parcelas) || 1);
       const intervalo = Math.max(1, Number(intervaloMeses) || 1);
@@ -446,10 +467,11 @@ function registrarRotas(app, db) {
           const vlr = (i === parcelasN - 1) ? (valorParcela + sobra) : valorParcela;
           const desc = parcelasN > 1 ? `${descricao} (${i+1}/${parcelasN})` : descricao;
           const r = db.prepare(`INSERT INTO contas_a_pagar
-            (fornecedorId, categoriaId, descricao, valor, dataEmissao, dataVencimento,
+            (fornecedorId, categoriaId, planoContaId, centroCustoId, descricao, valor, dataEmissao, dataVencimento,
              formaPagamento, observacoes, origem, status, parcelaNumero, totalParcelas, grupoParcelaId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta', ?, ?, ?)`).run(
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta', ?, ?, ?)`).run(
             Number(fornecedorId), categoriaId ? Number(categoriaId) : null,
+            planoId, centroCustoId ? Number(centroCustoId) : null,
             desc, vlr, dataEmi, venc, formaPagamento || null, observacoes || null,
             parcelasN > 1 ? (i+1) : null, parcelasN > 1 ? parcelasN : null, grupo
           );
@@ -471,11 +493,12 @@ function registrarRotas(app, db) {
       if (!['aberta','parcial'].includes(existing.status)) {
         return res.status(400).json({ success: false, error: 'Só contas abertas ou parciais podem ser editadas' });
       }
-      const { descricao, valor, dataVencimento, formaPagamento, observacoes, fornecedorId, categoriaId } = req.body || {};
+      const { descricao, valor, dataVencimento, formaPagamento, observacoes, fornecedorId,
+              categoriaId, planoContaId, centroCustoId } = req.body || {};
       db.prepare(`UPDATE contas_a_pagar SET
           descricao = ?, valor = ?, dataVencimento = ?,
           formaPagamento = ?, observacoes = ?,
-          fornecedorId = ?, categoriaId = ?,
+          fornecedorId = ?, categoriaId = ?, planoContaId = ?, centroCustoId = ?,
           dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = ?`).run(
         descricao || existing.descricao,
@@ -485,6 +508,8 @@ function registrarRotas(app, db) {
         observacoes ?? existing.observacoes,
         fornecedorId ? Number(fornecedorId) : existing.fornecedorId,
         categoriaId != null ? Number(categoriaId) : existing.categoriaId,
+        planoContaId !== undefined ? (planoContaId ? Number(planoContaId) : null) : existing.planoContaId,
+        centroCustoId !== undefined ? (centroCustoId ? Number(centroCustoId) : null) : existing.centroCustoId,
         req.params.id
       );
       const conta = db.prepare('SELECT * FROM contas_a_pagar WHERE id = ?').get(req.params.id);
@@ -529,6 +554,18 @@ function registrarRotas(app, db) {
       if (!conta) return res.status(404).json({ success: false, error: 'Conta não encontrada' });
       if (!['aberta','parcial'].includes(conta.status)) return res.status(400).json({ success: false, error: `Conta com status ${conta.status} não pode receber baixa` });
       if (!contaFinanceiraId) return res.status(400).json({ success: false, error: 'contaFinanceiraId obrigatório' });
+
+      // Alçada (governança): pagamento acima do limite exige aprovação prévia
+      const { verificarAlcada } = require('./governanca-routes');
+      const valorAlcada = (valorBase !== undefined && valorBase !== null && valorBase !== '') ? Number(valorBase) : Number(conta.valor - (conta.valorPago || 0));
+      const alcada = verificarAlcada(db, { tipoEvento: 'pagamento_cp', referenciaId: conta.id, valor: valorAlcada, usuario: req.session?.username });
+      if (!alcada.liberado) {
+        return res.status(403).json({ success: false,
+          error: alcada.status === 'reprovada'
+            ? 'Pagamento reprovado pela alçada'
+            : `Pagamento acima da alçada (R$ ${alcada.regra.limiteValor.toFixed(2)}) — aprovação #${alcada.aprovacaoId} pendente`,
+          aprovacaoId: alcada.aprovacaoId, statusAprovacao: alcada.status });
+      }
 
       const contaFin = db.prepare('SELECT * FROM contas_financeiras WHERE id = ? AND ativo = 1').get(contaFinanceiraId);
       if (!contaFin) return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
@@ -826,4 +863,91 @@ function registrarRotas(app, db) {
   });
 }
 
-module.exports = { registrarRotasContasPagar: registrarRotas, gerarContasRecorrentes };
+// ==================== HELPERS REUTILIZÁVEIS ====================
+// Usados pelo os-routes para sincronizar AP de itens "comprados de terceiro".
+// Mantém a lógica de parcelamento/categoria fora — aqui é AP simples (1 parcela).
+
+function categoriaFornecedoresId(db) {
+  const r = db.prepare(`SELECT id FROM categorias_cp WHERE nome = 'Fornecedores'`).get();
+  return r?.id || null;
+}
+
+// Cria um AP simples (1 parcela) e retorna o id. Não valida fornecedor —
+// chamador é responsável.
+function criarContaAPagar(db, payload) {
+  const cat = payload.categoriaId || categoriaFornecedoresId(db);
+  const dataEmi = payload.dataEmissao || dataBrasilia();
+  const r = db.prepare(`INSERT INTO contas_a_pagar
+    (fornecedorId, categoriaId, descricao, valor, dataEmissao, dataVencimento,
+     formaPagamento, observacoes, origem, status, osId, osItemId, osItemTipo)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'aberta', ?, ?, ?)`).run(
+    Number(payload.fornecedorId), cat,
+    payload.descricao, Number(payload.valor),
+    dataEmi, payload.dataVencimento,
+    payload.formaPagamento || null, payload.observacoes || null,
+    payload.origem || 'os_item_terceiro',
+    payload.osId || null, payload.osItemId || null, payload.osItemTipo || null,
+  );
+  return r.lastInsertRowid;
+}
+
+// Atualiza um AP só se ainda estiver aberto (sem pagamentos). Retorna true
+// se atualizou, false se já tem pagamento — chamador decide o que fazer.
+function atualizarContaAPagarSeAberta(db, contaId, payload) {
+  const conta = db.prepare('SELECT * FROM contas_a_pagar WHERE id = ?').get(contaId);
+  if (!conta) return false;
+  if (!['aberta'].includes(conta.status)) return false;
+  const pagamentos = db.prepare(`SELECT COUNT(*) c FROM contas_pagar_pagamentos
+    WHERE contaPagarId = ? AND estornado = 0`).get(contaId).c;
+  if (pagamentos > 0) return false;
+  db.prepare(`UPDATE contas_a_pagar SET
+      fornecedorId = ?, descricao = ?, valor = ?, dataVencimento = ?,
+      formaPagamento = ?, observacoes = ?, dataAtualizacao = CURRENT_TIMESTAMP
+    WHERE id = ?`).run(
+    payload.fornecedorId != null ? Number(payload.fornecedorId) : conta.fornecedorId,
+    payload.descricao || conta.descricao,
+    payload.valor != null ? Number(payload.valor) : conta.valor,
+    payload.dataVencimento || conta.dataVencimento,
+    payload.formaPagamento ?? conta.formaPagamento,
+    payload.observacoes ?? conta.observacoes,
+    contaId,
+  );
+  return true;
+}
+
+// Tenta deletar AP. Se já tem pagamento (não estornado), só cancela em vez
+// de deletar — preserva histórico financeiro.
+// Retorna 'deleted' | 'cancelled' | 'nothing'.
+function removerContaAPagarSeAberta(db, contaId) {
+  const conta = db.prepare('SELECT * FROM contas_a_pagar WHERE id = ?').get(contaId);
+  if (!conta) return 'nothing';
+  const pagamentos = db.prepare(`SELECT COUNT(*) c FROM contas_pagar_pagamentos
+    WHERE contaPagarId = ? AND estornado = 0`).get(contaId).c;
+  if (pagamentos > 0) {
+    if (['aberta','parcial'].includes(conta.status)) {
+      db.prepare(`UPDATE contas_a_pagar SET status = 'cancelada', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(contaId);
+      return 'cancelled';
+    }
+    return 'nothing';
+  }
+  db.prepare('DELETE FROM contas_a_pagar WHERE id = ?').run(contaId);
+  return 'deleted';
+}
+
+// Indica se o AP já recebeu pagamento — usado por os-routes para bloquear
+// edição de custo/fornecedor após baixa.
+function contaAPagarTemPagamento(db, contaId) {
+  if (!contaId) return false;
+  const r = db.prepare(`SELECT COUNT(*) c FROM contas_pagar_pagamentos
+    WHERE contaPagarId = ? AND estornado = 0`).get(contaId);
+  return (r?.c || 0) > 0;
+}
+
+module.exports = {
+  registrarRotasContasPagar: registrarRotas,
+  gerarContasRecorrentes,
+  criarContaAPagar,
+  atualizarContaAPagarSeAberta,
+  removerContaAPagarSeAberta,
+  contaAPagarTemPagamento,
+};

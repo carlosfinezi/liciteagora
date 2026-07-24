@@ -321,7 +321,7 @@ Campos a procurar nos resultados:
 
 Se nenhum endpoint público retornar marca/modelo, 
 as alternativas são:
-1. Extrair da extensão (browser logado no Comprasnet)
+1. Extrair do Electron Standalone (webview logado no Comprasnet)
 2. Scrape do PDF da ata/resultado publicado no PNCP
 3. Usar descrição do item + fornecedor como proxy
   `);

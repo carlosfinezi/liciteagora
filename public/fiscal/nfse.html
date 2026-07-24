@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFSe Nacional - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* NFSE-H08: Banner de ambiente fiscal persistente */
+#nfseAmbienteBanner {
+    display: none;
+    padding: 10px 16px;
+    font-weight: 700;
+    font-size: 0.92em;
+    letter-spacing: 0.3px;
+    text-align: center;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    border: 2px solid transparent;
+}
+#nfseAmbienteBanner.producao {
+    display: block;
+    background: #064e3b;
+    color: #a7f3d0;
+    border-color: #10b981;
+}
+#nfseAmbienteBanner.homologacao {
+    display: block;
+    background: #78350f;
+    color: #fef3c7;
+    border-color: #f59e0b;
+    animation: nfseBlink 2.2s ease-in-out infinite;
+}
+@keyframes nfseBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.78; }
+}
+</style>
+    <style>
+        /* page-local: toggle de ambiente fiscal + detail-row no modal + config-actions layout */
+        .ambiente-toggle { padding: 6px 14px; border-radius: var(--r-sm); border: none; font-weight: 700; cursor: pointer; font-size: 0.85em; transition: all 0.3s; }
+        .ambiente-toggle.producao { background: var(--danger); color: var(--text-0); }
+        .ambiente-toggle.homologacao { background: var(--warn); color: #000; }
+        .config-actions { margin-left: auto; display: flex; gap: 10px; }
+        .config-row { display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; }
+        .config-row .form-group { flex: 1; min-width: 150px; }
+        .detail-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .detail-label { color: var(--text-3); min-width: 150px; font-size: 0.9em; }
+        .detail-value { color: var(--text-0); font-size: 0.9em; word-break: break-all; }
+        .form-group input[readonly] { opacity: 0.6; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>NFS-e Nacional</h1>
+                <small>Emissão de Notas Fiscais de Serviço Eletrônicas via Emissor Nacional</small>
+              </div>
+              <div class="actions">
+                <a class="btn btn-secondary btn-sm" href="/fiscal/nfse-emitidas.html">📋 Notas emitidas</a>
+                <button class="btn btn-secondary btn-sm" onclick="abrirConfig()">⚙️ Configurar</button>
+              </div>
+            </div>
+
+            <!-- Banner persistente de ambiente fiscal (NFSE-H08) -->
+            <div id="nfseAmbienteBanner"></div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <!-- Barra de Status -->
+            <div class="status-bar" id="statusBar">
+                <div class="status-item">
+                    <span class="label">Ambiente:</span>
+                    <button class="ambiente-toggle homologacao" id="btnAmbiente" onclick="alternarAmbiente()">HOMOLOGAÇÃO</button>
+                </div>
+                <div class="status-item">
+                    <span class="label">Certificado:</span>
+                    <span class="value" id="statusCert">Verificando…</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Município:</span>
+                    <span class="value" id="statusMunicipio">—</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Habilitado SEFIN:</span>
+                    <span class="value" id="statusHabilitado" title="Status de habilitação do município no Padrão Nacional NFS-e">—</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Próximo nDPS:</span>
+                    <span class="value" id="statusProximoNum">—</span>
+                </div>
+            </div>
+
+            <!-- Formulário de emissão -->
+            <div class="page-section">
+                <!-- Prestador (readonly) -->
+                <div class="panel">
+                    <h3>Prestador (seus dados)</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>CNPJ</label>
+                            <input type="text" id="prestCnpj" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>Razao Social</label>
+                            <input type="text" id="prestRazaoSocial" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>Inscricao Municipal</label>
+                            <input type="text" id="prestIM" readonly>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tomador -->
+                <div class="panel">
+                    <h3>Tomador do Servico</h3>
+                    <div class="form-row">
+                        <div class="form-group autocomplete-wrapper" style="position: relative;">
+                            <label>CPF/CNPJ *</label>
+                            <input type="text" id="tomaCpfCnpj" placeholder="CPF ou CNPJ do tomador" oninput="buscarTomadorAutocomplete(this.value)">
+                            <div id="tomadorAutocompleteLista" class="autocomplete-list"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Razao Social / Nome *</label>
+                            <input type="text" id="tomaRazaoSocial" placeholder="Nome ou razao social">
+                        </div>
+                        <div class="form-group">
+                            <label>E-mail</label>
+                            <input type="email" id="tomaEmail" placeholder="E-mail do tomador">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Logradouro</label>
+                            <input type="text" id="tomaLogradouro" placeholder="Rua, Av, etc.">
+                        </div>
+                        <div class="form-group" style="max-width: 120px;">
+                            <label>Numero</label>
+                            <input type="text" id="tomaNumero" placeholder="Nr.">
+                        </div>
+                        <div class="form-group">
+                            <label>Complemento</label>
+                            <input type="text" id="tomaComplemento" placeholder="Sala, andar...">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Bairro</label>
+                            <input type="text" id="tomaBairro" placeholder="Bairro">
+                        </div>
+                        <div class="form-group">
+                            <label>Cod. Municipio (IBGE)</label>
+                            <input type="text" id="tomaCodMunicipio" placeholder="Ex: 3550308">
+                        </div>
+                        <div class="form-group" style="max-width: 80px;">
+                            <label>UF</label>
+                            <input type="text" id="tomaUF" placeholder="SP" maxlength="2">
+                        </div>
+                        <div class="form-group" style="max-width: 120px;">
+                            <label>CEP</label>
+                            <input type="text" id="tomaCEP" placeholder="00000000">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Servico -->
+                <div class="panel">
+                    <h3>Servico Prestado</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Codigo Tributacao Nacional (cTribNac) *</label>
+                            <input type="text" id="servCTribNac" placeholder="Ex: 010101" value="170201">
+                        </div>
+                        <div class="form-group">
+                            <label>Codigo Lista Servico (LC 116)</label>
+                            <input type="text" id="servCodListaServico" placeholder="Ex: 01.01" value="001">
+                        </div>
+                        <div class="form-group">
+                            <label>Municipio Prestacao (codigo IBGE 7 digitos)</label>
+                            <input type="text" id="servMunPrestacao" inputmode="numeric" pattern="\d{7}" maxlength="7"
+                                   placeholder="Ex: 2704302 (vazio = mesmo do prestador)"
+                                   oninput="this.value=this.value.replace(/\D/g,'').slice(0,7)">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group full-width">
+                            <label>Descricao do Servico *</label>
+                            <textarea id="servDescricao" placeholder="Descreva o servico prestado..."></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Valores -->
+                <div class="panel">
+                    <h3>Valores</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Valor do Servico (R$) *</label>
+                            <input type="number" id="servValor" step="0.01" min="0.01" placeholder="0,00">
+                        </div>
+                        <div class="form-group">
+                            <label>Deducoes (R$)</label>
+                            <input type="number" id="servDeducoes" step="0.01" min="0" placeholder="0,00">
+                        </div>
+                        <div class="form-group">
+                            <label>Aliquota ISS (%)</label>
+                            <input type="number" id="servAliquota" step="0.01" min="0" max="100" placeholder="Ex: 5.00">
+                        </div>
+                        <div class="form-group">
+                            <label>Data Competencia</label>
+                            <input type="date" id="servCompetencia">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cobranca -->
+                <div class="panel" id="panelCobranca">
+                    <h3>Cobranca</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="gerarBoleto" onchange="document.getElementById('divVencimentoBoleto').style.display = this.checked ? '' : 'none'">
+                                Gerar boleto bancario (Stone)
+                            </label>
+                        </div>
+                        <div class="form-group" id="divVencimentoBoleto" style="display: none;">
+                            <label>Data de Vencimento do Boleto</label>
+                            <input type="date" id="dataVencimentoBoleto">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Botao Emitir -->
+                <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+                    <button class="btn btn-primary" id="btnEmitir" onclick="emitirNfse()">Emitir NFS-e</button>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Modal Config -->
+    <div class="modal-bg" id="modalConfig">
+        <div class="modal" style="max-width: 550px;">
+            <div class="modal-header">
+              <div>
+                <h3 style="margin:0;">Configuração NFS-e</h3>
+                <small class="muted">Série do DPS e código do município (IBGE)</small>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="fecharModal('modalConfig')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+            </div>
+            <div class="config-panel">
+                <h4>Série do DPS (numérico, 1–5 dígitos)</h4>
+                <div class="config-row">
+                    <div class="form-group">
+                        <input type="text" id="cfgSerie" placeholder="1" maxlength="5" pattern="[0-9]{1,5}">
+                    </div>
+                </div>
+            </div>
+            <div class="config-panel">
+                <h4>Código Município — override avançado (IBGE, 7 dígitos)</h4>
+                <p style="font-size: 12px; color: var(--muted); margin: 4px 0 8px;">
+                    Por padrão, o código vem do cadastro em <a href="/configuracoes/minha-empresa.html">Minha Empresa</a> (preenchido pela busca de CNPJ). Use este campo apenas para sobrescrever manualmente.
+                </p>
+                <div class="config-row">
+                    <div class="form-group">
+                        <input type="text" id="cfgCodMunicipio" placeholder="Deixe em branco para usar o cadastro" maxlength="7">
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="consultarParametros()">Consultar parâmetros</button>
+                    <button class="btn btn-secondary btn-sm" onclick="revalidarMunicipio()" title="Refaz a consulta SEFIN ignorando o cache de 24h">Revalidar habilitação</button>
+                </div>
+            </div>
+            <div id="parametrosMunicipais" style="display: none; margin-top: 10px;"></div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="fecharModal('modalConfig')">Fechar</button>
+                <button class="btn btn-primary" onclick="salvarConfig()">Salvar configuração</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== STATE ====================
+        let configAtual = {};
+        let prestadorAtual = null;
+
+        // ==================== INIT ====================
+        document.addEventListener('DOMContentLoaded', () => {
+            carregarConfig();
+            // Data competencia default = hoje
+            document.getElementById('servCompetencia').value = new Date().toISOString().slice(0, 10);
+        });
+
+        // ==================== CONFIG ====================
+        async function carregarConfig() {
+            try {
+                const resp = await fetch('/api/nfse/config');
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+
+                configAtual = data.config;
+                prestadorAtual = data.prestador;
+
+                // Status bar
+                atualizarStatusBar(data);
+
+                // Preencher prestador
+                if (data.prestador) {
+                    document.getElementById('prestCnpj').value = data.prestador.cnpj || '';
+                    document.getElementById('prestRazaoSocial').value = data.prestador.razaoSocial || '';
+                    document.getElementById('prestIM').value = data.prestador.inscricaoMunicipal || '';
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao carregar configuracao: ' + error.message, 'error');
+            }
+        }
+
+        function atualizarStatusBar(data) {
+            // Ambiente
+            const btn = document.getElementById('btnAmbiente');
+            const banner = document.getElementById('nfseAmbienteBanner');
+            const isProd = (data.config.ambiente === '1' || data.config.ambiente === 1);
+            if (isProd) {
+                btn.textContent = 'PRODUCAO';
+                btn.className = 'ambiente-toggle producao';
+                // NFSE-H08: banner persistente
+                banner.className = 'producao';
+                banner.textContent = 'AMBIENTE DE PRODUCAO — Notas emitidas tem valor fiscal real.';
+            } else {
+                btn.textContent = 'HOMOLOGACAO';
+                btn.className = 'ambiente-toggle homologacao';
+                banner.className = 'homologacao';
+                banner.textContent = 'AMBIENTE DE HOMOLOGACAO — Notas NAO valem fiscalmente. Apenas testes.';
+            }
+
+            // Certificado
+            const certEl = document.getElementById('statusCert');
+            if (data.certificado && data.certificado.configurado) {
+                certEl.textContent = data.certificado.titular;
+                certEl.className = 'value success';
+            } else {
+                certEl.textContent = 'Nao configurado';
+                certEl.className = 'value danger';
+            }
+
+            // Municipio (vem do cadastro do fornecedor; override manual abaixo)
+            const munEl = document.getElementById('statusMunicipio');
+            const codMun = data.config.codMunicipio;
+            munEl.textContent = codMun
+                ? (data.config.codMunicipioOverride ? codMun + ' (override)' : codMun)
+                : 'Nao configurado em Minha Empresa';
+            munEl.className = codMun ? 'value' : 'value warning';
+
+            // Habilitação SEFIN (badge informativo; só fica verde após emissão autorizada)
+            const habEl = document.getElementById('statusHabilitado');
+            if (data.config.municipioHabilitado === true) {
+                habEl.textContent = '✓ Confirmado';
+                habEl.className = 'value success';
+                habEl.title = 'Última emissão para este município foi autorizada pela SEFIN.';
+            } else {
+                habEl.textContent = 'Sem emissão recente';
+                habEl.className = 'value warning';
+                habEl.title = 'Badge fica verde após a primeira emissão autorizada. Erros não derrubam o status.';
+            }
+
+            // Proximo numero
+            document.getElementById('statusProximoNum').textContent = data.config.proximoNumero || '1';
+        }
+
+        async function alternarAmbiente() {
+            const novoAmbiente = (configAtual.ambiente === '1' || configAtual.ambiente === 1) ? 2 : 1;
+            const label = novoAmbiente === 1 ? 'PRODUCAO' : 'HOMOLOGACAO';
+
+            if (novoAmbiente === 1) {
+                if (!confirm('Mudar para PRODUCAO? Notas emitidas serao reais!')) return;
+            }
+
+            try {
+                const resp = await fetch('/api/nfse/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ambiente: novoAmbiente }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    configAtual.ambiente = String(novoAmbiente);
+                    carregarConfig();
+                    mostrarAlerta('Ambiente alterado para ' + label, 'info');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro: ' + error.message, 'error');
+            }
+        }
+
+        function abrirConfig() {
+            document.getElementById('cfgSerie').value = configAtual.serie || '1';
+            document.getElementById('cfgCodMunicipio').value = configAtual.codMunicipioOverride || '';
+            document.getElementById('modalConfig').classList.add('open');
+        }
+
+        async function salvarConfig() {
+            const serie = document.getElementById('cfgSerie').value.trim();
+            const codMunicipio = document.getElementById('cfgCodMunicipio').value.trim();
+
+            try {
+                const resp = await fetch('/api/nfse/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ serie, codMunicipio }),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    fecharModal('modalConfig');
+                    carregarConfig();
+                    mostrarAlerta('Configuracao salva', 'success');
+                } else {
+                    mostrarAlerta('Erro: ' + data.error, 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro: ' + error.message, 'error');
+            }
+        }
+
+        async function consultarParametros() {
+            const cod = document.getElementById('cfgCodMunicipio').value.trim() || configAtual.codMunicipio || '';
+            if (!cod) { mostrarAlerta('Informe o código do município (cadastro ou override)', 'error'); return; }
+
+            const div = document.getElementById('parametrosMunicipais');
+            div.style.display = 'block';
+            div.innerHTML = '<p style="color:#888;">Consultando...</p>';
+
+            try {
+                const resp = await fetch('/api/nfse/parametros-municipais/' + cod);
+                const data = await resp.json();
+                if (data.success) {
+                    div.innerHTML = '<div class="config-panel"><h4>Parametros do Municipio ' + cod + '</h4><pre style="color:#adb5bd; font-size:0.8em; white-space:pre-wrap; word-break:break-all;">' + JSON.stringify(data.parametros, null, 2) + '</pre></div>';
+                } else {
+                    div.innerHTML = '<p style="color:#ff6b6b;">Erro: ' + data.error + '</p>';
+                }
+            } catch (error) {
+                div.innerHTML = '<p style="color:var(--danger);">Erro: ' + error.message + '</p>';
+            }
+        }
+
+        async function revalidarMunicipio() {
+            const div = document.getElementById('parametrosMunicipais');
+            div.style.display = 'block';
+            div.innerHTML = '<p style="color:#888;">Limpando cache de habilitação...</p>';
+
+            try {
+                const resp = await fetch('/api/nfse/revalidar-municipio', { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    div.innerHTML = '<div class="config-panel"><h4>Município ' + data.codMunicipio + '</h4>' +
+                        '<p>' + data.message + '</p></div>';
+                    carregarConfig();
+                    mostrarAlerta('Cache limpo. Tente emitir uma nota para testar.', 'success');
+                } else {
+                    div.innerHTML = '<p style="color:#ff6b6b;">Erro: ' + data.error + '</p>';
+                }
+            } catch (error) {
+                div.innerHTML = '<p style="color:var(--danger);">Erro: ' + error.message + '</p>';
+            }
+        }
+
+        // ==================== TABS ====================
+        // ==================== EMISSAO ====================
+        async function emitirNfse() {
+            const btn = document.getElementById('btnEmitir');
+
+            // Validacoes
+            const cpfCnpj = document.getElementById('tomaCpfCnpj').value.trim();
+            const razaoSocial = document.getElementById('tomaRazaoSocial').value.trim();
+            const cTribNac = document.getElementById('servCTribNac').value.trim();
+            const descricao = document.getElementById('servDescricao').value.trim();
+            const valor = parseFloat(document.getElementById('servValor').value);
+
+            if (!cpfCnpj) { mostrarAlerta('Informe o CPF/CNPJ do tomador', 'error'); return; }
+            if (!razaoSocial) { mostrarAlerta('Informe o nome/razao social do tomador', 'error'); return; }
+            if (!cTribNac) { mostrarAlerta('Informe o codigo de tributacao nacional', 'error'); return; }
+            if (!descricao) { mostrarAlerta('Informe a descricao do servico', 'error'); return; }
+            if (!valor || valor <= 0) { mostrarAlerta('Informe o valor do servico', 'error'); return; }
+
+            const ambiente = configAtual.ambiente;
+            const ambLabel = (ambiente === '1' || ambiente === 1) ? 'PRODUCAO' : 'HOMOLOGACAO';
+            if (!confirm('Emitir NFSe em ' + ambLabel + '?\n\nTomador: ' + razaoSocial + '\nValor: R$ ' + valor.toFixed(2))) return;
+
+            btn.disabled = true;
+            btn.textContent = 'Emitindo...';
+
+            // Montar endereco tomador (se preenchido)
+            let endereco = null;
+            const logradouro = document.getElementById('tomaLogradouro').value.trim();
+            if (logradouro) {
+                endereco = {
+                    logradouro,
+                    numero: document.getElementById('tomaNumero').value.trim(),
+                    complemento: document.getElementById('tomaComplemento').value.trim(),
+                    bairro: document.getElementById('tomaBairro').value.trim(),
+                    codigoMunicipio: document.getElementById('tomaCodMunicipio').value.trim(),
+                    uf: document.getElementById('tomaUF').value.trim().toUpperCase(),
+                    cep: document.getElementById('tomaCEP').value.trim(),
+                };
+            }
+
+            const payload = {
+                tomador: {
+                    cpfCnpj,
+                    razaoSocial,
+                    email: document.getElementById('tomaEmail').value.trim() || undefined,
+                    endereco,
+                },
+                servico: {
+                    codigoTributacaoNacional: cTribNac,
+                    codigoListaServico: document.getElementById('servCodListaServico').value.trim() || undefined,
+                    descricao,
+                    valorServico: valor,
+                    valorDeducoes: parseFloat(document.getElementById('servDeducoes').value) || undefined,
+                    aliquota: parseFloat(document.getElementById('servAliquota').value) || undefined,
+                    codigoMunicipioPrestacao: document.getElementById('servMunPrestacao').value.trim() || undefined,
+                },
+                competencia: document.getElementById('servCompetencia').value || undefined,
+                gerarBoleto: document.getElementById('gerarBoleto').checked,
+                dataVencimentoBoleto: document.getElementById('dataVencimentoBoleto').value || undefined,
+            };
+
+            try {
+                const resp = await fetch('/api/nfse/emitir', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    const nfse = data.nfse;
+                    let msg = 'NFSe emitida! nDPS: ' + nfse.nDPS + ', Serie: ' + nfse.serie;
+                    if (nfse.chaveAcesso) msg += ', Chave: ' + nfse.chaveAcesso;
+                    if (nfse.nNFSe) msg += ', Numero NFS-e: ' + nfse.nNFSe;
+                    mostrarAlerta(msg, 'success');
+
+                    carregarConfig(); // Atualizar proximo numero
+                } else {
+                    mostrarAlerta('Erro: ' + data.error, 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao emitir: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Emitir NFSe';
+            }
+        }
+
+        // ==================== AUTOCOMPLETE TOMADOR ====================
+        let tomaAutoTimeout = null;
+        function buscarTomadorAutocomplete(q) {
+            clearTimeout(tomaAutoTimeout);
+            const lista = document.getElementById('tomadorAutocompleteLista');
+            const limpo = (q || '').replace(/\D/g, '');
+            const busca = limpo.length >= 2 ? limpo : q;
+            if (busca.length < 2) { lista.style.display = 'none'; return; }
+
+            tomaAutoTimeout = setTimeout(async () => {
+                try {
+                    const resp = await fetch('/api/pessoas/autocomplete?q=' + encodeURIComponent(busca));
+                    const data = await resp.json();
+                    if (!data.success || !data.pessoas.length) { lista.style.display = 'none'; return; }
+
+                    lista.innerHTML = data.pessoas.map(p => {
+                        const doc = p.cpfCnpj.replace(/\D/g, '');
+                        const docFmt = doc.length === 11 ? doc.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') :
+                                       doc.length === 14 ? doc.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : doc;
+                        return `<div class="autocomplete-item" onclick="preencherTomador(${JSON.stringify(p).replace(/"/g, '&quot;')})">
+                            <strong>${p.razaoSocial}</strong><br><small style="color:var(--text-3);">${docFmt}</small>
+                        </div>`;
+                    }).join('');
+                    lista.style.display = 'block';
+                } catch { lista.style.display = 'none'; }
+            }, 400);
+        }
+
+        function preencherTomador(p) {
+            document.getElementById('tomaCpfCnpj').value = p.cpfCnpj;
+            document.getElementById('tomaRazaoSocial').value = p.razaoSocial || '';
+            document.getElementById('tomaEmail').value = p.email || '';
+            if (p.inscricaoMunicipal) {
+                const imEl = document.getElementById('tomaInscricaoMunicipal');
+                if (imEl) imEl.value = p.inscricaoMunicipal;
+            }
+            if (p.endereco) document.getElementById('tomaLogradouro').value = p.endereco;
+            if (p.numero) document.getElementById('tomaNumero').value = p.numero;
+            if (p.complemento) document.getElementById('tomaComplemento').value = p.complemento;
+            if (p.bairro) document.getElementById('tomaBairro').value = p.bairro;
+            if (p.codigoMunicipio) document.getElementById('tomaCodMunicipio').value = p.codigoMunicipio;
+            if (p.uf) document.getElementById('tomaUF').value = p.uf;
+            if (p.cep) document.getElementById('tomaCEP').value = p.cep;
+            document.getElementById('tomadorAutocompleteLista').style.display = 'none';
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.autocomplete-wrapper')) {
+                document.getElementById('tomadorAutocompleteLista').style.display = 'none';
+            }
+        });
+
+
+        // ==================== UTILS ====================
+        function mostrarAlerta(msg, tipo) {
+            const el = document.getElementById('alertBox');
+            el.textContent = msg;
+            el.className = 'alert ' + tipo;
+            setTimeout(() => { el.className = 'alert'; }, 8000);
+        }
+
+        function fecharModal(id) {
+            document.getElementById(id).classList.remove('open');
+        }
+
+        function escHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function formatarDataBR(str) {
+            if (!str) return '-';
+            const parts = str.split('-');
+            if (parts.length === 3) return parts[2] + '/' + parts[1] + '/' + parts[0];
+            return str;
+        }
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('nfse');</script>
+</body>
+</html>

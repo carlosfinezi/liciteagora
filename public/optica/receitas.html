@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Receitas Ópticas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Receitas Ópticas</h1>
+      <small>Receitas oftalmológicas dos clientes — usadas pelo pedido para definir o grau das lentes</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" id="btnNovo" onclick="abrirNovo()" style="display:none;">+ Nova receita</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div id="moduleOff" class="panel" style="display:none;text-align:center;padding:40px 20px;">
+    <h3 style="margin:0 0 8px 0;">Módulo Ótica desativado</h3>
+    <p class="muted" style="margin:0;">Este módulo é liberado pela equipe Licite Agora. Fale com o suporte para ativar.</p>
+  </div>
+
+  <div id="conteudo" style="display:none;">
+    <div class="toolbar">
+      <input type="text" id="fBusca" placeholder="Buscar cliente (nome ou CPF/CNPJ)…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+      <select id="fAtivo" onchange="carregar()" style="min-width:140px;">
+        <option value="ativas">Ativas</option>
+        <option value="todas">Todas</option>
+      </select>
+    </div>
+
+    <div class="panel">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Data</th>
+            <th>Cliente</th>
+            <th>Médico</th>
+            <th>OD (esf/cil/eixo/add)</th>
+            <th>OE (esf/cil/eixo/add)</th>
+            <th>DNP</th>
+            <th>Validade</th>
+            <th>Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Nova receita</h3>
+        <small class="muted">Receita oftalmológica do cliente</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+
+    <div class="form-row">
+      <div class="form-group" style="flex:2;position:relative;">
+        <label>Cliente *</label>
+        <input type="text" id="fCliBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCli()" autocomplete="off">
+        <input type="hidden" id="fPessoaId">
+        <div id="acCliList" class="ac-list"></div>
+      </div>
+      <div class="form-group">
+        <label>Data da receita *</label>
+        <input type="date" id="fData">
+      </div>
+      <div class="form-group">
+        <label>Validade</label>
+        <input type="date" id="fValidade">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Médico</label>
+        <input type="text" id="fMedico" placeholder="Nome do oftalmologista">
+      </div>
+      <div class="form-group">
+        <label>CRM</label>
+        <input type="text" id="fCrm" placeholder="CRM/UF 12345">
+      </div>
+    </div>
+
+    <h4 style="margin:16px 0 8px 0;">Olho Direito (OD)</h4>
+    <div class="form-row">
+      <div class="form-group"><label>Esférico</label><input type="number" id="fOdEsf" step="0.25" placeholder="-2.50"></div>
+      <div class="form-group"><label>Cilíndrico</label><input type="number" id="fOdCil" step="0.25" placeholder="-1.00"></div>
+      <div class="form-group"><label>Eixo (°)</label><input type="number" id="fOdEixo" min="0" max="180" placeholder="180"></div>
+      <div class="form-group"><label>Adição</label><input type="number" id="fOdAdd" step="0.25" placeholder="+2.00"></div>
+      <div class="form-group"><label>DNP OD (mm)</label><input type="number" id="fDnpOd" step="0.5" placeholder="32"></div>
+    </div>
+
+    <h4 style="margin:16px 0 8px 0;">Olho Esquerdo (OE)</h4>
+    <div class="form-row">
+      <div class="form-group"><label>Esférico</label><input type="number" id="fOeEsf" step="0.25" placeholder="-2.25"></div>
+      <div class="form-group"><label>Cilíndrico</label><input type="number" id="fOeCil" step="0.25" placeholder="-0.75"></div>
+      <div class="form-group"><label>Eixo (°)</label><input type="number" id="fOeEixo" min="0" max="180" placeholder="170"></div>
+      <div class="form-group"><label>Adição</label><input type="number" id="fOeAdd" step="0.25" placeholder="+2.00"></div>
+      <div class="form-group"><label>DNP OE (mm)</label><input type="number" id="fDnpOe" step="0.5" placeholder="32"></div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Altura óptica (mm) <small class="muted">(progressivas/multifocais)</small></label>
+        <input type="number" id="fAltura" step="0.5" placeholder="18">
+      </div>
+      <div class="form-group full-width">
+        <label>Observações</label>
+        <input type="text" id="fObs" placeholder="Ex.: prismas, prescrição de visão de perto, etc.">
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="btnInativar" onclick="inativar()" style="display:none;">Inativar</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('receitas-opticas');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtData(s){ if(!s) return '—'; const p=String(s).split('-'); return p.length>=3 ? `${p[2]}/${p[1]}/${p[0]}` : s; }
+function fmtN(v){ if(v==null||v==='') return '—'; const n=Number(v); return (n>=0?'+':'')+n.toFixed(2); }
+function vencida(dataValidade){
+  if (!dataValidade) return false;
+  const hoje = new Date().toISOString().slice(0,10);
+  return String(dataValidade).slice(0,10) < hoje;
+}
+
+let receitas = [];
+
+async function init(){
+  try {
+    const r = await fetch('/api/optica/status');
+    if (r.status === 401) { window.location.href='/login.html'; return; }
+    const d = await r.json();
+    if (!d.enabled) { document.getElementById('moduleOff').style.display=''; return; }
+    document.getElementById('btnNovo').style.display = '';
+    document.getElementById('conteudo').style.display = '';
+    await carregar();
+  } catch (e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+async function carregar(){
+  try {
+    const todos = document.getElementById('fAtivo').value === 'todas' ? '&todos=1' : '';
+    const r = await fetch('/api/optica/receitas?_=1'+todos);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    let lista = d.receitas || [];
+    const q = document.getElementById('fBusca').value.trim().toLowerCase();
+    if (q) lista = lista.filter(x => (x.pessoaNome||'').toLowerCase().includes(q) || (x.pessoaCpfCnpj||'').includes(q));
+    receitas = lista;
+    renderTabela();
+  } catch (e) {
+    showAlert('Erro: '+e.message,'error');
+    document.getElementById('tb').innerHTML = '<tr><td colspan="9" class="empty">Falha ao carregar</td></tr>';
+  }
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tb');
+  if (!receitas.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma receita</td></tr>'; return; }
+  tb.innerHTML = receitas.map(r => {
+    const od = `${fmtN(r.od_esferico)} / ${fmtN(r.od_cilindrico)} / ${r.od_eixo!=null?r.od_eixo+'°':'—'} / ${fmtN(r.od_adicao)}`;
+    const oe = `${fmtN(r.oe_esferico)} / ${fmtN(r.oe_cilindrico)} / ${r.oe_eixo!=null?r.oe_eixo+'°':'—'} / ${fmtN(r.oe_adicao)}`;
+    const dnp = (r.dnp_od||r.dnp_oe) ? `${r.dnp_od||'—'} / ${r.dnp_oe||'—'}` : '—';
+    const venc = vencida(r.dataValidade);
+    const validadeCelula = r.dataValidade
+      ? `${fmtData(r.dataValidade)}${venc ? ' <span class="badge" style="background:var(--danger);color:#fff;">vencida</span>' : ''}`
+      : '—';
+    let statusCelula;
+    if (!r.ativo) statusCelula = '<span class="badge">inativa</span>';
+    else if (venc) statusCelula = '<span class="badge" style="background:var(--danger);color:#fff;">vencida</span>';
+    else statusCelula = '<span class="badge success">ativa</span>';
+    return `<tr style="${r.ativo?'':'opacity:0.5;'}">
+      <td>${fmtData(r.dataReceita)}</td>
+      <td><strong>${escTxt(r.pessoaNome||'—')}</strong>${r.pessoaCpfCnpj?'<br><small class="muted">'+escTxt(r.pessoaCpfCnpj)+'</small>':''}</td>
+      <td>${escTxt(r.medico||'—')}${r.crm?' <small class="muted">('+escTxt(r.crm)+')</small>':''}</td>
+      <td><code style="font-size:11px;">${od}</code></td>
+      <td><code style="font-size:11px;">${oe}</code></td>
+      <td><code style="font-size:11px;">${dnp}</code></td>
+      <td>${validadeCelula}</td>
+      <td>${statusCelula}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="editar(${r.id})">Editar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+let _acTimer;
+function acCli(){
+  clearTimeout(_acTimer);
+  const q = document.getElementById('fCliBusca').value.trim();
+  if (q.length < 2) { document.getElementById('acCliList').innerHTML=''; return; }
+  _acTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/pessoas?q='+encodeURIComponent(q));
+      const d = await r.json();
+      const lista = d.pessoas || d.data || [];
+      document.getElementById('acCliList').innerHTML = lista.slice(0,10).map(p =>
+        `<div onclick='selCli(${p.id}, ${JSON.stringify(p.razaoSocial||"")})'>${escTxt(p.razaoSocial)} <small class="muted">${escTxt(p.cpfCnpj||"")}</small></div>`
+      ).join('');
+    } catch (_) {}
+  }, 200);
+}
+function selCli(id, nome){
+  document.getElementById('fPessoaId').value = id;
+  document.getElementById('fCliBusca').value = nome;
+  document.getElementById('acCliList').innerHTML = '';
+}
+
+function abrirNovo(){
+  document.getElementById('modalTitulo').textContent = 'Nova receita';
+  document.getElementById('fId').value = '';
+  ['fCliBusca','fPessoaId','fData','fValidade','fMedico','fCrm','fOdEsf','fOdCil','fOdEixo','fOdAdd','fOeEsf','fOeCil','fOeEixo','fOeAdd','fDnpOd','fDnpOe','fAltura','fObs'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fData').value = new Date().toISOString().slice(0,10);
+  document.getElementById('btnInativar').style.display = 'none';
+  document.getElementById('modal').classList.add('open');
+}
+
+function editar(id){
+  const r = receitas.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('modalTitulo').textContent = 'Editar receita';
+  document.getElementById('fId').value = r.id;
+  document.getElementById('fPessoaId').value = r.pessoaId;
+  document.getElementById('fCliBusca').value = r.pessoaNome || '';
+  document.getElementById('fData').value = r.dataReceita || '';
+  document.getElementById('fValidade').value = r.dataValidade || '';
+  document.getElementById('fMedico').value = r.medico || '';
+  document.getElementById('fCrm').value = r.crm || '';
+  document.getElementById('fOdEsf').value = r.od_esferico ?? '';
+  document.getElementById('fOdCil').value = r.od_cilindrico ?? '';
+  document.getElementById('fOdEixo').value = r.od_eixo ?? '';
+  document.getElementById('fOdAdd').value = r.od_adicao ?? '';
+  document.getElementById('fOeEsf').value = r.oe_esferico ?? '';
+  document.getElementById('fOeCil').value = r.oe_cilindrico ?? '';
+  document.getElementById('fOeEixo').value = r.oe_eixo ?? '';
+  document.getElementById('fOeAdd').value = r.oe_adicao ?? '';
+  document.getElementById('fDnpOd').value = r.dnp_od ?? '';
+  document.getElementById('fDnpOe').value = r.dnp_oe ?? '';
+  document.getElementById('fAltura').value = r.alturaOptica ?? '';
+  document.getElementById('fObs').value = r.observacoes || '';
+  document.getElementById('btnInativar').style.display = r.ativo ? '' : 'none';
+  document.getElementById('modal').classList.add('open');
+}
+
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const id = document.getElementById('fId').value;
+  const body = {
+    pessoaId: document.getElementById('fPessoaId').value || null,
+    dataReceita: document.getElementById('fData').value,
+    dataValidade: document.getElementById('fValidade').value || null,
+    medico: document.getElementById('fMedico').value.trim(),
+    crm: document.getElementById('fCrm').value.trim(),
+    od_esferico: document.getElementById('fOdEsf').value,
+    od_cilindrico: document.getElementById('fOdCil').value,
+    od_eixo: document.getElementById('fOdEixo').value,
+    od_adicao: document.getElementById('fOdAdd').value,
+    oe_esferico: document.getElementById('fOeEsf').value,
+    oe_cilindrico: document.getElementById('fOeCil').value,
+    oe_eixo: document.getElementById('fOeEixo').value,
+    oe_adicao: document.getElementById('fOeAdd').value,
+    dnp_od: document.getElementById('fDnpOd').value,
+    dnp_oe: document.getElementById('fDnpOe').value,
+    alturaOptica: document.getElementById('fAltura').value,
+    observacoes: document.getElementById('fObs').value.trim(),
+  };
+  if (!body.pessoaId) return showAlert('Selecione um cliente','error');
+  if (!body.dataReceita) return showAlert('Data da receita obrigatória','error');
+  const url = id ? '/api/optica/receitas/'+id : '/api/optica/receitas';
+  try {
+    const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    showAlert(id ? 'Receita atualizada' : 'Receita criada');
+    fecharModal();
+    await carregar();
+  } catch (e) { showAlert('Erro ao salvar: '+e.message, 'error'); }
+}
+
+async function inativar(){
+  const id = document.getElementById('fId').value;
+  if (!id) return;
+  if (!confirm('Inativar esta receita?')) return;
+  try {
+    const r = await fetch('/api/optica/receitas/'+id, { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    showAlert('Receita inativada');
+    fecharModal();
+    await carregar();
+  } catch (e) { showAlert('Erro: '+e.message, 'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
+});
+
+init();
+</script>
+</body>
+</html>

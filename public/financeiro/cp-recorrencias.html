@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recorrências · Contas a Pagar</title>
+  <link rel="stylesheet" href="/css/sidebar.css">
+  <link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout">
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1>⟳ Recorrências de Contas a Pagar</h1>
+        <small>Templates que geram contas automaticamente (aluguel, energia, assinaturas…)</small>
+      </div>
+      <div class="actions">
+        <a class="btn btn-ghost btn-sm" href="/financeiro/contas-a-pagar.html" style="text-decoration:none;">← Contas a pagar</a>
+        <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova recorrência</button>
+      </div>
+    </div>
+
+    <div class="panel" style="padding: 0;">
+      <table>
+        <thead><tr>
+          <th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Frequência</th>
+          <th style="text-align:right;">Valor</th><th>Próxima geração</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Nova recorrência</h3>
+        <small class="muted">Gera contas automaticamente na frequência configurada</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="row">
+      <label>Fornecedor *</label>
+      <input type="text" id="rFornecBusca" placeholder="CNPJ ou razão social..." oninput="debounceFornec()">
+      <div id="rFornecList" class="fornec-result"></div>
+      <div id="rFornecSel" style="color:var(--success);font-size:0.85em;margin-top:4px;"></div>
+    </div>
+    <div class="row-2">
+      <div class="row">
+        <label>Categoria</label>
+        <select id="rCategoria"><option value="">— sem —</option></select>
+      </div>
+      <div class="row">
+        <label>Forma padrão</label>
+        <select id="rForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <div class="row"><label>Descrição base *</label><input type="text" id="rDesc" placeholder="ex: Aluguel escritório"></div>
+    <div class="row-2">
+      <div class="row"><label>Valor *</label><input type="number" step="0.01" id="rValor"></div>
+      <div class="row">
+        <label>Frequência *</label>
+        <select id="rFreq">
+          <option value="mensal">Mensal</option>
+          <option value="semanal">Semanal</option>
+          <option value="anual">Anual</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>Próxima geração *</label><input type="date" id="rProxima"></div>
+      <div class="row"><label>Dia do mês (opcional)</label><input type="number" min="1" max="28" id="rDia" placeholder="ex: 10"></div>
+    </div>
+    <div class="row"><label>Observações</label><textarea id="rObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('contas-a-pagar');</script>
+<script>
+function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(iso){ if(!iso) return '-'; const d = new Date((iso||'').length===10?iso+'T12:00:00':iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
+
+let RECORRENCIAS = [], EDITANDO = null, FORNEC_SEL = null;
+let tmrF;
+function debounceFornec(){ clearTimeout(tmrF); tmrF = setTimeout(buscarFornec, 250); }
+
+async function carregar(){
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch('/api/cp-recorrencias').then(x => x.json()),
+      fetch('/api/cp-categorias').then(x => x.json())
+    ]);
+    RECORRENCIAS = r1.recorrencias || [];
+    const cats = r2.categorias || [];
+    document.getElementById('rCategoria').innerHTML = '<option value="">— sem —</option>' + cats.map(c => `<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
+    render();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+function render(){
+  const tb = document.getElementById('tb');
+  if (!RECORRENCIAS.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">Nenhuma recorrência cadastrada.</td></tr>'; return; }
+  tb.innerHTML = RECORRENCIAS.map(r => `
+    <tr style="${r.ativo?'':'opacity:0.5;'}">
+      <td><strong>${r.fornecedorNome||'—'}</strong></td>
+      <td>${r.descricao}</td>
+      <td>${r.categoriaNome || '<span style="color:var(--text-3);">—</span>'}</td>
+      <td>${r.frequencia}</td>
+      <td style="text-align:right;"><strong>R$ ${fmt(r.valor)}</strong></td>
+      <td>${fmtData(r.proximaGeracao)}</td>
+      <td><span class="badge ${r.ativo?'ativo':'inativo'}">${r.ativo?'ativo':'inativo'}</span></td>
+      <td style="text-align:right;white-space:nowrap;">
+        ${r.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="gerarAgora(${r.id})">Gerar agora</button>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="abrirEditar(${r.id})">Editar</button>
+        ${r.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${r.id})">Desativar</button>` : ''}
+      </td>
+    </tr>`).join('');
+}
+
+function abrirNova(){
+  EDITANDO = null; FORNEC_SEL = null;
+  document.getElementById('modalTitulo').textContent = 'Nova recorrência';
+  ['rFornecBusca','rDesc','rValor','rDia','rObs'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('rFornecSel').textContent = '';
+  document.getElementById('rFornecList').innerHTML = '';
+  document.getElementById('rCategoria').value = '';
+  document.getElementById('rForma').value = '';
+  document.getElementById('rFreq').value = 'mensal';
+  const d = new Date(Date.now() - 3*60*60*1000); d.setDate(d.getDate() + 7);
+  document.getElementById('rProxima').value = d.toISOString().slice(0,10);
+  document.getElementById('modal').classList.add('open');
+}
+
+function abrirEditar(id){
+  const r = RECORRENCIAS.find(x => x.id === id);
+  if (!r) return;
+  EDITANDO = id;
+  FORNEC_SEL = { id: r.fornecedorId, nome: r.fornecedorNome };
+  document.getElementById('modalTitulo').textContent = 'Editar recorrência';
+  document.getElementById('rFornecBusca').value = r.fornecedorNome || '';
+  document.getElementById('rFornecSel').textContent = `✓ ${r.fornecedorNome}`;
+  document.getElementById('rFornecList').innerHTML = '';
+  document.getElementById('rCategoria').value = r.categoriaId || '';
+  document.getElementById('rForma').value = r.formaPagamentoPadrao || '';
+  document.getElementById('rDesc').value = r.descricao;
+  document.getElementById('rValor').value = Number(r.valor).toFixed(2);
+  document.getElementById('rFreq').value = r.frequencia;
+  document.getElementById('rProxima').value = (r.proximaGeracao||'').slice(0,10);
+  document.getElementById('rDia').value = r.diaVencimento || '';
+  document.getElementById('rObs').value = r.observacoes || '';
+  document.getElementById('modal').classList.add('open');
+}
+
+function fechar(){ document.getElementById('modal').classList.remove('open'); }
+
+async function buscarFornec(){
+  const q = document.getElementById('rFornecBusca').value.trim();
+  const list = document.getElementById('rFornecList');
+  if (q.length < 2) { list.innerHTML = ''; return; }
+  try {
+    const r = await fetch('/api/fornecedores/autocomplete?q=' + encodeURIComponent(q));
+    const d = await r.json();
+    const fs = d.fornecedores || [];
+    if (!fs.length) { list.innerHTML = '<div class="item" style="color:var(--text-3);">Nenhum fornecedor</div>'; return; }
+    list.innerHTML = fs.map(f => `<div class="item" onclick="selFornec(${f.id}, ${JSON.stringify(f.razaoSocial||'').replace(/"/g,'&quot;')})">
+      <strong>${f.razaoSocial}</strong> <span style="color:var(--text-3);">${f.cpfCnpj}</span></div>`).join('');
+  } catch(e){}
+}
+function selFornec(id, nome){
+  FORNEC_SEL = { id, nome };
+  document.getElementById('rFornecList').innerHTML = '';
+  document.getElementById('rFornecBusca').value = nome;
+  document.getElementById('rFornecSel').textContent = `✓ ${nome}`;
+}
+
+async function salvar(){
+  if (!FORNEC_SEL) { alert('Selecione fornecedor'); return; }
+  const body = {
+    fornecedorId: FORNEC_SEL.id,
+    categoriaId: document.getElementById('rCategoria').value || null,
+    descricao: document.getElementById('rDesc').value.trim(),
+    valor: Number(document.getElementById('rValor').value),
+    frequencia: document.getElementById('rFreq').value,
+    proximaGeracao: document.getElementById('rProxima').value,
+    diaVencimento: document.getElementById('rDia').value ? Number(document.getElementById('rDia').value) : null,
+    formaPagamentoPadrao: document.getElementById('rForma').value || null,
+    observacoes: document.getElementById('rObs').value || null
+  };
+  if (!body.descricao || !body.valor || !body.proximaGeracao) { alert('Descrição, valor e próxima geração obrigatórios'); return; }
+  try {
+    const url = EDITANDO ? '/api/cp-recorrencias/'+EDITANDO : '/api/cp-recorrencias';
+    const method = EDITANDO ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fechar(); carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function desativar(id){
+  if (!confirm('Desativar esta recorrência? (não gerará mais contas automaticamente)')) return;
+  await fetch('/api/cp-recorrencias/'+id, { method:'DELETE' });
+  carregar();
+}
+
+async function gerarAgora(id){
+  if (!confirm('Gerar uma conta a pagar agora a partir desta recorrência?')) return;
+  try {
+    const r = await fetch('/api/cp-recorrencias/'+id+'/gerar-agora', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alert(`Conta criada (id ${d.contaPagarId}). Próxima geração: ${fmtData(d.proximaGeracao)}`);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target.id === 'modal') fechar();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fechar();
+});
+
+carregar();
+</script>
+</body></html>

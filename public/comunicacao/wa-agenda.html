@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agenda de campanhas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Agenda de campanhas</h1>
+      <small>Disparo recorrente: escolha os dias e a hora. Roda 1×/dia por agendamento (fuso America/Belem).</small>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:15px">Novo agendamento</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div><label class="text-3" style="font-size:12px;display:block">Campanha</label>
+        <select id="nCamp" class="form-control" style="width:220px"></select></div>
+      <div><label class="text-3" style="font-size:12px;display:block">Dias</label><div id="nDias"></div></div>
+      <div><label class="text-3" style="font-size:12px;display:block">Hora</label>
+        <input type="time" id="nHora" class="form-control" value="09:00" style="width:120px"></div>
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="nEnabled" checked style="width:auto"> Ativa</label>
+      <button class="btn btn-primary" id="btnAdd">Adicionar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;font-size:15px">Agendamentos</h3>
+    <div id="lista"></div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('wa-agenda');</script>
+<script>
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const DIAS = [['mon','Seg'],['tue','Ter'],['wed','Qua'],['thu','Qui'],['fri','Sex'],['sat','Sáb'],['sun','Dom']];
+
+function checksHtml(prefix, ativos) {
+  return DIAS.map(([k,lbl]) => `<label style="display:inline-flex;align-items:center;gap:2px;margin-right:6px;font-size:12px"><input type="checkbox" data-${prefix}="${k}" ${ativos.includes(k)?'checked':''} style="width:auto">${lbl}</label>`).join('');
+}
+function readChecks(prefix, scope) {
+  return DIAS.map(([k]) => k).filter(k => (scope||document).querySelector(`input[data-${prefix}="${k}"]`)?.checked);
+}
+
+async function carregar() {
+  const d = await (await fetch('/api/wa-agenda')).json();
+  if (!d.success) { el('lista').innerHTML = 'erro'; return; }
+  el('nCamp').innerHTML = d.campanhas.map(c => `<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  el('nDias').innerHTML = checksHtml('nd', ['mon','tue','wed','thu','fri']);
+  el('lista').innerHTML = d.agenda.length ? `<table style="width:100%;border-collapse:collapse">
+    <thead><tr><th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-1)">Campanha</th><th style="text-align:left;padding:6px;border-bottom:1px solid var(--border-1)">Dias</th><th style="padding:6px;border-bottom:1px solid var(--border-1)">Hora</th><th style="padding:6px;border-bottom:1px solid var(--border-1)">Ativa</th><th style="padding:6px;border-bottom:1px solid var(--border-1)"></th></tr></thead>
+    <tbody>${d.agenda.map(a => `<tr data-id="${a.id}">
+      <td style="padding:6px">${esc(a.campanhaNome)}</td>
+      <td style="padding:6px" class="dias-cell">${checksHtml('d'+a.id, a.dias)}</td>
+      <td style="padding:6px"><input type="time" value="${esc(a.hora||'')}" class="form-control hora-cell" style="width:110px"></td>
+      <td style="padding:6px;text-align:center"><input type="checkbox" class="en-cell" ${a.enabled?'checked':''} style="width:auto"></td>
+      <td style="padding:6px;white-space:nowrap"><button class="btn btn-secondary btnSave">Salvar</button> <button class="btn btn-secondary btnDel">Apagar</button></td>
+    </tr>`).join('')}</tbody></table>` : '<p class="text-3">nenhum agendamento</p>';
+
+  el('lista').querySelectorAll('tr[data-id]').forEach(tr => {
+    const id = tr.dataset.id;
+    tr.querySelector('.btnSave').addEventListener('click', async () => {
+      const body = { dias: readChecks('d'+id, tr), hora: tr.querySelector('.hora-cell').value, enabled: tr.querySelector('.en-cell').checked };
+      const r = await (await fetch('/api/wa-agenda/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})).json();
+      alert(r.success ? 'salvo' : ('erro: '+r.error));
+    });
+    tr.querySelector('.btnDel').addEventListener('click', async () => {
+      if (!confirm('Apagar este agendamento?')) return;
+      await fetch('/api/wa-agenda/'+id, {method:'DELETE'}); carregar();
+    });
+  });
+}
+
+el('btnAdd').addEventListener('click', async () => {
+  const body = { campanha_id: +el('nCamp').value, dias: readChecks('nd'), hora: el('nHora').value, enabled: el('nEnabled').checked };
+  if (!body.campanha_id) return alert('selecione uma campanha');
+  if (!body.dias.length) return alert('escolha ao menos um dia');
+  const r = await (await fetch('/api/wa-agenda', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})).json();
+  if (r.success) carregar(); else alert('erro: '+r.error);
+});
+
+carregar();
+</script>
+</body>
+</html>

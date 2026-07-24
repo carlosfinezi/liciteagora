@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recorrencias NFSe - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        .valor-display { font-size: 1.1em; font-weight: 700; color: var(--accent); }
+    </style>
+</head>
+<body>
+<div class="layout">
+    <main class="main-content">
+        <div class="page-header">
+          <div>
+            <h1>Recorrências NFS-e</h1>
+            <small>Emissão automática mensal de NFS-e + boleto + e-mail</small>
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary btn-sm" onclick="executarTodas()">⚡ Executar todas (mês atual)</button>
+          </div>
+        </div>
+
+        <div id="alertBox"></div>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="lista">Recorrências</button>
+            <button class="tab" data-tab="emails">E-mails enviados</button>
+        </div>
+
+        <!-- ABA: LISTA -->
+        <div id="tab-lista" class="tab-content active">
+            <div class="panel">
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Cliente</th>
+                                <th>Servico</th>
+                                <th>Valor</th>
+                                <th>Boleto</th>
+                                <th>Email</th>
+                                <th>Ultima Emissao</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabelaRecorrencias"></tbody>
+                    </table>
+                </div>
+                <div id="listaVazia" class="empty-state" style="display:none;">
+                    <div class="icon">🔄</div>
+                    <p>Nenhuma recorrencia cadastrada</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ABA: EMAILS ENVIADOS -->
+        <div id="tab-emails" class="tab-content">
+            <div class="panel">
+                <h3>Relatorio de Emails Enviados</h3>
+                <p style="color:var(--text-2); margin-bottom:15px;">Registro de todos os e-mails enviados pelo sistema com comprovante (Message-ID SMTP).</p>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>Destinatario</th>
+                                <th>Assunto</th>
+                                <th>NFSe</th>
+                                <th>Valor</th>
+                                <th>PDF</th>
+                                <th>Boleto</th>
+                                <th>Status</th>
+                                <th>Message-ID</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabelaEmails"></tbody>
+                    </table>
+                </div>
+                <div id="emptyEmails" class="empty-state" style="display:none;">
+                    <div class="icon">📧</div>
+                    <p>Nenhum email enviado ainda</p>
+                </div>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('recorrencias');</script>
+
+<script>
+// ==================== TABS ====================
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+        if (tab.dataset.tab === 'emails') carregarEmailsLog();
+    });
+});
+
+// ==================== ALERT ====================
+function showAlert(msg, type = 'info') {
+    const box = document.getElementById('alertBox');
+    box.innerHTML = `<div class="alert ${type}">${msg}</div>`;
+    setTimeout(() => { box.innerHTML = ''; }, 5000);
+}
+
+// ==================== RECORRENCIAS ====================
+async function carregarRecorrencias() {
+    try {
+        const resp = await fetch('/api/recorrencias');
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error);
+
+        const tbody = document.getElementById('tabelaRecorrencias');
+        const vazio = document.getElementById('listaVazia');
+
+        if (!data.recorrencias.length) {
+            tbody.innerHTML = '';
+            vazio.style.display = 'block';
+            return;
+        }
+
+        vazio.style.display = 'none';
+        tbody.innerHTML = data.recorrencias.map(r => `
+            <tr>
+                <td>
+                    <div style="font-weight:600;">${esc(r.pessoaNome)}</div>
+                    <div style="color:#888;font-size:0.85em;">${formatDoc(r.pessoaCpfCnpj)}</div>
+                </td>
+                <td>${esc(r.descricao.substring(0, 50))}${r.descricao.length > 50 ? '...' : ''}</td>
+                <td class="valor-display">${formatMoney(r.valorServico)}</td>
+                <td><span class="badge ${r.gerarBoleto ? 'sim' : 'nao'}">${r.gerarBoleto ? 'Sim' : 'Nao'}</span></td>
+                <td><span class="badge ${r.enviarEmail ? 'sim' : 'nao'}">${r.enviarEmail ? 'Sim' : 'Nao'}</span></td>
+                <td>${r.ultimaEmissao || '-'}</td>
+                <td><span class="badge ${r.ativo ? 'ativo' : 'inativo'}">${r.ativo ? 'Ativo' : 'Inativo'}</span></td>
+                <td style="text-align:right;white-space:nowrap;">
+                    <button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="executarUma(${r.id})" title="Executar agora">▶</button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        showAlert('Erro ao carregar: ' + err.message, 'error');
+    }
+}
+
+async function executarUma(id) {
+    if (!confirm('Executar esta recorrencia para o mes atual?')) return;
+    try {
+        showAlert('Executando...', 'info');
+        const resp = await fetch(`/api/recorrencias/${id}/executar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error);
+        showAlert('Execucao concluida!', 'success');
+        carregarRecorrencias();
+    } catch (err) {
+        showAlert('Erro: ' + err.message, 'error');
+    }
+}
+
+async function executarTodas() {
+    if (!confirm('Executar TODAS as recorrencias ativas para o mes atual?')) return;
+    try {
+        showAlert('Executando todas...', 'info');
+        const resp = await fetch('/api/recorrencias/executar', { method: 'POST' });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error);
+        showAlert('Execucao concluida!', 'success');
+        carregarRecorrencias();
+    } catch (err) {
+        showAlert('Erro: ' + err.message, 'error');
+    }
+}
+
+// ==================== EMAILS ENVIADOS ====================
+async function carregarEmailsLog() {
+    try {
+        const resp = await fetch('/api/emails/log?limit=200');
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error);
+
+        const tbody = document.getElementById('tabelaEmails');
+        const empty = document.getElementById('emptyEmails');
+
+        if (!data.logs.length) {
+            tbody.innerHTML = '';
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        tbody.innerHTML = data.logs.map(e => {
+            const dataFmt = e.dataEnvio ? new Date(e.dataEnvio + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '-';
+            const valorFmt = e.valor ? Number(e.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-';
+            const statusClass = e.status === 'enviado' ? 'color:#51cf66' : 'color:#ff6b6b';
+            const msgId = e.messageId ? `<span title="${e.messageId}" style="cursor:pointer;color:#4dabf7;font-size:0.8em;" onclick="navigator.clipboard.writeText('${e.messageId}').then(()=>alert('Message-ID copiado!'))">Copiar</span>` : '-';
+
+            return `<tr>
+                <td style="white-space:nowrap;">${dataFmt}</td>
+                <td>${e.destinatario}</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${e.assunto || ''}">${e.assunto || '-'}</td>
+                <td>${e.nfseNumero || '-'}</td>
+                <td>${valorFmt}</td>
+                <td>${e.temPdf ? '<span style="color:#51cf66;">Sim</span>' : '<span style="color:#888;">Nao</span>'}</td>
+                <td>${e.temBoleto ? '<span style="color:#51cf66;">Sim</span>' : '<span style="color:#888;">Nao</span>'}</td>
+                <td style="${statusClass};font-weight:bold;">${e.status}${e.erro ? ' <span title="'+e.erro+'" style="cursor:help;">⚠</span>' : ''}</td>
+                <td>${msgId}</td>
+            </tr>`;
+        }).join('');
+    } catch (err) {
+        showAlert('Erro ao carregar log de emails: ' + err.message, 'error');
+    }
+}
+
+// ==================== UTILS ====================
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function formatMoney(v) { return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function formatDoc(d) {
+    if (!d) return '';
+    d = d.replace(/\D/g, '');
+    if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+    return d;
+}
+
+// ==================== INIT ====================
+carregarRecorrencias();
+</script>
+</body>
+</html>

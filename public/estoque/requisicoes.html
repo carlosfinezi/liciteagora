@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Requisições Internas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Requisições Internas</h1>
+      <small>Consumo interno/almoxarifado — o atendimento baixa o estoque do depósito da requisição</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova requisição</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="filtStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="aberta">Aberta</option>
+      <option value="atendida_parcial">Atendida parcial</option>
+      <option value="atendida">Atendida</option>
+      <option value="cancelada">Cancelada</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th><th>Setor</th><th>Depósito</th><th>Solicitante</th><th>Necessidade</th>
+        <th style="text-align:right;">Atendido/Solicitado</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody id="tbReq"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNova">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Nova requisição</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalNova')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Setor/Destino</label><input type="text" id="nSetor" placeholder="Ex.: Oficina, Escritório"></div>
+      <div class="form-group" id="grpDep" style="display:none;"><label>Depósito</label><select id="nDeposito"></select></div>
+      <div class="form-group"><label>Necessário para</label><input type="date" id="nData"></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:8px;">
+      <table>
+        <thead><tr><th>Produto *</th><th style="width:120px;">Quantidade *</th><th style="width:40px;"></th></tr></thead>
+        <tbody id="tbItensNova"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="addLinhaItem()" style="margin-top:8px;">+ Item</button>
+    <div class="form-row" style="margin-top:8px;">
+      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalNova')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNova()">Criar requisição</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalAtender">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <h3 id="atTitulo" style="margin:0;">Atender requisição</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalAtender')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Produto</th><th style="text-align:right;">Pendente</th><th style="text-align:right;">Saldo dep.</th><th style="width:130px;">Atender agora</th></tr></thead>
+        <tbody id="tbAtender"></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalAtender')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarAtender()">Baixar estoque</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('estoque-requisicoes');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+
+const STATUS_BADGE = {
+  aberta:'<span class="badge ajuste">ABERTA</span>',
+  atendida_parcial:'<span class="badge saida">PARCIAL</span>',
+  atendida:'<span class="badge entrada">ATENDIDA</span>',
+  cancelada:'<span class="badge cancelado">CANCELADA</span>'
+};
+let produtosCache = null, reqAtual = null;
+
+async function carregar(){
+  const st = document.getElementById('filtStatus').value;
+  const r = await fetch('/api/requisicoes' + (st?'?status='+st:'')); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbReq').innerHTML = d.requisicoes.length ? d.requisicoes.map(x=>`<tr>
+    <td><strong>${x.numero}</strong></td>
+    <td>${x.setorTexto||'-'}</td>
+    <td>${x.depositoNome||'Padrão'}</td>
+    <td>${x.solicitante||'-'}</td>
+    <td>${x.dataNecessidade||'-'}</td>
+    <td style="text-align:right;">${fmt(x.totalAtendido)} / ${fmt(x.totalSolicitado)}</td>
+    <td>${STATUS_BADGE[x.status]||x.status}</td>
+    <td style="white-space:nowrap;">
+      ${['aberta','atendida_parcial'].includes(x.status) ? `<button class="btn btn-primary btn-sm" onclick="abrirAtender(${x.id})">Atender</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelar(${x.id})">Cancelar</button>` : ''}
+    </td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma requisição</td></tr>';
+}
+
+async function getProdutos(){
+  if (produtosCache) return produtosCache;
+  const r = await fetch('/api/produtos'); const d = await r.json();
+  produtosCache = (d.produtos||[]).filter(p=>p.tipoProduto!=='kit');
+  return produtosCache;
+}
+
+async function addLinhaItem(){
+  const prods = await getProdutos();
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><select class="selProd" style="width:100%;">
+      <option value="">— selecione —</option>
+      ${prods.map(p=>`<option value="${p.id}">${p.sku} — ${p.descricao}</option>`).join('')}
+    </select></td>
+    <td><input type="number" class="qtdProd" min="0.001" step="any" style="width:110px;"></td>
+    <td><button class="btn btn-ghost btn-sm" onclick="this.closest('tr').remove()">×</button></td>`;
+  document.getElementById('tbItensNova').appendChild(tr);
+}
+
+async function abrirNova(){
+  try {
+    const r = await fetch('/api/depositos'); const d = await r.json();
+    if (d.success && d.depositos.length > 1) {
+      document.getElementById('nDeposito').innerHTML = d.depositos
+        .map(x=>`<option value="${x.id}"${x.padrao?' selected':''}>${x.nome}</option>`).join('');
+      document.getElementById('grpDep').style.display='';
+    }
+  } catch {}
+  document.getElementById('nSetor').value=''; document.getElementById('nObs').value='';
+  document.getElementById('nData').value='';
+  document.getElementById('tbItensNova').innerHTML='';
+  await addLinhaItem();
+  document.getElementById('modalNova').classList.add('open');
+}
+
+async function salvarNova(){
+  const itens = [...document.querySelectorAll('#tbItensNova tr')].map(tr=>({
+    produtoId: Number(tr.querySelector('.selProd').value),
+    quantidade: Number(tr.querySelector('.qtdProd').value)
+  })).filter(i=>i.produtoId && i.quantidade>0);
+  if (!itens.length) return showAlert('Adicione ao menos 1 item válido','error');
+  const depSel = document.getElementById('grpDep').style.display !== 'none' ? Number(document.getElementById('nDeposito').value) : null;
+  const body = {
+    setorTexto: document.getElementById('nSetor').value.trim() || null,
+    depositoId: depSel,
+    dataNecessidade: document.getElementById('nData').value || null,
+    observacao: document.getElementById('nObs').value.trim() || null,
+    itens
+  };
+  const r = await fetch('/api/requisicoes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar('modalNova'); showAlert('Requisição criada'); carregar();
+}
+
+async function abrirAtender(id){
+  const r = await fetch('/api/requisicoes/'+id); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  reqAtual = d.requisicao;
+  document.getElementById('atTitulo').textContent = `Atender ${d.requisicao.numero} — depósito ${d.requisicao.depositoNome||'Padrão'}`;
+  document.getElementById('tbAtender').innerHTML = d.itens.map(it=>{
+    const pend = it.quantidadeSolicitada - it.quantidadeAtendida;
+    if (pend <= 0) return '';
+    const max = Math.min(pend, it.saldoDeposito);
+    return `<tr data-item="${it.id}">
+      <td>${it.sku} — ${it.descricao}</td>
+      <td style="text-align:right;">${fmt(pend)}</td>
+      <td style="text-align:right;${it.saldoDeposito<pend?'color:var(--danger);':''}">${fmt(it.saldoDeposito)}</td>
+      <td><input type="number" class="qtdAt" min="0" max="${max}" step="any" value="${max>0?max:0}" style="width:110px;"></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('modalAtender').classList.add('open');
+}
+
+async function confirmarAtender(){
+  const itens = [...document.querySelectorAll('#tbAtender tr')].map(tr=>({
+    requisicaoItemId: Number(tr.dataset.item),
+    quantidade: Number(tr.querySelector('.qtdAt').value)
+  })).filter(i=>i.quantidade>0);
+  if (!itens.length) return showAlert('Informe quantidades','error');
+  const r = await fetch(`/api/requisicoes/${reqAtual.id}/atender`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ itens }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar('modalAtender'); showAlert('Estoque baixado'); carregar();
+}
+
+async function cancelar(id){
+  if (!confirm('Cancelar esta requisição?')) return;
+  const r = await fetch(`/api/requisicoes/${id}/cancelar`, { method:'POST' }); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  if (d.aviso) showAlert(d.aviso); else showAlert('Cancelada');
+  carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape'){ fechar('modalNova'); fechar('modalAtender'); } });
+carregar();
+</script>
+</body></html>

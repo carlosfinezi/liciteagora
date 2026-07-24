@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Renegociações · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Renegociações de Títulos</h1>
+      <small>Reparcelamento/unificação: títulos originais ficam imutáveis e nascem novas parcelas acordadas</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova renegociação</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="filtEscopo" onchange="carregar()">
+      <option value="">Receber e pagar</option>
+      <option value="receber">Contas a receber</option>
+      <option value="pagar">Contas a pagar</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>#</th><th>Escopo</th><th>Cliente/Fornecedor</th><th>Data acordo</th>
+        <th style="text-align:right;">Original</th><th style="text-align:right;">Juros</th>
+        <th style="text-align:right;">Desconto</th><th style="text-align:right;">Acordado</th>
+        <th style="text-align:right;">Títulos → Parcelas</th><th></th>
+      </tr></thead>
+      <tbody id="tbReneg"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="detalheWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;"><div><h2 id="detTitulo" style="margin:0;"></h2></div></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th></th><th>Descrição</th><th>Vencimento</th><th style="text-align:right;">Valor</th><th>Status</th></tr></thead>
+      <tbody id="tbDet"></tbody>
+    </table></div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNova">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Nova renegociação</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Escopo</label>
+        <select id="nEscopo" onchange="carregarPessoas()">
+          <option value="receber">Contas a receber</option>
+          <option value="pagar">Contas a pagar</option>
+        </select>
+      </div>
+      <div class="form-group full-width"><label id="lblPessoa">Cliente</label>
+        <select id="nPessoa" onchange="carregarTitulos()"></select>
+      </div>
+    </div>
+
+    <div class="tbl-wrap" style="max-height:200px;overflow-y:auto;">
+      <table>
+        <thead><tr><th style="width:30px;"></th><th>Título</th><th>Vencimento</th><th style="text-align:right;">Saldo aberto</th></tr></thead>
+        <tbody id="tbTitulos"><tr><td colspan="4" class="empty">Selecione o cliente/fornecedor</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="form-row" style="margin-top:12px;">
+      <div class="form-group"><label>Juros (R$)</label><input type="number" id="nJuros" value="0" step="0.01" min="0" oninput="recalc()"></div>
+      <div class="form-group"><label>Desconto (R$)</label><input type="number" id="nDesconto" value="0" step="0.01" min="0" oninput="recalc()"></div>
+      <div class="form-group"><label>Nº parcelas</label><input type="number" id="nParcelas" value="3" min="1" max="60" oninput="recalc()"></div>
+      <div class="form-group"><label>1º vencimento</label><input type="date" id="nPrimeiroVenc" oninput="recalc()"></div>
+    </div>
+    <div id="resumoAcordo" class="card card-info" style="font-size:0.9em;margin-bottom:10px;"></div>
+    <div class="tbl-wrap" style="max-height:180px;overflow-y:auto;">
+      <table>
+        <thead><tr><th>Parcela</th><th>Vencimento</th><th style="text-align:right;">Valor (R$)</th></tr></thead>
+        <tbody id="tbParcelasNova"></tbody>
+      </table>
+    </div>
+    <div class="form-row" style="margin-top:8px;">
+      <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Firmar acordo</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('fin-renegociacoes');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fechar(){ document.getElementById('modalNova').classList.remove('open'); }
+
+async function carregar(){
+  const esc = document.getElementById('filtEscopo').value;
+  const r = await fetch('/api/renegociacoes' + (esc?'?escopo='+esc:'')); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('tbReneg').innerHTML = d.renegociacoes.length ? d.renegociacoes.map(x=>`<tr>
+    <td>${x.id}</td>
+    <td>${x.escopo==='receber'?'📥 Receber':'📤 Pagar'}</td>
+    <td>${x.pessoaNome||x.fornecedorNome||'-'}</td>
+    <td>${x.dataAcordo}</td>
+    <td style="text-align:right;">${fmt(x.valorOriginal)}</td>
+    <td style="text-align:right;">${fmt(x.juros)}</td>
+    <td style="text-align:right;">${fmt(x.desconto)}</td>
+    <td style="text-align:right;"><strong>${fmt(x.valorAcordado)}</strong></td>
+    <td style="text-align:right;">${x.titulosOriginais} → ${x.novasParcelas}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="verDetalhe(${x.id})">Detalhe</button></td>
+  </tr>`).join('') : '<tr><td colspan="10" class="empty">Nenhuma renegociação</td></tr>';
+}
+
+async function verDetalhe(id){
+  const r = await fetch('/api/renegociacoes/'+id); const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  document.getElementById('detalheWrap').style.display='block';
+  document.getElementById('detTitulo').textContent = `Renegociação #${id} — ${d.renegociacao.pessoaNome||d.renegociacao.fornecedorNome}`;
+  const linha = (t, tipo) => `<tr${tipo==='orig'?' style="opacity:0.65;"':''}>
+    <td>${tipo==='orig'?'🔒 original':'🆕 parcela'}</td>
+    <td>${t.descricao}</td><td>${t.dataVencimento}</td>
+    <td style="text-align:right;">${fmt(t.valor)}</td>
+    <td><span class="badge ${t.status==='paga'?'entrada':(t.status==='renegociada'?'cancelado':'ajuste')}">${t.status}</span></td></tr>`;
+  document.getElementById('tbDet').innerHTML =
+    d.originais.map(t=>linha(t,'orig')).join('') + d.parcelas.map(t=>linha(t,'nova')).join('');
+}
+
+// ---------- nova renegociação ----------
+let titulosDisponiveis = [];
+
+async function carregarPessoas(){
+  const esc = document.getElementById('nEscopo').value;
+  document.getElementById('lblPessoa').textContent = esc==='receber'?'Cliente':'Fornecedor';
+  const r = await fetch(esc==='receber'?'/api/pessoas':'/api/fornecedores'); const d = await r.json();
+  const lista = d.pessoas || d.fornecedores || [];
+  document.getElementById('nPessoa').innerHTML = '<option value="">— selecione —</option>' +
+    lista.map(x=>`<option value="${x.id}">${x.razaoSocial}</option>`).join('');
+  document.getElementById('tbTitulos').innerHTML = '<tr><td colspan="4" class="empty">Selecione o cliente/fornecedor</td></tr>';
+}
+
+async function carregarTitulos(){
+  const esc = document.getElementById('nEscopo').value;
+  const pid = document.getElementById('nPessoa').value;
+  if (!pid) return;
+  const url = esc==='receber' ? `/api/contas-a-receber?pessoaId=${pid}` : `/api/contas-a-pagar?fornecedorId=${pid}`;
+  const r = await fetch(url); const d = await r.json();
+  titulosDisponiveis = (d.contas||[]).filter(c=>['aberta','parcial'].includes(c.status))
+    .map(c=>({ ...c, saldoAberto: Number((c.valor - (c.valorPago||0)).toFixed(2)) }));
+  document.getElementById('tbTitulos').innerHTML = titulosDisponiveis.length ? titulosDisponiveis.map(c=>`<tr>
+    <td><input type="checkbox" class="chkTitulo" value="${c.id}" data-saldo="${c.saldoAberto}" onchange="recalc()"></td>
+    <td>${c.descricao}</td><td>${c.dataVencimento}</td>
+    <td style="text-align:right;">${fmt(c.saldoAberto)}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">Sem títulos abertos</td></tr>';
+  recalc();
+}
+
+function selecionados(){
+  return [...document.querySelectorAll('.chkTitulo:checked')].map(c=>({ id:Number(c.value), saldo:Number(c.dataset.saldo) }));
+}
+
+function recalc(){
+  const sel = selecionados();
+  const original = Number(sel.reduce((s,x)=>s+x.saldo,0).toFixed(2));
+  const juros = Number(document.getElementById('nJuros').value)||0;
+  const desc = Number(document.getElementById('nDesconto').value)||0;
+  const acordado = Number((original + juros - desc).toFixed(2));
+  const n = Math.max(1, Number(document.getElementById('nParcelas').value)||1);
+  document.getElementById('resumoAcordo').innerHTML =
+    `${sel.length} título(s) · original <strong>R$ ${fmt(original)}</strong> + juros ${fmt(juros)} − desconto ${fmt(desc)} = acordado <strong>R$ ${fmt(acordado)}</strong> em ${n}×`;
+
+  const base = document.getElementById('nPrimeiroVenc').value;
+  const tb = document.getElementById('tbParcelasNova');
+  if (!sel.length || !base || acordado <= 0) { tb.innerHTML=''; return; }
+  const valorParcela = Math.floor((acordado / n) * 100) / 100;
+  const resto = Number((acordado - valorParcela * n).toFixed(2));
+  const linhas = [];
+  for (let i=0;i<n;i++){
+    const dt = new Date(base + 'T12:00:00'); dt.setMonth(dt.getMonth()+i);
+    const venc = dt.toISOString().slice(0,10);
+    const v = i===n-1 ? Number((valorParcela+resto).toFixed(2)) : valorParcela;
+    linhas.push(`<tr><td>${i+1}/${n}</td>
+      <td><input type="date" class="parcVenc" value="${venc}"></td>
+      <td><input type="number" class="parcValor" step="0.01" value="${v.toFixed(2)}" style="width:120px;text-align:right;"></td></tr>`);
+  }
+  tb.innerHTML = linhas.join('');
+}
+
+function abrirNova(){
+  document.getElementById('nJuros').value='0'; document.getElementById('nDesconto').value='0';
+  document.getElementById('nParcelas').value='3'; document.getElementById('nObs').value='';
+  const d = new Date(); d.setMonth(d.getMonth()+1);
+  document.getElementById('nPrimeiroVenc').value = d.toISOString().slice(0,10);
+  carregarPessoas();
+  document.getElementById('tbParcelasNova').innerHTML='';
+  document.getElementById('resumoAcordo').innerHTML='Selecione os títulos';
+  document.getElementById('modalNova').classList.add('open');
+}
+
+async function salvar(){
+  const sel = selecionados();
+  if (!sel.length) return showAlert('Selecione ao menos 1 título','error');
+  const parcelas = [...document.querySelectorAll('#tbParcelasNova tr')].map(tr=>({
+    dataVencimento: tr.querySelector('.parcVenc').value,
+    valor: Number(tr.querySelector('.parcValor').value)
+  }));
+  if (!parcelas.length) return showAlert('Defina o 1º vencimento para gerar as parcelas','error');
+  const body = {
+    escopo: document.getElementById('nEscopo').value,
+    titulosIds: sel.map(x=>x.id),
+    juros: Number(document.getElementById('nJuros').value)||0,
+    desconto: Number(document.getElementById('nDesconto').value)||0,
+    parcelas,
+    observacao: document.getElementById('nObs').value.trim()||null
+  };
+  const r = await fetch('/api/renegociacoes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fechar(); showAlert(`Acordo #${d.id} firmado — R$ ${fmt(d.valorAcordado)}`); carregar();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
+carregar();
+</script>
+</body></html>

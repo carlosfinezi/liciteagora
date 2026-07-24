@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ordens de Montagem · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Ordens de Montagem</h1>
+      <small>Workflow do laboratório — aguardando · laboratório · pronto · entregue</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" id="btnNovo" onclick="abrirNovo()" style="display:none;">+ Nova OM</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div id="moduleOff" class="panel" style="display:none;text-align:center;padding:40px 20px;">
+    <h3 style="margin:0 0 8px 0;">Módulo Ótica desativado</h3>
+    <p class="muted" style="margin:0;">Este módulo é liberado pela equipe Licite Agora. Fale com o suporte para ativar.</p>
+  </div>
+
+  <div id="conteudo" style="display:none;">
+    <div class="kpi-grid" id="kpis"></div>
+
+    <div class="toolbar">
+      <input type="text" id="fQ" placeholder="Buscar nº, pedido, cliente, laboratório…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+      <select id="fStatus" onchange="carregar()" style="min-width:160px;">
+        <option value="">Todos status</option>
+        <option value="aguardando">Aguardando</option>
+        <option value="laboratorio">No laboratório</option>
+        <option value="pronto">Pronto</option>
+        <option value="entregue">Entregue</option>
+        <option value="cancelada">Cancelada</option>
+      </select>
+    </div>
+
+    <div class="panel">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Nº</th>
+            <th>Aberta</th>
+            <th>Cliente</th>
+            <th>Pedido</th>
+            <th>Receita</th>
+            <th>Laboratório</th>
+            <th>Envio</th>
+            <th>Previsão</th>
+            <th>Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Nova ordem de montagem</h3>
+        <small class="muted">Vincule a um pedido existente ou crie sem pedido para retrabalho</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group" style="flex:2;position:relative;">
+        <label>Pedido (opcional) <small class="muted" id="fPedidoCliente"></small></label>
+        <input type="text" id="fPedidoBusca" placeholder="Digite número, cliente ou compraId…" oninput="acPedido()" autocomplete="off">
+        <input type="hidden" id="fPedidoId">
+        <div id="acPedidoList" class="ac-list"></div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="limparPedido()" id="btnLimparPedido" style="display:none;position:absolute;right:6px;top:28px;padding:2px 8px;font-size:11px;" title="Desvincular pedido">× limpar</button>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="fStatusM">
+          <option value="aguardando">Aguardando envio</option>
+          <option value="laboratorio">No laboratório</option>
+          <option value="pronto">Pronto</option>
+          <option value="entregue">Entregue</option>
+          <option value="cancelada">Cancelada</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Laboratório</label>
+        <input type="text" id="fLab" placeholder="Nome do laboratório">
+      </div>
+      <div class="form-group">
+        <label>Envio ao lab</label>
+        <input type="date" id="fEnvio">
+      </div>
+      <div class="form-group">
+        <label>Previsão de entrega</label>
+        <input type="date" id="fPrev">
+      </div>
+      <div class="form-group">
+        <label>Entrega ao cliente</label>
+        <input type="date" id="fEntrega">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observações</label>
+        <textarea id="fObs" rows="3" placeholder="Instruções especiais, número de pedido do laboratório, etc."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="btnInativar" onclick="inativar()" style="display:none;">Inativar</button>
+      <button class="btn btn-secondary" id="btnPdf" onclick="abrirPdf()" style="display:none;">📄 PDF do laboratório</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ordens-montagem');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function fmtData(s){ if(!s) return '—'; const p=String(s).slice(0,10).split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }
+
+let acTimerPed;
+function acPedido(){
+  clearTimeout(acTimerPed);
+  const q = document.getElementById('fPedidoBusca').value.trim();
+  document.getElementById('fPedidoId').value = '';
+  document.getElementById('fPedidoCliente').textContent = '';
+  document.getElementById('btnLimparPedido').style.display = 'none';
+  if (q.length < 1) { document.getElementById('acPedidoList').innerHTML = ''; return; }
+  acTimerPed = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/pedidos?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      const lista = d.pedidos || d.data || [];
+      const html = lista.slice(0, 12).map(p =>
+        `<div onclick='selPedido(${p.id}, ${JSON.stringify(p.numero)}, ${JSON.stringify(p.clienteNome || "")}, ${JSON.stringify(p.status || "")})'>
+          <strong>${escTxt(p.numero)}</strong> <small class="muted">· ${escTxt(p.clienteNome || "—")} · ${escTxt(p.status || "")}</small>
+        </div>`
+      ).join('');
+      document.getElementById('acPedidoList').innerHTML = html || '<div class="muted" style="padding:9px 12px;">Nenhum pedido encontrado</div>';
+    } catch (e) { document.getElementById('acPedidoList').innerHTML = ''; }
+  }, 200);
+}
+
+function selPedido(id, numero, clienteNome, status){
+  document.getElementById('fPedidoId').value = id;
+  document.getElementById('fPedidoBusca').value = numero;
+  document.getElementById('fPedidoCliente').textContent = clienteNome ? '— ' + clienteNome : '';
+  document.getElementById('acPedidoList').innerHTML = '';
+  document.getElementById('btnLimparPedido').style.display = '';
+}
+
+function limparPedido(){
+  document.getElementById('fPedidoId').value = '';
+  document.getElementById('fPedidoBusca').value = '';
+  document.getElementById('fPedidoCliente').textContent = '';
+  document.getElementById('acPedidoList').innerHTML = '';
+  document.getElementById('btnLimparPedido').style.display = 'none';
+}
+
+const STATUS_LABEL = {
+  aguardando: 'Aguardando', laboratorio: 'No lab', pronto: 'Pronto', entregue: 'Entregue', cancelada: 'Cancelada'
+};
+const STATUS_BADGE = {
+  aguardando: 'warn', laboratorio: 'info', pronto: 'success', entregue: '', cancelada: 'cancelada'
+};
+
+let ordens = [];
+
+async function init(){
+  try {
+    const r = await fetch('/api/optica/status');
+    if (r.status === 401) { window.location.href='/login.html'; return; }
+    const d = await r.json();
+    if (!d.enabled) { document.getElementById('moduleOff').style.display=''; return; }
+    document.getElementById('btnNovo').style.display = '';
+    document.getElementById('conteudo').style.display = '';
+    await carregar();
+  } catch (e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+async function carregar(){
+  try {
+    const p = new URLSearchParams();
+    const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+    const s = document.getElementById('fStatus').value; if (s) p.set('status', s);
+    const r = await fetch('/api/optica/ordens-montagem?'+p);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    ordens = d.ordens || [];
+    renderKpis();
+    renderTabela();
+  } catch (e) {
+    showAlert('Erro ao carregar: '+e.message,'error');
+    document.getElementById('tb').innerHTML = '<tr><td colspan="10" class="empty">Falha ao carregar</td></tr>';
+  }
+}
+
+function renderKpis(){
+  const counts = { aguardando:0, laboratorio:0, pronto:0, entregue:0, cancelada:0 };
+  ordens.forEach(o => { counts[o.status] = (counts[o.status]||0) + 1; });
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${ordens.length}</div></div>
+    <div class="kpi warn"><div class="label">Aguardando</div><div class="value">${counts.aguardando}</div></div>
+    <div class="kpi"><div class="label">No lab</div><div class="value">${counts.laboratorio}</div></div>
+    <div class="kpi success"><div class="label">Prontas</div><div class="value">${counts.pronto}</div></div>
+    <div class="kpi"><div class="label">Entregues</div><div class="value">${counts.entregue}</div></div>
+  `;
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tb');
+  if (!ordens.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhuma OM</td></tr>'; return; }
+  tb.innerHTML = ordens.map(o => `<tr style="${o.ativo?'':'opacity:0.5;'}">
+    <td><strong>${escTxt(o.numero)}</strong></td>
+    <td>${fmtData(o.dataAbertura)}</td>
+    <td>${escTxt(o.clienteNome||'—')}</td>
+    <td>${escTxt(o.pedidoNumero||'—')}</td>
+    <td>${renderReceitaCell(o)}</td>
+    <td>${escTxt(o.laboratorio||'—')}</td>
+    <td>${fmtData(o.dataEnvioLab)}</td>
+    <td>${fmtData(o.dataPrevisaoEntrega)}</td>
+    <td><span class="badge ${STATUS_BADGE[o.status]||''}">${STATUS_LABEL[o.status]||o.status}</span></td>
+    <td style="white-space:nowrap;">
+      <a href="/api/optica/ordens-montagem/${o.id}/pdf" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none;">PDF</a>
+      <button class="btn btn-ghost btn-sm" onclick="editar(${o.id})">Editar</button>
+    </td>
+  </tr>`).join('');
+}
+
+function renderReceitaCell(o){
+  const lentes = Number(o.lentesItens||0);
+  const comReceita = Number(o.lentesComReceita||0);
+  if (!lentes) return '<span class="muted">—</span>';
+  const data = o.receitaUltimaData ? fmtData(o.receitaUltimaData) : '';
+  if (comReceita === 0) {
+    return `<span class="badge" style="background:var(--danger);color:#fff;" title="${lentes} lente(s) sem receita anexada">0/${lentes}</span>`;
+  }
+  if (comReceita < lentes) {
+    return `<span class="badge warn" title="${comReceita} de ${lentes} lentes com receita">${comReceita}/${lentes}</span>${data ? ` <small class="muted">${data}</small>` : ''}`;
+  }
+  return `<span class="badge success" title="Todas as lentes têm receita anexada">${comReceita}/${lentes}</span>${data ? ` <small class="muted">${data}</small>` : ''}`;
+}
+
+function abrirNovo(){
+  document.getElementById('modalTitulo').textContent = 'Nova ordem de montagem';
+  document.getElementById('fId').value = '';
+  ['fLab','fEnvio','fPrev','fEntrega','fObs'].forEach(id => document.getElementById(id).value = '');
+  limparPedido();
+  document.getElementById('fStatusM').value = 'aguardando';
+  document.getElementById('btnInativar').style.display = 'none';
+  document.getElementById('btnPdf').style.display = 'none';
+  document.getElementById('modal').classList.add('open');
+}
+
+async function editar(id){
+  try {
+    const r = await fetch('/api/optica/ordens-montagem/'+id);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    const o = d.om;
+    document.getElementById('modalTitulo').textContent = 'Editar OM ' + o.numero;
+    document.getElementById('fId').value = o.id;
+    if (o.pedidoId) selPedido(o.pedidoId, o.pedidoNumero || '', o.clienteNome || '', '');
+    else limparPedido();
+    document.getElementById('fStatusM').value = o.status || 'aguardando';
+    document.getElementById('fLab').value = o.laboratorio || '';
+    document.getElementById('fEnvio').value = (o.dataEnvioLab || '').slice(0,10);
+    document.getElementById('fPrev').value = (o.dataPrevisaoEntrega || '').slice(0,10);
+    document.getElementById('fEntrega').value = (o.dataEntrega || '').slice(0,10);
+    document.getElementById('fObs').value = o.observacoes || '';
+    document.getElementById('btnInativar').style.display = o.ativo ? '' : 'none';
+    document.getElementById('btnPdf').style.display = '';
+    document.getElementById('btnPdf').dataset.omid = o.id;
+    document.getElementById('modal').classList.add('open');
+  } catch (e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+function abrirPdf(){
+  const id = document.getElementById('btnPdf').dataset.omid;
+  if (id) window.open('/api/optica/ordens-montagem/'+id+'/pdf', '_blank');
+}
+
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const id = document.getElementById('fId').value;
+  const pedidoIdVal = document.getElementById('fPedidoId').value;
+  const body = {
+    pedidoId: pedidoIdVal ? Number(pedidoIdVal) : null,
+    status: document.getElementById('fStatusM').value,
+    laboratorio: document.getElementById('fLab').value.trim() || null,
+    dataEnvioLab: document.getElementById('fEnvio').value || null,
+    dataPrevisaoEntrega: document.getElementById('fPrev').value || null,
+    dataEntrega: document.getElementById('fEntrega').value || null,
+    observacoes: document.getElementById('fObs').value.trim() || null,
+  };
+  const url = id ? '/api/optica/ordens-montagem/'+id : '/api/optica/ordens-montagem';
+  try {
+    const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) {
+      if (d.omId && confirm('Já existe OM ativa para este pedido. Abrir?')) { editar(d.omId); return; }
+      throw new Error(d.error||'falha');
+    }
+    showAlert(id ? 'OM atualizada' : 'OM '+(d.numero||'criada'));
+    fecharModal();
+    await carregar();
+  } catch (e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+async function inativar(){
+  const id = document.getElementById('fId').value;
+  if (!id) return;
+  if (!confirm('Inativar esta OM?')) return;
+  try {
+    const r = await fetch('/api/optica/ordens-montagem/'+id, { method:'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'falha');
+    showAlert('OM inativada');
+    fecharModal();
+    await carregar();
+  } catch (e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
+});
+
+init();
+</script>
+</body>
+</html>

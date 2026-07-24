@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campanhas WhatsApp · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Campanhas WhatsApp</h1>
+      <small>Config + destinatários (CSV) + dry-run + envio real + agenda.</small>
+    </div>
+    <button class="btn btn-secondary" id="btnLeads">Leads (respostas)</button>
+  </div>
+  <div class="card" id="leadsPanel" style="display:none;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">Leads que responderam</h3>
+      <button class="btn btn-secondary" id="btnLeadsClose">Fechar</button>
+    </div>
+    <div id="leadsBox" style="margin-top:10px;overflow-x:auto"></div>
+  </div>
+
+  <div style="display:flex;gap:16px;flex-wrap:wrap">
+    <div class="card" style="flex:1 1 260px;min-width:240px">
+      <h3 style="margin-top:0">Campanhas</h3>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" id="novoNome" class="form-control" placeholder="nova campanha" style="flex:1">
+        <button class="btn btn-primary" id="btnNova">Criar</button>
+      </div>
+      <div id="lista"></div>
+    </div>
+
+    <div class="card" style="flex:2 1 420px;min-width:320px">
+      <div id="detalhe"><p class="text-3">Selecione ou crie uma campanha.</p></div>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('wa-campanhas');</script>
+<script>
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let atual = null, progPoll = null;
+
+const CONFIG_MODELO = {
+  persona: "Voce e assistente de marketing da [empresa]. Tom profissional e proximo, brasileiro.",
+  briefing: "Oferta: [descreva]. Beneficios: [...]. CTA: [...].",
+  regras: [
+    "Gerar UMA mensagem curta: 2 a 4 frases, no maximo 320 caracteres",
+    "Cumprimentar pelo primeiro nome",
+    "Terminar com CTA suave (ex: 'posso te mandar mais detalhes?')"
+  ],
+  timezone: "America/Belem",
+  m1_max_perguntas: 2,
+  m1_proibir_pitch: false
+};
+
+async function carregar() {
+  const d = await (await fetch('/api/wa-campanhas')).json();
+  if (!d.success) { el('lista').innerHTML = '<p class="text-3">erro</p>'; return; }
+  el('lista').innerHTML = d.campanhas.length ? d.campanhas.map(c => `
+    <div class="camp-row" data-id="${c.id}" style="padding:8px 10px;border-bottom:1px solid var(--border-1);cursor:pointer${c.id===atual?';background:var(--bg-1)':''}">
+      <strong>${esc(c.nome)}</strong> <span class="text-3" style="font-size:12px">· ${c.totalDest} dest · ${esc(c.status)}</span>
+    </div>`).join('') : '<p class="text-3">nenhuma campanha</p>';
+  el('lista').querySelectorAll('.camp-row').forEach(r => r.addEventListener('click', () => abrir(r.dataset.id)));
+}
+
+el('btnNova').addEventListener('click', async () => {
+  const nome = el('novoNome').value.trim();
+  if (!nome) return;
+  const d = await (await fetch('/api/wa-campanhas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nome, config: CONFIG_MODELO }) })).json();
+  if (d.success) { el('novoNome').value=''; atual = d.id; await carregar(); abrir(d.id); }
+  else alert(d.error);
+});
+
+async function abrir(id) {
+  atual = id;
+  const d = await (await fetch('/api/wa-campanhas/' + id)).json();
+  if (!d.success) return;
+  el('detalhe').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">${esc(d.campanha.nome)}</h3>
+      <button class="btn btn-secondary" id="btnDel" style="padding:4px 10px">Apagar</button>
+    </div>
+    <p class="text-3" style="font-size:12px">${d.totalDest} destinatários</p>
+
+    <details open><summary>Configuração</summary>
+      <div class="form-group"><label>Persona (quem é o assistente / tom de voz)</label>
+        <textarea id="f-persona" class="form-control" rows="2">${esc(d.config.persona||'')}</textarea></div>
+      <div class="form-group"><label>Briefing (a oferta / o que a mensagem deve dizer)</label>
+        <textarea id="f-briefing" class="form-control" rows="3">${esc(d.config.briefing||'')}</textarea></div>
+      <div class="form-group"><label>Regras (uma por linha)</label>
+        <textarea id="f-regras" class="form-control" rows="4">${esc((d.config.regras||[]).join('\n'))}</textarea></div>
+
+      <h4 style="margin:12px 0 4px;font-size:14px">Envio</h4>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div><label class="text-3" style="font-size:12px;display:block">Limite/dia</label><input type="number" id="f-daily" class="form-control" style="width:90px" value="${d.config.daily_limit??''}" placeholder="30"></div>
+        <div><label class="text-3" style="font-size:12px;display:block">Throttle mín (s)</label><input type="number" id="f-tmin" class="form-control" style="width:110px" value="${d.config.throttle_min_sec??''}" placeholder="45"></div>
+        <div><label class="text-3" style="font-size:12px;display:block">Throttle máx (s)</label><input type="number" id="f-tmax" class="form-control" style="width:110px" value="${d.config.throttle_max_sec??''}" placeholder="120"></div>
+        <div><label class="text-3" style="font-size:12px;display:block">Fuso</label><input type="text" id="f-tz" class="form-control" style="width:160px" value="${esc(d.config.timezone||'')}" placeholder="America/Belem"></div>
+      </div>
+
+      <h4 style="margin:12px 0 4px;font-size:14px">Validação da M1</h4>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0"><input type="checkbox" id="f-pitch" ${d.config.m1_proibir_pitch?'checked':''} style="width:auto"> Proibir pitch/jargão (campanha soft)</label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div><label class="text-3" style="font-size:12px;display:block">Máx perguntas</label><input type="number" id="f-perg" class="form-control" style="width:110px" value="${d.config.m1_max_perguntas??''}" placeholder="2"></div>
+        <div><label class="text-3" style="font-size:12px;display:block">Máx caracteres</label><input type="number" id="f-chars" class="form-control" style="width:120px" value="${d.config.m1_max_chars??''}" placeholder="600"></div>
+        <div><label class="text-3" style="font-size:12px;display:block">Tentativas</label><input type="number" id="f-tent" class="form-control" style="width:100px" value="${d.config.m1_tentativas??''}" placeholder="3"></div>
+      </div>
+      <div class="form-group" style="margin-top:8px"><label>Termos proibidos extras (separados por vírgula)</label>
+        <input type="text" id="f-termos" class="form-control" value="${esc((d.config.m1_termos_proibidos||[]).join(', '))}"></div>
+
+      <h4 style="margin:12px 0 4px;font-size:14px">Resposta ao lead</h4>
+      <div class="form-group"><label>Intenção positiva ("sim/quero") — use <code>{link}</code></label>
+        <textarea id="f-leadpos" class="form-control" rows="2">${esc(d.config.lead_positive_msg||'')}</textarea></div>
+      <div class="form-group"><label>Ack (resposta neutra)</label>
+        <textarea id="f-leadack" class="form-control" rows="2">${esc(d.config.lead_ack_msg||'')}</textarea></div>
+      <div class="form-group"><label>Link base (opcional)</label>
+        <input type="text" id="f-leadlink" class="form-control" value="${esc(d.config.lead_link_base||'')}" placeholder="https://..."></div>
+
+      <h4 style="margin:12px 0 4px;font-size:14px">Atendimento IA desta campanha (opcional)</h4>
+      <p class="text-3" style="font-size:12px;margin:0 0 6px">Quem responder a ESTA campanha é atendido com esta KB (substitui a do tenant). Vazio = usa a KB geral do tenant.</p>
+      <div class="form-group"><label>Persona/instruções (vazio = usa a do tenant)</label>
+        <textarea id="f-atprompt" class="form-control" rows="2">${esc(d.config.atendimento_prompt||'')}</textarea></div>
+      <div class="form-group"><label>Base de conhecimento da campanha</label>
+        <textarea id="f-atkb" class="form-control" rows="6">${esc(d.config.atendimento_kb||'')}</textarea></div>
+
+      <button class="btn btn-primary" id="btnSaveCfg" style="margin-top:10px">Salvar configuração</button>
+    </details>
+    <details><summary>Avançado (JSON completo — campos extras são preservados no salvamento)</summary>
+      <textarea class="form-control" rows="10" style="font-family:monospace;font-size:11px" readonly>${esc(JSON.stringify(d.config, null, 2))}</textarea>
+    </details>
+
+    <details><summary>Destinatários (CSV: telefone,nome,[ramo,cidade...])</summary>
+      <textarea id="csv" class="form-control" rows="6" style="font-family:monospace;font-size:12px" placeholder="telefone,nome,ramo&#10;5594999999999,João Silva,bebidas"></textarea>
+      <button class="btn btn-secondary" id="btnCsv" style="margin-top:6px">Carregar CSV (substitui)</button>
+      <span id="csvMsg" class="text-3"></span>
+    </details>
+
+    <details><summary>Imagens (pool — cada envio sorteia uma; legenda = M1)</summary>
+      <div id="imgsBox" style="margin-top:8px"><span class="text-3">carregando…</span></div>
+      <input type="file" id="imgUp" accept="image/jpeg,image/png,image/webp" multiple style="margin-top:8px">
+      <p class="text-3" style="font-size:12px">Vazio = só texto. Com 1+, cada envio manda uma imagem aleatória. Máx 20MB por arquivo.</p>
+    </details>
+
+    <details><summary>Já enviados / destinatários</summary>
+      <div style="margin:8px 0">
+        <select id="destFilter" class="form-control" style="width:170px;display:inline-block">
+          <option value="enviado">Enviados</option>
+          <option value="pendente">Pendentes</option>
+          <option value="falha">Falhas</option>
+          <option value="respondeu">Responderam</option>
+          <option value="optout">Opt-out</option>
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div id="destBox" style="max-height:320px;overflow:auto"></div>
+    </details>
+
+    <details><summary>Log do disparo</summary>
+      <div id="logBox" style="max-height:320px;overflow:auto;font-family:monospace;font-size:12px"></div>
+    </details>
+
+    <div style="margin-top:14px">
+      <label class="text-3" style="font-size:12px">Dry-run (nº de contatos): </label>
+      <input type="number" id="dryLimit" value="5" min="1" max="20" style="width:70px" class="form-control">
+      <button class="btn btn-primary" id="btnDry">Dry-run (gerar M1, sem enviar)</button>
+    </div>
+    <div id="dryOut" style="margin-top:12px"></div>
+
+    <div class="card" style="margin-top:14px;border-left:3px solid #d97706">
+      <h4 style="margin:0 0 4px">Envio real ⚠️</h4>
+      <p class="text-3" style="font-size:12px">Dispara de verdade pelo WhatsApp conectado, com throttle e limite diário (config <code>daily_limit</code>/<code>throttle_min_sec</code>). Respeita opt-out.</p>
+      <div id="progresso" class="text-3" style="font-size:13px;margin:6px 0"></div>
+      <button class="btn btn-primary" id="btnRun">Enviar campanha</button>
+      <button class="btn btn-secondary" id="btnCancel" style="display:none">Cancelar</button>
+      <p class="text-3" style="font-size:12px;margin-top:8px">Para disparo recorrente (dias/hora), use a página <strong>Agenda de campanhas</strong>.</p>
+    </div>
+  `;
+  el('btnDel').addEventListener('click', async () => { if (!confirm('Apagar campanha?')) return; await fetch('/api/wa-campanhas/'+id, {method:'DELETE'}); atual=null; el('detalhe').innerHTML='<p class="text-3">Selecione ou crie uma campanha.</p>'; carregar(); });
+  el('btnSaveCfg').addEventListener('click', async () => {
+    const cfg = Object.assign({}, d.config); // preserva campos extras (dores_por_ramo, etc.)
+    const setStr = (k, v) => { v = (v||'').trim(); if (v) cfg[k] = v; else delete cfg[k]; };
+    const setNum = (k, v) => { v = (v||'').trim(); if (v !== '' && !isNaN(+v)) cfg[k] = +v; else delete cfg[k]; };
+    setStr('persona', el('f-persona').value);
+    setStr('briefing', el('f-briefing').value);
+    const regras = el('f-regras').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (regras.length) cfg.regras = regras; else delete cfg.regras;
+    setNum('daily_limit', el('f-daily').value);
+    setNum('throttle_min_sec', el('f-tmin').value);
+    setNum('throttle_max_sec', el('f-tmax').value);
+    setStr('timezone', el('f-tz').value);
+    if (el('f-pitch').checked) cfg.m1_proibir_pitch = true; else delete cfg.m1_proibir_pitch;
+    setNum('m1_max_perguntas', el('f-perg').value);
+    setNum('m1_max_chars', el('f-chars').value);
+    setNum('m1_tentativas', el('f-tent').value);
+    const termos = el('f-termos').value.split(',').map(s => s.trim()).filter(Boolean);
+    if (termos.length) cfg.m1_termos_proibidos = termos; else delete cfg.m1_termos_proibidos;
+    setStr('lead_positive_msg', el('f-leadpos').value);
+    setStr('lead_ack_msg', el('f-leadack').value);
+    setStr('lead_link_base', el('f-leadlink').value);
+    setStr('atendimento_prompt', el('f-atprompt').value);
+    setStr('atendimento_kb', el('f-atkb').value);
+    const r = await (await fetch('/api/wa-campanhas/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ config: cfg })})).json();
+    alert(r.success ? 'configuração salva' : ('erro: ' + r.error));
+  });
+  el('btnCsv').addEventListener('click', async () => {
+    el('csvMsg').textContent = 'carregando…';
+    const r = await (await fetch('/api/wa-campanhas/'+id+'/csv', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ csv: el('csv').value })})).json();
+    el('csvMsg').textContent = r.success ? ('✅ '+r.total+' destinatários') : ('erro: '+r.error);
+    if (r.success) abrir(id);
+  });
+
+  // Imagens
+  async function loadImages() {
+    const box = el('imgsBox'); if (!box) return;
+    const d = await (await fetch('/api/wa-campanhas/'+id+'/images')).json();
+    if (!d.success) { box.innerHTML = 'erro'; return; }
+    box.innerHTML = d.images.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap">' + d.images.map(f =>
+      `<div style="text-align:center"><img src="/api/wa-campanhas/${id}/images/${encodeURIComponent(f)}" style="width:90px;height:90px;object-fit:cover;border-radius:6px;border:1px solid var(--border-1)"><br><button class="btn btn-secondary" data-img="${esc(f)}" style="font-size:11px;padding:2px 6px;margin-top:3px">apagar</button></div>`).join('') + '</div>'
+      : '<span class="text-3">nenhuma imagem (envio só texto)</span>';
+    box.querySelectorAll('button[data-img]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Apagar '+b.dataset.img+'?')) return;
+      await fetch('/api/wa-campanhas/'+id+'/images/'+encodeURIComponent(b.dataset.img), {method:'DELETE'});
+      loadImages();
+    }));
+  }
+  el('imgUp').addEventListener('change', async (e) => {
+    for (const f of e.target.files) {
+      const b64 = await new Promise(r => { const rd = new FileReader(); rd.onload = () => r(String(rd.result).split(',',2)[1]); rd.readAsDataURL(f); });
+      await fetch('/api/wa-campanhas/'+id+'/images', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({filename:f.name, base64:b64})});
+    }
+    e.target.value = ''; loadImages();
+  });
+  loadImages();
+
+  // Já enviados / destinatários
+  async function loadDest() {
+    const box = el('destBox'); if (!box) return;
+    box.innerHTML = 'carregando…';
+    const d = await (await fetch('/api/wa-campanhas/'+id+'/dest?limit=300&status='+encodeURIComponent(el('destFilter').value))).json();
+    if (!d.success) { box.innerHTML = 'erro'; return; }
+    box.innerHTML = d.dest.length ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>' + d.dest.map(x =>
+      `<tr><td style="padding:3px 6px"><a href="https://wa.me/${esc(x.telefone)}" target="_blank">${esc(x.telefone)}</a></td><td style="padding:3px 6px">${esc(x.nome||'')}</td><td style="padding:3px 6px" class="text-3">${esc(x.status)}${x.enviado_em?' · '+new Date(x.enviado_em).toLocaleString():''}${x.erro?' · '+esc(x.erro):''}</td></tr>`).join('') + '</tbody></table>'
+      : '<span class="text-3">vazio</span>';
+  }
+  el('destFilter').addEventListener('change', loadDest);
+  loadDest();
+
+  // Log
+  async function loadLog() {
+    const box = el('logBox'); if (!box) return;
+    const d = await (await fetch('/api/wa-campanhas/'+id+'/log')).json();
+    if (!d.success) { box.innerHTML = 'erro'; return; }
+    box.innerHTML = d.log.length ? d.log.map(l => `<div>${l.ts?new Date(l.ts).toLocaleString():''} — ${esc(l.msg)}</div>`).join('') : '<span class="text-3">sem log ainda</span>';
+  }
+  loadLog();
+  el('btnDry').addEventListener('click', async () => {
+    const out = el('dryOut'); out.innerHTML = 'gerando… (pode levar alguns segundos por contato)';
+    const limit = el('dryLimit').value;
+    const r = await (await fetch('/api/wa-campanhas/'+id+'/dry-run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ limit })})).json();
+    if (!r.success) { out.innerHTML = '<p class="text-3">erro: '+esc(r.error)+'</p>'; return; }
+    if (r.aviso) { out.innerHTML = '<p class="text-3">'+esc(r.aviso)+'</p>'; return; }
+    out.innerHTML = r.results.map(x => `
+      <div class="card" style="margin-bottom:8px;border-left:3px solid ${x.ok?'#16a34a':'#dc2626'}">
+        <strong>${esc(x.nome||x.telefone)}</strong> <span class="text-3" style="font-size:12px">${esc(x.telefone)} · ${x.tentativas} tentativa(s)</span>
+        ${x.ok ? '<pre style="white-space:pre-wrap;margin:6px 0 0">'+esc(x.texto)+'</pre>'
+               : '<p style="color:#dc2626;margin:6px 0 0">reprovada: '+esc((x.erros||[]).join('; '))+'</p>'}
+      </div>`).join('');
+  });
+
+  function renderProgress(dd) {
+    const c = dd.counts || {};
+    el('progresso').textContent = `enviados: ${c.enviado||0} · pendentes: ${c.pendente||0} · falhas: ${c.falha||0} · responderam: ${c.respondeu||0} · opt-out: ${c.optout||0} — status: ${dd.campanha.status}`;
+    el('btnRun').style.display = dd.rodando ? 'none' : '';
+    el('btnCancel').style.display = dd.rodando ? '' : 'none';
+  }
+  function pollProg() {
+    if (progPoll) clearInterval(progPoll);
+    progPoll = setInterval(async () => {
+      if (atual !== id) { clearInterval(progPoll); progPoll = null; return; }
+      const dd = await (await fetch('/api/wa-campanhas/'+id)).json();
+      if (dd.success) { renderProgress(dd); if (!dd.rodando) { clearInterval(progPoll); progPoll = null; } }
+    }, 5000);
+  }
+  renderProgress(d);
+  if (d.rodando) pollProg();
+  el('btnRun').addEventListener('click', async () => {
+    if (!confirm('Enviar a campanha de VERDADE pelo WhatsApp? Respeita throttle e limite diário.')) return;
+    const r = await (await fetch('/api/wa-campanhas/'+id+'/run', {method:'POST'})).json();
+    if (r.success) { pollProg(); const dd = await (await fetch('/api/wa-campanhas/'+id)).json(); if (dd.success) renderProgress(dd); }
+    else alert('erro: ' + r.error);
+  });
+  el('btnCancel').addEventListener('click', async () => { await fetch('/api/wa-campanhas/'+id+'/cancel', {method:'POST'}); });
+}
+
+el('btnLeads').addEventListener('click', async () => {
+  el('leadsPanel').style.display = '';
+  el('leadsBox').innerHTML = 'carregando…';
+  const d = await (await fetch('/api/wa-leads')).json();
+  if (!d.success) { el('leadsBox').innerHTML = 'erro: ' + esc(d.error||''); return; }
+  if (!d.leads.length) { el('leadsBox').innerHTML = '<p class="text-3">nenhum lead ainda</p>'; return; }
+  el('leadsBox').innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+    + '<thead><tr><th style="text-align:left;border-bottom:1px solid var(--border-1);padding:4px 6px">Contato</th>'
+    + '<th style="text-align:left;border-bottom:1px solid var(--border-1);padding:4px 6px">Campanha</th>'
+    + '<th style="text-align:left;border-bottom:1px solid var(--border-1);padding:4px 6px">Resposta</th>'
+    + '<th style="text-align:left;border-bottom:1px solid var(--border-1);padding:4px 6px">Quando</th></tr></thead><tbody>'
+    + d.leads.map(l => '<tr>'
+      + '<td style="padding:4px 6px"><a href="https://wa.me/'+esc(l.telefone)+'" target="_blank">'+esc(l.telefone)+'</a></td>'
+      + '<td style="padding:4px 6px">'+esc(l.campanha||'')+'</td>'
+      + '<td style="padding:4px 6px">'+esc(l.resposta||'')+'</td>'
+      + '<td style="padding:4px 6px;white-space:nowrap">'+(l.respondido_em?new Date(l.respondido_em).toLocaleString():'')+'</td></tr>').join('')
+    + '</tbody></table>';
+});
+el('btnLeadsClose').addEventListener('click', () => { el('leadsPanel').style.display = 'none'; });
+
+carregar();
+</script>
+</body>
+</html>

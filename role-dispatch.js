@@ -58,19 +58,30 @@ function createRoleDispatch(deps) {
   } = deps;
 
   function logStartupBanner(role) {
-    const stats = {
-      licitacoes: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
-      itens: db.prepare('SELECT COUNT(*) as count FROM itens').get().count
-    };
-    console.log(`[${role}] Banco de dados: ${dbPath}`);
+    // Em multi-tenant, db é um Proxy — no boot não há contexto de
+    // tenant. O banner fica mais curto; estatísticas são por-tenant
+    // e serão logadas por request ou no admin panel.
+    const dbLabel = typeof dbPath === 'function' ? '(multi-tenant)' : dbPath;
+    console.log(`[${role}] Banco de dados: ${dbLabel}`);
     console.log(`[${role}] API do PNCP: ${PNCP_API_BASE}`);
-    console.log(`[${role}] API Key extensão: ${apiKey}`);
-    console.log(`[${role}] Dados no banco: ${stats.licitacoes} licitações, ${stats.itens} itens`);
-    const lastSyncDate = getConfigValue('lastSyncDate');
-    if (lastSyncDate) {
-      console.log(`[${role}] Última sincronização: ${lastSyncDate}`);
+    if (apiKey) console.log(`[${role}] API Key: ${apiKey}`);
+
+    try {
+      const stats = {
+        licitacoes: db.prepare('SELECT COUNT(*) as count FROM licitacoes').get().count,
+        itens: db.prepare('SELECT COUNT(*) as count FROM itens').get().count
+      };
+      console.log(`[${role}] Dados no banco: ${stats.licitacoes} licitações, ${stats.itens} itens`);
+      const lastSyncDate = getConfigValue('lastSyncDate');
+      if (lastSyncDate) {
+        console.log(`[${role}] Última sincronização: ${lastSyncDate}`);
+      }
+      return stats;
+    } catch (err) {
+      // Em multi-tenant, esperado no boot — não há tenant no contexto.
+      console.log(`[${role}] (stats pulados: sem contexto de tenant no boot)`);
+      return null;
     }
-    return stats;
   }
 
   function startMaster() {

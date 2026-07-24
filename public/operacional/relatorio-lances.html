@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Lances · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* Page-local: fonte mono para colunas numéricas */
+        .mono { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>Relatório de Lances</h1>
+        <small>Histórico detalhado de todos os lances enviados ao Comprasnet</small>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary btn-sm" onclick="exportarCSV()">Exportar CSV</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+        <input type="text" id="filtCompra" placeholder="CompraId…" style="width:180px;" onkeydown="if(event.key==='Enter')carregar()">
+        <input type="number" id="filtItem" placeholder="Item" style="width:70px;">
+        <input type="date" id="filtDataInicio" style="width:auto;">
+        <input type="date" id="filtDataFim" style="width:auto;">
+        <select id="filtResultado" style="width:auto;">
+            <option value="">Resultado: Todos</option>
+            <option value="1">Sucesso</option>
+            <option value="0">Falha</option>
+        </select>
+        <select id="filtFonte" style="width:auto;">
+            <option value="">Todas as fontes</option>
+            <option value="blitz-servidor">Blitz servidor</option>
+            <option value="manual-servidor">Manual</option>
+            <option value="guard-servidor">Guard</option>
+            <option value="continuo-servidor">Contínuo</option>
+            <option value="agendado-servidor">Agendado</option>
+            <option value="blitz">Blitz extensão</option>
+            <option value="browser">Browser</option>
+        </select>
+        <input type="number" id="filtLimite" value="100" min="10" max="1000" style="width:70px;" title="Limite">
+        <button class="btn btn-primary btn-sm" onclick="carregar()">Filtrar</button>
+        <button class="btn btn-ghost btn-sm" onclick="limpar()">Limpar</button>
+    </div>
+
+    <div class="kpi-grid" id="resumo"></div>
+
+    <div class="panel">
+        <h3 style="margin-bottom:12px;">Lances <small id="totalLabel"></small></h3>
+        <div class="tbl-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Comprasnet</th>
+                        <th>Compra</th>
+                        <th>Item</th>
+                        <th>Valor</th>
+                        <th>Resultado</th>
+                        <th>Latência</th>
+                        <th>Fonte</th>
+                    </tr>
+                </thead>
+                <tbody id="tabela"></tbody>
+            </table>
+        </div>
+        <div id="vazio" class="empty" style="display:none;">Nenhum lance encontrado</div>
+    </div>
+
+    <div class="panel" id="panelAnalise" style="display:none;">
+        <h3 style="margin-bottom:12px;">Análise por item</h3>
+        <div id="analise"></div>
+    </div>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('relatorio-lances');</script>
+<script>
+var lancesData = [];
+
+async function carregar() {
+    var params = new URLSearchParams();
+    var compra = document.getElementById('filtCompra').value.trim();
+    var item = document.getElementById('filtItem').value.trim();
+    var dataInicio = document.getElementById('filtDataInicio').value;
+    var dataFim = document.getElementById('filtDataFim').value;
+    var resultado = document.getElementById('filtResultado').value;
+    var fonte = document.getElementById('filtFonte').value;
+    var limite = document.getElementById('filtLimite').value || '100';
+
+    if (compra) params.set('compraId', compra);
+    if (item) params.set('itemNumero', item);
+    if (resultado) params.set('sucesso', resultado);
+    if (fonte) params.set('fonte', fonte);
+    if (dataInicio) params.set('dataInicio', dataInicio);
+    if (dataFim) params.set('dataFim', dataFim);
+    params.set('limit', limite);
+
+    try {
+        var r = await fetch('/api/relatorio-lances?' + params.toString());
+        var d = await r.json();
+        if (!d.success) { alert(d.error); return; }
+        lancesData = d.lances || [];
+        renderResumo(d.resumo);
+        renderTabela(lancesData);
+        renderAnalise(lancesData);
+    } catch (e) {
+        alert('Erro: ' + e.message);
+    }
+}
+
+function kpi(label, value, modifier) {
+    var cls = modifier ? 'kpi ' + modifier : 'kpi';
+    return '<div class="' + cls + '"><div class="label">' + label + '</div><div class="value">' + value + '</div></div>';
+}
+
+function renderResumo(r) {
+    if (!r) { document.getElementById('resumo').innerHTML = ''; return; }
+    document.getElementById('resumo').innerHTML =
+        kpi('Total', r.total) +
+        kpi('Latência média', r.avgMs + 'ms') +
+        kpi('Compras', r.compras) +
+        kpi('Itens', r.itens);
+}
+
+function renderTabela(lances) {
+    var tbody = document.getElementById('tabela');
+    document.getElementById('totalLabel').textContent = '(' + lances.length + ')';
+    if (lances.length === 0) {
+        tbody.innerHTML = '';
+        document.getElementById('vazio').style.display = '';
+        return;
+    }
+    document.getElementById('vazio').style.display = 'none';
+
+    tbody.innerHTML = lances.map(function(h) {
+        var horaCN = '—';
+        if (h.comprasnetHora) {
+            horaCN = h.comprasnetHora;
+        } else if (h.resposta) {
+            try {
+                var resp = typeof h.resposta === 'string' ? JSON.parse(h.resposta) : h.resposta;
+                var item0 = Array.isArray(resp) ? resp[0] : resp;
+                if (item0 && item0.dataHoraAtualizacao) horaCN = item0.dataHoraAtualizacao.substring(11, 23);
+            } catch(e) {}
+        }
+        var badgeRes = h.sucesso
+            ? '<span class="badge sucesso">OK</span>'
+            : '<span class="badge erro">' + (h.httpStatus || '—') + '</span>';
+        return '<tr>' +
+            '<td class="mono">' + horaCN + '</td>' +
+            '<td class="mono" title="' + h.compraId + '">' + (h.compraId||'').substring(0, 6) + '…' + (h.compraId||'').slice(-4) + '</td>' +
+            '<td>' + h.itemNumero + '</td>' +
+            '<td class="mono">R$ ' + Number(h.valor).toFixed(2) + '</td>' +
+            '<td>' + badgeRes + '</td>' +
+            '<td class="mono">' + (h.tempoMs || '—') + 'ms</td>' +
+            '<td><span class="badge confirmado">' + (h.fonte || '—') + '</span></td>' +
+            '</tr>';
+    }).join('');
+}
+
+function renderAnalise(lances) {
+    var panel = document.getElementById('panelAnalise');
+    var okLances = lances.filter(function(l) { return l.sucesso; });
+    if (okLances.length < 2) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+
+    var grupos = {};
+    okLances.forEach(function(l) {
+        var key = l.compraId + ' item ' + l.itemNumero;
+        if (!grupos[key]) grupos[key] = [];
+        grupos[key].push(l);
+    });
+
+    var html = '<div class="tbl-wrap"><table><thead><tr><th>Compra / Item</th><th>Lances</th><th>1º lance</th><th>Último</th><th>Duração</th><th>Latência avg</th><th>Intervalo avg</th><th>Spikes</th></tr></thead><tbody>';
+
+    for (var key in grupos) {
+        var g = grupos[key];
+        var cnTimes = [];
+        g.forEach(function(l) {
+            var t = null;
+            if (l.comprasnetHora) { t = l.comprasnetHora; }
+            else if (l.resposta) {
+                try {
+                    var resp = typeof l.resposta === 'string' ? JSON.parse(l.resposta) : l.resposta;
+                    var item0 = Array.isArray(resp) ? resp[0] : resp;
+                    if (item0 && item0.dataHoraAtualizacao) t = item0.dataHoraAtualizacao.substring(11, 23);
+                } catch(e) {}
+            }
+            if (t) cnTimes.push(t);
+        });
+
+        var rtts = g.map(function(l) { return l.tempoMs || 0; });
+        var avgRtt = Math.round(rtts.reduce(function(a,b){return a+b;},0) / rtts.length);
+        var spikes = rtts.filter(function(r) { return r > 400; }).length;
+
+        var intervals = [];
+        if (cnTimes.length > 1) {
+            for (var i = 1; i < cnTimes.length; i++) {
+                var diff = parseTime(cnTimes[i]) - parseTime(cnTimes[i-1]);
+                if (diff > 0) intervals.push(diff);
+            }
+        }
+        var avgInterval = intervals.length > 0 ? Math.round(intervals.reduce(function(a,b){return a+b;},0) / intervals.length) : '—';
+
+        var primeiro = cnTimes.length > 0 ? cnTimes[0] : '—';
+        var ultimo = cnTimes.length > 0 ? cnTimes[cnTimes.length - 1] : '—';
+        var duracao = cnTimes.length > 1 ? Math.round(parseTime(cnTimes[cnTimes.length-1]) - parseTime(cnTimes[0])) + 'ms' : '—';
+
+        html += '<tr>' +
+            '<td>' + key + '</td>' +
+            '<td>' + g.length + '</td>' +
+            '<td class="mono">' + primeiro + '</td>' +
+            '<td class="mono">' + ultimo + '</td>' +
+            '<td class="mono">' + duracao + '</td>' +
+            '<td class="mono">' + avgRtt + 'ms</td>' +
+            '<td class="mono">' + avgInterval + 'ms</td>' +
+            '<td>' + (spikes > 0 ? '<span class="badge erro">' + spikes + '</span>' : '0') + '</td>' +
+            '</tr>';
+    }
+    html += '</tbody></table></div>';
+    document.getElementById('analise').innerHTML = html;
+}
+
+function parseTime(t) {
+    if (!t || t === '—') return 0;
+    var p = t.split(':');
+    var s = p[2] ? parseFloat(p[2]) : 0;
+    return (parseInt(p[0])*3600 + parseInt(p[1])*60 + s) * 1000;
+}
+
+function limpar() {
+    document.getElementById('filtCompra').value = '';
+    document.getElementById('filtItem').value = '';
+    var iso = hojeISO();
+    document.getElementById('filtDataInicio').value = iso;
+    document.getElementById('filtDataFim').value = iso;
+    document.getElementById('filtResultado').value = '';
+    document.getElementById('filtFonte').value = '';
+    document.getElementById('filtLimite').value = '100';
+    carregar();
+}
+
+function hojeISO(){
+  var d = new Date();
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+function exportarCSV() {
+    if (lancesData.length === 0) return;
+    var csv = 'Comprasnet,CompraId,Item,Valor,Sucesso,Latencia_ms,Fonte,HTTP\n';
+    lancesData.forEach(function(l) {
+        var cn = '';
+        if (l.comprasnetHora) cn = l.comprasnetHora;
+        else if (l.resposta) {
+            try {
+                var resp = typeof l.resposta === 'string' ? JSON.parse(l.resposta) : l.resposta;
+                var item0 = Array.isArray(resp) ? resp[0] : resp;
+                if (item0 && item0.dataHoraAtualizacao) cn = item0.dataHoraAtualizacao.substring(11, 23);
+            } catch(e) {}
+        }
+        csv += cn + ',' + l.compraId + ',' + l.itemNumero + ',' + l.valor + ',' + (l.sucesso?'OK':'FALHA') + ',' + (l.tempoMs||0) + ',' + (l.fonte||'') + ',' + (l.httpStatus||'') + '\n';
+    });
+    var blob = new Blob([csv], {type:'text/csv'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'lances-' + new Date().toISOString().substring(0,10) + '.csv';
+    a.click();
+}
+
+// Pré-preenche os filtros de data com o dia atual (fuso local).
+document.getElementById('filtDataInicio').value = hojeISO();
+document.getElementById('filtDataFim').value = hojeISO();
+
+carregar();
+</script>
+</body>
+</html>

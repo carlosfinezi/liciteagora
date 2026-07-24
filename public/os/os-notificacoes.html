@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notificações de OS · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Notificações de Ordem de Serviço</h1>
+      <small>Configure envios automáticos por email, WhatsApp ou Telegram para eventos da OS</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card">
+    <h3>Nova regra</h3>
+    <form id="fNovo" class="grid-2col">
+      <div>
+        <label>Evento</label>
+        <select id="evento" required>
+          <option value="abertura">Abertura da OS</option>
+          <option value="enviado">Orçamento enviado</option>
+          <option value="aprovado">Orçamento aprovado</option>
+          <option value="rejeitado">Orçamento rejeitado</option>
+          <option value="inicio">Início de execução</option>
+          <option value="aguardando-peca">Aguardando peça</option>
+          <option value="conclusao">Conclusão</option>
+          <option value="faturamento">Faturamento</option>
+          <option value="cancelamento">Cancelamento</option>
+          <option value="sla-risco">SLA em risco</option>
+          <option value="sla-atrasado">SLA atrasado</option>
+        </select>
+      </div>
+      <div>
+        <label>Canal</label>
+        <select id="canal" required>
+          <option value="email">Email (para o cliente)</option>
+          <option value="whatsapp">WhatsApp (para o cliente)</option>
+          <option value="telegram">Telegram (para admin)</option>
+        </select>
+      </div>
+      <div class="full">
+        <label>Template (use {{placeholders}} para substituição)</label>
+        <textarea id="template" rows="4" placeholder="OS {{numero}} — {{clienteNome}}&#10;Olá! Sua OS está {{status}}. {{descricao}}"></textarea>
+        <small style="color:#666;">
+          Placeholders disponíveis:
+          <code>{{numero}}</code>,
+          <code>{{clienteNome}}</code>,
+          <code>{{titulo}}</code>,
+          <code>{{status}}</code>,
+          <code>{{descricao}}</code>,
+          <code>{{prazo}}</code>,
+          <code>{{tecnicoNome}}</code>,
+          <code>{{assinanteNome}}</code>,
+          <code>{{motivo}}</code>
+        </small>
+      </div>
+      <div class="full">
+        <label><input type="checkbox" id="ativo" checked> Ativa</label>
+      </div>
+      <div class="full">
+        <button class="btn btn-primary" type="submit">Salvar regra</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3>Regras ativas</h3>
+    <table class="table">
+      <thead><tr>
+        <th>Evento</th><th>Canal</th><th>Template</th><th>Ativa</th><th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="5">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+</main></div>
+
+<script>
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function carregar(){
+  const r = await fetch('/api/os/notificacoes-config').then(r=>r.json());
+  const tb = document.getElementById('tb');
+  if (!r.success) return tb.innerHTML = `<tr><td colspan="5">Erro: ${escapeHtml(r.error)}</td></tr>`;
+  if (!r.configs.length) return tb.innerHTML = '<tr><td colspan="5">Nenhuma regra configurada.</td></tr>';
+  tb.innerHTML = r.configs.map(c => `
+    <tr>
+      <td><strong>${escapeHtml(c.evento)}</strong></td>
+      <td>${escapeHtml(c.canal)}</td>
+      <td style="max-width:400px;white-space:pre-wrap;font-family:monospace;font-size:12px;">${escapeHtml(c.template||'(padrão)')}</td>
+      <td>${c.ativo ? '✓ sim' : '— não'}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="remover(${c.id})">Remover</button></td>
+    </tr>
+  `).join('');
+}
+
+async function remover(id){
+  if (!confirm('Remover esta regra?')) return;
+  await fetch('/api/os/notificacoes-config/' + id, { method: 'DELETE' });
+  carregar();
+}
+
+document.getElementById('fNovo').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = {
+    evento:   document.getElementById('evento').value,
+    canal:    document.getElementById('canal').value,
+    template: document.getElementById('template').value.trim() || null,
+    ativo:    document.getElementById('ativo').checked ? 1 : 0,
+  };
+  const r = await fetch('/api/os/notificacoes-config', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  }).then(r=>r.json());
+  if (!r.success) return alert('Erro: ' + r.error);
+  document.getElementById('template').value = '';
+  carregar();
+});
+
+carregar();
+</script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('os-notificacoes');</script>
+</body></html>

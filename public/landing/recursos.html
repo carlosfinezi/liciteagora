@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Todos os recursos — Licite Agora</title>
+<meta name="description" content="70+ módulos em 9 áreas: Licitações, Operacional, Comercial, Estoque, Varejo, Financeiro, Fiscal, RH e Configurações.">
+<link rel="canonical" href="https://liciteagora.app/recursos.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="/landing.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo"><span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span><span>Licite Agora</span></a>
+    <nav class="nav-links" id="navLinks">
+      <a href="/recursos.html" class="active">Recursos</a>
+      <a href="/planos.html">Planos</a>
+      <a href="/contato.html">Contato</a>
+    </nav>
+    <div class="nav-actions">
+      <a href="https://admin.liciteagora.app/admin/login.html" class="btn btn-ghost">Entrar</a>
+      <a href="/trial.html" class="btn btn-primary">Testar grátis</a>
+      <button class="menu-toggle" id="btnMenu">☰</button>
+    </div>
+  </div>
+</header>
+
+<section class="hero" style="padding-bottom:40px;">
+  <div class="container text-center">
+    <h1><span class="gradient-text">70+ módulos</span> integrados</h1>
+    <p class="hero-subtitle" style="margin:16px auto 0;">Cada módulo foi construído pensando em quem vive de licitação. Nada de ERP genérico adaptado.</p>
+  </div>
+</section>
+
+<section style="padding:0 0 80px;">
+  <div class="container">
+
+    <div class="filters">
+      <input type="search" class="search-input" id="moduloSearch" placeholder="Buscar módulo… (ex: 'NF-e', 'estoque', 'pregão')">
+      <button class="chip" id="toggleDestaques">Ver só destaques</button>
+    </div>
+
+    <div id="chips" class="filters" style="margin-bottom:24px;">
+      <button class="chip active" data-secao="">Todos</button>
+    </div>
+
+    <p class="muted" style="margin-bottom:20px;"><span id="modulosCount">0</span> módulos</p>
+
+    <div class="modulos-grid" id="modulosGrid">
+      <div style="padding:40px;text-align:center;color:var(--text-3);grid-column:1/-1;">Carregando módulos…</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="section">
+  <div class="container text-center">
+    <h2>Todas essas funcionalidades em <span class="gradient-text">um só lugar</span></h2>
+    <p class="muted" style="font-size:var(--fs-lg);margin:16px auto 32px;max-width:580px;">14 dias grátis para testar quantos módulos quiser. Sem cartão de crédito.</p>
+    <div class="hero-ctas" style="justify-content:center;">
+      <a href="/trial.html" class="btn btn-primary btn-xl">Testar grátis →</a>
+      <a href="/planos.html" class="btn btn-ghost btn-xl">Ver planos</a>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <div>
+      <a href="/" class="logo"><span class="logo-mark"><svg class="icon"><use href="#i-zap"/></svg></span><span>Licite Agora</span></a>
+      <p class="muted" style="font-size:var(--fs-sm);max-width:280px;margin-top:12px;">ERP multi-tenant para empresas que vivem de licitações.</p>
+    </div>
+    <div><h5>Produto</h5><ul><li><a href="/recursos.html">Todos os módulos</a></li><li><a href="/planos.html">Planos</a></li><li><a href="/trial.html">Testar grátis</a></li></ul></div>
+    <div><h5>Empresa</h5><ul><li><a href="/contato.html">Contato</a></li><li><a href="mailto:atendimento@1bit.net.br">atendimento@1bit.net.br</a></li></ul></div>
+    <div><h5>Legal</h5><ul><li><a href="/termos.html">Termos</a></li><li><a href="/privacidade.html">Privacidade · LGPD</a></li></ul></div>
+    <div class="copyright" style="grid-column:1/-1;">© 2026 Licite Agora · 1bit Tecnologia</div>
+  </div>
+</footer>
+
+<script src="/landing.js"></script>
+</body>
+</html>

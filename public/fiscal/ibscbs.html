@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IBS/CBS — Reforma Tributária · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>IBS/CBS — Reforma Tributária</h1>
+    <small>Grupo UB na NF-e (NT 2025.002) + apuração assistida da transição. Ative primeiro em homologação.</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <div class="card" style="max-width:760px;margin-bottom:20px;">
+    <h3 style="margin:0 0 10px;">Configuração da emissão</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Grupo IBS/CBS na NF-e</label>
+        <select id="cAtivo"><option value="0">Desativado</option><option value="1">Ativado</option></select></div>
+      <div class="form-group"><label>IBS UF (%)</label><input type="number" id="cIBSUF" step="0.0001" style="width:110px;"></div>
+      <div class="form-group"><label>IBS Municipal (%)</label><input type="number" id="cIBSMun" step="0.0001" style="width:110px;"></div>
+      <div class="form-group"><label>CBS (%)</label><input type="number" id="cCBS" step="0.0001" style="width:110px;"></div>
+    </div>
+    <small class="muted">Ano-teste 2026: IBS UF 0,1% + CBS 0,9%. CST/cClassTrib vêm do cadastro de cada produto (fallback 000/000001). Com o grupo ativo, a validação XSD local é pulada — a SEFAZ valida com o schema PL_010.</small>
+    <div style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="salvarCfg()">Salvar configuração</button>
+    <span id="ambienteInfo" class="muted" style="margin-left:10px;"></span></div>
+  </div>
+
+  <div class="page-header"><div><h2 style="margin:0;">Apuração assistida</h2></div>
+    <div class="actions"><input type="month" id="comp" onchange="apurar()"></div></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <h3 style="margin:18px 0 8px;">Créditos da competência (compras/insumos)</h3>
+  <div class="toolbar">
+    <input type="text" id="crDesc" placeholder="Descrição (ex.: NF 123 fornecedor X)" style="flex:1;min-width:200px;">
+    <input type="text" id="crDoc" placeholder="Documento" style="width:130px;">
+    <input type="number" id="crIBS" placeholder="IBS (R$)" step="0.01" style="width:110px;">
+    <input type="number" id="crCBS" placeholder="CBS (R$)" step="0.01" style="width:110px;">
+    <button class="btn btn-primary btn-sm" onclick="addCredito()">+ Crédito</button>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Descrição</th><th>Documento</th><th style="text-align:right;">IBS</th><th style="text-align:right;">CBS</th><th></th></tr></thead>
+    <tbody id="tbCred"></tbody>
+  </table></div>
+</main></div>
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script>initSidebar('fiscal-ibscbs');</script>
+<script>
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}
+function fmt(v){return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+async function carregarCfg(){
+  const r=await fetch('/api/fiscal/ibscbs/config');const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  const c=d.config||{};
+  document.getElementById('cAtivo').value=String(c.ibsCbsAtivo||0);
+  document.getElementById('cIBSUF').value=c.pIBSUF??0.1;
+  document.getElementById('cIBSMun').value=c.pIBSMun??0;
+  document.getElementById('cCBS').value=c.pCBS??0.9;
+  document.getElementById('ambienteInfo').textContent='Ambiente NF-e atual: '+(c.tpAmb===1?'PRODUÇÃO ⚠️':'homologação');
+}
+async function salvarCfg(){
+  const body={ibsCbsAtivo:Number(document.getElementById('cAtivo').value),
+    pIBSUF:Number(document.getElementById('cIBSUF').value),
+    pIBSMun:Number(document.getElementById('cIBSMun').value),
+    pCBS:Number(document.getElementById('cCBS').value)};
+  if(body.ibsCbsAtivo&&!confirm('Ativar o grupo IBS/CBS nas próximas NF-e? Teste primeiro em homologação.'))return;
+  const r=await fetch('/api/fiscal/ibscbs/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');
+  showAlert('Configuração salva');carregarCfg();
+}
+async function apurar(){
+  const comp=document.getElementById('comp').value;
+  const r=await fetch('/api/fiscal/ibscbs/apuracao?competencia='+comp);const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="kpi-label">Base (NF-e autorizadas)</div><div class="kpi-value">R$ ${fmt(d.base.valorTotal)}</div><small class="muted">${d.base.faturas} nota(s)</small></div>
+    <div class="kpi"><div class="kpi-label">Débito IBS (${d.aliquotas.pIBS}%)</div><div class="kpi-value">R$ ${fmt(d.debitos.ibs)}</div></div>
+    <div class="kpi"><div class="kpi-label">Débito CBS (${d.aliquotas.pCBS}%)</div><div class="kpi-value">R$ ${fmt(d.debitos.cbs)}</div></div>
+    <div class="kpi"><div class="kpi-label">Créditos</div><div class="kpi-value">R$ ${fmt(d.creditos.ibs+d.creditos.cbs)}</div></div>
+    <div class="kpi"><div class="kpi-label">Saldo a recolher</div><div class="kpi-value" style="color:${d.saldo.total>0?'var(--danger)':'var(--success)'};">R$ ${fmt(d.saldo.total)}</div><small class="muted">IBS ${fmt(d.saldo.ibs)} + CBS ${fmt(d.saldo.cbs)}</small></div>`;
+  document.getElementById('tbCred').innerHTML=(d.creditos.lista||[]).length?d.creditos.lista.map(c=>`<tr>
+    <td>${c.descricao}</td><td>${c.documento||'-'}</td>
+    <td style="text-align:right;">${fmt(c.valorIBS)}</td><td style="text-align:right;">${fmt(c.valorCBS)}</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="rmCredito(${c.id})">×</button></td></tr>`).join('')
+    :'<tr><td colspan="5" class="empty">Sem créditos na competência</td></tr>';
+}
+async function addCredito(){
+  const body={competencia:document.getElementById('comp').value,
+    descricao:document.getElementById('crDesc').value.trim(),
+    documento:document.getElementById('crDoc').value.trim()||null,
+    valorIBS:Number(document.getElementById('crIBS').value)||0,
+    valorCBS:Number(document.getElementById('crCBS').value)||0};
+  const r=await fetch('/api/fiscal/ibscbs/creditos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');
+  ['crDesc','crDoc','crIBS','crCBS'].forEach(i=>document.getElementById(i).value='');
+  apurar();
+}
+async function rmCredito(id){
+  const r=await fetch('/api/fiscal/ibscbs/creditos/'+id,{method:'DELETE'});const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');apurar();
+}
+document.getElementById('comp').value=new Date().toISOString().slice(0,7);
+carregarCfg();apurar();
+</script>
+</body></html>

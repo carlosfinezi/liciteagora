@@ -22,6 +22,10 @@
  * das rotas /api/chat/mensagens/* (que usam cnpjOrgao/ano/sequencial etc).
  */
 
+// Fase 3g (2026-05-23): SELECT licitacoes vai pra PG quando flag ativa
+const catalogPg = require('./catalog-pg');
+const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
 function registrarRotasParticipacaoMonitoramento(app, db, opts = {}) {
   const { enviarTelegram } = opts;
 
@@ -237,8 +241,16 @@ function registrarRotasParticipacaoMonitoramento(app, db, opts = {}) {
       `).run(cnpj, ano, sequencial, mensagemId, remetente, conteudo, dataHora);
 
       // Buscar informações da licitação
-      const licitacao = db.prepare('SELECT objetoCompra, razaoSocial FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?')
-        .get(cnpj, ano, sequencial);
+      let licitacao;
+      if (USE_PG) {
+        licitacao = await catalogPg.queryOne(
+          `SELECT "objetoCompra","razaoSocial" FROM licitacoes WHERE "cnpj"=$1 AND "anoCompra"=$2 AND "sequencialCompra"=$3`,
+          [cnpj, ano, sequencial]
+        );
+      } else {
+        licitacao = db.prepare('SELECT objetoCompra, razaoSocial FROM licitacoes WHERE cnpj = ? AND anoCompra = ? AND sequencialCompra = ?')
+          .get(cnpj, ano, sequencial);
+      }
 
       // Enviar alerta no Telegram
       const mensagemTelegram = `🔔 <b>NOVA MENSAGEM NO CHAT</b>\n\n` +

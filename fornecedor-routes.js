@@ -36,7 +36,8 @@ function registrarRotasFornecedor(app, db) {
         representanteLegal, cpfRepresentante, cargoRepresentante,
         banco, agencia, conta, tipoConta,
         logoBase64, observacoes,
-        declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero
+        declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero,
+        regimeTributario, contribuinteIPI, regimeApuracaoPISCOFINS
       } = req.body;
 
       // Verificar se já existe registro
@@ -101,6 +102,52 @@ function registrarRotasFornecedor(app, db) {
           db.prepare('UPDATE fornecedor SET codigoMunicipio = ? WHERE id = 1').run(codigoMunicipio);
         }
       } catch {}
+
+      // regimeTributario (coluna adicionada pela migração NFSe; ignora se não existir)
+      try {
+        if (regimeTributario !== undefined) {
+          const norm = ['MEI', 'SIMPLES_NACIONAL', 'NAO_OPTANTE'].includes(regimeTributario)
+            ? regimeTributario : null;
+          db.prepare('UPDATE fornecedor SET regimeTributario = ? WHERE id = 1').run(norm);
+        }
+      } catch {}
+
+      // Configuração fiscal extra (composição de custo de aquisição).
+      try {
+        if (contribuinteIPI !== undefined) {
+          // Aceita 0/1 numérico, true/false e strings "0"/"1"/"true"/"false".
+          const flag = (contribuinteIPI === 1 || contribuinteIPI === '1' ||
+                        contribuinteIPI === true || contribuinteIPI === 'true') ? 1 : 0;
+          db.prepare('UPDATE fornecedor SET contribuinteIPI = ? WHERE id = 1').run(flag);
+        }
+        if (regimeApuracaoPISCOFINS !== undefined) {
+          const norm = ['cumulativo', 'nao_cumulativo'].includes(regimeApuracaoPISCOFINS)
+            ? regimeApuracaoPISCOFINS : null;
+          db.prepare('UPDATE fornecedor SET regimeApuracaoPISCOFINS = ? WHERE id = 1').run(norm);
+        }
+      } catch {}
+
+      // Auto-cadastro de palavras-chave personalizadas (raiz do CNPJ + início da razão social)
+      // Idempotente via INSERT OR IGNORE. Não remove palavras antigas se o fornecedor mudar —
+      // o usuário pode limpá-las manualmente na tela de palavras-chave.
+      try {
+        const personalizadas = [];
+        if (cnpj) {
+          const d = String(cnpj).replace(/\D/g, '');
+          if (d.length >= 8) {
+            personalizadas.push(`${d.substring(0,2)}.${d.substring(2,5)}.${d.substring(5,8)}`.toLowerCase());
+          }
+        }
+        if (razaoSocial) {
+          const tokens = String(razaoSocial).trim().split(/\s+/).slice(0, 2);
+          const inicio = tokens.join(' ').toLowerCase();
+          if (inicio.length >= 2) personalizadas.push(inicio);
+        }
+        const stmt = db.prepare('INSERT OR IGNORE INTO chat_palavras_chave (palavra) VALUES (?)');
+        for (const p of personalizadas) { try { stmt.run(p); } catch (_) {} }
+      } catch (err) {
+        console.warn('[Fornecedor] Falha ao auto-cadastrar palavras-chave:', err.message);
+      }
 
       res.json({ success: true, message: 'Dados do fornecedor salvos com sucesso' });
     } catch (error) {

@@ -94,7 +94,11 @@
     <span id="status">...</span>
   </div>
   <div id="wv-host">
-    <webview id="wv-comprasnet" class="active" partition="persist:comprasnet" src="" allowpopups></webview>
+    <!-- Comprasnet SEM partition = session default (persistente). A partition
+         nomeada persist:comprasnet perdia o device-trust do acesso.gov.br no
+         restart; a session default preserva (validado na máquina do cliente
+         2026-07-07). Ver ANALISE-HCAPTCHA-DIFF.md. BNC/BLL seguem em partitions. -->
+    <webview id="wv-comprasnet" class="active" src="" allowpopups></webview>
     <webview id="wv-bnc" partition="persist:bnc" src="" allowpopups></webview>
     <webview id="wv-bll" partition="persist:bll" src="" allowpopups></webview>
   </div>

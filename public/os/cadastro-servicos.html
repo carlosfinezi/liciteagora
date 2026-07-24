@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cadastro de Serviços · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Cadastro de Serviços</h1>
+      <small>Catálogo de serviços com classificação fiscal NBS — usado nos itens de Ordens de Serviço</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo serviço</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <p class="muted" style="margin-bottom:10px;">
+      Cada serviço carrega seu código NBS (Nomenclatura Brasileira de Serviços, 9 dígitos) e o código de
+      Tributação Nacional (cTribNac, 6 dígitos). Esses dados são usados na emissão da NFS-e nacional
+      (LC 214/2025) quando o item é vinculado a uma OS.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Código</th>
+          <th>Nome</th>
+          <th>Categoria</th>
+          <th>Unidade</th>
+          <th>Valor padrão</th>
+          <th>cNBS</th>
+          <th>cTribNac</th>
+          <th>Status</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Novo serviço</h3>
+        <small class="muted">Identificação, preço e classificação fiscal NFS-e</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+
+    <h4 style="margin-top:8px;margin-bottom:8px;">Identificação</h4>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Código <small class="muted">(sigla curta opcional)</small></label>
+        <input type="text" id="fCodigo" maxlength="20" placeholder="MAN-PC" style="text-transform:uppercase;">
+      </div>
+      <div class="form-group" style="flex:2;">
+        <label>Nome *</label>
+        <input type="text" id="fNome" placeholder="Ex.: Manutenção em microcomputador">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição <small class="muted">(vai em xDescServ da NFS-e quando preenchida)</small></label>
+        <textarea id="fDesc" rows="2" placeholder="Texto detalhado do serviço para a nota fiscal"></textarea>
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;margin-bottom:8px;">Categoria & preço</h4>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Categoria</label>
+        <select id="fCategoria">
+          <option value="">— sem categoria —</option>
+          <option value="manutencao">Manutenção</option>
+          <option value="instalacao">Instalação</option>
+          <option value="consultoria">Consultoria</option>
+          <option value="treinamento">Treinamento</option>
+          <option value="suporte">Suporte técnico</option>
+          <option value="locacao">Locação</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Unidade</label>
+        <select id="fUnidade">
+          <option value="serviço">Serviço</option>
+          <option value="hora">Hora</option>
+          <option value="diária">Diária</option>
+          <option value="visita">Visita</option>
+          <option value="mensal">Mensal</option>
+          <option value="unidade">Unidade</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Valor padrão (R$)</label>
+        <input type="number" id="fValor" min="0" step="0.01" placeholder="0,00">
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;margin-bottom:8px;">Fiscal NFS-e Nacional</h4>
+    <p class="muted" style="font-size:12px;margin-bottom:10px;">
+      NBS classifica o serviço (9 dígitos: <code>X.XXXX.XX.XX</code>); cTribNac define o tratamento tributário (6 dígitos).
+      Consulte a
+      <a href="https://www.gov.br/mdic/pt-br/assuntos/comercio-exterior/estatisticas/nbs" target="_blank" rel="noopener">tabela NBS oficial</a>
+      e o
+      <a href="https://www.gov.br/nfse/pt-br" target="_blank" rel="noopener">Portal NFS-e Nacional</a>.
+    </p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>cNBS <small class="muted">(9 dígitos)</small></label>
+        <input type="text" id="fCnbs" maxlength="9" placeholder="120012000" style="font-family:monospace;">
+        <small id="fCnbsHint" class="muted" style="font-size:11px;"></small>
+      </div>
+      <div class="form-group" style="flex:2;">
+        <label>xNBS <small class="muted">(descrição NBS)</small></label>
+        <input type="text" id="fXnbs" maxlength="120" placeholder="Manutenção e reparação de computadores e periféricos">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>cTribNac <small class="muted">(6 dígitos)</small></label>
+        <input type="text" id="fCtribnac" maxlength="6" placeholder="141401" style="font-family:monospace;">
+        <small id="fCtribnacHint" class="muted" style="font-size:11px;"></small>
+      </div>
+      <div class="form-group">
+        <label>codigoListaServico <small class="muted">(LC 116, ex: 14.01)</small></label>
+        <input type="text" id="fCtribmun" maxlength="10" placeholder="14.01" style="font-family:monospace;">
+      </div>
+      <div class="form-group" style="flex:0 0 110px;">
+        <label>Status</label>
+        <select id="fAtivo"><option value="1">Ativo</option><option value="0">Inativo</option></select>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="btnInativar" onclick="inativar()" style="display:none;">Inativar</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('cadastro-servicos');</script>
+<script>
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(()=>e.style.display='none', 5000);
+}
+function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function fmtBRL(v){ if (v == null || v === '') return '—'; return Number(v).toLocaleString('pt-BR', {style:'currency', currency:'BRL'}); }
+
+const RE_NBS = /^\d{9}$/;
+const RE_TRIB_NAC = /^\d{6}$/;
+
+let servicos = [];
+let TABELA_NBS = {};
+let TABELA_CTRIBNAC = {};
+
+async function carregarTabelasFiscais(){
+  try {
+    const r = await fetch('/api/fiscal/tabelas');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.success) return;
+    TABELA_NBS = d.nbs || {};
+    TABELA_CTRIBNAC = d.ctribnac || {};
+  } catch (_) { /* sem hints, validação ainda funciona no submit */ }
+}
+
+async function carregar(){
+  try {
+    const r = await fetch('/api/servicos?todos=1');
+    if (r.status === 401) { window.location.href = '/login.html'; return; }
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    servicos = d.servicos || [];
+    renderTabela();
+  } catch (e) {
+    showAlert('Erro ao carregar: ' + e.message, 'error');
+    document.getElementById('tb').innerHTML = '<tr><td colspan="9" class="empty">Falha ao carregar</td></tr>';
+  }
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tb');
+  if (!servicos.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">Nenhum serviço cadastrado</td></tr>'; return; }
+  tb.innerHTML = servicos.map(s => `
+    <tr style="${s.ativo ? '' : 'opacity:0.5;'}">
+      <td><code>${escTxt(s.codigo || '—')}</code></td>
+      <td><strong>${escTxt(s.nome)}</strong>${s.descricao ? '<br><small class="muted">' + escTxt(s.descricao) + '</small>' : ''}</td>
+      <td><small class="muted">${escTxt(s.categoria || '—')}</small></td>
+      <td>${escTxt(s.unidade || '—')}</td>
+      <td>${fmtBRL(s.valorPadrao)}</td>
+      <td><code>${escTxt(s.cNBS || '—')}</code></td>
+      <td><code>${escTxt(s.codigoTributacaoNacional || '—')}</code></td>
+      <td>${s.ativo ? '<span class="badge success">ativo</span>' : '<span class="badge">inativo</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="editar(${s.id})">Editar</button></td>
+    </tr>
+  `).join('');
+}
+
+function abrirNovo(){
+  document.getElementById('modalTitulo').textContent = 'Novo serviço';
+  document.getElementById('fId').value = '';
+  document.getElementById('fCodigo').value = '';
+  document.getElementById('fNome').value = '';
+  document.getElementById('fDesc').value = '';
+  document.getElementById('fCategoria').value = '';
+  document.getElementById('fUnidade').value = 'serviço';
+  document.getElementById('fValor').value = '';
+  document.getElementById('fCnbs').value = '';
+  document.getElementById('fXnbs').value = '';
+  document.getElementById('fCtribnac').value = '';
+  document.getElementById('fCtribmun').value = '';
+  document.getElementById('fAtivo').value = '1';
+  document.getElementById('btnInativar').style.display = 'none';
+  atualizarHints();
+  document.getElementById('modal').classList.add('open');
+}
+
+function editar(id){
+  const s = servicos.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('modalTitulo').textContent = 'Editar serviço';
+  document.getElementById('fId').value = s.id;
+  document.getElementById('fCodigo').value = s.codigo || '';
+  document.getElementById('fNome').value = s.nome || '';
+  document.getElementById('fDesc').value = s.descricao || '';
+  document.getElementById('fCategoria').value = s.categoria || '';
+  document.getElementById('fUnidade').value = s.unidade || 'serviço';
+  document.getElementById('fValor').value = s.valorPadrao != null ? s.valorPadrao : '';
+  document.getElementById('fCnbs').value = s.cNBS || '';
+  document.getElementById('fXnbs').value = s.xNBS || '';
+  document.getElementById('fCtribnac').value = s.codigoTributacaoNacional || '';
+  document.getElementById('fCtribmun').value = s.codigoListaServico || '';
+  document.getElementById('fAtivo').value = s.ativo ? '1' : '0';
+  document.getElementById('btnInativar').style.display = s.ativo ? '' : 'none';
+  atualizarHints();
+  document.getElementById('modal').classList.add('open');
+}
+
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+function atualizarHints(){
+  const cnbs = document.getElementById('fCnbs').value.trim();
+  const cnbsHint = document.getElementById('fCnbsHint');
+  const fXnbs = document.getElementById('fXnbs');
+  if (!cnbs) cnbsHint.textContent = '';
+  else if (!RE_NBS.test(cnbs)) { cnbsHint.textContent = 'Formato esperado: 9 dígitos numéricos'; cnbsHint.style.color = 'var(--danger)'; }
+  else if (Object.keys(TABELA_NBS).length && !TABELA_NBS[cnbs]) {
+    cnbsHint.textContent = `${cnbs.replace(/(\d)(\d{4})(\d{2})(\d{2})/, '$1.$2.$3.$4')} · NÃO consta na NBS 2.0 oficial`;
+    cnbsHint.style.color = 'var(--danger)';
+  } else {
+    const desc = TABELA_NBS[cnbs];
+    cnbsHint.textContent = `${cnbs.replace(/(\d)(\d{4})(\d{2})(\d{2})/, '$1.$2.$3.$4')}${desc ? ' · ' + desc : ''}`;
+    cnbsHint.style.color = '';
+    if (desc && !fXnbs.value) fXnbs.value = desc;
+  }
+
+  const tn = document.getElementById('fCtribnac').value.trim();
+  const tnHint = document.getElementById('fCtribnacHint');
+  if (!tn) tnHint.textContent = '';
+  else if (!RE_TRIB_NAC.test(tn)) { tnHint.textContent = 'Formato esperado: 6 dígitos numéricos'; tnHint.style.color = 'var(--danger)'; }
+  else if (Object.keys(TABELA_CTRIBNAC).length && !TABELA_CTRIBNAC[tn]) {
+    tnHint.textContent = 'NÃO consta na tabela oficial NFS-e Nacional';
+    tnHint.style.color = 'var(--danger)';
+  } else {
+    tnHint.textContent = TABELA_CTRIBNAC[tn] ? '✓ ' + TABELA_CTRIBNAC[tn] : 'OK';
+    tnHint.style.color = '';
+  }
+}
+
+document.addEventListener('input', e => {
+  if (['fCnbs','fCtribnac'].includes(e.target.id)) atualizarHints();
+});
+
+async function salvar(){
+  const id = document.getElementById('fId').value;
+  const body = {
+    codigo: document.getElementById('fCodigo').value.trim() || null,
+    nome: document.getElementById('fNome').value.trim(),
+    descricao: document.getElementById('fDesc').value.trim() || null,
+    categoria: document.getElementById('fCategoria').value || null,
+    unidade: document.getElementById('fUnidade').value || 'serviço',
+    valorPadrao: document.getElementById('fValor').value || null,
+    cNBS: document.getElementById('fCnbs').value.trim() || null,
+    xNBS: document.getElementById('fXnbs').value.trim() || null,
+    codigoTributacaoNacional: document.getElementById('fCtribnac').value.trim() || null,
+    codigoListaServico: document.getElementById('fCtribmun').value.trim() || null,
+    ativo: document.getElementById('fAtivo').value === '1'
+  };
+  if (!body.nome) return showAlert('Nome obrigatório', 'error');
+  if (body.cNBS && !RE_NBS.test(body.cNBS)) return showAlert('cNBS deve ter 9 dígitos numéricos', 'error');
+  if (body.codigoTributacaoNacional && !RE_TRIB_NAC.test(body.codigoTributacaoNacional)) {
+    return showAlert('cTribNac deve ter 6 dígitos numéricos', 'error');
+  }
+  const url = id ? '/api/servicos/' + id : '/api/servicos';
+  try {
+    const r = await fetch(url, {
+      method: id ? 'PUT' : 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert(id ? 'Serviço atualizado' : 'Serviço criado');
+    fecharModal();
+    await carregar();
+  } catch (e) {
+    showAlert('Erro ao salvar: ' + e.message, 'error');
+  }
+}
+
+async function inativar(){
+  const id = document.getElementById('fId').value;
+  if (!id) return;
+  if (!confirm('Inativar este serviço? Itens de OS existentes não são afetados, mas ele não aparecerá em novos lançamentos.')) return;
+  try {
+    const r = await fetch('/api/servicos/' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success && !d.desativado) throw new Error(d.error || 'falha');
+    showAlert(d.desativado ? d.error : 'Serviço inativado');
+    fecharModal();
+    await carregar();
+  } catch (e) {
+    showAlert('Erro ao inativar: ' + e.message, 'error');
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
+});
+
+carregarTabelasFiscais().then(carregar);
+</script>
+</body>
+</html>
