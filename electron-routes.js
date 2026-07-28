@@ -274,6 +274,44 @@ function registrarRotasElectron(app, db, { apiKey }) {
     }
   });
 
+  // ─── Certificado digital (e-CNPJ) para login por mTLS ──────────────────────
+  //
+  // Devolve o PKCS#12 do tenant ao cliente Electron, para tenants que acessam o
+  // Comprasnet por CERTIFICADO e não têm CPF/senha (caso do reimac). Mesmo
+  // padrão de self-auth do /credentials acima: exige X-Api-Key do tenant.
+  //
+  // ATENÇÃO — isto entrega a CHAVE PRIVADA da empresa ao cliente. É decisão
+  // explícita de produto (2026-07-28), tomada com o risco declarado: quem obtiver
+  // a API key do tenant obtém o certificado inteiro. A senha vai em claro porque
+  // no banco ela é apenas base64 (vide certificado-routes.js:14-17) — não há
+  // segredo adicional sendo exposto aqui, mas endurecer isso continua pendente.
+  app.get('/api/electron/certificado', (req, res) => {
+    try {
+      const headerKey = req.headers['x-api-key'];
+      const expected = resolveApiKey(req);
+      if (!headerKey || !expected || headerKey !== expected) {
+        return res.status(401).json({ error: 'X-Api-Key obrigatório' });
+      }
+      const tdb = req.tenantDb || db;
+      const row = tdb.prepare(
+        'SELECT certificadoBase64, senhaCriptografada, titular, validade FROM certificado_digital WHERE id = 1'
+      ).get();
+      if (!row || !row.certificadoBase64) {
+        return res.json({ error: 'Certificado não configurado' });
+      }
+      let senha = '';
+      try { senha = Buffer.from(row.senhaCriptografada || '', 'base64').toString('utf8'); } catch (_) {}
+      res.json({
+        pfxBase64: row.certificadoBase64,
+        senha,
+        titular: row.titular,
+        validade: row.validade,
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─── Endpoints do app electron-bnc/ (paralelo ao Comprasnet) ───────────────
   // Mesmo padrão de self-auth via X-Api-Key. Fluxo:
   //   1) electron-bnc lê usuario+senha de /api/electron/bnc/credentials
