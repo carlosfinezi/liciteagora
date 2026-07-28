@@ -1165,6 +1165,13 @@ async function salvarHeaderSilencioso(){
 }
 
 async function salvarHeader(){
+  // Pedido (não orçamento) sem parcelas exige forma de pagamento — sem ela a
+  // fatura nasce sem meio e a NF-e trava no grupo <pag>.
+  if (pedidoAtual.modoDocumento !== 'orcamento' && !val('meioPagamento') && !PARCELAS.length) {
+    showAlert('Informe a forma de pagamento antes de salvar', 'error');
+    document.getElementById('meioPagamento').focus();
+    return;
+  }
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(coletarBody()) });
     const d = await r.json();
@@ -1461,11 +1468,24 @@ async function salvarTransportadora(){
 }
 
 // ==================== STATUS/AÇÕES ====================
-async function acao(a){
+async function acao(a, body){
   try {
-    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+a, { method:'POST' });
+    const opts = { method:'POST' };
+    if (body) { opts.headers = {'Content-Type':'application/json'}; opts.body = JSON.stringify(body); }
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+a, opts);
     const d = await r.json();
-    if (!d.success) throw new Error(d.error);
+    if (!d.success) {
+      // 409 na confirmação = saldo insuficiente; backend aceita { forcar: true }
+      if (a === 'confirmar' && r.status === 409 && Array.isArray(d.insuficiencias) && d.insuficiencias.length) {
+        const linhas = d.insuficiencias.map(i =>
+          `• ${i.descricao || i.sku || ('Produto '+i.produtoId)} — faltam ${i.faltando}`).join('\n');
+        if (confirm('Saldo insuficiente para reservar:\n\n'+linhas+'\n\nConfirmar mesmo assim?')) {
+          return acao('confirmar', { forcar: true });
+        }
+        return;
+      }
+      throw new Error(d.error);
+    }
     showAlert('Ação executada');
     await carregar();
   } catch(e){ showAlert('Erro: '+e.message,'error'); }
