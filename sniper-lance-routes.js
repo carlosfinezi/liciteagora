@@ -1095,41 +1095,80 @@ function registrarRotasSniper(app, db) {
   // ════════════════════════════════════════════════════════════════════
   // HEALTH COMPRASNET — capture, ping ativo, alerta degradação
   // ════════════════════════════════════════════════════════════════════
-  // Rolling window pra detectar degradação. Mantém últimos N eventos.
-  const _healthBuffer = []; // {ts, ok}
+  // Rolling window POR TENANT pra detectar degradação.
+  //
+  // ⚠️ Era UM array compartilhado (`_healthBuffer`), e registrarRotasSniper roda
+  // UMA vez (route-registry.js:172) — a multi-tenancy é por Proxy de db com
+  // AsyncLocalStorage. Resultado medido em 29/07: as falhas de um tenant entravam
+  // no balde de TODOS, e `sendTelegram(db, …)` entregava o alerta ao tenant que
+  // estivesse no contexto assíncrono no instante do estouro — não ao que causou a
+  // falha. A mensagem também não dizia de quem era. Na prática só 1bit e reimac
+  // produzem amostras, e os dois se contaminavam.
+  const _healthBuffers = new Map();       // tenant -> [{ts, ok, auth}]
+  const _ultimoHealthAlertMs = new Map(); // tenant -> ts do último alerta de portal
+  const _ultimoAuthAlertMs = new Map();   // tenant -> ts do último alerta de token
   const _HEALTH_WINDOW_MS = 60000; // 60s
   const _HEALTH_ALERT_RATE = 0.5;  // alerta se >50% falham na janela
   const _HEALTH_MIN_SAMPLES = 4;   // mín amostras pra avaliar
-  let _ultimoHealthAlertMs = 0;
-  const _HEALTH_ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5min entre alertas
+  const _HEALTH_ALERT_COOLDOWN_MS = 5 * 60 * 1000;  // 5min entre alertas de portal
+  // Token vencido é ESTADO, não evento: enquanto ninguém renovar, ele segue vencido.
+  // Cooldown curto viraria a mesma enxurrada de antes, só com outro texto.
+  const _AUTH_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
+
+  // Telegram só em horário comercial (seg-sex 08h-18h, TZ do servidor = America/Sao_Paulo)
+  function _healthEmComercial() {
+    const a = new Date();
+    const d = a.getDay(), h = a.getHours();
+    return d >= 1 && d <= 5 && h >= 8 && h < 18;
+  }
+
+  function _healthAvisar(msg) {
+    console.error(`[HEALTH] ${msg}`);
+    logAuto(msg);
+    if (_healthEmComercial()) {
+      try { sendTelegram(db, msg).catch(() => {}); } catch (_) {}
+    }
+  }
 
   function _registrarHealth(tipo, endpoint, httpStatus, tempoMs, ok, erro) {
     try {
       db.prepare(`INSERT INTO comprasnet_health (tipo, endpoint, httpStatus, tempoMs, ok, erro)
                   VALUES (?, ?, ?, ?, ?, ?)`).run(tipo, endpoint, httpStatus, tempoMs, ok ? 1 : 0, erro || null);
     } catch (_) { /* table pode não existir ainda em tenants antigos */ }
-    // Mantém buffer in-memory pra avaliar degradação
+
+    const tenant = currentTenant() || 'global';
     const agora = Date.now();
-    _healthBuffer.push({ ts: agora, ok: !!ok });
-    while (_healthBuffer.length > 0 && (agora - _healthBuffer[0].ts) > _HEALTH_WINDOW_MS) {
-      _healthBuffer.shift();
+
+    // ⚠️ 401/403 NÃO é degradação do Comprasnet — é a NOSSA credencial recusada.
+    // O ping é autenticado (sniper.apiGet), então Bearer vencido devolve 401, e o
+    // critério antigo (status < 400 = ok) contava isso como "portal falhando".
+    // Medido em 29/07 no tenant 1bit: 376 das 424 falhas em 6h eram 401 — ou seja,
+    // todo alerta "Comprasnet DEGRADADO" daquele dia era falso positivo de token
+    // velho, e a ação sugerida (olhar o portal) era a errada.
+    const auth = !ok && (httpStatus === 401 || httpStatus === 403);
+
+    const buf = _healthBuffers.get(tenant) || [];
+    buf.push({ ts: agora, ok: !!ok, auth });
+    while (buf.length > 0 && (agora - buf[0].ts) > _HEALTH_WINDOW_MS) buf.shift();
+    _healthBuffers.set(tenant, buf);
+    if (buf.length < _HEALTH_MIN_SAMPLES) return;
+
+    const nAuth = buf.filter(h => h.auth).length;
+    const nPortal = buf.filter(h => !h.ok && !h.auth).length;
+
+    // (a) credencial vencida — a ação é renovar o token, não investigar o portal
+    if (nAuth / buf.length >= _HEALTH_ALERT_RATE
+        && (agora - (_ultimoAuthAlertMs.get(tenant) || 0)) > _AUTH_ALERT_COOLDOWN_MS) {
+      _ultimoAuthAlertMs.set(tenant, agora);
+      _healthAvisar(`🔑 [${tenant}] Bearer do Comprasnet RECUSADO: ${nAuth}/${buf.length} respostas 401/403 em ${Math.round(_HEALTH_WINDOW_MS/1000)}s — token vencido; o portal está no ar`);
     }
-    if (_healthBuffer.length >= _HEALTH_MIN_SAMPLES) {
-      const falhas = _healthBuffer.filter(h => !h.ok).length;
-      const taxa = falhas / _healthBuffer.length;
-      if (taxa >= _HEALTH_ALERT_RATE && (agora - _ultimoHealthAlertMs) > _HEALTH_ALERT_COOLDOWN_MS) {
-        _ultimoHealthAlertMs = agora;
-        const msg = `🚨 Comprasnet DEGRADADO: ${falhas}/${_healthBuffer.length} falhas em ${Math.round(_HEALTH_WINDOW_MS/1000)}s (taxa ${Math.round(taxa*100)}%)`;
-        console.error(`[HEALTH] ${msg}`);
-        logAuto(msg);
-        // Telegram só em horário comercial (seg-sex 08h-18h, TZ do servidor = America/Sao_Paulo)
-        const _ag = new Date();
-        const _dia = _ag.getDay(), _h = _ag.getHours();
-        const _comercial = _dia >= 1 && _dia <= 5 && _h >= 8 && _h < 18;
-        if (_comercial) {
-          try { sendTelegram(db, msg).catch(() => {}); } catch (_) {}
-        }
-      }
+
+    // (b) degradação de verdade — timeout, 5xx, conexão caindo
+    if (nPortal / buf.length >= _HEALTH_ALERT_RATE
+        && (agora - (_ultimoHealthAlertMs.get(tenant) || 0)) > _HEALTH_ALERT_COOLDOWN_MS) {
+      _ultimoHealthAlertMs.set(tenant, agora);
+      const taxa = nPortal / buf.length;
+      _healthAvisar(`🚨 [${tenant}] Comprasnet DEGRADADO: ${nPortal}/${buf.length} falhas em ${Math.round(_HEALTH_WINDOW_MS/1000)}s (taxa ${Math.round(taxa*100)}%)`);
     }
   }
 
