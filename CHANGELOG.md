@@ -18,3 +18,10 @@ working tree.
   seletivo do catálogo Postgres
 - Correção no CLAUDE.md: caminho real dos bancos de tenant e registro de que o
   catálogo vivo migrou para PostgreSQL (`data/catalog.db` é legado congelado)
+- As quatro engines de backfill do catálogo passam a reagendar o próprio timer
+  em `finally`. O `resultados-backfill` tinha morrido calado em 2026-08-07: uma
+  rejeição escapou do ciclo, o timer nunca foi rearmado e o processo seguiu de
+  pé por 4 dias
+- `catalog-watchdog.js`: alerta quando uma engine para de dar sinal (heartbeat
+  em `catalog_sync_state`, check de hora em hora, log sempre + Telegram do
+  primeiro tenant com o canal ligado)

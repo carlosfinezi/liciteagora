@@ -287,9 +287,19 @@ async function _ciclo() {
 function iniciarBackfillEngine() {
   _ensure();
   // Primeiro ciclo em 30s (deixa o worker terminar boot)
+  // O reagendamento fica em finally: se algo escapar do _ciclo() a engine
+  // precisa sobreviver. Em 2026-08-07 ela morreu calada por causa disso — o
+  // `await _incState` dentro do catch do _ciclo() também falhou (mesmo
+  // "Query read timeout" do PG), a rejeição pulou esta linha e o timer nunca
+  // foi rearmado. Processo seguiu de pé, log mudo, 4 dias parada.
   _timer = setTimeout(async function loop() {
-    await _ciclo();
-    _timer = setTimeout(loop, CYCLE_MS);
+    try {
+      await _ciclo();
+    } catch (err) {
+      console.error('[backfill] ciclo escapou:', err.message);
+    } finally {
+      _timer = setTimeout(loop, CYCLE_MS);
+    }
   }, 30000);
   console.log(`[backfill] engine de resultados_bi iniciado (${LOTE_SIZE} itens a cada ${CYCLE_MS/1000}s${_usePg() ? ' — PG' : ''})`);
 }

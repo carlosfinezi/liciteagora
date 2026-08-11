@@ -109,9 +109,17 @@ function iniciarBackfillEngine() {
     return;
   }
   // Primeiro ciclo em 90s (deixa boot + outros backfills acomodarem).
+  // Reagendamento em finally: se algo escapar do _ciclo(), a engine sobrevive.
+  // Ver resultados-backfill.js — lá esse padrão matou a engine em 2026-08-07.
+  // (_ciclo aqui é síncrono — better-sqlite3.)
   _timer = setTimeout(function loop() {
-    _ciclo();
-    _timer = setTimeout(loop, CYCLE_MS);
+    try {
+      _ciclo();
+    } catch (err) {
+      console.error('[fts-backfill] ciclo escapou:', err.message);
+    } finally {
+      _timer = setTimeout(loop, CYCLE_MS);
+    }
   }, 90 * 1000);
   console.log(`[fts-backfill] engine iniciada (${LOTE_SIZE} itens a cada ${CYCLE_MS/1000}s)`);
 }

@@ -453,9 +453,16 @@ async function _ciclo() {
 
 function iniciarBackfillEngine() {
   if (!_usePg()) { console.log('[marca-portal] engine inativo (só PG)'); return; }
+  // Reagendamento em finally: se algo escapar do _ciclo(), a engine sobrevive.
+  // Ver resultados-backfill.js — lá esse padrão matou a engine em 2026-08-07.
   _timer = setTimeout(async function loop() {
-    await _ciclo();
-    _timer = setTimeout(loop, CYCLE_MS);
+    try {
+      await _ciclo();
+    } catch (err) {
+      console.error('[marca-portal] ciclo escapou:', err.message);
+    } finally {
+      _timer = setTimeout(loop, CYCLE_MS);
+    }
   }, 45000); // 45s após boot
   console.log(`[marca-portal] engine iniciado (${PROC_POR_CICLO} processos a cada ${CYCLE_MS / 1000}s — BLL/BNC)`);
 }

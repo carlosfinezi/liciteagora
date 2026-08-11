@@ -110,3 +110,4 @@ nopecha-ext.pem
 bearer-loop/secrets.env
 # capturas de rede (contêm tokens/senhas)
 recordings/
+.claude/settings.local.json

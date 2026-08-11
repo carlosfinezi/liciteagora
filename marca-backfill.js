@@ -150,9 +150,16 @@ async function _ciclo() {
 function iniciarBackfillEngine() {
   _ensure();
   // Primeiro ciclo em 60s (deixa boot + WAL acomodarem)
+  // Reagendamento em finally: se algo escapar do _ciclo(), a engine sobrevive.
+  // Ver resultados-backfill.js — lá esse padrão matou a engine em 2026-08-07.
   _timer = setTimeout(async function loop() {
-    await _ciclo();
-    _timer = setTimeout(loop, CYCLE_MS);
+    try {
+      await _ciclo();
+    } catch (err) {
+      console.error('[marca-backfill] ciclo escapou:', err.message);
+    } finally {
+      _timer = setTimeout(loop, CYCLE_MS);
+    }
   }, 60 * 1000);
   console.log(`[marca-backfill] engine iniciada (${LOTE_SIZE} itens a cada ${CYCLE_MS/1000}s${_usePg() ? ' — PG' : ''})`);
 }
