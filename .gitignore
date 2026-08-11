@@ -42,6 +42,12 @@ coverage/
 
 # Backups
 backups/
+backups-public/
+*.bak-*
+*.bak2*
+
+# Uploads de runtime dos tenants (nunca versionar)
+public/uploads/
 
 # Arquivos temporários
 temp/
