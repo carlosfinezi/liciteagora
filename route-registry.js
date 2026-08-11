@@ -114,7 +114,6 @@ const { registrarRotasGruposPalavras } = require('./grupos-palavras-routes');
 const { registrarRotasBackup } = require('./backup-routes');
 const { registrarRotasAnaliseIa } = require('./analise-ia-routes');
 const { registrarRotasChatIa } = require('./chat-ia-routes');
-const { registrarRotasJornal } = require('./jornal-routes');
 const { registrarRotasCertificado } = require('./certificado-routes');
 const { registrarRotasProxy } = require('./proxy-routes');
 const { registrarRotasFornecedor } = require('./fornecedor-routes');
@@ -281,7 +280,6 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasBackup(app, db, { dbPath, PORT });
   registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys });
   registrarRotasChatIa(app, db, { getIAKeys });
-  registrarRotasJornal(app, db);
   registrarRotasCertificado(app, db);
   registrarRotasProxy(app, db);
   registrarRotasFornecedor(app, db);

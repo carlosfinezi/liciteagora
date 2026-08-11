@@ -27,7 +27,7 @@
  *
  * Dependências injetadas (todas explícitas — nenhuma global):
  *   db, app, PORT, apiKey, dbPath, PNCP_API_BASE, getConfigValue,
- *   pncpSync, agendarJornal, agendarRecorrencias, agendarCobrancas,
+ *   pncpSync, agendarRecorrencias, agendarCobrancas,
  *   agendarPollingBoletos, iniciarReconciliadorS6.
  *
  * Uso:
@@ -46,7 +46,6 @@ const { iniciarReconciliadorS6 } = require('./nfse-routes');
 const { agendarPollingBoletos } = require('./financeiro-routes');
 const { agendarRecorrencias } = require('./recorrencia-scheduler');
 const { agendarCobrancas } = require('./cobranca-scheduler');
-const { agendarJornal } = require('./jornal-scheduler');
 
 // NFSE-M06 onda 6.44 (2026-04-20): PORT + PNCP_API_BASE saem do deps bag
 // e viram require direto de config.js. Reduz o contrato com server.js.
@@ -95,8 +94,8 @@ function createRoleDispatch(deps) {
     pncpSync.iniciarSyncEngine();
     pncpSync.startMasterOnlyTimers();
 
-    // Jornal de Licitações
-    agendarJornal(db);
+    // Jornal de Licitações removido (2026-08-02): a descoberta por IA varre
+    // os mesmos grupos de palavras, qualifica por score e usa os mesmos canais.
     // Recorrências NFSe
     agendarRecorrencias(db);
     // Cobranças (régua diária)
