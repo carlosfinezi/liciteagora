@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(npm run verify)",
+      "Bash(node --check:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(systemctl status:*)",
+      "Bash(systemctl is-active:*)",
+      "Bash(journalctl:*)",
+      "Bash(systemctl restart consulta-licitacoes.service)",
+      "Bash(systemctl restart liciteagora.service)",
+      "Bash(sudo systemctl restart consulta-licitacoes.service)",
+      "Bash(sudo systemctl restart liciteagora.service)"
+    ],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(sudo rm:*)",
+      "Bash(systemctl stop:*)",
+      "Bash(sudo systemctl stop:*)",
+      "Bash(systemctl disable:*)",
+      "Bash(sudo systemctl disable:*)",
+      "Bash(systemctl mask:*)",
+      "Bash(sudo systemctl mask:*)",
+      "Bash(systemctl kill:*)",
+      "Bash(sudo systemctl kill:*)",
+      "Bash(pkill:*)",
+      "Bash(killall:*)",
+      "Bash(git stash:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git push --force:*)",
+      "Bash(npm install:*)",
+      "Bash(npm i:*)",
+      "Edit(./data/**)",
+      "Read(./.env)",
+      "Read(./**/.env)",
+      "Edit(./.env)",
+      "Edit(./**/.env)"
+    ]
+  }
+}
