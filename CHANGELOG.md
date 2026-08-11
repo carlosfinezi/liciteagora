@@ -25,3 +25,10 @@ working tree.
 - `catalog-watchdog.js`: alerta quando uma engine para de dar sinal (heartbeat
   em `catalog_sync_state`, check de hora em hora, log sempre + Telegram do
   primeiro tenant com o canal ligado)
+- `stop` deixa de ser deny blanket e passa a nominal: liberado por nome só para
+  `consulta-licitacoes` e `liciteagora` (serviço em laço de reinício), negado
+  por nome para os session-services e para `postgresql`, `redis`, `nginx` e
+  `bind9`/`named`. O blanket `stop:*` precisou sair porque deny vence allow e
+  anulava a liberação nominal
+- Nova seção "Pendências conhecidas" no CLAUDE.md, começando pelos 31.737
+  erros de `participacoes_comprasnet` acumulados no `server.log`

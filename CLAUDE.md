@@ -170,21 +170,44 @@ tentou e qual o obstáculo. Não invente workaround.
 
 ## Permissões (`.claude/settings.json`)
 
-`defaultMode: acceptEdits`. O deny cobre o que é destrutivo **aqui**: `stop` /
+`defaultMode: acceptEdits`. O deny cobre o que é destrutivo **aqui**:
 `disable` / `mask` / `kill` de serviço, `rm`, git destrutivo (`stash`,
 `reset --hard`, `clean`, `push --force`), `npm install`, escrita em `data/` e
 leitura/escrita de `.env`. **Deny vence allow de qualquer arquivo**, inclusive
-do `settings.local.json`.
+do `settings.local.json` — e vence também um allow mais específico, o que
+determina o desenho abaixo.
 
-O restart usa as três faixas de propósito:
+`restart` e `stop` usam as três faixas de propósito:
 
-- **allow, por nome de unidade** — `consulta-licitacoes.service` e
-  `liciteagora.service`. São os que voltam de graça, e é isso que faz o passo 7
-  do fechamento ser automático de fato: o que não está no allow cai em prompt.
-- **nem allow nem deny** — os session-services e o `govbr-bearer.service`. Cai
-  o prompt, a decisão é do usuário na hora. A ressalva não depende de ninguém
-  lembrar da regra.
-- **deny** — `stop`, `disable`, `mask`, `kill`: nunca são rotina.
+- **allow, por nome de unidade e match exato** — `consulta-licitacoes.service`
+  e `liciteagora.service`, nos dois verbos. São os que voltam de graça, e é
+  isso que faz o passo 7 do fechamento ser automático de fato: o que não está
+  no allow cai em prompt. O `stop` está lá para um caso só — serviço em laço
+  de reinício, onde esperar o usuário colar comando custa caro.
+- **deny, por nome de unidade** — `stop` de `bll-session`, `bnc-session`,
+  `licitanet-collector` e `govbr-bearer`, mais a infraestrutura que nada aqui
+  tem motivo para derrubar: `postgresql` (é o catálogo), `redis`, `nginx`,
+  `bind9`/`named`. Não pode ser blanket (`stop:*`) porque isso mataria o allow
+  exato das duas de cima. Cada nome aparece nas duas grafias — `postgresql` e
+  `postgresql:*` — porque `systemctl stop postgresql` sem `.service` funciona
+  e escaparia de um match exato.
+- **nem allow nem deny** — `restart` dos session-services, e qualquer verbo em
+  unidade não citada. Cai o prompt e a decisão é do usuário na hora. A
+  ressalva não depende de ninguém lembrar da regra.
+
+Consequência assumida: `stop` de unidade fora de todas essas listas passou de
+bloqueado a prompt.
+
+## Pendências conhecidas
+
+- **`[Alerta] Erro ao verificar disputas: no such table:
+  participacoes_comprasnet`** — 31.737 ocorrências no `server.log` até
+  2026-08-11, a primeira lá pela linha 520.699. Alguma verificação de disputa
+  falha calada há muito tempo: o alerta é engolido e o erro só aparece no log.
+  Não investigado — trabalho para outro dia.
+- `[Polling Boletos] Erro boleto #32 e #51: MercadoPago 404` — 16.410
+  ocorrências no mesmo período. Mesma situação: antigo, recorrente, não
+  investigado.
 
 Como `rm` está negado por inteiro, rascunho e arquivo temporário vão para
 `/tmp`, não para a árvore.
