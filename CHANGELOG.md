@@ -32,3 +32,32 @@ working tree.
   anulava a liberação nominal
 - Nova seção "Pendências conhecidas" no CLAUDE.md, começando pelos 31.737
   erros de `participacoes_comprasnet` acumulados no `server.log`
+
+### Faxina do repositório e separação do que estava pendente
+
+- `.gitignore`: `*.bak-*`, `*.bak2*`, `backups-public/` e `public/uploads/`
+  (`*.bak` já estava). Saem do índice 46 arquivos `.bak` rastreados, mais os 5
+  de `public/uploads/` (PDFs de habilitação e imagem de produto — dado de
+  runtime de tenant) e `propostas-api.js.bak2-123913`. Nada foi apagado do
+  disco: só `git rm --cached`
+- Jornal de Licitações removido. Saem `jornal-routes.js`,
+  `jornal-scheduler.js` e a tela; entra `scripts/migrate-desligar-jornal.js`,
+  que desliga o envio em todos os tenants (`listAll`, para que tenant suspenso
+  que volte não ressuscite o envio) antes de a tela sair do ar. As tabelas
+  `jornal_*` e o histórico ficam: são registro de mensagem já enviada a
+  clientes. A descoberta por IA varre os mesmos grupos, pelos mesmos canais,
+  com qualificação por score — manter os dois mandava duas mensagens sobre a
+  mesma licitação
+- Correção das referências órfãs que a remoção do jornal deixou no HEAD
+  (`route-registry.js`, `role-dispatch.js`, `scheduler.js`). Os dois últimos
+  commits são **parciais de propósito**: entraram só as linhas do jornal, para
+  não arrastar seis frentes ainda não commitadas. Detalhe no corpo de cada
+  commit e em "Frentes pendentes de commit" no CLAUDE.md
+- Nova seção "Frentes pendentes de commit" no CLAUDE.md: mapa das 14 frentes
+  que seguem na árvore (271 entradas), ordem recomendada de commit, os 7
+  módulos untracked que o core/infra arrasta, e três pendências — a fiação do
+  watchdog do catálogo fora do git, o `enviarAlerta` sem granularidade por
+  tipo de aviso, e o `participacoes_comprasnet`
+- Registrado em "Pendências conhecidas" que o `cicloAvisoAlcadas` passa a
+  mandar mensagem no próximo restart do `liciteagora.service`, com o
+  levantamento de quem receberia (Telegram do `1bit`, email do `reimac`)
