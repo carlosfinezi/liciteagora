@@ -165,11 +165,45 @@ class NfseClient {
   }
 
   /**
+   * Consulta se uma DPS já gerou NFS-e (GET /dps/{idDps}).
+   *
+   * É a guarda de idempotência que torna seguro reenviar um POST de emissão:
+   * 200 devolve a chaveAcesso da nota gerada, 404/E2404 confirma que a DPS
+   * não foi processada.
+   *
+   * @param {string} idDps - Id da DPS (com ou sem prefixo "DPS")
+   * @returns {Promise<string|null>} chaveAcesso, ou null se não gerou nota
+   */
+  async chaveDaDps(idDps) {
+    const url = `${this.baseUrl}/dps/${idDps}`;
+    const response = await this._requestWithRetry('GET', url);
+
+    if (response.status >= 400) return null;
+
+    try {
+      const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+      return data?.chaveAcesso || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Emitir NFS-e: GZip o XML assinado, codifica em Base64, envia POST /nfse
+   *
+   * Retry: o balanceador da SEFIN devolve 503 com HTML do IIS de forma
+   * intermitente (~1 em 5 POSTs, medido em 2026-08-11), antes da requisição
+   * chegar na aplicação — a DPS nem é processada. Esses casos são
+   * reenviados, mas só depois de `chaveDaDps` confirmar que a DPS não virou
+   * nota; sem idDps, ou se a consulta falhar, não há reenvio (o risco de
+   * dupla emissão fiscal continua valendo mais que a retentativa).
+   * Erro devolvido pela aplicação (JSON, ex. E1226) nunca faz retry.
+   *
    * @param {string} signedXml - XML da DPS assinado
+   * @param {string} [idDps] - Id da DPS, habilita o retry seguro
    * @returns {Promise<Object>} Resposta da SEFIN
    */
-  async emitirNfse(signedXml) {
+  async emitirNfse(signedXml, idDps = null) {
     // GZip + Base64
     const xmlBuffer = Buffer.from(signedXml, 'utf-8');
     const gzipped = zlib.gzipSync(xmlBuffer);
@@ -181,16 +215,61 @@ class NfseClient {
     console.log(`[NFSe] Emitindo NFS-e em ${this.tpAmb === 1 ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}`);
     console.log(`[NFSe] URL: ${url}`);
 
-    const response = await this._request('POST', url, payload);
+    const maxTries = 3;
+    const baseDelays = [0, 1500, 4000];
+    let ultimaFalha = null;
 
-    if (response.status >= 400) {
+    for (let attempt = 0; attempt < maxTries; attempt++) {
+      if (attempt > 0) {
+        if (!idDps) break; // sem guarda de idempotência, não reenvia
+
+        await _sleep(baseDelays[attempt] + Math.floor(Math.random() * 500));
+
+        let chave;
+        try {
+          chave = await this.chaveDaDps(idDps);
+        } catch (e) {
+          console.warn(`[NFSe] Guarda de idempotência indisponível (${e.message}) — não reenviando`);
+          break;
+        }
+        if (chave) {
+          console.log(`[NFSe] DPS ${idDps} já virou NFS-e ${chave} — recuperando em vez de reenviar`);
+          return this.consultarNfse(chave);
+        }
+        console.log(`[NFSe][retry] tentativa ${attempt + 1}/${maxTries} — DPS ${idDps} não processada`);
+      }
+
+      let response;
+      try {
+        response = await this._request('POST', url, payload);
+      } catch (err) {
+        if (_isTransientErr(err) && attempt < maxTries - 1) { ultimaFalha = err; continue; }
+        throw err;
+      }
+
+      if (response.status < 400) return response.data;
+
+      // Erro de infraestrutura: 502/503/504 servido como HTML pelo IIS, sem
+      // passar pela aplicação. Erro da aplicação vem como JSON e é final.
+      const contentType = String(response.headers['content-type'] || '');
+      const infra = TRANSIENT_STATUS.has(response.status) && !contentType.includes('application/json');
+
+      if (infra) {
+        ultimaFalha = new Error(
+          `SEFIN indisponível (HTTP ${response.status}) — a nota NÃO foi emitida. ` +
+          `Instabilidade momentânea do balanceador; tente novamente.`
+        );
+        if (attempt < maxTries - 1) continue;
+        break;
+      }
+
       const errorMsg = typeof response.data === 'object'
         ? JSON.stringify(response.data)
         : response.data;
       throw new Error(`SEFIN retornou ${response.status}: ${errorMsg}`);
     }
 
-    return response.data;
+    throw ultimaFalha || new Error('SEFIN: emissão falhou sem causa registrada');
   }
 
   /**

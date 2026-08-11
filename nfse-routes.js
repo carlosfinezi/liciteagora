@@ -379,7 +379,7 @@ async function emitirNfseInterno(db, params) {
 
   // Enviar para SEFIN (reusa client criado no pre-check)
   try {
-    const resposta = await client.emitirNfse(signedXml);
+    const resposta = await client.emitirNfse(signedXml, idDps);
 
     console.log(`[NFSe] Resposta SEFIN:`, JSON.stringify(resposta).substring(0, 500));
 
