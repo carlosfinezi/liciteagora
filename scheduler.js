@@ -20,7 +20,6 @@ const resultadosBackfill = require('./resultados-backfill');
 const marcaBackfill = require('./marca-backfill');
 const marcaPortalBackfill = require('./marca-portal-backfill');
 const ftsBackfill = require('./fts-backfill');
-const { agendarJornal } = require('./jornal-scheduler');
 const { agendarRecorrencias } = require('./recorrencia-scheduler');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarPollingBoletos } = require('./financeiro-routes');
@@ -160,7 +159,8 @@ function ligarJobsPorTenant() {
     // o DB direto recebido; o storage é garantia extra para handlers
     // internos que porventura consultem currentDb().
     tenantStorage.run({ kind: 'tenant', tenant: t, db }, () => {
-      try { agendarJornal(db); } catch (err) { console.error(`[master][${t.slug}] jornal:`, err.message); }
+      // Jornal de Licitações removido (2026-08-02): a descoberta por IA
+      // varre os mesmos grupos e usa os mesmos canais.
       try { agendarRecorrencias(db); } catch (err) { console.error(`[master][${t.slug}] recorrencias:`, err.message); }
       try { agendarCobrancas(db); } catch (err) { console.error(`[master][${t.slug}] cobrancas:`, err.message); }
       try { agendarPollingBoletos(db); } catch (err) { console.error(`[master][${t.slug}] boletos:`, err.message); }
