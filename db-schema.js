@@ -479,6 +479,25 @@ db.exec(`
     FOREIGN KEY (grupoId) REFERENCES grupos_palavras(id) ON DELETE CASCADE
   );
 
+  -- Licitações cuja análise IA falhou, com backoff crescente.
+  -- Existe porque a fila do scan só exclui o que está em licitacao_analise, e
+  -- essa tabela só recebe linha em caso de SUCESSO: sem isto, uma licitação que
+  -- falha volta à fila nas duas janelas de todo dia até encerrar. Medido em
+  -- 2026-08-12: 285 das 432 falhas do dia (66%) eram reincidentes de dias
+  -- anteriores, cada retentativa reenviando até 40k caracteres ao provider pago.
+  -- proximaTentativaEm é o portão: a fila ignora quem ainda não venceu.
+  CREATE TABLE IF NOT EXISTS analise_ia_falha (
+    cnpj TEXT NOT NULL,
+    ano INTEGER NOT NULL,
+    sequencial INTEGER NOT NULL,
+    tentativas INTEGER NOT NULL DEFAULT 1,
+    ultimaFalhaEm TEXT DEFAULT CURRENT_TIMESTAMP,
+    proximaTentativaEm TEXT,
+    ultimoErro TEXT,
+    PRIMARY KEY (cnpj, ano, sequencial)
+  );
+  CREATE INDEX IF NOT EXISTS idx_analise_falha_proxima ON analise_ia_falha(proximaTentativaEm);
+
   -- Tabela de configuração do Jornal de Licitações
   CREATE TABLE IF NOT EXISTS jornal_config (
     id INTEGER PRIMARY KEY DEFAULT 1,

@@ -4,6 +4,53 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-12 (2)
+
+- **Marcação de falhas da análise IA** (`analise_ia_falha` + backoff no
+  `analise-ia-scheduler`). A fila do scan só excluía o que estava em
+  `licitacao_analise`, e essa tabela só recebe linha em caso de SUCESSO: uma
+  licitação que falhava voltava à fila nas duas janelas de todo dia até
+  encerrar. Medido em 2026-08-12: 285 das 432 falhas do dia (66%) eram
+  reincidentes de dias anteriores, cada retentativa reenviando até 40k
+  caracteres a um provider pago. Agora a falha é registrada com backoff de
+  1 → 3 → 7 → 30 dias, e o portão foi posto nos dois caminhos da fila (JS no
+  Postgres, `NOT EXISTS` no SQLite). Sucesso posterior limpa a marca
+- **Falha sistêmica não gera backoff**: as falhas são acumuladas e só
+  persistidas se o scan analisou algo (`analisadas > 0`), provando que os
+  providers estavam de pé. Sem essa regra os 9 dias de DeepSeek com HTTP 402
+  teriam marcado ~500 licitações, escondendo-as por dias justamente quando o
+  saldo voltasse. Efeito colateral bem-vindo: o motivo da falha passa a ficar
+  gravado em `analise_ia_falha.ultimoErro` — antes o ramo `else { erros++ }`
+  não logava nada
+- Commit PARCIAL nos dois arquivos: `db-schema.js` e `analise-ia-scheduler.js`
+  já estavam modificados na árvore antes desta mudança e o `db-schema.js` da
+  árvore tem `require('./chat-monitor-config')`, que segue untracked — commitar
+  inteiro deixaria o HEAD sem bootar. Ficou de fora, seguindo na árvore: no
+  schema, `serieDps` do fornecedor, as migrações das colunas `ufs`/`municipios`
+  de `grupos_palavras` e o `require` do chat-monitor-config; no scheduler, a
+  herança de UFs do grupo e o filtro por município
+
+### Diagnóstico que motivou a mudança (nada além do acima foi alterado)
+
+- **DeepSeek sem saldo desde 2026-08-03** (`HTTP 402: Insufficient Balance`),
+  700–1050 chamadas rejeitadas por dia, 9 dias sem ninguém notar. Ele era 81%
+  de toda a análise do sistema (7.406 de 9.024 desde 19/06); desde então só o
+  Gemini responde, no teto do free tier — exatamente 22–26 análises/dia
+- O 402 não gera cooldown nem desativa o provider (`chamarDeepSeek` só trata
+  429), a lista de grupos exibe status `erro` como "ativa", e
+  `ultimo_scan_mensagem` fica NULL quando as falhas são por licitação. Nada
+  disso foi corrigido — só a marcação de falhas
+- Consumo concentrado no tenant `reimac`: 94% das análises, com cinco grupos de
+  termos genéricos. 49% dos vereditos são "incompatível". A palavra `pá` do
+  grupo Jardinagem gera 1.223 candidatas (casa "Pá coletora lixo", e por
+  substring no `objetoCompra` casa Maca**pá**, "**pá**ginas" de outsourcing de
+  impressão, "**pá**tio")
+- Simulei alternativas antes de propor: remover `pá` corta 60% do volume mas
+  perde 31% das licitações compatíveis — descartado. As duas que valem mexem no
+  mecanismo, não na configuração: casar palavra em vez de substring no
+  `objetoCompra` (−10% de volume, −3% de oportunidade) e aplicar a exclusão nos
+  itens como o BI já faz (−36% / −11%). Nenhuma das duas foi implementada
+
 ## 2026-08-12
 
 - `public/operacional/comprasnet-monitor.html`: o botão de silenciar pregão

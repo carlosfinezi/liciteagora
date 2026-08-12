@@ -26,6 +26,17 @@ const TICK_MS = 60 * 60 * 1000; // 1h
 // chain, casos ruim podem chegar a ~2 min. 3 min dá margem de segurança.
 const TIMEOUT_POR_ANALISE_MS = 300 * 1000;
 
+// Backoff da marcação de falha (analise_ia_falha). Dias até a próxima tentativa,
+// indexado pelo número de tentativas já feitas. A 4ª falha joga pra 30 dias, o
+// que na prática desiste: edital que falhou 4x é ilegível ou grande demais, e
+// reenviar 40k caracteres ao provider pago não se paga.
+const FALHA_BACKOFF_DIAS = [1, 3, 7, 30];
+
+function _diasDeBackoff(tentativas) {
+  const i = Math.min(Math.max(tentativas, 1), FALHA_BACKOFF_DIAS.length) - 1;
+  return FALHA_BACKOFF_DIAS[i];
+}
+
 /**
  * Constrói lista de licitações que se enquadram no grupo + filtros do
  * agendamento, ignorando as já analisadas. Limitado a `limite`.
@@ -124,11 +135,20 @@ async function buscarLicitacoesDoGrupo(db, grupo, config, limite) {
     const cands = await catalogPg.query(sql, params);
     const out = [];
     const stmt = db.prepare(`SELECT 1 FROM licitacao_analise WHERE cnpj=? AND ano=? AND sequencial=? LIMIT 1`);
+    // Segundo portão: falha recente com backoff ainda em vigor (analise_ia_falha).
+    const stmtFalha = db.prepare(`
+      SELECT 1 FROM analise_ia_falha
+       WHERE cnpj=? AND ano=? AND sequencial=?
+         AND proximaTentativaEm IS NOT NULL
+         AND proximaTentativaEm > CURRENT_TIMESTAMP
+       LIMIT 1
+    `);
     for (const c of cands) {
-      if (!stmt.get(c.cnpj, Number(c.ano), Number(c.sequencial))) {
-        out.push(c);
-        if (out.length >= lim) break;
-      }
+      const ano = Number(c.ano), seq = Number(c.sequencial);
+      if (stmt.get(c.cnpj, ano, seq)) continue;
+      if (stmtFalha.get(c.cnpj, ano, seq)) continue;
+      out.push(c);
+      if (out.length >= lim) break;
     }
     return out;
   }
@@ -159,6 +179,10 @@ async function buscarLicitacoesDoGrupo(db, grupo, config, limite) {
     params.push(valorMinimo);
   }
   conditions.push('NOT EXISTS (SELECT 1 FROM licitacao_analise a WHERE a.cnpj = l.cnpj AND a.ano = l.anoCompra AND a.sequencial = l.sequencialCompra)');
+  conditions.push(`NOT EXISTS (SELECT 1 FROM analise_ia_falha f
+                                WHERE f.cnpj = l.cnpj AND f.ano = l.anoCompra AND f.sequencial = l.sequencialCompra
+                                  AND f.proximaTentativaEm IS NOT NULL
+                                  AND f.proximaTentativaEm > CURRENT_TIMESTAMP)`);
 
   const sql = `
     SELECT l.cnpj, l.anoCompra AS ano, l.sequencialCompra AS sequencial,
@@ -172,9 +196,70 @@ async function buscarLicitacoesDoGrupo(db, grupo, config, limite) {
 }
 
 /**
+ * Persiste as falhas de um scan em analise_ia_falha, com backoff crescente.
+ *
+ * REGRA CENTRAL: só marca se o scan analisou ALGUMA coisa (analisadas > 0).
+ * Scan que falhou inteiro quase nunca é culpa das licitações — é provider fora
+ * (saldo esgotado, chave inválida, rate limit geral). Marcar nesse caso
+ * esconderia a fila toda por dias justamente quando o provider voltasse. Foi o
+ * cenário real de 04/08 a 12/08/2026: DeepSeek com HTTP 402 (Insufficient
+ * Balance) em ~800 chamadas/dia, todos os scans 0/N.
+ *
+ * Sucesso posterior limpa a marca — ver _limparFalha, chamado quando a análise
+ * de uma licitação volta a dar certo.
+ */
+function _persistirFalhas(db, grupo, falhas, analisadas) {
+  if (!falhas.length) return;
+  if (analisadas === 0) {
+    console.log(`[AnaliseIA-Sched] Grupo ${grupo.id}: ${falhas.length} falha(s) NÃO marcadas — scan não analisou nada, provável falha de provider (não penaliza a fila)`);
+    return;
+  }
+
+  const upsert = db.prepare(`
+    INSERT INTO analise_ia_falha (cnpj, ano, sequencial, tentativas, ultimaFalhaEm, proximaTentativaEm, ultimoErro)
+    VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, ?), ?)
+    ON CONFLICT(cnpj, ano, sequencial) DO UPDATE SET
+      tentativas = tentativas + 1,
+      ultimaFalhaEm = CURRENT_TIMESTAMP,
+      proximaTentativaEm = datetime(CURRENT_TIMESTAMP, ?),
+      ultimoErro = excluded.ultimoErro
+  `);
+  const lerTentativas = db.prepare('SELECT tentativas FROM analise_ia_falha WHERE cnpj=? AND ano=? AND sequencial=?');
+
+  let marcadas = 0;
+  for (const { lic, erro } of falhas) {
+    const ano = Number(lic.ano), seq = Number(lic.sequencial);
+    try {
+      const atual = lerTentativas.get(lic.cnpj, ano, seq);
+      // A tentativa que acabou de falhar conta: 0 anteriores → 1ª falha.
+      const dias = _diasDeBackoff((atual ? atual.tentativas : 0) + 1);
+      const offset = `+${dias} days`;
+      upsert.run(lic.cnpj, ano, seq, offset, String(erro || '').substring(0, 300), offset);
+      marcadas++;
+    } catch (e) {
+      console.error(`[AnaliseIA-Sched] Falha ao marcar ${lic.cnpj}/${ano}/${seq}: ${e.message}`);
+    }
+  }
+  console.log(`[AnaliseIA-Sched] Grupo ${grupo.id}: ${marcadas} falha(s) marcadas com backoff (fila não vai reenviá-las até vencer)`);
+}
+
+/**
+ * Limpa a marca de falha quando a licitação volta a ser analisada com sucesso.
+ * Sem isto o contador de tentativas seria cumulativo pra sempre e uma licitação
+ * que falhou 3x e depois passou entraria em backoff de 30 dias na falha seguinte.
+ */
+function _limparFalha(db, lic) {
+  try {
+    db.prepare('DELETE FROM analise_ia_falha WHERE cnpj=? AND ano=? AND sequencial=?')
+      .run(lic.cnpj, Number(lic.ano), Number(lic.sequencial));
+  } catch (_) { /* best-effort: nunca derruba o scan por causa da limpeza */ }
+}
+
+/**
  * Executa o scan para um único grupo. Não relança — atualiza o status
  * no banco e retorna o resumo. Idempotente: já analisadas são puladas
- * pelo NOT EXISTS na query.
+ * pelo NOT EXISTS na query, e as que falharam recentemente pelo backoff
+ * de analise_ia_falha.
  *
  * Tracking incremental: marca status='em_andamento' no início e atualiza
  * o contador `ultimo_scan_analisadas` após cada licitação. Se o processo
@@ -189,6 +274,10 @@ async function executarScanGrupo(db, grupo, config, keys) {
   let analisadas = 0;
   let erros = 0;
   let mensagem = null;
+  // Falhas do scan, persistidas só no fim — ver _persistirFalhas: enquanto o
+  // scan não provar que os providers estão de pé, falha individual não vale
+  // backoff.
+  const falhasDoScan = [];
 
   const upsertEmAndamento = db.prepare(`
     UPDATE analise_ia_agendamento
@@ -221,13 +310,16 @@ async function executarScanGrupo(db, grupo, config, keys) {
         );
         if (resultado) {
           analisadas++;
+          _limparFalha(db, lic);
           // Auto-ações: só se a IA classificou compatível com score acima do mínimo
           await aplicarAutoAcoes(db, grupo, config, lic, resultado);
         } else {
           erros++;
+          falhasDoScan.push({ lic, erro: 'nenhum provider retornou análise' });
         }
       } catch (e) {
         erros++;
+        falhasDoScan.push({ lic, erro: e.message });
         console.error(`[AnaliseIA-Sched] Erro ao analisar ${lic.cnpj}/${lic.ano}/${lic.sequencial}: ${e.message}`);
       }
       // Tick incremental: persiste após cada licitação. Se o processo
@@ -243,6 +335,8 @@ async function executarScanGrupo(db, grupo, config, keys) {
               : erros > 0 && analisadas > 0 ? 'parcial'
               : erros > 0 ? 'erro'
               : 'sucesso';
+
+  _persistirFalhas(db, grupo, falhasDoScan, analisadas);
 
   db.prepare(`
     UPDATE analise_ia_agendamento
