@@ -4,6 +4,32 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-12
+
+- `public/operacional/comprasnet-monitor.html`: o botão de silenciar pregão
+  volta a ser reconhecível. Ele nunca deixou de funcionar — o clique disparava
+  o POST normalmente — mas no estado *não silenciado* renderizava só um ícone
+  de megafone de 16px em `--text-3` sobre `--bg-2`, com `border:none`, o que no
+  tema claro virou um enfeite indistinguível dos badges de contagem ao lado.
+  Agora tem rótulo ("Silenciar"), borda e `--text-2`; o estado silenciado ganhou
+  borda em `--danger` para manter a simetria. Corrigido nos dois pontos: o
+  render do grupo e o `toggleSilenciar` que reescreve o botão
+- Grupos de palavras do tenant `1bit` (dado, não código — fica registrado aqui
+  porque muda o que a pesquisa enxerga): cruzamento do portfólio do
+  shop.certum.eu com o catálogo apontou 78 itens vendáveis fora dos filtros.
+  `CERTIFICADO SSL` (id 2) foi de 13 para 33 palavras e de 2.753 para 3.080
+  itens; `ALM — Application Lifecycle` (id 11) acolheu code signing, de 8 para
+  12 palavras e de 3 para 15 itens. Do +327 do grupo 2, só 71 vêm das palavras
+  novas — os outros 256 já casavam as palavras antigas e não apareciam porque a
+  membership materializada estava congelada desde 2026-06-08. O rebuild só
+  dispara quando alguém abre a página em modo-grupo, então um grupo pouco
+  visitado serve dado velho por tempo indeterminado, mesmo com o TTL de 6h
+- `wildcard` sozinho respondia por 27 dos itens perdidos: o match é
+  `websearch_to_tsquery('simple', …)`, sem stemming e com frase exigindo
+  adjacência, então `certificado wildcard` não pega "PremiumSSL Wildcard" nem
+  "CERTIFICADO DIGITAL DO TIPO WILDCARD". Mesmo efeito no plural
+  (`certificados ssl` ≠ `certificado ssl`)
+
 ## 2026-08-11
 
 - Rotinas nomeadas no CLAUDE.md: "fechamento" (com restart condicional e
