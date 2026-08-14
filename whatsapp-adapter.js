@@ -63,11 +63,15 @@ function buildSystemAtendimento(db, campanhaId) {
   }
   const { getConfigValue } = require('./config-helpers').createConfigHelpers(db);
   const base = getConfigValue('whatsapp_ai_prompt') || DEFAULT_ATEND;
-  const kb = getConfigValue('whatsapp_ai_kb');
 
-  // Base em pedaços (ia_base), alimentada pela tela de Conversas e pelas
-  // correções dos atendentes. É o que faz "treinar o robô" ter efeito: item
-  // novo aqui vale na próxima resposta, sem mexer em prompt.
+  // Conhecimento vem só de ia_base: itens com título, origem e data, editáveis
+  // na tela de Conversas e alimentados pelo "corrigir" do atendente.
+  //
+  // O campo antigo `config.whatsapp_ai_kb` deixou de ser lido em 2026-08-14 —
+  // seu conteúdo foi migrado para itens por scripts/migrar-kb-legado.js. Ele
+  // era editado por uma tela que saiu do ar na unificação, então continuava
+  // entrando no prompt sem que ninguém pudesse ver nem corrigir. O valor segue
+  // gravado no config para conferência; não é lido em lugar nenhum.
   let pedacos = '';
   try {
     const itens = db.prepare('SELECT titulo, conteudo FROM ia_base WHERE ativo = 1 ORDER BY id DESC LIMIT 60').all();
@@ -76,8 +80,7 @@ function buildSystemAtendimento(db, campanhaId) {
     }
   } catch { /* tenant ainda sem a tabela */ }
 
-  const conhecimento = [kb, pedacos].filter(Boolean).join('\n\n');
-  return conhecimento ? base + KB_SEP + conhecimento : base;
+  return pedacos ? base + KB_SEP + pedacos : base;
 }
 
 function evoCreds(cfg) {
@@ -540,8 +543,11 @@ function registrarRotasWhatsApp(app, db) {
     try {
       const enabled = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_enabled'").get();
       const prompt = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_prompt'").get();
+      // kbLegado: só para conferência de quem migrou. Não entra mais no prompt
+      // — o conhecimento vem de ia_base (tela Conversas → Base da IA).
       const kb = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_kb'").get();
-      res.json({ success: true, enabled: enabled?.valor === '1', prompt: prompt?.valor || '', kb: kb?.valor || '' });
+      res.json({ success: true, enabled: enabled?.valor === '1', prompt: prompt?.valor || '',
+                 kbLegado: kb?.valor || '', kbLegadoEmUso: false });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
   app.post('/api/whatsapp/ai-config', gate, (req, res) => {
@@ -550,7 +556,12 @@ function registrarRotasWhatsApp(app, db) {
       const up = db.prepare("INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)");
       up.run('whatsapp_ai_enabled', enabled ? '1' : '0');
       if (typeof prompt === 'string') up.run('whatsapp_ai_prompt', prompt.slice(0, 8000));
-      if (typeof kb === 'string') up.run('whatsapp_ai_kb', kb.slice(0, 100000));
+      // `kb` deixou de ser aceito: gravar num campo que ninguém lê é pior que
+      // recusar — quem enviasse acharia que a IA aprendeu algo.
+      if (typeof kb === 'string') {
+        return res.status(400).json({ success: false,
+          error: 'Conhecimento agora é item da Base da IA (Conversas → Base da IA), não este campo' });
+      }
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });

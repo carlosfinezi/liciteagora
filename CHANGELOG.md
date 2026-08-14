@@ -4,6 +4,24 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-14 (3)
+
+- **Conhecimento da IA unificado num lugar só.** Havia dois: o campo antigo
+  `config.whatsapp_ai_kb` (um bloco de texto, editado pela tela de WhatsApp que
+  saiu do ar na unificação) e os itens de `ia_base`. Os dois eram concatenados
+  no prompt, e o antigo continuava valendo sem que ninguém pudesse vê-lo nem
+  corrigi-lo pela tela
+- `scripts/migrar-kb-legado.js` levou o conteúdo para itens: no `1bit`, 16.265
+  caracteres viraram **7 itens**, divididos pelas quatro URLs que o texto já
+  marcava com `#` e fatiados no teto de 4.000 caracteres, com a URL gravada em
+  `origem`. Nenhum outro tenant tinha conteúdo. Prompt conferido depois da
+  migração: mesmo conhecimento, agora com título e origem visíveis
+- `buildSystemAtendimento` **parou de ler** o campo antigo, e a rota
+  `/api/whatsapp/ai-config` passou a **recusar** gravação nele — gravar num
+  campo que ninguém lê é pior que recusar, porque quem envia acha que a IA
+  aprendeu. O valor segue no `config` só para conferência (`kbLegado`), e
+  desfazer é copiar de volta
+
 ## 2026-08-14 (2)
 
 - **Funil duplicado corrigido**: a central de Conversas nasceu com funil
