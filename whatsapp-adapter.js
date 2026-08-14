@@ -64,7 +64,20 @@ function buildSystemAtendimento(db, campanhaId) {
   const { getConfigValue } = require('./config-helpers').createConfigHelpers(db);
   const base = getConfigValue('whatsapp_ai_prompt') || DEFAULT_ATEND;
   const kb = getConfigValue('whatsapp_ai_kb');
-  return kb ? base + KB_SEP + kb : base;
+
+  // Base em pedaços (ia_base), alimentada pela tela de Conversas e pelas
+  // correções dos atendentes. É o que faz "treinar o robô" ter efeito: item
+  // novo aqui vale na próxima resposta, sem mexer em prompt.
+  let pedacos = '';
+  try {
+    const itens = db.prepare('SELECT titulo, conteudo FROM ia_base WHERE ativo = 1 ORDER BY id DESC LIMIT 60').all();
+    if (itens.length) {
+      pedacos = itens.map(i => `### ${i.titulo}\n${i.conteudo}`).join('\n\n');
+    }
+  } catch { /* tenant ainda sem a tabela */ }
+
+  const conhecimento = [kb, pedacos].filter(Boolean).join('\n\n');
+  return conhecimento ? base + KB_SEP + conhecimento : base;
 }
 
 function evoCreds(cfg) {
@@ -148,7 +161,77 @@ function loadProviderConfig(db) {
  *   { success: false, error }
  *   { queued: true }
  */
-async function enviarWhatsApp(db, { telefone, texto }) {
+// ==================== PROTEÇÃO DO NÚMERO ====================
+//
+// Em provedor não oficial (Baileys) quem paga a conta do excesso é o chip do
+// cliente: volume alto, cadência de robô e mensagem repetida é o que dispara
+// denúncia e bloqueio. Estes limites não deixam o WhatsApp "seguro" — nada
+// deixa —, mas evitam o padrão que derruba número em dias.
+//
+// Referência de mercado: manter abaixo de ~30/hora, cadência de ~1/min, e
+// número novo começar devagar (20-50/dia na 1ª semana).
+const LIMITE_HORA_PADRAO = 25;
+const INTERVALO_MIN_S = 45;
+const ESCADA_AQUECIMENTO = [
+  { ateDias: 3,  limite: 40 },
+  { ateDias: 7,  limite: 90 },
+  { ateDias: 14, limite: 180 },
+];
+const LIMITE_DIARIO_MAX = 300;
+
+const numeroCfg = (db, chave, padrao) => {
+  try {
+    const r = db.prepare('SELECT value FROM whatsapp_config WHERE key = ?').get(chave);
+    const n = Number(r?.value);
+    return Number.isFinite(n) && n > 0 ? n : padrao;
+  } catch { return padrao; }
+};
+
+/**
+ * Diz se pode enviar agora. Conta pela própria fila — sem tabela nova, e
+ * conta o que de fato saiu, não o que foi tentado.
+ */
+function checarRitmo(db) {
+  try {
+    const hora = db.prepare(`SELECT COUNT(*) n FROM whatsapp_queue
+      WHERE status = 'enviado' AND dataEnvio >= datetime('now','-1 hour')`).get().n;
+    const limiteHora = numeroCfg(db, 'limite_hora', LIMITE_HORA_PADRAO);
+    if (hora >= limiteHora) {
+      return { ok: false, motivo: `limite de ${limiteHora} mensagens por hora atingido (${hora} na última hora)` };
+    }
+
+    const ultimo = db.prepare(`SELECT dataEnvio FROM whatsapp_queue
+      WHERE status = 'enviado' AND dataEnvio IS NOT NULL ORDER BY id DESC LIMIT 1`).get();
+    if (ultimo?.dataEnvio) {
+      const seg = db.prepare("SELECT CAST((julianday('now') - julianday(?)) * 86400 AS INTEGER) s").get(ultimo.dataEnvio).s;
+      const minimo = numeroCfg(db, 'intervalo_min_s', INTERVALO_MIN_S);
+      if (seg != null && seg < minimo) {
+        return { ok: false, motivo: `aguardando intervalo entre envios (faltam ${minimo - seg}s)`, esperar: minimo - seg };
+      }
+    }
+
+    // Aquecimento: o teto do dia depende da idade do número nesta operação.
+    const primeiro = db.prepare(`SELECT MIN(dataEnvio) d FROM whatsapp_queue WHERE status = 'enviado'`).get().d;
+    let limiteDia = LIMITE_DIARIO_MAX;
+    if (primeiro) {
+      const dias = db.prepare("SELECT CAST(julianday('now') - julianday(?) AS INTEGER) d").get(primeiro).d ?? 0;
+      limiteDia = (ESCADA_AQUECIMENTO.find(e => dias <= e.ateDias) || {}).limite || LIMITE_DIARIO_MAX;
+    } else {
+      limiteDia = ESCADA_AQUECIMENTO[0].limite;   // primeiro envio: começa no degrau 1
+    }
+    limiteDia = numeroCfg(db, 'limite_dia', limiteDia);
+    // Dia de Brasília, não UTC: com date('now') puro o contador zera às 21h
+    // local e o teto diário deixa de valer justamente no fim do expediente.
+    const hoje = db.prepare(`SELECT COUNT(*) n FROM whatsapp_queue
+      WHERE status = 'enviado' AND date(dataEnvio, '-3 hours') = date('now', '-3 hours')`).get().n;
+    if (hoje >= limiteDia) {
+      return { ok: false, motivo: `limite de ${limiteDia} mensagens no dia atingido (aquecimento do número)` };
+    }
+    return { ok: true };
+  } catch { return { ok: true }; }   // sem fila migrada ainda: não trava o envio
+}
+
+async function enviarWhatsApp(db, { telefone, texto, ignorarRitmo = false }) {
   migrarQueue(db);
 
   const cfg = loadProviderConfig(db);
@@ -165,6 +248,19 @@ async function enviarWhatsApp(db, { telefone, texto }) {
       'INSERT INTO whatsapp_queue (telefone, texto, status) VALUES (?, ?, ?)'
     ).run(telefoneNorm, texto, 'pendente').lastInsertRowid;
     return { queued: true, queueId: id };
+  }
+
+  // Resposta a quem escreveu não entra na trava: segurar atendimento para
+  // "proteger o número" é o inverso do que protege — conversa respondida é
+  // justamente o sinal bom para o WhatsApp. A trava é para envio ativo.
+  if (!ignorarRitmo) {
+    const ritmo = checarRitmo(db);
+    if (!ritmo.ok) {
+      const id = db.prepare(
+        'INSERT INTO whatsapp_queue (telefone, texto, status, erro) VALUES (?, ?, ?, ?)'
+      ).run(telefoneNorm, texto, 'pendente', 'segurado: ' + ritmo.motivo).lastInsertRowid;
+      return { success: false, queued: true, queueId: id, segurado: true, motivo: ritmo.motivo };
+    }
   }
 
   try {
@@ -301,6 +397,26 @@ function registrarRotasWhatsApp(app, db) {
     }
   });
 
+  // Quanto já saiu e quanto ainda cabe. Sem isto, "não enviou" vira mistério —
+  // e o operador tenta de novo, que é justamente o que queima o número.
+  app.get('/api/whatsapp/ritmo', gate, (req, res) => {
+    try {
+      migrarQueue(db);
+      const q = (sql) => { try { return db.prepare(sql).get().n; } catch { return 0; } };
+      const hora = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND dataEnvio >= datetime('now','-1 hour')`);
+      const dia = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='enviado' AND date(dataEnvio)=date('now')`);
+      const segurados = q(`SELECT COUNT(*) n FROM whatsapp_queue WHERE status='pendente' AND erro LIKE 'segurado:%'`);
+      const primeiro = db.prepare(`SELECT MIN(dataEnvio) d FROM whatsapp_queue WHERE status='enviado'`).get().d;
+      const dias = primeiro
+        ? db.prepare("SELECT CAST(julianday('now') - julianday(?) AS INTEGER) d").get(primeiro).d
+        : null;
+      const ritmo = checarRitmo(db);
+      res.json({ success: true, hora, dia, segurados, diasDeUso: dias,
+                 limiteHora: numeroCfg(db, 'limite_hora', LIMITE_HORA_PADRAO),
+                 podeEnviarAgora: ritmo.ok, motivo: ritmo.motivo || null });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // Envio de mensagem de teste (PoC) — usa o mesmo enviarWhatsApp gravando na whatsapp_queue.
   app.post('/api/whatsapp/test', gate, async (req, res) => {
     try {
@@ -407,7 +523,8 @@ function registrarRotasWhatsApp(app, db) {
       const { jid, texto } = req.body || {};
       if (!jid || !texto) return res.status(400).json({ success: false, error: 'jid e texto obrigatorios' });
       const telefone = String(jid).split('@')[0];
-      const result = await enviarWhatsApp(db, { telefone, texto });
+      // Atendente respondendo no inbox: é conversa em andamento, não disparo.
+      const result = await enviarWhatsApp(db, { telefone, texto, ignorarRitmo: true });
       if (result.error) return res.json({ success: false, error: result.error });
       try {
         migrarQueue(db);
@@ -467,4 +584,4 @@ function registrarRotasWhatsApp(app, db) {
   console.log('[WhatsApp] Rotas registradas (modo: ' + (loadProviderConfig(db)?.provider || 'fila') + ')');
 }
 
-module.exports = { enviarWhatsApp, enviarWhatsAppMidia, migrarQueue, loadProviderConfig, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA };
+module.exports = { enviarWhatsApp, enviarWhatsAppMidia, migrarQueue, loadProviderConfig, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA, checarRitmo };

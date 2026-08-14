@@ -12,6 +12,12 @@ const pedidoPdf = require('./pedido-pdf');
 const axios = require('axios');
 const { criarReservasPedido, cancelarReservasPedido, consumirReservasPedido } = require('./reservas-routes');
 const { sugerirCFOP } = require('./tipos-operacao-routes');
+// Depósito da movimentação: sem isto a saída da venda ia com NULL e caía
+// sempre no padrão, independente de onde a mercadoria estava.
+const { resolverDeposito } = require('./estoque-routes');
+// Venda perdida a partir do pedido — dependência unidirecional
+// (precos-routes nao requer pedidos-routes, entao nao ha ciclo).
+const { registrarPerdasDePedido, estornarPerdasDePedido } = require('./precos-routes');
 // Fase 3e (2026-05-23): orgaos_lookup no PG
 const catalogPg = require('./catalog-pg');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
@@ -26,6 +32,11 @@ const CAMPOS_PEDIDO = [
   'clienteId', 'dataEntregaPrevista', 'dataValidade', 'dataFaturamentoPrevista',
   'codigoPedidoCliente', 'transportadoraId', 'tipoFrete', 'valorFrete',
   'meioPagamento', 'observacao', 'observacoesInterna',
+  // vendedorId existia na tabela desde comissoes-routes, mas nunca era
+  // gravado por nenhum caminho — metas e comissões liam sempre NULL.
+  'vendedorId',
+  // De qual depósito a mercadoria sai. Sem isto toda venda debitava o padrão.
+  'depositoId',
   'tipoOperacaoId', 'naoEmitirNFe', 'tabelaPrecoId',
   // Endereço de entrega (override do cadastro do cliente)
   'enderecoEntrega', 'numeroEntrega', 'complementoEntrega', 'bairroEntrega',
@@ -83,11 +94,13 @@ function carregarPedidoCompleto(db, pedidoId) {
       pe.bairro AS clienteBairro, pe.cidade AS clienteCidade, pe.uf AS clienteUf,
       pe.cep AS clienteCep, pe.codigoMunicipio AS clienteCodigoMunicipio,
       pc.objeto AS participacaoObjeto, pc.orgao AS participacaoOrgao,
-      t.razaoSocial AS transportadoraNome, t.cpfCnpj AS transportadoraCpfCnpj
+      t.razaoSocial AS transportadoraNome, t.cpfCnpj AS transportadoraCpfCnpj,
+      COALESCE(u.nome, u.username) AS vendedorNome
     FROM pedidos p
     LEFT JOIN pessoas pe ON pe.id = p.clienteId
     LEFT JOIN participacoes_comprasnet pc ON pc.id = p.participacaoId
     LEFT JOIN transportadoras t ON t.id = p.transportadoraId
+    LEFT JOIN users u ON u.id = p.vendedorId
     WHERE p.id = ?`).get(pedidoId);
   if (!pedido) return null;
   const itens = db.prepare(`
@@ -119,11 +132,13 @@ function registrarRotasPedidos(app, db) {
     const estornadas = [];
     const hoje = dataBrasilia();
     for (const s of saidas) {
+      // Estorno volta para o depósito de onde a mercadoria saiu.
       const r = db.prepare(`INSERT INTO movimentacoes_estoque
-                             (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data)
-                             VALUES (?, 'entrada', ?, ?, 'estorno_pedido', ?, ?, ?)`)
+                             (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, depositoId)
+                             VALUES (?, 'entrada', ?, ?, 'estorno_pedido', ?, ?, ?, ?)`)
         .run(s.produtoId, s.quantidade, s.custoUnitario, s.id,
-             `Estorno do pedido ${pedidoId} — ${motivo || 'sem motivo'}`, hoje);
+             `Estorno do pedido ${pedidoId} — ${motivo || 'sem motivo'}`, hoje,
+             resolverDeposito(db, { movOriginalId: s.id, pedidoId, produtoId: s.produtoId }));
       estornadas.push({ movOriginalId: s.id, movEstornoId: r.lastInsertRowid, produtoId: s.produtoId, quantidade: s.quantidade });
     }
     return estornadas;
@@ -137,21 +152,31 @@ function registrarRotasPedidos(app, db) {
       let sql = `SELECT p.*,
                    pe.razaoSocial AS clienteNome, pe.cpfCnpj AS clienteCpfCnpj,
                    f.numero AS faturaNumero, f.status AS faturaStatus,
-                   cr.status AS contaReceberStatus, cr.valorPago AS crValorPago,
+                   cr.status AS contaReceberStatus, crx.valorPagoCR AS crValorPago,
                    cr.dataPagamento AS crDataPagamento,
                    tpo.codigo AS tipoOperacaoCodigo, tpo.descricao AS tipoOperacaoDescricao,
                    tpo.emiteNFe AS tipoOperacaoEmiteNFe, tpo.categoriaOperacao AS tipoOperacaoCategoria,
                    CASE
-                     WHEN cr.status = 'paga' THEN 'pago'
-                     WHEN cr.status = 'aberta' AND cr.dataVencimento < date('now') THEN 'vencida'
-                     WHEN cr.status = 'aberta' THEN 'aberta'
-                     WHEN cr.status = 'cancelada' THEN 'cancelada'
-                     ELSE p.statusPagamento
+                     WHEN crx.faturaId IS NULL OR crx.valorTotalCR <= 0 THEN p.statusPagamento
+                     WHEN crx.temAberta = 0 AND crx.valorPagoCR >= crx.valorTotalCR - 0.01 THEN 'pago'
+                     WHEN crx.temVencida = 1 THEN 'vencida'
+                     WHEN crx.valorPagoCR > 0 THEN 'parcial'
+                     ELSE 'aberta'
                    END AS statusRecebimento
                  FROM pedidos p
                  LEFT JOIN pessoas pe ON pe.id = p.clienteId
                  LEFT JOIN faturas f ON f.id = p.faturaId
                  LEFT JOIN contas_a_receber cr ON cr.id = f.contaReceberId
+                 LEFT JOIN (
+                   SELECT faturaId,
+                          SUM(CASE WHEN status != 'cancelada' THEN valor ELSE 0 END) AS valorTotalCR,
+                          SUM(CASE WHEN status != 'cancelada' THEN COALESCE(valorPago, 0) ELSE 0 END) AS valorPagoCR,
+                          MAX(CASE WHEN status IN ('aberta','parcial') THEN 1 ELSE 0 END) AS temAberta,
+                          MAX(CASE WHEN status IN ('aberta','parcial') AND dataVencimento < date('now','-3 hours') THEN 1 ELSE 0 END) AS temVencida
+                     FROM contas_a_receber
+                    WHERE faturaId IS NOT NULL
+                    GROUP BY faturaId
+                 ) crx ON crx.faturaId = f.id
                  LEFT JOIN tipos_operacao tpo ON tpo.id = p.tipoOperacaoId
                  WHERE 1=1`;
       const params = [];
@@ -212,7 +237,7 @@ function registrarRotasPedidos(app, db) {
 
   app.post('/api/pedidos', (req, res) => {
     try {
-      const { clienteId, dataEntregaPrevista, observacao, itens, modoDocumento } = req.body;
+      const { clienteId, dataEntregaPrevista, observacao, itens, modoDocumento, vendedorId, depositoId } = req.body;
       const modo = MODOS_DOCUMENTO.includes(modoDocumento) ? modoDocumento : 'pedido';
       // clienteId é opcional no rascunho — será obrigatório para confirmar/faturar
       if (clienteId) {
@@ -220,11 +245,16 @@ function registrarRotasPedidos(app, db) {
         if (!cliente) return res.status(404).json({ success: false, error: 'Cliente nao encontrado' });
       }
 
+      // Vendedor default = quem está criando. Sem isso o campo depende de
+      // alguém lembrar de preencher, e metas/comissões voltam a ficar zeradas.
+      const vendedor = vendedorId != null ? (Number(vendedorId) || null) : (req.session?.userId || null);
+
       const numero = gerarNumero(db, modo);
       const pedidoId = db.prepare(`
-        INSERT INTO pedidos (numero, tipo, modoDocumento, clienteId, status, dataPedido, dataEntregaPrevista, observacao)
-        VALUES (?, 'manual', ?, ?, 'rascunho', ?, ?, ?)`
-      ).run(numero, modo, clienteId || null, dataBrasilia(), dataEntregaPrevista || null, observacao || null).lastInsertRowid;
+        INSERT INTO pedidos (numero, tipo, modoDocumento, clienteId, status, dataPedido, dataEntregaPrevista, observacao, vendedorId, depositoId)
+        VALUES (?, 'manual', ?, ?, 'rascunho', ?, ?, ?, ?, ?)`
+      ).run(numero, modo, clienteId || null, dataBrasilia(), dataEntregaPrevista || null, observacao || null, vendedor,
+            depositoId ? Number(depositoId) : resolverDeposito(db, {})).lastInsertRowid;
 
       if (Array.isArray(itens)) {
         for (const it of itens) {
@@ -370,12 +400,15 @@ function registrarRotasPedidos(app, db) {
 
       const numero = gerarNumero(db, modo);
       const referencia = participacao.numero || participacao.compraId || '';
+      const vendedor = req.body?.vendedorId != null
+        ? (Number(req.body.vendedorId) || null) : (req.session?.userId || null);
       const pedidoId = db.prepare(`
-        INSERT INTO pedidos (numero, tipo, modoDocumento, clienteId, participacaoId, compraId, status, dataPedido, dataEntregaPrevista, observacao)
-        VALUES (?, 'licitacao', ?, ?, ?, ?, 'rascunho', ?, ?, ?)`
+        INSERT INTO pedidos (numero, tipo, modoDocumento, clienteId, participacaoId, compraId, status, dataPedido, dataEntregaPrevista, observacao, vendedorId)
+        VALUES (?, 'licitacao', ?, ?, ?, ?, 'rascunho', ?, ?, ?, ?)`
       ).run(numero, modo, clienteFinal, participacao.id, participacao.compraId,
         dataBrasilia(), dataEntregaPrevista || null,
-        `Importado de participação ${referencia} — ${participacao.orgao || ''}`
+        `Importado de participação ${referencia} — ${participacao.orgao || ''}`,
+        vendedor
       ).lastInsertRowid;
 
       const insertItem = db.prepare(`INSERT INTO pedido_itens (pedidoId, descricao, quantidade, precoUnitario, valorTotal)
@@ -455,7 +488,16 @@ function registrarRotasPedidos(app, db) {
       const novoNumero = gerarNumero(db, destino);
       db.prepare(`UPDATE pedidos SET modoDocumento = ?, numero = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
         .run(destino, novoNumero, req.params.id);
-      res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id) });
+      // Orçamento com perda registrada virando pedido: o dado fica, mas o
+      // front avisa — perda e venda do mesmo item se contradizem.
+      let vendasPerdidasVinculadas = 0;
+      if (destino === 'pedido') {
+        try {
+          vendasPerdidasVinculadas = db.prepare('SELECT COUNT(*) n FROM vendas_perdidas WHERE pedidoId = ?')
+            .get(req.params.id).n;
+        } catch { /* tenant sem o modulo de precos migrado ainda */ }
+      }
+      res.json({ success: true, vendasPerdidasVinculadas, pedido: carregarPedidoCompleto(db, req.params.id) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -643,10 +685,11 @@ function registrarRotasPedidos(app, db) {
             if (!it.produtoId) continue;
             if (itensComReserva.has(it.id)) continue;  // já processado via reserva
             db.prepare(`INSERT INTO movimentacoes_estoque
-                        (produtoId, tipo, quantidade, origem, origemId, observacao, data)
-                        VALUES (?, 'saida', ?, 'pedido', ?, ?, ?)`)
+                        (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId)
+                        VALUES (?, 'saida', ?, 'pedido', ?, ?, ?, ?)`)
               .run(it.produtoId, Number(it.quantidade), ped.id,
-                   `Saída pelo pedido ${ped.numero} (sem reserva)`, dataEntrega);
+                   `Saída pelo pedido ${ped.numero} (sem reserva)`, dataEntrega,
+                   resolverDeposito(db, { depositoId: ped.depositoId, pedidoId: ped.id, produtoId: it.produtoId }));
           }
         }
 
@@ -723,9 +766,13 @@ function registrarRotasPedidos(app, db) {
       const motivo = (req.body?.motivo || '').trim();
       if (!motivo) return res.status(400).json({ success: false, error: 'motivo obrigatorio' });
 
+      // Venda perdida opcional — o cancelamento é o momento em que a
+      // informação existe; registrar depois, à mão, quase nunca acontece.
+      const registrarPerda = !!req.body?.registrarPerda;
       const usuario = req.session?.username || null;
       let estornadas = [];
       let reservasCanceladas = 0;
+      let perdas = { geradas: 0, ids: [], ignorados: [] };
       const tx = db.transaction(() => {
         if (ped.status === 'entregue') {
           estornadas = estornarEstoque(ped.id, motivo);
@@ -733,6 +780,19 @@ function registrarRotasPedidos(app, db) {
           reservasCanceladas = cancelarReservasPedido(db, ped.id, `cancelamento: ${motivo}`);
         }
         db.prepare(`UPDATE pedidos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(ped.id);
+        // Depois do UPDATE de propósito: um pedido 'entregue' que teve o
+        // estoque estornado virou perda legítima, e o helper recusa
+        // status entregue/faturado.
+        if (registrarPerda) {
+          perdas = registrarPerdasDePedido(db, ped.id, {
+            motivo: req.body?.motivoPerda,
+            concorrente: req.body?.concorrente,
+            observacao: `Cancelamento ${ped.numero}: ${motivo}`,
+            itens: req.body?.itensPerda,
+            origem: ped.modoDocumento === 'orcamento' ? 'orcamento_perdido' : 'pedido_cancelado',
+            usuario,
+          });
+        }
         // Propaga pra OM ativa: pedido cancelado → OM cancelada com observação
         // automática. Skip se OM já entregue (cliente recebeu) ou já cancelada.
         try {
@@ -746,10 +806,13 @@ function registrarRotasPedidos(app, db) {
             .run(ped.id);
         } catch { /* tenant sem ótica */ }
         registrarHistorico(ped.id, ped.status, 'cancelado', 'cancelar', motivo, usuario,
-          (estornadas.length || reservasCanceladas) ? { movimentacoesEstornadas: estornadas, reservasCanceladas } : null);
+          (estornadas.length || reservasCanceladas || perdas.geradas)
+            ? { movimentacoesEstornadas: estornadas, reservasCanceladas, vendasPerdidasGeradas: perdas.geradas }
+            : null);
       });
       tx();
-      res.json({ success: true, movimentacoesEstornadas: estornadas.length, reservasCanceladas });
+      res.json({ success: true, movimentacoesEstornadas: estornadas.length, reservasCanceladas,
+        vendasPerdidasGeradas: perdas.geradas });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -780,16 +843,43 @@ function registrarRotasPedidos(app, db) {
 
       const usuario = req.session?.username || null;
       let estornadas = [];
+      let perdasEstornadas = 0;
+      let reservasRecriadas = 0;
+      let insuficienciasReabrir = [];
       const tx = db.transaction(() => {
         if (ped.status === 'entregue') {
           estornadas = estornarEstoque(ped.id, motivo);
         }
+        // A venda voltou a existir: apaga as perdas geradas pelo
+        // cancelamento, senão o BI conta perda de um pedido vivo.
+        // Perdas lançadas à mão ficam — foram decisão do usuário.
+        perdasEstornadas = estornarPerdasDePedido(db, ped.id);
         db.prepare(`UPDATE pedidos SET status = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(destino, ped.id);
+
+        // Reserva: reabrir não mexia nisso, então o pedido voltava para
+        // confirmado/em_separacao SEM reserva ativa e o saldo ficava livre
+        // para outro pedido consumir.
+        if (['confirmado', 'em_separacao'].includes(destino)) {
+          const ativas = db.prepare(
+            `SELECT COUNT(*) n FROM reservas_estoque WHERE pedidoId = ? AND status = 'ativa'`).get(ped.id).n;
+          if (ativas === 0) {
+            const r = criarReservasPedido(db, ped.id);
+            reservasRecriadas = r.reservasCriadas.length;
+            insuficienciasReabrir = r.insuficiencias;
+          }
+        } else {
+          // Voltou para rascunho: não há o que reservar.
+          cancelarReservasPedido(db, ped.id, `reabertura para ${destino}: ${motivo}`);
+        }
         registrarHistorico(ped.id, ped.status, destino, 'reabrir', motivo, usuario,
-          estornadas.length ? { movimentacoesEstornadas: estornadas } : null);
+          (estornadas.length || perdasEstornadas)
+            ? { movimentacoesEstornadas: estornadas, vendasPerdidasEstornadas: perdasEstornadas }
+            : null);
       });
       tx();
-      res.json({ success: true, statusNovo: destino, movimentacoesEstornadas: estornadas.length });
+      res.json({ success: true, statusNovo: destino, movimentacoesEstornadas: estornadas.length,
+        vendasPerdidasEstornadas: perdasEstornadas,
+        reservasRecriadas, insuficiencias: insuficienciasReabrir });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -1148,4 +1238,7 @@ function registrarRotasPedidos(app, db) {
   });
 }
 
-module.exports = { registrarRotasPedidos };
+// gerarNumero e recalcularTotal saem daqui para a loja virtual criar pedido
+// pelo mesmo caminho. Duplicar a numeração noutro módulo produziria número
+// repetido assim que dois pedidos nascessem juntos.
+module.exports = { registrarRotasPedidos, gerarNumero, recalcularTotal };

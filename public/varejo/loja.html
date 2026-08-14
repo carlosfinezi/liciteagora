@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loja virtual · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.tab-pane { display:none; } .tab-pane.active { display:block; }
+.preview {
+  border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden;
+  position:sticky; top:16px;
+}
+.preview .barra { padding:8px 12px; font-size:0.78em; background:var(--bg-2); border-bottom:1px solid var(--border); color:var(--text-2); }
+.preview .tela { padding:16px; }
+.preview .cab { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.preview .cab img { max-height:34px; max-width:110px; object-fit:contain; }
+.preview .cartao { border:1px solid; padding:10px; margin-top:10px; }
+.preview .btn-demo { border:0; padding:8px 14px; font-size:0.82em; font-weight:600; }
+.swatches { display:flex; gap:8px; flex-wrap:wrap; }
+.swatch-btn { width:30px; height:30px; border-radius:6px; border:2px solid transparent; cursor:pointer; }
+.swatch-btn.sel { border-color:var(--text-1); }
+.logo-atual { max-height:56px; max-width:180px; object-fit:contain; background:#fff; border:1px solid var(--border); border-radius:6px; padding:4px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Loja virtual</h1><small>Catálogo público dos seus produtos, com sua marca</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="trocarTab('produtos')">Produtos na vitrine</div>
+    <div class="tab" onclick="trocarTab('aparencia')">Aparência</div>
+    <div class="tab" onclick="trocarTab('config')">Dados e publicação</div>
+  </div>
+
+  <!-- ============ PRODUTOS ============ -->
+  <div class="tab-pane active" id="tab-produtos">
+    <div class="kpi-mini" id="kpis" style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;"></div>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="publicar(true)">Colocar na vitrine</button>
+      <button class="btn btn-secondary" onclick="publicar(false)">Tirar da vitrine</button>
+      <select id="fFiltro" onchange="carregarProdutos()">
+        <option value="">Todos os produtos</option>
+        <option value="publicados">Na vitrine</option>
+        <option value="fora">Fora da vitrine</option>
+      </select>
+      <input type="text" id="fQ" placeholder="Buscar SKU, descrição ou marca…" oninput="renderProdutos()" style="flex:1;min-width:200px;">
+      <span class="spacer"></span>
+      <span id="contagem" style="font-size:0.85em;color:var(--text-2);"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:32px;"><input type="checkbox" id="todos" onchange="marcarTodos(this)" style="width:auto;"></th>
+          <th>SKU</th><th>Produto</th><th>Marca</th>
+          <th style="text-align:right;">Preço</th>
+          <th style="text-align:right;">Disponível</th>
+          <th>Foto</th><th>Vitrine</th>
+        </tr></thead>
+        <tbody id="tbProd"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ APARÊNCIA ============ -->
+  <div class="tab-pane" id="tab-aparencia">
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start;">
+      <div>
+        <div class="form-row"><div class="form-group full-width">
+          <label>Ponto de partida</label>
+          <div class="swatches" id="presets"></div>
+          <small class="muted">Escolha um preset e ajuste o que quiser a partir dele.</small>
+        </div></div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cor principal</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="color" id="tCor" onchange="mudouTema()" style="width:52px;padding:2px;">
+              <input type="text" id="tCorHex" onchange="corDoTexto()" placeholder="#0E6B63" style="max-width:110px;">
+            </div>
+            <small class="muted">Botões, links e preço em destaque.</small>
+          </div>
+          <div class="form-group">
+            <label>Fundo</label>
+            <select id="tFundo" onchange="mudouTema()"><option value="claro">Claro</option><option value="escuro">Escuro</option></select>
+          </div>
+          <div class="form-group">
+            <label>Tipografia</label>
+            <select id="tFonte" onchange="mudouTema()">
+              <option value="neutra">Neutra</option><option value="tecnica">Técnica</option><option value="editorial">Editorial</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cantos <small class="muted" id="raioVal"></small></label>
+            <input type="range" id="tRaio" min="0" max="24" step="2" oninput="mudouTema()">
+          </div>
+        </div>
+
+        <div class="form-row"><div class="form-group full-width">
+          <label>Logotipo</label>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <img id="logoAtual" class="logo-atual" hidden alt="Logotipo atual">
+            <input type="file" id="fileLogo" accept="image/*" style="max-width:260px;">
+            <button class="btn btn-secondary btn-sm" onclick="enviarLogo()">Enviar</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removerLogo()">Remover</button>
+          </div>
+          <small class="muted">PNG com fundo transparente fica melhor. Até 4 MB.</small>
+        </div></div>
+
+        <div class="modal-actions" style="justify-content:flex-start;">
+          <button class="btn btn-primary" onclick="salvarConfig()">Salvar aparência</button>
+        </div>
+      </div>
+
+      <div class="preview">
+        <div class="barra">Prévia</div>
+        <div class="tela" id="pvTela">
+          <div class="cab">
+            <img id="pvLogo" hidden alt="">
+            <strong id="pvNome" style="font-size:15px;">Sua loja</strong>
+          </div>
+          <button class="btn-demo" id="pvBtn">Falar no WhatsApp</button>
+          <div class="cartao" id="pvCartao">
+            <div style="font-size:12px;opacity:.7;" id="pvMarca">Marca</div>
+            <div style="font-size:13.5px;" id="pvProd">Produto de exemplo</div>
+            <div style="font-size:16px;font-weight:660;margin-top:6px;" id="pvPreco">R$ 199,90</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CONFIG ============ -->
+  <div class="tab-pane" id="tab-config">
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Nome da loja *</label><input type="text" id="cNome" maxlength="80"></div>
+      <div class="form-group"><label>WhatsApp</label><input type="text" id="cZap" placeholder="5511999998888"></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Descrição</label><textarea id="cDesc" rows="2" maxlength="300" placeholder="Uma linha sobre o que você vende"></textarea>
+    </div></div>
+    <div class="form-row">
+      <div class="form-group"><label>E-mail de contato</label><input type="email" id="cEmail"></div>
+      <div class="form-group"><label>Telefone</label><input type="text" id="cTel"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label><input type="checkbox" id="cPreco" style="width:auto;"> Mostrar preços na vitrine</label>
+        <small class="muted">Sem isto, o visitante vê "Consulte o preço" e fala com você.</small></div>
+      <div class="form-group"><label><input type="checkbox" id="cEstoque" style="width:auto;"> Mostrar disponibilidade</label>
+        <small class="muted">Nunca a quantidade exata — só disponível, últimas unidades ou sob consulta.</small></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Cobrança no fechamento do pedido</label>
+        <select id="cPagModo">
+          <option value="nenhum">Não cobrar — a loja confere e cobra depois</option>
+          <option value="pix">Pix na hora</option>
+          <option value="boleto">Boleto na hora</option>
+          <option value="pix-ou-boleto">Pix ou boleto, o comprador escolhe</option>
+        </select>
+        <small class="muted">Usa o provedor já configurado no financeiro. A baixa entra sozinha pelo webhook.</small>
+      </div>
+      <div class="form-group">
+        <label>Vencimento em (dias)</label>
+        <input type="number" id="cPagVenc" min="0" max="60" step="1" style="max-width:110px;">
+      </div>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label><input type="checkbox" id="cAtiva" style="width:auto;"> <strong>Loja no ar</strong></label>
+      <small class="muted">Enquanto estiver desligada, o endereço responde "catálogo não publicado".</small>
+    </div></div>
+    <div id="urlBox" class="alert info" style="display:none;"></div>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-primary" onclick="salvarConfig()">Salvar</button>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('loja');</script>
+<script>
+let CFG = null, PRESETS = {}, PRODUTOS = [], SEL = new Set(), URL_LOJA = '';
+
+function showAlert(m, t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+const brl = v => (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function trocarTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+}
+
+// ---------- carregar ----------
+async function carregarConfig(){
+  const d = await fetch('/api/loja/config').then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  CFG = d.config; PRESETS = d.presets; URL_LOJA = d.url;
+  document.getElementById('cNome').value = CFG.nome || '';
+  document.getElementById('cDesc').value = CFG.descricao || '';
+  document.getElementById('cZap').value = CFG.whatsapp || '';
+  document.getElementById('cEmail').value = CFG.email || '';
+  document.getElementById('cTel').value = CFG.telefone || '';
+  document.getElementById('cPreco').checked = !!CFG.mostrarPreco;
+  document.getElementById('cEstoque').checked = !!CFG.mostrarEstoque;
+  document.getElementById('cAtiva').checked = !!CFG.ativa;
+  document.getElementById('cPagModo').value = CFG.pagamentoModo || 'nenhum';
+  document.getElementById('cPagVenc').value = CFG.pagamentoVencimentoDias ?? 3;
+  document.getElementById('tCor').value = CFG.tema.corPrimaria;
+  document.getElementById('tCorHex').value = CFG.tema.corPrimaria;
+  document.getElementById('tFundo').value = CFG.tema.fundo;
+  document.getElementById('tFonte').value = CFG.tema.fonte;
+  document.getElementById('tRaio').value = CFG.tema.raio;
+  if (CFG.logoPath) { const el=document.getElementById('logoAtual'); el.src=CFG.logoPath; el.hidden=false; }
+
+  document.getElementById('presets').innerHTML = Object.entries(PRESETS).map(([nome,p]) =>
+    `<button class="swatch-btn" title="${nome}" style="background:${p.corPrimaria};" onclick="usarPreset('${nome}')"></button>`).join('');
+
+  document.getElementById('urlBox').style.display = 'block';
+  document.getElementById('urlBox').innerHTML = CFG.ativa
+    ? `Sua loja está no ar em <a href="${esc(URL_LOJA)}" target="_blank" rel="noopener"><strong>${esc(URL_LOJA)}</strong></a>`
+    : `Endereço da loja: <strong>${esc(URL_LOJA)}</strong> — ligue "Loja no ar" para publicar.`;
+
+  const r = d.resumo;
+  document.getElementById('kpis').innerHTML = `
+    <div class="c" style="background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r-md);padding:8px 14px;font-size:0.82em;">
+      <span style="display:block;font-size:1.35em;font-weight:600;">${r.publicados}</span>na vitrine</div>
+    ${r.semFoto ? `<div class="c" style="background:var(--bg-2);border:1px solid var(--danger);border-radius:var(--r-md);padding:8px 14px;font-size:0.82em;">
+      <span style="display:block;font-size:1.35em;font-weight:600;">${r.semFoto}</span>publicados sem foto</div>` : ''}
+    ${r.aguardando ? `<a href="/comercial/pedidos.html" class="c" style="background:var(--bg-2);border:1px solid var(--warn);border-radius:var(--r-md);padding:8px 14px;font-size:0.82em;text-decoration:none;color:inherit;">
+      <span style="display:block;font-size:1.35em;font-weight:600;">${r.aguardando}</span>pedido(s) aguardando conferência</a>` : ''}`;
+  atualizarPreview();
+}
+
+async function carregarProdutos(){
+  const f = document.getElementById('fFiltro').value;
+  const d = await fetch('/api/loja/produtos' + (f ? '?filtro='+f : '')).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  PRODUTOS = d.produtos;
+  const vivos = new Set(PRODUTOS.map(p=>p.id));
+  [...SEL].forEach(id => { if (!vivos.has(id)) SEL.delete(id); });
+  renderProdutos();
+}
+
+function renderProdutos(){
+  const q = document.getElementById('fQ').value.toLowerCase().trim();
+  const lista = PRODUTOS.filter(p => !q || ['sku','descricao','marca']
+    .some(k => String(p[k]||'').toLowerCase().includes(q)));
+  document.getElementById('contagem').textContent =
+    `${lista.length} de ${PRODUTOS.length}` + (SEL.size ? ` · ${SEL.size} selecionado(s)` : '');
+  const tb = document.getElementById('tbProd');
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">Nenhum produto</td></tr>'; return; }
+  tb.innerHTML = lista.map(p => `<tr>
+    <td><input type="checkbox" class="selProd" value="${p.id}" ${SEL.has(p.id)?'checked':''}
+         onchange="alternar(${p.id}, this.checked)" style="width:auto;"></td>
+    <td class="mono">${esc(p.sku)||'—'}</td>
+    <td>${esc(p.descricao)}</td>
+    <td>${esc(p.marca)||'—'}</td>
+    <td style="text-align:right;">${p.precoVenda ? brl(p.precoVenda) : '<span style="color:var(--danger);">sem preço</span>'}</td>
+    <td style="text-align:right;">${p.disponivel}</td>
+    <td>${p.temFoto ? 'sim' : '<span style="color:var(--danger);">não</span>'}</td>
+    <td><span class="badge ${p.publicado?'ativo':'inativo'}">${p.publicado?'na vitrine':'fora'}</span></td>
+  </tr>`).join('');
+  const alvos = lista.map(p=>p.id);
+  document.getElementById('todos').checked = alvos.length>0 && alvos.every(id=>SEL.has(id));
+}
+
+function alternar(id, on){ if (on) SEL.add(id); else SEL.delete(id); renderProdutos(); }
+function marcarTodos(el){
+  const q = document.getElementById('fQ').value.toLowerCase().trim();
+  PRODUTOS.filter(p => !q || ['sku','descricao','marca'].some(k=>String(p[k]||'').toLowerCase().includes(q)))
+    .forEach(p => el.checked ? SEL.add(p.id) : SEL.delete(p.id));
+  renderProdutos();
+}
+
+async function publicar(valor){
+  if (!SEL.size) return showAlert('Selecione os produtos','error');
+  // Produto sem foto na vitrine fica com um retângulo vazio — avisa antes.
+  if (valor) {
+    const semFoto = PRODUTOS.filter(p => SEL.has(p.id) && !p.temFoto).length;
+    if (semFoto && !confirm(`${semFoto} produto(s) selecionado(s) não têm foto e vão aparecer sem imagem na vitrine.\n\nColocar mesmo assim?`)) return;
+  }
+  const d = await fetch('/api/loja/produtos/publicar', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ids:[...SEL], publicado: valor })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.alterados} produto(s) ${valor?'na vitrine':'fora da vitrine'}`);
+  SEL.clear();
+  await carregarProdutos(); await carregarConfig();
+}
+
+// ---------- aparência ----------
+function usarPreset(nome){
+  const p = PRESETS[nome]; if (!p) return;
+  document.getElementById('tCor').value = p.corPrimaria;
+  document.getElementById('tCorHex').value = p.corPrimaria;
+  document.getElementById('tFundo').value = p.fundo;
+  document.getElementById('tFonte').value = p.fonte;
+  document.getElementById('tRaio').value = p.raio;
+  mudouTema();
+}
+function corDoTexto(){
+  const v = document.getElementById('tCorHex').value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) { document.getElementById('tCor').value = v; mudouTema(); }
+  else showAlert('Cor deve estar no formato #RRGGBB','error');
+}
+function mudouTema(){
+  document.getElementById('tCorHex').value = document.getElementById('tCor').value;
+  atualizarPreview();
+}
+
+const FONTES = {
+  neutra:    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
+  tecnica:   'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  editorial: 'Georgia, "Iowan Old Style", "Times New Roman", serif',
+};
+// Mesma conta de contraste da vitrine: a prévia tem que mentir o mínimo.
+function textoSobre(hex){
+  const n = parseInt(String(hex).slice(1),16);
+  const [r,g,b] = [(n>>16)&255,(n>>8)&255,n&255].map(v=>{ const c=v/255; return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4); });
+  return (0.2126*r+0.7152*g+0.0722*b) > 0.42 ? '#11201F' : '#FFFFFF';
+}
+function atualizarPreview(){
+  const cor = document.getElementById('tCor').value;
+  const escuro = document.getElementById('tFundo').value === 'escuro';
+  const raio = document.getElementById('tRaio').value;
+  const fonte = FONTES[document.getElementById('tFonte').value];
+  document.getElementById('raioVal').textContent = raio + 'px';
+  const tela = document.getElementById('pvTela');
+  tela.style.background = escuro ? '#0E1413' : '#F7F8F8';
+  tela.style.color = escuro ? '#E6EDEC' : '#14201F';
+  tela.style.fontFamily = fonte;
+  const btn = document.getElementById('pvBtn');
+  btn.style.background = cor; btn.style.color = textoSobre(cor); btn.style.borderRadius = raio+'px';
+  const cart = document.getElementById('pvCartao');
+  cart.style.background = escuro ? '#171F1E' : '#FFFFFF';
+  cart.style.borderColor = escuro ? '#2A3634' : '#E1E7E6';
+  cart.style.borderRadius = raio+'px';
+  document.getElementById('pvNome').textContent = document.getElementById('cNome').value || 'Sua loja';
+  const lg = document.getElementById('pvLogo');
+  if (CFG?.logoPath) { lg.src = CFG.logoPath; lg.hidden = false; lg.style.maxHeight='34px'; }
+  document.getElementById('pvPreco').style.display = document.getElementById('cPreco').checked ? '' : 'none';
+}
+
+async function enviarLogo(){
+  const f = document.getElementById('fileLogo').files[0];
+  if (!f) return showAlert('Escolha o arquivo','error');
+  const fd = new FormData(); fd.append('logo', f);
+  const d = await fetch('/api/loja/logo', { method:'POST', body: fd }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Logotipo enviado');
+  await carregarConfig();
+}
+async function removerLogo(){
+  if (!confirm('Remover o logotipo da loja?')) return;
+  const d = await fetch('/api/loja/logo', { method:'DELETE' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('logoAtual').hidden = true;
+  document.getElementById('pvLogo').hidden = true;
+  showAlert('Logotipo removido');
+  await carregarConfig();
+}
+
+async function salvarConfig(){
+  const body = {
+    ativa: document.getElementById('cAtiva').checked,
+    nome: document.getElementById('cNome').value,
+    descricao: document.getElementById('cDesc').value,
+    whatsapp: document.getElementById('cZap').value,
+    email: document.getElementById('cEmail').value,
+    telefone: document.getElementById('cTel').value,
+    mostrarPreco: document.getElementById('cPreco').checked,
+    mostrarEstoque: document.getElementById('cEstoque').checked,
+    pagamentoModo: document.getElementById('cPagModo').value,
+    pagamentoVencimentoDias: Number(document.getElementById('cPagVenc').value),
+    tema: {
+      corPrimaria: document.getElementById('tCor').value,
+      fundo: document.getElementById('tFundo').value,
+      fonte: document.getElementById('tFonte').value,
+      raio: Number(document.getElementById('tRaio').value),
+    },
+  };
+  if (!body.nome.trim()) return showAlert('Informe o nome da loja','error');
+  const d = await fetch('/api/loja/config', {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Loja salva');
+  await carregarConfig();
+}
+
+['cNome','cPreco'].forEach(id => document.getElementById(id).addEventListener('input', atualizarPreview));
+carregarConfig();
+carregarProdutos();
+</script>
+</body>
+</html>

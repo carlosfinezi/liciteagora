@@ -347,4 +347,6 @@ function registrarRotasPortalAdmin(app, db) {
   });
 }
 
-module.exports = { registrarRotasPortal, registrarRotasPortalAdmin };
+// requirePortalAuth é reusado pela loja virtual: o comprador da vitrine é o
+// mesmo cliente do portal, com a mesma sessão e o mesmo login.
+module.exports = { registrarRotasPortal, registrarRotasPortalAdmin, requirePortalAuth };

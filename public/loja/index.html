@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo</title>
+<style>
+/* Tokens do tema. Os valores reais chegam da configuração do lojista e são
+   injetados em :root pelo aplicarTema() — aqui ficam só os padrões, para a
+   página nunca aparecer sem cor enquanto carrega. */
+:root {
+  --primaria: #0E6B63;
+  --primaria-texto: #fff;
+  --ground: #F7F8F8;
+  --surface: #FFFFFF;
+  --ink: #14201F;
+  --ink-2: #5A6А68;
+  --ink-2: #5A6A68;
+  --line: #E1E7E6;
+  --raio: 10px;
+  --fonte: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: var(--fonte); line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+
+header.topo { background: var(--surface); border-bottom: 1px solid var(--line); }
+header.topo .wrap { display: flex; align-items: center; gap: 16px; padding: 18px 20px; flex-wrap: wrap; }
+header.topo img.logo { max-height: 52px; max-width: 210px; object-fit: contain; }
+header.topo h1 { font-size: 21px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+header.topo p { margin: 2px 0 0; color: var(--ink-2); font-size: 14px; }
+.espaco { flex: 1; }
+
+.zap {
+  background: var(--primaria); color: var(--primaria-texto); border: 0;
+  padding: 10px 16px; border-radius: var(--raio); font-size: 14px; font-weight: 600;
+  cursor: pointer; text-decoration: none; display: inline-block;
+}
+.zap:hover { filter: brightness(1.08); }
+.zap:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.filtros { display: flex; gap: 10px; flex-wrap: wrap; margin: 22px 0 18px; }
+.filtros input, .filtros select {
+  padding: 10px 13px; border: 1px solid var(--line); border-radius: var(--raio);
+  background: var(--surface); color: var(--ink); font-size: 14.5px; font-family: inherit;
+}
+.filtros input { flex: 1; min-width: 220px; }
+
+.grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 16px; padding-bottom: 56px; }
+.item {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--raio);
+  overflow: hidden; display: flex; flex-direction: column; text-align: left;
+  padding: 0; font: inherit; color: inherit; cursor: pointer;
+}
+.item:hover { border-color: var(--primaria); }
+.item:focus-visible { outline: 2px solid var(--primaria); outline-offset: 2px; }
+.item .foto { aspect-ratio: 1; background: #fff; display: flex; align-items: center; justify-content: center; }
+.item .foto img { width: 100%; height: 100%; object-fit: contain; }
+.item .foto .vazio { color: var(--ink-2); font-size: 12px; }
+.item .txt { padding: 12px 13px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.item .nome { font-size: 14.5px; line-height: 1.35; }
+.item .marca { font-size: 12px; color: var(--ink-2); }
+.item .preco { font-size: 17px; font-weight: 660; margin-top: auto; }
+.item .sob { font-size: 13.5px; color: var(--ink-2); margin-top: auto; }
+
+.tag { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; display: inline-block; width: fit-content; }
+.tag.disponivel { background: #E7F3EC; color: #1F6B41; }
+.tag.ultimas    { background: #FDF0DC; color: #8A5A12; }
+.tag.sob-consulta { background: #EEF1F1; color: #5A6A68; }
+
+.vazio-msg { text-align: center; color: var(--ink-2); padding: 60px 20px; }
+
+/* Detalhe */
+.modal-bg {
+  display: none; position: fixed; inset: 0; background: rgba(10,20,19,.6);
+  align-items: center; justify-content: center; padding: 20px; z-index: 50;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--surface); border-radius: var(--raio); max-width: 860px; width: 100%;
+  max-height: 90vh; overflow: auto; padding: 22px;
+}
+.modal .linha { display: flex; gap: 22px; flex-wrap: wrap; }
+.modal .fotos { flex: 1 1 300px; }
+.modal .fotos img { width: 100%; border-radius: var(--raio); background: #fff; object-fit: contain; max-height: 340px; }
+.modal .miniaturas { display: flex; gap: 7px; margin-top: 8px; flex-wrap: wrap; }
+.modal .miniaturas img { width: 54px; height: 54px; object-fit: contain; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; background:#fff; }
+.modal .info { flex: 1 1 280px; display: flex; flex-direction: column; gap: 10px; }
+.modal h2 { margin: 0; font-size: 21px; letter-spacing: -.01em; }
+.modal dl { margin: 6px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
+.modal dt { color: var(--ink-2); }
+.modal dd { margin: 0; }
+.fechar { background: none; border: 0; font-size: 26px; line-height: 1; color: var(--ink-2); cursor: pointer; padding: 0 6px; }
+
+footer.rodape { border-top: 1px solid var(--line); background: var(--surface); padding: 22px 0; color: var(--ink-2); font-size: 14px; }
+footer.rodape a { color: var(--primaria); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <div class="wrap">
+    <img id="logo" class="logo" alt="" hidden>
+    <div>
+      <h1 id="nomeLoja">Catálogo</h1>
+      <p id="descLoja"></p>
+    </div>
+    <span class="espaco"></span>
+    <span id="quemSou" style="font-size:13.5px;color:var(--ink-2);"></span>
+    <button id="btnCarrinho" class="zap" hidden onclick="abrirCarrinho()">Carrinho <span id="qtdCarrinho">0</span></button>
+    <button id="btnEntrar" class="zap" onclick="abrirLogin()">Entrar</button>
+    <a id="btnZap" class="zap" hidden target="_blank" rel="noopener">Falar no WhatsApp</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="filtros">
+    <input type="search" id="busca" placeholder="Buscar produto, marca ou código…" aria-label="Buscar">
+    <select id="categoria" aria-label="Categoria"><option value="">Todas as categorias</option></select>
+  </div>
+  <div class="grade" id="grade"></div>
+</div>
+
+<footer class="rodape">
+  <div class="wrap" id="contato"></div>
+</footer>
+
+<div class="modal-bg" id="modalLogin" role="dialog" aria-modal="true" aria-labelledby="lTitulo">
+  <div class="modal" style="max-width:400px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <h2 id="lTitulo">Entrar</h2>
+      <button class="fechar" onclick="fechar('modalLogin')" aria-label="Fechar">×</button>
+    </div>
+    <p style="color:var(--ink-2);font-size:14px;margin:0 0 14px;">
+      Entre com o acesso que a loja forneceu para ver seu preço e fazer pedidos.</p>
+    <form onsubmit="entrar(event)">
+      <label style="display:block;font-size:13.5px;margin-bottom:4px;">E-mail</label>
+      <input type="email" id="lEmail" required style="width:100%;padding:10px;border:1px solid var(--line);border-radius:var(--raio);background:var(--surface);color:var(--ink);margin-bottom:10px;">
+      <label style="display:block;font-size:13.5px;margin-bottom:4px;">Senha</label>
+      <input type="password" id="lSenha" required style="width:100%;padding:10px;border:1px solid var(--line);border-radius:var(--raio);background:var(--surface);color:var(--ink);margin-bottom:14px;">
+      <div id="lErro" style="color:#B3261E;font-size:13.5px;margin-bottom:10px;"></div>
+      <button type="submit" class="zap" style="width:100%;">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalCarrinho" role="dialog" aria-modal="true" aria-labelledby="cTitulo">
+  <div class="modal" style="max-width:680px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <h2 id="cTitulo">Seu pedido</h2>
+      <button class="fechar" onclick="fechar('modalCarrinho')" aria-label="Fechar">×</button>
+    </div>
+    <div id="cCorpo"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="mTitulo">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+      <h2 id="mTitulo">&nbsp;</h2>
+      <button class="fechar" onclick="fecharModal()" aria-label="Fechar">×</button>
+    </div>
+    <div class="linha" id="mCorpo"></div>
+  </div>
+</div>
+
+<script>
+let LOJA = null, PRODUTOS = [], EU = null, CARRINHO = { itens: [], total: 0 };
+
+const FONTES = {
+  neutra:    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
+  tecnica:   'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  editorial: 'Georgia, "Iowan Old Style", "Times New Roman", serif',
+};
+
+// Contraste do texto sobre a cor escolhida pelo lojista. Sem isto, uma cor
+// clara vira botão de texto branco ilegível.
+function textoSobre(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => {
+    const c = v / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.42 ? '#11201F' : '#FFFFFF';
+}
+
+function aplicarTema(t) {
+  const escuro = t.fundo === 'escuro';
+  const v = {
+    '--primaria': t.corPrimaria,
+    '--primaria-texto': textoSobre(t.corPrimaria),
+    '--ground':  escuro ? '#0E1413' : '#F7F8F8',
+    '--surface': escuro ? '#171F1E' : '#FFFFFF',
+    '--ink':     escuro ? '#E6EDEC' : '#14201F',
+    '--ink-2':   escuro ? '#9DADAB' : '#5A6A68',
+    '--line':    escuro ? '#2A3634' : '#E1E7E6',
+    '--raio':    (Number(t.raio) || 0) + 'px',
+    '--fonte':   FONTES[t.fonte] || FONTES.neutra,
+  };
+  for (const [k, val] of Object.entries(v)) document.documentElement.style.setProperty(k, val);
+  document.documentElement.style.colorScheme = escuro ? 'dark' : 'light';
+}
+
+const brl = (n) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ROTULO = { disponivel: 'Disponível', ultimas: 'Últimas unidades', 'sob-consulta': 'Sob consulta' };
+
+function linkZap(texto) {
+  if (!LOJA?.whatsapp) return null;
+  return 'https://wa.me/' + LOJA.whatsapp + '?text=' + encodeURIComponent(texto);
+}
+
+async function carregar() {
+  const cfg = await fetch('/loja/api/config').then(r => r.json()).catch(() => null);
+  if (!cfg?.success) {
+    document.body.innerHTML = '<div class="vazio-msg" style="padding-top:80px;">Este catálogo não está publicado.</div>';
+    return;
+  }
+  LOJA = cfg.loja;
+  aplicarTema(LOJA.tema);
+  document.title = LOJA.nome;
+  document.getElementById('nomeLoja').textContent = LOJA.nome;
+  document.getElementById('descLoja').textContent = LOJA.descricao || '';
+  if (LOJA.logo) { const el = document.getElementById('logo'); el.src = LOJA.logo; el.alt = LOJA.nome; el.hidden = false; }
+  const zap = linkZap('Olá! Vi o catálogo de vocês e gostaria de um orçamento.');
+  if (zap) { const b = document.getElementById('btnZap'); b.href = zap; b.hidden = false; }
+  document.getElementById('contato').innerHTML = [
+    LOJA.telefone ? 'Telefone: ' + esc(LOJA.telefone) : '',
+    LOJA.email ? '<a href="mailto:' + esc(LOJA.email) + '">' + esc(LOJA.email) + '</a>' : '',
+  ].filter(Boolean).join(' · ');
+
+  await verificarSessao();
+  await carregarProdutos();
+}
+
+async function carregarProdutos() {
+  const d = await fetch('/loja/api/produtos').then(r => r.json());
+  if (!d.success) return;
+  PRODUTOS = d.produtos;
+  const sel = document.getElementById('categoria'), atual = sel.value;
+  sel.innerHTML = '<option value="">Todas as categorias</option>'
+    + d.categorias.map(c => '<option>' + esc(c) + '</option>').join('');
+  if (d.categorias.includes(atual)) sel.value = atual;
+  render();
+}
+
+function render() {
+  const q = document.getElementById('busca').value.toLowerCase().trim();
+  const cat = document.getElementById('categoria').value;
+  const lista = PRODUTOS.filter(p =>
+    (!cat || p.categoria === cat) &&
+    (!q || ['descricao', 'sku', 'marca', 'modelo'].some(k => String(p[k] || '').toLowerCase().includes(q))));
+
+  const g = document.getElementById('grade');
+  if (!lista.length) { g.innerHTML = '<div class="vazio-msg">Nenhum produto encontrado.</div>'; return; }
+  g.innerHTML = lista.map(p => `
+    <button class="item" onclick="abrir(${p.id})">
+      <div class="foto">${p.fotos.length
+        ? `<img src="${esc(p.fotos[0])}" alt="${esc(p.descricao)}" loading="lazy">`
+        : '<span class="vazio">sem foto</span>'}</div>
+      <div class="txt">
+        ${p.marca ? `<span class="marca">${esc(p.marca)}</span>` : ''}
+        <span class="nome">${esc(p.descricao)}</span>
+        ${p.estoque ? `<span class="tag ${p.estoque}">${ROTULO[p.estoque]}</span>` : ''}
+        ${p.preco != null ? `<span class="preco">${brl(p.preco)}</span>` : '<span class="sob">Consulte o preço</span>'}
+      </div>
+    </button>`).join('');
+}
+
+async function abrir(id) {
+  const d = await fetch('/loja/api/produtos/' + id).then(r => r.json());
+  if (!d.success) return;
+  const p = d.produto;
+  document.getElementById('mTitulo').textContent = p.descricao;
+  const medidas = [p.altura, p.largura, p.profundidade].filter(Boolean).join(' × ');
+  const zap = linkZap(`Olá! Tenho interesse neste produto: ${p.descricao}${p.sku ? ' (cód. ' + p.sku + ')' : ''}.`);
+  document.getElementById('mCorpo').innerHTML = `
+    <div class="fotos">
+      ${p.fotos.length ? `<img id="fotoGrande" src="${esc(p.fotos[0])}" alt="${esc(p.descricao)}">` : ''}
+      ${p.fotos.length > 1 ? `<div class="miniaturas">${p.fotos.map(f =>
+        `<img src="${esc(f)}" alt="" onclick="document.getElementById('fotoGrande').src=this.src">`).join('')}</div>` : ''}
+    </div>
+    <div class="info">
+      ${p.estoque ? `<span class="tag ${p.estoque}">${ROTULO[p.estoque]}</span>` : ''}
+      ${p.preco != null ? `<div class="preco" style="font-size:26px;font-weight:660;">${brl(p.preco)}</div>`
+                        : '<div class="sob">Consulte o preço</div>'}
+      <dl>
+        ${p.marca ? `<dt>Marca</dt><dd>${esc(p.marca)}</dd>` : ''}
+        ${p.modelo ? `<dt>Modelo</dt><dd>${esc(p.modelo)}</dd>` : ''}
+        ${p.sku ? `<dt>Código</dt><dd>${esc(p.sku)}</dd>` : ''}
+        ${p.unidade ? `<dt>Unidade</dt><dd>${esc(p.unidade)}</dd>` : ''}
+        ${p.pesoBruto ? `<dt>Peso</dt><dd>${esc(p.pesoBruto)} kg</dd>` : ''}
+        ${medidas ? `<dt>Medidas</dt><dd>${esc(medidas)} cm</dd>` : ''}
+      </dl>
+      ${p.observacoes ? `<p style="font-size:14.5px;color:var(--ink-2);">${esc(p.observacoes)}</p>` : ''}
+      ${p.estoque !== 'sob-consulta' ? `
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+          <input type="number" id="qtdAdd" min="1" step="1" value="1" aria-label="Quantidade"
+            style="width:82px;padding:9px;border:1px solid var(--line);border-radius:var(--raio);background:var(--surface);color:var(--ink);">
+          <button class="zap" onclick="addCarrinho(${p.id}, Number(document.getElementById('qtdAdd').value)); fecharModal();">
+            ${EU ? 'Adicionar ao pedido' : 'Entrar para pedir'}</button>
+        </div>` : ''}
+      ${zap ? `<a class="zap" href="${zap}" target="_blank" rel="noopener"
+        style="background:transparent;color:var(--primaria);border:1px solid var(--primaria);">Falar no WhatsApp</a>` : ''}
+    </div>`;
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal() { document.getElementById('modal').classList.remove('open'); }
+function fechar(id) { document.getElementById(id).classList.remove('open'); }
+
+// ---------- login do comprador ----------
+// Mesma sessão do portal do cliente: quem já entra no portal para ver nota e
+// boleto usa o mesmo acesso aqui.
+function abrirLogin() {
+  document.getElementById('lErro').textContent = '';
+  document.getElementById('modalLogin').classList.add('open');
+}
+
+async function entrar(ev) {
+  ev.preventDefault();
+  const erro = document.getElementById('lErro');
+  erro.textContent = '';
+  const d = await fetch('/portal/api/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: document.getElementById('lEmail').value, senha: document.getElementById('lSenha').value }),
+  }).then(r => r.json()).catch(() => ({ success: false, error: 'Falha de conexão' }));
+  if (!d.success) { erro.textContent = d.error || 'Não foi possível entrar'; return; }
+  fechar('modalLogin');
+  await verificarSessao();
+  await carregarProdutos();   // o preço muda: agora é o da tabela do cliente
+}
+
+async function sair() {
+  await fetch('/portal/api/logout', { method: 'POST' });
+  EU = null; CARRINHO = { itens: [], total: 0 };
+  await verificarSessao();
+  await carregarProdutos();
+}
+
+async function verificarSessao() {
+  const d = await fetch('/loja/api/eu').then(r => r.json()).catch(() => null);
+  EU = d?.success ? d.cliente : null;
+  document.getElementById('btnEntrar').hidden = !!EU;
+  document.getElementById('btnCarrinho').hidden = !EU;
+  document.getElementById('quemSou').innerHTML = EU
+    ? `${esc(EU.nome)} · <a href="#" onclick="sair();return false;">sair</a>` : '';
+  if (EU) await recarregarCarrinho();
+}
+
+// ---------- carrinho ----------
+async function recarregarCarrinho() {
+  const d = await fetch('/loja/api/carrinho').then(r => r.json()).catch(() => null);
+  if (!d?.success) return;
+  CARRINHO = d;
+  document.getElementById('qtdCarrinho').textContent = d.itens.length;
+}
+
+async function addCarrinho(produtoId, quantidade) {
+  if (!EU) return abrirLogin();
+  const d = await fetch('/loja/api/carrinho', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ produtoId, quantidade }),
+  }).then(r => r.json());
+  if (!d.success) return alert(d.error);
+  CARRINHO = d;
+  document.getElementById('qtdCarrinho').textContent = d.itens.length;
+  if (document.getElementById('modalCarrinho').classList.contains('open')) renderCarrinho();
+}
+
+function abrirCarrinho() {
+  document.getElementById('modalCarrinho').classList.add('open');
+  renderCarrinho();
+}
+
+function renderCarrinho(msg) {
+  const c = document.getElementById('cCorpo');
+  if (!CARRINHO.itens.length) {
+    c.innerHTML = (msg || '') + '<p style="color:var(--ink-2);">Seu carrinho está vazio.</p>';
+    return;
+  }
+  c.innerHTML = (msg || '') + `
+    <table style="width:100%;border-collapse:collapse;font-size:14.5px;">
+      <tbody>${CARRINHO.itens.map(i => `<tr style="border-bottom:1px solid var(--line);">
+        <td style="padding:9px 0;">
+          <div>${esc(i.descricao)}</div>
+          <small style="color:var(--ink-2);">${esc(i.sku || '')}
+            ${i.tabelaNome ? ' · ' + esc(i.tabelaNome) : ''}
+            ${!i.suficiente ? ' · <span style="color:#B3261E;">só ' + i.disponivel + ' disponível</span>' : ''}</small>
+        </td>
+        <td style="width:110px;text-align:right;">
+          <input type="number" min="0" step="1" value="${i.quantidade}" aria-label="Quantidade"
+            onchange="addCarrinho(${i.produtoId}, Number(this.value))"
+            style="width:76px;padding:6px;border:1px solid var(--line);border-radius:var(--raio);background:var(--surface);color:var(--ink);text-align:right;">
+        </td>
+        <td style="width:110px;text-align:right;">${brl(i.total)}</td>
+        <td style="width:30px;text-align:right;">
+          <button onclick="addCarrinho(${i.produtoId}, 0)" aria-label="Remover"
+            style="background:none;border:0;color:var(--ink-2);cursor:pointer;font-size:18px;">×</button></td>
+      </tr>`).join('')}</tbody>
+    </table>
+    ${LOJA.pagamento === 'pix-ou-boleto' ? `
+      <div style="margin-top:14px;">
+        <label style="font-size:14px;display:block;margin-bottom:6px;">Forma de pagamento</label>
+        <select id="formaPag" style="padding:9px;border:1px solid var(--line);border-radius:var(--raio);background:var(--surface);color:var(--ink);">
+          <option value="pix">Pix</option><option value="boleto">Boleto</option>
+        </select>
+      </div>` : ''}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;gap:12px;flex-wrap:wrap;">
+      <strong style="font-size:19px;">Total ${brl(CARRINHO.total)}</strong>
+      <button class="zap" onclick="enviarPedido()">${LOJA.pagamento && LOJA.pagamento !== 'nenhum' ? 'Enviar e pagar' : 'Enviar pedido'}</button>
+    </div>
+    <p style="color:var(--ink-2);font-size:13px;margin-top:10px;">
+      ${LOJA.pagamento && LOJA.pagamento !== 'nenhum'
+        ? 'A cobrança é gerada na hora. O pedido segue para conferência da loja.'
+        : 'O pedido vai para conferência da loja. Você recebe a confirmação com prazo e forma de pagamento.'}</p>`;
+}
+
+async function enviarPedido() {
+  const forma = document.getElementById('formaPag')?.value;
+  const d = await fetch('/loja/api/pedido', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(forma ? { formaPagamento: forma } : {}),
+  }).then(r => r.json());
+  if (!d.success) {
+    // Estoque que acabou entre montar e enviar: mostra item a item.
+    if (d.semEstoque) {
+      await recarregarCarrinho();
+      renderCarrinho(`<div style="background:#FDECEA;color:#8A2018;padding:12px;border-radius:var(--raio);margin-bottom:12px;font-size:14px;">
+        ${esc(d.error)}:<br>${d.semEstoque.map(s => `${esc(s.descricao)} — pedido ${s.pedido}, disponível ${s.disponivel}`).join('<br>')}</div>`);
+      return;
+    }
+    return alert(d.error);
+  }
+  await recarregarCarrinho();
+  document.getElementById('cCorpo').innerHTML = `
+    <div style="text-align:center;padding:18px 0;">
+      <div style="font-size:19px;font-weight:640;margin-bottom:6px;">Pedido ${esc(d.numero)} enviado</div>
+      <p style="color:var(--ink-2);">Total ${brl(d.valorTotal)}. A loja vai conferir e confirmar.</p>
+      ${d.reservado ? '<p style="color:var(--ink-2);font-size:13.5px;">Os itens ficaram separados no estoque.</p>' : ''}
+      ${blocoCobranca(d.cobranca)}
+      <button class="zap" onclick="fechar('modalCarrinho')" style="margin-top:12px;">Continuar</button>
+    </div>`;
+}
+
+// O comprador acabou de decidir pagar: o Pix tem que estar na tela, não num
+// e-mail que ele vai procurar depois.
+function blocoCobranca(c) {
+  if (!c) return '';
+  if (c.erro || c.pendente) {
+    return `<p style="color:var(--ink-2);font-size:13.5px;margin-top:10px;">
+      A cobrança será enviada pela loja.</p>`;
+  }
+  if (c.pixPayload || c.pixQrImage) {
+    return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+      <strong style="font-size:15px;">Pague com Pix</strong>
+      ${c.pixQrImage ? `<div><img src="data:image/png;base64,${esc(c.pixQrImage)}" alt="QR Code do Pix"
+        style="width:190px;height:190px;margin:10px auto;display:block;background:#fff;padding:6px;border-radius:var(--raio);"></div>` : ''}
+      ${c.pixPayload ? `<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+        <input id="pixCopia" readonly value="${esc(c.pixPayload)}"
+          style="flex:1;min-width:180px;max-width:340px;padding:8px;font-size:12px;border:1px solid var(--line);border-radius:var(--raio);background:var(--surface);color:var(--ink);">
+        <button class="zap" onclick="copiarPix()">Copiar código</button></div>` : ''}
+      ${c.vencimento ? `<p style="color:var(--ink-2);font-size:13px;margin-top:8px;">Válido até ${esc(c.vencimento)}</p>` : ''}
+    </div>`;
+  }
+  if (c.linhaDigitavel || c.url) {
+    return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+      <strong style="font-size:15px;">Boleto gerado</strong>
+      ${c.linhaDigitavel ? `<p class="mono" style="font-size:13px;word-break:break-all;margin:8px 0;">${esc(c.linhaDigitavel)}</p>` : ''}
+      ${c.url ? `<a class="zap" href="${esc(c.url)}" target="_blank" rel="noopener">Abrir boleto</a>` : ''}
+      ${c.vencimento ? `<p style="color:var(--ink-2);font-size:13px;margin-top:8px;">Vence em ${esc(c.vencimento)}</p>` : ''}
+    </div>`;
+  }
+  return '';
+}
+
+function copiarPix() {
+  const el = document.getElementById('pixCopia');
+  el.select();
+  navigator.clipboard?.writeText(el.value).catch(() => document.execCommand('copy'));
+}
+
+document.getElementById('busca').addEventListener('input', render);
+document.getElementById('categoria').addEventListener('change', render);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModal(); });
+document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') fecharModal(); });
+carregar();
+</script>
+</body>
+</html>

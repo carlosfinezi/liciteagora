@@ -76,7 +76,55 @@ function installAuthBarrier(app, db, { apiKey }) {
   app.use(requireAuth(apiKey, db));
 }
 
+// Páginas que mudaram de módulo. Sem isto, link salvo, atalho do navegador e
+// aba aberta batem em 404 depois da mudança — e o usuário não tem como saber
+// que a tela existe em outro lugar.
+const PAGINAS_MOVIDAS = {
+  '/financeiro/plano-contas.html': '/contabilidade/plano-contas.html',
+  '/financeiro/centros-custo.html': '/contabilidade/centros-custo.html',
+  '/financeiro/faturas.html': '/fiscal/faturas.html',
+  '/financeiro/fatura-detalhe.html': '/fiscal/fatura-detalhe.html',
+  '/financeiro/cobrancas.html': '/cobranca/cobrancas.html',
+  '/financeiro/cobrancas-config.html': '/cobranca/cobrancas-config.html',
+  // NFS-e emitidas virou um filtro da lista unificada de notas.
+  '/fiscal/nfse-emitidas.html': '/fiscal/notas-fiscais.html?tipo=nfse',
+  // Parâmetros de emissão são do emitente: moraram na tela de cada documento
+  // até virarem uma seção do cadastro da empresa.
+  '/fiscal/nfe-config.html': '/configuracoes/minha-empresa.html#documentos-fiscais',
+  '/fiscal/nfce-config.html': '/configuracoes/minha-empresa.html#documentos-fiscais',
+  // "NF-e Recebidas" era o nome da lista; a tela é o manifestador do destinatário.
+  '/fiscal/nfe-inbox.html': '/fiscal/manifestador.html',
+  // Tipos de operação carregam natureza fiscal e CFOP: são cadastro do Fiscal.
+  '/configuracoes/cadastro-tipos-operacao.html': '/fiscal/cadastro-tipos-operacao.html',
+  // Patrimônio saiu de dentro de RH: imobilizado não é gestão de pessoas.
+  '/rh/patrimonio.html': '/patrimonio/bens.html',
+  // Chave de API, uploads e portais são operação de integração, não ajuste de
+  // preferência — saíram de Configurações.
+  '/configuracoes/conexoes.html': '/operacional/conexoes.html',
+  '/configuracoes/integracoes.html': '/operacional/integracoes.html',
+  // Jornal removido: a descoberta por IA cobre a mesma varredura com
+  // qualificação. Quem tiver o endereço salvo cai onde a função vive hoje.
+  '/configuracoes/jornal.html': '/operacional/analises-ia.html',
+  // Versões mostrava commit e branch do deploy — informação de servidor, não
+  // do negócio do cliente. O painel de saúde do sistema fica em Status.
+  '/configuracoes/versoes.html': '/configuracoes/status.html',
+  // Comunicação: cinco telas com três APIs rivais viraram a central de
+  // Conversas. Redirecionadas as que a central cobre por inteiro — conexão,
+  // inbox e simulador de IA. As de campanha (wa-campanhas, wa-agenda) seguem
+  // acessíveis por URL: a central lista e cancela, mas ainda não cria nem
+  // agenda disparo.
+  '/comunicacao/comunicacao.html': '/comunicacao/conversas.html',
+  '/comunicacao/whatsapp.html': '/comunicacao/conversas.html',
+  '/comunicacao/wa-simular.html': '/comunicacao/conversas.html',
+};
+
 function installProtectedStatic(app) {
+  app.use((req, res, next) => {
+    const destino = PAGINAS_MOVIDAS[req.path];
+    // 301: o endereço novo é definitivo, então o navegador atualiza o favorito.
+    if (destino) return res.redirect(301, destino);
+    next();
+  });
   app.use(express.static(path.join(__dirname, 'public')));
 }
 

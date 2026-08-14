@@ -24,9 +24,34 @@ function extractText(msg) {
     || null;
 }
 
-function slugFromInstance(instance) {
-  if (typeof instance !== 'string') return null;
-  return instance.startsWith('le_') ? instance.slice(3) : null;
+// Resolve o tenant pela instância que veio no evento.
+//
+// A convenção 'le_<slug>' cobre só as instâncias criadas pelo próprio sistema.
+// Instância criada à mão fora dele (o caso do 'status1bit') nunca casava, e o
+// webhook descartava a mensagem em silêncio — motivo de o inbox estar vazio.
+// Agora, quando o prefixo não bate, procura qual tenant declarou essa
+// instância em whatsapp_config.
+const _cacheInstancia = new Map();   // instance -> { slug, em }
+const CACHE_MS = 5 * 60 * 1000;
+
+function slugFromInstance(instance, tenantManager = null) {
+  if (typeof instance !== 'string' || !instance) return null;
+  if (instance.startsWith('le_')) return instance.slice(3);
+  if (!tenantManager) return null;
+
+  const cache = _cacheInstancia.get(instance);
+  if (cache && Date.now() - cache.em < CACHE_MS) return cache.slug;
+
+  let achado = null;
+  for (const t of tenantManager.listAll()) {
+    try {
+      const v = tenantManager.getDb(t.slug)
+        .prepare("SELECT value FROM whatsapp_config WHERE key = 'instance'").get();
+      if (v && v.value === instance) { achado = t.slug; break; }
+    } catch { /* tenant sem o módulo */ }
+  }
+  _cacheInstancia.set(instance, { slug: achado, em: Date.now() });
+  return achado;
 }
 
 // Gera e envia a resposta da IA. Roda após o 200 do webhook (fire-and-forget).
@@ -44,6 +69,13 @@ async function autoResponder(tdb, instance, jid, incomingText) {
   if (cnt >= AI_MAX_PER_HOUR) return; // rate limit
   const manual = tdb.prepare("SELECT 1 FROM whatsapp_messages WHERE remote_jid = ? AND from_me = 1 AND COALESCE(from_bot,0) = 0 AND timestamp >= ? LIMIT 1").get(jid, now - PAUSE_MANUAL_S);
   if (manual) return; // humano assumiu a conversa nas últimas 4h
+
+  // Desligar a IA numa conversa é decisão do atendente na tela e não expira
+  // em 4h como a regra acima: quando ele desliga, é porque assumiu de vez.
+  try {
+    const c = tdb.prepare("SELECT iaAtiva FROM conv_conversas WHERE jid = ? AND canal = 'whatsapp'").get(jid);
+    if (c && !c.iaAtiva) return;
+  } catch { /* tenant sem a central ainda */ }
 
   const hist = tdb.prepare("SELECT from_me, texto FROM whatsapp_messages WHERE remote_jid = ? AND texto IS NOT NULL AND texto <> '' ORDER BY id DESC LIMIT ?").all(jid, HIST_TURNS).reverse();
   // Campanha do lead (pelo número) → system prompt via a MESMA função do simulador
@@ -63,7 +95,7 @@ async function autoResponder(tdb, instance, jid, incomingText) {
   catch (e) { console.error('[autoResponder] LLM falhou:', e.message); }
   if (!reply) reply = require('./whatsapp-adapter').FALLBACK_SEM_RESPOSTA;
 
-  const r = await enviarWhatsApp(tdb, { telefone: jid.split('@')[0], texto: reply });
+  const r = await enviarWhatsApp(tdb, { telefone: jid.split('@')[0], texto: reply, ignorarRitmo: true });
   try {
     tdb.prepare("INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, instance, remote_jid, from_me, from_bot, texto, timestamp) VALUES (?, ?, ?, 1, 1, ?, ?)")
       .run((r && r.providerMessageId) || null, instance, jid, reply, Math.floor(Date.now() / 1000));
@@ -97,7 +129,9 @@ async function handleOptOut(tdb, jid, texto) {
     tdb.prepare("INSERT OR IGNORE INTO wa_optout (telefone) VALUES (?)").run(num);
     tdb.prepare("UPDATE wa_campanha_dest SET status = 'optout' WHERE id = ?").run(lead.id);
   } catch (_) {}
-  await enviarWhatsApp(tdb, { telefone: num, texto: 'Tudo certo, você não recebe mais nossas mensagens.' }).catch(() => {});
+  // Confirmação de descadastro nunca pode ficar segurada por limite: quem
+  // pediu para sair tem que ver a resposta na hora.
+  await enviarWhatsApp(tdb, { telefone: num, texto: 'Tudo certo, você não recebe mais nossas mensagens.', ignorarRitmo: true }).catch(() => {});
   return true;
 }
 
@@ -123,7 +157,7 @@ function registrarRotaWebhook(app, { tenantManager }) {
       const evt = req.body || {};
       if (evt.event !== 'messages.upsert') return;
 
-      const slug = slugFromInstance(evt.instance);
+      const slug = slugFromInstance(evt.instance, tenantManager);
       if (!slug || !tenantManager.getTenantBySlug(slug)) return;
 
       const tdb = tenantManager.getDb(slug);
@@ -144,6 +178,16 @@ function registrarRotaWebhook(app, { tenantManager }) {
         data.pushName || null, texto, data.messageType || null,
         data.messageTimestamp || Math.floor(Date.now() / 1000)
       );
+
+      // Mantém a conversa da central em dia: é ela que a tela de atendimento
+      // lê. Sem isto o inbox só enxergaria mensagem, nunca estado nem dono.
+      if (info.changes > 0 && jid.endsWith('@s.whatsapp.net')) {
+        try {
+          require('./conversas-routes').registrarMensagem(tdb, {
+            jid, texto, deMim: !!key.fromMe, nome: data.pushName || null,
+          });
+        } catch (e) { console.error('[whatsapp-webhook] conversa:', e.message); }
+      }
 
       // auto-resposta: só para mensagem NOVA (não duplicada), recebida, 1:1, com texto
       if (info.changes > 0 && !key.fromMe && jid.endsWith('@s.whatsapp.net') && texto) {

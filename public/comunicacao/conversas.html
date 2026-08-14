@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conversas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+.central { display:grid; grid-template-columns: 300px 1fr 290px; gap:14px; height:calc(100vh - 150px); min-height:460px; }
+@media (max-width:1200px){ .central { grid-template-columns: 260px 1fr; } .ficha { display:none; } }
+@media (max-width:820px){ .central { grid-template-columns: 1fr; } .lista { display:none; } .central.mostrando-lista .lista { display:flex; } .central.mostrando-lista .thread { display:none; } }
+
+.painel { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); display:flex; flex-direction:column; overflow:hidden; }
+.lista .topo { padding:10px; border-bottom:1px solid var(--border); display:flex; gap:6px; flex-direction:column; }
+.lista .filtros { display:flex; gap:4px; }
+.lista .filtros button { flex:1; padding:5px 4px; font-size:0.75em; border:1px solid var(--border); background:transparent; color:var(--text-2); border-radius:6px; cursor:pointer; }
+.lista .filtros button.sel { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
+.lista .rolagem { overflow-y:auto; flex:1; }
+.conv { padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; }
+.conv:hover { background:var(--bg-3, rgba(255,255,255,.03)); }
+.conv.sel { background:var(--accent-soft); border-left:3px solid var(--accent); }
+.conv .l1 { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.conv .nome { font-weight:600; font-size:0.9em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.conv .hora { font-size:0.72em; color:var(--text-3); white-space:nowrap; }
+.conv .previa { font-size:0.8em; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.conv .badges { display:flex; gap:4px; margin-top:5px; flex-wrap:wrap; }
+.pil { font-size:0.68em; padding:1px 7px; border-radius:999px; border:1px solid var(--border); color:var(--text-2); }
+.pil.aberta { border-color:var(--warn); color:var(--warn); }
+.pil.pendente { border-color:var(--accent); color:var(--accent); }
+.pil.resolvida { border-color:var(--success); color:var(--success); }
+.pil.nova { background:var(--danger); color:#fff; border-color:var(--danger); }
+.pil.ia { border-color:var(--purple, #8b5cf6); color:var(--purple, #8b5cf6); }
+
+.thread { display:flex; flex-direction:column; }
+.thread .cab { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.thread .cab h3 { margin:0; font-size:1em; }
+.msgs { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:8px; background:var(--bg-1); }
+.msg { max-width:72%; padding:8px 12px; border-radius:12px; font-size:0.88em; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+.msg.deles { background:var(--bg-2); border:1px solid var(--border); align-self:flex-start; border-bottom-left-radius:3px; }
+.msg.minha { background:var(--accent-soft); border:1px solid var(--accent); align-self:flex-end; border-bottom-right-radius:3px; }
+.msg .meta { font-size:0.72em; color:var(--text-3); margin-top:4px; display:flex; gap:8px; align-items:center; }
+.msg .corrigir { background:none; border:0; color:var(--accent); cursor:pointer; font-size:0.95em; padding:0; text-decoration:underline; }
+.responder { border-top:1px solid var(--border); padding:10px; display:flex; gap:8px; align-items:flex-end; }
+.responder textarea { flex:1; resize:vertical; min-height:44px; max-height:160px; }
+
+.ficha { padding:0; }
+.ficha .bloco { padding:12px 14px; border-bottom:1px solid var(--border); }
+.ficha h4 { margin:0 0 8px; font-size:0.82em; text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); }
+.ficha .linha { display:flex; justify-content:space-between; font-size:0.84em; padding:3px 0; gap:8px; }
+.ficha .rolagem { overflow-y:auto; }
+.vazio-centro { display:flex; align-items:center; justify-content:center; height:100%; color:var(--text-3); font-size:0.9em; padding:20px; text-align:center; }
+.tab-pane { display:none; } .tab-pane.active { display:block; }
+.kpis { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
+.kpis .c { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); padding:8px 14px; font-size:0.82em; color:var(--text-2); }
+.kpis .c .v { display:block; font-size:1.35em; font-weight:600; color:var(--text-1); }
+.kpis .c.alerta { border-color:var(--danger); }
+
+/* funil */
+.quadro { display:flex; gap:12px; overflow-x:auto; padding-bottom:10px; align-items:flex-start; }
+.coluna { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); min-width:230px; max-width:250px; flex:0 0 auto; display:flex; flex-direction:column; max-height:calc(100vh - 260px); }
+.coluna .cab { padding:9px 12px; border-bottom:1px solid var(--border); border-top:3px solid var(--border); border-radius:var(--r-md) var(--r-md) 0 0; }
+.coluna .cab .n { font-size:0.88em; font-weight:600; }
+.coluna .cab .sub { font-size:0.75em; color:var(--text-2); }
+.coluna .cards { padding:8px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1; min-height:60px; }
+.coluna.alvo { outline:2px dashed var(--accent); outline-offset:-3px; }
+.card-f { background:var(--bg-1); border:1px solid var(--border); border-radius:8px; padding:9px 10px; cursor:grab; }
+.card-f:active { cursor:grabbing; }
+.card-f .t { font-size:0.86em; font-weight:600; }
+.card-f .s { font-size:0.76em; color:var(--text-2); margin-top:3px; }
+.card-f .v { font-size:0.86em; font-weight:600; color:var(--success); margin-top:5px; }
+.card-f .acoes { display:flex; gap:6px; margin-top:7px; }
+.card-f .acoes button { font-size:0.72em; padding:2px 7px; border:1px solid var(--border); background:transparent; color:var(--text-2); border-radius:5px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Conversas</h1><small>Atendimento, contato do ERP e a base que a IA usa — num lugar só</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="trocarTab('inbox')">Atendimento</div>
+    <div class="tab" onclick="trocarTab('funil')">Funil</div>
+    <div class="tab" onclick="trocarTab('ia')">Base da IA</div>
+    <div class="tab" onclick="trocarTab('campanhas')">Campanhas</div>
+    <div class="tab" onclick="trocarTab('canal')">Canal</div>
+  </div>
+
+  <!-- ============== ATENDIMENTO ============== -->
+  <div class="tab-pane active" id="tab-inbox">
+    <div class="kpis" id="kpis"></div>
+    <div class="central" id="central">
+
+      <div class="painel lista">
+        <div class="topo">
+          <input type="text" id="busca" placeholder="Buscar nome, telefone ou texto…" oninput="renderLista()">
+          <div class="filtros" id="filtros"></div>
+        </div>
+        <div class="rolagem" id="listaConv"><div class="vazio-centro">Carregando…</div></div>
+      </div>
+
+      <div class="painel thread">
+        <div class="cab" id="threadCab"><h3>Selecione uma conversa</h3></div>
+        <div class="msgs" id="msgs"><div class="vazio-centro">Nenhuma conversa aberta</div></div>
+        <div class="responder" id="responder" style="display:none;">
+          <textarea id="txtResposta" placeholder="Escreva a resposta… (Ctrl+Enter envia)"
+            onkeydown="if(event.ctrlKey&&event.key==='Enter')responder()"></textarea>
+          <button class="btn btn-primary" onclick="responder()">Enviar</button>
+        </div>
+      </div>
+
+      <div class="painel ficha"><div class="rolagem" id="fichaCorpo">
+        <div class="vazio-centro">A ficha do cliente aparece aqui</div>
+      </div></div>
+
+    </div>
+  </div>
+
+  <!-- ============== FUNIL ============== -->
+  <div class="tab-pane" id="tab-funil">
+    <div class="toolbar">
+      <button class="btn btn-secondary btn-sm" onclick="novaEtapa()">+ Etapa</button>
+      <span class="spacer"></span>
+      <span id="funilResumo" style="font-size:0.85em;color:var(--text-2);"></span>
+    </div>
+    <div class="quadro" id="quadro"><div class="vazio-centro">Carregando…</div></div>
+    <small class="muted">Arraste o cartão entre as etapas. Só entra no funil a conversa que você colocar —
+      atendimento comum não vira oportunidade.</small>
+  </div>
+
+  <!-- ============== CAMPANHAS ============== -->
+  <div class="tab-pane" id="tab-campanhas">
+    <div class="alert warn" style="display:block;">
+      Disparo para quem nunca falou com você é o que derruba número. Campanha aqui serve para
+      <strong>avisar cliente</strong> — pedido, boleto, novidade para quem aceitou receber.
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Campanha</th><th>Origem</th><th>Status</th><th>Destinatários</th><th>Criada</th><th></th></tr></thead>
+        <tbody id="tbCamp"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <small class="muted">Duas listas porque o módulo foi construído duas vezes. A coluna Origem diz qual é qual —
+      enquanto a decisão de aposentar uma delas não vem, as duas ficam à vista.</small>
+  </div>
+
+  <!-- ============== CANAL ============== -->
+  <div class="tab-pane" id="tab-canal">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;">
+      <div>
+        <h3 style="font-size:1em;margin:0 0 10px;">Conexão</h3>
+        <div id="canalStatus" class="alert info" style="display:block;">Verificando…</div>
+        <div id="canalQr" style="text-align:center;"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <button class="btn btn-primary btn-sm" onclick="conectarCanal()">Conectar / ver QR</button>
+          <button class="btn btn-ghost btn-sm" onclick="carregarCanal()">Atualizar</button>
+        </div>
+
+        <h3 style="font-size:1em;margin:22px 0 10px;">Ritmo de envio</h3>
+        <div id="ritmoBox"><small class="muted">Carregando…</small></div>
+        <small class="muted">Protege o número: limite por hora, intervalo entre mensagens e teto diário que sobe
+          conforme o número amadurece. Resposta a quem escreveu nunca é segurada.</small>
+      </div>
+
+      <div>
+        <h3 style="font-size:1em;margin:0 0 10px;">Atendente de IA</h3>
+        <div class="form-row"><div class="form-group full-width">
+          <label><input type="checkbox" id="iaLigada" style="width:auto;"> IA responde automaticamente</label>
+          <small class="muted">Vale para conversas novas. Em cada conversa dá para desligar individualmente.</small>
+        </div></div>
+        <div class="form-row"><div class="form-group full-width">
+          <label>Instruções (tom e limites)</label>
+          <textarea id="iaPrompt" rows="5" placeholder="Como o atendente deve falar e o que nunca deve fazer"></textarea>
+        </div></div>
+        <button class="btn btn-primary btn-sm" onclick="salvarIA()">Salvar</button>
+
+        <h3 style="font-size:1em;margin:22px 0 10px;">Testar antes de ligar</h3>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="simTexto" placeholder="Escreva como um cliente escreveria" style="flex:1;">
+          <button class="btn btn-secondary btn-sm" onclick="simular()">Testar</button>
+        </div>
+        <div id="simResposta" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== BASE DA IA ============== -->
+  <div class="tab-pane" id="tab-ia">
+    <div class="alert info" style="display:block;">
+      A IA responde <strong>só com o que está aqui</strong>. Cada item tem origem e data — e quando ela erra,
+      o atendente corrige na própria conversa e a correção vira item desta base.
+    </div>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="novoItem()">+ Novo item</button>
+      <span class="spacer"></span>
+      <span id="contBase" style="font-size:0.85em;color:var(--text-2);"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Título</th><th>Conteúdo</th><th>Origem</th><th>Ativo</th><th></th></tr></thead>
+        <tbody id="tbBase"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:22px;font-size:1em;">Correções recentes</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Perguntaram</th><th>A IA respondeu</th><th>Resposta correta</th><th>Quando</th></tr></thead>
+        <tbody id="tbCorr"><tr><td colspan="4" class="empty">Nenhuma correção ainda</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<!-- modal corrigir -->
+<div class="modal-bg" id="modalCorrigir">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Corrigir a IA</h3>
+        <small class="muted">A resposta certa vira item da base e passa a valer nas próximas conversas.</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalCorrigir')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>A IA respondeu</label><textarea id="cErrada" rows="3" readonly></textarea>
+    </div></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>O que ela deveria ter dito *</label><textarea id="cCerta" rows="4" placeholder="Escreva a resposta correta, com o dado real"></textarea>
+    </div></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Título na base</label><input type="text" id="cTitulo" placeholder="ex.: Prazo de entrega para o Pará">
+    </div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalCorrigir')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCorrecao()">Salvar na base</button>
+    </div>
+  </div>
+</div>
+
+<!-- modal item da base -->
+<div class="modal-bg" id="modalItem">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;" id="itemTitulo">Item da base</h3></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalItem')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Título *</label><input type="text" id="iTitulo" maxlength="120" placeholder="ex.: Formas de pagamento">
+    </div></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Conteúdo *</label><textarea id="iConteudo" rows="6" placeholder="Escreva como você responderia a um cliente"></textarea>
+    </div></div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Origem</label><input type="text" id="iOrigem" maxlength="120" placeholder="quem informou, ou de onde saiu">
+    </div></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalItem')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarItem()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('conversas');</script>
+<script>
+let CONVERSAS = [], ATUAL = null, FILTRO = '', EDITANDO = null;
+
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const brl = v => (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+
+function quando(v){
+  if (!v) return '';
+  const d = new Date(String(v).replace(' ','T') + (String(v).endsWith('Z')?'':'Z'));
+  if (isNaN(d)) return '';
+  const hoje = new Date();
+  const mesmoDia = d.toDateString() === hoje.toDateString();
+  return mesmoDia ? d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
+                  : d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+}
+
+function trocarTab(t){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+t).classList.add('active');
+  if (t==='ia') carregarBase();
+  if (t==='funil') carregarFunil();
+  if (t==='campanhas') carregarCampanhas();
+  if (t==='canal') carregarCanal();
+}
+
+// ---------- funil ----------
+let ARRASTANDO = null;
+
+async function carregarFunil(){
+  const d = await fetch('/api/funil').then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  const q = document.getElementById('quadro');
+  const totalGeral = Object.values(d.total).reduce((s,t)=>s+t.valor,0);
+  const nGeral = d.cards.length;
+  document.getElementById('funilResumo').textContent =
+    `${nGeral} oportunidade(s) · ${brl(totalGeral)} no funil`;
+
+  q.innerHTML = d.etapas.map(e => {
+    const cards = d.cards.filter(c => c.etapaId === e.id);
+    const t = d.total[e.id] || { n:0, valor:0 };
+    return `<div class="coluna" data-etapa="${e.id}"
+        ondragover="event.preventDefault(); this.classList.add('alvo');"
+        ondragleave="this.classList.remove('alvo');"
+        ondrop="soltar(event, ${e.id})">
+      <div class="cab" style="border-top-color:${esc(e.cor||'#64748B')};">
+        <div class="n">${esc(e.nome)}</div>
+        <div class="sub">${t.n} · ${brl(t.valor)}</div>
+      </div>
+      <div class="cards">
+        ${cards.map(c => `<div class="card-f" draggable="true" ondragstart="ARRASTANDO=${c.id}">
+          <div class="t">${esc(c.pessoaNome || c.nome || c.telefone)}</div>
+          <div class="s">${esc(String(c.ultimaMensagem||'').slice(0,60))}</div>
+          ${c.valor ? `<div class="v">${brl(c.valor)}</div>` : ''}
+          <div class="acoes">
+            <button onclick="verConversa(${c.id})">abrir</button>
+            <button onclick="definirValor(${c.id}, ${c.valor||0})">valor</button>
+            ${c.pedidoId ? `<button disabled>pedido #${c.pedidoId}</button>`
+                         : `<button onclick="gerarPedido(${c.id})">gerar pedido</button>`}
+          </div>
+        </div>`).join('') || '<small class="muted" style="padding:4px;">vazio</small>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function soltar(ev, etapaId){
+  ev.preventDefault();
+  document.querySelectorAll('.coluna').forEach(c=>c.classList.remove('alvo'));
+  if (!ARRASTANDO) return;
+  const d = await fetch('/api/funil/conversa/'+ARRASTANDO, { method:'PUT',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ etapaId }) }).then(r=>r.json());
+  ARRASTANDO = null;
+  if (!d.success) return showAlert(d.error,'error');
+  carregarFunil();
+}
+
+async function definirValor(id, atual){
+  const v = prompt('Valor da oportunidade (R$):', atual || '');
+  if (v === null) return;
+  const d = await fetch('/api/funil/conversa/'+id, { method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ valor: Number(String(v).replace(',','.')) }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  carregarFunil();
+}
+
+async function gerarPedido(id){
+  if (!confirm('Gerar pedido no ERP a partir desta conversa?\n\nNasce como rascunho, sem itens — você completa na tela de pedidos.')) return;
+  const d = await fetch(`/api/funil/conversa/${id}/pedido`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Pedido ' + d.numero + ' criado');
+  carregarFunil();
+}
+
+function verConversa(id){
+  document.querySelectorAll('.tab')[0].click();
+  abrir(id);
+}
+
+async function novaEtapa(){
+  const nome = prompt('Nome da etapa:');
+  if (!nome) return;
+  const d = await fetch('/api/funil/etapas', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ nome }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  carregarFunil();
+}
+
+// ---------- campanhas (as duas fontes) ----------
+async function carregarCampanhas(){
+  const d = await fetch('/api/conversas/campanhas').then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  const tb = document.getElementById('tbCamp');
+  if (!d.campanhas.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma campanha</td></tr>'; return; }
+  tb.innerHTML = d.campanhas.map(c => {
+    const dest = c.destinatarios
+      ? Object.entries(c.destinatarios).map(([k,v]) => `${v} ${k}`).join(' · ') : '—';
+    const pend = c.destinatarios?.pendente || 0;
+    return `<tr>
+      <td><strong>${esc(c.nome||'(sem nome)')}</strong>${c.descricao?`<br><small class="muted">${esc(String(c.descricao).slice(0,90))}</small>`:''}</td>
+      <td><span class="badge ${c.origem==='wa'?'ativo':'inativo'}">${c.origem==='wa'?'wa_campanhas':'comm'}</span></td>
+      <td>${esc(c.status||'—')}</td>
+      <td>${dest}</td>
+      <td>${esc(String(c.criadoEm||'').slice(0,10))}</td>
+      <td style="text-align:right;">${(c.origem==='wa' && pend)
+        ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelarCampanha(${c.id}, ${pend})">Cancelar ${pend} pendente(s)</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function cancelarCampanha(id, pend){
+  if (!confirm(`Cancelar ${pend} destinatário(s) pendente(s) desta campanha?\n\nEles deixam de ser enviados. O histórico do que já saiu é preservado.`)) return;
+  const d = await fetch(`/api/conversas/campanhas/wa/${id}/cancelar`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.cancelados} destinatário(s) cancelado(s)`);
+  carregarCampanhas();
+}
+
+// ---------- canal ----------
+async function carregarCanal(){
+  const [st, rit, ia] = await Promise.all([
+    fetch('/api/whatsapp/status').then(r=>r.json()).catch(()=>null),
+    fetch('/api/whatsapp/ritmo').then(r=>r.json()).catch(()=>null),
+    fetch('/api/whatsapp/ai-config').then(r=>r.json()).catch(()=>null),
+  ]);
+  const box = document.getElementById('canalStatus');
+  if (st?.success !== false && st) {
+    const on = st.connected || st.state === 'open';
+    box.className = 'alert ' + (on ? 'success' : 'warn');
+    box.innerHTML = on
+      ? `Conectado${st.instance?` · instância <strong>${esc(st.instance)}</strong>`:''}`
+      : `Não conectado${st.instance?` · instância <strong>${esc(st.instance)}</strong>`:''} — leia o QR com o celular da empresa`;
+  } else { box.className='alert warn'; box.textContent = 'Não foi possível consultar o canal'; }
+
+  if (rit?.success) {
+    document.getElementById('ritmoBox').innerHTML = `
+      <div class="kpis">
+        <div class="c"><span class="v">${rit.hora}</span>na última hora (teto ${rit.limiteHora})</div>
+        <div class="c"><span class="v">${rit.dia}</span>hoje</div>
+        ${rit.segurados ? `<div class="c alerta"><span class="v">${rit.segurados}</span>seguradas na fila</div>` : ''}
+        ${rit.diasDeUso != null ? `<div class="c"><span class="v">${rit.diasDeUso}</span>dia(s) de uso do número</div>` : ''}
+      </div>
+      ${rit.podeEnviarAgora ? '' : `<div class="alert warn" style="display:block;">${esc(rit.motivo||'')}</div>`}`;
+  }
+  if (ia?.success !== false && ia) {
+    document.getElementById('iaLigada').checked = !!(ia.enabled || ia.ativo);
+    document.getElementById('iaPrompt').value = ia.prompt || ia.system || '';
+  }
+}
+
+async function conectarCanal(){
+  const d = await fetch('/api/whatsapp/connect', { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  if (d.connected) { showAlert('Já conectado'); return carregarCanal(); }
+  document.getElementById('canalQr').innerHTML = d.qr
+    ? `<img src="${d.qr.startsWith('data:')?d.qr:'data:image/png;base64,'+d.qr}" alt="QR Code"
+         style="max-width:260px;background:#fff;padding:8px;border-radius:8px;">
+       <p class="muted" style="font-size:0.82em;">Abra o WhatsApp da empresa → Aparelhos conectados → Conectar aparelho</p>`
+    : '<small class="muted">Sem QR no momento — tente atualizar.</small>';
+}
+
+async function salvarIA(){
+  const body = { enabled: document.getElementById('iaLigada').checked,
+                 prompt: document.getElementById('iaPrompt').value };
+  const d = await fetch('/api/whatsapp/ai-config', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error || 'Falha ao salvar','error');
+  showAlert('Configuração da IA salva');
+}
+
+async function simular(){
+  const texto = document.getElementById('simTexto').value.trim();
+  if (!texto) return;
+  const el = document.getElementById('simResposta');
+  el.innerHTML = '<small class="muted">Consultando a IA com a base atual…</small>';
+  const d = await fetch('/api/whatsapp/sim-atendimento', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ texto, mensagem: texto }) })
+    .then(r=>r.json()).catch(()=>null);
+  if (!d || d.success === false) { el.innerHTML = `<div class="alert error" style="display:block;">${esc(d?.error||'Falha na simulação')}</div>`; return; }
+  el.innerHTML = `<div class="msg deles" style="max-width:100%;">${esc(d.resposta || d.reply || d.texto || '(sem resposta)')}</div>`;
+}
+
+// ---------- lista ----------
+async function carregar(){
+  const [d, p] = await Promise.all([
+    fetch('/api/conversas' + (FILTRO ? '?estado='+FILTRO : '')).then(r=>r.json()),
+    fetch('/api/conversas/painel/resumo').then(r=>r.json()),
+  ]);
+  if (!d.success) return showAlert(d.error,'error');
+  CONVERSAS = d.conversas;
+
+  const c = d.contagem;
+  document.getElementById('filtros').innerHTML = [
+    ['', 'Todas', CONVERSAS.length], ['aberta','Abertas',c.aberta],
+    ['pendente','Pendentes',c.pendente], ['resolvida','Resolvidas',c.resolvida],
+  ].map(([v,rot,n]) => `<button class="${FILTRO===v?'sel':''}" onclick="filtrar('${v}')">${rot}${n?' '+n:''}</button>`).join('');
+
+  if (p.success) {
+    const r = p.resumo;
+    document.getElementById('kpis').innerHTML = `
+      <div class="c"><span class="v">${r.abertas}</span>abertas</div>
+      ${r.semResposta ? `<div class="c alerta"><span class="v">${r.semResposta}</span>sem nenhuma resposta</div>` : ''}
+      <div class="c"><span class="v">${r.resolvidasHoje}</span>resolvidas hoje</div>
+      <div class="c"><span class="v">${r.itensBase}</span>itens na base da IA</div>`;
+  }
+  renderLista();
+}
+
+function filtrar(v){ FILTRO = v; carregar(); }
+
+function renderLista(){
+  const q = document.getElementById('busca').value.toLowerCase().trim();
+  const lista = CONVERSAS.filter(c => !q || [c.nome,c.pessoaNome,c.telefone,c.ultimaMensagem]
+    .some(v => String(v||'').toLowerCase().includes(q)));
+  const el = document.getElementById('listaConv');
+  if (!lista.length) { el.innerHTML = '<div class="vazio-centro">Nenhuma conversa</div>'; return; }
+  el.innerHTML = lista.map(c => `
+    <div class="conv ${ATUAL===c.id?'sel':''}" onclick="abrir(${c.id})">
+      <div class="l1">
+        <span class="nome">${esc(c.pessoaNome || c.nome || c.telefone)}</span>
+        <span class="hora">${quando(c.ultimaEm)}</span>
+      </div>
+      <div class="previa">${esc(c.ultimaMensagem || '—')}</div>
+      <div class="badges">
+        <span class="pil ${c.estado}">${c.estado}</span>
+        ${c.naoLidas ? `<span class="pil nova">${c.naoLidas}</span>` : ''}
+        ${c.iaAtiva ? '<span class="pil ia">IA</span>' : ''}
+        ${!c.pessoaId ? '<span class="pil">sem cadastro</span>' : ''}
+      </div>
+    </div>`).join('');
+}
+
+// ---------- conversa ----------
+async function abrir(id){
+  ATUAL = id;
+  renderLista();
+  const d = await fetch('/api/conversas/'+id).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  const c = d.conversa;
+
+  document.getElementById('threadCab').innerHTML = `
+    <h3>${esc(c.pessoaNome || c.nome || c.telefone)}</h3>
+    <span style="font-size:0.8em;color:var(--text-2);">${esc(c.telefone)}</span>
+    <span class="spacer" style="flex:1;"></span>
+    <select onchange="mudarEstado(${c.id}, this.value)" style="width:auto;padding:5px;font-size:0.82em;">
+      ${['aberta','pendente','resolvida'].map(e=>`<option value="${e}" ${c.estado===e?'selected':''}>${e}</option>`).join('')}
+    </select>
+    <button class="btn btn-ghost btn-sm" onclick="alternarIA(${c.id}, ${c.iaAtiva?0:1})">
+      IA: ${c.iaAtiva ? 'ligada' : 'desligada'}</button>
+    <button class="btn btn-ghost btn-sm" onclick="porNoFunil(${c.id}, ${c.etapaId||0})">
+      ${c.etapaId ? 'no funil' : '+ funil'}</button>`;
+
+  const m = document.getElementById('msgs');
+  m.innerHTML = d.mensagens.length ? d.mensagens.map(x => `
+    <div class="msg ${x.from_me ? 'minha' : 'deles'}">
+      ${esc(x.texto || '(sem texto)')}
+      <div class="meta">
+        <span>${x.timestamp ? new Date(x.timestamp*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</span>
+        ${x.from_bot ? '<span>· IA</span>' : ''}
+        ${x.from_bot ? `<button class="corrigir" onclick="abrirCorrigir(${c.id}, ${x.id})">corrigir</button>` : ''}
+      </div>
+    </div>`).join('') : '<div class="vazio-centro">Sem mensagens nesta conversa</div>';
+  m.scrollTop = m.scrollHeight;
+  window.__msgs = d.mensagens;
+
+  document.getElementById('responder').style.display = 'flex';
+  renderFicha(c, d.ficha);
+}
+
+function renderFicha(c, f){
+  document.getElementById('fichaCorpo').innerHTML = `
+    <div class="bloco">
+      <h4>Contato</h4>
+      <div class="linha"><span>Nome</span><strong>${esc(c.pessoaNome || c.nome || '—')}</strong></div>
+      <div class="linha"><span>Telefone</span><span>${esc(c.telefone)}</span></div>
+      ${c.cpfCnpj ? `<div class="linha"><span>CNPJ/CPF</span><span>${esc(c.cpfCnpj)}</span></div>` : ''}
+      ${c.cidade ? `<div class="linha"><span>Cidade</span><span>${esc(c.cidade)}/${esc(c.uf||'')}</span></div>` : ''}
+      ${!c.pessoaId ? '<small class="muted">Este número não está no cadastro.</small>' : ''}
+    </div>
+    <div class="bloco">
+      <h4>Últimos pedidos</h4>
+      ${f.pedidos.length ? f.pedidos.map(p=>`<div class="linha">
+        <span>${esc(p.numero)} · ${esc(p.status)}</span><strong>${brl(p.valorTotal)}</strong></div>`).join('')
+        : '<small class="muted">Nenhum pedido</small>'}
+    </div>
+    <div class="bloco">
+      <h4>Em aberto no financeiro</h4>
+      ${f.titulos.length ? f.titulos.map(t=>`<div class="linha">
+        <span>vence ${esc(String(t.dataVencimento||'').slice(0,10))}</span><strong>${brl(t.valor)}</strong></div>`).join('')
+        : '<small class="muted">Nada em aberto</small>'}
+    </div>`;
+}
+
+async function responder(){
+  const t = document.getElementById('txtResposta').value.trim();
+  if (!t || !ATUAL) return;
+  const d = await fetch(`/api/conversas/${ATUAL}/responder`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ texto: t })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('txtResposta').value = '';
+  await abrir(ATUAL); await carregar();
+}
+
+async function mudarEstado(id, estado){
+  const d = await fetch('/api/conversas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ estado }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Conversa marcada como ' + estado);
+  await carregar();
+}
+
+async function alternarIA(id, valor){
+  const d = await fetch('/api/conversas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ iaAtiva: !!valor }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  await abrir(id); await carregar();
+}
+
+// Põe (ou tira) a conversa do quadro. A primeira etapa é o destino natural de
+// quem acabou de virar oportunidade.
+async function porNoFunil(id, etapaAtual){
+  let etapaId = null;
+  if (!etapaAtual) {
+    const f = await fetch('/api/funil').then(r=>r.json());
+    if (!f.success || !f.etapas.length) return showAlert('Crie uma etapa no funil primeiro','error');
+    etapaId = f.etapas[0].id;
+  } else if (!confirm('Tirar esta conversa do funil?')) return;
+  const d = await fetch('/api/funil/conversa/'+id, { method:'PUT',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ etapaId }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(etapaId ? 'Conversa entrou no funil' : 'Conversa saiu do funil');
+  abrir(id);
+}
+
+// ---------- corrigir a IA ----------
+function abrirCorrigir(conversaId, msgId){
+  const msgs = window.__msgs || [];
+  const i = msgs.findIndex(m => m.id === msgId);
+  const errada = msgs[i]?.texto || '';
+  // a pergunta é a última mensagem do cliente antes da resposta da IA
+  let pergunta = '';
+  for (let k = i - 1; k >= 0; k--) if (!msgs[k].from_me) { pergunta = msgs[k].texto || ''; break; }
+  document.getElementById('cErrada').value = errada;
+  document.getElementById('cCerta').value = '';
+  document.getElementById('cTitulo').value = pergunta.slice(0, 80);
+  document.getElementById('modalCorrigir').dataset.conversa = conversaId;
+  document.getElementById('modalCorrigir').dataset.pergunta = pergunta;
+  document.getElementById('modalCorrigir').classList.add('open');
+}
+
+async function salvarCorrecao(){
+  const el = document.getElementById('modalCorrigir');
+  const correta = document.getElementById('cCerta').value.trim();
+  if (!correta) return showAlert('Escreva a resposta correta','error');
+  const d = await fetch('/api/ia/corrigir', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      conversaId: Number(el.dataset.conversa), perguntou: el.dataset.pergunta,
+      respondeu: document.getElementById('cErrada').value, correta,
+      titulo: document.getElementById('cTitulo').value,
+    }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  fechar('modalCorrigir');
+  showAlert('Correção salva na base — vale a partir da próxima conversa');
+}
+
+// ---------- base da IA ----------
+async function carregarBase(){
+  const d = await fetch('/api/ia/base').then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('contBase').textContent = `${d.itens.filter(i=>i.ativo).length} item(ns) ativo(s)`;
+  document.getElementById('tbBase').innerHTML = d.itens.length ? d.itens.map(i=>`<tr>
+    <td><strong>${esc(i.titulo)}</strong></td>
+    <td style="max-width:420px;">${esc(String(i.conteudo).slice(0,160))}${i.conteudo.length>160?'…':''}</td>
+    <td>${esc(i.origem||'—')}</td>
+    <td><span class="badge ${i.ativo?'ativo':'inativo'}">${i.ativo?'sim':'não'}</span></td>
+    <td style="text-align:right;white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick='editarItem(${JSON.stringify(i.id)})'>Editar</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removerItem(${i.id})">Remover</button>
+    </td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">A base está vazia — a IA não tem o que responder</td></tr>';
+
+  document.getElementById('tbCorr').innerHTML = d.correcoes.length ? d.correcoes.map(c=>`<tr>
+    <td>${esc(String(c.perguntou||'').slice(0,80))}</td>
+    <td style="color:var(--danger);">${esc(String(c.respondeu||'').slice(0,80))}</td>
+    <td style="color:var(--success);">${esc(String(c.correta).slice(0,80))}</td>
+    <td>${esc(String(c.dataCriacao||'').slice(0,16))}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">Nenhuma correção ainda</td></tr>';
+  window.__base = d.itens;
+}
+
+function novoItem(){
+  EDITANDO = null;
+  document.getElementById('itemTitulo').textContent = 'Novo item da base';
+  ['iTitulo','iConteudo','iOrigem'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('modalItem').classList.add('open');
+}
+
+function editarItem(id){
+  const i = (window.__base||[]).find(x=>x.id===id); if (!i) return;
+  EDITANDO = id;
+  document.getElementById('itemTitulo').textContent = 'Editar item';
+  document.getElementById('iTitulo').value = i.titulo;
+  document.getElementById('iConteudo').value = i.conteudo;
+  document.getElementById('iOrigem').value = i.origem || '';
+  document.getElementById('modalItem').classList.add('open');
+}
+
+async function salvarItem(){
+  const body = {
+    titulo: document.getElementById('iTitulo').value.trim(),
+    conteudo: document.getElementById('iConteudo').value.trim(),
+    origem: document.getElementById('iOrigem').value.trim(),
+  };
+  if (!body.titulo || !body.conteudo) return showAlert('Título e conteúdo são obrigatórios','error');
+  const d = EDITANDO
+    ? await fetch('/api/ia/base/'+EDITANDO, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json())
+    : await fetch('/api/ia/base', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  fechar('modalItem'); showAlert('Base atualizada'); carregarBase();
+}
+
+async function removerItem(id){
+  if (!confirm('Remover este item da base? A IA deixa de usá-lo.')) return;
+  const d = await fetch('/api/ia/base/'+id, {method:'DELETE'}).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  carregarBase();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') ['modalCorrigir','modalItem'].forEach(fechar); });
+carregar();
+setInterval(() => { if (document.getElementById('tab-inbox').classList.contains('active')) carregar(); }, 30000);
+</script>
+</body>
+</html>

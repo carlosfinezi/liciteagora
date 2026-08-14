@@ -42,6 +42,27 @@ function registerPreAuthRoutes(app, db, { apiKey }) {
   app.use('/portal', express.static(path.join(__dirname, 'public', 'portal')));
   registrarRotasPortal(app, db);
 
+  // ==================== FOTOS DE PRODUTO (antes do auth) ====================
+  // O Mercado Livre baixa a imagem da URL que mandamos no anúncio. Atrás da
+  // barreira de login ele recebe o HTML do /login.html em vez do JPEG, e o
+  // anúncio nasce pausado em picture_download_pending.
+  //
+  // Só ESTA pasta é liberada: foto de produto nasce para ser vista por
+  // qualquer comprador. O resto de public/uploads (habilitacao, pessoas, os,
+  // cp, cr) é documento e continua exigindo login.
+  app.use('/uploads/produtos', express.static(
+    path.join(__dirname, 'public', 'uploads', 'produtos'),
+    { fallthrough: false, index: false, dotfiles: 'deny', maxAge: '7d' }));
+
+  // ==================== LOJA VIRTUAL (antes do auth) ====================
+  // Vitrine pública do tenant: catálogo somente leitura, sem login. O logo
+  // fica junto das fotos de produto — é imagem de marca, feita para ser vista.
+  app.use('/uploads/loja', express.static(
+    path.join(__dirname, 'public', 'uploads', 'loja'),
+    { fallthrough: false, index: false, dotfiles: 'deny', maxAge: '7d' }));
+  app.use('/loja', express.static(path.join(__dirname, 'public', 'loja')));
+  require('./loja-routes').registrarRotasLojaPublica(app, db);
+
   // ==================== DOWNLOAD PÚBLICO (antes do auth) ====================
   app.get('/download/:file', (req, res) => {
     const allowed = ['LiciteAgora-Browser-win.zip'];

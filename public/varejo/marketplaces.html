@@ -6,6 +6,14 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
+.kpi-mini { display:flex; flex-wrap:wrap; gap:10px; margin:10px 0; }
+.kpi-mini .c { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md);
+  padding:8px 14px; font-size:0.82em; color:var(--text-2); min-width:120px; }
+.kpi-mini .c .v { display:block; font-size:1.35em; font-weight:600; color:var(--text-1); }
+.kpi-mini .c.alerta { border-color:var(--danger); }
+.bloqueio { color:var(--danger); font-size:0.82em; display:block; }
+.titulo-gerado { font-size:0.86em; }
+.titulo-gerado small { color:var(--text-2); }
 /* page-local: tab-pane toggle helper — .tabs/.tab vêm de app-modern.css */
 .tab-pane { display:none; } .tab-pane.active { display:block; }
 </style>
@@ -16,11 +24,9 @@
     <div><h1>Marketplaces</h1><small>Estrutura para integração com Mercado Livre, Shopee, Magalu, WooCommerce, Shopify</small></div>
   </div>
   <div id="alertGlobal"></div>
-  <div class="alert warn" style="display:block;margin:10px 0;">
-    ⚠ MVP: permite cadastrar canais, registrar pedidos manualmente (ou via webhook externo) e vinculá-los a pedidos locais. Integração com APIs reais é evolução.
-  </div>
   <div class="tabs">
     <div class="tab active" onclick="trocarTab('pedidos')">Pedidos</div>
+    <div class="tab" onclick="trocarTab('anuncios')">Anúncios (ML)</div>
     <div class="tab" onclick="trocarTab('integracoes')">Canais</div>
   </div>
 
@@ -39,6 +45,68 @@
     </div>
   </div>
 
+  <div class="tab-pane" id="tab-anuncios">
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="gerarSelecionados()">Gerar anúncios com IA</button>
+      <button class="btn btn-secondary" onclick="sugerirSelecionados()">Completar cadastro com IA</button>
+      <button class="btn btn-secondary" onclick="abrirFotos()">Buscar fotos</button>
+      <button class="btn btn-secondary" onclick="gtinDasNotas()">GTIN pelas notas de entrada</button>
+      <button class="btn btn-secondary" onclick="publicarSelecionados()">Publicar selecionados</button>
+    </div>
+    <div class="toolbar" style="margin-top:-6px;">
+      <select id="fAnunFiltro" onchange="renderCandidatos()">
+        <option value="">Todos os produtos</option>
+        <option value="prontos">Prontos para anunciar</option>
+        <option value="rascunho">Com rascunho</option>
+        <option value="publicado">Já publicados</option>
+        <option value="pendencia">Com pendência</option>
+      </select>
+      <select id="fAnunMarca" onchange="renderCandidatos()"><option value="">Todas as marcas</option></select>
+      <select id="fAnunCategoria" onchange="renderCandidatos()"><option value="">Todas as categorias</option></select>
+      <select id="fAnunImagem" onchange="renderCandidatos()">
+        <option value="">Foto: tanto faz</option>
+        <option value="com">Com foto</option>
+        <option value="sem">Sem foto</option>
+      </select>
+      <select id="fAnunSaldo" onchange="renderCandidatos()">
+        <option value="">Estoque: tanto faz</option>
+        <option value="com">Com saldo</option>
+        <option value="sem">Sem saldo</option>
+      </select>
+      <select id="fAnunGtin" onchange="renderCandidatos()">
+        <option value="">Cód. barras: tanto faz</option>
+        <option value="com">Com código de barras</option>
+        <option value="sem">Sem código de barras</option>
+      </select>
+      <input type="number" id="fAnunPrecoMin" placeholder="Preço mín." step="0.01" min="0" oninput="debounce(renderCandidatos)" style="width:100px;">
+      <input type="number" id="fAnunPrecoMax" placeholder="Preço máx." step="0.01" min="0" oninput="debounce(renderCandidatos)" style="width:100px;">
+      <input type="text" id="fAnunQ" placeholder="Buscar SKU, descrição, marca ou modelo…" oninput="debounce(renderCandidatos)" style="flex:1;min-width:180px;">
+      <button class="btn btn-ghost btn-sm" onclick="limparFiltrosAnun()">Limpar filtros</button>
+    </div>
+    <div class="toolbar" style="margin-top:-6px;font-size:0.85em;color:var(--text-2);">
+      <span id="anunContagem">—</span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="selecionarFiltrados()">Selecionar todos os filtrados</button>
+      <button class="btn btn-ghost btn-sm" onclick="limparSelecao()">Limpar seleção</button>
+    </div>
+    <div class="kpi-mini" id="anunKpis"></div>
+    <div id="anunAviso"></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:32px;"><input type="checkbox" id="anunTodos" onchange="marcarTodos(this)" style="width:auto;"></th>
+          <th>SKU</th><th>Produto</th>
+          <th style="text-align:right;">Preço</th>
+          <th style="text-align:right;">Saldo</th>
+          <th>Título gerado</th>
+          <th>Situação</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tbAnun"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="tab-pane" id="tab-integracoes">
     <div class="toolbar"><button class="btn btn-primary" onclick="abrirInt()">+ Cadastrar canal</button></div>
     <div id="mlCard" style="margin:0 0 14px;padding:14px;border:1px solid var(--border,#334);border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -53,6 +121,102 @@
     </div>
   </div>
 </main></div>
+
+<div class="modal-bg" id="modalFoto">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Fotos dos produtos</h3>
+        <small class="muted">O sistema baixa a imagem da origem, hospeda e guarda de onde veio.</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalFoto')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="alert info" style="display:block;">
+      <strong>Fotos do catálogo do Mercado Livre</strong> são as do próprio marketplace — sem pendência de direito de uso.
+      Pelo código de barras o casamento é exato; por descrição, quem confere é você.
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="fotosDoCatalogo()" style="margin-bottom:14px;">
+      Buscar no catálogo do ML pelos códigos de barras
+    </button>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
+
+    <h4 style="margin:0 0 4px;font-size:0.95em;">Procurar no catálogo por descrição</h4>
+    <small class="muted">Para produto sem código de barras. Confira a foto antes de usar:
+      imagem de outro modelo faz o Mercado Livre derrubar o anúncio.</small>
+    <div class="toolbar" style="margin-top:8px;">
+      <select id="fotoProdSel" onchange="termoSugerido()" style="flex:1;min-width:200px;"></select>
+      <input type="text" id="fotoTermo" placeholder="Termo de busca" style="flex:1;min-width:200px;">
+      <button class="btn btn-secondary btn-sm" onclick="procurarFotosPorDescricao()">Procurar</button>
+    </div>
+    <div id="fotoCandidatos"></div>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Origem das imagens</label>
+        <select id="fotoOrigem">
+          <option value="fabricante">Fabricante (sou revendedor autorizado)</option>
+          <option value="distribuidor">Distribuidor (recebi o material de divulgação)</option>
+          <option value="propria">Foto própria já hospedada</option>
+          <option value="outra">Outra</option>
+        </select>
+        <small class="muted">Fica registrado em cada imagem, junto com quem cadastrou e quando.
+          Use material que você tenha direito de usar — imagem de outro vendedor faz o ML derrubar o anúncio.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>URLs — uma por linha, no formato <code>SKU;URL</code></label>
+        <textarea id="fotoLista" rows="7" placeholder="HS-SSD-E3000;https://cdn.fabricante.com/ssd-e3000.jpg&#10;SP-L60BK;https://cdn.fabricante.com/caixa-som.jpg"></textarea>
+      </div>
+    </div>
+    <div id="fotoResultado"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalFoto')">Fechar</button>
+      <button class="btn btn-primary" onclick="baixarFotos()">Baixar e vincular</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalSug">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Completar cadastro</h3>
+        <small class="muted">Marque o que aceitar. Nada é gravado sem a sua confirmação.</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalSug')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="toolbar" style="font-size:0.85em;color:var(--text-2);">
+      <span id="sugContagem">—</span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="marcarSugestoes(true)">Selecionar tudo</button>
+      <button class="btn btn-ghost btn-sm" onclick="marcarSugestoes(false)">Desmarcar tudo</button>
+    </div>
+    <div id="sugCorpo"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalSug')">Cancelar</button>
+      <button class="btn btn-primary" onclick="aplicarSugestoes()">Aplicar selecionadas</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalRasc">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Rascunho do anúncio</h3>
+        <small class="muted" id="rascSub"></small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalRasc')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div id="rascCorpo"><p class="muted">Carregando…</p></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalRasc')">Fechar</button>
+      <button class="btn btn-secondary" id="btnValidar" onclick="validarNoML()">Validar no ML</button>
+      <button class="btn btn-secondary" id="btnRegerar" onclick="regerarDoModal()">Regerar com IA</button>
+      <button class="btn btn-secondary" id="btnSalvar" onclick="salvarRascunho()">Salvar</button>
+      <button class="btn btn-primary" id="btnPublicar" onclick="salvarEPublicar()">Salvar e publicar</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-bg" id="modalInt">
   <div class="modal" style="max-width:520px;">
@@ -127,6 +291,7 @@ function trocarTab(t){
   event.currentTarget.classList.add('active');
   document.getElementById('tab-'+t).classList.add('active');
   if (t==='integracoes') { carregarIntegracoes(); carregarMl(); }
+  if (t==='anuncios') carregarCandidatos();
 }
 
 async function carregarPedidos(){
@@ -212,7 +377,7 @@ async function vincular(id){
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  ['modalInt','modalPed'].forEach(id => document.getElementById(id).classList.remove('open'));
+  ['modalInt','modalPed','modalRasc'].forEach(id => document.getElementById(id).classList.remove('open'));
 });
 
 async function carregarMl(){
@@ -238,5 +403,868 @@ if (new URLSearchParams(location.search).get('ml')==='conectado') { try{ showAle
 
 carregarPedidos();
 carregarMl();
+// ==================== ANÚNCIOS NO MERCADO LIVRE ====================
+// A IA escreve título, descrição e atributos; a categoria vem do preditor do
+// próprio ML. Publicar é ação explícita: cria oferta pública com preço.
+// A seleção vive fora da tabela: filtrar re-renderiza as linhas, e quem
+// escolheu 20 produtos numa marca não pode perdê-los ao trocar de filtro.
+let CAND = [], ANUN = {}, SEL = new Set();
+
+async function carregarCandidatos(){
+  const tb = document.getElementById('tbAnun');
+  tb.innerHTML = '<tr><td colspan="8" class="empty">Carregando…</td></tr>';
+  try {
+    const [c, a] = await Promise.all([
+      fetch('/api/marketplaces/ml/anuncios/candidatos').then(r=>r.json()),
+      fetch('/api/marketplaces/ml/anuncios').then(r=>r.json()),
+    ]);
+    if (!c.success) throw new Error(c.error);
+    CAND = c.produtos || [];
+    ANUN = {};
+    (a.anuncios || []).forEach(x => { ANUN[x.produtoId] = x; });
+    const r = c.resumo || {};
+    document.getElementById('anunKpis').innerHTML = `
+      <div class="c"><span class="v">${r.prontos||0}</span>prontos para gerar</div>
+      <div class="c"><span class="v">${r.comRascunho||0}</span>rascunhos aguardando</div>
+      <div class="c"><span class="v">${r.publicados||0}</span>publicados</div>
+      ${r.semImagem ? `<div class="c alerta"><span class="v">${r.semImagem}</span>sem imagem</div>` : ''}`;
+    // Sem foto o ML recusa, então não adianta gerar texto para eles.
+    document.getElementById('anunAviso').innerHTML = r.semImagem
+      ? `<div class="alert warn" style="display:block;">${r.semImagem} produto(s) sem imagem.
+         O Mercado Livre exige ao menos uma foto — cadastre a imagem no produto antes de anunciar.</div>` : '';
+    // Produto que sumiu da lista não pode continuar "selecionado" invisível.
+    const vivos = new Set(CAND.map(p => p.id));
+    [...SEL].forEach(id => { if (!vivos.has(id)) SEL.delete(id); });
+    popularListas();
+    renderCandidatos();
+  } catch (e) { tb.innerHTML = '<tr><td colspan="8" class="empty">Erro: '+e.message+'</td></tr>'; }
+}
+
+// Preenche marca/categoria com o que existe de fato na lista, sem perder o
+// que já estava escolhido.
+function popularListas(){
+  const monta = (id, campo, rotulo) => {
+    const el = document.getElementById(id), atual = el.value;
+    const vals = [...new Set(CAND.map(p => (p[campo]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    el.innerHTML = `<option value="">${rotulo}</option>` + vals.map(v=>`<option>${v}</option>`).join('');
+    if (vals.includes(atual)) el.value = atual;
+  };
+  monta('fAnunMarca', 'marca', 'Todas as marcas');
+  monta('fAnunCategoria', 'categoria', 'Todas as categorias');
+}
+
+function filtrarCandidatos(){
+  const v = id => document.getElementById(id).value;
+  const filtro = v('fAnunFiltro'), marca = v('fAnunMarca'), categoria = v('fAnunCategoria');
+  const imagem = v('fAnunImagem'), saldoF = v('fAnunSaldo'), gtin = v('fAnunGtin');
+  const pMin = parseFloat(v('fAnunPrecoMin')), pMax = parseFloat(v('fAnunPrecoMax'));
+  const q = (v('fAnunQ')||'').toLowerCase().trim();
+
+  let lista = CAND;
+  if (q) lista = lista.filter(p => ['sku','descricao','marca','modelo']
+    .some(c => (p[c]||'').toLowerCase().includes(q)));
+  if (filtro==='prontos')   lista = lista.filter(p => p.pronto && !p.anuncioId);
+  if (filtro==='rascunho')  lista = lista.filter(p => p.anuncioStatus==='rascunho');
+  if (filtro==='publicado') lista = lista.filter(p => p.anuncioStatus==='publicado');
+  if (filtro==='pendencia') lista = lista.filter(p => p.pendencias.length);
+  if (marca)     lista = lista.filter(p => (p.marca||'').trim() === marca);
+  if (categoria) lista = lista.filter(p => (p.categoria||'').trim() === categoria);
+  if (imagem)    lista = lista.filter(p => imagem==='com' ? !!p.imagemPath : !p.imagemPath);
+  if (saldoF)    lista = lista.filter(p => saldoF==='com' ? Number(p.saldo) > 0 : !(Number(p.saldo) > 0));
+  if (gtin)      lista = lista.filter(p => gtin==='com' ? !!(p.codigoBarras||'').trim() : !(p.codigoBarras||'').trim());
+  if (!isNaN(pMin)) lista = lista.filter(p => Number(p.precoVenda||0) >= pMin);
+  if (!isNaN(pMax)) lista = lista.filter(p => Number(p.precoVenda||0) <= pMax);
+  return lista;
+}
+
+function limparFiltrosAnun(){
+  ['fAnunFiltro','fAnunMarca','fAnunCategoria','fAnunImagem','fAnunSaldo','fAnunGtin',
+   'fAnunPrecoMin','fAnunPrecoMax','fAnunQ'].forEach(id => document.getElementById(id).value = '');
+  renderCandidatos();
+}
+
+// Só entra na seleção quem tem checkbox — publicado não é selecionável.
+const selecionavel = p => ANUN[p.id]?.status !== 'publicado';
+
+function selecionarFiltrados(){
+  filtrarCandidatos().filter(selecionavel).forEach(p => SEL.add(p.id));
+  renderCandidatos();
+}
+function limparSelecao(){ SEL.clear(); renderCandidatos(); }
+
+function atualizarResumoSel(lista){
+  document.getElementById('anunContagem').textContent =
+    `${lista.length} de ${CAND.length} produto(s)` + (SEL.size ? ` · ${SEL.size} selecionado(s)` : '');
+  const alvos = lista.filter(selecionavel);
+  document.getElementById('anunTodos').checked = alvos.length > 0 && alvos.every(p => SEL.has(p.id));
+}
+
+function renderCandidatos(){
+  const lista = filtrarCandidatos();
+  atualizarResumoSel(lista);
+  const tb = document.getElementById('tbAnun');
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">Nenhum produto</td></tr>'; return; }
+  tb.innerHTML = lista.map(p => {
+    const a = ANUN[p.id];
+    let sit = '<span class="badge muted">sem anúncio</span>';
+    if (a?.status==='publicado') sit = `<span class="badge success">publicado</span>`;
+    else if (a?.status==='erro') sit = `<span class="badge danger">recusado</span><span class="bloqueio">${a.erro||''}</span>`;
+    else if (a?.status==='rascunho') sit = '<span class="badge warn">rascunho</span>';
+    else if (a?.status==='encerrado') sit = '<span class="badge inativo">encerrado no ML</span>';
+    const pend = p.pendencias.length ? `<span class="bloqueio">${p.pendencias.join(' · ')}</span>` : '';
+    // Publicado também precisa de porta de entrada: é lá que estão verificar
+    // situação, reenviar foto, pausar e encerrar.
+    const acoes = a?.status==='publicado'
+      ? `<button class="btn btn-ghost btn-sm" onclick="verRascunho(${a.id})">Ver anúncio</button>`
+        + (a.permalink ? ` <a class="btn btn-ghost btn-sm" href="${a.permalink}" target="_blank" rel="noopener">no ML</a>` : '')
+      : `<button class="btn btn-ghost btn-sm" onclick="gerarUm(${p.id})">Gerar</button>` +
+        (a ? ` <button class="btn btn-ghost btn-sm" onclick="verRascunho(${a.id})">Ver rascunho</button>`
+           + ` <button class="btn btn-ghost btn-sm" onclick="publicarUm(${a.id})">Publicar</button>` : '');
+    return `<tr>
+      <td>${a?.status==='publicado' ? '' : `<input type="checkbox" class="selAnun" value="${p.id}" onchange="alternarSel(${p.id}, this.checked)" ${SEL.has(p.id)?'checked':''} style="width:auto;">`}</td>
+      <td class="mono">${p.sku||'—'}</td>
+      <td>${p.descricao||''}${pend}</td>
+      <td style="text-align:right;">${p.precoVenda ? 'R$ '+Number(p.precoVenda).toLocaleString('pt-BR',{minimumFractionDigits:2}) : '—'}</td>
+      <td style="text-align:right;">${p.saldo}</td>
+      <td class="titulo-gerado">${a?.titulo ? a.titulo + (a.geradoPor?`<br><small>por ${a.geradoPor}</small>`:'') : '—'}</td>
+      <td>${sit}</td>
+      <td style="white-space:nowrap;">${acoes}</td>
+    </tr>`;
+  }).join('');
+}
+
+function alternarSel(id, marcado){
+  if (marcado) SEL.add(id); else SEL.delete(id);
+  atualizarResumoSel(filtrarCandidatos());  // as linhas não mudam: só o resumo
+}
+// O "todos" do cabeçalho age sobre o que está filtrado na tela, não sobre a
+// base inteira — marcar o que não se vê seria pior que não marcar nada.
+function marcarTodos(el){
+  const alvos = filtrarCandidatos().filter(selecionavel);
+  alvos.forEach(p => el.checked ? SEL.add(p.id) : SEL.delete(p.id));
+  renderCandidatos();
+}
+const idsSelecionados = () => [...SEL];
+const anunciosSelecionados = () => [...SEL].map(id => ANUN[id]?.id).filter(Boolean);
+
+async function gerarUm(produtoId){ await gerar([produtoId]); }
+
+async function gerarSelecionados(){
+  const ids = idsSelecionados();
+  if (!ids.length) return showAlert('Selecione os produtos','error');
+  await gerar(ids);
+}
+
+async function gerar(produtoIds){
+  showAlert(`Gerando ${produtoIds.length} anúncio(s) com IA — pode levar alguns segundos…`);
+  const d = await fetch('/api/marketplaces/ml/anuncios/gerar', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ produtoIds })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  await carregarCandidatos();
+  const comBloqueio = (d.rascunhos||[]).filter(r => r.bloqueios?.length).length;
+  const partes = [`${d.gerados} rascunho(s) gerado(s)`];
+  if (comBloqueio) partes.push(`${comBloqueio} com pendência`);
+  if (d.falhas?.length) partes.push(`${d.falhas.length} falha(s): ${d.falhas.map(f=>f.erro).join('; ').slice(0,200)}`);
+  showAlert(partes.join(' · '), (comBloqueio || d.falhas?.length) ? 'warn' : 'success');
+}
+
+async function publicarUm(anuncioId){
+  if (!confirm('Publicar este anúncio no Mercado Livre? Ele fica visível para compradores.')) return;
+  const d = await fetch(`/api/marketplaces/ml/anuncios/${anuncioId}/publicar`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Publicado: ' + d.mlItemId + (d.aviso ? ' — ' + d.aviso : ''), d.aviso ? 'warn' : 'success');
+  await carregarCandidatos();
+}
+
+async function publicarSelecionados(){
+  const ids = anunciosSelecionados();
+  if (!ids.length) return showAlert('Selecione rascunhos já gerados','error');
+  // Publicação em lote cria N ofertas públicas de uma vez: confirmação diz o número.
+  if (!confirm(`Publicar ${ids.length} anúncio(s) no Mercado Livre? Eles ficam visíveis para compradores.`)) return;
+  const d = await fetch('/api/marketplaces/ml/anuncios/publicar-lote', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.publicados} publicado(s)` + (d.falhas?.length
+    ? ` · ${d.falhas.length} recusado(s): ${d.falhas.map(f=>f.erro).join('; ').slice(0,250)}` : ''),
+    d.falhas?.length ? 'warn' : 'success');
+  await carregarCandidatos();
+}
+
+// ---------- ver e corrigir o rascunho ----------
+// A pendência aparecia só no aviso da geração e sumia. Aqui ela é recalculada
+// ao abrir, com o que fazer em cada caso.
+const MAX_TITULO = 60;
+let RASC = null, RASC_OBRIG = [];
+
+const DICA_PEND = [
+  [/sem preço/i,     'Preencha o preço abaixo (vale só para este anúncio) ou corrija o preço de venda no cadastro do produto e clique em "Regerar com IA".'],
+  [/sem saldo/i,     'Informe a quantidade a anunciar abaixo — ela vira o estoque disponível no Mercado Livre.'],
+  [/sem imagem/i,    'Use "Buscar fotos" na lista (catálogo do ML pelo código de barras, ou URL do fabricante) e depois clique em "Regerar com IA" — a lista de fotos só é gravada na geração.'],
+  [/sem título/i,    'Escreva o título abaixo, ou regere com IA.'],
+  [/sem categoria/i, 'Clique em "Regerar com IA": a categoria vem do preditor do próprio ML e depende da descrição do produto.'],
+  [/atributo obrigatório/i, 'Preencha o campo correspondente na seção "Atributos obrigatórios".'],
+];
+const dicaPend = (b) => (DICA_PEND.find(([re]) => re.test(b)) || [null, ''])[1];
+
+async function verRascunho(anuncioId){
+  RASC = null;
+  document.getElementById('rascCorpo').innerHTML = '<p class="muted">Carregando…</p>';
+  document.getElementById('rascSub').textContent = '';
+  document.getElementById('modalRasc').classList.add('open');
+  const d = await fetch('/api/marketplaces/ml/anuncios/' + anuncioId).then(r=>r.json());
+  if (!d.success) { document.getElementById('rascCorpo').innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  RASC = d.anuncio; RASC_OBRIG = d.obrigatorios || [];
+  renderRascunho(d.bloqueios || []);
+}
+
+function renderRascunho(bloqueios){
+  const a = RASC;
+  const fotos = JSON.parse(a.fotos || '[]');
+  const attrs = JSON.parse(a.atributos || '[]');
+  const valorDe = (id) => (attrs.find(x => x.id === id) || {}).value_name || '';
+  document.getElementById('rascSub').textContent =
+    `${a.sku || ''} · ${a.produtoDescricao || ''} · gerado por ${a.geradoPor || '—'}`;
+
+  const pend = bloqueios.length ? `<div class="alert warn" style="display:block;">
+      <strong>${bloqueios.length} pendência(s) impedem a publicação:</strong>
+      <ul style="margin:6px 0 0 18px;padding:0;">${bloqueios.map(b =>
+        `<li>${b}${dicaPend(b) ? `<br><small class="muted">${dicaPend(b)}</small>` : ''}</li>`).join('')}</ul>
+    </div>`
+    : '<div class="alert success" style="display:block;">Sem pendência — pronto para publicar.</div>';
+
+  const erro = a.erro ? `<div class="alert error" style="display:block;"><strong>Mercado Livre recusou:</strong> ${a.erro}</div>` : '';
+  // Marca declarada diferente da do cadastro é escolha deliberada — some da
+  // vista com facilidade e é justamente o que o ML confere contra foto e título.
+  const marcaDeclarada = (attrs.find(x => x.id === 'BRAND') || {}).value_name || '';
+  const marcaTrocada = a.produtoMarca && marcaDeclarada
+    && marcaDeclarada.toLowerCase() !== String(a.produtoMarca).toLowerCase()
+    ? `<div class="alert warn" style="display:block;">
+         Este anúncio declara a marca como <strong>${marcaDeclarada}</strong>, mas o cadastro diz
+         <strong>${a.produtoMarca}</strong>. O Mercado Livre compara esse campo com o título e a foto —
+         divergência é motivo de derrubada.
+         <button class="btn btn-ghost btn-sm" onclick="restaurarMarca()" style="margin-left:8px;">Voltar para ${a.produtoMarca}</button>
+       </div>` : '';
+  const cat = a.catalogProductId
+    ? `<div class="alert info" style="display:block;">
+         <strong>Anúncio de catálogo</strong> (${a.catalogProductId}): título, ficha e fotos vêm do produto oficial do ML,
+         e o código de barras deixa de ser exigido de você.
+         <button class="btn btn-ghost btn-sm" onclick="vincularCatalogo(null)" style="margin-left:8px;">Desvincular</button>
+       </div>`
+    : `<div class="alert info" style="display:block;">
+         Anúncio próprio: você responde por título, fotos e ficha — e a categoria pode exigir código de barras.
+         <button class="btn btn-secondary btn-sm" onclick="procurarCatalogo()" style="margin-left:8px;">Publicar no catálogo do ML</button>
+       </div><div id="catPainel"></div>`;
+
+  // Publicado não quer dizer no ar: quem tem a palavra final é o ML.
+  const publicado = a.mlItemId ? `<div class="alert info" style="display:block;">
+      ${a.status==='encerrado' ? 'Encerrado no ML' : 'Publicado'} como <strong>${a.mlItemId}</strong>
+      ${a.permalink ? `· <a href="${a.permalink}" target="_blank" rel="noopener">ver no ML</a>` : ''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="verSituacao()">Verificar situação no ML</button>
+        <button class="btn btn-ghost btn-sm" onclick="mudarStatusML('active')">Reativar</button>
+        <button class="btn btn-ghost btn-sm" onclick="mudarStatusML('paused')">Pausar</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="mudarStatusML('closed')">Encerrar no ML</button>
+        ${a.status!=='publicado' ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);"
+           onclick="excluirRegistro()">Excluir registro local</button>` : ''}
+      </div>
+      <div id="sitPainel"></div></div>` : '';
+
+  document.getElementById('rascCorpo').innerHTML = erro + publicado + marcaTrocada + pend + cat + `
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Título <small class="muted" id="rascTitCount"></small></label>
+        <input type="text" id="rTitulo" maxlength="${MAX_TITULO}" value="${(a.titulo||'').replace(/"/g,'&quot;')}"
+               oninput="contarTitulo()">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Preço (R$)</label><input type="number" id="rPreco" step="0.01" min="0" value="${Number(a.preco)||0}"></div>
+      <div class="form-group"><label>Quantidade</label><input type="number" id="rQtd" step="1" min="0" value="${Number(a.quantidade)||0}"></div>
+      <div class="form-group"><label>Categoria no ML</label><input type="text" value="${a.categoriaNome||'—'} (${a.categoriaId||'—'})" disabled></div>
+      <div class="form-group" style="flex:0 0 auto;align-self:flex-end;">
+        <button class="btn btn-secondary btn-sm" onclick="pesquisarPreco()">Pesquisar preço no ML</button>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Código de barras (GTIN) do produto</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="rGtin" value="${a.codigoBarras||''}" placeholder="sem código cadastrado" style="max-width:220px;">
+          <button class="btn btn-secondary btn-sm" onclick="gravarGtin(document.getElementById('rGtin').value)">Gravar</button>
+          <button class="btn btn-secondary btn-sm" onclick="procurarGtin()">Procurar com IA</button>
+          <small class="muted">Algumas categorias, como esta, só publicam com GTIN.</small>
+        </div>
+      </div>
+    </div>
+    <div id="gtinPainel"></div>
+    <div id="precoPainel"></div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição</label><textarea id="rDesc" rows="6">${a.descricao||''}</textarea></div>
+    </div>
+    <div class="form-row"><div class="form-group full-width">
+      <label>Fotos (${fotos.length})</label>
+      ${fotos.length
+        ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">${fotos.map(u =>
+            `<img src="${u}" style="width:74px;height:74px;object-fit:cover;border:1px solid var(--border);border-radius:6px;" loading="lazy">`).join('')}</div>`
+        : '<small class="muted">Nenhuma foto no rascunho. O ML exige ao menos uma.</small>'}
+    </div></div>
+    ${RASC_OBRIG.length ? `<div class="form-row"><div class="form-group full-width">
+      <label>Atributos obrigatórios</label>
+      <table style="width:100%;font-size:0.87em;"><tbody>${RASC_OBRIG.map(o => `<tr>
+        <td style="width:40%;">${o.nome || o.id}${valorDe(o.id) ? '' : ' <span class="badge danger">falta</span>'}</td>
+        <td>${o.valores?.length
+          ? `<select class="attrObrig" data-id="${o.id}"><option value=""></option>${o.valores.map(v =>
+              `<option ${v===valorDe(o.id)?'selected':''}>${v}</option>`).join('')}</select>`
+          : `<input type="text" class="attrObrig" data-id="${o.id}" value="${valorDe(o.id).replace(/"/g,'&quot;')}">`}</td>
+      </tr>`).join('')}</tbody></table>
+    </div></div>` : ''}`;
+  // Anúncio no ar não se edita por aqui: o PUT do rascunho recusa publicado, e
+  // botão que só sabe dar erro é pior que botão ausente.
+  const noAr = a.status === 'publicado';
+  ['btnRegerar','btnSalvar','btnPublicar','btnValidar'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.style.display = noAr ? 'none' : '';
+  });
+  contarTitulo();
+}
+
+// ---------- vínculo com o catálogo do ML ----------
+// Anunciar dentro do produto oficial: a identidade é do ML, então nem GTIN nem
+// foto própria são exigidos de você. A contrapartida é que o anúncio divide a
+// página com os concorrentes e disputa a preferência por preço e reputação.
+async function procurarCatalogo(){
+  if (!RASC) return;
+  const el = document.getElementById('catPainel');
+  el.innerHTML = '<p class="muted">Procurando o produto no catálogo do Mercado Livre…</p>';
+  const d = await fetch(`/api/marketplaces/ml/produtos/${RASC.produtoId}/catalogo-candidatos`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})
+  }).then(r=>r.json());
+  if (!d.success) { el.innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  if (!d.candidatos.length) {
+    el.innerHTML = '<div class="alert warn" style="display:block;">Nenhum produto equivalente no catálogo do ML.</div>';
+    return;
+  }
+  el.innerHTML = `<div style="border:1px solid var(--border);border-radius:var(--r-md);padding:10px;margin-bottom:12px;">
+    <small class="muted">Escolha o produto <strong>exato</strong>: anunciar dentro do produto errado é motivo de derrubada.</small>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+      ${d.candidatos.map(c => `
+        <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:8px;width:172px;">
+          <img src="${c.fotos[0]}" style="width:100%;height:110px;object-fit:contain;background:#fff;border-radius:4px;" loading="lazy">
+          <div style="font-size:0.8em;margin:6px 0;line-height:1.3;">${c.nome}</div>
+          <small class="muted">${c.marca||'—'} ${c.modelo||''}</small>
+          <div style="display:flex;gap:4px;margin-top:6px;">
+            <a class="btn btn-ghost btn-sm" href="${c.permalink}" target="_blank" rel="noopener" style="flex:1;text-align:center;">Ver</a>
+            <button class="btn btn-primary btn-sm" style="flex:1;" onclick="vincularCatalogo('${c.id}')">Usar</button>
+          </div>
+        </div>`).join('')}
+    </div></div>`;
+}
+
+async function vincularCatalogo(catalogProductId){
+  if (catalogProductId === null && !confirm('Desvincular do catálogo? O anúncio volta a exigir título, fotos e — nesta categoria — código de barras.')) return;
+  const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/catalogo`, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ catalogProductId })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(catalogProductId ? 'Vinculado ao catálogo: ' + (d.nome||d.catalogProductId) : 'Desvinculado do catálogo');
+  await verRascunho(RASC.id);
+  await carregarCandidatos();
+}
+
+// ---------- código de barras ----------
+// A IA propõe; o dígito verificador e o catálogo do ML julgam. Só o que passa
+// nos dois vira botão de gravar — o resto fica à vista como descartado, para
+// que ninguém copie um número plausível achando que é o do produto.
+const ROTULO_GTIN = {
+  confirmado:      '<span class="badge success">confirmado no ML</span>',
+  'da-nota':       '<span class="badge success">nota do fornecedor</span>',
+  'nao-confirmado':'<span class="badge warn">não confirmado</span>',
+  conflito:        '<span class="badge danger">é de outro produto</span>',
+  descartado:      '<span class="badge danger">inválido</span>',
+};
+const FONTE_GTIN = { 'nota-de-entrada': 'nota de entrada', ia: 'IA' };
+
+// Varredura em lote: o EAN que o fornecedor mandou no XML da nota. Simula
+// primeiro — gravar código de barras em massa sem mostrar o que vai mudar
+// seria escrever no cadastro às cegas.
+async function gtinDasNotas(){
+  const prévia = await fetch('/api/marketplaces/ml/produtos/gtin-das-notas', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ simular:true })
+  }).then(r=>r.json());
+  if (!prévia.success) return showAlert(prévia.error,'error');
+  if (!prévia.aplicados.length) {
+    return showAlert(`Nenhum dos ${prévia.candidatos} produto(s) sem código de barras tem nota de entrada com EAN`
+      + (prévia.recusados.length ? ` · ${prévia.recusados.length} recusado(s) por dígito inválido` : ''), 'warn');
+  }
+  const lista = prévia.aplicados.map(a => `${a.sku} → ${a.ean} (NF ${a.nota||'?'}, ${a.fornecedor||'—'})`).join('\n');
+  if (!confirm(`Gravar o código de barras de ${prévia.aplicados.length} produto(s)?\n\n${lista}`)) return;
+  const d = await fetch('/api/marketplaces/ml/produtos/gtin-das-notas', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.aplicados.length} código(s) de barras gravado(s) a partir das notas de entrada`
+    + (d.recusados.length ? ` · ${d.recusados.length} recusado(s)` : ''));
+  await carregarCandidatos();
+}
+
+async function procurarGtin(){
+  if (!RASC) return;
+  const el = document.getElementById('gtinPainel');
+  el.innerHTML = '<p class="muted">Perguntando à IA e conferindo cada código no catálogo do Mercado Livre…</p>';
+  const d = await fetch(`/api/marketplaces/ml/produtos/${RASC.produtoId}/procurar-gtin`, { method:'POST' })
+    .then(r=>r.json());
+  if (!d.success) { el.innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  if (!d.candidatos.length) {
+    el.innerHTML = `<div class="alert warn" style="display:block;">A IA (${d.provider||'—'}) não conhece o código de barras
+      de ${d.marca||''} ${d.modelo||''} e não inventou nenhum — que é o comportamento certo.
+      O código está impresso na etiqueta do módulo e na caixa; com ele em mãos, digite no campo acima.</div>`;
+    return;
+  }
+  el.innerHTML = `<div style="border:1px solid var(--border);border-radius:var(--r-md);padding:12px;margin-bottom:12px;">
+    <strong>Códigos encontrados${d.provider?` (IA: ${d.provider})`:''}</strong>
+    <table style="width:100%;font-size:0.87em;margin-top:8px;"><tbody>
+      ${d.candidatos.map(c => `<tr>
+        <td class="mono" style="width:130px;">${c.gtin}</td>
+        <td style="width:150px;">${ROTULO_GTIN[c.status]||c.status}</td>
+        <td>${c.motivo}
+          <br><small class="muted">fonte: ${FONTE_GTIN[c.fonte]||c.fonte||'—'}${c.detalhe?` · ${c.detalhe}`:''}</small>
+          ${c.catalogo ? `<br><small class="muted">catálogo ${c.catalogo.id}: ${c.catalogo.nome||''}</small>` : ''}</td>
+        <td style="width:90px;text-align:right;">${(c.status==='confirmado'||c.status==='da-nota')
+          ? `<button class="btn btn-primary btn-sm" onclick="gravarGtin('${c.gtin}')">Usar</button>` : ''}</td>
+      </tr>`).join('')}
+    </tbody></table>
+    ${!d.recomendado ? `<div class="alert warn" style="display:block;margin-top:8px;">
+      Nenhum código foi confirmado no catálogo do Mercado Livre. Gravar um deles seria adivinhar —
+      e um GTIN de outro produto derruba o anúncio. Confira na etiqueta do módulo antes de usar.</div>` : ''}
+  </div>`;
+}
+
+async function gravarGtin(gtin){
+  const d = await fetch(`/api/marketplaces/ml/produtos/${RASC.produtoId}/codigo-barras`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ codigoBarras: gtin })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Código de barras gravado no produto: ' + d.codigoBarras);
+  await carregarCandidatos();
+  await verRascunho(RASC.id);
+}
+
+// ---------- situação do anúncio já publicado ----------
+const AVISO_STATUS = {
+  closed: 'Encerrar é definitivo no Mercado Livre: o anúncio sai do ar e não volta a ficar ativo — para vender de novo é preciso publicar outro.',
+  paused: 'Pausar tira o anúncio das buscas. Dá para reativar depois.',
+  active: 'Reativar coloca o anúncio de volta no ar.',
+};
+
+async function mudarStatusML(novo){
+  if (!confirm(AVISO_STATUS[novo] + '\n\nConfirma?')) return;
+  const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/status`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: novo })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Status no Mercado Livre: ' + (d.status||novo)
+    + (d.subStatus?.length ? ` (${d.subStatus.join(', ')})` : ''));
+  await verRascunho(RASC.id);
+  await carregarCandidatos();
+}
+
+async function excluirRegistro(){
+  if (!confirm('Apagar o registro deste anúncio aqui no sistema?\n\nO anúncio no Mercado Livre não é afetado — só some desta lista, e o produto volta a poder gerar rascunho novo.')) return;
+  const d = await fetch('/api/marketplaces/ml/anuncios/' + RASC.id, { method:'DELETE' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  fechar('modalRasc');
+  showAlert('Registro removido');
+  await carregarCandidatos();
+}
+
+async function verSituacao(){
+  const el = document.getElementById('sitPainel');
+  el.innerHTML = '<p class="muted">Consultando o Mercado Livre…</p>';
+  const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/situacao`).then(r=>r.json());
+  if (!d.success) { el.innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  const ativo = d.status === 'active';
+  el.innerHTML = `<div style="margin-top:8px;">
+    <strong>${ativo ? '✅ no ar' : '⏸ ' + d.status}</strong>
+    ${d.motivos.length ? `<br><small>${d.motivos.join(' · ')}</small>` : ''}
+    <br><small class="muted">${d.fotos} foto(s) no anúncio · ${d.quantidade} em estoque · R$ ${d.preco}</small>
+    ${d.podeReenviarFoto ? `<br><button class="btn btn-primary btn-sm" onclick="reenviarFotos()" style="margin-top:6px;">
+      Reenviar foto e reativar</button>` : ''}
+  </div>`;
+}
+
+async function reenviarFotos(){
+  const el = document.getElementById('sitPainel');
+  el.innerHTML = '<p class="muted">Reenviando a foto ao Mercado Livre…</p>';
+  const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/reenviar-fotos`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) { el.innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  showAlert(`${d.fotosEnviadas} foto(s) reenviada(s) · status: ${d.status||'—'}`
+    + (d.aviso ? ` · ${d.aviso}` : ''), d.aviso ? 'warn' : 'success');
+  await verSituacao();
+}
+
+// Troca a marca declarada. Fica gravado no rascunho e visível no topo do
+// modal — trocar a marca não pode ser algo que se faz e se esquece.
+async function trocarMarca(nova){
+  const attrs = JSON.parse(RASC.atributos || '[]')
+    .map(x => x.id === 'BRAND' ? { id: 'BRAND', value_name: nova } : x);
+  if (!attrs.some(x => x.id === 'BRAND')) attrs.push({ id: 'BRAND', value_name: nova });
+  const d = await fetch('/api/marketplaces/ml/anuncios/' + RASC.id, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ atributos: attrs })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  await verRascunho(RASC.id);
+  return true;
+}
+
+async function declararSemMarca(){
+  if (!confirm(`Declarar este produto como "Genérico" no Mercado Livre?\n\n`
+    + `O anúncio passa a validar sem código de barras, mas o campo Marca vai dizer "Genérico" `
+    + `enquanto o título e a foto mostram ${RASC.produtoMarca||'a marca real'}.\n\n`
+    + `O ML cruza esses dados: se considerar divergência, derruba o anúncio.`)) return;
+  if (await trocarMarca('Genérico')) { showAlert('Marca declarada como Genérico','warn'); validarNoML(); }
+}
+
+async function restaurarMarca(){
+  if (await trocarMarca(RASC.produtoMarca)) showAlert('Marca restaurada: ' + RASC.produtoMarca);
+}
+
+// Pergunta ao próprio ML se o anúncio passa, sem criar nada. É a diferença
+// entre saber antes e descobrir na recusa.
+async function validarNoML(){
+  if (!RASC) return;
+  const el = document.getElementById('precoPainel');
+  el.innerHTML = '<p class="muted">Validando no Mercado Livre…</p>';
+  const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/validar`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) { el.innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  const modelo = d.porFamilia
+    ? '<br><small>Esta categoria publica por família de produto: o Mercado Livre monta o título a partir dos atributos.</small>' : '';
+  // Só oferece a saída pela marca quando o bloqueio é de GTIN — é o único
+  // caso em que ela resolve, e mesmo aí é troca de um problema por um risco.
+  const saidaGtin = d.erros.some(e => /GTIN|código de barras/i.test(e))
+    ? `<hr style="border:none;border-top:1px solid var(--border);margin:10px 0;">
+       <small>Sem o código de barras, a única forma de publicar como anúncio próprio é declarar o produto
+       <strong>sem marca</strong>. O anúncio passa, mas o atributo vai dizer "Genérico" enquanto o título e a
+       foto dizem ${RASC.produtoMarca||'a marca real'} — e é esse cruzamento que o ML fiscaliza.</small><br>
+       <button class="btn btn-secondary btn-sm" onclick="declararSemMarca()" style="margin-top:6px;">
+         Declarar como Genérico assim mesmo</button>` : '';
+  el.innerHTML = d.erros.length
+    ? `<div class="alert error" style="display:block;"><strong>O Mercado Livre recusaria:</strong>
+        <ul style="margin:6px 0 0 18px;padding:0;">${d.erros.map(e=>`<li>${e}</li>`).join('')}</ul>${modelo}${saidaGtin}</div>`
+    : `<div class="alert success" style="display:block;">Validado pelo Mercado Livre — o anúncio seria aceito.${modelo}
+        ${d.avisos.length ? `<br><small>Ajustes que o ML aplica sozinho: ${d.avisos.join(' · ')}</small>` : ''}</div>`;
+}
+
+// ---------- preço de mercado ----------
+// A faixa é de anúncios ativos do ML; a IA só separa o que é o mesmo produto.
+// Nada é gravado aqui: o preço só muda se você clicar em usar e salvar.
+async function pesquisarPreco(){
+  if (!RASC) return;
+  const el = document.getElementById('precoPainel');
+  el.innerHTML = '<p class="muted">Consultando anúncios ativos no Mercado Livre…</p>';
+  const d = await fetch(`/api/marketplaces/ml/anuncios/${RASC.id}/sugerir-preco`, { method:'POST' })
+    .then(r=>r.json());
+  if (!d.success) { el.innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  if (!d.encontrados) {
+    el.innerHTML = `<div class="alert warn" style="display:block;">${(d.avisos||[]).join(' · ')}</div>`; return;
+  }
+  const f = d.faixa, brl = v => (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
+  const fonte = d.origem === 'catalogo'
+    ? `ofertas do mesmo produto no catálogo do ML — comparação exata (${f.n} oferta(s))`
+    : `${d.catalogosUsados} produto(s) equivalente(s) do catálogo do ML`
+      + (d.filtradoPor ? ` (equivalência julgada pela IA — ${d.filtradoPor})` : '')
+      + `, ${f.n} oferta(s) ativa(s)`;
+
+  el.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:12px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
+        <strong>Preço sugerido: R$ ${brl(d.sugerido)}</strong>
+        <button class="btn btn-primary btn-sm" onclick="usarPrecoSugerido(${d.sugerido})">Usar este preço</button>
+      </div>
+      <small class="muted">${d.motivo}. Preço atual do rascunho: R$ ${brl(d.precoAtual)}.</small>
+      <div class="kpi-mini" style="margin:10px 0 6px;">
+        <div class="c"><span class="v">R$ ${brl(f.min)}</span>mais barato</div>
+        <div class="c"><span class="v">R$ ${brl(f.p25)}</span>p25</div>
+        <div class="c"><span class="v">R$ ${brl(f.mediana)}</span>mediana</div>
+        <div class="c"><span class="v">R$ ${brl(f.p75)}</span>p75</div>
+        <div class="c"><span class="v">R$ ${brl(f.max)}</span>mais caro</div>
+      </div>
+      <small class="muted">${fonte}${d.descartadosPorque ? ` · descartados: ${d.descartadosPorque}` : ''}</small>
+      ${d.comissaoPct != null ? `<br><small class="muted">Comissão do ML nesta categoria: ${d.comissaoPct}%${
+        d.margem != null ? ` · margem no preço sugerido: <strong>R$ ${brl(d.margem)}</strong> (custo R$ ${brl(d.custo)})` : ''}</small>` : ''}
+      ${(d.avisos||[]).length ? `<div class="alert warn" style="display:block;margin-top:8px;">${d.avisos.join('<br>')}</div>` : ''}
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer;font-size:0.85em;">Ver os ${d.concorrentes.length} anúncios usados</summary>
+        <table style="width:100%;font-size:0.85em;margin-top:6px;"><tbody>${d.concorrentes.map(c=>`<tr>
+          <td style="width:90px;">R$ ${brl(c.preco)}</td>
+          <td>${c.permalink ? `<a href="${c.permalink}" target="_blank" rel="noopener">${c.titulo}</a>` : c.titulo}</td>
+          <td style="width:80px;text-align:right;">${c.freteGratis ? 'frete grátis' : ''}</td>
+        </tr>`).join('')}</tbody></table>
+      </details>
+    </div>`;
+}
+
+function usarPrecoSugerido(v){
+  document.getElementById('rPreco').value = v;
+  showAlert('Preço preenchido — clique em Salvar para gravar no rascunho');
+}
+
+function contarTitulo(){
+  const el = document.getElementById('rTitulo'); if (!el) return;
+  const n = el.value.length;
+  document.getElementById('rascTitCount').textContent = `${n}/${MAX_TITULO}`;
+}
+
+// Só os obrigatórios são editáveis aqui; os opcionais que a IA acertou
+// continuam no rascunho e não podem ser perdidos no salvamento.
+function atributosDoModal(){
+  const atuais = JSON.parse(RASC.atributos || '[]');
+  const obrigIds = new Set(RASC_OBRIG.map(o => o.id));
+  const fora = atuais.filter(a => !obrigIds.has(a.id));
+  const editados = [...document.querySelectorAll('.attrObrig')]
+    .map(el => ({ id: el.dataset.id, value_name: el.value.trim() }))
+    .filter(a => a.value_name);
+  return [...fora, ...editados];
+}
+
+async function salvarRascunho(silencioso){
+  if (!RASC) return;
+  const body = {
+    titulo: document.getElementById('rTitulo').value,
+    descricao: document.getElementById('rDesc').value,
+    preco: Number(document.getElementById('rPreco').value) || 0,
+    quantidade: Number(document.getElementById('rQtd').value) || 0,
+    atributos: atributosDoModal(),
+  };
+  const d = await fetch('/api/marketplaces/ml/anuncios/' + RASC.id, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(r=>r.json());
+  if (!d.success) { showAlert(d.error,'error'); return false; }
+  if (!silencioso) { showAlert('Rascunho salvo'); await verRascunho(RASC.id); await carregarCandidatos(); }
+  return true;
+}
+
+async function salvarEPublicar(){
+  const id = RASC?.id; if (!id) return;
+  if (!await salvarRascunho(true)) return;
+  await publicarUm(id);
+  // Publicado ou recusado, o motivo passa a estar no rascunho: reabrir mostra.
+  await verRascunho(id);
+}
+
+async function regerarDoModal(){
+  const pid = RASC?.produtoId; const id = RASC?.id; if (!pid) return;
+  if (!confirm('Regerar com IA sobrescreve título, descrição, atributos e fotos deste rascunho. Continuar?')) return;
+  await gerar([pid]);
+  await verRascunho(id);
+}
+
+// ---------- sugestões para o cadastro ----------
+// Três fontes, e a tela diz qual é qual: catálogo oficial do ML, conta de
+// markup e estimativa de IA não merecem a mesma confiança.
+let SUG = [];
+
+async function sugerirSelecionados(){
+  const ids = idsSelecionados();
+  if (!ids.length) return showAlert('Selecione os produtos','error');
+  if (ids.length > 30) return showAlert('No máximo 30 por vez','error');
+  showAlert(`Consultando catálogo do ML e IA para ${ids.length} produto(s)…`);
+  const d = await fetch('/api/marketplaces/ml/produtos/sugestoes-lote', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ produtoIds: ids })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  SUG = (d.produtos || []).filter(p => p.sugestoes.length || p.fotoResolvidaPeloCatalogo);
+  if (!SUG.length) return showAlert('Nada a sugerir para os produtos selecionados','warn');
+  renderSugestoes(d);
+  document.getElementById('modalSug').classList.add('open');
+}
+
+const ROTULO_FONTE = {
+  'catalogo-ml': '<span class="badge success">catálogo oficial do ML</span>',
+  'markup': '<span class="badge success">conta: custo × markup</span>',
+};
+const rotuloFonte = (f) => ROTULO_FONTE[f] || `<span class="badge warn">estimativa de ${String(f).replace('ia:','')}</span>`;
+
+function renderSugestoes(d){
+  document.getElementById('sugCorpo').innerHTML =
+    (d.comCatalogo ? `<div class="alert success" style="display:block;">
+       ${d.comCatalogo} produto(s) casaram com o catálogo do Mercado Livre pelo código de barras.
+       Esses podem ser anunciados usando as <strong>fotos oficiais do próprio ML</strong> — não precisam de foto sua.</div>` : '')
+    + SUG.map((p, i) => `
+      <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;margin-bottom:10px;">
+        <strong>${p.sku || 'produto ' + p.produtoId}</strong>
+        ${p.catalogo ? `<small class="muted"> · catálogo ${p.catalogo.id}: ${p.catalogo.nome||''}</small>` : ''}
+        ${p.sugestoes.length ? `<table style="width:100%;margin-top:8px;font-size:0.87em;">
+          <thead><tr><th style="width:28px;"></th><th>Campo</th><th>Sugerido</th><th>Origem</th></tr></thead>
+          <tbody>${p.sugestoes.map((sg, j) => `<tr>
+            <td><input type="checkbox" class="chkSug" data-p="${i}" data-s="${j}" style="width:auto;"
+                 onchange="contarSugestoes()"
+                 ${sg.fonte === 'catalogo-ml' || sg.fonte === 'markup' ? 'checked' : ''}></td>
+            <td>${sg.campo}</td>
+            <td><strong>${String(sg.valor)}</strong>${sg.base?`<br><small class="muted">${sg.base}</small>`:''}</td>
+            <td>${rotuloFonte(sg.fonte)}${sg.aviso?`<br><small style="color:var(--warn);">${sg.aviso}</small>`:''}</td>
+          </tr>`).join('')}</tbody></table>`
+        : '<p class="muted" style="font-size:0.85em;margin-top:6px;">Nada a sugerir além do que o catálogo já resolve.</p>'}
+        ${p.pendentesSemSugestao?.length ? `<small class="muted">Continua sem: ${p.pendentesSemSugestao.join(', ')}</small>` : ''}
+      </div>`).join('');
+  // Catálogo e markup vêm marcados; estimativa de IA fica desmarcada de
+  // propósito — quem aceita um palpite tem que escolher aceitá-lo.
+  contarSugestoes();
+}
+
+const fonteDoChk = (chk) => SUG[Number(chk.dataset.p)].sugestoes[Number(chk.dataset.s)].fonte;
+
+function marcarSugestoes(valor){
+  document.querySelectorAll('.chkSug').forEach(chk => { chk.checked = valor; });
+  contarSugestoes();
+}
+
+// O contador separa o palpite do dado apurado: "selecionar tudo" também aceita
+// estimativa de IA, e isso tem que ficar à vista antes de aplicar.
+function contarSugestoes(){
+  const todos = [...document.querySelectorAll('.chkSug')];
+  const marcados = todos.filter(c => c.checked);
+  const ia = marcados.filter(c => !['catalogo-ml','markup'].includes(fonteDoChk(c))).length;
+  document.getElementById('sugContagem').innerHTML =
+    `${marcados.length} de ${todos.length} sugestão(ões) marcada(s)`
+    + (ia ? ` · <span style="color:var(--warn);">${ia} estimativa(s) de IA</span>` : '');
+}
+
+async function aplicarSugestoes(){
+  const porProduto = {};
+  document.querySelectorAll('.chkSug:checked').forEach(chk => {
+    const p = SUG[Number(chk.dataset.p)], sg = p.sugestoes[Number(chk.dataset.s)];
+    (porProduto[p.produtoId] = porProduto[p.produtoId] || {})[sg.campo] = sg.valor;
+  });
+  const ids = Object.keys(porProduto);
+  if (!ids.length) return showAlert('Nenhuma sugestão marcada','error');
+  let ok = 0, erros = [];
+  for (const id of ids) {
+    const d = await fetch(`/api/marketplaces/ml/produtos/${id}/aplicar-sugestoes`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ campos: porProduto[id] })
+    }).then(r=>r.json());
+    if (d.success) ok++; else erros.push(d.error);
+  }
+  fechar('modalSug');
+  showAlert(`${ok} produto(s) atualizado(s)` + (erros.length ? ` · ${erros.length} falha(s)` : ''),
+    erros.length ? 'warn' : 'success');
+  await carregarCandidatos();
+}
+
+// ---------- fotos ----------
+// Duas origens legítimas: o catálogo do próprio ML (sem pendência de direito)
+// e material do fabricante/distribuidor, que o usuário aponta e declara.
+function abrirFotos(){
+  if (!SEL.size) return showAlert('Selecione os produtos primeiro','error');
+  document.getElementById('fotoResultado').innerHTML = '';
+  document.getElementById('fotoCandidatos').innerHTML = '';
+  // A busca por descrição é produto a produto: casar por texto exige olhar a
+  // foto, e olhar 20 de uma vez ninguém faz.
+  document.getElementById('fotoProdSel').innerHTML = [...SEL]
+    .map(id => CAND.find(p => p.id === id)).filter(Boolean)
+    .map(p => `<option value="${p.id}">${p.sku || '#'+p.id} — ${(p.descricao||'').slice(0,60)}</option>`).join('');
+  termoSugerido();
+  document.getElementById('modalFoto').classList.add('open');
+}
+
+function termoSugerido(){
+  const p = CAND.find(x => x.id === Number(document.getElementById('fotoProdSel').value));
+  document.getElementById('fotoTermo').value = p
+    ? [p.descricao, p.marca, p.modelo].filter(Boolean).join(' ').slice(0,120) : '';
+  document.getElementById('fotoCandidatos').innerHTML = '';
+}
+
+async function procurarFotosPorDescricao(){
+  const pid = Number(document.getElementById('fotoProdSel').value);
+  const termo = document.getElementById('fotoTermo').value.trim();
+  if (!pid || !termo) return showAlert('Escolha o produto e informe o termo','error');
+  const el = document.getElementById('fotoCandidatos');
+  el.innerHTML = '<p class="muted">Procurando no catálogo do Mercado Livre…</p>';
+  const d = await fetch(`/api/marketplaces/ml/produtos/${pid}/catalogo-candidatos`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ termo })
+  }).then(r=>r.json());
+  if (!d.success) { el.innerHTML = `<div class="alert error" style="display:block;">${d.error}</div>`; return; }
+  if (!d.candidatos.length) {
+    el.innerHTML = '<div class="alert warn" style="display:block;">Nenhum produto com foto no catálogo para esse termo — tente palavras mais genéricas (sem o código do modelo).</div>';
+    return;
+  }
+  el.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+    ${d.candidatos.map(c => `
+      <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:8px;width:172px;">
+        <img src="${c.fotos[0]}" style="width:100%;height:120px;object-fit:contain;background:#fff;border-radius:4px;" loading="lazy">
+        <div style="font-size:0.8em;margin:6px 0;line-height:1.3;">${c.nome}</div>
+        <small class="muted">${c.marca||'—'}${c.fotos.length>1?` · ${c.fotos.length} fotos`:''}</small>
+        <div style="display:flex;gap:4px;margin-top:6px;">
+          <a class="btn btn-ghost btn-sm" href="${c.permalink}" target="_blank" rel="noopener" style="flex:1;text-align:center;">Ver</a>
+          <button class="btn btn-primary btn-sm" style="flex:1;" onclick="usarFotosDoCatalogo(${pid},'${c.id}')">Usar</button>
+        </div>
+      </div>`).join('')}</div>`;
+}
+
+async function usarFotosDoCatalogo(produtoId, catalogProductId){
+  const d = await fetch(`/api/marketplaces/ml/produtos/${produtoId}/imagens-do-catalogo`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ catalogProductId })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  document.getElementById('fotoResultado').innerHTML = `<div class="alert ${d.baixadas?'success':'error'}" style="display:block;">
+    ${d.baixadas} foto(s) baixada(s) e vinculada(s) ao produto.
+    ${d.noRascunho != null ? `<br><small>Rascunho do anúncio atualizado: ${d.noRascunho} foto(s).</small>` : ''}
+    ${d.falhas?.length ? `<br><small>Falhas: ${d.falhas.map(f=>f.erro).join(' · ')}</small>` : ''}</div>`;
+  await carregarCandidatos();
+}
+
+async function fotosDoCatalogo(){
+  const ids = idsSelecionados();
+  if (!ids.length) return showAlert('Selecione os produtos','error');
+  const res = document.getElementById('fotoResultado');
+  res.innerHTML = '<p class="muted">Consultando o catálogo do Mercado Livre…</p>';
+  let comFoto = 0, semCasar = [];
+  for (const id of ids) {
+    const d = await fetch(`/api/marketplaces/ml/produtos/${id}/imagens-do-catalogo`, { method:'POST' })
+      .then(r=>r.json());
+    if (d.success && d.baixadas) comFoto++;
+    else semCasar.push((CAND.find(p=>p.id===id)||{}).sku || id);
+  }
+  res.innerHTML = `<div class="alert ${comFoto?'success':'warn'}" style="display:block;">
+    ${comFoto} produto(s) receberam fotos oficiais do catálogo.
+    ${semCasar.length ? `<br><small>Sem correspondência por código de barras: ${semCasar.join(', ')}.
+      Para estes, use a busca por descrição logo abaixo, ou a URL do fabricante.</small>` : ''}</div>`;
+  await carregarCandidatos();
+}
+
+async function baixarFotos(){
+  const linhas = (document.getElementById('fotoLista').value || '').split('\n')
+    .map(l => l.trim()).filter(Boolean);
+  if (!linhas.length) return showAlert('Cole ao menos uma linha SKU;URL','error');
+
+  const porSku = {};
+  CAND.forEach(p => { if (p.sku) porSku[p.sku.toLowerCase()] = p.id; });
+  const itens = [], desconhecidos = [];
+  for (const l of linhas) {
+    const i = l.indexOf(';');
+    if (i < 0) { desconhecidos.push(l + ' (falta o ";")'); continue; }
+    const sku = l.slice(0, i).trim().toLowerCase(), url = l.slice(i + 1).trim();
+    if (!porSku[sku]) { desconhecidos.push(l.slice(0, i).trim() + ' (SKU não encontrado)'); continue; }
+    itens.push({ produtoId: porSku[sku], url });
+  }
+  if (!itens.length) return showAlert('Nenhuma linha válida: ' + desconhecidos.join('; '),'error');
+
+  const res = document.getElementById('fotoResultado');
+  res.innerHTML = `<p class="muted">Baixando ${itens.length} imagem(ns)…</p>`;
+  const d = await fetch('/api/marketplaces/ml/produtos/imagens-lote', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ itens, origem: document.getElementById('fotoOrigem').value })
+  }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+
+  res.innerHTML = `<div class="alert ${d.baixadas ? (d.falhas.length?'warn':'success') : 'error'}" style="display:block;">
+    ${d.baixadas} imagem(ns) baixada(s) e vinculada(s).
+    ${d.rascunhosAtualizados ? `<br><small>${d.rascunhosAtualizados} rascunho(s) de anúncio atualizado(s) com as fotos novas.</small>` : ''}
+    ${d.falhas.length ? `<br><small>Falhas: ${d.falhas.map(f=>`${f.url} — ${f.erro}`).join(' · ')}</small>` : ''}
+    ${desconhecidos.length ? `<br><small>Linhas ignoradas: ${desconhecidos.join('; ')}</small>` : ''}</div>`;
+  await carregarCandidatos();
+}
+
 </script>
 </body></html>

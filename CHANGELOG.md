@@ -4,6 +4,92 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-14
+
+**Loja virtual (módulo Varejo)** — catálogo público por tenant, do mesmo
+catálogo que abastece o Mercado Livre:
+
+- `loja-routes.js` novo. Vitrine pública em `/loja/` (sem login) e painel do
+  lojista em Varejo → Loja virtual. Publicar produto é opt-in por produto
+  (`produtos.publicadoNaLoja`): catálogo inteiro no ar por engano é vazar preço
+  e linha de produto. A loja nasce desligada em todos os tenants
+- Disponibilidade nunca sai como número: a vitrine mostra *disponível*,
+  *últimas unidades* ou *sob consulta*, calculado como saldo **menos reservas
+  ativas** — a mesma conta do resto do ERP. Quantidade exata é inteligência de
+  negócio, e o concorrente também abre a vitrine
+- Personalização por tokens CSS (cor, fundo, tipografia, cantos, logo) com
+  prévia ao vivo e três presets — sem campo de CSS livre, que é o pedido mais
+  comum e o que gera mais suporte. A cor do texto sobre o botão é calculada por
+  contraste, então cor clara não vira botão ilegível
+- Fase 2: login do comprador reusando o portal do cliente (mesma
+  `cliente_logins`, mesma sessão), preço por tabela via `resolverPreco` do
+  próprio ERP (tabela do cliente → gerais por prioridade → cadastro, com faixa
+  de quantidade), carrinho no servidor e checkout criando **pedido em rascunho
+  com reserva de estoque** — mesma tabela, mesma numeração, mesmo fluxo de
+  conferência. Estoque é conferido no fechamento, não na exibição
+- Fase 4: cobrança opcional no checkout (Pix ou boleto) pela régua do
+  financeiro — conta a receber ligada ao pedido, emissão pelo provedor já
+  configurado e baixa pelo webhook que já existe. Desligada por padrão
+- `gerarNumero`/`recalcularTotal` passaram a ser exportados de
+  `pedidos-routes.js`: duplicar a numeração noutro módulo produziria número
+  repetido assim que dois pedidos nascessem juntos
+
+**Central de conversas (módulo Comunicação)** — cinco telas com três APIs
+rivais viraram uma:
+
+- `conversas-routes.js` novo. A unidade deixou de ser "mensagem enfileirada
+  para envio" e passou a ser a **conversa**: estado (aberta/pendente/resolvida),
+  dono, etiquetas, não lidas e o contato do ERP do outro lado, casado pelos 8
+  últimos dígitos do telefone. Tela em três colunas com a ficha do cliente
+  (últimos pedidos e títulos em aberto) ao lado da conversa
+- **Funil** no mesmo lugar: etapa e valor moram na própria conversa — é a mesma
+  conversa vista por outro ângulo, não uma oportunidade paralela para manter em
+  sincronia. Arrastar entre etapas, total por coluna, e "gerar pedido" pelo
+  mesmo caminho da loja virtual
+- **Base da IA em pedaços** (`ia_base`), com origem e data, entrando no prompt
+  do atendimento. Toda resposta da IA ganhou um "corrigir": o atendente escreve
+  o que ela deveria ter dito e aquilo vira item da base, valendo na próxima
+  conversa. É o que "treinar o robô" significa num atendente de IA — o caso que
+  ele errou, não prompt novo
+- Desligar a IA numa conversa passou a ser definitivo até religarem (a regra
+  antiga voltava sozinha em 4h), e responder pelo inbox desliga a IA: se o
+  humano assumiu, o robô sai de cena
+- Menu: `comunicacao`, `whatsapp`, `wa-campanhas`, `wa-simular` e `wa-agenda`
+  saíram; as três primeiras redirecionam para a central via `PAGINAS_MOVIDAS`.
+  `wa-campanhas` e `wa-agenda` seguem acessíveis por URL porque a central lista
+  e cancela campanha, mas ainda não cria nem agenda disparo
+
+**Dois consertos que valem por si:**
+
+- **Inbox nunca recebeu mensagem**: o webhook só aceitava instância com prefixo
+  `le_`, e a instância real do 1bit se chama `status1bit` — todo evento era
+  descartado em silêncio. Agora, quando o prefixo não bate, resolve o tenant
+  procurando quem declarou aquela instância em `whatsapp_config`
+- **Nenhuma trava de ritmo no envio**: 25/hora, 45s entre mensagens e teto
+  diário que sobe com a idade do número (40 → 90 → 180 → 300). Resposta a quem
+  escreveu, resposta do atendente e confirmação de descadastro passam por fora
+  da trava — segurar atendimento para "proteger o número" é o inverso do que
+  protege. Mensagem segurada fica na fila com o motivo, e `/api/whatsapp/ritmo`
+  mostra o quadro. A contagem diária usa dia de Brasília: com `date('now')`
+  puro o contador zerava às 21h local e o teto deixava de valer no fim do
+  expediente
+
+**Fotos de produto que o Mercado Livre não conseguia baixar** (anúncio nascia
+pausado em `picture_download_pending`): `public/uploads/produtos` era root-owned
+e o serviço roda como carlosfinezi — nenhuma foto era gravada; e a pasta ficava
+atrás do login, então o ML recebia HTML em vez de JPEG. Agora só essa pasta é
+servida antes da barreira (documento em `habilitacao`, `pessoas`, `os`, `cp` e
+`cr` continua exigindo login) e as imagens **sobem por upload** para o ML em vez
+de passar URL. O corpo do item também se adapta à categoria (título livre ou
+família), manda o GTIN do cadastro e valida no `/items/validate` antes de criar.
+
+Commit PARCIAL em `route-registry.js`: a versão da árvore registra quatro
+módulos ainda untracked (`chat-monitor-routes`, `comprasnet-mensagem-routes`,
+`notificacoes-routes`, `resultado-item-routes`), e commitá-la inteira deixaria o
+HEAD sem bootar. Entrou a versão do HEAD mais as duas linhas que registram
+`loja-routes` e `conversas-routes`. `produto-imagens.js` foi junto por ser
+exigido por `loja-routes.js` e `marketplaces-ml.js`.
+
 ## 2026-08-12 (2)
 
 - **Marcação de falhas da análise IA** (`analise_ia_falha` + backoff no

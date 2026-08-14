@@ -32,13 +32,16 @@ const menuConfig = {
                 { page: 'timing-analise', icone: '⏱️', texto: 'Análise de Timing', link: '/operacional/timing-analise.html' },
                 { page: 'health-comprasnet', icone: '🩺', texto: 'Saúde Comprasnet', link: '/operacional/health-comprasnet.html' },
                 { page: 'tokens', icone: '🔑', texto: 'Tokens Bearer', link: '/operacional/tokens.html' },
+                { page: 'conexoes', icone: '🔗', texto: 'Conexões', link: '/operacional/conexoes.html' },
+                { page: 'integracoes', icone: '🔌', texto: 'Integrações', link: '/operacional/integracoes.html' },
                 { page: 'relatorio-lances', icone: '📊', texto: 'Relatório Lances', link: '/operacional/relatorio-lances.html' },
                 { page: 'relatorio-participacoes', icone: '🏆', texto: 'Participações', link: '/operacional/relatorio-participacoes.html' },
-                { page: 'monitoramento-chat', icone: '💬', texto: 'Monitor de Chat', link: '/operacional/monitoramento-chat.html' },
+                { page: 'comprasnet-monitor', icone: '💬', texto: 'Monitor Comprasnet', link: '/operacional/comprasnet-monitor.html' },
                 { page: 'inteligencia', icone: '📈', texto: 'Inteligência', link: '/operacional/inteligencia.html' },
                 { page: 'sugestao-produto', icone: '🎯', texto: 'Sugestão de Produto', link: '/operacional/sugestao-config.html' },
                 { page: 'analises-ia', icone: '🤖', texto: 'Análises IA', link: '/operacional/analises-ia.html' },
-                { page: 'grupos-palavras', icone: '🏷️', texto: 'Grupos de Palavras', link: '/operacional/grupos-palavras.html' }
+                { page: 'grupos-palavras', icone: '🏷️', texto: 'Grupos de Palavras', link: '/operacional/grupos-palavras.html' },
+                { page: 'integracao-comprasnet', icone: '🧩', texto: 'Integração Comprasnet', link: '/operacional/integracao-comprasnet.html' }
             ]
         },
         {
@@ -49,10 +52,13 @@ const menuConfig = {
             itens: [
                 { page: 'bnc-proposta', icone: '📝', texto: 'Proposta BNC', link: '/portais/bnc-proposta.html' },
                 { page: 'bnc-salas', icone: '📡', texto: 'Salas BNC', link: '/portais/bnc-salas.html' },
+                { page: 'bnc-monitor', icone: '💬', texto: 'Monitor BNC', link: '/portais/bnc-monitor.html' },
                 { page: 'bll-proposta', icone: '📝', texto: 'Proposta BLL', link: '/portais/bll-proposta.html' },
                 { page: 'bll-salas', icone: '📡', texto: 'Salas BLL', link: '/portais/bll-salas.html' },
+                { page: 'bll-monitor', icone: '💬', texto: 'Monitor BLL', link: '/portais/bll-monitor.html' },
                 { page: 'pcp-proposta', icone: '📝', texto: 'Proposta PCP', link: '/portais/pcp-proposta.html' },
-                { page: 'pcp-salas', icone: '📡', texto: 'Salas PCP', link: '/portais/pcp-salas.html' }
+                { page: 'pcp-salas', icone: '📡', texto: 'Salas PCP', link: '/portais/pcp-salas.html' },
+                { page: 'pcp-monitor', icone: '💬', texto: 'Monitor PCP', link: '/portais/pcp-monitor.html' }
             ]
         },
         {
@@ -87,6 +93,7 @@ const menuConfig = {
             feature: 'os',
             itens: [
                 { page: 'ordens-servico', icone: '🛠️', texto: 'Ordens de Serviço', link: '/os/ordens-servico.html' },
+                { page: 'equipamentos', icone: '🖥️', texto: 'Equipamentos', link: '/os/equipamentos.html' },
                 { page: 'cadastro-os-tipos', icone: '🏷️', texto: 'Tipos de OS', link: '/os/cadastro-os-tipos.html' },
                 { page: 'cadastro-servicos', icone: '📋', texto: 'Cadastro de Serviços', link: '/os/cadastro-servicos.html' },
                 { page: 'os-notificacoes', icone: '📬', texto: 'Notificações', link: '/os/os-notificacoes.html' },
@@ -139,6 +146,18 @@ const menuConfig = {
             ]
         },
         {
+            // Fica entre Compras e Financeiro de propósito: são exatamente os
+            // dois módulos que a alçada governa. As REGRAS continuam em
+            // Configurações; aqui é só a fila de quem decide.
+            titulo: 'Aprovações',
+            icone: '🛡️',
+            colapsavel: true,
+            feature: 'governanca',
+            itens: [
+                { page: 'aprovacoes', icone: '🛡️', texto: 'Fila de Aprovações', link: '/aprovacoes/aprovacoes.html', badge: 'aprovacoesCount' }
+            ]
+        },
+        {
             titulo: 'Varejo',
             icone: '🏪',
             colapsavel: true,
@@ -148,6 +167,7 @@ const menuConfig = {
                 { page: 'pdv-config', icone: '⚙️', texto: 'PDV · Config', link: '/varejo/pdv-config.html' },
                 { page: 'tef', icone: '💳', texto: 'TEF', link: '/varejo/tef.html' },
                 { page: 'marketplaces', icone: '🛍️', texto: 'Marketplaces', link: '/varejo/marketplaces.html' },
+                { page: 'loja', icone: '🏬', texto: 'Loja virtual', link: '/varejo/loja.html' },
                 { page: 'romaneios', icone: '🚚', texto: 'Romaneios', link: '/varejo/romaneios.html' }
             ]
         },
@@ -162,8 +182,6 @@ const menuConfig = {
                 { page: 'fin-adiantamentos', icone: '💠', texto: 'Adiantamentos', link: '/financeiro/adiantamentos.html' },
                 { page: 'fin-renegociacoes', icone: '🤝', texto: 'Renegociações', link: '/financeiro/renegociacoes.html' },
                 { page: 'contas-financeiras', icone: '🏦', texto: 'Contas Financeiras', link: '/financeiro/contas-financeiras.html' },
-                { page: 'plano-contas', icone: '🗂️', texto: 'Plano de Contas', link: '/financeiro/plano-contas.html' },
-                { page: 'centros-custo', icone: '🎯', texto: 'Centros de Custo', link: '/financeiro/centros-custo.html' },
                 { page: 'fluxo-caixa', icone: '💧', texto: 'Fluxo de Caixa', link: '/financeiro/fluxo-caixa.html' },
                 { page: 'fin-provisoes', icone: '📌', texto: 'Provisões', link: '/financeiro/provisoes.html' },
                 { page: 'fin-orcamento', icone: '🎯', texto: 'Orçamento', link: '/financeiro/orcamento.html' },
@@ -172,20 +190,30 @@ const menuConfig = {
                 { page: 'fin-conciliacao-regras', icone: '🎛️', texto: 'Regras de Conciliação', link: '/financeiro/conciliacao-regras.html' },
                 { page: 'fin-lotes-pagamento', icone: '📦', texto: 'Pagamento em Lote', link: '/financeiro/lotes-pagamento.html' },
                 { page: 'fin-cartoes', icone: '💳', texto: 'Agenda de Cartões', link: '/financeiro/cartoes.html' },
-                { page: 'faturas', icone: '📃', texto: 'Faturas', link: '/financeiro/faturas.html' },
-                { page: 'cobrancas', icone: '📨', texto: 'Cobranças', link: '/financeiro/cobrancas.html' },
-                { page: 'cobrancas-config', icone: '⚙️', texto: 'Cobranças · Config', link: '/financeiro/cobrancas-config.html' },
                 { page: 'adquirentes-cartao', icone: '💳', texto: 'Adquirentes de Cartão', link: '/financeiro/adquirentes-cartao.html' },
                 { page: 'recorrencias', icone: '🔄', texto: 'Recorrências (Receber)', link: '/financeiro/recorrencias.html' },
                 { page: 'cp-recorrencias', icone: '🔁', texto: 'Recorrências (Pagar)', link: '/financeiro/cp-recorrencias.html' }
             ]
-        },        {
+        },
+        {
+            titulo: 'Cobrança',
+            icone: '📨',
+            colapsavel: true,
+            feature: 'cobranca',
+            itens: [
+                { page: 'cobrancas', icone: '📨', texto: 'Régua de Cobrança', link: '/cobranca/cobrancas.html' },
+                { page: 'cobrancas-config', icone: '⚙️', texto: 'Configuração', link: '/cobranca/cobrancas-config.html' }
+            ]
+        },
+        {
             titulo: 'Contabilidade',
             icone: '📚',
             colapsavel: true,
             feature: 'financeiro',
             itens: [
-                { page: 'ctb-plano', icone: '🗂️', texto: 'Plano Contábil', link: '/contabilidade/plano-contabil.html' },
+                { page: 'plano-contas', icone: '🗂️', texto: 'Plano de Contas · Gerencial', link: '/contabilidade/plano-contas.html' },
+                { page: 'centros-custo', icone: '🎯', texto: 'Centros de Custo', link: '/contabilidade/centros-custo.html' },
+                { page: 'ctb-plano', icone: '📚', texto: 'Plano Contábil · Escrituração', link: '/contabilidade/plano-contabil.html' },
                 { page: 'ctb-lancamentos', icone: '✍️', texto: 'Lançamentos (Diário)', link: '/contabilidade/lancamentos.html' },
                 { page: 'ctb-balancete', icone: '⚖️', texto: 'Balancete', link: '/contabilidade/balancete.html' },
                 { page: 'ctb-contabilizacao', icone: '🤖', texto: 'Contabilização Auto', link: '/contabilidade/contabilizacao.html' }
@@ -199,14 +227,18 @@ const menuConfig = {
             feature: 'fiscal',
             itens: [
                 { page: 'nfse', icone: '🧾', texto: 'Emitir NFS-e', link: '/fiscal/nfse.html' },
-                { page: 'nfse-emitidas', icone: '📋', texto: 'NFS-e · Emitidas', link: '/fiscal/nfse-emitidas.html' },
-                { page: 'nfce-config', icone: '🧮', texto: 'NFC-e · Config', link: '/fiscal/nfce-config.html' },
-                { page: 'nfe-config', icone: '📑', texto: 'NF-e · Config', link: '/fiscal/nfe-config.html' },
+                { page: 'faturas', icone: '📃', texto: 'Faturas', link: '/fiscal/faturas.html' },
+                // Entrada única para a lista unificada: os antigos itens
+                // "NFS-e · Emitidas" e "NFC-e · Emitidas" apontavam para esta
+                // mesma página só trocando ?tipo=, e como as três dividiam
+                // page:'notas-fiscais' acendiam juntas no menu. O filtro por
+                // tipo já existe dentro da própria tela.
                 { page: 'notas-fiscais', icone: '🗂️', texto: 'Notas Fiscais', link: '/fiscal/notas-fiscais.html' },
-                { page: 'nfe-inbox', icone: '📬', texto: 'NF-e · Entrada', link: '/fiscal/nfe-inbox.html' },
+                { page: 'manifestador', icone: '📬', texto: 'Manifestador de Documentos', link: '/fiscal/manifestador.html' },
                 { page: 'mdfe', icone: '🚛', texto: 'MDF-e', link: '/fiscal/mdfe.html' },
                 { page: 'cte', icone: '📦', texto: 'CT-e', link: '/fiscal/cte.html' },
                 { page: 'cadastro-cfops', icone: '🏷️', texto: 'CFOPs', link: '/fiscal/cadastro-cfops.html' },
+                { page: 'cadastro-tipos-operacao', icone: '🎯', texto: 'Tipos de Operação', link: '/fiscal/cadastro-tipos-operacao.html' },
                 { page: 'retencoes', icone: '✂️', texto: 'Retenções', link: '/fiscal/retencoes.html' },
                 { page: 'fiscal-gnre', icone: '🧾', texto: 'GNRE / DIFAL', link: '/fiscal/gnre.html' },
                 { page: 'fiscal-ibscbs', icone: '🏛️', texto: 'IBS/CBS (Reforma)', link: '/fiscal/ibscbs.html' },
@@ -235,8 +267,16 @@ const menuConfig = {
             feature: 'rh',
             itens: [
                 { page: 'funcionarios', icone: '👷', texto: 'Funcionários', link: '/rh/funcionarios.html' },
-                { page: 'comissoes', icone: '💵', texto: 'Comissões', link: '/rh/comissoes.html' },
-                { page: 'patrimonio', icone: '🏛️', texto: 'Patrimônio', link: '/rh/patrimonio.html' }
+                { page: 'comissoes', icone: '💵', texto: 'Comissões', link: '/rh/comissoes.html' }
+            ]
+        },
+        {
+            titulo: 'Patrimônio',
+            icone: '🏛️',
+            colapsavel: true,
+            feature: 'patrimonio',
+            itens: [
+                { page: 'patrimonio-bens', icone: '🏛️', texto: 'Bens', link: '/patrimonio/bens.html' }
             ]
         },
         {
@@ -259,11 +299,7 @@ const menuConfig = {
             colapsavel: true,
             feature: 'comunicacao',
             itens: [
-                { page: 'comunicacao', icone: '📣', texto: 'Comunicação', link: '/comunicacao/comunicacao.html' },
-                { page: 'whatsapp', icone: '💬', texto: 'WhatsApp', link: '/comunicacao/whatsapp.html', feature: 'whatsapp' },
-                { page: 'wa-campanhas', icone: '📣', texto: 'Campanhas WA', link: '/comunicacao/wa-campanhas.html', feature: 'whatsapp' },
-                { page: 'wa-simular', icone: '🧪', texto: 'Simular conversa', link: '/comunicacao/wa-simular.html', feature: 'whatsapp' },
-                { page: 'wa-agenda', icone: '📅', texto: 'Agenda de campanhas', link: '/comunicacao/wa-agenda.html', feature: 'whatsapp' },
+                { page: 'conversas', icone: '💬', texto: 'Conversas', link: '/comunicacao/conversas.html', feature: 'whatsapp' },
                 { page: 'email-log', icone: '📧', texto: 'Log de E-mails', link: '/comunicacao/email-log.html' },
                 { page: 'auditoria', icone: '🔎', texto: 'Auditoria', link: '/comunicacao/auditoria.html' }
             ]
@@ -275,19 +311,15 @@ const menuConfig = {
             itens: [
                 { page: 'meu-perfil', icone: '👤', texto: 'Meu Perfil', link: '/configuracoes/meu-perfil.html' },
                 { page: 'usuarios', icone: '🔑', texto: 'Usuários', link: '/configuracoes/usuarios.html' },
-                { page: 'config-alcadas', icone: '🛡️', texto: 'Alçadas', link: '/configuracoes/alcadas.html' },
-                { page: 'conexoes', icone: '🔗', texto: 'Conexões', link: '/configuracoes/conexoes.html' },
-                { page: 'integracoes', icone: '🔌', texto: 'Integrações', link: '/configuracoes/integracoes.html' },
+                { page: 'config-alcadas', icone: '🛡️', texto: 'Regras de Alçada', link: '/configuracoes/alcadas.html' },
                 { page: 'minha-empresa', icone: '🏢', texto: 'Minha Empresa', link: '/configuracoes/minha-empresa.html' },
                 { page: 'estabelecimentos', icone: '🏪', texto: 'Estabelecimentos', link: '/configuracoes/estabelecimentos.html' },
-                { page: 'cadastro-tipos-operacao', icone: '🎯', texto: 'Tipos de Operação', link: '/configuracoes/cadastro-tipos-operacao.html' },
                 { page: 'importacao', icone: '⬆️', texto: 'Importação', link: '/configuracoes/importacao.html' },
-                { page: 'jornal', icone: '📰', texto: 'Jornal', link: '/configuracoes/jornal.html' },
                 { page: 'email', icone: '✉️', texto: 'E-mail (SMTP)', link: '/configuracoes/email.html' },
                 { page: 'notificacoes', icone: '🔔', texto: 'Notificações', link: '/configuracoes/notificacoes.html' },
                 { page: 'portal-credenciais', icone: '🔐', texto: 'Portal · Credenciais', link: '/configuracoes/portal-credenciais.html' },
                 { page: 'status', icone: '📊', texto: 'Status', link: '/configuracoes/status.html' },
-                { page: 'versoes', icone: '💾', texto: 'Versões', link: '/configuracoes/versoes.html' }
+
             ]
         }
     ]

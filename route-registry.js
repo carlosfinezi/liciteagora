@@ -270,6 +270,8 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasCTe(app, db);
   registrarRotasMarketplaces(app, db);
   require('./marketplaces-ml').registrarRotasTenant(app, db); // ML Fase 0: /connect + /status (per-tenant)
+  require('./loja-routes').registrarRotasLojaAdmin(app, db);      // Vitrine: painel do lojista (a parte pública é pré-auth)
+  require('./conversas-routes').registrarRotasConversas(app, db); // Central de conversas: inbox + base da IA
   registrarRotasTEF(app, db);
 
   // ==================== BI / IA / JORNAL / BACKUP / CERTIFICADO / PROXY / FORNECEDOR ====================
