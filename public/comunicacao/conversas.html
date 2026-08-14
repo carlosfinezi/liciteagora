@@ -107,6 +107,11 @@
       Disparo para quem nunca falou com você é o que derruba número. Campanha aqui serve para
       <strong>avisar cliente</strong> — pedido, boleto, novidade para quem aceitou receber.
     </div>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="abrirNovaCampanha()">+ Nova campanha</button>
+      <span class="spacer"></span>
+      <span id="campResumo" style="font-size:0.85em;color:var(--text-2);"></span>
+    </div>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Campanha</th><th>Origem</th><th>Status</th><th>Destinatários</th><th>Criada</th><th></th></tr></thead>
@@ -183,6 +188,70 @@
     </div>
   </div>
 </main></div>
+
+<!-- modal nova campanha -->
+<div class="modal-bg" id="modalCampanha">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Nova campanha</h3>
+        <small class="muted">Mensagem, público e envio. Sai no ritmo do canal, respeitando quem pediu para não receber.</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalCampanha')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Nome da campanha *</label>
+        <input type="text" id="npNome" maxlength="80" placeholder="ex.: Aviso de boleto de agosto"></div>
+      <div class="form-group"><label>Tipo *</label>
+        <select id="npTipo">
+          <option value="operacional">Operacional — aviso de pedido, boleto, entrega</option>
+          <option value="marketing">Marketing — só para quem aceitou receber</option>
+        </select></div>
+    </div>
+
+    <h4 style="margin:14px 0 6px;font-size:0.9em;">1 · Mensagem</h4>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Modelo</label>
+        <select id="npTemplate" onchange="mudouTemplate()"><option value="">— escrever uma nova —</option></select>
+      </div>
+    </div>
+    <div class="form-row" id="npNovoTemplate">
+      <div class="form-group full-width">
+        <label>Texto da mensagem *</label>
+        <textarea id="npCorpo" rows="4" placeholder="Olá {{razaoSocial}}, ..."></textarea>
+        <small class="muted">Variáveis: {{razaoSocial}} · {{nomeFantasia}} · {{primeiroNome}} · {{cpfCnpj}} · {{email}} · {{telefone}}</small>
+      </div>
+    </div>
+
+    <h4 style="margin:14px 0 6px;font-size:0.9em;">2 · Quem recebe</h4>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Lista</label>
+        <select id="npLista" onchange="mudouLista()"><option value="">— montar uma nova —</option></select>
+      </div>
+    </div>
+    <div id="npNovaLista">
+      <div class="toolbar" style="margin-bottom:8px;">
+        <input type="text" id="npBuscaPessoa" placeholder="Buscar cliente…" oninput="renderPublico()" style="flex:1;">
+        <button class="btn btn-ghost btn-sm" onclick="marcarPublico(true)">Marcar visíveis</button>
+        <button class="btn btn-ghost btn-sm" onclick="marcarPublico(false)">Limpar</button>
+        <span id="npContagem" style="font-size:0.85em;color:var(--text-2);"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:230px;overflow-y:auto;">
+        <table>
+          <thead><tr><th style="width:30px;"></th><th>Cliente</th><th>Telefone</th><th>Marketing</th></tr></thead>
+          <tbody id="tbPublico"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="npAviso"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalCampanha')">Cancelar</button>
+      <button class="btn btn-primary" onclick="criarCampanha()">Criar campanha</button>
+    </div>
+  </div>
+</div>
 
 <!-- modal corrigir -->
 <div class="modal-bg" id="modalCorrigir">
@@ -267,21 +336,137 @@ async function carregarCampanhas(){
   const d = await fetch('/api/conversas/campanhas').then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   const tb = document.getElementById('tbCamp');
-  if (!d.campanhas.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma campanha</td></tr>'; return; }
+  document.getElementById('campResumo').textContent = `${d.campanhas.length} campanha(s)`;
+  if (!d.campanhas.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma campanha ainda — comece por "+ Nova campanha"</td></tr>'; return; }
   tb.innerHTML = d.campanhas.map(c => {
     const dest = c.destinatarios
-      ? Object.entries(c.destinatarios).map(([k,v]) => `${v} ${k}`).join(' · ') : '—';
+      ? Object.entries(c.destinatarios).map(([k,v]) => `${v} ${k}`).join(' · ')
+      : (c.totalDestinatarios != null ? `${c.totalDestinatarios} na lista` : '—');
     const pend = c.destinatarios?.pendente || 0;
+    // comm em rascunho pode ser executada; wa com pendentes pode ser cancelada.
+    const acao = c.origem === 'comm' && ['rascunho','agendada'].includes(String(c.status))
+      ? `<button class="btn btn-primary btn-sm" onclick="executarCampanha(${c.id}, ${c.totalDestinatarios||0})">Executar</button>`
+      : (c.origem === 'wa' && pend
+        ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelarCampanha(${c.id}, ${pend})">Cancelar ${pend} pendente(s)</button>` : '');
     return `<tr>
       <td><strong>${esc(c.nome||'(sem nome)')}</strong>${c.descricao?`<br><small class="muted">${esc(String(c.descricao).slice(0,90))}</small>`:''}</td>
-      <td><span class="badge ${c.origem==='wa'?'ativo':'inativo'}">${c.origem==='wa'?'wa_campanhas':'comm'}</span></td>
+      <td><span class="badge ${c.origem==='wa'?'inativo':'ativo'}">${c.origem==='wa'?'legado':'campanha'}</span></td>
       <td>${esc(c.status||'—')}</td>
       <td>${dest}</td>
       <td>${esc(String(c.criadoEm||'').slice(0,10))}</td>
-      <td style="text-align:right;">${(c.origem==='wa' && pend)
-        ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelarCampanha(${c.id}, ${pend})">Cancelar ${pend} pendente(s)</button>` : ''}</td>
+      <td style="text-align:right;">${acao}</td>
     </tr>`;
   }).join('');
+}
+
+// ---------- nova campanha ----------
+// Usa as APIs /api/comm/* que já existiam (template + lista + campanha), em
+// vez de criar um terceiro módulo de campanha. A tela é que faltava.
+let PUBLICO = [], SEL_PUB = new Set();
+
+async function abrirNovaCampanha(){
+  ['npNome','npCorpo'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('npAviso').innerHTML = '';
+  SEL_PUB.clear();
+
+  const [t, l, p] = await Promise.all([
+    fetch('/api/comm/templates').then(r=>r.json()).catch(()=>null),
+    fetch('/api/comm/listas').then(r=>r.json()).catch(()=>null),
+    fetch('/api/conversas/publico').then(r=>r.json()).catch(()=>null),
+  ]);
+  document.getElementById('npTemplate').innerHTML = '<option value="">— escrever uma nova —</option>'
+    + (t?.templates||[]).filter(x=>x.canal==='whatsapp').map(x=>`<option value="${x.id}">${esc(x.nome)}</option>`).join('');
+  document.getElementById('npLista').innerHTML = '<option value="">— montar uma nova —</option>'
+    + (l?.listas||[]).map(x=>`<option value="${x.id}">${esc(x.nome)}</option>`).join('');
+  PUBLICO = p?.pessoas || [];
+  renderPublico();
+  mudouTemplate(); mudouLista();
+  document.getElementById('modalCampanha').classList.add('open');
+}
+
+function mudouTemplate(){
+  document.getElementById('npNovoTemplate').style.display =
+    document.getElementById('npTemplate').value ? 'none' : '';
+}
+function mudouLista(){
+  document.getElementById('npNovaLista').style.display =
+    document.getElementById('npLista').value ? 'none' : '';
+}
+
+function renderPublico(){
+  const q = document.getElementById('npBuscaPessoa').value.toLowerCase().trim();
+  const lista = PUBLICO.filter(p => !q || [p.razaoSocial,p.nomeFantasia,p.telefone,p.cidade]
+    .some(v => String(v||'').toLowerCase().includes(q)));
+  document.getElementById('npContagem').textContent = `${SEL_PUB.size} selecionado(s)`;
+  const tb = document.getElementById('tbPublico');
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">Nenhum cliente com telefone</td></tr>'; return; }
+  tb.innerHTML = lista.slice(0,300).map(p => `<tr>
+    <td><input type="checkbox" ${SEL_PUB.has(p.id)?'checked':''} ${p.optOut?'disabled':''}
+         onchange="alternarPub(${p.id}, this.checked)" style="width:auto;"></td>
+    <td>${esc(p.razaoSocial||p.nomeFantasia||'—')}${p.cidade?`<br><small class="muted">${esc(p.cidade)}/${esc(p.uf||'')}</small>`:''}</td>
+    <td>${esc(p.telefone)}</td>
+    <td>${p.optOut ? '<span class="badge inativo">pediu para sair</span>'
+                   : (p.aceitaMarketing ? '<span class="badge ativo">aceita</span>' : '<span class="badge inativo">não aceita</span>')}</td>
+  </tr>`).join('');
+}
+
+function alternarPub(id, on){ if (on) SEL_PUB.add(id); else SEL_PUB.delete(id); renderPublico(); }
+function marcarPublico(on){
+  const q = document.getElementById('npBuscaPessoa').value.toLowerCase().trim();
+  PUBLICO.filter(p => !p.optOut && (!q || [p.razaoSocial,p.telefone].some(v=>String(v||'').toLowerCase().includes(q))))
+    .forEach(p => on ? SEL_PUB.add(p.id) : SEL_PUB.delete(p.id));
+  if (!on) SEL_PUB.clear();
+  renderPublico();
+}
+
+async function criarCampanha(){
+  const nome = document.getElementById('npNome').value.trim();
+  const tipo = document.getElementById('npTipo').value;
+  if (!nome) return showAlert('Dê um nome à campanha','error');
+  const av = document.getElementById('npAviso');
+  av.innerHTML = '<small class="muted">Criando…</small>';
+
+  // 1) modelo: usa o escolhido ou cria a partir do texto
+  let templateId = Number(document.getElementById('npTemplate').value) || null;
+  if (!templateId) {
+    const corpo = document.getElementById('npCorpo').value.trim();
+    if (!corpo) { av.innerHTML = '<div class="alert error" style="display:block;">Escreva a mensagem</div>'; return; }
+    const t = await fetch('/api/comm/templates', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nome: nome.slice(0,60), canal:'whatsapp', corpo }) }).then(r=>r.json());
+    if (!t.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(t.error)}</div>`; return; }
+    templateId = t.template.id;
+  }
+
+  // 2) lista: usa a escolhida ou monta com quem foi marcado
+  let listaId = Number(document.getElementById('npLista').value) || null;
+  if (!listaId) {
+    if (!SEL_PUB.size) { av.innerHTML = '<div class="alert error" style="display:block;">Escolha quem vai receber</div>'; return; }
+    const l = await fetch('/api/comm/listas', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nome: nome.slice(0,60), descricao: 'Criada pela tela de Conversas' }) }).then(r=>r.json());
+    if (!l.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(l.error)}</div>`; return; }
+    listaId = l.lista.id;
+    const m = await fetch(`/api/comm/listas/${listaId}/membros`, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ pessoaIds: [...SEL_PUB] }) }).then(r=>r.json());
+    if (!m.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(m.error)}</div>`; return; }
+  }
+
+  // 3) a campanha em si — nasce em rascunho, não dispara nada sozinha
+  const c = await fetch('/api/comm/campanhas', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ nome, templateId, listaId, tipo }) }).then(r=>r.json());
+  if (!c.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(c.error)}</div>`; return; }
+
+  fechar('modalCampanha');
+  showAlert(`Campanha "${nome}" criada em rascunho com ${c.campanha.totalDestinatarios} destinatário(s) — revise e execute na lista`);
+  carregarCampanhas();
+}
+
+async function executarCampanha(id, total){
+  if (!confirm(`Enviar esta campanha para ${total} destinatário(s)?\n\nAs mensagens saem no ritmo do canal (limite por hora e intervalo entre envios), e quem pediu para sair é descartado automaticamente.`)) return;
+  const d = await fetch(`/api/comm/campanhas/${id}/executar`, { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Campanha executada: ${d.enviados ?? 0} enviado(s)`
+    + (d.descartados ? ` · ${d.descartados} descartado(s) por opt-out ou consentimento` : ''));
+  carregarCampanhas();
 }
 
 async function cancelarCampanha(id, pend){

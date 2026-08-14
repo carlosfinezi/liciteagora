@@ -4,6 +4,24 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-14 (4)
+
+- **Bug: aba Campanhas abria com "Conversa não encontrada"**. `/api/conversas/:id`
+  estava registrada antes de `/api/conversas/campanhas`, então o Express casava
+  `campanhas` como se fosse um id de conversa. As rotas de caminho literal
+  (`campanhas`, `publico`, `oportunidades/livres`, `painel/resumo`) passaram para
+  antes da paramétrica, com aviso no código para não regredir
+- **Faltava criar campanha.** A tela antiga fazia isso e foi redirecionada sem
+  que a função fosse replicada — erro meu na unificação. A aba ganhou o
+  assistente: mensagem (modelo existente ou texto novo, com as variáveis do
+  cadastro), público (lista existente ou montada na hora a partir dos clientes
+  com telefone) e a campanha em si. Usa as APIs `/api/comm/*` que já existiam,
+  sem criar um terceiro módulo de campanha
+- A escolha do público mostra **quem pediu para sair** (desmarcável, vindo de
+  `comm_optout`) e **quem aceita marketing** — antes isso só aparecia na hora do
+  envio, quando a lista já estava montada. Campanha nasce em rascunho; executar
+  é ação separada, e o envio sai no ritmo do canal
+
 ## 2026-08-14 (3)
 
 - **Conhecimento da IA unificado num lugar só.** Havia dois: o campo antigo

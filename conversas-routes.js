@@ -215,6 +215,101 @@ function registrarRotasConversas(app, db) {
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 
+  // ATENÇÃO à ordem: estas rotas têm caminho literal e precisam ser
+  // registradas ANTES de /api/conversas/:id — senão o Express casa
+  // 'campanhas' com :id e responde 'Conversa não encontrada'.
+  /**
+   * Campanhas das DUAS fontes numa lista só.
+   *
+   * O módulo foi construído duas vezes — comm_campanhas (com lista, template e
+   * opt-out modelados, nunca usado) e wa_campanhas (usado de fato). Enquanto a
+   * decisão de qual aposentar não vem, a tela mostra as duas com a origem à
+   * vista, em vez de fingir que só existe uma.
+   */
+  app.get('/api/conversas/campanhas', (req, res) => {
+    try {
+      const linhas = [];
+      try {
+        for (const c of db.prepare('SELECT * FROM comm_campanhas ORDER BY id DESC LIMIT 100').all()) {
+          linhas.push({ origem: 'comm', id: c.id, nome: c.nome, status: c.status,
+                        canal: c.canal || null, criadoEm: c.dataCriacao || null, destinatarios: null,
+                        totalDestinatarios: c.totalDestinatarios, tipo: c.tipo || null });
+        }
+      } catch { /* tenant sem o módulo antigo */ }
+      try {
+        for (const c of db.prepare('SELECT * FROM wa_campanhas ORDER BY id DESC LIMIT 100').all()) {
+          const cfg = jsonOu(c.config, {});
+          const dest = db.prepare(`SELECT status, COUNT(*) n FROM wa_campanha_dest
+            WHERE campanha_id = ? GROUP BY status`).all(c.id);
+          linhas.push({ origem: 'wa', id: c.id, nome: c.nome || cfg.nome, status: c.status,
+                        canal: 'whatsapp', criadoEm: c.criado_em || null,
+                        descricao: cfg.descricao || null,
+                        destinatarios: dest.reduce((o, d) => (o[d.status] = d.n, o), {}) });
+        }
+      } catch { }
+      res.json({ success: true, campanhas: linhas });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Público possível para uma campanha de WhatsApp: quem tem telefone no
+   * cadastro, já marcando quem aceitou marketing e quem pediu para sair.
+   *
+   * Mostrar o opt-out aqui, e não só na hora do envio, é o que evita montar
+   * lista com gente que já pediu para não receber.
+   */
+  app.get('/api/conversas/publico', (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim().toLowerCase();
+      let linhas = db.prepare(`SELECT id, razaoSocial, nomeFantasia, telefone, cidade, uf,
+             COALESCE(aceitaWhatsappMarketing, 0) AS aceitaMarketing
+        FROM pessoas
+        WHERE ativo = 1 AND TRIM(COALESCE(telefone,'')) <> ''
+        ORDER BY razaoSocial LIMIT 500`).all();
+      if (q) linhas = linhas.filter(p => [p.razaoSocial, p.nomeFantasia, p.telefone, p.cidade]
+        .some(v => String(v || '').toLowerCase().includes(q)));
+
+      // Opt-out casa por destino normalizado — mesmo critério do envio.
+      let fora = new Set();
+      try {
+        fora = new Set(db.prepare("SELECT destino FROM comm_optout WHERE canal = 'whatsapp'")
+          .all().map(r => soDigitos(r.destino).slice(-8)));
+      } catch { }
+      res.json({ success: true, pessoas: linhas.map(p => ({
+        ...p, aceitaMarketing: !!p.aceitaMarketing,
+        optOut: fora.has(soDigitos(p.telefone).slice(-8)),
+      })) });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Cancelar campanha: marca os destinatários pendentes como cancelados.
+   * É a ação da "fase 0" — parar disparo frio que ficou parado no meio.
+   */
+  app.post('/api/conversas/campanhas/wa/:id/cancelar', (req, res) => {
+    try {
+      const r = db.prepare(`UPDATE wa_campanha_dest SET status = 'cancelado'
+        WHERE campanha_id = ? AND status = 'pendente'`).run(req.params.id);
+      db.prepare("UPDATE wa_campanhas SET status = 'cancelada' WHERE id = ?").run(req.params.id);
+      res.json({ success: true, cancelados: r.changes });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /** Oportunidades sem conversa ligada, para o vendedor escolher qual vincular. */
+  app.get('/api/conversas/oportunidades/livres', (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim().toLowerCase();
+      let linhas = db.prepare(`SELECT o.id, o.titulo, o.valor, e.nome AS etapaNome, p.razaoSocial AS clienteNome
+        FROM crm_oportunidades o
+        LEFT JOIN crm_etapas e ON e.id = o.etapaId
+        LEFT JOIN pessoas p ON p.id = o.clienteId
+        WHERE o.ativo = 1 AND o.id NOT IN (SELECT COALESCE(oportunidadeId,0) FROM conv_conversas)
+        ORDER BY o.id DESC LIMIT 100`).all();
+      if (q) linhas = linhas.filter(o => [o.titulo, o.clienteNome].some(v => String(v||'').toLowerCase().includes(q)));
+      res.json({ success: true, oportunidades: linhas });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   // ---------- uma conversa, com o que o ERP sabe do contato ----------
   app.get('/api/conversas/:id', (req, res) => {
     try {
@@ -376,21 +471,6 @@ function registrarRotasConversas(app, db) {
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
-  /** Oportunidades sem conversa ligada, para o vendedor escolher qual vincular. */
-  app.get('/api/conversas/oportunidades/livres', (req, res) => {
-    try {
-      const q = String(req.query.q || '').trim().toLowerCase();
-      let linhas = db.prepare(`SELECT o.id, o.titulo, o.valor, e.nome AS etapaNome, p.razaoSocial AS clienteNome
-        FROM crm_oportunidades o
-        LEFT JOIN crm_etapas e ON e.id = o.etapaId
-        LEFT JOIN pessoas p ON p.id = o.clienteId
-        WHERE o.ativo = 1 AND o.id NOT IN (SELECT COALESCE(oportunidadeId,0) FROM conv_conversas)
-        ORDER BY o.id DESC LIMIT 100`).all();
-      if (q) linhas = linhas.filter(o => [o.titulo, o.clienteNome].some(v => String(v||'').toLowerCase().includes(q)));
-      res.json({ success: true, oportunidades: linhas });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
-  });
-
   // ---------- base de conhecimento da IA ----------
   app.get('/api/ia/base', (req, res) => {
     try {
@@ -455,51 +535,6 @@ function registrarRotasConversas(app, db) {
              String(b.respondeu || '').slice(0, 2000), correta.slice(0, 4000),
              b.viraBase === false ? 0 : 1, baseId, usuario(req));
       res.json({ success: true, baseId });
-    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
-  });
-
-  /**
-   * Campanhas das DUAS fontes numa lista só.
-   *
-   * O módulo foi construído duas vezes — comm_campanhas (com lista, template e
-   * opt-out modelados, nunca usado) e wa_campanhas (usado de fato). Enquanto a
-   * decisão de qual aposentar não vem, a tela mostra as duas com a origem à
-   * vista, em vez de fingir que só existe uma.
-   */
-  app.get('/api/conversas/campanhas', (req, res) => {
-    try {
-      const linhas = [];
-      try {
-        for (const c of db.prepare('SELECT * FROM comm_campanhas ORDER BY id DESC LIMIT 100').all()) {
-          linhas.push({ origem: 'comm', id: c.id, nome: c.nome, status: c.status,
-                        canal: c.canal || null, criadoEm: c.dataCriacao || null, destinatarios: null });
-        }
-      } catch { /* tenant sem o módulo antigo */ }
-      try {
-        for (const c of db.prepare('SELECT * FROM wa_campanhas ORDER BY id DESC LIMIT 100').all()) {
-          const cfg = jsonOu(c.config, {});
-          const dest = db.prepare(`SELECT status, COUNT(*) n FROM wa_campanha_dest
-            WHERE campanha_id = ? GROUP BY status`).all(c.id);
-          linhas.push({ origem: 'wa', id: c.id, nome: c.nome || cfg.nome, status: c.status,
-                        canal: 'whatsapp', criadoEm: c.criado_em || null,
-                        descricao: cfg.descricao || null,
-                        destinatarios: dest.reduce((o, d) => (o[d.status] = d.n, o), {}) });
-        }
-      } catch { }
-      res.json({ success: true, campanhas: linhas });
-    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
-  });
-
-  /**
-   * Cancelar campanha: marca os destinatários pendentes como cancelados.
-   * É a ação da "fase 0" — parar disparo frio que ficou parado no meio.
-   */
-  app.post('/api/conversas/campanhas/wa/:id/cancelar', (req, res) => {
-    try {
-      const r = db.prepare(`UPDATE wa_campanha_dest SET status = 'cancelado'
-        WHERE campanha_id = ? AND status = 'pendente'`).run(req.params.id);
-      db.prepare("UPDATE wa_campanhas SET status = 'cancelada' WHERE id = ?").run(req.params.id);
-      res.json({ success: true, cancelados: r.changes });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
