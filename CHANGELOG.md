@@ -16,9 +16,12 @@ working tree.
   Na ficha lateral dá para criar o card (funil e etapa default do próprio CRM,
   `fonte='whatsapp'`, cliente já vinculado) ou amarrar a um card existente; o
   quadro continua sendo o do CRM. A aba Funil saiu da central
-- Ficaram órfãs nos 11 tenants, sem leitura nem escrita: a tabela
-  `conv_funil_etapas` e as colunas `etapaId`/`valor`/`etapaEm` de
-  `conv_conversas`. Não removidas — DROP em `data/` é decisão do usuário
+- Ficaram órfãs nos 11 tenants a tabela `conv_funil_etapas` e as colunas
+  `etapaId`/`valor`/`etapaEm` de `conv_conversas`. **Removidas em seguida**, a
+  pedido, por `scripts/limpar-funil-orfao.js`: o script simula por padrão, só
+  age com `--aplicar` e pula o tenant que tiver qualquer dado nessas colunas —
+  dado órfão ainda é dado. Backup em `backups/db/2026-08-14-1048/` antes do
+  DDL; `integrity_check` ok depois, e tenant novo já nasce sem elas
 
 ## 2026-08-14
 

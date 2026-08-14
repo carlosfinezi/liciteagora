@@ -91,9 +91,6 @@ function migrarConversasDB(db) {
   // mesma venda.
   alterSafe('ALTER TABLE conv_conversas ADD COLUMN oportunidadeId INTEGER');
   alterSafe('ALTER TABLE conv_conversas ADD COLUMN pedidoId INTEGER');
-  // Colunas etapaId/valor/etapaEm e a tabela conv_funil_etapas existiram numa
-  // versão anterior deste módulo (funil próprio, 2026-08-14) e ficaram órfãs
-  // nos tenants já migrados. Não são lidas nem escritas.
 }
 
 const jsonOu = (t, p) => { try { return t ? JSON.parse(t) : p; } catch { return p; } };
