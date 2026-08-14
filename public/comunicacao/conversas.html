@@ -55,21 +55,6 @@
 .kpis .c .v { display:block; font-size:1.35em; font-weight:600; color:var(--text-1); }
 .kpis .c.alerta { border-color:var(--danger); }
 
-/* funil */
-.quadro { display:flex; gap:12px; overflow-x:auto; padding-bottom:10px; align-items:flex-start; }
-.coluna { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); min-width:230px; max-width:250px; flex:0 0 auto; display:flex; flex-direction:column; max-height:calc(100vh - 260px); }
-.coluna .cab { padding:9px 12px; border-bottom:1px solid var(--border); border-top:3px solid var(--border); border-radius:var(--r-md) var(--r-md) 0 0; }
-.coluna .cab .n { font-size:0.88em; font-weight:600; }
-.coluna .cab .sub { font-size:0.75em; color:var(--text-2); }
-.coluna .cards { padding:8px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1; min-height:60px; }
-.coluna.alvo { outline:2px dashed var(--accent); outline-offset:-3px; }
-.card-f { background:var(--bg-1); border:1px solid var(--border); border-radius:8px; padding:9px 10px; cursor:grab; }
-.card-f:active { cursor:grabbing; }
-.card-f .t { font-size:0.86em; font-weight:600; }
-.card-f .s { font-size:0.76em; color:var(--text-2); margin-top:3px; }
-.card-f .v { font-size:0.86em; font-weight:600; color:var(--success); margin-top:5px; }
-.card-f .acoes { display:flex; gap:6px; margin-top:7px; }
-.card-f .acoes button { font-size:0.72em; padding:2px 7px; border:1px solid var(--border); background:transparent; color:var(--text-2); border-radius:5px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -81,7 +66,6 @@
 
   <div class="tabs">
     <div class="tab active" onclick="trocarTab('inbox')">Atendimento</div>
-    <div class="tab" onclick="trocarTab('funil')">Funil</div>
     <div class="tab" onclick="trocarTab('ia')">Base da IA</div>
     <div class="tab" onclick="trocarTab('campanhas')">Campanhas</div>
     <div class="tab" onclick="trocarTab('canal')">Canal</div>
@@ -115,18 +99,6 @@
       </div></div>
 
     </div>
-  </div>
-
-  <!-- ============== FUNIL ============== -->
-  <div class="tab-pane" id="tab-funil">
-    <div class="toolbar">
-      <button class="btn btn-secondary btn-sm" onclick="novaEtapa()">+ Etapa</button>
-      <span class="spacer"></span>
-      <span id="funilResumo" style="font-size:0.85em;color:var(--text-2);"></span>
-    </div>
-    <div class="quadro" id="quadro"><div class="vazio-centro">Carregando…</div></div>
-    <small class="muted">Arraste o cartão entre as etapas. Só entra no funil a conversa que você colocar —
-      atendimento comum não vira oportunidade.</small>
   </div>
 
   <!-- ============== CAMPANHAS ============== -->
@@ -286,92 +258,8 @@ function trocarTab(t){
   event.currentTarget.classList.add('active');
   document.getElementById('tab-'+t).classList.add('active');
   if (t==='ia') carregarBase();
-  if (t==='funil') carregarFunil();
   if (t==='campanhas') carregarCampanhas();
   if (t==='canal') carregarCanal();
-}
-
-// ---------- funil ----------
-let ARRASTANDO = null;
-
-async function carregarFunil(){
-  const d = await fetch('/api/funil').then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  const q = document.getElementById('quadro');
-  const totalGeral = Object.values(d.total).reduce((s,t)=>s+t.valor,0);
-  const nGeral = d.cards.length;
-  document.getElementById('funilResumo').textContent =
-    `${nGeral} oportunidade(s) · ${brl(totalGeral)} no funil`;
-
-  q.innerHTML = d.etapas.map(e => {
-    const cards = d.cards.filter(c => c.etapaId === e.id);
-    const t = d.total[e.id] || { n:0, valor:0 };
-    return `<div class="coluna" data-etapa="${e.id}"
-        ondragover="event.preventDefault(); this.classList.add('alvo');"
-        ondragleave="this.classList.remove('alvo');"
-        ondrop="soltar(event, ${e.id})">
-      <div class="cab" style="border-top-color:${esc(e.cor||'#64748B')};">
-        <div class="n">${esc(e.nome)}</div>
-        <div class="sub">${t.n} · ${brl(t.valor)}</div>
-      </div>
-      <div class="cards">
-        ${cards.map(c => `<div class="card-f" draggable="true" ondragstart="ARRASTANDO=${c.id}">
-          <div class="t">${esc(c.pessoaNome || c.nome || c.telefone)}</div>
-          <div class="s">${esc(String(c.ultimaMensagem||'').slice(0,60))}</div>
-          ${c.valor ? `<div class="v">${brl(c.valor)}</div>` : ''}
-          <div class="acoes">
-            <button onclick="verConversa(${c.id})">abrir</button>
-            <button onclick="definirValor(${c.id}, ${c.valor||0})">valor</button>
-            ${c.pedidoId ? `<button disabled>pedido #${c.pedidoId}</button>`
-                         : `<button onclick="gerarPedido(${c.id})">gerar pedido</button>`}
-          </div>
-        </div>`).join('') || '<small class="muted" style="padding:4px;">vazio</small>'}
-      </div>
-    </div>`;
-  }).join('');
-}
-
-async function soltar(ev, etapaId){
-  ev.preventDefault();
-  document.querySelectorAll('.coluna').forEach(c=>c.classList.remove('alvo'));
-  if (!ARRASTANDO) return;
-  const d = await fetch('/api/funil/conversa/'+ARRASTANDO, { method:'PUT',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ etapaId }) }).then(r=>r.json());
-  ARRASTANDO = null;
-  if (!d.success) return showAlert(d.error,'error');
-  carregarFunil();
-}
-
-async function definirValor(id, atual){
-  const v = prompt('Valor da oportunidade (R$):', atual || '');
-  if (v === null) return;
-  const d = await fetch('/api/funil/conversa/'+id, { method:'PUT',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ valor: Number(String(v).replace(',','.')) }) }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  carregarFunil();
-}
-
-async function gerarPedido(id){
-  if (!confirm('Gerar pedido no ERP a partir desta conversa?\n\nNasce como rascunho, sem itens — você completa na tela de pedidos.')) return;
-  const d = await fetch(`/api/funil/conversa/${id}/pedido`, { method:'POST' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert('Pedido ' + d.numero + ' criado');
-  carregarFunil();
-}
-
-function verConversa(id){
-  document.querySelectorAll('.tab')[0].click();
-  abrir(id);
-}
-
-async function novaEtapa(){
-  const nome = prompt('Nome da etapa:');
-  if (!nome) return;
-  const d = await fetch('/api/funil/etapas', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ nome }) }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  carregarFunil();
 }
 
 // ---------- campanhas (as duas fontes) ----------
@@ -535,8 +423,7 @@ async function abrir(id){
     </select>
     <button class="btn btn-ghost btn-sm" onclick="alternarIA(${c.id}, ${c.iaAtiva?0:1})">
       IA: ${c.iaAtiva ? 'ligada' : 'desligada'}</button>
-    <button class="btn btn-ghost btn-sm" onclick="porNoFunil(${c.id}, ${c.etapaId||0})">
-      ${c.etapaId ? 'no funil' : '+ funil'}</button>`;
+`;
 
   const m = document.getElementById('msgs');
   m.innerHTML = d.mensagens.length ? d.mensagens.map(x => `
@@ -576,7 +463,70 @@ function renderFicha(c, f){
       ${f.titulos.length ? f.titulos.map(t=>`<div class="linha">
         <span>vence ${esc(String(t.dataVencimento||'').slice(0,10))}</span><strong>${brl(t.valor)}</strong></div>`).join('')
         : '<small class="muted">Nada em aberto</small>'}
+    </div>
+    <div class="bloco" id="blocoOportunidade">
+      <h4>Oportunidade</h4><small class="muted">carregando…</small>
     </div>`;
+  carregarOportunidade(c.id);
+}
+
+// ---------- oportunidade no CRM ----------
+// A conversa não tem funil próprio: o quadro é o de Comercial → CRM · Funil,
+// que já existe e é onde a equipe acompanha venda. Aqui só se cria o card ou
+// se amarra a conversa a um que já existe.
+async function carregarOportunidade(conversaId){
+  const el = document.getElementById('blocoOportunidade');
+  if (!el) return;
+  const d = await fetch(`/api/conversas/${conversaId}/oportunidade`).then(r=>r.json()).catch(()=>null);
+  if (!d?.success) { el.innerHTML = '<h4>Oportunidade</h4><small class="muted">—</small>'; return; }
+  const o = d.oportunidade;
+  el.innerHTML = o
+    ? `<h4>Oportunidade</h4>
+       <div class="linha"><span>${esc(o.funilNome||'')}</span>
+         <strong style="color:${esc(o.etapaCor||'var(--text-1)')};">${esc(o.etapaNome||'—')}</strong></div>
+       <div class="linha"><span>${esc(String(o.titulo||'').slice(0,40))}</span>
+         <strong>${o.valor ? brl(o.valor) : '—'}</strong></div>
+       <div style="display:flex;gap:6px;margin-top:8px;">
+         <a class="btn btn-ghost btn-sm" href="/comercial/crm-funil.html" style="flex:1;text-align:center;">ver no funil</a>
+         <button class="btn btn-ghost btn-sm" onclick="desvincularOportunidade(${conversaId})">desvincular</button>
+       </div>`
+    : `<h4>Oportunidade</h4>
+       <small class="muted">Esta conversa ainda não virou oportunidade no CRM.</small>
+       <div style="display:flex;gap:6px;margin-top:8px;">
+         <button class="btn btn-primary btn-sm" style="flex:1;" onclick="criarOportunidade(${conversaId})">Criar</button>
+         <button class="btn btn-ghost btn-sm" onclick="vincularOportunidade(${conversaId})">Vincular</button>
+       </div>`;
+}
+
+async function criarOportunidade(conversaId){
+  const d = await fetch(`/api/conversas/${conversaId}/oportunidade`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Oportunidade criada no CRM — acompanhe em Comercial → CRM · Funil');
+  carregarOportunidade(conversaId);
+}
+
+async function vincularOportunidade(conversaId){
+  const d = await fetch('/api/conversas/oportunidades/livres').then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  if (!d.oportunidades.length) return showAlert('Nenhuma oportunidade livre no CRM','warn');
+  const lista = d.oportunidades.slice(0, 20)
+    .map(o => `${o.id} — ${o.titulo}${o.clienteNome?' ('+o.clienteNome+')':''} [${o.etapaNome||''}]`).join('\n');
+  const id = prompt('Número da oportunidade a vincular:\n\n' + lista);
+  if (!id) return;
+  const r = await fetch(`/api/conversas/${conversaId}/oportunidade`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ oportunidadeId: Number(id) }) }).then(x=>x.json());
+  if (!r.success) return showAlert(r.error,'error');
+  showAlert('Conversa vinculada à oportunidade #' + id);
+  carregarOportunidade(conversaId);
+}
+
+async function desvincularOportunidade(conversaId){
+  if (!confirm('Desvincular a conversa desta oportunidade?\n\nA oportunidade continua no CRM.')) return;
+  const d = await fetch(`/api/conversas/${conversaId}/oportunidade`, { method:'DELETE' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  carregarOportunidade(conversaId);
 }
 
 async function responder(){
@@ -603,22 +553,6 @@ async function alternarIA(id, valor){
     body: JSON.stringify({ iaAtiva: !!valor }) }).then(r=>r.json());
   if (!d.success) return showAlert(d.error,'error');
   await abrir(id); await carregar();
-}
-
-// Põe (ou tira) a conversa do quadro. A primeira etapa é o destino natural de
-// quem acabou de virar oportunidade.
-async function porNoFunil(id, etapaAtual){
-  let etapaId = null;
-  if (!etapaAtual) {
-    const f = await fetch('/api/funil').then(r=>r.json());
-    if (!f.success || !f.etapas.length) return showAlert('Crie uma etapa no funil primeiro','error');
-    etapaId = f.etapas[0].id;
-  } else if (!confirm('Tirar esta conversa do funil?')) return;
-  const d = await fetch('/api/funil/conversa/'+id, { method:'PUT',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ etapaId }) }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert(etapaId ? 'Conversa entrou no funil' : 'Conversa saiu do funil');
-  abrir(id);
 }
 
 // ---------- corrigir a IA ----------

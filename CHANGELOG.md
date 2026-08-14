@@ -4,6 +4,22 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-14 (2)
+
+- **Funil duplicado corrigido**: a central de Conversas nasceu com funil
+  próprio (`conv_funil_etapas` + `etapaId`/`valor` na conversa) sem que eu
+  tivesse checado o CRM — que já existe em Comercial → CRM · Funil, está em uso
+  real (350 oportunidades, 2 funis, 19 etapas) e é bem mais completo:
+  probabilidade, motivo de perda, geração de OS, atividades e itens. Dois
+  quadros seriam duas verdades sobre a mesma venda
+- A conversa agora **aponta para uma oportunidade do CRM** (`oportunidadeId`).
+  Na ficha lateral dá para criar o card (funil e etapa default do próprio CRM,
+  `fonte='whatsapp'`, cliente já vinculado) ou amarrar a um card existente; o
+  quadro continua sendo o do CRM. A aba Funil saiu da central
+- Ficaram órfãs nos 11 tenants, sem leitura nem escrita: a tabela
+  `conv_funil_etapas` e as colunas `etapaId`/`valor`/`etapaEm` de
+  `conv_conversas`. Não removidas — DROP em `data/` é decisão do usuário
+
 ## 2026-08-14
 
 **Loja virtual (módulo Varejo)** — catálogo público por tenant, do mesmo

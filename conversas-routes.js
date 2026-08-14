@@ -67,18 +67,6 @@ function migrarConversasDB(db) {
 
     -- O robô errou, o atendente escreveu a certa: vira item de base e fica
     -- registrado para medir se o erro voltou.
-    -- Funil: a MESMA conversa vista por outro ângulo. Etapa e valor moram na
-    -- conversa de propósito — oportunidade em tabela separada obrigaria a
-    -- manter duas coisas em sincronia e a equipe a atualizar as duas.
-    CREATE TABLE IF NOT EXISTS conv_funil_etapas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nome TEXT NOT NULL,
-      ordem INTEGER NOT NULL DEFAULT 0,
-      cor TEXT,
-      fechada INTEGER NOT NULL DEFAULT 0,
-      ativo INTEGER NOT NULL DEFAULT 1
-    );
-
     CREATE TABLE IF NOT EXISTS ia_correcoes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       conversaId INTEGER,
@@ -96,30 +84,17 @@ function migrarConversasDB(db) {
     try { db.exec(sql); }
     catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
   };
-  alterSafe('ALTER TABLE conv_conversas ADD COLUMN etapaId INTEGER');
-  alterSafe('ALTER TABLE conv_conversas ADD COLUMN valor REAL');
-  alterSafe('ALTER TABLE conv_conversas ADD COLUMN etapaEm TEXT');
+  // O funil é o do CRM (crm_funis / crm_etapas / crm_oportunidades), que já
+  // existe, está em uso e é mais completo — tem probabilidade, motivo de perda,
+  // geração de OS e atividades. A conversa aponta para a oportunidade de lá em
+  // vez de manter um funil próprio: dois quadros seriam duas verdades sobre a
+  // mesma venda.
+  alterSafe('ALTER TABLE conv_conversas ADD COLUMN oportunidadeId INTEGER');
   alterSafe('ALTER TABLE conv_conversas ADD COLUMN pedidoId INTEGER');
-
-  const n = db.prepare('SELECT COUNT(*) n FROM conv_funil_etapas').get().n;
-  if (!n) {
-    const ins = db.prepare('INSERT INTO conv_funil_etapas (nome, ordem, cor, fechada) VALUES (?,?,?,?)');
-    for (const e of ETAPAS_PADRAO) {
-      ins.run(e.nome, e.ordem, e.cor, /ganho|perdido/i.test(e.nome) ? 1 : 0);
-    }
-  }
+  // Colunas etapaId/valor/etapaEm e a tabela conv_funil_etapas existiram numa
+  // versão anterior deste módulo (funil próprio, 2026-08-14) e ficaram órfãs
+  // nos tenants já migrados. Não são lidas nem escritas.
 }
-
-// Etapas iniciais: um funil curto, que é o que uma equipe pequena consegue
-// manter honesto. Quem quiser mais granularidade edita depois.
-const ETAPAS_PADRAO = [
-  { nome: 'Novo contato', ordem: 1, cor: '#64748B' },
-  { nome: 'Qualificado', ordem: 2, cor: '#2C5282' },
-  { nome: 'Proposta enviada', ordem: 3, cor: '#7C5B12' },
-  { nome: 'Negociação', ordem: 4, cor: '#8A4B1F' },
-  { nome: 'Ganho', ordem: 5, cor: '#2A6B48' },
-  { nome: 'Perdido', ordem: 6, cor: '#A63C22' },
-];
 
 const jsonOu = (t, p) => { try { return t ? JSON.parse(t) : p; } catch { return p; } };
 const soDigitos = (s) => String(s || '').replace(/\D/g, '');
@@ -333,90 +308,90 @@ function registrarRotasConversas(app, db) {
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
-  // ---------- funil ----------
-  app.get('/api/funil', (req, res) => {
+  // ---------- oportunidade no CRM ----------
+  //
+  // A conversa não tem funil próprio: ela aponta para uma oportunidade do CRM,
+  // que já existe e é onde a equipe acompanha venda. O quadro continua sendo o
+  // de Comercial → CRM · Funil.
+
+  app.get('/api/conversas/:id/oportunidade', (req, res) => {
     try {
-      sincronizar(db);
-      const etapas = db.prepare('SELECT * FROM conv_funil_etapas WHERE ativo = 1 ORDER BY ordem, id').all();
-      // Só entra no quadro quem foi colocado nele: conversa de suporte não é
-      // oportunidade, e empurrar tudo para o funil torna o quadro inútil.
-      const cards = db.prepare(`SELECT c.id, c.nome, c.telefone, c.valor, c.etapaId, c.etapaEm,
-             c.estado, c.pedidoId, c.ultimaMensagem, c.ultimaEm, p.razaoSocial AS pessoaNome
-        FROM conv_conversas c LEFT JOIN pessoas p ON p.id = c.pessoaId
-        WHERE c.etapaId IS NOT NULL ORDER BY c.ultimaEm DESC`).all();
-      const total = {};
-      for (const e of etapas) {
-        const doEtapa = cards.filter(c => c.etapaId === e.id);
-        total[e.id] = { n: doEtapa.length, valor: doEtapa.reduce((s, c) => s + (Number(c.valor) || 0), 0) };
-      }
-      res.json({ success: true, etapas, cards, total });
+      const c = db.prepare('SELECT * FROM conv_conversas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Conversa não encontrada' });
+      if (!c.oportunidadeId) return res.json({ success: true, oportunidade: null });
+      const o = db.prepare(`SELECT o.*, e.nome AS etapaNome, e.cor AS etapaCor, f.nome AS funilNome
+        FROM crm_oportunidades o
+        LEFT JOIN crm_etapas e ON e.id = o.etapaId
+        LEFT JOIN crm_funis f ON f.id = o.funilId
+        WHERE o.id = ?`).get(c.oportunidadeId);
+      res.json({ success: true, oportunidade: o || null });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 
-  app.put('/api/funil/conversa/:id', (req, res) => {
+  /** Cria a oportunidade no CRM a partir da conversa e amarra as duas. */
+  app.post('/api/conversas/:id/oportunidade', (req, res) => {
     try {
       const c = db.prepare('SELECT * FROM conv_conversas WHERE id = ?').get(req.params.id);
       if (!c) return res.status(404).json({ success: false, error: 'Conversa não encontrada' });
-      const b = req.body || {};
-      if (b.etapaId !== undefined) {
-        const alvo = b.etapaId ? db.prepare('SELECT id, nome FROM conv_funil_etapas WHERE id = ?').get(b.etapaId) : null;
-        if (b.etapaId && !alvo) return res.status(400).json({ success: false, error: 'Etapa inválida' });
-        db.prepare('UPDATE conv_conversas SET etapaId = ?, etapaEm = CURRENT_TIMESTAMP WHERE id = ?')
-          .run(alvo ? alvo.id : null, c.id);
-        evento(c.id, 'funil', alvo ? alvo.nome : 'fora do funil', req);
+      if (c.oportunidadeId) return res.status(400).json({ success: false,
+        error: 'Esta conversa já está ligada à oportunidade #' + c.oportunidadeId });
+
+      // Vincular a uma existente é o caminho quando o vendedor já criou o card.
+      const existente = Number(req.body?.oportunidadeId) || null;
+      if (existente) {
+        const o = db.prepare('SELECT id FROM crm_oportunidades WHERE id = ? AND ativo = 1').get(existente);
+        if (!o) return res.status(404).json({ success: false, error: 'Oportunidade não encontrada' });
+        db.prepare('UPDATE conv_conversas SET oportunidadeId = ? WHERE id = ?').run(existente, c.id);
+        evento(c.id, 'oportunidade', 'vinculada #' + existente, req);
+        return res.json({ success: true, oportunidadeId: existente, criada: false });
       }
-      if (b.valor !== undefined) {
-        db.prepare('UPDATE conv_conversas SET valor = ? WHERE id = ?').run(Number(b.valor) || null, c.id);
-      }
+
+      // Mesmas regras de default do CRM: primeiro funil ativo, primeira etapa
+      // normal. Sem replicar tabela nem inventar etapa nova.
+      const f = db.prepare('SELECT id FROM crm_funis WHERE ativo = 1 ORDER BY ordem LIMIT 1').get();
+      if (!f) return res.status(400).json({ success: false, error: 'Nenhum funil cadastrado no CRM' });
+      const e = db.prepare(`SELECT id FROM crm_etapas WHERE funilId = ? AND ativo = 1 AND tipo = 'normal'
+        ORDER BY ordem LIMIT 1`).get(f.id);
+      if (!e) return res.status(400).json({ success: false, error: 'Funil do CRM sem etapas' });
+
+      const titulo = String(req.body?.titulo || '').trim()
+        || `WhatsApp — ${c.nome || c.telefone}`;
+      const topo = db.prepare('SELECT COALESCE(MIN(ordemManual), 0) - 1 AS o FROM crm_oportunidades WHERE etapaId = ? AND ativo = 1').get(e.id).o;
+      const opId = db.prepare(`INSERT INTO crm_oportunidades
+          (funilId, etapaId, clienteId, clienteNomeLivre, titulo, descricao, valor, fonte,
+           dataAbertura, ativo, ordemManual)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'whatsapp', date('now','-3 hours'), 1, ?)`)
+        .run(f.id, e.id, c.pessoaId || null, c.pessoaId ? null : (c.nome || c.telefone),
+             titulo.slice(0, 160), c.ultimaMensagem || null,
+             Number(req.body?.valor) || null, topo).lastInsertRowid;
+
+      db.prepare('UPDATE conv_conversas SET oportunidadeId = ? WHERE id = ?').run(opId, c.id);
+      evento(c.id, 'oportunidade', 'criada #' + opId, req);
+      res.json({ success: true, oportunidadeId: opId, criada: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  app.delete('/api/conversas/:id/oportunidade', (req, res) => {
+    try {
+      db.prepare('UPDATE conv_conversas SET oportunidadeId = NULL WHERE id = ?').run(req.params.id);
+      evento(Number(req.params.id), 'oportunidade', 'desvinculada', req);
       res.json({ success: true });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
-  app.post('/api/funil/etapas', (req, res) => {
+  /** Oportunidades sem conversa ligada, para o vendedor escolher qual vincular. */
+  app.get('/api/conversas/oportunidades/livres', (req, res) => {
     try {
-      const nome = String(req.body?.nome || '').trim();
-      if (!nome) return res.status(400).json({ success: false, error: 'Informe o nome da etapa' });
-      const ordem = db.prepare('SELECT COALESCE(MAX(ordem),0)+1 o FROM conv_funil_etapas').get().o;
-      const id = db.prepare('INSERT INTO conv_funil_etapas (nome, ordem, cor, fechada) VALUES (?,?,?,?)')
-        .run(nome.slice(0, 40), ordem, String(req.body?.cor || '#64748B').slice(0, 9), req.body?.fechada ? 1 : 0).lastInsertRowid;
-      res.json({ success: true, id });
-    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
-  });
-
-  app.delete('/api/funil/etapas/:id', (req, res) => {
-    try {
-      const n = db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE etapaId = ?').get(req.params.id).n;
-      if (n) return res.status(400).json({ success: false,
-        error: `${n} conversa(s) estão nesta etapa — mova antes de removê-la` });
-      db.prepare('UPDATE conv_funil_etapas SET ativo = 0 WHERE id = ?').run(req.params.id);
-      res.json({ success: true });
-    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
-  });
-
-  /**
-   * Ganhou: vira pedido no ERP. Mesmo caminho que a loja virtual usa — nasce
-   * rascunho, com a numeração de sempre, e segue o fluxo normal de conferência.
-   * Sem itens: quem fecha por conversa acerta o que vai no pedido depois.
-   */
-  app.post('/api/funil/conversa/:id/pedido', (req, res) => {
-    try {
-      const c = db.prepare('SELECT * FROM conv_conversas WHERE id = ?').get(req.params.id);
-      if (!c) return res.status(404).json({ success: false, error: 'Conversa não encontrada' });
-      if (!c.pessoaId) return res.status(400).json({ success: false,
-        error: 'Vincule a conversa a um cliente do cadastro antes de gerar o pedido' });
-      if (c.pedidoId) return res.status(400).json({ success: false, error: 'Esta conversa já gerou o pedido #' + c.pedidoId });
-
-      const { gerarNumero } = require('./pedidos-routes');
-      const { resolverDeposito } = require('./estoque-routes');
-      const numero = gerarNumero(db, 'pedido');
-      const pedidoId = db.prepare(`INSERT INTO pedidos
-          (numero, tipo, modoDocumento, clienteId, status, dataPedido, observacao, depositoId)
-        VALUES (?, 'manual', 'pedido', ?, 'rascunho', date('now','-3 hours'), ?, ?)`)
-        .run(numero, c.pessoaId, `[Conversa] ${c.nome || c.telefone}`, resolverDeposito(db, {})).lastInsertRowid;
-      db.prepare('UPDATE conv_conversas SET pedidoId = ? WHERE id = ?').run(pedidoId, c.id);
-      evento(c.id, 'pedido', numero, req);
-      res.json({ success: true, pedidoId, numero });
-    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+      const q = String(req.query.q || '').trim().toLowerCase();
+      let linhas = db.prepare(`SELECT o.id, o.titulo, o.valor, e.nome AS etapaNome, p.razaoSocial AS clienteNome
+        FROM crm_oportunidades o
+        LEFT JOIN crm_etapas e ON e.id = o.etapaId
+        LEFT JOIN pessoas p ON p.id = o.clienteId
+        WHERE o.ativo = 1 AND o.id NOT IN (SELECT COALESCE(oportunidadeId,0) FROM conv_conversas)
+        ORDER BY o.id DESC LIMIT 100`).all();
+      if (q) linhas = linhas.filter(o => [o.titulo, o.clienteNome].some(v => String(v||'').toLowerCase().includes(q)));
+      res.json({ success: true, oportunidades: linhas });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 
   // ---------- base de conhecimento da IA ----------
