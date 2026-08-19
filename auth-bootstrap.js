@@ -90,8 +90,8 @@ const PAGINAS_MOVIDAS = {
   '/fiscal/nfse-emitidas.html': '/fiscal/notas-fiscais.html?tipo=nfse',
   // Parâmetros de emissão são do emitente: moraram na tela de cada documento
   // até virarem uma seção do cadastro da empresa.
-  '/fiscal/nfe-config.html': '/configuracoes/minha-empresa.html#documentos-fiscais',
-  '/fiscal/nfce-config.html': '/configuracoes/minha-empresa.html#documentos-fiscais',
+  '/fiscal/nfe-config.html': '/fiscal/configuracao.html',
+  '/fiscal/nfce-config.html': '/fiscal/configuracao.html',
   // "NF-e Recebidas" era o nome da lista; a tela é o manifestador do destinatário.
   '/fiscal/nfe-inbox.html': '/fiscal/manifestador.html',
   // Tipos de operação carregam natureza fiscal e CFOP: são cadastro do Fiscal.

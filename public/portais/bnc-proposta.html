@@ -255,12 +255,16 @@ async function enviar() {
         '<div style="margin-top:8px;">' + itensResumoHtml(d.itens) + '</div>' +
         (d.comprovanteUrl ? '<div style="margin-top:8px;"><a href="' + escapeHtml(d.comprovanteUrl) + '" target="_blank">Ver comprovante</a></div>' : ''),
         d);
-      btn.textContent = '✅ Enviada'; // trava reenvio acidental
+      btn.dataset.enviada = '1';     // trava reenvio acidental
+      btn.textContent = '✅ Enviada';
       return;
     }
     mostrarResultado('err', '⚠️ <strong>Não confirmou o envio.</strong><br>' + escapeHtml(d.error || d.mensagem || 'veja os detalhes técnicos'), d);
   } catch (e) { mostrarResultado('err', '⚠️ <strong>Erro de rede.</strong><br>' + escapeHtml(e.message), {}); }
-  finally { if (btn.textContent !== '✅ Enviada') { btn.disabled = false; btn.textContent = '⚠️ Enviar proposta ao BNC'; } }
+  // A trava é o dataset, não o texto: o rótulo é reescrito (e o ícone, trocado
+  // por SVG na padronização visual), então comparar textContent reabilitaria o
+  // botão depois de uma proposta já enviada.
+  finally { if (btn.dataset.enviada !== '1') { btn.disabled = false; btn.textContent = '⚠️ Enviar proposta ao BNC'; } }
 }
 
 // Auto-resolução: ?pncp=CNPJ-ANO-SEQ acha a URL da proposta sozinho (sem colar).

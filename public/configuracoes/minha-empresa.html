@@ -20,20 +20,22 @@
         .logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
         .logo-actions { display: flex; flex-direction: column; gap: 10px; }
         .logo-actions input[type="file"] { display: none; }
-        .logo-actions label {
-            background: var(--bg-1); color: var(--accent);
-            padding: 8px 16px; border-radius: var(--r-sm);
-            cursor: pointer; font-size: 0.9em; text-align: center;
-        }
-        .logo-actions label:hover { background: var(--bg-2); }
-        .logo-actions button {
-            background: transparent; color: var(--danger);
-            border: 1px solid var(--danger);
-            padding: 6px 12px; border-radius: var(--r-sm);
-            cursor: pointer; font-size: 0.85em;
-        }
-        .logo-actions button:hover { background: var(--danger); color: var(--text-0); }
+        .logo-actions .btn { justify-content: center; }
         .required::after { content: ' *'; color: var(--danger); }
+        /* texto de apoio: abaixo do campo (small) e no topo do painel (p) */
+        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: 0.78em; }
+        p.hint { margin: 0 0 15px; font-size: 0.9em; }
+        /* .card-info do app-modern.css é ambígua (a definição do kanban vence e
+           aplica flex): o fundo do bloco de status vem daqui. */
+        .status-box { background: var(--bg-1); }
+        /* page-local: tab-pane toggle helper — .tabs/.tab vêm de app-modern.css */
+        .tab-pane { display: none; } .tab-pane.active { display: block; }
+        /* aviso de pendência na aba: o conteúdo escondido precisa se anunciar */
+        .tab .count.pendente { background: var(--warn-soft); color: var(--warn); }
+        /* lista de checkboxes (declarações) */
+        .check-list { display: flex; flex-direction: column; gap: 12px; }
+        .check-list label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+        .check-list input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
     </style>
 </head>
 <body>
@@ -56,6 +58,14 @@
             </div>
 
             <form id="formFornecedor" style="display: none;">
+                <div class="tabs">
+                    <div class="tab active" onclick="trocarTab('cadastro')">Cadastro</div>
+                    <div class="tab" onclick="trocarTab('responsaveis')">Representante e Banco</div>
+                    <div class="tab" onclick="trocarTab('credenciais')">Credenciais <span class="count" id="avisoCredenciais" style="display:none;">!</span></div>
+                    <div class="tab" onclick="trocarTab('propostas')">Propostas</div>
+                </div>
+
+                <div class="tab-pane active" id="tab-cadastro">
                 <!-- Dados da Empresa -->
                 <div class="panel">
                     <h3><span>🏢</span> Dados da Empresa</h3>
@@ -70,13 +80,13 @@
                         </div>
                     </div>
                     <div class="form-row">
-                        <div class="form-group">
+                        <div class="form-group" style="grid-column: span 2;">
                             <label for="cnpj" class="required">CNPJ</label>
                             <div style="display:flex; gap:6px;">
                                 <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" style="flex:1;">
                                 <button type="button" id="btnBuscarCnpj" class="btn btn-secondary btn-sm" onclick="buscarDadosCnpj()" style="white-space:nowrap;">🔎 Buscar</button>
                             </div>
-                            <small id="cnpjStatus" style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;"></small>
+                            <small id="cnpjStatus" class="hint"></small>
                         </div>
                         <div class="form-group">
                             <label for="inscricaoEstadual">Inscrição Estadual</label>
@@ -94,10 +104,11 @@
                                 <option value="SIMPLES_NACIONAL">Simples Nacional</option>
                                 <option value="NAO_OPTANTE">Não optante (Lucro Real/Presumido)</option>
                             </select>
-                            <small style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;">
+                            <small class="hint">
                                 Define opSimpNac na DPS. MEI: omite Inscrição Municipal e regApTribSN.
                             </small>
                         </div>
+
                         <div class="form-group">
                             <label for="regimeApuracaoPISCOFINS">Apuração PIS/COFINS</label>
                             <select id="regimeApuracaoPISCOFINS" name="regimeApuracaoPISCOFINS">
@@ -105,7 +116,7 @@
                                 <option value="cumulativo">Cumulativo (Lucro Presumido)</option>
                                 <option value="nao_cumulativo">Não-cumulativo (Lucro Real)</option>
                             </select>
-                            <small style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;">
+                            <small class="hint">
                                 Não-cumulativo deduz PIS/COFINS do custo de aquisição da NF-e.
                             </small>
                         </div>
@@ -115,7 +126,7 @@
                                 <option value="0">Não (revenda — IPI é custo)</option>
                                 <option value="1">Sim (indústria — IPI recuperável)</option>
                             </select>
-                            <small style="font-size:11px; color:var(--text-3); margin-top:4px; display:block;">
+                            <small class="hint">
                                 Indústria: IPI sai do custo de aquisição (creditado).
                             </small>
                         </div>
@@ -190,6 +201,9 @@
                         <div class="form-group">
                             <label for="codigoMunicipio">Código IBGE do Município</label>
                             <input type="text" id="codigoMunicipio" name="codigoMunicipio" placeholder="Preenchido pela busca de CNPJ" maxlength="7">
+                            <small class="hint">
+                                É o município emissor da NFS-e. Sem ele a emissão não sai.
+                            </small>
                         </div>
                     </div>
                 </div>
@@ -216,7 +230,9 @@
                         </div>
                     </div>
                 </div>
+                </div>
 
+                <div class="tab-pane" id="tab-responsaveis">
                 <!-- Representante Legal -->
                 <div class="panel">
                     <h3><span>👤</span> Representante Legal</h3>
@@ -236,22 +252,6 @@
                             <input type="text" id="cargoRepresentante" name="cargoRepresentante" placeholder="Ex: Sócio-Administrador">
                         </div>
                     </div>
-                </div>
-
-                <!-- Credenciais Gov.br -->
-                <div class="panel">
-                    <h3><span>🔐</span> Login Gov.br (Comprasnet)</h3>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="govbrCpf">CPF</label>
-                            <input type="text" id="govbrCpf" placeholder="00000000000" maxlength="11">
-                        </div>
-                        <div class="form-group">
-                            <label for="govbrSenha">Senha</label>
-                            <input type="password" id="govbrSenha" placeholder="Senha do gov.br" autocomplete="off">
-                        </div>
-                    </div>
-                    <div id="govbrStatus" style="margin-top:8px; font-size:13px; color:var(--text-3);"></div>
                 </div>
 
                 <!-- Dados Bancários -->
@@ -280,31 +280,33 @@
                         </div>
                     </div>
                 </div>
+                </div>
 
-                <!-- Logo -->
+                <div class="tab-pane" id="tab-credenciais">
+                <!-- Credenciais Gov.br -->
                 <div class="panel">
-                    <h3><span>🖼️</span> Logo da Empresa</h3>
-                    <div class="logo-upload">
-                        <div class="logo-preview" id="logoPreview">
-                            <span>Sem logo</span>
+                    <h3><span>🔐</span> Login Gov.br (Comprasnet)</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="govbrCpf">CPF</label>
+                            <input type="text" id="govbrCpf" placeholder="00000000000" maxlength="11">
                         </div>
-                        <div class="logo-actions">
-                            <input type="file" id="logoFile" accept="image/*">
-                            <label for="logoFile">Selecionar Imagem</label>
-                            <button type="button" onclick="removerLogo()">Remover Logo</button>
+                        <div class="form-group">
+                            <label for="govbrSenha">Senha</label>
+                            <input type="password" id="govbrSenha" placeholder="Senha do gov.br" autocomplete="off">
                         </div>
                     </div>
-                    <input type="hidden" id="logoBase64" name="logoBase64">
+                    <div id="govbrStatus" class="hint" style="margin-top:8px;"></div>
                 </div>
 
                 <!-- Certificado Digital -->
                 <div class="panel">
                     <h3><span>🔐</span> Certificado Digital A1</h3>
-                    <p style="color: var(--text-3); font-size: 0.9em; margin-bottom: 15px;">
+                    <p class="hint">
                         Faça upload do seu certificado digital A1 (.pfx ou .p12) para assinar propostas automaticamente.
                     </p>
-                    <div id="statusCertificado" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; background: var(--bg-1);">
-                        <span style="color: var(--warn);">⚠ Nenhum certificado configurado</span>
+                    <div id="statusCertificado" class="card status-box" style="margin-bottom: 15px;">
+                        <span class="text-warn">⚠ Nenhum certificado configurado</span>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -317,172 +319,50 @@
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <button type="button" class="btn btn-secondary" onclick="removerCertificado()" style="padding: 8px 16px; background: #f44336; color: #fff;">
+                        <button type="button" class="btn btn-danger btn-sm" id="btnRemoverCertificado" style="display:none;" onclick="removerCertificado()">
                             Remover Certificado
                         </button>
                     </div>
                     <input type="hidden" id="certificadoBase64" name="certificadoBase64">
                 </div>
+                </div>
+
+                <div class="tab-pane" id="tab-propostas">
+                <!-- Logo -->
+                <div class="panel">
+                    <h3><span>🖼️</span> Logo da Empresa</h3>
+                    <div class="logo-upload">
+                        <div class="logo-preview" id="logoPreview">
+                            <span>Sem logo</span>
+                        </div>
+                        <div class="logo-actions">
+                            <input type="file" id="logoFile" accept="image/*">
+                            <label for="logoFile" class="btn btn-secondary btn-sm">Selecionar Imagem</label>
+                            <button type="button" class="btn btn-danger btn-sm" id="btnRemoverLogo" style="display:none;" onclick="removerLogo()">Remover Logo</button>
+                        </div>
+                    </div>
+                    <input type="hidden" id="logoBase64" name="logoBase64">
+                </div>
 
                 <!-- Declarações para Licitações -->
                 <div class="panel">
                     <h3><span>📋</span> Declarações para Licitações</h3>
-                    <p style="color: var(--text-3); font-size: 0.9em; margin-bottom: 15px;">
+                    <p class="hint">
                         Configure as declarações padrão que serão usadas automaticamente ao enviar propostas.
                     </p>
-                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="declaracaoMeEpp" name="declaracaoMeEpp" value="1" checked
-                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                    <div class="check-list">
+                        <label>
+                            <input type="checkbox" id="declaracaoMeEpp" name="declaracaoMeEpp" value="1" checked>
                             <span>Declaro ME/EPP (microempresa ou empresa de pequeno porte)</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="declaracaoProgramasIntegridade" name="declaracaoProgramasIntegridade" value="1"
-                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                        <label>
+                            <input type="checkbox" id="declaracaoProgramasIntegridade" name="declaracaoProgramasIntegridade" value="1">
                             <span>Programa de Integridade</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="declaracaoEquidadeGenero" name="declaracaoEquidadeGenero" value="1"
-                                style="width: 18px; height: 18px; accent-color: #4dabf7;">
+                        <label>
+                            <input type="checkbox" id="declaracaoEquidadeGenero" name="declaracaoEquidadeGenero" value="1">
                             <span>Equidade de Gênero</span>
                         </label>
-                    </div>
-                </div>
-
-                <!-- Análise IA -->
-                <div class="panel">
-                    <h3><span>🤖</span> Análise IA</h3>
-                    <p style="color: var(--text-3); font-size: 0.9em; margin-bottom: 15px;">
-                        Configure as chaves de IA para análise automática de licitações.
-                        Extrai documentos do edital, identifica requisitos, pontos de atenção e calcula score de viabilidade.
-                        <strong>Cadeia: Cerebras > Gemini > DeepSeek > Groq > Claude.</strong>
-                    </p>
-                    <div id="statusIA" style="margin-bottom: 15px; padding: 12px; border-radius: 6px; background: var(--bg-1);">
-                        <span style="color: var(--warn);">⚠ Verificando...</span>
-                    </div>
-
-                    <!-- Cerebras -->
-                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #ff6b35;">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                            <strong style="color: #ff6b35;">Cerebras (Qwen 3 235B)</strong>
-                            <span style="background: var(--success); color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">GRATUITO</span>
-                            <span id="statusCerebras" style="margin-left: auto; font-size: 0.85em;"></span>
-                        </div>
-                        <div class="form-row" style="margin-bottom: 10px;">
-                            <div class="form-group" style="grid-column: span 2;">
-                                <label for="cerebrasKey">Chave da API Cerebras</label>
-                                <input type="password" id="cerebrasKey" placeholder="csk-..." autocomplete="off">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('cerebras')">
-                                Remover
-                            </button>
-                            <a href="https://cloud.cerebras.ai" target="_blank" style="color: #ff6b35; font-size: 0.85em; align-self: center;">Obter chave (free 1M tok/dia)</a>
-                        </div>
-                    </div>
-
-                    <!-- Groq -->
-                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #f55036;">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                            <strong style="color: #f55036;">Groq (Llama 3.3 70B)</strong>
-                            <span style="background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">BARATO</span>
-                            <span id="statusGroq" style="margin-left: auto; font-size: 0.85em;"></span>
-                        </div>
-                        <div class="form-row" style="margin-bottom: 10px;">
-                            <div class="form-group" style="grid-column: span 2;">
-                                <label for="groqKey">Chave da API Groq</label>
-                                <input type="password" id="groqKey" placeholder="gsk_..." autocomplete="off">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('groq')">
-                                Remover
-                            </button>
-                            <a href="https://console.groq.com/keys" target="_blank" style="color: #f55036; font-size: 0.85em; align-self: center;">Obter chave (free tier disponível)</a>
-                        </div>
-                    </div>
-
-                    <!-- Gemini -->
-                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #4285f4;">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                            <strong style="color: #4285f4;">Google Gemini</strong>
-                            <span style="background: var(--success); color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">GRATUITO</span>
-                            <span id="statusGemini" style="margin-left: auto; font-size: 0.85em;"></span>
-                        </div>
-                        <div class="form-row" style="margin-bottom: 10px;">
-                            <div class="form-group" style="grid-column: span 2;">
-                                <label for="geminiKey">Chave da API Gemini</label>
-                                <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('gemini')">
-                                Remover
-                            </button>
-                            <a href="https://aistudio.google.com/apikey" target="_blank" style="color: #4285f4; font-size: 0.85em; align-self: center;">Obter chave gratuita</a>
-                        </div>
-                    </div>
-
-                    <!-- DeepSeek -->
-                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #2563eb;">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                            <strong style="color: #2563eb;">DeepSeek V3</strong>
-                            <span style="background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">BARATO</span>
-                            <span id="statusDeepseek" style="margin-left: auto; font-size: 0.85em;"></span>
-                        </div>
-                        <div class="form-row" style="margin-bottom: 10px;">
-                            <div class="form-group" style="grid-column: span 2;">
-                                <label for="deepseekKey">Chave da API DeepSeek</label>
-                                <input type="password" id="deepseekKey" placeholder="sk-..." autocomplete="off">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('deepseek')">
-                                Remover
-                            </button>
-                            <a href="https://platform.deepseek.com" target="_blank" style="color: #2563eb; font-size: 0.85em; align-self: center;">Obter chave (pago, ~$0.003/análise)</a>
-                        </div>
-                    </div>
-
-                    <!-- Claude -->
-                    <div style="background: var(--bg-1); border-radius: 8px; padding: 15px; margin-bottom: 15px; border-left: 3px solid #d97706;">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                            <strong style="color: #d97706;">Anthropic Claude</strong>
-                            <span style="background: #555; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600;">PAGO</span>
-                            <span id="statusAnthropic" style="margin-left: auto; font-size: 0.85em;"></span>
-                        </div>
-                        <div class="form-row" style="margin-bottom: 10px;">
-                            <div class="form-group" style="grid-column: span 2;">
-                                <label for="anthropicKey">Chave da API Anthropic</label>
-                                <input type="password" id="anthropicKey" placeholder="sk-ant-..." autocomplete="off">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="button" style="padding: 6px 14px; font-size: 0.9em; background: transparent; color: var(--danger); border: 1px solid var(--danger); border-radius: 6px; cursor: pointer;" onclick="removerChaveIA('anthropic')">
-                                Remover
-                            </button>
-                            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color: #d97706; font-size: 0.85em; align-self: center;">Obter chave (pago)</a>
-                        </div>
-                    </div>
-
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" class="btn btn-primary" onclick="processarFilaIA()" id="btnProcessarIA" style="padding: 8px 16px;">
-                            Processar Fila (10 licitações)
-                        </button>
-                    </div>
-
-                    <div id="statsIA" style="margin-top: 15px; display: none;">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
-                            <div style="background: var(--bg-1); padding: 12px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 24px; font-weight: 700; color: #4dabf7;" id="statTotal">0</div>
-                                <div style="font-size: 0.8em; color: var(--text-3);">Analisadas</div>
-                            </div>
-                            <div style="background: var(--bg-1); padding: 12px; border-radius: 6px; text-align: center;">
-                                <div style="font-size: 24px; font-weight: 700; color: var(--warn);" id="statPendentes">0</div>
-                                <div style="font-size: 0.8em; color: var(--text-3);">Pendentes</div>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -492,6 +372,20 @@
                     <div class="form-group full-width">
                         <label for="observacoes">Observações adicionais</label>
                         <textarea id="observacoes" name="observacoes" placeholder="Informações adicionais sobre a empresa..."></textarea>
+                    </div>
+                </div>
+                </div>
+
+                <!-- Configurações que saíram desta tela -->
+                <div class="panel">
+                    <h3><span>🔗</span> Configurações relacionadas</h3>
+                    <p class="hint">
+                        Série, numeração e CSC de NF-e, NFC-e e NFS-e passaram a ser configurados por
+                        estabelecimento — matriz e filiais na mesma tela. As chaves de IA viraram página própria.
+                    </p>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <a class="btn btn-secondary btn-sm" href="/fiscal/configuracao.html" style="text-decoration:none;">🧾 Configuração de emissão fiscal</a>
+                        <a class="btn btn-secondary btn-sm" href="/configuracoes/ia.html" style="text-decoration:none;">🤖 Chaves de IA</a>
                     </div>
                 </div>
 
@@ -510,9 +404,27 @@
             configurarMascaras();
             configurarUploadLogo();
             verificarCertificado();
-            verificarChaveIA();
             carregarGovBr();
         });
+
+        function trocarTab(t) {
+            document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            document.getElementById('tab-' + t).classList.add('active');
+        }
+
+        // Certificado e gov.br ficam numa aba fechada: sem este aviso, "não
+        // configurado" só apareceria para quem já foi olhar.
+        const _pendencias = { certificado: false, govbr: false };
+        function marcarPendencia(qual, pendente) {
+            _pendencias[qual] = pendente;
+            const total = Object.values(_pendencias).filter(Boolean).length;
+            const el = document.getElementById('avisoCredenciais');
+            el.textContent = total;
+            el.className = 'count pendente';
+            el.style.display = total ? '' : 'none';
+        }
 
         async function carregarDados() {
             const loadingContainer = document.getElementById('loadingContainer');
@@ -562,6 +474,7 @@
             document.getElementById('declaracaoEquidadeGenero').checked = dados.declaracaoEquidadeGenero == 1 || dados.declaracaoEquidadeGenero === true;
 
             // Exibir logo se existir
+            document.getElementById('btnRemoverLogo').style.display = dados.logoBase64 ? '' : 'none';
             if (dados.logoBase64) {
                 const preview = document.getElementById('logoPreview');
                 preview.innerHTML = `<img src="${dados.logoBase64}" alt="Logo">`;
@@ -578,6 +491,7 @@
                         const base64 = event.target.result;
                         document.getElementById('logoBase64').value = base64;
                         document.getElementById('logoPreview').innerHTML = `<img src="${base64}" alt="Logo">`;
+                        document.getElementById('btnRemoverLogo').style.display = '';
                     };
                     reader.readAsDataURL(file);
                 }
@@ -588,6 +502,7 @@
             document.getElementById('logoBase64').value = '';
             document.getElementById('logoFile').value = '';
             document.getElementById('logoPreview').innerHTML = '<span>Sem logo</span>';
+            document.getElementById('btnRemoverLogo').style.display = 'none';
         }
 
         // Consulta BrasilAPI e preenche razão social, endereço, contato etc.
@@ -600,7 +515,7 @@
             if (raw.length !== 14) {
                 if (!silencioso) {
                     status.textContent = 'Informe um CNPJ válido (14 dígitos)';
-                    status.style.color = '#c33';
+                    status.style.color = 'var(--danger)';
                 }
                 return;
             }
@@ -610,7 +525,7 @@
             const btn = document.getElementById('btnBuscarCnpj');
             if (btn) btn.disabled = true;
             status.textContent = 'Consultando BrasilAPI…';
-            status.style.color = '#4dabf7';
+            status.style.color = 'var(--accent)';
 
             try {
                 const resp = await fetch('https://brasilapi.com.br/api/cnpj/v1/' + raw);
@@ -646,14 +561,14 @@
 
                 const situacao = d.descricao_situacao_cadastral || '';
                 status.textContent = '✓ Dados preenchidos' + (situacao ? ' — Situação: ' + situacao : '');
-                status.style.color = '#2a2';
+                status.style.color = 'var(--success)';
 
                 // Segunda etapa: buscar Inscrição Estadual via publica.cnpj.ws
                 // (BrasilAPI não expõe IE). Não bloqueia o preenchimento acima.
                 buscarInscricaoEstadual(raw, d.uf);
             } catch (err) {
                 status.textContent = 'Erro: ' + err.message;
-                status.style.color = '#c33';
+                status.style.color = 'var(--danger)';
             } finally {
                 if (btn) btn.disabled = false;
             }
@@ -736,7 +651,7 @@
 
         // Salvar tudo em uma só ação — botão único no header (#btnSalvarTopo).
         // Cada seção é salva no endpoint próprio, mas só quando há dados a enviar
-        // (senha gov.br digitada, arquivo de certificado selecionado, chave IA preenchida).
+        // (senha gov.br digitada, arquivo de certificado selecionado).
         document.getElementById('formFornecedor').addEventListener('submit', async function(e) {
             e.preventDefault();
 
@@ -829,33 +744,6 @@
                 }
             }
 
-            // 4) Chaves IA — Cerebras, Gemini, DeepSeek, Groq, Claude (só envia se preenchidas)
-            const inputsIA = { cerebras: 'cerebrasKey', gemini: 'geminiKey', deepseek: 'deepseekKey', groq: 'groqKey', anthropic: 'anthropicKey' };
-            const nomesIA = { cerebras: 'Cerebras', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', anthropic: 'Claude' };
-            for (const provider of ['cerebras', 'gemini', 'deepseek', 'groq', 'anthropic']) {
-                const input = document.getElementById(inputsIA[provider]);
-                const key = input.value.trim();
-                if (!key) continue;
-                const nome = nomesIA[provider];
-                tarefas.push((async () => {
-                    try {
-                        const r = await fetch('/api/config/ia-keys', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ provider, key })
-                        });
-                        const j = await r.json();
-                        if (j.success) {
-                            input.value = '';
-                        } else {
-                            erros.push(`${nome}: ${j.error || 'erro'}`);
-                        }
-                    } catch (err) {
-                        erros.push(`${nome}: ${err.message}`);
-                    }
-                })());
-            }
-
             await Promise.all(tarefas);
 
             if (erros.length === 0) {
@@ -865,7 +753,6 @@
             }
 
             verificarCertificado();
-            verificarChaveIA();
             carregarGovBr();
 
             btnSalvar.disabled = false;
@@ -896,15 +783,18 @@
 
                 if (result.success && result.configurado) {
                     statusDiv.innerHTML = `
-                        <span style="color: #4caf50;">✓ Certificado configurado</span><br>
-                        <span style="color: var(--text-3); font-size: 0.85em;">
+                        <span class="text-success">✓ Certificado configurado</span><br>
+                        <span class="muted" style="font-size: 0.85em;">
                             Titular: ${result.titular || 'N/A'}<br>
                             Validade: ${result.validade || 'N/A'}
                         </span>
                     `;
                 } else {
-                    statusDiv.innerHTML = '<span style="color: var(--warn);">⚠ Nenhum certificado configurado</span>';
+                    statusDiv.innerHTML = '<span class="text-warn">⚠ Nenhum certificado configurado</span>';
                 }
+                const temCert = !!(result.success && result.configurado);
+                document.getElementById('btnRemoverCertificado').style.display = temCert ? '' : 'none';
+                marcarPendencia('certificado', !temCert);
             } catch (error) {
                 console.error('Erro ao verificar certificado:', error);
             }
@@ -934,110 +824,6 @@
             }
         }
 
-        // ==================== ANÁLISE IA ====================
-
-        async function verificarChaveIA() {
-            const statusDiv = document.getElementById('statusIA');
-            try {
-                const [keyResp, statsResp] = await Promise.all([
-                    fetch('/api/config/ia-keys'),
-                    fetch('/api/analise/stats')
-                ]);
-                const keyData = await keyResp.json();
-                const statsData = await statsResp.json();
-
-                // Status geral
-                if (keyData.success && keyData.alguma_configurada) {
-                    const providers = [];
-                    if (keyData.cerebras?.configurada) providers.push('Cerebras');
-                    if (keyData.gemini?.configurada) providers.push('Gemini');
-                    if (keyData.deepseek?.configurada) providers.push('DeepSeek');
-                    if (keyData.groq?.configurada) providers.push('Groq');
-                    if (keyData.anthropic?.configurada) providers.push('Claude');
-                    statusDiv.innerHTML = `<span style="color: #4caf50;">✓ Análise IA ativa</span>` +
-                        `<span style="color: var(--text-3); font-size: 0.85em; margin-left: 10px;">Provider: ${providers.join(' + ')}</span>`;
-                } else {
-                    statusDiv.innerHTML = '<span style="color: var(--warn);">⚠ Nenhuma chave configurada — análise IA desabilitada</span>';
-                }
-
-                // Status individual
-                const setStatus = (elId, dados) => {
-                    const el = document.getElementById(elId);
-                    if (!el) return;
-                    if (dados?.configurada) el.innerHTML = `<span style="color: #4caf50;">✓ ${dados.preview}</span>`;
-                    else el.innerHTML = '<span style="color: var(--text-3);">Não configurada</span>';
-                };
-                setStatus('statusCerebras', keyData.cerebras);
-                setStatus('statusGemini', keyData.gemini);
-                setStatus('statusDeepseek', keyData.deepseek);
-                setStatus('statusGroq', keyData.groq);
-                setStatus('statusAnthropic', keyData.anthropic);
-
-                // Estatísticas
-                if (statsData.success) {
-                    document.getElementById('statTotal').textContent = statsData.stats.total;
-                    document.getElementById('statPendentes').textContent = statsData.stats.pendentes;
-                    document.getElementById('statsIA').style.display = 'block';
-                }
-            } catch (error) {
-                statusDiv.innerHTML = '<span style="color: var(--danger);">Erro ao verificar configuração IA</span>';
-                console.error('Erro ao verificar IA:', error);
-            }
-        }
-
-        async function removerChaveIA(provider) {
-            const nomes = { cerebras: 'Cerebras', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', anthropic: 'Claude' };
-            const nome = nomes[provider] || provider;
-            if (!confirm(`Remover a chave ${nome}?`)) return;
-
-            try {
-                const response = await fetch('/api/config/ia-key-remove', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider })
-                });
-                const result = await response.json();
-
-                if (result.success) {
-                    mostrarAlerta(`Chave ${nome} removida.`, 'success');
-                    verificarChaveIA();
-                } else {
-                    mostrarAlerta('Erro ao remover chave', 'error');
-                }
-            } catch (error) {
-                mostrarAlerta('Erro ao remover chave', 'error');
-                console.error(error);
-            }
-        }
-
-        async function processarFilaIA() {
-            const btn = document.getElementById('btnProcessarIA');
-            btn.disabled = true;
-            btn.textContent = 'Processando...';
-
-            try {
-                const response = await fetch('/api/analise/processar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ limite: 10 })
-                });
-                const result = await response.json();
-
-                if (result.success) {
-                    mostrarAlerta(`${result.processadas} licitações analisadas!`, 'success');
-                    verificarChaveIA();
-                } else {
-                    mostrarAlerta('Erro: ' + result.error, 'error');
-                }
-            } catch (error) {
-                mostrarAlerta('Erro ao processar fila', 'error');
-                console.error(error);
-            }
-
-            btn.disabled = false;
-            btn.textContent = 'Processar Fila (10 licitações)';
-        }
-
         // ─── Gov.br Login ─────────────────────────────────────────────────
 
         async function carregarGovBr() {
@@ -1051,11 +837,12 @@
                     cpfEl.value = data.cpf || '';
                     document.getElementById('govbrSenha').placeholder = '(salva)';
                     statusEl.textContent = 'Credenciais configuradas';
-                    statusEl.style.color = '#2a2';
+                    statusEl.style.color = 'var(--success)';
                 } else {
                     statusEl.textContent = 'Credenciais não configuradas';
-                    statusEl.style.color = '#c33';
+                    statusEl.style.color = 'var(--danger)';
                 }
+                marcarPendencia('govbr', !data.configurado);
             } catch (e) {
                 console.error('Erro ao carregar gov.br:', e);
             }
@@ -1064,6 +851,7 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
-    <script>initSidebar('minha-empresa');</script>
+    <script>initSidebar('minha-empresa');
+    </script>
 </body>
 </html>

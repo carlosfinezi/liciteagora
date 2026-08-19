@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuração de Emissão - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: texto de apoio abaixo do campo e no topo do painel */
+        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: 0.78em; }
+        p.hint { margin: 0 0 15px; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Configuração de Emissão</h1>
+                <small>Ambiente, série e numeração de NF-e, NFC-e e NFS-e — matriz e filiais</small>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn btn-primary btn-sm" id="btnSalvar" onclick="salvar()">💾 Salvar</button>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div class="toolbar">
+                <label for="estabelecimento" style="color:var(--text-2); font-size:0.82em; text-transform:uppercase; letter-spacing:0.02em;">Estabelecimento</label>
+                <select id="estabelecimento" onchange="carregar()"></select>
+                <span class="spacer"></span>
+                <span id="estabInfo" class="muted" style="font-size:0.85em;"></span>
+            </div>
+
+            <div id="loadingContainer" class="loading"><h3>Carregando...</h3></div>
+
+            <div id="conteudo" style="display:none;">
+
+                <div id="avisoContadorFiscal" class="alert warn" style="display:none;">
+                    ⚠ Você trocou o ambiente. Produção e homologação usam contadores separados:
+                    confira o próximo número antes de salvar. Deixando como está, ele será reiniciado em 1.
+                </div>
+
+                <!-- NF-e -->
+                <div class="panel" id="blocoNfe">
+                    <h3><span>📑</span> NF-e · modelo 55</h3>
+                    <div class="form-row">
+                        <div class="form-group" id="grupoNfeAmbiente">
+                            <label for="nfeAmbiente">Ambiente</label>
+                            <select id="nfeAmbiente" onchange="marcarTrocaAmbiente('nfe')">
+                                <option value="2">2 · Homologação (testes)</option>
+                                <option value="1">1 · Produção</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="nfeSerie">Série</label>
+                            <input type="number" id="nfeSerie" min="1" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="nfeProximoNumero">Próximo número</label>
+                            <input type="number" id="nfeProximoNumero" min="1" step="1">
+                            <small class="hint">
+                                Avança sozinho a cada autorização. Só mexa ao migrar de outro sistema.
+                            </small>
+                        </div>
+                    </div>
+                    <div class="form-row" id="grupoNfeObservacao">
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label for="nfeObservacao">Observação interna</label>
+                            <textarea id="nfeObservacao" rows="2" placeholder="Notas sobre a configuração de NF-e…"></textarea>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;" id="grupoSefaz">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="testarStatusSefaz()">🔍 Testar conexão SEFAZ</button>
+                        <span id="statusSefazTexto" class="muted" style="font-size:0.85em;"></span>
+                    </div>
+                </div>
+
+                <!-- NFC-e -->
+                <div class="panel" id="blocoNfce">
+                    <h3><span>🧮</span> NFC-e · modelo 65</h3>
+                    <p class="hint">
+                        Numeração e CSC são separados da NF-e. O CSC sai do portal da SEFAZ do seu estado e é
+                        por CNPJ — cada filial tem o seu. Sem ele o QR code não é gerado e a emissão falha.
+                    </p>
+                    <div class="form-row">
+                        <div class="form-group" id="grupoNfceAmbiente">
+                            <label for="nfceAmbiente">Ambiente</label>
+                            <select id="nfceAmbiente" onchange="marcarTrocaAmbiente('nfce')">
+                                <option value="2">2 · Homologação (testes)</option>
+                                <option value="1">1 · Produção</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="nfceSerie">Série</label>
+                            <input type="number" id="nfceSerie" min="1" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="nfceProximoNumero">Próximo número</label>
+                            <input type="number" id="nfceProximoNumero" min="1" step="1">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="nfceCscId">ID do CSC</label>
+                            <input type="text" id="nfceCscId" placeholder="Ex: 000001" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="nfceCsc">CSC (token)</label>
+                            <input type="password" id="nfceCsc" placeholder="Deixe vazio para não alterar" autocomplete="off">
+                            <small id="nfceCscStatus" class="hint">—</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NFS-e -->
+                <div class="panel" id="blocoNfse">
+                    <h3><span>🧾</span> NFS-e · serviço</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="nfseSerie">Série do DPS</label>
+                            <input type="text" id="nfseSerie" placeholder="1" maxlength="5" pattern="[0-9]{1,5}" inputmode="numeric">
+                            <small class="hint">
+                                Numérica, 1 a 5 dígitos. Vai no XML da DPS e na chave. Em branco = série 1.
+                            </small>
+                        </div>
+                        <div class="form-group" id="grupoNfseProximo">
+                            <label for="nfseProximoNumero">Próximo número</label>
+                            <input type="number" id="nfseProximoNumero" min="1" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Município emissor</label>
+                            <div id="nfseMunicipioEspelho" style="padding:9px 0;">—</div>
+                            <small class="hint">
+                                Vem do Código IBGE do cadastro. <a href="/configuracoes/minha-empresa.html">Editar em Minha Empresa</a>
+                            </small>
+                        </div>
+                        <div class="form-group">
+                            <label>Emissão</label>
+                            <div style="padding:9px 0;">
+                                <a href="/fiscal/nfse.html" style="font-size:0.9em;">Abrir tela de NFS-e →</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="hint" id="notaFilial" style="display:none;">
+                    O ambiente (produção/homologação) e o certificado digital são definidos na matriz e valem
+                    para todos os estabelecimentos. Aqui ficam apenas série, numeração e CSC desta filial.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // A matriz guarda a configuração em nfe_config / nfce_config / fornecedor
+        // (rotas próprias de cada documento, que já sabem resetar o contador na
+        // troca de ambiente). A filial guarda série e numeração em
+        // estabelecimento_serie, via /api/estabelecimentos/:id/emissao.
+        let ESTABS = [];
+        let ATUAL = null;            // linha do estabelecimento selecionado
+        let CFG_NFE_ORIGINAL = null;
+        let CFG_NFCE_ORIGINAL = null;
+        let CFG_FILIAL = null;
+
+        document.addEventListener('DOMContentLoaded', carregarEstabelecimentos);
+
+        async function carregarEstabelecimentos() {
+            try {
+                const d = await (await fetch('/api/estabelecimentos')).json();
+                ESTABS = (d.data || []).filter(e => e.ativo);
+                const sel = document.getElementById('estabelecimento');
+                sel.innerHTML = ESTABS.map(e =>
+                    `<option value="${e.id}">${e.matriz ? '🏢 Matriz' : '🏪 Filial'} · ${e.razaoSocial || e.nomeFantasia || ('#' + e.id)}</option>`
+                ).join('');
+                if (!ESTABS.length) {
+                    document.getElementById('loadingContainer').innerHTML = '<h3>Nenhum estabelecimento ativo</h3>';
+                    return;
+                }
+                await carregar();
+            } catch (e) {
+                document.getElementById('loadingContainer').innerHTML = '<h3 class="text-danger">Erro ao carregar estabelecimentos</h3>';
+                console.error(e);
+            }
+        }
+
+        async function carregar() {
+            const id = Number(document.getElementById('estabelecimento').value);
+            ATUAL = ESTABS.find(e => e.id === id) || null;
+            if (!ATUAL) return;
+
+            document.getElementById('loadingContainer').style.display = 'block';
+            document.getElementById('conteudo').style.display = 'none';
+            document.getElementById('avisoContadorFiscal').style.display = 'none';
+            CFG_NFE_ORIGINAL = CFG_NFCE_ORIGINAL = CFG_FILIAL = null;
+
+            document.getElementById('estabInfo').textContent = ATUAL.cnpj ? ('CNPJ ' + ATUAL.cnpj) : '';
+
+            if (ATUAL.matriz) await carregarMatriz();
+            else await carregarFilial(ATUAL.id);
+
+            document.getElementById('loadingContainer').style.display = 'none';
+            document.getElementById('conteudo').style.display = 'block';
+        }
+
+        // Campos que só existem na matriz: ambiente, observação e teste de SEFAZ
+        // são do tenant, não do CNPJ da filial.
+        function alternarCamposMatriz(ehMatriz) {
+            for (const id of ['grupoNfeAmbiente', 'grupoNfceAmbiente', 'grupoNfeObservacao', 'grupoSefaz']) {
+                document.getElementById(id).style.display = ehMatriz ? '' : 'none';
+            }
+            document.getElementById('grupoNfseProximo').style.display = ehMatriz ? 'none' : '';
+            document.getElementById('notaFilial').style.display = ehMatriz ? 'none' : 'block';
+        }
+
+        async function carregarMatriz() {
+            alternarCamposMatriz(true);
+
+            // Tenant sem o módulo não tem a rota nem a tabela: esconder o bloco é
+            // mais honesto que mostrar campos que não salvam em lugar nenhum.
+            try {
+                const d = await (await fetch('/api/nfe/config')).json();
+                if (!d.success || !d.config) throw new Error('sem config');
+                CFG_NFE_ORIGINAL = d.config;
+                document.getElementById('blocoNfe').style.display = '';
+                document.getElementById('nfeAmbiente').value = String(d.config.tpAmb ?? 2);
+                document.getElementById('nfeSerie').value = d.config.serie ?? 1;
+                document.getElementById('nfeProximoNumero').value = d.config.proximoNumero ?? 1;
+                document.getElementById('nfeObservacao').value = d.config.observacao || '';
+            } catch {
+                document.getElementById('blocoNfe').style.display = 'none';
+            }
+
+            try {
+                const d = await (await fetch('/api/nfce/config')).json();
+                if (!d.success || !d.config) throw new Error('sem config');
+                CFG_NFCE_ORIGINAL = d.config;
+                document.getElementById('blocoNfce').style.display = '';
+                document.getElementById('nfceAmbiente').value = String(d.config.tpAmb ?? 2);
+                document.getElementById('nfceSerie').value = d.config.serie ?? 1;
+                document.getElementById('nfceProximoNumero').value = d.config.proximoNumero ?? 1;
+                document.getElementById('nfceCscId').value = d.config.cscId || '';
+                document.getElementById('nfceCsc').value = '';
+                marcarStatusCsc(d.config.cscCadastrado);
+            } catch {
+                document.getElementById('blocoNfce').style.display = 'none';
+            }
+
+            try {
+                const d = await (await fetch('/api/nfse/config')).json();
+                if (!d.success) throw new Error('sem config');
+                document.getElementById('blocoNfse').style.display = '';
+                // serieOrigem 'padrao' = ninguém definiu; o campo fica vazio e a
+                // emissão usa 1. Mostrar "1" aqui faria parecer que foi escolhido.
+                document.getElementById('nfseSerie').value = d.config.serieOrigem === 'padrao' ? '' : (d.config.serie || '');
+                const cod = d.config.codMunicipio || '';
+                const el = document.getElementById('nfseMunicipioEspelho');
+                el.textContent = cod || 'não preenchido';
+                el.style.color = cod ? '' : 'var(--warn)';
+            } catch {
+                document.getElementById('blocoNfse').style.display = 'none';
+            }
+        }
+
+        async function carregarFilial(id) {
+            alternarCamposMatriz(false);
+            try {
+                const d = await (await fetch(`/api/estabelecimentos/${id}/emissao`)).json();
+                if (!d.success) throw new Error(d.error || 'falha');
+                CFG_FILIAL = d;
+
+                for (const [modelo, prefixo] of [['55', 'nfe'], ['65', 'nfce']]) {
+                    document.getElementById(`${prefixo}Serie`).value = d.series[modelo].serie;
+                    document.getElementById(`${prefixo}ProximoNumero`).value = d.series[modelo].proximoNumero;
+                    document.getElementById(`bloco${prefixo === 'nfe' ? 'Nfe' : 'Nfce'}`).style.display = '';
+                }
+                document.getElementById('blocoNfse').style.display = '';
+                document.getElementById('nfseSerie').value = d.series.NFSE.serie;
+                document.getElementById('nfseProximoNumero').value = d.series.NFSE.proximoNumero;
+
+                document.getElementById('nfceCscId').value = d.cscId || '';
+                document.getElementById('nfceCsc').value = '';
+                marcarStatusCsc(d.cscCadastrado);
+
+                const cod = ATUAL.codigoMunicipio || '';
+                const el = document.getElementById('nfseMunicipioEspelho');
+                el.textContent = cod || 'não preenchido';
+                el.style.color = cod ? '' : 'var(--warn)';
+            } catch (e) {
+                mostrarAlerta('Erro ao carregar a configuração da filial: ' + e.message, 'error');
+            }
+        }
+
+        function marcarStatusCsc(cadastrado) {
+            const st = document.getElementById('nfceCscStatus');
+            st.textContent = cadastrado
+                ? 'CSC cadastrado. Deixe em branco para manter o atual.'
+                : 'Nenhum CSC cadastrado — a emissão de NFC-e vai falhar sem ele.';
+            st.style.color = cadastrado ? '' : 'var(--warn)';
+        }
+
+        function marcarTrocaAmbiente(qual) {
+            const orig = qual === 'nfe' ? CFG_NFE_ORIGINAL : CFG_NFCE_ORIGINAL;
+            const el = document.getElementById(qual === 'nfe' ? 'nfeAmbiente' : 'nfceAmbiente');
+            if (!orig || !el) return;
+            const trocou = String(orig.tpAmb) !== el.value;
+            // Aviso só quando há troca real: alerta que aparece sempre vira ruído.
+            document.getElementById('avisoContadorFiscal').style.display = trocou ? 'block' : 'none';
+        }
+
+        async function salvar() {
+            const btn = document.getElementById('btnSalvar');
+            btn.disabled = true;
+            btn.textContent = 'Salvando...';
+            const erros = [];
+
+            if (ATUAL && ATUAL.matriz) await salvarMatriz(erros);
+            else await salvarFilial(erros);
+
+            if (erros.length === 0) mostrarAlerta('Configuração salva com sucesso!', 'success');
+            else mostrarAlerta('Salvo com avisos — ' + erros.join('; '), 'error');
+
+            await carregar();
+            btn.disabled = false;
+            btn.textContent = '💾 Salvar';
+        }
+
+        // Cada documento continua com a sua rota, que já sabe resetar o contador
+        // na troca de ambiente. Duplicar essa regra aqui seria criar duas versões
+        // da mesma decisão.
+        async function salvarMatriz(erros) {
+            const tarefas = [];
+
+            if (CFG_NFE_ORIGINAL) {
+                tarefas.push((async () => {
+                    try {
+                        const r = await fetch('/api/nfe/config', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                tpAmb: Number(document.getElementById('nfeAmbiente').value),
+                                serie: Number(document.getElementById('nfeSerie').value),
+                                proximoNumero: Number(document.getElementById('nfeProximoNumero').value),
+                                observacao: document.getElementById('nfeObservacao').value,
+                            }),
+                        });
+                        const j = await r.json();
+                        if (!j.success) erros.push('NF-e: ' + (j.error || 'erro desconhecido'));
+                    } catch (err) { erros.push('NF-e: ' + err.message); }
+                })());
+            }
+
+            if (CFG_NFCE_ORIGINAL) {
+                const csc = document.getElementById('nfceCsc').value;
+                const corpo = {
+                    tpAmb: Number(document.getElementById('nfceAmbiente').value),
+                    serie: Number(document.getElementById('nfceSerie').value),
+                    proximoNumero: Number(document.getElementById('nfceProximoNumero').value),
+                    cscId: document.getElementById('nfceCscId').value.trim(),
+                };
+                if (csc) corpo.csc = csc;   // em branco preserva o token guardado
+                tarefas.push((async () => {
+                    try {
+                        const r = await fetch('/api/nfce/config', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(corpo),
+                        });
+                        const j = await r.json();
+                        if (!j.success) erros.push('NFC-e: ' + (j.error || 'erro desconhecido'));
+                    } catch (err) { erros.push('NFC-e: ' + err.message); }
+                })());
+            }
+
+            tarefas.push((async () => {
+                try {
+                    const r = await fetch('/api/nfse/serie-dps', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ serieDps: document.getElementById('nfseSerie').value.trim() }),
+                    });
+                    const j = await r.json();
+                    if (!j.success) erros.push('NFS-e: ' + (j.error || 'erro desconhecido'));
+                } catch (err) { erros.push('NFS-e: ' + err.message); }
+            })());
+
+            await Promise.all(tarefas);
+        }
+
+        async function salvarFilial(erros) {
+            if (!CFG_FILIAL || !ATUAL) return;
+            const csc = document.getElementById('nfceCsc').value;
+            const corpo = {
+                series: {
+                    '55':   { serie: Number(document.getElementById('nfeSerie').value),  proximoNumero: Number(document.getElementById('nfeProximoNumero').value) },
+                    '65':   { serie: Number(document.getElementById('nfceSerie').value), proximoNumero: Number(document.getElementById('nfceProximoNumero').value) },
+                    'NFSE': { serie: Number(document.getElementById('nfseSerie').value), proximoNumero: Number(document.getElementById('nfseProximoNumero').value) },
+                },
+                cscId: document.getElementById('nfceCscId').value.trim(),
+            };
+            if (csc) corpo.csc = csc;
+            try {
+                const r = await fetch(`/api/estabelecimentos/${ATUAL.id}/emissao`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(corpo),
+                });
+                const j = await r.json();
+                if (!j.success) erros.push(j.error || 'erro desconhecido');
+            } catch (err) { erros.push(err.message); }
+        }
+
+        async function testarStatusSefaz() {
+            const el = document.getElementById('statusSefazTexto');
+            el.textContent = 'Consultando…';
+            el.style.color = '';
+            try {
+                const d = await (await fetch('/api/nfe/status')).json();
+                if (!d.success) throw new Error(d.error || 'falha');
+                const ok = String(d.cStat) === '107';
+                el.textContent = `${d.cStat} · ${d.xMotivo}`;
+                el.style.color = ok ? 'var(--success)' : 'var(--warn)';
+            } catch (e) {
+                el.textContent = 'Erro: ' + e.message;
+                el.style.color = 'var(--danger)';
+            }
+        }
+
+        function mostrarAlerta(mensagem, tipo) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.className = `alert alert-${tipo}`;
+            alertBox.textContent = mensagem;
+            alertBox.style.display = 'block';
+            setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('fiscal-configuracao');</script>
+</body>
+</html>

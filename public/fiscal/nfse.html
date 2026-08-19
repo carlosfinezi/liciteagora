@@ -60,7 +60,7 @@
                 <small>Emissão de Notas Fiscais de Serviço Eletrônicas via Emissor Nacional</small>
               </div>
               <div class="actions">
-                <a class="btn btn-secondary btn-sm" href="/fiscal/nfse-emitidas.html">📋 Notas emitidas</a>
+                <a class="btn btn-secondary btn-sm" href="/fiscal/notas-fiscais.html?tipo=nfse">📋 Notas emitidas</a>
                 <button class="btn btn-secondary btn-sm" onclick="abrirConfig()">⚙️ Configurar</button>
               </div>
             </div>
@@ -96,25 +96,6 @@
 
             <!-- Formulário de emissão -->
             <div class="page-section">
-                <!-- Prestador (readonly) -->
-                <div class="panel">
-                    <h3>Prestador (seus dados)</h3>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>CNPJ</label>
-                            <input type="text" id="prestCnpj" readonly>
-                        </div>
-                        <div class="form-group">
-                            <label>Razao Social</label>
-                            <input type="text" id="prestRazaoSocial" readonly>
-                        </div>
-                        <div class="form-group">
-                            <label>Inscricao Municipal</label>
-                            <input type="text" id="prestIM" readonly>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Tomador -->
                 <div class="panel">
                     <h3>Tomador do Servico</h3>
@@ -224,7 +205,7 @@
                         <div class="form-group">
                             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                 <input type="checkbox" id="gerarBoleto" onchange="document.getElementById('divVencimentoBoleto').style.display = this.checked ? '' : 'none'">
-                                Gerar boleto bancario (Stone)
+                                <span id="labelGerarBoleto">Gerar boleto bancario</span>
                             </label>
                         </div>
                         <div class="form-group" id="divVencimentoBoleto" style="display: none;">
@@ -249,35 +230,40 @@
             <div class="modal-header">
               <div>
                 <h3 style="margin:0;">Configuração NFS-e</h3>
-                <small class="muted">Série do DPS e código do município (IBGE)</small>
+                <small class="muted">Dados do emissor — editados no cadastro da empresa</small>
               </div>
               <button class="btn btn-ghost btn-sm" onclick="fecharModal('modalConfig')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
             </div>
             <div class="config-panel">
-                <h4>Série do DPS (numérico, 1–5 dígitos)</h4>
+                <h4>Série do DPS</h4>
                 <div class="config-row">
                     <div class="form-group">
-                        <input type="text" id="cfgSerie" placeholder="1" maxlength="5" pattern="[0-9]{1,5}">
+                        <div id="cfgSerieView" style="font-size:1.2em;font-weight:600;">—</div>
+                        <small class="muted" id="cfgSerieOrigem"></small>
                     </div>
                 </div>
             </div>
             <div class="config-panel">
-                <h4>Código Município — override avançado (IBGE, 7 dígitos)</h4>
-                <p style="font-size: 12px; color: var(--muted); margin: 4px 0 8px;">
-                    Por padrão, o código vem do cadastro em <a href="/configuracoes/minha-empresa.html">Minha Empresa</a> (preenchido pela busca de CNPJ). Use este campo apenas para sobrescrever manualmente.
-                </p>
+                <h4>Código do Município (IBGE)</h4>
                 <div class="config-row">
                     <div class="form-group">
-                        <input type="text" id="cfgCodMunicipio" placeholder="Deixe em branco para usar o cadastro" maxlength="7">
+                        <div id="cfgCodMunicipioView" style="font-size:1.2em;font-weight:600;">—</div>
+                        <small class="muted" id="cfgCodMunicipioOrigem"></small>
                     </div>
                     <button class="btn btn-secondary btn-sm" onclick="consultarParametros()">Consultar parâmetros</button>
                     <button class="btn btn-secondary btn-sm" onclick="revalidarMunicipio()" title="Refaz a consulta SEFIN ignorando o cache de 24h">Revalidar habilitação</button>
                 </div>
             </div>
+            <p style="font-size:12px;color:var(--muted);margin:10px 0 0;">
+                Os dois são do emissor, não da tela de notas: a série muda em
+                <a href="/fiscal/configuracao.html">Fiscal &gt; Configuração de Emissão</a> e o município em
+                <a href="/configuracoes/minha-empresa.html">Configurações &gt; Minha Empresa</a>.
+                Filiais usam a série e o município do próprio estabelecimento.
+            </p>
             <div id="parametrosMunicipais" style="display: none; margin-top: 10px;"></div>
             <div class="modal-actions">
                 <button class="btn btn-ghost" onclick="fecharModal('modalConfig')">Fechar</button>
-                <button class="btn btn-primary" onclick="salvarConfig()">Salvar configuração</button>
+                <a class="btn btn-primary" href="/fiscal/configuracao.html">Editar configuração de emissão</a>
             </div>
         </div>
     </div>
@@ -307,11 +293,10 @@
                 // Status bar
                 atualizarStatusBar(data);
 
-                // Preencher prestador
-                if (data.prestador) {
-                    document.getElementById('prestCnpj').value = data.prestador.cnpj || '';
-                    document.getElementById('prestRazaoSocial').value = data.prestador.razaoSocial || '';
-                    document.getElementById('prestIM').value = data.prestador.inscricaoMunicipal || '';
+                // Quem emite o boleto e o provedor da conta financeira padrao
+                const lbl = document.getElementById('labelGerarBoleto');
+                if (lbl && data.config.boletoProvedor) {
+                    lbl.textContent = `Gerar boleto bancario (${data.config.boletoProvedor})`;
                 }
             } catch (error) {
                 mostrarAlerta('Erro ao carregar configuracao: ' + error.message, 'error');
@@ -346,11 +331,12 @@
                 certEl.className = 'value danger';
             }
 
-            // Municipio (vem do cadastro do fornecedor; override manual abaixo)
+            // Municipio: sempre do cadastro da empresa. 'legado' marca quem ainda
+            // depende da configuracao antiga desta tela e precisa preencher la.
             const munEl = document.getElementById('statusMunicipio');
             const codMun = data.config.codMunicipio;
             munEl.textContent = codMun
-                ? (data.config.codMunicipioOverride ? codMun + ' (override)' : codMun)
+                ? (data.config.codMunicipioOrigem === 'legado' ? codMun + ' (config antiga)' : codMun)
                 : 'Nao configurado em Minha Empresa';
             munEl.className = codMun ? 'value' : 'value warning';
 
@@ -395,38 +381,29 @@
             }
         }
 
+        // Dizer de onde o valor veio evita a pergunta seguinte ("mudei no cadastro
+        // e aqui continua o antigo?"): 'legado' e exatamente esse caso.
+        const ORIGEM_TEXTO = {
+            cadastro: 'Do cadastro da empresa.',
+            legado: 'Ainda vem da configuração antiga desta tela — preencha em Minha Empresa para assumir o controle.',
+            padrao: 'Não preenchido no cadastro; a emissão usa 1.',
+            ausente: 'Não preenchido. Sem ele a emissão não sai.',
+        };
+
         function abrirConfig() {
-            document.getElementById('cfgSerie').value = configAtual.serie || '1';
-            document.getElementById('cfgCodMunicipio').value = configAtual.codMunicipioOverride || '';
+            document.getElementById('cfgSerieView').textContent = configAtual.serie || '1';
+            document.getElementById('cfgSerieOrigem').textContent =
+                ORIGEM_TEXTO[configAtual.serieOrigem] || '';
+            document.getElementById('cfgCodMunicipioView').textContent =
+                configAtual.codMunicipio || 'não configurado';
+            document.getElementById('cfgCodMunicipioOrigem').textContent =
+                ORIGEM_TEXTO[configAtual.codMunicipioOrigem] || '';
             document.getElementById('modalConfig').classList.add('open');
         }
 
-        async function salvarConfig() {
-            const serie = document.getElementById('cfgSerie').value.trim();
-            const codMunicipio = document.getElementById('cfgCodMunicipio').value.trim();
-
-            try {
-                const resp = await fetch('/api/nfse/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ serie, codMunicipio }),
-                });
-                const data = await resp.json();
-                if (data.success) {
-                    fecharModal('modalConfig');
-                    carregarConfig();
-                    mostrarAlerta('Configuracao salva', 'success');
-                } else {
-                    mostrarAlerta('Erro: ' + data.error, 'error');
-                }
-            } catch (error) {
-                mostrarAlerta('Erro: ' + error.message, 'error');
-            }
-        }
-
         async function consultarParametros() {
-            const cod = document.getElementById('cfgCodMunicipio').value.trim() || configAtual.codMunicipio || '';
-            if (!cod) { mostrarAlerta('Informe o código do município (cadastro ou override)', 'error'); return; }
+            const cod = configAtual.codMunicipio || '';
+            if (!cod) { mostrarAlerta('Cadastre o código IBGE do município em Minha Empresa', 'error'); return; }
 
             const div = document.getElementById('parametrosMunicipais');
             div.style.display = 'block';

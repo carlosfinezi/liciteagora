@@ -6,6 +6,51 @@ working tree.
 
 ## 2026-08-19
 
+- **Configurações que não eram da empresa saíram de Minha Empresa.** A tela
+  acumulava 12 painéis, dois deles alheios ao cadastro do emitente: as chaves de
+  IA (credencial de serviço externo, irmã de "E-mail (SMTP)") e a configuração de
+  emissão fiscal. Viraram **Configurações › IA · Chaves** (`configuracoes/ia.html`)
+  e **Fiscal › Configuração de Emissão** (`fiscal/configuracao.html`)
+- A tela fiscal traz **matriz e filiais no mesmo lugar**, que era a divisão real:
+  a matriz configurava série/numeração em Minha Empresa e a filial, em
+  Estabelecimentos — e a numeração da filial (`estabelecimento_serie`) **não tinha
+  interface nenhuma**: a emissão criava a linha com 1/1 e ninguém conseguia
+  corrigir uma migração de sistema ou uma nota inutilizada
+- Rotas novas: `GET/PUT /api/estabelecimentos/:id/emissao` (série e numeração dos
+  modelos 55/65/NFSE e CSC da filial; respeita o escopo de loja do usuário, recusa
+  a matriz, e o GET não cria linha) e `PUT /api/nfse/serie-dps` — a série do DPS
+  continua em `fornecedor.serieDps` porque é do emitente, mas `POST /api/fornecedor`
+  reescreve o cadastro inteiro e a tela de emissão precisa mexer só na série
+- `scripts/test-emissao-estabelecimento.js` (14 casos) cobre defaults, CSC que
+  nunca sai no GET, branco preserva / `cscLimpar` apaga, matriz recusada, série
+  inválida, RBAC de loja e o `serie-dps` sem derrubar razão social e CNPJ
+- **Ícones: o sistema falava duas línguas.** O menu lateral traduz emoji para
+  Lucide via `EMOJI_TO_LUCIDE`; o que faltava no mapa caía no fallback e aparecia
+  como emoji colorido — era o caso de 4 seções (**Portais**, **Contabilidade**,
+  Aprovações, Ótica) e 32 itens. O mapa foi completado (139 entradas, cada nome
+  validado contra o Lucide 0.475.0 que o sistema carrega: `venus-mars`, que eu ia
+  usar em Gêneros, não existe nessa versão e teria virado ícone vazio)
+- Os títulos e botões das páginas seguiam com emoji cru. Em vez de reescrever ~280
+  arquivos, `sidebar.padronizarIconesDaPagina()` converte em tempo de execução, e
+  um `MutationObserver` (uma passada por frame) reconverte o que o JS reescreve —
+  sem isso o ícone de um botão duraria até o primeiro clique. 500 botões inseridos
+  de uma vez custam ~120ms. Os emojis continuam no HTML: reverter é apagar a chamada
+- **Bug encontrado por causa disso**: `bll-proposta.html` e `bnc-proposta.html`
+  travavam o reenvio comparando `btn.textContent !== '✅ Enviada'`. Com o ✅ virando
+  SVG o texto passaria a ser só "Enviada", a comparação daria sempre verdadeiro e o
+  botão seria **reabilitado depois de uma proposta já enviada ao portal**. A trava
+  passou a ser `btn.dataset.enviada`
+- `.card-info` está definida **duas vezes** em `app-modern.css` — fundo escuro na
+  linha 239, e linha de metadados do kanban (`display:flex`) na 850, que vence.
+  A página de IA usava a classe contando com a primeira e virou uma linha flex com
+  os campos desalinhados. As telas novas não usam mais `.card-info`; o CSS global
+  ficou como está porque 20+ páginas dependem da versão kanban
+- `.alert:empty` não ocupa mais espaço: o container de mensagens nascia com borda
+  e padding, desenhando uma faixa vazia no topo de Minha Empresa e do Log de E-mails
+- Minha Empresa foi reorganizada em 4 abas (Cadastro · Representante e Banco ·
+  Credenciais · Propostas), com contador de pendência na aba Credenciais — conteúdo
+  escondido atrás de aba esconde também o "certificado não configurado"
+
 - **Perfil de acesso virou cadastro.** Até aqui `users.role` tinha cinco valores
   fixos e quase ninguém olhava para eles: fora de `requireRole(['admin'])`, todo
   usuário autenticado enxergava o menu inteiro — o que filtrava a tela era a

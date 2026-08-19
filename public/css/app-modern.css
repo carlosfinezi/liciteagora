@@ -61,6 +61,11 @@ svg.ic-xl { width: 32px; height: 32px; vertical-align: -6px; }
   --r-lg: 12px;
 }
 
+/* Tema do sistema: menu Conta → Cor do Sistema. O usuário escolhe fundo e
+   destaque livremente (sidebar.js deriva a paleta e aplica como CSS vars
+   inline no <html>; salvo por usuário em users.tema). Sem escolha = padrão
+   escuro slate/navy acima. */
+
 * { margin:0; padding:0; box-sizing:border-box; }
 html,body { height:100%; }
 body {
@@ -955,6 +960,15 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   gap: 8px;
   align-items: center;
 }
+.calendar-nav .cal-filtro {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 0.8em;
+  cursor: pointer;
+  margin-right: 6px;
+}
 .calendar-nav .current-month {
   color: var(--text-0);
   font-size: 0.95em;
@@ -1017,12 +1031,11 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-height: 80px;
-  overflow-y: auto;
 }
 .day-event {
-  background: var(--accent);
-  color: var(--bg-0);
+  background: var(--bg-3);
+  color: var(--text-1);
+  border-left: 3px solid var(--text-3);
   padding: 2px 6px;
   border-radius: var(--r-sm);
   font-size: 0.72em;
@@ -1031,13 +1044,89 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: filter 0.15s ease;
+  transition: background 0.15s ease;
 }
-.day-event:hover { filter: brightness(1.15); }
-.day-event.status-analise { background: var(--warn); color: var(--bg-0); }
-.day-event.status-proposta { background: var(--accent); color: var(--bg-0); }
-.day-event.status-enviada { background: var(--success); color: #064e3b; }
-.day-event.status-vencida { background: var(--text-3); color: #fff; }
+.day-event:hover { background: var(--bg-1); }
+.day-event .ev-hora {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+.day-event.status-analise { border-left-color: var(--warn); }
+.day-event.status-proposta { border-left-color: var(--accent); }
+.day-event.status-enviada { border-left-color: var(--success); }
+.day-event.status-vencida { border-left-color: var(--text-3); color: var(--text-2); }
+
+/* "+N mais" — abre o modal com o dia inteiro em vez de rolar dentro da célula */
+.day-more {
+  font-size: 0.72em;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.day-more:hover { color: var(--accent); }
+
+/* Lista de itens de um dia — usada no modal "+N mais" e na visão Lista */
+.dia-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.dia-lista .day-event {
+  font-size: 0.85em;
+  padding: 7px 10px;
+  white-space: normal;
+}
+#diaModalLista {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+#diaModalTitulo::first-letter { text-transform: uppercase; }
+
+/* Visão Lista — só os dias que têm algo, agrupados */
+.view-toggle { display: flex; gap: 4px; margin-right: 10px; }
+
+.agenda-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lista-dia {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 12px 14px;
+}
+.lista-dia.is-hoje { box-shadow: inset 0 0 0 2px var(--accent); }
+.lista-dia-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+/* Só a inicial: `capitalize` estragaria "11 de agosto" → "11 De Agosto" */
+.lista-dia-head strong {
+  color: var(--text-0);
+  font-size: 0.9em;
+}
+.lista-dia-head strong::first-letter { text-transform: uppercase; }
+.lista-dia-head span { color: var(--text-2); font-size: 0.78em; }
+.lista-dia.is-hoje .lista-dia-head strong { color: var(--accent); }
+
+.lista-vazia {
+  color: var(--text-2);
+  font-size: 0.9em;
+  text-align: center;
+  padding: 40px 20px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
 
 /* Detalhe dentro do modal de evento */
 .event-detail { margin-bottom: 12px; }
@@ -1216,6 +1305,8 @@ h1, h2, h3 { color: var(--text-0) !important; }
   font-size: 0.88em;
   border: 1px solid;
 }
+/* container de mensagem que ainda não recebeu texto não deve ocupar espaço */
+.alert:empty { display: none; }
 .alert.success, .alert-success { background: var(--success-soft); color: var(--success); border-color: #065f46; }
 .alert.error, .alert.danger, .alert-error, .alert-danger { background: var(--danger-soft); color: var(--danger); border-color: #991b1b; }
 .alert.warn, .alert.warning, .alert-warn, .alert-warning { background: var(--warn-soft); color: var(--warn); border-color: #b45309; }
@@ -1296,6 +1387,20 @@ h1, h2, h3 { color: var(--text-0) !important; }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
+/* Ícone Lucide injetado por sidebar.padronizarIconesDaPagina() no lugar do
+   emoji que o HTML dos títulos traz. Mesmo peso de traço do menu lateral. */
+.titulo-icone { display: inline-flex; align-items: center; margin-right: 6px; }
+/* .panel h3 já é flex com gap: o espaçamento sairia dobrado */
+.panel h3 .titulo-icone, .page-header .titulo-icone { margin-right: 0; }
+/* Ícone de botão: .btn já é inline-flex com gap, então sem margem própria */
+.btn-icone { display: inline-flex; align-items: center; margin-right: 6px; }
+.btn .btn-icone, button.btn .btn-icone, .so-icone { margin-right: 0; }
+.btn-icone svg { width: 15px; height: 15px; stroke-width: 2; }
+.btn-sm .btn-icone svg { width: 13px; height: 13px; }
+.btn-lg .btn-icone svg { width: 17px; height: 17px; }
+.titulo-icone svg { width: 18px; height: 18px; stroke-width: 1.75; }
+h1 > .titulo-icone svg, h2 > .titulo-icone svg { width: 20px; height: 20px; }
+
 /* .panel h3 — cabeçalho interno de painel */
 .panel h3 {
   color: var(--accent);
@@ -1307,7 +1412,7 @@ h1, h2, h3 { color: var(--text-0) !important; }
   gap: 10px;
 }
 
-/* .status-bar — faixa de KPIs inline (usada em financeiro, nfse, monitoramento-chat, lances-old, lances) */
+/* .status-bar — faixa de KPIs inline (usada em financeiro, nfse, comprasnet-monitor, lances-old, lances) */
 .status-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1405,7 +1510,7 @@ h1, h2, h3 { color: var(--text-0) !important; }
 .progress-bar .progress-fill.danger,  .progress-bar .fill.danger  { background: var(--danger); }
 .progress-text { font-size: 0.85em; color: var(--text-2); text-align: center; margin-top: 4px; }
 
-/* .log-view — área de logs monospace (monitoramento-chat, lances-old, lances, propostas-api, conexoes) */
+/* .log-view — área de logs monospace (comprasnet-monitor, lances-old, lances, propostas-api, conexoes) */
 .log-view, .log-area, .log-container, .logs-container, .auto-log-area, .envio-log {
   background: var(--bg-0);
   border: 1px solid var(--border);

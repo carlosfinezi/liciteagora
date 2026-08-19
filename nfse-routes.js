@@ -98,6 +98,124 @@ function proximoNumeroDPS(db, estab = null) {
 }
 
 /**
+ * Leva serie e codigo de municipio da chave/valor de nfse_config para o cadastro
+ * da empresa, que passa a ser a fonte.
+ *
+ * So preenche o que esta vazio: se o tenant ja tinha codigoMunicipio no cadastro,
+ * ele vence — era o que a emissao ja usava, e sobrescrever mudaria a nota.
+ * As chaves antigas ficam no lugar; sao o fallback de quem nao tem cadastro.
+ */
+function migrarSerieDps(db) {
+  try {
+    db.prepare('ALTER TABLE fornecedor ADD COLUMN serieDps TEXT').run();
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
+  const forn = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+  if (!forn) return { serie: null, municipio: null };
+
+  const legado = (k) => {
+    const r = db.prepare('SELECT value FROM nfse_config WHERE key = ?').get(k);
+    return r && r.value != null ? String(r.value).trim() : '';
+  };
+
+  const out = { serie: null, municipio: null };
+
+  if (!String(forn.serieDps || '').trim()) {
+    const v = legado('serie');
+    // So numerica: 'NFSE' era default de codigo, nao serie de ninguem.
+    if (/^\d{1,5}$/.test(v)) {
+      db.prepare('UPDATE fornecedor SET serieDps = ? WHERE id = 1').run(v);
+      out.serie = v;
+    }
+  }
+
+  if (!String(forn.codigoMunicipio || '').trim()) {
+    const v = legado('cod_municipio');
+    if (/^\d{7}$/.test(v)) {
+      db.prepare('UPDATE fornecedor SET codigoMunicipio = ? WHERE id = 1').run(v);
+      out.municipio = v;
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Categoria de receita para a conta a receber de uma NFS-e.
+ *
+ * A CR nascia sem categoria e sem conta do plano. O DRE agrupa por conta, então
+ * toda nota emitida entrava como "sem classificação" — no 1bit isso deixou
+ * R$ 74.327,20 recebidos fora da receita do relatório, que mostrava zero.
+ *
+ * Prefere a categoria de serviço do próprio tenant (é ele quem decide o nome);
+ * cai em qualquer categoria ligada a uma conta de receita antes de desistir.
+ * Devolve null se o tenant não tem plano configurado — aí a CR nasce sem
+ * classificação mesmo, e o DRE reporta isso em vez de esconder.
+ */
+function categoriaReceitaServico(db) {
+  try {
+    const candidatas = db.prepare(`
+      SELECT c.id, c.nome, c.planoContaId
+      FROM categorias_cr c
+      JOIN plano_contas pc ON pc.id = c.planoContaId
+      WHERE pc.tipo = 'receita' AND pc.ativo = 1
+      ORDER BY c.id`).all();
+    if (!candidatas.length) return null;
+
+    const semAcento = (t) => String(t || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const servico = candidatas.find((c) => semAcento(c.nome).includes('servic'));
+    return servico || candidatas[0];
+  } catch (err) {
+    if (/no such table|no such column/i.test(err.message)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Serie do DPS do emissor.
+ *
+ * A serie identifica o emissor perante o municipio: e dado do cadastro da
+ * empresa, nao configuracao da tela de NFS-e. Matriz le de fornecedor.serieDps
+ * (Minha Empresa); filial le de estabelecimento_serie, porque cada CNPJ tem a
+ * sua numeracao e a sua serie.
+ *
+ * A chave legada nfse_config.serie continua sendo lida como ultimo recurso para
+ * quem emitiu antes da migracao — assim nenhuma nota muda de serie sozinha.
+ *
+ * O default e '1', nao 'NFSE': serie alfanumerica ia parar no <serie> do XML e
+ * virava hash de 5 digitos no idDps, o que nao bate com o que o municipio ve.
+ */
+function serieDaEmissao(db, estab, fornecedor) {
+  const limpa = (v) => (v == null ? '' : String(v).trim());
+
+  if (estab && !estab.matriz) {
+    const r = db.prepare(
+      "SELECT serie FROM estabelecimento_serie WHERE estabelecimentoId = ? AND modelo = 'NFSE'"
+    ).get(estab.id);
+    if (limpa(r && r.serie)) return limpa(r.serie);
+  } else if (limpa(fornecedor && fornecedor.serieDps)) {
+    return limpa(fornecedor.serieDps);
+  }
+
+  return limpa(getConfig(db, 'serie')) || '1';
+}
+
+/**
+ * Codigo IBGE do municipio do emissor — sempre do cadastro (matriz ou filial).
+ * nfse_config.cod_municipio sobrou de antes de o campo existir no cadastro e
+ * so responde quando o cadastro esta vazio.
+ */
+function municipioDaEmissao(db, fornecedor) {
+  const doCadastro = fornecedor && fornecedor.codigoMunicipio;
+  if (doCadastro != null && String(doCadastro).trim()) return String(doCadastro).trim();
+  const legado = getConfig(db, 'cod_municipio');
+  return legado != null && String(legado).trim() ? String(legado).trim() : '';
+}
+
+/**
  * Envia DANFSE + boleto (se houver) por email ao tomador de uma NFSe autorizada.
  * Reutilizável: usado tanto na emissão avulsa (passando client+boleto já em mãos)
  * quanto no reenvio manual (busca tudo do banco). Não-fatal — o caller trata erro.
@@ -232,7 +350,6 @@ async function emitirNfseInterno(db, params) {
 
   // Carregar dados
   const ambiente = parseInt(getConfig(db, 'ambiente') || '2', 10);
-  const serie = getConfig(db, 'serie') || 'NFSE';
 
   // Multi-loja: prestador emissor (params.estabelecimentoId; NULL = matriz).
   // Para filial, o "fornecedor" (prestador) é a linha de estabelecimentos, que
@@ -245,10 +362,10 @@ async function emitirNfseInterno(db, params) {
     return { success: false, error: 'Dados do fornecedor nao cadastrados' };
   }
 
-  // Código IBGE do município: fonte primária é o cadastro do fornecedor
-  // (preenchido automaticamente pela busca de CNPJ em minha-empresa.html).
-  // `nfse_config.cod_municipio` permanece como override manual avançado.
-  const codMunicipio = fornecedor.codigoMunicipio || getConfig(db, 'cod_municipio');
+  // Série e código IBGE saem do cadastro de quem emite (matriz: Minha Empresa;
+  // filial: o estabelecimento). A tela de NFS-e só mostra o que já está lá.
+  const serie = serieDaEmissao(db, estab, fornecedor);
+  const codMunicipio = municipioDaEmissao(db, fornecedor);
 
   if (!codMunicipio) {
     return { success: false, error: 'Codigo IBGE do municipio nao configurado em Minha Empresa' };
@@ -449,10 +566,14 @@ async function emitirNfseInterno(db, params) {
         } else {
           // Fluxo padrão (emissão manual NFSe sem OS): cria CR nova.
           const formaPgto = gerarBoleto ? 'boleto' : 'outros';
+          // Sem categoria a receita não chega ao DRE nem ao orçamento.
+          const catServico = categoriaReceitaServico(db);
           contaId = db.prepare(`INSERT INTO contas_a_receber
-            (pessoaId, nfseId, descricao, valor, dataEmissao, dataVencimento, formaPagamento, contaFinanceiraId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(pessoa.id, nfseId, descConta, valor, dataBrasilia(), dataVenc, formaPgto, contaFinanceiraId || null).lastInsertRowid;
+            (pessoaId, nfseId, descricao, valor, dataEmissao, dataVencimento, formaPagamento, contaFinanceiraId,
+             categoriaId, planoContaId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(pessoa.id, nfseId, descConta, valor, dataBrasilia(), dataVenc, formaPgto, contaFinanceiraId || null,
+                catServico ? catServico.id : null, catServico ? catServico.planoContaId : null).lastInsertRowid;
           console.log(`[NFSe->Financeiro] Conta #${contaId} criada para NFSe #${nfseId}${contaFinanceiraId ? ' (contaFinanceira #'+contaFinanceiraId+')' : ''}`);
         }
 
@@ -543,15 +664,22 @@ function registrarRotasNfse(app, db) {
   app.get('/api/nfse/config', (req, res) => {
     try {
       const ambiente = getConfig(db, 'ambiente');
-      const serie = getConfig(db, 'serie');
-      const codMunicipioOverride = getConfig(db, 'cod_municipio');
       const proximoNumero = getConfig(db, 'proximo_numero');
 
       const cert = db.prepare('SELECT titular, validade FROM certificado_digital WHERE id = 1').get();
       const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
 
-      // Fonte primária: fornecedor.codigoMunicipio (cadastro). Override: nfse_config.
-      const codMunicipio = (fornecedor && fornecedor.codigoMunicipio) || codMunicipioOverride;
+      // Série e município vêm do cadastro da empresa. Devolvemos junto de onde
+      // cada um saiu para a tela poder dizer a verdade em vez de só mostrar o
+      // valor — se ainda vier da chave legada, o usuário precisa saber.
+      const serie = serieDaEmissao(db, null, fornecedor);
+      const codMunicipio = municipioDaEmissao(db, fornecedor);
+      const serieOrigem = (fornecedor && String(fornecedor.serieDps || '').trim())
+        ? 'cadastro'
+        : (String(getConfig(db, 'serie') || '').trim() ? 'legado' : 'padrao');
+      const codMunicipioOrigem = (fornecedor && String(fornecedor.codigoMunicipio || '').trim())
+        ? 'cadastro'
+        : (codMunicipio ? 'legado' : 'ausente');
 
       // Status de habilitação SEFIN (lê só cache; null se nunca consultado).
       let municipioHabilitado = null;
@@ -567,11 +695,27 @@ function registrarRotasNfse(app, db) {
         }
       }
 
+      // Quem emite o boleto é o provedor da conta financeira padrão, não um
+      // banco fixo — a tela precisa disto para não anunciar o provedor errado.
+      let boletoProvedor = null;
+      try {
+        const { getContaFinanceiraPadraoBoleto } = require('./boleto-orchestrator');
+        const contaId = getContaFinanceiraPadraoBoleto(db);
+        if (contaId) {
+          const row = db.prepare(`SELECT provedor FROM contas_financeiras_boleto
+            WHERE contaFinanceiraId = ? AND ativo = 1`).get(contaId);
+          const modulo = row && require('./boleto-provedores').get(row.provedor);
+          if (modulo) boletoProvedor = modulo.label;
+        }
+      } catch { /* sem provedor configurado: a tela mostra o rótulo genérico */ }
+
       res.json({
         success: true,
         config: {
-          ambiente, serie, codMunicipio, codMunicipioOverride, proximoNumero,
+          ambiente, serie, codMunicipio, proximoNumero,
+          serieOrigem, codMunicipioOrigem,
           municipioHabilitado, municipioHabilitadoTs,
+          boletoProvedor,
         },
         certificado: cert ? { configurado: true, titular: cert.titular, validade: cert.validade } : { configurado: false },
         prestador: fornecedor || null,
@@ -586,16 +730,47 @@ function registrarRotasNfse(app, db) {
     try {
       const { ambiente, serie, codMunicipio } = req.body;
 
+      // Dois lugares para o mesmo dado é como uma nota sai com a série errada.
+      // Recusar explicitamente é melhor que aceitar e ser ignorado na emissão.
+      if (serie !== undefined || codMunicipio !== undefined) {
+        return res.status(400).json({
+          success: false,
+          error: 'Série do DPS fica em Fiscal > Configuração de emissão; o Código do Município, '
+               + 'no cadastro da empresa (Configurações > Minha Empresa). Para filiais, no estabelecimento.',
+          campo: serie !== undefined ? 'serie' : 'codMunicipio',
+          destino: serie !== undefined ? '/fiscal/configuracao.html' : '/configuracoes/minha-empresa.html',
+        });
+      }
+
       if (ambiente !== undefined) {
         if (![1, 2, '1', '2'].includes(ambiente)) {
           return res.status(400).json({ success: false, error: 'Ambiente invalido (1=Producao, 2=Homologacao)' });
         }
         setConfig(db, 'ambiente', ambiente);
       }
-      if (serie !== undefined) setConfig(db, 'serie', serie);
-      if (codMunicipio !== undefined) setConfig(db, 'cod_municipio', codMunicipio);
 
       res.json({ success: true, message: 'Configuracao atualizada' });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // PUT /api/nfse/serie-dps — a série continua morando em fornecedor.serieDps
+  // (é do emitente, não da tela). Esta rota existe porque POST /api/fornecedor
+  // reescreve o cadastro inteiro: a tela de emissão precisa alterar só a série
+  // sem carregar razão social, endereço e logo junto.
+  app.put('/api/nfse/serie-dps', (req, res) => {
+    try {
+      const bruto = req.body.serieDps;
+      const v = bruto == null ? '' : String(bruto).trim();
+      if (v !== '' && !/^\d{1,5}$/.test(v)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Série do DPS deve ser numérica, de 1 a 5 dígitos (ex: 1)',
+        });
+      }
+      db.prepare('UPDATE fornecedor SET serieDps = ? WHERE id = 1').run(v || null);
+      res.json({ success: true, serieDps: v || null });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -607,7 +782,7 @@ function registrarRotasNfse(app, db) {
   app.post('/api/nfse/revalidar-municipio', (req, res) => {
     try {
       const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
-      const codMunicipio = (fornecedor && fornecedor.codigoMunicipio) || getConfig(db, 'cod_municipio');
+      const codMunicipio = municipioDaEmissao(db, fornecedor);
       if (!codMunicipio) {
         return res.status(400).json({ success: false, error: 'Código IBGE não configurado em Minha Empresa' });
       }
@@ -676,6 +851,110 @@ function registrarRotasNfse(app, db) {
       res.json({ ...r, message: `Email enviado para ${r.to}` });
     } catch (error) {
       console.error('[NFSe] Erro no reenvio de email:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Reemite uma NFSe que falhou por erro de conexão/timeout: reenvia o MESMO
+  // xmlEnvio já assinado (mesma nDPS/idDps — sem furo de numeração). Se a DPS
+  // já tiver sido recebida antes ou for inválida, a SEFIN devolve o erro e a
+  // nota volta para 'erro' com o motivo atualizado.
+  app.post('/api/nfse/:id/reemitir', async (req, res) => {
+    const id = parseInt(req.params.id);
+    try {
+      const nota = db.prepare('SELECT * FROM nfse WHERE id = ?').get(id);
+      if (!nota) return res.status(404).json({ success: false, error: 'NFSe não encontrada' });
+      if (nota.status !== 'erro' && nota.status !== 'erro_timeout') {
+        return res.status(400).json({ success: false, error: `Só notas com erro podem ser reemitidas (status atual: ${nota.status})` });
+      }
+      if (!nota.xmlEnvio) return res.status(400).json({ success: false, error: 'NFSe sem XML de envio salvo' });
+
+      // Trava atômica contra duplo clique
+      const lock = db.prepare(`UPDATE nfse SET status = 'processando', dataAtualizacao = CURRENT_TIMESTAMP
+        WHERE id = ? AND status IN ('erro', 'erro_timeout')`).run(id);
+      if (lock.changes === 0) return res.status(409).json({ success: false, error: 'Reemissão já em andamento' });
+
+      const { p12Buffer, senha } = carregarCertificado(db);
+      const client = new NfseClient(p12Buffer, senha, nota.tpAmb || 2);
+
+      let resposta;
+      try {
+        resposta = await client.emitirNfse(nota.xmlEnvio, nota.idDps);
+      } catch (sefinError) {
+        console.error('[NFSe][reemitir] Erro SEFIN:', sefinError.message);
+        db.prepare(`UPDATE nfse SET status = 'erro', xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(sefinError.message, id);
+        return res.status(502).json({ success: false, error: `Erro ao reenviar para SEFIN: ${sefinError.message}` });
+      }
+
+      const chaveAcesso = resposta.chaveAcesso || resposta.chNFSe || '';
+      let nNFSe = resposta.nNFSe || resposta.numero || '';
+      if (!nNFSe && resposta.nfseXmlGZipB64) {
+        try {
+          const xmlAutorizado = zlib.gunzipSync(Buffer.from(resposta.nfseXmlGZipB64, 'base64')).toString('utf-8');
+          nNFSe = tag(xmlAutorizado, 'nNFSe') || '';
+        } catch (e) {
+          console.warn('[NFSe][reemitir] Falha extraindo nNFSe do XML autorizado:', e.message);
+        }
+      }
+      const status = chaveAcesso ? 'autorizada' : (resposta.motivo ? 'rejeitada' : 'processando');
+      db.prepare(`UPDATE nfse SET chaveAcesso = ?, nNFSe = ?, status = ?, xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(chaveAcesso, nNFSe, status, JSON.stringify(resposta), id);
+
+      if (status === 'autorizada') {
+        // Financeiro: mesma regra da emissão; guard contra CR duplicada.
+        try {
+          if (nota.osId) {
+            db.prepare(`UPDATE contas_a_receber SET nfseId = ?, dataAtualizacao = CURRENT_TIMESTAMP
+              WHERE osId = ? AND origemTipo = 'os_servicos' AND nfseId IS NULL`).run(id, nota.osId);
+          } else if (!db.prepare('SELECT id FROM contas_a_receber WHERE nfseId = ?').get(id)) {
+            const cpfLimpo = (nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+            let pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo);
+            if (!pessoa) {
+              let endJson = {};
+              try { endJson = nota.tomadorEndereco ? JSON.parse(nota.tomadorEndereco) : {}; } catch (_) {}
+              db.prepare(`INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, endereco, numero, complemento, bairro, codigoMunicipio, uf, cep)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                .run(cpfLimpo, cpfLimpo.length <= 11 ? 'PF' : 'PJ', nota.tomadorRazaoSocial,
+                  endJson.logradouro || null, endJson.numero || null, endJson.complemento || null,
+                  endJson.bairro || null, endJson.codigoMunicipio || null, endJson.uf || null, endJson.cep || null);
+              pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfLimpo);
+            } else if (!pessoa.ativo) {
+              db.prepare('UPDATE pessoas SET ativo = 1, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(pessoa.id);
+            }
+            const descConta = `NFSe ${nNFSe || nota.nDPS} - ${nota.descricaoServico}`.substring(0, 200);
+            const catServico = categoriaReceitaServico(db);
+            const contaId = db.prepare(`INSERT INTO contas_a_receber
+              (pessoaId, nfseId, descricao, valor, dataEmissao, dataVencimento, formaPagamento,
+               categoriaId, planoContaId)
+              VALUES (?, ?, ?, ?, ?, ?, 'outros', ?, ?)`)
+              .run(pessoa.id, id, descConta, nota.valorServico, dataBrasilia(), dataBrasilia(),
+                   catServico ? catServico.id : null, catServico ? catServico.planoContaId : null).lastInsertRowid;
+            console.log(`[NFSe][reemitir] Conta #${contaId} criada para NFSe #${id}`);
+          }
+        } catch (finErr) {
+          console.error('[NFSe][reemitir] Financeiro (não-fatal):', finErr.message);
+        }
+
+        try {
+          const rEmail = await enviarEmailDaNfse(db, id, { client });
+          if (rEmail && !rEmail.success) console.warn(`[NFSe][reemitir] Email não enviado:`, rEmail.error);
+        } catch (emailErr) {
+          console.error('[NFSe][reemitir] Email (não-fatal):', emailErr.message);
+        }
+      }
+
+      res.json({
+        success: status === 'autorizada' || status === 'processando',
+        nfse: { id, nDPS: nota.nDPS, chaveAcesso, nNFSe, status, resposta },
+      });
+    } catch (error) {
+      console.error('[NFSe][reemitir] Erro:', error.message);
+      // Não deixa a nota presa em 'processando' se a falha foi antes/fora do envio
+      try {
+        db.prepare(`UPDATE nfse SET status = 'erro', xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP
+          WHERE id = ? AND status = 'processando'`).run(`Reemissão falhou: ${error.message}`, id);
+      } catch (_) {}
       res.status(500).json({ success: false, error: error.message });
     }
   });
@@ -1130,6 +1409,10 @@ function pararReconciliadorS6(db) {
 }
 
 module.exports = {
+  categoriaReceitaServico,
+  migrarSerieDps,
+  serieDaEmissao,
+  municipioDaEmissao,
   registrarRotasNfse,
   emitirNfseInterno,
   carregarCertificado,

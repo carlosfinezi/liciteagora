@@ -246,6 +246,93 @@ function registrarRotasEstabelecimentos(app, db) {
     }
   });
 
+  // ---- Configuração de emissão da FILIAL (Fiscal > Configuração de emissão) ----
+  // A matriz continua em nfe_config/nfce_config/nfse_config (rotas próprias de
+  // cada documento). A filial guarda série e numeração em estabelecimento_serie,
+  // que até aqui só era escrita pela emissão — não havia como corrigir uma
+  // numeração de filial pela interface.
+  const MODELOS_SERIE = ['55', '65', 'NFSE'];
+
+  app.get('/api/estabelecimentos/:id/emissao', (req, res) => {
+    try {
+      const estab = db.prepare('SELECT * FROM estabelecimentos WHERE id = ?').get(req.params.id);
+      if (!estab) return res.status(404).json({ success: false, error: 'Estabelecimento não encontrado' });
+      const escopo = escopoUsuario(req);
+      if (escopo && Number(escopo) !== estab.id) {
+        return res.status(403).json({ success: false, error: 'Sem permissão para este estabelecimento' });
+      }
+
+      const series = {};
+      for (const modelo of MODELOS_SERIE) {
+        const row = db.prepare(
+          'SELECT serie, proximoNumero FROM estabelecimento_serie WHERE estabelecimentoId = ? AND modelo = ? ORDER BY serie LIMIT 1'
+        ).get(estab.id, modelo);
+        // Sem linha ainda: a emissão cria com 1/1. Mostrar o mesmo default evita
+        // a tela dizer "vazio" e a nota sair com número 1 sem aviso.
+        series[modelo] = { serie: row ? row.serie : 1, proximoNumero: row ? row.proximoNumero : 1, gravado: !!row };
+      }
+
+      res.json({
+        success: true,
+        estabelecimento: { id: estab.id, matriz: estab.matriz, razaoSocial: estab.razaoSocial, cnpj: estab.cnpj },
+        series,
+        cscId: estab.cscId || null,
+        cscCadastrado: !!estab.csc,
+      });
+    } catch (error) {
+      console.error('Erro ao ler emissão do estabelecimento:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  app.put('/api/estabelecimentos/:id/emissao', (req, res) => {
+    try {
+      if (escopoUsuario(req)) return res.status(403).json({ success: false, error: 'Sem permissão para gerenciar estabelecimentos' });
+      const estab = db.prepare('SELECT * FROM estabelecimentos WHERE id = ?').get(req.params.id);
+      if (!estab) return res.status(404).json({ success: false, error: 'Estabelecimento não encontrado' });
+      if (estab.matriz) {
+        return res.status(400).json({
+          success: false,
+          error: 'A matriz usa as configurações de NF-e/NFC-e/NFS-e, não estabelecimento_serie.',
+        });
+      }
+
+      const series = req.body.series || {};
+      for (const modelo of MODELOS_SERIE) {
+        const entrada = series[modelo];
+        if (!entrada) continue;
+        const serie = Number(entrada.serie);
+        const proximo = Number(entrada.proximoNumero);
+        if (!Number.isInteger(serie) || serie < 1 || !Number.isInteger(proximo) || proximo < 1) {
+          return res.status(400).json({ success: false, error: `Série e próximo número do modelo ${modelo} devem ser inteiros ≥ 1` });
+        }
+        const row = db.prepare('SELECT id FROM estabelecimento_serie WHERE estabelecimentoId = ? AND modelo = ? ORDER BY serie LIMIT 1').get(estab.id, modelo);
+        if (row) {
+          db.prepare('UPDATE estabelecimento_serie SET serie = ?, proximoNumero = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(serie, proximo, row.id);
+        } else {
+          db.prepare('INSERT INTO estabelecimento_serie (estabelecimentoId, modelo, serie, proximoNumero) VALUES (?, ?, ?, ?)').run(estab.id, modelo, serie, proximo);
+        }
+      }
+
+      // CSC da NFC-e: em branco preserva o token guardado (mesma regra da matriz
+      // em nfce-routes); cscLimpar apaga de fato.
+      if (req.body.cscId !== undefined) {
+        db.prepare('UPDATE estabelecimentos SET cscId = ? WHERE id = ?').run(req.body.cscId || null, estab.id);
+      }
+      if (req.body.cscLimpar) {
+        db.prepare('UPDATE estabelecimentos SET csc = NULL WHERE id = ?').run(estab.id);
+      } else if (req.body.csc) {
+        db.prepare('UPDATE estabelecimentos SET csc = ? WHERE id = ?').run(req.body.csc, estab.id);
+      }
+      db.prepare('UPDATE estabelecimentos SET dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(estab.id);
+
+      res.json({ success: true, message: 'Configuração de emissão atualizada.' });
+    } catch (error) {
+      console.error('Erro ao salvar emissão do estabelecimento:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   console.log('[Estabelecimentos] Rotas registradas');
 }
 

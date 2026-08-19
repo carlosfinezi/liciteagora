@@ -41,6 +41,86 @@ const IN_SHELL = (() => {
     }
 })();
 
+// ===== Tema do sistema (fundo/paleta) =====
+// Preferência salva POR USUÁRIO no servidor (users.tema, /api/user/prefs).
+// localStorage ('appTheme') é só cache pra aplicar sem flash antes do fetch.
+// Roda em toda página E no shell; troca propaga aos outros frames/abas pelo
+// evento 'storage'. Valores: 'padrao' (escuro slate/navy do CSS) ou
+// 'custom:#fundo:#destaque' (paleta derivada das duas cores do usuário).
+const TEMA_FUNDO_PADRAO = '#0f172a';
+const TEMA_DESTAQUE_PADRAO = '#3b82f6';
+// Tema personalizado: 'custom:#<fundo>:#<destaque>' — a paleta inteira é
+// derivada das duas cores e aplicada como CSS vars inline no <html>.
+const CUSTOM_TEMA_RE = /^custom:(#[0-9a-fA-F]{6}):(#[0-9a-fA-F]{6})$/;
+const CUSTOM_VARS = ['--bg-0', '--bg-1', '--bg-2', '--bg-3', '--bg-hover', '--bg-input',
+    '--border', '--border-strong', '--text-0', '--text-1', '--text-2', '--text-3',
+    '--accent', '--accent-strong', '--accent-soft', '--success', '--success-soft',
+    '--warn', '--warn-soft', '--danger', '--danger-soft', '--purple', '--purple-soft'];
+function mixHex(hex, alvo, p) {
+    const h = (s, i) => parseInt(s.slice(i, i + 2), 16);
+    return '#' + [1, 3, 5].map((i) =>
+        Math.round(h(hex, i) + (h(alvo, i) - h(hex, i)) * p).toString(16).padStart(2, '0')).join('');
+}
+function lumHex(hex) {
+    const h = (i) => parseInt(hex.slice(i, i + 2), 16) / 255;
+    return 0.2126 * h(1) + 0.7152 * h(3) + 0.0722 * h(5);
+}
+function paletaCustom(bg, accent) {
+    const P = {};
+    if (lumHex(bg) >= 0.5) { // fundo claro → textos escuros, tons puxados pro branco
+        P['--bg-0'] = bg;
+        P['--bg-1'] = P['--bg-2'] = mixHex(bg, '#ffffff', 0.7);
+        P['--bg-3'] = P['--bg-hover'] = mixHex(bg, '#000000', 0.06);
+        P['--bg-input'] = mixHex(bg, '#ffffff', 0.8);
+        P['--border'] = mixHex(bg, '#000000', 0.18);
+        P['--border-strong'] = mixHex(bg, '#000000', 0.34);
+        P['--text-0'] = '#0f172a'; P['--text-1'] = '#1e293b'; P['--text-2'] = '#475569'; P['--text-3'] = '#64748b';
+        P['--accent'] = accent; P['--accent-strong'] = mixHex(accent, '#000000', 0.12); P['--accent-soft'] = accent + '26';
+        P['--success'] = '#059669'; P['--success-soft'] = '#d1fae5';
+        P['--warn'] = '#b45309'; P['--warn-soft'] = '#fef3c7';
+        P['--danger'] = '#dc2626'; P['--danger-soft'] = '#fee2e2';
+        P['--purple'] = '#7c3aed'; P['--purple-soft'] = '#ede9fe';
+    } else { // fundo escuro → textos padrão claros, tons derivados do fundo
+        P['--bg-0'] = mixHex(bg, '#000000', 0.25);
+        P['--bg-1'] = bg;
+        P['--bg-2'] = mixHex(bg, '#ffffff', 0.03);
+        P['--bg-3'] = mixHex(bg, '#ffffff', 0.10);
+        P['--bg-hover'] = mixHex(bg, '#ffffff', 0.14);
+        P['--bg-input'] = mixHex(bg, '#000000', 0.15);
+        P['--border'] = mixHex(bg, '#ffffff', 0.10);
+        P['--border-strong'] = mixHex(bg, '#ffffff', 0.22);
+        P['--accent'] = mixHex(accent, '#ffffff', 0.18);
+        P['--accent-strong'] = accent;
+        P['--accent-soft'] = accent + '40';
+    }
+    return P;
+}
+function aplicarTema(tema) {
+    const st = document.documentElement.style;
+    CUSTOM_VARS.forEach((v) => st.removeProperty(v));
+    const m = CUSTOM_TEMA_RE.exec(tema || '');
+    if (!m) return; // 'padrao' (ou tema antigo/desconhecido) = paleta do CSS
+    const pal = paletaCustom(m[1], m[2]);
+    Object.keys(pal).forEach((k) => st.setProperty(k, pal[k]));
+}
+function cacheTema(tema) {
+    try { localStorage.setItem('appTheme', tema || 'padrao'); } catch (_) {}
+}
+(function initTema() {
+    if (typeof document === 'undefined') return;
+    try { aplicarTema(localStorage.getItem('appTheme')); } catch (_) {}
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'appTheme') aplicarTema(e.newValue);
+    });
+    // Fonte da verdade: preferência do usuário logado no servidor.
+    fetch('/api/user/prefs').then((r) => (r.ok ? r.json() : null)).then((d) => {
+        if (!d || !d.success) return;
+        const tema = d.tema || 'padrao';
+        cacheTema(tema);
+        aplicarTema(tema);
+    }).catch(() => {});
+})();
+
 // Carrega estado dos grupos do localStorage
 function getGruposState() {
     try {
@@ -144,7 +224,102 @@ const EMOJI_TO_LUCIDE = {
     '🛍️': 'shopping-bag','🛒': 'shopping-cart','🛠️': 'wrench',
     '🤖': 'bot',          '🧮': 'calculator',   '🧾': 'receipt',
     '📌': 'pin',          '🚪': 'log-out',      '📋': 'clipboard-list',
+    '🎨': 'palette',      '🌐': 'globe',        '🛡️': 'shield',
+    '📚': 'library',      '🥽': 'glasses',      '📡': 'radio-tower',
+    '🏬': 'warehouse',    '🚀': 'rocket',       '⏱️': 'timer',
+    '🩺': 'stethoscope',  '🔌': 'plug',         '🏆': 'trophy',
+    '🧩': 'puzzle',       '💲': 'badge-dollar-sign', '📉': 'trending-down',
+    '🏁': 'flag',         '🖥️': 'monitor',      '🔖': 'bookmark',
+    '🧱': 'brick-wall',   '⚥': 'users-round',   '🔀': 'arrow-left-right',
+    '💠': 'circle-dollar-sign', '🤝': 'handshake', '🎛️': 'sliders-horizontal',
+    '✍️': 'pen-line',     '⚖️': 'scale',        '🧪': 'flask-conical',
+    '✨': 'sparkles',     '✉️': 'mail',         '🔔': 'bell',
+    // usados em títulos de página (não aparecem no menu)
+    '📍': 'map-pin',      '📞': 'phone',        '🖼️': 'image',
+    '✓': 'check',         '⚡': 'zap',          '⏳': 'hourglass',
+    '📁': 'folder',       '🔥': 'flame',        '🧠': 'brain',
+    '✕': 'x',             '⚠️': 'alert-triangle', '⟳': 'refresh-cw',
+    '⇄': 'arrow-left-right', '↩': 'undo-2',
+    // usados como ícone de botão
+    '←': 'arrow-left',    '→': 'arrow-right',   '◀': 'chevron-left',
+    '↗': 'arrow-up-right','↳': 'corner-down-right', '↶': 'undo-2',
+    '↺': 'rotate-ccw',    '↻': 'refresh-cw',    '↧': 'arrow-down-to-line',
+    '↕': 'arrow-up-down', '⬆': 'upload',        '⬇': 'download',
+    '⬇️': 'download',     '▶': 'play',          '⏸': 'pause',
+    '⏸️': 'pause',        '➕': 'plus',          '✅': 'circle-check',
+    '✔': 'check',         '✖': 'x',             '✗': 'x',
+    '☰': 'menu',          '⚙': 'settings',      '♻️': 'recycle',
+    '✏️': 'pencil',       '🗑': 'trash-2',       '🗑️': 'trash-2',
+    '🖨️': 'printer',      '📱': 'smartphone',   '📎': 'paperclip',
+    '👁': 'eye',          '👁️': 'eye',          '👓': 'glasses',
 };
+
+// Os títulos das páginas trazem o ícone como emoji no HTML, enquanto o menu
+// renderiza Lucide. Converter aqui deixa a tela inteira na mesma linguagem
+// visual sem precisar reescrever o emoji em cada uma das ~280 páginas.
+function padronizarIconesDaPagina() {
+    // Forma 1: <h3><span>🏢</span> Título</h3>
+    document.querySelectorAll('h1 > span, h2 > span, h3 > span, h4 > span').forEach((el) => {
+        if (el.children.length) return;              // já é ícone ou tem markup próprio
+        const nome = EMOJI_TO_LUCIDE[el.textContent.trim()];
+        if (!nome) return;                           // emoji não mapeado: fica como está
+        el.classList.add('titulo-icone');
+        el.innerHTML = `<i data-lucide="${nome}"></i>`;
+    });
+    // Forma 2: <h3>🏢 Título</h3> — o emoji é o começo do próprio texto
+    document.querySelectorAll('h1, h2, h3, h4').forEach((h) => trocarEmojiInicial(h, 'titulo-icone'));
+    // Botões e links-botão: mesmo padrão de ícone-antes-do-rótulo.
+    document.querySelectorAll('button, .btn').forEach((b) => trocarEmojiInicial(b, 'btn-icone'));
+}
+
+// Troca o emoji que abre o elemento por um ícone Lucide. Só mexe quando o
+// primeiro nó é texto começando com um emoji conhecido; qualquer outro caso
+// (ícone já convertido, markup próprio, emoji não mapeado) fica intacto.
+function trocarEmojiInicial(el, classe) {
+    const no = el.firstChild;
+    if (!no || no.nodeType !== Node.TEXT_NODE) return;
+    const m = no.nodeValue.match(/^\s*(\S+)(\s+|$)/);
+    if (!m) return;
+    const nome = EMOJI_TO_LUCIDE[m[1]];
+    if (!nome) return;
+    no.nodeValue = no.nodeValue.slice(m[0].length);
+    const span = document.createElement('span');
+    // Botão só de ícone (lixeira, lápis) não deve carregar a margem do rótulo.
+    span.className = classe + (el.textContent.trim() ? '' : ' so-icone');
+    span.innerHTML = `<i data-lucide="${nome}"></i>`;
+    el.insertBefore(span, el.firstChild);
+}
+
+// Muito botão tem o rótulo reescrito em tempo de execução ('⏳ Salvando...',
+// e depois '💾 Salvar'), e a tela é montada por innerHTML em quase toda
+// listagem. Sem observar, o ícone só valeria até a primeira interação.
+function observarIconesDinamicos() {
+    if (window.__lctIconObserver) return;
+    let pendente = false;
+    const obs = new MutationObserver((muts) => {
+        const temBotao = muts.some((mut) => {
+            if (mut.target && mut.target.closest && mut.target.closest('button, .btn, h1, h2, h3, h4')) return true;
+            return [...mut.addedNodes].some((n) => n.nodeType === Node.ELEMENT_NODE
+                && (n.matches?.('button, .btn, h1, h2, h3, h4') || n.querySelector?.('button, .btn, h1, h2, h3, h4')));
+        });
+        if (!temBotao || pendente) return;
+        // Agrupa numa única passada por frame: listagens grandes disparam
+        // centenas de mutações seguidas.
+        pendente = true;
+        requestAnimationFrame(() => {
+            pendente = false;
+            obs.disconnect();
+            try {
+                padronizarIconesDaPagina();
+                if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+            } finally {
+                obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+            }
+        });
+    });
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    window.__lctIconObserver = obs;
+}
 
 function renderIcon(emoji) {
     const name = EMOJI_TO_LUCIDE[emoji];
@@ -206,8 +381,7 @@ function gerarMenuHTML(pageName) {
 <nav class="sidebar" id="sidebar">
     <div class="sidebar-header">
         <a href="${config.logo.link}" class="sidebar-logo">
-            <span class="sidebar-logo-icon">${renderIcon(config.logo.icone)}</span>
-            ${config.logo.texto}
+            <img class="sidebar-logo-img" src="/img/logo-sistema.png" alt="${config.logo.texto}">
         </a>
     </div>
     <div id="estabSwitcher" style="display:none; padding:10px 14px; border-bottom:1px solid var(--border);"></div>
@@ -215,6 +389,10 @@ function gerarMenuHTML(pageName) {
         ${secoesHTML}
         <div class="menu-section menu-section-toggle" data-grupo="grp-conta" onclick="toggleGrupo('grp-conta')"><span class="menu-section-title"><span class="menu-section-icon">${renderIcon('👤')}</span>Conta</span> <span class="menu-chevron">${gruposState['grp-conta'] === true ? '▾' : '▸'}</span></div>
         <div class="menu-group" id="grp-conta" style="${gruposState['grp-conta'] === true ? '' : 'display:none'}">
+        <a href="#" class="menu-item" onclick="abrirModalTema(); return false;">
+            <span class="icon">${renderIcon('🎨')}</span>
+            Cor do Sistema
+        </a>
         <a href="#" class="menu-item" onclick="abrirModalSenha(); return false;">
             <span class="icon">${renderIcon('🔑')}</span>
             Alterar Senha
@@ -244,6 +422,26 @@ function gerarMenuHTML(pageName) {
     <div style="display:flex; gap:10px; justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="fecharModalSenha()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarSenha()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Cor do Sistema -->
+<div id="modalTema" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.65); z-index:10000; align-items:center; justify-content:center;" onclick="if(event.target===this)fecharModalTema()">
+  <div style="background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-lg); padding:28px; width:100%; max-width:380px; box-shadow:0 12px 40px rgba(0,0,0,0.5);">
+    <h3 style="color:var(--text-0); margin-bottom:6px;">Cor do Sistema</h3>
+    <p style="color:var(--text-2); font-size:13px; margin-bottom:18px;">Escolha o fundo e a cor de destaque. Mexer nas cores mostra uma prévia na hora; "Salvar cores" grava no seu usuário.</p>
+    <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+      <label style="display:flex; align-items:center; gap:8px; color:var(--text-1); font-size:13px;">Fundo <input type="color" id="corFundo" value="#0f172a" oninput="previewTemaCustom()" style="width:44px; height:32px; border:1px solid var(--border-strong); border-radius:var(--r-sm); background:none; cursor:pointer;"></label>
+      <label style="display:flex; align-items:center; gap:8px; color:var(--text-1); font-size:13px;">Destaque <input type="color" id="corDestaque" value="#3b82f6" oninput="previewTemaCustom()" style="width:44px; height:32px; border:1px solid var(--border-strong); border-radius:var(--r-sm); background:none; cursor:pointer;"></label>
+    </div>
+    <div id="temaStatus" style="color:var(--text-2); font-size:12px; min-height:16px; margin-bottom:12px;"></div>
+    <div style="display:flex; gap:10px; justify-content:space-between;">
+      <button class="btn btn-ghost" onclick="restaurarTemaPadrao()">Restaurar padrão</button>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-ghost" onclick="fecharModalTema()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarTemaCustom()">Salvar cores</button>
+      </div>
     </div>
   </div>
 </div>
@@ -277,12 +475,19 @@ function initSidebar(pageName) {
             );
         } catch (_) {}
         interceptarLinksExternos();
+        padronizarIconesDaPagina();
+        observarIconesDinamicos();
+        // Se a lib ainda não carregou, o onload de injectLucide desenha depois.
+        try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (_) {}
         return;
     }
     const sidebarHTML = gerarMenuHTML(pageName);
     document.body.insertAdjacentHTML('afterbegin', sidebarHTML);
     setActiveMenuItem(pageName);
+    padronizarIconesDaPagina();
+    observarIconesDinamicos();
     carregarContadorInteresses();
+    carregarContadorAprovacoes();
     // Renderiza os SVGs do Lucide. Se a lib ainda não carregou, o próprio
     // onload do script (em injectLucide) cuida disso.
     try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (_) {}
@@ -321,6 +526,7 @@ function initShell() {
     refreshFeaturesCache();
     carregarEstabSwitcher();
     carregarContadorInteresses();
+    carregarContadorAprovacoes();
 
     const iframe = document.getElementById('conteudo');
 
@@ -366,6 +572,7 @@ function initShell() {
         if (title) document.title = title;
         sincronizarHash(path);
         carregarContadorInteresses();
+        carregarContadorAprovacoes();
     };
 
     // Fallback pra páginas que não chamam initSidebar: sincroniza pelo load do iframe
@@ -475,6 +682,35 @@ async function carregarContadorInteresses() {
     }
 }
 
+// Contador de aprovações pendentes.
+//
+// Mostra o que ESTE usuário pode decidir, não o total: um badge com um número
+// que não é problema de quem está vendo treina a ignorar o badge. Se não há
+// nada para ele mas há pendências de outro papel, mostra o total esmaecido —
+// some do radar seria pior.
+async function carregarContadorAprovacoes() {
+    try {
+        const response = await fetch('/api/alcadas/aprovacoes/pendentes');
+        if (!response.ok) return;
+        const data = await response.json();
+        const el = document.getElementById('aprovacoesCount');
+        if (!el || !data.success) return;
+        if (data.minhas > 0) {
+            el.textContent = data.minhas;
+            el.style.opacity = '';
+            el.title = `${data.minhas} esperando a sua decisão`;
+        } else if (data.total > 0) {
+            el.textContent = data.total;
+            el.style.opacity = '0.5';
+            el.title = `${data.total} pendente(s), aguardando outro papel`;
+        } else {
+            el.textContent = '';
+        }
+    } catch (error) {
+        console.log('Erro ao carregar contador de aprovações:', error);
+    }
+}
+
 // Fecha sidebar ao clicar em um link (mobile)
 document.addEventListener('click', function(e) {
     if (e.target.closest('.menu-item') && window.innerWidth <= 768) {
@@ -502,6 +738,66 @@ async function fazerLogout() {
         await fetch('/api/logout', { method: 'POST' });
     } catch (e) {}
     window.location.href = '/login.html';
+}
+
+// Modal cor do sistema
+// Preenche os pickers com o tema salvo (custom) ou com as cores do padrão.
+function seedTemaInputs() {
+    const m = CUSTOM_TEMA_RE.exec(localStorage.getItem('appTheme') || '');
+    const cf = document.getElementById('corFundo');
+    const cd = document.getElementById('corDestaque');
+    if (cf) cf.value = m ? m[1] : TEMA_FUNDO_PADRAO;
+    if (cd) cd.value = m ? m[2] : TEMA_DESTAQUE_PADRAO;
+}
+function temaCustomAtual() {
+    return 'custom:' + document.getElementById('corFundo').value + ':' + document.getElementById('corDestaque').value;
+}
+function previewTemaCustom() {
+    aplicarTema(temaCustomAtual());
+    const st = document.getElementById('temaStatus');
+    if (st) st.textContent = 'Prévia — clique em "Salvar cores" pra manter.';
+}
+function salvarTemaCustom() {
+    escolherTema(temaCustomAtual());
+}
+function restaurarTemaPadrao() {
+    escolherTema('padrao');
+    seedTemaInputs();
+}
+function escolherTema(tema) {
+    cacheTema(tema);
+    aplicarTema(tema);
+    // storage event não dispara na janela que gravou → aplica no(s) iframe(s) daqui
+    document.querySelectorAll('iframe').forEach((f) => {
+        try { f.contentDocument && f.contentWindow.aplicarTema && f.contentWindow.aplicarTema(tema); } catch (_) {}
+    });
+    // Persiste no usuário logado (vale em qualquer navegador/máquina).
+    fetch('/api/user/prefs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tema }),
+    }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+        const st = document.getElementById('temaStatus');
+        if (st) st.textContent = d && d.success ? 'Salvo no seu usuário ✓' : '⚠ não foi possível salvar no servidor (aplicado só neste navegador)';
+    }).catch(() => {
+        const st = document.getElementById('temaStatus');
+        if (st) st.textContent = '⚠ não foi possível salvar no servidor (aplicado só neste navegador)';
+    });
+}
+function abrirModalTema() {
+    const modal = document.getElementById('modalTema');
+    if (modal) {
+        seedTemaInputs();
+        const st = document.getElementById('temaStatus');
+        if (st) st.textContent = '';
+        modal.style.display = 'flex';
+    }
+}
+function fecharModalTema() {
+    const modal = document.getElementById('modalTema');
+    if (modal) modal.style.display = 'none';
+    // Descarta prévia não salva: reaplica o tema que está persistido.
+    try { aplicarTema(localStorage.getItem('appTheme')); } catch (_) {}
 }
 
 // Modal alterar senha

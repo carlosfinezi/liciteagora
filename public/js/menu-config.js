@@ -167,7 +167,7 @@ const menuConfig = {
                 { page: 'pdv-config', icone: '⚙️', texto: 'PDV · Config', link: '/varejo/pdv-config.html' },
                 { page: 'tef', icone: '💳', texto: 'TEF', link: '/varejo/tef.html' },
                 { page: 'marketplaces', icone: '🛍️', texto: 'Marketplaces', link: '/varejo/marketplaces.html' },
-                { page: 'loja', icone: '🏬', texto: 'Loja virtual', link: '/varejo/loja.html' },
+                { page: 'loja', icone: '🛍️', texto: 'Loja virtual', link: '/varejo/loja.html' },
                 { page: 'romaneios', icone: '🚚', texto: 'Romaneios', link: '/varejo/romaneios.html' }
             ]
         },
@@ -246,7 +246,8 @@ const menuConfig = {
                 { page: 'apuracao-sn', icone: '🧮', texto: 'Apuração SN', link: '/fiscal/apuracao-sn.html' },
                 { page: 'dre', icone: '📊', texto: 'DRE', link: '/fiscal/dre.html' },
                 { page: 'defis', icone: '📋', texto: 'DEFIS', link: '/fiscal/defis.html' },
-                { page: 'fiscal-arquivamento', icone: '🗄️', texto: 'Arquivamento Fiscal', link: '/fiscal/fiscal-arquivamento.html' }
+                { page: 'fiscal-arquivamento', icone: '🗄️', texto: 'Arquivamento Fiscal', link: '/fiscal/fiscal-arquivamento.html' },
+                { page: 'fiscal-configuracao', icone: '⚙️', texto: 'Configuração de Emissão', link: '/fiscal/configuracao.html' }
             ]
         },
         {
@@ -318,6 +319,7 @@ const menuConfig = {
                 { page: 'importacao', icone: '⬆️', texto: 'Importação', link: '/configuracoes/importacao.html' },
                 { page: 'email', icone: '✉️', texto: 'E-mail (SMTP)', link: '/configuracoes/email.html' },
                 { page: 'notificacoes', icone: '🔔', texto: 'Notificações', link: '/configuracoes/notificacoes.html' },
+                { page: 'config-ia', icone: '🤖', texto: 'IA · Chaves', link: '/configuracoes/ia.html' },
                 { page: 'portal-credenciais', icone: '🔐', texto: 'Portal · Credenciais', link: '/configuracoes/portal-credenciais.html' },
                 { page: 'status', icone: '📊', texto: 'Status', link: '/configuracoes/status.html' },
 

@@ -255,16 +255,26 @@ async function enviar() {
         '<div style="margin-top:8px;">' + itensResumoHtml(d.itens) + '</div>' +
         (d.comprovanteUrl ? '<div style="margin-top:8px;"><a href="' + escapeHtml(d.comprovanteUrl) + '" target="_blank">Ver comprovante</a></div>' : ''),
         d);
-      btn.textContent = '✅ Enviada'; // trava reenvio acidental
+      btn.dataset.enviada = '1';     // trava reenvio acidental
+      btn.textContent = '✅ Enviada';
       return;
     }
     mostrarResultado('err', '⚠️ <strong>Não confirmou o envio.</strong><br>' + escapeHtml(d.error || d.mensagem || 'veja os detalhes técnicos'), d);
   } catch (e) { mostrarResultado('err', '⚠️ <strong>Erro de rede.</strong><br>' + escapeHtml(e.message), {}); }
-  finally { if (btn.textContent !== '✅ Enviada') { btn.disabled = false; btn.textContent = '⚠️ Enviar proposta ao BLL'; } }
+  // A trava é o dataset, não o texto: o rótulo é reescrito (e o ícone, trocado
+  // por SVG na padronização visual), então comparar textContent reabilitaria o
+  // botão depois de uma proposta já enviada.
+  finally { if (btn.dataset.enviada !== '1') { btn.disabled = false; btn.textContent = '⚠️ Enviar proposta ao BLL'; } }
 }
 
 // Auto-resolução: ?pncp=CNPJ-ANO-SEQ acha a URL da proposta sozinho (sem colar).
 // Fallback: ?url= pré-preenche direto.
+// Falhou a auto-resolução → reabre o seletor de editais como plano B.
+function reabrirSeletor(msg) {
+  document.getElementById('painelEditais').style.display = '';
+  carregarEditais();
+  alerta(msg, 'err');
+}
 async function resolverPorPncp(pncp) {
   currentPncp = pncp;
   const ctx = document.getElementById('ctxEdital');
@@ -273,12 +283,12 @@ async function resolverPorPncp(pncp) {
     const r = await fetch(API + '/api/bll/proposta/resolver?pncp=' + encodeURIComponent(pncp));
     const d = await r.json();
     if (!d.success) throw new Error(d.error || 'falha');
-    if (!d.portalBll) { ctx.innerHTML = '⚠ ' + (d.error || 'não é BLL') + (d.portalOrigem ? ' (origem: ' + d.portalOrigem + ')' : ''); return; }
-    if (!d.url) { ctx.innerHTML = '⚠ ' + (d.error || 'sem URL derivável'); return; }
+    if (!d.portalBll) { reabrirSeletor('⚠ ' + (d.error || 'não é BLL') + (d.portalOrigem ? ' (origem: ' + d.portalOrigem + ')' : '')); return; }
+    if (!d.url) { reabrirSeletor('⚠ ' + (d.error || 'sem URL derivável')); return; }
     document.getElementById('inpUrl').value = d.url;
     ctx.innerHTML = '📄 <strong>' + (d.orgao || '') + '</strong> — ' + ((d.objeto || '').slice(0, 160)) + '…';
     await carregarItens();  // carrega os itens automaticamente
-  } catch (e) { ctx.innerHTML = '⚠ auto-resolução falhou: ' + e.message + '. Cole a URL manualmente.'; }
+  } catch (e) { reabrirSeletor('⚠ auto-resolução falhou: ' + e.message + '. Escolha o edital ou cole a URL manualmente.'); }
 }
 
 // Editar a URL manualmente desassocia o edital (não dá pra saber o valor de referência).
@@ -286,9 +296,14 @@ document.getElementById('inpUrl').addEventListener('input', () => { currentPncp 
 
 (function () {
   const q = new URLSearchParams(location.search);
+  if (q.get('pncp')) {
+    // veio direcionado da agenda/análise com o edital já escolhido → sem seletor
+    document.getElementById('painelEditais').style.display = 'none';
+    resolverPorPncp(q.get('pncp'));
+    return;
+  }
   carregarEditais();
-  if (q.get('pncp')) resolverPorPncp(q.get('pncp'));
-  else if (q.get('url')) document.getElementById('inpUrl').value = q.get('url');
+  if (q.get('url')) document.getElementById('inpUrl').value = q.get('url');
 })();
 carregarSessao();
 </script>

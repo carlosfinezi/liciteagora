@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IA - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: cartões de provedor de IA */
+        .hint { display: block; margin-top: 4px; color: var(--text-3); font-size: 0.78em; }
+        p.hint { margin: 0 0 15px; font-size: 0.9em; }
+        .status-box { background: var(--bg-1); }
+        .ia-provider { background: var(--bg-1); border-left: 3px solid var(--border-strong); margin-bottom: 15px; }
+        .ia-provider .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .ia-provider .head .status { margin-left: auto; font-size: 0.85em; }
+        .ia-provider .acoes { display: flex; gap: 10px; align-items: center; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>IA</h1>
+                <small>Chaves dos provedores usados na análise automática de licitações</small>
+              </div>
+              <div class="actions">
+                <a class="btn btn-ghost btn-sm" href="/operacional/analises-ia.html" style="text-decoration:none;">🤖 Ver análises</a>
+                <button type="submit" form="formIA" class="btn btn-primary btn-sm" id="btnSalvarTopo">💾 Salvar chaves</button>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <form id="formIA">
+                <div class="panel">
+                    <h3><span>🤖</span> Provedores</h3>
+                    <p class="hint">
+                        A análise extrai documentos do edital, identifica requisitos e pontos de atenção e
+                        calcula o score de viabilidade. Basta uma chave para funcionar — as demais são fallback.
+                        <strong>Cadeia: Cerebras &gt; Gemini &gt; DeepSeek &gt; Groq &gt; Claude.</strong>
+                        Campo em branco preserva a chave já guardada.
+                    </p>
+                    <div id="statusIA" class="card status-box" style="margin-bottom: 15px;">
+                        <span class="text-warn">⚠ Verificando...</span>
+                    </div>
+
+                    <!-- Cerebras -->
+                    <div class="card ia-provider">
+                        <div class="head">
+                            <strong>Cerebras (Qwen 3 235B)</strong>
+                            <span class="badge sucesso">Gratuito</span>
+                            <span id="statusCerebras" class="status"></span>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="cerebrasKey">Chave da API Cerebras</label>
+                            <input type="password" id="cerebrasKey" placeholder="csk-..." autocomplete="off">
+                        </div>
+                        <div class="acoes">
+                            <button type="button" class="btn btn-danger btn-sm" id="remover-cerebras" style="display:none;" onclick="removerChaveIA('cerebras')">Remover</button>
+                            <a href="https://cloud.cerebras.ai" target="_blank" style="font-size: 0.85em;">Obter chave (free 1M tok/dia)</a>
+                        </div>
+                    </div>
+
+                    <!-- Groq -->
+                    <div class="card ia-provider">
+                        <div class="head">
+                            <strong>Groq (Llama 3.3 70B)</strong>
+                            <span class="badge manual">Barato</span>
+                            <span id="statusGroq" class="status"></span>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="groqKey">Chave da API Groq</label>
+                            <input type="password" id="groqKey" placeholder="gsk_..." autocomplete="off">
+                        </div>
+                        <div class="acoes">
+                            <button type="button" class="btn btn-danger btn-sm" id="remover-groq" style="display:none;" onclick="removerChaveIA('groq')">Remover</button>
+                            <a href="https://console.groq.com/keys" target="_blank" style="font-size: 0.85em;">Obter chave (free tier disponível)</a>
+                        </div>
+                    </div>
+
+                    <!-- Google -->
+                    <div class="card ia-provider">
+                        <div class="head">
+                            <strong>Google Gemini</strong>
+                            <span class="badge sucesso">Gratuito</span>
+                            <span id="statusGemini" class="status"></span>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="geminiKey">Chave da API Gemini</label>
+                            <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off">
+                        </div>
+                        <div class="acoes">
+                            <button type="button" class="btn btn-danger btn-sm" id="remover-gemini" style="display:none;" onclick="removerChaveIA('gemini')">Remover</button>
+                            <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size: 0.85em;">Obter chave gratuita</a>
+                        </div>
+                    </div>
+
+                    <!-- DeepSeek -->
+                    <div class="card ia-provider">
+                        <div class="head">
+                            <strong>DeepSeek V3</strong>
+                            <span class="badge manual">Barato</span>
+                            <span id="statusDeepseek" class="status"></span>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="deepseekKey">Chave da API DeepSeek</label>
+                            <input type="password" id="deepseekKey" placeholder="sk-..." autocomplete="off">
+                        </div>
+                        <div class="acoes">
+                            <button type="button" class="btn btn-danger btn-sm" id="remover-deepseek" style="display:none;" onclick="removerChaveIA('deepseek')">Remover</button>
+                            <a href="https://platform.deepseek.com" target="_blank" style="font-size: 0.85em;">Obter chave (pago, ~$0.003/análise)</a>
+                        </div>
+                    </div>
+
+                    <!-- Anthropic -->
+                    <div class="card ia-provider">
+                        <div class="head">
+                            <strong>Anthropic Claude</strong>
+                            <span class="badge inativo">Pago</span>
+                            <span id="statusAnthropic" class="status"></span>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="anthropicKey">Chave da API Anthropic</label>
+                            <input type="password" id="anthropicKey" placeholder="sk-ant-..." autocomplete="off">
+                        </div>
+                        <div class="acoes">
+                            <button type="button" class="btn btn-danger btn-sm" id="remover-anthropic" style="display:none;" onclick="removerChaveIA('anthropic')">Remover</button>
+                            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="font-size: 0.85em;">Obter chave (pago)</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3><span>📊</span> Fila de análise</h3>
+                    <p class="hint">
+                        As licitações de interesse entram na fila e são analisadas pelo agendador.
+                        Processar aqui é um empurrão manual, útil logo depois de cadastrar a primeira chave.
+                    </p>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" class="btn btn-primary" onclick="processarFilaIA()" id="btnProcessarIA">
+                            Processar Fila (10 licitações)
+                        </button>
+                    </div>
+
+                    <div id="statsIA" style="margin-top: 15px; display: none;">
+                        <div class="kpi-grid" style="margin-bottom: 0;">
+                            <div class="kpi">
+                                <div class="label">Analisadas</div>
+                                <div class="value" id="statTotal">0</div>
+                            </div>
+                            <div class="kpi warn">
+                                <div class="label">Pendentes</div>
+                                <div class="value" id="statPendentes">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </main>
+    </div>
+
+    <script>
+        const PROVIDERS = {
+            cerebras:  { input: 'cerebrasKey',  status: 'statusCerebras',  nome: 'Cerebras' },
+            gemini:    { input: 'geminiKey',    status: 'statusGemini',    nome: 'Gemini' },
+            deepseek:  { input: 'deepseekKey',  status: 'statusDeepseek',  nome: 'DeepSeek' },
+            groq:      { input: 'groqKey',      status: 'statusGroq',      nome: 'Groq' },
+            anthropic: { input: 'anthropicKey', status: 'statusAnthropic', nome: 'Claude' },
+        };
+
+        document.addEventListener('DOMContentLoaded', verificarChaveIA);
+
+        document.getElementById('formIA').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btnSalvarTopo');
+            btn.disabled = true;
+            btn.textContent = 'Salvando...';
+
+            const erros = [];
+            const tarefas = [];
+            // Só sobe o que foi digitado: em branco preserva a chave guardada.
+            for (const [provider, cfg] of Object.entries(PROVIDERS)) {
+                const input = document.getElementById(cfg.input);
+                const key = input.value.trim();
+                if (!key) continue;
+                tarefas.push((async () => {
+                    try {
+                        const r = await fetch('/api/config/ia-keys', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ provider, key })
+                        });
+                        const j = await r.json();
+                        if (j.success) input.value = '';
+                        else erros.push(`${cfg.nome}: ${j.error || 'erro'}`);
+                    } catch (err) {
+                        erros.push(`${cfg.nome}: ${err.message}`);
+                    }
+                })());
+            }
+
+            if (!tarefas.length) {
+                mostrarAlerta('Nenhuma chave preenchida — nada a salvar.', 'warn');
+            } else {
+                await Promise.all(tarefas);
+                if (erros.length === 0) mostrarAlerta('Chaves salvas com sucesso!', 'success');
+                else mostrarAlerta('Salvo com avisos — ' + erros.join('; '), 'error');
+                verificarChaveIA();
+            }
+
+            btn.disabled = false;
+            btn.textContent = '💾 Salvar chaves';
+        });
+
+        function mostrarAlerta(mensagem, tipo) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.className = `alert alert-${tipo}`;
+            alertBox.textContent = mensagem;
+            alertBox.style.display = 'block';
+            setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function verificarChaveIA() {
+            const statusDiv = document.getElementById('statusIA');
+            try {
+                const [keyResp, statsResp] = await Promise.all([
+                    fetch('/api/config/ia-keys'),
+                    fetch('/api/analise/stats')
+                ]);
+                const keyData = await keyResp.json();
+                const statsData = await statsResp.json();
+
+                if (keyData.success && keyData.alguma_configurada) {
+                    const nomes = Object.entries(PROVIDERS)
+                        .filter(([p]) => keyData[p]?.configurada)
+                        .map(([, cfg]) => cfg.nome);
+                    statusDiv.innerHTML = `<span class="text-success">✓ Análise IA ativa</span>` +
+                        `<span class="muted" style="font-size: 0.85em; margin-left: 10px;">Provider: ${nomes.join(' + ')}</span>`;
+                } else {
+                    statusDiv.innerHTML = '<span class="text-warn">⚠ Nenhuma chave configurada — análise IA desabilitada</span>';
+                }
+
+                for (const [provider, cfg] of Object.entries(PROVIDERS)) {
+                    const el = document.getElementById(cfg.status);
+                    if (!el) continue;
+                    const dados = keyData[provider];
+                    if (dados?.configurada) el.innerHTML = `<span class="text-success">✓ ${dados.preview}</span>`;
+                    else el.innerHTML = '<span class="muted">Não configurada</span>';
+                    // Remover só faz sentido quando há chave guardada.
+                    document.getElementById('remover-' + provider).style.display = dados?.configurada ? '' : 'none';
+                }
+
+                if (statsData.success) {
+                    document.getElementById('statTotal').textContent = statsData.stats.total;
+                    document.getElementById('statPendentes').textContent = statsData.stats.pendentes;
+                    document.getElementById('statsIA').style.display = 'block';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<span class="text-danger">Erro ao verificar configuração IA</span>';
+                console.error('Erro ao verificar IA:', error);
+            }
+        }
+
+        async function removerChaveIA(provider) {
+            const nome = PROVIDERS[provider]?.nome || provider;
+            if (!confirm(`Remover a chave ${nome}?`)) return;
+
+            try {
+                const response = await fetch('/api/config/ia-key-remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta(`Chave ${nome} removida.`, 'success');
+                    verificarChaveIA();
+                } else {
+                    mostrarAlerta('Erro ao remover chave', 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao remover chave', 'error');
+                console.error(error);
+            }
+        }
+
+        async function processarFilaIA() {
+            const btn = document.getElementById('btnProcessarIA');
+            btn.disabled = true;
+            btn.textContent = 'Processando...';
+
+            try {
+                const response = await fetch('/api/analise/processar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limite: 10 })
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    mostrarAlerta(`${result.processadas} licitações analisadas!`, 'success');
+                    verificarChaveIA();
+                } else {
+                    mostrarAlerta('Erro: ' + result.error, 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Erro ao processar fila', 'error');
+                console.error(error);
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Processar Fila (10 licitações)';
+        }
+    </script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('config-ia');</script>
+</body>
+</html>
