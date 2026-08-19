@@ -75,6 +75,7 @@
           <option value="operacional">operacional — estoque + compras</option>
           <option value="licitacoes">licitacoes — licitações</option>
         </select>
+        <small class="muted" style="display:block;margin-top:4px;">O que cada perfil abre é definido em <a href="/configuracoes/perfis.html">Perfis de Acesso</a>.</small>
       </div>
     </div>
     <div class="form-row" id="rowEstabUser" style="display:none;">
@@ -149,10 +150,27 @@
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 
+// Perfis cadastrados em Perfis de Acesso entram no select junto dos nativos —
+// sem isto, um perfil recém-criado não teria como ser atribuído a ninguém.
+const DESC_NATIVOS = { admin:'acesso total', financeiro:'fiscal + financeiro',
+  comercial:'vendas + clientes', operacional:'estoque + compras', licitacoes:'licitações' };
+function escOpt(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
+function preencherPerfis(perfis){
+  if(!Array.isArray(perfis) || !perfis.length) return;   // mantém o fallback do HTML
+  const sel=document.getElementById('fRole');
+  const atual=sel.value;
+  sel.innerHTML = perfis.map(p=>{
+    const sufixo = p.restrito ? `${escOpt(p.nome)} (restrito)` : (DESC_NATIVOS[p.slug] || 'sem restrição');
+    return `<option value="${escOpt(p.slug)}">${escOpt(p.slug)} — ${sufixo}</option>`;
+  }).join('');
+  if(atual && perfis.some(p=>p.slug===atual)) sel.value=atual;
+}
+
 async function carregar(){
   const r=await fetch('/api/usuarios');
   const d=await r.json();
   if(!d.success) return showAlert(d.error||'Erro ao carregar','error');
+  preencherPerfis(d.perfis);
   const tb=document.getElementById('tb');
   tb.innerHTML = d.usuarios.length ? d.usuarios.map(u=>`<tr>
     <td class="mono"><strong>${u.username}</strong></td>

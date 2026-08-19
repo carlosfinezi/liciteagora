@@ -78,6 +78,33 @@ function isFeatureEnabled(name) {
     return getFeaturesCache()[name] === true;
 }
 
+// Acesso por perfil (RBAC — ver perfis-acesso.js). Mesmo esquema de cache das
+// features: sem isto o menu ofereceria itens que respondem 403 ao serem
+// clicados. A feature flag é do tenant; isto aqui é do usuário.
+function getAcessoCache() {
+    try { return JSON.parse(localStorage.getItem('acessoCache') || 'null'); }
+    catch { return null; }
+}
+function refreshAcessoCache() {
+    fetch('/api/perfis/meu-acesso').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d || !d.success) return;
+        const next = { irrestrito: !!d.irrestrito, paginas: d.paginas || [] };
+        const changed = JSON.stringify(getAcessoCache()) !== JSON.stringify(next);
+        localStorage.setItem('acessoCache', JSON.stringify(next));
+        if (changed && !sessionStorage.getItem('acessoCacheReloaded')) {
+            sessionStorage.setItem('acessoCacheReloaded', '1');
+            location.reload();
+        }
+    }).catch(() => {});
+}
+function isPaginaPermitida(page) {
+    const c = getAcessoCache();
+    // Sem cache ainda (primeiro acesso do browser) não esconde nada: o gate do
+    // servidor é quem decide de fato, aqui é só para não oferecer porta fechada.
+    if (!c || c.irrestrito) return true;
+    return (c.paginas || []).includes(page);
+}
+
 // Carrega a biblioteca Lucide Icons (SVG premium) do CDN. Se falhar,
 // o sidebar cai graciosamente para os emojis originais.
 (function injectLucide() {
@@ -142,7 +169,8 @@ function gerarMenuHTML(pageName) {
     config.secoes.forEach((secao, idx) => {
         if (secao.feature && !isFeatureEnabled(secao.feature)) return;
         const slug = 'grp-' + idx;
-        const itensVisiveis = secao.itens.filter(it => !it.feature || isFeatureEnabled(it.feature));
+        const itensVisiveis = secao.itens.filter(it =>
+            (!it.feature || isFeatureEnabled(it.feature)) && isPaginaPermitida(it.page));
         if (!itensVisiveis.length) return;
         const temPaginaAtiva = itensVisiveis.some(i => i.page === pageName);
         // Grupo colapsável: aberto só se contém página ativa ou se usuário expandiu explicitamente
@@ -260,6 +288,8 @@ function initSidebar(pageName) {
     try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (_) {}
     // Atualiza cache de feature flags em background (recarrega se mudou)
     refreshFeaturesCache();
+    // Idem para o acesso do perfil do usuário.
+    refreshAcessoCache();
     // Seletor de estabelecimento (multi-loja): só aparece quando há +de 1 ativo.
     carregarEstabSwitcher();
 }

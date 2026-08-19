@@ -311,6 +311,7 @@ const menuConfig = {
             itens: [
                 { page: 'meu-perfil', icone: '👤', texto: 'Meu Perfil', link: '/configuracoes/meu-perfil.html' },
                 { page: 'usuarios', icone: '🔑', texto: 'Usuários', link: '/configuracoes/usuarios.html' },
+                { page: 'perfis', icone: '🔒', texto: 'Perfis de Acesso', link: '/configuracoes/perfis.html' },
                 { page: 'config-alcadas', icone: '🛡️', texto: 'Regras de Alçada', link: '/configuracoes/alcadas.html' },
                 { page: 'minha-empresa', icone: '🏢', texto: 'Minha Empresa', link: '/configuracoes/minha-empresa.html' },
                 { page: 'estabelecimentos', icone: '🏪', texto: 'Estabelecimentos', link: '/configuracoes/estabelecimentos.html' },
@@ -351,9 +352,17 @@ const menuConfig = {
  *   - link: URL da página
  *   - badge: (opcional) ID do elemento para mostrar contador (ex: 'interesseCount')
  *
+ * ATENÇÃO: este arquivo também é lido pelo backend (perfis-acesso.js) como
+ * catálogo de páginas do RBAC. Item novo aqui = item novo na tela de Perfis de
+ * Acesso, sem lista paralela para manter.
+ *
  * OBSERVAÇÃO: páginas de detalhe (ex.: contrato.html, pedido.html, funcionario.html,
  * ordem-servico.html, /compras/pedido.html, /catalogo/produto.html, romaneio.html,
  * contas-a-pagar-detalhe.html, contas-a-receber-detalhe.html, nfe-entrada-detalhe.html,
  * /estoque/inventario-contagem.html, /estoque/movimentacao-nova.html) não aparecem no menu
  * porque são abertas via link da página de listagem correspondente.
  */
+
+// O backend usa este mesmo arquivo como catálogo de páginas do RBAC
+// (perfis-acesso.js). No navegador `module` não existe e a linha é ignorada.
+if (typeof module !== 'undefined' && module.exports) module.exports = { menuConfig };

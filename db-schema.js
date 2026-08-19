@@ -2053,6 +2053,10 @@ require('./bnc-schema').initBNCSchema(db);
 // Tabelas BLL (bllcompras.com) — conector BLL (proposta + lance). Mesmo padrão.
 require('./bll-schema').initBLLSchema(db);
 
+// Perfis de acesso (RBAC por página). Cadastro que dá conteúdo a `users.role`:
+// sem linha aqui, o role continua sem restrição — ver perfis-acesso.js.
+require('./perfis-acesso').ensureSchema(db);
+
 }
 
 module.exports = { initSchema };

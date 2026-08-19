@@ -11,6 +11,14 @@
 const bcrypt = require('bcryptjs');
 const { requireRole, ROLES } = require('./auth');
 const { logAction } = require('./audit-log');
+const { perfisDisponiveis } = require('./perfis-acesso');
+
+// Perfil aceito = um dos cinco nativos OU um perfil de acesso cadastrado e
+// ativo (perfis_acesso). Antes só os cinco nativos passavam, o que tornava
+// impossível atribuir um perfil recém-criado.
+function slugsDePerfil(db) {
+  return perfisDisponiveis(db).map((p) => p.slug);
+}
 
 const SELECT_USER = `id, username, nome, email, role, ativo, ultimoLogin, createdAt,
   ehVendedor, vendedorTipo, cpfCnpj, comissaoPercentual, metaMensal, telefoneVendedor, estabelecimentoId`;
@@ -24,7 +32,7 @@ function registrarRotasUsuarios(app, db) {
   // Dados do próprio usuário (qualquer logado)
   app.get('/api/usuarios/me', (req, res) => {
     if (!req.user) return res.status(401).json({ success: false, error: 'Não autenticado' });
-    res.json({ success: true, usuario: req.user, roles: ROLES });
+    res.json({ success: true, usuario: req.user, roles: ROLES, perfis: perfisDisponiveis(db) });
   });
 
   // Trocar a própria senha
@@ -75,7 +83,7 @@ function registrarRotasUsuarios(app, db) {
       const where = apenasVendedores ? 'WHERE ativo = 1 AND ehVendedor = 1' : '';
       const sql = `SELECT ${SELECT_USER} FROM users ${where} ORDER BY ativo DESC, username ASC`;
       const usuarios = db.prepare(sql).all();
-      res.json({ success: true, usuarios, roles: ROLES });
+      res.json({ success: true, usuarios, roles: ROLES, perfis: perfisDisponiveis(db) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -100,8 +108,9 @@ function registrarRotasUsuarios(app, db) {
       if (!username || !senha || !role) {
         return res.status(400).json({ success: false, error: 'username, senha e perfil são obrigatórios' });
       }
-      if (!ROLES.includes(role)) {
-        return res.status(400).json({ success: false, error: `Perfil inválido. Use: ${ROLES.join(', ')}` });
+      const perfisOk = slugsDePerfil(db);
+      if (!perfisOk.includes(role)) {
+        return res.status(400).json({ success: false, error: `Perfil inválido. Use: ${perfisOk.join(', ')}` });
       }
       if (senha.length < 6) {
         return res.status(400).json({ success: false, error: 'Senha deve ter ao menos 6 caracteres' });
@@ -147,8 +156,11 @@ function registrarRotasUsuarios(app, db) {
         nome, email, role, ativo, senha, estabelecimentoId,
         ehVendedor, vendedorTipo, cpfCnpj, comissaoPercentual, metaMensal, telefoneVendedor,
       } = req.body;
-      if (role && !ROLES.includes(role)) {
-        return res.status(400).json({ success: false, error: `Perfil inválido. Use: ${ROLES.join(', ')}` });
+      if (role) {
+        const perfisOk = slugsDePerfil(db);
+        if (!perfisOk.includes(role)) {
+          return res.status(400).json({ success: false, error: `Perfil inválido. Use: ${perfisOk.join(', ')}` });
+        }
       }
       if (vendedorTipo !== undefined && vendedorTipo !== null && vendedorTipo !== '' && !VENDEDOR_TIPOS.includes(vendedorTipo)) {
         return res.status(400).json({ success: false, error: `vendedorTipo inválido. Use: ${VENDEDOR_TIPOS.join(', ')}` });

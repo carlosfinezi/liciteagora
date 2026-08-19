@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perfis de Acesso · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .secao-perm { border:1px solid var(--border); border-radius:var(--r-md); margin-bottom:8px; overflow:hidden; }
+  .secao-perm > header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--bg-1); cursor:pointer; }
+  .secao-perm > header strong { flex:1; font-size:0.92em; }
+  .secao-perm .conta { font-size:0.78em; color:var(--muted); }
+  .secao-perm ul { list-style:none; margin:0; padding:6px 12px 10px 34px;
+                   display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:2px 14px; }
+  .secao-perm li label { display:flex; align-items:center; gap:7px; font-size:0.86em; padding:3px 0; cursor:pointer; }
+  .secao-perm input[type=checkbox] { width:auto; margin:0; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Perfis de Acesso</h1>
+      <small>O perfil define quais páginas o usuário abre</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo perfil</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel" style="margin-bottom:12px;font-size:0.87em;line-height:1.6;">
+    O perfil <strong>admin</strong> é fixo, abre tudo e não pode ser limitado — é onde ficam os
+    administradores. Qualquer outro perfil só passa a restringir depois de cadastrado aqui;
+    enquanto não existir cadastro para ele, quem o usa continua vendo o sistema inteiro.
+    A restrição vale para as <strong>páginas</strong> e para as <strong>funções</strong> que elas
+    usam: uma tela fora do perfil não abre, e os dados dela também não respondem por outro caminho.
+    Telas de detalhe (ex.: um pedido dentro de Comercial) acompanham o acesso à listagem do
+    mesmo módulo.
+  </div>
+
+  <div id="painelNativos"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Perfil</th>
+        <th>Identificador</th>
+        <th>Páginas</th>
+        <th>Usuários</th>
+        <th>Status</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Novo perfil</h3>
+        <small class="muted">Nome, identificador e as páginas que o perfil abre</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Nome *</label>
+        <input type="text" id="fNome" placeholder="ex: Faturamento">
+      </div>
+      <div class="form-group">
+        <label>Identificador * <small class="muted">(usado no cadastro de usuários)</small></label>
+        <input type="text" id="fSlug" placeholder="ex: faturamento" autocomplete="off">
+        <small class="muted" id="hintSlug">Letras minúsculas, números, hífen e underline. Não muda depois que houver usuário no perfil.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição</label>
+        <input type="text" id="fDescricao" placeholder="Para que serve este perfil">
+      </div>
+    </div>
+    <div class="form-row" id="rowAtivoPerfil" style="display:none;">
+      <div class="form-group full-width">
+        <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:0.95em;">
+          <input type="checkbox" id="fAtivo" style="width:auto;" checked> Ativo
+        </label>
+        <small class="muted">Perfil inativo volta a não restringir nada para quem o usa.</small>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin:6px 0 10px;">
+      <strong style="font-size:0.9em;">Páginas liberadas</strong>
+      <span class="badge" id="contador">0</span>
+      <div style="flex:1;"></div>
+      <button class="btn btn-ghost btn-sm" onclick="marcarTudo(true)">Marcar todas</button>
+      <button class="btn btn-ghost btn-sm" onclick="marcarTudo(false)">Limpar</button>
+    </div>
+    <div id="permissoes" style="max-height:46vh;overflow-y:auto;padding-right:4px;">Carregando…</div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('perfis');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+function esc(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
+
+let CATALOGO = [];
+let TOTAL_PAGINAS = 0;
+
+async function carregarCatalogo(){
+  const d = await fetch('/api/perfis/catalogo').then(r=>r.json());
+  if(!d.success) throw new Error(d.error||'Falha ao ler o catálogo de páginas');
+  CATALOGO = d.secoes;
+  TOTAL_PAGINAS = CATALOGO.reduce((n,s)=>n+s.paginas.length,0);
+  document.getElementById('permissoes').innerHTML = CATALOGO.map((s,i)=>`
+    <div class="secao-perm">
+      <header onclick="toggleSecao(${i})">
+        <input type="checkbox" data-secao="${i}" onclick="event.stopPropagation();marcarSecao(${i},this.checked)">
+        <strong>${esc(s.icone||'')} ${esc(s.titulo)}</strong>
+        <span class="conta" id="conta-${i}">0/${s.paginas.length}</span>
+      </header>
+      <ul id="ul-${i}">
+        ${s.paginas.map(p=>`<li><label title="${esc(p.link)}">
+            <input type="checkbox" value="${esc(p.page)}" data-sec="${i}" onchange="atualizarContadores()">
+            ${esc(p.texto)}
+          </label></li>`).join('')}
+      </ul>
+    </div>`).join('');
+}
+
+function toggleSecao(i){ const ul=document.getElementById('ul-'+i); ul.style.display = ul.style.display==='none'?'':'none'; }
+
+function marcarSecao(i, on){
+  document.querySelectorAll(`#permissoes input[data-sec="${i}"]`).forEach(c=>c.checked=on);
+  atualizarContadores();
+}
+function marcarTudo(on){
+  document.querySelectorAll('#permissoes input[data-sec]').forEach(c=>c.checked=on);
+  atualizarContadores();
+}
+function atualizarContadores(){
+  let total=0;
+  CATALOGO.forEach((s,i)=>{
+    const cx=[...document.querySelectorAll(`#permissoes input[data-sec="${i}"]`)];
+    const n=cx.filter(c=>c.checked).length;
+    total+=n;
+    document.getElementById('conta-'+i).textContent = `${n}/${cx.length}`;
+    const head=document.querySelector(`#permissoes input[data-secao="${i}"]`);
+    head.checked = n===cx.length && n>0;
+    head.indeterminate = n>0 && n<cx.length;
+  });
+  document.getElementById('contador').textContent = `${total} de ${TOTAL_PAGINAS}`;
+}
+function paginasMarcadas(){
+  return [...document.querySelectorAll('#permissoes input[data-sec]')].filter(c=>c.checked).map(c=>c.value);
+}
+function aplicarSelecao(paginas){
+  const set=new Set(paginas||[]);
+  document.querySelectorAll('#permissoes input[data-sec]').forEach(c=>c.checked=set.has(c.value));
+  atualizarContadores();
+}
+
+async function carregar(){
+  const d = await fetch('/api/perfis').then(r=>r.json());
+  if(!d.success) return showAlert(d.error||'Erro ao carregar','error');
+  const tb=document.getElementById('tb');
+  // O perfil fixo do sistema encabeça a lista: ele não é um registro editável,
+  // mas é onde os administradores estão.
+  const linhaFixa = d.fixo ? `<tr style="opacity:.9;">
+    <td><strong>${esc(d.fixo.nome)}</strong> <span class="badge" title="Perfil do sistema">fixo</span>
+        <br><small class="muted">${esc(d.fixo.descricao)}</small></td>
+    <td class="mono">${esc(d.fixo.slug)}</td>
+    <td>${d.totalPaginas} de ${d.totalPaginas}</td>
+    <td>${d.fixo.usuarios}</td>
+    <td><span class="badge ativo">ativo</span></td>
+    <td style="text-align:right;"><small class="muted">não editável</small></td>
+  </tr>` : '';
+  tb.innerHTML = linhaFixa + (d.perfis.length ? d.perfis.map(p=>`<tr>
+    <td><strong>${esc(p.nome)}</strong>${p.descricao?`<br><small class="muted">${esc(p.descricao)}</small>`:''}</td>
+    <td class="mono">${esc(p.slug)}</td>
+    <td>${p.paginas.length} de ${d.totalPaginas}</td>
+    <td>${p.usuarios}</td>
+    <td><span class="badge ${p.ativo?'ativo':'inativo'}">${p.ativo?'ativo':'inativo'}</span></td>
+    <td style="text-align:right;white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(p)})'>Editar</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluir(${p.id},'${esc(p.slug)}')">Excluir</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty">Nenhum perfil além do administrador — crie um para limitar o que um usuário abre</td></tr>');
+
+  const semCadastro=(d.nativosSemCadastro||[]).filter(n=>n.usuarios>0);
+  document.getElementById('painelNativos').innerHTML = semCadastro.length
+    ? `<div class="panel" style="border-left:4px solid var(--warn);margin-bottom:10px;font-size:0.87em;">
+         <strong>Perfis nativos ainda sem restrição:</strong>
+         ${semCadastro.map(n=>`${esc(n.slug)} (${n.usuarios} usuário${n.usuarios>1?'s':''})`).join(' · ')}.
+         Cadastre-os aqui com o mesmo identificador para limitar o que essas contas abrem.
+       </div>` : '';
+}
+
+function abrirNovo(){
+  document.getElementById('modalTitulo').textContent='Novo perfil';
+  document.getElementById('fId').value='';
+  ['fNome','fSlug','fDescricao'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fSlug').disabled=false;
+  document.getElementById('rowAtivoPerfil').style.display='none';
+  aplicarSelecao([]);
+  document.getElementById('modal').classList.add('open');
+}
+function editar(p){
+  document.getElementById('modalTitulo').textContent='Editar '+p.nome;
+  document.getElementById('fId').value=p.id;
+  document.getElementById('fNome').value=p.nome;
+  document.getElementById('fSlug').value=p.slug;
+  document.getElementById('fSlug').disabled = p.usuarios>0;
+  document.getElementById('hintSlug').textContent = p.usuarios>0
+    ? `${p.usuarios} usuário(s) usam este identificador — por isso ele está travado.`
+    : 'Letras minúsculas, números, hífen e underline.';
+  document.getElementById('fDescricao').value=p.descricao||'';
+  document.getElementById('fAtivo').checked=!!p.ativo;
+  document.getElementById('rowAtivoPerfil').style.display='';
+  aplicarSelecao(p.paginas);
+  document.getElementById('modal').classList.add('open');
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const id=document.getElementById('fId').value;
+  const body={
+    nome: document.getElementById('fNome').value.trim(),
+    slug: document.getElementById('fSlug').value.trim().toLowerCase(),
+    descricao: document.getElementById('fDescricao').value.trim()||null,
+    paginas: paginasMarcadas(),
+  };
+  if(id) body.ativo = document.getElementById('fAtivo').checked ? 1 : 0;
+  if(!body.nome) return showAlert('Informe o nome do perfil','error');
+  if(!body.slug) return showAlert('Informe o identificador','error');
+  if(!body.paginas.length && !confirm('Nenhuma página marcada: quem usar este perfil não abre nada além do início. Salvar assim?')) return;
+  try{
+    const r=await fetch(id?'/api/perfis/'+id:'/api/perfis',
+      { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d=await r.json();
+    if(!d.success) throw new Error(d.error);
+    showAlert(id?'Perfil atualizado':'Perfil criado');
+    fecharModal();
+    carregar();
+  }catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+async function excluir(id, slug){
+  if(!confirm(`Excluir o perfil "${slug}"?`)) return;
+  const d=await fetch('/api/perfis/'+id,{method:'DELETE'}).then(r=>r.json());
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Perfil excluído');
+  carregar();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
+});
+
+carregarCatalogo().then(carregar).catch(e=>showAlert('Erro: '+e.message,'error'));
+</script>
+</body></html>

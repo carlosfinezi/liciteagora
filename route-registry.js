@@ -245,6 +245,9 @@ function registerProtectedRoutes(app, deps) {
 
   // ==================== ADMIN / RH / AUDITORIA ====================
   registrarRotasUsuarios(app, db);
+  // Perfis de acesso (RBAC por página) — o gate em si vive no auth-bootstrap,
+  // aqui é o CRUD e o /meu-acesso que a sidebar consulta.
+  require('./perfis-acesso').registrarRotasPerfis(app, db);
   registrarRotasAuditoria(app, db);
   registrarRotasDevolucoes(app, db);
   require('./devolucao-compra').registrar(app, db); // Fase 1: migra schema espelho (rotas na Fase 3)

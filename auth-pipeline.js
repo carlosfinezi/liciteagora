@@ -57,7 +57,7 @@ function installAuthPipeline(app, db, { controlDb = null, tenantManager = null }
   installAuthBarrier(app, db, { apiKey });
 
   registrarRotasAuthProtegidas(app, db, { apiKey });
-  installProtectedStatic(app);
+  installProtectedStatic(app, db);
 
   return { apiKey };
 }

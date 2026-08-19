@@ -118,13 +118,18 @@ const PAGINAS_MOVIDAS = {
   '/comunicacao/wa-simular.html': '/comunicacao/conversas.html',
 };
 
-function installProtectedStatic(app) {
+function installProtectedStatic(app, db) {
   app.use((req, res, next) => {
     const destino = PAGINAS_MOVIDAS[req.path];
     // 301: o endereço novo é definitivo, então o navegador atualiza o favorito.
     if (destino) return res.redirect(301, destino);
     next();
   });
+  // RBAC de página e de API. Precisa vir depois do requireAuth (usa req.user),
+  // antes do static (senão o .html é servido sem decisão nenhuma) e antes do
+  // route-registry (senão a rota de API responde antes do gate). Quem tem perfil
+  // sem cadastro passa direto — ver perfis-acesso.js.
+  app.use(require('./perfis-acesso').criarGateAcesso(db));
   app.use(express.static(path.join(__dirname, 'public')));
 }
 

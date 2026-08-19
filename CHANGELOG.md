@@ -4,6 +4,45 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-19
+
+- **Perfil de acesso virou cadastro.** Até aqui `users.role` tinha cinco valores
+  fixos e quase ninguém olhava para eles: fora de `requireRole(['admin'])`, todo
+  usuário autenticado enxergava o menu inteiro — o que filtrava a tela era a
+  feature flag do tenant, igual para todos os usuários dele. Agora um perfil é
+  uma linha em `perfis_acesso` com a lista de páginas que abre, e a tela
+  **Configurações › Perfis de Acesso** marca essas páginas por seção do menu
+- O catálogo de páginas é lido de `public/js/menu-config.js`, o mesmo arquivo que
+  desenha o menu (ganhou um `module.exports` no fim). Página nova no menu aparece
+  na tela de perfis sem lista paralela para manter
+- **Duas portas, não uma.** `perfis-acesso.js` instala um middleware antes do
+  static e do route-registry: nega o `.html` fora do perfil e também o
+  `/api/<prefixo>` que a tela negada usaria. Sem a segunda porta, esconder a tela
+  seria decoração — bastava saber o endereço do endpoint
+- `perfis-api-map.js` (150 prefixos) diz de qual página cada prefixo depende.
+  **Fail-closed**: prefixo sem entrada é negado e logado como
+  `[RBAC] prefixo sem mapa: /api/xxx`. O arquivo é gerado por
+  `scripts/gerar-mapa-api.js`, que varre o consumo real de cada tela e dos `.js`
+  que ela inclui; tela de detalhe herda de quem a linka, não do módulo inteiro —
+  herdar do módulo inflava o mapa a ponto de `/api/sniper` (só a
+  `electron-monitor.html` chama) ficar ao alcance de quem tinha "Meu Perfil"
+- **Fail-open no perfil, de propósito**: só é barrado quem tem perfil cadastrado
+  e ativo com aquele slug. Era o que permitia subir isto sem trancar quem já
+  existia. `admin` nunca é barrado e o cadastro recusa esse slug — um perfil
+  chamado `admin` daria a impressão de limitar o administrador sem limitar nada
+- Fechada de passagem uma porta dos fundos que já existia: `/backups/*.html` e
+  `/produtos/*.html` (telas legadas da reorganização de módulos, fora do menu)
+  abriam para qualquer um. Agora só quem tem acesso ao módulo — ou o admin
+- **Migração**: `william` e `caio` (tenant `josecarloscostafilho`, os únicos
+  usuários ativos que não eram `admin` em nenhum tenant) foram para `admin`, a
+  pedido. Ganharam com isso as funções administrativas que o
+  `requireRole(['admin'])` lhes negava. Depois disso, nenhum usuário ativo em
+  nenhum tenant depende do fail-open
+- Testado no tenant `1bit` com o perfil `faturamento` (8 páginas) e o usuário
+  `teste.rbac`: 148 páginas, 162 prefixos de API e as 25 chamadas das telas do
+  próprio perfil — nenhuma divergência. Com `role=admin`, tudo livre nas duas
+  portas
+
 ## 2026-08-14 (4)
 
 - **Bug: aba Campanhas abria com "Conversa não encontrada"**. `/api/conversas/:id`
