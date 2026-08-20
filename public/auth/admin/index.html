@@ -28,7 +28,10 @@
       margin-left: 16px;
     }
     header a.logout:hover { background: #7f1d1d20; }
-    main { max-width: 1200px; margin: 0 auto; padding: 28px; }
+    /* 1440: a tabela de tenants tem 11 colunas e já estourava os 1200
+       anteriores — sangrava para fora do container e a página ganhava
+       scroll horizontal. */
+    main { max-width: 1440px; margin: 0 auto; padding: 28px; }
     .actions {
       display: flex;
       justify-content: space-between;
@@ -99,6 +102,14 @@
       font-size: 11px; font-weight: 500;
       background: rgba(96,165,250,0.10); color: #93c5fd;
     }
+    .split-badge {
+      display: inline-block; padding: 2px 10px; border-radius: 12px;
+      font-size: 11px; font-weight: 600; cursor: pointer;
+    }
+    .split-badge.padrao  { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    .split-badge.proprio { background: rgba(96,165,250,0.15); color: #93c5fd; }
+    .split-badge.isento  { background: rgba(251,191,36,0.15); color: #fbbf24; }
+    .split-badge.off     { background: rgba(148,163,184,0.10); color: #64748b; }
     .tabs {
       display: flex; gap: 2px; border-bottom: 1px solid #1e293b;
       margin-bottom: 18px;
@@ -208,6 +219,33 @@
     .result .label { color: #94a3b8; }
     .result .value { color: #34d399; font-weight: 600; }
 
+    /* Painel de formulário fora de modal (aba Split Asaas) — o estilo de
+       input/select acima é escopado em .modal-body e não alcança aqui. */
+    .panel {
+      background: #111827; border: 1px solid #1e293b;
+      border-radius: 8px; padding: 20px 22px; max-width: 560px;
+    }
+    .panel .campo { margin-bottom: 16px; }
+    .panel .campo:last-child { margin-bottom: 0; }
+    .panel label.rotulo {
+      display: block; font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: #94a3b8; margin-bottom: 6px;
+    }
+    .panel input {
+      width: 100%; padding: 9px 12px;
+      border: 1px solid #334155; border-radius: 6px;
+      background: #0f172a; color: #e2e8f0; font-size: 13px;
+    }
+    .panel input:focus { outline: none; border-color: #3b82f6; }
+    .panel .linha-switch {
+      display: flex; align-items: center; gap: 11px;
+      padding-bottom: 18px; margin-bottom: 18px;
+      border-bottom: 1px solid #1e293b;
+      font-size: 13px; color: #e2e8f0;
+    }
+    .hint { color: #94a3b8; font-size: 12px; line-height: 1.5; }
+    .hint strong { color: #cbd5e1; font-weight: 600; }
+
     .empty { text-align: center; padding: 60px 20px; color: #94a3b8; }
     .features-loading { text-align: center; padding: 40px 20px; color: #64748b; font-size: 13px; }
 
@@ -218,10 +256,15 @@
       border: 1px solid #334155; padding: 6px 14px;
       border-radius: 6px; font-size: 12px; cursor: pointer;
       display: inline-flex; align-items: center; gap: 6px;
+      white-space: nowrap;
     }
     .dropdown-trigger:hover { background: #1e293b; border-color: #475569; }
     .dropdown-menu {
       display: none;
+      /* Fora do fluxo desde o CSS: em fluxo, abrir o menu mudava a altura
+         do documento e o Chrome reajustava o scroll da página; esse evento
+         de scroll caía no fecharDropdowns e fechava o menu na hora. */
+      position: absolute; top: 100%; right: 0;
       background: #111827; border: 1px solid #1e293b;
       border-radius: 8px; padding: 5px; min-width: 200px;
       box-shadow: 0 10px 25px -8px rgba(0,0,0,0.6);
@@ -255,6 +298,7 @@
     <div class="tabs">
       <button class="tab-btn active" data-tab="tenants" onclick="openTab('tenants')">Tenants</button>
       <button class="tab-btn" data-tab="planos" onclick="openTab('planos')">Planos</button>
+      <button class="tab-btn" data-tab="split" onclick="openTab('split')">Split Asaas</button>
     </div>
 
     <div class="tab-panel active" id="tab-tenants">
@@ -276,12 +320,13 @@
             <th>Vencimento</th>
             <th>Owner</th>
             <th>Módulos</th>
+            <th>Split</th>
             <th>Criado</th>
             <th>Ações</th>
           </tr>
         </thead>
         <tbody id="tenantsBody">
-          <tr><td colspan="10" class="empty">Carregando…</td></tr>
+          <tr><td colspan="11" class="empty">Carregando…</td></tr>
         </tbody>
       </table>
     </div>
@@ -309,6 +354,51 @@
         </tbody>
       </table>
     </div>
+
+    <div class="tab-panel" id="tab-split">
+      <div class="actions">
+        <h2 style="font-size: 15px; color: #cbd5e1;">Taxa da plataforma no Asaas</h2>
+      </div>
+      <form id="splitForm" class="panel">
+        <div class="linha-switch">
+          <label class="switch">
+            <input type="checkbox" id="splitAtivo">
+            <span class="slider"></span>
+          </label>
+          <span>Aplicar a taxa em cada boleto e PIX emitido via Asaas</span>
+        </div>
+
+        <div class="campo">
+          <label class="rotulo" for="splitWallet">Wallet ID de destino</label>
+          <input id="splitWallet" placeholder="ex: c76b7832-7c42-48fd-…" autocomplete="off">
+        </div>
+
+        <div class="campo">
+          <label class="rotulo" for="splitPercentual">Percentual padrão (%)</label>
+          <input id="splitPercentual" type="number" step="0.01" min="0.01" max="99.99" placeholder="ex: 0.5">
+          <div class="hint" id="splitMinimo" style="margin-top:7px;"></div>
+        </div>
+
+        <div class="campo">
+          <label class="rotulo" for="splitTeto">Teto por boleto (R$)</label>
+          <input id="splitTeto" type="number" step="0.01" min="0.01" placeholder="ex: 2.00">
+          <div class="hint" id="splitTetoInfo" style="margin-top:7px;"></div>
+        </div>
+
+        <div class="campo">
+          <div class="hint" id="splitOrigem"></div>
+        </div>
+
+        <div class="campo" style="border-top:1px solid #1e293b;padding-top:16px;">
+          <button type="submit" class="primary">Salvar</button>
+        </div>
+      </form>
+      <p class="hint" style="max-width:560px;margin-top:16px;">
+        A taxa é aplicada no servidor, no momento da emissão — o tenant não vê nem
+        edita esse valor. A isenção ou o percentual próprio de cada tenant fica na
+        coluna <strong>Split</strong> da aba Tenants.
+      </p>
+    </div>
   </main>
 
   <!-- Features modal -->
@@ -324,6 +414,35 @@
       <div class="modal-footer">
         <button type="button" class="ghost" onclick="closeFeatures()">Fechar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Split do tenant -->
+  <div class="modal-bg" id="splitTenantModal">
+    <div class="modal">
+      <form id="splitTenantForm">
+        <div class="modal-header">
+          <h2>Split do tenant</h2>
+          <div class="subtitle"><span class="slug" id="splitTenantSlug"></span></div>
+        </div>
+        <div class="modal-body">
+          <label>Taxa cobrada deste tenant</label>
+          <select id="splitTenantModo">
+            <option value="padrao">Padrão — segue o percentual global</option>
+            <option value="isento">Isento — não paga taxa</option>
+            <option value="proprio">Percentual próprio</option>
+          </select>
+          <div id="splitTenantPctWrap" style="display:none;">
+            <label>Percentual próprio (%)</label>
+            <input id="splitTenantPct" type="number" step="0.01" min="0.01" max="99.99" placeholder="ex: 0.3">
+          </div>
+          <div class="hint" id="splitTenantHint"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="ghost" onclick="closeSplitTenant()">Cancelar</button>
+          <button type="submit" class="primary">Salvar</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -475,6 +594,8 @@
 
     let featuresCatalog = [];
     let planosCache = [];
+    let tenantsCache = [];
+    let splitGlobalCache = null;
 
     function fmtVencimento(t) {
       if (t.status === 'SUSPENDED') return `<span class="venc-suspended">suspenso</span>`;
@@ -499,13 +620,68 @@
       return `<span class="venc-ok" title="${dataStr}">vence em ${diffDias}d</span>`;
     }
 
+    // Split Asaas do tenant: padrão (segue o global) | isento | percentual próprio.
+    // O badge mostra o percentual efetivo e abre o modal de edição.
+    function fmtPct(v) { return String(v).replace('.', ',') + '%'; }
+
+    function fmtSplit(t) {
+      const abrir = `onclick="openSplitTenant('${escapeHtml(t.slug)}')"`;
+      if (splitGlobalCache && !splitGlobalCache.ativo) {
+        return `<span class="split-badge off" title="Split desligado para todos na aba Split Asaas" ${abrir}>off</span>`;
+      }
+      const modo = t.split_asaas_modo || 'padrao';
+      if (modo === 'isento') {
+        return `<span class="split-badge isento" title="Não paga taxa da plataforma" ${abrir}>isento</span>`;
+      }
+      if (modo === 'proprio' && t.split_asaas_percentual != null) {
+        return `<span class="split-badge proprio" title="Percentual próprio deste tenant" ${abrir}>${escapeHtml(fmtPct(t.split_asaas_percentual))}</span>`;
+      }
+      const pctGlobal = splitGlobalCache && Number.isFinite(splitGlobalCache.percentual)
+        ? fmtPct(splitGlobalCache.percentual) : '—';
+      return `<span class="split-badge padrao" title="Segue o percentual padrão da plataforma" ${abrir}>${escapeHtml(pctGlobal)}</span>`;
+    }
+
+    let _splitTenantSlug = null;
+
+    function openSplitTenant(slug) {
+      const t = tenantsCache.find(x => x.slug === slug);
+      if (!t) return;
+      _splitTenantSlug = slug;
+      document.getElementById('splitTenantSlug').textContent = slug;
+      document.getElementById('splitTenantModo').value = t.split_asaas_modo || 'padrao';
+      document.getElementById('splitTenantPct').value =
+        t.split_asaas_percentual != null ? t.split_asaas_percentual : '';
+      atualizarSplitTenantModo();
+      document.getElementById('splitTenantModal').classList.add('open');
+    }
+
+    function closeSplitTenant() {
+      document.getElementById('splitTenantModal').classList.remove('open');
+      _splitTenantSlug = null;
+    }
+
+    function atualizarSplitTenantModo() {
+      const modo = document.getElementById('splitTenantModo').value;
+      document.getElementById('splitTenantPctWrap').style.display = modo === 'proprio' ? 'block' : 'none';
+      const pctGlobal = splitGlobalCache && Number.isFinite(splitGlobalCache.percentual)
+        ? fmtPct(splitGlobalCache.percentual) : '—';
+      const hints = {
+        padrao: `Cobra o percentual global (${pctGlobal}) em cada boleto e PIX deste tenant.`,
+        isento: 'Nenhum split é enviado ao Asaas nas cobranças deste tenant.',
+        proprio: 'Substitui o percentual global apenas para este tenant.',
+      };
+      document.getElementById('splitTenantHint').textContent = hints[modo] || '';
+    }
+
     async function loadTenants() {
       const tbody = document.getElementById('tenantsBody');
       try {
         const data = await api('GET', '/api/admin/tenants');
         const tenants = data.tenants || [];
+        tenantsCache = tenants;
         featuresCatalog = data.featuresCatalog || [];
         planosCache = data.planos || [];
+        splitGlobalCache = data.splitGlobal || null;
         // Atualiza select de criação com planos ativos.
         const sel = document.getElementById('createPlanoSelect');
         if (sel) {
@@ -514,7 +690,7 @@
             ativos.map(p => `<option value="${p.id}">${escapeHtml(p.nome)} (${escapeHtml(p.tipo)}${p.duracao_dias ? ', '+p.duracao_dias+'d' : ''})</option>`).join('');
         }
         if (tenants.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="10" class="empty">Nenhum tenant ainda — clique em "+ Novo tenant" para criar.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="11" class="empty">Nenhum tenant ainda — clique em "+ Novo tenant" para criar.</td></tr>';
           return;
         }
         tbody.innerHTML = tenants.map(t => {
@@ -546,6 +722,7 @@
             <td>${fmtVencimento(t)}</td>
             <td>${escapeHtml(t.owner_email || '—')}</td>
             <td>${featResumo}</td>
+            <td>${fmtSplit(t)}</td>
             <td>${fmtDate(t.created_at)}</td>
             <td style="text-align:right;">
               <div class="dropdown" id="acoes-${escapeHtml(t.slug)}">
@@ -570,7 +747,7 @@
           `;
         }).join('');
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="10" class="empty">Erro: ${escapeHtml(err.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" class="empty">Erro: ${escapeHtml(err.message)}</td></tr>`;
       }
     }
 
@@ -580,6 +757,57 @@
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
       if (tab === 'planos') loadPlanos();
+      if (tab === 'split') loadSplit();
+    }
+
+    // ========== Split Asaas (taxa da plataforma) ==========
+
+    const fmtReais = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    function atualizarMinimoSplit() {
+      const pct = Number(document.getElementById('splitPercentual').value);
+      const el = document.getElementById('splitMinimo');
+      if (!Number.isFinite(pct) || pct <= 0) { el.textContent = ''; return; }
+      // Asaas recusa split abaixo de R$ 0,01 — o orquestrador emite sem split.
+      const minimo = 1 / pct;
+      el.textContent = `Cobranças abaixo de R$ ${fmtReais(minimo)} saem sem split (piso de R$ 0,01 do Asaas).`;
+      atualizarTetoSplit();
+    }
+
+    // A partir de qual valor de boleto o teto passa a valer: teto / (pct/100).
+    function atualizarTetoSplit() {
+      const pct = Number(document.getElementById('splitPercentual').value);
+      const teto = Number(document.getElementById('splitTeto').value);
+      const el = document.getElementById('splitTetoInfo');
+      if (!Number.isFinite(teto) || teto <= 0) {
+        el.textContent = 'Sem teto: o split acompanha o percentual em qualquer valor.';
+        return;
+      }
+      const base = Number.isFinite(pct) && pct > 0 ? teto * 100 / pct : null;
+      el.textContent = base
+        ? `Vale só para boleto. Acima de R$ ${fmtReais(base)} de título o split trava em R$ ${fmtReais(teto)} (vira valor fixo). O PIX segue percentual puro.`
+        : 'Vale só para boleto. O PIX segue percentual puro.';
+    }
+
+    async function loadSplit() {
+      try {
+        const { global } = await api('GET', '/api/admin/split-asaas');
+        splitGlobalCache = global;
+        document.getElementById('splitAtivo').checked = !!global.ativo;
+        document.getElementById('splitWallet').value = global.walletId || '';
+        document.getElementById('splitPercentual').value =
+          Number.isFinite(global.percentual) ? global.percentual : '';
+        document.getElementById('splitTeto').value =
+          Number.isFinite(global.tetoBoleto) ? global.tetoBoleto : '';
+        const doEnv = Object.entries(global.origem)
+          .filter(([, origem]) => origem === 'env').map(([campo]) => campo);
+        document.getElementById('splitOrigem').textContent = doEnv.length
+          ? `Ainda vindo do env da unit (não gravado no banco): ${doEnv.join(', ')}. Salvar aqui passa a mandar.`
+          : 'Configuração gravada no banco.';
+        atualizarMinimoSplit();
+      } catch (err) {
+        document.getElementById('splitOrigem').textContent = 'Erro: ' + err.message;
+      }
     }
 
     async function loadPlanos() {
@@ -727,6 +955,45 @@
       } catch (err) { alert('Erro: ' + err.message); }
     });
 
+    document.getElementById('splitPercentual').addEventListener('input', atualizarMinimoSplit);
+    document.getElementById('splitTeto').addEventListener('input', atualizarTetoSplit);
+    document.getElementById('splitTenantModo').addEventListener('change', atualizarSplitTenantModo);
+
+    document.getElementById('splitTenantForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!_splitTenantSlug) return;
+      const modo = document.getElementById('splitTenantModo').value;
+      let percentual = null;
+      if (modo === 'proprio') {
+        percentual = Number(document.getElementById('splitTenantPct').value);
+        if (!Number.isFinite(percentual) || percentual <= 0 || percentual >= 100) {
+          alert('Percentual inválido — informe um número maior que 0 e menor que 100.');
+          return;
+        }
+      }
+      try {
+        await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_splitTenantSlug)}/split`, { modo, percentual });
+        closeSplitTenant();
+        loadTenants();
+      } catch (err) { alert('Erro: ' + err.message); }
+    });
+
+    document.getElementById('splitForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {
+        ativo: document.getElementById('splitAtivo').checked,
+        walletId: document.getElementById('splitWallet').value.trim(),
+        percentual: Number(document.getElementById('splitPercentual').value),
+        tetoBoleto: Number(document.getElementById('splitTeto').value),
+      };
+      try {
+        await api('PUT', '/api/admin/split-asaas', body);
+        await loadSplit();
+        loadTenants(); // badges da aba Tenants mostram o percentual global
+        alert('Split atualizado — vale já na próxima cobrança emitida.');
+      } catch (err) { alert('Erro: ' + err.message); }
+    });
+
     async function rodarExpiryCheck() {
       try {
         const r = await api('POST', '/api/admin/expiry-check');
@@ -757,7 +1024,7 @@
               <div class="desc">${escapeHtml(f.desc)}</div>
             </div>
             <label class="switch" title="${f.enabled ? 'Desativar' : 'Ativar'} ${escapeHtml(f.label)}">
-              <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleFeature('${escapeHtml(f.key)}', this.checked)">
+              <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleFeature('${escapeHtml(f.key)}', this)">
               <span class="slider"></span>
             </label>
           </div>
@@ -771,14 +1038,23 @@
       _featuresSlug = null;
       loadTenants();
     }
-    async function toggleFeature(key, enabled) {
+    // Atualiza só a linha alterada — re-renderizar a lista inteira
+    // jogava o scroll do modal de volta pro topo a cada módulo ligado.
+    async function toggleFeature(key, input) {
       if (!_featuresSlug) return;
+      const enabled = input.checked;
+      const item = input.closest('.feature-item');
+      const label = input.closest('.switch');
+      input.disabled = true;
       try {
         await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_featuresSlug)}/features`, { key, enabled });
-        await openFeatures(_featuresSlug);
+        if (item) item.classList.toggle('active', enabled);
+        if (label) label.title = `${enabled ? 'Desativar' : 'Ativar'} ${item ? item.querySelector('.label-name').textContent : ''}`.trim();
       } catch (err) {
+        input.checked = !enabled;
         alert('Erro: ' + err.message);
-        await openFeatures(_featuresSlug);
+      } finally {
+        input.disabled = false;
       }
     }
 
@@ -813,7 +1089,15 @@
       menu.style.position = 'fixed';
       menu.style.minWidth = '200px';
       const mw = Math.max(menu.offsetWidth, 200);
-      menu.style.top = (r.bottom + 4) + 'px';
+      const mh = menu.offsetHeight;
+      // Nas últimas linhas da tabela o menu não cabe abaixo do botão:
+      // como é fixed, o excedente fica fora da viewport e rolar não o
+      // traz de volta (o scroll fecha o dropdown). Abre pra cima.
+      let top = r.bottom + 4;
+      if (top + mh > window.innerHeight - 8) {
+        top = (r.top - mh - 4 >= 8) ? r.top - mh - 4 : Math.max(8, window.innerHeight - mh - 8);
+      }
+      menu.style.top = top + 'px';
       menu.style.left = Math.max(8, r.right - mw) + 'px';
       menu.style.right = 'auto';
     }

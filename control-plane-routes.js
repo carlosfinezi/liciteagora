@@ -88,15 +88,21 @@ const FEATURES = [
   { key: 'comunicacao', label: 'Módulo Comunicação',
     desc: 'Envio de comunicação para clientes/fornecedores, log de e-mails enviados e auditoria de ações.' },
   { key: 'rh', label: 'Módulo RH',
-    desc: 'Funcionários, comissões e patrimônio.' },
+    desc: 'Funcionários, ponto, férias, atestados e comissões de vendedores.' },
+  { key: 'patrimonio', label: 'Módulo Patrimônio',
+    desc: 'Ativo imobilizado: cadastro de bens, depreciação linear, transferências, manutenções e baixas.' },
   { key: 'varejo', label: 'Módulo Varejo',
     desc: 'PDV (NFC-e), TEF, marketplaces e romaneios.' },
+  { key: 'cobranca', label: 'Módulo Cobrança',
+    desc: 'Régua de cobrança automática (e-mail/WhatsApp), boletos de cobrança, juros e multa por atraso.' },
   { key: 'fiscal', label: 'Módulo Fiscal',
     desc: 'NFS-e, NFC-e/NF-e (emissão e entrada), MDF-e, CT-e, CFOPs, retenções, apuração SN, DRE, DEFIS e arquivamento fiscal.' },
   { key: 'classificacao_fiscal', label: 'Módulo Classificação Fiscal',
     desc: 'Classificação de NCM/CEST (busca + IA) e impostos por NCM: IPI, II, ICMS interno por UF, PIS/COFINS por regime, ICMS-ST/MVA e benefícios fiscais (ex.: cesta básica/Convênio 52/91 do PA). Add-on vendido separadamente.' },
   { key: 'financeiro', label: 'Módulo Financeiro',
     desc: 'Contas a receber/pagar, contas financeiras, plano de contas, centros de custo, fluxo de caixa, livro caixa, conciliação bancária, faturas, cobranças, adquirentes e recorrências.' },
+  { key: 'ssl', label: 'Módulo Certificados SSL (NicSRS)',
+    desc: 'Compra e ciclo de vida de certificados SSL na NicSRS amarrados a contratos de cliente: fila de aprovação de compra, reemissão automática dentro da assinatura (o arquivo vale ~200 dias, o contrato vale 12+ meses), alerta de vencimento e entrega ao cliente. Add-on por tenant.' },
 ];
 
 function lerFeaturesDoTenant(tenantDb) {
@@ -225,7 +231,9 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
         catch { t.features = Object.fromEntries(FEATURES.map(f => [f.key, false])); }
       }
       const planos = manager.listPlanos({ apenasAtivos: false });
-      res.json({ tenants, featuresCatalog: FEATURES, planos });
+      // splitGlobal vai junto pra coluna Split mostrar o percentual efetivo
+      // sem um segundo round-trip.
+      res.json({ tenants, featuresCatalog: FEATURES, planos, splitGlobal: lerSplitGlobal() });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -362,6 +370,117 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
         payload: { key, enabled: !!enabled },
       });
       res.json({ success: true, key, enabled: !!enabled });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== Split Asaas (taxa da plataforma) ==========
+  //
+  // Config global no control.db. O boleto-orchestrator lê daqui a cada emissão
+  // e cai no env da unit enquanto uma chave não estiver gravada.
+
+  const SPLIT_KEYS = {
+    ativo: 'asaas_split_ativo',
+    walletId: 'asaas_split_wallet_id',
+    percentual: 'asaas_split_percentual',
+    tetoBoleto: 'asaas_split_teto_boleto',
+  };
+  // Espelha TETO_BOLETO_PADRAO do boleto-orchestrator: enquanto a chave não
+  // for gravada, é esse o teto que vale na emissão.
+  const TETO_BOLETO_PADRAO = 2.00;
+
+  function lerSplitGlobal() {
+    const rows = controlDb.prepare(
+      `SELECT chave, valor FROM config WHERE chave IN (?, ?, ?, ?)`
+    ).all(SPLIT_KEYS.ativo, SPLIT_KEYS.walletId, SPLIT_KEYS.percentual, SPLIT_KEYS.tetoBoleto);
+    const m = Object.fromEntries(rows.map(r => [r.chave, r.valor]));
+    const gravado = k => m[k] != null && m[k] !== '';
+    return {
+      ativo: gravado(SPLIT_KEYS.ativo) ? m[SPLIT_KEYS.ativo] === '1' : true,
+      walletId: gravado(SPLIT_KEYS.walletId)
+        ? m[SPLIT_KEYS.walletId] : (process.env.ASAAS_PLATFORM_WALLET_ID || ''),
+      percentual: gravado(SPLIT_KEYS.percentual)
+        ? Number(m[SPLIT_KEYS.percentual]) : Number(process.env.ASAAS_PLATFORM_FEE_PERCENT),
+      tetoBoleto: gravado(SPLIT_KEYS.tetoBoleto)
+        ? Number(m[SPLIT_KEYS.tetoBoleto]) : TETO_BOLETO_PADRAO,
+      origem: {
+        ativo: gravado(SPLIT_KEYS.ativo) ? 'banco' : 'default',
+        walletId: gravado(SPLIT_KEYS.walletId) ? 'banco' : 'env',
+        percentual: gravado(SPLIT_KEYS.percentual) ? 'banco' : 'env',
+        tetoBoleto: gravado(SPLIT_KEYS.tetoBoleto) ? 'banco' : 'default',
+      },
+    };
+  }
+
+  app.get('/api/admin/split-asaas', protect, (req, res) => {
+    try {
+      const global = lerSplitGlobal();
+      const tenants = controlDb.prepare(`
+        SELECT slug, name, split_asaas_modo AS modo, split_asaas_percentual AS percentual
+          FROM tenants ORDER BY slug
+      `).all();
+      res.json({ global, tenants });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/admin/split-asaas', protect, (req, res) => {
+    try {
+      const { ativo, walletId, percentual, tetoBoleto } = req.body || {};
+      const wallet = String(walletId || '').trim();
+      const pct = Number(percentual);
+      const teto = Number(tetoBoleto);
+      if (ativo) {
+        if (!wallet) return res.status(400).json({ error: 'walletId obrigatório para ativar o split' });
+        if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) {
+          return res.status(400).json({ error: 'percentual deve ser > 0 e < 100' });
+        }
+        // Abaixo de R$ 0,01 o Asaas recusa o split; o teto seria um bloqueio total.
+        if (!Number.isFinite(teto) || teto < 0.01) {
+          return res.status(400).json({ error: 'teto por boleto deve ser >= 0,01' });
+        }
+      }
+      const set = controlDb.prepare(
+        'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)'
+      );
+      controlDb.transaction(() => {
+        set.run(SPLIT_KEYS.ativo, ativo ? '1' : '0');
+        set.run(SPLIT_KEYS.walletId, wallet);
+        set.run(SPLIT_KEYS.percentual, Number.isFinite(pct) ? String(pct) : '');
+        set.run(SPLIT_KEYS.tetoBoleto, Number.isFinite(teto) ? String(teto) : '');
+      })();
+      manager.audit({
+        tenantId: null, action: 'SET_SPLIT_ASAAS', actor: req.superAdmin.email,
+        payload: { ativo: !!ativo, walletId: wallet, percentual: pct, tetoBoleto: teto },
+      });
+      res.json({ global: lerSplitGlobal() });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/admin/tenants/:slug/split', protect, (req, res) => {
+    try {
+      const { modo, percentual } = req.body || {};
+      if (!['padrao', 'isento', 'proprio'].includes(modo)) {
+        return res.status(400).json({ error: "modo deve ser 'padrao', 'isento' ou 'proprio'" });
+      }
+      const pct = Number(percentual);
+      if (modo === 'proprio' && (!Number.isFinite(pct) || pct <= 0 || pct >= 100)) {
+        return res.status(400).json({ error: 'percentual deve ser > 0 e < 100' });
+      }
+      const tenant = manager.getTenantBySlug(req.params.slug);
+      if (!tenant) return res.status(404).json({ error: 'tenant não existe' });
+      controlDb.prepare(
+        'UPDATE tenants SET split_asaas_modo = ?, split_asaas_percentual = ? WHERE slug = ?'
+      ).run(modo, modo === 'proprio' ? pct : null, req.params.slug);
+      manager.audit({
+        tenantId: tenant.id, action: 'SET_SPLIT_TENANT', actor: req.superAdmin.email,
+        payload: { modo, percentual: modo === 'proprio' ? pct : null },
+      });
+      res.json({ success: true, modo, percentual: modo === 'proprio' ? pct : null });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

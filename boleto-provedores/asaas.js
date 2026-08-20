@@ -144,12 +144,19 @@ module.exports = {
 
     if (cfg.splitWalletId && cfg.splitPercentual) {
       const pct = Number(cfg.splitPercentual);
-      // Asaas exige split mínimo de R$ 0,01 — boletos abaixo do limiar ficam sem split.
-      if (Number.isFinite(pct) && pct > 0 && (body.value * pct / 100) >= 0.01) {
-        body.split = [{
-          walletId: String(cfg.splitWalletId).trim(),
-          percentualValue: pct,
-        }];
+      if (Number.isFinite(pct) && pct > 0) {
+        const bruto = body.value * pct / 100;
+        const teto = Number(cfg.splitTetoBoleto);
+        const walletId = String(cfg.splitWalletId).trim();
+        if (Number.isFinite(teto) && teto >= 0.01 && bruto > teto) {
+          // Teto por boleto: a tarifa do Asaas por boleto emitido já é alta, e
+          // sem teto o split cresce junto com o valor do título. Acima do teto
+          // o split deixa de ser percentual e vira valor fixo.
+          body.split = [{ walletId, fixedValue: Number(teto.toFixed(2)) }];
+        } else if (bruto >= 0.01) {
+          // Asaas exige split mínimo de R$ 0,01 — abaixo disso, boleto sem split.
+          body.split = [{ walletId, percentualValue: pct }];
+        }
       }
     }
 
@@ -263,7 +270,23 @@ module.exports = {
       const sent = (req.get && req.get('asaas-access-token'))
         || (req.headers && req.headers['asaas-access-token']);
       if (sent !== cfg.webhookToken) {
-        console.warn('[Asaas webhook] token inválido — ignorando');
+        // TEMP diagnóstico (2026-08-20): todo evento com payment vinha sendo
+        // recusado aqui e a baixa dependia só do polling de 30 min. Mostra o
+        // suficiente pra comparar com o painel do Asaas sem imprimir segredo:
+        // se o header some, o token não está cadastrado lá; se chega com outro
+        // valor/tamanho, os dois lados divergem. REMOVER depois do diagnóstico.
+        const mascara = (v) => {
+          if (v == null) return 'AUSENTE';
+          const s = String(v);
+          if (!s) return 'VAZIO';
+          return `${s.length} chars, ${s.slice(0, 3)}…${s.slice(-3)}`;
+        };
+        const candidatos = Object.keys(req.headers || {})
+          .filter(h => /asaas|token|signature|auth/i.test(h));
+        console.warn('[Asaas webhook] token inválido — ignorando',
+          '| recebido:', mascara(sent),
+          '| esperado:', mascara(cfg.webhookToken),
+          '| headers candidatos:', candidatos.join(', ') || '(nenhum)');
         return null;
       }
     }

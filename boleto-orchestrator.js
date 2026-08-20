@@ -17,10 +17,17 @@ const Database = require('better-sqlite3');
 const provedores = require('./boleto-provedores');
 
 // ==================== SPLIT DA PLATAFORMA (Asaas) ====================
-// Forçado server-side via env. Tenant não vê nem edita.
-//   ASAAS_PLATFORM_WALLET_ID    — wallet de destino (ex.: wallet 1bit)
-//   ASAAS_PLATFORM_FEE_PERCENT  — % aplicada em cada boleto (ex.: 0.5)
-//   ASAAS_PLATFORM_TENANT_SLUG  — slug isento (ex.: 1bit) — não recebe split
+// Forçado server-side. Tenant não vê nem edita — quem configura é o super
+// admin em admin.liciteagora.app, e o valor mora no control.db:
+//   config.asaas_split_ativo        — '1' | '0'
+//   config.asaas_split_wallet_id    — wallet de destino (ex.: wallet 1bit)
+//   config.asaas_split_percentual   — % aplicada em cada cobrança (ex.: 0.5)
+//   tenants.split_asaas_modo        — 'padrao' | 'isento' | 'proprio'
+//   tenants.split_asaas_percentual  — % do tenant quando modo = 'proprio'
+//
+// Enquanto uma chave global não for gravada pelo admin, vale o env da unit
+// (ASAAS_PLATFORM_WALLET_ID / ASAAS_PLATFORM_FEE_PERCENT) — assim o
+// comportamento não muda até alguém salvar a primeira vez no painel.
 
 const CONTROL_DB_PATH = process.env.CONTROL_DB_PATH
   || path.join(__dirname, 'data', 'control.db');
@@ -55,16 +62,73 @@ function getTenantSlugFromDb(db) {
   }
 }
 
+// Teto do split por BOLETO, em reais. Acima dele a taxa deixa de ser
+// percentual e vira valor fixo — a tarifa do Asaas por boleto emitido já é
+// alta e o split não deve crescer junto com o valor do título. Vale só para
+// boleto: o PIX não tem essa tarifa e segue percentual puro.
+const TETO_BOLETO_PADRAO = 2.00;
+
+// Config global do split, com o env como fallback de cada campo.
+// Sem cache: emissão de cobrança é rara e mudança no admin tem de valer já.
+function lerSplitGlobal() {
+  let ativo = true;
+  let walletId = process.env.ASAAS_PLATFORM_WALLET_ID || '';
+  let pct = Number(process.env.ASAAS_PLATFORM_FEE_PERCENT);
+  let tetoBoleto = TETO_BOLETO_PADRAO;
+  const ctrl = getControlDbReadonly();
+  if (ctrl) {
+    try {
+      const rows = ctrl.prepare(`
+        SELECT chave, valor FROM config
+         WHERE chave IN ('asaas_split_ativo', 'asaas_split_wallet_id',
+                         'asaas_split_percentual', 'asaas_split_teto_boleto')
+      `).all();
+      for (const r of rows) {
+        if (r.valor == null || r.valor === '') continue;
+        if (r.chave === 'asaas_split_ativo') ativo = r.valor === '1';
+        else if (r.chave === 'asaas_split_wallet_id') walletId = r.valor;
+        else if (r.chave === 'asaas_split_percentual') pct = Number(r.valor);
+        else if (r.chave === 'asaas_split_teto_boleto') tetoBoleto = Number(r.valor);
+      }
+    } catch (e) {
+      console.warn('[boleto-orchestrator] leitura do split global falhou:', e.message);
+    }
+  }
+  return { ativo, walletId: String(walletId).trim(), pct, tetoBoleto };
+}
+
+// Escolha do tenant: { modo, percentual }. NULL/ausente → segue o global.
+function lerSplitDoTenant(tenantSlug) {
+  if (!tenantSlug) return null;
+  const ctrl = getControlDbReadonly();
+  if (!ctrl) return null;
+  try {
+    const row = ctrl.prepare(
+      'SELECT split_asaas_modo AS modo, split_asaas_percentual AS percentual FROM tenants WHERE slug = ?'
+    ).get(tenantSlug);
+    return row || null;
+  } catch (e) {
+    console.warn('[boleto-orchestrator] leitura do split do tenant falhou:', e.message);
+    return null;
+  }
+}
+
 function aplicarSplitPlataforma(modulo, cfg, tenantSlug) {
   if (!modulo || modulo.nome !== 'asaas') return;
-  const walletId = process.env.ASAAS_PLATFORM_WALLET_ID;
-  const pct = Number(process.env.ASAAS_PLATFORM_FEE_PERCENT);
-  if (!walletId || !Number.isFinite(pct) || pct <= 0) return;
-  const exemptSlug = process.env.ASAAS_PLATFORM_TENANT_SLUG;
-  if (exemptSlug && tenantSlug && tenantSlug === exemptSlug) return;
+  const global = lerSplitGlobal();
+  if (!global.ativo || !global.walletId) return;
+
+  const doTenant = lerSplitDoTenant(tenantSlug);
+  if (doTenant && doTenant.modo === 'isento') return;
+
+  let pct = global.pct;
+  if (doTenant && doTenant.modo === 'proprio') pct = Number(doTenant.percentual);
+  if (!Number.isFinite(pct) || pct <= 0) return;
+
   // server tem palavra final — sobrescreve qualquer valor que viesse do tenant
-  cfg.splitWalletId = walletId;
+  cfg.splitWalletId = global.walletId;
   cfg.splitPercentual = pct;
+  cfg.splitTetoBoleto = global.tetoBoleto;
 }
 
 // ==================== MIGRAÇÃO DE SCHEMA (idempotente) ====================
@@ -357,15 +421,30 @@ async function processarWebhook(db, nomeProvedor, req) {
 }
 
 /**
- * Conciliação Asaas (rede de segurança do webhook). Varre os boletos Asaas ainda
- * 'registrado', consulta o status real no Asaas e dá baixa completa nos pagos —
- * cobrindo eventos perdidos (fila do webhook interrompida, app fora na entrega, etc.).
- * Roda a cada 30 min, espelhando agendarPollingBoletos (MercadoPago).
+ * Conciliação Asaas (rede de segurança do webhook). Varre as cobranças Asaas
+ * ainda 'registrado', consulta o status real no Asaas e dá baixa completa nas
+ * pagas — cobrindo eventos perdidos (fila do webhook interrompida, app fora na
+ * entrega, etc.).
+ *
+ * Dois ciclos, porque a expectativa do pagador é diferente em cada forma:
+ *
+ *   PIX    — a cada 2 min, só cobranças PIX das últimas 48h. O pagador vê o
+ *            dinheiro sair na hora e espera a baixa quase imediata; meia hora
+ *            de atraso passa por sistema quebrado. A janela de 48h existe para
+ *            o ciclo curto não varrer PIX velho que já venceu e nunca vai ser
+ *            pago — o custo por chamada é do plano de API do Asaas.
+ *   BOLETO — a cada 30 min. Liquidação bancária é D+1 útil de qualquer jeito,
+ *            então ciclo curto só gastaria chamada sem antecipar nada.
+ *
+ * Nenhum dos dois é o caminho principal: com o webhook em pé a baixa sai em
+ * segundos e estes ciclos não acham nada para fazer.
  */
 function agendarPollingBoletosAsaas(db) {
-  const INTERVALO = 30 * 60 * 1000; // 30 min
+  const INTERVALO_BOLETO = 30 * 60 * 1000; // 30 min
+  const INTERVALO_PIX = 2 * 60 * 1000;     // 2 min
 
-  async function verificar() {
+  async function verificar({ apenasPix = false } = {}) {
+    const tag = apenasPix ? '[Polling Asaas PIX]' : '[Polling Asaas]';
     let cfgRow;
     try {
       cfgRow = db.prepare(`SELECT * FROM contas_financeiras_boleto WHERE provedor = 'asaas' AND ativo = 1`).get();
@@ -375,16 +454,30 @@ function agendarPollingBoletosAsaas(db) {
     if (!modulo) return;
     const cfg = parseConfigJson(cfgRow);
 
-    let boletos;
+    // O ciclo de 30 min continua sendo a rede completa: varre TUDO que está
+    // registrado, PIX incluído. O de 2 min é só um acelerador por cima do PIX
+    // recente. A sobreposição é de propósito — excluir o PIX do ciclo lento
+    // deixaria o PIX pago depois de 48h sem nenhuma varredura. Consultar a
+    // mesma cobrança duas vezes a cada 30 min é barato; perder a baixa não é.
+    // Baixa dupla não acontece: a leitura do status da CR e o registro da
+    // baixa são síncronos, sem await no meio.
+    const filtro = apenasPix
+      ? `AND tipoCobranca = 'pix' AND dataCriacao >= datetime('now', '-2 days')`
+      : '';
+
+    let cobrancas;
     try {
-      boletos = db.prepare(`SELECT id, nossoNumero, contaReceberId, contaFinanceiraId
-        FROM boletos WHERE provedor = 'asaas' AND status = 'registrado' AND nossoNumero IS NOT NULL`).all();
+      cobrancas = db.prepare(`SELECT id, nossoNumero, contaReceberId, contaFinanceiraId,
+          COALESCE(tipoCobranca, 'boleto') AS tipoCobranca
+        FROM boletos
+        WHERE provedor = 'asaas' AND status = 'registrado' AND nossoNumero IS NOT NULL
+        ${filtro}`).all();
     } catch { return; }
-    if (!boletos.length) return;
+    if (!cobrancas.length) return;
 
     const { registrarBaixaCR } = require('./contas-receber-routes');
     let baixados = 0;
-    for (const b of boletos) {
+    for (const b of cobrancas) {
       try {
         const r = await modulo.consultarBoleto(db, cfg, b.nossoNumero);
         const sit = String((r && r.situacao) || '').toUpperCase();
@@ -398,24 +491,30 @@ function agendarPollingBoletosAsaas(db) {
             contaReceberId: b.contaReceberId,
             dataPagamento: r.dataPagamento || undefined,
             contaFinanceiraId: b.contaFinanceiraId,
-            formaPagamento: 'boleto',
+            // Antes era 'boleto' fixo: cobrança PIX baixava como boleto e a
+            // conciliação por forma de pagamento saía errada.
+            formaPagamento: b.tipoCobranca === 'pix' ? 'pix' : 'boleto',
             origem: 'polling_asaas',
-            observacoes: `Conciliação Asaas (boleto #${b.id} / ${b.nossoNumero})`,
+            observacoes: `Conciliação Asaas (${b.tipoCobranca} #${b.id} / ${b.nossoNumero})`,
           });
         }
         db.prepare(`UPDATE boletos SET status = 'pago', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(b.id);
         baixados++;
-        console.log(`[Polling Asaas] boleto #${b.id} (${b.nossoNumero}): registrado -> pago`);
+        console.log(`${tag} ${b.tipoCobranca} #${b.id} (${b.nossoNumero}): registrado -> pago`);
       } catch (e) {
-        console.error(`[Polling Asaas] erro boleto #${b.id}:`, e.message);
+        console.error(`${tag} erro ${b.tipoCobranca} #${b.id}:`, e.message);
       }
     }
-    if (baixados) console.log(`[Polling Asaas] ${baixados} baixa(s) de ${boletos.length} consultado(s)`);
+    if (baixados) console.log(`${tag} ${baixados} baixa(s) de ${cobrancas.length} consultado(s)`);
   }
 
-  setInterval(() => { verificar().catch(() => {}); }, INTERVALO);
+  setInterval(() => { verificar().catch(() => {}); }, INTERVALO_BOLETO);
   setTimeout(() => { verificar().catch(() => {}); }, 90 * 1000); // 1ª passada após o boot
-  console.log('[Polling Asaas] Agendado a cada 30 minutos');
+
+  setInterval(() => { verificar({ apenasPix: true }).catch(() => {}); }, INTERVALO_PIX);
+  setTimeout(() => { verificar({ apenasPix: true }).catch(() => {}); }, 20 * 1000);
+
+  console.log('[Polling Asaas] Agendado: boleto a cada 30 min, PIX a cada 2 min');
 }
 
 module.exports = {
@@ -427,5 +526,5 @@ module.exports = {
   processarWebhook,
   agendarPollingBoletosAsaas,
   getContaFinanceiraPadraoBoleto,
-  _internal: { getProvedorConfig, parseConfigJson, consumirProximoNossoNumero },
+  _internal: { getProvedorConfig, parseConfigJson, consumirProximoNossoNumero, aplicarSplitPlataforma },
 };

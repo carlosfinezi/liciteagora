@@ -4,6 +4,47 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-20
+
+- **O split do Asaas saiu do env e virou configuração no painel admin.** A taxa
+  da plataforma era três variáveis na unit systemd (`ASAAS_PLATFORM_WALLET_ID`,
+  `ASAAS_PLATFORM_FEE_PERCENT`, `ASAAS_PLATFORM_TENANT_SLUG`), só ajustáveis por
+  quem edita `/etc/systemd/system` e reinicia. Agora vivem no `control.db` e têm
+  tela: **admin.liciteagora.app › Split Asaas** (ativo, wallet, percentual) e uma
+  coluna **Split** por tenant na aba Tenants, com Padrão / Isento / percentual
+  próprio. O env segue como fallback de cada campo enquanto a chave não for
+  gravada — nada muda até alguém salvar
+- Rotas: `GET/PUT /api/admin/split-asaas` e `PATCH /api/admin/tenants/:slug/split`,
+  ambas auditadas (`SET_SPLIT_ASAAS`, `SET_SPLIT_TENANT`)
+- Schema do `control.db`: `tenants.split_asaas_modo` e `.split_asaas_percentual`,
+  mais a tabela `config` promovida ao `CONTROL_SCHEMA` (só o `auth.js` a criava).
+  Migração idempotente grava `isento` no slug que o env isentava, para o painel
+  não mostrar como "padrão" um tenant que o env isenta
+- **Teto de R$ 2,00 de split por boleto.** A tarifa do Asaas por boleto emitido
+  já é alta e o split crescia junto com o valor do título; acima do teto ele
+  deixa de ser percentual e vira `fixedValue`. Com 0,5%, morde a partir de
+  R$ 400,00. Vale só para boleto — o PIX não tem essa tarifa e segue percentual
+  puro. Configurável em **Teto por boleto (R$)**, R$ 2,00 por padrão
+- **Baixa de PIX caiu de 30 min para 2 min.** O polling do Asaas era um ciclo
+  único de 30 min; para PIX, que o pagador vê sair na hora, isso passa por
+  sistema quebrado. Agora são dois: um de 2 min só para PIX das últimas 48h e o
+  de 30 min que continua varrendo **tudo** — a sobreposição é de propósito, sem
+  ela um PIX pago depois de 48h ficaria sem varredura nenhuma
+- O polling gravava `formaPagamento: 'boleto'` fixo: **toda cobrança PIX baixada
+  por ele entrava na conciliação como boleto**. Passa a usar o `tipoCobranca`
+- **Diagnóstico TEMPORÁRIO no webhook do Asaas** (`boleto-provedores/asaas.js`):
+  100% dos eventos com `payment` vêm sendo recusados por token inválido, então a
+  baixa da CR depende só do polling — medido hoje, 15min46s entre o pagamento e
+  a baixa. O log mostra token recebido/esperado mascarados e os headers
+  candidatos, para separar "header ausente" de "tokens divergentes".
+  **Remover depois de identificar a causa**
+- Painel admin: os campos do formulário fora de modal saíam com o widget nativo
+  branco sobre o tema escuro (a regra de `input`/`select` é escopada em
+  `.modal-body`); a coluna Split usava um `<select>` nativo que empurrou a tabela
+  para além da janela. Formulário ganhou `.panel`, a coluna virou badge com o
+  percentual efetivo abrindo modal, e o `main` subiu de 1200 para 1440px — a
+  tabela de tenants já estourava os 1200 antes desta coluna
+
 ## 2026-08-19
 
 - **Configurações que não eram da empresa saíram de Minha Empresa.** A tela

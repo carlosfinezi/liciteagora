@@ -98,6 +98,12 @@ CREATE TABLE IF NOT EXISTS super_admin_sessions (
   FOREIGN KEY (admin_id) REFERENCES super_admins(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS config (
+  chave TEXT PRIMARY KEY,
+  valor TEXT,
+  dataAtualizacao TEXT
+);
+
 CREATE TABLE IF NOT EXISTS planos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   slug TEXT NOT NULL UNIQUE,
@@ -139,8 +145,22 @@ function initControlDb(dbPath = CONTROL_DB_PATH) {
     // Vencimento por plano (2026-04-29).
     'ALTER TABLE tenants ADD COLUMN plano_id INTEGER REFERENCES planos(id)',
     'ALTER TABLE tenants ADD COLUMN periodo_termina_em INTEGER',
+    // Split Asaas por tenant (2026-08-20): 'padrao' | 'isento' | 'proprio'.
+    // NULL = nunca configurado no admin → segue o percentual global.
+    'ALTER TABLE tenants ADD COLUMN split_asaas_modo TEXT',
+    'ALTER TABLE tenants ADD COLUMN split_asaas_percentual REAL',
   ]) {
     try { db.exec(sql); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+  }
+
+  // Migra a isenção que hoje vive em ASAAS_PLATFORM_TENANT_SLUG para o banco,
+  // uma única vez — só onde ainda não há escolha gravada. Sem isso o admin
+  // mostraria o tenant da plataforma como "padrão" enquanto o env o isenta.
+  const slugIsentoEnv = process.env.ASAAS_PLATFORM_TENANT_SLUG;
+  if (slugIsentoEnv) {
+    db.prepare(
+      "UPDATE tenants SET split_asaas_modo = 'isento' WHERE slug = ? AND split_asaas_modo IS NULL"
+    ).run(slugIsentoEnv);
   }
 
   // Seed dos planos default (idempotente via INSERT OR IGNORE pelo slug UNIQUE).
