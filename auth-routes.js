@@ -142,6 +142,24 @@ function registrarRotasAuthProtegidas(app, db, opts = {}) {
     res.json({ success: true });
   });
 
+  // Preferências do usuário logado (hoje só o tema visual). users.tema.
+  // Slug livre: a lista de temas vive no frontend (TEMAS_SISTEMA em sidebar.js);
+  // tema desconhecido cai no padrão lá — assim cor nova não exige restart aqui.
+  // 'custom:#rrggbb:#rrggbb' = tema personalizado (fundo+destaque do usuário).
+  const TEMA_SLUG_RE = /^([a-z][a-z0-9-]{0,29}|custom:#[0-9a-fA-F]{6}:#[0-9a-fA-F]{6})$/;
+  app.get('/api/user/prefs', (req, res) => {
+    if (!req.session || !req.session.userId) return res.status(401).json({ success: false });
+    const row = db.prepare('SELECT tema FROM users WHERE id = ?').get(req.session.userId);
+    res.json({ success: true, tema: (row && row.tema) || 'padrao' });
+  });
+  app.post('/api/user/prefs', (req, res) => {
+    if (!req.session || !req.session.userId) return res.status(401).json({ success: false });
+    const { tema } = req.body || {};
+    if (typeof tema !== 'string' || !TEMA_SLUG_RE.test(tema)) return res.status(400).json({ success: false, error: 'tema inválido' });
+    db.prepare('UPDATE users SET tema = ? WHERE id = ?').run(tema, req.session.userId);
+    res.json({ success: true, tema });
+  });
+
   // API key para extensão (protegido)
   app.get('/api/auth/api-key', (req, res) => {
     res.json({ apiKey });

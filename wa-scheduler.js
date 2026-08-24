@@ -4,6 +4,12 @@
  * dispara as campanhas 'agendada' cuja hora já chegou — tanto o subsistema próprio
  * (wa_campanhas) quanto as do comm (canal whatsapp). Reusa os runners + o dedup
  * (running Map) do mesmo processo, então nunca duplica um envio manual em curso.
+ *
+ * Desde 2026-08-21 também RETOMA campanha órfã: 'enviando' no banco sem laço
+ * vivo, resíduo de um processo que morreu no meio do disparo. Consequência que
+ * precisa ficar dita: uma campanha nesse estado volta a disparar sozinha depois
+ * de um restart. Quem quer parar de vez usa pausar ou cancelar — que gravam
+ * status próprio e não são retomados aqui.
  */
 'use strict';
 
@@ -50,6 +56,25 @@ function tick(tenantManager) {
           AND julianday(json_extract(config, '$.agendadaPara')) <= julianday('now')
       `).all();
       for (const c of due) {
+        try { runCampaign(tdb, t.slug, c.id).catch(() => {}); } catch (_) {}
+      }
+    } catch (_) { /* tenant sem tabela wa_campanhas */ }
+
+    // Campanha ÓRFÃ: status 'enviando' sem laço vivo neste processo.
+    //
+    // O laço do runCampaign mora em memória (running Map) e só grava o status
+    // final ao terminar. Quando o processo morre no meio — restart, crash — essa
+    // gravação nunca acontece e a campanha fica 'enviando' para sempre: a tela
+    // mostra que está trabalhando e nada dispara. Foi assim que a campanha 6
+    // ficou parada de 20/08 em diante sem ninguém notar.
+    //
+    // Chamar runCampaign direto é seguro: a primeira coisa que ele faz é
+    // `if (running.has(key)) return`, então campanha com laço vivo é no-op. Como
+    // o Map e este tick vivem no mesmo processo, "não está no Map" é prova de
+    // que o laço morreu.
+    try {
+      const orfas = tdb.prepare("SELECT id FROM wa_campanhas WHERE status = 'enviando'").all();
+      for (const c of orfas) {
         try { runCampaign(tdb, t.slug, c.id).catch(() => {}); } catch (_) {}
       }
     } catch (_) { /* tenant sem tabela wa_campanhas */ }

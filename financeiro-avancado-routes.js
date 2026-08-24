@@ -12,6 +12,8 @@
 
 const { logAction } = require('./audit-log');
 const { lancarMovimentacao } = require('./contas-financeiras-routes');
+const { escopoSql, escopoSqlHerdado, guardEscopo } = require('./estabelecimentos-routes');
+const { E_FORNECEDOR } = require('./pessoas-fornecedor');
 
 function dataBrasilia() {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -77,6 +79,78 @@ function migrarFinanceiroAvancado(db) {
 }
 
 // Soma de valorBase não estornado — mesma regra do registrarBaixaCR
+/**
+ * Alinha contas_pagar_pagamentos com contas_receber_pagamentos.
+ *
+ * Duas assimetrias impediam qualquer quitação sem caixa do lado do
+ * fornecedor — abatimento por adiantamento, compensação de crédito, encontro
+ * de contas:
+ *   1. faltava a coluna `origem` (o INSERT é o mesmo dos dois lados);
+ *   2. `contaFinanceiraId` era NOT NULL, mas quitação por adiantamento não
+ *      tem conta financeira: o dinheiro se moveu quando o adiantamento nasceu.
+ *
+ * Tirar um NOT NULL no SQLite exige reconstruir a tabela. Feito dentro de
+ * transação, com os dados copiados e o índice recriado.
+ */
+function migrarPagamentosCP(db) {
+  let cols;
+  try { cols = db.prepare('PRAGMA table_info(contas_pagar_pagamentos)').all(); }
+  catch { return; }
+  if (!cols.length) return;
+
+  if (!cols.some(c => c.name === 'origem')) {
+    db.exec('ALTER TABLE contas_pagar_pagamentos ADD COLUMN origem TEXT');
+  }
+  const contaFin = db.prepare('PRAGMA table_info(contas_pagar_pagamentos)').all()
+    .find(c => c.name === 'contaFinanceiraId');
+  if (!contaFin || contaFin.notnull === 0) return;   // já aceita nulo
+
+  const fkAntes = db.pragma('foreign_keys', { simple: true });
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE contas_pagar_pagamentos_novo (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contaPagarId INTEGER NOT NULL,
+        dataPagamento TEXT NOT NULL,
+        valorPago REAL NOT NULL,
+        valorBase REAL NOT NULL,
+        juros REAL DEFAULT 0,
+        multa REAL DEFAULT 0,
+        desconto REAL DEFAULT 0,
+        formaPagamento TEXT,
+        contaFinanceiraId INTEGER,
+        movimentacaoFinanceiraId INTEGER,
+        observacoes TEXT,
+        estornado INTEGER DEFAULT 0,
+        estornadoEm TEXT,
+        origem TEXT,
+        usuario TEXT,
+        dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (contaPagarId) REFERENCES contas_a_pagar(id),
+        FOREIGN KEY (contaFinanceiraId) REFERENCES contas_financeiras(id)
+      );
+      INSERT INTO contas_pagar_pagamentos_novo
+        (id, contaPagarId, dataPagamento, valorPago, valorBase, juros, multa, desconto,
+         formaPagamento, contaFinanceiraId, movimentacaoFinanceiraId, observacoes,
+         estornado, estornadoEm, origem, usuario, dataCriacao)
+      SELECT id, contaPagarId, dataPagamento, valorPago, valorBase, juros, multa, desconto,
+             formaPagamento, contaFinanceiraId, movimentacaoFinanceiraId, observacoes,
+             estornado, estornadoEm, origem, usuario, dataCriacao
+        FROM contas_pagar_pagamentos;
+      DROP TABLE contas_pagar_pagamentos;
+      ALTER TABLE contas_pagar_pagamentos_novo RENAME TO contas_pagar_pagamentos;
+      CREATE INDEX IF NOT EXISTS idx_cpp_conta ON contas_pagar_pagamentos(contaPagarId);
+      COMMIT;`);
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { }
+    throw e;
+  } finally {
+    db.pragma(`foreign_keys = ${fkAntes ? 'ON' : 'OFF'}`);
+  }
+}
+
 function saldoAbertoConta(db, tabela, tabelaPag, fkCol, contaId) {
   const conta = db.prepare(`SELECT * FROM ${tabela} WHERE id = ?`).get(contaId);
   if (!conta) return { conta: null };
@@ -93,8 +167,125 @@ function atualizarStatusConta(db, tabela, contaId, valorConta, totalPago) {
   return novoStatus;
 }
 
+/**
+ * Saldo de adiantamento disponível de um cliente ou fornecedor.
+ * Existia só o caminho de ida (da tela de adiantamentos, escolhendo o título).
+ * Quem está com o título na mão precisa da pergunta inversa: "esta pessoa tem
+ * crédito comigo?" — sem isso o saldo fica parado porque ninguém lembra dele.
+ */
+function saldoAdiantamentos(db, { pessoaId = null, fornecedorId = null } = {}) {
+  const ehCliente = !!pessoaId;
+  const col = ehCliente ? 'pessoaId' : 'fornecedorId';
+  const id = ehCliente ? pessoaId : fornecedorId;
+  if (!id) return { disponivel: 0, adiantamentos: [] };
+  let linhas = [];
+  try {
+    linhas = db.prepare(`SELECT * FROM adiantamentos
+      WHERE ${col} = ? AND status = 'ativo' AND saldo > 0
+      ORDER BY data ASC, id ASC`).all(Number(id));
+  } catch { return { disponivel: 0, adiantamentos: [] }; }
+  return {
+    disponivel: Number(linhas.reduce((t, a) => t + a.saldo, 0).toFixed(2)),
+    adiantamentos: linhas,
+  };
+}
+
+/**
+ * Abate um título usando o saldo de adiantamento do dono dele.
+ * Consome do mais antigo para o mais novo — adiantamento velho parado é o que
+ * gera dúvida na conciliação. Não move caixa: o dinheiro entrou/saiu quando o
+ * adiantamento foi criado.
+ */
+function abaterComAdiantamento(db, { tipo, contaId, valor = null, usuario = null }) {
+  const ehCR = tipo === 'receber';
+  const tabela = ehCR ? 'contas_a_receber' : 'contas_a_pagar';
+  const tabelaPag = ehCR ? 'contas_receber_pagamentos' : 'contas_pagar_pagamentos';
+  const fkCol = ehCR ? 'contaReceberId' : 'contaPagarId';
+
+  const { conta, pago, saldo } = saldoAbertoConta(db, tabela, tabelaPag, fkCol, Number(contaId));
+  if (!conta) throw new Error('Título não encontrado');
+  if (!['aberta', 'parcial'].includes(conta.status)) throw new Error(`Título com status ${conta.status}`);
+  if (!(saldo > 0)) throw new Error('Título já está quitado');
+
+  const dono = ehCR ? conta.pessoaId : conta.fornecedorId;
+  if (!dono) throw new Error(ehCR ? 'Título sem cliente vinculado' : 'Título sem fornecedor vinculado');
+  const { disponivel, adiantamentos } = saldoAdiantamentos(db,
+    ehCR ? { pessoaId: dono } : { fornecedorId: dono });
+  if (!adiantamentos.length) throw new Error('Este cliente/fornecedor não tem saldo de adiantamento');
+
+  // Sem valor explícito, abate o que der: o menor entre o saldo do título e o
+  // crédito disponível.
+  let aAbater = valor != null ? Number(valor) : Math.min(saldo, disponivel);
+  if (!(aAbater > 0)) throw new Error('valor deve ser > 0');
+  if (aAbater > saldo + 0.01) throw new Error(`Valor maior que o saldo aberto do título (${saldo.toFixed(2)})`);
+  if (aAbater > disponivel + 0.01) throw new Error(`Saldo de adiantamento insuficiente (${disponivel.toFixed(2)})`);
+
+  const dt = dataBrasilia();
+  const usados = [];
+  const tx = db.transaction(() => {
+    let restante = aAbater;
+    for (const a of adiantamentos) {
+      if (restante <= 0.001) break;
+      const v = Number(Math.min(a.saldo, restante).toFixed(2));
+
+      const rp = db.prepare(`INSERT INTO ${tabelaPag}
+        (${fkCol}, dataPagamento, valorPago, valorBase, juros, multa, desconto,
+         formaPagamento, contaFinanceiraId, origem, observacoes, usuario)
+        VALUES (?, ?, ?, ?, 0, 0, 0, 'adiantamento', NULL, 'adiantamento', ?, ?)`)
+        .run(conta.id, dt, v, v, `Utilização adiantamento #${a.id}`, usuario);
+
+      const novoSaldo = Number((a.saldo - v).toFixed(2));
+      db.prepare(`UPDATE adiantamentos SET saldo = ?, status = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(novoSaldo, novoSaldo <= 0 ? 'consumido' : 'ativo', a.id);
+      db.prepare(`INSERT INTO adiantamento_utilizacoes
+        (adiantamentoId, contaReceberId, contaPagarId, pagamentoId, valor, data, usuario)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(a.id, ehCR ? conta.id : null, ehCR ? null : conta.id, rp.lastInsertRowid, v, dt, usuario);
+
+      usados.push({ adiantamentoId: a.id, valor: v, saldoRestante: novoSaldo });
+      restante = Number((restante - v).toFixed(2));
+    }
+    atualizarStatusConta(db, tabela, conta.id, conta.valor, Number((pago + aAbater).toFixed(2)));
+  });
+  tx();
+
+  const novoStatus = db.prepare(`SELECT status FROM ${tabela} WHERE id = ?`).get(conta.id).status;
+  return { abatido: aAbater, statusTitulo: novoStatus, adiantamentosUsados: usados,
+           saldoRestanteTitulo: Number((saldo - aAbater).toFixed(2)) };
+}
+
 function registrarRotasFinanceiroAvancado(app, db) {
+  // RBAC: o adiantamento herda a unidade da conta financeira que o pagou/recebeu.
+  app.use('/api/adiantamentos/:id', guardEscopo(db, 'adiantamentos', { fk: 'contaFinanceiraId', pai: 'contas_financeiras' }));
+
   migrarFinanceiroAvancado(db);
+  migrarPagamentosCP(db);
+
+  // Saldo disponível — a pergunta que a tela do título precisa fazer.
+  app.get('/api/adiantamentos/saldo', (req, res) => {
+    try {
+      const { pessoaId, fornecedorId } = req.query;
+      if (!pessoaId && !fornecedorId) {
+        return res.status(400).json({ success: false, error: 'Informe pessoaId ou fornecedorId' });
+      }
+      res.json({ success: true, ...saldoAdiantamentos(db, { pessoaId, fornecedorId }) });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // Abater a partir do título (contas a receber e contas a pagar).
+  for (const [rota, tipo] of [['contas-a-receber', 'receber'], ['contas-a-pagar', 'pagar']]) {
+    app.post(`/api/${rota}/:id/abater-adiantamento`, (req, res) => {
+      try {
+        const r = abaterComAdiantamento(db, {
+          tipo, contaId: Number(req.params.id),
+          valor: req.body?.valor != null ? Number(req.body.valor) : null,
+          usuario: req.session?.username || null,
+        });
+        logAction(db, req, 'abater-adiantamento', rota, Number(req.params.id), r);
+        res.json({ success: true, ...r });
+      } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+    });
+  }
 
   // ==================== ADIANTAMENTOS ====================
 
@@ -105,9 +296,11 @@ function registrarRotasFinanceiroAvancado(app, db) {
           p.razaoSocial AS pessoaNome, f.razaoSocial AS fornecedorNome
         FROM adiantamentos a
         LEFT JOIN pessoas p ON p.id = a.pessoaId
-        LEFT JOIN fornecedores f ON f.id = a.fornecedorId
+        LEFT JOIN pessoas f ON f.id = a.fornecedorId
         WHERE 1=1`;
       const params = [];
+      const rbac = escopoSqlHerdado(req, 'a.contaFinanceiraId', 'contas_financeiras');
+      sql += rbac.sql; params.push(...rbac.params);
       if (status)       { sql += ' AND a.status = ?';       params.push(status); }
       if (tipo)         { sql += ' AND a.tipo = ?';         params.push(tipo); }
       if (pessoaId)     { sql += ' AND a.pessoaId = ?';     params.push(Number(pessoaId)); }
@@ -124,7 +317,7 @@ function registrarRotasFinanceiroAvancado(app, db) {
       const a = db.prepare(`SELECT a.*, p.razaoSocial AS pessoaNome, f.razaoSocial AS fornecedorNome
         FROM adiantamentos a
         LEFT JOIN pessoas p ON p.id = a.pessoaId
-        LEFT JOIN fornecedores f ON f.id = a.fornecedorId
+        LEFT JOIN pessoas f ON f.id = a.fornecedorId
         WHERE a.id = ?`).get(req.params.id);
       if (!a) return res.status(404).json({ success: false, error: 'Adiantamento não encontrado' });
       const utilizacoes = db.prepare(`
@@ -157,7 +350,7 @@ function registrarRotasFinanceiroAvancado(app, db) {
         quem = db.prepare('SELECT id, razaoSocial FROM pessoas WHERE id = ?').get(pessoaId);
       } else {
         if (!fornecedorId) return res.status(400).json({ success: false, error: 'fornecedorId obrigatório para adiantamento a fornecedor' });
-        quem = db.prepare('SELECT id, razaoSocial FROM fornecedores WHERE id = ?').get(fornecedorId);
+        quem = db.prepare(`SELECT id, razaoSocial FROM pessoas WHERE id = ? AND ${E_FORNECEDOR}`).get(fornecedorId);
       }
       if (!quem) return res.status(404).json({ success: false, error: 'Cliente/fornecedor não encontrado' });
 
@@ -302,7 +495,7 @@ function registrarRotasFinanceiroAvancado(app, db) {
           (SELECT COUNT(*) FROM contas_a_pagar WHERE renegociacaoId = r.id AND status != 'renegociada') AS novasParcelas
         FROM renegociacoes r
         LEFT JOIN pessoas p ON p.id = r.pessoaId
-        LEFT JOIN fornecedores f ON f.id = r.fornecedorId
+        LEFT JOIN pessoas f ON f.id = r.fornecedorId
         WHERE 1=1`;
       const params = [];
       if (escopo) { sql += ' AND r.escopo = ?'; params.push(escopo); }
@@ -318,7 +511,7 @@ function registrarRotasFinanceiroAvancado(app, db) {
       const r = db.prepare(`SELECT r.*, p.razaoSocial AS pessoaNome, f.razaoSocial AS fornecedorNome
         FROM renegociacoes r
         LEFT JOIN pessoas p ON p.id = r.pessoaId
-        LEFT JOIN fornecedores f ON f.id = r.fornecedorId
+        LEFT JOIN pessoas f ON f.id = r.fornecedorId
         WHERE r.id = ?`).get(req.params.id);
       if (!r) return res.status(404).json({ success: false, error: 'Renegociação não encontrada' });
       const tabela = r.escopo === 'receber' ? 'contas_a_receber' : 'contas_a_pagar';
@@ -493,6 +686,8 @@ function registrarRotasFinanceiroAvancado(app, db) {
         LEFT JOIN pessoas p ON p.id = c.pessoaId
         WHERE c.status = 'incobravel'`;
       const params = [];
+      const rbac = escopoSql(req, 'c.estabelecimentoId');
+      sql += rbac.sql; params.push(...rbac.params);
       if (inicio) { sql += ' AND c.dataPerda >= ?'; params.push(inicio); }
       if (fim)    { sql += ' AND c.dataPerda <= ?'; params.push(fim); }
       sql += ' ORDER BY c.dataPerda DESC';
@@ -508,4 +703,5 @@ function registrarRotasFinanceiroAvancado(app, db) {
   });
 }
 
-module.exports = { registrarRotasFinanceiroAvancado, migrarFinanceiroAvancado };
+module.exports = { registrarRotasFinanceiroAvancado, saldoAdiantamentos, abaterComAdiantamento,
+  migrarFinanceiroAvancado, migrarPagamentosCP };

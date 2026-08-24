@@ -31,7 +31,7 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="estoque-transferencias">
     <table>
       <thead><tr>
         <th>Número</th><th>Origem</th><th>Destino</th><th style="text-align:right;">Itens</th>
@@ -94,6 +94,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('estoque-transferencias');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }

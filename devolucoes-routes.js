@@ -4,12 +4,38 @@
  * Fluxo:
  *   Aberta → (edita itens) → Efetivada (gera entrada de estoque + CR negativo / crédito)
  *   Aberta → Cancelada (sem efeito)
+ *   Efetivada → Estornada (desfaz o estoque e cancela o crédito)
  *
  * Crédito ao cliente: contas_a_receber com `valor < 0` e `descricao` referenciando a devolução.
  * NF-e de devolução não é emitida automaticamente nesta versão — emitir manualmente em fiscal.
+ *
+ * Correções 2026-07-31:
+ *  - Custo de retorno: a entrada gravava `valorUnitario` (preço de VENDA) na
+ *    coluna custoUnitario, o que inflava o custo médio ponderado do produto —
+ *    e por tabela a margem nas metas e o custo sugerido nas compras. Agora usa
+ *    o custo da saída original e preenche custo/saldo via
+ *    calcularContextoMovimento(), como os demais módulos de estoque.
+ *  - Quantidade: /disponivel existia mas nenhum endpoint o consultava. POST,
+ *    PUT e efetivar passam a validar o saldo devolvível.
+ *  - Estorno: devolução efetivada era irreversível e travava o saldo devolvível
+ *    do item para sempre. Ganhou POST /:id/estornar.
  */
 
 const { logAction } = require('./audit-log');
+const { calcularContextoMovimento, calcularCustoMedio, resolverDeposito } = require('./estoque-routes');
+
+/**
+ * Data e hora de Brasília. O relógio do SQLite (CURRENT_TIMESTAMP) e o
+ * toISOString() do Node são UTC: depois das 21h a devolução era carimbada com
+ * o dia seguinte, e no último dia do mês ela caía na competência seguinte —
+ * sumia da meta do mês em que aconteceu.
+ */
+function agoraBrasilia() {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+function hojeBrasilia() {
+  return agoraBrasilia().slice(0, 10);
+}
 
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* idempotente */ } }
 
@@ -58,7 +84,17 @@ function migrarDB(db) {
     CREATE INDEX IF NOT EXISTS idx_dev_itens_dev ON devolucao_itens(devolucaoId);
     CREATE INDEX IF NOT EXISTS idx_dev_itens_pedido_item ON devolucao_itens(pedidoItemId);
   `);
+  // A coluna é usada pelo INSERT deste módulo mas era criada só por
+  // tipos-operacao-routes.js — a ordem de carga entre os dois virava
+  // dependência implícita. ALTER idempotente aqui torna o módulo
+  // autossuficiente; o ALTER de lá continua e não conflita.
+  alterSafe(db, 'ALTER TABLE devolucoes ADD COLUMN tipoOperacaoId INTEGER');
 }
+
+// Devolução só faz sentido para pedido que de fato saiu. Rascunho e
+// orçamento nunca baixaram estoque; devolver deles criaria entrada sem
+// saída correspondente.
+const STATUS_PEDIDO_DEVOLVIVEL = ['entregue', 'faturado'];
 
 function gerarNumero(db) {
   const ano = new Date().getFullYear();
@@ -70,6 +106,185 @@ function gerarNumero(db) {
     if (m) proximo = parseInt(m[1], 10) + 1;
   }
   return prefixo + String(proximo).padStart(4, '0');
+}
+
+/**
+ * Custo com que a unidade devolvida volta ao estoque.
+ *
+ * Ordem: custo médio registrado na saída original daquele pedido+produto →
+ * custo unitário da mesma saída → custo médio atual do produto.
+ * NUNCA o preço de venda: um item vendido com markup entraria como se
+ * tivesse custado o preço de venda e inflaria o custo médio ponderado.
+ * Devolve null quando não há nenhuma fonte — melhor não mexer no custo
+ * médio do que mexer com um número inventado.
+ */
+function custoRetorno(db, { pedidoId, produtoId }) {
+  if (pedidoId) {
+    const saida = db.prepare(`
+      SELECT custoMedioPosterior, custoUnitario FROM movimentacoes_estoque
+      WHERE origem = 'pedido' AND origemId = ? AND produtoId = ?
+        AND tipo = 'saida' AND estornada = 0
+      ORDER BY id DESC LIMIT 1`).get(pedidoId, produtoId);
+    if (saida) {
+      if (saida.custoMedioPosterior != null && saida.custoMedioPosterior > 0) {
+        return { custo: saida.custoMedioPosterior, fonte: 'saida_original' };
+      }
+      if (saida.custoUnitario != null && saida.custoUnitario > 0) {
+        return { custo: saida.custoUnitario, fonte: 'saida_original_unitario' };
+      }
+    }
+  }
+  const atual = calcularCustoMedio(db, produtoId);
+  if (atual > 0) return { custo: atual, fonte: 'custo_medio_atual' };
+  return { custo: null, fonte: 'desconhecido' };
+}
+
+/**
+ * Saldo devolvível de um item do pedido.
+ *
+ * `efetivada` é o que de fato saiu do saldo. As `aberta` também entram no
+ * cálculo (menos a própria devolução em edição) para não nascerem duas
+ * devoluções abertas que, somadas, devolvem mais do que se vendeu.
+ * `estornada` e `cancelada` ficam de fora — devolveram o saldo.
+ */
+function saldoDevolvivel(db, { pedidoItemId, ignorarDevolucaoId = null, apenasEfetivadas = false }) {
+  const item = db.prepare('SELECT quantidade FROM pedido_itens WHERE id = ?').get(pedidoItemId);
+  if (!item) return null;
+  const statuses = apenasEfetivadas ? ['efetivada'] : ['efetivada', 'aberta'];
+  const usado = db.prepare(`
+    SELECT COALESCE(SUM(di.quantidade),0) AS q
+    FROM devolucao_itens di
+    JOIN devolucoes d ON d.id = di.devolucaoId
+    WHERE di.pedidoItemId = ?
+      AND d.status IN (${statuses.map(() => '?').join(',')})
+      AND (? IS NULL OR d.id <> ?)`)
+    .get(pedidoItemId, ...statuses, ignorarDevolucaoId, ignorarDevolucaoId).q;
+  return { vendida: Number(item.quantidade), usado: Number(usado), saldo: Number(item.quantidade) - Number(usado) };
+}
+
+/**
+ * Valida a lista de itens contra o que o pedido comporta. Lança na primeira
+ * violação — a devolução inteira é recusada, não gravada pela metade.
+ */
+function validarQuantidades(db, { pedidoId, itens, ignorarDevolucaoId = null, apenasEfetivadas = false }) {
+  // Devolução avulsa (sem pedido de origem) não tem contra o que validar.
+  if (!pedidoId) return;
+
+  const pedido = db.prepare('SELECT numero, status, modoDocumento FROM pedidos WHERE id = ?').get(pedidoId);
+  if (!pedido) throw new Error('Pedido de origem não encontrado');
+  if (pedido.modoDocumento === 'orcamento') {
+    throw new Error(`${pedido.numero} é um orçamento — não houve venda para devolver`);
+  }
+  if (!STATUS_PEDIDO_DEVOLVIVEL.includes(pedido.status)) {
+    throw new Error(`Pedido ${pedido.numero} está "${pedido.status}" — só é possível devolver pedido entregue ou faturado`);
+  }
+
+  // Agrega por item do pedido: dois lançamentos do mesmo item na mesma
+  // devolução somam, e a soma é que precisa caber no saldo.
+  const porItem = new Map();
+  const porProduto = new Map();
+  for (const it of itens) {
+    const qtd = Number(it.quantidade) || 0;
+    if (it.pedidoItemId) porItem.set(Number(it.pedidoItemId), (porItem.get(Number(it.pedidoItemId)) || 0) + qtd);
+    else porProduto.set(Number(it.produtoId), (porProduto.get(Number(it.produtoId)) || 0) + qtd);
+  }
+
+  for (const [pedidoItemId, qtd] of porItem) {
+    const s = saldoDevolvivel(db, { pedidoItemId, ignorarDevolucaoId, apenasEfetivadas });
+    if (!s) throw new Error(`Item de pedido ${pedidoItemId} não encontrado`);
+    if (qtd > s.saldo + 1e-9) {
+      throw new Error(`Quantidade ${qtd} excede o devolvível do item (vendido ${s.vendida}, já devolvido ${s.usado}, saldo ${s.saldo})`);
+    }
+  }
+
+  // Item solto (adicionado à mão) numa devolução COM pedido: só passa se o
+  // produto foi vendido naquele pedido, e dentro do saldo agregado dele.
+  for (const [produtoId, qtd] of porProduto) {
+    const linhas = db.prepare('SELECT id FROM pedido_itens WHERE pedidoId = ? AND produtoId = ?').all(pedidoId, produtoId);
+    if (!linhas.length) {
+      const p = db.prepare('SELECT sku, descricao FROM produtos WHERE id = ?').get(produtoId);
+      throw new Error(`Produto ${p?.sku || produtoId} não faz parte do pedido de origem — não pode ser devolvido nele`);
+    }
+    const saldoTotal = linhas.reduce((s, l) => {
+      const d = saldoDevolvivel(db, { pedidoItemId: l.id, ignorarDevolucaoId, apenasEfetivadas });
+      return s + (d ? d.saldo : 0);
+    }, 0);
+    if (qtd > saldoTotal + 1e-9) {
+      const p = db.prepare('SELECT sku FROM produtos WHERE id = ?').get(produtoId);
+      throw new Error(`Quantidade ${qtd} de ${p?.sku || produtoId} excede o devolvível do pedido (saldo ${saldoTotal})`);
+    }
+  }
+}
+
+/**
+ * Estorna a comissão proporcional aos itens devolvidos.
+ *
+ * comissoes_apuracao tem UNIQUE(periodo, pedidoItemId), então não cabe uma
+ * linha compensatória negativa como no estoque — a redução é feita na
+ * própria linha. Para poder desfazer, grava na observação um marcador
+ * `[dev:<id>:<valor>:<base>]` com o quanto foi tirado.
+ *
+ * Comissão já PAGA não é reduzida: o dinheiro saiu, e mexer na linha
+ * esconderia isso. Ela é contada e devolvida como aviso, para o acerto
+ * ser feito conscientemente.
+ */
+const MARCADOR_DEV = /\[dev:(\d+):(-?[\d.]+):(-?[\d.]+)\]/g;
+
+function estornarComissoes(db, dev, itens) {
+  let linhas = 0, pagasNaoEstornadas = 0, valorEstornado = 0;
+  try {
+    for (const it of itens) {
+      if (!it.pedidoItemId) continue;
+      const item = db.prepare('SELECT quantidade FROM pedido_itens WHERE id = ?').get(it.pedidoItemId);
+      if (!item || !(Number(item.quantidade) > 0)) continue;
+      const proporcao = Math.min(1, Number(it.quantidade) / Number(item.quantidade));
+
+      const apuracoes = db.prepare('SELECT * FROM comissoes_apuracao WHERE pedidoItemId = ?').all(it.pedidoItemId);
+      for (const a of apuracoes) {
+        if (a.status !== 'pendente') { pagasNaoEstornadas++; continue; }
+        const deduzValor = Number((a.valorComissao * proporcao).toFixed(2));
+        const deduzBase = Number((a.baseCalculo * proporcao).toFixed(2));
+        if (!(deduzValor > 0)) continue;
+        db.prepare(`UPDATE comissoes_apuracao
+             SET valorComissao = ROUND(valorComissao - ?, 2),
+                 baseCalculo = ROUND(baseCalculo - ?, 2),
+                 observacao = COALESCE(observacao || ' | ', '') || ?
+           WHERE id = ?`)
+          .run(deduzValor, deduzBase,
+               `Estorno devolução ${dev.numero} [dev:${dev.id}:${deduzValor}:${deduzBase}]`, a.id);
+        linhas++;
+        valorEstornado += deduzValor;
+      }
+    }
+  } catch { return { linhas: 0, pagasNaoEstornadas: 0, valorEstornado: 0 }; }  // tenant sem comissões
+  return { linhas, pagasNaoEstornadas, valorEstornado: Number(valorEstornado.toFixed(2)) };
+}
+
+/** Devolve à apuração o que aquela devolução tirou, lendo o marcador. */
+function desfazerEstornoComissoes(db, devolucaoId) {
+  let linhas = 0;
+  try {
+    const alvos = db.prepare('SELECT * FROM comissoes_apuracao WHERE observacao LIKE ?')
+      .all(`%[dev:${devolucaoId}:%`);
+    for (const a of alvos) {
+      let somaValor = 0, somaBase = 0;
+      const restante = String(a.observacao).replace(MARCADOR_DEV, (tudo, id, valor, base) => {
+        if (Number(id) !== Number(devolucaoId)) return tudo;   // marcador de outra devolução
+        somaValor += Number(valor); somaBase += Number(base);
+        return '';
+      });
+      if (!(somaValor > 0 || somaBase > 0)) continue;
+      db.prepare(`UPDATE comissoes_apuracao
+           SET valorComissao = ROUND(valorComissao + ?, 2),
+               baseCalculo = ROUND(baseCalculo + ?, 2),
+               observacao = ?
+         WHERE id = ?`)
+        .run(somaValor, somaBase,
+             restante.replace(/Estorno devolução \S+\s*/g, '').replace(/\s*\|\s*$/, '').trim() || null, a.id);
+      linhas++;
+    }
+  } catch { return 0; }
+  return linhas;
 }
 
 function recalcTotal(db, devolucaoId) {
@@ -146,15 +361,20 @@ function registrarRotasDevolucoes(app, db) {
                p.sku, p.unidade, p.rastreiaLote, p.rastreiaSerial,
                COALESCE((SELECT SUM(di.quantidade) FROM devolucao_itens di
                          JOIN devolucoes d ON d.id = di.devolucaoId
-                         WHERE di.pedidoItemId = pi.id AND d.status = 'efetivada'), 0) AS qtdDevolvida
+                         WHERE di.pedidoItemId = pi.id AND d.status = 'efetivada'), 0) AS qtdDevolvida,
+               COALESCE((SELECT SUM(di.quantidade) FROM devolucao_itens di
+                         JOIN devolucoes d ON d.id = di.devolucaoId
+                         WHERE di.pedidoItemId = pi.id AND d.status = 'aberta'), 0) AS qtdEmAberto
         FROM pedido_itens pi
         JOIN produtos p ON p.id = pi.produtoId
         WHERE pi.pedidoId = ?
         ORDER BY pi.id
       `).all(req.params.pedidoId);
+      // Desconta também o que está reservado em devolução aberta — senão a
+      // tela sugeriria uma quantidade que o POST recusaria em seguida.
       const itensComSaldo = itens.map(i => ({
         ...i,
-        qtdDisponivel: Number(i.qtdVendida) - Number(i.qtdDevolvida)
+        qtdDisponivel: Number(i.qtdVendida) - Number(i.qtdDevolvida) - Number(i.qtdEmAberto)
       }));
       res.json({ success: true, pedido, itens: itensComSaldo });
     } catch (err) {
@@ -178,6 +398,10 @@ function registrarRotasDevolucoes(app, db) {
         const def = db.prepare(`SELECT id FROM tipos_operacao WHERE codigo = 'DEV-DEFEITO'`).get();
         tipoOpFinal = def?.id || null;
       }
+
+      // Barra quantidade acima do devolvível ANTES de gravar qualquer coisa.
+      // /disponivel já calculava esse saldo, mas nenhum endpoint o consultava.
+      validarQuantidades(db, { pedidoId, itens });
 
       const trx = db.transaction(() => {
         const numero = gerarNumero(db);
@@ -227,6 +451,12 @@ function registrarRotasDevolucoes(app, db) {
       if (dev.status !== 'aberta') return res.status(400).json({ success: false, error: 'Só é possível editar devolução aberta' });
 
       const { motivo, observacoes, itens } = req.body;
+
+      // Mesma validação do POST, ignorando a própria devolução — senão os
+      // itens que ela já reserva contariam contra ela mesma.
+      if (Array.isArray(itens)) {
+        validarQuantidades(db, { pedidoId: dev.pedidoId, itens, ignorarDevolucaoId: dev.id });
+      }
 
       const trx = db.transaction(() => {
         if (motivo !== undefined || observacoes !== undefined) {
@@ -293,7 +523,19 @@ function registrarRotasDevolucoes(app, db) {
         }
       }
 
-      const dataHoje = new Date().toISOString().slice(0, 10);
+      // Revalida na efetivação contando só o que já foi efetivado: entre a
+      // abertura e agora, outra devolução do mesmo item pode ter sido
+      // efetivada e comido o saldo.
+      try {
+        validarQuantidades(db, {
+          pedidoId: dev.pedidoId, itens, ignorarDevolucaoId: dev.id, apenasEfetivadas: true,
+        });
+      } catch (e) {
+        return res.status(400).json({ success: false, error: e.message });
+      }
+
+      const dataHoje = hojeBrasilia();
+      let comissoes = { linhas: 0, pagasNaoEstornadas: 0, valorEstornado: 0 };
 
       const trx = db.transaction(() => {
         // 1. Cria CR negativo (crédito ao cliente)
@@ -315,19 +557,32 @@ function registrarRotasDevolucoes(app, db) {
         }
 
         // 2. Para cada item: registra entrada no estoque + atualiza serial
+        //
+        // custoUnitario recebe o CUSTO da saída original, não o preço de
+        // venda. Gravar o preço aqui inflava o custo médio ponderado do
+        // produto (estoque-routes:254 faz média das entradas por
+        // custoUnitario) e contaminava margem e sugestão de compra.
         const stmtMov = db.prepare(`
           INSERT INTO movimentacoes_estoque
-            (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, loteId, motivo, usuario)
-          VALUES (?, 'entrada', ?, ?, 'devolucao', ?, ?, ?, ?, ?, ?)
+            (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, loteId, motivo, usuario,
+             custoMedioAnterior, custoMedioPosterior, saldoPosterior, depositoId)
+          VALUES (?, 'entrada', ?, ?, 'devolucao', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const it of itens) {
+          const { custo, fonte } = custoRetorno(db, { pedidoId: dev.pedidoId, produtoId: it.produtoId });
+          // Contexto calculado ANTES do INSERT — calcularContextoMovimento lê
+          // o saldo/custo vigentes, então precisa rodar com o estado anterior.
+          const ctx = calcularContextoMovimento(db, it.produtoId, 'entrada', Number(it.quantidade), custo);
           const movResult = stmtMov.run(
-            it.produtoId, Number(it.quantidade), Number(it.valorUnitario),
+            it.produtoId, Number(it.quantidade), custo,
             dev.id,
-            `Devolução ${dev.numero}`,
+            `Devolução ${dev.numero} (custo: ${fonte})`,
             dataHoje, it.loteId || null,
             it.motivo || dev.motivo || null,
-            req.user?.username || null
+            req.user?.username || null,
+            ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior,
+            // Mercadoria devolvida volta para o depósito de onde saiu.
+            resolverDeposito(db, { pedidoId: dev.pedidoId, produtoId: it.produtoId })
           );
           const movId = movResult.lastInsertRowid;
           db.prepare('UPDATE devolucao_itens SET movEntradaId = ? WHERE id = ?').run(movId, it.id);
@@ -347,20 +602,149 @@ function registrarRotasDevolucoes(app, db) {
           }
         }
 
-        // 3. Marca devolução como efetivada
+        // 3. Estorna a comissão proporcional — venda desfeita não gera
+        //    comissão, e antes a apuração seguia intocada.
+        comissoes = estornarComissoes(db, dev, itens);
+
+        // 4. Marca devolução como efetivada
         db.prepare(`
           UPDATE devolucoes
              SET status = 'efetivada',
-                 dataEfetivacao = CURRENT_TIMESTAMP,
+                 dataEfetivacao = ?,
                  crNegativoId = ?,
                  usuarioEfetivacao = ?
            WHERE id = ?
-        `).run(crId, req.user?.username || null, dev.id);
+        `).run(agoraBrasilia(), crId, req.user?.username || null, dev.id);
       });
       trx();
-      logAction(db, req, 'efetivar', 'devolucao', dev.id, { valorTotal: dev.valorTotal, itens: itens.length });
+      logAction(db, req, 'efetivar', 'devolucao', dev.id,
+        { valorTotal: dev.valorTotal, itens: itens.length, comissoes });
       const atualizado = db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(dev.id);
-      res.json({ success: true, devolucao: atualizado });
+      res.json({
+        success: true, devolucao: atualizado,
+        comissoesEstornadas: comissoes.linhas,
+        valorComissaoEstornado: comissoes.valorEstornado,
+        // Comissão já paga não pode ser reduzida na linha — vira acerto manual.
+        avisoComissaoPaga: comissoes.pagasNaoEstornadas
+          ? `${comissoes.pagasNaoEstornadas} linha(s) de comissão já paga(s) NÃO foram estornadas — acerte no próximo pagamento.`
+          : null,
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==================== ESTORNAR (desfaz uma efetivação) ====================
+  //
+  // Antes não existia: DELETE recusava devolução efetivada mandando "estorne
+  // pelo módulo de estoque/CR", ou seja, à mão e em dois lugares. Pior, o
+  // saldo devolvível do item ficava consumido para sempre, então um erro de
+  // digitação impedia a devolução correta de ser lançada depois.
+  //
+  // Espelha estornarEstoque() de pedidos-routes: não apaga a movimentação
+  // original, cria a contrária e marca as duas — o histórico de estoque
+  // continua auditável.
+  app.post('/api/devolucoes/:id/estornar', (req, res) => {
+    try {
+      const dev = db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(req.params.id);
+      if (!dev) return res.status(404).json({ success: false, error: 'Não encontrada' });
+      if (dev.status !== 'efetivada') {
+        return res.status(400).json({ success: false, error: `Só devolução efetivada pode ser estornada (status atual: ${dev.status})` });
+      }
+      const motivo = (req.body?.motivo || '').trim();
+      if (!motivo) return res.status(400).json({ success: false, error: 'motivo obrigatório' });
+
+      // NF-e de devolução autorizada é documento fiscal: desfazer o estoque
+      // sem cancelar a nota deixaria os dois em desacordo.
+      let fatura = null;
+      try {
+        fatura = db.prepare(`SELECT id, numero, statusSefaz FROM faturas
+          WHERE devolucaoId = ? AND statusSefaz = 'autorizada' ORDER BY id DESC LIMIT 1`).get(dev.id);
+      } catch { /* tenant sem coluna devolucaoId */ }
+      if (fatura) {
+        return res.status(400).json({ success: false,
+          error: `NF-e de devolução ${fatura.numero} está autorizada na SEFAZ. Cancele a nota primeiro.` });
+      }
+
+      const itens = db.prepare('SELECT * FROM devolucao_itens WHERE devolucaoId = ?').all(dev.id);
+      const dataHoje = hojeBrasilia();
+      const estornadas = [];
+      let crCancelado = false;
+      let comissoesRestauradas = 0;
+
+      const trx = db.transaction(() => {
+        for (const it of itens) {
+          const mov = it.movEntradaId
+            ? db.prepare('SELECT * FROM movimentacoes_estoque WHERE id = ?').get(it.movEntradaId)
+            : null;
+          if (mov && !mov.estornada) {
+            // Saída compensatória pelo MESMO custo da entrada, senão o
+            // estorno mexeria no custo médio em vez de neutralizá-lo.
+            const ctx = calcularContextoMovimento(db, mov.produtoId, 'saida', mov.quantidade, mov.custoUnitario);
+            const r = db.prepare(`INSERT INTO movimentacoes_estoque
+                (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, loteId,
+                 motivo, usuario, movOriginalId, custoMedioAnterior, custoMedioPosterior, saldoPosterior, depositoId)
+              VALUES (?, 'saida', ?, ?, 'estorno_devolucao', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+              .run(mov.produtoId, mov.quantidade, mov.custoUnitario, dev.id,
+                   `Estorno da devolução ${dev.numero} — ${motivo}`, dataHoje, mov.loteId || null,
+                   motivo, req.session?.username || req.user?.username || null, mov.id,
+                   ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior,
+                   resolverDeposito(db, { movOriginalId: mov.id }));
+            db.prepare('UPDATE movimentacoes_estoque SET estornada = 1, movEstornoId = ? WHERE id = ?')
+              .run(r.lastInsertRowid, mov.id);
+            estornadas.push({ movOriginalId: mov.id, movEstornoId: r.lastInsertRowid, produtoId: mov.produtoId });
+          }
+
+          if (it.loteId) {
+            db.prepare('UPDATE lotes SET saldoAtual = saldoAtual - ? WHERE id = ?').run(Number(it.quantidade), it.loteId);
+          }
+          // Seriais voltam a "baixado" (o status que estoque-routes:731 dá a
+          // uma série que saiu): a devolução deixou de existir, então a peça
+          // está de novo com o cliente.
+          if (it.serialIds) {
+            for (const sid of JSON.parse(it.serialIds)) {
+              db.prepare(`UPDATE serial_numbers SET status = 'baixado', movEntradaId = NULL WHERE id = ?`).run(sid);
+            }
+          }
+          db.prepare('UPDATE devolucao_itens SET movEntradaId = NULL WHERE id = ?').run(it.id);
+        }
+
+        // Cancela o crédito ao cliente, se ainda não foi usado. 'parcial'
+        // significa que já foi compensado contra algum título — desfazer
+        // aqui mexeria num título já quitado.
+        if (dev.crNegativoId) {
+          const cr = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(dev.crNegativoId);
+          if (cr && cr.status === 'aberta') {
+            db.prepare(`UPDATE contas_a_receber SET status = 'cancelada' WHERE id = ?`).run(dev.crNegativoId);
+            crCancelado = true;
+          }
+        }
+
+        // A venda voltou a valer, então a comissão volta também.
+        comissoesRestauradas = desfazerEstornoComissoes(db, dev.id);
+
+        db.prepare(`UPDATE devolucoes
+             SET status = 'estornada', dataCancelamento = ?,
+                 observacoes = COALESCE(observacoes || ' | ', '') || ?
+           WHERE id = ?`)
+          .run(agoraBrasilia(), `Estornada em ${dataHoje}: ${motivo}`, dev.id);
+      });
+      trx();
+
+      logAction(db, req, 'estornar', 'devolucao', dev.id,
+        { motivo, movimentacoes: estornadas.length, crCancelado, comissoesRestauradas });
+      res.json({
+        success: true,
+        movimentacoesEstornadas: estornadas.length,
+        creditoCancelado: crCancelado,
+        comissoesRestauradas,
+        // Quando o crédito já foi usado, o dinheiro precisa ser resolvido
+        // à mão — melhor dizer do que deixar passar em silêncio.
+        avisoCredito: dev.crNegativoId && !crCancelado
+          ? 'O crédito ao cliente já teve baixa/pagamento e NÃO foi cancelado — resolva no contas a receber.'
+          : null,
+        devolucao: db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(dev.id),
+      });
     } catch (err) {
       res.status(400).json({ success: false, error: err.message });
     }
@@ -495,9 +879,9 @@ function registrarRotasDevolucoes(app, db) {
       const dev = db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(req.params.id);
       if (!dev) return res.status(404).json({ success: false, error: 'Não encontrada' });
       if (dev.status === 'efetivada') {
-        return res.status(400).json({ success: false, error: 'Devolução efetivada — estorne pelo módulo de estoque/CR' });
+        return res.status(400).json({ success: false, error: 'Devolução efetivada — use "Estornar" (POST /api/devolucoes/:id/estornar)' });
       }
-      db.prepare(`UPDATE devolucoes SET status = 'cancelada', dataCancelamento = CURRENT_TIMESTAMP WHERE id = ?`).run(dev.id);
+      db.prepare(`UPDATE devolucoes SET status = 'cancelada', dataCancelamento = ? WHERE id = ?`).run(agoraBrasilia(), dev.id);
       logAction(db, req, 'cancelar', 'devolucao', dev.id, null);
       res.json({ success: true });
     } catch (err) {

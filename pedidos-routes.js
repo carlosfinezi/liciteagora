@@ -9,6 +9,7 @@
  */
 
 const pedidoPdf = require('./pedido-pdf');
+const { logAction } = require('./audit-log');
 const axios = require('axios');
 const { criarReservasPedido, cancelarReservasPedido, consumirReservasPedido } = require('./reservas-routes');
 const { sugerirCFOP } = require('./tipos-operacao-routes');
@@ -18,6 +19,7 @@ const { resolverDeposito } = require('./estoque-routes');
 // Venda perdida a partir do pedido — dependência unidirecional
 // (precos-routes nao requer pedidos-routes, entao nao ha ciclo).
 const { registrarPerdasDePedido, estornarPerdasDePedido } = require('./precos-routes');
+const { erroMeioPermitido, assertMeioPermitido } = require('./meios-pagamento');
 // Fase 3e (2026-05-23): orgaos_lookup no PG
 const catalogPg = require('./catalog-pg');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
@@ -235,6 +237,71 @@ function registrarRotasPedidos(app, db) {
 
   // ==================== CRIAR ====================
 
+  /**
+   * POST /api/pedidos/acao-massa — aplica uma ação à seleção da listagem.
+   *
+   * Cada pedido é processado por si: um que não pode (faturado no cancelar,
+   * sem saldo no confirmar) não derruba o lote — volta na lista de falhas com
+   * o motivo. Sem isso, um pedido travado no meio de 40 esconderia dos outros
+   * 39 o que aconteceu.
+   *
+   * Reaproveita cancelarPedidoInterno/confirmarPedidoInterno: as regras de
+   * estoque e fatura são as mesmas da ação individual.
+   */
+  const ACOES_MASSA_PEDIDO = ['vendedor', 'cancelar', 'excluir-rascunho', 'confirmar'];
+
+  app.post('/api/pedidos/acao-massa', (req, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+      const acao = String(req.body?.acao || '');
+      if (!ids.length) return res.status(400).json({ success: false, error: 'Selecione ao menos um pedido' });
+      if (!ACOES_MASSA_PEDIDO.includes(acao)) return res.status(400).json({ success: false, error: 'Ação desconhecida' });
+      if (ids.length > 500) return res.status(400).json({ success: false, error: 'No máximo 500 por vez' });
+
+      const motivo = String(req.body?.motivo || '').trim();
+      if (acao === 'cancelar' && !motivo) {
+        return res.status(400).json({ success: false, error: 'Informe o motivo do cancelamento' });
+      }
+      const vendedorId = req.body?.vendedorId ? Number(req.body.vendedorId) : null;
+      if (acao === 'vendedor' && !vendedorId) {
+        return res.status(400).json({ success: false, error: 'Selecione o vendedor' });
+      }
+      const usuario = req.session?.username || null;
+
+      const okIds = [];
+      const falhas = [];
+      for (const id of ids) {
+        const ped = db.prepare('SELECT id, numero, status FROM pedidos WHERE id = ?').get(id);
+        if (!ped) { falhas.push({ id, numero: null, erro: 'Pedido não encontrado' }); continue; }
+        try {
+          if (acao === 'vendedor') {
+            db.prepare('UPDATE pedidos SET vendedorId = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
+              .run(vendedorId, id);
+            okIds.push(id);
+          } else if (acao === 'cancelar') {
+            const r = cancelarPedidoInterno(id, { motivo, usuario });
+            if (r.ok) okIds.push(id); else falhas.push({ id, numero: ped.numero, erro: r.error });
+          } else if (acao === 'confirmar') {
+            const r = confirmarPedidoInterno(id, { forcar: req.body?.forcar === true });
+            if (r.ok) okIds.push(id); else falhas.push({ id, numero: ped.numero, erro: r.error });
+          } else if (acao === 'excluir-rascunho') {
+            const r = excluirPedidoInterno(id);
+            if (r.ok) okIds.push(id); else falhas.push({ id, numero: ped.numero, erro: r.error });
+          }
+        } catch (e) {
+          falhas.push({ id, numero: ped.numero, erro: e.message });
+        }
+      }
+
+      logAction(db, req, 'acao-massa', 'pedido', null,
+        { acao, selecionados: ids.length, aplicados: okIds.length, falhas: falhas.length,
+          motivo: motivo || null, vendedorId });
+      res.json({ success: true, aplicados: okIds.length, total: ids.length, falhas });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.post('/api/pedidos', (req, res) => {
     try {
       const { clienteId, dataEntregaPrevista, observacao, itens, modoDocumento, vendedorId, depositoId } = req.body;
@@ -437,6 +504,17 @@ function registrarRotasPedidos(app, db) {
         return res.status(400).json({ success: false, error: 'Pedido finalizado — nao editavel' });
       }
       const b = req.body;
+
+      // Meio de recebimento tem de caber na whitelist do cliente. Vale para o
+      // par resultante: trocar o cliente de um pedido que já tem meio definido
+      // também passa por aqui.
+      if (b.meioPagamento !== undefined || b.clienteId !== undefined) {
+        const clienteFinal = b.clienteId !== undefined ? (b.clienteId || null) : ped.clienteId;
+        const meioFinal = b.meioPagamento !== undefined ? b.meioPagamento : ped.meioPagamento;
+        const erroMeio = erroMeioPermitido(db, clienteFinal, meioFinal);
+        if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
+      }
+
       const sets = [];
       const vals = [];
       for (const c of CAMPOS_PEDIDO) {
@@ -457,13 +535,77 @@ function registrarRotasPedidos(app, db) {
     }
   });
 
+  /**
+   * Exclusão de rascunho.
+   *
+   * Apagar só `pedido_itens` + `pedidos` não bastava: `pedido_historico`,
+   * `pedido_parcelas` e `reservas_estoque` apontam para o pedido com FK sem
+   * ON DELETE, e o tenant roda com `foreign_keys = ON` (tenant-manager.js:132).
+   * Bastava o rascunho ter uma linha de histórico — o que acontece assim que
+   * ele é reaberto ou tem status mexido — para o DELETE estourar constraint.
+   *
+   * As tabelas abaixo são PARTES do pedido: existem por causa dele e somem
+   * junto. Qualquer outra referência é documento de vida própria (fatura,
+   * devolução, OS, comissão apurada…) e vira recusa, não exclusão em cascata.
+   */
+  const PARTES_DO_PEDIDO = ['reservas_estoque', 'pedido_parcelas', 'pedido_historico', 'pedido_itens'];
+
+  const ROTULOS_VINCULO_PEDIDO = {
+    faturas: 'fatura', contas_a_receber: 'conta a receber', devolucoes: 'devolução',
+    os_ordens: 'ordem de serviço', comissoes_apuracao: 'comissão apurada',
+    optica_ordens_montagem: 'ordem de montagem', romaneio_paradas: 'parada de romaneio',
+    marketplaces_pedidos: 'pedido de marketplace', tef_transacoes: 'transação TEF',
+    crm_oportunidades: 'oportunidade de CRM', conv_conversas: 'conversa',
+    agenda_recebiveis_cartao: 'recebível de cartão', serial_numbers: 'número de série',
+    vendas_perdidas: 'venda perdida',
+  };
+
+  // Fail-closed: tabela com pedidoId que não seja parte declarada acima conta
+  // como vínculo. Módulo novo passa a proteger sozinho, sem ninguém lembrar.
+  function vinculosDePedido(pedId) {
+    const achados = [];
+    const tabelas = db.prepare(`
+      SELECT m.name AS tabela, p.name AS coluna
+        FROM sqlite_master m, pragma_table_info(m.name) p
+       WHERE m.type = 'table' AND p.name = 'pedidoId'
+       ORDER BY m.name
+    `).all().filter((r) => !PARTES_DO_PEDIDO.includes(r.tabela) && r.tabela !== 'pedidos');
+    for (const { tabela, coluna } of tabelas) {
+      try {
+        const r = db.prepare(`SELECT COUNT(*) AS n FROM "${tabela}" WHERE "${coluna}" = ?`).get(pedId);
+        if (r && r.n) achados.push({ tabela, qtd: r.n });
+      } catch (_) { /* tabela ilegível não vira bloqueio nem erro 500 */ }
+    }
+    return achados;
+  }
+
+  function excluirPedidoInterno(pedId) {
+    const ped = db.prepare('SELECT id, numero, status FROM pedidos WHERE id = ?').get(pedId);
+    if (!ped) return { ok: false, status: 404, error: 'Pedido nao encontrado' };
+    if (ped.status !== 'rascunho') return { ok: false, status: 400, error: 'Somente rascunhos podem ser excluidos' };
+
+    const vinculos = vinculosDePedido(ped.id);
+    if (vinculos.length) {
+      // Nome de tabela não diz nada a quem opera; o que não estiver no mapa cai
+      // no fallback legível em vez de sumir da mensagem.
+      const rotulo = (t) => ROTULOS_VINCULO_PEDIDO[t] || t.replace(/_/g, ' ');
+      return { ok: false, status: 409, vinculos,
+        error: 'Tem ' + vinculos.map((v) => `${rotulo(v.tabela)} (${v.qtd})`).join(', ') + ' vinculado(s)' };
+    }
+
+    db.transaction(() => {
+      for (const t of PARTES_DO_PEDIDO) {
+        try { db.prepare(`DELETE FROM "${t}" WHERE pedidoId = ?`).run(ped.id); } catch (_) { /* tenant sem o módulo */ }
+      }
+      db.prepare('DELETE FROM pedidos WHERE id = ?').run(ped.id);
+    })();
+    return { ok: true };
+  }
+
   app.delete('/api/pedidos/:id', (req, res) => {
     try {
-      const ped = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
-      if (!ped) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
-      if (ped.status !== 'rascunho') return res.status(400).json({ success: false, error: 'Somente rascunhos podem ser excluidos' });
-      db.prepare('DELETE FROM pedido_itens WHERE pedidoId = ?').run(req.params.id);
-      db.prepare('DELETE FROM pedidos WHERE id = ?').run(req.params.id);
+      const r = excluirPedidoInterno(req.params.id);
+      if (!r.ok) return res.status(r.status).json({ success: false, error: r.error, vinculos: r.vinculos });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -610,42 +752,48 @@ function registrarRotasPedidos(app, db) {
 
   // ==================== AÇÕES DE STATUS ====================
 
+  /**
+   * Confirmação de um pedido. Vive fora do handler porque a ação em massa
+   * precisa das MESMAS regras — reserva de estoque inclusive. Duplicar isso
+   * seria garantir que as duas versões divergiriam.
+   * Devolve { ok, status, error, insuficiencias }.
+   */
+  function confirmarPedidoInterno(pedId, opts) {
+    const ped = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedId);
+    if (!ped) return { ok: false, status: 404, error: 'Pedido nao encontrado' };
+    if (ped.modoDocumento === 'orcamento') return { ok: false, status: 400, error: 'Converta o orcamento em pedido antes de confirmar' };
+    if (ped.status !== 'rascunho') return { ok: false, status: 400, error: 'Somente rascunho pode ser confirmado' };
+    if (!ped.clienteId) return { ok: false, status: 400, error: 'Informe o cliente antes de confirmar' };
+    const nItens = db.prepare('SELECT COUNT(*) AS n FROM pedido_itens WHERE pedidoId = ?').get(pedId).n;
+    if (!nItens) return { ok: false, status: 400, error: 'Pedido sem itens' };
+
+    const forcar = opts && opts.forcar === true;
+    let insuficiencias = [];
+    const tx = db.transaction(() => {
+      const resultado = criarReservasPedido(db, Number(pedId));
+      insuficiencias = resultado.insuficiencias;
+      if (insuficiencias.length && !forcar) throw new Error('INSUFICIENTE');
+      db.prepare(`UPDATE pedidos SET status = 'confirmado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(pedId);
+    });
+    try {
+      tx();
+    } catch (e) {
+      if (e.message === 'INSUFICIENTE') {
+        return { ok: false, status: 409, insuficiencias,
+          error: 'Saldo insuficiente para reservar. Envie { forcar: true } para confirmar mesmo assim.' };
+      }
+      throw e;
+    }
+    return { ok: true, insuficiencias };
+  }
+
   app.post('/api/pedidos/:id/confirmar', (req, res) => {
     try {
-      const ped = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
-      if (!ped) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
-      if (ped.modoDocumento === 'orcamento') return res.status(400).json({ success: false, error: 'Converta o orcamento em pedido antes de confirmar' });
-      if (ped.status !== 'rascunho') return res.status(400).json({ success: false, error: 'Somente rascunho pode ser confirmado' });
-      if (!ped.clienteId) return res.status(400).json({ success: false, error: 'Informe o cliente antes de confirmar' });
-      const nItens = db.prepare('SELECT COUNT(*) AS n FROM pedido_itens WHERE pedidoId = ?').get(req.params.id).n;
-      if (!nItens) return res.status(400).json({ success: false, error: 'Pedido sem itens' });
-
-      const forcar = req.body?.forcar === true;
-      let insuficiencias = [];
-
-      const tx = db.transaction(() => {
-        const resultado = criarReservasPedido(db, Number(req.params.id));
-        insuficiencias = resultado.insuficiencias;
-        if (insuficiencias.length && !forcar) {
-          throw new Error('INSUFICIENTE');
-        }
-        db.prepare(`UPDATE pedidos SET status = 'confirmado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
-      });
-
-      try {
-        tx();
-      } catch (e) {
-        if (e.message === 'INSUFICIENTE') {
-          return res.status(409).json({
-            success: false,
-            error: 'Saldo insuficiente para reservar. Envie { forcar: true } para confirmar mesmo assim.',
-            insuficiencias
-          });
-        }
-        throw e;
+      const r = confirmarPedidoInterno(req.params.id, { forcar: req.body?.forcar === true });
+      if (!r.ok) {
+        return res.status(r.status).json({ success: false, error: r.error, insuficiencias: r.insuficiencias });
       }
-
-      res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id), insuficiencias });
+      res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id), insuficiencias: r.insuficiencias });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -752,67 +900,88 @@ function registrarRotasPedidos(app, db) {
     }
   });
 
+  /**
+   * Cancelamento de um pedido — estorno/liberação de estoque, venda perdida
+   * opcional, propagação para a ótica e histórico. Fora do handler pela mesma
+   * razão do confirmar: a ação em massa usa exatamente estas regras.
+   * Devolve { ok, status, error, ... }.
+   */
+  function cancelarPedidoInterno(pedId, opts) {
+    opts = opts || {};
+    const ped = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedId);
+    if (!ped) return { ok: false, status: 404, error: 'Pedido nao encontrado' };
+    if (ped.status === 'cancelado') return { ok: false, status: 400, error: 'Pedido ja cancelado' };
+    if (ped.status === 'faturado') {
+      // Só bloqueia se existe fatura emitida de verdade
+      const fat = ped.faturaId ? db.prepare("SELECT id FROM faturas WHERE id = ? AND status = 'emitida'").get(ped.faturaId) : null;
+      if (fat) return { ok: false, status: 400, error: 'Cancele a fatura primeiro — o pedido volta para entregue automaticamente' };
+      // Pedido faturado "órfão" (sem fatura real) — permite cancelar, mas registra o caso
+    }
+    const motivo = String(opts.motivo || '').trim();
+    if (!motivo) return { ok: false, status: 400, error: 'motivo obrigatorio' };
+
+    // Venda perdida opcional — o cancelamento é o momento em que a
+    // informação existe; registrar depois, à mão, quase nunca acontece.
+    const registrarPerda = !!opts.registrarPerda;
+    const usuario = opts.usuario || null;
+    let estornadas = [];
+    let reservasCanceladas = 0;
+    let perdas = { geradas: 0, ids: [], ignorados: [] };
+    const tx = db.transaction(() => {
+      if (ped.status === 'entregue') {
+        estornadas = estornarEstoque(ped.id, motivo);
+      } else if (['confirmado', 'em_separacao'].includes(ped.status)) {
+        reservasCanceladas = cancelarReservasPedido(db, ped.id, `cancelamento: ${motivo}`);
+      }
+      db.prepare(`UPDATE pedidos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(ped.id);
+      // Depois do UPDATE de propósito: um pedido 'entregue' que teve o
+      // estoque estornado virou perda legítima, e o helper recusa
+      // status entregue/faturado.
+      if (registrarPerda) {
+        perdas = registrarPerdasDePedido(db, ped.id, {
+          motivo: opts.motivoPerda,
+          concorrente: opts.concorrente,
+          observacao: `Cancelamento ${ped.numero}: ${motivo}`,
+          itens: opts.itensPerda,
+          origem: ped.modoDocumento === 'orcamento' ? 'orcamento_perdido' : 'pedido_cancelado',
+          usuario,
+        });
+      }
+      // Propaga pra OM ativa: pedido cancelado → OM cancelada com observação
+      // automática. Skip se OM já entregue (cliente recebeu) ou já cancelada.
+      try {
+        db.prepare(`UPDATE optica_ordens_montagem
+                    SET status = 'cancelada',
+                        observacoes = COALESCE(observacoes || ' | ', '')
+                                     || 'Cancelado automaticamente: pedido cancelado em '
+                                     || strftime('%Y-%m-%d %H:%M:%S', 'now')
+                    WHERE pedidoId = ? AND ativo = 1
+                      AND status NOT IN ('entregue','cancelada')`)
+          .run(ped.id);
+      } catch { /* tenant sem ótica */ }
+      registrarHistorico(ped.id, ped.status, 'cancelado', 'cancelar', motivo, usuario,
+        (estornadas.length || reservasCanceladas || perdas.geradas)
+          ? { movimentacoesEstornadas: estornadas, reservasCanceladas, vendasPerdidasGeradas: perdas.geradas }
+          : null);
+    });
+    tx();
+    return { ok: true, movimentacoesEstornadas: estornadas.length, reservasCanceladas,
+      vendasPerdidasGeradas: perdas.geradas };
+  }
+
   app.post('/api/pedidos/:id/cancelar', (req, res) => {
     try {
-      const ped = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
-      if (!ped) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
-      if (ped.status === 'cancelado') return res.status(400).json({ success: false, error: 'Pedido ja cancelado' });
-      if (ped.status === 'faturado') {
-        // Só bloqueia se existe fatura emitida de verdade
-        const fat = ped.faturaId ? db.prepare("SELECT id FROM faturas WHERE id = ? AND status = 'emitida'").get(ped.faturaId) : null;
-        if (fat) return res.status(400).json({ success: false, error: 'Cancele a fatura primeiro — o pedido volta para entregue automaticamente' });
-        // Pedido faturado "órfão" (sem fatura real) — permite cancelar, mas registra o caso
-      }
-      const motivo = (req.body?.motivo || '').trim();
-      if (!motivo) return res.status(400).json({ success: false, error: 'motivo obrigatorio' });
-
-      // Venda perdida opcional — o cancelamento é o momento em que a
-      // informação existe; registrar depois, à mão, quase nunca acontece.
-      const registrarPerda = !!req.body?.registrarPerda;
-      const usuario = req.session?.username || null;
-      let estornadas = [];
-      let reservasCanceladas = 0;
-      let perdas = { geradas: 0, ids: [], ignorados: [] };
-      const tx = db.transaction(() => {
-        if (ped.status === 'entregue') {
-          estornadas = estornarEstoque(ped.id, motivo);
-        } else if (['confirmado', 'em_separacao'].includes(ped.status)) {
-          reservasCanceladas = cancelarReservasPedido(db, ped.id, `cancelamento: ${motivo}`);
-        }
-        db.prepare(`UPDATE pedidos SET status = 'cancelado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(ped.id);
-        // Depois do UPDATE de propósito: um pedido 'entregue' que teve o
-        // estoque estornado virou perda legítima, e o helper recusa
-        // status entregue/faturado.
-        if (registrarPerda) {
-          perdas = registrarPerdasDePedido(db, ped.id, {
-            motivo: req.body?.motivoPerda,
-            concorrente: req.body?.concorrente,
-            observacao: `Cancelamento ${ped.numero}: ${motivo}`,
-            itens: req.body?.itensPerda,
-            origem: ped.modoDocumento === 'orcamento' ? 'orcamento_perdido' : 'pedido_cancelado',
-            usuario,
-          });
-        }
-        // Propaga pra OM ativa: pedido cancelado → OM cancelada com observação
-        // automática. Skip se OM já entregue (cliente recebeu) ou já cancelada.
-        try {
-          db.prepare(`UPDATE optica_ordens_montagem
-                      SET status = 'cancelada',
-                          observacoes = COALESCE(observacoes || ' | ', '')
-                                       || 'Cancelado automaticamente: pedido cancelado em '
-                                       || strftime('%Y-%m-%d %H:%M:%S', 'now')
-                      WHERE pedidoId = ? AND ativo = 1
-                        AND status NOT IN ('entregue','cancelada')`)
-            .run(ped.id);
-        } catch { /* tenant sem ótica */ }
-        registrarHistorico(ped.id, ped.status, 'cancelado', 'cancelar', motivo, usuario,
-          (estornadas.length || reservasCanceladas || perdas.geradas)
-            ? { movimentacoesEstornadas: estornadas, reservasCanceladas, vendasPerdidasGeradas: perdas.geradas }
-            : null);
+      const r = cancelarPedidoInterno(req.params.id, {
+        motivo: req.body?.motivo,
+        registrarPerda: !!req.body?.registrarPerda,
+        motivoPerda: req.body?.motivoPerda,
+        concorrente: req.body?.concorrente,
+        itensPerda: req.body?.itensPerda,
+        usuario: req.session?.username || null,
       });
-      tx();
-      res.json({ success: true, movimentacoesEstornadas: estornadas.length, reservasCanceladas,
-        vendasPerdidasGeradas: perdas.geradas });
+      if (!r.ok) return res.status(r.status).json({ success: false, error: r.error });
+      res.json({ success: true, movimentacoesEstornadas: r.movimentacoesEstornadas,
+        reservasCanceladas: r.reservasCanceladas, vendasPerdidasGeradas: r.vendasPerdidasGeradas });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -949,6 +1118,7 @@ function registrarRotasPedidos(app, db) {
         if (MEIOS_CARTAO.has(p.meioPagamento) && !p.bandeiraId) {
           throw new Error(`Parcela ${i + 1}: bandeira do cartão obrigatória`);
         }
+        assertMeioPermitido(db, ped.clienteId, p.meioPagamento, `Parcela ${i + 1}: `);
         return {
           numeroParcela: i + 1,
           valor: Number(valor.toFixed(2)),
@@ -960,6 +1130,20 @@ function registrarRotasPedidos(app, db) {
       });
 
       if (norm.length) {
+        // Valor mínimo da parcela vem da política de prazo do cliente. Sem essa
+        // checagem aqui, a regra existiria só no aviso da tela.
+        const { vinculoDaPessoa, valePara } = require('./politicas-prazo');
+        const { politica } = vinculoDaPessoa(db, ped.clienteId);
+        const minimo = valePara(politica, 'vendas') ? Number(politica.valorMinimoParcela) || 0 : 0;
+        if (minimo > 0) {
+          const i = norm.findIndex(p => p.valor < minimo);
+          if (i >= 0) {
+            return res.status(400).json({
+              success: false,
+              error: `Parcela ${i + 1} (R$ ${norm[i].valor.toFixed(2)}) abaixo do mínimo de R$ ${minimo.toFixed(2)} da política "${politica.nome}"`,
+            });
+          }
+        }
         const soma = Number(norm.reduce((s, p) => s + p.valor, 0).toFixed(2));
         const total = Number((ped.valorTotal || 0).toFixed(2));
         if (Math.abs(soma - total) > 0.01) {

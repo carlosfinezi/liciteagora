@@ -10,29 +10,40 @@
 <div class="layout"><main class="main-content">
   <div class="page-header">
     <div>
-      <h1>Alçadas e Aprovações</h1>
+      <h1>Regras de Alçada</h1>
       <small>Acima do limite, o evento fica bloqueado até um aprovador decidir; solicitante não aprova a própria solicitação</small>
+    </div>
+    <div>
+      <a class="btn btn-ghost btn-sm" href="/aprovacoes/aprovacoes.html">Ver fila de aprovações</a>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
 
-  <h2 style="margin:14px 0 8px;">Fila de aprovações</h2>
+  <div class="panel" style="margin-bottom:14px;">
+    <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+      <input type="checkbox" id="cfgAutoAprova" onchange="salvarConfigGov()" style="margin-top:3px;">
+      <span>
+        <strong>Admin pode aprovar a própria solicitação</strong><br>
+        <small class="muted">Contorna a separação entre quem pede e quem libera — útil quando só existe
+        um usuário. A aprovação fica marcada como <em>auto-aprovada</em> na fila e no log de auditoria.
+        Vale só para o papel admin; os demais continuam precisando de outra pessoa.</small>
+      </span>
+    </label>
+  </div>
+
+  <div id="painelGov"></div>
+
+  <h2 style="margin:14px 0 8px;">Simular</h2>
   <div class="toolbar">
-    <select id="filtStatus" onchange="carregarFila()">
-      <option value="pendente" selected>Pendentes</option>
-      <option value="">Todas</option>
-      <option value="aprovada">Aprovadas</option>
-      <option value="reprovada">Reprovadas</option>
+    <select id="simTipo">
+      <option value="pagamento_cp">Pagamento de conta a pagar</option>
+      <option value="pedido_compra">Envio de pedido de compra</option>
     </select>
+    <input type="number" id="simValor" placeholder="Valor (R$)" step="0.01" style="width:160px;" oninput="debounceSim()">
+    <button class="btn btn-ghost btn-sm" onclick="simular()">Ver o que aconteceria</button>
   </div>
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><th>#</th><th>Evento</th><th>Referência</th><th style="text-align:right;">Valor</th>
-        <th>Solicitante</th><th>Status</th><th>Decisão</th><th></th></tr></thead>
-      <tbody id="tbFila"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
-    </table>
-  </div>
+  <div id="simResultado" style="margin-bottom:16px;"></div>
 
   <h2 style="margin:24px 0 8px;">Regras de alçada</h2>
   <div class="toolbar">
@@ -41,21 +52,59 @@
       <option value="pedido_compra">Envio de pedido de compra</option>
     </select>
     <input type="number" id="rLimite" placeholder="Limite (R$)" step="0.01" style="width:140px;">
-    <input type="text" id="rPapel" placeholder="Papel aprovador (admin)" style="width:170px;">
-    <button class="btn btn-primary btn-sm" onclick="addRegra()">+ Regra</button>
+    <select id="rPapel" style="width:170px;">
+      <option value="admin">admin</option>
+      <option value="financeiro">financeiro</option>
+      <option value="comercial">comercial</option>
+      <option value="operacional">operacional</option>
+      <option value="licitacoes">licitacoes</option>
+    </select>
+    <input type="number" id="rValidade" placeholder="Validade (dias)" min="1" max="365" value="7" style="width:140px;"
+           title="Depois disso a aprovação vence e precisa ser pedida de novo">
+    <button class="btn btn-primary btn-sm" onclick="addRegra()">+ Faixa</button>
   </div>
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="alcadas">
     <table>
-      <thead><tr><th>Evento</th><th style="text-align:right;">Acima de (R$)</th><th>Aprovador</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Evento</th><th style="text-align:right;">Acima de (R$)</th><th>Aprovador</th>
+        <th>Validade</th><th>Status</th><th></th></tr></thead>
       <tbody id="tbRegras"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
 
+<!-- Modal Editar faixa -->
+<div class="modal-bg" id="modalRegra">
+  <div class="modal">
+    <h2>Editar faixa</h2>
+    <div class="resumo-pag" id="eRegraResumo" style="background:var(--bg-1);padding:10px 12px;border-radius:var(--r-sm);margin-bottom:14px;color:var(--text-1);font-size:0.88em;"></div>
+    <div class="row-2">
+      <div class="row"><label>Acima de (R$)</label><input type="number" step="0.01" id="eLimite"></div>
+      <div class="row"><label>Validade da aprovação (dias)</label><input type="number" min="1" max="365" id="eValidade"></div>
+    </div>
+    <div class="row">
+      <label>Papel do aprovador</label>
+      <select id="ePapel">
+        <option value="admin">admin</option>
+        <option value="financeiro">financeiro</option>
+        <option value="comercial">comercial</option>
+        <option value="operacional">operacional</option>
+        <option value="licitacoes">licitacoes</option>
+      </select>
+    </div>
+    <div class="row"><label>Descrição (opcional)</label><input type="text" id="eDescricao" placeholder="ex.: pagamentos acima do teto da diretoria"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharRegra()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarRegra()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('config-alcadas');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -63,57 +112,84 @@ function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'
 const EVENTO_TXT = { pagamento_cp: '📤 Pagamento CP', pedido_compra: '🛒 Pedido de compra' };
 const ST_BADGE = { pendente:'<span class="badge saida">PENDENTE</span>', aprovada:'<span class="badge entrada">APROVADA</span>', reprovada:'<span class="badge cancelado">REPROVADA</span>' };
 
-async function carregarFila(){
-  const st = document.getElementById('filtStatus').value;
-  const r = await fetch('/api/alcadas/aprovacoes' + (st?'?status='+st:'')); const d = await r.json();
-  if(!d.success) return showAlert(d.error,'error');
-  document.getElementById('tbFila').innerHTML = d.aprovacoes.length ? d.aprovacoes.map(a=>`<tr>
-    <td>${a.id}</td>
-    <td>${EVENTO_TXT[a.tipoEvento]||a.tipoEvento}</td>
-    <td>#${a.referenciaId} ${a.referenciaDescricao||''}</td>
-    <td style="text-align:right;"><strong>R$ ${fmt(a.valorReferencia)}</strong></td>
-    <td>${a.solicitante||'-'}</td>
-    <td>${ST_BADGE[a.status]||a.status}${a.consumida?' <small class="muted">(usada)</small>':''}</td>
-    <td>${a.aprovador?`${a.aprovador} em ${a.dataDecisao||''}${a.motivo?'<br><small class="muted">'+a.motivo+'</small>':''}`:'-'}</td>
-    <td style="white-space:nowrap;">
-      ${a.status==='pendente' ? `<button class="btn btn-primary btn-sm" onclick="decidir(${a.id},'aprovar')">Aprovar</button>
-      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="decidir(${a.id},'reprovar')">Reprovar</button>` : ''}
-    </td>
-  </tr>`).join('') : '<tr><td colspan="8" class="empty">Fila vazia</td></tr>';
-}
+// A fila de aprovações saiu daqui em 2026-08-02 para /aprovacoes/aprovacoes.html.
+// Cadastro de regra é configuração (mexe-se uma vez por ano); aprovar
+// pagamento é tarefa do dia. Juntas, a tarefa do dia ficava escondida dentro
+// de um submenu de Configurações, sem contador e sem aviso.
 
-async function decidir(id, acao){
-  let motivo = null;
-  if (acao === 'reprovar') { motivo = prompt('Motivo da reprovação:'); if (!motivo) return; }
-  const r = await fetch(`/api/alcadas/aprovacoes/${id}/${acao}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
-  const d = await r.json();
-  if(!d.success) return showAlert(d.error,'error');
-  showAlert(acao==='aprovar'?'Aprovado — a operação pode ser repetida agora':'Reprovado'); carregarFila();
-}
+let REGRAS = [];
 
 async function carregarRegras(){
   const r = await fetch('/api/alcadas/regras'); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
+  REGRAS = d.regras;
   document.getElementById('tbRegras').innerHTML = d.regras.length ? d.regras.map(x=>`<tr${x.ativo?'':' style="opacity:0.55;"'}>
-    <td>${EVENTO_TXT[x.tipoEvento]||x.tipoEvento}</td>
+    <td>${EVENTO_TXT[x.tipoEvento]||x.tipoEvento}${x.descricao?`<br><small class="muted">${escG(x.descricao)}</small>`:''}</td>
     <td style="text-align:right;">R$ ${fmt(x.limiteValor)}</td>
     <td>${x.papelAprovador}</td>
+    <td>${x.validadeDias||7} dia(s)</td>
     <td>${x.ativo?'ativa':'inativa'}</td>
-    <td><button class="btn btn-ghost btn-sm" onclick="toggleRegra(${x.id}, ${x.ativo?0:1})">${x.ativo?'Desativar':'Reativar'}</button></td>
-  </tr>`).join('') : '<tr><td colspan="5" class="empty">Sem regras — tudo liberado</td></tr>';
+    <td style="white-space:nowrap;">
+      <button class="btn btn-secondary btn-sm" onclick="abrirRegra(${x.id})">Editar</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleRegra(${x.id}, ${x.ativo?0:1})">${x.ativo?'Desativar':'Reativar'}</button>
+    </td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty">Sem faixas — tudo liberado sem aprovação</td></tr>';
+  carregarDiagnostico();
+}
+
+// Editar a faixa em vez de desativar e recriar: recriar muda o id, e as
+// aprovações já emitidas guardam regraId/papelExigido — o histórico perderia
+// a ligação com a regra que as convocou.
+let REGRA_ID = null;
+function abrirRegra(id){
+  const x = REGRAS.find(r => r.id === id);
+  if (!x) return;
+  REGRA_ID = id;
+  document.getElementById('eRegraResumo').innerHTML =
+    `Faixa #${x.id} · ${EVENTO_TXT[x.tipoEvento]||x.tipoEvento} · ${x.ativo?'ativa':'inativa'}`;
+  document.getElementById('eLimite').value = Number(x.limiteValor).toFixed(2);
+  document.getElementById('eValidade').value = x.validadeDias || 7;
+  document.getElementById('ePapel').value = x.papelAprovador || 'admin';
+  document.getElementById('eDescricao').value = x.descricao || '';
+  document.getElementById('modalRegra').classList.add('open');
+}
+function fecharRegra(){ document.getElementById('modalRegra').classList.remove('open'); REGRA_ID = null; }
+
+async function salvarRegra(){
+  const limite = Number(document.getElementById('eLimite').value);
+  if (!(limite >= 0)) return showAlert('Informe o limite','error');
+  const body = {
+    limiteValor: limite,
+    papelAprovador: document.getElementById('ePapel').value || 'admin',
+    validadeDias: Number(document.getElementById('eValidade').value) || 7,
+    descricao: document.getElementById('eDescricao').value || ''
+  };
+  const r = await fetch('/api/alcadas/regras/'+REGRA_ID, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fecharRegra();
+  const avisos = (d.avisos||[]).map(a=>a.mensagem);
+  showAlert(avisos.length ? 'Faixa salva. Confira: '+avisos.join(' · ') : 'Faixa salva',
+            avisos.length ? 'warning' : 'success');
+  carregarRegras();
 }
 
 async function addRegra(){
   const body = {
     tipoEvento: document.getElementById('rTipo').value,
     limiteValor: Number(document.getElementById('rLimite').value),
-    papelAprovador: document.getElementById('rPapel').value.trim() || 'admin'
+    papelAprovador: document.getElementById('rPapel').value || 'admin',
+    validadeDias: Number(document.getElementById('rValidade').value) || 7
   };
   if (!(body.limiteValor >= 0)) return showAlert('Informe o limite','error');
   const r = await fetch('/api/alcadas/regras', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
-  document.getElementById('rLimite').value=''; showAlert('Regra criada'); carregarRegras();
+  document.getElementById('rLimite').value='';
+  const avisos = (d.avisos||[]).map(a=>a.mensagem);
+  showAlert(avisos.length ? 'Faixa criada. Confira: '+avisos.join(' · ') : 'Faixa criada',
+            avisos.length ? 'warning' : 'success');
+  carregarRegras(); carregarDiagnostico();
 }
 
 async function toggleRegra(id, ativo){
@@ -123,6 +199,106 @@ async function toggleRegra(id, ativo){
   carregarRegras();
 }
 
-carregarFila(); carregarRegras();
+// A chave vale para todas as faixas: fica em config do tenant, não na regra.
+async function carregarConfigGov(){
+  try {
+    const d = await fetch('/api/alcadas/config').then(r=>r.json());
+    if (d.success) document.getElementById('cfgAutoAprova').checked = !!d.adminAutoAprova;
+  } catch {}
+}
+
+async function salvarConfigGov(){
+  const el = document.getElementById('cfgAutoAprova');
+  const ligado = el.checked;
+  const r = await fetch('/api/alcadas/config', { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ adminAutoAprova: ligado }) });
+  const d = await r.json();
+  if(!d.success){ el.checked = !ligado; return showAlert(d.error,'error'); }
+  showAlert(ligado ? 'Admin passa a poder aprovar as próprias solicitações' : 'Auto-aprovação desligada',
+            ligado ? 'warning' : 'success');
+  carregarDiagnostico();
+}
+
+carregarConfigGov();
+carregarRegras();
+
+// ==================== GOVERNANÇA ====================
+// Alçada mal configurada não dá erro: ela para o pagamento e ninguém sabe por
+// quê. Estes dois painéis existem para o erro aparecer antes de travar alguém.
+
+function escG(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
+function fmtG(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+let _simTimer;
+function debounceSim(){ clearTimeout(_simTimer); _simTimer = setTimeout(simular, 400); }
+
+async function simular(){
+  const tipo = document.getElementById('simTipo').value;
+  const valor = document.getElementById('simValor').value;
+  const alvo = document.getElementById('simResultado');
+  if (valor === '') { alvo.innerHTML = ''; return; }
+  try {
+    const d = await fetch(`/api/alcadas/simular?tipoEvento=${tipo}&valor=${encodeURIComponent(valor)}`).then(r=>r.json());
+    if (!d.success) { alvo.innerHTML = ''; return; }
+    const s = d.simulacao;
+    const cor = !s.exigeAprovacao ? 'success' : (s.podemAprovar && !s.podemAprovar.length ? 'danger' : 'warn');
+    alvo.innerHTML = `<div class="panel" style="border-left:4px solid var(--${cor});font-size:0.9em;">
+      <strong>${fmtG(s.valor)}</strong> — ${escG(s.explicacao)}
+      ${s.exigeAprovacao ? `<div class="muted" style="font-size:0.85em;margin-top:6px;">
+        Aprovação vale por ${s.validadeDias} dia(s) e libera uma execução até esse valor.</div>` : ''}
+    </div>`;
+  } catch { alvo.innerHTML = ''; }
+}
+
+function blocoGov(titulo, cor, linhas, rodape){
+  if (!linhas.length) return '';
+  return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
+    <div style="font-size:0.88em;line-height:1.7;">${linhas.join('<br>')}</div>
+    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+  </div>`;
+}
+
+async function carregarDiagnostico(){
+  const alvo = document.getElementById('painelGov');
+  if (!alvo) return;
+  let d;
+  try { d = await fetch('/api/alcadas/diagnostico').then(r=>r.json()); } catch { alvo.innerHTML=''; return; }
+  if (!d || !d.success) { alvo.innerHTML=''; return; }
+  const g = d.diagnostico;
+  const blocos = [];
+
+  blocos.push(blocoGov(
+    `Configuração com problema (${g.problemas.length})`, 'danger',
+    g.problemas.map(p => escG(p.mensagem)),
+    'Faixa sem quem aprove trava o pagamento sem explicar o motivo a quem tentou.'));
+
+  // Aprovações paradas, vencidas e reprovadas migraram para a tela de
+  // Aprovações: são coisas que se resolvem decidindo, não reconfigurando.
+  // Aqui fica só o que se conserta nesta página.
+  const pendentesTotal = g.paradas.length + g.expiradas.length + g.reprovadasAbertas.length;
+  if (pendentesTotal) {
+    blocos.push(blocoGov('Fila precisando de atenção', 'warn',
+      [`${g.paradas.length} parada(s), ${g.expiradas.length} vencida(s) e `
+       + `${g.reprovadasAbertas.length} reprovação(ões) segurando documento.`],
+      '<a href="/aprovacoes/aprovacoes.html">Abrir fila de aprovações</a>'));
+  }
+
+  const faixas = g.faixasPorEvento.filter(x => x.faixas.length).map(x =>
+    `<div><strong>${escG(x.tipoEvento)}</strong>: ` + x.faixas.map(fx =>
+      `acima de ${fmtG(fx.acimaDe)} → ${escG(fx.papel)} (${fx.validadeDias}d)`).join(' · ') + '</div>');
+  if (faixas.length) {
+    blocos.push(`<div class="panel" style="margin-bottom:10px;font-size:0.88em;">
+      <h3 style="margin:0 0 8px;font-size:0.95em;">Faixas configuradas</h3>
+      <div style="line-height:1.8;">${faixas.join('')}</div>
+      <div class="muted" style="font-size:0.8em;margin-top:6px;">
+        Cada valor cai na faixa mais alta que ele ultrapassa.
+      </div>
+    </div>`);
+  }
+
+  alvo.innerHTML = blocos.filter(Boolean).join('');
+}
+
 </script>
 </body></html>

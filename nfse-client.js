@@ -8,6 +8,7 @@
 
 const https = require('https');
 const zlib = require('zlib');
+const forge = require('node-forge');
 
 const URLS = {
   1: 'https://sefin.nfse.gov.br/SefinNacional',           // Produção
@@ -35,6 +36,39 @@ function _isTransientErr(err) {
 
 function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/**
+ * Converte o PKCS#12 em PEM (chave + certificado + cadeia).
+ *
+ * O A1 da ICP-Brasil costuma vir cifrado com pbeWithSHA1And40BitRC2-CBC, que o
+ * OpenSSL 3 (usado pelo TLS do Node) recusa: `https.Agent({ pfx })` estourava
+ * "Unsupported PKCS12 PFX data" no envio à SEFIN, mesmo com o certificado
+ * válido e recém-trocado. O node-forge lê RC2 em JS puro, então decifra aqui e
+ * entrega ao TLS o material já em PEM.
+ */
+function pemDoPfx(p12Buffer, senha) {
+  const p12Asn1 = forge.asn1.fromDer(p12Buffer.toString('binary'));
+  const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, senha);
+
+  const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
+  const keyBag = (keyBags[forge.pki.oids.pkcs8ShroudedKeyBag] || [])[0]
+    || (p12.getBags({ bagType: forge.pki.oids.keyBag })[forge.pki.oids.keyBag] || [])[0];
+  if (!keyBag) throw new Error('Chave privada não encontrada no certificado');
+
+  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
+  if (!certBags.length) throw new Error('Certificado não encontrado no arquivo P12');
+
+  // A cadeia vai inteira, mas o certificado do titular tem de vir primeiro —
+  // é o que o TLS usa como identidade. Ele é o que casa com a chave privada;
+  // a ordem dos bags no arquivo não é garantida.
+  const doTitular = certBags.filter(b => b.cert.publicKey?.n?.equals(keyBag.key.n));
+  const demais = certBags.filter(b => !doTitular.includes(b));
+
+  return {
+    key: forge.pki.privateKeyToPem(keyBag.key),
+    cert: [...doTitular, ...demais].map(b => forge.pki.certificateToPem(b.cert)).join(''),
+  };
+}
+
 class NfseClient {
   /**
    * @param {Buffer} p12Buffer - Certificado PKCS#12 como Buffer
@@ -47,8 +81,7 @@ class NfseClient {
     this.baseUrlApi = URLS_API[tpAmb] || URLS_API[2];
 
     this.agent = new https.Agent({
-      pfx: p12Buffer,
-      passphrase: senha,
+      ...pemDoPfx(p12Buffer, senha),
       rejectUnauthorized: true,
     });
   }

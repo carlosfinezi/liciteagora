@@ -886,4 +886,8 @@ function httpGetBuffer(url) {
   return _httpRetry(url, false, 90);
 }
 
-module.exports = { analisarLicitacao, processarFilaAnalise, chamarDeepSeek };
+// Os chamadores de provider são genéricos (apiKey, prompt) -> JSON e já
+// trazem cooldown de 429 e rate-limit. Exportados para outros módulos usarem
+// a MESMA cadeia, em vez de cada um reimplementar a sua.
+module.exports = { analisarLicitacao, processarFilaAnalise,
+  chamarCerebras, chamarGemini, chamarDeepSeek, chamarGroq, chamarClaude };

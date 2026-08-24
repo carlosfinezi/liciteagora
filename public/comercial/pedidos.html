@@ -6,6 +6,16 @@
 <title>Pedidos · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* O grid (largura ajustável, corte das células, coluna do lápis) vem do
+     /js/grid.js, igual às demais listagens. Aqui fica só o que é desta tela:
+     o cabeçalho que ordena e a coluna-sobra do fim da linha. */
+  .tbl-wrap th.sortable { cursor: pointer; user-select: none; }
+  .tbl-wrap th.sortable:hover { background: var(--bg-2); }
+  .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: 10px; margin-left: 4px; }
+  .tbl-wrap th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+  .col-spacer { width: auto; padding: 0; }
+</style>
 </head>
 <body>
 <div class="layout">
@@ -47,12 +57,28 @@
       <option value="orcamento">Apenas orçamentos</option>
     </select>
     <div style="position:relative;">
-      <button class="btn btn-secondary btn-sm" onclick="toggleColunasMenu(event)">Colunas</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleColunasMenu(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
       <div id="colunasMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-1);border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px;z-index:50;min-width:200px;box-shadow:0 8px 20px rgba(0,0,0,0.4);"></div>
     </div>
+    <span id="totalPedidos" style="font-size:0.85em; color:var(--text-3);"></span>
   </div>
 
-  <div class="tbl-wrap">
+  <!-- Ações em massa: só aparece com pedido selecionado, para não poluir a
+       tela de quem está só consultando. -->
+  <div class="toolbar" id="barraMassa" style="display:none; border-color:var(--accent);">
+    <strong id="massaContagem" style="font-size:0.9em;"></strong>
+    <select id="massaAcao" style="width:auto;">
+      <option value="vendedor">Definir vendedor…</option>
+      <option value="confirmar">Confirmar (reserva estoque)</option>
+      <option value="cancelar">Cancelar…</option>
+      <option value="excluir-rascunho">Excluir rascunhos</option>
+    </select>
+    <select id="massaVendedor" style="width:auto;display:none;"><option value="">— vendedor —</option></select>
+    <button class="btn btn-primary btn-sm" onclick="aplicarAcaoMassa()">Aplicar</button>
+    <button class="btn btn-ghost btn-sm" onclick="limparSelecao()">Limpar seleção</button>
+  </div>
+
+  <div class="tbl-wrap" data-grid="pedidos">
     <table>
       <thead><tr id="thead"></tr></thead>
       <tbody id="tb"></tbody>
@@ -111,6 +137,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>
   const __modoUrl = new URLSearchParams(location.search).get('modo');
   initSidebar(__modoUrl === 'orcamento' ? 'orcamentos' : 'pedidos');
@@ -171,18 +199,25 @@ let colunasVisiveis = JSON.parse(localStorage.getItem('pedidos_colunas') || 'nul
 
 function salvarColunas(){ localStorage.setItem('pedidos_colunas', JSON.stringify(colunasVisiveis)); }
 
+// O menu do botão "Colunas" fica escondido por style inline (não por classe),
+// então alterna o próprio display em vez de usar .open como em produtos.html.
 function toggleColunasMenu(ev){
   ev.stopPropagation();
   const m = document.getElementById('colunasMenu');
-  if (m.style.display === 'block') { m.style.display='none'; return; }
+  const abrir = !m.style.display || m.style.display === 'none';
+  m.style.display = abrir ? 'block' : 'none';
+  if (!abrir) return;
   m.innerHTML = COLUNAS.map(c => `
-    <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;font-size:0.88em;">
+    <label style="display:flex;align-items:center;gap:8px;padding:5px;cursor:pointer;font-size:0.88em;text-transform:none;">
       <input type="checkbox" ${colunasVisiveis.includes(c.key)?'checked':''} onchange="alternarColuna('${c.key}', this.checked)" style="width:auto;">
       <span>${c.label}</span>
     </label>`).join('');
-  m.style.display = 'block';
 }
-document.addEventListener('click', ()=> { const m=document.getElementById('colunasMenu'); if(m) m.style.display='none'; });
+// Clique fora fecha. O parentElement do menu é o wrapper que também tem o botão.
+document.addEventListener('click', e => {
+  const m = document.getElementById('colunasMenu');
+  if (m && !m.parentElement.contains(e.target)) m.style.display = 'none';
+});
 
 function alternarColuna(key, on){
   if (on && !colunasVisiveis.includes(key)) colunasVisiveis.push(key);
@@ -236,22 +271,106 @@ function renderCell(p, col){
   const v = p[col.key];
   if (v == null || v === '') return '<span class="muted">—</span>';
   if (col.tipo === 'money') return 'R$ ' + fmt(v);
-  if (col.tipo === 'badge') {
-    const cls = String(v).replace('_','');
-    const lbl = String(v).replace('_',' ');
-    return `<span class="badge ${cls}">${lbl}</span>`;
-  }
+  // Sem pílula na listagem: com Modo, Tipo, Status e Recebimento marcados ao
+  // mesmo tempo, a linha virava um varal de badges e nenhum destacava nada.
+  if (col.tipo === 'badge') return String(v).replace('_',' ');
   if (col.tipo === 'tipoOp') {
-    // Exibe código do tipo + ícone "!" vermelho se não emite NF-e (doc interno)
+    // Texto, como as demais — mas o documento que NÃO emite NF-e continua
+    // marcado: é a informação que muda a decisão de quem lê a lista.
     const interno = !p.tipoOperacaoEmiteNFe;
-    const cat = p.tipoOperacaoCategoria || '';
     const title = p.tipoOperacaoDescricao || '';
-    const badgeCls = interno ? 'pendente' : (cat.startsWith('devolucao') ? 'cancelada' : 'pago');
-    return `<span class="badge ${badgeCls}" title="${title}${interno?' (sem NF-e)':''}">${v}${interno?' 📄':''}</span>`;
+    return `<span title="${title}${interno?' (sem NF-e)':''}">${v}${interno?' 📄':''}</span>`;
   }
   if (col.tipo === 'date') return `<span class="muted">${v}</span>`;
   if (col.key === 'numero') return `<strong class="mono">${v}</strong>`;
   return String(v);
+}
+
+// ==================== SELEÇÃO / AÇÕES EM MASSA ====================
+const SELECIONADOS = new Set();
+let VENDEDORES_MASSA = null;
+
+function alternarPedido(id, on){
+  if (on) SELECIONADOS.add(id); else SELECIONADOS.delete(id);
+  atualizarBarraMassa();
+}
+
+function marcarTodos(on){
+  // Age sobre o que está na tela (filtro atual), nunca sobre a base inteira:
+  // cancelar em massa o que não se vê é o tipo de acidente que não se desfaz.
+  cache.forEach(p => on ? SELECIONADOS.add(p.id) : SELECIONADOS.delete(p.id));
+  render();
+}
+
+function limparSelecao(){ SELECIONADOS.clear(); render(); }
+
+function atualizarBarraMassa(){
+  const barra = document.getElementById('barraMassa');
+  if (!barra) return;
+  barra.style.display = SELECIONADOS.size ? '' : 'none';
+  const c = document.getElementById('massaContagem');
+  if (c) c.textContent = `${SELECIONADOS.size} selecionado(s)`;
+  const todos = document.getElementById('selTodos');
+  if (todos) todos.checked = cache.length > 0 && cache.every(p => SELECIONADOS.has(p.id));
+}
+
+// O seletor de vendedor só aparece na ação que o usa
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'massaAcao') {
+    const ehVend = e.target.value === 'vendedor';
+    const sel = document.getElementById('massaVendedor');
+    sel.style.display = ehVend ? '' : 'none';
+    if (ehVend && !VENDEDORES_MASSA) carregarVendedoresMassa();
+  }
+});
+
+async function carregarVendedoresMassa(){
+  try {
+    const d = await fetch('/api/usuarios?vendedor=1').then(r => r.json());
+    VENDEDORES_MASSA = d.usuarios || [];
+    document.getElementById('massaVendedor').innerHTML = '<option value="">— vendedor —</option>' +
+      VENDEDORES_MASSA.map(u => `<option value="${u.id}">${u.nome || u.username}</option>`).join('');
+  } catch { VENDEDORES_MASSA = []; }
+}
+
+async function aplicarAcaoMassa(){
+  if (!SELECIONADOS.size) return;
+  const acao = document.getElementById('massaAcao').value;
+  const body = { ids: [...SELECIONADOS], acao };
+  const rotulo = document.getElementById('massaAcao').selectedOptions[0].textContent;
+
+  if (acao === 'vendedor') {
+    body.vendedorId = document.getElementById('massaVendedor').value;
+    if (!body.vendedorId) return showAlert('Escolha o vendedor', 'error');
+  }
+  if (acao === 'cancelar') {
+    // Motivo é obrigatório no backend — perguntar aqui evita o lote inteiro voltar em erro.
+    const motivo = prompt(`Motivo do cancelamento de ${SELECIONADOS.size} pedido(s):`);
+    if (!motivo || !motivo.trim()) return;
+    body.motivo = motivo.trim();
+  }
+  const aviso = acao === 'excluir-rascunho' ? '\n\nApaga em definitivo. Não há como desfazer.'
+    : acao === 'confirmar' ? '\n\nCria reserva de estoque para cada item.' : '';
+  if (!confirm(`${rotulo}\n\nAplicar a ${SELECIONADOS.size} pedido(s)?${aviso}`)) return;
+
+  try {
+    const d = await fetch('/api/pedidos/acao-massa', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    }).then(r => r.json());
+    if (!d.success) return showAlert(d.error, 'error');
+    SELECIONADOS.clear();
+    await carregar();
+    carregarResumo();
+    // Falha individual não some: sem isto o usuário veria "8 de 10" e nunca
+    // saberia quais dois ficaram para trás nem por quê.
+    if (d.falhas && d.falhas.length) {
+      const lista = d.falhas.slice(0, 10).map(f => `• ${f.numero || '#'+f.id}: ${f.erro}`).join('\n');
+      const resto = d.falhas.length > 10 ? `\n… e mais ${d.falhas.length - 10}` : '';
+      alert(`${d.aplicados} de ${d.total} aplicado(s).\n\nNão foi possível em ${d.falhas.length}:\n${lista}${resto}`);
+    } else {
+      showAlert(`${d.aplicados} de ${d.total} aplicado(s).`);
+    }
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
 }
 
 function render(){
@@ -259,14 +378,28 @@ function render(){
   const th = document.getElementById('thead');
   const cols = COLUNAS.filter(c => colunasVisiveis.includes(c.key));
 
-  // Header com ordenação
-  th.innerHTML = cols.map(c => {
-    const arr = sortKey === c.key ? (sortDir>0?' ▲':' ▼') : '';
-    return `<th style="cursor:pointer;user-select:none;" onclick="sortBy('${c.key}')">${c.label}${arr}</th>`;
-  }).join('') + '<th></th>';
+  const total = document.getElementById('totalPedidos');
+  if (total) total.textContent = cache.length ? `${cache.length} registro${cache.length !== 1 ? 's' : ''}` : '';
+
+  // Header: ordena no clique, arrasta na divisória da direita
+  const arrow = (key) => key === sortKey ? (sortDir > 0 ? '▲' : '▼') : '↕';
+  th.innerHTML = '<th class="col-sel"><input type="checkbox" id="selTodos" onchange="marcarTodos(this.checked)" style="width:auto;" title="Marcar os que estão na tela"></th>'
+    + '<th class="col-editar"></th>' + cols.map(c => `
+    <th class="sortable ${c.key === sortKey ? 'sorted' : ''}" data-key="${c.key}">
+      ${c.label} <span class="sort-arrow">${arrow(c.key)}</span>
+    </th>`).join('') + '<th class="col-spacer"></th>';
+
+  th.querySelectorAll('th.sortable').forEach(el => {
+    el.addEventListener('click', (e) => {
+      // Arrastar a divisória não pode ordenar junto.
+      if (e.target.classList.contains('grid-resizer')) return;
+      sortBy(el.dataset.key);
+    });
+  });
 
   if (!cache.length) {
-    tb.innerHTML = `<tr><td colspan="${cols.length+1}" style="text-align:center;color:var(--text-3);padding:40px;">Nenhum pedido</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="${cols.length+3}" style="text-align:center;color:var(--text-3);padding:40px;">Nenhum pedido</td></tr>`;
+    atualizarBarraMassa();
     return;
   }
 
@@ -279,9 +412,14 @@ function render(){
   });
 
   tb.innerHTML = dados.map(p => {
+    const sel = `<td class="col-sel" onclick="event.stopPropagation();"><input type="checkbox" class="selPedido"
+      ${SELECIONADOS.has(p.id) ? 'checked' : ''} onchange="alternarPedido(${p.id}, this.checked)" style="width:auto;"></td>`;
+    const editar = `<td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir pedido"
+      onclick="event.stopPropagation(); abrirPedido(${p.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>`;
     const tds = cols.map(c => `<td>${renderCell(p, c)}</td>`).join('');
-    return `<tr style="cursor:pointer;" onclick="abrirPedido(${p.id})">${tds}<td style="text-align:right;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); abrirPedido(${p.id})">Abrir →</button></td></tr>`;
+    return `<tr style="cursor:pointer;" onclick="abrirPedido(${p.id})">${sel}${editar}${tds}<td class="col-spacer"></td></tr>`;
   }).join('');
+  atualizarBarraMassa();
 }
 
 function abrirPedido(id){ location.href = '/comercial/pedido.html?id=' + id; }

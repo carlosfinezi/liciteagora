@@ -144,7 +144,9 @@ function criarUsuarioInicial(db) {
     "ultimoLogin TEXT",
     // Multi-loja RBAC (Fase 4.3): NULL = acesso a todos os estabelecimentos;
     // um id = usuário restrito àquela loja (escopo forçado em getEstabelecimentoAtivo).
-    "estabelecimentoId INTEGER"
+    "estabelecimentoId INTEGER",
+    // Tema visual escolhido pelo usuário (padrao/grafite/meianoite/claro) — /api/user/prefs
+    "tema TEXT"
   ]) {
     alterSafe(db, `ALTER TABLE users ADD COLUMN ${col}`);
   }

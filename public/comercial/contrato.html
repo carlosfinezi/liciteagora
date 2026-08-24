@@ -10,6 +10,8 @@
 .evt-item.reajuste { border-left-color:var(--warn); }
 .evt-item.encerramento, .evt-item.suspensao { border-left-color:var(--danger); }
 .evt-item.renovacao, .evt-item.reativacao { border-left-color:var(--success); }
+/* Correção não é reajuste: conserto de cadastro, cor neutra. */
+.evt-item.correcao { border-left-color:var(--text-3); }
 .evt-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
 </style>
 </head>
@@ -32,6 +34,22 @@
       <h3>Resumo</h3>
       <div id="resumo" class="muted">Carregando…</div>
 
+      <h3 style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;">
+        <span>Itens do contrato</span>
+        <button class="btn btn-ghost btn-sm" onclick="abrirItem()">+ Adicionar item</button>
+      </h3>
+      <div id="itens" class="muted">Carregando…</div>
+
+      <h3 style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;">
+        <span>Anexos</span>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('anexoArquivo').click()">+ Anexar documentos</button>
+      </h3>
+      <div id="anexos" class="muted">Carregando…</div>
+      <!-- O input fica escondido: quem dispara é o botão acima, para não
+           destoar do resto da tela. O tipo é perguntado depois da escolha. -->
+      <input type="file" id="anexoArquivo" multiple style="display:none;"
+             accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" onchange="enviarAnexo()">
+
       <h3 style="margin-top:18px;">Faturamento (NFSe Recorrente)</h3>
       <div id="faturamento" class="muted">Carregando…</div>
 
@@ -44,6 +62,7 @@
       <button class="btn btn-success" onclick="renovar()" style="width:100%;margin-bottom:8px;">🔁 Renovar</button>
       <button class="btn btn-primary" onclick="reajustar()" style="width:100%;margin-bottom:8px;">📈 Reajustar</button>
       <button class="btn btn-secondary" onclick="aditivo()" style="width:100%;margin-bottom:8px;">📎 Registrar aditivo</button>
+      <button class="btn btn-secondary" onclick="abrirEditar()" style="width:100%;margin-bottom:8px;">✏️ Corrigir cadastro</button>
       <hr style="margin:14px 0;border:0;border-top:1px solid #2a3a5c;">
       <button class="btn btn-secondary" id="btnSuspender" onclick="suspender()" style="width:100%;margin-bottom:8px;">⏸ Suspender</button>
       <button class="btn btn-secondary" id="btnReativar"  onclick="reativar()"  style="width:100%;margin-bottom:8px;display:none;">▶ Reativar</button>
@@ -52,6 +71,210 @@
   </div>
 </main></div>
 
+<!-- Vincular recorrência já existente -->
+<div class="modal-bg" id="modalVincular">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Vincular recorrência existente</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharVincular()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <p class="muted" style="font-size:13px;margin-bottom:10px;" id="vincResumo"></p>
+    <div id="vincLista" style="max-height:340px;overflow:auto;"></div>
+    <div id="vincAvisoCliente" class="alert warn" style="display:none;margin-top:10px;font-size:13px;">
+      Essa recorrência é de <strong>outro cliente</strong>. A NFSe seria emitida no CNPJ dela, não no do contrato.
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px;cursor:pointer;">
+        <input type="checkbox" id="vincConfirmaCliente"> Sei disso e quero vincular assim mesmo
+      </label>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:12px;">
+      Depois de vinculada, reajustar o contrato atualiza o valor da recorrência e suspender o contrato a desativa.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharVincular()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarVincular()">Vincular</button>
+    </div>
+  </div>
+</div>
+
+<!-- Anexar documentos -->
+<div class="modal-bg" id="modalAnexo">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Anexar documentos</h3>
+        <small class="muted">O tipo vale para todos os arquivos deste envio.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharAnexo()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Arquivos selecionados</label>
+        <div id="anexoLista" style="font-size:13px;"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Tipo do documento</label>
+        <select id="anexoTipo"></select>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharAnexo()">Cancelar</button>
+      <button class="btn btn-primary" id="btnEnviarAnexo" onclick="confirmarAnexo()">Enviar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Corrigir cadastro do contrato -->
+<div class="modal-bg" id="modalEditar">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Corrigir cadastro</h3>
+        <small class="muted">Para consertar o que foi digitado errado. Mudança real de preço é <strong>Reajustar</strong>.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharEditar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição</label>
+        <input type="text" id="eDesc">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Periodicidade</label>
+        <select id="ePeriodicidade" onchange="ajustarRotuloValorEdit()">
+          <option value="mensal">Mensal</option>
+          <option value="anual">Anual</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label id="eLblValor">Valor (R$)</label>
+        <input type="number" id="eValor" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>Dia de vencimento</label>
+        <input type="number" id="eDia" min="1" max="28">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Início da vigência</label>
+        <input type="date" id="eIni">
+      </div>
+      <div class="form-group">
+        <label>Fim (vazio = indeterminado)</label>
+        <input type="date" id="eFim">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Renovação automática</label>
+        <select id="eRenov">
+          <option value="1">Sim</option>
+          <option value="0">Não</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Prazo de renovação (meses)</label>
+        <input type="number" id="eRenovMeses" min="1">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Índice de reajuste</label>
+        <select id="eIndice">
+          <option value="">—</option>
+          <option>IPCA</option>
+          <option>IGPM</option>
+          <option>INPC</option>
+          <option>Fixo</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Percentual (%)</label>
+        <input type="number" id="ePercentual" step="0.01">
+      </div>
+      <div class="form-group">
+        <label>Próximo reajuste</label>
+        <input type="date" id="eProxReajuste">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observações</label>
+        <textarea id="eObs" rows="2"></textarea>
+      </div>
+    </div>
+    <div id="eAvisoRecorrencia" class="muted" style="display:none;font-size:12px;padding:8px;border-radius:6px;background:var(--bg-1);"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharEditar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEditar()">Salvar correção</button>
+    </div>
+  </div>
+</div>
+
+<!-- Item do contrato -->
+<div class="modal-bg" id="modalItem">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Adicionar item</h3>
+        <small class="muted">O que o contrato cobre. Não altera o valor cobrado.</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharItem()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width" style="position:relative;">
+        <label>Produto do catálogo</label>
+        <input type="text" id="iProdBusca" placeholder="Buscar por SKU ou descrição…" oninput="acProd()" autocomplete="off">
+        <input type="hidden" id="iProdutoId">
+        <div id="acProdList" class="ac-list"></div>
+        <small class="muted">Opcional — sem produto, descreva o item à mão abaixo.</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Descrição *</label>
+        <input type="text" id="iDescricao" placeholder="ex.: Certificado SSL Wildcard">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Quantidade simultânea</label>
+        <input type="number" id="iQtd" min="1" step="1" value="1">
+        <small class="muted">Quantos coexistem (2 domínios = 2). As renovações ao longo da vigência são calculadas sozinhas.</small>
+      </div>
+      <div class="form-group">
+        <label>Custo unitário (R$)</label>
+        <input type="number" id="iValor" step="0.01" min="0">
+        <small class="muted">O que VOCÊ paga (ex.: NicSRS), não o que cobra do cliente.</small>
+      </div>
+      <div class="form-group">
+        <label>Periodicidade</label>
+        <select id="iPeriodicidade">
+          <option value="mensal">Mensal</option>
+          <option value="anual">Anual</option>
+          <option value="unico">Cobrança única</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharItem()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarItem()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script>initSidebar('contratos');</script>
@@ -59,7 +282,34 @@
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
 function fmtDataHora(s){ if (!s) return '—'; const d = new Date(s.includes('T')?s:s+'Z'); return d.toLocaleString('pt-BR'); }
+function fmtData(s){
+  if (!s) return '—';
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+// Duração da vigência em meses — é o número que diz se "36 meses" do texto
+// do contrato bate com as datas cadastradas.
+function mesesEntre(ini, fim){
+  if (!ini || !fim) return '';
+  const [ay,am,ad] = ini.split('-').map(Number);
+  const [by,bm,bd] = fim.split('-').map(Number);
+  if (!ay || !by) return '';
+  let meses = (by-ay)*12 + (bm-am);
+  if (bd < ad) meses--;
+  if (meses <= 0) return '';
+  const anos = Math.floor(meses/12), resto = meses%12;
+  const txt = anos && resto ? `${anos}a ${resto}m` : anos ? `${anos} ano${anos>1?'s':''}` : `${meses} meses`;
+  return ` <small class="muted">(${txt})</small>`;
+}
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Matriz e filial compartilham a razão social — sem o CNPJ na tela não dá
+// para distinguir duas recorrências de "clientes" homônimos.
+function fmtDoc(v){
+  const s = String(v||'').replace(/\D/g,'');
+  if (s.length === 14) return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5');
+  if (s.length === 11) return s.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4');
+  return s || '—';
+}
 
 const id = new URLSearchParams(window.location.search).get('id');
 let contrato = null;
@@ -73,11 +323,380 @@ async function carregar(){
   document.getElementById('pgTitulo').textContent = contrato.numero;
   document.getElementById('pgSub').textContent = contrato.descricao;
   renderResumo();
+  renderItens(d.itens || [], d.mesesVigencia || 12);
+  carregarAnexos();
   renderFaturamento(d.recorrencia);
   renderEventos(d.eventos);
   // toggle suspender/reativar
   document.getElementById('btnSuspender').style.display = contrato.status === 'ativo' ? '' : 'none';
   document.getElementById('btnReativar').style.display  = contrato.status === 'suspenso' ? '' : 'none';
+}
+
+// ==================== itens do contrato ====================
+//
+// Escopo do contrato, por produto. Informativo: a soma aparece ao lado do
+// valor cobrado justamente para deixar visível quando há desconto de pacote —
+// não sobrescreve nada.
+
+function renderItens(itens, mesesVigencia){
+  const el = document.getElementById('itens');
+  if (!itens.length){
+    el.innerHTML = '<div class="muted">Nenhum item — o contrato não detalha o que cobre.</div>';
+    return;
+  }
+  // Item e contrato podem ter periodicidades diferentes — SSL anual dentro de
+  // contrato mensal é o caso normal aqui. Converte o custo do item para a base
+  // do contrato antes de comparar; somar cru diria que um SSL de R$ 319/ano
+  // custa o mesmo que R$ 319/mês.
+  // O backend só devolve a contagem quando o tenant tem o módulo SSL. Sem ele
+  // a coluna inteira não é montada — em vez de mostrar "null de null".
+  const temSsl = itens.some(i => i.emissoesPrevistas != null);
+  const mesesContrato = contrato.periodicidade === 'anual' ? 12 : 1;
+  function custoNaBaseDoContrato(i){
+    const total = (Number(i.valorUnitario)||0) * (Number(i.quantidade)||0);
+    if (i.periodicidade === 'unico') return 0;      // não é recorrente
+    const mesesItem = i.periodicidade === 'anual' ? 12 : 1;
+    return total * (mesesContrato / mesesItem);
+  }
+
+  const custoRecorrente = itens.reduce((t,i)=> t + custoNaBaseDoContrato(i), 0);
+  const custoUnico = itens.filter(i=>i.periodicidade==='unico')
+    .reduce((t,i)=> t + (Number(i.valorUnitario)||0) * (Number(i.quantidade)||0), 0);
+  const cobrado = Number(contrato.valorMensal) || 0;
+  const margem = cobrado - custoRecorrente;
+  const margemPct = cobrado ? (margem / cobrado) * 100 : null;
+  const base = contrato.periodicidade === 'anual' ? 'ano' : 'mês';
+
+  el.innerHTML = `
+    <table style="width:100%;font-size:13px;">
+      <thead><tr>
+        <th style="text-align:left;">Item</th>
+        <th style="text-align:right;">Qtd</th>
+        <th style="text-align:right;">Custo unit.</th>
+        <th style="text-align:right;">Por ${base}</th>
+        <th>Período</th>
+        ${temSsl?'<th style="text-align:center;">Emissões</th>':''}
+        <th style="text-align:right;">Custo total</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${itens.map(i=>{
+        const naBase = custoNaBaseDoContrato(i);
+        // Custo de toda a vigência: uma compra por ciclo.
+        const custoVigencia = (Number(i.valorUnitario)||0) * (Number(i.quantidade)||0) * (i.emissoesPrevistas ? i.ciclosNaVigencia : 1);
+        const feitas = i.emissoesRealizadas || 0;
+        const prev = i.emissoesPrevistas || 0;
+        const corEmissao = feitas >= prev ? 'var(--success)' : (feitas ? 'var(--warn)' : 'var(--text-3)');
+        return `<tr>
+          <td>${escapeHtml(i.descricao)}${i.produtoSku?` <small class="muted mono">${escapeHtml(i.produtoSku)}</small>`:''}</td>
+          <td style="text-align:right;">${Number(i.quantidade)||0}</td>
+          <td style="text-align:right;">${i.valorUnitario!=null?fmtBRL(i.valorUnitario):'—'}</td>
+          <td style="text-align:right;">${i.periodicidade==='unico'?'<span class="muted">único</span>':fmtBRL(naBase)}</td>
+          <td>${escapeHtml(i.periodicidade||'')}</td>
+          ${temSsl ? `<td style="text-align:center;color:${corEmissao};">
+            <strong>${feitas} de ${prev}</strong>
+            ${i.sslProductCode ? `<br><button class="btn btn-ghost btn-sm" style="margin-top:4px;"
+                 onclick="emitirCertificado(${i.id})"
+                 title="Cadastrar certificado já vinculado a este item">Emitir</button>` : ''}
+            ${i.produtoId ? `<br><button class="btn btn-ghost btn-sm" style="margin-top:4px;"
+                 onclick="gerarPedidoCompra(${i.id})"
+                 title="Cria o pedido de compra deste item e abre Compras">Gerar pedido de compra</button>` : ''}
+          </td>` : ''}
+          <td style="text-align:right;">${custoVigencia?fmtBRL(custoVigencia):'—'}</td>
+          <td style="text-align:right;"><button class="btn btn-ghost btn-sm" onclick="removerItem(${i.id})" title="Remover">×</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+    <div style="margin-top:10px;padding:10px;background:var(--bg-1);border-radius:var(--r-md);font-size:13px;">
+      <div style="display:flex;justify-content:space-between;">
+        <span>Cobrado do cliente (por ${base})</span><strong>${fmtBRL(cobrado)}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span>Custo dos itens (por ${base})</span><strong>${fmtBRL(custoRecorrente)}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--bg-2);
+                  color:${margem < 0 ? 'var(--danger)' : 'var(--success)'};">
+        <span><strong>Margem</strong></span>
+        <strong>${fmtBRL(margem)}${margemPct!=null?` (${margemPct.toFixed(1)}%)`:''}</strong>
+      </div>
+      ${custoUnico ? `<div class="muted" style="margin-top:6px;font-size:12px;">
+        + ${fmtBRL(custoUnico)} de custo único (não entra na margem recorrente)</div>` : ''}
+      ${margem < 0 ? '<div class="muted" style="margin-top:6px;font-size:12px;color:var(--danger);">O custo supera o valor cobrado — contrato no prejuízo.</div>' : ''}
+      <div class="muted" style="margin-top:8px;padding-top:6px;border-top:1px solid var(--bg-2);font-size:12px;">
+        Vigência de <strong>${mesesVigencia}</strong> meses${temSsl ? ' · a coluna Emissões conta as COMPRAS previstas (reemissão dentro da assinatura é gratuita e não conta)' : ''}.
+      </div>
+    </div>`;
+}
+
+// ==================== corrigir cadastro ====================
+//
+// Distinto de "Reajustar": aqui se conserta o que foi digitado errado, e o
+// histórico registra como `correcao`. Reajuste é mudança comercial de preço e
+// continua tendo botão próprio — misturar os dois faria o histórico contar
+// uma alta de preço que nunca houve.
+
+function ajustarRotuloValorEdit(){
+  const anual = document.getElementById('ePeriodicidade').value === 'anual';
+  document.getElementById('eLblValor').textContent = anual ? 'Valor anual (R$)' : 'Valor mensal (R$)';
+}
+
+function abrirEditar(){
+  if (!contrato) return;
+  document.getElementById('eDesc').value = contrato.descricao || '';
+  document.getElementById('ePeriodicidade').value = contrato.periodicidade || 'mensal';
+  document.getElementById('eValor').value = contrato.valorMensal ?? '';
+  document.getElementById('eDia').value = contrato.diaVencimento ?? 10;
+  document.getElementById('eIni').value = contrato.dataInicio || '';
+  document.getElementById('eFim').value = contrato.dataFim || '';
+  document.getElementById('eRenov').value = contrato.renovacaoAutomatica ? '1' : '0';
+  document.getElementById('eRenovMeses').value = contrato.prazoRenovacaoMeses ?? 12;
+  document.getElementById('eIndice').value = contrato.indiceReajuste || '';
+  document.getElementById('ePercentual').value = contrato.percentualReajuste ?? '';
+  document.getElementById('eProxReajuste').value = contrato.dataProximoReajuste || '';
+  document.getElementById('eObs').value = contrato.observacoes || '';
+  ajustarRotuloValorEdit();
+
+  // Se há faturamento recorrente vinculado, o usuário precisa saber que
+  // corrigir aqui não mexe no que já está programado para faturar.
+  const aviso = document.getElementById('eAvisoRecorrencia');
+  if (contrato.recorrenciaNfseId){
+    aviso.style.display = 'block';
+    aviso.innerHTML = '⚠️ Este contrato tem uma recorrência de NFS-e vinculada. Corrigir o valor aqui <strong>não</strong> altera o valor que ela fatura — ajuste a recorrência separadamente, ou use Reajustar, que propaga.';
+  } else {
+    aviso.style.display = 'none';
+  }
+  document.getElementById('modalEditar').classList.add('open');
+}
+
+function fecharEditar(){ document.getElementById('modalEditar').classList.remove('open'); }
+
+async function salvarEditar(){
+  const valor = Number(document.getElementById('eValor').value);
+  if (!(valor > 0)) return showAlert('Valor deve ser maior que zero','error');
+  const dia = Number(document.getElementById('eDia').value);
+  if (!(dia >= 1 && dia <= 28)) return showAlert('Dia de vencimento deve ficar entre 1 e 28','error');
+  const ini = document.getElementById('eIni').value;
+  const fim = document.getElementById('eFim').value;
+  if (ini && fim && fim < ini) return showAlert('Fim da vigência é anterior ao início','error');
+
+  const pct = document.getElementById('ePercentual').value;
+  const body = {
+    descricao: document.getElementById('eDesc').value.trim(),
+    periodicidade: document.getElementById('ePeriodicidade').value,
+    valorMensal: valor,
+    diaVencimento: dia,
+    dataInicio: ini,
+    dataFim: fim || '',
+    renovacaoAutomatica: document.getElementById('eRenov').value === '1',
+    prazoRenovacaoMeses: Number(document.getElementById('eRenovMeses').value) || 12,
+    indiceReajuste: document.getElementById('eIndice').value,
+    percentualReajuste: pct === '' ? '' : Number(pct),
+    dataProximoReajuste: document.getElementById('eProxReajuste').value,
+    observacoes: document.getElementById('eObs').value.trim(),
+  };
+  try {
+    const d = await fetch('/api/contratos/'+id, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body),
+    }).then(r=>r.json());
+    if (!d.success) throw new Error(d.error);
+    fecharEditar();
+    showAlert(d.valorAlterado && d.recorrenciaNfseId
+      ? 'Cadastro corrigido — a recorrência de faturamento NÃO foi alterada'
+      : 'Cadastro corrigido');
+    carregar();
+  } catch (e){
+    showAlert('Erro ao salvar: '+e.message, 'error');
+  }
+}
+
+// ==================== anexos ====================
+//
+// O documento que prova o que está cadastrado: contrato assinado, aditivo,
+// distrato. Guardado em public/uploads/contratos/<id>/, servido pelo endpoint
+// de download (e não pelo caminho estático) para o nome original voltar
+// junto.
+
+let TIPOS_ANEXO = ['contrato','aditivo','distrato','proposta','procuracao','outro'];
+
+function fmtTamanho(bytes){
+  const n = Number(bytes) || 0;
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(0) + ' KB';
+  return (n/(1024*1024)).toFixed(1) + ' MB';
+}
+
+async function carregarAnexos(){
+  const el = document.getElementById('anexos');
+  try {
+    const d = await fetch('/api/contratos/'+id+'/anexos').then(r=>r.json());
+    if (!d.success) throw new Error(d.error);
+    if (d.tipos) TIPOS_ANEXO = d.tipos;
+    if (!d.anexos.length){
+      el.innerHTML = '<div class="muted">Nenhum anexo — o contrato assinado não está guardado aqui.</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;font-size:13px;">
+        <thead><tr>
+          <th style="text-align:left;">Documento</th>
+          <th>Tipo</th>
+          <th style="text-align:right;">Tamanho</th>
+          <th>Enviado em</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${d.anexos.map(a=>`
+          <tr>
+            <td><a href="/api/contratos/anexos/${a.id}/download">${escapeHtml(a.nomeOriginal)}</a></td>
+            <td>${escapeHtml(a.tipo||'outro')}</td>
+            <td style="text-align:right;">${fmtTamanho(a.tamanho)}</td>
+            <td>${fmtDataHora(a.dataUpload)}</td>
+            <td style="text-align:right;"><button class="btn btn-ghost btn-sm" onclick="removerAnexo(${a.id})" title="Remover">×</button></td>
+          </tr>`).join('')}</tbody>
+      </table>`;
+  } catch (e){
+    el.innerHTML = '<div class="muted">Erro ao carregar anexos: '+escapeHtml(e.message)+'</div>';
+  }
+}
+
+// Escolher o arquivo abre o modal do tipo — um <select> de verdade, não um
+// prompt pedindo "digite o número".
+function enviarAnexo(){
+  const arquivos = [...(document.getElementById('anexoArquivo').files || [])];
+  if (!arquivos.length) return;
+  document.getElementById('anexoLista').innerHTML = arquivos.map(a=>
+    `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;">
+       <span>${escapeHtml(a.name)}</span>
+       <span class="muted">${fmtTamanho(a.size)}</span>
+     </div>`).join('');
+  const sel = document.getElementById('anexoTipo');
+  sel.innerHTML = TIPOS_ANEXO.map(t=>
+    `<option value="${escapeHtml(t)}">${escapeHtml(t.charAt(0).toUpperCase()+t.slice(1))}</option>`).join('');
+  document.getElementById('modalAnexo').classList.add('open');
+}
+
+function fecharAnexo(){
+  document.getElementById('modalAnexo').classList.remove('open');
+  document.getElementById('anexoArquivo').value = '';   // cancelou: descarta a seleção
+}
+
+async function confirmarAnexo(){
+  const input = document.getElementById('anexoArquivo');
+  const arquivos = [...(input.files || [])];
+  if (!arquivos.length) return fecharAnexo();
+  const tipo = document.getElementById('anexoTipo').value || 'outro';
+  const btn = document.getElementById('btnEnviarAnexo');
+  btn.disabled = true;                     // envio grande demora: evita clique duplo
+  btn.textContent = 'Enviando…';
+
+  const form = new FormData();
+  for (const a of arquivos) form.append('arquivo', a);
+  form.append('tipo', tipo);
+  try {
+    const d = await fetch('/api/contratos/'+id+'/anexos', { method:'POST', body: form }).then(r=>r.json());
+    if (!d.success) throw new Error(d.error);
+    const n = (d.anexos || []).length || arquivos.length;
+    showAlert(n > 1 ? n+' anexos enviados' : 'Anexo enviado');
+    fecharAnexo();
+    carregarAnexos();
+  } catch (e){
+    showAlert('Erro ao enviar: '+e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Enviar';
+    input.value = '';                      // permite reenviar os mesmos arquivos
+  }
+}
+
+async function removerAnexo(anexoId){
+  if (!confirm('Remover este anexo? O arquivo é apagado do disco.')) return;
+  try {
+    const d = await fetch('/api/contratos/anexos/'+anexoId, { method:'DELETE' }).then(r=>r.json());
+    if (!d.success) throw new Error(d.error);
+    showAlert('Anexo removido');
+    carregarAnexos();
+  } catch (e){
+    showAlert('Erro ao remover: '+e.message, 'error');
+  }
+}
+
+// Leva o contexto do item para a tela de SSL, que abre o cadastro já
+// vinculado. É o que faz a emissão ser contada neste item em vez de depender
+// de alguém lembrar de vincular depois.
+// A compra nasce aqui, no LiciteAgora: gera o pedido e leva para Compras, onde
+// ele segue o fluxo normal (rascunho -> enviar, com alçada).
+async function gerarPedidoCompra(itemId){
+  // Sem confirmação: o pedido nasce em rascunho e não compra nada — a decisão
+  // com consequência é o "enviar", lá em Compras.
+  const r = await fetch(`/api/contratos/${id}/itens/${itemId}/pedido-compra`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Pedido ${d.numero} criado — abrindo Compras…`);
+  setTimeout(()=>{ location.href = '/compras/pedidos.html'; }, 900);
+}
+
+function emitirCertificado(itemId){
+  location.href = `/comercial/ssl-certificados.html?novoParaItem=${itemId}`;
+}
+
+function abrirItem(){
+  ['iProdBusca','iProdutoId','iDescricao','iValor'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('iQtd').value = 1;
+  document.getElementById('acProdList').innerHTML = '';
+  document.getElementById('modalItem').classList.add('open');
+}
+function fecharItem(){ document.getElementById('modalItem').classList.remove('open'); }
+
+let acProdTimer;
+function acProd(){
+  clearTimeout(acProdTimer);
+  const q = document.getElementById('iProdBusca').value.trim();
+  if (q.length<2){ document.getElementById('acProdList').innerHTML=''; return; }
+  acProdTimer = setTimeout(async()=>{
+    const r = await fetch('/api/produtos?q='+encodeURIComponent(q)+'&limit=10');
+    const d = await r.json();
+    const lista = d.produtos || d.data || [];
+    document.getElementById('acProdList').innerHTML = lista.slice(0,10).map(p=>
+      `<div onclick='selProd(${p.id}, ${JSON.stringify(p.descricao)}, ${Number(p.precoCusto)||0})'>`
+      + `${escapeHtml(p.descricao)} <small class="muted mono">${escapeHtml(p.sku||'')}</small></div>`
+    ).join('');
+  },200);
+}
+// Traz o CUSTO, não o preço de venda: o item existe para comparar o que
+// pagamos com o que o contrato cobra. Preço de venda do catálogo é markup
+// genérico e não diz nada sobre a margem deste contrato.
+function selProd(id, descricao, precoCusto){
+  document.getElementById('iProdutoId').value = id;
+  document.getElementById('iProdBusca').value = descricao;
+  document.getElementById('iDescricao').value = descricao;
+  if (precoCusto) document.getElementById('iValor').value = precoCusto;
+  document.getElementById('acProdList').innerHTML = '';
+}
+
+async function salvarItem(){
+  const body = {
+    produtoId: Number(document.getElementById('iProdutoId').value) || null,
+    descricao: document.getElementById('iDescricao').value.trim(),
+    quantidade: Number(document.getElementById('iQtd').value) || 1,
+    valorUnitario: document.getElementById('iValor').value ? Number(document.getElementById('iValor').value) : null,
+    periodicidade: document.getElementById('iPeriodicidade').value,
+  };
+  if (!body.produtoId && !body.descricao) return showAlert('Escolha um produto ou escreva a descrição','error');
+  const r = await fetch(`/api/contratos/${id}/itens`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Item adicionado');
+  fecharItem();
+  carregar();
+}
+
+async function removerItem(itemId){
+  if (!confirm('Remover este item do contrato?')) return;
+  const r = await fetch(`/api/contratos/${id}/itens/${itemId}`, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Item removido');
+  carregar();
 }
 
 // Bloco de faturamento — mostra recorrência vinculada OU convite
@@ -89,7 +708,10 @@ function renderFaturamento(rec) {
     el.innerHTML = `
       <div class="muted" style="font-size:13px;padding:12px;border:1px dashed #2a3a5c;border-radius:6px;">
         Este contrato ainda não tem uma recorrência NFSe vinculada.
-        <a href="/financeiro/recorrencias.html" style="color:#4dabf7;">Criar agora →</a>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="abrirVincular()">Vincular recorrência existente</button>
+          <a class="btn btn-secondary btn-sm" href="/financeiro/recorrencias.html">Criar nova →</a>
+        </div>
       </div>`;
     return;
   }
@@ -111,20 +733,122 @@ function renderFaturamento(rec) {
       <tr><td class="muted">Última emissão</td><td>${rec.ultimaEmissao || '—'}</td></tr>
       <tr><td class="muted">Total emissões</td><td>${rec.totalEmissoes || 0}</td></tr>
     </table>
-    <a href="/financeiro/recorrencias.html?id=${rec.id}" style="display:inline-block;margin-top:10px;font-size:13px;color:#4dabf7;">Ver recorrência completa →</a>
+    ${Math.abs((rec.valorServico||0)-(contrato.valorMensal||0))>0.01 ? `
+    <div class="alert warn" style="display:block;margin-top:10px;font-size:12px;">
+      Contrato ${fmtBRL(contrato.valorMensal)}/mês × recorrência ${fmtBRL(rec.valorServico)}/mês.
+      Quem fatura é a recorrência — o próximo reajuste alinha os dois.
+    </div>` : ''}
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <a class="btn btn-secondary btn-sm" href="/financeiro/recorrencias.html?id=${rec.id}">Ver recorrência completa →</a>
+      <button class="btn btn-ghost btn-sm" onclick="abrirVincular()">Trocar</button>
+      <button class="btn btn-ghost btn-sm" onclick="desvincular()">Desvincular</button>
+    </div>
   `;
 }
 
+// ==================== VÍNCULO COM RECORRÊNCIA ====================
+let recorrenciasDisp = [];
+
+async function abrirVincular(){
+  const r = await fetch(`/api/contratos/${id}/recorrencias-disponiveis`);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  recorrenciasDisp = d.recorrencias || [];
+  if (!recorrenciasDisp.length) {
+    return showAlert('Nenhuma recorrência cadastrada ainda — crie uma no financeiro','error');
+  }
+  const doCliente = recorrenciasDisp.filter(x => x.mesmoCliente);
+  document.getElementById('vincResumo').innerHTML = doCliente.length
+    ? `${doCliente.length} recorrência(s) do mesmo cliente. As de outros clientes aparecem abaixo e exigem confirmação.`
+    : 'Nenhuma recorrência do cliente deste contrato. As demais emitiriam NFSe em outro CNPJ.';
+
+  document.getElementById('vincLista').innerHTML = recorrenciasDisp.map(x => {
+    const tags = [];
+    if (x.jaVinculadaAqui) tags.push('<span class="badge entrada">vinculada aqui</span>');
+    if (x.ocupada) tags.push(`<span class="badge inativo">em uso: ${escapeHtml(x.contratoVinculadoNumero||'')}</span>`);
+    if (!x.mesmoCliente) tags.push('<span class="badge pendente">outro cliente</span>');
+    if (!x.ativo) tags.push('<span class="badge inativo">inativa</span>');
+    if (x.valorDivergente) tags.push(`<span class="badge pendente">difere ${fmtBRL(x.diferencaValor)}</span>`);
+    const bloqueada = x.ocupada || x.jaVinculadaAqui;
+    return `<label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid #2a3a5c;
+                 border-radius:6px;margin-bottom:8px;${bloqueada?'opacity:.55;':'cursor:pointer;'}">
+      <input type="radio" name="vincRec" value="${x.id}" ${bloqueada?'disabled':''} style="margin-top:3px;">
+      <span style="flex:1;">
+        <strong>#${x.id} · ${escapeHtml(x.descricao||'sem descrição')}</strong>
+        <span style="display:block;font-size:12px;color:#888;margin-top:2px;">
+          ${escapeHtml(x.clienteNome||'')} <span class="mono">${fmtDoc(x.clienteCpfCnpj)}</span>
+          · ${fmtBRL(x.valorServico)}/mês · venc. dia ${x.diaVencimentoBoleto||'—'}
+        </span>
+        <span style="display:block;margin-top:4px;">${tags.join(' ')}</span>
+      </span>
+    </label>`;
+  }).join('');
+  document.getElementById('vincConfirmaCliente').checked = false;
+  document.getElementById('vincAvisoCliente').style.display = 'none';
+  // Aviso aparece na seleção, não só ao confirmar — o usuário decide
+  // antes de clicar, não depois de levar um erro. Atribuição direta em
+  // vez de addEventListener: reabrir o modal não empilha listener.
+  document.getElementById('vincLista').onchange = e => {
+    if (e.target.name !== 'vincRec') return;
+    const sel = recorrenciasDisp.find(x => String(x.id) === e.target.value);
+    document.getElementById('vincAvisoCliente').style.display = sel && !sel.mesmoCliente ? 'block' : 'none';
+  };
+  document.getElementById('modalVincular').classList.add('open');
+}
+
+function fecharVincular(){ document.getElementById('modalVincular').classList.remove('open'); }
+
+async function confirmarVincular(){
+  const sel = document.querySelector('input[name="vincRec"]:checked');
+  if (!sel) return showAlert('Selecione uma recorrência','error');
+  const rec = recorrenciasDisp.find(x => String(x.id) === sel.value);
+  const permitir = document.getElementById('vincConfirmaCliente').checked;
+
+  // Cliente diferente só passa com confirmação — a NFSe sairia no CNPJ
+  // da recorrência, não no do contrato.
+  if (rec && !rec.mesmoCliente && !permitir) {
+    document.getElementById('vincAvisoCliente').style.display = 'block';
+    return;
+  }
+  const r = await fetch(`/api/contratos/${id}/vincular-recorrencia`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ recorrenciaNfseId: Number(sel.value), permitirClienteDiferente: permitir })
+  });
+  const d = await r.json();
+  if (!d.success) {
+    if (d.clienteDivergente) document.getElementById('vincAvisoCliente').style.display = 'block';
+    return showAlert(d.error,'error');
+  }
+  fecharVincular();
+  showAlert(d.avisoValor ? 'Recorrência vinculada. ' + d.avisoValor : 'Recorrência vinculada');
+  carregar();
+}
+
+async function desvincular(){
+  if (!confirm('Desvincular a recorrência deste contrato?\n\nEla continua ativa e faturando no financeiro — só deixa de ser controlada por este contrato.')) return;
+  const r = await fetch(`/api/contratos/${id}/vincular-recorrencia`, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Recorrência desvinculada');
+  carregar();
+}
+
 function renderResumo(){
+  // Contrato anual: mostrar o equivalente mensal ao lado evita a conta de
+  // cabeça toda vez que alguém compara com um contrato mensal.
+  const equivalente = contrato.periodicidade === 'anual'
+    ? ` <small class="muted">(${fmtBRL(Number(contrato.valorMensal)/12)}/mês)</small>` : '';
+  const duracao = mesesEntre(contrato.dataInicio, contrato.dataFim);
   document.getElementById('resumo').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <span class="badge ${contrato.status==='ativo'?'entrada':contrato.status==='suspenso'?'pendente':'inativo'}">${contrato.status}</span>
-      <strong style="color:#69db7c;font-size:18px;">${fmtBRL(contrato.valorMensal)} <small style="color:#888;font-size:11px;">/mês</small></strong>
+      <strong style="color:#69db7c;font-size:18px;">${fmtBRL(contrato.valorMensal)} <small style="color:#888;font-size:11px;">${contrato.periodicidade==='anual'?'/ano':'/mês'}</small></strong>
     </div>
     <table style="width:100%;font-size:13px;">
       <tr><td class="muted">Cliente</td><td>${contrato.clienteNome}</td></tr>
       <tr><td class="muted">CPF/CNPJ</td><td class="mono">${contrato.clienteCpfCnpj||'—'}</td></tr>
-      <tr><td class="muted">Vigência</td><td>${contrato.dataInicio} → ${contrato.dataFim||'<small class="muted">indeterminado</small>'}</td></tr>
+      <tr><td class="muted">Periodicidade</td><td>${contrato.periodicidade==='anual'?'Anual':'Mensal'}${equivalente}</td></tr>
+      <tr><td class="muted">Vigência</td><td>${fmtData(contrato.dataInicio)} → ${contrato.dataFim?fmtData(contrato.dataFim):'<small class="muted">indeterminado</small>'}${duracao}</td></tr>
       <tr><td class="muted">Vencimento</td><td>dia ${contrato.diaVencimento}</td></tr>
       <tr><td class="muted">Renovação automática</td><td>${contrato.renovacaoAutomatica?'Sim — '+contrato.prazoRenovacaoMeses+' meses':'Não'}</td></tr>
       <tr><td class="muted">Índice de reajuste</td><td>${contrato.indiceReajuste||'—'} ${contrato.percentualReajuste!=null?'('+contrato.percentualReajuste+'%)':''}</td></tr>

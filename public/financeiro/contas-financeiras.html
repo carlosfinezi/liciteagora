@@ -54,6 +54,12 @@
         <label for="mcPadrao" style="color:var(--text-1);text-transform:none;font-size:0.9em;letter-spacing:0;">Conta padrão deste tipo</label>
       </div>
     </div>
+    <!-- Empresa/filial: só aparece em tenant multi-loja, como o seletor do sidebar -->
+    <div class="form-row" id="mcEstabRow" style="display:none;">
+      <div class="form-group full-width"><label>Empresa / filial</label>
+        <select id="mcEstab"><option value="">Sem vínculo (todas)</option></select>
+      </div>
+    </div>
     <div class="form-row">
       <div class="form-group full-width"><label>Observações</label><textarea id="mcObs" rows="2"></textarea></div>
     </div>
@@ -123,60 +129,6 @@
   </div>
 </div>
 
-<!-- Modal Extrato -->
-<div class="modal-bg" id="modalExtrato">
-  <div class="modal">
-    <div class="modal-header">
-      <div>
-        <h3 id="extTitulo" style="margin:0;">Extrato</h3>
-        <small class="muted">Histórico de movimentações da conta</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharExtrato()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-    <div id="extResumo" style="margin-bottom:15px;"></div>
-    <div class="filtros">
-      <label style="color:var(--text-2);font-size:0.85em;">De</label><input type="date" id="extDataInicio" onchange="carregarExtrato()">
-      <label style="color:var(--text-2);font-size:0.85em;">até</label><input type="date" id="extDataFim" onchange="carregarExtrato()">
-      <button class="btn btn-secondary btn-sm" onclick="abrirLancamento()">+ Lançamento manual</button>
-      <button class="btn btn-ghost btn-sm" onclick="editarContaSelecionada()">✏️ Editar conta</button>
-    </div>
-    <div class="table-container">
-      <table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Origem</th><th>Valor</th><th>Saldo</th></tr></thead>
-      <tbody id="extBody"></tbody></table>
-    </div>
-  </div>
-</div>
-
-<!-- Modal Lançamento Manual -->
-<div class="modal-bg" id="modalLanc">
-  <div class="modal" style="max-width:500px;">
-    <div class="modal-header">
-      <div>
-        <h3 style="margin:0;">Lançamento manual</h3>
-        <small class="muted">Entrada ou saída avulsa na conta</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharLancamento()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>Tipo *</label>
-        <select id="lancTipo"><option value="entrada">Entrada</option><option value="saida">Saída</option></select>
-      </div>
-      <div class="form-group"><label>Valor (R$) *</label><input type="number" id="lancValor" step="0.01"></div>
-      <div class="form-group"><label>Data</label><input type="date" id="lancData"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width"><label>Descrição *</label><input type="text" id="lancDesc" placeholder="Ex: Pagamento de conta de luz"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width"><label>Categoria</label><input type="text" id="lancCat" placeholder="vendas, despesas, taxas..."></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fecharLancamento()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarLancamento()">Lançar</button>
-    </div>
-  </div>
-</div>
-
 <!-- Modal Transferência -->
 <div class="modal-bg" id="modalTransfer">
   <div class="modal" style="max-width:550px;">
@@ -210,7 +162,7 @@
 <script>initSidebar('contas-financeiras');</script>
 <script>
 let contasCache = [];
-let contaSelecionada = null;
+let estabCache = [];
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function val(id){ return document.getElementById(id).value; }
@@ -226,6 +178,26 @@ async function carregar(){
     renderKpis(rResumo.resumo || {});
     renderContas();
   } catch(e) { showAlert('Erro: '+e.message,'error'); }
+}
+
+// Empresa/filial no cadastro da conta: uma unidade só = campo não aparece.
+async function carregarEstabelecimentos(){
+  try {
+    const j = await fetch('/api/estabelecimentos').then(r=>r.json());
+    if (!j.success) return;
+    estabCache = (j.data||[]).filter(e=>e.ativo && !e.bloqueado);
+    if (estabCache.length <= 1) return;
+    document.getElementById('mcEstab').innerHTML = '<option value="">Sem vínculo (todas)</option>' +
+      estabCache.map(e=>`<option value="${e.id}">${e.nomeFantasia||e.razaoSocial||'Estabelecimento'}${e.matriz?' (Matriz)':''}</option>`).join('');
+    document.getElementById('mcEstabRow').style.display = '';
+  } catch(_) { /* campo é opcional */ }
+}
+
+// Só nomeia a unidade quando o tenant tem mais de uma — senão é ruído no card.
+function nomeEstab(id){
+  if (!id || estabCache.length <= 1) return '';
+  const e = estabCache.find(x=>x.id===id);
+  return e ? (e.nomeFantasia||e.razaoSocial||'Estabelecimento') : '';
 }
 
 function renderKpis(r){
@@ -244,10 +216,14 @@ function renderContas(){
     const padrao = (c.tipo==='caixa' && c.ehCaixaPadrao) || (c.tipo==='banco' && c.ehBancoPadrao);
     return `<div class="conta-card ${c.tipo}" onclick="abrirExtrato(${c.id})">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <strong>${c.nome}</strong>
-        <div><span class="badge ${c.tipo}">${c.tipo}</span>${padrao?' <span class="badge padrao">padrão</span>':''}</div>
+        <strong style="min-width:0;">${c.nome}</strong>
+        <div style="display:flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0;">
+          <span class="badge ${c.tipo}">${c.tipo}</span>${padrao?'<span class="badge padrao">padrão</span>':''}
+          <button class="btn btn-ghost btn-sm" title="Editar conta" onclick="event.stopPropagation();abrirEdicao(contasCache.find(x=>x.id===${c.id}))" style="padding:2px 6px;">✏️</button>
+        </div>
       </div>
       ${c.banco?`<small style="color:var(--text-3);">${c.banco}${c.agencia?' · Ag '+c.agencia:''}${c.conta?' · Cc '+c.conta:''}</small>`:''}
+      ${nomeEstab(c.estabelecimentoId)?`<small style="color:var(--text-3);">🏢 ${nomeEstab(c.estabelecimentoId)}</small>`:''}
       <div class="conta-saldo ${c.saldo<0?'negativo':''}">R$ ${fmt(c.saldo)}</div>
     </div>`;
   }).join('');
@@ -261,6 +237,7 @@ function abrirNova(){
   document.getElementById('mcSaldoInicial').value = '0';
   document.getElementById('mcTipo').value = 'caixa';
   document.getElementById('mcPadrao').checked = false;
+  document.getElementById('mcEstab').value = '';
   document.getElementById('btnExcluirConta').style.display = 'none';
   document.getElementById('boletoSection').style.display = 'none';
   document.getElementById('modalConta').classList.add('open');
@@ -277,6 +254,7 @@ function abrirEdicao(c){
   document.getElementById('mcSaldoInicial').value = c.saldoInicial;
   document.getElementById('mcPadrao').checked = !!(c.ehCaixaPadrao || c.ehBancoPadrao);
   document.getElementById('mcObs').value = c.observacoes || '';
+  document.getElementById('mcEstab').value = c.estabelecimentoId || '';
   document.getElementById('btnExcluirConta').style.display = 'inline-block';
   document.getElementById('boletoSection').style.display = 'block';
   bpCarregarConfig(c.id);
@@ -297,6 +275,7 @@ async function salvarConta(){
     conta: val('mcConta')||null,
     saldoInicial: parseFloat(val('mcSaldoInicial'))||0,
     observacoes: val('mcObs')||null,
+    estabelecimentoId: val('mcEstab') ? Number(val('mcEstab')) : null,
     ehCaixaPadrao: tipo==='caixa' && document.getElementById('mcPadrao').checked,
     ehBancoPadrao: tipo==='banco' && document.getElementById('mcPadrao').checked,
   };
@@ -468,77 +447,9 @@ async function excluirConta(){
 }
 
 // ==================== EXTRATO ====================
-async function abrirExtrato(id){
-  contaSelecionada = contasCache.find(c=>c.id===id);
-  if (!contaSelecionada) return;
-  document.getElementById('extTitulo').textContent = `Extrato · ${contaSelecionada.nome}`;
-  document.getElementById('extDataInicio').value = '';
-  document.getElementById('extDataFim').value = '';
-  document.getElementById('modalExtrato').classList.add('open');
-  carregarExtrato();
-}
-function fecharExtrato(){ document.getElementById('modalExtrato').classList.remove('open'); }
-
-async function carregarExtrato(){
-  if (!contaSelecionada) return;
-  const p = new URLSearchParams();
-  if (val('extDataInicio')) p.set('dataInicio', val('extDataInicio'));
-  if (val('extDataFim')) p.set('dataFim', val('extDataFim'));
-  try {
-    const r = await fetch('/api/contas-financeiras/'+contaSelecionada.id+'/extrato?'+p);
-    const d = await r.json();
-    if(!d.success) throw new Error(d.error);
-    document.getElementById('extResumo').innerHTML =
-      `<small style="color:var(--text-3);">Saldo atual:</small> <strong style="color:var(--success);font-size:1.2em;">R$ ${fmt(d.conta.saldo)}</strong>
-       · Saldo inicial período: R$ ${fmt(d.saldoInicialPeriodo)}`;
-    const tb = document.getElementById('extBody');
-    if (!d.extrato.length) { tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#666;padding:20px;">Sem lançamentos no período</td></tr>'; return; }
-    tb.innerHTML = d.extrato.map(m=>{
-      const sinal = m.delta>=0 ? '+' : '';
-      const cor = m.delta>=0 ? '#51cf66' : '#ff6b6b';
-      return `<tr>
-        <td>${m.data}</td>
-        <td><span class="badge ${m.tipo}">${m.tipo.replace('_',' ')}</span></td>
-        <td>${m.descricao}</td>
-        <td><small style="color:var(--text-3);">${m.origem||'-'}${m.categoria?' · '+m.categoria:''}</small></td>
-        <td style="color:${cor};font-weight:700;">${sinal}R$ ${fmt(m.delta)}</td>
-        <td>R$ ${fmt(m.saldoAcumulado)}</td>
-      </tr>`;
-    }).join('');
-  } catch(e){ showAlert('Erro: '+e.message,'error'); }
-}
-function editarContaSelecionada(){ if(contaSelecionada){ fecharExtrato(); abrirEdicao(contaSelecionada); } }
-
-// ==================== LANÇAMENTO MANUAL ====================
-function abrirLancamento(){
-  if (!contaSelecionada) return;
-  document.getElementById('lancTipo').value = 'entrada';
-  document.getElementById('lancValor').value = '';
-  document.getElementById('lancData').value = new Date().toISOString().slice(0,10);
-  document.getElementById('lancDesc').value = '';
-  document.getElementById('lancCat').value = '';
-  document.getElementById('modalLanc').classList.add('open');
-}
-function fecharLancamento(){ document.getElementById('modalLanc').classList.remove('open'); }
-async function salvarLancamento(){
-  const body = {
-    tipo: val('lancTipo'),
-    valor: parseFloat(val('lancValor')),
-    data: val('lancData'),
-    descricao: val('lancDesc').trim(),
-    categoria: val('lancCat')||null,
-  };
-  if (!body.descricao || !body.valor) return showAlert('Descrição e valor obrigatórios','error');
-  try {
-    const r = await fetch('/api/contas-financeiras/'+contaSelecionada.id+'/movimentar',
-      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const d = await r.json();
-    if(!d.success) throw new Error(d.error);
-    showAlert('Lançamento registrado');
-    fecharLancamento();
-    carregarExtrato();
-    carregar();
-  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+// Tela própria: o extrato saiu do modal para caber filtros, subtotais e paginação.
+function abrirExtrato(id){
+  location.href = '/financeiro/extrato-conta.html?conta=' + id;
 }
 
 // ==================== TRANSFERÊNCIA ====================
@@ -576,9 +487,10 @@ async function salvarTransferencia(){
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  ['modalConta','modalExtrato','modalLanc','modalTransfer'].forEach(id => document.getElementById(id).classList.remove('open'));
+  ['modalConta','modalTransfer'].forEach(id => document.getElementById(id).classList.remove('open'));
 });
 
-carregar();
+// Sequencial: o card nomeia a unidade, então precisa do cache já carregado.
+carregarEstabelecimentos().then(carregar);
 </script>
 </body></html>

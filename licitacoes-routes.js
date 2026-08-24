@@ -85,6 +85,7 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
         grupoExclusaoId,
         codigoModalidadeContratacao,
         uf,
+        municipio,
         buscaDetalhada,
         numeroLicitacao,
         uasg,
@@ -175,6 +176,11 @@ function registrarRotasLicitacoes(app, db, opts = {}) {
       if (uf) {
         conditions.push('ufSigla = ?');
         params.push(uf.toUpperCase());
+      }
+
+      if (municipio && String(municipio).trim()) {
+        conditions.push('municipioNome LIKE ?');
+        params.push(`%${String(municipio).trim()}%`);
       }
 
       // Filtro por portal/sistema (usa linkSistemaOrigem e usuarioNome)

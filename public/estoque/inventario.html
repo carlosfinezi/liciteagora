@@ -33,7 +33,7 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="estoque-inventario">
     <table>
       <thead><tr>
         <th>Código</th>
@@ -73,6 +73,11 @@
         <input type="text" id="inResp" placeholder="Nome do contador">
       </div>
       <div class="form-group">
+        <label>Depósito a contar</label>
+        <select id="inDeposito"></select>
+        <small class="muted">O saldo do sistema é o deste depósito</small>
+      </div>
+      <div class="form-group">
         <label>Filtro de produtos</label>
         <select id="inFiltro">
           <option value="comSaldo">Apenas produtos com saldo > 0</option>
@@ -100,6 +105,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('estoque-inventario');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -153,15 +160,32 @@ async function carregar(){
 function abrirNovo(){
   ['inDesc','inResp','inObs'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('inFiltro').value = 'comSaldo';
+  preencherDepositos('inDeposito');
   document.getElementById('modalNovo').classList.add('open');
 }
 function fecharModal(){ document.getElementById('modalNovo').classList.remove('open'); }
+
+// Depósito da contagem — o saldo do sistema passou a ser por depósito, e
+// contar um depósito contra o saldo global gerava ajuste fantasma.
+async function preencherDepositos(selectId, selecionado){
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  try {
+    const d = await fetch('/api/depositos').then(r=>r.json());
+    const lista = (d.depositos||[]).filter(x=>x.ativo);
+    sel.innerHTML = lista.map(x=>`<option value="${x.id}">${x.nome}${x.padrao?' (padrão)':''}</option>`).join('');
+    if (selecionado) sel.value = selecionado;
+    const linha = sel.closest('.form-group');
+    if (linha) linha.style.display = lista.length > 1 ? '' : 'none';
+  } catch { /* sem multi-depósito */ }
+}
 
 async function criar(){
   const body = {
     descricao: document.getElementById('inDesc').value.trim() || null,
     usuarioResponsavel: document.getElementById('inResp').value.trim() || null,
     filtro: document.getElementById('inFiltro').value,
+    depositoId: Number(document.getElementById('inDeposito').value) || null,
     observacoes: document.getElementById('inObs').value.trim() || null
   };
   const r = await fetch('/api/inventarios', {

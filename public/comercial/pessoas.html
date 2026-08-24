@@ -3,10 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clientes - Licite Agora</title>
+    <title>Clientes &amp; Fornecedores - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
+        /* Coluna do checkbox. Mesma armadilha da coluna do lápis: com 30px de
+           largura e 28px de padding o checkbox não cabe, e como .tbl-wrap td
+           tem text-overflow:ellipsis o navegador desenha um "…" ao lado dele. */
+        th.col-sel, td.col-sel {
+            width: 34px;
+            padding-left: 3px;
+            padding-right: 3px;
+            text-align: center;
+            overflow: visible;
+            text-overflow: clip;
+        }
+
+        /* Coluna do lápis. O tbody td padrão tem padding 11px 14px e a tabela
+           é table-layout:fixed com overflow:hidden (.tbl-wrap td): sem cortar
+           esse padding, os 28px dele não deixam largura para o botão e ele
+           aparece cortado. */
+        th.col-editar, td.col-editar {
+            width: 40px;
+            padding-left: 3px;
+            padding-right: 3px;
+            text-align: center;
+            overflow: visible;
+        }
+        /* O .btn-icon-only global só zera a margem de svg.ic, e aqui o ícone é
+           ic-sm — sem isto sobra 6px à direita e o lápis fica torto. */
+        td.col-editar .btn { padding: 4px 6px; }
+        td.col-editar .btn svg { margin-right: 0; }
+
         /* Page-local: badges tipo pessoa */
         .badge.pf { background: var(--accent-soft); color: var(--accent); border-color: #1e40af; }
         .badge.pj { background: var(--success-soft); color: var(--success); border-color: #065f46; }
@@ -32,6 +60,12 @@
 
         /* Tabela rica: sortable + resizable + column chooser */
         .tbl-wrap table { table-layout: fixed; width: 100%; }
+        /* Coluna-sobra no fim da linha. Sem ela, table-layout:fixed + width:100%
+           reparte o espaço que sobra entre TODAS as colunas, e a largura que o
+           usuário arrasta vira só uma proporção — o ajuste não "pega". Com uma
+           coluna sem largura declarada, é ela quem absorve a sobra e as demais
+           valem os pixels pedidos. */
+        .col-spacer { width: auto; padding: 0; }
         .tbl-wrap th {
             position: relative;
             user-select: none;
@@ -56,6 +90,9 @@
             width: 6px;
             cursor: col-resize;
             user-select: none;
+            /* Risco permanente: antes o handle só existia no hover exato dos
+               6px, então ninguém achava que dava para arrastar. */
+            border-right: 1px solid var(--border-strong);
         }
         .col-resizer:hover, .col-resizer.resizing { background: var(--accent); opacity: 0.4; }
 
@@ -88,6 +125,23 @@
             color: var(--text-1);
         }
         .col-chooser label:hover { background: var(--bg-2); }
+        /* Grade de checkboxes (categorias, meios de recebimento): coluna fixa
+           por item, para o rótulo não quebrar em três linhas e o checkbox não
+           descolar do texto. O .form-group label global é caixa-alta e
+           minúsculo — serve para rótulo de campo, não para item de lista. */
+        .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 16px; }
+        .check-grid label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            text-transform: none;
+            letter-spacing: normal;
+            font-size: 0.92em;
+            font-weight: 500;
+            color: var(--text-1);
+        }
+        .check-grid input[type=checkbox] { width: 16px; height: 16px; flex: 0 0 auto; margin: 0; cursor: pointer; }
         .col-chooser input[type=checkbox] { margin: 0; }
         .col-chooser .col-chooser-footer {
             display: flex;
@@ -105,11 +159,11 @@
 
     <div class="page-header">
       <div>
-        <h1>Clientes</h1>
-        <small>Cadastro de pessoas (clientes/tomadores)</small>
+        <h1>Clientes &amp; Fornecedores</h1>
+        <small>Cadastro único de pessoas — a categoria separa cliente de fornecedor</small>
       </div>
       <div class="actions">
-        <button class="btn btn-primary btn-sm" onclick="switchTab('form'); limparForm();">+ Novo cliente</button>
+        <button class="btn btn-primary btn-sm" onclick="switchTab('form'); limparForm();">+ Novo cadastro</button>
       </div>
     </div>
 
@@ -117,7 +171,7 @@
 
     <div class="tabs">
         <button class="tab active" onclick="switchTab('lista')">Lista</button>
-        <button class="tab" onclick="switchTab('form')">Novo cliente</button>
+        <button class="tab" onclick="switchTab('form')">Novo cadastro</button>
     </div>
 
     <!-- ABA LISTA -->
@@ -129,11 +183,40 @@
                 <option value="0">Inativos</option>
                 <option value="">Todos</option>
             </select>
+            <select id="filtCategoria" onchange="renderTabela()" style="width:auto;" title="O cadastro é único: a categoria é o que separa cliente de fornecedor">
+                <option value="">Todas as categorias</option>
+            </select>
             <div class="col-chooser-wrap">
-                <button class="btn btn-ghost btn-sm" id="btnColunas" onclick="toggleColChooser(event)">⚙️ Colunas</button>
+                <button class="btn btn-ghost btn-sm" id="btnColunas" onclick="toggleColChooser(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
                 <div class="col-chooser" id="colChooser"></div>
             </div>
             <span id="totalPessoas" style="font-size:0.85em; color:var(--text-3);"></span>
+        </div>
+
+        <!-- Ações em massa: só aparece com alguém selecionado, para não poluir
+             a tela de quem só está consultando o cadastro. -->
+        <div class="toolbar" id="barraMassa" style="display:none; border-color:var(--accent);">
+            <strong id="massaContagem" style="font-size:0.9em;"></strong>
+            <select id="massaAcao" style="width:auto;">
+                <optgroup label="Campanhas">
+                    <option value="marketing-whatsapp:1">Aceita campanha por WhatsApp</option>
+                    <option value="marketing-whatsapp:0">Não aceita campanha por WhatsApp</option>
+                    <option value="marketing-email:1">Aceita campanha por e-mail</option>
+                    <option value="marketing-email:0">Não aceita campanha por e-mail</option>
+                </optgroup>
+                <optgroup label="LGPD">
+                    <option value="consentimento:1">Registrar consentimento</option>
+                    <option value="consentimento:0">Retirar consentimento (e todo marketing)</option>
+                </optgroup>
+                <optgroup label="Cadastro">
+                    <option value="tag:1">Adicionar etiqueta…</option>
+                    <option value="tag:0">Remover etiqueta…</option>
+                    <option value="ativo:0">Inativar</option>
+                    <option value="ativo:1">Reativar</option>
+                </optgroup>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="aplicarAcaoMassa()">Aplicar</button>
+            <button class="btn btn-ghost btn-sm" onclick="limparSelecaoPessoas()">Limpar seleção</button>
         </div>
 
         <div class="tbl-wrap">
@@ -151,12 +234,25 @@
     <!-- ABA FORM -->
     <div id="tab-form" class="tab-content">
         <div class="panel">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-                <h3 id="formTitle" style="margin:0;">Novo cliente</h3>
-                <div>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap;">
+                <h3 id="formTitle" style="margin:0;">Novo cadastro</h3>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label style="display:flex; align-items:center; gap:6px; margin:0; font-size:0.85em; color:var(--text-2);">
+                        Status
+                        <select id="ativo" style="width:auto;" onchange="onStatusChange()">
+                            <option value="1">Ativo</option>
+                            <option value="0">Inativo</option>
+                        </select>
+                    </label>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btnExcluirPessoa" style="display:none; color:var(--danger);"
+                        onclick="excluirPessoa()"><svg class="ic-sm"><use href="#i-trash"/></svg> Excluir</button>
                     <button class="btn btn-ghost btn-sm" onclick="switchTab('lista')">Cancelar</button>
                     <button class="btn btn-primary btn-sm" onclick="salvarPessoa()">💾 Salvar</button>
                 </div>
+            </div>
+            <div id="motivoInativacaoBox" style="display:none; margin-bottom:14px;">
+                <label style="font-size:0.85em;">Motivo da inativação (opcional)</label>
+                <input type="text" id="motivoInativacao" placeholder="ex: encerrou atividades, cliente duplicado">
             </div>
 
             <input type="hidden" id="pessoaId">
@@ -168,8 +264,11 @@
                 <button type="button" class="tab tab-form-sub" data-subtab="contatos" onclick="switchSubTab('contatos')" id="tabContatosBtn"><svg class="ic-sm"><use href="#i-users"/></svg> Contatos</button>
                 <button type="button" class="tab tab-form-sub" data-subtab="bancario" onclick="switchSubTab('bancario')" id="tabBancarioBtn"><svg class="ic-sm"><use href="#i-bank"/></svg> Bancário</button>
                 <button type="button" class="tab tab-form-sub" data-subtab="comercial" onclick="switchSubTab('comercial')"><svg class="ic-sm"><use href="#i-target"/></svg> Comercial</button>
+                <button type="button" class="tab tab-form-sub" data-subtab="financeiro" onclick="switchSubTab('financeiro')"><svg class="ic-sm"><use href="#i-dollar"/></svg> Financeiro</button>
+                <button type="button" class="tab tab-form-sub" data-subtab="fornecedor" onclick="switchSubTab('fornecedor')" id="tabFornecedorBtn" style="display:none;"><svg class="ic-sm"><use href="#i-briefcase"/></svg> Fornecedor</button>
                 <button type="button" class="tab tab-form-sub" data-subtab="anexos" onclick="switchSubTab('anexos')" id="tabAnexosBtn"><svg class="ic-sm"><use href="#i-paperclip"/></svg> Anexos</button>
                 <button type="button" class="tab tab-form-sub" data-subtab="lgpd" onclick="switchSubTab('lgpd')"><svg class="ic-sm"><use href="#i-shield"/></svg> LGPD</button>
+                <button type="button" class="tab tab-form-sub" data-subtab="historico" onclick="switchSubTab('historico')" id="tabHistoricoBtn"><svg class="ic-sm"><use href="#i-clock"/></svg> Histórico</button>
             </div>
 
             <!-- SUB-ABA: IDENTIFICAÇÃO -->
@@ -421,6 +520,20 @@
                         <input type="text" id="emailsAdicionais" placeholder="separe por vírgula">
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Celular</label>
+                        <input type="text" id="celular" placeholder="(00) 00000-0000">
+                    </div>
+                    <div class="form-group">
+                        <label>E-mail do financeiro</label>
+                        <input type="email" id="emailFinanceiro" title="Para onde vão boleto e nota — quando é diferente do e-mail geral">
+                    </div>
+                    <div class="form-group">
+                        <label>Site</label>
+                        <input type="text" id="site" placeholder="https://">
+                    </div>
+                </div>
 
                 <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Endereços adicionais (entrega / cobrança)</h4>
                 <div id="enderecosAdicionaisVazio" style="color:var(--text-3); font-size:0.85em;">Nenhum endereço adicional — clique em "+ Adicionar" para cadastrar.</div>
@@ -449,12 +562,12 @@
                 <div class="form-row">
                     <div class="form-group full-width">
                         <label>Categorias</label>
-                        <div style="display:flex; gap:14px; flex-wrap:wrap;">
-                            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="cat" value="cliente"> Cliente</label>
-                            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="cat" value="fornecedor"> Fornecedor</label>
-                            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="cat" value="transportadora"> Transportadora</label>
-                            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="cat" value="prestador"> Prestador de serviços</label>
-                            <label style="display:flex; align-items:center; gap:6px;"><input type="checkbox" class="cat" value="funcionario"> Funcionário</label>
+                        <div class="check-grid">
+                            <label><input type="checkbox" class="cat" value="cliente"><span>Cliente</span></label>
+                            <label><input type="checkbox" class="cat" value="fornecedor" onchange="atualizarAbaFornecedor()"><span>Fornecedor</span></label>
+                            <label><input type="checkbox" class="cat" value="transportadora"><span>Transportadora</span></label>
+                            <label><input type="checkbox" class="cat" value="prestador"><span>Prestador de serviços</span></label>
+                            <label><input type="checkbox" class="cat" value="funcionario"><span>Funcionário</span></label>
                         </div>
                     </div>
                 </div>
@@ -484,34 +597,157 @@
                             <option value="">— (automático)</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>Limite de crédito (R$)</label>
-                        <input type="number" id="limiteCredito" step="0.01" min="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Prazo médio (dias)</label>
-                        <input type="number" id="prazoMedioDias" min="0">
-                    </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Condição de pagamento padrão</label>
-                        <input type="text" id="condicaoPagamentoPadrao" placeholder='Ex: "30/60/90", "À vista", "Boleto 30d"'>
-                    </div>
-                    <div class="form-group">
                         <label>Tags (separadas por vírgula)</label>
                         <input type="text" id="tagsInput" placeholder="vip, atacado, Norte">
-                    </div>
-                    <div class="form-group" style="display:flex; align-items:flex-end;">
-                        <label style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
-                            <input type="checkbox" id="cobrancaAtiva" checked> Cobrança ativa
-                        </label>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group full-width">
                         <label>Observações internas</label>
                         <textarea id="observacoes" rows="3"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-ABA: FINANCEIRO -->
+            <!-- Separada do Comercial em 2026-08-21. Prazo das parcelas e meios
+                 de recebimento saíram daqui no mesmo dia: viraram Política de
+                 Prazo, cadastro reutilizável. O que sobra aqui é o que é do
+                 cliente e não da regra — o limite em reais e a pausa da régua. -->
+            <div class="subtab-content" data-subtab-pane="financeiro" style="display:none;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Política de prazo</label>
+                        <select id="politicaPrazoId" onchange="descreverPolitica()">
+                            <option value="">— sem política —</option>
+                        </select>
+                        <small id="politicaHint" style="color:var(--text-3);">Define prazo das parcelas e meios de recebimento aceitos. Cadastre em <a href="/financeiro/politicas-prazo.html">Políticas de Prazo</a>.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Limite de crédito (R$)</label>
+                        <input type="number" id="limiteCredito" step="0.01" min="0">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group full-width">
+                        <div class="check-grid">
+                            <label><input type="checkbox" id="cobrancaAtiva" checked><span>Cobrança ativa</span></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-ABA: FORNECEDOR -->
+            <!-- Só aparece com a categoria "Fornecedor" marcada. Veio da tela
+                 separada de Compras > Fornecedores, aposentada na unificação
+                 dos cadastros (2026-08-20). -->
+            <div class="subtab-content" data-subtab-pane="fornecedor" style="display:none;">
+                <h4 style="color:var(--text-2); font-size:0.95em;">Integração de pedidos</h4>
+                <div id="integLista" style="font-size:13px;margin-bottom:10px;"></div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Adicionar integração</label>
+                        <select id="integTipo" onchange="renderCamposInteg()">
+                            <option value="">— escolha um tipo —</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Padrão</label>
+                        <select id="integPadrao">
+                            <option value="0">Não</option>
+                            <option value="1">Sim</option>
+                        </select>
+                        <small class="muted">o botão do pedido usa o padrão</small>
+                    </div>
+                </div>
+                <div id="integCampos"></div>
+                <div class="form-row">
+                    <div class="form-group full-width">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="adicionarIntegracao()">+ Adicionar</button>
+                    </div>
+                </div>
+                <p style="color:var(--text-3); font-size:0.85em; margin-top:-6px;">
+                    Sem integração, "Enviar ao fornecedor" apenas marca o pedido como enviado.
+                    Os tipos disponíveis são definidos em <a href="/compras/integracao-tipos.html">Tipos de Integração</a>.
+                </p>
+
+                <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Compra</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Prazo de entrega (dias)</label>
+                        <input type="number" id="prazoEntregaDias" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Pedido mínimo (R$)</label>
+                        <input type="number" id="pedidoMinimo" step="0.01" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo de frete</label>
+                        <select id="tipoFrete">
+                            <option value="">—</option>
+                            <option value="CIF">CIF (por conta do fornecedor)</option>
+                            <option value="FOB">FOB (por nossa conta)</option>
+                            <option value="terceiros">Terceiros</option>
+                            <option value="sem_frete">Sem frete</option>
+                        </select>
+                    </div>
+                </div>
+                <p style="color:var(--text-3); font-size:0.85em; margin-top:-6px;">
+                    A condição de pagamento fica na aba Financeiro — vale para os dois lados.
+                </p>
+
+                <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Homologação</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="statusHomologacao">
+                            <option value="nao_avaliado">Não avaliado</option>
+                            <option value="em_analise">Em análise</option>
+                            <option value="homologado">Homologado</option>
+                            <option value="bloqueado">Bloqueado</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Data da homologação</label>
+                        <input type="date" id="dataHomologacao">
+                    </div>
+                    <div class="form-group">
+                        <label>Avaliação (1 a 5)</label>
+                        <input type="number" id="avaliacao" min="1" max="5">
+                    </div>
+                </div>
+
+                <h4 style="margin-top:22px; color:var(--text-2); font-size:0.95em;">Certidões e documentos</h4>
+                <p style="color:var(--text-3); font-size:0.85em;">
+                    Documentos com validade — vencer sem aviso trava uma compra ou derruba uma habilitação.
+                    Arquivo em si vai na aba Anexos.
+                </p>
+                <div id="documentosVazio" style="color:var(--text-3); font-size:0.85em; margin-top:10px;">Nenhum documento.</div>
+                <div id="documentosLista"></div>
+                <!-- Formulário inline: escolher o tipo num <select> em vez de
+                     digitar um número num prompt. -->
+                <div class="form-row" style="margin-top:12px; align-items:flex-end;">
+                    <div class="form-group">
+                        <label>Tipo</label>
+                        <select id="docTipo"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Número (opcional)</label>
+                        <input type="text" id="docNumero">
+                    </div>
+                    <div class="form-group">
+                        <label>Emissão</label>
+                        <input type="date" id="docEmissao">
+                    </div>
+                    <div class="form-group">
+                        <label>Validade</label>
+                        <input type="date" id="docValidade">
+                    </div>
+                    <div class="form-group" style="flex:0 0 auto;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnAddDocumento" onclick="adicionarDocumento()">+ Adicionar</button>
                     </div>
                 </div>
             </div>
@@ -579,6 +815,12 @@
                     </div>
                 </div>
             </div>
+
+            <!-- SUB-ABA: HISTÓRICO -->
+            <div class="subtab-content" data-subtab-pane="historico" style="display:none;">
+                <p style="color:var(--text-3); font-size:0.85em;">Quem mexeu nesta ficha, quando e o que mudou — inclui contatos, endereços, dados bancários e anexos.</p>
+                <div id="historicoLista" style="margin-top:12px;"></div>
+            </div>
         </div>
     </div>
 
@@ -644,8 +886,10 @@
         { key: 'cobrancaAtiva',    label: 'Cobrança',     width: 90, visivel: false,
           render: p => p.cobrancaAtiva ? '✓' : '—',
           sortKey: p => p.cobrancaAtiva ? 1 : 0 },
-        { key: 'ativo',            label: 'Ativo',        width: 80, visivel: false,
-          render: p => p.ativo ? '✓' : '—',
+        { key: 'ativo',            label: 'Status',       width: 90, visivel: true,
+          render: p => p.ativo
+            ? '<span class="badge" style="background:var(--success-soft);color:var(--success);">Ativo</span>'
+            : '<span class="badge" style="background:var(--bg-3);color:var(--text-3);">Inativo</span>',
           sortKey: p => p.ativo ? 1 : 0 },
         { key: 'dataCriacao',      label: 'Cadastro',     width: 130, visivel: false,
           render: p => p.dataCriacao ? new Date(p.dataCriacao).toLocaleDateString('pt-BR') : '—',
@@ -681,9 +925,9 @@
         { key: 'limiteCredito',    label: 'Limite CR',    width: 110, visivel: false,
           render: p => p.limiteCredito != null ? 'R$ ' + Number(p.limiteCredito).toLocaleString('pt-BR', {minimumFractionDigits:2}) : '—',
           sortKey: p => Number(p.limiteCredito || 0) },
-        { key: 'prazoMedioDias',   label: 'Prazo (d)',    width: 90,  visivel: false,
-          render: p => p.prazoMedioDias != null ? p.prazoMedioDias + 'd' : '—',
-          sortKey: p => Number(p.prazoMedioDias || 0) },
+        { key: 'politicaPrazoId',  label: 'Política',     width: 160, visivel: false,
+          render: p => esc(nomePolitica(p.politicaPrazoId)),
+          sortKey: p => nomePolitica(p.politicaPrazoId) },
         { key: 'lgpdConsentimento',label: 'LGPD',         width: 70,  visivel: false,
           render: p => p.lgpdConsentimento ? '✓' : '—',
           sortKey: p => p.lgpdConsentimento ? 1 : 0 },
@@ -715,7 +959,8 @@
                 <span class="col-resizer" data-key="${c.key}"></span>
             </th>
         `).join('');
-        thead.innerHTML = `<tr>${ths}<th style="width:140px;">Ações</th></tr>`;
+        thead.innerHTML = `<tr><th class="col-sel"><input type="checkbox" id="selTodasPessoas"
+            onchange="marcarTodasPessoas(this.checked)" style="width:auto;" title="Marcar os que estão na tela"></th><th class="col-editar"></th>${ths}<th class="col-spacer"></th></tr>`;
 
         // Ordenação no click (ignora se veio do resizer)
         thead.querySelectorAll('th.sortable').forEach(th => {
@@ -843,29 +1088,140 @@
             if (!data.success) throw new Error(data.error);
 
             pessoasCache = data.pessoas;
+            popularFiltroCategoria();
             renderTabela();
         } catch (err) {
             showAlert('Erro ao carregar: ' + err.message, 'error');
         }
     }
 
+    // ==================== SELEÇÃO E AÇÕES EM MASSA ====================
+    const SEL_PESSOAS = new Set();
+
+    function alternarPessoa(id, on) {
+        if (on) SEL_PESSOAS.add(id); else SEL_PESSOAS.delete(id);
+        atualizarBarraMassa();
+    }
+
+    function marcarTodasPessoas(on) {
+        // Age sobre o que está na tela (filtro atual), não sobre a base toda:
+        // marcar o invisível é como se apagam cadastros sem querer.
+        pessoasFiltradas().forEach(p => on ? SEL_PESSOAS.add(p.id) : SEL_PESSOAS.delete(p.id));
+        renderTabela();
+    }
+
+    function limparSelecaoPessoas() { SEL_PESSOAS.clear(); renderTabela(); }
+
+    function atualizarBarraMassa() {
+        const barra = document.getElementById('barraMassa');
+        if (!barra) return;
+        barra.style.display = SEL_PESSOAS.size ? '' : 'none';
+        const c = document.getElementById('massaContagem');
+        if (c) c.textContent = `${SEL_PESSOAS.size} selecionado(s)`;
+        const todas = document.getElementById('selTodasPessoas');
+        const naTela = pessoasFiltradas();
+        if (todas) todas.checked = naTela.length > 0 && naTela.every(p => SEL_PESSOAS.has(p.id));
+    }
+
+    async function aplicarAcaoMassa() {
+        if (!SEL_PESSOAS.size) return;
+        const [acao, val] = document.getElementById('massaAcao').value.split(':');
+        const valor = val === '1';
+        const body = { ids: [...SEL_PESSOAS], acao, valor };
+
+        if (acao === 'tag') {
+            const tag = prompt(valor ? 'Etiqueta a adicionar:' : 'Etiqueta a remover:');
+            if (!tag) return;
+            body.tag = tag.trim();
+        }
+        // Ligar consentimento exige dizer de onde veio — é o que a LGPD cobra,
+        // e é o que diferencia um cadastro defensável de uma lista comprada.
+        if (valor && (acao === 'consentimento' || acao.startsWith('marketing'))) {
+            const fonte = prompt('De onde veio esse aceite?\n\nEx.: "assinou no balcão", "aceitou no site", "confirmou por WhatsApp"');
+            if (!fonte || !fonte.trim()) return;
+            body.fonte = fonte.trim();
+        }
+        const rotulo = document.getElementById('massaAcao').selectedOptions[0].textContent;
+        if (!confirm(`${rotulo}\n\nAplicar a ${SEL_PESSOAS.size} pessoa(s)?`)) return;
+
+        const d = await fetch('/api/pessoas/acao-massa', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }).then(r => r.json());
+        if (!d.success) return alert(d.error);
+        SEL_PESSOAS.clear();
+        await carregarPessoas();
+        alert(`${d.alterados} de ${d.total} atualizado(s).`);
+    }
+
+    // Filtro por categoria: o cadastro é único, então é ele que responde
+    // "me mostre só os fornecedores" — inclusive no link do menu de Compras,
+    // que chega com ?categoria=fornecedor.
+    //
+    // As opções saem dos DADOS, não de uma lista fixa: a coluna `categorias`
+    // é livre e cada base tem as suas ("Contador" num tenant, nada em outro).
+    // Uma lista fixa ofereceria "Clientes" onde não há nenhum, e o filtro
+    // pareceria quebrado. As canônicas entram mesmo zeradas, para o usuário
+    // saber que existem.
+    const CATEGORIAS_CANONICAS = ['cliente', 'fornecedor', 'transportadora', 'prestador', 'funcionario'];
+    let categoriaInicial = null;   // vem de ?categoria= na URL, aplicada na 1ª carga
+
+    function catsDe(p) {
+        try {
+            const c = JSON.parse(p.categorias || '[]');
+            return Array.isArray(c) ? c : [];
+        } catch (_) { return []; }
+    }
+
+    function popularFiltroCategoria() {
+        const sel = document.getElementById('filtCategoria');
+        if (!sel) return;
+        const escolhido = sel.value;
+        const contagem = new Map();
+        for (const c of CATEGORIAS_CANONICAS) contagem.set(c, 0);
+        let semCategoria = 0;
+        for (const p of pessoasCache) {
+            const cats = catsDe(p);
+            if (!cats.length) { semCategoria++; continue; }
+            for (const c of cats) contagem.set(c, (contagem.get(c) || 0) + 1);
+        }
+        const opcoes = [...contagem.entries()]
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .map(([c, n]) => `<option value="${esc(c)}">${esc(c.charAt(0).toUpperCase() + c.slice(1))} (${n})</option>`);
+        if (semCategoria) opcoes.push(`<option value="__sem__">Sem categoria (${semCategoria})</option>`);
+        sel.innerHTML = `<option value="">Todas as categorias (${pessoasCache.length})</option>` + opcoes.join('');
+        // O deep-link ?categoria=fornecedor chega antes do fetch: a escolha da
+        // URL só pode ser aplicada aqui, quando as <option> já existem.
+        const alvo = categoriaInicial || escolhido;
+        categoriaInicial = null;
+        sel.value = alvo;
+        if (sel.value !== alvo) sel.value = '';   // categoria não existe na base
+    }
+
+    function pessoasFiltradas() {
+        const cat = document.getElementById('filtCategoria')?.value || '';
+        if (!cat) return pessoasCache;
+        if (cat === '__sem__') return pessoasCache.filter(p => catsDe(p).length === 0);
+        return pessoasCache.filter(p => catsDe(p).includes(cat));
+    }
+
     function renderTabela() {
         const tbody = document.getElementById('tabelaPessoas');
         const empty = document.getElementById('emptyState');
         const total = document.getElementById('totalPessoas');
+        const linhas = pessoasFiltradas();
 
-        if (!pessoasCache.length) {
+        if (!linhas.length) {
             tbody.innerHTML = '';
             empty.style.display = 'block';
             if (total) total.textContent = '';
             return;
         }
         empty.style.display = 'none';
-        if (total) total.textContent = `${pessoasCache.length} registro${pessoasCache.length !== 1 ? 's' : ''}`;
+        if (total) total.textContent = `${linhas.length} registro${linhas.length !== 1 ? 's' : ''}`;
 
         // Ordenação client-side
         const colSort = COLUNAS.find(c => c.key === sortState.key);
-        const sorted = [...pessoasCache];
+        const sorted = [...linhas];
         if (colSort && colSort.sortKey) {
             const mult = sortState.dir === 'asc' ? 1 : -1;
             sorted.sort((a, b) => {
@@ -878,16 +1234,14 @@
 
         const visiveis = COLUNAS.filter(c => c.visivel);
         tbody.innerHTML = sorted.map(p => {
+            const sel = `<td class="col-sel"><input type="checkbox" class="selPessoa" ${SEL_PESSOAS.has(p.id) ? 'checked' : ''}
+                onchange="alternarPessoa(${p.id}, this.checked)" style="width:auto;"></td>`;
+            const editar = `<td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar"
+                onclick="editarPessoa(${p.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>`;
             const tds = visiveis.map(c => `<td title="${esc(c.render(p)).replace(/<[^>]+>/g, '')}">${c.render(p)}</td>`).join('');
-            const safeNome = (p.razaoSocial || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-            const acoes = `
-                <td>
-                    <button class="btn btn-ghost btn-sm" onclick="editarPessoa(${p.id})">Editar</button>
-                    ${p.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirPessoa(${p.id}, '${safeNome}')">Excluir</button>` : ''}
-                </td>
-            `;
-            return `<tr>${tds}${acoes}</tr>`;
+            return `<tr>${sel}${editar}${tds}<td class="col-spacer"></td></tr>`;
         }).join('');
+        atualizarBarraMassa();
     }
 
     function formatDoc(doc) {
@@ -936,7 +1290,7 @@
     // Antes de salvar a pessoa no servidor, o usuário pode preencher
     // contatos/endereços/bancários/anexos — os itens ficam aqui em
     // memória e são persistidos no salvarPessoa() após criar a pessoa.
-    let pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [] };
+    let pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [], documentos: [] };
     let _tempIdCount = 0;
     function tempId() { return '_tmp' + (++_tempIdCount); }
     function isTempId(id) { return String(id).startsWith('_tmp'); }
@@ -949,6 +1303,9 @@
         document.querySelectorAll('.subtab-content').forEach(p => {
             p.style.display = p.dataset.subtabPane === sub ? 'block' : 'none';
         });
+        // Histórico é buscado ao abrir a aba, não junto da ficha: assim já sai
+        // com o que foi mexido nos contatos/anexos sem sair da tela.
+        if (sub === 'historico') carregarHistorico(document.getElementById('pessoaId').value || null);
     }
 
     function atualizarVisibilidadePF() {
@@ -969,12 +1326,204 @@
         // PF
         'rg','rgOrgaoEmissor','rgDataExpedicao','dataNascimento',
         'sexo','estadoCivil','profissao','nomeMae','nomePai','nacionalidade',
-        // Comercial
-        'origem','vendedorId','tabelaPrecoId','limiteCredito','prazoMedioDias','condicaoPagamentoPadrao',
+        // Comercial / financeiro
+        'origem','vendedorId','tabelaPrecoId','limiteCredito','politicaPrazoId',
+        // Contato (vieram do cadastro de fornecedor na unificação de 2026-08-20)
+        'celular','emailFinanceiro','site',
+        // Fornecedor
+        'prazoEntregaDias','pedidoMinimo','tipoFrete','statusHomologacao','dataHomologacao','avaliacao',
         // LGPD
         'lgpdDataConsentimento','lgpdFonte',
     ];
     const CAMPOS_BOOL_FORM = ['optanteSimples','contribuinteIcms','cobrancaAtiva','lgpdConsentimento','aceitaEmailMarketing','aceitaWhatsappMarketing'];
+
+    // Políticas de prazo — prazo das parcelas e meios de recebimento saíram da
+    // ficha em 2026-08-21 e viraram cadastro próprio. Aqui só se escolhe qual.
+    let politicasCache = [];
+
+    function nomePolitica(id) {
+        if (!id) return '—';
+        const p = politicasCache.find(x => String(x.id) === String(id));
+        return p ? p.nome : '—';
+    }
+
+    async function carregarPoliticas() {
+        try {
+            const r = await fetch('/api/politicas-prazo');
+            const d = await r.json();
+            politicasCache = d.success ? (d.politicas || []) : [];
+        } catch { politicasCache = []; }
+        const sel = document.getElementById('politicaPrazoId');
+        const atual = sel.value;
+        sel.innerHTML = '<option value="">— sem política —</option>' +
+            politicasCache.filter(p => p.ativo).map(p =>
+                `<option value="${p.id}">${p.nome}</option>`).join('');
+        sel.value = atual;
+        descreverPolitica();
+    }
+
+    // O resumo evita ter de abrir a outra tela só para lembrar o que a política diz.
+    function descreverPolitica() {
+        const hint = document.getElementById('politicaHint');
+        const id = document.getElementById('politicaPrazoId').value;
+        const p = politicasCache.find(x => String(x.id) === String(id));
+        if (!p) {
+            hint.innerHTML = 'Define prazo das parcelas e meios de recebimento aceitos. Cadastre em <a href="/financeiro/politicas-prazo.html">Políticas de Prazo</a>.';
+            return;
+        }
+        const partes = [];
+        partes.push(p.tipo === 'vista' ? 'à vista' : `${String(p.prazoDias || '').split('/').filter(Boolean).length}× em ${p.prazoDias} dias`);
+        let meios = [];
+        try { meios = p.meiosPermitidos ? JSON.parse(p.meiosPermitidos) : []; } catch {}
+        partes.push(meios.length ? `${meios.length} meio(s) aceito(s)` : 'todos os meios');
+        if (p.ignoraLimiteCredito) partes.push('ignora limite de crédito');
+        hint.textContent = partes.join(' · ');
+    }
+
+    // ==================== integração de pedidos (por fornecedor) ====================
+    //
+    // Um fornecedor pode ter VÁRIAS integrações — e-mail para o comercial, API
+    // para o sistema. O botão do pedido usa a marcada como padrão. Não há
+    // entidade "canal" intermediária: cada configuração é deste fornecedor.
+
+    let TIPOS_INTEG = [];
+    let INTEGRACOES = [];
+
+    async function carregarCanaisIntegracao() {
+        try {
+            const r = await fetch('/api/fornecedor-integracoes/canais');
+            const d = await r.json();
+            if (!d.success) return;
+            TIPOS_INTEG = d.tipos || [];
+            const sel = document.getElementById('integTipo');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">— escolha um tipo —</option>'
+                + TIPOS_INTEG.map(t => `<option value="${t.tipo}">${t.nome}</option>`).join('');
+        } catch (_) { /* sem tipos: fornecedor fica sem integração */ }
+    }
+
+    function camposDoTipoInteg(tipo) {
+        const t = TIPOS_INTEG.find(x => x.tipo === tipo);
+        return (t && t.campos) || [];
+    }
+
+    function renderCamposInteg() {
+        const tipo = document.getElementById('integTipo').value;
+        const box = document.getElementById('integCampos');
+        const campos = camposDoTipoInteg(tipo);
+        if (!tipo) { box.innerHTML = ''; return; }
+        box.innerHTML = campos.length
+            ? campos.map(c => `
+                <div class="form-row">
+                    <div class="form-group full-width">
+                        <label>${c.rotulo || c.chave}</label>
+                        ${c.tipo === 'textarea'
+                            ? `<textarea id="ip_${c.chave}" rows="3" style="font-family:monospace;font-size:0.85em;"></textarea>`
+                            : `<input type="text" id="ip_${c.chave}">`}
+                        ${c.dica ? `<small class="muted">${c.dica}</small>` : ''}
+                    </div>
+                </div>`).join('')
+            : '<p class="muted" style="font-size:12px;">Este tipo não precisa de configuração.</p>';
+    }
+
+    function renderListaIntegracoes() {
+        const el = document.getElementById('integLista');
+        if (!el) return;
+        if (!INTEGRACOES.length) {
+            el.innerHTML = '<span class="muted">Nenhuma integração — o pedido só muda de status ao ser enviado.</span>';
+            return;
+        }
+        el.innerHTML = INTEGRACOES.map(i => {
+            const t = TIPOS_INTEG.find(x => x.tipo === i.canal);
+            const cfg = Object.entries(i.parametros || {})
+                .filter(([, v]) => v !== '' && v != null)
+                .map(([k, v]) => `${k}=${String(v).slice(0, 30)}`).join(' · ');
+            return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bg-2);">
+                <strong>${(t && t.nome) || i.canal}</strong>
+                ${i.padrao ? '<span class="badge ativo">padrão</span>' : ''}
+                ${i.ativo ? '' : '<span class="badge inativo">inativa</span>'}
+                <span class="muted" style="flex:1;font-size:12px;">${cfg}</span>
+                ${i.padrao ? '' : `<button type="button" class="btn btn-ghost btn-sm" onclick="tornarPadraoInteg(${i.id})">Tornar padrão</button>`}
+                <button type="button" class="btn btn-ghost btn-sm" onclick="removerIntegracao(${i.id})">Remover</button>
+            </div>`;
+        }).join('');
+    }
+
+    async function carregarIntegracao(pessoaId) {
+        INTEGRACOES = [];
+        if (!pessoaId) { renderListaIntegracoes(); return; }
+        try {
+            const r = await fetch('/api/fornecedor-integracoes/' + pessoaId);
+            const d = await r.json();
+            if (d.success) INTEGRACOES = d.integracoes || [];
+        } catch (_) { /* fornecedor sem integração */ }
+        renderListaIntegracoes();
+    }
+
+    function pessoaAtualId() {
+        return document.getElementById('pessoaId').value;
+    }
+
+    async function salvarIntegracaoTipo(pessoaId, corpo) {
+        const r = await fetch('/api/fornecedor-integracoes/' + pessoaId, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error);
+    }
+
+    async function adicionarIntegracao() {
+        const pessoaId = pessoaAtualId();
+        // A integração é gravada por rota própria e precisa do id da pessoa.
+        if (!pessoaId) return showAlert('Salve o cadastro antes de adicionar integração', 'error');
+        const tipo = document.getElementById('integTipo').value;
+        if (!tipo) return showAlert('Escolha o tipo de integração', 'error');
+
+        const parametros = {};
+        for (const c of camposDoTipoInteg(tipo)) {
+            const el = document.getElementById('ip_' + c.chave);
+            if (!el) continue;
+            const v = (el.value || '').trim();
+            if (!v) continue;
+            if (c.chave === 'headers') {
+                try { parametros.headers = JSON.parse(v); }
+                catch { return showAlert('Cabeçalhos não são um JSON válido', 'error'); }
+                continue;
+            }
+            parametros[c.chave] = v;
+        }
+        try {
+            await salvarIntegracaoTipo(pessoaId, {
+                tipo, parametros, ativo: true,
+                padrao: document.getElementById('integPadrao').value === '1',
+            });
+            showAlert('Integração adicionada');
+            document.getElementById('integTipo').value = '';
+            renderCamposInteg();
+            carregarIntegracao(pessoaId);
+        } catch (err) { showAlert(err.message, 'error'); }
+    }
+
+    async function tornarPadraoInteg(id) {
+        const pessoaId = pessoaAtualId();
+        const i = INTEGRACOES.find(x => x.id === id);
+        if (!i || !pessoaId) return;
+        try {
+            await salvarIntegracaoTipo(pessoaId, {
+                id, tipo: i.canal, parametros: i.parametros, ativo: !!i.ativo, padrao: true,
+            });
+            carregarIntegracao(pessoaId);
+        } catch (err) { showAlert(err.message, 'error'); }
+    }
+
+    async function removerIntegracao(id) {
+        const pessoaId = pessoaAtualId();
+        if (!pessoaId || !confirm('Remover esta integração?')) return;
+        const r = await fetch(`/api/fornecedor-integracoes/${pessoaId}/${id}`, { method: 'DELETE' });
+        const d = await r.json();
+        if (!d.success) return showAlert(d.error, 'error');
+        carregarIntegracao(pessoaId);
+    }
 
     function colherCamposForm() {
         const body = {};
@@ -996,10 +1545,13 @@
         // Tags
         const tagsStr = (document.getElementById('tagsInput').value || '').trim();
         body.tags = tagsStr ? JSON.stringify(tagsStr.split(',').map(t => t.trim()).filter(Boolean)) : null;
+        // Política de prazo: vazio = sem política (a regra fica a cargo de quem fatura)
+        body.politicaPrazoId = document.getElementById('politicaPrazoId').value || null;
         return body;
     }
 
     function setCamposForm(p) {
+        carregarIntegracao(p.id);
         for (const c of CAMPOS_FORM) {
             const el = document.getElementById(c);
             if (!el) continue;
@@ -1017,11 +1569,13 @@
         try { cats = p.categorias ? JSON.parse(p.categorias) : []; } catch {}
         if (!Array.isArray(cats)) cats = [];
         document.querySelectorAll('input.cat').forEach(cb => { cb.checked = cats.includes(cb.value); });
+        atualizarAbaFornecedor();
         // Tags
         let tags = [];
         try { tags = p.tags ? JSON.parse(p.tags) : []; } catch {}
         if (!Array.isArray(tags)) tags = [];
         document.getElementById('tagsInput').value = tags.join(', ');
+        descreverPolitica();
     }
 
     // ==================== CONSULTA CNPJ ====================
@@ -1156,23 +1710,39 @@
     // ==================== LIMPAR / EDITAR / SALVAR ====================
     function limparForm() {
         document.getElementById('pessoaId').value = '';
-        document.getElementById('formTitle').textContent = 'Novo cliente';
+        document.getElementById('formTitle').textContent = 'Novo cadastro';
         [...CAMPOS_FORM, 'cpfCnpj','tagsInput'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         CAMPOS_BOOL_FORM.forEach(id => { const el = document.getElementById(id); if (el) el.checked = (id === 'cobrancaAtiva'); });
-        document.querySelectorAll('input.cat').forEach(cb => cb.checked = false);
+        // Cadastro novo nasce como cliente: é a maioria esmagadora do que se
+        // digita aqui, e sem categoria a pessoa não aparece em nenhum filtro.
+        // Quem está cadastrando um fornecedor desmarca e marca Fornecedor.
+        document.querySelectorAll('input.cat').forEach(cb => cb.checked = (cb.value === 'cliente'));
+        // Sem política = aceita todos os meios e sem prazo fixo, que é o default
+        // de quem chega novo.
+        descreverPolitica();
         document.getElementById('tipo').value = 'PJ';
+        // Cadastro novo nasce ativo; excluir só existe para quem já foi salvo.
+        document.getElementById('ativo').value = '1';
+        document.getElementById('motivoInativacao').value = '';
+        onStatusChange();
+        document.getElementById('btnExcluirPessoa').style.display = 'none';
         document.getElementById('cpfCnpj').removeAttribute('readonly');
         document.getElementById('cnpjStatus').textContent = '';
         const cepSt = document.getElementById('cepStatus'); if (cepSt) cepSt.textContent = '';
         cepConsultado = '';
         atualizarVisibilidadePF();
         // Zera pendentes e listas das sub-abas 1:N
-        pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [] };
-        ['enderecosAdicionaisLista','contatosLista','bancariosLista','anexosLista'].forEach(id => {
+        pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [], documentos: [] };
+        ['enderecosAdicionaisLista','contatosLista','bancariosLista','anexosLista','documentosLista'].forEach(id => {
             const el = document.getElementById(id); if (el) el.innerHTML = '';
         });
+        renderDocumentos([]);
+        atualizarAbaFornecedor();
         switchSubTab('ident');
-        carregarVendedores();
+        carregarVendedores().then(() => {
+            // Vendedor cadastrando cliente novo já sai como o responsável.
+            if (meuIdVendedor) document.getElementById('vendedorId').value = meuIdVendedor;
+        });
         carregarTabelasPreco();
     }
 
@@ -1189,20 +1759,29 @@
             document.getElementById('cpfCnpj').setAttribute('readonly', true);
             document.getElementById('tipo').value = p.tipo || 'PJ';
             setCamposForm(p);
+            document.getElementById('ativo').value = p.ativo ? '1' : '0';
+            document.getElementById('motivoInativacao').value = p.motivoInativacao || '';
+            onStatusChange();
             atualizarVisibilidadePF();
+            avaliarExclusao(p.id);
 
             // Estamos em modo edição: zera buffer de pendentes (se tinha lixo)
-            pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [] };
+            pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [], documentos: [] };
 
             await carregarVendedores();
             await carregarTabelasPreco();
+            // Reaplica os selects populados por fetch: o setCamposForm acima
+            // rodou antes das <option> existirem e o value teria caído fora.
+            document.getElementById('vendedorId').value = p.vendedorId || '';
             document.getElementById('tabelaPrecoId').value = p.tabelaPrecoId || '';
             await Promise.all([
                 carregarContatos(p.id),
                 carregarEnderecos(p.id),
                 carregarBancarios(p.id),
                 carregarAnexos(p.id),
+                carregarDocumentos(p.id),
             ]);
+            atualizarAbaFornecedor();
 
             switchTab('form');
             switchSubTab('ident');
@@ -1232,6 +1811,10 @@
             const { id, ...body } = b;
             tarefas.push(jsonPost(`/api/pessoas/${pessoaId}/dados-bancarios`, body).catch(err => erros.push('conta bancária: ' + err.message)));
         }
+        for (const d of pendentes.documentos) {
+            const { id, ...body } = d;
+            tarefas.push(jsonPost(`/api/pessoas/${pessoaId}/documentos`, body).catch(err => erros.push('documento: ' + err.message)));
+        }
         for (const a of pendentes.anexos) {
             const form = new FormData();
             form.append('arquivo', a.file);
@@ -1244,7 +1827,7 @@
             );
         }
         await Promise.all(tarefas);
-        pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [] };
+        pendentes = { contatos: [], enderecos: [], bancarios: [], anexos: [], documentos: [] };
         return erros;
     }
 
@@ -1259,6 +1842,10 @@
         body.cpfCnpj = cpfCnpj;
         body.razaoSocial = razaoSocial;
         body.tipo = document.getElementById('tipo').value;
+        // Número, não a string do select: no backend o campo é booleano e "0"
+        // é truthy — viraria ativo = 1 justamente ao inativar.
+        body.ativo = document.getElementById('ativo').value === '1' ? 1 : 0;
+        body.motivoInativacao = body.ativo ? null : (document.getElementById('motivoInativacao').value.trim() || null);
         if (cnpjConsultado) body.dataUltimaConsultaReceita = new Date().toISOString();
 
         try {
@@ -1299,10 +1886,15 @@
 
     // ==================== VENDEDORES ====================
     let vendedoresCarregados = false;
+    // id do usuário logado quando ele próprio é vendedor; null caso contrário
+    let meuIdVendedor = null;
     async function carregarVendedores() {
         if (vendedoresCarregados) return;
         try {
-            const r = await fetch('/api/usuarios');
+            const [r, rMe] = await Promise.all([
+                fetch('/api/usuarios?vendedor=1'),
+                fetch('/api/usuarios/me'),
+            ]);
             const d = await r.json();
             if (!d.success) return;
             const sel = document.getElementById('vendedorId');
@@ -1311,6 +1903,10 @@
                 (d.usuarios || []).map(u => `<option value="${u.id}">${escHTML(u.nome || u.username)}</option>`).join('');
             if (atual) sel.value = atual;
             vendedoresCarregados = true;
+            // `me` não traz ehVendedor; estar na lista de vendedores é o teste.
+            const dMe = await rMe.json().catch(() => ({}));
+            const meuId = dMe.success ? dMe.usuario?.id : null;
+            if (meuId && (d.usuarios || []).some(u => u.id === meuId)) meuIdVendedor = meuId;
         } catch (_) {}
     }
     function escHTML(s) {
@@ -1395,6 +1991,133 @@
         if (!confirm('Remover este contato?')) return;
         fetch(`/api/pessoas/${pessoaId}/contatos/${contatoId}`, { method: 'DELETE' })
             .then(() => carregarContatos(pessoaId));
+    }
+
+    // ==================== DOCUMENTOS / CERTIDÕES (1:N) ====================
+    // Certidão não é anexo: tem tipo e data de validade, e é por elas que a
+    // compra sabe se o fornecedor está apto. Veio da tela de Compras >
+    // Fornecedores, aposentada na unificação dos cadastros (2026-08-20).
+    let TIPOS_DOCUMENTO = [];
+
+    function rotuloTipoDoc(codigo) {
+        const t = TIPOS_DOCUMENTO.find(x => x.codigo === codigo);
+        return t ? t.nome : codigo;
+    }
+
+    function situacaoDoc(dataValidade) {
+        if (!dataValidade) return { texto: 'sem validade', cor: 'var(--text-3)' };
+        const hoje = new Date().toISOString().slice(0, 10);
+        if (dataValidade < hoje) return { texto: 'VENCIDO', cor: 'var(--danger)' };
+        const limite = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+        if (dataValidade <= limite) return { texto: 'a vencer', cor: 'var(--warn)' };
+        return { texto: 'válido', cor: 'var(--success)' };
+    }
+
+    function renderDocumentos(documentos) {
+        const box = document.getElementById('documentosLista');
+        const vazio = document.getElementById('documentosVazio');
+        if (!box) return;
+        vazio.style.display = documentos.length ? 'none' : 'block';
+        if (!documentos.length) { box.innerHTML = ''; return; }
+        box.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:0.88em; margin-top:8px;">
+            <thead><tr style="color:var(--text-3); text-align:left;">
+                <th>Tipo</th><th>Número</th><th>Emissão</th><th>Validade</th><th>Situação</th><th></th>
+            </tr></thead>
+            <tbody>
+            ${documentos.map(d => {
+                const sit = situacaoDoc(d.dataValidade);
+                return `<tr style="border-top:1px solid var(--border);">
+                    <td style="padding:6px 8px;">${escHTML(rotuloTipoDoc(d.tipo))}${isTempId(d.id) ? ' <small style="color:var(--warn);">(não salvo)</small>' : ''}</td>
+                    <td>${escHTML(d.numero || '—')}</td>
+                    <td>${escHTML(d.dataEmissao || '—')}</td>
+                    <td>${escHTML(d.dataValidade || '—')}</td>
+                    <td style="color:${sit.cor};">${sit.texto}</td>
+                    <td><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removerDocumento('${d.id}')">✖</button></td>
+                </tr>`;
+            }).join('')}
+            </tbody></table>`;
+    }
+
+    async function carregarDocumentos(pessoaId) {
+        try {
+            const r = await fetch('/api/pessoas/' + pessoaId + '/documentos');
+            const d = await r.json();
+            if (!d.success) return;
+            if (d.tiposDocumento) TIPOS_DOCUMENTO = d.tiposDocumento;
+            popularSelectTipoDoc();
+            renderDocumentos(d.documentos);
+        } catch (_) {}
+    }
+
+    async function garantirTiposDocumento() {
+        if (TIPOS_DOCUMENTO.length) return;
+        try {
+            const d = await fetch('/api/fornecedores/opcoes').then(r => r.json());
+            if (d.success && d.tiposDocumento) TIPOS_DOCUMENTO = d.tiposDocumento;
+            popularSelectTipoDoc();
+        } catch (_) {}
+    }
+
+    // Popula o <select> de tipos assim que a lista chega do backend.
+    function popularSelectTipoDoc() {
+        const sel = document.getElementById('docTipo');
+        if (!sel || !TIPOS_DOCUMENTO.length) return;
+        const escolhido = sel.value;
+        sel.innerHTML = TIPOS_DOCUMENTO.map(t =>
+            `<option value="${escHTML(t.codigo)}">${escHTML(t.nome)}</option>`).join('');
+        if (escolhido) sel.value = escolhido;
+    }
+
+    async function adicionarDocumento() {
+        await garantirTiposDocumento();
+        popularSelectTipoDoc();
+        const codigo = document.getElementById('docTipo').value;
+        const tipo = TIPOS_DOCUMENTO.find(t => t.codigo === codigo);
+        if (!tipo) return showAlert('Escolha o tipo do documento', 'error');
+        const numero = document.getElementById('docNumero').value.trim();
+        const dataEmissao = document.getElementById('docEmissao').value;
+        const dataValidade = document.getElementById('docValidade').value;
+        if (dataEmissao && dataValidade && dataValidade < dataEmissao) {
+            return showAlert('Validade anterior à emissão', 'error');
+        }
+        // Limpa o formulário para o próximo documento.
+        ['docNumero','docEmissao','docValidade'].forEach(x => { document.getElementById(x).value = ''; });
+        const body = { tipo: tipo.codigo, numero, dataEmissao, dataValidade };
+        const pessoaId = document.getElementById('pessoaId').value;
+        if (pessoaId) {
+            fetch('/api/pessoas/' + pessoaId + '/documentos', {
+                method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+            }).then(r => r.json()).then(d => {
+                if (!d.success) return showAlert('Erro: ' + d.error, 'error');
+                carregarDocumentos(pessoaId);
+            });
+        } else {
+            pendentes.documentos.push({ id: tempId(), ...body });
+            renderDocumentos(pendentes.documentos);
+        }
+    }
+
+    function removerDocumento(docId) {
+        if (isTempId(docId)) {
+            pendentes.documentos = pendentes.documentos.filter(d => d.id !== docId);
+            renderDocumentos(pendentes.documentos);
+            return;
+        }
+        const pessoaId = document.getElementById('pessoaId').value;
+        if (!confirm('Remover este documento?')) return;
+        fetch(`/api/pessoas/${pessoaId}/documentos/${docId}`, { method: 'DELETE' })
+            .then(() => carregarDocumentos(pessoaId));
+    }
+
+    // A aba Fornecedor só existe para quem é fornecedor — marcar a categoria
+    // na aba Comercial é o que a revela, sem precisar salvar antes.
+    function atualizarAbaFornecedor() {
+        const marcado = !!document.querySelector('input.cat[value="fornecedor"]:checked');
+        const btn = document.getElementById('tabFornecedorBtn');
+        if (btn) btn.style.display = marcado ? '' : 'none';
+        if (!marcado && document.querySelector('.tab-form-sub[data-subtab="fornecedor"]')?.classList.contains('active')) {
+            switchSubTab('comercial');
+        }
     }
 
     // ==================== ENDEREÇOS ADICIONAIS (1:N) ====================
@@ -1560,6 +2283,72 @@
             }).join('')}
             </tbody></table>`;
     }
+    // ==================== HISTÓRICO ====================
+    const HIST_ACOES = {
+        'criar': 'Cadastro criado', 'editar': 'Cadastro editado',
+        'inativar': 'Cadastro inativado', 'reativar': 'Cadastro reativado',
+        'contato-criar': 'Contato adicionado', 'contato-editar': 'Contato editado',
+        'contato-excluir': 'Contato removido',
+        'endereco-criar': 'Endereço adicionado', 'endereco-editar': 'Endereço editado',
+        'endereco-excluir': 'Endereço removido',
+        'banco-criar': 'Conta bancária adicionada', 'banco-editar': 'Conta bancária editada',
+        'banco-excluir': 'Conta bancária removida',
+        'anexo-criar': 'Anexo enviado', 'anexo-excluir': 'Anexo removido',
+    };
+    // Sem mapa de rótulos: camelCase vira texto separado. Um mapa aqui seria
+    // uma segunda lista de campos para manter em dia junto do formulário.
+    const rotuloCampo = (c) => c.replace(/([A-Z])/g, ' $1').toLowerCase();
+
+    function detalheEvento(ev) {
+        const p = ev.payload || {};
+        const partes = [];
+        if (p.alteracoes) {
+            for (const [campo, v] of Object.entries(p.alteracoes)) {
+                partes.push(`<div style="margin-left:12px;"><strong>${esc(rotuloCampo(campo))}</strong>: ` +
+                    `<span style="color:var(--text-3);text-decoration:line-through;">${esc(v.de ?? '—')}</span> → ${esc(v.para ?? '—')}</div>`);
+            }
+        }
+        // Bancário guarda só os nomes dos campos — valor de conta e PIX não vai para o log.
+        if (Array.isArray(p.campos)) partes.push(`<div style="margin-left:12px;">alterou: ${esc(p.campos.map(rotuloCampo).join(', '))}</div>`);
+        const alvo = [p.nome, p.apelido, p.banco, p.tipo, p.resumo, p.motivo].filter(Boolean).join(' · ');
+        if (alvo) partes.unshift(`<div style="margin-left:12px;color:var(--text-2);">${esc(alvo)}</div>`);
+        return partes.join('');
+    }
+
+    async function carregarHistorico(pessoaId) {
+        const box = document.getElementById('historicoLista');
+        if (!box) return;
+        if (!pessoaId) {
+            box.innerHTML = '<div style="color:var(--text-3);font-size:0.85em;">O histórico começa depois que o cadastro for salvo.</div>';
+            return;
+        }
+        box.innerHTML = '<div style="color:var(--text-3);font-size:0.85em;">Carregando…</div>';
+        try {
+            const r = await fetch('/api/pessoas/' + pessoaId + '/historico');
+            const d = await r.json();
+            if (!d.success) throw new Error(d.error || 'falha');
+            if (!d.eventos.length) {
+                box.innerHTML = '<div style="color:var(--text-3);font-size:0.85em;">Nenhuma atividade registrada.</div>';
+                return;
+            }
+            box.innerHTML = d.eventos.map(ev => `
+                <div style="border-left:2px solid var(--border);padding:6px 0 6px 12px;margin-bottom:8px;">
+                    <div style="font-size:0.85em;color:var(--text-3);">${esc(fmtDataHora(ev.createdAt))} · ${esc(ev.username || 'sistema')}</div>
+                    <div><strong>${esc(HIST_ACOES[ev.action] || ev.action)}</strong></div>
+                    ${detalheEvento(ev)}
+                </div>`).join('');
+        } catch (e) {
+            box.innerHTML = `<div style="color:var(--text-3);font-size:0.85em;">Não foi possível carregar o histórico: ${esc(e.message)}</div>`;
+        }
+    }
+
+    // createdAt do audit_log vem como 'YYYY-MM-DD HH:MM:SS' em UTC (CURRENT_TIMESTAMP)
+    function fmtDataHora(s) {
+        if (!s) return '';
+        const d = new Date(String(s).replace(' ', 'T') + 'Z');
+        return isNaN(d) ? String(s) : d.toLocaleString('pt-BR');
+    }
+
     async function carregarAnexos(pessoaId) {
         try {
             const r = await fetch('/api/pessoas/' + pessoaId + '/anexos');
@@ -1623,14 +2412,73 @@
         }
     }
 
-    async function excluirPessoa(id, nome) {
-        if (!confirm(`Deseja desativar o cliente "${nome}"?`)) return;
+    // ==================== STATUS E EXCLUSÃO ====================
+    function onStatusChange() {
+        const inativo = document.getElementById('ativo').value === '0';
+        document.getElementById('motivoInativacaoBox').style.display = inativo ? 'block' : 'none';
+    }
 
+    // Nomes de tabela não servem para o usuário; o que não estiver no mapa cai
+    // no fallback legível em vez de sumir da contagem.
+    const VINCULO_ROTULOS = {
+        pedidos: 'Pedidos de venda', pedidos_compra: 'Pedidos de compra',
+        contas_a_receber: 'Contas a receber', contas_a_pagar: 'Contas a pagar',
+        contas_pagar_recorrencias: 'Recorrências a pagar', nfse_recorrencias: 'Recorrências de NFS-e',
+        faturas: 'Faturas', contratos: 'Contratos', devolucoes: 'Devoluções',
+        os_ordens: 'Ordens de serviço', equipamentos: 'Equipamentos',
+        crm_oportunidades: 'Oportunidades', crm_atividades: 'Atividades de CRM', crm_propostas: 'Propostas',
+        nfe_entrada: 'NF-e de entrada', produtos: 'Produtos (fornecedor padrão)',
+        cotacao_fornecedores: 'Cotações', lotes: 'Lotes de estoque',
+        cobrancas_log: 'Cobranças enviadas', comm_envios: 'Comunicações enviadas',
+        comm_optout: 'Opt-out de marketing', conv_conversas: 'Conversas',
+        cliente_logins: 'Logins do portal', adiantamentos: 'Adiantamentos',
+        vendas_perdidas: 'Vendas perdidas', patrimonio_bens: 'Bens de patrimônio',
+        renegociacoes: 'Renegociações', comissoes_regras: 'Regras de comissão',
+    };
+    const rotuloVinculo = (t) => VINCULO_ROTULOS[t] || t.replace(/_/g, ' ');
+
+    // Guarda o resultado da varredura para a confirmação não precisar refazê-la
+    let vinculosPessoa = null;
+
+    async function avaliarExclusao(pessoaId) {
+        const btn = document.getElementById('btnExcluirPessoa');
+        vinculosPessoa = null;
+        btn.style.display = 'none';
+        try {
+            const r = await fetch('/api/pessoas/' + pessoaId + '/vinculos');
+            const d = await r.json();
+            if (!d.success) return;
+            vinculosPessoa = d.vinculos;
+            btn.style.display = 'inline-flex';
+            if (d.podeExcluir) {
+                btn.disabled = false;
+                btn.title = 'Excluir definitivamente este cadastro';
+            } else {
+                // Botão fica visível e desabilitado de propósito: sumir daria a
+                // entender que exclusão não existe, em vez de dizer o que trava.
+                btn.disabled = true;
+                const resumo = d.vinculos.map(v => `${rotuloVinculo(v.tabela)} (${v.qtd})`).join(', ');
+                btn.title = 'Não pode ser excluído — há movimentação vinculada: ' + resumo + '. Marque como Inativo.';
+            }
+        } catch (_) { /* sem varredura, sem botão */ }
+    }
+
+    async function excluirPessoa() {
+        const id = document.getElementById('pessoaId').value;
+        if (!id) return;
+        if (vinculosPessoa && vinculosPessoa.length) {
+            const resumo = vinculosPessoa.map(v => `${rotuloVinculo(v.tabela)}: ${v.qtd}`).join('\n');
+            return showAlert('Cadastro com movimentação vinculada não pode ser excluído:\n' + resumo, 'error');
+        }
+        const nome = document.getElementById('razaoSocial').value || 'este cadastro';
+        if (!confirm(`Excluir DEFINITIVAMENTE "${nome}"?\n\nSomem também contatos, endereços, dados bancários e anexos. Não há como desfazer.\n\nPara apenas tirar de uso, cancele e marque o status como Inativo.`)) return;
         try {
             const resp = await fetch('/api/pessoas/' + id, { method: 'DELETE' });
             const data = await resp.json();
             if (!data.success) throw new Error(data.error);
-            showAlert('Cliente desativado');
+            showAlert('Cadastro excluído');
+            limparForm();
+            switchTab('lista');
             carregarPessoas();
         } catch (err) {
             showAlert('Erro: ' + err.message, 'error');
@@ -1638,12 +2486,20 @@
     }
 
     // ==================== INIT ====================
+    const _params = new URLSearchParams(location.search);
+    // ?categoria=fornecedor — é assim que Compras > Fornecedores chega aqui
+    // depois da unificação dos cadastros. Fica ANTES do carregarPessoas porque
+    // quem aplica é popularFiltroCategoria, no retorno daquele fetch.
+    categoriaInicial = _params.get('categoria');
+
     loadPrefs();
     renderHeader();
-    carregarPessoas();
+    // Antes de carregarPessoas: a coluna "Política" da grade lê do cache.
+    carregarPoliticas().then(carregarPessoas);
+    carregarCanaisIntegracao();
     // Deep-link: /comercial/pessoas.html?id=123 abre direto o cadastro do cliente
     // (usado pelo botão "👤 Cliente" da página da oportunidade).
-    const _pessoaIdUrl = new URLSearchParams(location.search).get('id');
+    const _pessoaIdUrl = _params.get('id');
     if (_pessoaIdUrl) editarPessoa(_pessoaIdUrl);
     </script>
 </body>

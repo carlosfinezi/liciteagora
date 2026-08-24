@@ -28,11 +28,13 @@ const MODULE_SLUGS = [
   'contabilidade',               // Partida dobrada: plano contabil, lancamentos, diario/razao/balancete
   'governanca',                  // Alcadas e aprovacoes (pagamentos, pedidos de compra)
   'cobranca_automatica',         // Cobranca recorrente via Asaas
-  'rh',                          // Funcionarios, comissoes, patrimonio
+  'rh',                          // Funcionarios, ponto, ferias, comissoes
+  'patrimonio',                  // Ativo imobilizado: bens, depreciacao, baixas
   'comunicacao',                 // Envio para clientes/fornecedores, log de e-mails, auditoria
   'otica',                       // Vertical: armacoes, lentes, receitas, ordens de montagem
   'api_rest_externa',            // API REST para integracoes externas
   'sso',                         // SSO via LDAP/SAML
+  'ssl_nicsrs',                  // Add-on: compra e ciclo de vida de SSL na NicSRS. Fora de todo tier — so por override (hoje: 1bit).
 ];
 const MODULE_SLUG_SET = new Set(MODULE_SLUGS);
 
@@ -104,6 +106,7 @@ const PLAN_MATRIX = {
       'contabilidade',
       'cobranca_automatica',
       'rh',
+      'patrimonio',
       'comunicacao',
       'api_rest_externa',
     ],
@@ -136,6 +139,7 @@ const PLAN_MATRIX = {
       'contabilidade',
       'cobranca_automatica',
       'rh',
+      'patrimonio',
       'comunicacao',
       'otica',                   // vertical disponivel sob consulta
       'api_rest_externa',

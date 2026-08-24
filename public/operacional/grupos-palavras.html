@@ -81,6 +81,18 @@
           <div class="hint">Separe as palavras por virgula ou linha</div>
         </div>
 
+        <div class="form-group" id="grupoUfsContainer" hidden>
+          <label for="grupoUfs">UFs (vazio = Brasil inteiro)</label>
+          <input type="text" id="grupoUfs" placeholder="Ex: MG, SP, RJ">
+          <div class="hint">Limita a pesquisa e a análise IA deste grupo a esses estados. Separe por vírgula. Se o Agendamento IA tiver UFs próprias, elas prevalecem no scan</div>
+        </div>
+
+        <div class="form-group" id="grupoMunicipiosContainer" hidden>
+          <label for="grupoMunicipios">Municípios (vazio = todos)</label>
+          <input type="text" id="grupoMunicipios" placeholder="Ex: Belo Horizonte, Contagem, Betim">
+          <div class="hint">Nome exato do município como no PNCP, separado por vírgula (acentos contam). Combina com as UFs acima</div>
+        </div>
+
         <div class="form-group" id="vinculoExclusaoContainer" hidden>
           <label>Vincular Grupos de Exclusao</label>
           <div id="gruposExclusaoCheckboxes" class="checkbox-list">
@@ -348,6 +360,10 @@
       document.getElementById('grupoNome').value = '';
       document.getElementById('grupoDescricao').value = '';
       document.getElementById('grupoPalavras').value = '';
+      document.getElementById('grupoUfs').value = '';
+      document.getElementById('grupoUfsContainer').hidden = isExclusao;
+      document.getElementById('grupoMunicipios').value = '';
+      document.getElementById('grupoMunicipiosContainer').hidden = isExclusao;
 
       // Reset cor - vermelho para exclusão, azul para pesquisa
       document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
@@ -379,6 +395,14 @@
       document.getElementById('grupoNome').value = grupo.nome;
       document.getElementById('grupoDescricao').value = grupo.descricao || '';
       document.getElementById('grupoPalavras').value = grupo.palavras ? grupo.palavras.join(', ') : '';
+      let ufsGrupo = [];
+      try { ufsGrupo = JSON.parse(grupo.ufs || '[]'); } catch (e) {}
+      document.getElementById('grupoUfs').value = Array.isArray(ufsGrupo) ? ufsGrupo.join(', ') : '';
+      document.getElementById('grupoUfsContainer').hidden = isExclusao;
+      let munsGrupo = [];
+      try { munsGrupo = JSON.parse(grupo.municipios || '[]'); } catch (e) {}
+      document.getElementById('grupoMunicipios').value = Array.isArray(munsGrupo) ? munsGrupo.join(', ') : '';
+      document.getElementById('grupoMunicipiosContainer').hidden = isExclusao;
 
       // Selecionar cor
       document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
@@ -436,13 +460,26 @@
         gruposExclusaoIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
       }
 
+      const ufs = document.getElementById('grupoUfs').value
+        .split(/[,\s]+/)
+        .map(u => u.trim().toUpperCase())
+        .filter(u => /^[A-Z]{2}$/.test(u));
+
+      // Municípios: separa SÓ por vírgula (nomes têm espaço)
+      const municipios = document.getElementById('grupoMunicipios').value
+        .split(',')
+        .map(m => m.trim())
+        .filter(m => m.length > 0);
+
       const dados = {
         nome,
         descricao,
         cor: corSelecionada,
         palavras,
         tipo,
-        gruposExclusaoIds
+        gruposExclusaoIds,
+        ufs,
+        municipios
       };
 
       try {

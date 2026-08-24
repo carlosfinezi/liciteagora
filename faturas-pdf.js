@@ -40,15 +40,26 @@ const MEIO_PAGAMENTO_LABEL = {
 };
 
 function gerar(stream, fatura, emitente) {
-  const doc = new PDFDocument({ size: 'A4', margin: 40 });
+  // bufferPages permite voltar em todas as páginas no fim (marca d'água de cancelada)
+  const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
   doc.pipe(stream);
 
   const pageW = doc.page.width - 80; // área útil
   let y = 40;
 
   // CABEÇALHO
+  // Logo do emitente (fornecedor.logoBase64 — data URI ou base64 puro). Best-effort:
+  // logo inválido não pode bloquear a geração do PDF.
+  let tituloX = 40;
+  if (emitente.logoBase64) {
+    try {
+      const b64 = String(emitente.logoBase64).replace(/^data:image\/[a-z.+-]+;base64,/i, '');
+      doc.image(Buffer.from(b64, 'base64'), 40, y - 4, { fit: [100, 40] });
+      tituloX = 150;
+    } catch { /* segue sem logo */ }
+  }
   doc.font('Helvetica-Bold').fontSize(18).fillColor('#1971c2')
-     .text('FATURA COMERCIAL', 40, y, { width: pageW, align: 'left' });
+     .text('FATURA COMERCIAL', tituloX, y, { width: pageW - (tituloX - 40), align: 'left' });
   doc.font('Helvetica-Bold').fontSize(14).fillColor('#000')
      .text(fatura.numero, 40, y, { width: pageW, align: 'right' });
   y += 24;
@@ -176,8 +187,27 @@ function gerar(stream, fatura, emitente) {
   // Rodapé "SEM VALOR FISCAL"
   const footerY = doc.page.height - 50;
   doc.rect(40, footerY, pageW, 18).fill('#ffa94d').stroke();
+  // O texto em height-45 invade a margem inferior (40pt) e o pdfkit abriria uma página
+  // nova automática só para esta linha — zera a margem durante o rodapé.
+  const mbFooter = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
   doc.fillColor('#000').font('Helvetica-Bold').fontSize(10)
      .text('DOCUMENTO SEM VALOR FISCAL', 40, footerY + 5, { width: pageW, align: 'center' });
+  doc.page.margins.bottom = mbFooter;
+
+  // Marca d'água diagonal em todas as páginas quando cancelada (comercial ou NF-e na SEFAZ)
+  if (fatura.status === 'cancelada' || fatura.statusSefaz === 'cancelada_sefaz') {
+    const range = doc.bufferedPageRange();
+    for (let i = range.start; i < range.start + range.count; i++) {
+      doc.switchToPage(i);
+      doc.save();
+      doc.rotate(-45, { origin: [doc.page.width / 2, doc.page.height / 2] });
+      doc.font('Helvetica-Bold').fontSize(110).fillColor('#e03131').fillOpacity(0.3);
+      const wmW = doc.widthOfString('CANCELADA');
+      doc.text('CANCELADA', (doc.page.width - wmW) / 2, doc.page.height / 2 - 55, { lineBreak: false });
+      doc.restore();
+    }
+  }
 
   doc.end();
 }

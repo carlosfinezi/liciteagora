@@ -207,6 +207,31 @@ function createTenantMiddleware({
   };
 }
 
+/**
+ * Recupera o contexto do tenant depois de um middleware que o perde.
+ *
+ * O AsyncLocalStorage nao atravessa callbacks disparados por evento de stream:
+ * o multer le o corpo do request com busboy, e os callbacks dele rodam no
+ * contexto de quando o socket nasceu — antes do tenantStorage.run(). Resultado:
+ * o proxy do db estoura "currentDb() chamado fora de contexto de tenant" e o
+ * upload devolve 400 sem explicar nada.
+ *
+ * O middleware do tenant ja deixou req.tenant e req.tenantDb gravados de forma
+ * sincrona, entao da para reentrar a partir dai.
+ *
+ * Uso: app.post('/rota', upload.single('x'), reentrarContextoTenant, handler)
+ */
+function reentrarContextoTenant(req, res, next) {
+  if (tenantStorage.getStore()) return next();          // nada se perdeu
+  if (req.tenantDb && req.tenant) {
+    return tenantStorage.run({ kind: 'tenant', tenant: req.tenant, db: req.tenantDb }, next);
+  }
+  if (req.tenantCtx && (req.tenantCtx.kind === 'apex' || req.tenantCtx.kind === 'admin')) {
+    return tenantStorage.run({ kind: req.tenantCtx.kind, tenant: null, db: null }, next);
+  }
+  return next();   // sem tenant na requisicao: quem chamar o db vai falhar com a msg de sempre
+}
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -220,6 +245,7 @@ module.exports = {
   getStore,
   currentTenant,
   currentDb,
+  reentrarContextoTenant,
   createDbProxy,
   createTenantMiddleware,
   runInBootContext,

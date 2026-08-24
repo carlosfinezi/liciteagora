@@ -118,6 +118,9 @@
       <input type="text" id="nPessoaBusca" placeholder="CPF/CNPJ ou nome..." oninput="debouncePessoa()">
       <div id="nPessoaList" class="pessoa-result"></div>
       <div id="nPessoaSel" class="pessoa-sel"></div>
+      <!-- Vencimento e parcelas abaixo já vêm preenchidos pela política do
+           cliente; o chip diz qual é e leva até ela. -->
+      <div id="nPolitica" style="margin-top:6px;display:none;"></div>
     </div>
     <div class="row-2">
       <div class="row">
@@ -199,7 +202,7 @@
     <div class="row">
       <label>Valor total recebido (R$) *</label>
       <input type="number" id="lValorTotal" step="0.01" min="0.01" oninput="atualizarPreviaLote()">
-      <small style="color:var(--text-3);" id="lDistribHint">Distribuição FIFO: contas mais antigas primeiro. Juros/multa configurados em <a href="/financeiro/cobrancas-config.html" target="_blank">Cobranças</a>.</small>
+      <small style="color:var(--text-3);" id="lDistribHint">Distribuição FIFO: contas mais antigas primeiro. Juros/multa configurados em <a href="/cobranca/cobrancas-config.html" target="_blank">Cobranças</a>.</small>
     </div>
     <div class="row">
       <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
@@ -239,6 +242,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/politica-prazo.js"></script>
 <script>initSidebar('contas-a-receber');</script>
 <script>
 let tm; function debounce(fn){ clearTimeout(tm); tm = setTimeout(fn, 300); }
@@ -248,7 +252,7 @@ function hoje(){ const d = new Date(Date.now() - 3*60*60*1000); return d.toISOSt
 
 let CONTAS = [], CATEGORIAS = [], PLANO_CONTAS = [], CENTROS_CUSTO = [];
 // Config de juros/multa — carregada 1x no boot e reusada em cada render.
-// Fonte: /api/financeiro/config-juros (painel "Juros & Multa" em /financeiro/cobrancas-config.html)
+// Fonte: /api/financeiro/config-juros (painel "Juros & Multa" em /cobranca/cobrancas-config.html)
 let CFG_JUROS = { jurosMesPct: 0, multaAtrasoPct: 0, carenciaDias: 0, jurosModo: 'simples' };
 
 async function carregarConfigJuros() {
@@ -436,6 +440,28 @@ function atualizarBarraLote(){
 // ===== Modal Nova =====
 let PESSOA_SEL = null;
 let tmrP, TAB_ATIVA = 'unica';
+
+// A tela usa slug ('boleto', 'pix'); a whitelist do cliente vem em tPag SEFAZ.
+const SLUG_TPAG = { dinheiro:['01'], cheque:['02'], cartao:['03','04'], boleto:['15'], transferencia:['18'], pix:['17'] };
+
+// Esconde do select as formas que o cliente não aceita. `permitidos` null = todas.
+function filtrarFormasCR(selectId, permitidos){
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  for (const o of sel.options) {
+    const cods = SLUG_TPAG[o.value] || [];
+    const bloqueada = !!permitidos && cods.length > 0 && !cods.some(c => permitidos.includes(c));
+    o.hidden = bloqueada;
+    o.disabled = bloqueada;
+  }
+  if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = '';
+}
+
+// Condições de pagamento do cliente num fetch só: meios aceitos, prazo em dias
+// e a política que os define (ver /js/politica-prazo.js).
+async function condicoesDe(pessoaId){
+  return PoliticaPrazo.carregar({ pessoaId });
+}
 function debouncePessoa(){ clearTimeout(tmrP); tmrP = setTimeout(buscarPessoa, 250); }
 function selTab(t){
   TAB_ATIVA = t;
@@ -449,6 +475,7 @@ function abrirNova(){
   document.getElementById('nIntervalo').value = 1;
   document.getElementById('nCategoria').value = '';
   document.getElementById('nForma').value = '';
+  filtrarFormasCR('nForma', null);
   document.getElementById('nPlanoConta').value = '';
   document.getElementById('nCentroCusto').value = '';
   document.getElementById('nPessoaList').innerHTML = '';
@@ -466,15 +493,46 @@ async function buscarPessoa(){
     const r = await fetch('/api/pessoas?q=' + encodeURIComponent(q));
     const d = await r.json();
     const ps = d.pessoas || [];
-    if (!ps.length) { list.innerHTML = '<div class="item" style="color:var(--text-3);">Nenhum cliente — cadastre em /pessoas.html</div>'; return; }
+    if (!ps.length) { list.innerHTML = '<div class="item" style="color:var(--text-3);">Nenhum cliente — cadastre em <a href="/comercial/pessoas.html?categoria=cliente">Clientes &amp; Fornecedores</a></div>'; return; }
     list.innerHTML = ps.slice(0,20).map(p => `<div class="item" onclick="selecionarPessoa(${p.id}, ${JSON.stringify(p.razaoSocial||'').replace(/"/g,'&quot;')}, '${p.cpfCnpj}')"><strong>${p.razaoSocial}</strong> <span style="color:var(--text-3);">${p.cpfCnpj}</span></div>`).join('');
   } catch(e){ list.innerHTML = '<div class="item" style="color:var(--danger);">Erro: '+e.message+'</div>'; }
 }
-function selecionarPessoa(id, nome, cpfCnpj){
+async function selecionarPessoa(id, nome, cpfCnpj){
   PESSOA_SEL = { id, nome, cpfCnpj };
   document.getElementById('nPessoaList').innerHTML = '';
   document.getElementById('nPessoaBusca').value = nome;
   document.getElementById('nPessoaSel').textContent = `✓ ${nome} (${cpfCnpj})`;
+  const { permitidos, prazo, politica } = await PoliticaPrazo.carregar({ pessoaId: id, semCache: true });
+  filtrarFormasCR('nForma', permitidos);
+  aplicarPrazoDoCliente(prazo);
+  const box = document.getElementById('nPolitica');
+  const html = PoliticaPrazo.avisoHTML({ permitidos, prazo, politica }, ROTULOS_MEIO_CR);
+  box.innerHTML = html;
+  box.style.display = html ? 'block' : 'none';
+}
+
+// A tela de CR fala em slug ('boleto', 'pix'); o chip da política fala em tPag.
+const ROTULOS_MEIO_CR = {
+  '01': 'Dinheiro', '02': 'Cheque', '03': 'Cartão de crédito', '04': 'Cartão de débito',
+  '15': 'Boleto', '16': 'Depósito', '17': 'PIX', '18': 'Transferência', '19': 'Carteira digital',
+};
+
+// Prazo do cadastro do cliente ("30/60/90") preenche vencimento e parcelas do
+// lançamento. É sugestão — o operador sobrescreve à vontade.
+function aplicarPrazoDoCliente(dias){
+  if (!dias || !dias.length) return;
+  const base = new Date(hoje() + 'T12:00:00');
+  const venc = (n) => { const d = new Date(base); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); };
+  document.getElementById('nVenc').value = venc(dias[0]);
+  document.getElementById('nVenc1').value = venc(dias[0]);
+  // O número de parcelas segue a política inclusive quando ela é de parcela
+  // única: deixar o default 3 nesse caso contradizia o que a tela acabara de
+  // anunciar no chip.
+  document.getElementById('nParcelas').value = dias.length;
+  if (dias.length > 1) {
+    // O modal parcela por intervalo em meses; com prazo mensal o passo bate.
+    document.getElementById('nIntervalo').value = Math.max(1, Math.round((dias[1] - dias[0]) / 30));
+  }
 }
 
 async function salvarNova(){
@@ -534,6 +592,11 @@ async function abrirLote(){
     `<strong>${n} conta(s)</strong> · total devido <strong style="color:var(--accent);">R$ ${fmt(totalDevido)}</strong>${breakdown}`;
   document.getElementById('lData').value = hoje();
   document.getElementById('lForma').value = '';
+  // A forma vale para o lote inteiro: só sobra o que TODOS os clientes aceitam
+  // (cliente sem whitelist aceita qualquer uma e não restringe nada).
+  const pessoas = [...new Set(lista.map(c => c.pessoaId).filter(Boolean))];
+  const listas = (await Promise.all(pessoas.map(p => condicoesDe(p).then(c => c.permitidos)))).filter(Boolean);
+  filtrarFormasCR('lForma', listas.length ? listas.reduce((a, b) => a.filter(c => b.includes(c))) : null);
   document.getElementById('lValorTotal').value = totalDevido.toFixed(2);
   try {
     const r = await fetch('/api/contas-financeiras');

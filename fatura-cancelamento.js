@@ -10,6 +10,11 @@
 //   - nfe-emit-routes.js → POST /api/faturas/:id/cancelar-nfe (cancelamento fiscal)
 //
 // `fatura` precisa conter: id, contaReceberId, numero, pedidoId.
+
+// Depósito da movimentação: o estorno tem de voltar para o mesmo depósito
+// de onde a mercadoria saiu, não para o padrão.
+const { resolverDeposito } = require('./estoque-routes');
+
 function cancelarFaturaLocal(db, fatura, username) {
   const tx = db.transaction(() => {
     db.prepare(`UPDATE faturas SET status = 'cancelada', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(fatura.id);
@@ -45,10 +50,12 @@ function cancelarFaturaLocal(db, fatura, username) {
 
     const saidas = db.prepare(`SELECT * FROM movimentacoes_estoque WHERE origem = 'pedido' AND origemId = ? AND tipo = 'saida'`).all(fatura.pedidoId);
     for (const s of saidas) {
-      db.prepare(`INSERT INTO movimentacoes_estoque (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data)
-        VALUES (?, 'entrada', ?, ?, 'estorno_pedido', ?, ?, ?)`).run(
+      db.prepare(`INSERT INTO movimentacoes_estoque (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, depositoId)
+        VALUES (?, 'entrada', ?, ?, 'estorno_pedido', ?, ?, ?, ?)`).run(
         s.produtoId, s.quantidade, s.custoUnitario || 0, fatura.pedidoId,
-        `Estorno cancelamento fatura ${fatura.numero}`, hoje
+        `Estorno cancelamento fatura ${fatura.numero}`, hoje,
+        // Volta para o mesmo depósito da saída que está sendo desfeita.
+        resolverDeposito(db, { movOriginalId: s.id })
       );
     }
 

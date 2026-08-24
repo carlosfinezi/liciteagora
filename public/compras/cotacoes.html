@@ -5,6 +5,31 @@
 <title>Cotações de Compra · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  #tabComparativo td.cel-forn { text-align: right; vertical-align: top; padding: 6px 8px; }
+  #tabComparativo td.cel-forn.menor .preco { color: var(--primary); font-weight: 700; }
+  #tabComparativo td.cel-forn.alocado { background: color-mix(in srgb, var(--success) 12%, transparent); }
+  #tabComparativo td.cel-forn.esgotado { opacity: 0.55; }
+  .qtd-rateio {
+    width: 82px; text-align: right; padding: 3px 6px; font-size: 0.9em;
+    margin-top: 4px; border: 1px solid var(--border); border-radius: var(--r-sm);
+    background: var(--bg-1); color: var(--text-1);
+  }
+  .qtd-rateio.cheio { border-color: var(--success); }
+  .cel-info { font-size: 0.78em; color: var(--text-2); display: block; margin-top: 2px; }
+  .cobertura { font-size: 0.82em; white-space: nowrap; }
+  .cobertura.ok { color: var(--success); }
+  .cobertura.parcial { color: var(--warn); }
+  .cobertura.vazia { color: var(--text-3); }
+  .cobertura.excesso { color: var(--danger); font-weight: 600; }
+  .resumo-forn { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+  .resumo-forn .cartao {
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 8px 12px; font-size: 0.85em; min-width: 150px;
+  }
+  .resumo-forn .cartao strong { display: block; }
+  .resumo-forn .cartao .val { font-size: 1.15em; font-weight: 600; color: var(--text-1); }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
@@ -31,14 +56,14 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="cotacoes">
     <table>
       <thead><tr>
-        <th>Número</th><th>Descrição</th><th>Prazo</th>
+        <th class="col-editar"></th><th>Número</th><th>Descrição</th><th>Prazo</th>
         <th style="text-align:right;">Itens</th><th style="text-align:right;">Respostas</th>
         <th>Status</th><th></th>
       </tr></thead>
-      <tbody id="tbCot"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tbCot"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 
@@ -51,10 +76,13 @@
       <strong>Links para os fornecedores</strong> (copie e envie por e-mail/WhatsApp):
       <div id="linksLista" style="margin-top:6px;font-size:0.88em;"></div>
     </div>
+    <div id="avisoCobertura"></div>
+    <div class="resumo-forn" id="resumoForn"></div>
     <div class="tbl-wrap">
       <table id="tabComparativo"><thead id="cmpHead"></thead><tbody id="cmpBody"></tbody></table>
     </div>
-    <small class="muted">Menor preço de cada item destacado. Clique no preço para escolher o vencedor do item; depois use "Gerar pedidos".</small>
+    <small class="muted">Menor preço de cada item em destaque. Clique no preço para dar o item inteiro ao fornecedor,
+      ou digite a quantidade para dividir o item entre vários. O rateio fica salvo — dá para voltar depois.</small>
   </div>
 </main></div>
 
@@ -91,6 +119,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('compras-cotacoes');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
@@ -105,13 +135,19 @@ const STATUS_BADGE = {
   cancelada:'<span class="badge cancelado">CANCELADA</span>'
 };
 
-let produtosCache = null, cotAtual = null, escolhas = {}; // cotacaoItemId -> cotacaoFornecedorId
+let produtosCache = null, cotAtual = null;
+// rateio[cotacaoItemId][cotacaoFornecedorId] = quantidade.
+// Antes era escolhas[itemId] = fornecedorId: um item só podia ter um dono, e
+// a divisão vivia na memória do navegador — recarregar a página perdia tudo.
+let rateio = {};
+let salvarTimer = null;
 
 async function carregar(){
   const st = document.getElementById('filtStatus').value;
   const r = await fetch('/api/cotacoes' + (st?'?status='+st:'')); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
   document.getElementById('tbCot').innerHTML = d.cotacoes.length ? d.cotacoes.map(c=>`<tr>
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir cotação" onclick="verDetalhe(${c.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td><strong>${c.numero}</strong></td>
     <td>${c.descricao||'-'}</td>
     <td>${c.dataLimite||'-'}</td>
@@ -119,11 +155,10 @@ async function carregar(){
     <td style="text-align:right;">${c.qtdRespostas}/${c.qtdFornecedores}</td>
     <td>${STATUS_BADGE[c.status]||c.status}</td>
     <td style="white-space:nowrap;">
-      <button class="btn btn-ghost btn-sm" onclick="verDetalhe(${c.id})">Abrir</button>
       ${c.status==='rascunho' ? `<button class="btn btn-primary btn-sm" onclick="enviar(${c.id})">Enviar</button>` : ''}
       ${['rascunho','enviada','em_resposta'].includes(c.status) ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelar(${c.id})">Cancelar</button>` : ''}
     </td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma cotação</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma cotação</td></tr>';
 }
 
 async function enviar(id){
@@ -142,13 +177,19 @@ async function cancelar(id){
 async function verDetalhe(id){
   const r = await fetch('/api/cotacoes/'+id); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
-  if (!cotAtual || cotAtual.cotacao.id !== d.cotacao.id) escolhas = {};
   cotAtual = d;
+  rateio = {};
+  (d.rateios||[]).forEach(x => {
+    (rateio[x.cotacaoItemId] = rateio[x.cotacaoItemId] || {})[x.cotacaoFornecedorId] = x.quantidade;
+  });
+
   document.getElementById('detalheWrap').style.display='block';
   document.getElementById('detTitulo').textContent = `${d.cotacao.numero} — ${d.cotacao.descricao||''}`;
   document.getElementById('detSub').textContent = `Status: ${d.cotacao.status} · prazo ${d.cotacao.dataLimite||'—'}`;
   document.getElementById('detAcoes').innerHTML = ['enviada','em_resposta'].includes(d.cotacao.status)
-    ? '<button class="btn btn-primary btn-sm" onclick="gerarPedidos()">Gerar pedidos dos vencedores</button>' : '';
+    ? `<button class="btn btn-ghost btn-sm" onclick="sugerirRateio()">Sugerir divisão</button>
+       <button class="btn btn-ghost btn-sm" onclick="limparRateio()">Limpar</button>
+       <button class="btn btn-primary btn-sm" onclick="gerarPedidos()">Gerar pedidos</button>` : '';
 
   // links públicos
   const comToken = d.fornecedores.filter(f=>f.tokenPublico);
@@ -160,47 +201,216 @@ async function verDetalhe(id){
       <small class="muted">(${f.status}${f.dataResposta?' em '+f.dataResposta:''})</small></div>`;
   }).join('');
 
-  // comparativo item × fornecedor
-  const mapResp = {};
-  d.respostas.forEach(rr => { mapResp[rr.cotacaoItemId + ':' + rr.cotacaoFornecedorId] = rr; });
-  document.getElementById('cmpHead').innerHTML = '<tr><th>Item</th><th style="text-align:right;">Qtd</th>' +
-    d.fornecedores.map(f=>`<th style="text-align:right;">${f.razaoSocial}</th>`).join('') + '</tr>';
-  document.getElementById('cmpBody').innerHTML = d.itens.map(it=>{
-    const precos = d.fornecedores.map(f => (mapResp[it.id+':'+f.id]||{}).precoUnitario).filter(p=>p>0);
-    const menor = precos.length ? Math.min(...precos) : null;
-    const cels = d.fornecedores.map(f=>{
-      const rr = mapResp[it.id+':'+f.id];
-      if (!rr || !(rr.precoUnitario>0)) return '<td style="text-align:right;color:var(--text-3);">—</td>';
-      const ehMenor = rr.precoUnitario === menor;
-      const escolhido = escolhas[it.id] === f.id;
-      const extra = [rr.marcaOferecida, rr.prazoEntregaDias!=null?rr.prazoEntregaDias+'d':null].filter(Boolean).join(' · ');
-      return `<td style="text-align:right;">
-        <a href="#" onclick="escolher(${it.id},${f.id});return false;"
-           style="font-weight:${ehMenor?'700':'400'};color:${escolhido?'var(--success)':(ehMenor?'var(--primary)':'inherit')};text-decoration:none;">
-          ${escolhido?'✔ ':''}R$ ${fmt(rr.precoUnitario)}</a>
-        ${extra?`<br><small class="muted">${extra}</small>`:''}</td>`;
-    }).join('');
-    return `<tr><td>${it.sku?it.sku+' — ':''}${it.descricao}</td><td style="text-align:right;">${fmt(it.quantidade)} ${it.unidade||''}</td>${cels}</tr>`;
-  }).join('');
+  renderComparativo();
 }
 
-function escolher(itemId, fornecedorCfId){
-  escolhas[itemId] = escolhas[itemId] === fornecedorCfId ? undefined : fornecedorCfId;
-  if (escolhas[itemId] === undefined) delete escolhas[itemId];
-  verDetalheRender();
+function respostaDe(itemId, cfId){
+  return (cotAtual.respostas||[]).find(r => r.cotacaoItemId===itemId && r.cotacaoFornecedorId===cfId);
 }
-function verDetalheRender(){ if (cotAtual) verDetalhe(cotAtual.cotacao.id); }
+
+// Quanto o fornecedor disse que tem. Branco = atende tudo (mesma regra do backend).
+function disponivelDe(resp, item){
+  if (!resp || resp.quantidadeDisponivel == null) return item.quantidade;
+  return Math.max(0, Math.min(Number(resp.quantidadeDisponivel), item.quantidade));
+}
+
+function alocadoNoItem(itemId){
+  return Object.values(rateio[itemId]||{}).reduce((s,q)=>s+(Number(q)||0),0);
+}
+
+function renderComparativo(){
+  const d = cotAtual;
+  const editavel = ['enviada','em_resposta'].includes(d.cotacao.status);
+
+  document.getElementById('cmpHead').innerHTML =
+    '<tr><th>Item</th><th style="text-align:right;">Necessidade</th><th>Cobertura</th>' +
+    d.fornecedores.map(f=>`<th style="text-align:right;">${f.razaoSocial}</th>`).join('') + '</tr>';
+
+  document.getElementById('cmpBody').innerHTML = d.itens.map(it=>{
+    const precos = d.fornecedores.map(f => (respostaDe(it.id,f.id)||{}).precoUnitario).filter(p=>p>0);
+    const menor = precos.length ? Math.min(...precos) : null;
+    const aloc = alocadoNoItem(it.id);
+    const falta = it.quantidade - aloc;
+
+    let clsCob = 'vazia', txtCob = 'sem rateio';
+    if (aloc > it.quantidade + 1e-9) { clsCob='excesso'; txtCob = `${fmt(aloc)} de ${fmt(it.quantidade)} — passou`; }
+    else if (Math.abs(falta) < 1e-9) { clsCob='ok'; txtCob = `${fmt(aloc)} / ${fmt(it.quantidade)} completo`; }
+    else if (aloc > 0) { clsCob='parcial'; txtCob = `${fmt(aloc)} / ${fmt(it.quantidade)} — faltam ${fmt(falta)}`; }
+
+    const cels = d.fornecedores.map(f=>{
+      const rr = respostaDe(it.id, f.id);
+      if (!rr || !(rr.precoUnitario>0)) return '<td class="cel-forn" style="color:var(--text-3);">—</td>';
+      const disp = disponivelDe(rr, it);
+      const q = Number((rateio[it.id]||{})[f.id]) || 0;
+      const classes = ['cel-forn'];
+      if (rr.precoUnitario === menor) classes.push('menor');
+      if (q > 0) classes.push('alocado');
+      if (disp <= 0) classes.push('esgotado');
+      const extra = [rr.marcaOferecida, rr.prazoEntregaDias!=null?rr.prazoEntregaDias+'d':null].filter(Boolean).join(' · ');
+      // Só avisa da disponibilidade quando ela limita algo — repetir "tem 100"
+      // em toda célula seria ruído.
+      const avisoDisp = disp < it.quantidade
+        ? `<span class="cel-info" style="color:var(--warn);">tem ${fmt(disp)}${disp<=0?' (não atende)':''}</span>` : '';
+      return `<td class="${classes.join(' ')}">
+        <a href="#" class="preco" onclick="darItemInteiro(${it.id},${f.id});return false;"
+           title="Clique para dar a quantidade que falta a este fornecedor"
+           style="text-decoration:none;color:inherit;">R$ ${fmt(rr.precoUnitario)}</a>
+        ${extra?`<span class="cel-info">${extra}</span>`:''}
+        ${avisoDisp}
+        ${editavel ? `<br><input type="number" class="qtd-rateio ${q>0&&Math.abs(q-it.quantidade)<1e-9?'cheio':''}"
+             min="0" max="${disp}" step="any" placeholder="0"
+             value="${q||''}" onchange="setQtd(${it.id},${f.id},this.value)">` :
+           (q>0?`<span class="cel-info"><strong>${fmt(q)} ${it.unidade||''}</strong></span>`:'')}
+      </td>`;
+    }).join('');
+
+    return `<tr>
+      <td>${it.sku?it.sku+' — ':''}${it.descricao}</td>
+      <td style="text-align:right;">${fmt(it.quantidade)} ${it.unidade||''}</td>
+      <td><span class="cobertura ${clsCob}">${txtCob}</span></td>
+      ${cels}</tr>`;
+  }).join('');
+
+  renderResumo();
+}
+
+// Total por fornecedor: sem isso o comprador fecha a divisão sem saber quanto
+// vai gastar com cada um nem se o pedido compensa o frete.
+function renderResumo(){
+  const d = cotAtual;
+  const porForn = new Map();
+  let totalGeral = 0, itensCobertos = 0, itensParciais = 0, itensVazios = 0;
+
+  for (const it of d.itens) {
+    const aloc = alocadoNoItem(it.id);
+    if (aloc <= 1e-9) itensVazios++;
+    else if (aloc < it.quantidade - 1e-9) itensParciais++;
+    else itensCobertos++;
+    for (const [cfId, q] of Object.entries(rateio[it.id]||{})) {
+      const rr = respostaDe(it.id, Number(cfId));
+      if (!rr) continue;
+      const v = (Number(q)||0) * rr.precoUnitario;
+      const cur = porForn.get(Number(cfId)) || { valor: 0, itens: 0 };
+      cur.valor += v; cur.itens++;
+      porForn.set(Number(cfId), cur);
+      totalGeral += v;
+    }
+  }
+
+  const cartoes = [...porForn.entries()].sort((a,b)=>b[1].valor-a[1].valor).map(([cfId, x])=>{
+    const f = d.fornecedores.find(y=>y.id===cfId);
+    return `<div class="cartao"><strong>${f?f.razaoSocial:'?'}</strong>
+      <span class="val">R$ ${fmt(x.valor)}</span>
+      <small class="muted">${x.itens} item(ns)</small></div>`;
+  }).join('');
+
+  document.getElementById('resumoForn').innerHTML = cartoes
+    ? cartoes + `<div class="cartao" style="border-color:var(--primary);"><strong>Total do rateio</strong>
+        <span class="val">R$ ${fmt(totalGeral)}</span>
+        <small class="muted">${porForn.size} fornecedor(es)</small></div>` : '';
+
+  const av = document.getElementById('avisoCobertura');
+  if (itensParciais || itensVazios) {
+    const partes = [];
+    if (itensVazios) partes.push(`${itensVazios} item(ns) sem nenhum fornecedor definido`);
+    if (itensParciais) partes.push(`${itensParciais} item(ns) cobertos só em parte`);
+    av.innerHTML = `<div class="alert warn" style="display:block;">${partes.join(' e ')}.
+      Dá para gerar os pedidos assim mesmo — o que ficar de fora simplesmente não é comprado agora.</div>`;
+  } else av.innerHTML = '';
+}
+
+// Clique no preço: entrega o que ainda falta do item a este fornecedor,
+// limitado ao que ele tem. Clicar de novo zera a linha dele.
+function darItemInteiro(itemId, cfId){
+  const it = cotAtual.itens.find(x=>x.id===itemId);
+  const atual = Number((rateio[itemId]||{})[cfId]) || 0;
+  if (atual > 0) return setQtd(itemId, cfId, 0);
+  const disp = disponivelDe(respostaDe(itemId, cfId), it);
+  const falta = it.quantidade - alocadoNoItem(itemId);
+  const q = Math.min(Math.max(falta, 0), disp);
+  if (q <= 0) return showAlert(falta<=0 ? 'Item já está totalmente rateado' : 'Este fornecedor não tem saldo para o item','error');
+  setQtd(itemId, cfId, q);
+}
+
+function setQtd(itemId, cfId, valor){
+  const it = cotAtual.itens.find(x=>x.id===itemId);
+  let q = Number(valor) || 0;
+  const disp = disponivelDe(respostaDe(itemId, cfId), it);
+  if (q > disp + 1e-9) { q = disp; showAlert(`Ajustado para ${fmt(disp)} — é o que o fornecedor declarou ter`,'warn'); }
+  const outros = alocadoNoItem(itemId) - (Number((rateio[itemId]||{})[cfId]) || 0);
+  if (q + outros > it.quantidade + 1e-9) {
+    q = Math.max(0, it.quantidade - outros);
+    showAlert(`Ajustado para ${fmt(q)} — o item precisa de ${fmt(it.quantidade)}`,'warn');
+  }
+  rateio[itemId] = rateio[itemId] || {};
+  if (q > 0) rateio[itemId][cfId] = q; else delete rateio[itemId][cfId];
+  if (!Object.keys(rateio[itemId]).length) delete rateio[itemId];
+  renderComparativo();
+  agendarSalvar();
+}
+
+function linhasRateio(){
+  const out = [];
+  for (const [itemId, porF] of Object.entries(rateio))
+    for (const [cfId, q] of Object.entries(porF))
+      out.push({ cotacaoItemId: Number(itemId), cotacaoFornecedorId: Number(cfId), quantidade: Number(q) });
+  return out;
+}
+
+// Salva sozinho: a divisão é trabalhosa e perder por engano é inaceitável.
+function agendarSalvar(){
+  clearTimeout(salvarTimer);
+  salvarTimer = setTimeout(salvarRateio, 700);
+}
+
+async function salvarRateio(){
+  if (!cotAtual || !['enviada','em_resposta'].includes(cotAtual.cotacao.status)) return;
+  const r = await fetch(`/api/cotacoes/${cotAtual.cotacao.id}/rateio`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ rateios: linhasRateio() })
+  });
+  const d = await r.json();
+  if (!d.success) showAlert('Rateio não foi salvo: ' + d.error, 'error');
+}
+
+async function sugerirRateio(){
+  const r = await fetch(`/api/cotacoes/${cotAtual.cotacao.id}/sugerir-rateio`);
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  if (!d.rateios.length) return showAlert('Nenhuma resposta com preço para sugerir divisão','error');
+  rateio = {};
+  d.rateios.forEach(x => { (rateio[x.cotacaoItemId] = rateio[x.cotacaoItemId]||{})[x.cotacaoFornecedorId] = x.quantidade; });
+  renderComparativo();
+  await salvarRateio();
+  const desc = d.descobertos.length
+    ? ` — ${d.descobertos.length} item(ns) sem fornecedor suficiente: ${d.descobertos.map(x=>x.descricao).join(', ')}`
+    : '';
+  showAlert(`Divisão sugerida pelo menor preço${desc}`, d.descobertos.length ? 'warn' : 'success');
+}
+
+async function limparRateio(){
+  if (!confirm('Apagar a divisão inteira desta cotação?')) return;
+  rateio = {};
+  renderComparativo();
+  await salvarRateio();
+  showAlert('Rateio limpo');
+}
 
 async function gerarPedidos(){
-  const lista = Object.entries(escolhas).map(([itemId, cfId]) => ({ cotacaoItemId: Number(itemId), cotacaoFornecedorId: cfId }));
-  if (!lista.length) return showAlert('Escolha o vencedor de ao menos 1 item (clique no preço)','error');
+  const lista = linhasRateio();
+  if (!lista.length) return showAlert('Defina quem fornece o quê antes de gerar os pedidos','error');
+  clearTimeout(salvarTimer);
+  await salvarRateio();
   const r = await fetch(`/api/cotacoes/${cotAtual.cotacao.id}/concluir`, {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ escolhas: lista })
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rateios: lista })
   });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
-  const aviso = d.itensSemProduto?.length ? ` (${d.itensSemProduto.length} item(ns) sem produto ignorado(s))` : '';
-  showAlert(`${d.pedidos.length} pedido(s) de compra gerado(s): ${d.pedidos.map(p=>p.numero).join(', ')}${aviso}`);
+  const avisos = [];
+  if (d.itensSemProduto?.length) avisos.push(`${d.itensSemProduto.length} item(ns) sem produto vinculado ficaram de fora`);
+  if (d.itensParciais?.length) avisos.push(`${d.itensParciais.length} item(ns) comprados só em parte`);
+  showAlert(`${d.pedidos.length} pedido(s) de compra gerado(s): ${d.pedidos.map(p=>p.numero).join(', ')}`
+    + (avisos.length ? ` — ${avisos.join('; ')}` : ''), avisos.length ? 'warn' : 'success');
   carregar(); verDetalhe(cotAtual.cotacao.id);
 }
 

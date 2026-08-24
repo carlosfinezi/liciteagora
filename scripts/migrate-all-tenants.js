@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // migrate-all-tenants.js — aplica db-schema.js (CREATE IF NOT EXISTS,
-// ALTER idempotente, seeds) em TODOS os tenants ACTIVE/TRIAL.
+// ALTER idempotente, seeds) em TODOS os tenants, inclusive SUSPENDED:
+// applyRouteMigrations so roda na criacao do tenant
+// (control-plane-routes.js:402), entao um tenant suspenso que volte a ativo
+// estaria sem todas as migracoes do periodo em que ficou fora.
 //
-// Uso: node scripts/migrate-all-tenants.js
+// Uso: node scripts/migrate-all-tenants.js [--only=slug1,slug2]
+//   --only  restringe a tenants especificos — util para alcancar os suspensos
+//           sem tocar em quem esta no ar
 //
 // Precisa ser rodado sempre que:
 //   - Nova tabela adicionada em db-schema.js
@@ -24,11 +29,21 @@ function log(msg) { console.log(`[migrate-all] ${msg}`); }
 
 async function main() {
   const mgr = createTenantManager({ initSchema });
-  const tenants = mgr.listActive();
-  log(`tenants ativos: ${tenants.length}`);
+  // listAll, nao listActive: applyRouteMigrations so roda na CRIACAO do
+  // tenant (control-plane-routes.js:402). Tenant suspenso que voltar a ativo
+  // nao reaplica migracao nenhuma e ficaria sem as colunas novas.
+  const filtro = (process.argv.find(x => x.startsWith('--only=')) || '')
+    .replace('--only=', '').split(',').map(x => x.trim()).filter(Boolean);
+  let tenants = mgr.listAll();
+  if (filtro.length) {
+    const faltando = filtro.filter(f => !tenants.some(t => t.slug === f));
+    if (faltando.length) log(`AVISO: slug(s) inexistente(s): ${faltando.join(', ')}`);
+    tenants = tenants.filter(t => filtro.includes(t.slug));
+  }
+  log(`tenants: ${tenants.length}${filtro.length ? ' (filtrados por --only)' : ''}`);
 
   if (tenants.length === 0) {
-    log('nenhum tenant ativo — nada a fazer.');
+    log('nenhum tenant selecionado — nada a fazer.');
     return;
   }
 

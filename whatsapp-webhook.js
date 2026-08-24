@@ -15,6 +15,20 @@ const HIST_TURNS = 10;
 const PAUSE_MANUAL_S = 4 * 3600;
 const PROMPT_PADRAO = 'Você é o atendente virtual desta empresa no WhatsApp. Responda em português, de forma breve, cordial e objetiva. Se não souber algo, diga que vai encaminhar para um atendente humano. Nunca peça senha ou dado bancário.';
 
+// Devolve o jid pelo qual a conversa deve ser conhecida em todo o sistema.
+//
+// O WhatsApp migrou o endereçamento 1:1 para LID ('<numero>@lid') a partir de
+// 2026-05, e desde junho é quase todo o tráfego. O número real viaja em
+// key.remoteJidAlt. Sem normalizar aqui, o filtro '@s.whatsapp.net' lá embaixo
+// descartaria a mensagem, e o telefone que o autoResponder extrai do jid seria
+// o LID — a resposta sairia para um número que não existe.
+function jidCanonico(key) {
+  if (!key) return null;
+  const alt = key.remoteJidAlt;
+  if (typeof alt === 'string' && alt.endsWith('@s.whatsapp.net')) return alt;
+  return key.remoteJid || null;
+}
+
 function extractText(msg) {
   if (!msg) return null;
   return msg.conversation
@@ -77,15 +91,27 @@ async function autoResponder(tdb, instance, jid, incomingText) {
     if (c && !c.iaAtiva) return;
   } catch { /* tenant sem a central ainda */ }
 
-  const hist = tdb.prepare("SELECT from_me, texto FROM whatsapp_messages WHERE remote_jid = ? AND texto IS NOT NULL AND texto <> '' ORDER BY id DESC LIMIT ?").all(jid, HIST_TURNS).reverse();
   // Campanha do lead (pelo número) → system prompt via a MESMA função do simulador
   // (whatsapp-adapter.buildSystemAtendimento) — garante simulação idêntica ao real.
+  //
+  // Só conta destinatário que JÁ RECEBEU o disparo (enviado_em preenchido): a
+  // lista de uma campanha carrega dezenas de milhares de pendentes, e estar
+  // numa fila de envio não é ter sido abordado.
   let campanhaId = null;
   try {
     const num = jid.split('@')[0];
-    const d = tdb.prepare("SELECT campanha_id FROM wa_campanha_dest WHERE telefone = ? OR jid = ? ORDER BY id DESC LIMIT 1").get(num, jid);
+    const d = tdb.prepare(`SELECT campanha_id FROM wa_campanha_dest
+      WHERE (telefone = ? OR jid = ?) AND enviado_em IS NOT NULL
+      ORDER BY id DESC LIMIT 1`).get(num, jid);
     if (d) campanhaId = d.campanha_id;
-  } catch (_) {}
+  } catch (_) { /* tenant sem campanhas */ }
+
+  // Escopo do atendente: 'campanha' faz a IA responder só a quem ela mesma
+  // abordou. Quem chegou por fora (indicação, site, cliente antigo) fica para o
+  // humano — sem resposta automática nenhuma.
+  if (getConfigValue('whatsapp_ai_escopo') === 'campanha' && !campanhaId) return;
+
+  const hist = tdb.prepare("SELECT from_me, texto FROM whatsapp_messages WHERE remote_jid = ? AND texto IS NOT NULL AND texto <> '' ORDER BY id DESC LIMIT ?").all(jid, HIST_TURNS).reverse();
   const prompt = require('./whatsapp-adapter').buildSystemAtendimento(tdb, campanhaId);
   const messages = [{ role: 'system', content: prompt }, ...hist.map(m => ({ role: m.from_me ? 'assistant' : 'user', content: m.texto }))];
 
@@ -97,7 +123,14 @@ async function autoResponder(tdb, instance, jid, incomingText) {
 
   const r = await enviarWhatsApp(tdb, { telefone: jid.split('@')[0], texto: reply, ignorarRitmo: true });
   try {
-    tdb.prepare("INSERT OR IGNORE INTO whatsapp_messages (wa_message_id, instance, remote_jid, from_me, from_bot, texto, timestamp) VALUES (?, ?, ?, 1, 1, ?, ?)")
+    // A Evolution devolve esta mesma mensagem pelo webhook como eco, e lá ela
+    // entra com from_bot=0. Os dois caminhos disputam o mesmo wa_message_id:
+    // com INSERT OR IGNORE, quem chegasse primeiro venceria, e a resposta da
+    // IA nasceria sem marca — sem marca não há botão de corrigir na tela.
+    // O upsert faz a marca vencer sempre, tenha o eco chegado antes ou não.
+    tdb.prepare(`INSERT INTO whatsapp_messages (wa_message_id, instance, remote_jid, from_me, from_bot, texto, timestamp)
+      VALUES (?, ?, ?, 1, 1, ?, ?)
+      ON CONFLICT(wa_message_id) WHERE wa_message_id IS NOT NULL DO UPDATE SET from_bot = 1`)
       .run((r && r.providerMessageId) || null, instance, jid, reply, Math.floor(Date.now() / 1000));
   } catch (_) {}
 }
@@ -165,8 +198,12 @@ function registrarRotaWebhook(app, { tenantManager }) {
 
       const data = evt.data || {};
       const key = data.key || {};
-      const jid = key.remoteJid;
+      const jid = jidCanonico(key);
       if (!jid || jid === 'status@broadcast') return;
+      // Grupo não é atendimento: nada aqui embaixo o consome (a central, o
+      // histórico da IA e o anti-flood são todos por conversa 1:1) e gravar
+      // encheria a tabela — só esta instância tem 95 mil mensagens de grupo.
+      if (jid.endsWith('@g.us')) return;
       const texto = extractText(data.message);
 
       const info = tdb.prepare(
@@ -183,8 +220,11 @@ function registrarRotaWebhook(app, { tenantManager }) {
       // lê. Sem isto o inbox só enxergaria mensagem, nunca estado nem dono.
       if (info.changes > 0 && jid.endsWith('@s.whatsapp.net')) {
         try {
+          // pushName de mensagem enviada é o do DONO da instância, não o do
+          // contato — passá-lo batizava a conversa com o nome de quem atende.
           require('./conversas-routes').registrarMensagem(tdb, {
-            jid, texto, deMim: !!key.fromMe, nome: data.pushName || null,
+            jid, texto, deMim: !!key.fromMe,
+            nome: key.fromMe ? null : (data.pushName || null),
           });
         } catch (e) { console.error('[whatsapp-webhook] conversa:', e.message); }
       }
@@ -202,4 +242,4 @@ function registrarRotaWebhook(app, { tenantManager }) {
   console.log('[WhatsApp] Webhook público registrado em /api/whatsapp/webhook');
 }
 
-module.exports = { registrarRotaWebhook, buildLeadReply, handleOptOut };
+module.exports = { registrarRotaWebhook, buildLeadReply, handleOptOut, jidCanonico };

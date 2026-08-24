@@ -10,10 +10,17 @@
  *   acumulada(hoje) = depreciacaoMensal × min(meses_em_uso, vidaUtilMeses)
  *   vr_contabil = max(valorAquisicao - acumulada, valorResidual)
  *
- * Não emite contabilização — fica na camada gerencial. CIAP é evolução.
+ * Contabilização em patrimonio-contabil.js: aquisição, depreciação mensal e
+ * baixa viram lançamento de partida dobrada. A depreciação é idempotente por
+ * competência, e o acumulado usado na baixa vem do razão — não da fórmula.
+ *
+ * CIAP (crédito de ICMS sobre o imobilizado em 48 parcelas) continua fora: o
+ * custo aqui inclui o ICMS, e separá-lo sem o controle do CIAP daria um número
+ * que não concilia com a nota.
  */
 
 const { logAction } = require('./audit-log');
+const ctb = require('./patrimonio-contabil');
 
 const TIPOS_MOV = ['aquisicao', 'baixa', 'transferencia', 'revalorizacao', 'manutencao'];
 
@@ -41,7 +48,7 @@ function migrarDB(db) {
       motivoBaixa TEXT,
       observacoes TEXT,
       dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (fornecedorId) REFERENCES fornecedores(id),
+      FOREIGN KEY (fornecedorId) REFERENCES pessoas(id),
       FOREIGN KEY (centroCustoId) REFERENCES centros_custo(id)
     );
     CREATE INDEX IF NOT EXISTS idx_pat_status ON patrimonio_bens(status);
@@ -76,10 +83,18 @@ function gerarCodigo(db) {
 }
 
 function calcularDepreciacao(bem, dataReferencia) {
-  if (bem.status !== 'ativo' || !bem.dataAquisicao) {
+  if (!bem.dataAquisicao) {
     return { mesesUso: 0, depreciacaoMensal: 0, depreciacaoAcumulada: 0, valorContabil: bem.valorAquisicao || 0 };
   }
-  const ref = dataReferencia ? new Date(dataReferencia) : new Date();
+  // Bem baixado congela na data da baixa — não volta a valer o preço de compra.
+  //
+  // Antes, qualquer status diferente de 'ativo' devolvia depreciação ZERO e
+  // valor contábil igual ao de aquisição: um notebook de R$ 6.000 comprado em
+  // 2024 e vendido aparecia na lista "Baixados" como 0% depreciado e R$ 6.000
+  // de valor contábil. O patrimônio dado como baixa inflava a lista inteira.
+  const ref = bem.status !== 'ativo' && bem.dataBaixa
+    ? new Date(bem.dataBaixa)
+    : (dataReferencia ? new Date(dataReferencia) : new Date());
   const aq = new Date(bem.dataAquisicao);
   const mesesUso = Math.max(0, (ref.getFullYear() - aq.getFullYear()) * 12 + (ref.getMonth() - aq.getMonth()));
   const base = (bem.valorAquisicao || 0) - (bem.valorResidual || 0);
@@ -95,6 +110,146 @@ function calcularDepreciacao(bem, dataReferencia) {
 
 function registrarRotasPatrimonio(app, db) {
   migrarDB(db);
+  ctb.migrarDB(db);
+
+  // ==================== CONTABILIZAÇÃO ====================
+
+  // Mapeamento categoria -> contas contábeis. Sem ele nada é contabilizado, e
+  // as rotas dizem isso em vez de lançar em conta arbitrária.
+  app.get('/api/patrimonio/contas', (req, res) => {
+    try {
+      const mapas = db.prepare(`
+        SELECT m.*, ci.codigo AS imobilizadoCodigo, ci.nome AS imobilizadoNome,
+               ca.codigo AS acumuladaCodigo, ca.nome AS acumuladaNome,
+               cd.codigo AS despesaCodigo, cd.nome AS despesaNome,
+               cr.codigo AS resultadoCodigo, cr.nome AS resultadoNome
+        FROM patrimonio_contas_padrao m
+        LEFT JOIN contas_contabeis ci ON ci.id = m.contaImobilizadoId
+        LEFT JOIN contas_contabeis ca ON ca.id = m.contaDepreciacaoAcumuladaId
+        LEFT JOIN contas_contabeis cd ON cd.id = m.contaDespesaDepreciacaoId
+        LEFT JOIN contas_contabeis cr ON cr.id = m.contaResultadoBaixaId
+        ORDER BY COALESCE(m.categoria, '')`).all();
+      const analiticas = db.prepare(
+        "SELECT id, codigo, nome, natureza FROM contas_contabeis WHERE ativo = 1 AND tipoConta = 'analitica' ORDER BY codigo").all();
+      res.json({ success: true, mapas, contasAnaliticas: analiticas });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/patrimonio/contas', (req, res) => {
+    try {
+      const b = req.body || {};
+      const obrigatorias = ['contaImobilizadoId', 'contaDepreciacaoAcumuladaId', 'contaDespesaDepreciacaoId'];
+      for (const c of obrigatorias) {
+        if (!b[c]) return res.status(400).json({ success: false, error: `${c} obrigatória` });
+      }
+      db.prepare(`INSERT INTO patrimonio_contas_padrao
+        (categoria, contaImobilizadoId, contaDepreciacaoAcumuladaId, contaDespesaDepreciacaoId, contaResultadoBaixaId, taxaAnualPadrao)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(COALESCE(categoria, '')) DO UPDATE SET
+          contaImobilizadoId = excluded.contaImobilizadoId,
+          contaDepreciacaoAcumuladaId = excluded.contaDepreciacaoAcumuladaId,
+          contaDespesaDepreciacaoId = excluded.contaDespesaDepreciacaoId,
+          contaResultadoBaixaId = excluded.contaResultadoBaixaId,
+          taxaAnualPadrao = excluded.taxaAnualPadrao,
+          dataAtualizacao = CURRENT_TIMESTAMP`).run(
+        (b.categoria || '').trim() || null,
+        Number(b.contaImobilizadoId), Number(b.contaDepreciacaoAcumuladaId),
+        Number(b.contaDespesaDepreciacaoId),
+        b.contaResultadoBaixaId ? Number(b.contaResultadoBaixaId) : null,
+        b.taxaAnualPadrao != null && b.taxaAnualPadrao !== '' ? Number(b.taxaAnualPadrao) : null);
+      logAction(db, req, 'configurar-contas', 'patrimonio', null, { categoria: b.categoria || '(padrão)' });
+      res.json({ success: true });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // Fechamento mensal. `simular=1` calcula sem gravar — depreciação é despesa
+  // dedutível, e conferir antes de lançar é o mínimo.
+  app.post('/api/patrimonio/depreciacao/apurar', (req, res) => {
+    try {
+      const competencia = req.body?.competencia || req.query.competencia;
+      const simular = req.body?.simular === true || req.query.simular === '1';
+      const r = ctb.apurarDepreciacao(db, competencia, { simular, usuario: req.user?.username || null });
+      if (!simular && r.lancamentoId) {
+        logAction(db, req, 'apurar-depreciacao', 'patrimonio', r.lancamentoId,
+          { competencia, bens: r.bens, total: r.total });
+      }
+      res.json({ success: true, ...r });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/patrimonio/depreciacao/:competencia/estornar', (req, res) => {
+    try {
+      const r = ctb.estornarDepreciacao(db, req.params.competencia, { usuario: req.user?.username || null });
+      if (!r.estornadas) return res.status(400).json({ success: false, error: 'Competência não tem depreciação apurada' });
+      logAction(db, req, 'estornar-depreciacao', 'patrimonio', r.lancamentoOriginalId, r);
+      res.json({ success: true, ...r });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  app.get('/api/patrimonio/depreciacao', (req, res) => {
+    try {
+      const { competencia, bemId } = req.query;
+      let sql = `SELECT d.*, b.codigo, b.descricao, b.categoria
+        FROM patrimonio_depreciacoes d JOIN patrimonio_bens b ON b.id = d.bemId WHERE 1=1`;
+      const p = [];
+      if (competencia) { sql += ' AND d.competencia = ?'; p.push(competencia); }
+      if (bemId) { sql += ' AND d.bemId = ?'; p.push(Number(bemId)); }
+      sql += ' ORDER BY d.competencia DESC, b.codigo LIMIT 2000';
+      const linhas = db.prepare(sql).all(...p);
+      res.json({ success: true, linhas,
+        total: Number(linhas.reduce((s, l) => s + l.valor, 0).toFixed(2)) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/patrimonio/bens/:id/contabilizar-aquisicao', (req, res) => {
+    try {
+      const r = ctb.contabilizarAquisicao(db, Number(req.params.id),
+        { ...req.body, usuario: req.user?.username || null });
+      logAction(db, req, 'contabilizar-aquisicao', 'patrimonio', req.params.id, r);
+      res.json({ success: true, ...r });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/patrimonio/bens/:id/contabilizar-baixa', (req, res) => {
+    try {
+      const r = ctb.contabilizarBaixa(db, Number(req.params.id),
+        { ...req.body, usuario: req.user?.username || null });
+      logAction(db, req, 'contabilizar-baixa', 'patrimonio', req.params.id, r);
+      res.json({ success: true, ...r });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // Razão x cadastro. Os dois divergirem em silêncio é o pior resultado:
+  // isoladamente, cada um parece certo.
+  app.get('/api/patrimonio/conferencia', (req, res) => {
+    try {
+      res.json({ success: true, conferencia: ctb.conferencia(db, req.query.ateCompetencia) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // ==================== NF-e DE ENTRADA ====================
+
+  // Itens de nota com CFOP de imobilizado que ainda não viraram bem. O fiscal
+  // já digitou a nota; redigitar o bem à mão era trabalho duplicado e fonte de
+  // divergência entre o que entrou e o que está no patrimônio.
+  app.get('/api/patrimonio/nfe-entrada/candidatos', (req, res) => {
+    try {
+      const itens = ctb.candidatosDaNfe(db, {
+        dataInicio: req.query.dataInicio, dataFim: req.query.dataFim,
+        incluirJaCriados: req.query.todos === '1',
+      });
+      res.json({ success: true, itens, cfopsConsiderados: ctb.CFOPS_IMOBILIZADO });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/patrimonio/nfe-entrada/:itemId/gerar-bens', (req, res) => {
+    try {
+      const r = ctb.criarBensDaNfe(db, Number(req.params.itemId), req.body || {});
+      logAction(db, req, 'gerar-bens-da-nfe', 'patrimonio', req.params.itemId,
+        { criados: r.criados.length, jaExistiam: r.jaExistiam });
+      res.json({ success: true, ...r });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
 
   app.get('/api/patrimonio/bens', (req, res) => {
     try {
@@ -102,7 +257,7 @@ function registrarRotasPatrimonio(app, db) {
       let sql = `
         SELECT b.*, f.razaoSocial AS fornecedorNome, c.nome AS centroCustoNome
         FROM patrimonio_bens b
-        LEFT JOIN fornecedores f ON f.id = b.fornecedorId
+        LEFT JOIN pessoas f ON f.id = b.fornecedorId
         LEFT JOIN centros_custo c ON c.id = b.centroCustoId
         WHERE 1=1
       `;
@@ -129,7 +284,7 @@ function registrarRotasPatrimonio(app, db) {
       const b = db.prepare(`
         SELECT b.*, f.razaoSocial AS fornecedorNome, c.nome AS centroCustoNome
         FROM patrimonio_bens b
-        LEFT JOIN fornecedores f ON f.id = b.fornecedorId
+        LEFT JOIN pessoas f ON f.id = b.fornecedorId
         LEFT JOIN centros_custo c ON c.id = b.centroCustoId
         WHERE b.id = ?
       `).get(req.params.id);

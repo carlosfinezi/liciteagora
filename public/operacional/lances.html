@@ -878,7 +878,7 @@ function renderItens(compraId, itensLive) {
             '</td>' +
             '<td>' +
                 '<div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap">' +
-                    '<button class="btn btn-sm '+(m.modoAuto==='continuo'?'btn-success':'btn-ghost')+'" onclick="setAuto(\''+compraId+'\','+m.numero+','+(m.modoAuto==='continuo'?'null':'\'continuo\'')+')" title="Auto-Lance Contínuo: cobre o concorrente sempre que você está perdendo, respeitando o Valor Mínimo (piso). Requer Valor Mínimo + Variação mínima + Motor de lances ligado.">🤖 Auto: '+(m.modoAuto==='continuo'?'ON':'OFF')+'</button>' +
+                    '<button class="btn btn-sm '+(m.modoAuto==='continuo'?'btn-success':'btn-ghost')+'" onclick="setAuto(\''+compraId+'\','+m.numero+','+(m.modoAuto==='continuo'?'null':'\'continuo\'')+')" title="Auto-Lance Contínuo: cobre o concorrente sempre que você está perdendo, respeitando o Valor Mínimo (piso). Requer Valor Mínimo + Variação mínima + Motor de lances ligado.">🤖 Contínuo: '+(m.modoAuto==='continuo'?'ON':'OFF')+'</button>' +
                     '<input type="time" step="1" id="agendar-hora-'+compraId+'-'+m.numero+'" value="'+defaultHoraRajada(compraId, m.fimContagem)+'" style="font-size:0.75em;padding:2px 4px;font-family:monospace;border:1px solid #0f3460;background:#1a1a2e;color:#eee;border-radius:4px;width:90px" title="Horário agendamento (dispensa: pré-preenchido = encerramento − 1s)">' +
                     '<input type="number" min="1" max="50" id="max-lances-'+compraId+'-'+m.numero+'" value="'+(m.maxLances||5)+'" style="width:40px;font-size:0.75em;padding:2px;border:1px solid #0f3460;background:#1a1a2e;color:#ff6b00;border-radius:4px;text-align:center;font-weight:600" title="Máx lances na rajada" onchange="salvar(\''+compraId+'\','+m.numero+',\'maxLances\',this.value)">' +
                     '<label style="font-size:0.7em;color:#aaa;display:inline-flex;align-items:center;gap:2px;cursor:pointer" title="Ignorar Máx e descer até o Valor Mínimo"><input type="checkbox" id="ignore-max-'+compraId+'-'+m.numero+'" style="margin:0">∞</label>' +
@@ -1377,10 +1377,19 @@ function setAuto(compraId, itemNumero, modo, selectEl) {
     // Require valorMinimo before enabling
     var cfg = (itensConfig[compraId]||[]).find(function(c){return c.itemNumero===itemNumero;});
 
-    if(modo && (!cfg || !cfg.valorMinimo)) {
-        alert('Defina o Valor Mínimo antes de ativar auto-lance no item '+itemNumero);
-        if(selectEl) selectEl.value = cfg?.modoAuto || '';
-        return;
+    if(modo){
+        // Robusto: lê o Mínimo direto do input (independe da ordem — funciona mesmo
+        // se você acabou de digitar e ainda não perdeu o foco). Só bloqueia se de
+        // fato não houver mínimo, e aí FOCA o campo em vez de um alert sem saída.
+        var vmEl = document.getElementById('vm-'+compraId+'-'+itemNumero);
+        var vmLive = vmEl ? parseFloat((''+vmEl.value).replace(',','.')) : NaN;
+        if(!isNaN(vmLive) && vmLive>0){ if(cfg) cfg.valorMinimo = vmLive; }
+        if(!cfg || !cfg.valorMinimo){
+            toast('Defina o Valor Mínimo do item '+itemNumero+' antes de ligar o Contínuo','erro');
+            if(vmEl){ vmEl.focus(); vmEl.style.outline='2px solid #f44336'; setTimeout(function(){vmEl.style.outline='';},2500); }
+            if(selectEl) selectEl.value = cfg?.modoAuto || '';
+            return;
+        }
     }
 
     if(modo==='sniper' && isPregao(compraId) && !confirm(

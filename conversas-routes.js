@@ -91,10 +91,59 @@ function migrarConversasDB(db) {
   // mesma venda.
   alterSafe('ALTER TABLE conv_conversas ADD COLUMN oportunidadeId INTEGER');
   alterSafe('ALTER TABLE conv_conversas ADD COLUMN pedidoId INTEGER');
+
+  // Antes só se registrava o erro, então a tabela media meia verdade: dava para
+  // saber quantas vezes o robô errou, nunca quantas acertou. O veredito 'certo'
+  // é um voto sem resposta nova — não vira item de base, porque acerto quer
+  // dizer que a base já estava boa naquele ponto.
+  alterSafe("ALTER TABLE ia_correcoes ADD COLUMN veredito TEXT NOT NULL DEFAULT 'errado'");
+  // Sem saber a qual mensagem o voto se refere, o atendente reabre a conversa
+  // e não enxerga por onde já passou — inviável em histórico grande.
+  alterSafe('ALTER TABLE ia_correcoes ADD COLUMN mensagemId INTEGER');
 }
 
 const jsonOu = (t, p) => { try { return t ? JSON.parse(t) : p; } catch { return p; } };
 const soDigitos = (s) => String(s || '').replace(/\D/g, '');
+
+const temTabela = (db, t) => {
+  try { return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(t); }
+  catch { return false; }
+};
+
+/**
+ * "Aguardando você": a última mensagem da conversa é deles.
+ *
+ * Não usa conv_conversas.primeiraRespostaEm — esse campo só é escrito pelo
+ * registrarMensagem, e nem o disparo de campanha nem a resposta da IA passam
+ * por ele (gravam direto em whatsapp_messages). No 1bit o campo aponta 817
+ * conversas sem resposta onde o fato são 45.
+ */
+const AGUARDANDO_SQL = `(SELECT m.from_me FROM whatsapp_messages m
+   WHERE m.remote_jid = c.jid ORDER BY m.id DESC LIMIT 1) = 0`;
+
+/**
+ * Telefones que responderam a uma campanha de WhatsApp (todas, se campanhaId
+ * for nulo).
+ *
+ * A fonte NÃO é só wa_campanha_dest.status = 'respondeu': essa marca só é
+ * gravada pelo webhook quando a linha ainda está em 'enviado', e nasceu depois
+ * dos primeiros disparos — no 1bit ela cobria 2 das 55 respostas reais. O
+ * critério aqui é o fato observável, que vale para trás: chegou mensagem do
+ * lead depois de a campanha ter enviado para ele.
+ */
+function telefonesQueResponderam(db, campanhaId) {
+  if (!temTabela(db, 'wa_campanha_dest') || !temTabela(db, 'whatsapp_messages')) return null;
+  let sql = `SELECT DISTINCT d.telefone FROM wa_campanha_dest d
+    WHERE d.enviado_em IS NOT NULL AND d.telefone IS NOT NULL`;
+  const args = [];
+  if (campanhaId) { sql += ' AND d.campanha_id = ?'; args.push(campanhaId); }
+  sql += ` AND (d.status = 'respondeu' OR EXISTS (
+      SELECT 1 FROM whatsapp_messages m
+       WHERE m.from_me = 0 AND m.timestamp > strftime('%s', d.enviado_em)
+         AND (m.remote_jid = d.jid OR m.remote_jid = d.telefone || '@s.whatsapp.net')))`;
+  try { return db.prepare(sql).all(...args).map(r => r.telefone); }
+  catch { return null; }
+}
 
 /**
  * Casa o número da conversa com uma pessoa do cadastro. Sem isso o atendente
@@ -161,9 +210,12 @@ function sincronizar(db) {
     jids = db.prepare(`SELECT remote_jid jid,
         MAX(timestamp) ts,
         (SELECT texto FROM whatsapp_messages x WHERE x.remote_jid = m.remote_jid AND texto IS NOT NULL ORDER BY id DESC LIMIT 1) ultimo,
-        (SELECT push_name FROM whatsapp_messages x WHERE x.remote_jid = m.remote_jid AND push_name IS NOT NULL ORDER BY id DESC LIMIT 1) nome,
+        -- Só de mensagem RECEBIDA: no que sai, o push_name é o do dono da
+        -- instância, e a conversa acabava batizada com o nome de quem atende.
+        (SELECT push_name FROM whatsapp_messages x WHERE x.remote_jid = m.remote_jid AND x.from_me = 0 AND push_name IS NOT NULL ORDER BY id DESC LIMIT 1) nome,
         (SELECT from_me FROM whatsapp_messages x WHERE x.remote_jid = m.remote_jid ORDER BY id DESC LIMIT 1) ultimoDeMim
       FROM whatsapp_messages m WHERE remote_jid IS NOT NULL AND remote_jid <> 'status@broadcast'
+        AND remote_jid NOT LIKE '%@g.us'
       GROUP BY remote_jid`).all();
   } catch { return 0; }
 
@@ -198,10 +250,28 @@ function registrarRotasConversas(app, db) {
       sincronizar(db);
       const estado = String(req.query.estado || '');
       const q = String(req.query.q || '').trim().toLowerCase();
+      const recorte = String(req.query.recorte || '');   // naoLidas | aguardando
+      const temMensagens = temTabela(db, 'whatsapp_messages');
+      // 'todas' ou o id de uma campanha; vazio desliga o recorte.
+      const campanha = String(req.query.campanha || '');
+      // O filtro é sempre calculado, esteja ligado ou não: é ele que alimenta a
+      // contagem do próprio botão que o liga.
+      const respondentes = telefonesQueResponderam(db,
+        /^\d+$/.test(campanha) ? Number(campanha) : null);
+
       let sql = `SELECT c.*, p.razaoSocial AS pessoaNome FROM conv_conversas c
         LEFT JOIN pessoas p ON p.id = c.pessoaId`;
+      const onde = [];
       const args = [];
-      if (ESTADOS.includes(estado)) { sql += ' WHERE c.estado = ?'; args.push(estado); }
+      if (ESTADOS.includes(estado)) { onde.push('c.estado = ?'); args.push(estado); }
+      if (recorte === 'naoLidas') onde.push('c.naoLidas > 0');
+      if (recorte === 'aguardando' && temMensagens) onde.push(AGUARDANDO_SQL);
+      if (campanha) {
+        const tels = respondentes || [];
+        if (!tels.length) onde.push('0');
+        else { onde.push(`c.telefone IN (${tels.map(() => '?').join(',')})`); args.push(...tels); }
+      }
+      if (onde.length) sql += ' WHERE ' + onde.join(' AND ');
       sql += ' ORDER BY c.ultimaEm DESC NULLS LAST, c.id DESC LIMIT 300';
       let linhas = db.prepare(sql).all(...args);
       if (q) linhas = linhas.filter(c => [c.nome, c.pessoaNome, c.telefone, c.ultimaMensagem]
@@ -211,6 +281,14 @@ function registrarRotasConversas(app, db) {
       for (const e of ESTADOS) {
         contagem[e] = db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE estado = ?').get(e).n;
       }
+      contagem.total = db.prepare('SELECT COUNT(*) n FROM conv_conversas').get().n;
+      contagem.naoLidas = db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE naoLidas > 0').get().n;
+      contagem.aguardando = temMensagens
+        ? db.prepare(`SELECT COUNT(*) n FROM conv_conversas c WHERE ${AGUARDANDO_SQL}`).get().n : 0;
+      contagem.respondeuCampanha = respondentes && respondentes.length
+        ? db.prepare(`SELECT COUNT(*) n FROM conv_conversas
+            WHERE telefone IN (${respondentes.map(() => '?').join(',')})`).get(...respondentes).n
+        : 0;
       res.json({ success: true, conversas: linhas.map(c => ({ ...c, etiquetas: jsonOu(c.etiquetas, []) })), contagem });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -233,7 +311,8 @@ function registrarRotasConversas(app, db) {
         for (const c of db.prepare('SELECT * FROM comm_campanhas ORDER BY id DESC LIMIT 100').all()) {
           linhas.push({ origem: 'comm', id: c.id, nome: c.nome, status: c.status,
                         canal: c.canal || null, criadoEm: c.dataCriacao || null, destinatarios: null,
-                        totalDestinatarios: c.totalDestinatarios, tipo: c.tipo || null });
+                        totalDestinatarios: c.totalDestinatarios, tipo: c.tipo || null,
+                        agendadaPara: c.agendadaPara || null });
         }
       } catch { /* tenant sem o módulo antigo */ }
       try {
@@ -243,7 +322,7 @@ function registrarRotasConversas(app, db) {
             WHERE campanha_id = ? GROUP BY status`).all(c.id);
           linhas.push({ origem: 'wa', id: c.id, nome: c.nome || cfg.nome, status: c.status,
                         canal: 'whatsapp', criadoEm: c.criado_em || null,
-                        descricao: cfg.descricao || null,
+                        descricao: cfg.descricao || null, agendadaPara: cfg.agendadaPara || null,
                         destinatarios: dest.reduce((o, d) => (o[d.status] = d.n, o), {}) });
         }
       } catch { }
@@ -261,13 +340,30 @@ function registrarRotasConversas(app, db) {
   app.get('/api/conversas/publico', (req, res) => {
     try {
       const q = String(req.query.q || '').trim().toLowerCase();
+      const f = {
+        uf: String(req.query.uf || '').trim().toUpperCase(),
+        cidade: String(req.query.cidade || '').trim().toLowerCase(),
+        marketing: String(req.query.marketing || ''),      // '1' aceita | '0' não aceita
+        compraram: String(req.query.compraram || ''),      // '1' com pedido | '0' sem pedido
+        tag: String(req.query.tag || '').trim().toLowerCase(),
+      };
       let linhas = db.prepare(`SELECT id, razaoSocial, nomeFantasia, telefone, cidade, uf,
-             COALESCE(aceitaWhatsappMarketing, 0) AS aceitaMarketing
+             COALESCE(categorias,'') AS categorias, COALESCE(tags,'') AS tags,
+             COALESCE(aceitaWhatsappMarketing, 0) AS aceitaMarketing,
+             (SELECT COUNT(*) FROM pedidos ped WHERE ped.clienteId = pessoas.id) AS pedidos
         FROM pessoas
         WHERE ativo = 1 AND TRIM(COALESCE(telefone,'')) <> ''
-        ORDER BY razaoSocial LIMIT 500`).all();
+        ORDER BY razaoSocial LIMIT 2000`).all();
+
       if (q) linhas = linhas.filter(p => [p.razaoSocial, p.nomeFantasia, p.telefone, p.cidade]
         .some(v => String(v || '').toLowerCase().includes(q)));
+      if (f.uf) linhas = linhas.filter(p => String(p.uf || '').toUpperCase() === f.uf);
+      if (f.cidade) linhas = linhas.filter(p => String(p.cidade || '').toLowerCase().includes(f.cidade));
+      if (f.marketing === '1') linhas = linhas.filter(p => p.aceitaMarketing);
+      if (f.marketing === '0') linhas = linhas.filter(p => !p.aceitaMarketing);
+      if (f.compraram === '1') linhas = linhas.filter(p => p.pedidos > 0);
+      if (f.compraram === '0') linhas = linhas.filter(p => !p.pedidos);
+      if (f.tag) linhas = linhas.filter(p => (p.categorias + ' ' + p.tags).toLowerCase().includes(f.tag));
 
       // Opt-out casa por destino normalizado — mesmo critério do envio.
       let fora = new Set();
@@ -275,11 +371,59 @@ function registrarRotasConversas(app, db) {
         fora = new Set(db.prepare("SELECT destino FROM comm_optout WHERE canal = 'whatsapp'")
           .all().map(r => soDigitos(r.destino).slice(-8)));
       } catch { }
-      res.json({ success: true, pessoas: linhas.map(p => ({
+      // Opções para os selects saem do que existe de fato no cadastro.
+      const todas = db.prepare(`SELECT DISTINCT uf FROM pessoas
+        WHERE ativo = 1 AND TRIM(COALESCE(uf,'')) <> '' ORDER BY uf`).all().map(r => r.uf);
+      res.json({ success: true, ufs: todas, total: linhas.length, pessoas: linhas.map(p => ({
         ...p, aceitaMarketing: !!p.aceitaMarketing,
         optOut: fora.has(soDigitos(p.telefone).slice(-8)),
       })) });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /** Uma campanha legado com o config aberto, para a tela poder editá-la. */
+  app.get('/api/conversas/campanhas/wa/:id', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM wa_campanhas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Campanha não encontrada' });
+      const dest = db.prepare(`SELECT status, COUNT(*) n FROM wa_campanha_dest
+        WHERE campanha_id = ? GROUP BY status`).all(c.id)
+        .reduce((o, d) => (o[d.status] = d.n, o), {});
+      res.json({ success: true, campanha: { ...c, config: jsonOu(c.config, {}) }, destinatarios: dest });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Edita a campanha legado. O config dela é um objeto grande (briefing,
+   * persona, regras, ritmo, horário) que o gerador de mensagem consome — por
+   * isso o corpo aceita um merge parcial: a tela manda só o que mexeu, e o
+   * resto do config fica como está.
+   */
+  app.put('/api/conversas/campanhas/wa/:id', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM wa_campanhas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Campanha não encontrada' });
+      if (String(c.status) === 'enviando') {
+        return res.status(400).json({ success: false, error: 'Campanha em envio — pause antes de editar' });
+      }
+      const atual = jsonOu(c.config, {});
+      let mudancas = req.body?.config;
+      if (typeof mudancas === 'string') {
+        try { mudancas = JSON.parse(mudancas); }
+        catch { return res.status(400).json({ success: false, error: 'Configuração avançada não é um JSON válido' }); }
+      }
+      if (mudancas && typeof mudancas !== 'object') {
+        return res.status(400).json({ success: false, error: 'Configuração inválida' });
+      }
+      const novo = { ...atual, ...(mudancas || {}) };
+      const nome = String(req.body?.nome ?? c.nome ?? novo.nome ?? '').trim();
+      if (!nome) return res.status(400).json({ success: false, error: 'Informe o nome da campanha' });
+      novo.nome = nome;
+
+      db.prepare('UPDATE wa_campanhas SET nome = ?, config = ? WHERE id = ?')
+        .run(nome, JSON.stringify(novo), c.id);
+      res.json({ success: true, campanha: { ...c, nome, config: novo } });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
   /**
@@ -319,8 +463,17 @@ function registrarRotasConversas(app, db) {
 
       let mensagens = [];
       try {
-        mensagens = db.prepare(`SELECT id, from_me, from_bot, texto, message_type, timestamp
-          FROM whatsapp_messages WHERE remote_jid = ? ORDER BY id ASC LIMIT 400`).all(c.jid);
+        // As 400 ÚLTIMAS, não as 400 primeiras: o corte era por id ASC, então
+        // conversa longa abria no começo do histórico e o atendente nunca via
+        // o que acabou de chegar. A ordem final volta a ser cronológica.
+        //
+        // O veredito vem junto para a tela mostrar o que já foi avaliado: sem
+        // isso, reabrir a conversa apaga o rastro do que o atendente revisou.
+        mensagens = db.prepare(`SELECT * FROM (
+            SELECT m.id, m.from_me, m.from_bot, m.texto, m.message_type, m.timestamp,
+              (SELECT veredito FROM ia_correcoes x WHERE x.mensagemId = m.id ORDER BY x.id DESC LIMIT 1) AS veredito
+            FROM whatsapp_messages m WHERE m.remote_jid = ? ORDER BY m.id DESC LIMIT 400
+          ) ORDER BY id ASC`).all(c.jid);
       } catch { /* sem tabela de mensagens ainda */ }
 
       // Ficha: o que faz o atendente responder sem trocar de tela.
@@ -529,12 +682,30 @@ function registrarRotasConversas(app, db) {
         baseId = db.prepare('INSERT INTO ia_base (titulo, conteudo, origem) VALUES (?,?,?)')
           .run(titulo, correta.slice(0, 4000), 'correção de atendente').lastInsertRowid;
       }
-      db.prepare(`INSERT INTO ia_correcoes (conversaId, perguntou, respondeu, correta, viraBase, baseId, usuario)
-        VALUES (?,?,?,?,?,?,?)`)
-        .run(b.conversaId || null, String(b.perguntou || '').slice(0, 1000),
+      db.prepare(`INSERT INTO ia_correcoes (conversaId, mensagemId, perguntou, respondeu, correta, viraBase, baseId, usuario)
+        VALUES (?,?,?,?,?,?,?,?)`)
+        .run(b.conversaId || null, b.mensagemId || null, String(b.perguntou || '').slice(0, 1000),
              String(b.respondeu || '').slice(0, 2000), correta.slice(0, 4000),
              b.viraBase === false ? 0 : 1, baseId, usuario(req));
       res.json({ success: true, baseId });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Aprovar a resposta: um clique, sem digitar nada. Só registra o voto — a
+   * base não muda, porque não há o que ensinar quando a resposta saiu certa.
+   * Serve para medir acerto e para o atendente marcar por onde já passou.
+   */
+  app.post('/api/ia/aprovar', (req, res) => {
+    try {
+      const b = req.body || {};
+      const respondeu = String(b.respondeu || '').trim();
+      if (!respondeu) return res.status(400).json({ success: false, error: 'Sem resposta para aprovar' });
+      db.prepare(`INSERT INTO ia_correcoes (conversaId, mensagemId, perguntou, respondeu, correta, viraBase, veredito, usuario)
+        VALUES (?,?,?,?,?,0,'certo',?)`)
+        .run(b.conversaId || null, b.mensagemId || null, String(b.perguntou || '').slice(0, 1000),
+             respondeu.slice(0, 2000), respondeu.slice(0, 4000), usuario(req));
+      res.json({ success: true });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
@@ -552,6 +723,137 @@ function registrarRotasConversas(app, db) {
         correcoes: n('SELECT COUNT(*) n FROM ia_correcoes'),
       } });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // ---------- relatório ----------
+  //
+  // A pergunta que este endpoint existe para responder é "por que hoje não saiu
+  // nada?". Volume sozinho não responde: silêncio da IA quase nunca é falha, é
+  // uma das portas do autoResponder (whatsapp-webhook.js:72) fechando antes do
+  // envio. Então além da série diária vai o FUNIL — quantos números escreveram e
+  // quantos morreram em cada porta —, que é o que transforma "não enviou" em
+  // "não enviou porque".
+  // Sob /painel/ como o resumo acima, e não em /api/conversas/relatorio: o
+  // /api/conversas/:id é registrado antes e captura qualquer segmento único.
+  app.get('/api/conversas/painel/relatorio', (req, res) => {
+    try {
+      sincronizar(db);
+      const dias = Math.max(1, Math.min(90, parseInt(req.query.dias, 10) || 14));
+      const um = (sql, ...a) => { try { return db.prepare(sql).get(...a) || {}; } catch { return {}; } };
+      const lista = (sql, ...a) => { try { return db.prepare(sql).all(...a); } catch { return []; } };
+      const cfg = (k) => (um('SELECT valor FROM config WHERE chave = ?', k).valor || null);
+
+      // Série diária. whatsapp_messages responde por tráfego real (o que o
+      // cliente mandou e o que saiu daqui, humano ou IA); whatsapp_queue, por
+      // envio do sistema — é lá que o erro do provedor aparece.
+      const serie = lista(`
+        WITH d(dia) AS (
+          SELECT date('now','-3 hours', '-' || ? || ' days')
+          UNION ALL SELECT date(dia,'+1 day') FROM d WHERE dia < date('now','-3 hours')
+        )
+        SELECT d.dia,
+          (SELECT COUNT(*) FROM whatsapp_messages m
+            WHERE substr(m.criado_em,1,10)=d.dia AND m.from_me=0) AS recebidas,
+          (SELECT COUNT(*) FROM whatsapp_messages m
+            WHERE substr(m.criado_em,1,10)=d.dia AND m.from_me=1 AND COALESCE(m.from_bot,0)=0) AS enviadasHumano,
+          (SELECT COUNT(*) FROM whatsapp_messages m
+            WHERE substr(m.criado_em,1,10)=d.dia AND COALESCE(m.from_bot,0)=1) AS enviadasIA,
+          (SELECT COUNT(*) FROM whatsapp_queue q
+            WHERE substr(q.dataCriacao,1,10)=d.dia AND q.status='erro') AS filaErro,
+          (SELECT COUNT(*) FROM wa_campanha_dest x
+            WHERE substr(x.enviado_em,1,10)=d.dia) AS disparosCampanha,
+          (SELECT COUNT(*) FROM conv_conversas c
+            WHERE substr(c.dataCriacao,1,10)=d.dia) AS conversasNovas
+        FROM d ORDER BY d.dia
+      `, dias - 1);
+
+      // Funil: para cada número que escreveu HOJE, qual porta do autoResponder
+      // o barraria. A ordem das cláusulas espelha a do código — quem morre na
+      // primeira não chega na segunda, e contar de outro jeito daria totais
+      // sobrepostos que não somam.
+      //
+      // Hoje, e não o período do gráfico, de propósito: "humano assumiu" é uma
+      // janela de 4 horas contada a partir de agora. Aplicada sobre 14 dias ela
+      // devolveria zero sempre e faria parecer que essa porta nunca fecha.
+      const desde = `-${dias} days`;
+      const funil = um(`
+        WITH escreveram AS (
+          SELECT DISTINCT remote_jid AS jid,
+                 substr(remote_jid, 1, instr(remote_jid,'@')-1) AS num
+          FROM whatsapp_messages
+          WHERE from_me=0 AND date(criado_em) = date('now','-3 hours')
+        ),
+        marcado AS (
+          SELECT e.jid,
+            EXISTS (SELECT 1 FROM wa_campanha_dest d
+                    WHERE (d.telefone = e.num OR d.jid = e.jid) AND d.enviado_em IS NOT NULL) AS deCampanha,
+            EXISTS (SELECT 1 FROM whatsapp_messages m
+                    WHERE m.remote_jid = e.jid AND m.from_me=1 AND COALESCE(m.from_bot,0)=0
+                      AND m.timestamp >= strftime('%s','now') - 4*3600) AS humano4h,
+            COALESCE((SELECT c.iaAtiva FROM conv_conversas c WHERE c.jid = e.jid), 1) AS iaAtiva,
+            EXISTS (SELECT 1 FROM whatsapp_messages m
+                    WHERE m.remote_jid = e.jid AND COALESCE(m.from_bot,0)=1
+                      AND date(m.criado_em) = date('now','-3 hours')) AS respondida
+          FROM escreveram e
+        )
+        SELECT COUNT(*) AS escreveram,
+               SUM(CASE WHEN deCampanha=0 THEN 1 ELSE 0 END) AS foraDeCampanha,
+               SUM(CASE WHEN deCampanha=1 AND humano4h=1 THEN 1 ELSE 0 END) AS humanoAssumiu,
+               SUM(CASE WHEN deCampanha=1 AND humano4h=0 AND iaAtiva=0 THEN 1 ELSE 0 END) AS iaDesligada,
+               SUM(CASE WHEN respondida=1 THEN 1 ELSE 0 END) AS respondidasPelaIA
+        FROM marcado
+      `);
+
+      // Erros do provedor agrupados: 30 linhas do mesmo "número não existe" são
+      // um problema, não trinta.
+      const erros = lista(`
+        SELECT COUNT(*) AS n, MAX(dataCriacao) AS ultimoEm,
+          CASE
+            WHEN erro LIKE '%"exists":false%' THEN 'Número não existe no WhatsApp'
+            WHEN erro LIKE '%http 401%' OR erro LIKE '%http 403%' THEN 'Credencial do provedor recusada'
+            WHEN erro LIKE '%http 404%' THEN 'Instância não encontrada no provedor'
+            WHEN erro LIKE '%ECONNREFUSED%' OR erro LIKE '%fetch failed%' THEN 'Provedor fora do ar'
+            ELSE substr(erro, 1, 60)
+          END AS motivo,
+          GROUP_CONCAT(DISTINCT telefone) AS telefones
+        FROM whatsapp_queue
+        WHERE status='erro' AND date(dataCriacao) >= date('now','-3 hours', ?)
+        GROUP BY motivo ORDER BY n DESC LIMIT 10
+      `, desde);
+
+      // Conversas: o que está parado esperando gente.
+      const conv = um(`
+        SELECT
+          SUM(CASE WHEN estado='aberta' THEN 1 ELSE 0 END) AS abertas,
+          SUM(CASE WHEN estado='aberta' AND primeiraRespostaEm IS NULL THEN 1 ELSE 0 END) AS semResposta,
+          SUM(CASE WHEN naoLidas > 0 THEN 1 ELSE 0 END) AS comNaoLidas,
+          SUM(CASE WHEN iaAtiva=0 THEN 1 ELSE 0 END) AS iaDesligada
+        FROM conv_conversas
+      `);
+      const tempoResposta = um(`
+        SELECT ROUND(AVG((julianday(primeiraRespostaEm) - julianday(dataCriacao)) * 24 * 60)) AS minutos,
+               COUNT(*) AS base
+        FROM conv_conversas
+        WHERE primeiraRespostaEm IS NOT NULL
+          AND date(dataCriacao) >= date('now','-3 hours', ?)
+      `, desde);
+
+      // Config que decide se a IA fala. É a primeira coisa a olhar quando o
+      // funil mostra todo mundo caindo na mesma porta.
+      const campanhasAtivas = um(
+        "SELECT COUNT(*) AS n FROM wa_campanhas WHERE status IN ('enviando','agendada')").n || 0;
+      const config = {
+        canalLigado: cfg('whatsapp_enabled') === '1',
+        iaLigada: cfg('whatsapp_ai_enabled') === '1',
+        escopo: cfg('whatsapp_ai_escopo') || 'todos',
+        temChaveIA: !!(cfg('gemini_api_key') || cfg('openai_api_key') || cfg('anthropic_api_key')),
+        campanhasAtivas,
+      };
+
+      res.json({ success: true, dias, serie, funil, erros, conversas: conv, tempoResposta, config });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
   });
 }
 

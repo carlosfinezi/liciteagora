@@ -24,7 +24,6 @@
 
 const axios = require('axios');
 const { tenantStorage } = require('./tenant-middleware');
-const { sendTelegram } = require('./telegram-client');
 
 const BASE_URL = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const API_HEADERS = {
@@ -66,41 +65,9 @@ function lerBearerFresco(db) {
   }
 }
 
-// Config de canais de alerta — espelha lerAlertasConfig de sniper-lance-routes:
-// telegram ON por padrão, email OFF, destinatarios vazio.
-function lerAlertasConfig(db) {
-  const get = (chave) => {
-    const row = db.prepare('SELECT valor FROM config WHERE chave = ?').get(chave);
-    return row ? row.valor : null;
-  };
-  const telegram = get('alerta_canal_telegram');
-  const email = get('alerta_canal_email');
-  const destinatariosRaw = get('alerta_email_destinatarios') || '';
-  return {
-    telegram: telegram == null ? true : telegram === '1',
-    email: email === '1',
-    destinatarios: destinatariosRaw.split(/[,;]/).map((s) => s.trim()).filter(Boolean),
-  };
-}
-
-async function enviarAlerta(db, { subject, body }) {
-  const cfg = lerAlertasConfig(db);
-  const tarefas = [];
-  if (cfg.telegram) {
-    tarefas.push(sendTelegram(db, body).catch((e) => console.error(`[VigiaDisputa] telegram falhou: ${e.message}`)));
-  }
-  if (cfg.email && cfg.destinatarios.length > 0) {
-    try {
-      const { enviarEmailAlerta } = require('./email-client');
-      tarefas.push(
-        enviarEmailAlerta(db, { subject, htmlBody: body, to: cfg.destinatarios })
-          .catch((e) => console.error(`[VigiaDisputa] email falhou: ${e.message}`))
-      );
-    } catch (_) { /* email-client ausente — ignora */ }
-  }
-  if (tarefas.length === 0) return;
-  await Promise.all(tarefas);
-}
+// Canais de alerta: fonte única em notificacoes-dispatcher.js. Este arquivo
+// mantinha uma cópia idêntica de lerAlertasConfig/enviarAlerta.
+const { enviarAlerta } = require('./notificacoes-dispatcher');
 
 // Preço/piso configurado para o item? Confere sniper_itens (valorMinimo) e
 // config_lances (precoMinimo/desconto). Qualquer um vale como "tem preço".
@@ -216,7 +183,7 @@ async function _tick(slug, db) {
       }
 
       try {
-        await enviarAlerta(db, { subject, body: mensagem });
+        await enviarAlerta(db, { subject, body: mensagem, logTag: 'VigiaDisputa' });
         console.log(`[VigiaDisputa][${slug}] alerta ${motivo}: ${part.compraId} item ${itemNum} (melhor=${melhorGeral} nosso=${nossoValor})`);
       } catch (e) {
         console.error(`[VigiaDisputa][${slug}] enviarAlerta: ${e.message}`);

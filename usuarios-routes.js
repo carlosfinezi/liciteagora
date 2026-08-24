@@ -11,6 +11,7 @@
 const bcrypt = require('bcryptjs');
 const { requireRole, ROLES } = require('./auth');
 const { logAction } = require('./audit-log');
+const regras = require('./usuarios-regras');
 const { perfisDisponiveis } = require('./perfis-acesso');
 
 // Perfil aceito = um dos cinco nativos OU um perfil de acesso cadastrado e
@@ -18,6 +19,15 @@ const { perfisDisponiveis } = require('./perfis-acesso');
 // impossível atribuir um perfil recém-criado.
 function slugsDePerfil(db) {
   return perfisDisponiveis(db).map((p) => p.slug);
+}
+
+// Erro bloqueia; aviso vai junto na resposta. Vendedor sem fornecedor é aviso
+// porque o cadastro pode vir antes; comissão de 500% é erro porque não existe.
+function separar(problemas) {
+  return {
+    erros: problemas.filter((p) => p.nivel === 'erro'),
+    avisos: problemas.filter((p) => p.nivel === 'aviso'),
+  };
 }
 
 const SELECT_USER = `id, username, nome, email, role, ativo, ultimoLogin, createdAt,
@@ -41,15 +51,20 @@ function registrarRotasUsuarios(app, db) {
       if (!req.user) return res.status(401).json({ success: false, error: 'Não autenticado' });
       const { senhaAtual, senhaNova } = req.body;
       if (!senhaAtual || !senhaNova) return res.status(400).json({ success: false, error: 'Informe senha atual e nova' });
-      if (senhaNova.length < 6) return res.status(400).json({ success: false, error: 'Nova senha deve ter ao menos 6 caracteres' });
-      const u = db.prepare('SELECT passwordHash FROM users WHERE id = ?').get(req.user.id);
+      const u = db.prepare('SELECT passwordHash, username, nome FROM users WHERE id = ?').get(req.user.id);
       if (!u || !bcrypt.compareSync(senhaAtual, u.passwordHash)) {
         return res.status(400).json({ success: false, error: 'Senha atual incorreta' });
       }
+      if (bcrypt.compareSync(senhaNova, u.passwordHash)) {
+        return res.status(400).json({ success: false, error: 'A nova senha é igual à atual' });
+      }
+      const { erros, avisos } = separar(regras.avaliarSenha(senhaNova, { username: u.username, nome: u.nome }));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+
       const hash = bcrypt.hashSync(senhaNova, 10);
       db.prepare('UPDATE users SET passwordHash = ? WHERE id = ?').run(hash, req.user.id);
       logAction(db, req, 'trocar-senha', 'usuario', req.user.id, null);
-      res.json({ success: true });
+      res.json({ success: true, avisos });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -60,10 +75,13 @@ function registrarRotasUsuarios(app, db) {
     try {
       if (!req.user) return res.status(401).json({ success: false, error: 'Não autenticado' });
       const { nome, email } = req.body;
+      const { erros, avisos } = separar(regras.validarUsuario(db, { email }, { id: req.user.id, checarRegras: false }));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+
       db.prepare('UPDATE users SET nome = COALESCE(?, nome), email = COALESCE(?, email) WHERE id = ?')
         .run(nome ?? null, email ?? null, req.user.id);
       const usuario = db.prepare(`SELECT ${SELECT_USER} FROM users WHERE id = ?`).get(req.user.id);
-      res.json({ success: true, usuario });
+      res.json({ success: true, usuario, avisos });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -89,6 +107,18 @@ function registrarRotasUsuarios(app, db) {
     }
   });
 
+  // ANTES de /api/usuarios/:id — o Express casa por ordem, e com :id primeiro
+  // esta rota viraria uma busca pelo usuário de id "diagnostico".
+  // Situação de acesso da equipe: quem nunca entrou, quem sumiu, quem não
+  // consegue receber comissão. Nada disso existia em lugar nenhum.
+  app.get('/api/usuarios/diagnostico', requireRole(['admin']), (req, res) => {
+    try {
+      res.json({ success: true, diagnostico: regras.diagnostico(db, {
+        diasInatividade: Number(req.query.diasInatividade) || 60,
+      }) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
   app.get('/api/usuarios/:id', requireRole(['admin']), (req, res) => {
     try {
       const usuario = db.prepare(`SELECT ${SELECT_USER} FROM users WHERE id = ?`).get(req.params.id);
@@ -112,14 +142,15 @@ function registrarRotasUsuarios(app, db) {
       if (!perfisOk.includes(role)) {
         return res.status(400).json({ success: false, error: `Perfil inválido. Use: ${perfisOk.join(', ')}` });
       }
-      if (senha.length < 6) {
-        return res.status(400).json({ success: false, error: 'Senha deve ter ao menos 6 caracteres' });
-      }
-      if (vendedorTipo && !VENDEDOR_TIPOS.includes(vendedorTipo)) {
-        return res.status(400).json({ success: false, error: `vendedorTipo inválido. Use: ${VENDEDOR_TIPOS.join(', ')}` });
-      }
       const existente = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
       if (existente) return res.status(409).json({ success: false, error: 'username já cadastrado' });
+
+      const problemas = [
+        ...regras.avaliarSenha(senha, { username, nome }),
+        ...regras.validarUsuario(db, req.body, {}),
+      ];
+      const { erros, avisos } = separar(problemas);
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
 
       const ehV = (ehVendedor === 1 || ehVendedor === '1' || ehVendedor === true || ehVendedor === 'true') ? 1 : 0;
       const hash = bcrypt.hashSync(senha, 10);
@@ -140,7 +171,7 @@ function registrarRotasUsuarios(app, db) {
 
       logAction(db, req, 'criar', 'usuario', r.lastInsertRowid, { username, role, ehVendedor: ehV });
       const usuario = db.prepare(`SELECT ${SELECT_USER} FROM users WHERE id = ?`).get(r.lastInsertRowid);
-      res.json({ success: true, usuario });
+      res.json({ success: true, usuario, avisos });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -162,9 +193,14 @@ function registrarRotasUsuarios(app, db) {
           return res.status(400).json({ success: false, error: `Perfil inválido. Use: ${perfisOk.join(', ')}` });
         }
       }
-      if (vendedorTipo !== undefined && vendedorTipo !== null && vendedorTipo !== '' && !VENDEDOR_TIPOS.includes(vendedorTipo)) {
-        return res.status(400).json({ success: false, error: `vendedorTipo inválido. Use: ${VENDEDOR_TIPOS.join(', ')}` });
-      }
+
+      // Valida o estado final: mexer só na comissão ainda precisa resultar num
+      // cadastro coerente.
+      const final = { ...existing, ...req.body };
+      const problemas = regras.validarUsuario(db, final, { id });
+      if (senha) problemas.push(...regras.avaliarSenha(senha, { username: existing.username, nome: final.nome }));
+      const { erros, avisos } = separar(problemas);
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
       // Não permitir auto-rebaixar (admin tirando seu próprio admin) ou auto-desativar
       if (req.user && req.user.id === id) {
         if (role && role !== existing.role) {
@@ -183,7 +219,6 @@ function registrarRotasUsuarios(app, db) {
       if (role !== undefined)  { sets.push('role = ?');  vals.push(role);          changed.role = role; }
       if (ativo !== undefined) { sets.push('ativo = ?'); vals.push(ativo ? 1 : 0); changed.ativo = ativo ? 1 : 0; }
       if (senha) {
-        if (senha.length < 6) return res.status(400).json({ success: false, error: 'Senha deve ter ao menos 6 caracteres' });
         sets.push('passwordHash = ?');
         vals.push(bcrypt.hashSync(senha, 10));
         changed.senha = '***';
@@ -214,10 +249,20 @@ function registrarRotasUsuarios(app, db) {
         logAction(db, req, 'editar', 'usuario', id, changed);
       }
       const usuario = db.prepare(`SELECT ${SELECT_USER} FROM users WHERE id = ?`).get(id);
-      res.json({ success: true, usuario });
+      res.json({ success: true, usuario, avisos });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
+  });
+
+  // ==================== INTELIGÊNCIA ====================
+
+  // O que se perde ao desativar. Desativar é reversível; o trabalho pendente
+  // dele não some, só deixa de ter dono.
+  app.get('/api/usuarios/:id/impacto-desativacao', requireRole(['admin']), (req, res) => {
+    try {
+      res.json({ success: true, impacto: regras.impactoDesativacao(db, Number(req.params.id)) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   // Soft-delete (ativo=0). Não há hard-delete para preservar integridade do audit_log.
@@ -227,10 +272,19 @@ function registrarRotasUsuarios(app, db) {
       if (req.user && req.user.id === id) {
         return res.status(400).json({ success: false, error: 'Não é possível desativar o próprio usuário' });
       }
+      const impacto = regras.impactoDesativacao(db, id);
       const r = db.prepare('UPDATE users SET ativo = 0 WHERE id = ? AND ativo = 1').run(id);
       if (r.changes === 0) return res.status(404).json({ success: false, error: 'Usuário não encontrado ou já inativo' });
-      logAction(db, req, 'desativar', 'usuario', id, null);
-      res.json({ success: true });
+
+      // A sessão dele morre no próximo request (o middleware revalida `ativo`),
+      // mas o que estava na mão dele fica órfão — e isso ninguém dizia.
+      logAction(db, req, 'desativar', 'usuario', id, impacto);
+      res.json({ success: true, impacto,
+        aviso: impacto.pendencias.length
+          ? 'Havia trabalho em aberto com este usuário: '
+            + impacto.pendencias.map((x) => `${x.n} ${x.rotulo}`).join(', ')
+            + '. Reatribua antes de seguir.'
+          : undefined });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }

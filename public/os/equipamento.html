@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Equipamento · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .evt-item { padding:10px; border-left:3px solid var(--accent); background:var(--bg-1); margin-bottom:8px; border-radius:var(--r-md); }
+  .evt-item.troca_dono { border-left-color:var(--warn); }
+  .evt-item.cadastro { border-left-color:var(--success); }
+  .evt-meta { color:var(--text-3); font-size:11px; margin-top:4px; }
+  .num { text-align:right; white-space:nowrap; }
+  .sub { display:block; color:var(--text-3); font-size:.78em; }
+  .grid2 { display:grid; grid-template-columns:1fr 340px; gap:18px; align-items:start; }
+  @media (max-width:900px){ .grid2 { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 id="pgTitulo">Equipamento</h1>
+      <small id="pgSub"></small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/os/equipamentos.html">← Equipamentos</a>
+      <button class="btn btn-primary btn-sm" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div id="avisos"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="grid2">
+    <div>
+      <div class="panel">
+        <h3 style="margin-top:0;">Histórico de atendimento</h3>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th>OS</th><th>Aberta</th><th>Status</th><th>Técnico</th>
+              <th>Defeito / solução</th><th class="num">Valor</th>
+            </tr></thead>
+            <tbody id="tbOS"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:18px;">
+        <h3 style="margin-top:0;">Linha do tempo</h3>
+        <div id="eventos"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0;">Cadastro</h3>
+      <div class="form-row"><div class="form-group full-width"><label>Descrição *</label><input type="text" id="eDesc"></div></div>
+      <div class="form-row">
+        <div class="form-group"><label>Marca</label><input type="text" id="eMarca"></div>
+        <div class="form-group"><label>Modelo</label><input type="text" id="eModelo"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Nº de série</label><input type="text" id="eSerie"></div>
+        <div class="form-group"><label>Patrimônio</label><input type="text" id="ePatrimonio"></div>
+      </div>
+      <div class="form-row"><div class="form-group full-width"><label>Cliente</label><select id="eCliente"></select></div></div>
+      <div class="form-row" id="rowMotivo" style="display:none;">
+        <div class="form-group full-width"><label>Motivo da troca de dono</label>
+          <input type="text" id="eMotivoTroca" placeholder="Ex.: venda entre empresas">
+          <small class="muted">Fica registrado na linha do tempo</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Aquisição</label><input type="date" id="eAquisicao"></div>
+        <div class="form-group"><label>Garantia de fábrica até</label><input type="date" id="eGarantiaFab"></div>
+      </div>
+      <div class="form-row"><div class="form-group full-width"><label>Observações</label><input type="text" id="eObs"></div></div>
+      <div class="form-row"><div class="form-group full-width">
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+          <input type="checkbox" id="eAtivo"> Equipamento ativo
+        </label>
+        <small class="muted">Desmarque quando o aparelho sai de operação — ele some da base sem perder o histórico.</small>
+      </div></div>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script>initSidebar('equipamentos');</script>
+<script>
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const val=id=>document.getElementById(id).value;
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+const id=new URLSearchParams(location.search).get('id');
+let FICHA=null, clienteOriginal=null;
+
+async function carregar(){
+  if(!id) return showAlert('ID não informado','error');
+  const r=await fetch('/api/equipamentos/'+id); const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  FICHA=d;
+  const e=d.equipamento, rs=d.resumo;
+  clienteOriginal=e.clienteId;
+
+  document.getElementById('pgTitulo').textContent=e.descricao;
+  document.getElementById('pgSub').textContent=
+    [e.marca,e.modelo].filter(Boolean).join(' ')+(e.numeroSerie?` · série ${e.numeroSerie}`:'');
+
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="label">Atendimentos</div><div class="value">${rs.totalOS}</div>
+      <small class="muted">${rs.abertas} em aberto</small></div>
+    <div class="kpi"><div class="label">Valor acumulado</div><div class="value">${fmtBRL(rs.valorAcumulado)}</div>
+      <small class="muted">OS faturadas</small></div>
+    <div class="kpi ${rs.retornosRapidos>0?'danger':''}"><div class="label">Retornos em 90 dias</div>
+      <div class="value">${rs.retornosRapidos}</div>
+      <small class="muted">${rs.menorIntervaloDias!=null?`menor intervalo: ${rs.menorIntervaloDias} dia(s)`:'—'}</small></div>
+    <div class="kpi ${d.garantiaVigente?'success':''}"><div class="label">Garantia</div>
+      <div class="value">${d.garantiaVigente?d.garantiaVigente.diasRestantes+'d':'—'}</div>
+      <small class="muted">${d.garantiaVigente?`até ${d.garantiaVigente.ate} (OS ${d.garantiaVigente.numero})`:'sem garantia vigente'}</small></div>`;
+
+  const avisos=[];
+  if(rs.retornosRapidos>0) avisos.push(`<div class="alert warn" style="display:block;">
+    <strong>Equipamento reincidente:</strong> ${rs.retornosRapidos} retorno(s) em até 90 dias da conclusão anterior
+    ${rs.menorIntervaloDias!=null?`— o menor intervalo foi de ${rs.menorIntervaloDias} dia(s)`:''}.
+    Vale revisar o diagnóstico das OS abaixo antes de abrir outra.</div>`);
+  if(!e.clienteId) avisos.push(`<div class="alert" style="display:block;">
+    Equipamento sem cliente definido — ele não aparece na base instalada de ninguém.</div>`);
+  document.getElementById('avisos').innerHTML=avisos.join('');
+
+  document.getElementById('tbOS').innerHTML=d.ordens.length?d.ordens.map(o=>`<tr>
+    <td><a href="/os/ordem-servico.html?id=${o.id}"><strong>${esc(o.numero)}</strong></a>
+      ${o.emGarantia?'<span class="badge entrada">garantia</span>':''}</td>
+    <td>${(o.dataAbertura||'').slice(0,10)}</td>
+    <td><span class="badge ${o.status==='faturada'?'entrada':o.status==='cancelada'?'cancelado':'pendente'}">${esc(o.status)}</span></td>
+    <td>${esc(o.tecnicoNome||'—')}</td>
+    <td>${esc(o.defeitoRelatado||o.titulo||'—')}${o.solucao?`<span class="sub">${esc(o.solucao)}</span>`:''}</td>
+    <td class="num">${o.status==='faturada'?fmtBRL(o.valorTotal):'—'}</td>
+  </tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhuma OS para este equipamento ainda</td></tr>';
+
+  document.getElementById('eventos').innerHTML=d.eventos.length?d.eventos.map(ev=>`
+    <div class="evt-item ${esc(ev.tipo)}">
+      <strong>${esc({cadastro:'Cadastro',troca_dono:'Troca de dono'}[ev.tipo]||ev.tipo)}</strong>
+      ${ev.descricao?` — ${esc(ev.descricao)}`:''}
+      ${ev.tipo==='troca_dono'?`<div class="sub">${esc(ev.clienteAnteriorNome||'sem dono')} → ${esc(ev.clienteNovoNome||'sem dono')}</div>`:''}
+      <div class="evt-meta">${(ev.data||'').slice(0,16).replace('T',' ')}${ev.usuario?' · '+esc(ev.usuario):''}</div>
+    </div>`).join(''):'<p class="muted" style="font-size:13px;">Sem eventos registrados.</p>';
+
+  // Formulário
+  document.getElementById('eDesc').value=e.descricao||'';
+  document.getElementById('eMarca').value=e.marca||'';
+  document.getElementById('eModelo').value=e.modelo||'';
+  document.getElementById('eSerie').value=e.numeroSerie||'';
+  document.getElementById('ePatrimonio').value=e.patrimonio||'';
+  document.getElementById('eAquisicao').value=e.dataAquisicao||'';
+  document.getElementById('eGarantiaFab').value=e.garantiaFabricanteAte||'';
+  document.getElementById('eObs').value=e.observacoes||'';
+  document.getElementById('eAtivo').checked=!!e.ativo;
+  document.getElementById('eCliente').value=e.clienteId||'';
+}
+
+// Trocar o cliente pede motivo: a troca vira evento na linha do tempo.
+document.addEventListener('change',ev=>{
+  if(ev.target.id!=='eCliente') return;
+  const mudou=String(val('eCliente')||'')!==String(clienteOriginal||'');
+  document.getElementById('rowMotivo').style.display=mudou?'':'none';
+});
+
+async function salvar(){
+  if(!val('eDesc').trim()) return showAlert('Descrição é obrigatória','error');
+  const body={
+    descricao:val('eDesc').trim(), marca:val('eMarca').trim()||null, modelo:val('eModelo').trim()||null,
+    numeroSerie:val('eSerie').trim()||null, patrimonio:val('ePatrimonio').trim()||null,
+    dataAquisicao:val('eAquisicao')||null, garantiaFabricanteAte:val('eGarantiaFab')||null,
+    observacoes:val('eObs').trim()||null,
+    ativo:document.getElementById('eAtivo').checked?1:0,
+    clienteId:Number(val('eCliente'))||null,
+  };
+  if(String(body.clienteId||'')!==String(clienteOriginal||'')) body.motivoTroca=val('eMotivoTroca').trim()||null;
+  const r=await fetch('/api/equipamentos/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Equipamento salvo');
+  document.getElementById('rowMotivo').style.display='none';
+  document.getElementById('eMotivoTroca').value='';
+  carregar();
+}
+
+(async()=>{
+  try{
+    const r=await fetch('/api/pessoas'); const d=await r.json();
+    document.getElementById('eCliente').innerHTML='<option value="">— sem dono definido —</option>'+
+      (d.pessoas||[]).map(p=>`<option value="${p.id}">${esc(p.razaoSocial||p.nomeFantasia||('#'+p.id))}</option>`).join('');
+  }catch{}
+  await carregar();
+})();
+</script>
+</body></html>

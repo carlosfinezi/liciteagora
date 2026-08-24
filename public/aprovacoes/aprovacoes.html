@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aprovações · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Nove colunas não cabiam na largura útil e a tabela rolava na horizontal.
+     O que era coluna própria e curta virou linha secundária dentro da coluna
+     principal: #id, tipo de evento e solicitante moram sob a descrição; o
+     prazo, sob o status. Sobraram cinco colunas, que cabem sem rolagem.
+
+     Os pisos existem porque grid.js impõe table-layout:fixed e mede cada
+     coluna UMA vez, pelo conteúdo presente — com a fila curta ele congelava
+     colunas estreitas e cortava o que chegasse depois. Quebra de linha só nas
+     duas colunas de texto longo: ligá-la em tudo picotava "R$ 2.761,0 / 0". */
+  .tbl-wrap th.col-ref      { min-width: 240px; }
+  .tbl-wrap th.col-valor    { min-width: 112px; }
+  .tbl-wrap th.col-status   { min-width: 130px; }
+  .tbl-wrap th.col-decisao  { min-width: 180px; }
+  .tbl-wrap th.col-acoes    { min-width: 165px; }
+  /* Seletor mais específico que o `.grid-on td` do grid.js de propósito: o CSS
+     dele é injetado em runtime, depois deste, e com a mesma especificidade
+     venceria o desempate por ordem — as reticências continuariam. */
+  .tbl-wrap table.grid-on td.col-ref,
+  .tbl-wrap table.grid-on td.col-status,
+  .tbl-wrap table.grid-on td.col-decisao { white-space: normal; overflow: visible;
+                                           text-overflow: clip; overflow-wrap: break-word; }
+  .tbl-wrap td .sub { display: block; color: var(--text-3); font-size: 0.78em;
+                      line-height: 1.45; margin-top: 2px; }
+</style>
+</head>
+<body>
+<!--
+  Tela de TRABALHO de quem aprova.
+
+  Antes, a fila morava dentro de Configurações → Alçadas, junto do cadastro de
+  regras. Configuração se mexe uma vez por ano; aprovar pagamento é tarefa do
+  dia. A fila ficava invisível: sem contador, sem aviso, e sem nenhum link a
+  partir de Contas a Pagar ou Pedidos de Compra. O pagamento era barrado e a
+  solicitação esperava numa tela que ninguém tinha motivo para abrir.
+
+  Aqui fica só o que se decide. As regras continuam em Configurações → Alçadas.
+-->
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Aprovações</h1>
+      <small>Pagamentos e pedidos de compra bloqueados por alçada, esperando decisão</small>
+    </div>
+    <div>
+      <a class="btn btn-ghost btn-sm" href="/configuracoes/alcadas.html">Regras de alçada</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div id="painelAvisos"></div>
+
+  <div class="toolbar">
+    <select id="filtStatus" onchange="carregarFila()">
+      <option value="pendente" selected>Pendentes</option>
+      <option value="">Todas</option>
+      <option value="aprovada">Aprovadas</option>
+      <option value="reprovada">Reprovadas</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:0.9em;text-transform:none;">
+      <input type="checkbox" id="filtMinhas" style="width:auto;" onchange="carregarFila()">
+      Só o que eu posso decidir
+    </label>
+  </div>
+
+  <div class="tbl-wrap" data-grid="aprovacoes">
+    <table>
+      <thead><tr><th class="col-ref">Solicitação</th>
+        <th class="col-valor" style="text-align:right;">Valor</th>
+        <th class="col-status">Status</th>
+        <th class="col-decisao">Decisão</th><th class="col-acoes"></th></tr></thead>
+      <tbody id="tbFila"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
+<script>initSidebar('aprovacoes');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => e.style.display = 'none', 6000);
+}
+function esc(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtM(v){ return 'R$ ' + fmt(v); }
+function dataBR(d){ if(!d) return '—'; const s=String(d).slice(0,10); const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }
+const hoje = () => new Date(Date.now() - 3*3600000).toISOString().slice(0,10);
+
+const EVENTO_TXT = { pagamento_cp: '📤 Pagamento CP', pedido_compra: '🛒 Pedido de compra' };
+const ST_BADGE = {
+  pendente: '<span class="badge saida">PENDENTE</span>',
+  aprovada: '<span class="badge entrada">APROVADA</span>',
+  reprovada: '<span class="badge cancelado">REPROVADA</span>',
+};
+
+// Link para o documento que está travado. Decidir sem poder olhar o documento
+// é assinar em branco — a fila antiga não levava a lugar nenhum.
+function linkDaReferencia(a) {
+  if (a.tipoEvento === 'pagamento_cp') return `/financeiro/contas-a-pagar-detalhe.html?id=${a.referenciaId}`;
+  if (a.tipoEvento === 'pedido_compra') return `/compras/pedido.html?id=${a.referenciaId}`;
+  return null;
+}
+
+let EU = null;
+// Ligada em Financeiro > Regras de Alçada: admin decide o próprio pedido.
+let AUTO_APROVA_ADMIN = false;
+let FILA = [];
+
+async function carregarFila() {
+  const st = document.getElementById('filtStatus').value;
+  const soMinhas = document.getElementById('filtMinhas').checked;
+  let d;
+  try { d = await fetch('/api/alcadas/aprovacoes' + (st ? '?status=' + st : '')).then(r => r.json()); }
+  catch (e) { return showAlert('Erro ao carregar: ' + e.message, 'error'); }
+  if (!d.success) return showAlert(d.error, 'error');
+
+  FILA = d.aprovacoes;
+  let linhas = d.aprovacoes;
+  if (soMinhas) linhas = linhas.filter(a => a.status === 'pendente' && podeEuDecidir(a));
+
+  document.getElementById('tbFila').innerHTML = linhas.length ? linhas.map(a => {
+    const link = linkDaReferencia(a);
+    const ref = `#${a.referenciaId} ${esc(a.referenciaDescricao || '')}`;
+    const venceEm = a.expiraEm ? (a.expiraEm < hoje() ? `<span style="color:var(--danger);">VENCIDO em ${dataBR(a.expiraEm)}</span>`
+      : `em ${dataBR(a.expiraEm)}`) : '—';
+    const meu = a.solicitante && EU && a.solicitante === EU.username;
+    return `<tr>
+      <td class="col-ref" title="${esc(a.referenciaDescricao || '')}">
+        ${link ? `<a href="${link}">${ref}</a>` : ref}
+        <span class="sub">${EVENTO_TXT[a.tipoEvento] || esc(a.tipoEvento)} · #${a.id} · por ${esc(a.solicitante || '—')}${meu ? ' (você)' : ''}</span>
+      </td>
+      <td class="col-valor" style="text-align:right;"><strong>${fmtM(a.valorReferencia)}</strong></td>
+      <td class="col-status">${ST_BADGE[a.status] || esc(a.status)}${a.consumida ? ' <small class="muted">(usada)</small>' : ''}
+        ${a.status === 'pendente' ? `<span class="sub">vence ${venceEm}</span>` : ''}
+      </td>
+      <td class="col-decisao">${a.aprovador ? `${esc(a.aprovador)}<span class="sub">${esc(a.dataDecisao || '')}${a.autoAprovada ? ' · auto-aprovada' : ''}${a.motivo ? '<br>' + esc(a.motivo) : ''}</span>` : '—'}</td>
+      <td class="col-acoes">${botoes(a, meu)}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="5" class="empty">${soMinhas ? 'Nada esperando por você.' : 'Fila vazia.'}</td></tr>`;
+}
+
+function podeEuDecidir(a) {
+  if (!EU) return false;
+  if (EU.username === a.solicitante && !euPossoAutoAprovar(a)) return false;
+  const papel = a.papelExigido || 'admin';
+  return EU.role === 'admin' || EU.role === papel;
+}
+
+function euPossoAutoAprovar(a) {
+  return !!EU && EU.username === a.solicitante && EU.role === 'admin' && AUTO_APROVA_ADMIN;
+}
+
+function botoes(a, meu) {
+  if (a.status !== 'pendente') return '';
+  if (meu && !euPossoAutoAprovar(a)) return '<small class="muted">você solicitou</small>';
+  if (!podeEuDecidir(a)) return `<small class="muted">espera ${esc(a.papelExigido || 'admin')}</small>`;
+  const titulo = meu ? ' title="Você é o solicitante — fica registrada como auto-aprovada"' : '';
+  return `<button class="btn btn-primary btn-sm"${titulo} onclick="decidir(${a.id},'aprovar')">Aprovar${meu ? '*' : ''}</button>
+    <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="decidir(${a.id},'reprovar')">Reprovar</button>`;
+}
+
+async function decidir(id, acao) {
+  let motivo = null;
+  if (acao === 'reprovar') { motivo = prompt('Motivo da reprovação:'); if (!motivo) return; }
+  // Aprovar o próprio pedido é o caso que a alçada existe para evitar: confirma
+  // uma vez, e a linha fica marcada como auto-aprovada no histórico.
+  if (acao === 'aprovar') {
+    const a = (FILA || []).find(x => x.id === id);
+    if (a && euPossoAutoAprovar(a)
+        && !confirm('Esta solicitação é sua. Aprovar o próprio pedido?\n\nFica registrado como auto-aprovada, com seu usuário, na fila e no log de auditoria.')) return;
+  }
+  const r = await fetch(`/api/alcadas/aprovacoes/${id}/${acao}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  showAlert(acao === 'aprovar'
+    ? 'Aprovado — quem pediu já pode repetir a operação'
+    : 'Reprovado');
+  carregarFila(); carregarAvisos();
+  if (typeof carregarContadorAprovacoes === 'function') carregarContadorAprovacoes();
+}
+
+// Painel do que está travando: parado há dias, vencido, reprovado segurando
+// documento. Só a parte operacional — problema de configuração fica na tela
+// de regras, que é onde se resolve.
+function bloco(titulo, cor, linhas, rodape) {
+  if (!linhas.length) return '';
+  return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
+    <div style="font-size:0.88em;line-height:1.7;">${linhas.join('<br>')}</div>
+    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+  </div>`;
+}
+
+async function carregarAvisos() {
+  const alvo = document.getElementById('painelAvisos');
+  let d;
+  try { d = await fetch('/api/alcadas/diagnostico').then(r => r.json()); } catch { alvo.innerHTML = ''; return; }
+  if (!d || !d.success) { alvo.innerHTML = ''; return; }
+  const g = d.diagnostico;
+  alvo.innerHTML = [
+    bloco(`Paradas há dias (${g.paradas.length})`, 'warn',
+      g.paradas.map(a => `#${a.id} ${esc(a.tipoEvento)} ref.${a.referenciaId} — ${fmtM(a.valor)} ·
+        pedido por ${esc(a.solicitante || '?')} há <strong>${a.dias} dia(s)</strong>
+        <span class="muted">(espera ${esc(a.papelExigido || 'admin')})</span>`),
+      'Aprovação parada é pagamento parado.'),
+    bloco(`Vencidas sem uso (${g.expiradas.length})`, 'warn',
+      g.expiradas.map(a => `#${a.id} ${esc(a.tipoEvento)} ref.${a.referenciaId} — ${fmtM(a.valor)} · venceu em ${esc(a.expirouEm)}`),
+      'Precisam ser solicitadas de novo — a aprovação antiga não vale mais.'),
+    bloco(`Reprovações travando documento (${g.reprovadasAbertas.length})`, 'accent',
+      g.reprovadasAbertas.map(a => `#${a.id} ${esc(a.tipoEvento)} ref.${a.referenciaId} — ${fmtM(a.valor)}
+        <span class="muted">${esc(a.motivo || 'sem motivo')}</span>`),
+      'Corrigir o valor gera nova solicitação; o mesmo valor continua barrado.'),
+    g.problemas.length ? bloco(`Configuração com problema (${g.problemas.length})`, 'danger',
+      g.problemas.map(p => esc(p.mensagem)),
+      'Isto se resolve em <a href="/configuracoes/alcadas.html">Regras de alçada</a>.') : '',
+  ].filter(Boolean).join('');
+}
+
+(async () => {
+  // Sem saber quem sou, não dá para dizer o que eu posso decidir — e mostrar
+  // botão de aprovar para quem vai levar 403 é pior que não mostrar. Idem para
+  // a chave de auto-aprovação: ela decide se o meu próprio pedido tem botão.
+  try {
+    const d = await fetch('/api/usuarios/me').then(r => r.json());
+    EU = d && d.success ? d.usuario : null;
+  } catch { EU = null; }
+  try {
+    const c = await fetch('/api/alcadas/config').then(r => r.json());
+    AUTO_APROVA_ADMIN = !!(c && c.success && c.adminAutoAprova);
+  } catch { AUTO_APROVA_ADMIN = false; }
+  carregarFila(); carregarAvisos();
+})();
+</script>
+</body></html>

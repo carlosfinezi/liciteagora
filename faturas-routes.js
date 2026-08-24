@@ -10,8 +10,11 @@
 
 const faturasPdf = require('./faturas-pdf');
 const { lancarMovimentacao, getContaPadrao } = require('./contas-financeiras-routes');
+const { escopoSql, guardEscopo } = require('./estabelecimentos-routes');
 const { cancelarFaturaLocal } = require('./fatura-cancelamento');
+const { sincronizarPagamentoPedido } = require('./contas-receber-routes');
 const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
+const { prazoDaPessoa, dividirValor } = require('./prazo-pagamento');
 
 const MEIOS_AVISTA_CAIXA = new Set(['01']);      // Dinheiro
 const MEIOS_AVISTA_BANCO = new Set([]);          // PIX (17) agora gera cobrança QR/link (baixa via webhook), não auto-baixa
@@ -136,6 +139,9 @@ function carregarFaturaCompleta(db, faturaId) {
 }
 
 function registrarRotasFaturas(app, db) {
+  // RBAC de estabelecimento: fecha abrir/PDF/cancelar/restaurar por id de uma vez.
+  app.use('/api/faturas/:id', guardEscopo(db, 'faturas'));
+
   migrarFaturas(db);
 
   // ==================== FATURAR PEDIDO ====================
@@ -181,7 +187,12 @@ function registrarRotasFaturas(app, db) {
       const gerarContasReceber = tipoOp ? !!tipoOp.geraFinanceiro : true;
 
       const dataEmissao = dataBrasilia();
-      const dataVencimento = b.dataVencimento || pedido.dataFaturamentoPrevista || addDias(dataEmissao, 30);
+      // Prazo do cadastro do cliente ("30/60/90") manda no vencimento e no número
+      // de parcelas quando ninguém informou data. Sem prazo, segue o +30 de antes.
+      const prazoCliente = prazoDaPessoa(db, pedido.clienteId);
+      const vencInformado = b.dataVencimento || pedido.dataFaturamentoPrevista || null;
+      const dataVencimento = vencInformado
+        || addDias(dataEmissao, prazoCliente ? prazoCliente[0] : 30);
 
       const numero = gerarNumeroFatura(db);
 
@@ -250,6 +261,17 @@ function registrarRotasFaturas(app, db) {
             valor: Number(p.valor), dataVencimento: p.dataVencimento,
             meioPagamento: p.meioPagamento, bandeiraId: p.bandeiraId,
             observacao: p.observacao
+          }));
+        } else if (!vencInformado && prazoCliente && prazoCliente.length > 1) {
+          // Pedido sem parcelas + cliente com prazo parcelado: a fatura sai
+          // parcelada nos vencimentos do cadastro, não numa CR só.
+          const valores = dividirValor(valorTotal, prazoCliente.length);
+          parcelas = prazoCliente.map((dias, i) => ({
+            numero: i + 1, total: prazoCliente.length,
+            valor: valores[i], dataVencimento: addDias(dataEmissao, dias),
+            meioPagamento: pedido.meioPagamento,
+            bandeiraId: b.bandeiraId ? Number(b.bandeiraId) : null,
+            observacao: null
           }));
         } else {
           parcelas = [{
@@ -328,6 +350,10 @@ function registrarRotasFaturas(app, db) {
       });
       tx();
 
+      // Reflete no pedido a eventual auto-baixa à vista (Dinheiro/PIX) feita dentro da tx.
+      const crFat = db.prepare('SELECT id FROM contas_a_receber WHERE faturaId = ? LIMIT 1').get(faturaId);
+      if (crFat) sincronizarPagamentoPedido(db, crFat.id);
+
       // Auto-cobrança ao faturar: gera + envia boleto (tPag 15) ou PIX QR/link (tPag 17)
       // para as parcelas correspondentes. Best-effort e fire-and-forget — não bloqueia o faturamento.
       try {
@@ -376,6 +402,8 @@ function registrarRotasFaturas(app, db) {
         LEFT JOIN tipos_operacao op ON op.id = f.tipoOperacaoId
         WHERE 1=1`;
       const params = [];
+      const rbac = escopoSql(req, 'f.estabelecimentoId');
+      sql += rbac.sql; params.push(...rbac.params);
       if (incluirExcluidas !== '1') { sql += ' AND COALESCE(f.excluida, 0) = 0'; }
       if (status) { sql += ' AND f.status = ?'; params.push(status); }
       if (clienteId) { sql += ' AND f.clienteId = ?'; params.push(clienteId); }

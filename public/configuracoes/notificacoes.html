@@ -11,14 +11,29 @@
   <div class="page-header">
     <div>
       <h1>Notificações</h1>
-      <small>Canais usados pelos alertas do sniper (token inválido, disputa sem blitz, digest diário, resultado de rajada)</small>
+      <small>Por onde o sistema avisa você. Vale para todos os alertas automáticos.</small>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
+  <div id="avisoMudo" class="alert warning" style="display:none;">
+    <strong>Nenhum canal ativo.</strong> Nenhum alerta automático será entregue —
+    nem token inválido, nem disputa sem agendamento, nem OS em atraso.
+  </div>
 
   <div class="card" style="max-width:720px;">
     <h3>Canais ativos</h3>
+    <p class="muted" style="font-size:0.88em;line-height:1.6;margin:0 0 14px;">
+      Desligar um canal aqui vale para <strong>todo alerta automático</strong>:
+      disputa e sniper (token inválido, rajada sem efeito, disputa sem agendamento,
+      resumo diário), descoberta por IA, ordens de serviço em atraso, preventivas
+      geradas, PCP, mensagens de sala, renovação de habilitação e falha de
+      sincronização.
+      <br>Não afeta emails que você dispara na mão (cobrança, proposta, NF-e), nem
+      o <a href="/os/os-notificacoes.html">aviso ao cliente da OS</a>, que tem
+      canal próprio por regra — mas o Telegram daquelas regras também obedece ao
+      interruptor abaixo.
+    </p>
 
     <div class="form-row">
       <div class="form-group full-width">
@@ -74,6 +89,8 @@ async function carregar() {
     document.getElementById('canalTelegram').checked = !!d.config.telegram;
     document.getElementById('canalEmail').checked    = !!d.config.email;
     document.getElementById('destinatarios').value   = (d.config.destinatarios || []).join(', ');
+    const nenhum = !d.config.telegram && !(d.config.email && (d.config.destinatarios || []).length);
+    document.getElementById('avisoMudo').style.display = nenhum ? 'block' : 'none';
   } catch (e) {
     showAlert('Erro ao carregar: ' + e.message, 'error');
   }
@@ -92,7 +109,13 @@ async function salvar() {
     });
     const d = await r.json();
     if (!d.success) throw new Error(d.error || 'falha ao salvar');
-    showAlert('Configuração salva.');
+    // Endereço inválido era descartado em silêncio: o campo voltava sem ele e
+    // o usuário achava que tinha salvo.
+    if (d.ignorados && d.ignorados.length) {
+      showAlert('Salvo, mas ignorei o que não é email: ' + d.ignorados.join(', '), 'warning');
+    } else {
+      showAlert('Configuração salva.');
+    }
     await carregar();
   } catch (e) {
     showAlert('Erro ao salvar: ' + e.message, 'error');
@@ -103,8 +126,11 @@ async function testar() {
   try {
     const r = await fetch('/api/alertas/teste', { method: 'POST' });
     const d = await r.json();
+    // O endpoint devolve success:false quando nenhum canal estava ativo. Antes
+    // ele respondia sucesso mesmo sem enviar nada, e o usuário concluía que
+    // estava tudo certo.
     if (!d.success) throw new Error(d.error || 'falha ao testar');
-    showAlert('Teste disparado nos canais ativos. Confira Telegram/email.');
+    showAlert(`Teste enviado (${d.canais} canal(is)). Confira Telegram/email.`);
   } catch (e) {
     showAlert('Erro no teste: ' + e.message, 'error');
   }

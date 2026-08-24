@@ -13,56 +13,60 @@
       <h1>Meu Perfil</h1>
       <small>Editar dados pessoais e trocar senha</small>
     </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="salvarDados()">Salvar dados</button>
+    </div>
   </div>
 
   <div id="alertGlobal"></div>
 
-  <div class="card" style="max-width:560px;">
-    <h3>Dados</h3>
+  <!-- .panel e não .card: `.panel h3` traz cor de destaque, separador e
+       espaçamento, e `.card` não tem nenhum dos três. Esta era a única tela de
+       Configurações usando .card, e por isso os títulos saíam sem estilo e os
+       blocos colados um no outro. -->
+  <div class="panel">
+    <h3>Dados da conta</h3>
     <div class="form-row">
-      <div class="form-group full-width">
+      <div class="form-group">
         <label>Username</label>
         <input type="text" id="fUsername" disabled>
+        <small class="muted" style="font-size:11px;">Definido na criação e não pode ser alterado.</small>
       </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Perfil</label>
+      <div class="form-group">
+        <label>Perfil de acesso</label>
         <input type="text" id="fRole" disabled>
+        <small class="muted" style="font-size:11px;">Só um administrador altera em Usuários.</small>
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group full-width">
+      <div class="form-group">
         <label>Nome de exibição</label>
-        <input type="text" id="fNome">
+        <input type="text" id="fNome" placeholder="Como seu nome aparece no sistema">
       </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
+      <div class="form-group">
         <label>E-mail</label>
-        <input type="email" id="fEmail">
+        <input type="email" id="fEmail" placeholder="voce@empresa.com.br">
       </div>
     </div>
-    <div style="display:flex;justify-content:flex-end;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+    <div style="display:flex;justify-content:flex-end;">
       <button class="btn btn-primary" onclick="salvarDados()">Salvar dados</button>
     </div>
   </div>
 
-  <div class="card" style="max-width:560px;margin-top:16px;">
+  <div class="panel">
     <h3>Alterar senha</h3>
     <div class="form-row">
-      <div class="form-group full-width">
+      <div class="form-group">
         <label>Senha atual</label>
         <input type="password" id="fSenhaAtual" autocomplete="current-password">
       </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Nova senha <small class="muted">(mínimo 6 caracteres)</small></label>
-        <input type="password" id="fSenhaNova" autocomplete="new-password">
+      <div class="form-group">
+        <label>Nova senha</label>
+        <input type="password" id="fSenhaNova" autocomplete="new-password" oninput="avaliarSenha()">
+        <small class="muted" id="forcaSenha" style="font-size:11px;">Mínimo 6 caracteres.</small>
       </div>
     </div>
-    <div style="display:flex;justify-content:flex-end;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+    <div style="display:flex;justify-content:flex-end;">
       <button class="btn btn-secondary" onclick="trocarSenha()">🔑 Trocar senha</button>
     </div>
   </div>
@@ -75,8 +79,14 @@
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 
 async function carregar(){
-  const r=await fetch('/api/usuarios/me');
-  const d=await r.json();
+  let d;
+  try {
+    const r=await fetch('/api/usuarios/me');
+    d=await r.json();
+  } catch(e){
+    // Sem isto, uma falha de rede deixava os campos vazios sem explicação.
+    return showAlert('Não foi possível carregar seu perfil: '+e.message,'error');
+  }
   if(!d.success) return showAlert(d.error,'error');
   const u=d.usuario;
   document.getElementById('fUsername').value=u.username;
@@ -96,16 +106,31 @@ async function salvarDados(){
   showAlert('Dados salvos');
 }
 
+// O mínimo de 6 caracteres é regra do servidor; dizer antes de enviar evita a
+// ida e volta com a senha já digitada.
+function avaliarSenha(){
+  const v = document.getElementById('fSenhaNova').value;
+  const el = document.getElementById('forcaSenha');
+  if (!v) { el.textContent = 'Mínimo 6 caracteres.'; el.style.color = ''; return; }
+  if (v.length < 6) { el.textContent = `Faltam ${6 - v.length} caractere(s).`; el.style.color = 'var(--danger)'; return; }
+  const variedade = [/[a-z]/, /[A-Z]/, /\d/, /[^a-zA-Z0-9]/].filter((r) => r.test(v)).length;
+  el.textContent = variedade >= 3 ? 'Senha forte.' : 'Aceitável — misture maiúsculas, números e símbolos para reforçar.';
+  el.style.color = variedade >= 3 ? 'var(--success)' : 'var(--warn)';
+}
+
 async function trocarSenha(){
   const senhaAtual=document.getElementById('fSenhaAtual').value;
   const senhaNova =document.getElementById('fSenhaNova').value;
   if(!senhaAtual||!senhaNova) return showAlert('Preencha ambos os campos','error');
+  if(senhaNova.length < 6) return showAlert('A nova senha precisa de ao menos 6 caracteres','error');
+  if(senhaNova === senhaAtual) return showAlert('A nova senha é igual à atual','error');
   const r=await fetch('/api/usuarios/me/senha', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({senhaAtual,senhaNova}) });
   const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');
   showAlert('Senha alterada com sucesso');
   document.getElementById('fSenhaAtual').value='';
   document.getElementById('fSenhaNova').value='';
+  avaliarSenha();
 }
 
 carregar();

@@ -83,19 +83,24 @@
                             </div>
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
-                            <label for="razaoSocial" class="required">Razão Social</label>
-                            <input type="text" id="razaoSocial" name="razaoSocial" placeholder="Razão social completa">
+                            <label for="cnpj" class="required">CNPJ</label>
+                            <div style="display:flex; gap:8px;">
+                                <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00" style="flex:1;">
+                                <button type="button" id="btnBuscarCnpj" class="btn btn-secondary btn-sm" onclick="buscarDadosCnpj()" style="white-space:nowrap;">🔎 Buscar</button>
+                            </div>
+                            <small id="cnpjStatus" class="form-hint">Digite o CNPJ e clique em Buscar — os demais campos são preenchidos automaticamente.</small>
+                            <small id="cnpjFaltantes" class="form-hint" style="display:none;"></small>
                         </div>
                     </div>
 
                     <div class="form-row">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="razaoSocial" class="required">Razão Social</label>
+                            <input type="text" id="razaoSocial" name="razaoSocial" placeholder="Razão social completa">
+                        </div>
                         <div class="form-group">
                             <label for="nomeFantasia">Nome Fantasia</label>
                             <input type="text" id="nomeFantasia" name="nomeFantasia" placeholder="Nome fantasia">
-                        </div>
-                        <div class="form-group">
-                            <label for="cnpj" class="required">CNPJ</label>
-                            <input type="text" id="cnpj" name="cnpj" placeholder="00.000.000/0000-00">
                         </div>
                         <div class="form-group">
                             <label for="inscricaoEstadual">Inscrição Estadual</label>
@@ -303,6 +308,15 @@
         campos.forEach(k => { document.getElementById(k).value = e[k] ?? ''; });
         document.getElementById('contribuinteIPI').checked = !!e.contribuinteIPI;
 
+        // Registro já gravado não deve ser sobrescrito pela auto-busca no blur
+        _ultimoCnpjBuscado = (e.cnpj || '').replace(/\D/g, '');
+        const st = document.getElementById('cnpjStatus');
+        st.textContent = 'Digite o CNPJ e clique em Buscar — os demais campos são preenchidos automaticamente.';
+        st.style.color = '';
+        const fal = document.getElementById('cnpjFaltantes');
+        fal.style.display = 'none';
+        fal.textContent = '';
+
         const isMatriz = !!e.matriz;
         const tipoSel = document.getElementById('tipo_vinculo');
         tipoSel.value = isMatriz ? 'FILIAL_MESMA_PJ' : (e.tipo_vinculo || 'FILIAL_MESMA_PJ');
@@ -311,6 +325,160 @@
         document.getElementById('tipoHint').style.display = isMatriz ? 'none' : 'block';
         document.getElementById('formTitulo').textContent =
             isMatriz ? 'Editar matriz' : (e.id ? 'Editar filial' : 'Nova filial');
+    }
+
+    // Consulta BrasilAPI e preenche razão social, endereço, contato etc.
+    // Mesma pattern usada em minha-empresa.html.
+    let _ultimoCnpjBuscado = '';
+    async function buscarDadosCnpj(opts = {}) {
+        const silencioso = !!opts.silencioso;
+        const raw = (document.getElementById('cnpj').value || '').replace(/\D/g, '');
+        const status = document.getElementById('cnpjStatus');
+        if (raw.length !== 14) {
+            if (!silencioso) {
+                status.textContent = 'Informe um CNPJ válido (14 dígitos)';
+                status.style.color = 'var(--danger)';
+            }
+            return;
+        }
+        if (raw === _ultimoCnpjBuscado && silencioso) return;
+
+        const btn = document.getElementById('btnBuscarCnpj');
+        if (btn) btn.disabled = true;
+        document.getElementById('cnpjFaltantes').style.display = 'none';
+        status.textContent = 'Consultando BrasilAPI…';
+        status.style.color = 'var(--accent)';
+
+        try {
+            const resp = await fetch('https://brasilapi.com.br/api/cnpj/v1/' + raw);
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.message || 'CNPJ não encontrado');
+            }
+            const d = await resp.json();
+            _ultimoCnpjBuscado = raw;
+
+            const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+
+            set('razaoSocial', d.razao_social);
+            set('nomeFantasia', d.nome_fantasia);
+
+            const logr = d.descricao_tipo_de_logradouro
+                ? d.descricao_tipo_de_logradouro + ' ' + (d.logradouro || '')
+                : d.logradouro;
+            set('endereco', (logr || '').trim());
+            set('numero', d.numero);
+            set('complemento', d.complemento);
+            set('bairro', d.bairro);
+            set('cidade', d.municipio);
+            set('uf', d.uf);
+            set('cep', d.cep);
+            set('codigoMunicipio', d.codigo_municipio_ibge);
+
+            set('telefone', d.ddd_telefone_1);
+            if (d.email) set('email', String(d.email).toLowerCase());
+
+            const situacao = d.descricao_situacao_cadastral || '';
+            status.textContent = '✓ Dados preenchidos' + (situacao ? ' — Situação: ' + situacao : '');
+            status.style.color = 'var(--success)';
+
+            // MEI e empresário individual costumam vir sem logradouro na
+            // Receita. O CEP recupera a rua — número e complemento, não.
+            if (!document.getElementById('endereco').value.trim() && d.cep) {
+                const veio = await completarPorCep(d.cep);
+                if (veio) status.textContent += ' · logradouro pelo CEP';
+            }
+
+            // Segunda etapa: IE via publica.cnpj.ws (BrasilAPI não expõe IE).
+            await buscarInscricaoEstadual(raw, d.uf);
+            avisarCamposVazios();
+        } catch (err) {
+            status.textContent = 'Erro: ' + err.message;
+            status.style.color = 'var(--danger)';
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    // Complementa com a Inscrição Estadual ativa (só preenche se
+    // o campo estiver vazio — não sobrescreve o que o usuário digitou).
+    async function buscarInscricaoEstadual(cnpjRaw, ufEsperada) {
+        const ieEl = document.getElementById('inscricaoEstadual');
+        if (!ieEl || ieEl.value.trim()) return;
+        const status = document.getElementById('cnpjStatus');
+        try {
+            const r = await fetch('https://publica.cnpj.ws/cnpj/' + cnpjRaw);
+            if (!r.ok) return; // rate limit 429 ou 404 — silencia
+            const d = await r.json();
+            const inscricoes = d?.estabelecimento?.inscricoes_estaduais || [];
+            const ativa = inscricoes.find(i => i.ativo && i.estado?.sigla === ufEsperada)
+                || inscricoes.find(i => i.ativo)
+                || inscricoes[0];
+            if (ativa?.inscricao_estadual) {
+                ieEl.value = ativa.inscricao_estadual;
+                if (status && !status.textContent.includes('IE')) {
+                    status.textContent += ' · IE preenchida';
+                }
+            }
+        } catch (_) { /* silêncio — campo manual disponível */ }
+    }
+
+    // Busca o logradouro pelo CEP. Só preenche campo vazio — o que veio
+    // da consulta de CNPJ tem precedência. Devolve true se achou a rua.
+    async function completarPorCep(cepRaw) {
+        const cep = (cepRaw || '').replace(/\D/g, '');
+        if (cep.length !== 8) return false;
+        try {
+            const r = await fetch('https://brasilapi.com.br/api/cep/v2/' + cep);
+            if (!r.ok) return false;
+            const c = await r.json();
+            const setSeVazio = (id, v) => {
+                const el = document.getElementById(id);
+                if (el && !el.value.trim() && v) { el.value = v; return true; }
+                return false;
+            };
+            const achouRua = setSeVazio('endereco', c.street);
+            setSeVazio('bairro', c.neighborhood);
+            setSeVazio('cidade', c.city);
+            setSeVazio('uf', c.state);
+            return achouRua;
+        } catch (_) { return false; }
+    }
+
+    // Aponta o que a consulta não conseguiu trazer, para não passar
+    // despercebido que o campo ficou em branco.
+    function avisarCamposVazios() {
+        const alvo = [
+            ['endereco', 'Logradouro'], ['numero', 'Número'],
+            ['telefone', 'Telefone'], ['email', 'E-mail'],
+            ['inscricaoEstadual', 'Inscrição Estadual']
+        ];
+        const faltam = alvo
+            .filter(([id]) => !document.getElementById(id).value.trim())
+            .map(([, rotulo]) => rotulo);
+        const el = document.getElementById('cnpjFaltantes');
+        if (!faltam.length) { el.style.display = 'none'; el.textContent = ''; return; }
+        el.textContent = 'ℹ️ Não informado nas bases públicas — preencha à mão: ' + faltam.join(', ') + '.';
+        el.style.color = 'var(--warning, #b4772c)';
+        el.style.display = 'block';
+    }
+
+    function configurarMascaraCnpj() {
+        const cnpjEl = document.getElementById('cnpj');
+        cnpjEl.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            value = value.replace(/^(\d{2})(\d)/, '$1.$2');
+            value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+            value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
+            value = value.replace(/(\d{4})(\d)/, '$1-$2');
+            e.target.value = value.substring(0, 18);
+        });
+        cnpjEl.addEventListener('blur', function() {
+            const raw = (this.value || '').replace(/\D/g, '');
+            if (raw.length === 14 && raw !== _ultimoCnpjBuscado) {
+                buscarDadosCnpj({ silencioso: true });
+            }
+        });
     }
 
     function abrirForm() {
@@ -394,6 +562,7 @@
     const bloquear  = (id) => patchStatus(id, { bloqueado: 1 }, 'Filial bloqueada.');
     const setAtivo  = (id, v) => patchStatus(id, { ativo: v }, v ? 'Filial reativada.' : 'Filial desativada.');
 
+    configurarMascaraCnpj();
     carregar();
     </script>
 </body>

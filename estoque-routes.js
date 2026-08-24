@@ -112,9 +112,15 @@ function migrarEstoqueDB(db) {
   }
 
   // ==================== MULTI-DEPÓSITO ====================
-  // Convenção: depositoId NULL em movimentações/reservas/lotes = depósito padrão.
-  // Módulos que não conhecem depósito (pedidos, OS, devoluções...) seguem gravando
-  // NULL e operando implicitamente no padrão — compatibilidade total.
+  // Convenção ANTIGA: depositoId NULL = depósito padrão, e os módulos que
+  // não conhecem depósito (pedidos, OS, devoluções...) gravavam NULL.
+  // Funcionava com um depósito só; com dois, toda venda/OS/devolução era
+  // debitada do padrão independente de onde a mercadoria estava, e o erro
+  // era invisível porque o total continuava certo.
+  //
+  // Convenção ATUAL (2026-07-31): todo INSERT passa por resolverDeposito(),
+  // que nunca devolve NULL havendo depósito cadastrado. O COALESCE nas
+  // consultas continua, para não quebrar o histórico anterior à migração.
   db.exec(`
     CREATE TABLE IF NOT EXISTS depositos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,10 +177,84 @@ function migrarEstoqueDB(db) {
   `);
 }
 
+/**
+ * Custo unitário corrente de um produto, na mesma ordem em toda análise.
+ * Antes cada consulta montava a sua: a valorização caía no precoCusto e a
+ * evolução no custoUnitario da última entrada, então a mesma tela mostrava
+ * dois "valor do estoque" diferentes. O `> 0` é proposital — havia entrada
+ * gravada com custo zero, e um zero passando por "custo conhecido" apagava
+ * o valor do saldo em silêncio.
+ *
+ * @param {string} p alias da tabela produtos
+ * @param {string} ate `null` para custo atual, ou 'date(?)' para uma data de corte
+ * @returns {{sql: string, params: number}} SQL e quantos '?' consome
+ */
+function sqlCustoAtual(p = 'p', ate = null) {
+  const corte = ate ? ` AND date(x.data) <= ${ate}` : '';
+  return {
+    sql: `COALESCE(
+      (SELECT x.custoMedioPosterior FROM movimentacoes_estoque x
+        WHERE x.produtoId = ${p}.id AND x.custoMedioPosterior > 0${corte}
+        ORDER BY date(x.data) DESC, x.id DESC LIMIT 1),
+      (SELECT x.custoUnitario FROM movimentacoes_estoque x
+        WHERE x.produtoId = ${p}.id AND x.tipo = 'entrada' AND x.custoUnitario > 0${corte}
+        ORDER BY date(x.data) DESC, x.id DESC LIMIT 1),
+      CASE WHEN ${p}.precoCusto > 0 THEN ${p}.precoCusto END,
+      0)`,
+    params: ate ? 2 : 0,
+  };
+}
+
 function getDepositoPadraoId(db) {
-  const row = db.prepare('SELECT id FROM depositos WHERE padrao = 1 AND ativo = 1 LIMIT 1').get()
-    || db.prepare('SELECT id FROM depositos WHERE ativo = 1 ORDER BY id LIMIT 1').get();
-  return row ? row.id : null;
+  // Tolera tenant sem a tabela (boot parcial, banco de teste): devolver
+  // null mantém o comportamento antigo — NULL = padrão pelo COALESCE — em
+  // vez de derrubar toda movimentação de estoque.
+  try {
+    const row = db.prepare('SELECT id FROM depositos WHERE padrao = 1 AND ativo = 1 LIMIT 1').get()
+      || db.prepare('SELECT id FROM depositos WHERE ativo = 1 ORDER BY id LIMIT 1').get();
+    return row ? row.id : null;
+  } catch { return null; }
+}
+
+/**
+ * Decide o depósito de uma movimentação.
+ *
+ * Existe porque 13 dos 21 pontos que inserem em movimentacoes_estoque
+ * gravavam NULL. O saldo por depósito usa COALESCE(depositoId, padrão),
+ * então tudo caía no Principal e o multi-depósito virava ficção — sem
+ * ninguém perceber, porque o total continuava certo.
+ *
+ * Ordem: valor explícito → depósito da movimentação de origem (estorno) →
+ * depósito de onde a mercadoria saiu (devolução) → reserva → padrão.
+ *
+ * Nunca devolve NULL havendo depósito cadastrado: gravar o padrão
+ * explicitamente torna o dado auditável — "saiu do Principal" passa a ser
+ * uma afirmação, não uma inferência do COALESCE.
+ */
+function resolverDeposito(db, { depositoId, movOriginalId, pedidoId, osId, produtoId } = {}) {
+  if (depositoId) return Number(depositoId);
+  try {
+    if (movOriginalId) {
+      const m = db.prepare('SELECT depositoId FROM movimentacoes_estoque WHERE id = ?').get(movOriginalId);
+      if (m && m.depositoId) return m.depositoId;
+    }
+    if (pedidoId && produtoId) {
+      const s = db.prepare(`SELECT depositoId FROM movimentacoes_estoque
+        WHERE origem = 'pedido' AND origemId = ? AND produtoId = ? AND tipo = 'saida'
+          AND depositoId IS NOT NULL ORDER BY id DESC LIMIT 1`).get(pedidoId, produtoId);
+      if (s && s.depositoId) return s.depositoId;
+      const r = db.prepare(`SELECT depositoId FROM reservas_estoque
+        WHERE pedidoId = ? AND produtoId = ? AND depositoId IS NOT NULL LIMIT 1`).get(pedidoId, produtoId);
+      if (r && r.depositoId) return r.depositoId;
+    }
+    if (osId && produtoId) {
+      const s = db.prepare(`SELECT depositoId FROM movimentacoes_estoque
+        WHERE origem = 'os' AND origemId = ? AND produtoId = ? AND tipo = 'saida'
+          AND depositoId IS NOT NULL ORDER BY id DESC LIMIT 1`).get(osId, produtoId);
+      if (s && s.depositoId) return s.depositoId;
+    }
+  } catch { /* tabela ausente no tenant — cai no padrão */ }
+  return getDepositoPadraoId(db);
 }
 
 // ==================== HELPERS ====================
@@ -392,25 +472,54 @@ function registrarRotasEstoque(app, db) {
 
   app.get('/api/estoque/valorizacao', (req, res) => {
     try {
-      const itens = db.prepare(`
-        SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto,
+      // Depósito: as análises agregavam tudo, então com dois depósitos o
+      // "valor do estoque" misturava os dois sem dizer.
+      const dep = req.query.depositoId ? Number(req.query.depositoId) : null;
+      const padrao = getDepositoPadraoId(db);
+      const filtroDep = dep ? ' AND COALESCE(depositoId, ?) = ?' : '';
+      const pDep = dep ? [padrao, dep] : [];
+
+      const montar = (ativo) => db.prepare(`
+        SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto, p.ativo,
           COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                     WHEN tipo='saida' THEN -quantidade
                                     ELSE quantidade END)
-                    FROM movimentacoes_estoque WHERE produtoId = p.id), 0) AS saldo,
-          COALESCE((SELECT custoMedioPosterior FROM movimentacoes_estoque
-                    WHERE produtoId = p.id AND custoMedioPosterior IS NOT NULL
-                    ORDER BY data DESC, id DESC LIMIT 1), p.precoCusto) AS custoMedio
-        FROM produtos p WHERE p.ativo = 1
-      `).all().map(i => ({ ...i, valor: (i.saldo || 0) * (i.custoMedio || 0) }));
-      const valorTotal = itens.reduce((s, i) => s + i.valor, 0);
-      const top10 = [...itens].filter(i => i.saldo > 0).sort((a, b) => b.valor - a.valor).slice(0, 10);
+                    FROM movimentacoes_estoque WHERE produtoId = p.id${filtroDep}), 0) AS saldo,
+          ${sqlCustoAtual('p').sql} AS custoMedio
+        FROM produtos p WHERE p.ativo = ?
+      `).all(...pDep, ativo).map(i => ({ ...i, valor: (i.saldo || 0) * (i.custoMedio || 0) }));
+
+      const itens = montar(1);
+      // Produto inativado COM saldo é valor real que sumia do relatório
+      // sem aviso — some do total e ninguém procura o que não aparece.
+      const inativosComSaldo = montar(0).filter(i => i.saldo > 0)
+        .sort((a, b) => b.valor - a.valor);
+
+      // Só saldo positivo entra no valor. Somando tudo, um produto com saldo
+      // negativo (que é erro de estoque, não crédito) abatia o total: aqui o
+      // SKU-003 com -1 subtraía R$ 1.000 e o card não batia com o gráfico.
+      const comSaldo = itens.filter(i => i.saldo > 0);
+      const negativos = itens.filter(i => i.saldo < 0).sort((a, b) => a.saldo - b.saldo);
+      const valorTotal = comSaldo.reduce((s, i) => s + i.valor, 0);
+      const top10 = [...comSaldo].sort((a, b) => b.valor - a.valor).slice(0, 10);
+      const semCusto = comSaldo.filter(i => !(i.custoMedio > 0));
       res.json({
         success: true,
         valorTotal,
         qtdProdutos: itens.length,
-        produtosComSaldo: itens.filter(i => i.saldo > 0).length,
-        top10
+        produtosComSaldo: comSaldo.length,
+        top10,
+        // Saldo negativo é impossível fisicamente: ou faltou dar entrada, ou
+        // uma saída saiu dobrada. Precisa aparecer para alguém acertar.
+        saldoNegativo: { itens: negativos.length, lista: negativos.slice(0, 20) },
+        depositoId: dep,
+        // Valorização a custo zero infla nada e esconde tudo: melhor dizer.
+        semCusto: { itens: semCusto.length, saldo: semCusto.reduce((s, i) => s + i.saldo, 0) },
+        inativosComSaldo: {
+          itens: inativosComSaldo.length,
+          valor: Number(inativosComSaldo.reduce((s, i) => s + i.valor, 0).toFixed(2)),
+          lista: inativosComSaldo.slice(0, 20),
+        },
       });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -426,6 +535,11 @@ function registrarRotasEstoque(app, db) {
 
       // Valor das saídas por produto no período
       // Usa custoMedioAnterior se disponível (preciso), senão custoUnitario, senão precoCusto do produto
+      const dep = req.query.depositoId ? Number(req.query.depositoId) : null;
+      const padrao = getDepositoPadraoId(db);
+      const filtroDep = dep ? ' AND COALESCE(m.depositoId, ?) = ?' : '';
+      const pDep = dep ? [padrao, dep] : [];
+
       const rows = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto,
           COALESCE(SUM(m.quantidade), 0) AS qtdSaida,
@@ -433,12 +547,12 @@ function registrarRotasEstoque(app, db) {
           COUNT(m.id) AS movimentos
         FROM produtos p
         LEFT JOIN movimentacoes_estoque m
-          ON m.produtoId = p.id AND m.tipo = 'saida' AND m.data >= ?
+          ON m.produtoId = p.id AND m.tipo = 'saida' AND m.data >= ?${filtroDep}
         WHERE p.ativo = 1
         GROUP BY p.id
         HAVING valorSaida > 0
         ORDER BY valorSaida DESC
-      `).all(dataInicio);
+      `).all(dataInicio, ...pDep);
 
       const valorTotal = rows.reduce((s, r) => s + r.valorSaida, 0);
       let acumulado = 0;
@@ -456,7 +570,7 @@ function registrarRotasEstoque(app, db) {
         C: { itens: itens.filter(i => i.classe === 'C').length, valor: itens.filter(i => i.classe === 'C').reduce((s,i)=>s+i.valorSaida,0) }
       };
 
-      res.json({ success: true, periodoMeses: meses, dataInicio, valorTotal, totalItens: itens.length, resumo, itens });
+      res.json({ success: true, periodoMeses: meses, dataInicio, depositoId: dep, valorTotal, totalItens: itens.length, resumo, itens });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -470,21 +584,26 @@ function registrarRotasEstoque(app, db) {
       const dataInicio = new Date(Date.now() - meses * 30 * 24 * 60 * 60 * 1000).toISOString().slice(0,10);
       const diasPeriodo = meses * 30;
 
+      const dep = req.query.depositoId ? Number(req.query.depositoId) : null;
+      const padrao = getDepositoPadraoId(db);
+      // O custo médio é da empresa, não do depósito — só o saldo e as saídas
+      // é que mudam quando se olha um armazém de cada vez.
+      const fd = dep ? ' AND COALESCE(depositoId, ?) = ?' : '';
+      const pDep = dep ? [padrao, dep] : [];
+
       const rows = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto,
           COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                     WHEN tipo='saida' THEN -quantidade
                                     ELSE quantidade END)
-                    FROM movimentacoes_estoque WHERE produtoId = p.id), 0) AS saldoAtual,
-          COALESCE((SELECT custoMedioPosterior FROM movimentacoes_estoque
-                    WHERE produtoId = p.id AND custoMedioPosterior IS NOT NULL
-                    ORDER BY data DESC, id DESC LIMIT 1), p.precoCusto) AS custoMedio,
+                    FROM movimentacoes_estoque WHERE produtoId = p.id${fd}), 0) AS saldoAtual,
+          ${sqlCustoAtual('p').sql} AS custoMedio,
           COALESCE((SELECT SUM(quantidade) FROM movimentacoes_estoque
-                    WHERE produtoId = p.id AND tipo = 'saida' AND data >= ?), 0) AS qtdSaidaPeriodo,
+                    WHERE produtoId = p.id AND tipo = 'saida' AND data >= ?${fd}), 0) AS qtdSaidaPeriodo,
           (SELECT MAX(data) FROM movimentacoes_estoque
-            WHERE produtoId = p.id AND tipo = 'saida') AS ultimaSaida
+            WHERE produtoId = p.id AND tipo = 'saida'${fd}) AS ultimaSaida
         FROM produtos p WHERE p.ativo = 1
-      `).all(dataInicio);
+      `).all(...pDep, dataInicio, ...pDep, ...pDep);
 
       const itens = rows.map(r => {
         const saidaDiaria = diasPeriodo > 0 ? r.qtdSaidaPeriodo / diasPeriodo : 0;
@@ -521,10 +640,13 @@ function registrarRotasEstoque(app, db) {
         parados: itens.filter(i => i.parado).length,
         cobertura30dias: itens.filter(i => i.coberturaDias != null && i.coberturaDias <= 30).length,
         semCobertura: itens.filter(i => i.saldoAtual <= 0 && i.qtdSaidaPeriodo > 0).length,
-        valorParado: itens.filter(i => i.parado).reduce((s, i) => s + i.valorEstoque, 0)
+        valorParado: itens.filter(i => i.parado).reduce((s, i) => s + i.valorEstoque, 0),
+        // Estoque sem custo entra no giro valendo zero: o "valor parado" mente
+        // para baixo se ninguém avisar.
+        semCusto: itens.filter(i => i.saldoAtual > 0 && !(i.custoMedio > 0)).length
       };
 
-      res.json({ success: true, periodoMeses: meses, dataInicio, resumo, itens });
+      res.json({ success: true, periodoMeses: meses, dataInicio, depositoId: dep, resumo, itens });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -538,17 +660,22 @@ function registrarRotasEstoque(app, db) {
       const fim = req.query.fim;
       if (!inicio || !fim) return res.status(400).json({ success: false, error: 'inicio e fim (YYYY-MM-DD) obrigatorios' });
 
+      const dep = req.query.depositoId ? Number(req.query.depositoId) : null;
+      const padrao = getDepositoPadraoId(db);
+      const filtroDep = dep ? ' AND COALESCE(m.depositoId, ?) = ?' : '';
+      const pDep = dep ? [padrao, dep] : [];
+
       const porProduto = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade,
           COALESCE(SUM(m.quantidade), 0) AS qtdSaida,
           COALESCE(SUM(m.quantidade * COALESCE(m.custoMedioAnterior, m.custoUnitario, p.precoCusto, 0)), 0) AS cmv
         FROM movimentacoes_estoque m
         JOIN produtos p ON p.id = m.produtoId
-        WHERE m.tipo = 'saida' AND m.data BETWEEN ? AND ?
+        WHERE m.tipo = 'saida' AND m.data BETWEEN ? AND ?${filtroDep}
         GROUP BY p.id
         HAVING cmv > 0
         ORDER BY cmv DESC
-      `).all(inicio, fim);
+      `).all(inicio, fim, ...pDep);
 
       const porMes = db.prepare(`
         SELECT substr(m.data, 1, 7) AS mes,
@@ -556,17 +683,17 @@ function registrarRotasEstoque(app, db) {
           SUM(m.quantidade * COALESCE(m.custoMedioAnterior, m.custoUnitario, p.precoCusto, 0)) AS cmv
         FROM movimentacoes_estoque m
         JOIN produtos p ON p.id = m.produtoId
-        WHERE m.tipo = 'saida' AND m.data BETWEEN ? AND ?
+        WHERE m.tipo = 'saida' AND m.data BETWEEN ? AND ?${filtroDep}
         GROUP BY substr(m.data, 1, 7)
         ORDER BY mes ASC
-      `).all(inicio, fim);
+      `).all(inicio, fim, ...pDep);
 
       const cmvTotal = porProduto.reduce((s, r) => s + r.cmv, 0);
       const qtdTotal = porProduto.reduce((s, r) => s + r.qtdSaida, 0);
 
       res.json({
         success: true,
-        inicio, fim,
+        inicio, fim, depositoId: dep,
         cmvTotal, qtdTotal,
         produtos: porProduto.length,
         porProduto,
@@ -582,32 +709,61 @@ function registrarRotasEstoque(app, db) {
   app.get('/api/estoque/evolucao-valor', (req, res) => {
     try {
       const meses = Math.max(1, Math.min(36, Number(req.query.meses) || 12));
-      const dataInicio = new Date();
-      dataInicio.setMonth(dataInicio.getMonth() - meses);
-      const inicio = dataInicio.toISOString().slice(0,10);
+      const dep = req.query.depositoId ? Number(req.query.depositoId) : null;
+      const padrao = getDepositoPadraoId(db);
 
-      // Para cada mês (fim de mês), calcular valor do estoque = somatório de (saldoPosterior_last × custoMedioPosterior_last)
-      // Usamos a última movimentação de cada produto até o fim de cada mês
+      // Fins de mês calculados por ano/mês, não com setMonth() sobre a data de
+      // hoje: rodando num dia 31 o setMonth transbordava para o mês seguinte e
+      // a série saía com meses repetidos e outros faltando.
+      const hoje = new Date();
+      const fimDoMes = (ano, mes) => {  // mes 0-11, pode extrapolar
+        const d = new Date(Date.UTC(ano, mes + 1, 0));
+        return d.toISOString().slice(0, 10);
+      };
+
+      // O saldo é recomposto somando as movimentações até a data. Depender de
+      // saldoPosterior deixava a série zerada: esse campo só é preenchido pelas
+      // rotinas que passam por calcularContextoMovimento, e as demais (estorno
+      // de compra, importações) gravam NULL — a última movimentação do produto
+      // valia zero e o gráfico virava uma linha reta no chão.
+      const filtroDep = dep ? ' AND COALESCE(m.depositoId, ?) = ?' : '';
+      const stmt = db.prepare(`
+        SELECT m.produtoId,
+          SUM(CASE WHEN m.tipo='entrada' THEN m.quantidade
+                   WHEN m.tipo='saida' THEN -m.quantidade
+                   ELSE m.quantidade END) AS saldo,
+          ${sqlCustoAtual('p', 'date(?)').sql} AS custo
+        FROM movimentacoes_estoque m
+        JOIN produtos p ON p.id = m.produtoId
+        WHERE date(m.data) <= date(?) AND p.ativo = 1${filtroDep}
+        GROUP BY m.produtoId
+      `);
+
       const pontos = [];
       for (let i = 0; i < meses; i++) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - (meses - 1 - i));
-        const fimMes = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0,10);
-        const rows = db.prepare(`
-          SELECT m.produtoId, m.saldoPosterior, m.custoMedioPosterior
-          FROM movimentacoes_estoque m
-          INNER JOIN (
-            SELECT produtoId, MAX(id) AS maxId FROM movimentacoes_estoque
-            WHERE date(data) <= date(?)
-            GROUP BY produtoId
-          ) ult ON ult.produtoId = m.produtoId AND ult.maxId = m.id
-        `).all(fimMes);
-        const valor = rows.reduce((s, r) => s + ((r.saldoPosterior || 0) * (r.custoMedioPosterior || 0)), 0);
-        const qtdProdutos = rows.filter(r => (r.saldoPosterior || 0) > 0).length;
-        pontos.push({ mes: fimMes.slice(0,7), dataFim: fimMes, valor, qtdProdutos });
+        const alvo = hoje.getMonth() - (meses - 1 - i);
+        const fimMes = fimDoMes(hoje.getFullYear(), alvo);
+        const rows = dep ? stmt.all(fimMes, fimMes, fimMes, padrao, dep) : stmt.all(fimMes, fimMes, fimMes);
+        const comSaldo = rows.filter(r => (r.saldo || 0) > 0);
+        const valor = comSaldo.reduce((s, r) => s + (r.saldo * (r.custo || 0)), 0);
+        const anterior = pontos.length ? pontos[pontos.length - 1].valor : null;
+        pontos.push({
+          mes: fimMes.slice(0, 7),
+          dataFim: fimMes,
+          valor,
+          qtdProdutos: comSaldo.length,
+          // Sem a variação a linha só mostra a forma; o número é que decide.
+          variacao: anterior == null ? null : valor - anterior,
+          variacaoPct: anterior ? ((valor - anterior) / anterior) * 100 : null,
+          // Saldo sem custo entra valendo zero e derruba a curva sem explicação.
+          semCusto: comSaldo.filter(r => !(r.custo > 0)).length,
+        });
       }
 
-      res.json({ success: true, periodoMeses: meses, dataInicio: inicio, pontos });
+      res.json({
+        success: true, periodoMeses: meses, depositoId: dep,
+        dataInicio: pontos.length ? pontos[0].dataFim : null, pontos,
+      });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -617,7 +773,7 @@ function registrarRotasEstoque(app, db) {
 
   app.get('/api/estoque/movimentacoes', (req, res) => {
     try {
-      const { produtoId, origem, loteId, limit, depositoId } = req.query;
+      const { produtoId, origem, loteId, limit, depositoId, de, ate, q, tipo } = req.query;
       let sql = `SELECT m.*, p.sku, p.descricao, p.unidade,
                         l.numero AS loteNumero, l.dataValidade AS loteValidade,
                         dep.nome AS depositoNome
@@ -630,17 +786,56 @@ function registrarRotasEstoque(app, db) {
       if (produtoId) { sql += ' AND m.produtoId = ?'; params.push(produtoId); }
       if (origem)    { sql += ' AND m.origem = ?';    params.push(origem); }
       if (loteId)    { sql += ' AND m.loteId = ?';    params.push(loteId); }
+      if (tipo)      { sql += ' AND m.tipo = ?';      params.push(tipo); }
+      // Período: sem isto o histórico ficava inutilizável e o LIMIT cortava
+      // silenciosamente as mais antigas.
+      if (de)  { sql += ' AND date(m.data) >= ?'; params.push(de); }
+      if (ate) { sql += ' AND date(m.data) <= ?'; params.push(ate); }
+      // Busca por SKU/descrição — antes só dava para filtrar pelo id interno
+      // do produto, que ninguém sabe de cabeça.
+      if (q) {
+        sql += ' AND (p.sku LIKE ? OR p.descricao LIKE ?)';
+        params.push(`%${q}%`, `%${q}%`);
+      }
       if (depositoId) {
         sql += ' AND COALESCE(m.depositoId, ?) = ?';
         params.push(getDepositoPadraoId(db), Number(depositoId));
       }
+
+      // Totais sobre o filtro inteiro, não só sobre a página devolvida.
+      const where = sql.slice(sql.indexOf('WHERE 1=1'));
+      const totais = db.prepare(`SELECT
+          COUNT(*) AS registros,
+          COALESCE(SUM(CASE WHEN m.tipo='entrada' THEN m.quantidade ELSE 0 END),0) AS qtdEntrada,
+          COALESCE(SUM(CASE WHEN m.tipo='saida'   THEN m.quantidade ELSE 0 END),0) AS qtdSaida,
+          COALESCE(SUM(CASE WHEN m.tipo='ajuste'  THEN m.quantidade ELSE 0 END),0) AS qtdAjuste,
+          COALESCE(SUM(CASE WHEN m.tipo='entrada' THEN m.quantidade * COALESCE(m.custoUnitario,0) ELSE 0 END),0) AS valorEntrada,
+          COALESCE(SUM(CASE WHEN m.tipo='saida'   THEN m.quantidade * COALESCE(m.custoUnitario,0) ELSE 0 END),0) AS valorSaida,
+          COALESCE(SUM(CASE WHEN m.estornada=1 THEN 1 ELSE 0 END),0) AS estornadas
+        FROM movimentacoes_estoque m JOIN produtos p ON p.id = m.produtoId ${where}`).get(...params);
+
+      const max = Math.min(Number(limit) || 200, 2000);
       sql += ' ORDER BY m.data DESC, m.id DESC LIMIT ?';
-      params.push(Number(limit) || 200);
+      params.push(max);
       const movimentacoes = db.prepare(sql).all(...params);
-      res.json({ success: true, movimentacoes });
+      // Truncou? Antes o resto simplesmente sumia sem aviso.
+      res.json({
+        success: true, movimentacoes, totais, limite: max,
+        truncado: totais.registros > movimentacoes.length,
+      });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
+  });
+
+  // Origens que existem de fato nos dados — a tela listava opções fixas no
+  // HTML, com 2 que nunca aparecem e faltando 5 reais.
+  app.get('/api/estoque/movimentacoes/origens', (req, res) => {
+    try {
+      const rows = db.prepare(`SELECT origem, COUNT(*) n FROM movimentacoes_estoque
+        WHERE origem IS NOT NULL AND origem <> '' GROUP BY origem ORDER BY n DESC`).all();
+      res.json({ success: true, origens: rows });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.post('/api/estoque/movimentacoes', (req, res) => {
@@ -894,4 +1089,5 @@ function registrarRotasEstoque(app, db) {
   });
 }
 
-module.exports = { registrarRotasEstoque, migrarEstoqueDB, calcularSaldo, saldoPorEstabelecimento, calcularCustoMedio, calcularContextoMovimento, getDepositoPadraoId };
+module.exports = {
+  sqlCustoAtual, registrarRotasEstoque, migrarEstoqueDB, calcularSaldo, saldoPorEstabelecimento, calcularCustoMedio, calcularContextoMovimento, getDepositoPadraoId, resolverDeposito };

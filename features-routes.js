@@ -15,7 +15,7 @@
  * de control-plane.
  */
 
-const FEATURE_KEYS = ['optica', 'licitacoes', 'operacional', 'habilitacao', 'comercial', 'os', 'produtos', 'comunicacao', 'whatsapp', 'rh', 'varejo', 'fiscal', 'financeiro', 'classificacao_fiscal'];
+const FEATURE_KEYS = ['optica', 'licitacoes', 'operacional', 'habilitacao', 'comercial', 'os', 'produtos', 'comunicacao', 'whatsapp', 'rh', 'patrimonio', 'varejo', 'fiscal', 'financeiro', 'cobranca', 'classificacao_fiscal', 'ssl'];
 
 function lerFeatures(db) {
   const out = {};

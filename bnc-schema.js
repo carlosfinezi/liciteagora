@@ -132,6 +132,26 @@ function initBNCSchema(db) {
   if (!loteCols.some(c => c.name === 'statusPayloadJson')) {
     db.exec(`ALTER TABLE bnc_salas_lotes ADD COLUMN statusPayloadJson TEXT`);
   }
+
+  // Chat capturado via GetMsgCountDetailedView (mesmo modelo do BLL — monitor
+  // de chat por portal). Distinto de bnc_dispute_mensagens (via legada).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bnc_chat_mensagens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      salaId INTEGER NOT NULL REFERENCES bnc_salas(id) ON DELETE CASCADE,
+      processId TEXT,
+      escopo TEXT NOT NULL,
+      lote INTEGER,
+      autor TEXT,
+      texto TEXT NOT NULL,
+      dataHora TEXT,
+      hash TEXT NOT NULL,
+      notificado INTEGER NOT NULL DEFAULT 0,
+      criadoEm TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_bnc_chat_hash ON bnc_chat_mensagens(salaId, hash);
+    CREATE INDEX IF NOT EXISTS idx_bnc_chat_sala ON bnc_chat_mensagens(salaId, id);
+  `);
 }
 
 module.exports = { initBNCSchema };

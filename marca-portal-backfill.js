@@ -43,7 +43,17 @@ const { execFile } = require('child_process');
 const catalogPg = require('./catalog-pg');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-const PORTAIS = ['BLL Compras', 'Bolsa Nacional De Compras - BNC'];
+// 'ECustomize…' é o operador do Portal de Compras Públicas (75.299 licitações no
+// catálogo). Acrescentado em 21/08/2026. Só mudam a OBTENÇÃO do PDF e o layout
+// dele (ver _pcpUrlRelatorio e _parsePdfPcp); do passo 4 em diante é a mesma
+// cadeia. O casamento por descrição/qtd restrito ao CNPJ vencedor é reaproveitado
+// SEM alteração — reescrevê-lo por fora produziu marca no item errado em ~15%
+// dos casos (medido em 21/08 e revertido).
+const PORTAL_PCP = 'ECustomize Consultoria em Software S.A';
+const PORTAIS = ['BLL Compras', 'Bolsa Nacional De Compras - BNC', PORTAL_PCP];
+const PCP_API = 'https://conteudo.api.portaldecompraspublicas.com.br/v1/arquivo/download';
+const PCP_POLL_MAX = 6;
+const PCP_POLL_MS = 3000;
 
 // Rate-limit (portais privados — conservador para não tomar WAF/ban)
 const CYCLE_MS = 60 * 1000;      // 1 ciclo por minuto
@@ -60,6 +70,7 @@ const RETRY_SEM_REL_DIAS = 30;   // 'sem_relatorio' re-tenta após 30d
 let _db = null;
 let _timer = null;
 let _running = false;
+let _ciclosVazios = 0;   // ciclos seguidos sem nada elegível (ver _ciclo)
 let _schemaOk = false;
 
 function init({ db } = {}) {
@@ -86,12 +97,15 @@ async function _ensureSchema() {
       PRIMARY KEY ("cnpj","ano","sequencial")
     )
   `);
-  // Índice parcial: só as ~72k licitações BLL/BNC — barato de construir e
-  // deixa a seleção do lote instantânea (licitacoes tem 1,4M linhas).
+  // Índice parcial: só as licitações dos portais cobertos — barato de construir
+  // e deixa a seleção do lote instantânea (licitacoes tem 1,4M linhas).
+  // Nome _v2 de propósito: o predicado mudou (entrou o PCP, +75k licitações) e
+  // CREATE INDEX IF NOT EXISTS NÃO redefine índice já existente — manter o nome
+  // antigo deixaria em uso um índice que não cobre o portal novo.
   await catalogPg.execute(`
-    CREATE INDEX IF NOT EXISTS idx_lic_portal_marca
+    CREATE INDEX IF NOT EXISTS idx_lic_portal_marca_v2
       ON licitacoes ("dataPublicacaoPncp")
-      WHERE "usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC')
+      WHERE "usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC','ECustomize Consultoria em Software S.A')
   `);
   // Fila de PRIORIDADE: licitações BLL/BNC cujos itens aparecem em algum grupo
   // de palavras (o que os tenants realmente veem no BI). Semeada por seedFila().
@@ -128,7 +142,7 @@ async function seedFila() {
         FROM bi_grupo_item g
         JOIN itens i ON i."id" = g."itemId"
         JOIN licitacoes l ON l."id" = i."licitacaoId"
-       WHERE l."usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC')
+       WHERE l."usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC','ECustomize Consultoria em Software S.A')
          AND l."linkSistemaOrigem" IS NOT NULL
          -- só HOMOLOGADAS: precisa ter vencedor real em resultados_bi, senão
          -- não há marca a extrair (licitação aberta/não julgada não faz sentido na fila)
@@ -179,6 +193,13 @@ function _marcaValida(m) {
   if (_MARCA_LIXO.has(n) || _MARCA_LIXO.has(_norm(t))) return false;
   if (/^cf\b|^conforme\b|^conf\.?\s*edital/i.test(n)) return false;
   if (!/[a-z0-9]/i.test(t)) return false;
+  // Só dígitos/pontuação ("01", "02", "001"): é numeração de linha que o
+  // fornecedor pôs no campo de marca. Medido no PCP em itens de SERVIÇO
+  // ("SERVIÇOS DE MANUTENÇÃO"), que não têm marca — o PDF trazia Modelo=01 e
+  // Marca=01. Sem isto, "01" viraria fabricante no BI.
+  if (!/[a-zà-ÿ]/i.test(t)) return false;
+  // "Não se aplica" / "não aplicável" e variantes.
+  if (/^n[aã]o\s*(se\s*)?aplic/i.test(_norm(t))) return false;
   return true;
 }
 
@@ -238,6 +259,94 @@ function _parsePdf(txt) {
     }
   }
   return itens;
+}
+
+// ─── PCP: obtenção do relatório de vencedores ──────────────────────────────
+// O portal GERA o PDF sob demanda. codigoSituacao 4 = pronto (url preenchida);
+// 1 = ainda gerando -> REPETIR o POST com o codigoGeradorArquivo devolvido.
+// Sem o polling, uma chamada que ia funcionar é lida como falha.
+async function _pcpUrlRelatorio(idProcesso) {
+  let cod = 0;
+  for (let i = 0; i < PCP_POLL_MAX; i++) {
+    const resp = await axios.post(PCP_API, {
+      codigoGeradorArquivo: cod, codigoTipoGerador: 2, codigoUsuarioEntidade: 10,
+      parametros: `Vencedor,${idProcesso}`, reprocessar: false,
+    }, { headers: { 'Content-Type': 'application/json', 'User-Agent': UA },
+         timeout: HTTP_TIMEOUT, validateStatus: (s) => s >= 200 && s < 400 });
+    const d = resp.data || {};
+    if (d.url) return { url: d.url };
+    if (d.erro) return { erro: String(d.erro).slice(0, 90) };   // "Arquivo indisponível." etc.
+    cod = d.codigoGeradorArquivo || cod;
+    await new Promise(r => setTimeout(r, PCP_POLL_MS));
+  }
+  return { erro: 'relatório não ficou pronto' };
+}
+
+// ─── PCP: parse do PDF (layout de tabela) ──────────────────────────────────
+// `pdftotext -layout` entrega colunas separadas por 2+ espaços:
+//   0004  ADAPTADOR CONECTOR TIPO…  FEMEA VGA X RJ45  IMPORTS M.L  5 UN  R$ 20,00  R$ 100,00
+//   Código | Produto | Modelo | Marca/Fabricante | Qtde Un | Vl Unitário | Vl Total
+// Agrupado POR FORNECEDOR, com o CNPJ num cabeçalho acima dos itens — e a
+// QUEBRA DE LINHA desse cabeçalho varia entre PDFs (o CNPJ ora fica na linha do
+// nome, ora na seguinte). Exigir "Endereço" na mesma linha do CNPJ perde o
+// fornecedor inteiro: medido, 252 de 276 itens ficaram sem CNPJ num processo.
+//
+// Devolve o MESMO formato de _parsePdf: [{cnpj,marca,modelo,descr,qtd,valref}].
+// `valref` fica NULL de propósito: o PCP publica o LANCE vencedor, e comparar
+// lance com o valor ESTIMADO do nosso catálogo é errado — eles divergem pelo
+// próprio desconto (ARQUITETURA.md:107). Deixar null evita um +40 falso no score.
+const RE_PCP_QTDE = /^([\d.]*\d(?:,\d+)?)\s+([A-Za-zÀ-ÿ.]{1,8})$/;
+
+function _parsePdfPcp(txt) {
+  const itens = [];
+  const linhas = txt.split('\n');
+  let cnpj = null;
+
+  for (let i = 0; i < linhas.length; i++) {
+    const ln = linhas[i];
+    if (!ln.trim()) continue;
+
+    const mc = RE_FORN.exec(ln);
+    if (mc && /Documento|Endere[çc]o|CEP|UF:|Tipo:|LC123/i.test(ln)) {
+      cnpj = mc[1].replace(/\D/g, '');
+      continue;
+    }
+    if (/^\s*TOTAL DO VENCEDOR/i.test(ln)) continue;
+    if (!/R\$/.test(ln)) continue;
+
+    const blocos = ln.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
+    if (blocos.length < 5) continue;
+    if (!/^\d{1,5}$/.test(blocos[0])) continue;              // código do item
+
+    const iQtde = blocos.length - 3;
+    const mq = RE_PCP_QTDE.exec(blocos[iQtde] || '');
+    if (!mq) continue;
+
+    const meio = blocos.slice(1, iQtde);                     // produto … modelo … marca
+    let marca = null, modelo = null, descr = null;
+    if (meio.length >= 3) {
+      marca = meio[meio.length - 1];
+      modelo = meio[meio.length - 2];
+      descr = meio.slice(0, -2).join(' ');
+    } else if (meio.length === 2) {
+      marca = meio[1]; descr = meio[0];                      // Marca é a coluna mais à direita
+    } else {
+      descr = meio[0] || null;                               // colunas fundidas: sem marca confiável
+    }
+    // Frase descritiva na coluna de marca = colunas fundidas, não fabricante.
+    if (marca && (marca.length > 40 || marca.split(' ').length > 5)) { marca = null; modelo = null; }
+    if (marca && modelo && _norm(marca) === _norm(modelo)) modelo = null;
+
+    itens.push({
+      cnpj,
+      marca: marca || '',
+      modelo: modelo || '',
+      descr: descr || '',
+      qtd: _r2(mq[1]),
+      valref: null,
+    });
+  }
+  return itens.filter(x => x.cnpj);                          // sem CNPJ não há como casar
 }
 
 // ─── mapeamento numeroItem (guloso dentro do CNPJ vencedor) ────────────────
@@ -308,24 +417,34 @@ async function processarProcesso({ cnpj, ano, sequencial, link, usuarioNome }, {
   try {
     if (!link) { res.status = 'sem_link'; res.erro = 'linkSistemaOrigem vazio'; return res; }
     const netloc = new URL(link).host;
+    const ehPcp = /portaldecompraspublicas\.com\.br$/i.test(netloc);
 
-    // 1) ProcessView -> token relatório
-    const view = await _fetch(_encParam1(link));
-    const mt = /'GET','Process','ProcessReport',\s*\['([^']+)'\]/.exec(view);
-    if (!mt) { res.status = 'sem_relatorio'; res.erro = 'token ProcessReport não encontrado'; return res; }
+    // 1-3) obter o PDF de vencedores. É só AQUI que os portais divergem;
+    //      do passo 4 em diante a cadeia é a mesma para todos.
+    let urlPdf = null;
+    if (ehPcp) {
+      const idProc = (link.match(/([0-9]+)\s*$/) || [])[1];
+      if (!idProc) { res.status = 'sem_relatorio'; res.erro = 'link sem id de processo'; return res; }
+      const r = await _pcpUrlRelatorio(idProc);
+      if (!r.url) { res.status = 'sem_relatorio'; res.erro = r.erro || 'sem url'; return res; }
+      urlPdf = r.url;
+    } else {
+      const view = await _fetch(_encParam1(link));
+      const mt = /'GET','Process','ProcessReport',\s*\['([^']+)'\]/.exec(view);
+      if (!mt) { res.status = 'sem_relatorio'; res.erro = 'token ProcessReport não encontrado'; return res; }
 
-    // 2) ProcessReport -> URL do PDF de vencedores
-    const repRaw = await _fetch(`https://${netloc}/Process/ProcessReport?param1=${encodeURIComponent(mt[1])}`, { xhr: true });
-    let repHtml = '';
-    try { repHtml = JSON.parse(repRaw).html || ''; } catch { repHtml = String(repRaw); }
-    repHtml = repHtml.replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\"/g, '"').replace(/&amp;/g, '&');
-    const mv = /href="(https:\/\/[^"]+VencedoresProcesso[^"]+\.pdf)"/i.exec(repHtml);
-    if (!mv) { res.status = 'sem_relatorio'; res.erro = 'PDF de vencedores não listado'; return res; }
+      const repRaw = await _fetch(`https://${netloc}/Process/ProcessReport?param1=${encodeURIComponent(mt[1])}`, { xhr: true });
+      let repHtml = '';
+      try { repHtml = JSON.parse(repRaw).html || ''; } catch { repHtml = String(repRaw); }
+      repHtml = repHtml.replace(/\\u003c/g, '<').replace(/\\u003e/g, '>').replace(/\\"/g, '"').replace(/&amp;/g, '&');
+      const mv = /href="(https:\/\/[^"]+VencedoresProcesso[^"]+\.pdf)"/i.exec(repHtml);
+      if (!mv) { res.status = 'sem_relatorio'; res.erro = 'PDF de vencedores não listado'; return res; }
+      urlPdf = mv[1];
+    }
 
-    // 3) baixa PDF + pdftotext
-    const buf = Buffer.from(await _fetch(mv[1], { binary: true }));
+    const buf = Buffer.from(await _fetch(urlPdf, { binary: true }));
     const txt = await _pdftotext(buf);
-    const itensPdf = _parsePdf(txt);
+    const itensPdf = ehPcp ? _parsePdfPcp(txt) : _parsePdf(txt);
     res.itensTotal = itensPdf.length;
     if (itensPdf.length === 0) { res.status = 'sem_relatorio'; res.erro = 'PDF sem itens parseáveis'; return res; }
 
@@ -406,7 +525,7 @@ async function _selecionarLote(n) {
   const tier2 = await catalogPg.query(`
     SELECT ${_COLS}
       FROM licitacoes l
-     WHERE l."usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC')
+     WHERE l."usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC','ECustomize Consultoria em Software S.A')
        AND l."linkSistemaOrigem" IS NOT NULL AND ${_EXISTS_GAP} AND ${_NOTEXISTS_DONE}
      ORDER BY l."dataPublicacaoPncp" DESC
      LIMIT $1
@@ -434,7 +553,20 @@ async function _ciclo() {
   try {
     await _ensureSchema();
     const lote = await _selecionarLote(PROC_POR_CICLO);
-    if (lote.length === 0) { return; }
+    // Fila vazia SEM log é indistinguível de motor morto: a engine ciclou dias
+    // em vazio (BLL/BNC esgotados) e foi diagnosticada como travada duas vezes.
+    // Um aviso a cada 30 ciclos (~30min) mostra que está viva e ociosa.
+    if (lote.length === 0) {
+      _ciclosVazios++;
+      if (_ciclosVazios === 1 || _ciclosVazios % 30 === 0) {
+        console.log(`[marca-portal] fila vazia — nada elegível (${_ciclosVazios} ciclo(s) seguidos ociosos)`);
+      }
+      return;
+    }
+    if (_ciclosVazios > 0) {
+      console.log(`[marca-portal] fila voltou a ter trabalho após ${_ciclosVazios} ciclo(s) ociosos`);
+      _ciclosVazios = 0;
+    }
     let grav = 0, ok = 0, erro = 0;
     for (const proc of lote) {
       const r = await processarProcesso(proc, { dryRun: false });
@@ -464,7 +596,7 @@ function iniciarBackfillEngine() {
       _timer = setTimeout(loop, CYCLE_MS);
     }
   }, 45000); // 45s após boot
-  console.log(`[marca-portal] engine iniciado (${PROC_POR_CICLO} processos a cada ${CYCLE_MS / 1000}s — BLL/BNC)`);
+  console.log(`[marca-portal] engine iniciado (${PROC_POR_CICLO} processos a cada ${CYCLE_MS / 1000}s — BLL/BNC/PCP)`);
 }
 
 function pararBackfillEngine() {
@@ -474,7 +606,7 @@ function pararBackfillEngine() {
 async function getBackfillStatus() {
   await _ensureSchema();
   const q = async (sql) => Number((await catalogPg.queryOne(sql))?.c || 0);
-  const totalPortais = await q(`SELECT count(*) c FROM licitacoes WHERE "usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC')`);
+  const totalPortais = await q(`SELECT count(*) c FROM licitacoes WHERE "usuarioNome" IN ('BLL Compras','Bolsa Nacional De Compras - BNC','ECustomize Consultoria em Software S.A')`);
   const processados = await q(`SELECT count(*) c FROM marca_portal_backfill WHERE "status"='ok'`);
   const marcasGravadas = await q(`SELECT coalesce(sum("itensGravados"),0) c FROM marca_portal_backfill`);
   const comMarca = await q(`SELECT count(*) c FROM resultados_bi WHERE "niFornecedor"<>'__sem_resultado__' AND "marcaFabricante" IS NOT NULL AND "marcaFabricante"<>''`);

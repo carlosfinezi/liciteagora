@@ -6,6 +6,15 @@
     <title>E-mails Enviados - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Sem scroll horizontal na página: tabela rola dentro do próprio container */
+  body { overflow-x: hidden; }
+  .main-content { max-width: 100%; box-sizing: border-box; }
+  /* Modal: valores longos (Message-ID, URLs) quebram em vez de estourar */
+  #modalConteudo .detail-value { word-break: break-word; overflow-wrap: anywhere; }
+  .detail-row { display: flex; gap: 8px; padding: 4px 0; }
+  .detail-label { color: var(--text-2); min-width: 110px; flex: 0 0 auto; }
+</style>
 </head>
 <body>
     <div class="layout">
@@ -22,21 +31,25 @@
             <div class="kpi-grid" id="stats"></div>
 
             <div class="filtros">
-                <input type="text" id="filtBusca" placeholder="Buscar por destinatário, NFS-e, descrição…" style="flex: 1; min-width: 220px;">
-                <input type="date" id="filtDataInicio" title="Data início" style="width:140px;">
-                <input type="date" id="filtDataFim" title="Data fim" style="width:140px;">
-                <select id="filtTipo">
+                <input type="text" id="filtBusca" placeholder="Buscar por destinatário, NFS-e, descrição…" oninput="debounce(carregarLogs)" style="flex: 1; min-width: 220px;">
+                <input type="date" id="filtDataInicio" title="Data início" onchange="carregarLogs()" style="width:140px;">
+                <input type="date" id="filtDataFim" title="Data fim" onchange="carregarLogs()" style="width:140px;">
+                <!-- Os tipos vêm do banco: a lista fixa tinha 3 e existiam 8,
+                     e o tipo dos envios que falharam (cobranca) não estava lá. -->
+                <select id="filtTipo" onchange="carregarLogs()">
                     <option value="">Todos os tipos</option>
-                    <option value="nfse">NFS-e</option>
-                    <option value="boleto">Boleto</option>
-                    <option value="cancelamento">Cancelamento</option>
                 </select>
-                <select id="filtStatus">
+                <select id="filtStatus" onchange="carregarLogs()">
                     <option value="">Todos os status</option>
                     <option value="enviado">Enviado</option>
                     <option value="erro">Erro</option>
                 </select>
-                <button class="btn btn-ghost btn-sm" onclick="carregarLogs()">Filtrar</button>
+                <select id="filtAnexo" onchange="carregarLogs()">
+                    <option value="">Anexos: todos</option>
+                    <option value="com">Com anexo</option>
+                    <option value="sem">Sem anexo</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar</button>
             </div>
 
             <div class="panel">
@@ -52,6 +65,7 @@
                                 <th>Valor</th>
                                 <th>Anexos</th>
                                 <th>Status</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody id="tabela">
@@ -85,10 +99,29 @@
 
     <script>
         let logsCache = [];
+        let geralCache = null;
+        let tiposCarregados = false;
 
         document.addEventListener('DOMContentLoaded', () => {
             carregarLogs();
         });
+
+        let _deb;
+        function debounce(fn) { clearTimeout(_deb); _deb = setTimeout(fn, 350); }
+
+        function limparFiltros() {
+            for (const id of ['filtBusca','filtDataInicio','filtDataFim','filtTipo','filtStatus','filtAnexo']) {
+                document.getElementById(id).value = '';
+            }
+            carregarLogs();
+        }
+
+        // Clicar no cartão de erros filtra por erro — ver "5 erros" e não ter
+        // como chegar neles era o principal atrito da tela.
+        function filtrarPor(status) {
+            document.getElementById('filtStatus').value = status;
+            carregarLogs();
+        }
 
         async function carregarLogs() {
             const busca = document.getElementById('filtBusca').value.trim();
@@ -110,50 +143,132 @@
                 if (!data.success) throw new Error(data.error);
 
                 logsCache = data.logs;
-                renderStats(data.logs);
-                renderTabela(data.logs);
+                geralCache = data.geral || null;
+                preencherTipos(data.tipos);
+                renderStats(data);
+                renderTabela(filtrarAnexo(data.logs));
             } catch (error) {
                 mostrarAlerta('Erro ao carregar: ' + error.message, 'error');
             }
         }
 
-        function renderStats(logs) {
-            const total = logs.length;
-            const enviados = logs.filter(l => l.status === 'enviado').length;
-            const erros = logs.filter(l => l.status === 'erro').length;
-            const nfse = logs.filter(l => l.tipo === 'nfse').length;
+        // O filtro de anexo é aplicado no cliente: a coluna é derivada de
+        // temPdf/temBoleto/anexos e não vale um parâmetro novo na API.
+        function filtrarAnexo(logs) {
+            const f = document.getElementById('filtAnexo').value;
+            if (!f) return logs;
+            const tem = (l) => !!(l.temPdf || l.temBoleto || (l.anexos && l.anexos !== '[]'));
+            return logs.filter(l => f === 'com' ? tem(l) : !tem(l));
+        }
 
+        function preencherTipos(tipos) {
+            if (tiposCarregados || !tipos) return;
+            const sel = document.getElementById('filtTipo');
+            const atual = sel.value;
+            sel.innerHTML = '<option value="">Todos os tipos</option>'
+                + tipos.map(t => `<option value="${escHtml(t.tipo)}">${escHtml(t.tipo)} (${t.n})</option>`).join('');
+            sel.value = atual;
+            tiposCarregados = true;
+        }
+
+        function renderStats(data) {
+            const g = data.geral || {};
+            const mostrando = data.logs.length;
+            const noFiltro = data.totalFiltrado != null ? data.totalFiltrado : mostrando;
+
+            // Antes os cartões contavam só a página filtrada: filtrar por erro
+            // mostrava "Total 5, Erros 5" e dava a impressão de que existiam
+            // apenas 5 e-mails no sistema.
             document.getElementById('stats').innerHTML = `
-                <div class="kpi"><div class="label">Total</div><div class="value">${total}</div></div>
-                <div class="kpi success"><div class="label">Enviados</div><div class="value">${enviados}</div></div>
-                <div class="kpi danger"><div class="label">Erros</div><div class="value">${erros}</div></div>
-                <div class="kpi"><div class="label">NFS-e</div><div class="value">${nfse}</div></div>
+                <div class="kpi">
+                  <div class="label">No filtro</div><div class="value">${noFiltro}</div>
+                  ${data.truncado ? `<div class="label">mostrando ${mostrando}</div>` : ''}
+                </div>
+                <div class="kpi"><div class="label">Total no sistema</div><div class="value">${g.total || 0}</div></div>
+                <div class="kpi success" style="cursor:pointer;" onclick="filtrarPor('enviado')">
+                  <div class="label">Enviados</div><div class="value">${g.enviados || 0}</div>
+                </div>
+                <div class="kpi ${g.erros ? 'danger' : ''}" style="cursor:pointer;" onclick="filtrarPor('erro')"
+                     title="Clique para ver só os que falharam">
+                  <div class="label">Erros</div><div class="value">${g.erros || 0}</div>
+                  ${g.erros ? '<div class="label">clique para filtrar</div>' : ''}
+                </div>
             `;
         }
 
         function renderTabela(logs) {
             const tbody = document.getElementById('tabela');
             if (!logs.length) {
-                tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="icon">📭</div><p>Nenhum e-mail encontrado</p></div></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div><p>Nenhum e-mail encontrado</p></div></td></tr>';
                 return;
             }
-            tbody.innerHTML = logs.map(l => {
-                const anexos = [];
-                if (l.temPdf) anexos.push('PDF');
-                if (l.temBoleto) anexos.push('Boleto');
-                return `
+            tbody.innerHTML = logs.map(l => `
                     <tr style="cursor:pointer;" onclick="verDetalhes(${l.id})">
                         <td>${formatarDataHora(l.dataEnvio)}</td>
-                        <td><span class="badge ${l.tipo}">${l.tipo}</span></td>
+                        <td><span class="badge ${l.tipo}">${escHtml(l.tipo)}</span></td>
                         <td>${escHtml(l.destinatario)}</td>
                         <td title="${escHtml(l.assunto || '')}">${escHtml((l.assunto || '').substring(0, 40))}${(l.assunto || '').length > 40 ? '...' : ''}</td>
                         <td>${escHtml(l.nfseNumero ? l.nfseNumero.substring(0, 15) + (l.nfseNumero.length > 15 ? '...' : '') : '-')}</td>
                         <td>${l.valor ? 'R$ ' + Number(l.valor).toFixed(2) : '-'}</td>
-                        <td>${anexos.join(', ') || '-'}</td>
-                        <td><span class="badge ${l.status}">${l.status}</span></td>
+                        <td>${resumoAnexos(l)}</td>
+                        <td>
+                          <span class="badge ${l.status}">${escHtml(l.status)}</span>
+                          ${l.status === 'erro' && l.erro
+                            ? `<br><small style="color:var(--danger);" title="${escHtml(l.erro)}">${escHtml(l.erro.substring(0, 30))}</small>` : ''}
+                        </td>
+                        <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
+                          ${l.status === 'erro'
+                            ? `<button class="btn btn-ghost btn-sm" onclick="reenviar(${l.id})">Reenviar</button>` : ''}
+                        </td>
                     </tr>
-                `;
-            }).join('');
+                `).join('');
+        }
+
+        // Antes a coluna dizia só "PDF, Boleto" — que anexo, de que tamanho e
+        // se ele ainda existe eram perguntas sem resposta.
+        function anexosDe(l) {
+            try { return JSON.parse(l.anexos || '[]'); } catch { return []; }
+        }
+        function fmtBytes(n) {
+            if (!n) return '';
+            if (n < 1024) return n + ' B';
+            if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+            return (n / 1048576).toFixed(1) + ' MB';
+        }
+        function resumoAnexos(l) {
+            // Ícones-link direto na tabela: DANFSE (gera na hora) e boleto (Asaas)
+            const icones = [];
+            if (l.nfseId) icones.push(`<a href="/api/nfse/${l.nfseId}/danfse" target="_blank" title="Baixar DANFSE (PDF)" onclick="event.stopPropagation()">📄</a>`);
+            if (l.boletoUrl) icones.push(`<a href="${escHtml(l.boletoUrl)}" target="_blank" rel="noopener" title="Abrir boleto" onclick="event.stopPropagation()">🧾</a>`);
+            const sufixo = icones.length ? ' ' + icones.join(' ') : '';
+
+            const lista = anexosDe(l);
+            if (lista.length) {
+                return `<span title="${escHtml(lista.map(a => a.nome + (a.bytes ? ' (' + fmtBytes(a.bytes) + ')' : '')).join('\n'))}">`
+                     + `${lista.length} arquivo(s)</span>${sufixo}`;
+            }
+            const antigos = [];
+            if (l.temPdf) antigos.push('PDF');
+            if (l.temBoleto) antigos.push('Boleto');
+            // Registro anterior à mudança: sabemos que havia anexo, não qual.
+            return antigos.length
+                ? `<span class="muted" title="Registro antigo: o arquivo não foi guardado">${antigos.join(', ')}</span>${sufixo}`
+                : '-';
+        }
+
+        async function reenviar(id) {
+            const l = logsCache.find(x => x.id === id);
+            if (!l) return;
+            if (!confirm(`Reenviar para ${l.destinatario}?\n\nO anexo original não foi guardado — o reenvio vai sem ele.`)) return;
+            try {
+                const resp = await fetch(`/api/emails/log/${id}/reenviar`, { method: 'POST' });
+                const d = await resp.json();
+                if (!d.success) throw new Error(d.error);
+                mostrarAlerta('Reenviado.' + (d.aviso ? ' ' + d.aviso : ''), d.aviso ? 'warning' : 'success');
+                carregarLogs();
+            } catch (e) {
+                mostrarAlerta('Falha no reenvio: ' + e.message, 'error');
+            }
         }
 
         function verDetalhes(id) {
@@ -169,11 +284,39 @@
                 <div class="detail-row"><span class="detail-label">Descrição:</span><span class="detail-value">${escHtml(l.descricao || '-')}</span></div>
                 <div class="detail-row"><span class="detail-label">Valor:</span><span class="detail-value">${l.valor ? 'R$ ' + Number(l.valor).toFixed(2) : '-'}</span></div>
                 <div class="detail-row"><span class="detail-label">Competência:</span><span class="detail-value">${escHtml(l.competencia || '-')}</span></div>
-                <div class="detail-row"><span class="detail-label">Anexos:</span><span class="detail-value">${l.temPdf ? 'DANFSE PDF' : ''}${l.temPdf && l.temBoleto ? ', ' : ''}${l.temBoleto ? 'Boleto' : ''}${!l.temPdf && !l.temBoleto ? 'Nenhum' : ''}</span></div>
+                <div class="detail-row"><span class="detail-label">Anexos:</span><span class="detail-value">${detalheAnexos(l)}</span></div>
+                ${l.origemTipo ? `<div class="detail-row"><span class="detail-label">Origem:</span><span class="detail-value">${escHtml(l.origemTipo)} #${l.origemId || '?'}</span></div>` : ''}
+                ${l.reenviadoDeId ? `<div class="detail-row"><span class="detail-label">Reenvio de:</span><span class="detail-value">envio #${l.reenviadoDeId}</span></div>` : ''}
                 <div class="detail-row"><span class="detail-label">Message ID:</span><span class="detail-value">${escHtml(l.messageId || '-')}</span></div>
                 ${l.erro ? `<div class="detail-row"><span class="detail-label">Erro:</span><span class="detail-value" style="color:var(--danger);">${escHtml(l.erro)}</span></div>` : ''}
             `;
             document.getElementById('modalDetalhes').classList.add('open');
+        }
+
+        function linksDocs(l) {
+            const links = [];
+            if (l.nfseId) links.push(`<a href="/api/nfse/${l.nfseId}/danfse" target="_blank">📄 Baixar DANFSE (PDF)</a>`);
+            if (l.boletoUrl) links.push(`<a href="${escHtml(l.boletoUrl)}" target="_blank" rel="noopener">🧾 Abrir boleto</a>`);
+            return links.join(' &nbsp;·&nbsp; ');
+        }
+
+        function detalheAnexos(l) {
+            const links = linksDocs(l);
+            const lista = anexosDe(l);
+            if (lista.length) {
+                const nomes = lista.map(a => `${escHtml(a.nome)}${a.bytes ? ' — ' + fmtBytes(a.bytes) : ''}`).join('<br>');
+                return links ? `${nomes}<br>${links}` : nomes;
+            }
+            const antigos = [];
+            if (l.temPdf) antigos.push('PDF');
+            if (l.temBoleto) antigos.push('Boleto');
+            if (!antigos.length) return 'Nenhum';
+            if (links) {
+                return `${antigos.join(', ')}<br>${links}<br><small class="muted">O arquivo enviado não foi arquivado `
+                     + '(envio anterior ao registro de anexos) — os links acima geram/abrem o documento atual da origem.</small>';
+            }
+            return `${antigos.join(', ')}<br><small class="muted">Envio anterior ao registro de anexos — `
+                 + 'o nome e o arquivo não foram guardados. Gere o documento na tela de origem se precisar conferir.</small>';
         }
 
         function fecharModal() {

@@ -52,7 +52,11 @@ function initBLLSchema(db) {
       winnerBidderId TEXT,
       isWinner INTEGER DEFAULT 0,
       offers INTEGER DEFAULT 0,
-      lastUpdate TEXT
+      lastUpdate TEXT,
+      escadaJson TEXT,                        -- escada completa [{p,v}] (BidAndInfo)
+      minhaPosicao INTEGER,                   -- nossa colocação 1-based
+      meuParticipante TEXT,                   -- nosso id anônimo "PARTICIPANTE NNN"
+      meuValor REAL                           -- nosso melhor lance atual
     );
 
     CREATE INDEX IF NOT EXISTS idx_bll_salas_lotes_salaId ON bll_salas_lotes(salaId);
@@ -93,7 +97,39 @@ function initBLLSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_bll_propostas_compraId ON bll_propostas(compraId);
+
+    -- Chat capturado das salas (mensagens do processo + de cada lote). Dedup por
+    -- hash (salaId+escopo+dataHora+texto). notificado=1 quando já foi ao Telegram
+    -- (ou semeado no seed inicial, sem notificar histórico).
+    CREATE TABLE IF NOT EXISTS bll_chat_mensagens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      salaId INTEGER NOT NULL REFERENCES bll_salas(id) ON DELETE CASCADE,
+      processId TEXT,
+      escopo TEXT NOT NULL,                   -- 'PROCESSO' | 'LOTE 1' | ...
+      lote INTEGER,                           -- batchNumber quando escopo de lote
+      autor TEXT,                             -- 'PREGOEIRO' | 'PARTICIPANTE 187' | 'SISTEMA'
+      texto TEXT NOT NULL,
+      dataHora TEXT,                          -- string original da BLL
+      hash TEXT NOT NULL,
+      notificado INTEGER NOT NULL DEFAULT 0,
+      criadoEm TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_bll_chat_hash ON bll_chat_mensagens(salaId, hash);
+    CREATE INDEX IF NOT EXISTS idx_bll_chat_sala ON bll_chat_mensagens(salaId, id);
   `);
+
+  // Migração idempotente: colunas de escada em bll_salas_lotes (motor de
+  // posicionamento — persiste a ladder e a nossa colocação por lote).
+  const loteCols = db.prepare("PRAGMA table_info(bll_salas_lotes)").all().map(c => c.name);
+  for (const [col, ddl] of [
+    ['escadaJson', 'escadaJson TEXT'],
+    ['minhaPosicao', 'minhaPosicao INTEGER'],
+    ['meuParticipante', 'meuParticipante TEXT'],
+    ['meuValor', 'meuValor REAL'],
+  ]) {
+    if (!loteCols.includes(col)) db.exec(`ALTER TABLE bll_salas_lotes ADD COLUMN ${ddl}`);
+  }
 }
 
 module.exports = { initBLLSchema };

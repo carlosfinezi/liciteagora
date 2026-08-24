@@ -14,13 +14,14 @@
       <small>Selecione contas a pagar abertas → processe (PIX via Asaas ou lista manual) → confirme para baixar tudo</small>
     </div>
     <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="abrirBoletos()">Boletos a pagar</button>
       <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo lote</button>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="lotes-pagamento">
     <table>
       <thead><tr><th>Número</th><th>Conta</th><th>Provedor</th>
         <th style="text-align:right;">Itens</th><th style="text-align:right;">Valor</th>
@@ -41,6 +42,52 @@
   </div>
 </main></div>
 
+<div class="modal-bg" id="modalBoletos">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;">Boletos a pagar</h3>
+        <small class="muted">Cole as linhas digitáveis ou importe a lista do DDA do banco</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalBoletos')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Linhas digitáveis — uma por linha</label>
+        <textarea id="bTexto" rows="4" placeholder="23793.38128 60007.827136 95000.063305 4 12345678901234&#10;846700000017 435002092024 12345678901 234567890123"></textarea>
+        <small class="muted">Aceita boleto bancário (47 dígitos) e conta de concessionária (48). O código é conferido antes de entrar.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Origem</label>
+        <select id="bOrigem">
+          <option value="manual">Digitado / recebido por e-mail</option>
+          <option value="dda">Importado do DDA do banco</option>
+        </select>
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
+        <button class="btn btn-primary" onclick="importarBoletos()">Conferir e adicionar</button>
+        <button class="btn btn-secondary" onclick="sincronizarAsaas()"
+          title="Traz do Asaas o status do que foi mandado pagar e o que foi pago direto no painel">
+          Sincronizar Asaas</button>
+      </div>
+    </div>
+    <div id="bResultado"></div>
+
+    <div class="kpi-mini" id="bKpis" style="display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;"></div>
+    <div class="tbl-wrap" style="max-height:320px;overflow-y:auto;">
+      <table>
+        <thead><tr><th>Banco</th><th>Vencimento</th><th style="text-align:right;">Valor</th>
+          <th>Situação</th><th>Título</th><th></th></tr></thead>
+        <tbody id="tbBoletos"><tr><td colspan="6" class="empty">Nenhum boleto na fila</td></tr></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalBoletos')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modalNovo">
   <div class="modal" style="max-width:760px;">
     <div class="modal-header">
@@ -59,7 +106,7 @@
     <div class="tbl-wrap" style="max-height:280px;overflow-y:auto;">
       <table>
         <thead><tr><th style="width:30px;"></th><th>CP</th><th>Fornecedor</th><th>Vencimento</th>
-          <th style="text-align:right;">Aberto</th><th style="width:190px;">Chave PIX</th></tr></thead>
+          <th style="text-align:right;">Aberto</th><th>Forma</th><th style="width:190px;">Chave PIX</th></tr></thead>
         <tbody id="tbCPs"><tr><td colspan="6" class="empty">Carregando CPs abertas…</td></tr></tbody>
       </table>
     </div>
@@ -75,11 +122,13 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('fin-lotes-pagamento');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',7000); }
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function fechar(){ document.getElementById('modalNovo').classList.remove('open'); }
+function fechar(id){ document.getElementById(id || 'modalNovo').classList.remove('open'); }
 
 const ST = { rascunho:'<span class="badge ajuste">RASCUNHO</span>', processando:'<span class="badge saida">PROCESSANDO</span>',
   concluido:'<span class="badge entrada">CONCLUÍDO</span>', erro:'<span class="badge cancelado">ERRO</span>', cancelado:'<span class="badge cancelado">CANCELADO</span>' };
@@ -135,13 +184,19 @@ async function abrirNovo(){
   const abertas = (d.contas||[]).filter(c=>['aberta','parcial'].includes(c.status));
   document.getElementById('tbCPs').innerHTML = abertas.length ? abertas.map(c=>{
     const aberto = c.valor - (c.valorPago||0);
+    // Título com boleto vinculado vai por boleto: o banco paga pelo código de
+    // barras, não por PIX. A tela mostra isso em vez de deixar implícito.
+    const temBoleto = !!c.codigoBarras;
     return `<tr>
-      <td><input type="checkbox" class="chkCP" value="${c.id}" data-valor="${aberto}" onchange="resumo()"></td>
+      <td><input type="checkbox" class="chkCP" value="${c.id}" data-valor="${aberto}"
+           data-boleto="${temBoleto ? 1 : 0}" onchange="resumo()"></td>
       <td>#${c.id} ${c.descricao}</td><td>${c.fornecedorNome||'-'}</td><td>${c.dataVencimento}</td>
       <td style="text-align:right;">R$ ${fmt(aberto)}</td>
-      <td><input type="text" class="pixCP" placeholder="chave PIX (opcional)" style="width:180px;"></td>
+      <td>${temBoleto ? '<span class="badge success">boleto</span>' : '<span class="muted">PIX</span>'}</td>
+      <td>${temBoleto ? '<small class="muted">usa o código de barras</small>'
+        : '<input type="text" class="pixCP" placeholder="chave PIX (opcional)" style="width:180px;">'}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="6" class="empty">Nenhuma CP aberta</td></tr>';
+  }).join('') : '<tr><td colspan="7" class="empty">Nenhuma CP aberta</td></tr>';
   resumo();
   document.getElementById('modalNovo').classList.add('open');
 }
@@ -169,7 +224,122 @@ async function salvarLote(){
   fechar(); showAlert('Lote criado — use Processar quando estiver pronto'); carregar();
 }
 
-document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
+// Esc fecha o modal que estiver aberto, não só o de novo lote.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('.modal-bg.open').forEach(x => x.classList.remove('open'));
+});
 carregar();
+// ==================== BOLETOS A PAGAR ====================
+// Duas portas para a mesma fila: linha digitável colada à mão e lista do DDA
+// do banco. A validação e a deduplicação são as mesmas nos dois caminhos.
+async function abrirBoletos(){
+  document.getElementById('bResultado').innerHTML = '';
+  await carregarBoletos();
+  document.getElementById('modalBoletos').classList.add('open');
+}
+
+async function carregarBoletos(){
+  const d = await fetch('/api/boletos').then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  const r = d.resumo || {};
+  document.getElementById('bKpis').innerHTML = `
+    <div class="card card-info" style="padding:8px 14px;"><strong>${r.novos||0}</strong> aguardando vínculo</div>
+    <div class="card card-info" style="padding:8px 14px;"><strong>${r.vinculados||0}</strong> vinculados a título</div>
+    ${r.vencidos ? `<div class="card" style="padding:8px 14px;border-color:var(--danger);"><strong>${r.vencidos}</strong> vencidos</div>` : ''}
+    ${r.semValor ? `<div class="card" style="padding:8px 14px;border-color:var(--warn);"><strong>${r.semValor}</strong> sem valor no código</div>` : ''}`;
+
+  const naFila = d.boletos.filter(b => b.status !== 'ignorado');
+  document.getElementById('tbBoletos').innerHTML = naFila.length ? naFila.map(b => {
+    const sug = b.sugestoes || { exatos: [], provaveis: [] };
+    let acao = '';
+    if (b.status === 'novo') {
+      // Vínculo automático seria perigoso: amarrar no título errado faz pagar
+      // a conta de outro fornecedor. Sugere-se, quem decide é a pessoa.
+      const opts = [...sug.exatos.map(c=>({c,forte:true})), ...sug.provaveis.map(c=>({c,forte:false}))];
+      acao = opts.length
+        ? `<select class="selCP" data-id="${b.id}" style="width:230px;">
+             ${opts.map(({c,forte})=>`<option value="${c.id}">#${c.id} ${c.descricao} — R$ ${fmt(c.valor)}${forte?' ✓':' (venc. difere)'}</option>`).join('')}
+           </select>
+           <button class="btn btn-primary btn-sm" onclick="vincularBoleto(${b.id})">Vincular</button>`
+        : `<button class="btn btn-secondary btn-sm" onclick="criarTituloDoBoleto(${b.id})">Criar título</button>`;
+      acao += ` <button class="btn btn-ghost btn-sm" onclick="ignorarBoleto(${b.id})">Ignorar</button>`;
+    }
+    const sit = b.status === 'vinculado' ? '<span class="badge success">vinculado</span>'
+      : b.valorEmAberto ? '<span class="badge warn">sem valor no código</span>'
+      : '<span class="badge">novo</span>';
+    return `<tr>
+      <td>${b.bancoNome || b.banco || (b.tipo==='arrecadacao'?'concessionária':'—')}</td>
+      <td>${b.vencimento || '<span class="muted">não consta</span>'}</td>
+      <td style="text-align:right;">${b.valor!=null?'R$ '+fmt(b.valor):'—'}</td>
+      <td>${sit}</td>
+      <td>${b.contaPagarId?`#${b.contaPagarId} ${b.tituloDescricao||''}`:'—'}</td>
+      <td style="white-space:nowrap;">${acao}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" class="empty">Nenhum boleto na fila</td></tr>';
+}
+
+async function importarBoletos(){
+  const texto = document.getElementById('bTexto').value.trim();
+  if (!texto) return showAlert('Cole ao menos uma linha digitável','error');
+  const d = await fetch('/api/boletos/importar', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ texto, origem: document.getElementById('bOrigem').value }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+
+  // Linha inválida não some em silêncio: mostra qual e por quê, para corrigir.
+  const partes = [`<strong>${d.novos.length} boleto(s) adicionado(s)</strong>`];
+  if (d.duplicados.length) partes.push(`${d.duplicados.length} já estava(m) na fila`);
+  if (d.invalidos.length) partes.push(`<br><span style="color:var(--danger);">${d.invalidos.length} recusado(s):</span> `
+    + d.invalidos.map(x=>`<code>${x.entrada}</code> — ${x.erros.join('; ')}`).join('<br>'));
+  document.getElementById('bResultado').innerHTML =
+    `<div class="alert ${d.invalidos.length?'warn':'success'}" style="display:block;">${partes.join(' · ')}</div>`;
+  if (d.novos.length) document.getElementById('bTexto').value = '';
+  await carregarBoletos();
+}
+
+async function vincularBoleto(id){
+  const sel = document.querySelector(`.selCP[data-id="${id}"]`);
+  const d = await fetch(`/api/boletos/${id}/vincular`, { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ contaPagarId: Number(sel.value) }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Boleto vinculado ao título #${d.contaPagarId}`);
+  await carregarBoletos();
+}
+
+async function criarTituloDoBoleto(id){
+  if (!confirm('Criar uma conta a pagar a partir deste boleto? Valor e vencimento vêm do próprio código de barras.')) return;
+  const d = await fetch(`/api/boletos/${id}/vincular`, { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ criar: {} }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Título #${d.contaPagarId} criado a partir do boleto`);
+  await carregarBoletos();
+}
+
+// O /v3/bill do Asaas devolve o historico do que a conta pagou: atualiza o
+// status do que saiu daqui e traz o que foi pago direto no painel deles —
+// senao a saida existe no extrato e nao existe no contas a pagar.
+async function sincronizarAsaas(){
+  const contaId = Number(document.getElementById('nConta')?.value)
+    || Number((await fetch('/api/contas-financeiras').then(r=>r.json())).contas?.[0]?.id);
+  if (!contaId) return showAlert('Nenhuma conta financeira','error');
+  showAlert('Consultando o Asaas…');
+  const d = await fetch('/api/boletos/sincronizar-asaas', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contaFinanceiraId: contaId }) })
+    .then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`${d.atualizados} item(ns) atualizado(s) · ${d.importados} boleto(s) pago(s) fora do ERP importado(s)`,
+    d.importados ? 'warn' : 'success');
+  await carregarBoletos(); carregar();
+}
+
+async function ignorarBoleto(id){
+  const motivo = prompt('Por que ignorar este boleto? (fica registrado)');
+  if (motivo === null) return;
+  const d = await fetch(`/api/boletos/${id}/ignorar`, { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ motivo }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  await carregarBoletos();
+}
+
 </script>
 </body></html>

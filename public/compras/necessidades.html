@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Necessidades de Compra · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Necessidades de Compra</h1>
+      <small>O que já foi vendido e não tem lastro — demanda firme menos saldo menos o que está a caminho</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/compras/sugestao.html" style="text-decoration:none;">← Sugestão de compra</a>
+      <a class="btn btn-secondary btn-sm" href="/compras/pedidos.html" style="text-decoration:none;">Pedidos de compra</a>
+      <button class="btn btn-secondary btn-sm" onclick="gerar('cotacao')">Gerar cotação</button>
+      <button class="btn btn-primary btn-sm" onclick="gerar('pedido_compra')">Gerar pedido(s) de compra</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="kpi-grid" id="kpis" style="margin-bottom:14px;"></div>
+
+  <div class="card card-info" style="margin-bottom:14px;">
+    Esta tela consolida <strong>por produto</strong>, não por pedido: dois pedidos disputando o mesmo saldo
+    contariam o mesmo estoque duas vezes se fossem somados. Por isso o número aqui pode ser menor que a soma
+    das faltas que cada pedido mostra na própria tela.
+    <br>
+    É irmã da <a href="/compras/sugestao.html">Sugestão de Compra</a>, não substituta: aquela repõe por ponto de
+    reposição e histórico; esta cobre venda que já existe.
+  </div>
+
+  <div class="filters" style="margin-bottom:14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);"
+           title="Rascunho ainda não é venda firme — marque para antecipar a compra">
+      <input type="checkbox" id="chkRascunhos" onchange="carregar()"> Incluir pedidos em rascunho
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);">
+      <input type="checkbox" id="chkTodos" onchange="marcarTodos(this.checked)" checked> Marcar todos
+    </label>
+  </div>
+
+  <div class="tbl-wrap" data-grid="necessidades-compra">
+    <table>
+      <thead><tr>
+        <th style="width:32px;"></th>
+        <th>SKU</th><th>Descrição</th>
+        <th style="text-align:right;" title="Soma das quantidades vendidas e ainda não entregues">Demanda firme</th>
+        <th style="text-align:right;">Saldo</th>
+        <th style="text-align:right;" title="Comprado e ainda não recebido — já está resolvido, não recompre">A caminho</th>
+        <th style="text-align:right;">Falta</th>
+        <th style="text-align:right;width:120px;">Comprar</th>
+        <th style="text-align:right;">Custo estimado</th>
+        <th>Fornecedor</th>
+        <th>Quem espera</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
+<script>initSidebar('compras-necessidades');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+let itensCache = [];
+
+async function carregar(){
+  const rascunhos = document.getElementById('chkRascunhos').checked;
+  try {
+    const r = await fetch('/api/necessidades-compra' + (rascunhos ? '?incluirRascunhos=1' : ''));
+    const d = await r.json();
+    if (!d.success) return showAlert(d.error, 'error');
+    itensCache = d.itens;
+    render(d);
+  } catch(e) { showAlert('Erro ao carregar: ' + e.message, 'error'); }
+}
+
+function render(d){
+  const rs = d.resumo;
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi warn"><div class="label">Produtos em falta</div><div class="value">${rs.totalItens}</div></div>
+    <div class="kpi"><div class="label">Custo total estimado</div><div class="value">R$ ${fmt(rs.custoTotalEstimado)}</div></div>
+    <div class="kpi success"><div class="label">Fornecedores</div><div class="value">${rs.fornecedoresDistintos}</div></div>
+    ${rs.semFornecedor ? `<div class="kpi warn"><div class="label">Sem fornecedor padrão</div>
+      <div class="value">${rs.semFornecedor}</div><small class="muted">caem num pedido "a definir"</small></div>` : ''}
+    <div class="kpi"><div class="label">Pedidos considerados</div><div class="value">${rs.pedidosConsiderados}</div></div>`;
+
+  const tb = document.getElementById('tb');
+  if (!itensCache.length) {
+    tb.innerHTML = `<tr><td colspan="11" class="empty">Nada em falta${rs.incluiRascunhos ? '' : ' — experimente incluir os rascunhos'}.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = itensCache.map(i => {
+    const espera = i.origens.map(o => `${esc(o.pedidoNumero)} (${fmt(o.quantidade)})`).join(', ');
+    return `<tr>
+      <td><input type="checkbox" class="check-item" data-id="${i.produtoId}" checked></td>
+      <td class="mono">${esc(i.sku)}</td>
+      <td>${esc(i.descricao)}</td>
+      <td style="text-align:right;">${fmt(i.demandaFirme)} <span class="muted">${esc(i.unidade||'')}</span></td>
+      <td style="text-align:right;">${fmt(i.saldo)}</td>
+      <td style="text-align:right;">${i.emTransito > 0 ? `<strong>${fmt(i.emTransito)}</strong>` : '<span class="muted">—</span>'}</td>
+      <td style="text-align:right;" class="text-danger"><strong>${fmt(i.falta)}</strong></td>
+      <td><input type="number" step="0.01" min="0" class="qtd-input" data-id="${i.produtoId}" value="${i.falta}"
+             style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
+      <td style="text-align:right;">R$ ${fmt(i.custoEstimado)}</td>
+      <td>${esc(i.fornecedorNome || 'a definir')}</td>
+      <td class="muted" style="font-size:.85em;" title="${esc(i.origens.map(o => `${o.pedidoNumero} — ${o.clienteNome||''}`).join(' | '))}">${espera}</td>
+    </tr>`;
+  }).join('');
+}
+
+function marcarTodos(v){ document.querySelectorAll('.check-item').forEach(c => c.checked = v); }
+
+// A necessidade consolidada pode vir de vários pedidos de venda. Uma linha por
+// origem preserva o vínculo — é ele que faz o recebimento saber quem destravar.
+function montarItens(){
+  const itens = [];
+  for (const c of document.querySelectorAll('.check-item:checked')) {
+    const produtoId = Number(c.dataset.id);
+    const item = itensCache.find(i => i.produtoId === produtoId);
+    if (!item) continue;
+    let restante = Number(document.querySelector(`.qtd-input[data-id="${produtoId}"]`).value) || 0;
+    if (restante <= 0) continue;
+
+    // Rateia a quantidade entre os pedidos que esperam, na ordem em que
+    // chegaram. Sobra (compra maior que a demanda) fica sem origem: é estoque.
+    for (const o of item.origens) {
+      if (restante <= 0) break;
+      const usar = Math.min(restante, o.quantidade);
+      itens.push({
+        produtoId, quantidade: usar, custoUnitario: item.custoUnitario,
+        origemTipo: 'pedido_venda', origemId: o.pedidoId, origemItemId: o.pedidoItemId,
+      });
+      restante -= usar;
+    }
+    if (restante > 0) {
+      itens.push({ produtoId, quantidade: restante, custoUnitario: item.custoUnitario });
+    }
+  }
+  return itens;
+}
+
+async function gerar(destino){
+  const itens = montarItens();
+  if (!itens.length) return showAlert('Selecione ao menos um item com quantidade', 'error');
+  const rotulo = destino === 'cotacao' ? 'uma cotação' : 'pedido(s) de compra';
+  if (!confirm(`Gerar ${rotulo} com ${itens.length} linha(s)?\n\nO documento nasce em rascunho — nada é enviado ao fornecedor agora.`)) return;
+
+  try {
+    const r = await fetch('/api/compras/gerar-de-necessidade', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ destino, itens })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'HTTP ' + r.status);
+    if (destino === 'cotacao') {
+      showAlert(`Cotação ${d.cotacao.numero} criada em rascunho`);
+      setTimeout(() => window.location.href = '/compras/cotacoes.html', 1500);
+    } else {
+      const nums = d.pedidos.map(x => x.numero).join(', ');
+      showAlert(`Pedido(s) ${nums} criado(s) em rascunho`);
+      setTimeout(() => window.location.href = '/compras/pedidos.html', 1500);
+    }
+  } catch(e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+carregar();
+</script>
+</body></html>

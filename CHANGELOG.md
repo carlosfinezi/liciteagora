@@ -4,6 +4,67 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-24
+
+- **Cadastro de filial ganhou a busca de CNPJ que só existia em Minha Empresa.**
+  Em Estabelecimentos › Nova filial o CNPJ era digitado e todo o resto ia à mão.
+  Agora tem o botão 🔎 Buscar (mesma BrasilAPI + `publica.cnpj.ws` para a IE),
+  máscara e auto-busca ao sair do campo. O CNPJ passou para a posição da Razão
+  Social, que é preenchida por ele. Registro já gravado não é sobrescrito pela
+  auto-busca: ao abrir uma filial existente o CNPJ entra como "já buscado"
+- **Logradouro pelo CEP quando a Receita não informa** (Estabelecimentos e Minha
+  Empresa). MEI e empresário individual costumam vir sem logradouro, número,
+  telefone e e-mail — o caso real foi `63.523.205/0001-71`, que devolve só
+  bairro/município/UF/CEP. O CEP recupera a rua; número e complemento seguem
+  manuais. Só preenche campo vazio
+- **Aviso do que ficou em branco**, em vez do silêncio: uma linha sob o CNPJ
+  lista o que nenhuma base pública trouxe. Roda depois da consulta de IE, para
+  não acusar campo que a segunda API acabou de preencher
+- **Tipo de Operação agora declara em que módulo pode ser escolhido.** O select
+  do pedido listava os três `OS-*` (Ordem de Serviço), que não têm CFOP: quem
+  escolhesse um e aceitasse o "re-sugerir CFOP" deixava os itens sem CFOP e
+  quebrava a NF-e depois. Quatro flags novas em `tipos_operacao` —
+  `usarEmPedido`, `usarEmOS`, `usarEmDevolucao`, `usarEmNFAvulsa` — editáveis no
+  cadastro (bloco "Disponível em", e as letras `P O D A` na listagem).
+  `GET /api/tipos-operacao` aceita `?usoPedido=1` e afins; `?categoria=` segue
+  valendo. Pedido, Devoluções e Tipos de OS passaram a filtrar pela flag. No
+  pedido: de 13 opções para 7
+- O valor inicial da flag sai da categoria e **só preenche NULL** — o que o
+  usuário desmarcar no cadastro sobrevive aos boots seguintes. A migração está
+  espelhada em `db-schema.js` porque o `migrar()` dos módulos de rota é no-op em
+  multi-tenant (roda contra o BOOT_STUB; só vale no provision). Sem o espelho,
+  nenhum tenant existente ganhava as colunas
+- **Ordens de Serviço: KPIs compactos e seleção de colunas.** Eram 9 KPIs no
+  tamanho global ocupando duas faixas e empurrando a tabela para fora da
+  primeira dobra, mais 12 colunas que exigiam rolagem horizontal. Os KPIs viram
+  uma faixa compacta (CSS page-local, o `.kpi` global não foi tocado) e a tabela
+  ganhou o botão **Colunas** com preferência em `localStorage['os_colunas']`.
+  Padrão: 7 visíveis (Equipamento, Prazo e Aberta ficam opcionais). Removida a
+  coluna vazia do fim, que ocupava largura sem mostrar nada e disputava chave
+  com a do lápis no `grid.js`
+- **O botão "Colunas" de Pedidos nunca funcionou:** o `onclick` chamava
+  `toggleColunasMenu`, que não existe em `pedidos.html` (só `salvarColunas`
+  estava lá). Clicar dava `ReferenceError`. Com as duas funções que faltavam, as
+  15 colunas já declaradas ficam acessíveis — entre elas `Operação`,
+  `Entrega prev.`, `Fat. previsto`, `Cód. cliente`, `Pago`, `Fatura` e
+  `Meio pgto`, todas `default:false` e portanto nunca vistas por ninguém
+- **PDF de Contas a Receber escrevia uma linha por cima da outra.** O texto da
+  célula quebrava em várias linhas e o avanço vertical era fixo (`y += 13`).
+  `Cliente` recebia até 40 caracteres numa coluna de 130pt com fonte 8 (precisa
+  de ~176pt): medido em 40 contas reais, **17 transbordavam**. `height+ellipsis`
+  em toda célula de texto, `lineBreak:false` nas numéricas. Os cortes de página
+  também estouravam a margem inferior (linha em `y=560` terminava em 573, limite
+  565) — agora 545 para as linhas e 500 para o bloco de totais
+- **Contas a Pagar ganhou PDF** (`GET /api/contas-a-pagar/pdf`), espelho do de
+  receber, registrado antes de `/:id` para o Express não casar `:id = 'pdf'`.
+  Sem coluna "Com atraso" de propósito: ela usa a config de juros do tenant, que
+  é o que a empresa **cobra** dos clientes — projetar isso sobre o que ela deve
+  inventaria encargo que quem arbitra é o credor
+- **O CSV de Contas a Pagar ignorava os filtros da tela.** O front mandava
+  status, categoria, origem, período e busca na query string e a rota nunca lia
+  `req.query` — exportava sempre tudo. Passa a aplicar o mesmo recorte do GET
+  principal e do PDF
+
 ## 2026-08-20
 
 - **O split do Asaas saiu do env e virou configuração no painel admin.** A taxa

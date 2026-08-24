@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor PCP · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .main-content { padding: 20px; }
+  .aviso { background: var(--bg-2); border: 1px solid var(--warn); border-radius: var(--r-md); padding: 16px 18px; margin-bottom: 16px; }
+  .aviso h3 { margin: 0 0 6px; color: var(--warn); font-size: 1em; }
+  .aviso p { margin: 4px 0; color: var(--text-2); font-size: 0.88em; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Monitor PCP — Chat</h1>
+      <small>Mensagens do chat das licitações no Portal de Compras Públicas.</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-sm" href="/portais/pcp-salas.html">Salas PCP →</a>
+    </div>
+  </div>
+
+  <div class="aviso">
+    <h3>⏳ Captura de chat do PCP: pendente de mapeamento</h3>
+    <p>A configuração abaixo (palavras-chave + Telegram) já está ativa e será usada assim que a captura das mensagens do PCP for implementada. O PCP roda em plataforma diferente (Angular/Keycloak), então o protocolo do chat precisa ser mapeado ao vivo numa sala com chat aberto — diferente da via usada em Comprasnet/BLL/BNC.</p>
+    <p>Deixe aqui as palavras-chave e o Telegram deste portal preparados; nada se perde.</p>
+  </div>
+
+  <details open style="margin-bottom:14px;">
+    <summary style="cursor:pointer;font-size:.9em;color:var(--accent);padding:6px 0;">⚙️ Configuração deste monitor (palavras-chave + Telegram próprios)</summary>
+    <div id="cfgPanel" style="margin-top:10px;"></div>
+  </details>
+
+</main></div>
+<script src="/js/chat-monitor-config-panel.js"></script>
+<script>renderChatConfigPanel('cfgPanel','pcp');</script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('pcp-monitor');</script>
+</body>
+</html>

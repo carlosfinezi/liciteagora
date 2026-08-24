@@ -95,7 +95,7 @@ async function main() {
         try {
           docs = db.prepare(
             `SELECT * FROM habilitacao_documentos
-               WHERE ativo = 1 AND tipo = ? AND dataValidade IS NOT NULL AND dataValidade <= ?`
+               WHERE ativo = 1 AND tipo = ? AND (dataValidade IS NULL OR dataValidade <= ?)`
           ).all(tipo, limite);
           // Multi-loja: resolve o CNPJ/IE de cada doc (herança matriz↔filial) com o db aberto.
           for (const d of docs) d._cnpjCtx = cnpjIeParaCertidao(db, d.estabelecimentoId, d.esfera);
@@ -103,13 +103,13 @@ async function main() {
       } catch (e) { continue; } // tenant sem a tabela ainda
       for (const d of docs) {
         total++;
-        log(`[${t.slug}] ${tipo} doc ${d.id} vence ${d.dataValidade} → reemitindo...`);
+        log(`[${t.slug}] ${tipo} doc ${d.id} ${d.dataValidade ? 'vence ' + d.dataValidade : 'nunca capturado'} → reemitindo...`);
         try {
           const r = await provider.buscar(d, { tenantSlug: t.slug, cnpjCtx: d._cnpjCtx });
           ok++; log(`[${t.slug}] doc ${d.id} ✓ ${r.mensagem}`);
         } catch (e) {
           fail++; log(`[${t.slug}] doc ${d.id} ✗ ${e.message}`);
-          await alertarTenant(t.db_path, `⚠️ <b>Renovação ${tipo}</b> falhou\nTenant: ${t.slug} · doc ${d.id} · vence ${d.dataValidade}\n${e.message}`);
+          await alertarTenant(t.db_path, `⚠️ <b>Renovação ${tipo}</b> falhou\nTenant: ${t.slug} · doc ${d.id} · ${d.dataValidade ? 'vence ' + d.dataValidade : 'nunca capturado'}\n${e.message}`);
         }
       }
     }

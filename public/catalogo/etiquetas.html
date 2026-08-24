@@ -5,10 +5,21 @@
 <title>Etiquetas de Produtos · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .prev-folha { background:#fff; color:#111; border:1px solid var(--border); border-radius:6px;
+                padding:6px; overflow:auto; max-height:520px; }
+  .prev-et { border:1px dashed #bbb; box-sizing:border-box; overflow:hidden;
+             display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .sub { display:block; color:var(--text-3); font-size:.78em; }
+</style>
 <style media="print">
   body * { visibility: hidden; }
   #folhaPrint, #folhaPrint * { visibility: visible; }
   #folhaPrint { position: absolute; left: 0; top: 0; width: 100%; }
+  /* Sem isto o navegador aplica a própria margem por cima da grade e
+     tudo sai deslocado na folha de etiquetas. */
+  @page { size: A4; margin: 0; }
+  .prev-et { border: none !important; }
 </style>
 </head>
 <body>
@@ -16,7 +27,7 @@
   <div class="page-header">
     <div>
       <h1>Etiquetas de Produtos</h1>
-      <small>Impressão em A4 (grade) ou térmica Zebra (arquivo ZPL)</small>
+      <small>Folha A4 em vários formatos ou rolo térmico (ZPL), com escolha do que aparece na etiqueta</small>
     </div>
   </div>
 
@@ -27,27 +38,72 @@
     <button class="btn btn-ghost btn-sm" onclick="buscar()">Buscar</button>
   </div>
 
-  <div class="tbl-wrap">
+  <div id="resultadosBusca" class="tbl-wrap" style="display:none;margin-bottom:10px;">
+    <table><tbody id="tbBusca"></tbody></table>
+  </div>
+
+  <div class="tbl-wrap" data-grid="etiquetas-fila">
     <table>
       <thead><tr><th>SKU</th><th>Descrição</th><th>Cód. barras</th><th style="width:110px;">Cópias</th><th style="width:40px;"></th></tr></thead>
       <tbody id="tbFila"><tr><td colspan="5" class="empty">Busque e adicione produtos à fila de impressão</td></tr></tbody>
     </table>
   </div>
-  <div id="resultadosBusca" class="tbl-wrap" style="display:none;margin-top:10px;">
-    <table><tbody id="tbBusca"></tbody></table>
+
+  <div class="panel" style="margin-top:16px;">
+    <h3 style="margin-top:0;">O que sai na etiqueta</h3>
+    <div class="form-row">
+      <div class="form-group full-width" id="camposBox" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Código</label><select id="tipoCodigo" onchange="previa()"></select>
+        <small class="muted" id="hintQr"></small></div>
+      <div class="form-group full-width"><label>Texto fixo (opcional)</label>
+        <input type="text" id="textoFixo" placeholder="Ex.: nome da loja, validade, lote" oninput="previa()" maxlength="40"></div>
+    </div>
   </div>
 
-  <div class="actions-bar" style="margin-top:16px;">
-    <select id="layoutA4">
-      <option value="3x10">A4 · 3 × 10 (etiqueta 63,5×25,4mm)</option>
-      <option value="2x7">A4 · 2 × 7 (etiqueta 99×38mm)</option>
-    </select>
-    <button class="btn btn-primary" onclick="imprimirA4()">🖨️ Imprimir A4</button>
-    <select id="colunasZpl">
-      <option value="1">Térmica · 1 coluna</option>
-      <option value="2">Térmica · 2 colunas</option>
-    </select>
-    <button class="btn btn-secondary" onclick="baixarZpl()">⬇️ Baixar ZPL (Zebra)</button>
+  <div class="panel" style="margin-top:16px;">
+    <h3 style="margin-top:0;">Folha A4</h3>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Formato</label><select id="modeloA4" onchange="aplicarModeloA4()"></select></div>
+      <div class="form-group"><label>Largura (mm)</label><input type="number" id="a4Larg" step="0.1" min="15" onchange="previa()"></div>
+      <div class="form-group"><label>Altura (mm)</label><input type="number" id="a4Alt" step="0.1" min="10" onchange="previa()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Colunas</label><input type="number" id="a4Cols" min="1" max="8" onchange="previa()"></div>
+      <div class="form-group"><label>Linhas</label><input type="number" id="a4Rows" min="1" max="20" onchange="previa()"></div>
+      <div class="form-group"><label>Espaço horiz. (mm)</label><input type="number" id="a4GapX" step="0.5" min="0" onchange="previa()"></div>
+      <div class="form-group"><label>Espaço vert. (mm)</label><input type="number" id="a4GapY" step="0.5" min="0" onchange="previa()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Ajuste fino → (mm)</label><input type="number" id="offX" step="0.5" value="0" onchange="previa()">
+        <small class="muted">Corrige desvio da impressora</small></div>
+      <div class="form-group"><label>Ajuste fino ↓ (mm)</label><input type="number" id="offY" step="0.5" value="0" onchange="previa()"></div>
+      <div class="form-group full-width"><label>&nbsp;</label>
+        <div id="infoGrade" class="muted" style="font-size:.85em;"></div></div>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-secondary" onclick="previa()">Ver prévia</button>
+      <button class="btn btn-primary" onclick="imprimirA4()">🖨️ Imprimir A4</button>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px;">
+    <h3 style="margin-top:0;">Rolo térmico (Zebra / ZPL)</h3>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Modelo</label><select id="modeloZpl" onchange="aplicarModeloZpl()"></select></div>
+      <div class="form-group"><label>Largura (mm)</label><input type="number" id="zplLarg" step="0.5" min="15" max="200"></div>
+      <div class="form-group"><label>Altura (mm)</label><input type="number" id="zplAlt" step="0.5" min="10" max="200"></div>
+      <div class="form-group"><label>Colunas</label><input type="number" id="zplCols" min="1" max="4"></div>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-secondary" onclick="baixarZpl()">⬇️ Baixar ZPL</button>
+    </div>
+  </div>
+
+  <div id="previaBox" style="margin-top:16px;display:none;">
+    <h3>Prévia da folha</h3>
+    <div class="prev-folha" id="previaFolha"></div>
   </div>
 
   <div id="folhaPrint"></div>
@@ -57,88 +113,230 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script src="/js/vendor/JsBarcode.all.min.js"></script>
 <script>initSidebar('catalogo-etiquetas');</script>
 <script>
-function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const val=id=>document.getElementById(id).value;
+const num=id=>Number(document.getElementById(id).value)||0;
+const precoFmt=v=>v!=null?('R$ '+Number(v).toFixed(2).replace('.',',')):'';
 
-const fila = new Map(); // produtoId -> {produto, copias}
+const fila = new Map();      // produtoId -> {produto, copias}
+let MODELOS = null;
+const FOLHA = { larguraMm: 210, alturaMm: 297 };
 
+// ==================== catálogo de modelos (vem do backend) ====================
+async function carregarModelos(){
+  try {
+    MODELOS = await fetch('/api/etiquetas/modelos').then(r=>r.json());
+  } catch { return showAlert('Não foi possível carregar os modelos','error'); }
+  if (!MODELOS.success) return showAlert(MODELOS.error,'error');
+
+  document.getElementById('modeloA4').innerHTML =
+    MODELOS.a4.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('')
+    + '<option value="custom">Personalizado…</option>';
+  document.getElementById('modeloZpl').innerHTML =
+    MODELOS.zpl.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('')
+    + '<option value="custom">Personalizado…</option>';
+  document.getElementById('camposBox').innerHTML = MODELOS.campos.map(c=>
+    `<label style="display:flex;gap:6px;align-items:center;cursor:pointer;">
+       <input type="checkbox" id="campo_${c.id}" ${c.padrao?'checked':''} onchange="previa()"> ${esc(c.nome)}
+     </label>`).join('');
+  document.getElementById('tipoCodigo').innerHTML = MODELOS.tiposCodigo.map(t=>
+    `<option value="${t.id}"${t.id==='qr'&&!MODELOS.qrDisponivel?' disabled':''}>${esc(t.nome)}</option>`).join('');
+  document.getElementById('hintQr').textContent = MODELOS.qrDisponivel
+    ? 'QR é gerado no servidor.' : 'QR indisponível neste ambiente.';
+
+  aplicarModeloA4();
+  aplicarModeloZpl();
+}
+
+function aplicarModeloA4(){
+  const m = MODELOS.a4.find(x=>x.id===val('modeloA4'));
+  if (m) {
+    document.getElementById('a4Larg').value = m.larguraMm;
+    document.getElementById('a4Alt').value  = m.alturaMm;
+    document.getElementById('a4Cols').value = m.cols;
+    document.getElementById('a4Rows').value = m.rows;
+    document.getElementById('a4GapX').value = m.gapXMm;
+    document.getElementById('a4GapY').value = m.gapYMm;
+  }
+  previa();
+}
+
+function aplicarModeloZpl(){
+  const m = MODELOS.zpl.find(x=>x.id===val('modeloZpl'));
+  if (m) {
+    document.getElementById('zplLarg').value = m.larguraMm;
+    document.getElementById('zplAlt').value  = m.alturaMm;
+    document.getElementById('zplCols').value = m.colunas;
+  }
+}
+
+const camposSelecionados = () => (MODELOS?.campos||[])
+  .filter(c=>document.getElementById('campo_'+c.id)?.checked).map(c=>c.id);
+
+// ==================== fila ====================
 async function buscar(){
-  const q = document.getElementById('buscaProd').value.trim();
+  const q = val('buscaProd').trim();
   if (!q) return;
-  const r = await fetch('/api/produtos?q='+encodeURIComponent(q)); const d = await r.json();
+  const d = await fetch('/api/produtos?q='+encodeURIComponent(q)).then(r=>r.json());
   if(!d.success) return showAlert(d.error,'error');
-  const tb = document.getElementById('tbBusca');
   const lista = (d.produtos||[]).slice(0,15);
-  tb.innerHTML = lista.length ? lista.map(p =>
-    `<tr><td>${p.sku}</td><td>${p.descricao}</td>
-     <td><button class="btn btn-ghost btn-sm" onclick='addFila(${JSON.stringify({id:p.id,sku:p.sku,descricao:p.descricao,codigoBarras:p.codigoBarras,precoVenda:p.precoVenda}).replace(/'/g,"&#39;")})'>+ Adicionar</button></td></tr>`
+  document.getElementById('tbBusca').innerHTML = lista.length ? lista.map(p =>
+    `<tr><td class="mono">${esc(p.sku)}</td><td>${esc(p.descricao)}</td>
+     <td style="text-align:right;"><button class="btn btn-ghost btn-sm" onclick="addFila(${p.id})">+ Adicionar</button></td></tr>`
   ).join('') : '<tr><td class="empty">Nada encontrado</td></tr>';
+  BUSCA_CACHE = Object.fromEntries(lista.map(p=>[p.id,p]));
   document.getElementById('resultadosBusca').style.display = 'block';
 }
+let BUSCA_CACHE = {};
 
-function addFila(p){
-  if (!fila.has(p.id)) fila.set(p.id, { produto: p, copias: 1 });
-  renderFila();
+function addFila(id){
+  const p = BUSCA_CACHE[id];
+  if (p && !fila.has(id)) fila.set(id, { produto: p, copias: 1 });
+  renderFila(); previa();
 }
-function rmFila(id){ fila.delete(id); renderFila(); }
-function setCopias(id, v){ const f = fila.get(id); if (f) f.copias = Math.max(1, Math.min(500, Number(v)||1)); }
+function rmFila(id){ fila.delete(id); renderFila(); previa(); }
+function setCopias(id, v){ const f = fila.get(id); if (f) f.copias = Math.max(1, Math.min(500, Number(v)||1)); previa(); }
 
 function renderFila(){
   const tb = document.getElementById('tbFila');
   tb.innerHTML = fila.size ? [...fila.values()].map(({produto:p, copias}) =>
-    `<tr><td>${p.sku}</td><td>${p.descricao}</td><td>${p.codigoBarras||'(usa SKU)'}</td>
+    `<tr><td class="mono">${esc(p.sku)}</td><td>${esc(p.descricao)}</td><td>${esc(p.codigoBarras||'(usa SKU)')}</td>
      <td><input type="number" min="1" max="500" value="${copias}" style="width:90px;" onchange="setCopias(${p.id}, this.value)"></td>
      <td><button class="btn btn-ghost btn-sm" onclick="rmFila(${p.id})">×</button></td></tr>`
   ).join('') : '<tr><td colspan="5" class="empty">Busque e adicione produtos à fila de impressão</td></tr>';
 }
 
-const LAYOUTS = {
-  '3x10': { cols: 3, rows: 10, wmm: 63.5, hmm: 25.4, fonte: 9 },
-  '2x7':  { cols: 2, rows: 7,  wmm: 99,  hmm: 38,   fonte: 11 }
-};
+// ==================== render A4 ====================
+function layoutAtual(){
+  const cols = Math.max(1, num('a4Cols')), rows = Math.max(1, num('a4Rows'));
+  const w = num('a4Larg'), h = num('a4Alt');
+  const gx = num('a4GapX'), gy = num('a4GapY');
+  const larguraGrade = cols*w + (cols-1)*gx;
+  const alturaGrade  = rows*h + (rows-1)*gy;
+  return {
+    cols, rows, w, h, gx, gy, larguraGrade, alturaGrade,
+    // Centraliza a grade e aplica o ajuste fino da impressora.
+    margemX: Math.max(0, (FOLHA.larguraMm - larguraGrade)/2) + num('offX'),
+    margemY: Math.max(0, (FOLHA.alturaMm  - alturaGrade )/2) + num('offY'),
+    porFolha: cols*rows,
+    cabe: larguraGrade <= FOLHA.larguraMm && alturaGrade <= FOLHA.alturaMm,
+  };
+}
+
+function htmlEtiqueta(p, i, lay, campos, tipo, textoFixo){
+  const fonte = Math.max(6, Math.min(13, Math.round(lay.h * 0.34)));
+  const linhas = [];
+  if (campos.includes('descricao')) linhas.push(`<div style="font-size:${fonte}px;font-weight:600;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.descricao)}</div>`);
+  if (campos.includes('sku')) linhas.push(`<div style="font-size:${fonte-1}px;font-family:monospace;">${esc(p.sku)}</div>`);
+  if (campos.includes('preco') && p.precoVenda != null) {
+    linhas.push(`<div style="font-size:${fonte+3}px;font-weight:700;">${precoFmt(p.precoVenda)}${
+      campos.includes('unidade') && p.unidade ? `<span style="font-size:${fonte-2}px;font-weight:400;"> /${esc(p.unidade)}</span>` : ''}</div>`);
+  } else if (campos.includes('unidade') && p.unidade) {
+    linhas.push(`<div style="font-size:${fonte-1}px;">${esc(p.unidade)}</div>`);
+  }
+  if (tipo === 'qr') {
+    const lado = Math.max(8, lay.h * 0.45);
+    linhas.push(`<div style="width:${lado}mm;height:${lado}mm;">${p.qrSvg || ''}</div>`);
+    if (campos.includes('codigo')) linhas.push(`<div style="font-size:${fonte-2}px;font-family:monospace;">${esc(p.codigo)}</div>`);
+  } else if (tipo === 'barras') {
+    linhas.push(`<svg id="bc-${i}" style="max-width:100%;"></svg>`);
+  }
+  if (textoFixo) linhas.push(`<div style="font-size:${fonte-2}px;">${esc(textoFixo)}</div>`);
+  return `<div class="prev-et" style="width:${lay.w}mm;height:${lay.h}mm;padding:1mm;">${linhas.join('')}</div>`;
+}
+
+function montarEtiquetas(){
+  const out = [];
+  for (const [id, {copias}] of fila) {
+    const p = DADOS[id]; if (!p) continue;
+    for (let i=0;i<copias;i++) out.push(p);
+  }
+  return out;
+}
+let DADOS = {};
+
+async function carregarDados(){
+  if (!fila.size) { DADOS = {}; return; }
+  const qr = val('tipoCodigo') === 'qr' ? '&qr=1' : '';
+  const d = await fetch('/api/etiquetas/dados?ids='+[...fila.keys()].join(',')+qr).then(r=>r.json());
+  if (!d.success) { showAlert(d.error,'error'); return; }
+  DADOS = Object.fromEntries(d.produtos.map(p=>[p.id,p]));
+}
+
+function desenharBarras(etiquetas, escopo){
+  etiquetas.forEach((p,i) => {
+    const el = escopo.querySelector('#bc-'+i);
+    if (!el) return;
+    try {
+      JsBarcode(el, p.codigo, {
+        format: p.simbologia === 'ean' ? (p.codigo.length===8?'EAN8':'EAN13') : 'CODE128',
+        height: 26, width: 1.2, fontSize: 10, margin: 0,
+        displayValue: camposSelecionados().includes('codigo'),
+      });
+    } catch { /* código inválido para a simbologia — sai sem barra */ }
+  });
+}
+
+function gradeHTML(etiquetas, lay, campos, tipo, textoFixo){
+  return `<div style="display:grid;grid-template-columns:repeat(${lay.cols},${lay.w}mm);`
+    + `grid-auto-rows:${lay.h}mm;column-gap:${lay.gx}mm;row-gap:${lay.gy}mm;`
+    + `padding:${lay.margemY}mm 0 0 ${lay.margemX}mm;box-sizing:border-box;">`
+    + etiquetas.map((p,i)=>htmlEtiqueta(p,i,lay,campos,tipo,textoFixo)).join('') + '</div>';
+}
+
+async function previa(){
+  const lay = layoutAtual();
+  const total = [...fila.values()].reduce((s,f)=>s+f.copias,0);
+  document.getElementById('infoGrade').innerHTML = lay.cabe
+    ? `Grade ${lay.larguraGrade.toFixed(1)} × ${lay.alturaGrade.toFixed(1)} mm · margem `
+      + `${lay.margemX.toFixed(1)} / ${lay.margemY.toFixed(1)} mm · <strong>${lay.porFolha}</strong> por folha`
+      + (total ? ` · ${total} etiqueta(s) = ${Math.ceil(total/lay.porFolha)} folha(s)` : '')
+    : `<span style="color:var(--danger);">A grade (${lay.larguraGrade.toFixed(1)} × ${lay.alturaGrade.toFixed(1)} mm) não cabe no A4.</span>`;
+
+  if (!fila.size) { document.getElementById('previaBox').style.display='none'; return; }
+  await carregarDados();
+  const campos = camposSelecionados(), tipo = val('tipoCodigo'), txt = val('textoFixo').trim();
+  // Prévia só da primeira folha — renderizar 500 etiquetas travaria a tela.
+  const etiquetas = montarEtiquetas().slice(0, lay.porFolha);
+  const box = document.getElementById('previaFolha');
+  box.innerHTML = gradeHTML(etiquetas, lay, campos, tipo, txt);
+  if (tipo === 'barras') desenharBarras(etiquetas, box);
+  document.getElementById('previaBox').style.display = 'block';
+}
 
 async function imprimirA4(){
   if (!fila.size) return showAlert('Fila vazia','error');
-  const ids = [...fila.keys()].join(',');
-  const r = await fetch('/api/etiquetas/dados?ids='+ids); const d = await r.json();
-  if(!d.success) return showAlert(d.error,'error');
-  const info = Object.fromEntries(d.produtos.map(p=>[p.id,p]));
-  const lay = LAYOUTS[document.getElementById('layoutA4').value];
-
-  const etiquetas = [];
-  for (const [id, {copias}] of fila) {
-    const p = info[id]; if (!p) continue;
-    for (let i=0;i<copias;i++) etiquetas.push(p);
-  }
+  const lay = layoutAtual();
+  if (!lay.cabe) return showAlert('A grade não cabe no A4 — ajuste tamanho, colunas ou linhas','error');
+  await carregarDados();
+  const campos = camposSelecionados(), tipo = val('tipoCodigo'), txt = val('textoFixo').trim();
+  const etiquetas = montarEtiquetas();
+  if (!etiquetas.length) return showAlert('Nenhum produto válido na fila','error');
 
   const folha = document.getElementById('folhaPrint');
-  folha.innerHTML = `<div style="display:grid;grid-template-columns:repeat(${lay.cols},${lay.wmm}mm);grid-auto-rows:${lay.hmm}mm;gap:0;">` +
-    etiquetas.map((p,i) => `
-      <div style="overflow:hidden;padding:1.5mm;box-sizing:border-box;text-align:center;">
-        <div style="font-size:${lay.fonte}px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.descricao}</div>
-        <div style="font-size:${lay.fonte}px;">${p.precoVenda!=null?('R$ '+Number(p.precoVenda).toFixed(2).replace('.',',')):''}</div>
-        <svg id="bc-${i}"></svg>
-      </div>`).join('') + '</div>';
-
-  etiquetas.forEach((p,i) => {
-    try {
-      JsBarcode('#bc-'+i, p.codigo, {
-        format: p.simbologia === 'ean' ? (p.codigo.length===8?'EAN8':'EAN13') : 'CODE128',
-        height: 28, width: 1.2, fontSize: 10, margin: 0, displayValue: true
-      });
-    } catch { /* código inválido para a simbologia — etiqueta sai sem barra */ }
-  });
-
+  folha.innerHTML = gradeHTML(etiquetas, lay, campos, tipo, txt);
+  if (tipo === 'barras') desenharBarras(etiquetas, folha);
   window.print();
 }
 
 function baixarZpl(){
   if (!fila.size) return showAlert('Fila vazia','error');
   const itens = [...fila.entries()].map(([id,{copias}])=>`${id}:${copias}`).join(',');
-  const colunas = document.getElementById('colunasZpl').value;
-  window.location.href = `/api/etiquetas/zpl?itens=${itens}&colunas=${colunas}`;
+  const q = new URLSearchParams({
+    itens,
+    larguraMm: val('zplLarg'), alturaMm: val('zplAlt'), colunas: val('zplCols'),
+    tipoCodigo: val('tipoCodigo'),
+    campos: camposSelecionados().join(','),
+  });
+  window.location.href = '/api/etiquetas/zpl?' + q;
 }
+
+carregarModelos();
 </script>
 </body></html>

@@ -54,12 +54,33 @@ function buildAtendimentoBaseCampanha(campCfg) {
 // FONTE ÚNICA do system prompt do atendimento IA — atendimento REAL (autoResponder) E
 // simulador, pra nunca divergirem. Lead de campanha => SEMPRE base da campanha (nunca o
 // KB do tenant). Sem campanha (atendimento geral) => KB do tenant, como hoje.
+/**
+ * Prompt do atendimento.
+ *
+ * Regra desde 2026-08-14: **todo mundo é atendido pela mesma base**. Antes,
+ * quem tinha entrado numa campanha era respondido só pelo texto daquela
+ * campanha e nunca enxergava a ia_base — no 1bit isso era 695 contra 19.407
+ * caracteres, para a mesma pergunta. Não era decisão de produto: o atendimento
+ * de campanha nasceu num sistema separado, antes de a base existir, e o
+ * comportamento veio junto na migração.
+ *
+ * Ter vindo de campanha agora é CONTEXTO, não substituição: entra como mais um
+ * bloco no conhecimento, junto com o resto.
+ *
+ * A exceção continua possível e é declarada: campanha com `atendimento_prompt`
+ * ou `atendimento_kb` no config quer mesmo um atendimento próprio (outra
+ * oferta, outra marca) e segue com ele.
+ */
 function buildSystemAtendimento(db, campanhaId) {
+  let campanha = null;
   if (campanhaId) {
     try {
       const c = db.prepare("SELECT config FROM wa_campanhas WHERE id = ?").get(campanhaId);
-      if (c) return buildAtendimentoBaseCampanha(JSON.parse(c.config || '{}'));
-    } catch (_) {}
+      if (c) campanha = JSON.parse(c.config || '{}');
+    } catch (_) { }
+    if (campanha && (campanha.atendimento_prompt || campanha.atendimento_kb)) {
+      return buildAtendimentoBaseCampanha(campanha);
+    }
   }
   const { getConfigValue } = require('./config-helpers').createConfigHelpers(db);
   const base = getConfigValue('whatsapp_ai_prompt') || DEFAULT_ATEND;
@@ -80,7 +101,19 @@ function buildSystemAtendimento(db, campanhaId) {
     }
   } catch { /* tenant ainda sem a tabela */ }
 
-  return pedacos ? base + KB_SEP + pedacos : base;
+  // Contexto da campanha: saber de onde a pessoa veio muda o tom da resposta,
+  // mas não deve tirar dela o acesso ao que a empresa sabe.
+  if (campanha) {
+    const oferta = briefingLimpo(campanha.briefing);
+    const ctx = ['### Contexto: esta pessoa respondeu a uma campanha'
+      + (campanha.nome ? ` ("${campanha.nome}")` : ''), oferta].filter(Boolean).join('\n');
+    pedacos = pedacos ? ctx + '\n\n' + pedacos : ctx;
+  }
+
+  const corpo = pedacos ? base + KB_SEP + pedacos : base;
+  // O guard-rail anti-invenção vinha só no caminho de campanha. Ele vale para
+  // qualquer atendimento: inventar preço com cliente antigo é igualmente ruim.
+  return corpo + '\n\n' + GUARDRAIL_INTERINO;
 }
 
 function evoCreds(cfg) {
@@ -546,16 +579,21 @@ function registrarRotasWhatsApp(app, db) {
       // kbLegado: só para conferência de quem migrou. Não entra mais no prompt
       // — o conhecimento vem de ia_base (tela Conversas → Base da IA).
       const kb = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_kb'").get();
+      const escopo = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_escopo'").get();
       res.json({ success: true, enabled: enabled?.valor === '1', prompt: prompt?.valor || '',
+                 escopo: escopo?.valor === 'campanha' ? 'campanha' : 'todos',
                  kbLegado: kb?.valor || '', kbLegadoEmUso: false });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
   app.post('/api/whatsapp/ai-config', gate, (req, res) => {
     try {
-      const { enabled, prompt, kb } = req.body || {};
+      const { enabled, prompt, kb, escopo } = req.body || {};
       const up = db.prepare("INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)");
       up.run('whatsapp_ai_enabled', enabled ? '1' : '0');
       if (typeof prompt === 'string') up.run('whatsapp_ai_prompt', prompt.slice(0, 8000));
+      // Só grava o escopo se ele veio: a tela antiga (whatsapp.html) salva sem
+      // esse campo, e um default aqui apagaria a escolha feita na tela nova.
+      if (escopo === 'campanha' || escopo === 'todos') up.run('whatsapp_ai_escopo', escopo);
       // `kb` deixou de ser aceito: gravar num campo que ninguém lê é pior que
       // recusar — quem enviasse acharia que a IA aprendeu algo.
       if (typeof kb === 'string') {

@@ -12,16 +12,28 @@
  */
 
 const SniperLance = require('./sniper-lance');
-const { buildCompraId, classificar422 } = require('./sniper-lance');
+const { buildCompraId, classificar422, TIPOS_422_NAO_FATAIS } = require('./sniper-lance');
 const { ingerirMensagensGlobais } = require('./chat-mensagens-ingest');
 const { currentTenant, currentDb, tenantStorage } = require('./tenant-middleware');
 const { sendTelegram } = require('./telegram-client');
 const { enviarEmailAlerta } = require('./email-client');
+const { lerCanais, enviarAlerta: despachar } = require('./notificacoes-dispatcher');
 const blitzHist = require('./blitz-historico');
 const bncScheduler = require('./bnc-dispute-scheduler');
 // Fase 3g (2026-05-23): resultados_bi/itens/licitacoes vão pra PG
 const catalogPg = require('./catalog-pg');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
+// Recusa sem corpo: o portal devolve só o status. Usado pelo relatório de
+// lances quando não há `message` para mostrar (ex.: 401 vem com corpo vazio).
+const MOTIVO_POR_STATUS = {
+  '0': 'Sem resposta do portal (timeout ou conexão)',
+  '401': 'Token do portal expirado ou inválido — sessão precisa ser renovada',
+  '403': 'Acesso negado pelo portal para este fornecedor',
+  '429': 'Excesso de requisições — portal aplicou limite de taxa',
+  '500': 'Erro interno do portal',
+  'skipped': 'Lance não chegou a ser enviado (item abortado por erro anterior)',
+};
 
 // Extrai (situacao, fase, objeto, orgao) do payload de
 // GET /comprasnet-fase-externa/v1/compras/{compraId}/participacao.
@@ -410,6 +422,27 @@ function registrarRotasSniper(app, db) {
     db.prepare(`INSERT OR IGNORE INTO config (chave, valor) VALUES ('sniper_motor_enabled', '1')`).run();
   } catch (_) { /* config pode não existir em bootstrap — ok */ }
 
+  // Resultado/Ata (2026-08-01): desfecho real da compra lido de
+  // /comprasnet-fase-externa/v1/compras/{compra}/participacao (homologada,
+  // situação/fase pós-disputa, link PNCP). Tabela NOVA (não altera nada), 1 linha
+  // por compra. Substitui a inferência "encerrada por ausência" pelo desfecho lido.
+  // IMPORTANTE: no registro o `db` é proxy no-op (multi-tenant); a tabela só nasce
+  // no REQUEST, quando o proxy resolve pro tenant. Por isso é helper lazy, não DDL
+  // no boot — ver memória [liciteagora-servico-web-e-migracoes].
+  function ensureResultadoTable(_db) {
+    _db.prepare(`CREATE TABLE IF NOT EXISTS resultado_comprasnet (
+      compraId TEXT PRIMARY KEY,
+      homologada INTEGER,
+      situacaoFaseExterna TEXT,
+      faseFaseExterna TEXT,
+      chaveCompraPncp TEXT,
+      linkPncp TEXT,
+      nomeUasg TEXT,
+      nossaVitoria INTEGER,
+      atualizadoEm TEXT DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+  }
+
   // Tracking da extensão
   let ultimoSyncExtensao = null; // timestamp do último POST da extensão
 
@@ -494,51 +527,9 @@ function registrarRotasSniper(app, db) {
     }
   });
 
-  // ==================== ALERTAS — CONFIG DE CANAIS ====================
-  // GET → estado atual dos canais (telegram on/off, email on/off, destinatários)
-  app.get('/api/alertas/config', (req, res) => {
-    try {
-      res.json({ success: true, config: lerAlertasConfig() });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  // POST { telegram: bool, email: bool, destinatarios: string|string[] }
-  app.post('/api/alertas/config', (req, res) => {
-    try {
-      const b = req.body || {};
-      const upsert = db.prepare('INSERT OR REPLACE INTO config (chave, valor) VALUES (?, ?)');
-      if (b.telegram !== undefined)  upsert.run('alerta_canal_telegram', b.telegram ? '1' : '0');
-      if (b.email !== undefined)     upsert.run('alerta_canal_email',    b.email    ? '1' : '0');
-      if (b.destinatarios !== undefined) {
-        const lista = Array.isArray(b.destinatarios)
-          ? b.destinatarios
-          : String(b.destinatarios || '').split(/[,;]/);
-        const limpos = lista.map(s => String(s).trim()).filter(s => /@.+\./.test(s));
-        upsert.run('alerta_email_destinatarios', limpos.join(', '));
-      }
-      res.json({ success: true, config: lerAlertasConfig() });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
-
-  // POST → envia um alerta de teste pra exercitar os canais configurados
-  app.post('/api/alertas/teste', async (req, res) => {
-    try {
-      const ts = new Date().toLocaleString('pt-BR');
-      await enviarAlerta({
-        subject: `[LiciteAgora] ✅ Teste de notificação`,
-        body: `✅ <b>Teste de notificação</b>\n` +
-              `Hora: <i>${ts}</i>\n\n` +
-              `<i>Se você recebeu isso, seus canais de alerta estão funcionando.</i>`,
-      });
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ success: false, error: e.message });
-    }
-  });
+  // As rotas /api/alertas/* saíram daqui em 2026-08-02 para
+  // notificacoes-routes.js: a tela que elas servem fica em Configurações e o
+  // interruptor vale para o sistema inteiro, não só para o sniper.
 
   app.get('/api/sniper/logs', (req, res) => {
     try {
@@ -652,6 +643,22 @@ function registrarRotasSniper(app, db) {
     if (alvo < piso) alvo = piso;
     return Math.round(alvo * 100) / 100;
   }
+
+  // ESCADA: referência do "menor concorrente >= piso" empurrada pelo app (v5.9)
+  // via POST /api/sniper/escada-ref. O app só puxa a escada quando o líder está
+  // abaixo do piso (caso de borda). Válida ~30s (empurrada por mudança); se stale
+  // ou ausente → undefined → o contínuo usa o líder puro (fallback seguro).
+  const _escadaRef = new Map(); // `${compra}|${item}` -> { referencia, t }
+  function refEscada(compra, item) {
+    const r = _escadaRef.get(`${compra}|${item}`);
+    if (!r || Date.now() - r.t > 30000) return undefined;
+    return r.referencia; // pode ser null = nenhum concorrente >= piso
+  }
+
+  // escadaWatch: itens contínuos onde o LÍDER está ≤ piso — o app precisa puxar a
+  // escada (menor concorrente ≥ piso) porque cobrir o líder puro é impossível.
+  // Populado pelo guardPoll; devolvido ao app no heartbeat; TTL 30s.
+  const _escadaWatch = new Map(); // `${compra}|${item}` -> { compra, item, piso, nosso, fimContagem, t }
 
   /**
    * A1: Pré-calcula degraus de lance para cobrir o concorrente até valorMinimo.
@@ -970,6 +977,23 @@ function registrarRotasSniper(app, db) {
         `SELECT compraId, itemNumero, valorMinimo, variacaoMinima, tipoVariacao, faseItem, agressividadePct
          FROM sniper_itens WHERE compraId = ? AND modoAuto = 'continuo' AND valorMinimo IS NOT NULL`
       ).all(compraId);
+
+      // escadaWatch: marca item p/ o app puxar a escada quando o LÍDER está ≤ piso.
+      // Fora dessa borda o líder puro já cobre — nada a vigiar (zero captcha no app).
+      for (const cfgItem of autoItens) {
+        const apiItem = data.find(i => (i.numero || i.identificador) === cfgItem.itemNumero);
+        const chave = `${compraId}|${cfgItem.itemNumero}`;
+        if (!apiItem || !apiItem.podeEnviarLances) { _escadaWatch.delete(chave); continue; }
+        const melhorGeral = (apiItem.melhorValorGeral || {}).valorInformado;
+        if (melhorGeral != null && melhorGeral <= cfgItem.valorMinimo) {
+          const nossoValor = (apiItem.melhorValorFornecedor || {}).valorInformado ?? null;
+          let fimContagem = null;
+          try { if (apiItem.dataHoraFimContagem) fimContagem = parseBrasilia(apiItem.dataHoraFimContagem).getTime(); } catch (_) {}
+          _escadaWatch.set(chave, { compra: compraId, item: cfgItem.itemNumero, piso: cfgItem.valorMinimo, nosso: nossoValor, fimContagem, t: Date.now() });
+        } else {
+          _escadaWatch.delete(chave);
+        }
+      }
 
       // Auto-stop: remover itens onde disputa fechou — EXCETO se há blitz futuro
       // agendado pro item (caso pré-abertura: API retorna podeEnviarLances=false
@@ -1475,43 +1499,14 @@ function registrarRotasSniper(app, db) {
   // Hora do dia (BRT) em que o digest diário de interesses pendentes deve disparar.
   const HORA_DIGEST_INTERESSES = 8;
 
-  // Lê config per-tenant dos canais de alerta. Defaults preservam compatibilidade:
-  //   telegram ON, email OFF, destinatarios vazio.
-  function lerAlertasConfig() {
-    const get = (chave) => {
-      const row = db.prepare('SELECT valor FROM config WHERE chave = ?').get(chave);
-      return row ? row.valor : null;
-    };
-    const telegram = get('alerta_canal_telegram');
-    const email = get('alerta_canal_email');
-    const destinatariosRaw = get('alerta_email_destinatarios') || '';
-    return {
-      telegram: telegram == null ? true : telegram === '1',
-      email: email === '1',
-      destinatarios: destinatariosRaw.split(/[,;]/).map(s => s.trim()).filter(Boolean),
-    };
-  }
-
-  // Despacha alertas pros canais habilitados do tenant. Mesmo corpo HTML é
-  // usado em ambos (Telegram aceita um subset de HTML; o email envelopa).
-  // Erros num canal não bloqueiam o outro — cada um loga e segue.
-  async function enviarAlerta({ subject, body }) {
-    const cfg = lerAlertasConfig();
-    const tarefas = [];
-    if (cfg.telegram) {
-      tarefas.push(
-        sendTelegram(db, body).catch(e => console.error(`[ALERTA] telegram falhou: ${e.message}`))
-      );
-    }
-    if (cfg.email && cfg.destinatarios.length > 0) {
-      tarefas.push(
-        enviarEmailAlerta(db, { subject, htmlBody: body, to: cfg.destinatarios })
-          .catch(e => console.error(`[ALERTA] email falhou: ${e.message}`))
-      );
-    }
-    if (tarefas.length === 0) return; // nenhum canal ativo, no-op silencioso
-    await Promise.all(tarefas);
-  }
+  // Canais de alerta: fonte única em notificacoes-dispatcher.js.
+  //
+  // Este arquivo tinha a sua própria cópia de lerAlertasConfig/enviarAlerta,
+  // idêntica à do dispatcher e à de alertas-disputa-vigilancia.js — três
+  // implementações da mesma regra, que só continuavam iguais por sorte.
+  const lerAlertasConfig = () => lerCanais(db);
+  const enviarAlerta = ({ subject, body }) =>
+    despachar(db, { subject, body, logTag: 'ALERTA' });
 
   async function alertarMercadoAbaixoDoPiso(compraId, itemNumero, blitzInfo, melhorGeral, piso, nossoValor, varMin, tipoVar) {
     try {
@@ -2403,10 +2398,20 @@ function registrarRotasSniper(app, db) {
 
               // Alvo: cobrir o melhor concorrente em UM lance (1 degrau abaixo dele), clampado ao piso.
               // Se o melhor é desconhecido, desce 1 degrau do nosso valor.
+              // ESCADA (menor concorrente >= piso): quando o líder está ABAIXO do
+              // piso, não dá pra cobri-lo com lucro — mas o app pode ter empurrado
+              // o menor concorrente ainda >= piso (via /api/sniper/escada-ref). Se
+              // houver referência FRESCA, usamos ela; senão cai no líder puro
+              // (comportamento atual = fallback seguro). Só age no caso de borda.
+              let _ref = melhorGeral;
+              if (melhorGeral != null && melhorGeral <= cfgItem.valorMinimo) {
+                const _rEsc = refEscada(compraId, cfgItem.itemNumero);
+                if (_rEsc != null) _ref = _rEsc;
+              }
               let _alvo;
-              if (melhorGeral != null && melhorGeral < nossoValor) {
+              if (_ref != null && _ref < nossoValor) {
                 // MERGULHO: cobre o concorrente com salto proporcional à folga (agressividadePct)
-                _alvo = calcularAlvoMergulho(melhorGeral, cfgItem.valorMinimo, varMinEfetivo, tipoVarEfetivo, cfgItem.agressividadePct);
+                _alvo = calcularAlvoMergulho(_ref, cfgItem.valorMinimo, varMinEfetivo, tipoVarEfetivo, cfgItem.agressividadePct);
                 if (_alvo == null) continue; // nem cobrir por 1 degrau respeita o piso
               } else {
                 _alvo = calcularProximoDegrau(nossoValor, varMinEfetivo, tipoVarEfetivo);
@@ -2705,6 +2710,48 @@ function registrarRotasSniper(app, db) {
   // Usado pelo blitz-global e pelo timer coalescido do individual.
   // `itensConfig`: [{ compraId, itemNumero, valorMinimo, faseItem, variacaoMinima, tipoVariacao, maxLances }, ...]
   // ─────────────────────────────────────────────────────────────────────
+  // Recálculo pós-422 (2026-08-21). O batch é montado antes do disparo, sobre o
+  // melhorValor conhecido naquele instante; no fim da disputa o líder muda entre
+  // o refresh de cache e a chegada do lance, e o portal recusa o valor por
+  // intervalo mínimo. Aqui relemos o item e refazemos os degraus que faltam.
+  //
+  // Uma vez por item, e só para recusa do valor específico: custa uma chamada à
+  // API (~150ms) num momento em que cada centésimo conta.
+  //
+  // Devolve true quando o batch foi estendido; false quando não há lance viável
+  // (aí o caller marca o item como encerrado).
+  async function _recalcularBatchApos422(ib, { rodada, modo, enviados, tag }) {
+    ib.recalculos++;
+    const capRestante = Math.max(0, ((ib.cfgItem && ib.cfgItem.maxLances) || 5) - enviados);
+    if (capRestante === 0) return false;
+    const { status, data } = await sniper.apiGet(`/comprasnet-disputa/v1/compras/${ib.compraId}/itens/em-disputa`);
+    if (!(status === 200 || status === 206) || !Array.isArray(data)) return true; // sem dado novo: segue com o batch antigo
+    const apiItem = data.find(i => (i.numero || i.identificador) === ib.itemNumero);
+    if (!apiItem) return true;
+
+    const atual = {
+      ...ib.liveItem,
+      nossoValor: (apiItem.melhorValorFornecedor || {}).valorInformado ?? ib.estado.nossoValor,
+      melhorValor: (apiItem.melhorValorGeral || {}).valorInformado ?? ib.estado.melhorValor,
+      variacaoMinima: apiItem.variacaoMinimaEntreLances ?? ib.estado.variacaoMinima,
+      tipoVariacao: apiItem.tipoVariacaoMinimaEntreLances || ib.liveItem.tipoVariacao || 'V',
+      situacaoParticipante: apiItem.situacaoParticipanteDisputa || ib.liveItem.situacaoParticipante,
+    };
+    ib.estado = {
+      nossoValor: atual.nossoValor,
+      melhorValor: atual.melhorValor != null ? atual.melhorValor : null,
+      variacaoMinima: atual.variacaoMinima != null ? atual.variacaoMinima : null,
+    };
+    const novos = calcularBatchLances(ib.cfgItem, atual, ib.compraId, capRestante, modo, true);
+    if (!novos.length) {
+      logAuto(`♻️ ${tag} recálculo pós-422 sem lance viável: ${ib.compraId} item ${ib.itemNumero} (nosso=${atual.nossoValor} melhor=${atual.melhorValor} piso=${ib.cfgItem && ib.cfgItem.valorMinimo})`);
+      return false;
+    }
+    ib.batchLances = [...ib.batchLances.slice(0, rodada + 1), ...novos];
+    logAuto(`♻️ ${tag} recalculado após 422: ${ib.compraId} item ${ib.itemNumero} — nosso=${atual.nossoValor} melhor=${atual.melhorValor} varMin=${atual.variacaoMinima} novo batch=[${novos.slice(0, 3).map(l => l.valor.toFixed(2)).join(', ')}${novos.length > 3 ? ', …' : ''}]`);
+    return true;
+  }
+
   async function _executarRoundRobinBlitz({ itensConfig, modo, capPorItem, tag, fonte, alvoMs }) {
     // Telemetria: marca tempo real de dispatch + snapshot fimContagem por item
     const dispatchMs = Date.now();
@@ -2781,18 +2828,30 @@ function registrarRotasSniper(app, db) {
       const vf = batchLances[batchLances.length - 1].valor.toFixed(2);
       logAuto(`📋 ${tag} ${item.compraId} item ${item.itemNumero} pré-disparo: fase=${itemParaCalculo.fase || '?'} sit=${itemParaCalculo.situacaoParticipante || '?'} nosso=${itemParaCalculo.nossoValor} varMin=${itemParaCalculo.variacaoMinima} batch=[${batchLances.slice(0,3).map(l => l.valor.toFixed(2)).join(', ')}${batchLances.length > 3 ? ', …' : ''}]`);
       console.log(`[${tag}] DIRETO: ${item.compraId} item ${item.itemNumero} — ${batchLances.length} lances (R$${vi} → R$${vf})`);
-      itensBatches.push({ compraId: item.compraId, itemNumero: item.itemNumero, batchLances, liveItem, historicoId: histIdBlitz });
+      itensBatches.push({
+        compraId: item.compraId, itemNumero: item.itemNumero, batchLances, liveItem,
+        historicoId: histIdBlitz, cfgItem: item, recalculos: 0,
+        // Estado que gerou o batch — gravado em cada linha do histórico.
+        // Sem ele, um 422 de "intervalo mínimo" não tem explicação depois:
+        // o log do journald rotaciona e o valor do líder se perde.
+        estado: {
+          nossoValor: itemParaCalculo.nossoValor,
+          melhorValor: itemParaCalculo.melhorValor != null ? itemParaCalculo.melhorValor : null,
+          variacaoMinima: itemParaCalculo.variacaoMinima != null ? itemParaCalculo.variacaoMinima : null,
+        },
+      });
     }
 
     if (itensBatches.length === 0) return { itemOk: {}, itemFalha: {} };
 
-    const maxRodadas = Math.max(...itensBatches.map(ib => ib.batchLances.length));
+    let maxRodadas = Math.max(...itensBatches.map(ib => ib.batchLances.length)); // let: o recálculo pós-422 pode estender o batch
     const itemFalhou = new Set();
     const itemOk = {};
     const itemFalha = {};
     // Telemetria: acumular RTT por item + timestamp da última chegada
     const itemRtts = {};            // key → [tempoMs, ...]
     const itemUltimaChegadaMs = {}; // key → timestamp absoluto (Date.now()) da última resposta
+    const paraRecalcular = new Map(); // key → ib; preenchido por 422 não fatal, drenado no fim da rodada
     for (const ib of itensBatches) {
       const k = ib.compraId + '-' + ib.itemNumero;
       itemOk[k] = 0; itemFalha[k] = 0;
@@ -2821,8 +2880,10 @@ function registrarRotasSniper(app, db) {
 
       for (const { key, ib, lance, resultado, chegadaMs } of resultados) {
         const respostaStr = typeof resultado.resposta === 'string' ? resultado.resposta.substring(0, 1500) : (resultado.resposta ? JSON.stringify(resultado.resposta).substring(0, 1500) : '');
-        try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ib.compraId, ib.itemNumero, lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, fonte || 'blitz-servidor', new Date().toISOString()); } catch (e) {}
+        try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp,
+          nossoValorAntes, melhorValorAntes, variacaoMinimaUsada)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ib.compraId, ib.itemNumero, lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, fonte || 'blitz-servidor', new Date().toISOString(),
+          ib.estado ? ib.estado.nossoValor : null, ib.estado ? ib.estado.melhorValor : null, ib.estado ? ib.estado.variacaoMinima : null); } catch (e) {}
         if (resultado.tempoMs > 0) itemRtts[key].push(resultado.tempoMs);
         itemUltimaChegadaMs[key] = chegadaMs;
         if (resultado.sucesso) {
@@ -2833,8 +2894,26 @@ function registrarRotasSniper(app, db) {
           else if (resultado.status === 422) {
             const tipo = classificar422(resultado.resposta);
             logAuto(`🩹 ${tag} 422 ${tipo}: ${ib.compraId} item ${ib.itemNumero} R$ ${lance.valor.toFixed(2)}`);
-            if (tipo !== 'colisao') itemFalhou.add(key);
+            // Aborta o item só quando insistir não adianta (fase encerrada, piso
+            // do portal). Recusa do valor específico deixa o batch seguir: os
+            // degraus seguintes são menores e costumam passar.
+            if (!TIPOS_422_NAO_FATAIS.has(tipo)) itemFalhou.add(key);
+            else if (!ib.recalculos) paraRecalcular.set(key, ib);
           }
+        }
+      }
+
+      for (const [key, ib] of paraRecalcular) {
+        paraRecalcular.delete(key);
+        if (itemFalhou.has(key)) continue;
+        try {
+          const ok = await _recalcularBatchApos422(ib, {
+            rodada, modo, enviados: itemOk[key] + itemFalha[key], tag,
+          });
+          if (!ok) itemFalhou.add(key);
+          else maxRodadas = Math.max(...itensBatches.map(x => x.batchLances.length));
+        } catch (e) {
+          logAuto(`⚠️ ${tag} recálculo pós-422 falhou: ${e.message}`);
         }
       }
     }
@@ -3642,17 +3721,29 @@ function registrarRotasSniper(app, db) {
           const vf = batchLances[batchLances.length - 1].valor.toFixed(2);
           logAuto(`📋 BLITZ-GLOBAL ${item.compraId} item ${item.itemNumero} estado pré-disparo: fase=${itemParaCalculo.fase || '?'} sit=${itemParaCalculo.situacaoParticipante || '?'} melhorGeral=${itemParaCalculo.melhorValor} nosso=${itemParaCalculo.nossoValor} varMin=${itemParaCalculo.variacaoMinima} tipoVar=${itemParaCalculo.tipoVariacao} batch=[${batchLances.slice(0,3).map(l => l.valor.toFixed(2)).join(', ')}${batchLances.length > 3 ? ', …' : ''}]`);
           console.log(`[BLITZ-GLOBAL] DIRETO: ${item.compraId} item ${item.itemNumero} — ${batchLances.length} lances (R$${vi} → R$${vf})`);
-          itensBatches.push({ compraId: item.compraId, itemNumero: item.itemNumero, batchLances, liveItem, historicoId: histIdBlitz });
+          itensBatches.push({
+            compraId: item.compraId, itemNumero: item.itemNumero, batchLances, liveItem,
+            historicoId: histIdBlitz, cfgItem: item, recalculos: 0,
+            // Estado que gerou o batch — gravado em cada linha do histórico.
+            // Sem ele, um 422 de "intervalo mínimo" não tem explicação depois:
+            // o log do journald rotaciona e o valor do líder se perde.
+            estado: {
+              nossoValor: itemParaCalculo.nossoValor,
+              melhorValor: itemParaCalculo.melhorValor != null ? itemParaCalculo.melhorValor : null,
+              variacaoMinima: itemParaCalculo.variacaoMinima != null ? itemParaCalculo.variacaoMinima : null,
+            },
+          });
         }
 
         if (itensBatches.length === 0) return;
 
         // Round-robin paralelo: cada rodada envia 1 lance de cada item via Promise.all
-        const maxRodadas = Math.max(...itensBatches.map(ib => ib.batchLances.length));
+        let maxRodadas = Math.max(...itensBatches.map(ib => ib.batchLances.length)); // let: o recálculo pós-422 pode estender o batch
         const itemFalhou = new Set(); // itens que falharam (422/401) — skip nas próximas rodadas
         const itemOk = {};
         const itemFalha = {};
         for (const ib of itensBatches) { itemOk[ib.compraId + '-' + ib.itemNumero] = 0; itemFalha[ib.compraId + '-' + ib.itemNumero] = 0; }
+        const paraRecalcularG = new Map(); // key → ib; 422 não fatal pede releitura do item
 
         for (let rodada = 0; rodada < maxRodadas; rodada++) {
           // Coletar 1 lance de cada item ativo nesta rodada
@@ -3675,8 +3766,10 @@ function registrarRotasSniper(app, db) {
           // Processar resultados da rodada
           for (const { key, ib, lance, resultado } of resultados) {
             const respostaStr = typeof resultado.resposta === 'string' ? resultado.resposta.substring(0, 1500) : (resultado.resposta ? JSON.stringify(resultado.resposta).substring(0, 1500) : '');
-            try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ib.compraId, ib.itemNumero, lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, 'blitz-servidor', new Date().toISOString()); } catch (e) {}
+            try { db.prepare(`INSERT INTO sniper_historico (compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp,
+              nossoValorAntes, melhorValorAntes, variacaoMinimaUsada)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ib.compraId, ib.itemNumero, lance.valor, resultado.status, resultado.sucesso ? 1 : 0, resultado.tempoMs, respostaStr, 'blitz-servidor', new Date().toISOString(),
+              ib.estado ? ib.estado.nossoValor : null, ib.estado ? ib.estado.melhorValor : null, ib.estado ? ib.estado.variacaoMinima : null); } catch (e) {}
             if (resultado.sucesso) {
               itemOk[key]++;
             } else {
@@ -3685,10 +3778,26 @@ function registrarRotasSniper(app, db) {
               else if (resultado.status === 422) {
                 const tipo = classificar422(resultado.resposta);
                 logAuto(`🩹 BLITZ-GLOBAL 422 ${tipo}: ${ib.compraId} item ${ib.itemNumero} R$ ${lance.valor.toFixed(2)}`);
-                // colisao: deixa o item continuar nas próximas rodadas (cada rodada
-                // pega o próximo valor do batch, que está varMin abaixo do anterior)
-                if (tipo !== 'colisao') itemFalhou.add(key);
+                // Recusa do valor específico (colisão, intervalo mínimo) não
+                // encerra o item: cada rodada pega o próximo valor do batch, que
+                // está varMin abaixo. Fatal só o que insistir não resolve.
+                if (!TIPOS_422_NAO_FATAIS.has(tipo)) itemFalhou.add(key);
+                else if (!ib.recalculos) paraRecalcularG.set(key, ib);
               }
+            }
+          }
+
+          for (const [key, ib] of paraRecalcularG) {
+            paraRecalcularG.delete(key);
+            if (itemFalhou.has(key)) continue;
+            try {
+              const ok = await _recalcularBatchApos422(ib, {
+                rodada, modo, enviados: itemOk[key] + itemFalha[key], tag: 'BLITZ-GLOBAL',
+              });
+              if (!ok) itemFalhou.add(key);
+              else maxRodadas = Math.max(...itensBatches.map(x => x.batchLances.length));
+            } catch (e) {
+              logAuto(`⚠️ BLITZ-GLOBAL recálculo pós-422 falhou: ${e.message}`);
             }
           }
         }
@@ -3877,7 +3986,18 @@ function registrarRotasSniper(app, db) {
         sniper._ssoMortoAlertado = false;
       }
 
-      res.json({ success: true });
+      // Devolve os itens onde o líder está ≤ piso — o app dirige o loop da escada.
+      // TTL 30s: entradas antigas (guardPoll parou) somem sozinhas → o app para.
+      const escadaWatch = [];
+      for (const [k, v] of _escadaWatch) {
+        if (Date.now() - v.t < 30000) {
+          escadaWatch.push({ compra: v.compra, item: v.item, piso: v.piso, nosso: v.nosso, fimContagem: v.fimContagem });
+        } else {
+          _escadaWatch.delete(k);
+        }
+      }
+
+      res.json({ success: true, escadaWatch });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -4649,6 +4769,62 @@ function registrarRotasSniper(app, db) {
    * GET /api/sniper/auto/status
    * Estado do auto-lance engine + log.
    */
+  // ESCADA: o app (v5.9) empurra o "menor concorrente >= piso" quando muda.
+  // O contínuo consome via refEscada() só quando o líder está abaixo do piso.
+  app.post('/api/sniper/escada-ref', (req, res) => {
+    try {
+      const { compra, item, referencia, t } = req.body || {};
+      if (!compra || item == null) return res.status(400).json({ success: false });
+      _escadaRef.set(`${compra}|${item}`, { referencia: (referencia == null ? null : referencia), t: t || Date.now() });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // Resultado/Ata — o app posta o desfecho lido da participação (fase-externa).
+  // Upsert por compraId. nossaVitoria: 1/0/null (se o app conseguiu determinar).
+  app.post('/api/sync/resultado', (req, res) => {
+    try {
+      const b = req.body || {};
+      if (!b.compraId) return res.status(400).json({ success: false, error: 'compraId obrigatório' });
+      ensureResultadoTable(db);
+      db.prepare(`INSERT INTO resultado_comprasnet
+        (compraId, homologada, situacaoFaseExterna, faseFaseExterna, chaveCompraPncp, linkPncp, nomeUasg, nossaVitoria, atualizadoEm)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(compraId) DO UPDATE SET
+          homologada = excluded.homologada,
+          situacaoFaseExterna = excluded.situacaoFaseExterna,
+          faseFaseExterna = excluded.faseFaseExterna,
+          chaveCompraPncp = COALESCE(excluded.chaveCompraPncp, chaveCompraPncp),
+          linkPncp = COALESCE(excluded.linkPncp, linkPncp),
+          nomeUasg = COALESCE(excluded.nomeUasg, nomeUasg),
+          nossaVitoria = COALESCE(excluded.nossaVitoria, nossaVitoria),
+          atualizadoEm = CURRENT_TIMESTAMP`).run(
+        String(b.compraId),
+        b.homologada == null ? null : (b.homologada ? 1 : 0),
+        b.situacaoFaseExterna || null,
+        b.faseFaseExterna != null ? String(b.faseFaseExterna) : null,
+        b.chaveCompraPncp || null,
+        b.linkPncp || null,
+        b.nomeUasg || null,
+        b.nossaVitoria == null ? null : (b.nossaVitoria ? 1 : 0),
+      );
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // Lista os desfechos (para a página de participações). Junta com o nome do órgão
+  // quando existe a participação local.
+  app.get('/api/sniper/resultados', (req, res) => {
+    try {
+      ensureResultadoTable(db);
+      const rows = db.prepare(`SELECT r.*, p.orgao, p.objeto
+        FROM resultado_comprasnet r
+        LEFT JOIN participacoes_comprasnet p ON p.compraId = r.compraId
+        ORDER BY r.atualizadoEm DESC LIMIT 500`).all();
+      res.json({ success: true, resultados: rows });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
   app.get('/api/sniper/auto/status', (req, res) => {
     try {
       const autoItens = db.prepare(
@@ -6330,7 +6506,8 @@ function registrarRotasSniper(app, db) {
   app.get('/api/relatorio-lances', (req, res) => {
     try {
       const { compraId, itemNumero, sucesso, fonte, dataInicio, dataFim, limit } = req.query;
-      let query = 'SELECT id, compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp FROM sniper_historico WHERE 1=1';
+      let query = 'SELECT id, compraId, itemNumero, valor, httpStatus, sucesso, tempoMs, resposta, fonte, timestamp,'
+        + ' nossoValorAntes, melhorValorAntes, variacaoMinimaUsada FROM sniper_historico WHERE 1=1';
       const params = [];
 
       if (compraId) { query += ' AND compraId LIKE ?'; params.push(`%${compraId}%`); }
@@ -6345,7 +6522,12 @@ function registrarRotasSniper(app, db) {
 
       const lances = db.prepare(query).all(...params);
 
-      // Extrair hora Comprasnet de cada lance
+      // Extrair hora Comprasnet e, na falha, o motivo que o portal devolveu.
+      // O motivo (`message` do 422/400) é o que explica a recusa — sem ele a
+      // tela mostrava só o número do status e não dava para saber se o lance
+      // repetiu valor, furou o intervalo mínimo ou pegou item já fechado.
+      // A resposta INTEIRA continua fora do payload: é pesada e o resto dela
+      // não interessa à tela.
       for (const l of lances) {
         if (l.resposta) {
           try {
@@ -6354,8 +6536,23 @@ function registrarRotasSniper(app, db) {
             if (item0 && item0.dataHoraAtualizacao) {
               l.comprasnetHora = item0.dataHoraAtualizacao.substring(11, 23);
             }
-          } catch (e) {}
+            if (!l.sucesso && item0) {
+              const msg = item0.message || item0.erro || item0.error || null;
+              if (msg) l.motivo = String(msg).slice(0, 300);
+            }
+          } catch (e) {
+            // Nem toda recusa é JSON: o 429 do portal vem como página HTML e o
+            // timeout vem como texto puro. Tira as tags e normaliza o espaço —
+            // vira "429 Too Many Requests You have sent too many requests...".
+            if (!l.sucesso) {
+              l.motivo = String(l.resposta).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+            }
+          }
           delete l.resposta; // não enviar resposta completa (pesada)
+        }
+        // Corpo vazio (401 do portal, por exemplo): o status é tudo o que há.
+        if (!l.sucesso && !l.motivo) {
+          l.motivo = MOTIVO_POR_STATUS[String(l.httpStatus)] || null;
         }
       }
 
@@ -6406,9 +6603,9 @@ function registrarRotasSniper(app, db) {
       if (dataInicio) { where.push('p.dataHoraFimDisputa >= ?'); params.push(dataInicio + 'T00:00:00'); }
       if (dataFim)    { where.push('p.dataHoraFimDisputa <= ?'); params.push(dataFim + 'T23:59:59'); }
       if (q) {
-        where.push('(p.orgao LIKE ? OR p.objeto LIKE ? OR p.numero LIKE ?)');
+        where.push('(p.orgao LIKE ? OR p.objeto LIKE ? OR p.numero LIKE ? OR p.compraId LIKE ?)');
         const like = `%${q}%`;
-        params.push(like, like, like);
+        params.push(like, like, like, like);
       }
 
       let rows;

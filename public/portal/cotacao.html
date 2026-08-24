@@ -34,7 +34,7 @@
   <div class="card" id="cardForm" style="display:none;">
     <div class="muted" style="margin-bottom:6px;">Preencha o preço unitário dos itens que você fornece. Deixe em branco os que não atende.</div>
     <table>
-      <thead><tr><th>Item</th><th style="width:90px;">Qtd</th><th style="width:130px;">Preço unit. (R$)</th><th style="width:100px;">Prazo (dias)</th><th style="width:150px;">Marca</th></tr></thead>
+      <thead><tr><th>Item</th><th style="width:90px;">Qtd pedida</th><th style="width:120px;">Consigo entregar</th><th style="width:130px;">Preço unit. (R$)</th><th style="width:100px;">Prazo (dias)</th><th style="width:150px;">Marca</th></tr></thead>
       <tbody id="tbItens"></tbody>
     </table>
     <div style="margin-top:14px;">
@@ -80,6 +80,9 @@ async function carregar(){
     return `<tr data-item="${it.id}">
       <td>${it.descricao}</td>
       <td>${Number(it.quantidade).toLocaleString('pt-BR')} ${it.unidade||''}</td>
+      <td><input type="number" class="disp" step="any" min="0" max="${it.quantidade}"
+                 placeholder="tudo" title="Deixe em branco se atende a quantidade toda"
+                 value="${r0.quantidadeDisponivel ?? ''}"></td>
       <td><input type="number" class="preco" step="0.01" min="0" value="${r0.precoUnitario ?? ''}"></td>
       <td><input type="number" class="prazo" step="1" min="0" value="${r0.prazoEntregaDias ?? ''}"></td>
       <td><input type="text" class="marca" maxlength="120" value="${r0.marcaOferecida ?? ''}"></td>
@@ -91,6 +94,9 @@ async function carregar(){
 async function enviarResposta(){
   const respostas = [...document.querySelectorAll('#tbItens tr')].map(tr => ({
     cotacaoItemId: Number(tr.dataset.item),
+    // Em branco = atende tudo. Assim quem responde rápido não muda de vida,
+    // e quem tem estoque parcial consegue dizer isso em vez de sumir do item.
+    quantidadeDisponivel: tr.querySelector('.disp').value !== '' ? Number(tr.querySelector('.disp').value) : null,
     precoUnitario: Number(tr.querySelector('.preco').value) || null,
     prazoEntregaDias: tr.querySelector('.prazo').value !== '' ? Number(tr.querySelector('.prazo').value) : null,
     marcaOferecida: tr.querySelector('.marca').value.trim() || null

@@ -34,6 +34,62 @@
 // registro), para facilitar testes e preservar o comportamento
 // idêntico ao monolito.
 
+/**
+ * Últimas sincronizações — lidas de onde elas realmente são gravadas.
+ *
+ * BUG (achado em 2026-08-02): esta rota lia `lastFullSync`,
+ * `lastIncrementalSync` e `lastSyncDate` do `config` do TENANT. Esses
+ * marcadores saíram de lá na Fase 8 (2026-04-22), para
+ * `catalog_sync_state` (catálogo global), e na Fase 3c (2026-05-23) para o
+ * Postgres. Nenhum dos 11 tenants tinha as chaves — os três voltavam null.
+ *
+ * O efeito na tela não era um campo vazio discreto: com `lastFullSync` null,
+ * status.html mostra o alerta vermelho "Sincronização completa nunca foi
+ * executada!". Ou seja, a tela afirmava que a coleta nunca rodou enquanto o
+ * incremental rodava a cada poucos minutos — o que se lê, com razão, como
+ * "o catálogo parou de receber licitações".
+ *
+ * Fallback para o `config` do tenant continua por último, para não regredir
+ * uma instalação que ainda tenha os marcadores antigos.
+ */
+async function _marcadoresDeSync(db) {
+  const vazio = { lastFullSync: null, lastIncrementalSync: null, lastSyncDate: null };
+  const CHAVES = ['lastFullSync', 'lastIncrementalSync', 'lastSyncDate'];
+
+  if (USE_PG) {
+    try {
+      const rows = await catalogPg.query(
+        'SELECT "key", "value" FROM catalog_sync_state WHERE "key" = ANY($1::text[])', [CHAVES]);
+      const m = new Map(rows.map((r) => [r.key, r.value]));
+      if (m.size) return { lastFullSync: m.get('lastFullSync') || null,
+                           lastIncrementalSync: m.get('lastIncrementalSync') || null,
+                           lastSyncDate: m.get('lastSyncDate') || null };
+    } catch (err) {
+      console.error('[sync/status] catalog_sync_state (PG):', err.message);
+    }
+  } else {
+    // No worker o catálogo entra por ATTACH e catalog_sync_state é TEMP VIEW:
+    // o SELECT resolve, o schema não lista. Testar o acesso é o que vale.
+    try {
+      const rows = db.prepare(
+        `SELECT key, value FROM catalog_sync_state WHERE key IN ('${CHAVES.join("','")}')`).all();
+      const m = new Map(rows.map((r) => [r.key, r.value]));
+      if (m.size) return { lastFullSync: m.get('lastFullSync') || null,
+                           lastIncrementalSync: m.get('lastIncrementalSync') || null,
+                           lastSyncDate: m.get('lastSyncDate') || null };
+    } catch { /* catálogo ausente: cai no legado */ }
+  }
+
+  try {
+    const ler = (c) => {
+      const r = db.prepare('SELECT valor FROM config WHERE chave = ?').get(c);
+      return r ? r.valor : null;
+    };
+    return { lastFullSync: ler('lastFullSync'), lastIncrementalSync: ler('lastIncrementalSync'),
+             lastSyncDate: ler('lastSyncDate') };
+  } catch { return vazio; }
+}
+
 function _rejeitaSyncNoWorker(res) {
   return res.status(503).json({
     success: false,
@@ -53,6 +109,31 @@ function registrarRotasSync(app, db, { pncpSync }) {
   /**
    * Endpoint para consultar status da sincronização
    */
+  // ==================== STATUS DO NEGÓCIO ====================
+  // /api/sync/status responde "o cano está cheio?" (935 mil licitações) e "o
+  // sync rodou?". Não responde se a empresa está pegando alguma coisa — que é
+  // o que decide o dia de quem trabalha com licitação.
+  const negocio = require('./status-negocio');
+
+  // async: desde a migração do catálogo para o Postgres, ler catálogo é I/O.
+  app.get('/api/status/negocio', async (req, res) => {
+    try {
+      res.json({ success: true, painel: await negocio.painel(db, {
+        dias: Number(req.query.dias) || 30,
+        limite: Number(req.query.limite) || 10,
+      }) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // Separada porque varre o catálogo por grupo e leva segundos — junto do
+  // resto travaria o carregamento da tela.
+  app.get('/api/status/negocio/grupos', async (req, res) => {
+    try {
+      const r = await negocio.grupoImprodutivo(db, { dias: Number(req.query.dias) || 30 });
+      res.json({ success: true, ...r });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
   app.get('/api/sync/status', async (req, res) => {
     try {
       // Estatísticas do banco
@@ -72,16 +153,14 @@ function registrarRotasSync(app, db, { pncpSync }) {
         itensCount = db.prepare('SELECT COUNT(*) as count FROM itens').get().count;
       }
 
-      // Configurações de sync
-      const lastFullSync = db.prepare("SELECT valor FROM config WHERE chave = 'lastFullSync'").get();
-      const lastIncrementalSync = db.prepare("SELECT valor FROM config WHERE chave = 'lastIncrementalSync'").get();
-      const lastSyncDate = db.prepare("SELECT valor FROM config WHERE chave = 'lastSyncDate'").get();
+      // Configurações de sync (ver _marcadoresDeSync: NÃO ficam no config do tenant)
+      const marcadores = await _marcadoresDeSync(db);
 
       // Calcular dias desatualizados
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
       let diasDesatualizados = 0;
-      let lastSyncDateStr = lastSyncDate ? lastSyncDate.valor : null;
+      let lastSyncDateStr = marcadores.lastSyncDate;
 
       if (lastSyncDateStr) {
         const dataSync = new Date(lastSyncDateStr + 'T00:00:00');
@@ -119,8 +198,8 @@ function registrarRotasSync(app, db, { pncpSync }) {
         currentDay: _ss.currentDay,
         licitacoesNoBanco: licitacoesCount,
         itensNoBanco: itensCount,
-        lastFullSync: lastFullSync ? lastFullSync.valor : null,
-        lastIncrementalSync: lastIncrementalSync ? lastIncrementalSync.valor : null,
+        lastFullSync: marcadores.lastFullSync,
+        lastIncrementalSync: marcadores.lastIncrementalSync,
         lastSyncDate: lastSyncDateStr,
         diasDesatualizados,
         coberturaFuturaDias,

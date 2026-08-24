@@ -5,285 +5,371 @@
 <title>Salas BLL · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .main-content { padding: 20px; }
+
+  /* KPIs — mesmo padrão da lances.html */
+  .status-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 110px; text-align: center; }
+  .status-item .label { color: var(--text-3); font-size: 0.75em; margin-bottom: 3px; }
+  .status-item .value { font-size: 1.05em; font-weight: 600; }
+  .value.azul { color: var(--accent); } .value.verde { color: var(--success); } .value.cinza { color: var(--text-3); }
+
+  .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .filtros label { font-size: 0.85em; cursor: pointer; display: flex; align-items: center; gap: 5px; color: var(--text-1); }
+  .filtros .sep { flex: 1; }
+  .upd { font-size: 0.75em; color: var(--text-3); }
+
+  /* Sala expansível — padrão lic-row */
+  .sala-row { border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: 6px; overflow: hidden; }
+  .sala-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; cursor: pointer; transition: background 0.15s; gap: 12px; }
+  .sala-header:hover { background: #0f346040; }
+  .sala-header.aberta { background: #0f346060; border-bottom: 1px solid var(--border); }
+  .sala-left { flex: 1; min-width: 0; }
+  .sala-id { font-size: 0.9em; font-weight: 600; color: var(--accent); }
+  .sala-org { font-size: 0.78em; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .sala-notas { font-size: 0.72em; color: var(--text-3); margin-top: 1px; }
+  .sala-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .etapa { font-size: 0.76em; font-weight: 600; padding: 2px 9px; border-radius: var(--r-sm); white-space: nowrap; }
+  .etapa-disputa   { background: #4caf5025; color: var(--success); }
+  .etapa-prorrog   { background: #ff980025; color: var(--warn); }
+  .etapa-julgamento{ background: #9c27b025; color: #ce93d8; }
+  .etapa-encerrada { background: #88888825; color: var(--text-3); }
+  .etapa-outra     { background: #4dabf725; color: var(--accent); }
+  .pos-badge { font-size: 0.78em; font-weight: 700; padding: 2px 9px; border-radius: 10px; background: var(--bg-3); color: var(--text-2); white-space: nowrap; }
+  .pos-badge.lider { background: rgba(255,215,0,0.16); color: #ffd700; }
+  .pos-badge.top { background: rgba(76,175,80,0.16); color: var(--success); }
+  .modo-tag { font-size: 0.7em; font-weight: 700; padding: 2px 7px; border-radius: 4px; }
+  .modo-live { background: #003300; color: #7fef9e; } .modo-dry { background: #664400; color: #ffd166; }
+  .arrow { color: var(--text-3); font-size: 0.75em; transition: transform 0.2s; }
+  .arrow.aberta { transform: rotate(180deg); }
+
+  .sala-body { display: none; padding: 12px 14px; background: var(--bg-0); }
+  .sala-body.aberta { display: block; }
+
+  .lote-card { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px; margin-bottom: 8px; background: var(--bg-1); }
+  .lote-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .lote-title { font-size: 0.85em; font-weight: 600; color: var(--text-1); }
+  .lote-meta { font-size: 0.74em; color: var(--text-3); }
+
+  /* Escada */
+  .escada { display: flex; align-items: stretch; gap: 4px; overflow-x: auto; padding: 6px 2px 8px; }
+  .deg { flex: 0 0 auto; min-width: 74px; text-align: center; padding: 5px 8px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--border); }
+  .deg .pn { font-size: 0.66em; color: var(--text-3); }
+  .deg .pv { font-size: 0.86em; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+  .deg.lider { border-color: var(--success); background: #4caf5012; }
+  .deg.lider .pv { color: var(--success); }
+  .deg.nosso { border-color: #ffd700; background: rgba(255,215,0,0.10); box-shadow: 0 0 0 1px #ffd70055 inset; }
+  .deg.nosso .pn { color: #ffd700; font-weight: 700; }
+  .deg.nosso .pv { color: #ffd700; }
+  .deg.abaixo-piso { opacity: 0.45; }
+  .piso-mark { flex: 0 0 auto; width: 2px; background: repeating-linear-gradient(var(--danger) 0 4px, transparent 4px 8px); position: relative; margin: 0 3px; }
+  .piso-mark::after { content: 'PISO'; position: absolute; top: -2px; left: 4px; font-size: 0.6em; color: var(--danger); font-weight: 700; white-space: nowrap; }
+  .escada-vazia { font-size: 0.78em; color: var(--text-3); padding: 6px 2px; }
+
+  /* Config inline */
+  .lote-cfg { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .lote-cfg .fld { display: flex; flex-direction: column; gap: 2px; }
+  .lote-cfg label { font-size: 0.66em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .lote-cfg input[type=number] { width: 92px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-0); font-size: 0.88em; }
+  .lote-cfg input:focus { outline: none; border-color: var(--accent); }
+  .chk-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82em; color: var(--text-2); cursor: pointer; user-select: none; }
+  .chk-auto input { accent-color: var(--success); }
+  .cfg-msg { font-size: 0.74em; margin-left: 4px; }
+
+  .empty { text-align: center; color: var(--text-3); padding: 28px; font-size: 0.88em; }
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; }
+  .modal-bg.open { display: block; }
+  .modal-card { max-width: 640px; margin: 70px auto; background: var(--bg-1); border-radius: var(--r-md); border: 1px solid var(--border); padding: 24px; max-height: 84vh; overflow: auto; }
+  .modal-card.wide { max-width: 720px; }
+  .modal-card label.blk { display: block; font-size: 0.85em; color: var(--text-2); margin: 0 0 4px; }
+  .modal-card input[type=text] { width: 100%; font-size: 0.88em; margin-bottom: 14px; padding: 7px 9px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-0); }
+  .modal-card h4 { color: var(--accent-soft); margin: 16px 0 6px; font-size: 0.95em; }
+  .modal-card ol, .modal-card ul { color: var(--text-2); font-size: 0.85em; line-height: 1.6; padding-left: 20px; }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
+
   <div class="page-header">
     <div>
       <h1>Salas de Disputa BLL</h1>
-      <small>Cadastre as salas BLL que o robô deve monitorar e operar lances.</small>
+      <small>Motor de posicionamento por escada — reage ao vivo respeitando o seu piso.</small>
     </div>
     <div class="actions">
+      <button class="btn btn-ghost btn-sm" onclick="carregar()">↻ Recarregar</button>
+      <button class="btn btn-ghost btn-sm" onclick="abrir('modalHelp')">Como funciona?</button>
       <button class="btn btn-primary btn-sm" onclick="abrirCadastro()">+ Cadastrar sala</button>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
 
-  <div class="panel">
-    <h2>📡 Como usar</h2>
-    <ol style="color: var(--text-2); font-size: 0.85em; line-height: 1.6;">
-      <li>Abra o LiciteAgora Browser no portal BLL (<code>LiciteAgora-Browser.exe --portal=bll</code>) e faça login.</li>
-      <li>Entre na sala de disputa da licitação (<code>/BatchList?param1=...&amp;param2=7</code>).</li>
-      <li>Copie a URL completa da sala e cole no botão acima.</li>
-      <li>O sistema descobre o processo e marca a sala como ativa. O robô passa a escutar via SignalR.</li>
-      <li>Os lotes e o melhor lance aparecem conforme o <code>UpdateStatus</code> chega ao vivo.</li>
-      <li><strong>O lance no BLL é em reais inteiros</strong> (sem centavos) — configure limite e decremento assim.</li>
-    </ol>
+  <div class="status-bar" id="kpis">
+    <div class="status-item"><div class="label">Brasília</div><div class="value azul" id="kHora">--:--:--</div></div>
+    <div class="status-item"><div class="label">Salas ativas</div><div class="value" id="kSalas">0</div></div>
+    <div class="status-item"><div class="label">Em disputa</div><div class="value verde" id="kDisputa">0</div></div>
+    <div class="status-item"><div class="label">Ao vivo</div><div class="value" id="kLive">0</div></div>
+    <div class="status-item"><div class="label">Melhor posição</div><div class="value azul" id="kPos">—</div></div>
+    <div class="status-item"><div class="label">Atualizado</div><div class="value cinza" id="kUpd" style="font-size:0.85em;">—</div></div>
   </div>
 
-  <div class="tbl-wrap" style="margin-top: 16px;">
-    <table id="tblSalas">
-      <thead>
-        <tr>
-          <th>Processo</th>
-          <th>Órgão</th>
-          <th>Status</th>
-          <th>Lotes</th>
-          <th>Ativo</th>
-          <th>Modo</th>
-          <th>Cadastrado</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="tbodySalas">
-        <tr><td colspan="8" style="text-align:center; color:var(--text-3); padding:24px;">Carregando…</td></tr>
-      </tbody>
-    </table>
+  <div class="filtros">
+    <label><input type="checkbox" id="fSoAtivas" checked onchange="render()"> só ativas</label>
+    <label><input type="checkbox" id="fSoDisputa" onchange="render()"> só em disputa</label>
+    <span class="sep"></span>
+    <span class="upd" id="updInfo"></span>
   </div>
+
+  <div id="lista"><p class="empty"><span class="spinner"></span> Carregando…</p></div>
 </main></div>
 
-<!-- Modal config auto-lance por lote -->
-<div id="modalAutoLance" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:1000;">
-  <div style="max-width:760px; margin:60px auto; background:var(--bg-1); border-radius:var(--r-md); border:1px solid var(--border); padding:24px; max-height:80vh; overflow:auto;">
-    <h2 style="margin-top:0;">Auto-lance por lote</h2>
-    <p style="color: var(--text-2); font-size: 0.85em;" id="autoLanceSalaInfo"></p>
-    <div id="autoLanceLotes" style="margin-top:12px;"></div>
-    <div style="text-align:right; margin-top:16px;">
-      <button class="btn btn-primary btn-sm" onclick="fecharAutoLance()">Fechar</button>
-    </div>
-  </div>
-</div>
-
 <!-- Modal cadastro -->
-<div id="modalCadastro" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:1000;">
-  <div style="max-width:640px; margin:80px auto; background:var(--bg-1); border-radius:var(--r-md); border:1px solid var(--border); padding:24px;">
+<div id="modalCadastro" class="modal-bg">
+  <div class="modal-card">
     <h2 style="margin-top:0;">Cadastrar sala BLL</h2>
-    <p style="color: var(--text-2); font-size: 0.85em;">Cole a URL da sala de disputa que está aberta no LiciteAgora Browser (portal BLL).</p>
-    <div style="margin-bottom:12px;">
-      <label style="display:block; font-size:0.85em; color:var(--text-2); margin-bottom:4px;">URL da sala</label>
-      <input type="text" id="inpUrl" style="width:100%; font-size:0.85em;" placeholder="https://bllcompras.com/BatchList?param1=[gkz]...&param2=7" />
-    </div>
-    <div style="margin-bottom:16px;">
-      <label style="display:block; font-size:0.85em; color:var(--text-2); margin-bottom:4px;">Notas (opcional)</label>
-      <input type="text" id="inpNotas" style="width:100%; font-size:0.85em;" placeholder="ex: Pregão Prefeitura 33/2026" />
-    </div>
+    <p style="color:var(--text-2); font-size:0.85em;">Cole a URL da sala de disputa aberta no LiciteAgora Browser (portal BLL).</p>
+    <label class="blk">URL da sala</label>
+    <input type="text" id="inpUrl" placeholder="https://bllcompras.com/BatchList?param1=[gkz]...&param2=7">
+    <label class="blk">Notas (opcional)</label>
+    <input type="text" id="inpNotas" placeholder="ex: Pregão Prefeitura 33/2026">
     <div id="msgModal" style="font-size:0.85em; margin-bottom:12px;"></div>
     <div style="text-align:right;">
-      <button class="btn btn-ghost btn-sm" onclick="fecharCadastro()">Cancelar</button>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalCadastro')">Cancelar</button>
       <button class="btn btn-primary btn-sm" id="btnCadastrar" onclick="cadastrar()">Cadastrar</button>
     </div>
   </div>
 </div>
 
-<script>
-function esc(s) { return String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
-function fmtDate(iso) { try { return new Date(iso).toLocaleString('pt-BR'); } catch { return iso; } }
+<!-- Modal como funciona -->
+<div id="modalHelp" class="modal-bg">
+  <div class="modal-card wide">
+    <h2 style="margin-top:0;">Como funciona o motor BLL</h2>
+    <h4>1 · Cadastrar a sala</h4>
+    <ol>
+      <li>Abra a sala de disputa no LiciteAgora Browser (portal BLL) e faça login.</li>
+      <li>Copie a URL completa (<code>/BatchList?param1=...&amp;param2=7</code>) e cole em <strong>+ Cadastrar sala</strong>.</li>
+    </ol>
+    <h4>2 · Configurar o auto-lance por lote</h4>
+    <ul>
+      <li><strong>Piso (limite mínimo):</strong> menor valor mensal que você aceita — em <strong>reais inteiros</strong> (sem centavos).</li>
+      <li><strong>Decremento:</strong> quanto abaixar do lance que estamos cobrindo (padrão R$ 1).</li>
+      <li>Marque <strong>Auto-lance ativo</strong> no lote.</li>
+    </ul>
+    <h4>3 · Ligar o modo AO VIVO</h4>
+    <ul>
+      <li>Enquanto <span class="modo-tag modo-dry">DRY-RUN</span> o motor só simula (loga o lance que daria).</li>
+      <li>Em <span class="modo-tag modo-live">AO VIVO</span> ele envia lances REAIS: lê a escada completa e se posiciona no melhor degrau possível acima do seu piso, reagindo em milissegundos via SignalR.</li>
+    </ul>
+    <h4>Escada</h4>
+    <p style="color:var(--text-2); font-size:0.85em;">Cada degrau é um participante (anônimo). <span style="color:var(--success);">Verde</span> = líder, <span style="color:#ffd700;">dourado</span> = nós. A linha tracejada vermelha marca o seu piso.</p>
+    <div style="text-align:right; margin-top:16px;">
+      <button class="btn btn-primary btn-sm" onclick="fechar('modalHelp')">Fechar</button>
+    </div>
+  </div>
+</div>
 
-async function carregar() {
-  try {
+<script>
+const esc = s => String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+// A BLL manda o nome do órgão com entidades HTML (C&#194;MARA…). Decodifica p/
+// texto real antes de escapar (senão o esc() mostra "&#194;" literal).
+const _dec = document.createElement('textarea');
+const decodeEnt = s => { if(s==null) return ''; _dec.innerHTML=String(s); return _dec.value; };
+const escT = s => esc(decodeEnt(s));
+const brl = n => n==null||n===''?'—':'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+const ord = n => n==null?'—':n+'º';
+
+let salas = [];
+let lastUpd = null;
+const expanded = new Set();      // sala ids abertas
+
+function faseClasse(st){
+  const s=(st||'').toUpperCase();
+  if(s.includes('PRORROG')) return 'etapa-prorrog';
+  if(s.includes('DISPUTA')) return 'etapa-disputa';
+  if(s.includes('JULGAMENTO')||s.includes('HABILITA')) return 'etapa-julgamento';
+  if(s.includes('ENCERR')||s.includes('ADJUDIC')||s.includes('HOMOLOG')) return 'etapa-encerrada';
+  return 'etapa-outra';
+}
+function emDisputa(s){ const st=(s.statusName||'').toUpperCase(); return st.includes('DISPUTA')||st.includes('PRORROG'); }
+function dryRunOf(s){ return s.dryRun===undefined||s.dryRun===null?true:!!Number(s.dryRun); }
+function haQuanto(iso){ if(!iso) return '—'; const ms=Date.now()-new Date(iso).getTime(); if(ms<0) return 'agora'; const s=Math.round(ms/1000); if(s<60) return 'há '+s+'s'; const m=Math.round(s/60); return 'há '+m+'min'; }
+
+async function carregar(){
+  try{
     const r = await fetch('/api/bll/salas');
     const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    render(d.salas || []);
-  } catch (e) {
-    document.getElementById('tbodySalas').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--danger);">'+esc(e.message)+'</td></tr>';
+    if(!d.success) throw new Error(d.error);
+    salas = d.salas||[];
+    lastUpd = new Date();
+    render();
+  }catch(e){
+    document.getElementById('lista').innerHTML = '<p class="empty" style="color:var(--danger);">'+esc(e.message)+'</p>';
   }
 }
 
-function render(salas) {
-  const tb = document.getElementById('tbodySalas');
-  if (!salas.length) {
-    tb.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-3); padding:24px;">Nenhuma sala cadastrada ainda. Clique em <strong>+ Cadastrar sala</strong>.</td></tr>';
-    return;
-  }
-  tb.innerHTML = salas.map(s => {
-    const dryRun = s.dryRun === undefined || s.dryRun === null || Number(s.dryRun) === 1;
-    const modoBadge = dryRun
-      ? '<span style="background:#664400; color:#ffd166; padding:2px 8px; border-radius:4px; font-size:0.75em; font-weight:bold;">DRY-RUN</span>'
-      : '<span style="background:#003300; color:#7fef9e; padding:2px 8px; border-radius:4px; font-size:0.75em; font-weight:bold;">AO VIVO</span>';
+function kpis(vis){
+  document.getElementById('kSalas').textContent = salas.filter(s=>s.ativo).length;
+  document.getElementById('kDisputa').textContent = salas.filter(emDisputa).length;
+  document.getElementById('kLive').textContent = salas.filter(s=>s.ativo&&!dryRunOf(s)).length;
+  let melhor=null;
+  for(const s of salas) for(const l of (s.lotes||[])) if(l.minhaPosicao!=null) melhor = melhor==null?l.minhaPosicao:Math.min(melhor,l.minhaPosicao);
+  const kp=document.getElementById('kPos'); kp.textContent=ord(melhor); kp.className='value '+(melhor===1?'verde':'azul');
+  document.getElementById('kUpd').textContent = lastUpd? lastUpd.toLocaleTimeString('pt-BR') : '—';
+  document.getElementById('updInfo').textContent = lastUpd? ('atualizado '+lastUpd.toLocaleTimeString('pt-BR')) : '';
+}
+
+function render(){
+  // não re-renderiza enquanto o usuário edita um input da lista (evita perder foco)
+  const ae=document.activeElement;
+  if(ae && ae.tagName==='INPUT' && ae.closest && ae.closest('#lista')) { kpis(); return; }
+
+  kpis();
+  const soAtivas=document.getElementById('fSoAtivas').checked;
+  const soDisputa=document.getElementById('fSoDisputa').checked;
+  let vis = salas.filter(s=>(!soAtivas||s.ativo)&&(!soDisputa||emDisputa(s)));
+
+  const lista=document.getElementById('lista');
+  if(!vis.length){ lista.innerHTML='<p class="empty">Nenhuma sala'+(soAtivas||soDisputa?' com esse filtro':'')+'. Clique em <strong>+ Cadastrar sala</strong>.</p>'; return; }
+
+  lista.innerHTML = vis.map(s=>{
+    const ab=expanded.has(s.id);
+    const dry=dryRunOf(s);
+    // melhor posição da sala
+    let pos=null; for(const l of (s.lotes||[])) if(l.minhaPosicao!=null) pos=pos==null?l.minhaPosicao:Math.min(pos,l.minhaPosicao);
+    const posCls = pos===1?'lider':(pos&&pos<=3?'top':'');
     return `
-    <tr>
-      <td><strong>${esc(s.processNumber || s.compraId)}</strong><br><small style="color:var(--text-3);">${esc(s.compraId)}</small></td>
-      <td>${esc(s.title || '—')}${s.notas ? '<br><small style="color:var(--text-3);">'+esc(s.notas)+'</small>' : ''}</td>
-      <td>${esc(s.statusName || '—')}</td>
-      <td>${(s.lotes || []).length}</td>
-      <td>
-        <label style="cursor:pointer;">
-          <input type="checkbox" ${s.ativo ? 'checked' : ''} onchange="toggleAtivo(${s.id}, this.checked)"> ${s.ativo ? 'Sim' : 'Não'}
-        </label>
-      </td>
-      <td>${modoBadge}
-        <br><label style="cursor:pointer; font-size:0.75em; color:var(--text-3);">
-          <input type="checkbox" ${dryRun ? '' : 'checked'} onchange="toggleDryRun(${s.id}, this.checked)"> Ao vivo
-        </label>
-      </td>
-      <td><small>${fmtDate(s.cadastradoEm)}</small></td>
-      <td style="text-align:right; white-space:nowrap;">
-        <button class="btn btn-ghost btn-sm" onclick="abrirAutoLance(${s.id}, ${JSON.stringify(s.processNumber || s.compraId).replace(/"/g,'&quot;')})" title="Configurar auto-lance por lote">⚙️</button>
-        <button class="btn btn-ghost btn-sm" onclick="redescobrir(${s.id})" title="Re-buscar info da sala">🔄</button>
-        <button class="btn btn-ghost btn-sm" onclick="remover(${s.id})" title="Remover">🗑️</button>
-      </td>
-    </tr>`;
+    <div class="sala-row">
+      <div class="sala-header ${ab?'aberta':''}" onclick="toggle(${s.id})">
+        <div class="sala-left">
+          <div class="sala-id">${esc(s.processNumber||s.compraId)} <span class="modo-tag ${dry?'modo-dry':'modo-live'}">${dry?'DRY-RUN':'AO VIVO'}</span></div>
+          <div class="sala-org">${escT(s.title)||'—'}</div>
+          ${s.notas?`<div class="sala-notas">${escT(s.notas)}</div>`:''}
+        </div>
+        <div class="sala-right">
+          ${pos!=null?`<span class="pos-badge ${posCls}">${ord(pos)}</span>`:''}
+          <span class="etapa ${faseClasse(s.statusName)}">${esc(s.statusName||'—')}</span>
+          <span class="arrow ${ab?'aberta':''}">▼</span>
+        </div>
+      </div>
+      <div class="sala-body ${ab?'aberta':''}">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <label class="chk-auto"><input type="checkbox" ${dry?'':'checked'} onchange="toggleDry(${s.id}, this.checked)"> Modo AO VIVO (envia lances reais)</label>
+          <span style="display:flex; gap:6px;">
+            <button class="btn btn-ghost btn-sm" onclick="redescobrir(${s.id})" title="Re-buscar sala">🔄</button>
+            <label class="chk-auto" style="font-size:0.78em;"><input type="checkbox" ${s.ativo?'checked':''} onchange="toggleAtivo(${s.id}, this.checked)"> ativa</label>
+            <button class="btn btn-ghost btn-sm" onclick="remover(${s.id})" title="Remover">🗑️</button>
+          </span>
+        </div>
+        ${(s.lotes||[]).length? (s.lotes||[]).map(l=>loteHtml(s,l)).join('') : '<div class="escada-vazia">Aguardando a fase de disputa (a escada aparece quando o pregão abre os lances).</div>'}
+      </div>
+    </div>`;
   }).join('');
 }
 
-async function toggleDryRun(id, aoVivo) {
-  try {
-    if (aoVivo && !confirm('⚠️ Modo AO VIVO ativado. O robô vai enviar lances REAIS (reais inteiros) quando atender às regras. Tem certeza?')) {
-      carregar(); // re-render mantém dryRun
-      return;
-    }
-    const r = await fetch('/api/bll/salas/'+id+'/dry-run', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ dryRun: !aoVivo })
-    });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    carregar();
-  } catch (e) { alert(e.message); }
-}
-
-async function abrirAutoLance(salaId, label) {
-  document.getElementById('autoLanceSalaInfo').textContent = 'Sala ' + label;
-  document.getElementById('autoLanceLotes').innerHTML = '<div style="color:var(--text-3);">Carregando lotes…</div>';
-  document.getElementById('modalAutoLance').style.display = 'block';
-  try {
-    const r = await fetch('/api/bll/salas/'+salaId+'/auto-lance');
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    const lotes = d.lotes || [];
-    if (!lotes.length) {
-      document.getElementById('autoLanceLotes').innerHTML = '<div style="color:var(--text-3);">Esta sala ainda não tem lotes descobertos. Aguarde o primeiro updateStatus do SignalR (na fase de disputa).</div>';
-      return;
-    }
-    document.getElementById('autoLanceLotes').innerHTML = lotes.map(l => `
-      <div style="border:1px solid var(--border); border-radius:var(--r-sm); padding:12px; margin-bottom:8px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <strong>${esc(l.title || ('LOTE '+l.batchNumber))}</strong>
-          <label style="cursor:pointer;">
-            <input type="checkbox" ${l.ativo ? 'checked' : ''} id="al-ativo-${l.loteId}"> Auto-lance ativo
-          </label>
-        </div>
-        <div style="font-size:0.78em; color:var(--text-3); margin-bottom:8px;">
-          Base ${l.baseValue != null ? Number(l.baseValue).toFixed(0) : '—'} · Atual ${l.currentBest != null ? Number(l.currentBest).toFixed(0) : '—'}
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; font-size:0.85em;">
-          <label>Limite mínimo (R$ inteiros)
-            <input type="number" step="1" min="0" id="al-lim-${l.loteId}" value="${l.limiteMinimo != null ? l.limiteMinimo : 0}" style="width:100%;">
-          </label>
-          <label>Decremento (R$ inteiros)
-            <input type="number" step="1" min="1" id="al-dec-${l.loteId}" value="${l.decremento != null ? l.decremento : 1}" style="width:100%;">
-          </label>
-          <label>Throttle (ms)
-            <input type="number" step="100" id="al-thr-${l.loteId}" value="${l.throttleMs != null ? l.throttleMs : 2000}" style="width:100%;">
-          </label>
-        </div>
-        <div style="text-align:right; margin-top:8px;">
-          <button class="btn btn-primary btn-sm" onclick="salvarAutoLance(${l.loteId})">Salvar</button>
-          <span id="al-msg-${l.loteId}" style="font-size:0.75em; margin-left:8px;"></span>
-        </div>
+function loteHtml(s,l){
+  const al=l.autoLance||{};
+  const piso = al.limiteMinimo!=null?Number(al.limiteMinimo):0;
+  const dec = al.decremento!=null?Number(al.decremento):1;
+  const ladder = l.escada||[];
+  // marcador de piso: nº de degraus com valor < piso
+  const abaixo = ladder.filter(x=>x.v<piso).length;
+  let degs='';
+  ladder.forEach((x,i)=>{
+    if(piso>0 && i===abaixo && abaixo>0) degs += '<div class="piso-mark"></div>';
+    const nosso = l.meuParticipante && x.p===l.meuParticipante;
+    const lider = i===0;
+    degs += `<div class="deg ${nosso?'nosso':''} ${lider?'lider':''} ${x.v<piso?'abaixo-piso':''}">
+      <div class="pn">${nosso?'★ NÓS':('P'+esc(x.p))} · ${i+1}º</div>
+      <div class="pv">${brl(x.v)}</div></div>`;
+  });
+  const escadaHtml = ladder.length? `<div class="escada">${degs}</div>` : '<div class="escada-vazia">Sem lances ainda neste lote.</div>';
+  return `
+  <div class="lote-card">
+    <div class="lote-head">
+      <div>
+        <div class="lote-title">${esc(l.title||('Lote '+l.batchNumber))}</div>
+        <div class="lote-meta">${l.minhaPosicao!=null?('Nossa posição '+ord(l.minhaPosicao)+' · nosso '+brl(l.meuValor)+' · '):''}líder ${brl(l.currentBest)} · ${haQuanto(l.lastUpdate)}</div>
       </div>
-    `).join('');
-  } catch (e) {
-    document.getElementById('autoLanceLotes').innerHTML = '<div style="color:var(--danger);">'+esc(e.message)+'</div>';
-  }
+    </div>
+    ${escadaHtml}
+    <div class="lote-cfg">
+      <div class="fld"><label>Piso (R$ inteiros)</label><input type="number" step="1" min="0" id="lim-${l.id}" value="${piso}"></div>
+      <div class="fld"><label>Decremento</label><input type="number" step="1" min="1" id="dec-${l.id}" value="${dec}"></div>
+      <label class="chk-auto"><input type="checkbox" id="ativo-${l.id}" ${al.ativo?'checked':''}> Auto-lance ativo</label>
+      <button class="btn btn-primary btn-sm" onclick="salvarLote(${l.id})">Salvar</button>
+      <span class="cfg-msg" id="msg-${l.id}"></span>
+    </div>
+  </div>`;
 }
 
-function fecharAutoLance() { document.getElementById('modalAutoLance').style.display = 'none'; }
+function toggle(id){ if(expanded.has(id)) expanded.delete(id); else expanded.add(id); render(); }
 
-async function salvarAutoLance(loteId) {
-  const msg = document.getElementById('al-msg-'+loteId);
-  msg.textContent = 'salvando…';
-  try {
-    const ativo = document.getElementById('al-ativo-'+loteId).checked;
-    const limiteMinimo = parseFloat(document.getElementById('al-lim-'+loteId).value);
-    const decremento = parseFloat(document.getElementById('al-dec-'+loteId).value);
-    const throttleMs = parseInt(document.getElementById('al-thr-'+loteId).value, 10);
-    const r = await fetch('/api/bll/lotes/'+loteId+'/auto-lance', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ ativo, limiteMinimo, decremento, throttleMs })
-    });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    msg.style.color = 'var(--success)'; msg.textContent = '✅ salvo';
-    setTimeout(() => { msg.textContent = ''; }, 1500);
-  } catch (e) {
-    msg.style.color = 'var(--danger)'; msg.textContent = '❌ '+e.message;
-  }
-}
-
-function abrirCadastro() {
-  document.getElementById('inpUrl').value = '';
-  document.getElementById('inpNotas').value = '';
-  document.getElementById('msgModal').innerHTML = '';
-  document.getElementById('modalCadastro').style.display = 'block';
-  setTimeout(() => document.getElementById('inpUrl').focus(), 80);
-}
-function fecharCadastro() { document.getElementById('modalCadastro').style.display = 'none'; }
-
-async function cadastrar() {
-  const url = document.getElementById('inpUrl').value.trim();
-  const notas = document.getElementById('inpNotas').value.trim();
-  const msg = document.getElementById('msgModal');
-  const btn = document.getElementById('btnCadastrar');
-  if (!url) { msg.innerHTML = '<span style="color:var(--danger);">URL obrigatória</span>'; return; }
-  btn.disabled = true;
-  msg.innerHTML = '<span class="spinner"></span> Descobrindo info da sala…';
-  try {
-    const r = await fetch('/api/bll/salas/cadastrar', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, notas })
-    });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    msg.innerHTML = `<span style="color:var(--success);">✅ Cadastrado: ${esc(d.sala.processNumber || d.sala.compraId)}</span>`;
-    setTimeout(() => { fecharCadastro(); carregar(); }, 1200);
-  } catch (e) {
-    msg.innerHTML = '<span style="color:var(--danger);">❌ '+esc(e.message)+'</span>';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-async function toggleAtivo(id, ativo) {
-  try {
-    const r = await fetch('/api/bll/salas/'+id+'/ativo', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ativo }) });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
+async function salvarLote(loteId){
+  const msg=document.getElementById('msg-'+loteId); msg.style.color='var(--text-3)'; msg.textContent='salvando…';
+  try{
+    const body={
+      ativo: document.getElementById('ativo-'+loteId).checked,
+      limiteMinimo: parseInt(document.getElementById('lim-'+loteId).value,10)||0,
+      decremento: parseInt(document.getElementById('dec-'+loteId).value,10)||1,
+    };
+    const r=await fetch('/api/bll/lotes/'+loteId+'/auto-lance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json(); if(!d.success) throw new Error(d.error);
+    msg.style.color='var(--success)'; msg.textContent='✅ salvo'; setTimeout(()=>msg.textContent='',1500);
     carregar();
-  } catch (e) { alert(e.message); }
+  }catch(e){ msg.style.color='var(--danger)'; msg.textContent='❌ '+e.message; }
 }
 
-async function redescobrir(id) {
-  try {
-    const r = await fetch('/api/bll/salas/'+id+'/redescobrir', { method: 'POST' });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    carregar();
-  } catch (e) { alert(e.message); }
+async function toggleDry(id, aoVivo){
+  if(aoVivo && !confirm('⚠️ Modo AO VIVO: o robô vai enviar lances REAIS (reais inteiros) quando o lote tiver auto-lance ativo e houver degrau acima do piso. Confirmar?')){ render(); return; }
+  try{
+    const r=await fetch('/api/bll/salas/'+id+'/dry-run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dryRun:!aoVivo})});
+    const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
+  }catch(e){ alert(e.message); }
+}
+async function toggleAtivo(id, ativo){
+  try{
+    const r=await fetch('/api/bll/salas/'+id+'/ativo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ativo})});
+    const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
+  }catch(e){ alert(e.message); }
+}
+async function redescobrir(id){
+  try{
+    const r=await fetch('/api/bll/salas/'+id+'/redescobrir',{method:'POST'});
+    const d=await r.json(); if(!d.success) throw new Error(d.error); carregar();
+  }catch(e){ alert(e.message); }
+}
+async function remover(id){
+  if(!confirm('Remover esta sala? O motor para de monitorar.')) return;
+  try{
+    const r=await fetch('/api/bll/salas/'+id,{method:'DELETE'});
+    const d=await r.json(); if(!d.success) throw new Error(d.error); expanded.delete(id); carregar();
+  }catch(e){ alert(e.message); }
 }
 
-async function remover(id) {
-  if (!confirm('Remover esta sala? O robô vai parar de monitorar.')) return;
-  try {
-    const r = await fetch('/api/bll/salas/'+id, { method: 'DELETE' });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    carregar();
-  } catch (e) { alert(e.message); }
+function abrir(id){ document.getElementById(id).classList.add('open'); }
+function fechar(id){ document.getElementById(id).classList.remove('open'); }
+function abrirCadastro(){ document.getElementById('inpUrl').value=''; document.getElementById('inpNotas').value=''; document.getElementById('msgModal').innerHTML=''; abrir('modalCadastro'); setTimeout(()=>document.getElementById('inpUrl').focus(),80); }
+
+async function cadastrar(){
+  const url=document.getElementById('inpUrl').value.trim();
+  const notas=document.getElementById('inpNotas').value.trim();
+  const msg=document.getElementById('msgModal'); const btn=document.getElementById('btnCadastrar');
+  if(!url){ msg.innerHTML='<span style="color:var(--danger);">URL obrigatória</span>'; return; }
+  btn.disabled=true; msg.innerHTML='<span class="spinner"></span> Descobrindo info da sala…';
+  try{
+    const r=await fetch('/api/bll/salas/cadastrar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,notas})});
+    const d=await r.json(); if(!d.success) throw new Error(d.error);
+    msg.innerHTML='<span style="color:var(--success);">✅ Cadastrado: '+esc(d.sala.processNumber||d.sala.compraId)+'</span>';
+    setTimeout(()=>{ fechar('modalCadastro'); carregar(); },1000);
+  }catch(e){ msg.innerHTML='<span style="color:var(--danger);">❌ '+esc(e.message)+'</span>'; }
+  finally{ btn.disabled=false; }
 }
 
+// relógio Brasília
+setInterval(()=>{ document.getElementById('kHora').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'}); },1000);
+// poll ao vivo
+setInterval(carregar, 2000);
 carregar();
 </script>
 <script src="/js/menu-config.js"></script>

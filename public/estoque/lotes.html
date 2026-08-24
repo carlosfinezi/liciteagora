@@ -38,9 +38,10 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="estoque-lotes">
     <table>
       <thead><tr>
+        <th class="col-editar"></th>
         <th>Produto</th>
         <th>Lote</th>
         <th>Fabricação</th>
@@ -51,7 +52,7 @@
         <th>Fornecedor</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -105,6 +106,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('estoque-lotes');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -146,6 +149,7 @@ async function carregar(){
       else validadeBadge = fmtData(l.dataValidade);
     }
     return `<tr>
+      <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar lote" onclick="abrirEdicao(${l.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
       <td><strong>${l.sku}</strong> <span class="muted">${l.descricao}</span></td>
       <td><strong>${l.numero}</strong></td>
       <td>${fmtData(l.dataFabricacao)}</td>
@@ -156,7 +160,6 @@ async function carregar(){
       <td>${l.fornecedorNome||'—'}</td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="btn btn-ghost btn-sm" onclick="verDetalhe(${l.id})">Ver</button>
-        <button class="btn btn-ghost btn-sm" onclick="abrirEdicao(${l.id})">Editar</button>
       </td>
     </tr>`;
   }).join('') : '<tr><td colspan="9" class="empty">Nenhum lote</td></tr>';

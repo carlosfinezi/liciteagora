@@ -27,9 +27,10 @@
       Tributação Nacional (cTribNac, 6 dígitos). Esses dados são usados na emissão da NFS-e nacional
       (LC 214/2025) quando o item é vinculado a uma OS.
     </p>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="os-servicos">
       <table>
         <thead><tr>
+          <th class="col-editar"></th>
           <th>Código</th>
           <th>Nome</th>
           <th>Categoria</th>
@@ -40,7 +41,7 @@
           <th>Status</th>
           <th></th>
         </tr></thead>
-        <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -152,6 +153,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('cadastro-servicos');</script>
 <script>
 function showAlert(m, t='success'){
@@ -196,9 +199,10 @@ async function carregar(){
 
 function renderTabela(){
   const tb = document.getElementById('tb');
-  if (!servicos.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">Nenhum serviço cadastrado</td></tr>'; return; }
+  if (!servicos.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhum serviço cadastrado</td></tr>'; return; }
   tb.innerHTML = servicos.map(s => `
     <tr style="${s.ativo ? '' : 'opacity:0.5;'}">
+      <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar serviço" onclick="editar(${s.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
       <td><code>${escTxt(s.codigo || '—')}</code></td>
       <td><strong>${escTxt(s.nome)}</strong>${s.descricao ? '<br><small class="muted">' + escTxt(s.descricao) + '</small>' : ''}</td>
       <td><small class="muted">${escTxt(s.categoria || '—')}</small></td>
@@ -207,7 +211,7 @@ function renderTabela(){
       <td><code>${escTxt(s.cNBS || '—')}</code></td>
       <td><code>${escTxt(s.codigoTributacaoNacional || '—')}</code></td>
       <td>${s.ativo ? '<span class="badge success">ativo</span>' : '<span class="badge">inativo</span>'}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="editar(${s.id})">Editar</button></td>
+      <td></td>
     </tr>
   `).join('');
 }

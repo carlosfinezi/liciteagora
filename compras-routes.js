@@ -11,12 +11,26 @@
  * Sugestão: produtos com disponivel <= pontoReposicao (fallback estoqueMinimo).
  * Quantidade sugerida: estoqueMaximo - disponivel (fallback estoqueMinimo*2 - disponivel).
  *
+ * Demanda perdida (2026-07-31): vendas_perdidas com motivo='sem_estoque' nos
+ * últimos 90 dias entram no cálculo — o alvo passa a cobrir o que se deixou
+ * de vender, e produtos sem min/reposição configurados aparecem se houve
+ * perda. Só 'sem_estoque': perder por preço/prazo/concorrente não é falha de
+ * reposição. ?incluirPerdas=0 volta ao comportamento anterior, e cada item
+ * traz quantidadeSugeridaBase + quantidadePorDemandaPerdida para o número
+ * ser explicável.
+ *
  * Uso:
  *   const { registrarRotasCompras } = require('./compras-routes');
  *   registrarRotasCompras(app, db);
  */
 
-const STATUS_VALIDOS = ['rascunho', 'enviado', 'recebido_parcial', 'recebido', 'cancelado'];
+// `enviado_parcial`: fornecedor com integração (ver fornecedor-integracoes.js)
+// em que parte dos itens foi transmitida e parte falhou — por exemplo, 2 de 3
+// assinaturas compradas na NicSRS. Não se desfaz o que deu certo: a compra já
+// debitou saldo do fornecedor. Mesmo espírito de `recebido_parcial`.
+const STATUS_VALIDOS = ['rascunho', 'enviado', 'enviado_parcial', 'recebido_parcial', 'recebido', 'cancelado'];
+
+function alterSafe(db, sql) { try { db.exec(sql); } catch { /* coluna ja existe */ } }
 
 function dataBrasilia() {
   const now = new Date();
@@ -39,7 +53,7 @@ function migrarPedidosCompraDB(db) {
       nfeEntradaId INTEGER,
       usuarioCriador TEXT,
       dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (fornecedorId) REFERENCES fornecedores(id)
+      FOREIGN KEY (fornecedorId) REFERENCES pessoas(id)
     );
     CREATE INDEX IF NOT EXISTS idx_pedcompra_status ON pedidos_compra(status);
     CREATE INDEX IF NOT EXISTS idx_pedcompra_fornec ON pedidos_compra(fornecedorId);
@@ -57,6 +71,15 @@ function migrarPedidosCompraDB(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_pcitens_pedido ON pedido_compra_itens(pedidoCompraId);
   `);
+
+  // Origem da linha de compra: qual documento pediu este item. Mesma
+  // nomenclatura de movimentacoes_estoque (origem/origemId). Hoje só
+  // 'pedido_venda'; é o que faz o recebimento saber quem estava esperando.
+  alterSafe(db, `ALTER TABLE pedido_compra_itens ADD COLUMN origemTipo TEXT`);
+  alterSafe(db, `ALTER TABLE pedido_compra_itens ADD COLUMN origemId INTEGER`);
+  alterSafe(db, `ALTER TABLE pedido_compra_itens ADD COLUMN origemItemId INTEGER`);
+  alterSafe(db, `CREATE INDEX IF NOT EXISTS idx_pcitens_origem
+                   ON pedido_compra_itens(origemTipo, origemId)`);
 }
 
 function proximoNumero(db) {
@@ -88,6 +111,72 @@ function recalcularValorTotal(db, pedidoCompraId) {
 // puramente em catalog: bi_item_sugestao_produto + itens + licitacoes + resultados_bi).
 const catalogPg = require('./catalog-pg');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
+
+/**
+ * Devolve o lastro a quem esperava: cada pedido de venda que gerou linha neste
+ * recebimento ganha as reservas que faltavam e uma linha no histórico.
+ *
+ * A reserva só muda de fato em produto com rastreiaLote — sem lote a reserva já
+ * havia sido criada pela quantidade cheia mesmo sem saldo (ver reservas-routes),
+ * e a chegada apenas torna o saldo positivo. O histórico vale nos dois casos: é
+ * ele que responde "por que este pedido destravou".
+ *
+ * Aviso por Telegram/email fica atrás de `compra_aviso_chegada` e nasce
+ * DESLIGADO. Motivo: enviarAlerta não tem granularidade por tipo de aviso — é
+ * tudo-ou-nada por canal, por tenant —, então ligar mais um tipo por padrão
+ * despejaria isto em quem nunca pediu. O aviso in-app (histórico + tela do
+ * pedido) é o default.
+ */
+function liberarPedidosDeVenda(db, pedidoCompra, origensAtendidas, req) {
+  if (!origensAtendidas.length) return [];
+  const { completarReservasPedido } = require('./reservas-routes');
+
+  const porPedido = new Map();
+  for (const o of origensAtendidas) {
+    if (!porPedido.has(o.pedidoId)) porPedido.set(o.pedidoId, []);
+    porPedido.get(o.pedidoId).push({ sku: o.sku, quantidade: o.quantidade });
+  }
+
+  const liberados = [];
+  for (const [pedidoId, itens] of porPedido) {
+    try {
+      const ped = db.prepare('SELECT id, numero, status FROM pedidos WHERE id = ?').get(pedidoId);
+      if (!ped) continue;
+      const r = completarReservasPedido(db, pedidoId);
+      db.prepare(`INSERT INTO pedido_historico
+          (pedidoId, statusAnterior, statusNovo, acao, motivo, usuario, dadosExtras)
+        VALUES (?, NULL, NULL, 'compra-recebida', ?, ?, ?)`).run(
+        pedidoId,
+        `Recebimento do ${pedidoCompra.numero}: ${itens.map(i => `${i.quantidade} ${i.sku}`).join(', ')}`,
+        req?.session?.username || null,
+        JSON.stringify({ pedidoCompraId: pedidoCompra.id, pcNumero: pedidoCompra.numero,
+                         itens, reservasCriadas: r.reservasCriadas.length }));
+      liberados.push({ pedidoId, numero: ped.numero, status: ped.status,
+                       itens, reservasCriadas: r.reservasCriadas.length });
+    } catch (e) {
+      // Recebimento já entrou; não desfazer por causa do aviso.
+      console.error('[compras] falha ao liberar pedido de venda', pedidoId, e.message);
+    }
+  }
+
+  if (liberados.length) {
+    let ligado = false;
+    try {
+      const row = db.prepare('SELECT valor FROM config WHERE chave = ?').get('compra_aviso_chegada');
+      ligado = row && row.valor === '1';
+    } catch { /* sem tabela config neste tenant */ }
+    if (ligado) {
+      const { enviarAlerta } = require('./notificacoes-dispatcher');
+      enviarAlerta(db, {
+        subject: `Compra recebida libera ${liberados.length} pedido(s) de venda`,
+        body: `<b>${pedidoCompra.numero}</b> recebido.<br>` +
+              liberados.map(l => `Pedido ${l.numero}: ${l.itens.map(i => `${i.quantidade} ${i.sku}`).join(', ')}`).join('<br>'),
+        logTag: 'Compras',
+      }).catch(e => console.error('[compras] aviso de chegada falhou:', e.message));
+    }
+  }
+  return liberados;
+}
 
 function registrarRotasCompras(app, db) {
   migrarPedidosCompraDB(db);
@@ -263,8 +352,44 @@ function registrarRotasCompras(app, db) {
     }
   });
 
+  // Demanda perdida (vendas_perdidas) alimenta a sugestão. Só motivo
+  // 'sem_estoque': perder por preço/prazo/concorrente não é problema de
+  // reposição e não pode inflar ordem de compra.
+  const JANELA_DIAS = 90;
+  const MOTIVO_DEMANDA = 'sem_estoque';
+
+  function temTabelaVendasPerdidas() {
+    try {
+      return db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='vendas_perdidas'").get().n > 0;
+    } catch { return false; }
+  }
+
   app.get('/api/compras/sugestao', (req, res) => {
     try {
+      // ?incluirPerdas=0 volta ao comportamento anterior (só parâmetros de
+      // estoque) — útil para conferir de onde veio um número.
+      const comPerdas = req.query.incluirPerdas !== '0' && temTabelaVendasPerdidas();
+
+      const colsPerda = comPerdas ? `,
+          COALESCE((SELECT SUM(quantidade) FROM vendas_perdidas
+                    WHERE produtoId = p.id AND motivo = ?
+                      AND data >= date('now', '-${JANELA_DIAS} days')), 0) AS perdaQtd90d,
+          COALESCE((SELECT SUM(quantidade * COALESCE(precoAlvo,0)) FROM vendas_perdidas
+                    WHERE produtoId = p.id AND motivo = ?
+                      AND data >= date('now', '-${JANELA_DIAS} days')), 0) AS perdaValor90d,
+          COALESCE((SELECT COUNT(*) FROM vendas_perdidas
+                    WHERE produtoId = p.id AND motivo = ?
+                      AND data >= date('now', '-${JANELA_DIAS} days')), 0) AS perdaRegistros90d` : '';
+
+      // Sem perdas o produto só aparece se alguém parametrizou min/reposição.
+      // Com perdas, quem deixou de vender por falta de estoque entra mesmo
+      // sem parametrização — é justamente o caso que ninguém configurou.
+      const filtroPerda = comPerdas ? ` OR EXISTS (SELECT 1 FROM vendas_perdidas vp
+            WHERE vp.produtoId = p.id AND vp.motivo = ?
+              AND vp.data >= date('now', '-${JANELA_DIAS} days'))` : '';
+
+      const params = comPerdas ? [MOTIVO_DEMANDA, MOTIVO_DEMANDA, MOTIVO_DEMANDA, MOTIVO_DEMANDA] : [];
+
       const rows = db.prepare(`
         SELECT p.id, p.sku, p.descricao, p.unidade, p.precoCusto,
           p.estoqueMinimo, p.pontoReposicao, p.estoqueMaximo, p.leadTimeDias,
@@ -280,36 +405,79 @@ function registrarRotasCompras(app, db) {
                     ORDER BY data DESC, id DESC LIMIT 1), p.precoCusto) AS custoMedio,
           COALESCE((SELECT SUM(quantidade) FROM movimentacoes_estoque
                     WHERE produtoId = p.id AND tipo = 'saida'
-                      AND data >= date('now', '-90 days')), 0) AS saida90d
+                      AND data >= date('now', '-${JANELA_DIAS} days')), 0) AS saida90d${colsPerda}
         FROM produtos p
-        LEFT JOIN fornecedores f ON f.id = p.fornecedorId
-        WHERE p.ativo = 1 AND (p.estoqueMinimo > 0 OR p.pontoReposicao > 0)
-      `).all();
+        LEFT JOIN pessoas f ON f.id = p.fornecedorId
+        WHERE p.ativo = 1 AND (p.estoqueMinimo > 0 OR p.pontoReposicao > 0${filtroPerda})
+      `).all(...params);
 
       const itens = rows.map(r => {
         const disponivel = r.saldo - r.reservado;
         const limite = r.pontoReposicao > 0 ? r.pontoReposicao : r.estoqueMinimo;
-        const precisa = disponivel <= limite;
-        const alvo = r.estoqueMaximo > 0 ? r.estoqueMaximo : (r.estoqueMinimo * 2);
+        const parametrizado = r.estoqueMinimo > 0 || r.pontoReposicao > 0;
+        const perdaQtd = comPerdas ? (r.perdaQtd90d || 0) : 0;
+
+        // Demanda reprimida não aparece nas saídas: se faltou estoque, a
+        // venda não saiu. Somar as duas dá o consumo que de fato existiu.
+        const consumoDiarioMedio = r.saida90d / JANELA_DIAS;
+        const consumoDiarioAjustado = (r.saida90d + perdaQtd) / JANELA_DIAS;
+
+        const alvoBase = r.estoqueMaximo > 0 ? r.estoqueMaximo : (r.estoqueMinimo * 2);
+        const qtdSugeridaBase = Math.max(0, alvoBase - disponivel);
+        // O alvo precisa cobrir também o que se deixou de vender.
+        const alvo = alvoBase + perdaQtd;
         const qtdSugerida = Math.max(0, alvo - disponivel);
-        const consumoDiarioMedio = r.saida90d / 90;
-        const coberturaProjetada = consumoDiarioMedio > 0 ? (disponivel + qtdSugerida) / consumoDiarioMedio : null;
+
+        const precisaPorParametro = parametrizado && disponivel <= limite;
+        const precisaPorPerda = perdaQtd > 0 && disponivel < perdaQtd;
+        const origemSugestao = precisaPorParametro && precisaPorPerda ? 'ambos'
+          : precisaPorParametro ? 'parametro'
+          : precisaPorPerda ? 'demanda_perdida' : null;
+
+        const coberturaProjetada = consumoDiarioAjustado > 0
+          ? (disponivel + qtdSugerida) / consumoDiarioAjustado : null;
+
         return {
           ...r,
           disponivel,
           limite,
-          precisaComprar: precisa,
+          precisaComprar: precisaPorParametro || precisaPorPerda,
+          origemSugestao,
           quantidadeSugerida: qtdSugerida,
+          quantidadeSugeridaBase: qtdSugeridaBase,
+          quantidadePorDemandaPerdida: Math.max(0, qtdSugerida - qtdSugeridaBase),
           custoSugerido: qtdSugerida * (r.custoMedio || r.precoCusto || 0),
           consumoDiarioMedio,
+          consumoDiarioAjustado,
+          perdaQtd90d: perdaQtd,
+          perdaValor90d: comPerdas ? (r.perdaValor90d || 0) : 0,
+          perdaRegistros90d: comPerdas ? (r.perdaRegistros90d || 0) : 0,
           coberturaProjetadaDias: coberturaProjetada
         };
       }).filter(i => i.precisaComprar && i.quantidadeSugerida > 0);
 
+      // Perda sem produto cadastrado não vira sugestão de compra — não há
+      // o que comprar. Mas é acionável: sinaliza produto a cadastrar.
+      let perdasSemProduto = { registros: 0, quantidade: 0, valor: 0 };
+      if (comPerdas) {
+        perdasSemProduto = db.prepare(`SELECT COUNT(*) registros,
+            COALESCE(SUM(quantidade),0) quantidade,
+            COALESCE(SUM(quantidade * COALESCE(precoAlvo,0)),0) valor
+          FROM vendas_perdidas
+          WHERE produtoId IS NULL AND motivo = ?
+            AND data >= date('now', '-${JANELA_DIAS} days')`).get(MOTIVO_DEMANDA);
+      }
+
       const resumo = {
         totalItens: itens.length,
         custoTotalEstimado: itens.reduce((s, i) => s + i.custoSugerido, 0),
-        fornecedoresDistintos: new Set(itens.map(i => i.fornecedorId).filter(Boolean)).size
+        fornecedoresDistintos: new Set(itens.map(i => i.fornecedorId).filter(Boolean)).size,
+        incluiDemandaPerdida: comPerdas,
+        janelaDias: JANELA_DIAS,
+        itensPorDemandaPerdida: itens.filter(i => i.origemSugestao !== 'parametro').length,
+        demandaPerdidaQtd: itens.reduce((s, i) => s + i.perdaQtd90d, 0),
+        demandaPerdidaValor: itens.reduce((s, i) => s + i.perdaValor90d, 0),
+        perdasSemProduto
       };
 
       res.json({ success: true, itens, resumo });
@@ -326,7 +494,7 @@ function registrarRotasCompras(app, db) {
       let sql = `SELECT pc.*, f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
                         (SELECT COUNT(*) FROM pedido_compra_itens WHERE pedidoCompraId = pc.id) AS qtdItens
                  FROM pedidos_compra pc
-                 LEFT JOIN fornecedores f ON f.id = pc.fornecedorId
+                 LEFT JOIN pessoas f ON f.id = pc.fornecedorId
                  WHERE 1=1`;
       const params = [];
       if (status) { sql += ' AND pc.status = ?'; params.push(status); }
@@ -345,7 +513,7 @@ function registrarRotasCompras(app, db) {
         SELECT pc.*, f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
                f.telefone AS fornecedorTelefone, f.email AS fornecedorEmail
         FROM pedidos_compra pc
-        LEFT JOIN fornecedores f ON f.id = pc.fornecedorId
+        LEFT JOIN pessoas f ON f.id = pc.fornecedorId
         WHERE pc.id = ?
       `).get(req.params.id);
       if (!pedido) return res.status(404).json({ success: false, error: 'Pedido de compra nao encontrado' });
@@ -358,7 +526,65 @@ function registrarRotasCompras(app, db) {
         ORDER BY p.descricao ASC
       `).all(req.params.id);
 
-      res.json({ success: true, pedido, itens });
+      // Como este fornecedor recebe o pedido: define o rótulo do botão, a
+      // confirmação e o que ainda falta para poder transmitir.
+      let integracao = null;
+      try {
+        integracao = require('./fornecedor-integracoes').descreverParaPedido(db, pedido, itens);
+      } catch (_) {
+        // Sem o módulo/tabela: a tela cai no botão genérico.
+      }
+
+      res.json({ success: true, pedido, itens, integracao });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // PDF do pedido, para enviar ao fornecedor ou arquivar.
+  app.get('/api/pedidos-compra/:id/pdf', (req, res) => {
+    try {
+      const pedido = db.prepare(`
+        SELECT pc.*, f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
+               f.telefone AS fornecedorTelefone, f.email AS fornecedorEmail,
+               f.endereco AS fornecedorLogradouro, f.numero AS fornecedorNumero,
+               f.bairro AS fornecedorBairro, f.cidade AS fornecedorCidade,
+               f.uf AS fornecedorUf, f.cep AS fornecedorCep
+        FROM pedidos_compra pc
+        LEFT JOIN pessoas f ON f.id = pc.fornecedorId
+        WHERE pc.id = ?
+      `).get(req.params.id);
+      if (!pedido) return res.status(404).json({ success: false, error: 'Pedido de compra nao encontrado' });
+
+      const itens = db.prepare(`
+        SELECT pci.*, p.sku, p.descricao, p.unidade
+        FROM pedido_compra_itens pci
+        LEFT JOIN produtos p ON p.id = pci.produtoId
+        WHERE pci.pedidoCompraId = ?
+        ORDER BY p.descricao ASC
+      `).all(req.params.id);
+
+      // Emitente é a nossa empresa: quem compra. Estabelecimento matriz, com
+      // o cadastro legado como reserva.
+      let emitente = {};
+      try {
+        emitente = db.prepare('SELECT * FROM estabelecimentos WHERE matriz = 1 LIMIT 1').get() || {};
+      } catch (_) { /* tenant sem estabelecimentos */ }
+      if (!emitente.razaoSocial) {
+        try { emitente = db.prepare('SELECT * FROM fornecedor ORDER BY id DESC LIMIT 1').get() || {}; }
+        catch (_) { /* sem cadastro da empresa: sai sem cabeçalho */ }
+      }
+      // A logo mora só no cadastro legado `fornecedor` — `estabelecimentos` não
+      // tem a coluna, então sem isto o cabeçalho sai sem logo sempre que houver matriz.
+      if (!emitente.logoBase64) {
+        try {
+          emitente.logoBase64 = db.prepare('SELECT logoBase64 FROM fornecedor ORDER BY id DESC LIMIT 1').get()?.logoBase64 || null;
+        } catch (_) { /* sem cadastro legado: segue sem logo */ }
+      }
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${pedido.numero}.pdf"`);
+      require('./pedido-compra-pdf').gerar(res, pedido, itens, emitente);
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -369,8 +595,20 @@ function registrarRotasCompras(app, db) {
   app.post('/api/pedidos-compra', (req, res) => {
     try {
       const { fornecedorId, dataPrevistaEntrega, observacoes, itens } = req.body;
-      if (!Array.isArray(itens) || itens.length === 0) {
-        return res.status(400).json({ success: false, error: 'itens (array) obrigatorio' });
+      // Rascunho pode nascer vazio: a tela cria o pedido e só depois monta os
+      // itens. Exigir item já na criação impedia abrir um pedido novo. Quem
+      // cobra a presença de itens é o /enviar, que é onde isso importa.
+      if (itens != null && !Array.isArray(itens)) {
+        return res.status(400).json({ success: false, error: 'itens deve ser um array' });
+      }
+      const listaItens = Array.isArray(itens) ? itens : [];
+      const validos = listaItens.filter(it => it.produtoId && Number(it.quantidade) > 0);
+      // Mandar itens e não sobrar nenhum válido não é um pedido vazio de
+      // propósito: antes o loop descartava tudo em silêncio e criava um
+      // pedido zerado que ninguém entendia.
+      if (listaItens.length && !validos.length) {
+        return res.status(400).json({ success: false,
+          error: 'Nenhum item válido — cada item exige produtoId e quantidade > 0' });
       }
 
       const numero = proximoNumero(db);
@@ -387,8 +625,7 @@ function registrarRotasCompras(app, db) {
           INSERT INTO pedido_compra_itens (pedidoCompraId, produtoId, quantidade, custoUnitario, observacoes)
           VALUES (?, ?, ?, ?, ?)
         `);
-        for (const it of itens) {
-          if (!it.produtoId || !(Number(it.quantidade) > 0)) continue;
+        for (const it of validos) {
           ins.run(pedidoCompraId, it.produtoId, Number(it.quantidade),
                   Number(it.custoUnitario) || 0, it.observacoes || null);
         }
@@ -509,7 +746,7 @@ function registrarRotasCompras(app, db) {
 
   // ==================== ENVIAR ====================
 
-  app.post('/api/pedidos-compra/:id/enviar', (req, res) => {
+  app.post('/api/pedidos-compra/:id/enviar', async (req, res) => {
     try {
       const pedido = db.prepare('SELECT * FROM pedidos_compra WHERE id = ?').get(req.params.id);
       if (!pedido) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
@@ -528,9 +765,35 @@ function registrarRotasCompras(app, db) {
       const nItens = db.prepare('SELECT COUNT(*) AS n FROM pedido_compra_itens WHERE pedidoCompraId = ?').get(req.params.id).n;
       if (!nItens) return res.status(400).json({ success: false, error: 'Pedido sem itens' });
 
-      db.prepare(`UPDATE pedidos_compra SET status = 'enviado', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-        .run(req.params.id);
-      res.json({ success: true });
+      // Fornecedor com integração: "enviar" executa algo de verdade (na NicSRS,
+      // compra a assinatura). Quem sabe o quê fazer é o adaptador do
+      // fornecedor — este módulo não conhece fornecedor nenhum em particular.
+      const integracoes = require('./fornecedor-integracoes');
+      const itens = db.prepare(`
+        SELECT i.*, p.descricao
+        FROM pedido_compra_itens i LEFT JOIN produtos p ON p.id = i.produtoId
+        WHERE i.pedidoCompraId = ?
+      `).all(req.params.id);
+
+      let resultado = null;
+      try {
+        resultado = await integracoes.executarParaPedido(db, pedido, itens, req.user?.username);
+      } catch (err) {
+        // Integração quebrou: o pedido NÃO avança de status, para não parecer
+        // transmitido quando não foi.
+        return res.status(400).json({ success: false, error: `Falha na integração do fornecedor: ${err.message}` });
+      }
+
+      const status = !resultado ? 'enviado'
+        : (resultado.nenhuma ? 'rascunho' : (resultado.parcial ? 'enviado_parcial' : 'enviado'));
+      db.prepare(`UPDATE pedidos_compra SET status = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(status, req.params.id);
+
+      if (resultado && resultado.nenhuma) {
+        return res.status(400).json({ success: false,
+          error: `Nada foi transmitido — o pedido segue em rascunho. ${(resultado.falhas || []).map(f => f.erro).join('; ')}` });
+      }
+      res.json({ success: true, status, ...(resultado ? { integracao: resultado } : {}) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -551,9 +814,12 @@ function registrarRotasCompras(app, db) {
         return res.status(400).json({ success: false, error: 'itens (array) obrigatorio — [{itemId, quantidadeRecebida, loteId?, serialIds?}]' });
       }
 
-      const { calcularContextoMovimento } = require('./estoque-routes');
+      const { calcularContextoMovimento, resolverDeposito } = require('./estoque-routes');
       const dataRec = req.body.dataRecebimento || dataBrasilia();
       const movimentacoesGeradas = [];
+      // Pedidos de venda que esperavam esta mercadoria (origemTipo/origemId da
+      // linha de compra). Coletado dentro da transação, tratado depois dela.
+      const origensAtendidas = [];
 
       const trx = db.transaction(() => {
         for (const recItem of itens) {
@@ -587,12 +853,14 @@ function registrarRotasCompras(app, db) {
           const mov = db.prepare(`
             INSERT INTO movimentacoes_estoque
               (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data,
-               loteId, custoMedioAnterior, custoMedioPosterior, saldoPosterior)
-            VALUES (?, 'entrada', ?, ?, 'pedido_compra', ?, ?, ?, ?, ?, ?, ?)
+               loteId, custoMedioAnterior, custoMedioPosterior, saldoPosterior, depositoId)
+            VALUES (?, 'entrada', ?, ?, 'pedido_compra', ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             it.produtoId, qtd, it.custoUnitario, pedido.id,
             `Recebimento do PC ${pedido.numero}`, dataRec, loteId || null,
-            ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior
+            ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior,
+            // Depósito de recebimento: informado na baixa ou o padrão.
+            resolverDeposito(db, { depositoId: req.body?.depositoId })
           );
           const movId = mov.lastInsertRowid;
           movimentacoesGeradas.push(movId);
@@ -613,6 +881,10 @@ function registrarRotasCompras(app, db) {
           // Atualizar quantidadeRecebida do item
           db.prepare('UPDATE pedido_compra_itens SET quantidadeRecebida = quantidadeRecebida + ? WHERE id = ?')
             .run(qtd, itemId);
+
+          if (it.origemTipo === 'pedido_venda' && it.origemId) {
+            origensAtendidas.push({ pedidoId: Number(it.origemId), sku: produto.sku, quantidade: qtd });
+          }
         }
 
         // Recalcular status do pedido
@@ -629,8 +901,14 @@ function registrarRotasCompras(app, db) {
       });
 
       trx();
+
+      // Fecha o ciclo: quem pediu a compra por falta de saldo volta a ter
+      // lastro. Fora da transação de propósito — falha em avisar não pode
+      // desfazer um recebimento que já entrou no estoque.
+      const pedidosVendaLiberados = liberarPedidosDeVenda(db, pedido, origensAtendidas, req);
+
       const atualizado = db.prepare('SELECT * FROM pedidos_compra WHERE id = ?').get(req.params.id);
-      res.json({ success: true, pedido: atualizado, movimentacoesGeradas });
+      res.json({ success: true, pedido: atualizado, movimentacoesGeradas, pedidosVendaLiberados });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -657,4 +935,4 @@ function registrarRotasCompras(app, db) {
   });
 }
 
-module.exports = { registrarRotasCompras, migrarPedidosCompraDB };
+module.exports = { registrarRotasCompras, migrarPedidosCompraDB, proximoNumero };

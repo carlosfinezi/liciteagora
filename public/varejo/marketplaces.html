@@ -37,7 +37,7 @@
       <select id="fStatus" onchange="carregarPedidos()"><option value="">Todos status</option></select>
       <input type="text" id="fQ" placeholder="Buscar…" oninput="debounce(carregarPedidos)" style="flex:1;">
     </div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="mkt-pedidos">
       <table>
         <thead><tr><th>Canal</th><th>ID externo</th><th>Comprador</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Pedido local</th><th></th></tr></thead>
         <tbody id="tbPed"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
@@ -91,7 +91,7 @@
     </div>
     <div class="kpi-mini" id="anunKpis"></div>
     <div id="anunAviso"></div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="mkt-anuncios">
       <table>
         <thead><tr>
           <th style="width:32px;"><input type="checkbox" id="anunTodos" onchange="marcarTodos(this)" style="width:auto;"></th>
@@ -113,7 +113,7 @@
       <div><strong>🛒 Mercado Livre</strong> &nbsp;<span id="mlStatus" class="muted">verificando…</span></div>
       <div id="mlAcao"></div>
     </div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="mkt-integracoes">
       <table>
         <thead><tr><th>Canal</th><th>Apelido</th><th>Última sync</th><th>Status</th><th></th></tr></thead>
         <tbody id="tbInt"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
@@ -277,6 +277,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('marketplaces');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }

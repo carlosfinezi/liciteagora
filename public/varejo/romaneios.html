@@ -17,10 +17,10 @@
     <input type="text" id="fQ" placeholder="Buscar nº, placa ou motorista…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
     <select id="fStatus" onchange="carregar()"><option value="">Todos</option><option value="rascunho">Rascunho</option><option value="em-rota">Em rota</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option></select>
   </div>
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="romaneios">
     <table>
-      <thead><tr><th>Número</th><th>Data</th><th>Motorista</th><th>Placa</th><th>UFs</th><th>Paradas</th><th>Status</th><th></th></tr></thead>
-      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      <thead><tr><th class="col-editar"></th><th>Número</th><th>Data</th><th>Motorista</th><th>Placa</th><th>UFs</th><th>Paradas</th><th>Status</th><th></th></tr></thead>
+      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -57,6 +57,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('romaneios');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -79,6 +81,7 @@ async function carregar(){
   const r = await fetch('/api/romaneios?'+p);
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   document.getElementById('tb').innerHTML = d.romaneios.length ? d.romaneios.map(r=>`<tr>
+    <td class="col-editar"><a class="btn btn-ghost btn-sm btn-icon-only" title="Abrir romaneio" href="/varejo/romaneio.html?id=${r.id}"><svg class="ic-sm"><use href="#i-edit"/></svg></a></td>
     <td class="mono"><strong>${r.numero}</strong></td>
     <td>${r.data}</td>
     <td>${r.motoristaNomeFunc||r.motoristaNome||'—'}</td>
@@ -86,8 +89,8 @@ async function carregar(){
     <td>${r.ufOrigem||'—'} → ${r.ufDestino||'—'}</td>
     <td><small>${r.paradas.entregues||0}/${r.paradas.total||0} entregues${r.paradas.naoEntregues?', '+r.paradas.naoEntregues+' não':''}</small></td>
     <td><span class="badge ${badgeRomaneio(r.status)}">${r.status}</span></td>
-    <td style="text-align:right;white-space:nowrap;"><a class="btn btn-ghost btn-sm" href="/varejo/romaneio.html?id=${r.id}" style="text-decoration:none;">Abrir →</a></td>
-  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum romaneio</td></tr>';
+    <td></td>
+  </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhum romaneio</td></tr>';
 }
 
 function abrirNovo(){

@@ -256,8 +256,13 @@ function gerar(stream, pedido, emitente) {
   // Rodapé
   const footerY = doc.page.height - 50;
   doc.rect(40, footerY, pageW, 18).fill('#ffa94d').stroke();
+  // O texto em height-45 invade a margem inferior (40pt) e o pdfkit abriria uma página
+  // nova automática só para esta linha — zera a margem durante o rodapé.
+  const mbFooter = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
   doc.fillColor('#000').font('Helvetica-Bold').fontSize(10)
      .text(`${tituloDoc} — SEM VALOR FISCAL`, 40, footerY + 5, { width: pageW, align: 'center' });
+  doc.page.margins.bottom = mbFooter;
 
   doc.end();
 }

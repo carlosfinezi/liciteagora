@@ -11,7 +11,7 @@
   <div class="page-header">
     <div>
       <h1 id="titulo">NF-e Recebida</h1>
-      <small><a class="back" href="/fiscal/nfe-inbox.html">← Voltar para NF-e Recebidas</a></small>
+      <small><a class="back" href="/fiscal/manifestador.html">← Voltar para o Manifestador</a></small>
     </div>
   </div>
   <div id="conteudo">Carregando…</div>
@@ -44,7 +44,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
-<script>initSidebar('nfe-inbox');</script>
+<script>initSidebar('manifestador');</script>
 <script>
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtData(iso){ if(!iso) return '-'; const d=new Date(iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }

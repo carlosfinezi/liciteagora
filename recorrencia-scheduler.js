@@ -208,6 +208,8 @@ async function executarUmaRecorrencia(db, rec, competencia) {
             pdfBuffer,
             boletoWritableLine,
             boletoUrl,
+            origemTipo: resultado.nfse?.id ? 'nfse' : undefined,
+            origemId: resultado.nfse?.id || undefined,
           });
 
           emailStatus = pdfBuffer ? 'sim' : 'pdf_indisponivel';

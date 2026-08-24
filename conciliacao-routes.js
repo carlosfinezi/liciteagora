@@ -11,8 +11,12 @@
  */
 
 const multer = require('multer');
+// O multer quebra o contexto de tenant (AsyncLocalStorage nao atravessa
+// callback de stream); este middleware o recupera antes do handler.
+const { reentrarContextoTenant } = require('./tenant-middleware');
 const { logAction } = require('./audit-log');
 const { lancarMovimentacao } = require('./contas-financeiras-routes');
+const { escopoSqlHerdado, escopoSql, guardEscopo, noEscopo } = require('./estabelecimentos-routes');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -98,14 +102,22 @@ function formatarData(dt) {
 function registrarRotasConciliacao(app, db) {
   migrarDB(db);
 
+  // RBAC: a transação bancária herda a unidade da conta financeira dela.
+  app.use('/api/conciliacao/transacoes/:id',
+    guardEscopo(db, 'transacoes_bancarias', { fk: 'contaFinanceiraId', pai: 'contas_financeiras' }));
+  app.use('/api/conciliacao/sugestoes/:id',
+    guardEscopo(db, 'transacoes_bancarias', { fk: 'contaFinanceiraId', pai: 'contas_financeiras' }));
+
   // Upload OFX (multipart/form-data: file=<.ofx>, contaFinanceiraId)
-  app.post('/api/conciliacao/upload', upload.single('arquivo'), (req, res) => {
+  app.post('/api/conciliacao/upload', upload.single('arquivo'), reentrarContextoTenant, (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: 'Arquivo OFX obrigatório (campo "arquivo")' });
       const contaFinanceiraId = Number(req.body.contaFinanceiraId);
       if (!contaFinanceiraId) return res.status(400).json({ success: false, error: 'contaFinanceiraId obrigatório' });
       const conta = db.prepare('SELECT * FROM contas_financeiras WHERE id = ?').get(contaFinanceiraId);
-      if (!conta) return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
+      if (!conta || !noEscopo(req, conta.estabelecimentoId)) {
+        return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
+      }
 
       const text = req.file.buffer.toString('latin1'); // OFX BR comum em iso-8859-1; latin1 cobre ASCII e estendidos
       const parsed = parseOfx(text);
@@ -127,7 +139,9 @@ function registrarRotasConciliacao(app, db) {
       let regrasAplicadas = 0;
       try {
         const { aplicarRegrasConciliacao } = require('./tesouraria-routes');
-        regrasAplicadas = aplicarRegrasConciliacao(db, contaFinanceiraId);
+        // A função passou a devolver { aplicadas, revertidas }; aqui interessa
+        // só a contagem, que vai para a resposta do upload e para a auditoria.
+        regrasAplicadas = aplicarRegrasConciliacao(db, contaFinanceiraId).aplicadas;
       } catch { /* módulo indisponível — segue sem regras */ }
       logAction(db, req, 'upload-ofx', 'conciliacao', null, {
         conta: conta.nome, total: parsed.transacoes.length, novas, duplicadas: dup, regrasAplicadas
@@ -147,6 +161,8 @@ function registrarRotasConciliacao(app, db) {
                  JOIN contas_financeiras cf ON cf.id = t.contaFinanceiraId
                  WHERE 1=1`;
       const params = [];
+      const rbac = escopoSql(req, 'cf.estabelecimentoId');
+      sql += rbac.sql; params.push(...rbac.params);
       if (contaFinanceiraId) { sql += ' AND t.contaFinanceiraId = ?'; params.push(Number(contaFinanceiraId)); }
       if (status === 'pendente')  sql += ' AND t.conciliadaCom IS NULL';
       if (status === 'conciliada') sql += ' AND t.conciliadaCom IS NOT NULL';
@@ -175,9 +191,9 @@ function registrarRotasConciliacao(app, db) {
           FROM contas_a_receber cr
           JOIN pessoas p ON p.id = cr.pessoaId
           WHERE cr.status IN ('aberta','parcial')
-            AND ABS(cr.valor - ?) < 0.005
+            AND ABS(cr.valor - ?) < 0.005${escopoSql(req, 'cr.estabelecimentoId').sql}
           ORDER BY ABS(julianday(cr.dataVencimento) - julianday(?)) LIMIT 10
-        `).all(valorAbs, t.data);
+        `).all(valorAbs, ...escopoSql(req, 'cr.estabelecimentoId').params, t.data);
         sugestoes.push(...crs);
       }
       // Débito (saída) → bate com CP
@@ -186,11 +202,11 @@ function registrarRotasConciliacao(app, db) {
           SELECT 'cp' AS tipo, cp.id, cp.descricao, cp.valor, cp.dataVencimento, cp.dataEmissao,
                  f.razaoSocial AS pessoa
           FROM contas_a_pagar cp
-          JOIN fornecedores f ON f.id = cp.fornecedorId
+          JOIN pessoas f ON f.id = cp.fornecedorId
           WHERE cp.status IN ('aberta','parcial')
-            AND ABS(cp.valor - ?) < 0.005
+            AND ABS(cp.valor - ?) < 0.005${escopoSql(req, 'cp.estabelecimentoId').sql}
           ORDER BY ABS(julianday(cp.dataVencimento) - julianday(?)) LIMIT 10
-        `).all(valorAbs, t.data);
+        `).all(valorAbs, ...escopoSql(req, 'cp.estabelecimentoId').params, t.data);
         sugestoes.push(...cps);
       }
       res.json({ success: true, sugestoes });
@@ -214,7 +230,8 @@ function registrarRotasConciliacao(app, db) {
           if (!contaId) throw new Error('contaId obrigatório para conciliação com CR/CP');
           const tabela = tipo === 'cr' ? 'contas_a_receber' : 'contas_a_pagar';
           const conta = db.prepare(`SELECT * FROM ${tabela} WHERE id = ?`).get(contaId);
-          if (!conta) throw new Error(`${tipo.toUpperCase()} não encontrado`);
+          // O alvo vem no corpo: o guard cobre a transação, não ele.
+          if (!conta || !noEscopo(req, conta.estabelecimentoId)) throw new Error(`${tipo.toUpperCase()} não encontrado`);
           if (conta.status === 'paga') throw new Error(`${tipo.toUpperCase()} já está paga — desconcilie antes`);
           db.prepare(`UPDATE ${tabela} SET status='paga', dataPagamento=?, valorPago=?, contaFinanceiraId=? WHERE id = ?`)
             .run(t.data, Math.abs(t.valor), t.contaFinanceiraId, contaId);

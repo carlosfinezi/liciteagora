@@ -163,6 +163,14 @@
                     </select>
                 </div>
                 <div>
+                    <label>Marca do vencedor</label>
+                    <select id="fltMarcaColetada" title="Marca do fornecedor vencedor, coletada do portal de origem. Não confundir com o filtro Marca, que é a marca citada no edital.">
+                        <option value="">Qualquer</option>
+                        <option value="1">Com marca coletada</option>
+                        <option value="0">Sem marca</option>
+                    </select>
+                </div>
+                <div>
                     <label>Resultados</label>
                     <select id="selTamanho">
                         <option value="25">25</option>
@@ -390,6 +398,7 @@
             situacao:     'fltSituacao',
             status:       'fltStatus',
             marca:        'fltMarca',
+            marcaColetada:'fltMarcaColetada',
             fornecedor:   'fltFornecedor',
             valorHomolMin:'fltValorMin',
             valorHomolMax:'fltValorMax',

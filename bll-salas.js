@@ -47,6 +47,19 @@ function decodeQueryParam(s) {
   return s.replace(/&amp;/g, '&').replace(/&quot;/g, '"');
 }
 
+// Decodifica entidades HTML (numéricas + nomeadas comuns) — o HTML da BLL manda
+// o nome do órgão como "C&#194;MARA MUNICIPAL ... MIGUEL&#211;POLIS".
+function decodeEntidades(s) {
+  if (s == null) return s;
+  return String(s)
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&quot;/gi, '"').replace(/&apos;|&#39;/gi, "'")
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
 /**
  * GET autenticado em /BatchList e extrai Pid/Uid do $.connection.hub.qs +
  * processNumber/title/statusName do HTML.
@@ -101,7 +114,7 @@ async function descobrirInfo(db, processId, sParam2 = '7') {
     if (partes[partes.length - 1] && /^BLL(COMPRAS)?$/i.test(partes[partes.length - 1].trim())) {
       partes.pop();
     }
-    title = partes.join(' - ').trim() || null;
+    title = decodeEntidades(partes.join(' - ').trim()) || null;
   }
 
   let statusName = null;
@@ -142,7 +155,7 @@ function parsePartialLotes(html, map) {
     const prev = map.get(batchNumber) || {};
     map.set(batchNumber, {
       batchNumber,
-      title: td('Title') || prev.title || ('LOTE ' + batchNumber),
+      title: decodeEntidades(td('Title')) || prev.title || ('LOTE ' + batchNumber),
       statusName: td('CurrentStatusName') || prev.statusName || null,
       winnerBidderId: td('WinnerBidderId') || prev.winnerBidderId || null,
       currentBest: Number.isFinite(best) ? best : (prev.currentBest ?? null),

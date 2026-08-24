@@ -21,6 +21,8 @@ const { resolverEstab } = require('./nfe-emit-routes');
 const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
 const { MercadoPagoClient, loadMPConfig } = require('./mercadopago-client');
 const { enviarEmailCancelamento, enviarEmailNfse, loadSmtpConfig } = require('./email-client');
+const { logAction } = require('./audit-log');
+const { erroMeioPorCpfCnpj } = require('./meios-pagamento');
 
 // NFSE-C03: idempotency em memória para evitar double-click / retry rápido
 // na mesma emissão lógica. Chave = hash(cnpj_tomador|descricao|valor|competencia).
@@ -69,6 +71,108 @@ function carregarCertificado(db, estab = null) {
   const senha = Buffer.from(cert.senhaCriptografada, 'base64').toString();
 
   return { p12Buffer, senha, titular: cert.titular, validade: cert.validade };
+}
+
+/**
+ * Quem mexeu na nota: emissão, edição, reemissão e cancelamento saem do
+ * audit_log. Só enxerga o que foi feito depois que a auditoria da NFS-e passou
+ * a existir — nota antiga volta lista vazia, não histórico inventado.
+ */
+function historicoDaNota(db, id) {
+  try {
+    return db.prepare(`SELECT action, username, createdAt, payload
+      FROM audit_log WHERE entity = 'nfse' AND entityId = ?
+      ORDER BY id ASC`).all(String(id));
+  } catch {
+    return []; // tenant sem audit_log (base antiga)
+  }
+}
+
+/**
+ * Remonta a DPS de uma nota rejeitada, preservando a identidade fiscal
+ * (idDps, série, nDPS, ambiente e competência originais) e o que o tomador
+ * recebeu, mas aplicando o gerador e o cadastro atuais.
+ *
+ * A tabela `nfse` não guarda tudo o que a DPS carrega (código de tributação
+ * municipal, retenção de ISSQN, IM e e-mail do tomador), então esses campos
+ * saem do XML anterior — é a única fonte deles.
+ */
+function reconstruirDpsDaNota(db, nota) {
+  const fornecedor = db.prepare('SELECT * FROM fornecedor WHERE id = 1').get();
+  if (!fornecedor || !fornecedor.cnpj) throw new Error('Fornecedor não cadastrado');
+
+  const xml = String(nota.xmlEnvio || '');
+  const doXml = (tag) => {
+    const m = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+    return m ? m[1] : null;
+  };
+  const tomaXml = (xml.match(/<toma>[\s\S]*?<\/toma>/) || [''])[0];
+  const doToma = (tag) => {
+    const m = tomaXml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+    return m ? m[1] : null;
+  };
+
+  let endereco = null;
+  try { endereco = nota.tomadorEndereco ? JSON.parse(nota.tomadorEndereco) : null; } catch { /* endereço ilegível: a DPS sai sem ele */ }
+
+  return construirDPS({
+    idDps: nota.idDps,
+    tpAmb: nota.tpAmb,
+    serie: nota.serie,
+    nDPS: nota.nDPS,
+    competencia: nota.dataCompetencia,
+    prestador: derivarPrestador(fornecedor, municipioDaEmissao(db, fornecedor)),
+    tomador: {
+      cpfCnpj: nota.tomadorCpfCnpj,
+      razaoSocial: nota.tomadorRazaoSocial,
+      inscricaoMunicipal: doToma('IM'),
+      email: doToma('email'),
+      endereco,
+    },
+    servico: {
+      codigoTributacaoNacional: nota.codigoTributacaoNacional,
+      codigoListaServico: doXml('cTribMun'),
+      cNBS: nota.cNBS,
+      xNBS: nota.xNBS,
+      descricao: nota.descricaoServico,
+      valorServico: nota.valorServico,
+      codigoMunicipioPrestacao: doXml('cLocPrestacao'),
+      tribISSQN: doXml('tribISSQN'),
+      tpRetISSQN: doXml('tpRetISSQN'),
+    },
+    pTotTribSN: doXml('pTotTribSN'),
+  });
+}
+
+/**
+ * Deriva opSimpNac/regApTribSN/incluirIM do regime tributário cadastrado em
+ * Minha Empresa. Parâmetros explícitos (opSimpNac/incluirIM) ainda têm
+ * prioridade — útil pra cenários ad-hoc (recorrência, etc).
+ *
+ * Compartilhado entre a emissão e a reemissão: se cada uma derivasse o regime
+ * por conta própria, a nota reconstruída poderia sair com tributação diferente
+ * da original sem ninguém perceber.
+ */
+function derivarPrestador(fornecedor, codMunicipio, { opSimpNac, incluirIM, regEspTrib } = {}) {
+  const regime = fornecedor.regimeTributario || ''; // '' = comportamento legado
+  let opSimpNacDef = 3, regApTribSNDef = 1, incluirIMDef = true;
+  if (regime === 'MEI') {
+    opSimpNacDef = 2; regApTribSNDef = null; incluirIMDef = false;
+  } else if (regime === 'NAO_OPTANTE') {
+    opSimpNacDef = 1; regApTribSNDef = null; incluirIMDef = true;
+  } else if (regime === 'SIMPLES_NACIONAL') {
+    opSimpNacDef = 3; regApTribSNDef = 1; incluirIMDef = true;
+  }
+  const opEffective = opSimpNac || opSimpNacDef;
+  const incluirEffective = (incluirIM === false || incluirIM === true) ? incluirIM : incluirIMDef;
+  return {
+    cnpj: fornecedor.cnpj,
+    inscricaoMunicipal: incluirEffective ? (fornecedor.inscricaoMunicipal || '') : '',
+    codigoMunicipio: codMunicipio,
+    opSimpNac: opEffective,
+    regApTribSN: regApTribSNDef,
+    regEspTrib: regEspTrib || 0,
+  };
 }
 
 /**
@@ -347,6 +451,12 @@ async function emitirNfseInterno(db, params) {
   if (!servico || !servico.codigoTributacaoNacional || !servico.descricao || !servico.valorServico) {
     return { success: false, error: 'Dados do servico obrigatorios (codigoTributacaoNacional, descricao, valorServico)' };
   }
+  // Boleto para quem não aceita boleto: barra antes de emitir a nota, senão a
+  // NFS-e sai e a cobrança é recusada depois, deixando CR marcada sem boleto.
+  if (gerarBoleto) {
+    const erroMeio = erroMeioPorCpfCnpj(db, tomador.cpfCnpj, 'boleto');
+    if (erroMeio) return { success: false, error: erroMeio + ' Desmarque "gerar boleto" para emitir.' };
+  }
 
   // Carregar dados
   const ambiente = parseInt(getConfig(db, 'ambiente') || '2', 10);
@@ -409,30 +519,7 @@ async function emitirNfseInterno(db, params) {
     serie,
     nDPS,
     competencia: competencia || dataBrasilia(),
-    prestador: (() => {
-      // Deriva opSimpNac/regApTribSN/incluirIM do regime tributário cadastrado
-      // em Minha Empresa. Parâmetros explícitos (opSimpNac/incluirIM) ainda
-      // têm prioridade — útil pra cenários ad-hoc (recorrência, etc).
-      const regime = fornecedor.regimeTributario || ''; // '' = comportamento legado
-      let opSimpNacDef = 3, regApTribSNDef = 1, incluirIMDef = true;
-      if (regime === 'MEI') {
-        opSimpNacDef = 2; regApTribSNDef = null; incluirIMDef = false;
-      } else if (regime === 'NAO_OPTANTE') {
-        opSimpNacDef = 1; regApTribSNDef = null; incluirIMDef = true;
-      } else if (regime === 'SIMPLES_NACIONAL') {
-        opSimpNacDef = 3; regApTribSNDef = 1; incluirIMDef = true;
-      }
-      const opEffective = opSimpNac || opSimpNacDef;
-      const incluirEffective = (incluirIM === false || incluirIM === true) ? incluirIM : incluirIMDef;
-      return {
-        cnpj: fornecedor.cnpj,
-        inscricaoMunicipal: incluirEffective ? (fornecedor.inscricaoMunicipal || '') : '',
-        codigoMunicipio: codMunicipio,
-        opSimpNac: opEffective,
-        regApTribSN: regApTribSNDef,
-        regEspTrib: regEspTrib || 0,
-      };
-    })(),
+    prestador: derivarPrestador(fornecedor, codMunicipio, { opSimpNac, incluirIM, regEspTrib }),
     tomador: {
       cpfCnpj: tomador.cpfCnpj,
       razaoSocial: tomador.razaoSocial,
@@ -830,6 +917,17 @@ function registrarRotasNfse(app, db) {
         dataVencimentoBoleto: req.body.dataVencimentoBoleto,
       });
 
+      // Audita com ou sem sucesso: saber quem tentou emitir e foi rejeitado
+      // vale tanto quanto saber quem emitiu.
+      if (resultado.nfse) {
+        logAction(db, req, 'emitir', 'nfse', resultado.nfse.id, {
+          nDPS: resultado.nfse.nDPS,
+          nNFSe: resultado.nfse.nNFSe || null,
+          status: resultado.nfse.status,
+          valor: req.body.servico && req.body.servico.valorServico,
+        });
+      }
+
       if (!resultado.success) {
         const statusCode = resultado.nfse ? 502 : 400;
         return res.status(statusCode).json(resultado);
@@ -855,6 +953,79 @@ function registrarRotasNfse(app, db) {
     }
   });
 
+  // Edita uma NFSe que a SEFIN rejeitou. Só nota em erro: autorizada é
+  // documento fiscal (corrige-se cancelando e emitindo outra) e cancelada
+  // está encerrada. A DPS é remontada com estes dados na reemissão, então a
+  // identidade fiscal (série/nDPS/idDPS) não muda — não abre furo na
+  // numeração nem cria nota nova.
+  const CAMPOS_EDITAVEIS = {
+    tomadorCpfCnpj: (v) => {
+      const d = String(v).replace(/\D/g, '');
+      if (d.length !== 11 && d.length !== 14) throw new Error('CPF/CNPJ do tomador inválido');
+      return d;
+    },
+    tomadorRazaoSocial: (v) => {
+      const s = String(v).trim();
+      if (!s) throw new Error('Razão social do tomador é obrigatória');
+      return s;
+    },
+    codigoTributacaoNacional: (v) => {
+      const s = String(v).replace(/\D/g, '');
+      if (!s) throw new Error('Código de tributação nacional inválido');
+      return s;
+    },
+    descricaoServico: (v) => {
+      const s = String(v).trim();
+      if (!s) throw new Error('Descrição do serviço é obrigatória');
+      return s;
+    },
+    valorServico: (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n <= 0) throw new Error('Valor do serviço deve ser maior que zero');
+      return n;
+    },
+    dataCompetencia: (v) => {
+      const s = String(v).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('Competência deve estar no formato AAAA-MM-DD');
+      return s;
+    },
+  };
+
+  app.patch('/api/nfse/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    try {
+      const nota = db.prepare('SELECT * FROM nfse WHERE id = ?').get(id);
+      if (!nota) return res.status(404).json({ success: false, error: 'NFSe não encontrada' });
+      if (nota.status !== 'erro' && nota.status !== 'erro_timeout') {
+        return res.status(400).json({
+          success: false,
+          error: `Só notas com erro podem ser editadas (status atual: ${nota.status})`,
+        });
+      }
+
+      const sets = [], valores = [], antes = {}, depois = {};
+      for (const [campo, validar] of Object.entries(CAMPOS_EDITAVEIS)) {
+        if (req.body[campo] === undefined) continue;
+        const valor = validar(req.body[campo]);
+        if (valor === nota[campo]) continue;
+        sets.push(`${campo} = ?`);
+        valores.push(valor);
+        antes[campo] = nota[campo];
+        depois[campo] = valor;
+      }
+      if (!sets.length) return res.json({ success: true, nota, semAlteracao: true });
+
+      db.prepare(`UPDATE nfse SET ${sets.join(', ')}, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(...valores, id);
+      logAction(db, req, 'editar', 'nfse', id, { antes, depois });
+
+      const atualizada = db.prepare('SELECT * FROM nfse WHERE id = ?').get(id);
+      res.json({ success: true, nota: atualizada, historico: historicoDaNota(db, id) });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   // Reemite uma NFSe que falhou por erro de conexão/timeout: reenvia o MESMO
   // xmlEnvio já assinado (mesma nDPS/idDps — sem furo de numeração). Se a DPS
   // já tiver sido recebida antes ou for inválida, a SEFIN devolve o erro e a
@@ -877,15 +1048,32 @@ function registrarRotasNfse(app, db) {
       const { p12Buffer, senha } = carregarCertificado(db);
       const client = new NfseClient(p12Buffer, senha, nota.tpAmb || 2);
 
+      // Reenviar os mesmos bytes não resolve rejeição de CONTEÚDO (ex.: E0313,
+      // cTribMun proibido para MEI): o XML salvo está assinado e não pode ser
+      // editado. Reconstrói a DPS com as regras e o cadastro de hoje, mantendo
+      // idDps/serie/nDPS, e assina de novo. Se a reconstrução falhar, cai para
+      // o XML original — reenviar algo é melhor que travar a reemissão.
+      let xmlParaEnviar = nota.xmlEnvio;
+      try {
+        const { privateKeyPem, certDerBase64 } = extrairChavesCertificado(p12Buffer, senha);
+        xmlParaEnviar = assinarDPS(reconstruirDpsDaNota(db, nota), privateKeyPem, certDerBase64);
+        db.prepare('UPDATE nfse SET xmlEnvio = ? WHERE id = ?').run(xmlParaEnviar, id);
+        console.log(`[NFSe][reemitir] DPS ${nota.idDps} reconstruída e reassinada`);
+      } catch (rebuildErr) {
+        console.warn('[NFSe][reemitir] Reconstrução falhou, reenviando XML original:', rebuildErr.message);
+      }
+
       let resposta;
       try {
-        resposta = await client.emitirNfse(nota.xmlEnvio, nota.idDps);
+        resposta = await client.emitirNfse(xmlParaEnviar, nota.idDps);
       } catch (sefinError) {
         console.error('[NFSe][reemitir] Erro SEFIN:', sefinError.message);
         db.prepare(`UPDATE nfse SET status = 'erro', xmlRetorno = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
           .run(sefinError.message, id);
+        logAction(db, req, 'reemitir', 'nfse', id, { nDPS: nota.nDPS, resultado: 'erro', erro: sefinError.message });
         return res.status(502).json({ success: false, error: `Erro ao reenviar para SEFIN: ${sefinError.message}` });
       }
+      logAction(db, req, 'reemitir', 'nfse', id, { nDPS: nota.nDPS, resultado: 'aceita' });
 
       const chaveAcesso = resposta.chaveAcesso || resposta.chNFSe || '';
       let nNFSe = resposta.nNFSe || resposta.numero || '';
@@ -1060,7 +1248,7 @@ function registrarRotasNfse(app, db) {
       if (!nota) {
         return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
       }
-      res.json({ success: true, nota });
+      res.json({ success: true, nota, historico: historicoDaNota(db, nota.id) });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
@@ -1216,6 +1404,10 @@ function registrarRotasNfse(app, db) {
       const resultFin = finalizar();
       if (resultFin.contaId) console.log(`[NFSe] Conta a receber #${resultFin.contaId} cancelada`);
       if (resultFin.boletoId) console.log(`[NFSe] Boleto #${resultFin.boletoId} cancelado`);
+      logAction(db, req, 'cancelar', 'nfse', nota.id, {
+        nNFSe: nota.nNFSe, codigoMotivo: codMotivo, motivo,
+        contaCancelada: resultFin.contaId, boletoCancelado: resultFin.boletoId,
+      });
 
       // Enviar email de cancelamento ao tomador
       let emailStatus = 'nao';

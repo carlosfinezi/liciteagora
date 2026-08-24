@@ -34,9 +34,10 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="compras-pedidos">
     <table>
       <thead><tr>
+        <th class="col-editar"></th>
         <th>Número</th>
         <th>Emissão</th>
         <th>Fornecedor</th>
@@ -46,7 +47,7 @@
         <th>Previsão entrega</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -55,6 +56,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('pedidos-compra');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -83,6 +86,7 @@ async function carregar(){
   tb.innerHTML = peds.length ? peds.map(p => {
     const statusClass = p.status==='rascunho'?'pendente':p.status==='enviado'?'em_separacao':p.status==='recebido_parcial'?'parcial':p.status==='recebido'?'entregue':'cancelado';
     return `<tr>
+      <td class="col-editar"><a class="btn btn-ghost btn-sm btn-icon-only" title="Abrir pedido" href="/compras/pedido.html?id=${p.id}"><svg class="ic-sm"><use href="#i-edit"/></svg></a></td>
       <td class="mono"><a href="/compras/pedido.html?id=${p.id}"><strong>${p.numero}</strong></a></td>
       <td>${fmtData(p.dataEmissao)}</td>
       <td>${p.fornecedorNome||'<span class="muted">—</span>'}</td>
@@ -90,11 +94,9 @@ async function carregar(){
       <td style="text-align:right;">${p.qtdItens||0}</td>
       <td style="text-align:right;font-weight:600;">R$ ${fmt(p.valorTotal)}</td>
       <td>${fmtData(p.dataPrevistaEntrega)}</td>
-      <td style="text-align:right;white-space:nowrap;">
-        <a href="/compras/pedido.html?id=${p.id}" class="btn btn-ghost btn-sm" style="text-decoration:none;">Abrir →</a>
-      </td>
+      <td></td>
     </tr>`;
-  }).join('') : '<tr><td colspan="8" class="empty">Nenhum pedido de compra</td></tr>';
+  }).join('') : '<tr><td colspan="9" class="empty">Nenhum pedido de compra</td></tr>';
 }
 
 carregar();

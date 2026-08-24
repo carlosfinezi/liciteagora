@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integração Comprasnet · Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* .panel / .btn / --vars vêm do app-modern.css. Aqui só o específico da página. */
+        .intro { color: var(--text-2); font-size: 0.9em; line-height: 1.5; margin-bottom: 16px; max-width: 900px; }
+
+        .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+        .kpi-c { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 16px; flex: 1; min-width: 120px; text-align: center; }
+        .kpi-c .n { font-size: 1.6em; font-weight: 700; }
+        .kpi-c .l { color: var(--text-3); font-size: 0.75em; margin-top: 2px; }
+        .kpi-c.done .n { color: var(--success); }
+        .kpi-c.t1 .n { color: var(--danger); }
+        .kpi-c.t2 .n { color: var(--warn); }
+        .kpi-c.t3 .n { color: var(--accent); }
+
+        .tier-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; }
+        .tier-tag { font-weight: 700; font-size: 0.78em; padding: 3px 10px; border-radius: 999px; letter-spacing: .3px; }
+        .tier-tag.t1 { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
+        .tier-tag.t2 { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn); }
+        .tier-tag.t3 { background: var(--bg-3); color: var(--accent); border: 1px solid var(--accent); }
+        .tier-head .sub { color: var(--text-3); font-size: 0.85em; }
+
+        table.tbl { width: 100%; border-collapse: collapse; font-size: 0.86em; }
+        table.tbl th { background: var(--bg-3); color: var(--text-2); text-align: left; padding: 8px 10px; font-weight: 600; position: sticky; top: 0; }
+        table.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+        table.tbl tr:hover td { background: var(--bg-1); }
+        .op-nome { font-weight: 600; color: var(--text-0); }
+        .endpoint { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.82em; color: var(--accent); background: var(--bg-1); padding: 1px 6px; border-radius: 4px; display: inline-block; margin: 1px 0; word-break: break-word; }
+        .ganho { color: var(--text-2); font-size: 0.92em; }
+
+        .pill { font-size: 0.72em; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+        .pill.nao { background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border); }
+        .pill.parcial { background: var(--warn-soft); color: var(--warn); }
+        .pill.ok { background: var(--success-soft); color: var(--success); }
+        .pill.no { background: var(--danger-soft); color: var(--danger); }
+        tr.descartado td { opacity: 0.6; }
+        .aviso { background: var(--danger-soft); border: 1px solid var(--danger); border-radius: var(--r-md); padding: 10px 14px; margin-bottom: 12px; font-size: 0.85em; color: var(--text-1); }
+        .aviso b { color: var(--danger); }
+        .esf { font-size: 0.78em; color: var(--text-3); white-space: nowrap; }
+        .col-narrow { width: 1%; white-space: nowrap; }
+
+        .have { background: var(--success-soft); border: 1px solid var(--success); border-radius: var(--r-md); padding: 10px 14px; margin-bottom: 18px; font-size: 0.85em; color: var(--text-1); }
+        .have b { color: var(--success); }
+        .tbl-wrap { overflow-x: auto; }
+    </style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <h1>🧩 Integração Comprasnet — Roadmap</h1>
+        <small>Backlog de funcionalidades do portal que ainda não consumimos. Cada linha vira uma integração de endpoint.</small>
+      </div>
+    </div>
+
+    <p class="intro">
+      Levantamento cruzando o <b>inventário do nosso código</b> (o que a "arm" do Electron já chama) com a
+      <b>superfície real do portal</b> (microserviços e enums de fluxo extraídos da SPA do cnetmobile).
+      Priorizado por impacto no módulo de licitações. Os endpoints/microserviços são a pista de onde integrar.
+    </p>
+
+    <div class="kpis">
+      <div class="kpi-c done"><div class="n">7</div><div class="l">JÁ INTEGRADO</div></div>
+      <div class="kpi-c t1"><div class="n">0</div><div class="l">TIER 1 · descartado (medido)</div></div>
+      <div class="kpi-c t2"><div class="n">5</div><div class="l">TIER 2 · pós-disputa</div></div>
+      <div class="kpi-c t3"><div class="n">4</div><div class="l">TIER 3 · expansão</div></div>
+      <div class="kpi-c"><div class="n">9</div><div class="l">OPORTUNIDADES REAIS</div></div>
+    </div>
+
+    <div class="have">
+      <b>✔ Já temos:</b> login (senha + certificado + solver hCaptcha) · robô de lances (sniper) ·
+      rajada/blitz agendada · escada de concorrentes · monitor de chat · envio de proposta (básico) ·
+      sync de participações/disputas + heartbeat. Cobrimos bem a fase de <b>disputa</b>.
+    </div>
+
+    <!-- ─── TIER 1 ─────────────────────────────────────────────────── -->
+    <div class="panel" style="margin-bottom:16px">
+      <div class="tier-head">
+        <span class="tier-tag t1">TIER 1</span>
+        <b>Descartado após sondagem ao vivo</b>
+        <span class="sub">as 3 hipóteses não existem para o fornecedor — verificado 01/08/2026</span>
+      </div>
+      <div class="aviso">
+        <b>⚠ Corrigido por medição:</b> sondamos os endpoints reais com o Bearer do fornecedor antes de codar.
+        Os 3 itens caíram: Pendências é de <b>governo</b> (403), Notificações é só <b>configuração de tipos</b>, e o
+        WebSocket carrega <b>apenas o relógio</b> (o portal também faz polling de lance/chat — não há push a consumir).
+        Conclusão útil: <b>não há desvantagem de tempo real</b> — polling é o teto para todos.
+      </div>
+      <div class="tbl-wrap" data-grid="comprasnet-integracao">
+      <table class="tbl">
+        <thead><tr><th>Oportunidade</th><th>Endpoint real sondado</th><th>O que a medição mostrou</th><th class="col-narrow">Esforço</th><th class="col-narrow">Status</th></tr></thead>
+        <tbody>
+          <tr class="descartado">
+            <td class="op-nome">Tempo real (WebSocket)</td>
+            <td><span class="endpoint">comprasnet-websocket/socket/websocket</span> <span class="endpoint">/topic/dataHoraBrasilia</span></td>
+            <td class="ganho">A SPA inteira (19 chunks) assina <b>só o relógio</b>. Sem <span class="endpoint">/topic</span> de lance/chat. O portal <b>faz polling</b> desses dados como nós. Ganho residual: só sincronia sub-segundo p/ rajada.</td>
+            <td class="esf">—</td>
+            <td><span class="pill no">❌ Só relógio</span></td>
+          </tr>
+          <tr class="descartado">
+            <td class="op-nome">Pendências</td>
+            <td><span class="endpoint">comprasnet-area-trabalho/v1/pendencia</span></td>
+            <td class="ganho">Retornou <b>403 Forbidden</b> com Bearer do fornecedor. O código é <code>obterCardPendencia</code> + <code>PendenciasUasg</code> = <b>feature de governo</b> (pregoeiro), não do fornecedor.</td>
+            <td class="esf">—</td>
+            <td><span class="pill no">❌ Governo</span></td>
+          </tr>
+          <tr class="descartado">
+            <td class="op-nome">Notificações</td>
+            <td><span class="endpoint">comprasnet-notificacoes/v1/destinatarios/notificacoes</span></td>
+            <td class="ganho">É <code>obterTiposNotificacoes</code>/<code>habilitar</code>/<code>desabilitar</code> = <b>preferência de tipos</b> de notificação, não um inbox de ações. E retornou erro para nós.</td>
+            <td class="esf">—</td>
+            <td><span class="pill no">❌ Config only</span></td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- ─── TIER 2 ─────────────────────────────────────────────────── -->
+    <div class="panel" style="margin-bottom:16px">
+      <div class="tier-head">
+        <span class="tier-tag t2">TIER 2</span>
+        <b>Fecham o ciclo do pregão</b>
+        <span class="sub">pós-disputa — hoje o maior buraco</span>
+      </div>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Oportunidade</th><th>Sinais / enums no portal</th><th>O que ganhamos</th><th class="col-narrow">Esforço</th><th class="col-narrow">Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="op-nome">Negociação pós-lance</td>
+            <td><span class="endpoint">NEGOCIACAO_VALOR</span> <span class="endpoint">NEGOCIACAO_VALOR_E_SUBCONTRATACAO</span></td>
+            <td class="ganho">Hoje o chat <b>detecta</b> a convocação (cat. 830) mas <b>não age</b>. Responder à contraproposta do pregoeiro = ganhar preservando margem.</td>
+            <td class="esf">Médio (POST)</td>
+            <td><span class="pill parcial">Só detecta</span></td>
+          </tr>
+          <tr>
+            <td class="op-nome">Resultado / Adjudicação / Homologação</td>
+            <td><span class="endpoint">comprasnet-fase-externa/v1/compras/{compra}/participacao</span> → homologada · situação · linkPncp</td>
+            <td class="ganho">Ler o <b>desfecho real</b> (homologada/vitória/pós-disputa + link PNCP) em vez de inferir por ausência. Provado na UFPB. Tabela <code>resultado_comprasnet</code> + badge em Participações.</td>
+            <td class="esf">Baixo (GET)</td>
+            <td><span class="pill ok">🟢 Servidor+página no ar · arm no build</span></td>
+          </tr>
+          <tr>
+            <td class="op-nome">Habilitação / envio de anexos</td>
+            <td><span class="endpoint">HABILITACAO_FORNECEDORES</span> <span class="endpoint">CONVOCACAO_ENVIO_ANEXO</span></td>
+            <td class="ganho">Quando convocado, <b>enviar documentos</b> no prazo (upload — tipo de operação novo para nós).</td>
+            <td class="esf">Alto (upload)</td>
+            <td><span class="pill nao">Não iniciado</span></td>
+          </tr>
+          <tr>
+            <td class="op-nome">Recurso / Contrarrazão / Impugnação</td>
+            <td><span class="endpoint">SituacaoRecursoContrarrazaoEnum</span> <span class="endpoint">IMPUGNACAO</span></td>
+            <td class="ganho">Registrar <b>intenção de recurso</b> no prazo (crítico juridicamente) e contrarrazões.</td>
+            <td class="esf">Médio</td>
+            <td><span class="pill nao">Não iniciado</span></td>
+          </tr>
+          <tr>
+            <td class="op-nome">Diligência</td>
+            <td><span class="endpoint">SituacaoDiligenciaEnum</span></td>
+            <td class="ganho">Responder pedidos de diligência do pregoeiro dentro do prazo.</td>
+            <td class="esf">Médio</td>
+            <td><span class="pill nao">Não iniciado</span></td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- ─── TIER 3 ─────────────────────────────────────────────────── -->
+    <div class="panel">
+      <div class="tier-head">
+        <span class="tier-tag t3">TIER 3</span>
+        <b>Expansão e completude</b>
+        <span class="sub">ampliam o funil e fecham lacunas</span>
+      </div>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Oportunidade</th><th>Microserviço / verbo</th><th>O que ganhamos</th><th class="col-narrow">Esforço</th><th class="col-narrow">Status</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="op-nome">Consultas / Sourcing</td>
+            <td><span class="endpoint">comprasnet-consultas</span></td>
+            <td class="ganho">Buscar <b>novas oportunidades/editais</b> para participar — expande o funil, não só opera o que já entrou.</td>
+            <td class="esf">Médio</td>
+            <td><span class="pill nao">Não iniciado</span></td>
+          </tr>
+          <tr>
+            <td class="op-nome">Proposta completa</td>
+            <td><span class="endpoint">…/itens/{item}/proposta</span> (anexo/planilha)</td>
+            <td class="ganho">Hoje só valor + quantidade. Falta anexo/planilha, marca/modelo e descrição detalhada.</td>
+            <td class="esf">Médio</td>
+            <td><span class="pill parcial">Básico</span></td>
+          </tr>
+          <tr>
+            <td class="op-nome">Desistência / retirada</td>
+            <td><span class="endpoint">PUT / DELETE (lance ou item)</span></td>
+            <td class="ganho">Os verbos <code>comprasnetPut</code>/<code>comprasnetDelete</code> já existem no cliente, mas <b>nenhuma função de negócio os usa</b>.</td>
+            <td class="esf">Baixo</td>
+            <td><span class="pill nao">Não iniciado</span></td>
+          </tr>
+          <tr>
+            <td class="op-nome">Área de trabalho / Dashboard</td>
+            <td><span class="endpoint">comprasnet-area-trabalho</span></td>
+            <td class="ganho">O dashboard que agrega pendências + notificações + análises — visão única do fornecedor.</td>
+            <td class="esf">Baixo (GET)</td>
+            <td><span class="pill nao">Não iniciado</span></td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <p class="intro" style="margin-top:16px">
+      <b>Arquitetura:</b> servidor-decide / Electron-executa. Parte da lógica pode já existir no servidor;
+      o que estas linhas marcam é onde <b>falta a arm executora / o consumo do dado</b> do portal.
+      Próximo passo <b>em andamento</b>: pivô para o <b>Tier 2</b> (fornecedor-real, com infra pronta) — começando por
+      <b>Habilitação</b> (<code>comprasnet-anexos-routes.js</code> + <code>habilitacao_documentos</code> + <code>anexos-compra.html</code> já existem; falta a arm chamar o upload).
+    </p>
+
+</main>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/grid.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('integracao-comprasnet');</script>
+</body>
+</html>

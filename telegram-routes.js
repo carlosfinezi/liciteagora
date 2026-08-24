@@ -108,7 +108,13 @@ function registrarRotasTelegram(app, db, { enviarTelegram }) {
   // Testar envio de mensagem
   app.post('/api/telegram/testar', async (req, res) => {
     try {
-      const enviado = await enviarTelegram('🔔 <b>Teste de alerta</b>\n\nSe você recebeu esta mensagem, os alertas estão funcionando!');
+      // ignorarCanal: este teste valida o TOKEN, não a preferência de canal.
+      // Respeitar o interruptor aqui faria o teste falhar com o canal
+      // desligado e parecer credencial errada.
+      const enviado = await enviarTelegram(
+        '🔔 <b>Teste de conexão</b>\n\nSe você recebeu esta mensagem, o bot está configurado corretamente.\n' +
+        '<i>Isto testa o token — o envio de alertas depende do canal estar ligado em Configurações → Notificações.</i>',
+        { ignorarCanal: true });
 
       if (enviado) {
         res.json({ success: true, message: 'Mensagem de teste enviada' });

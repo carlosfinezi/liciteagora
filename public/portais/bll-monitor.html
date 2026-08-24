@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor BLL · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .main-content { padding: 20px; }
+  .status-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .status-item { background: var(--bg-2); padding: 10px 14px; border-radius: var(--r-md); flex: 1; min-width: 120px; text-align: center; }
+  .status-item .label { color: var(--text-3); font-size: 0.75em; margin-bottom: 3px; }
+  .status-item .value { font-size: 1.05em; font-weight: 600; }
+  .value.azul { color: var(--accent); } .value.verde { color: var(--success); } .value.cinza { color: var(--text-3); }
+
+  .filtros { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .filtros select, .filtros label { font-size: 0.85em; color: var(--text-1); }
+  .filtros select { padding: 5px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-0); }
+  .filtros label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .filtros .sep { flex: 1; }
+  .upd { font-size: 0.75em; color: var(--text-3); }
+
+  .feed { display: flex; flex-direction: column; gap: 6px; }
+  .msg { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px 12px; background: var(--bg-1); }
+  .msg.nova { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #4dabf733; } to { background: var(--bg-1); } }
+  .msg-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .msg-proc { font-size: 0.76em; font-weight: 600; color: var(--accent); }
+  .badge { font-size: 0.68em; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+  .b-escopo { background: var(--bg-3); color: var(--text-2); }
+  .b-preg { background: rgba(255,215,0,0.16); color: #ffd700; }
+  .b-sis { background: #88888822; color: var(--text-3); }
+  .b-part { background: rgba(77,171,247,0.15); color: var(--accent); }
+  .msg-time { font-size: 0.72em; color: var(--text-3); margin-left: auto; }
+  .msg-text { font-size: 0.85em; color: var(--text-1); line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+  .msg.sis .msg-text { color: var(--text-2); font-style: italic; }
+  /* Agrupamento por sala/processo (mesmo padrão do monitor Comprasnet) */
+  .grupo { border: 1px solid var(--border); border-radius: var(--r-sm); margin-bottom: 6px; overflow: hidden; }
+  .grupo-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; background: var(--bg-2); transition: background .15s; }
+  .grupo-head:hover { background: #0f346040; }
+  .grupo-chevron { color: var(--text-3); font-size: .8em; transition: transform .2s; flex-shrink: 0; }
+  .grupo.aberto .grupo-chevron { transform: rotate(90deg); }
+  .grupo-title { flex: 1; min-width: 0; }
+  .grupo-proc { font-size: .85em; font-weight: 600; color: var(--accent); }
+  .grupo-org { font-size: .74em; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grupo-badges { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  .grupo-body { display: none; padding: 8px 10px; background: var(--bg-0); flex-direction: column; gap: 6px; }
+  .grupo.aberto .grupo-body { display: flex; }
+  .empty { text-align: center; color: var(--text-3); padding: 28px; font-size: 0.88em; }
+  .hint { font-size: 0.76em; color: var(--text-3); }
+  .hint a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Monitor BLL — Chat</h1>
+      <small>Mensagens do pregoeiro, do sistema e dos participantes, capturadas ao vivo de todas as salas BLL do cliente.</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost btn-sm" onclick="carregar()">↻ Recarregar</button>
+      <a class="btn btn-ghost btn-sm" href="/portais/bll-salas.html">Salas BLL →</a>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-item"><div class="label">Brasília</div><div class="value azul" id="kHora">--:--:--</div></div>
+    <div class="status-item"><div class="label">Salas com chat</div><div class="value" id="kSalas">0</div></div>
+    <div class="status-item"><div class="label">Mensagens</div><div class="value azul" id="kMsgs">0</div></div>
+    <div class="status-item"><div class="label">Do pregoeiro</div><div class="value verde" id="kPreg">0</div></div>
+    <div class="status-item"><div class="label">Última</div><div class="value cinza" id="kUlt" style="font-size:0.85em;">—</div></div>
+  </div>
+
+  <div class="filtros">
+    <select id="fSala" onchange="carregar()"><option value="">Todas as salas</option></select>
+    <label><input type="checkbox" id="fPreg" onchange="render()"> só pregoeiro/sistema</label>
+    <span class="sep"></span>
+    <span class="hint">🔔 Notificações via Telegram em <a href="/configuracoes/notificacoes.html">Notificações</a></span>
+    <span class="upd" id="upd"></span>
+  </div>
+
+  <details style="margin-bottom:14px;">
+    <summary style="cursor:pointer;font-size:.9em;color:var(--accent);padding:6px 0;">⚙️ Configuração deste monitor (palavras-chave + Telegram próprios)</summary>
+    <div id="cfgPanel" style="margin-top:10px;"></div>
+  </details>
+
+  <div id="feed" class="feed"><p class="empty"><span class="spinner"></span> Carregando…</p></div>
+</main></div>
+
+<script>
+const esc = s => String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const _d=document.createElement('textarea');
+const decodeEnt = s => { if(s==null) return ''; _d.innerHTML=String(s); return _d.value; };
+const escT = s => esc(decodeEnt(s));
+
+let mensagens = [];
+let maxIdVisto = 0;
+let salasNoSelect = new Set();
+let grupoExpandido = new Set();   // salaId dos grupos abertos
+
+function classeAutor(a){
+  const s=(a||'').toUpperCase();
+  if(s.includes('PREGOEIRO')||s.includes('CONDUTOR')) return {cls:'b-preg', tipo:'preg'};
+  if(s==='SISTEMA') return {cls:'b-sis', tipo:'sis'};
+  return {cls:'b-part', tipo:'part'};
+}
+
+async function carregar(){
+  try{
+    const salaId=document.getElementById('fSala').value;
+    const r=await fetch('/api/bll/chat?limit=300'+(salaId?('&salaId='+salaId):''));
+    const d=await r.json();
+    if(!d.success) throw new Error(d.error);
+    mensagens=d.mensagens||[];
+    atualizarSelect();
+    render();
+    document.getElementById('upd').textContent='atualizado '+new Date().toLocaleTimeString('pt-BR');
+  }catch(e){
+    document.getElementById('feed').innerHTML='<p class="empty" style="color:var(--danger);">'+esc(e.message)+'</p>';
+  }
+}
+
+function atualizarSelect(){
+  const sel=document.getElementById('fSala');
+  for(const m of mensagens){
+    if(!salasNoSelect.has(m.salaId)){
+      salasNoSelect.add(m.salaId);
+      const o=document.createElement('option'); o.value=m.salaId;
+      o.textContent=(m.processNumber||('sala '+m.salaId))+' — '+decodeEnt(m.title||'');
+      sel.appendChild(o);
+    }
+  }
+}
+
+function render(){
+  const soPreg=document.getElementById('fPreg').checked;
+  let vis=mensagens.filter(m=>!soPreg||classeAutor(m.autor).tipo!=='part');
+
+  // KPIs
+  document.getElementById('kSalas').textContent=new Set(mensagens.map(m=>m.salaId)).size;
+  document.getElementById('kMsgs').textContent=mensagens.length;
+  document.getElementById('kPreg').textContent=mensagens.filter(m=>classeAutor(m.autor).tipo==='preg').length;
+  document.getElementById('kUlt').textContent=mensagens[0]?(mensagens[0].dataHora||'—'):'—';
+
+  const feed=document.getElementById('feed');
+  if(!vis.length){ feed.innerHTML='<p class="empty">Nenhuma mensagem capturada ainda.</p>'; return; }
+
+  const novoMax=Math.max(...mensagens.map(m=>m.id));
+
+  // Agrupa por sala/processo (mensagens já vêm mais recentes primeiro).
+  const grupos=new Map();
+  for(const m of vis){
+    if(!grupos.has(m.salaId)) grupos.set(m.salaId,{salaId:m.salaId,processNumber:m.processNumber,title:m.title,msgs:[],preg:0,nova:false});
+    const g=grupos.get(m.salaId);
+    g.msgs.push(m);
+    if(classeAutor(m.autor).tipo==='preg') g.preg++;
+    if(m.id>maxIdVisto && maxIdVisto>0) g.nova=true;
+  }
+  // Abre o grupo mais recente por padrão (só na 1ª renderização).
+  if(!grupoExpandido.size && grupos.size) grupoExpandido.add(grupos.keys().next().value);
+
+  feed.innerHTML=[...grupos.values()].map(g=>{
+    const aberto=grupoExpandido.has(g.salaId);
+    const badges=`<span class="badge b-escopo">${g.msgs.length} msgs</span>`+
+      (g.preg?`<span class="badge b-preg">${g.preg} pregoeiro</span>`:'')+
+      (g.nova?`<span class="badge" style="background:var(--accent);color:#fff;">novas</span>`:'');
+    return `<div class="grupo ${aberto?'aberto':''}">
+      <div class="grupo-head" onclick="toggleGrupo(${g.salaId})">
+        <span class="grupo-chevron">▶</span>
+        <div class="grupo-title">
+          <div class="grupo-proc">${esc(g.processNumber||('sala '+g.salaId))}</div>
+          <div class="grupo-org">${escT(g.title)}</div>
+        </div>
+        <div class="grupo-badges">${badges}</div>
+      </div>
+      <div class="grupo-body">${g.msgs.map(msgHtml).join('')}</div>
+    </div>`;
+  }).join('');
+  maxIdVisto=novoMax;
+}
+
+function msgHtml(m){
+  const a=classeAutor(m.autor);
+  const nova=m.id>maxIdVisto && maxIdVisto>0;
+  return `
+    <div class="msg ${a.tipo==='sis'?'sis':''} ${nova?'nova':''}">
+      <div class="msg-top">
+        <span class="badge b-escopo">${esc(m.escopo)}</span>
+        <span class="badge ${a.cls}">${esc(m.autor||'—')}</span>
+        <span class="msg-time">${esc(m.dataHora||'')}</span>
+      </div>
+      <div class="msg-text">${escT(m.texto)}</div>
+    </div>`;
+}
+function toggleGrupo(id){ if(grupoExpandido.has(id)) grupoExpandido.delete(id); else grupoExpandido.add(id); render(); }
+
+setInterval(()=>{ document.getElementById('kHora').textContent=new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo'}); },1000);
+setInterval(carregar, 5000);
+carregar();
+</script>
+<script src="/js/chat-monitor-config-panel.js"></script>
+<script>renderChatConfigPanel('cfgPanel','bll');</script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('bll-monitor');</script>
+</body>
+</html>

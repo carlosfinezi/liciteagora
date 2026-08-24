@@ -278,6 +278,10 @@ function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }
 
   sig.on('updateInfoStatus', (data) => emitter.emit('updateInfoStatus', data));
   sig.on('newDisputingBatch', (data) => emitter.emit('newDisputingBatch', data));
+  // Sinais de chat (gatilhos — o texto vem por fetch no ingest).
+  for (const ev of ['newBatchMsg', 'newProcessMsg', 'newReadBatchMsg', 'newProcessAlert']) {
+    sig.on(ev, (data) => emitter.emit('chatSignal', { event: ev, data }));
+  }
   sig.on('connected', (info) => emitter.emit('connected', info));
   sig.on('disconnected', (reason) => emitter.emit('disconnected', reason));
   sig.on('error', (e) => emitter.emit('error', e));

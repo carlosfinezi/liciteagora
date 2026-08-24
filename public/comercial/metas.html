@@ -5,65 +5,327 @@
 <title>Metas de Vendas · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .barra { background:var(--border); border-radius:6px; height:12px; position:relative; overflow:visible; }
+  .barra > .preenche { height:100%; border-radius:6px 0 0 6px; }
+  /* Marcador de quanto do mês já passou — a leitura útil é a distância
+     entre a barra e o marcador, não o número absoluto. */
+  .barra > .marcador { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text-1); opacity:.85; }
+  .tend { font-size:.72em; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+          padding:2px 7px; border-radius:10px; white-space:nowrap; }
+  .tend.no_ritmo,.tend.batida { background:var(--success); color:#fff; }
+  .tend.depende_carteira { background:var(--warn); color:#111; }
+  .tend.risco { background:#ffb74d; color:#111; }
+  .tend.abaixo,.tend.nao_batida { background:var(--danger); color:#fff; }
+  .num { text-align:right; white-space:nowrap; }
+  .sub { display:block; color:var(--text-3); font-size:.78em; font-weight:400; }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
   <div class="page-header">
     <div><h1>Metas de Vendas</h1>
-    <small>Meta por vendedor × mês; realizado = pedidos do vendedor no mês (fora rascunho/cancelado)</small></div>
+    <small>Realizado = receita reconhecida (entregue + faturado). Carteira e funil aparecem à parte.</small></div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="abrirMetaEquipe()">Meta da equipe</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirMeta()">Definir meta</button>
+    </div>
   </div>
+
   <div id="alertGlobal"></div>
+  <div id="avisos"></div>
+
   <div class="toolbar">
-    <input type="month" id="comp" onchange="carregar()">
-    <select id="mVend" style="min-width:200px;"></select>
-    <input type="number" id="mValor" placeholder="Meta (R$)" step="0.01" style="width:140px;">
-    <button class="btn btn-primary btn-sm" onclick="salvarMeta()">Definir meta</button>
+    <input type="month" id="comp" onchange="recarregarTudo()">
+    <span id="progressoMes" class="muted" style="align-self:center;"></span>
   </div>
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>Vendedor</th><th style="text-align:right;">Meta</th>
-      <th style="text-align:right;">Realizado</th><th style="text-align:right;">Atingimento</th><th style="width:220px;"></th></tr></thead>
-    <tbody id="tb"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
-  </table></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th style="width:34px;">#</th>
+        <th>Vendedor</th>
+        <th class="num">Meta</th>
+        <th class="num">Realizado</th>
+        <th style="min-width:180px;">Atingimento</th>
+        <th class="num">Projeção</th>
+        <th class="num" title="Pedidos confirmados/em separação — venda fechada, ainda não entregue">Carteira</th>
+        <th class="num" title="Orçamentos abertos na competência">Funil</th>
+        <th class="num">Ticket médio</th>
+        <th class="num">Margem</th>
+        <th class="num" title="Perdas rastreadas até um pedido deste vendedor">Perdido</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="page-header" style="margin-top:26px;">
+    <div><h2 style="margin:0;font-size:1.05em;">Histórico</h2>
+    <small>Últimos 12 meses — tendência, sazonalidade e o que se perdeu no caminho</small></div>
+    <div class="actions">
+      <select id="histVend" onchange="carregarHistorico()" style="min-width:180px;">
+        <option value="">Equipe inteira</option>
+      </select>
+    </div>
+  </div>
+  <div class="kpi-grid" id="histKpis"></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Competência</th><th class="num">Meta</th><th class="num">Realizado</th>
+        <th class="num">Atingimento</th><th class="num">Pedidos</th><th class="num">Ticket médio</th>
+        <th class="num">Perdido</th><th class="num" title="Mesma competência do ano anterior">Ano anterior</th>
+        <th style="width:120px;">Evolução</th>
+      </tr></thead>
+      <tbody id="tbHist"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
 </main></div>
+
+<!-- Meta individual -->
+<div class="modal-bg" id="modalMeta">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Definir meta do vendedor</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharMeta()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Vendedor *</label><select id="mVend" onchange="preencherMetaAtual()"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Meta de receita (R$) *</label><input type="number" id="mValor" step="0.01" min="0"></div>
+      <div class="form-group"><label>Meta de margem (R$)</label><input type="number" id="mMargem" step="0.01" min="0"></div>
+      <div class="form-group"><label>Meta de pedidos</label><input type="number" id="mPedidos" step="1" min="0"></div>
+    </div>
+    <small class="muted">Meta de margem é opcional, mas é o que impede bater a meta de receita à custa de desconto.</small>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharMeta()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarMeta()">Salvar meta</button>
+    </div>
+  </div>
+</div>
+
+<!-- Meta da equipe -->
+<div class="modal-bg" id="modalEquipe">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Meta da equipe</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharEquipe()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <p class="muted" style="font-size:.88em;margin-bottom:12px;">
+      A meta da empresa não é necessariamente a soma das individuais — nem todo vendedor tem meta.
+      Sem definir aqui, o painel usa a soma como referência.
+    </p>
+    <div class="form-row">
+      <div class="form-group"><label>Meta de receita (R$) *</label><input type="number" id="eValor" step="0.01" min="0"></div>
+      <div class="form-group"><label>Meta de margem (R$)</label><input type="number" id="eMargem" step="0.01" min="0"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observação</label><input type="text" id="eObs"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharEquipe()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarMetaEquipe()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
 <script>initSidebar('comercial-metas');</script>
 <script>
-function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',5000);}
-function fmt(v){return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
-async function carregar(){
-  const comp=document.getElementById('comp').value;
-  const r=await fetch('/api/metas/atingimento?competencia='+comp);const d=await r.json();
-  if(!d.success)return showAlert(d.error,'error');
-  document.getElementById('tb').innerHTML=d.linhas.length?d.linhas.map(l=>{
-    const pct=l.atingimento;
-    const cor=pct==null?'var(--text-3)':(pct>=100?'var(--success)':(pct>=70?'var(--warn,orange)':'var(--danger)'));
-    const barra=pct!=null?`<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;">
-      <div style="width:${Math.min(pct,100)}%;height:100%;background:${cor};"></div></div>`:'';
-    return `<tr><td>${l.vendedor}</td>
-      <td style="text-align:right;">${fmt(l.meta)}</td>
-      <td style="text-align:right;"><strong>${fmt(l.realizado)}</strong></td>
-      <td style="text-align:right;color:${cor};font-weight:700;">${pct!=null?pct+'%':'sem meta'}</td>
-      <td>${barra}</td></tr>`;
-  }).join(''):'<tr><td colspan="5" class="empty">Sem metas nem vendas na competência</td></tr>';
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}
+function fmt(v){return (v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtC(v){return v==null?'—':'R$ '+fmt(v);}
+function pct(v){return v==null?'—':v+'%';}
+const val=id=>document.getElementById(id).value;
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const TEND_TXT={no_ritmo:'no ritmo',depende_carteira:'depende da carteira',risco:'risco',abaixo:'abaixo',batida:'batida',nao_batida:'não batida'};
+let MOTIVO_TXT={};
+let USUARIOS=[];
+let DADOS=null;
+
+function corTendencia(t){
+  if(t==='no_ritmo'||t==='batida')return 'var(--success)';
+  if(t==='depende_carteira'||t==='risco')return 'var(--warn)';
+  if(t)return 'var(--danger)';
+  return 'var(--text-3)';
 }
+
+async function carregar(){
+  const comp=val('comp');
+  const r=await fetch('/api/metas/atingimento?competencia='+comp);
+  const d=await r.json();
+  if(!d.success)return showAlert(d.error,'error');
+  DADOS=d;
+  const t=d.tempo,e=d.equipe;
+
+  document.getElementById('progressoMes').textContent = t.fechada
+    ? 'competência fechada'
+    : (t.emAndamento
+        ? `${t.uteisDecorridos} de ${t.uteisTotal} dias úteis (${Math.round(t.progresso*100)}% do mês) · ${t.uteisRestantes} restantes`
+        : 'competência futura');
+
+  // A projeção é o número que muda decisão no meio do mês.
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="label">Meta da equipe</div><div class="value">${fmtC(e.meta)}</div>
+      <small class="muted">${e.metaDefinida?'definida':'soma das individuais'}</small></div>
+    <div class="kpi ${e.atingimento>=100?'success':''}"><div class="label">Realizado${e.devolvido>0?' (líquido)':''}</div>
+      <div class="value">${fmtC(e.realizado)}</div>
+      <small class="muted">${pct(e.atingimento)} da meta · ${e.pedidos} pedido(s)${
+        e.devolvido>0?` · −${fmtC(e.devolvido)} devolvido`:''}</small></div>
+    <div class="kpi ${e.projecaoPct==null?'':(e.projecaoPct>=100?'success':'danger')}"><div class="label">Projeção do mês</div>
+      <div class="value">${fmtC(e.projecao)}</div><small class="muted">${pct(e.projecaoPct)} da meta no ritmo atual</small></div>
+    <div class="kpi"><div class="label">Carteira + funil</div><div class="value">${fmtC(e.carteira+e.funil)}</div>
+      <small class="muted">${fmtC(e.carteira)} fechado · ${fmtC(e.funil)} em orçamento</small></div>
+    <div class="kpi ${e.margemPct!=null&&e.margemPct<0?'danger':''}"><div class="label">Margem</div>
+      <div class="value">${fmtC(e.margemValor)}</div><small class="muted">${pct(e.margemPct)} sobre o realizado</small></div>
+    <div class="kpi ${e.perdaValor>0?'warn':''}"><div class="label">Perdido no mês</div><div class="value">${fmtC(e.perdaValor)}</div>
+      <small class="muted">vendas perdidas rastreadas</small></div>`;
+
+  const avisos=[];
+  // Sem vendedor no pedido, meta e comissão não têm como funcionar.
+  if(d.semVendedor.pedidos>0)avisos.push(`<div class="alert warn" style="display:block;">
+    <strong>${d.semVendedor.pedidos} pedido(s)</strong> faturados nesta competência (${fmtC(d.semVendedor.valor)})
+    estão <strong>sem vendedor</strong> e ficam fora do rateio das metas.
+    Abra o pedido e informe o vendedor na aba <em>Datas e referências</em>.</div>`);
+  if(e.vendedoresSemMeta>0)avisos.push(`<div class="alert" style="display:block;">
+    ${e.vendedoresSemMeta} vendedor(es) com movimento no mês e <strong>sem meta definida</strong> — o atingimento deles não é calculável.</div>`);
+  const semCobertura=(d.linhas||[]).filter(l=>l.margemCobertura!=null&&l.margemCobertura<0.8);
+  if(semCobertura.length)avisos.push(`<div class="alert" style="display:block;">
+    Margem parcial: em ${semCobertura.length} vendedor(es) parte do faturamento não tem custo conhecido.
+    O percentual exibido vale só sobre a parcela com custo.</div>`);
+  document.getElementById('avisos').innerHTML=avisos.join('');
+
+  document.getElementById('tb').innerHTML=d.linhas.length?d.linhas.map(l=>{
+    const cor=corTendencia(l.tendencia);
+    const larg=l.atingimento!=null?Math.min(l.atingimento,100):0;
+    const marca=t.emAndamento?`<div class="marcador" style="left:${Math.min(t.progresso*100,100)}%" title="${Math.round(t.progresso*100)}% do mês decorrido"></div>`:'';
+    const barra=l.meta>0?`<div class="barra"><div class="preenche" style="width:${larg}%;background:${cor};"></div>${marca}</div>
+      <small class="sub">${pct(l.atingimento)}${l.tendencia?` · <span class="tend ${l.tendencia}">${TEND_TXT[l.tendencia]}</span>`:''}</small>`
+      :'<small class="muted">sem meta definida</small>';
+    const margem=l.margemValor==null?'—':`${fmtC(l.margemValor)}<span class="sub">${pct(l.margemPct)}${
+      l.margemCobertura!=null&&l.margemCobertura<0.8?` · ${Math.round(l.margemCobertura*100)}% coberto`:''}</span>`;
+    const perdido=l.perdaValor>0?`${fmtC(l.perdaValor)}<span class="sub">${
+      l.perdaMotivoTop?esc(MOTIVO_TXT[l.perdaMotivoTop]||l.perdaMotivoTop):''}${
+      l.conversaoPct!=null?` · conv. ${l.conversaoPct}%`:''}</span>`:'—';
+    return `<tr>
+      <td>${l.posicao}</td>
+      <td><strong>${esc(l.vendedor)}</strong><span class="sub">${l.clientes} cliente(s) · ${l.pedidos} pedido(s)</span></td>
+      <td class="num">${l.meta>0?fmtC(l.meta):'—'}${l.metaMargem?`<span class="sub">margem ${fmtC(l.metaMargem)}</span>`:''}</td>
+      <td class="num"><strong>${fmtC(l.realizado)}</strong>${
+        l.devolvido > 0 ? `<span class="sub" title="Bruto ${fmtC(l.realizadoBruto)} menos devoluções">− ${fmtC(l.devolvido)} devolvido</span>` : ''}</td>
+      <td>${barra}</td>
+      <td class="num">${fmtC(l.projecao)}${l.projecaoPct!=null?`<span class="sub">${pct(l.projecaoPct)}</span>`:''}</td>
+      <td class="num">${l.carteira>0?fmtC(l.carteira):'—'}${l.pedidosCarteira?`<span class="sub">${l.pedidosCarteira} ped.</span>`:''}</td>
+      <td class="num">${l.funil>0?fmtC(l.funil):'—'}${l.pedidosFunil?`<span class="sub">${l.pedidosFunil} orç.</span>`:''}</td>
+      <td class="num">${fmtC(l.ticketMedio)}</td>
+      <td class="num">${margem}</td>
+      <td class="num">${perdido}</td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="11" class="empty">Sem metas nem vendas na competência</td></tr>';
+}
+
+async function carregarHistorico(){
+  const v=val('histVend');
+  const r=await fetch('/api/metas/historico?meses=12&ate='+val('comp')+(v?'&vendedorUserId='+v:''));
+  const d=await r.json();
+  if(!d.success)return;
+  const max=Math.max(...d.serie.map(s=>s.realizado),1);
+  const rs=d.resumo;
+  document.getElementById('histKpis').innerHTML=`
+    <div class="kpi"><div class="label">Total 12 meses</div><div class="value">${fmtC(rs.totalPeriodo)}</div></div>
+    <div class="kpi"><div class="label">Média mensal</div><div class="value">${fmtC(rs.mediaMensal)}</div>
+      <small class="muted">só meses com venda</small></div>
+    <div class="kpi success"><div class="label">Melhor mês</div>
+      <div class="value">${rs.melhorMes?fmtC(rs.melhorMes.realizado):'—'}</div>
+      <small class="muted">${rs.melhorMes?rs.melhorMes.competencia:''}</small></div>
+    <div class="kpi ${rs.totalPerdido>0?'warn':''}"><div class="label">Perdido no período</div>
+      <div class="value">${fmtC(rs.totalPerdido)}</div></div>`;
+
+  const hoje=val('comp');
+  document.getElementById('tbHist').innerHTML=d.serie.map(s=>{
+    const larg=Math.round((s.realizado/max)*100);
+    const varCor=s.variacaoAnualPct==null?'var(--text-3)':(s.variacaoAnualPct>=0?'var(--success)':'var(--danger)');
+    return `<tr${s.competencia===hoje?' style="background:var(--bg-2);"':''}>
+      <td><strong>${s.competencia}</strong></td>
+      <td class="num">${s.meta>0?fmtC(s.meta):'—'}</td>
+      <td class="num"><strong>${fmtC(s.realizado)}</strong></td>
+      <td class="num">${pct(s.atingimento)}</td>
+      <td class="num">${s.pedidos||'—'}</td>
+      <td class="num">${fmtC(s.ticketMedio)}</td>
+      <td class="num">${s.perdaValor>0?fmtC(s.perdaValor):'—'}</td>
+      <td class="num">${s.realizadoAnoAnterior!=null?fmtC(s.realizadoAnoAnterior):'—'}${
+        s.variacaoAnualPct!=null?`<span class="sub" style="color:${varCor}">${s.variacaoAnualPct>=0?'+':''}${s.variacaoAnualPct}%</span>`:''}</td>
+      <td><div class="barra"><div class="preenche" style="width:${larg}%;background:var(--text-3);"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ==================== METAS ====================
+function preencherMetaAtual(){
+  const l=(DADOS?.linhas||[]).find(x=>String(x.vendedorUserId)===val('mVend'));
+  document.getElementById('mValor').value=l&&l.meta?l.meta:'';
+  document.getElementById('mMargem').value=l&&l.metaMargem!=null?l.metaMargem:'';
+  document.getElementById('mPedidos').value=l&&l.metaPedidos!=null?l.metaPedidos:'';
+}
+function abrirMeta(){
+  document.getElementById('mVend').innerHTML=USUARIOS.map(u=>`<option value="${u.id}">${esc(u.nome||u.username)}</option>`).join('');
+  preencherMetaAtual();
+  document.getElementById('modalMeta').classList.add('open');
+}
+function fecharMeta(){document.getElementById('modalMeta').classList.remove('open');}
 async function salvarMeta(){
-  const body={vendedorUserId:Number(document.getElementById('mVend').value),
-    competencia:document.getElementById('comp').value,
-    valorMeta:Number(document.getElementById('mValor').value)};
+  const body={vendedorUserId:Number(val('mVend')),competencia:val('comp'),
+    valorMeta:Number(val('mValor')),
+    valorMetaMargem:val('mMargem')!==''?Number(val('mMargem')):null,
+    metaPedidos:val('mPedidos')!==''?Number(val('mPedidos')):null};
   if(!body.vendedorUserId)return showAlert('Selecione o vendedor','error');
+  if(!(body.valorMeta>=0))return showAlert('Informe a meta de receita','error');
   const r=await fetch('/api/metas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json();if(!d.success)return showAlert(d.error,'error');
-  showAlert('Meta salva');carregar();
+  fecharMeta();showAlert('Meta salva');recarregarTudo();
 }
+
+function abrirMetaEquipe(){
+  const e=DADOS?.equipe;
+  document.getElementById('eValor').value=e&&e.metaDefinida?e.meta:'';
+  document.getElementById('eMargem').value=e&&e.metaMargem!=null?e.metaMargem:'';
+  document.getElementById('eObs').value=e&&e.observacao?e.observacao:'';
+  document.getElementById('modalEquipe').classList.add('open');
+}
+function fecharEquipe(){document.getElementById('modalEquipe').classList.remove('open');}
+async function salvarMetaEquipe(){
+  const body={competencia:val('comp'),valorMeta:Number(val('eValor')),
+    valorMetaMargem:val('eMargem')!==''?Number(val('eMargem')):null,
+    observacao:val('eObs')};
+  if(!(body.valorMeta>=0))return showAlert('Informe a meta de receita','error');
+  const r=await fetch('/api/metas/equipe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!d.success)return showAlert(d.error,'error');
+  fecharEquipe();showAlert('Meta da equipe salva');carregar();
+}
+
+async function recarregarTudo(){ await carregar(); await carregarHistorico(); }
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){fecharMeta();fecharEquipe();}});
 (async()=>{
   document.getElementById('comp').value=new Date().toISOString().slice(0,7);
-  const r=await fetch('/api/usuarios').catch(()=>null);
-  let users=[];
-  if(r){const d=await r.json().catch(()=>({}));users=d.usuarios||d.users||[];}
-  document.getElementById('mVend').innerHTML='<option value="">— vendedor —</option>'+
-    users.map(u=>`<option value="${u.id}">${u.nome||u.username}</option>`).join('');
-  carregar();
+  try{
+    const r=await fetch('/api/usuarios?vendedor=1');const d=await r.json();
+    USUARIOS=d.usuarios||d.users||[];
+  }catch{USUARIOS=[];}
+  document.getElementById('histVend').innerHTML='<option value="">Equipe inteira</option>'+
+    USUARIOS.map(u=>`<option value="${u.id}">${esc(u.nome||u.username)}</option>`).join('');
+  // Rótulo dos motivos vem do backend de vendas perdidas — mesma fonte
+  // usada lá, para os dois painéis não divergirem.
+  try{
+    const rm=await fetch('/api/vendas-perdidas/motivos');const dm=await rm.json();
+    MOTIVO_TXT=Object.fromEntries((dm.motivos||[]).map(m=>[m.valor,m.texto]));
+  }catch{}
+  await recarregarTudo();
 })();
 </script>
 </body></html>

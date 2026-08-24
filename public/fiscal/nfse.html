@@ -6,37 +6,6 @@
     <title>NFSe Nacional - Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
-<style>
-/* NFSE-H08: Banner de ambiente fiscal persistente */
-#nfseAmbienteBanner {
-    display: none;
-    padding: 10px 16px;
-    font-weight: 700;
-    font-size: 0.92em;
-    letter-spacing: 0.3px;
-    text-align: center;
-    border-radius: 6px;
-    margin-bottom: 14px;
-    border: 2px solid transparent;
-}
-#nfseAmbienteBanner.producao {
-    display: block;
-    background: #064e3b;
-    color: #a7f3d0;
-    border-color: #10b981;
-}
-#nfseAmbienteBanner.homologacao {
-    display: block;
-    background: #78350f;
-    color: #fef3c7;
-    border-color: #f59e0b;
-    animation: nfseBlink 2.2s ease-in-out infinite;
-}
-@keyframes nfseBlink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.78; }
-}
-</style>
     <style>
         /* page-local: toggle de ambiente fiscal + detail-row no modal + config-actions layout */
         .ambiente-toggle { padding: 6px 14px; border-radius: var(--r-sm); border: none; font-weight: 700; cursor: pointer; font-size: 0.85em; transition: all 0.3s; }
@@ -65,34 +34,7 @@
               </div>
             </div>
 
-            <!-- Banner persistente de ambiente fiscal (NFSE-H08) -->
-            <div id="nfseAmbienteBanner"></div>
-
             <div id="alertBox" class="alert"></div>
-
-            <!-- Barra de Status -->
-            <div class="status-bar" id="statusBar">
-                <div class="status-item">
-                    <span class="label">Ambiente:</span>
-                    <button class="ambiente-toggle homologacao" id="btnAmbiente" onclick="alternarAmbiente()">HOMOLOGAÇÃO</button>
-                </div>
-                <div class="status-item">
-                    <span class="label">Certificado:</span>
-                    <span class="value" id="statusCert">Verificando…</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Município:</span>
-                    <span class="value" id="statusMunicipio">—</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Habilitado SEFIN:</span>
-                    <span class="value" id="statusHabilitado" title="Status de habilitação do município no Padrão Nacional NFS-e">—</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Próximo nDPS:</span>
-                    <span class="value" id="statusProximoNum">—</span>
-                </div>
-            </div>
 
             <!-- Formulário de emissão -->
             <div class="page-section">
@@ -235,6 +177,15 @@
               <button class="btn btn-ghost btn-sm" onclick="fecharModal('modalConfig')" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
             </div>
             <div class="config-panel">
+                <h4>Ambiente</h4>
+                <div class="config-row">
+                    <div class="form-group">
+                        <button class="ambiente-toggle homologacao" id="btnAmbiente" onclick="alternarAmbiente()">HOMOLOGAÇÃO</button>
+                        <small class="muted" id="cfgAmbienteHint"></small>
+                    </div>
+                </div>
+            </div>
+            <div class="config-panel">
                 <h4>Série do DPS</h4>
                 <div class="config-row">
                     <div class="form-group">
@@ -303,57 +254,16 @@
             }
         }
 
+        // O ambiente saiu da tela de emissao e vive no modal de configuracao —
+        // e o unico lugar que alterna producao/homologacao.
         function atualizarStatusBar(data) {
-            // Ambiente
             const btn = document.getElementById('btnAmbiente');
-            const banner = document.getElementById('nfseAmbienteBanner');
             const isProd = (data.config.ambiente === '1' || data.config.ambiente === 1);
-            if (isProd) {
-                btn.textContent = 'PRODUCAO';
-                btn.className = 'ambiente-toggle producao';
-                // NFSE-H08: banner persistente
-                banner.className = 'producao';
-                banner.textContent = 'AMBIENTE DE PRODUCAO — Notas emitidas tem valor fiscal real.';
-            } else {
-                btn.textContent = 'HOMOLOGACAO';
-                btn.className = 'ambiente-toggle homologacao';
-                banner.className = 'homologacao';
-                banner.textContent = 'AMBIENTE DE HOMOLOGACAO — Notas NAO valem fiscalmente. Apenas testes.';
-            }
-
-            // Certificado
-            const certEl = document.getElementById('statusCert');
-            if (data.certificado && data.certificado.configurado) {
-                certEl.textContent = data.certificado.titular;
-                certEl.className = 'value success';
-            } else {
-                certEl.textContent = 'Nao configurado';
-                certEl.className = 'value danger';
-            }
-
-            // Municipio: sempre do cadastro da empresa. 'legado' marca quem ainda
-            // depende da configuracao antiga desta tela e precisa preencher la.
-            const munEl = document.getElementById('statusMunicipio');
-            const codMun = data.config.codMunicipio;
-            munEl.textContent = codMun
-                ? (data.config.codMunicipioOrigem === 'legado' ? codMun + ' (config antiga)' : codMun)
-                : 'Nao configurado em Minha Empresa';
-            munEl.className = codMun ? 'value' : 'value warning';
-
-            // Habilitação SEFIN (badge informativo; só fica verde após emissão autorizada)
-            const habEl = document.getElementById('statusHabilitado');
-            if (data.config.municipioHabilitado === true) {
-                habEl.textContent = '✓ Confirmado';
-                habEl.className = 'value success';
-                habEl.title = 'Última emissão para este município foi autorizada pela SEFIN.';
-            } else {
-                habEl.textContent = 'Sem emissão recente';
-                habEl.className = 'value warning';
-                habEl.title = 'Badge fica verde após a primeira emissão autorizada. Erros não derrubam o status.';
-            }
-
-            // Proximo numero
-            document.getElementById('statusProximoNum').textContent = data.config.proximoNumero || '1';
+            btn.textContent = isProd ? 'PRODUCAO' : 'HOMOLOGACAO';
+            btn.className = 'ambiente-toggle ' + (isProd ? 'producao' : 'homologacao');
+            document.getElementById('cfgAmbienteHint').textContent = isProd
+                ? 'Notas emitidas tem valor fiscal real. Clique para voltar a homologacao.'
+                : 'Notas NAO valem fiscalmente. Clique para ir a producao.';
         }
 
         async function alternarAmbiente() {

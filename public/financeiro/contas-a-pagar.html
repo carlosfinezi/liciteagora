@@ -33,6 +33,7 @@
         <a class="btn btn-secondary" href="/financeiro/cp-recorrencias.html" style="text-decoration:none;">↻ Recorrências</a>
         <button class="btn btn-secondary" onclick="abrirCategorias()">🏷️ Categorias</button>
         <button class="btn btn-secondary" onclick="exportarCSV()">⤓ CSV</button>
+        <button class="btn btn-secondary" onclick="exportarPDF()">📄 PDF</button>
       </div>
     </div>
 
@@ -446,7 +447,7 @@ async function buscarFornec(){
     const r = await fetch('/api/fornecedores/autocomplete?q=' + encodeURIComponent(q));
     const d = await r.json();
     const fs = d.fornecedores || [];
-    if (!fs.length) { list.innerHTML = '<div class="item" style="color:var(--text-3);">Nenhum fornecedor — cadastre em /minha-empresa.html</div>'; return; }
+    if (!fs.length) { list.innerHTML = '<div class="item" style="color:var(--text-3);">Nenhum fornecedor — cadastre em <a href="/comercial/pessoas.html?categoria=fornecedor">Clientes &amp; Fornecedores</a> com a categoria Fornecedor</div>'; return; }
     list.innerHTML = fs.map(f => `<div class="item" onclick="selecionarFornec(${f.id}, ${JSON.stringify(f.razaoSocial||'').replace(/"/g,'&quot;')}, '${f.cpfCnpj}')"><strong>${f.razaoSocial}</strong> <span style="color:var(--text-3);">${f.cpfCnpj}</span></div>`).join('');
   } catch(e){ list.innerHTML = '<div class="item" style="color:var(--danger);">Erro: '+e.message+'</div>'; }
 }
@@ -550,7 +551,12 @@ async function confirmarLote(){
     const r = await fetch('/api/contas-a-pagar/baixar-lote', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
-    alert(`${d.sucessos.length} conta(s) paga(s).${d.falhas.length?' Falhas: '+d.falhas.length:''}`);
+    // Falha por alçada some no meio de "Falhas: N" — e é a única que tem
+    // uma ação clara do outro lado.
+    const porAlcada = (d.falhas || []).filter(x => x.aprovacaoId || /al[çc]ada/i.test(x.erro || x.error || ''));
+    let msg = `${d.sucessos.length} conta(s) paga(s).${d.falhas.length?' Falhas: '+d.falhas.length:''}`;
+    if (porAlcada.length) msg += `\n\n${porAlcada.length} bloqueada(s) por alçada — abra Aprovações para decidir.`;
+    alert(msg);
     SELECIONADAS.clear();
     fecharLote(); carregar();
   } catch(e){ alert('Erro: '+e.message); }
@@ -607,14 +613,20 @@ async function removerCategoria(id){
   carregarCategorias();
 }
 
-// ===== CSV =====
-function exportarCSV(){
+// ===== CSV / PDF =====
+function paramsFiltros(){
   const p = new URLSearchParams();
   for (const [id, key] of [['fStatus','status'],['fCategoria','categoriaId'],['fOrigem','origem'],['fVencIni','dataVencIni'],['fVencFim','dataVencFim'],['fBusca','busca']]) {
     const v = document.getElementById(id).value;
     if (v) p.set(key, v);
   }
-  window.location.href = '/api/contas-a-pagar/csv?' + p.toString();
+  return p;
+}
+function exportarCSV(){
+  window.location.href = '/api/contas-a-pagar/csv?' + paramsFiltros().toString();
+}
+function exportarPDF(){
+  window.open('/api/contas-a-pagar/pdf?' + paramsFiltros().toString(), '_blank');
 }
 
 // ===== Close on backdrop click + ESC =====

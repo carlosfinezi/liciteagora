@@ -75,7 +75,7 @@
   <div id="chipsFiltros" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
   <div id="contadorProdutos" class="muted" style="margin-bottom:8px;font-size:0.88em;"></div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="produtos">
     <table>
       <thead><tr id="thead"></tr></thead>
       <tbody id="tb"></tbody>
@@ -159,6 +159,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('produtos');</script>
 <script>
 function showAlert(m, t='success'){
@@ -476,7 +478,7 @@ function render(){
   const th = document.getElementById('thead');
   const cols = COLUNAS.filter(c => colunasVisiveis.includes(c.key));
 
-  th.innerHTML = cols.map(c => {
+  th.innerHTML = '<th class="col-editar"></th>' + cols.map(c => {
     const arr = sortKey === c.key ? (sortDir>0?' ▲':' ▼') : '';
     return `<th style="cursor:pointer;user-select:none;" onclick="sortBy('${c.key}')">${c.label}${arr}</th>`;
   }).join('') + '<th></th>';
@@ -489,7 +491,7 @@ function render(){
 
   if (!filtrado.length) {
     const msg = cache.length ? 'Nenhum produto bate com os filtros' : 'Nenhum produto cadastrado';
-    tb.innerHTML = `<tr><td colspan="${cols.length+1}" class="empty">${msg}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="${cols.length+2}" class="empty">${msg}</td></tr>`;
     return;
   }
 
@@ -504,8 +506,9 @@ function render(){
   tb.innerHTML = dados.map(p => {
     const tds = cols.map(c => `<td>${renderCell(p, c)}</td>`).join('');
     const nomeAttr = esc(p.descricao || '');
-    return `<tr style="cursor:pointer;" onclick="abrirProduto(${p.id})">${tds}<td style="text-align:right;">
-      <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); abrirProduto(${p.id})">Abrir →</button>
+    const editar = `<td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir produto"
+      onclick="event.stopPropagation(); abrirProduto(${p.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>`;
+    return `<tr style="cursor:pointer;" onclick="abrirProduto(${p.id})">${editar}${tds}<td style="text-align:right;">
       <button class="btn btn-ghost btn-sm" data-id="${p.id}" data-nome="${nomeAttr}" onclick="event.stopPropagation(); excluir(this.dataset.id, this.dataset.nome)" style="color:var(--danger);">Excluir</button>
     </td></tr>`;
   }).join('');

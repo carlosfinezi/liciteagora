@@ -63,6 +63,13 @@
     color: currentColor;
 }
 
+/* Logo custom (imagem enviada em Configurações → Importação) */
+.sidebar-logo-img {
+    display: block;
+    max-height: 40px;
+    max-width: 100%;
+}
+
 /* Menu */
 .sidebar-menu {
     flex: 1;

@@ -17,10 +17,16 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const { reentrarContextoTenant } = require('./tenant-middleware');
+const { comTratamentoDeErro, nomeOriginalUtf8 } = require('./upload-anexos');
 const { logAction } = require('./audit-log');
 const { emitirNfseInterno } = require('./nfse-routes');
 const { emitirNFe } = require('./nfe-emit-routes');
 const { criarReservasOS, consumirReservasOS, cancelarReservasOS } = require('./reservas-routes');
+const { erroMeioPermitido } = require('./meios-pagamento');
+const { prazoDaPessoa } = require('./prazo-pagamento');
+// Custo médio vigente para gravar na baixa da peça (custo histórico da OS).
+const { calcularCustoMedio, resolverDeposito } = require('./estoque-routes');
 const {
   criarContaAPagar,
   atualizarContaAPagarSeAberta,
@@ -29,7 +35,10 @@ const {
 } = require('./contas-pagar-routes');
 const { enviarEmailCobranca } = require('./email-client');
 const { enviarWhatsApp } = require('./whatsapp-adapter');
-const { sendTelegram } = require('./telegram-client');
+const {
+  EVENTOS: EVENTOS_NOTIF, EVENTOS_VALIDOS, CANAIS, PLACEHOLDERS,
+  migrarNotificacoesDB, dispatchNotificacoes, enviarTeste,
+} = require('./os-notificacoes');
 const osPdf = require('./os-pdf');
 
 // Fase 9.1 (2026-04-22): status expandidos.
@@ -43,7 +52,13 @@ const uploadOSAnexo = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
       const dir = path.join(UPLOAD_DIR_OS, String(req.params.id));
-      fs.mkdirSync(dir, { recursive: true });
+      // O erro TEM de ir pelo callback: um throw aqui vira uncaughtException
+      // e derruba o servidor inteiro (aconteceu em 2026-08-20, EACCES no mkdir).
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch (err) {
+        return cb(err);
+      }
       cb(null, dir);
     },
     filename: (req, file, cb) => {
@@ -54,8 +69,9 @@ const uploadOSAnexo = multer({
   }),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB (aceita foto grande)
   fileFilter: (req, file, cb) => {
-    const ok = /pdf|image|video|octet-stream/i.test(file.mimetype) ||
-      /\.(pdf|png|jpg|jpeg|webp|heic|mp4|mov)$/i.test(file.originalname);
+    // Quem decide é a EXTENSÃO, não o mimetype — ver a nota em
+    // contas-pagar-routes.js. octet-stream deixava passar um .exe.
+    const ok = /\.(pdf|png|jpg|jpeg|webp|heic|mp4|mov)$/i.test(file.originalname);
     cb(ok ? null : new Error('Formato não aceito (pdf, imagem ou vídeo)'), ok);
   },
 });
@@ -75,65 +91,9 @@ function registrarEvento(db, osId, tipo, descricao, usuario, payload) {
   } catch (_) { /* */ }
 }
 
-// Fase 9.5: dispatcher de notificações configuráveis.
-// Lê `os_notificacoes_config(evento, canal, template, ativo)` e envia
-// via email/whatsapp/telegram. Template aceita {{placeholders}} dos
-// campos da OS + descrição/payload do evento.
-async function dispatchNotificacoes(db, osId, tipo, descricao, payload) {
-  let configs;
-  try {
-    configs = db.prepare(`
-      SELECT evento, canal, template FROM os_notificacoes_config
-      WHERE evento = ? AND ativo = 1
-    `).all(tipo);
-  } catch (_) { return; }
-  if (!configs || !configs.length) return;
-
-  let os;
-  try {
-    os = db.prepare(`
-      SELECT o.*, p.razaoSocial AS clienteNome, p.email AS clienteEmail, p.telefone AS clienteTelefone,
-             u.username AS tecnicoNome, u.whatsappTecnico AS tecnicoWhatsApp
-      FROM os_ordens o
-      LEFT JOIN pessoas p ON p.id = o.clienteId
-      LEFT JOIN users u ON u.id = o.tecnicoId
-      WHERE o.id = ?
-    `).get(osId);
-  } catch (_) { return; }
-  if (!os) return;
-
-  const dados = {
-    ...os,
-    descricao: descricao || '',
-    prazo: os.dataPromessa || '—',
-    motivo: payload?.motivo || '',
-    assinanteNome: payload?.assinanteNome || '',
-  };
-
-  function aplicaTemplate(t) {
-    if (!t) return '';
-    return String(t).replace(/\{\{(\w+)\}\}/g, (_m, k) => (dados[k] != null ? String(dados[k]) : ''));
-  }
-
-  for (const cfg of configs) {
-    const texto = aplicaTemplate(cfg.template) ||
-      `[OS ${os.numero}] ${descricao || tipo} — ${os.clienteNome || ''}`;
-    try {
-      if (cfg.canal === 'email' && os.clienteEmail) {
-        await enviarEmailCobranca(db, {
-          to: os.clienteEmail,
-          assunto: `OS ${os.numero} — ${tipo}`,
-          texto,
-        });
-      } else if (cfg.canal === 'whatsapp') {
-        const tel = String(os.clienteTelefone || '').replace(/\D/g, '');
-        if (tel) await enviarWhatsApp(db, { telefone: tel, texto });
-      } else if (cfg.canal === 'telegram') {
-        await sendTelegram(db, texto);
-      }
-    } catch (_) { /* falha silenciosa por canal — evento já foi persistido */ }
-  }
-}
+// O dispatcher de notificações mora em os-notificacoes.js — o sweep de
+// SLA no scheduler precisa do mesmo código, e antes ele fazia INSERT
+// direto em os_eventos, sem notificar ninguém.
 
 // Fase 9.4 (2026-04-22): calcula o slaStatus de uma OS com base na
 // dataPromessa, status atual e dataConclusao. Derivado (não persistido
@@ -261,8 +221,75 @@ function migrarDB(db) {
     'emGarantia INTEGER DEFAULT 0', "ambienteFiscal TEXT DEFAULT 'sefaz'",
     'kmPercorrido REAL', 'valorDeslocamento REAL',
     'tipoOperacaoId INTEGER',
+    // Equipamento deixou de ser só texto solto — ver tabela equipamentos.
+    'equipamentoId INTEGER',
+    // De qual depósito as peças saem.
+    'depositoId INTEGER',
   ]) alterSafe(`ALTER TABLE os_ordens ADD COLUMN ${col}`);
+  alterSafe(`CREATE INDEX IF NOT EXISTS idx_os_equipamento ON os_ordens(equipamentoId, dataAbertura)`);
+  // Custo da peça no momento da baixa. Sem isso, o custo histórico se
+  // perdia e a lucratividade só podia usar o custo de hoje.
+  alterSafe(`ALTER TABLE os_itens_pecas ADD COLUMN custoUnitario REAL`);
   alterSafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_os_orcamento_token ON os_ordens(orcamentoToken) WHERE orcamentoToken IS NOT NULL`);
+
+  // ==================== EQUIPAMENTOS ====================
+  //
+  // Antes o equipamento eram 4 colunas de texto livre em os_ordens
+  // (equipamento/marca/modelo/numeroSerieEquipamento). Sem identidade não
+  // havia reincidência, histórico nem base instalada, e a garantia era
+  // procurada por comparação de string dentro do mesmo clienteId.
+  //
+  // As colunas de texto continuam na OS como snapshot do que foi digitado
+  // na época: renomear o equipamento depois não reescreve o histórico.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS equipamentos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      clienteId INTEGER,
+      descricao TEXT NOT NULL,
+      marca TEXT,
+      modelo TEXT,
+      numeroSerie TEXT,
+      patrimonio TEXT,
+      -- Quando o equipamento foi vendido por nós, aponta para o produto e
+      -- para a série já rastreada em serial_numbers.
+      produtoId INTEGER,
+      serialNumberId INTEGER,
+      dataAquisicao TEXT,
+      garantiaFabricanteAte TEXT,
+      observacoes TEXT,
+      ativo INTEGER NOT NULL DEFAULT 1,
+      dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+      dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_equip_cliente ON equipamentos(clienteId, ativo);
+    CREATE INDEX IF NOT EXISTS idx_equip_serie ON equipamentos(numeroSerie);
+    CREATE INDEX IF NOT EXISTS idx_equip_modelo ON equipamentos(marca, modelo);
+
+    -- Troca de dono, baixa, observações: o que acontece com o equipamento
+    -- e não cabe dentro de uma OS.
+    CREATE TABLE IF NOT EXISTS equipamento_eventos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      equipamentoId INTEGER NOT NULL,
+      tipo TEXT NOT NULL,
+      descricao TEXT,
+      clienteAnteriorId INTEGER,
+      clienteNovoId INTEGER,
+      osId INTEGER,
+      usuario TEXT,
+      data TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (equipamentoId) REFERENCES equipamentos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_equip_ev ON equipamento_eventos(equipamentoId, data);
+  `);
+  // Série é a identidade forte quando existe, mas só dentro do mesmo
+  // cliente: fabricantes diferentes repetem numeração.
+  alterSafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_equip_serie_unica
+             ON equipamentos(clienteId, numeroSerie)
+             WHERE numeroSerie IS NOT NULL AND numeroSerie <> ''`);
+
+  // Log de envio das notificações: sem ele, canal fora do ar era
+  // indistinguível de "nenhuma regra configurada".
+  try { migrarNotificacoesDB(db); } catch { /* idempotente */ }
   alterSafe(`ALTER TABLE contas_a_receber ADD COLUMN osId INTEGER`);
   alterSafe(`ALTER TABLE contas_a_receber ADD COLUMN pedidoId INTEGER`);
   alterSafe(`ALTER TABLE contas_a_receber ADD COLUMN origemTipo TEXT`);
@@ -355,10 +382,13 @@ function lancarEntradaTerceiroPeca(db, osId, item) {
   if (!item.compradoTerceiro || !item.produtoId) return null;
   const data = item.dataCompraTerceiro || new Date().toISOString().slice(0, 10);
   const r = db.prepare(`INSERT INTO movimentacoes_estoque
-    (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, motivo, usuario)
-    VALUES (?, 'entrada', ?, ?, 'os_terceiro', ?, ?, ?, 'Aquisição p/ OS', NULL)`).run(
+    (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, motivo, usuario, depositoId)
+    VALUES (?, 'entrada', ?, ?, 'os_terceiro', ?, ?, ?, 'Aquisição p/ OS', NULL, ?)`).run(
     item.produtoId, Number(item.quantidade), Number(item.custoTerceiro),
     osId, `OS terceiro item ${item.id}`, data,
+    resolverDeposito(db, {
+      depositoId: (db.prepare('SELECT depositoId FROM os_ordens WHERE id = ?').get(osId) || {}).depositoId,
+      osId, produtoId: item.produtoId }),
   );
   return r.lastInsertRowid;
 }
@@ -370,10 +400,13 @@ function consumirTerceirosPecasOS(db, osId, dataConsumo, usuario) {
     WHERE osId = ? AND compradoTerceiro = 1 AND produtoId IS NOT NULL AND movSaidaId IS NULL`).all(osId);
   for (const it of itens) {
     const r = db.prepare(`INSERT INTO movimentacoes_estoque
-      (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, motivo, usuario)
-      VALUES (?, 'saida', ?, ?, 'os', ?, 'OS terceiro consumido', ?, 'Consumo OS', ?)`).run(
+      (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, motivo, usuario, depositoId)
+      VALUES (?, 'saida', ?, ?, 'os', ?, 'OS terceiro consumido', ?, 'Consumo OS', ?, ?)`).run(
       it.produtoId, Number(it.quantidade), Number(it.custoTerceiro),
       osId, dataConsumo, usuario || null,
+      resolverDeposito(db, {
+        depositoId: (db.prepare('SELECT depositoId FROM os_ordens WHERE id = ?').get(osId) || {}).depositoId,
+        osId, produtoId: it.produtoId }),
     );
     db.prepare('UPDATE os_itens_pecas SET movSaidaId = ? WHERE id = ?').run(r.lastInsertRowid, it.id);
   }
@@ -448,6 +481,207 @@ function registrarRotasOS(app, db) {
   }
   app.use('/api/os', ensureMigrated);
   app.use('/api/os-tipos', ensureMigrated);
+  app.use('/api/equipamentos', ensureMigrated);
+
+  // ==================== EQUIPAMENTOS ====================
+
+  const normSerie = s => String(s || '').trim().toUpperCase().replace(/[\s\-._/]/g, '');
+
+  /**
+   * Acha o equipamento do cliente ou cria um. Série manda: é a identidade
+   * forte. Sem série, cai em marca+modelo+descrição, que é o melhor que
+   * texto livre permite.
+   *
+   * A comparação de série ignora espaço, hífen e ponto — "AB-123" e
+   * "ab123" são o mesmo aparelho, e era exatamente isso que fazia a
+   * garantia por string não achar nada.
+   */
+  function acharOuCriarEquipamento(db, { clienteId, descricao, marca, modelo, numeroSerie, produtoId, usuario }) {
+    const serie = String(numeroSerie || '').trim();
+    if (serie) {
+      const alvo = normSerie(serie);
+      const candidatos = db.prepare(`SELECT * FROM equipamentos WHERE numeroSerie IS NOT NULL AND numeroSerie <> ''`).all();
+      const achado = candidatos.find(e => normSerie(e.numeroSerie) === alvo
+        && (e.clienteId === clienteId || e.clienteId == null));
+      if (achado) {
+        // Equipamento sem dono ainda, ou que mudou de mãos.
+        if (achado.clienteId == null && clienteId) {
+          db.prepare('UPDATE equipamentos SET clienteId = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(clienteId, achado.id);
+        }
+        return { id: achado.id, criado: false };
+      }
+      // Série existe em OUTRO cliente: é troca de dono, não duplicidade.
+      const deOutro = candidatos.find(e => normSerie(e.numeroSerie) === alvo);
+      if (deOutro && clienteId) {
+        db.prepare('UPDATE equipamentos SET clienteId = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
+          .run(clienteId, deOutro.id);
+        db.prepare(`INSERT INTO equipamento_eventos (equipamentoId, tipo, descricao, clienteAnteriorId, clienteNovoId, usuario)
+          VALUES (?, 'troca_dono', ?, ?, ?, ?)`)
+          .run(deOutro.id, 'Equipamento passou a atender outro cliente', deOutro.clienteId, clienteId, usuario || null);
+        return { id: deOutro.id, criado: false, trocouDono: true };
+      }
+    } else {
+      // Sem série: casa por marca+modelo+descrição dentro do cliente.
+      const achado = db.prepare(`SELECT * FROM equipamentos
+        WHERE clienteId IS ? AND (numeroSerie IS NULL OR numeroSerie = '')
+          AND LOWER(IFNULL(marca,'')) = LOWER(?) AND LOWER(IFNULL(modelo,'')) = LOWER(?)
+          AND LOWER(IFNULL(descricao,'')) = LOWER(?) LIMIT 1`)
+        .get(clienteId ?? null, marca || '', modelo || '', descricao || '');
+      if (achado) return { id: achado.id, criado: false };
+    }
+
+    const r = db.prepare(`INSERT INTO equipamentos
+      (clienteId, descricao, marca, modelo, numeroSerie, produtoId)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(clienteId || null,
+           (descricao || '').trim() || [marca, modelo].filter(Boolean).join(' ') || 'Equipamento sem descrição',
+           (marca || '').trim() || null, (modelo || '').trim() || null,
+           serie || null, produtoId || null);
+    db.prepare(`INSERT INTO equipamento_eventos (equipamentoId, tipo, descricao, clienteNovoId, usuario)
+      VALUES (?, 'cadastro', 'Equipamento cadastrado', ?, ?)`)
+      .run(r.lastInsertRowid, clienteId || null, usuario || null);
+    return { id: r.lastInsertRowid, criado: true };
+  }
+
+  /** Histórico de OS do equipamento + reincidência + garantia vigente. */
+  function fichaEquipamento(db, equipamentoId) {
+    const eq = db.prepare(`SELECT e.*, p.razaoSocial AS clienteNome, p.cpfCnpj AS clienteCpfCnpj,
+                                  pr.sku AS produtoSku
+      FROM equipamentos e
+      LEFT JOIN pessoas p ON p.id = e.clienteId
+      LEFT JOIN produtos pr ON pr.id = e.produtoId
+      WHERE e.id = ?`).get(equipamentoId);
+    if (!eq) return null;
+
+    const ordens = db.prepare(`SELECT o.id, o.numero, o.status, o.titulo, o.defeitoRelatado, o.solucao,
+             o.dataAbertura, o.dataConclusao, o.dataFaturamento, o.garantiaDias, o.valorTotal,
+             o.emGarantia, t.username AS tecnicoNome
+      FROM os_ordens o LEFT JOIN users t ON t.id = o.tecnicoId
+      WHERE o.equipamentoId = ? ORDER BY o.dataAbertura DESC`).all(equipamentoId);
+
+    const agora = Date.now();
+    // Garantia vigente = alguma OS faturada cujo prazo ainda não venceu.
+    // Antes isso dependia de a série ter sido digitada igual nas duas OS.
+    const garantias = ordens
+      .filter(o => o.status === 'faturada' && o.dataFaturamento && o.garantiaDias > 0)
+      .map(o => {
+        const limite = new Date(o.dataFaturamento).getTime() + o.garantiaDias * 86400000;
+        return { osId: o.id, numero: o.numero, ate: new Date(limite).toISOString().slice(0, 10),
+                 diasRestantes: Math.floor((limite - agora) / 86400000), vigente: limite >= agora };
+      });
+    const garantiaVigente = garantias.find(g => g.vigente) || null;
+
+    // Reincidência: retorno em até 90 dias da conclusão anterior é o sinal
+    // clássico de serviço que não resolveu.
+    const concluidas = ordens.filter(o => o.dataConclusao).sort((a, b) => a.dataConclusao < b.dataConclusao ? -1 : 1);
+    let retornosRapidos = 0, menorIntervalo = null;
+    for (let i = 1; i < concluidas.length; i++) {
+      const dias = Math.floor((new Date(concluidas[i].dataAbertura).getTime()
+        - new Date(concluidas[i - 1].dataConclusao).getTime()) / 86400000);
+      if (dias >= 0 && dias <= 90) retornosRapidos++;
+      if (dias >= 0 && (menorIntervalo == null || dias < menorIntervalo)) menorIntervalo = dias;
+    }
+
+    const eventos = db.prepare(`SELECT ev.*, pa.razaoSocial AS clienteAnteriorNome, pn.razaoSocial AS clienteNovoNome
+      FROM equipamento_eventos ev
+      LEFT JOIN pessoas pa ON pa.id = ev.clienteAnteriorId
+      LEFT JOIN pessoas pn ON pn.id = ev.clienteNovoId
+      WHERE ev.equipamentoId = ? ORDER BY ev.data DESC, ev.id DESC`).all(equipamentoId);
+
+    return {
+      equipamento: eq, ordens, eventos, garantias, garantiaVigente,
+      resumo: {
+        totalOS: ordens.length,
+        abertas: ordens.filter(o => !['faturada', 'cancelada', 'concluida'].includes(o.status)).length,
+        valorAcumulado: Number(ordens.filter(o => o.status === 'faturada')
+          .reduce((s, o) => s + (o.valorTotal || 0), 0).toFixed(2)),
+        retornosRapidos, menorIntervaloDias: menorIntervalo,
+        primeiraOS: ordens.length ? ordens[ordens.length - 1].dataAbertura : null,
+        ultimaOS: ordens.length ? ordens[0].dataAbertura : null,
+      },
+    };
+  }
+
+  app.get('/api/equipamentos', (req, res) => {
+    try {
+      const { clienteId, q, ativo, limit } = req.query;
+      let sql = `SELECT e.*, p.razaoSocial AS clienteNome,
+        (SELECT COUNT(*) FROM os_ordens o WHERE o.equipamentoId = e.id) AS totalOS,
+        (SELECT MAX(o.dataAbertura) FROM os_ordens o WHERE o.equipamentoId = e.id) AS ultimaOS
+        FROM equipamentos e LEFT JOIN pessoas p ON p.id = e.clienteId WHERE 1=1`;
+      const params = [];
+      if (clienteId) { sql += ' AND e.clienteId = ?'; params.push(Number(clienteId)); }
+      if (ativo !== undefined) { sql += ' AND e.ativo = ?'; params.push(Number(ativo)); }
+      if (q) {
+        sql += ` AND (e.descricao LIKE ? OR e.marca LIKE ? OR e.modelo LIKE ?
+                      OR e.numeroSerie LIKE ? OR e.patrimonio LIKE ?)`;
+        const like = `%${q}%`;
+        params.push(like, like, like, like, like);
+      }
+      sql += ' ORDER BY e.descricao, e.id LIMIT ?';
+      params.push(Math.min(Number(limit) || 200, 500));
+      res.json({ success: true, equipamentos: db.prepare(sql).all(...params) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.get('/api/equipamentos/:id', (req, res) => {
+    try {
+      const ficha = fichaEquipamento(db, Number(req.params.id));
+      if (!ficha) return res.status(404).json({ success: false, error: 'Equipamento não encontrado' });
+      res.json({ success: true, ...ficha });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/equipamentos', (req, res) => {
+    try {
+      const b = req.body || {};
+      if (!b.descricao && !b.marca && !b.modelo) {
+        return res.status(400).json({ success: false, error: 'Informe ao menos descrição, marca ou modelo' });
+      }
+      const out = acharOuCriarEquipamento(db, {
+        clienteId: b.clienteId ? Number(b.clienteId) : null,
+        descricao: b.descricao, marca: b.marca, modelo: b.modelo,
+        numeroSerie: b.numeroSerie, produtoId: b.produtoId ? Number(b.produtoId) : null,
+        usuario: req.user?.username || req.session?.username || null,
+      });
+      // Campos que só o cadastro tem — acharOuCriar cuida da identidade.
+      const extras = ['patrimonio', 'dataAquisicao', 'garantiaFabricanteAte', 'observacoes', 'serialNumberId'];
+      const sets = extras.filter(k => b[k] !== undefined);
+      if (sets.length) {
+        db.prepare(`UPDATE equipamentos SET ${sets.map(k => `${k} = ?`).join(', ')},
+          dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(...sets.map(k => b[k] === '' ? null : b[k]), out.id);
+      }
+      logAction(db, req, out.criado ? 'criar' : 'reutilizar', 'equipamento', out.id, { numeroSerie: b.numeroSerie });
+      res.json({ success: true, ...out, equipamento: db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(out.id) });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  app.put('/api/equipamentos/:id', (req, res) => {
+    try {
+      const eq = db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(req.params.id);
+      if (!eq) return res.status(404).json({ success: false, error: 'Equipamento não encontrado' });
+      const campos = ['descricao', 'marca', 'modelo', 'numeroSerie', 'patrimonio', 'produtoId',
+                      'serialNumberId', 'dataAquisicao', 'garantiaFabricanteAte', 'observacoes', 'ativo', 'clienteId'];
+      const sets = campos.filter(k => req.body[k] !== undefined);
+      if (!sets.length) return res.json({ success: true, equipamento: eq });
+
+      // Troca de dono é evento, não um UPDATE silencioso.
+      if (req.body.clienteId !== undefined && Number(req.body.clienteId) !== eq.clienteId) {
+        db.prepare(`INSERT INTO equipamento_eventos (equipamentoId, tipo, descricao, clienteAnteriorId, clienteNovoId, usuario)
+          VALUES (?, 'troca_dono', ?, ?, ?, ?)`)
+          .run(eq.id, req.body.motivoTroca || 'Cliente alterado no cadastro', eq.clienteId,
+               req.body.clienteId ? Number(req.body.clienteId) : null,
+               req.user?.username || req.session?.username || null);
+      }
+      db.prepare(`UPDATE equipamentos SET ${sets.map(k => `${k} = ?`).join(', ')},
+        dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(...sets.map(k => req.body[k] === '' ? null : req.body[k]), eq.id);
+      logAction(db, req, 'editar', 'equipamento', eq.id, req.body);
+      res.json({ success: true, equipamento: db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(eq.id) });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
 
   // ==================== LISTAGEM ====================
 
@@ -515,8 +749,30 @@ function registrarRotasOS(app, db) {
   // Precisa vir ANTES de /api/os/:id senão o Express casa com :id='garantia-sugestoes' e devolve 404.
   app.get('/api/os/garantia-sugestoes', (req, res) => {
     try {
-      const { clienteId, numeroSerie, marca, modelo } = req.query;
-      if (!clienteId) return res.status(400).json({ success: false, error: 'clienteId obrigatório' });
+      const { clienteId, numeroSerie, marca, modelo, equipamentoId } = req.query;
+
+      // Caminho novo: com o equipamento identificado, a garantia sai do
+      // histórico dele. Não depende de o serial ter sido digitado igual,
+      // nem de o cliente ser o mesmo cadastro (matriz × filial).
+      if (equipamentoId) {
+        const ficha = fichaEquipamento(db, Number(equipamentoId));
+        if (!ficha) return res.status(404).json({ success: false, error: 'Equipamento não encontrado' });
+        return res.json({
+          success: true,
+          sugestoes: ficha.garantias.filter(g => g.vigente).map(g => {
+            const os = ficha.ordens.find(o => o.id === g.osId) || {};
+            return { id: g.osId, numero: g.numero, equipamento: ficha.equipamento.descricao,
+                     marca: ficha.equipamento.marca, modelo: ficha.equipamento.modelo,
+                     numeroSerieEquipamento: ficha.equipamento.numeroSerie,
+                     dataFaturamento: os.dataFaturamento, garantiaDias: os.garantiaDias,
+                     valorTotal: os.valorTotal, diasRestantes: g.diasRestantes, dentroPrazo: true };
+          }),
+          fonte: 'equipamento',
+        });
+      }
+
+      // Caminho legado, por texto — mantido para OS antiga sem equipamento.
+      if (!clienteId) return res.status(400).json({ success: false, error: 'clienteId ou equipamentoId obrigatório' });
       const filters = [`clienteId = ?`, `status = 'faturada'`, `dataFaturamento IS NOT NULL`, `garantiaDias > 0`];
       const params = [Number(clienteId)];
       if (numeroSerie) {
@@ -556,13 +812,26 @@ function registrarRotasOS(app, db) {
       const os = db.prepare(`
         SELECT o.*, p.razaoSocial AS clienteNome, p.cpfCnpj AS clienteCpfCnpj,
                p.email AS clienteEmail, p.telefone AS clienteTelefone,
-               t.username AS tecnicoNome, t.nome AS tecnicoNomeExibicao
+               t.username AS tecnicoNome, t.nome AS tecnicoNomeExibicao,
+               e.descricao AS equipamentoDescricao, e.numeroSerie AS equipamentoSerie,
+               e.marca AS equipamentoMarca, e.modelo AS equipamentoModelo
         FROM os_ordens o
         JOIN pessoas p ON p.id = o.clienteId
         LEFT JOIN users t ON t.id = o.tecnicoId
+        LEFT JOIN equipamentos e ON e.id = o.equipamentoId
         WHERE o.id = ?
       `).get(req.params.id);
       if (!os) return res.status(404).json({ success: false, error: 'OS não encontrada' });
+      // Histórico do equipamento junto do detalhe: o técnico precisa saber
+      // que o aparelho já voltou antes de começar a diagnosticar.
+      let equipamentoFicha = null;
+      if (os.equipamentoId) {
+        const f = fichaEquipamento(db, os.equipamentoId);
+        if (f) equipamentoFicha = {
+          equipamento: f.equipamento, resumo: f.resumo, garantiaVigente: f.garantiaVigente,
+          historico: f.ordens.filter(o => o.id !== os.id).slice(0, 10),
+        };
+      }
       const pecas = db.prepare(`
         SELECT pi.*, pr.sku, pr.rastreiaLote, pr.rastreiaSerial, l.numero AS loteNumero,
                f.razaoSocial AS terceiroFornecedorNome,
@@ -570,7 +839,7 @@ function registrarRotasOS(app, db) {
         FROM os_itens_pecas pi
         LEFT JOIN produtos pr ON pr.id = pi.produtoId
         LEFT JOIN lotes l ON l.id = pi.loteId
-        LEFT JOIN fornecedores f ON f.id = pi.fornecedorId
+        LEFT JOIN pessoas f ON f.id = pi.fornecedorId
         LEFT JOIN contas_a_pagar cp ON cp.id = pi.contasPagarId
         WHERE pi.osId = ? ORDER BY pi.id
       `).all(os.id);
@@ -583,7 +852,7 @@ function registrarRotasOS(app, db) {
                cp.status AS terceiroStatusAP, cp.valor AS terceiroValorAP
         FROM os_itens_servicos i
         LEFT JOIN servicos sc ON sc.id = i.servicoId
-        LEFT JOIN fornecedores f ON f.id = i.fornecedorId
+        LEFT JOIN pessoas f ON f.id = i.fornecedorId
         LEFT JOIN contas_a_pagar cp ON cp.id = i.contasPagarId
         WHERE i.osId = ? ORDER BY i.id
       `).all(os.id);
@@ -621,7 +890,7 @@ function registrarRotasOS(app, db) {
 
       res.json({
         success: true, os, pecas, servicos, apontamentos, contasReceber,
-        tipo, checklist, anexos, eventos, reservasAtivas,
+        tipo, checklist, anexos, eventos, reservasAtivas, equipamentoFicha,
       });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -632,6 +901,7 @@ function registrarRotasOS(app, db) {
     try {
       const {
         clienteId, tecnicoId, titulo, equipamento, marca, modelo, numeroSerieEquipamento,
+        equipamentoId: equipamentoIdBody, depositoId: depositoIdBody,
         defeitoRelatado, garantiaDias, observacoes,
         formaPagamento, dataVencimento, numeroParcelas, naoEmitirNFe,
         tipoOperacaoId,
@@ -643,6 +913,9 @@ function registrarRotasOS(app, db) {
       } = req.body;
 
       if (!clienteId || !titulo) return res.status(400).json({ success: false, error: 'clienteId e titulo obrigatórios' });
+
+      const erroMeio = erroMeioPermitido(db, clienteId, formaPagamento);
+      if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
 
       // Busca o tipo — controla status inicial, checklist padrão, ambiente fiscal.
       let tipo = null;
@@ -656,8 +929,21 @@ function registrarRotasOS(app, db) {
         return res.status(400).json({ success: false, error: `Tipo "${tipo.nome}" exige endereço de execução` });
       }
 
+      // Identidade do equipamento: usa o id informado ou resolve pelos
+      // textos. É o que permite histórico, reincidência e garantia sem
+      // depender de o serial ter sido digitado igual da última vez.
+      let equipamentoIdFinal = equipamentoIdBody ? Number(equipamentoIdBody) : null;
+      if (!equipamentoIdFinal && (equipamento || marca || modelo || numeroSerieEquipamento)) {
+        equipamentoIdFinal = acharOuCriarEquipamento(db, {
+          clienteId: Number(clienteId), descricao: equipamento, marca, modelo,
+          numeroSerie: numeroSerieEquipamento,
+          usuario: req.user?.username || req.session?.username || null,
+        }).id;
+      }
+
       // Garantia: se osPaiId e dentro do período, marca emGarantia e força ambienteFiscal='interno'
       let emGarantia = 0;
+      let osPaiFinal = osPaiId || null;
       let ambienteFiscal = tipo ? tipo.modoFiscal : 'sefaz';
       if (osPaiId) {
         const pai = db.prepare('SELECT dataFaturamento, garantiaDias FROM os_ordens WHERE id = ?').get(osPaiId);
@@ -668,6 +954,16 @@ function registrarRotasOS(app, db) {
             emGarantia = 1;
             ambienteFiscal = 'interno'; // OS de garantia não cobra
           }
+        }
+      } else if (equipamentoIdFinal) {
+        // Sem OS pai informada: o próprio equipamento diz se está em
+        // garantia. Antes isso só acontecia se o atendente lembrasse de
+        // vincular a OS anterior à mão.
+        const ficha = fichaEquipamento(db, equipamentoIdFinal);
+        if (ficha?.garantiaVigente) {
+          emGarantia = 1;
+          osPaiFinal = ficha.garantiaVigente.osId;
+          ambienteFiscal = 'interno';
         }
       }
 
@@ -709,19 +1005,20 @@ function registrarRotasOS(app, db) {
             enderecoExecucao, numeroExecucao, complementoExecucao, bairroExecucao,
             municipioExecucao, ufExecucao, cepExecucao,
             prazoSLADias, dataPromessa,
-            orcamentoStatus, emGarantia, ambienteFiscal, tipoOperacaoId
+            orcamentoStatus, emGarantia, ambienteFiscal, tipoOperacaoId, equipamentoId, depositoId
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           numero, clienteId, tecnicoId || null, statusInicial, titulo,
           equipamento || null, marca || null, modelo || null, numeroSerieEquipamento || null,
           defeitoRelatado || null, Number(garantiaDias) || 0, observacoes || null, req.user?.username || null,
           formaPagamento || null, dataVencimento || null, Number(numeroParcelas) || 1, naoEmitirNFe ? 1 : 0,
-          tipoId || null, contratoId || null, oportunidadeId || null, osPaiId || null,
+          tipoId || null, contratoId || null, oportunidadeId || null, osPaiFinal,
           enderecoExecucao || null, numeroExecucao || null, complementoExecucao || null, bairroExecucao || null,
           municipioExecucao || null, ufExecucao || null, cepExecucao || null,
           sla || null, promessa,
-          orcamentoStatus, emGarantia, ambienteFiscal, tipoOperacaoFinal
+          orcamentoStatus, emGarantia, ambienteFiscal, tipoOperacaoFinal, equipamentoIdFinal,
+          depositoIdBody ? Number(depositoIdBody) : resolverDeposito(db, {})
         );
         const id = r.lastInsertRowid;
 
@@ -760,6 +1057,10 @@ function registrarRotasOS(app, db) {
       const camposValidos = ['tecnicoId','titulo','equipamento','marca','modelo','numeroSerieEquipamento',
                              'defeitoRelatado','diagnostico','solucao','garantiaDias','observacoes',
                              'formaPagamento','dataVencimento','numeroParcelas','naoEmitirNFe','tipoOperacaoId'];
+      if (req.body.formaPagamento !== undefined) {
+        const erroMeio = erroMeioPermitido(db, os.clienteId, req.body.formaPagamento);
+        if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
+      }
       const sets = [], vals = [];
       for (const c of camposValidos) {
         if (req.body[c] !== undefined) { sets.push(`${c} = ?`); vals.push(req.body[c] === '' ? null : req.body[c]); }
@@ -818,6 +1119,12 @@ function registrarRotasOS(app, db) {
       if (!os) return res.status(404).json({ success: false, error: 'Não encontrada' });
       if (!['em-andamento','aberta'].includes(os.status)) return res.status(400).json({ success: false, error: 'Estado atual não permite' });
       db.prepare(`UPDATE os_ordens SET status = 'aguardando-peca' WHERE id = ?`).run(os.id);
+      // Só fazia o UPDATE: o evento não entrava na timeline e a regra de
+      // notificação "Aguardando peça" nunca disparava.
+      const motivo = (req.body?.motivo || '').trim();
+      registrarEvento(db, os.id, 'aguardando-peca',
+        motivo ? `Aguardando peça — ${motivo}` : 'OS aguardando peça',
+        req.user?.username || req.session?.username, motivo ? { motivo } : null);
       logAction(db, req, 'aguardar-peca', 'os', os.id, null);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -904,14 +1211,20 @@ function registrarRotasOS(app, db) {
             // Fallback: OS antiga sem reservas — baixa direta
             const stmtMov = db.prepare(`
               INSERT INTO movimentacoes_estoque
-                (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, loteId, motivo, usuario)
-              VALUES (?, 'saida', ?, NULL, 'os', ?, ?, ?, ?, NULL, ?)
+                (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, loteId, motivo, usuario, depositoId)
+              VALUES (?, 'saida', ?, ?, 'os', ?, ?, ?, ?, NULL, ?, ?)
             `);
             for (const it of pecasProprias) {
-              const r = stmtMov.run(it.produtoId, Number(it.quantidade), os.id,
-                `OS ${os.numero} (peça)`, dataHoje, it.loteId || null, req.user?.username || null);
+              // Custo médio vigente no consumo. Antes ia NULL: o custo
+              // histórico da peça se perdia e a lucratividade só podia
+              // usar o custo de hoje para uma peça gasta meses atrás.
+              const custo = calcularCustoMedio(db, it.produtoId) || null;
+              const r = stmtMov.run(it.produtoId, Number(it.quantidade), custo, os.id,
+                `OS ${os.numero} (peça)`, dataHoje, it.loteId || null, req.user?.username || null,
+                resolverDeposito(db, { depositoId: os.depositoId, osId: os.id, produtoId: it.produtoId }));
               const movId = r.lastInsertRowid;
-              db.prepare('UPDATE os_itens_pecas SET movSaidaId = ? WHERE id = ?').run(movId, it.id);
+              db.prepare('UPDATE os_itens_pecas SET movSaidaId = ?, custoUnitario = ? WHERE id = ?')
+                .run(movId, custo, it.id);
               if (it.loteId) db.prepare('UPDATE lotes SET saldoAtual = saldoAtual - ? WHERE id = ?').run(Number(it.quantidade), it.loteId);
               if (it.serialIds) {
                 for (const sid of JSON.parse(it.serialIds)) {
@@ -961,8 +1274,8 @@ function registrarRotasOS(app, db) {
         if (itensBaixados.length > 0) {
           const stmtEstorno = db.prepare(`
             INSERT INTO movimentacoes_estoque
-              (produtoId, tipo, quantidade, origem, origemId, observacao, data, loteId, motivo, usuario)
-            VALUES (?, 'entrada', ?, 'estorno_os', ?, ?, date('now'), ?, ?, ?)
+              (produtoId, tipo, quantidade, origem, origemId, observacao, data, loteId, motivo, usuario, depositoId)
+            VALUES (?, 'entrada', ?, 'estorno_os', ?, ?, date('now'), ?, ?, ?, ?)
           `);
           for (const it of itensBaixados) {
             stmtEstorno.run(
@@ -971,6 +1284,8 @@ function registrarRotasOS(app, db) {
               it.loteId || null,
               `Cancelamento OS ${os.numero}`,
               req.user?.username || null,
+              // Volta para o depósito de onde a peça saiu.
+              resolverDeposito(db, { depositoId: os.depositoId, osId: os.id, produtoId: it.produtoId }),
             );
             if (it.loteId) {
               db.prepare('UPDATE lotes SET saldoAtual = saldoAtual + ? WHERE id = ?').run(Number(it.quantidade), it.loteId);
@@ -1196,10 +1511,25 @@ function registrarRotasOS(app, db) {
       // Parâmetros de faturamento: body tem prioridade, depois os.campos persistidos, depois defaults
       const b = req.body || {};
       const formaPagamento = b.formaPagamento ?? os.formaPagamento ?? null;
+      const erroMeio = erroMeioPermitido(db, os.clienteId, formaPagamento);
+      if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
       const dataHoje = new Date().toISOString().slice(0, 10);
       const addDias = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-      const dataVencimento = b.dataVencimento ?? os.dataVencimento ?? addDias(dataHoje, 30);
-      const numeroParcelas = Math.max(1, Number(b.numeroParcelas ?? os.numeroParcelas) || 1);
+      // Prazo do cadastro do cliente ("30/60/90") define vencimento e parcelas
+      // quando a OS e o body não trazem os seus. Sem prazo, segue o +30 de antes.
+      const prazoCliente = prazoDaPessoa(db, os.clienteId);
+      // `||` e não `??`: campo em branco na OS chega como '' e vale por ausente.
+      const vencInformado = (b.dataVencimento || os.dataVencimento) || null;
+      const dataVencimento = vencInformado
+        || addDias(dataHoje, prazoCliente ? prazoCliente[0] : 30);
+      const parcelasInformadas = Number(b.numeroParcelas ?? os.numeroParcelas) || 0;
+      const numeroParcelas = Math.max(1, parcelasInformadas
+        || (!vencInformado && prazoCliente ? prazoCliente.length : 1));
+      // Com prazo do cliente mandando, cada parcela cai no dia dele; senão, o
+      // escalonamento mensal de sempre.
+      const vencDaParcela = (i) => (!vencInformado && !parcelasInformadas && prazoCliente)
+        ? addDias(dataHoje, prazoCliente[i - 1])
+        : addDias(dataVencimento, (i - 1) * 30);
       const naoEmitirNFe = b.naoEmitirNFe !== undefined ? (b.naoEmitirNFe ? 1 : 0) : (os.naoEmitirNFe ? 1 : 0);
 
       // Próximo número de pedido (mesmo padrão usado em pedidos)
@@ -1226,7 +1556,7 @@ function registrarRotasOS(app, db) {
         const parcelaBase = Math.floor((valor * 100) / numeroParcelas) / 100;
         let acumulado = 0;
         for (let i = 1; i <= numeroParcelas; i++) {
-          const venc = addDias(dataVencimento, (i - 1) * 30);
+          const venc = vencDaParcela(i);
           const valorParc = (i === numeroParcelas) ? Number((valor - acumulado).toFixed(2)) : parcelaBase;
           acumulado += valorParc;
           const origemLabel = origem === 'pecas' ? 'Peças' : origem === 'servicos' ? 'Serviços' : 'Total';
@@ -1792,7 +2122,12 @@ function registrarRotasOS(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
-  app.post('/api/os/:id/anexos', uploadOSAnexo.single('arquivo'), (req, res) => {
+  // reentrarContextoTenant: obrigatório depois do multer (ver nota em
+  // contas-pagar-routes.js). Aqui pesa mais: anexo de OS é foto de celular,
+  // que sempre chega em vários chunks.
+  app.post('/api/os/:id/anexos',
+    comTratamentoDeErro(uploadOSAnexo.single('arquivo'), { rotulo: 'os-anexo', limiteMb: 15 }),
+    reentrarContextoTenant, (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: 'Nenhum arquivo recebido' });
       const { categoria = 'outro' } = req.body || {};
@@ -1801,10 +2136,10 @@ function registrarRotasOS(app, db) {
         INSERT INTO os_anexos (osId, categoria, mimeType, nomeOriginal, caminho, tamanho, uploadedBy)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
-        req.params.id, categoria, req.file.mimetype, req.file.originalname,
+        req.params.id, categoria, req.file.mimetype, nomeOriginalUtf8(req.file.originalname),
         relPath, req.file.size, req.user?.username || null,
       );
-      registrarEvento(db, req.params.id, 'anexo', `Anexo "${req.file.originalname}" (${categoria})`, req.user?.username, { categoria, tamanho: req.file.size });
+      registrarEvento(db, req.params.id, 'anexo', `Anexo "${nomeOriginalUtf8(req.file.originalname)}" (${categoria})`, req.user?.username, { categoria, tamanho: req.file.size });
       res.json({ success: true, id: r.lastInsertRowid, caminho: relPath });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -2107,10 +2442,43 @@ function registrarRotasOS(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
+  // Vocabulário para a tela montar os selects — antes a lista morava no
+  // HTML e tinha divergido: 3 eventos que ninguém emite e 2 reais de fora.
+  app.get('/api/os/notificacoes-vocabulario', (req, res) => {
+    res.json({ success: true, eventos: EVENTOS_NOTIF, canais: CANAIS, placeholders: PLACEHOLDERS });
+  });
+
+  app.get('/api/os/notificacoes-log', (req, res) => {
+    try {
+      const limite = Math.min(Number(req.query.limit) || 50, 200);
+      const rows = db.prepare(`SELECT l.*, o.numero AS osNumero
+        FROM os_notificacoes_log l LEFT JOIN os_ordens o ON o.id = l.osId
+        ORDER BY l.id DESC LIMIT ?`).all(limite);
+      const falhas = db.prepare(`SELECT COUNT(*) n FROM os_notificacoes_log
+        WHERE status = 'erro' AND date(data) >= date('now','-7 days')`).get().n;
+      res.json({ success: true, log: rows, falhas7d: falhas });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // Envio de teste: a única forma de descobrir que o canal está fora
+  // antes do evento real acontecer.
+  app.post('/api/os/notificacoes-config/testar', async (req, res) => {
+    try {
+      const { evento, canal, template, osId } = req.body || {};
+      if (!EVENTOS_VALIDOS.includes(evento)) return res.status(400).json({ success: false, error: 'evento inválido' });
+      if (!CANAIS.some(c => c.valor === canal)) return res.status(400).json({ success: false, error: 'canal inválido' });
+      const r = await enviarTeste(db, { evento, canal, template, osId: osId ? Number(osId) : null });
+      res.json({ success: true, ...r });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
   app.post('/api/os/notificacoes-config', (req, res) => {
     try {
       const { evento, canal, template, ativo } = req.body || {};
       if (!evento || !canal) return res.status(400).json({ success: false, error: 'evento e canal são obrigatórios' });
+      if (!EVENTOS_VALIDOS.includes(evento)) {
+        return res.status(400).json({ success: false, error: `evento inválido — o sistema não emite "${evento}"` });
+      }
       if (!['email', 'whatsapp', 'telegram'].includes(canal)) {
         return res.status(400).json({ success: false, error: 'canal inválido' });
       }
@@ -2156,14 +2524,38 @@ function registrarRotasOS(app, db) {
                COALESCE(SUM(o.valorServicos), 0) AS valorServicos,
                COALESCE(SUM(o.valorTotal), 0) AS valorTotal,
                COALESCE(SUM(CASE WHEN o.status = 'faturada' THEN o.valorServicos ELSE 0 END), 0) AS receitaServicosFaturada,
-               COALESCE(SUM(CASE WHEN o.status = 'faturada' THEN o.valorServicos * IFNULL(u.comissaoPercentual,0) / 100.0 ELSE 0 END), 0) AS comissaoDevida
+               COALESCE(SUM(CASE WHEN o.status = 'faturada' THEN o.valorServicos * IFNULL(u.comissaoPercentual,0) / 100.0 ELSE 0 END), 0) AS comissaoDevida,
+               -- Sem custo, um técnico que fatura 10k gastando 9k em peças
+               -- ficava idêntico a outro que faturou 10k de mão de obra.
+               COALESCE(SUM((
+                 SELECT COALESCE(SUM(COALESCE(ip.custoUnitario, pr.precoCusto, 0) * ip.quantidade
+                        + CASE WHEN ip.compradoTerceiro = 1 THEN COALESCE(ip.custoTerceiro,0) ELSE 0 END), 0)
+                 FROM os_itens_pecas ip LEFT JOIN produtos pr ON pr.id = ip.produtoId
+                 WHERE ip.osId = o.id)), 0) AS custoPecas,
+               COALESCE(SUM((SELECT COALESCE(SUM(a.horas),0) FROM os_apontamentos a WHERE a.osId = o.id)), 0) AS horasApontadas,
+               COALESCE(SUM((SELECT COALESCE(SUM(s.horas),0) FROM os_itens_servicos s WHERE s.osId = o.id)), 0) AS horasCobradas,
+               u.valorHora AS valorHora
         FROM os_ordens o
         LEFT JOIN users u ON u.id = o.tecnicoId
         WHERE 1=1 ${f.where}
-        GROUP BY u.id, u.username, u.comissaoPercentual
+        GROUP BY u.id, u.username, u.comissaoPercentual, u.valorHora
         ORDER BY valorTotal DESC
       `).all(...f.params);
-      res.json({ success: true, linhas: rows });
+
+      const linhas = rows.map(r => {
+        const custoMaoDeObra = Number((r.horasApontadas * (r.valorHora || 0)).toFixed(2));
+        const margem = Number((r.valorTotal - r.custoPecas - custoMaoDeObra).toFixed(2));
+        return {
+          ...r, custoMaoDeObra, margem,
+          margemPct: r.valorTotal > 0 ? Number((margem / r.valorTotal * 100).toFixed(1)) : null,
+          horasNaoCobradas: Number((r.horasApontadas - r.horasCobradas).toFixed(2)),
+          // Aproveitamento: quanto do tempo gasto virou hora faturada.
+          aproveitamentoHoras: r.horasApontadas > 0
+            ? Number((r.horasCobradas / r.horasApontadas * 100).toFixed(1)) : null,
+          semValorHora: !r.valorHora,
+        };
+      });
+      res.json({ success: true, linhas });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -2177,7 +2569,21 @@ function registrarRotasOS(app, db) {
                SUM(CASE WHEN o.status = 'faturada' THEN 1 ELSE 0 END) AS faturadas,
                COALESCE(SUM(o.valorTotal), 0) AS valorTotal,
                COALESCE(SUM(CASE WHEN o.status = 'faturada' THEN o.valorTotal ELSE 0 END), 0) AS receitaFaturada,
-               MAX(o.dataAbertura) AS ultimaAbertura
+               MAX(o.dataAbertura) AS ultimaAbertura,
+               -- Mesmo tratamento do por-técnico: cliente que gera receita
+               -- alta consumindo peça cara não é cliente bom.
+               COALESCE(SUM((
+                 SELECT COALESCE(SUM(COALESCE(ip.custoUnitario, pr.precoCusto, 0) * ip.quantidade
+                        + CASE WHEN ip.compradoTerceiro = 1 THEN COALESCE(ip.custoTerceiro,0) ELSE 0 END), 0)
+                 FROM os_itens_pecas ip LEFT JOIN produtos pr ON pr.id = ip.produtoId
+                 WHERE ip.osId = o.id)), 0) AS custoPecas,
+               COALESCE(SUM((SELECT COALESCE(SUM(a.horas),0) FROM os_apontamentos a WHERE a.osId = o.id)), 0) AS horasApontadas,
+               COALESCE(SUM((SELECT COALESCE(SUM(s.horas),0) FROM os_itens_servicos s WHERE s.osId = o.id)), 0) AS horasCobradas,
+               COALESCE(SUM((
+                 SELECT COALESCE(SUM(a.horas),0) * COALESCE(u.valorHora,0)
+                 FROM os_apontamentos a LEFT JOIN users u ON u.id = o.tecnicoId
+                 WHERE a.osId = o.id)), 0) AS custoMaoDeObra,
+               COUNT(DISTINCT o.equipamentoId) AS equipamentos
         FROM os_ordens o
         JOIN pessoas p ON p.id = o.clienteId
         WHERE 1=1 ${f.where}
@@ -2185,7 +2591,85 @@ function registrarRotasOS(app, db) {
         ORDER BY valorTotal DESC
         LIMIT 100
       `).all(...f.params);
-      res.json({ success: true, linhas: rows });
+
+      const linhas = rows.map(r => {
+        const margem = Number((r.valorTotal - r.custoPecas - r.custoMaoDeObra).toFixed(2));
+        return {
+          ...r,
+          custoPecas: Number(Number(r.custoPecas).toFixed(2)),
+          custoMaoDeObra: Number(Number(r.custoMaoDeObra).toFixed(2)),
+          margem,
+          margemPct: r.valorTotal > 0 ? Number((margem / r.valorTotal * 100).toFixed(1)) : null,
+          horasNaoCobradas: Number((r.horasApontadas - r.horasCobradas).toFixed(2)),
+          // Mais OS do que equipamentos = o mesmo aparelho voltando.
+          osPorEquipamento: r.equipamentos > 0
+            ? Number((r.totalOS / r.equipamentos).toFixed(2)) : null,
+        };
+      });
+      res.json({ success: true, linhas });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  /**
+   * Qualidade do cadastro que sustenta a margem.
+   *
+   * Os relatórios já avisam que o número está incompleto (semValorHora,
+   * custoMaoDeObraEstimado), mas não diziam QUEM ou O QUÊ corrigir. Sem
+   * isso a margem fica errada para sempre e ninguém sabe onde mexer.
+   */
+  app.get('/api/os/relatorios/qualidade-cadastro', (req, res) => {
+    try {
+      const f = filtroPeriodo(req);
+
+      // Técnicos que apontaram hora no período e não têm valorHora: cada
+      // hora deles entra como custo zero.
+      const tecnicos = db.prepare(`
+        SELECT u.id, COALESCE(u.nome, u.username) AS nome,
+               COUNT(DISTINCT o.id) AS osNoPeriodo,
+               COALESCE(SUM((SELECT COALESCE(SUM(a.horas),0) FROM os_apontamentos a WHERE a.osId = o.id)), 0) AS horasApontadas
+        FROM os_ordens o JOIN users u ON u.id = o.tecnicoId
+        WHERE u.ativo = 1 AND (u.valorHora IS NULL OR u.valorHora <= 0) ${f.where}
+        GROUP BY u.id
+        HAVING horasApontadas > 0
+        ORDER BY horasApontadas DESC`).all(...f.params);
+
+      // Produtos consumidos em OS sem custo conhecido em nenhuma fonte.
+      const produtos = db.prepare(`
+        SELECT pr.id, pr.sku, pr.descricao,
+               COUNT(DISTINCT ip.osId) AS osNoPeriodo,
+               COALESCE(SUM(ip.quantidade), 0) AS quantidade,
+               COALESCE(SUM(ip.valorTotal), 0) AS valorVendido
+        FROM os_itens_pecas ip
+        JOIN os_ordens o ON o.id = ip.osId
+        JOIN produtos pr ON pr.id = ip.produtoId
+        WHERE ip.compradoTerceiro = 0
+          AND COALESCE(ip.custoUnitario, 0) <= 0
+          AND COALESCE(pr.precoCusto, 0) <= 0
+          AND NOT EXISTS (SELECT 1 FROM movimentacoes_estoque m
+                          WHERE m.produtoId = pr.id AND m.custoMedioPosterior > 0)
+          ${f.where}
+        GROUP BY pr.id
+        ORDER BY valorVendido DESC`).all(...f.params);
+
+      // OS faturada sem técnico: não entra em nenhum rateio por técnico.
+      const semTecnico = db.prepare(`
+        SELECT COUNT(*) n, COALESCE(SUM(o.valorTotal),0) valor
+        FROM os_ordens o
+        WHERE o.tecnicoId IS NULL AND o.status IN ('concluida','faturada') ${f.where}`).get(...f.params);
+
+      const receitaAfetada = Number(produtos.reduce((s, p) => s + p.valorVendido, 0).toFixed(2));
+      res.json({
+        success: true,
+        tecnicosSemValorHora: tecnicos,
+        produtosSemCusto: produtos,
+        osSemTecnico: semTecnico,
+        resumo: {
+          horasSemCusto: Number(tecnicos.reduce((s, t) => s + t.horasApontadas, 0).toFixed(2)),
+          receitaComPecaSemCusto: receitaAfetada,
+          // Se está tudo zerado, a margem dos relatórios é confiável.
+          cadastroCompleto: !tecnicos.length && !produtos.length && !semTecnico.n,
+        },
+      });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -2193,16 +2677,29 @@ function registrarRotasOS(app, db) {
   app.get('/api/os/relatorios/por-equipamento', (req, res) => {
     try {
       const f = filtroPeriodo(req);
+      // Agrupa pelo equipamento cadastrado quando existe; o texto livre
+      // fica só como fallback das OS antigas. Antes, cada variação de
+      // digitação virava uma linha diferente do relatório.
+      //
+      // Os parênteses no WHERE não são cosméticos: AND liga mais forte que
+      // OR, então `marca IS NOT NULL OR modelo IS NOT NULL AND data >= ?`
+      // deixava passar toda OS com marca preenchida, ignorando o período.
       const rows = db.prepare(`
-        SELECT COALESCE(o.marca, '—') AS marca,
-               COALESCE(o.modelo, '—') AS modelo,
-               COALESCE(o.equipamento, '—') AS equipamento,
+        SELECT COALESCE(e.marca, o.marca, '—') AS marca,
+               COALESCE(e.modelo, o.modelo, '—') AS modelo,
+               COALESCE(e.descricao, o.equipamento, '—') AS equipamento,
+               e.id AS equipamentoId, e.numeroSerie,
                COUNT(o.id) AS totalOS,
                SUM(CASE WHEN o.emGarantia = 1 THEN 1 ELSE 0 END) AS emGarantia,
+               COUNT(DISTINCT o.clienteId) AS clientes,
                COALESCE(SUM(o.valorTotal), 0) AS valorTotal
         FROM os_ordens o
-        WHERE o.marca IS NOT NULL OR o.modelo IS NOT NULL ${f.where}
-        GROUP BY marca, modelo, equipamento
+        LEFT JOIN equipamentos e ON e.id = o.equipamentoId
+        WHERE (o.equipamentoId IS NOT NULL OR o.marca IS NOT NULL OR o.modelo IS NOT NULL) ${f.where}
+        GROUP BY COALESCE(o.equipamentoId, -1),
+                 COALESCE(e.marca, o.marca, '—'),
+                 COALESCE(e.modelo, o.modelo, '—'),
+                 COALESCE(e.descricao, o.equipamento, '—')
         ORDER BY totalOS DESC
         LIMIT 100
       `).all(...f.params);
@@ -2210,27 +2707,55 @@ function registrarRotasOS(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
-  // Lucratividade: receita - custo de peças (usando produtos.custoMedio)
+  /**
+   * Lucratividade: receita − custo de peças − custo de mão de obra.
+   *
+   * A versão anterior lia `produtos.custoMedio`, coluna que NÃO EXISTE —
+   * o endpoint estourava com "no such column" e devolvia 500. O custo real
+   * vem, em ordem: custo gravado na baixa da peça → custo da movimentação
+   * de estoque da OS → último custo médio conhecido do produto →
+   * produtos.precoCusto.
+   *
+   * Mão de obra usa users.valorHora sobre as horas APONTADAS (tempo real
+   * gasto), não sobre as horas cobradas — é isso que revela serviço
+   * vendido barato demais.
+   */
   app.get('/api/os/relatorios/lucratividade', (req, res) => {
     try {
       const f = filtroPeriodo(req);
+      const custoPecasSQL = `(
+        SELECT COALESCE(SUM(
+          COALESCE(
+            ip.custoUnitario,
+            (SELECT m.custoUnitario FROM movimentacoes_estoque m
+              WHERE m.id = ip.movSaidaId AND m.custoUnitario IS NOT NULL),
+            (SELECT m.custoMedioPosterior FROM movimentacoes_estoque m
+              WHERE m.produtoId = ip.produtoId AND m.custoMedioPosterior IS NOT NULL
+              ORDER BY m.data DESC, m.id DESC LIMIT 1),
+            pr.precoCusto,
+            0
+          ) * ip.quantidade
+          -- Peça comprada de terceiro para a OS: o custo é o que se pagou.
+          + CASE WHEN ip.compradoTerceiro = 1 THEN COALESCE(ip.custoTerceiro,0) ELSE 0 END
+        ), 0)
+        FROM os_itens_pecas ip
+        LEFT JOIN produtos pr ON pr.id = ip.produtoId
+        WHERE ip.osId = o.id)`;
+      const horasApontadasSQL = `(SELECT COALESCE(SUM(a.horas),0) FROM os_apontamentos a WHERE a.osId = o.id)`;
+      const horasCobradasSQL = `(SELECT COALESCE(SUM(s.horas),0) FROM os_itens_servicos s WHERE s.osId = o.id)`;
+      const custoMOSQL = `(${horasApontadasSQL} * COALESCE(u.valorHora, 0))`;
+
       const rows = db.prepare(`
         SELECT o.id AS osId, o.numero, o.dataAbertura, o.status,
                p.razaoSocial AS clienteNome,
-               u.username AS tecnicoNome,
+               COALESCE(u.nome, u.username) AS tecnicoNome,
                o.valorPecas, o.valorServicos, o.valorTotal,
-               COALESCE((
-                 SELECT SUM(IFNULL(pr.custoMedio, 0) * ip.quantidade)
-                 FROM os_itens_pecas ip
-                 LEFT JOIN produtos pr ON pr.id = ip.produtoId
-                 WHERE ip.osId = o.id
-               ), 0) AS custoPecas,
-               (o.valorTotal - COALESCE((
-                 SELECT SUM(IFNULL(pr.custoMedio, 0) * ip.quantidade)
-                 FROM os_itens_pecas ip
-                 LEFT JOIN produtos pr ON pr.id = ip.produtoId
-                 WHERE ip.osId = o.id
-               ), 0)) AS margemBruta
+               ${custoPecasSQL} AS custoPecas,
+               ${custoMOSQL} AS custoMaoDeObra,
+               ${horasApontadasSQL} AS horasApontadas,
+               ${horasCobradasSQL} AS horasCobradas,
+               (o.valorTotal - ${custoPecasSQL}) AS margemBruta,
+               (o.valorTotal - ${custoPecasSQL} - ${custoMOSQL}) AS margemLiquida
         FROM os_ordens o
         LEFT JOIN pessoas p ON p.id = o.clienteId
         LEFT JOIN users u ON u.id = o.tecnicoId
@@ -2238,7 +2763,29 @@ function registrarRotasOS(app, db) {
         ORDER BY o.dataAbertura DESC
         LIMIT 500
       `).all(...f.params);
-      res.json({ success: true, linhas: rows });
+
+      const linhas = rows.map(r => ({
+        ...r,
+        margemPct: r.valorTotal > 0 ? Number((r.margemLiquida / r.valorTotal * 100).toFixed(1)) : null,
+        // Horas gastas além do que foi cobrado: vazamento de produtividade.
+        horasNaoCobradas: Number((r.horasApontadas - r.horasCobradas).toFixed(2)),
+        // Sem valorHora do técnico o custo de MO é zero e a margem líquida
+        // fica igual à bruta — melhor dizer do que deixar parecer lucro.
+        custoMaoDeObraEstimado: r.custoMaoDeObra > 0,
+      }));
+      const totais = linhas.reduce((a, l) => ({
+        receita: a.receita + (l.valorTotal || 0),
+        custoPecas: a.custoPecas + (l.custoPecas || 0),
+        custoMaoDeObra: a.custoMaoDeObra + (l.custoMaoDeObra || 0),
+        margemLiquida: a.margemLiquida + (l.margemLiquida || 0),
+        horasApontadas: a.horasApontadas + (l.horasApontadas || 0),
+        horasCobradas: a.horasCobradas + (l.horasCobradas || 0),
+      }), { receita: 0, custoPecas: 0, custoMaoDeObra: 0, margemLiquida: 0, horasApontadas: 0, horasCobradas: 0 });
+      for (const k of Object.keys(totais)) totais[k] = Number(totais[k].toFixed(2));
+      totais.margemPct = totais.receita > 0 ? Number((totais.margemLiquida / totais.receita * 100).toFixed(1)) : null;
+      totais.semValorHora = linhas.filter(l => l.horasApontadas > 0 && !l.custoMaoDeObraEstimado).length;
+
+      res.json({ success: true, linhas, totais });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 

@@ -17,7 +17,7 @@ function registrarRotasLotes(app, db) {
                         f.razaoSocial AS fornecedorNome
                  FROM lotes l
                  JOIN produtos p ON p.id = l.produtoId
-                 LEFT JOIN fornecedores f ON f.id = l.fornecedorId
+                 LEFT JOIN pessoas f ON f.id = l.fornecedorId
                  WHERE 1=1`;
       const params = [];
       if (produtoId) { sql += ' AND l.produtoId = ?'; params.push(produtoId); }
@@ -65,7 +65,7 @@ function registrarRotasLotes(app, db) {
                f.razaoSocial AS fornecedorNome
         FROM lotes l
         JOIN produtos p ON p.id = l.produtoId
-        LEFT JOIN fornecedores f ON f.id = l.fornecedorId
+        LEFT JOIN pessoas f ON f.id = l.fornecedorId
         WHERE l.id = ?
       `).get(req.params.id);
       if (!lote) return res.status(404).json({ success: false, error: 'Lote nao encontrado' });

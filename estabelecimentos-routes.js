@@ -102,6 +102,78 @@ function escopoUsuario(req) {
   return req && req.user ? (req.user.estabelecimentoId || null) : null;
 }
 
+/* ==================== RBAC DE ESTABELECIMENTO (Fase 4.3) ====================
+ *
+ * Regra única do sistema: usuário preso a uma unidade não vê registro EXCLUSIVO
+ * de outra unidade. Registro sem vínculo (estabelecimentoId NULL) é da empresa
+ * toda — continua visível para todos. Sem essa segunda metade o escopo viraria
+ * prisão: hoje quase todo registro é NULL, e cortá-los deixaria o usuário
+ * restrito sem nada.
+ *
+ * Os dados financeiros carregam a dimensão de três formas, e há um helper para
+ * cada uma:
+ *   - coluna própria (contas_a_pagar, contas_a_receber, faturas) → escopoSql
+ *   - herdada de um pai (boleto → conta financeira, DDA → conta a pagar) → escopoSqlHerdado
+ *   - por id na URL, em qualquer rota do módulo → guardEscopo
+ */
+
+// Filtro para tabela que tem a coluna. `col` aceita alias ('cr.estabelecimentoId').
+function escopoSql(req, col = 'estabelecimentoId') {
+  const escopo = escopoUsuario(req);
+  if (!escopo) return { sql: '', params: [] };
+  return { sql: ` AND (${col} = ? OR ${col} IS NULL)`, params: [escopo] };
+}
+
+// Filtro para tabela que herda a unidade de um pai via chave estrangeira.
+// FK nula = registro solto, visível (mesma lógica do NULL acima).
+function escopoSqlHerdado(req, fk, tabelaPai) {
+  const escopo = escopoUsuario(req);
+  if (!escopo) return { sql: '', params: [] };
+  return {
+    sql: ` AND (${fk} IS NULL OR ${fk} IN (SELECT id FROM ${tabelaPai} WHERE estabelecimentoId = ? OR estabelecimentoId IS NULL))`,
+    params: [escopo],
+  };
+}
+
+// Um registro específico está no escopo de quem pediu?
+function noEscopo(req, estabelecimentoIdDoRegistro) {
+  const escopo = escopoUsuario(req);
+  return !escopo || !estabelecimentoIdDoRegistro || estabelecimentoIdDoRegistro === escopo;
+}
+
+/**
+ * Middleware que barra acesso por id fora do escopo — cobre de uma vez todas as
+ * rotas `/:id` de um módulo (inclusive as que ainda não existem), em vez de
+ * espalhar a checagem por dezenas de handlers.
+ *
+ * Registrar ANTES das rotas: app.use('/api/contas-a-receber/:id', guardEscopo(db, 'contas_a_receber'))
+ *
+ * `opts.fk` + `opts.pai` para tabela que herda a unidade (ex.: { fk: 'contaFinanceiraId', pai: 'contas_financeiras' }).
+ *
+ * Id não numérico passa direto: é rota literal ('resumo', 'csv', 'anexos'), não registro.
+ */
+function guardEscopo(db, tabela, opts = {}) {
+  const { fk = null, pai = null } = opts;
+  return (req, res, next) => {
+    try {
+      const escopo = escopoUsuario(req);
+      if (!escopo) return next();
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return next();
+      const row = fk
+        ? db.prepare(`SELECT p.estabelecimentoId AS e FROM ${tabela} t LEFT JOIN ${pai} p ON p.id = t.${fk} WHERE t.id = ?`).get(id)
+        : db.prepare(`SELECT estabelecimentoId AS e FROM ${tabela} WHERE id = ?`).get(id);
+      // Registro inexistente segue adiante: o 404 é da rota, não do escopo.
+      if (row && row.e && row.e !== escopo) {
+        return res.status(404).json({ success: false, error: 'Registro nao encontrado' });
+      }
+      return next();
+    } catch (_) {
+      return next(); // tabela ainda não migrada: não é hora de derrubar a requisição
+    }
+  };
+}
+
 function registrarRotasEstabelecimentos(app, db) {
   // Lista os estabelecimentos. Usuário restrito vê só o seu (RBAC).
   app.get('/api/estabelecimentos', (req, res) => {
@@ -336,4 +408,7 @@ function registrarRotasEstabelecimentos(app, db) {
   console.log('[Estabelecimentos] Rotas registradas');
 }
 
-module.exports = { registrarRotasEstabelecimentos, getEstabelecimentoAtivo };
+module.exports = {
+  registrarRotasEstabelecimentos, getEstabelecimentoAtivo,
+  escopoUsuario, escopoSql, escopoSqlHerdado, noEscopo, guardEscopo,
+};

@@ -31,6 +31,10 @@ const COMPLEMENTO = {
   '/api/relatorio-concorrentes': ['relatorio-lances'],
   '/api/credenciais':            ['consulta', 'propostas-api'],
   '/api/cfops-regras':           ['cadastro-cfops'],
+  // Painel de certidões vencendo. Perdeu a tela própria quando o cadastro de
+  // fornecedores foi unificado em `pessoas` (2026-08-20); a rota continua
+  // servindo quem consulta a API.
+  '/api/fornecedores-documentos':['pessoas'],
   '/api/rh':                     ['funcionarios', 'comissoes'],
   '/api/sc':                     ['conexoes', 'integracoes'],
   '/api/robo':                   ['conexoes', 'integracoes'],

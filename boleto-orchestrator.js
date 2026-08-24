@@ -15,6 +15,16 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 const provedores = require('./boleto-provedores');
+const { permitidosDaPessoa, mensagemBloqueio } = require('./meios-pagamento');
+
+// Cliente com whitelist de meios de recebimento: emitir boleto/PIX fora dela é
+// recusado aqui, no ponto único por onde passam loja, NFS-e, faturamento
+// automático e a geração manual na tela de contas a receber.
+function bloqueioPorMeio(db, pessoaId, meio) {
+  const permitidos = permitidosDaPessoa(db, pessoaId);
+  if (!permitidos || permitidos.includes(meio === 'pix' ? '17' : '15')) return null;
+  return { skipped: true, motivo: mensagemBloqueio(permitidos, meio) };
+}
 
 // ==================== SPLIT DA PLATAFORMA (Asaas) ====================
 // Forçado server-side. Tenant não vê nem edita — quem configura é o super
@@ -232,6 +242,9 @@ async function emitirBoletoParaCR(db, contaReceberId) {
   `).get(contaReceberId);
   if (!cr) throw new Error(`CR #${contaReceberId} não encontrada`);
 
+  const bloqueio = bloqueioPorMeio(db, cr.pessoaId, 'boleto');
+  if (bloqueio) return bloqueio;
+
   // Se a CR não tem conta financeira vinculada, usa a padrão de boleto (se existir)
   let contaFinanceiraId = cr.contaFinanceiraId;
   if (!contaFinanceiraId) {
@@ -305,6 +318,9 @@ async function emitirCobrancaPixParaCR(db, contaReceberId) {
     WHERE c.id = ?
   `).get(contaReceberId);
   if (!cr) throw new Error(`CR #${contaReceberId} não encontrada`);
+
+  const bloqueio = bloqueioPorMeio(db, cr.pessoaId, 'pix');
+  if (bloqueio) return bloqueio;
 
   let contaFinanceiraId = cr.contaFinanceiraId;
   if (!contaFinanceiraId) {

@@ -9,6 +9,10 @@
 const { MercadoPagoClient, loadMPConfig } = require('./mercadopago-client');
 const { lancarMovimentacao, getContaMercadoPago } = require('./contas-financeiras-routes');
 const { registrarBaixaCR } = require('./contas-receber-routes');
+const { logAction } = require('./audit-log');
+const { reentrarContextoTenant } = require('./tenant-middleware');
+const { comTratamentoDeErro, nomeOriginalUtf8 } = require('./upload-anexos');
+const { parsePrazo, normalizarPrazo, prazoDaPessoa } = require('./prazo-pagamento');
 
 // ==================== MIGRAÇÃO ====================
 
@@ -413,6 +417,36 @@ function registrarRotasFinanceiro(app, db) {
     }
   });
 
+  // Condições de pagamento do cliente: meios aceitos (`permitidos: null` = sem
+  // restrição) e prazo em dias (`prazo: [30,60,90]` ou null). Fica antes de
+  // /api/pessoas/:id para não ser capturado por ele. O PDV consulta por
+  // cpfCnpj porque lá o cliente pode nem estar cadastrado.
+  app.get('/api/pessoas/condicoes-pagamento', (req, res) => {
+    try {
+      const { permitidosDaPessoa, permitidosPorCpfCnpj, MEIOS } = require('./meios-pagamento');
+      let pessoaId = req.query.pessoaId || null;
+      if (req.query.cpfCnpj) {
+        const digits = String(req.query.cpfCnpj).replace(/\D/g, '');
+        const p = digits ? db.prepare('SELECT id FROM pessoas WHERE cpfCnpj = ?').get(digits) : null;
+        pessoaId = p ? p.id : null;
+      }
+      const onde = ['vendas', 'compras', 'pdv'].includes(req.query.onde) ? req.query.onde : 'vendas';
+      const permitidos = req.query.cpfCnpj
+        ? permitidosPorCpfCnpj(db, req.query.cpfCnpj, onde)
+        : permitidosDaPessoa(db, pessoaId, onde);
+      // A política vai junto para quem precisa do resto da regra (valor mínimo
+      // da parcela, acréscimo/desconto, trava de limite) sem uma segunda volta.
+      const { politicaDaPessoa, valePara } = require('./politicas-prazo');
+      const pol = politicaDaPessoa(db, pessoaId);
+      res.json({
+        success: true, permitidos, prazo: prazoDaPessoa(db, pessoaId, onde), rotulos: MEIOS,
+        politica: valePara(pol, onde) ? pol : null,
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/pessoas/:id', (req, res) => {
     try {
       const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(req.params.id);
@@ -444,7 +478,20 @@ function registrarRotasFinanceiro(app, db) {
     'sexo', 'estadoCivil', 'profissao', 'nomeMae', 'nomePai', 'nacionalidade',
     // Comercial
     'categorias', 'origem', 'vendedorId', 'tabelaPrecoId',
-    'limiteCredito', 'prazoMedioDias', 'condicaoPagamentoPadrao', 'tags',
+    'limiteCredito', 'prazoMedioDias', 'condicaoPagamentoPadrao',
+    'meiosPagamentoPermitidos', 'tags',
+    // Prazo e meios saíram da ficha em 2026-08-21 e viraram Política de Prazo;
+    // os dois campos acima seguem aceitos para não quebrar importação e
+    // integração que ainda os enviam. politicaPrazoId é o que a ficha grava.
+    'politicaPrazoId',
+    // Contato e fornecedor — vieram do cadastro separado de `fornecedores`,
+    // unificado aqui em 2026-08-20. A aba Fornecedor da ficha edita estes.
+    'celular', 'emailFinanceiro', 'site',
+    'prazoEntregaDias', 'pedidoMinimo', 'tipoFrete',
+    'statusHomologacao', 'dataHomologacao', 'avaliacao',
+    // Status da conta: editável na ficha. dataInativacao/motivoInativacao
+    // abaixo são derivados dele no PUT, não vêm do formulário.
+    'ativo',
     // LGPD
     'lgpdConsentimento', 'lgpdDataConsentimento', 'lgpdFonte',
     'aceitaEmailMarketing', 'aceitaWhatsappMarketing',
@@ -452,10 +499,10 @@ function registrarRotasFinanceiro(app, db) {
     'dataInativacao', 'motivoInativacao',
   ];
   const PESSOAS_CAMPOS_BOOL = new Set([
-    'optanteSimples', 'contribuinteIcms', 'cobrancaAtiva',
+    'optanteSimples', 'contribuinteIcms', 'cobrancaAtiva', 'ativo',
     'lgpdConsentimento', 'aceitaEmailMarketing', 'aceitaWhatsappMarketing',
   ]);
-  const PESSOAS_CAMPOS_JSON = new Set(['categorias', 'tags']);
+  const PESSOAS_CAMPOS_JSON = new Set(['categorias', 'tags', 'meiosPagamentoPermitidos']);
 
   function normalizarPessoaPayload(body) {
     const out = {};
@@ -467,10 +514,127 @@ function registrarRotasFinanceiro(app, db) {
       if (PESSOAS_CAMPOS_JSON.has(k) && v != null && typeof v !== 'string') {
         try { v = JSON.stringify(v); } catch { v = null; }
       }
+      // Prazo entra na forma canônica ("30 / 60" → "30/60"); erroDominioPessoa
+      // já recusou o que não é prazo antes de chegar aqui.
+      if (k === 'condicaoPagamentoPadrao' && v != null) {
+        try { v = normalizarPrazo(v); } catch { v = null; }
+      }
       out[k] = v;
     }
     return out;
   }
+
+  /**
+   * Tags de uma pessoa, como array. O formato oficial é JSON array — é o que a
+   * ficha grava. Cadastro tocado pela ação em massa antiga pode ter CSV
+   * ("vip, atacado") ou o híbrido que ela produzia ao remendar um JSON
+   * ('["vip"], atacado'); os dois são lidos aqui para nada se perder na
+   * primeira gravação nova.
+   */
+  function lerTagsPessoa(valor) {
+    const bruto = String(valor == null ? '' : valor).trim();
+    if (!bruto) return [];
+    if (bruto.startsWith('[')) {
+      try {
+        const arr = JSON.parse(bruto);
+        if (Array.isArray(arr)) return arr.map(t => String(t).trim()).filter(Boolean);
+      } catch { /* híbrido: cai no split abaixo, que limpa colchete e aspas */ }
+    }
+    return bruto.split(',')
+      .map(t => t.replace(/[[\]"]/g, '').trim())
+      .filter(Boolean);
+  }
+
+  // Recusa valor fora do domínio em vez de gravar lixo que depois não casa com
+  // nenhum filtro da tela. Herdado do cadastro de fornecedores, aposentado na
+  // unificação de 2026-08-20 — a regra veio junto com os campos.
+  const FRETES = ['CIF', 'FOB', 'terceiros', 'sem_frete'];
+  const STATUS_HOMOLOGACAO = ['nao_avaliado', 'em_analise', 'homologado', 'bloqueado'];
+
+  function erroDominioPessoa(b) {
+    const checa = (campo, lista, nome) =>
+      b[campo] && !lista.includes(b[campo]) ? `${nome} inválido: ${b[campo]}` : null;
+    // O prazo virou dado estruturado (dias separados por barra) — recusar aqui
+    // é o que impede o campo de voltar a ser texto livre sem serventia.
+    let erroPrazo = null;
+    if (b.condicaoPagamentoPadrao) {
+      try { parsePrazo(b.condicaoPagamentoPadrao); } catch (e) { erroPrazo = e.message; }
+    }
+    return erroPrazo
+        || checa('tipoFrete', FRETES, 'Tipo de frete')
+        || checa('statusHomologacao', STATUS_HOMOLOGACAO, 'Status de homologação')
+        || (b.avaliacao != null && b.avaliacao !== '' && !(Number(b.avaliacao) >= 1 && Number(b.avaliacao) <= 5)
+              ? 'Avaliação deve ficar entre 1 e 5' : null);
+  }
+
+  /**
+   * Log de atividades da ficha de pessoa.
+   *
+   * Tudo — inclusive contato, endereço, conta e anexo — é gravado com
+   * entity 'pessoa' e entityId da PESSOA, nunca do sub-registro: assim o
+   * histórico da ficha sai de uma query só e um contato apagado não leva o
+   * próprio rastro embora. O que era o sub-registro vai no payload.
+   */
+  const cortarValor = (v) => (v == null || v === '' ? null : String(v).slice(0, 120));
+
+  function logPessoa(req, acao, pessoaId, payload) {
+    logAction(db, req, acao, 'pessoa', pessoaId, payload);
+  }
+
+  // Diff campo a campo: só o que realmente mudou vai para o log. Comparação
+  // por string porque o SQLite devolve 0/1 onde o payload manda true/false.
+  function diffCampos(antes, depois) {
+    const d = {};
+    for (const k of Object.keys(depois)) {
+      const a = antes ? antes[k] : undefined;
+      if (String(a ?? '') === String(depois[k] ?? '')) continue;
+      d[k] = { de: cortarValor(a), para: cortarValor(depois[k]) };
+    }
+    return d;
+  }
+
+  /**
+   * O que "segura" uma pessoa: qualquer tabela do tenant com pessoaId,
+   * clienteId ou fornecedorId apontando para ela.
+   *
+   * A lista sai do schema do próprio banco, não de uma constante: cada tenant
+   * tem um conjunto diferente de módulos ligados (aqui ~20 tabelas, no 1bit
+   * ~40) e uma lista fixa aqui envelheceria calada — o módulo novo entraria
+   * sem trancar a exclusão, que é justamente o erro que não pode acontecer.
+   */
+  const COLUNAS_VINCULO = ['pessoaId', 'clienteId', 'fornecedorId'];
+  // Partes da própria ficha: saem junto com ela, não são movimentação.
+  const TABELAS_DA_FICHA = new Set([
+    'pessoas_contatos', 'pessoas_enderecos_adicionais', 'pessoas_dados_bancarios', 'pessoas_anexos',
+  ]);
+
+  function tabelasComVinculo() {
+    return db.prepare(`
+      SELECT m.name AS tabela, p.name AS coluna
+        FROM sqlite_master m, pragma_table_info(m.name) p
+       WHERE m.type = 'table' AND p.name IN (${COLUNAS_VINCULO.map(() => '?').join(', ')})
+       ORDER BY m.name
+    `).all(...COLUNAS_VINCULO).filter((r) => !TABELAS_DA_FICHA.has(r.tabela));
+  }
+
+  function vinculosDePessoa(pessoaId) {
+    const achados = [];
+    for (const { tabela, coluna } of tabelasComVinculo()) {
+      try {
+        const r = db.prepare(`SELECT COUNT(*) AS n FROM "${tabela}" WHERE "${coluna}" = ?`).get(pessoaId);
+        if (r && r.n) achados.push({ tabela, coluna, qtd: r.n });
+      } catch (_) { /* tabela ilegível não vira bloqueio nem erro 500 */ }
+    }
+    return achados;
+  }
+
+  // GET /api/pessoas/:id/vinculos — a ficha pergunta antes de oferecer Excluir
+  app.get('/api/pessoas/:id/vinculos', (req, res) => {
+    try {
+      const vinculos = vinculosDePessoa(Number(req.params.id));
+      res.json({ success: true, podeExcluir: vinculos.length === 0, vinculos });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
 
   app.post('/api/pessoas', (req, res) => {
     try {
@@ -478,6 +642,9 @@ function registrarRotasFinanceiro(app, db) {
       if (!cpfCnpj || !razaoSocial) {
         return res.status(400).json({ success: false, error: 'CPF/CNPJ e Razao Social sao obrigatorios' });
       }
+
+      const erroDom = erroDominioPessoa(req.body);
+      if (erroDom) return res.status(400).json({ success: false, error: erroDom });
 
       const cpfLimpo = cpfCnpj.replace(/\D/g, '');
       const tipo = detectarTipoPessoa(cpfLimpo);
@@ -494,6 +661,10 @@ function registrarRotasFinanceiro(app, db) {
             `UPDATE pessoas SET ativo = 1, tipo = ?, ${setSql}, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`
           ).run(tipo, ...valores, existente.id);
           const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(existente.id);
+          logPessoa(req, 'reativar', existente.id, {
+            razaoSocial: pessoa.razaoSocial, cpfCnpj: cpfLimpo,
+            alteracoes: diffCampos(existente, dados),
+          });
           return res.json({ success: true, pessoa, reativada: true });
         }
         return res.status(409).json({ success: false, error: 'Pessoa ja cadastrada com este CPF/CNPJ', pessoa: existente });
@@ -508,10 +679,114 @@ function registrarRotasFinanceiro(app, db) {
       ).run(...valores);
 
       const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(result.lastInsertRowid);
+      logPessoa(req, 'criar', pessoa.id, {
+        razaoSocial: pessoa.razaoSocial, cpfCnpj: cpfLimpo, tipo,
+        vendedorId: pessoa.vendedorId || null,
+      });
       res.json({ success: true, pessoa });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
+  });
+
+  /**
+   * Ações em massa no cadastro de pessoas.
+   *
+   * O que antes exigia abrir ficha por ficha — marcar consentimento de
+   * marketing, inativar, etiquetar — passa a valer para a seleção inteira.
+   *
+   * Consentimento tem tratamento à parte: a LGPD cobra a ORIGEM do aceite, e
+   * marcar "aceita marketing" em massa sem dizer de onde veio é justamente o
+   * que não se sustenta numa fiscalização. Por isso `fonte` é obrigatória para
+   * LIGAR o consentimento — e dispensada para desligar, que é sempre direito
+   * do titular.
+   */
+  const ACOES_MASSA = ['marketing-whatsapp', 'marketing-email', 'consentimento', 'ativo', 'tag', 'vendedor'];
+
+  app.post('/api/pessoas/acao-massa', (req, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+      const acao = String(req.body?.acao || '');
+      const ligar = !!req.body?.valor;
+      if (!ids.length) return res.status(400).json({ success: false, error: 'Selecione ao menos uma pessoa' });
+      if (!ACOES_MASSA.includes(acao)) return res.status(400).json({ success: false, error: 'Ação desconhecida' });
+      if (ids.length > 2000) return res.status(400).json({ success: false, error: 'No máximo 2000 por vez' });
+
+      const fonte = String(req.body?.fonte || '').trim();
+      const agora = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      let stmt, extra = {};
+
+      if (acao === 'marketing-whatsapp' || acao === 'marketing-email') {
+        const col = acao === 'marketing-whatsapp' ? 'aceitaWhatsappMarketing' : 'aceitaEmailMarketing';
+        if (ligar && !fonte) {
+          return res.status(400).json({ success: false,
+            error: 'Informe de onde veio o aceite (ex.: "assinou no balcão", "aceitou no site") — a LGPD exige a origem' });
+        }
+        // Ligar marketing sem consentimento registrado seria remendo: grava os
+        // dois, com a mesma origem e data.
+        stmt = ligar
+          ? db.prepare(`UPDATE pessoas SET ${col} = 1, lgpdConsentimento = 1,
+               lgpdFonte = COALESCE(NULLIF(lgpdFonte,''), ?), lgpdDataConsentimento = COALESCE(lgpdDataConsentimento, ?),
+               dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+          : db.prepare(`UPDATE pessoas SET ${col} = 0, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`);
+        extra = { canal: acao.split('-')[1], ligado: ligar };
+      } else if (acao === 'consentimento') {
+        if (ligar && !fonte) {
+          return res.status(400).json({ success: false, error: 'Informe de onde veio o consentimento' });
+        }
+        // Retirar consentimento derruba os canais de marketing junto: manter
+        // "aceita WhatsApp" sem consentimento é contradição no cadastro.
+        stmt = ligar
+          ? db.prepare(`UPDATE pessoas SET lgpdConsentimento = 1, lgpdFonte = ?, lgpdDataConsentimento = ?,
+               dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+          : db.prepare(`UPDATE pessoas SET lgpdConsentimento = 0, aceitaEmailMarketing = 0,
+               aceitaWhatsappMarketing = 0, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`);
+      } else if (acao === 'ativo') {
+        stmt = db.prepare(`UPDATE pessoas SET ativo = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`);
+      } else if (acao === 'tag') {
+        const tag = String(req.body?.tag || '').trim();
+        if (!tag) return res.status(400).json({ success: false, error: 'Informe a etiqueta' });
+        extra = { tag, ligado: ligar };
+      } else if (acao === 'vendedor') {
+        const vendedorId = Number(req.body?.vendedorId) || null;
+        stmt = db.prepare(`UPDATE pessoas SET vendedorId = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`);
+        extra = { vendedorId };
+      }
+
+      let alterados = 0;
+      const trx = db.transaction(() => {
+        for (const id of ids) {
+          let r;
+          if (acao === 'tag') {
+            // Soma ou remove sem apagar o que já estava lá, gravando no mesmo
+            // JSON array que a ficha usa. Antes esta ação lia e gravava CSV: o
+            // que ela escrevia a ficha não conseguia ler (e vice-versa), e
+            // etiquetar em lote quem já tinha tag corrompia o valor.
+            const p = db.prepare('SELECT tags FROM pessoas WHERE id = ?').get(id);
+            if (!p) continue;
+            const atuais = lerTagsPessoa(p.tags);
+            const tag = String(req.body.tag).trim();
+            const novas = ligar
+              ? (atuais.some(x => x.toLowerCase() === tag.toLowerCase()) ? atuais : [...atuais, tag])
+              : atuais.filter(x => x.toLowerCase() !== tag.toLowerCase());
+            r = db.prepare('UPDATE pessoas SET tags = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
+              .run(novas.length ? JSON.stringify(novas) : null, id);
+          } else if (acao === 'marketing-whatsapp' || acao === 'marketing-email') {
+            r = ligar ? stmt.run(fonte, agora, id) : stmt.run(id);
+          } else if (acao === 'consentimento') {
+            r = ligar ? stmt.run(fonte, agora, id) : stmt.run(id);
+          } else if (acao === 'ativo') {
+            r = stmt.run(ligar ? 1 : 0, id);
+          } else if (acao === 'vendedor') {
+            r = stmt.run(extra.vendedorId, id);
+          }
+          if (r && r.changes) alterados++;
+        }
+      });
+      trx();
+      logAction(db, req, 'acao-massa', 'pessoa', null, { acao, ids: ids.length, alterados, fonte: fonte || null, ...extra });
+      res.json({ success: true, alterados, total: ids.length });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
   app.put('/api/pessoas/:id', (req, res) => {
@@ -519,9 +794,25 @@ function registrarRotasFinanceiro(app, db) {
       const existing = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(req.params.id);
       if (!existing) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
 
+      const erroDom = erroDominioPessoa(req.body);
+      if (erroDom) return res.status(400).json({ success: false, error: erroDom });
+
       const dados = normalizarPessoaPayload(req.body);
       if (Object.keys(dados).length === 0) {
         return res.json({ success: true, pessoa: existing, skipped: true });
+      }
+
+      // Status vindo da ficha: a data e o motivo da inativação são derivados
+      // aqui, não aceitos do formulário — senão saem do ar um do outro.
+      const mudouStatus = 'ativo' in dados && dados.ativo !== existing.ativo;
+      if (mudouStatus) {
+        if (dados.ativo) {
+          dados.dataInativacao = null;
+          dados.motivoInativacao = null;
+        } else {
+          dados.dataInativacao = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          dados.motivoInativacao = req.body.motivoInativacao || null;
+        }
       }
 
       const setSql = Object.keys(dados).map(c => `${c} = ?`).join(', ');
@@ -531,24 +822,89 @@ function registrarRotasFinanceiro(app, db) {
       ).run(...valores, req.params.id);
 
       const pessoa = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(req.params.id);
+      // Salvar sem mexer em nada não vira linha de histórico.
+      const alteracoes = diffCampos(existing, dados);
+      if (Object.keys(alteracoes).length) {
+        // Ligar/desligar a conta é evento próprio no histórico, não "editou o
+        // campo ativo" perdido no meio do diff.
+        const acao = mudouStatus ? (dados.ativo ? 'reativar' : 'inativar') : 'editar';
+        logPessoa(req, acao, pessoa.id, { razaoSocial: pessoa.razaoSocial, alteracoes });
+      }
       res.json({ success: true, pessoa });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
+  /**
+   * DELETE /api/pessoas/:id — exclusão DEFINITIVA.
+   *
+   * Só passa quando a varredura de vínculos não acha nada: com movimentação,
+   * o caminho é o status Inativo da ficha, que preserva o histórico. Some a
+   * pessoa e as partes da ficha (contatos, endereços, contas, anexos —
+   * inclusive os arquivos em disco). O audit_log fica: é o que sobra para
+   * explicar o sumiço.
+   */
   app.delete('/api/pessoas/:id', (req, res) => {
     try {
-      const motivo = req.body?.motivo || null;
-      const result = db.prepare(`UPDATE pessoas SET ativo = 0,
-        dataInativacao = CURRENT_TIMESTAMP, motivoInativacao = ?,
-        dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ? AND ativo = 1`
-      ).run(motivo, req.params.id);
-      if (result.changes === 0) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
+      const pessoa = db.prepare('SELECT id, razaoSocial, cpfCnpj FROM pessoas WHERE id = ?').get(req.params.id);
+      if (!pessoa) return res.status(404).json({ success: false, error: 'Pessoa nao encontrada' });
+
+      const vinculos = vinculosDePessoa(pessoa.id);
+      if (vinculos.length) {
+        return res.status(409).json({
+          success: false,
+          error: 'Este cadastro tem movimentação vinculada e não pode ser excluído. Marque como Inativo.',
+          vinculos,
+        });
+      }
+
+      const anexos = db.prepare('SELECT caminho FROM pessoas_anexos WHERE pessoaId = ?').all(pessoa.id);
+      db.transaction(() => {
+        for (const t of TABELAS_DA_FICHA) db.prepare(`DELETE FROM "${t}" WHERE pessoaId = ?`).run(pessoa.id);
+        db.prepare('DELETE FROM pessoas WHERE id = ?').run(pessoa.id);
+      })();
+      // Arquivos depois do commit: falha aqui deixa arquivo órfão, não banco
+      // inconsistente.
+      for (const a of anexos) {
+        try {
+          const filePath = path.join(__dirname, 'public', a.caminho);
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch (_) { /* arquivo já pode não estar lá */ }
+      }
+
+      logPessoa(req, 'excluir', pessoa.id, {
+        razaoSocial: pessoa.razaoSocial, cpfCnpj: pessoa.cpfCnpj, anexos: anexos.length,
+      });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
+  });
+
+  /**
+   * Histórico de atividades da ficha.
+   *
+   * Lê o audit_log já gravado por logPessoa. Aberto a qualquer usuário logado
+   * que alcance a página (o /api/audit-log geral continua admin-only — aqui o
+   * recorte é uma pessoa só, e quem edita a ficha precisa ver quem mexeu).
+   */
+  app.get('/api/pessoas/:id/historico', (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 100, 500);
+      const rows = db.prepare(
+        `SELECT id, userId, username, action, payload, createdAt
+           FROM audit_log
+          WHERE entity = 'pessoa' AND entityId = ?
+          ORDER BY id DESC LIMIT ?`
+      ).all(String(req.params.id), limit);
+      const eventos = rows.map((r) => {
+        let payload = null;
+        try { payload = r.payload ? JSON.parse(r.payload) : null; } catch (_) { payload = null; }
+        return { ...r, payload };
+      });
+      res.json({ success: true, eventos });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   // ==================== PESSOAS: Contatos múltiplos ====================
@@ -572,6 +928,7 @@ function registrarRotasFinanceiro(app, db) {
       ).run(req.params.id, nome, cargo || null, area || null, telefone || null, celular || null,
             email || null, whatsapp || null, principal ? 1 : 0, observacoes || null);
       const contato = db.prepare('SELECT * FROM pessoas_contatos WHERE id = ?').get(r.lastInsertRowid);
+      logPessoa(req, 'contato-criar', req.params.id, { contatoId: contato.id, nome: contato.nome });
       res.json({ success: true, contato });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -579,26 +936,35 @@ function registrarRotasFinanceiro(app, db) {
   app.put('/api/pessoas/:id/contatos/:contatoId', (req, res) => {
     try {
       const campos = ['nome','cargo','area','telefone','celular','email','whatsapp','principal','observacoes'];
-      const sets = [], vals = [];
+      const sets = [], vals = [], novos = {};
       for (const c of campos) {
         if (!(c in req.body)) continue;
         let v = req.body[c];
         if (v === '' || v === undefined) v = null;
         if (c === 'principal') v = v ? 1 : 0;
-        sets.push(`${c} = ?`); vals.push(v);
+        sets.push(`${c} = ?`); vals.push(v); novos[c] = v;
       }
       if (!sets.length) return res.json({ success: true, skipped: true });
+      const antes = db.prepare('SELECT * FROM pessoas_contatos WHERE id = ? AND pessoaId = ?')
+        .get(req.params.contatoId, req.params.id);
       vals.push(req.params.contatoId, req.params.id);
       db.prepare(`UPDATE pessoas_contatos SET ${sets.join(', ')}, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ? AND pessoaId = ?`).run(...vals);
       const contato = db.prepare('SELECT * FROM pessoas_contatos WHERE id = ?').get(req.params.contatoId);
+      const alteracoes = diffCampos(antes, novos);
+      if (Object.keys(alteracoes).length) {
+        logPessoa(req, 'contato-editar', req.params.id, { contatoId: contato.id, nome: contato.nome, alteracoes });
+      }
       res.json({ success: true, contato });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.delete('/api/pessoas/:id/contatos/:contatoId', (req, res) => {
     try {
+      const antes = db.prepare('SELECT nome FROM pessoas_contatos WHERE id = ? AND pessoaId = ?')
+        .get(req.params.contatoId, req.params.id);
       db.prepare('UPDATE pessoas_contatos SET ativo = 0 WHERE id = ? AND pessoaId = ?')
         .run(req.params.contatoId, req.params.id);
+      logPessoa(req, 'contato-excluir', req.params.id, { contatoId: Number(req.params.contatoId), nome: antes?.nome || null });
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -627,6 +993,10 @@ function registrarRotasFinanceiro(app, db) {
             complemento || null, bairro || null, cidade || null, uf || null, cep || null,
             codigoMunicipio || null, pais || 'BR', padrao ? 1 : 0);
       const endr = db.prepare('SELECT * FROM pessoas_enderecos_adicionais WHERE id = ?').get(r.lastInsertRowid);
+      logPessoa(req, 'endereco-criar', req.params.id, {
+        enderecoId: endr.id, tipo: endr.tipo, apelido: endr.apelido,
+        resumo: [endr.endereco, endr.numero, endr.cidade, endr.uf].filter(Boolean).join(', ') || null,
+      });
       res.json({ success: true, endereco: endr });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -634,26 +1004,38 @@ function registrarRotasFinanceiro(app, db) {
   app.put('/api/pessoas/:id/enderecos/:enderecoId', (req, res) => {
     try {
       const campos = ['tipo','apelido','endereco','numero','complemento','bairro','cidade','uf','cep','codigoMunicipio','pais','padrao'];
-      const sets = [], vals = [];
+      const sets = [], vals = [], novos = {};
       for (const c of campos) {
         if (!(c in req.body)) continue;
         let v = req.body[c];
         if (v === '' || v === undefined) v = null;
         if (c === 'padrao') v = v ? 1 : 0;
-        sets.push(`${c} = ?`); vals.push(v);
+        sets.push(`${c} = ?`); vals.push(v); novos[c] = v;
       }
       if (!sets.length) return res.json({ success: true, skipped: true });
+      const antes = db.prepare('SELECT * FROM pessoas_enderecos_adicionais WHERE id = ? AND pessoaId = ?')
+        .get(req.params.enderecoId, req.params.id);
       vals.push(req.params.enderecoId, req.params.id);
       db.prepare(`UPDATE pessoas_enderecos_adicionais SET ${sets.join(', ')} WHERE id = ? AND pessoaId = ?`).run(...vals);
       const endr = db.prepare('SELECT * FROM pessoas_enderecos_adicionais WHERE id = ?').get(req.params.enderecoId);
+      const alteracoes = diffCampos(antes, novos);
+      if (Object.keys(alteracoes).length) {
+        logPessoa(req, 'endereco-editar', req.params.id, { enderecoId: endr.id, tipo: endr.tipo, alteracoes });
+      }
       res.json({ success: true, endereco: endr });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.delete('/api/pessoas/:id/enderecos/:enderecoId', (req, res) => {
     try {
+      const antes = db.prepare('SELECT tipo, apelido, endereco, cidade, uf FROM pessoas_enderecos_adicionais WHERE id = ? AND pessoaId = ?')
+        .get(req.params.enderecoId, req.params.id);
       db.prepare('UPDATE pessoas_enderecos_adicionais SET ativo = 0 WHERE id = ? AND pessoaId = ?')
         .run(req.params.enderecoId, req.params.id);
+      logPessoa(req, 'endereco-excluir', req.params.id, {
+        enderecoId: Number(req.params.enderecoId), tipo: antes?.tipo || null, apelido: antes?.apelido || null,
+        resumo: antes ? [antes.endereco, antes.cidade, antes.uf].filter(Boolean).join(', ') || null : null,
+      });
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -683,6 +1065,9 @@ function registrarRotasFinanceiro(app, db) {
             cpfCnpjTitular || null, chavePix || null, tipoChavePix || null,
             padrao ? 1 : 0, observacoes || null);
       const cb = db.prepare('SELECT * FROM pessoas_dados_bancarios WHERE id = ?').get(r.lastInsertRowid);
+      // Conta e chave PIX não vão para o log: identificar o banco basta para
+      // saber o que aconteceu, e o audit_log não é lugar de dado bancário.
+      logPessoa(req, 'banco-criar', req.params.id, { contaId: cb.id, banco: cb.banco, agencia: cb.agencia });
       res.json({ success: true, conta: cb });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -690,26 +1075,38 @@ function registrarRotasFinanceiro(app, db) {
   app.put('/api/pessoas/:id/dados-bancarios/:contaId', (req, res) => {
     try {
       const campos = ['banco','codigoBanco','agencia','agenciaDv','conta','contaDv','tipoConta','titular','cpfCnpjTitular','chavePix','tipoChavePix','padrao','observacoes'];
-      const sets = [], vals = [];
+      const sets = [], vals = [], novos = {};
       for (const c of campos) {
         if (!(c in req.body)) continue;
         let v = req.body[c];
         if (v === '' || v === undefined) v = null;
         if (c === 'padrao') v = v ? 1 : 0;
-        sets.push(`${c} = ?`); vals.push(v);
+        sets.push(`${c} = ?`); vals.push(v); novos[c] = v;
       }
       if (!sets.length) return res.json({ success: true, skipped: true });
+      const antes = db.prepare('SELECT * FROM pessoas_dados_bancarios WHERE id = ? AND pessoaId = ?')
+        .get(req.params.contaId, req.params.id);
       vals.push(req.params.contaId, req.params.id);
       db.prepare(`UPDATE pessoas_dados_bancarios SET ${sets.join(', ')} WHERE id = ? AND pessoaId = ?`).run(...vals);
       const cb = db.prepare('SELECT * FROM pessoas_dados_bancarios WHERE id = ?').get(req.params.contaId);
+      // Aqui só os NOMES dos campos alterados — os valores são conta e PIX.
+      const mudados = Object.keys(diffCampos(antes, novos));
+      if (mudados.length) {
+        logPessoa(req, 'banco-editar', req.params.id, { contaId: cb.id, banco: cb.banco, campos: mudados });
+      }
       res.json({ success: true, conta: cb });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.delete('/api/pessoas/:id/dados-bancarios/:contaId', (req, res) => {
     try {
+      const antes = db.prepare('SELECT banco, agencia FROM pessoas_dados_bancarios WHERE id = ? AND pessoaId = ?')
+        .get(req.params.contaId, req.params.id);
       db.prepare('UPDATE pessoas_dados_bancarios SET ativo = 0 WHERE id = ? AND pessoaId = ?')
         .run(req.params.contaId, req.params.id);
+      logPessoa(req, 'banco-excluir', req.params.id, {
+        contaId: Number(req.params.contaId), banco: antes?.banco || null, agencia: antes?.agencia || null,
+      });
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -726,7 +1123,13 @@ function registrarRotasFinanceiro(app, db) {
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
         const dir = path.join(PESSOAS_UPLOAD_ROOT, String(req.params.id));
-        fs.mkdirSync(dir, { recursive: true });
+        // O erro TEM de ir pelo callback: um throw aqui vira uncaughtException
+        // e derruba o servidor inteiro (ver nota em contas-pagar-routes.js).
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+        } catch (err) {
+          return cb(err);
+        }
         cb(null, dir);
       },
       filename: (req, file, cb) => {
@@ -744,17 +1147,25 @@ function registrarRotasFinanceiro(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
-  app.post('/api/pessoas/:id/anexos', uploadPessoa.single('arquivo'), (req, res) => {
+  // reentrarContextoTenant: obrigatório depois do multer (ver nota em
+  // contas-pagar-routes.js). Aqui o anexo pequeno já funcionava por acaso —
+  // o contexto só se perde quando o corpo chega em mais de um chunk.
+  app.post('/api/pessoas/:id/anexos',
+    comTratamentoDeErro(uploadPessoa.single('arquivo'), { rotulo: 'pessoa-anexo', limiteMb: 10 }),
+    reentrarContextoTenant, (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
       const caminho = `/uploads/pessoas/${req.params.id}/${req.file.filename}`;
       const r = db.prepare(
         `INSERT INTO pessoas_anexos (pessoaId, nome, tipo, caminho, tamanhoBytes, mimeType, descricao, uploadUserId)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(req.params.id, req.file.originalname, req.body.tipo || null, caminho,
+      ).run(req.params.id, nomeOriginalUtf8(req.file.originalname), req.body.tipo || null, caminho,
             req.file.size, req.file.mimetype, req.body.descricao || null,
             req.session?.userId || null);
       const anexo = db.prepare('SELECT * FROM pessoas_anexos WHERE id = ?').get(r.lastInsertRowid);
+      logPessoa(req, 'anexo-criar', req.params.id, {
+        anexoId: anexo.id, nome: anexo.nome, tipo: anexo.tipo, tamanhoBytes: anexo.tamanhoBytes,
+      });
       res.json({ success: true, anexo });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -768,6 +1179,9 @@ function registrarRotasFinanceiro(app, db) {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       } catch (_) { /* arquivo pode já ter sido removido */ }
       db.prepare('DELETE FROM pessoas_anexos WHERE id = ?').run(req.params.anexoId);
+      logPessoa(req, 'anexo-excluir', req.params.id, {
+        anexoId: Number(req.params.anexoId), nome: anexo.nome, tipo: anexo.tipo,
+      });
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });

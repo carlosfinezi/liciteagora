@@ -26,7 +26,7 @@
     <input type="text" id="fQ" placeholder="Buscar em payload/usuário…" oninput="debounce(carregar)" style="flex:1;min-width:200px;">
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="auditoria">
     <table>
       <thead><tr>
         <th>Quando</th>
@@ -44,6 +44,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('auditoria');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }

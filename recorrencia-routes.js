@@ -3,7 +3,7 @@
  */
 
 const { executarRecorrencias, executarUmaRecorrencia } = require('./recorrencia-scheduler');
-const { loadSmtpConfig, enviarEmailTeste, enviarEmailNfse } = require('./email-client');
+const { loadSmtpConfig, enviarEmailTeste, enviarEmailNfse, enviarEmailSimples } = require('./email-client');
 const { carregarCertificado, dataBrasilia } = require('./nfse-routes');
 const { NfseClient } = require('./nfse-client');
 
@@ -413,6 +413,54 @@ function registrarRotasRecorrencia(app, db) {
 
   // ==================== LOG DE EMAILS ====================
 
+  // Reenviar um e-mail que falhou.
+  //
+  // Os 5 timeouts de 11/05 no 1bit eram cobranças que nunca chegaram ao cliente
+  // e ficaram assim: não havia retry, alerta nem botão. O log virava um
+  // cemitério de falhas que ninguém revisitava.
+  app.post('/api/emails/log/:id/reenviar', async (req, res) => {
+    try {
+      const original = db.prepare('SELECT * FROM email_log WHERE id = ?').get(req.params.id);
+      if (!original) return res.status(404).json({ success: false, error: 'Registro não encontrado' });
+      if (original.status !== 'erro') {
+        return res.status(400).json({ success: false,
+          error: 'Só e-mails com erro podem ser reenviados — reenviar o que já chegou duplica a mensagem' });
+      }
+
+      const destino = (req.body?.destinatario || original.destinatario || '').trim();
+      if (!destino) return res.status(400).json({ success: false, error: 'Sem destinatário para reenviar' });
+
+      // O corpo original não é guardado (só o assunto), então o reenvio manda o
+      // que dá para reconstituir e diz isso — melhor que fingir que é idêntico.
+      const anexos = (() => {
+        try { return JSON.parse(original.anexos || '[]'); } catch { return []; }
+      })();
+      const perdeuAnexo = anexos.length > 0 || original.temPdf || original.temBoleto;
+
+      const r = await enviarEmailSimples(db, {
+        to: destino,
+        assunto: original.assunto,
+        texto: (original.descricao || original.assunto || '')
+          + (perdeuAnexo ? '\n\n(Reenvio — o anexo original não foi guardado. '
+                         + 'Se precisar do documento, gere-o novamente na tela de origem.)' : ''),
+      });
+
+      // enviarEmailSimples já registra o próprio log; aqui só amarramos a
+      // corrente para o histórico não perder a relação.
+      const novo = db.prepare("SELECT id FROM email_log WHERE destinatario = ? ORDER BY id DESC LIMIT 1").get(destino);
+      if (novo) {
+        db.prepare('UPDATE email_log SET reenviadoDeId = ?, tipo = ?, origemTipo = ?, origemId = ? WHERE id = ?')
+          .run(original.id, original.tipo, original.origemTipo, original.origemId, novo.id);
+      }
+
+      res.json({ success: true, ...r, reenviadoDe: original.id, novoLogId: novo ? novo.id : null,
+        aviso: perdeuAnexo && r.success
+          ? 'Reenviado sem o anexo original — o arquivo não é guardado no log.' : undefined });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/emails/log', (req, res) => {
     try {
       db.exec(`CREATE TABLE IF NOT EXISTS email_log (
@@ -432,6 +480,12 @@ function registrarRotasRecorrencia(app, db) {
         dataEnvio TEXT DEFAULT (datetime('now'))
       )`);
 
+      // Colunas de anexo e origem — o log guardava só booleanos e não dava
+      // para conferir o que o cliente recebeu.
+      for (const col of ['anexos TEXT', 'origemTipo TEXT', 'origemId INTEGER', 'reenviadoDeId INTEGER']) {
+        try { db.exec(`ALTER TABLE email_log ADD COLUMN ${col}`); } catch { /* já existe */ }
+      }
+
       const limit = parseInt(req.query.limit) || 100;
       const { busca, tipo, status, dataInicio, dataFim } = req.query;
       const where = [];
@@ -445,10 +499,45 @@ function registrarRotasRecorrencia(app, db) {
       if (status) { where.push('status = ?'); params.push(status); }
       if (dataInicio) { where.push('dataEnvio >= ?'); params.push(dataInicio + ' 00:00:00'); }
       if (dataFim) { where.push('dataEnvio <= ?'); params.push(dataFim + ' 23:59:59'); }
-      const sql = `SELECT * FROM email_log${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY dataEnvio DESC LIMIT ?`;
-      params.push(limit);
-      const logs = db.prepare(sql).all(...params);
-      res.json({ success: true, logs });
+      const clausula = where.length ? ' WHERE ' + where.join(' AND ') : '';
+      const sql = `SELECT * FROM email_log${clausula} ORDER BY dataEnvio DESC LIMIT ?`;
+      const logs = db.prepare(sql).all(...params, limit);
+
+      // Links para conferir os documentos: NFSe via origemId quando gravado,
+      // senão pelo número (só tipo 'nfse' — em NF-e o número colide); boleto
+      // via contas_a_receber → boletos.externalUrl.
+      try {
+        const nfsePorNumero = db.prepare('SELECT id FROM nfse WHERE nNFSe = ? ORDER BY id DESC LIMIT 1');
+        const boletoPorNfse = db.prepare(`
+          SELECT b.externalUrl FROM boletos b
+            JOIN contas_a_receber c ON c.id = b.contaReceberId
+           WHERE c.nfseId = ? AND b.externalUrl IS NOT NULL
+           ORDER BY b.id DESC LIMIT 1`);
+        for (const l of logs) {
+          let nfseId = (l.origemTipo === 'nfse' && l.origemId) ? l.origemId : null;
+          if (!nfseId && l.tipo === 'nfse' && l.nfseNumero) {
+            nfseId = nfsePorNumero.get(String(l.nfseNumero))?.id || null;
+          }
+          l.nfseId = nfseId || null;
+          l.boletoUrl = (nfseId && l.temBoleto) ? (boletoPorNfse.get(nfseId)?.externalUrl || null) : null;
+        }
+      } catch { /* tenant sem tabelas nfse/boletos — segue sem links */ }
+
+      // Quantos existem no filtro (o LIMIT corta a lista) e quantos existem no
+      // total. Sem isso, "Total 5, Erros 5" ao filtrar por erro dava a impressão
+      // de que só existiam 5 e-mails no sistema.
+      const totalFiltrado = db.prepare(`SELECT COUNT(*) n FROM email_log${clausula}`).get(...params).n;
+      const geral = db.prepare(`SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN status = 'enviado' THEN 1 ELSE 0 END) AS enviados,
+          SUM(CASE WHEN status = 'erro' THEN 1 ELSE 0 END) AS erros
+        FROM email_log`).get();
+
+      // Os tipos que existem de fato — o filtro da tela listava três e havia
+      // oito, entre eles justamente o dos envios que falharam.
+      const tipos = db.prepare('SELECT tipo, COUNT(*) n FROM email_log GROUP BY tipo ORDER BY tipo').all();
+
+      res.json({ success: true, logs, totalFiltrado, truncado: totalFiltrado > logs.length, geral, tipos });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }

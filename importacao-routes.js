@@ -18,6 +18,10 @@
  */
 
 const multer = require('multer');
+const { assertMeioPermitido } = require('./meios-pagamento');
+// O multer quebra o contexto de tenant (AsyncLocalStorage nao atravessa
+// callback de stream); este middleware o recupera antes do handler.
+const { reentrarContextoTenant } = require('./tenant-middleware');
 const { calcularContextoMovimento } = require('./estoque-routes');
 
 const upload = multer({
@@ -460,6 +464,9 @@ function inserirContaPagar(db, d) {
 
 function inserirContaReceber(db, d) {
   const pessoaId = d.pessoaId || obterOuCriarPessoa(db, d);
+  // Linha com forma que o cliente não aceita vira erro daquela linha — o
+  // confirmar já isola cada inserter num try e segue com as demais.
+  assertMeioPermitido(db, pessoaId, d.formaPagamento);
   const categoriaId = obterOuCriarCategoriaCR(db, d.categoriaNome);
   const r = db.prepare(`INSERT INTO contas_a_receber
     (pessoaId, descricao, valor, dataEmissao, dataVencimento, formaPagamento, categoriaId, observacoes, origem, status)
@@ -496,7 +503,7 @@ function registrarRotas(app, db) {
     res.send(csv);
   });
 
-  app.post('/api/importacao/preview', upload.single('arquivo'), (req, res) => {
+  app.post('/api/importacao/preview', upload.single('arquivo'), reentrarContextoTenant, (req, res) => {
     try {
       const tipo = req.body?.tipo || req.query?.tipo;
       if (!tipo || !TIPOS[tipo]) return res.status(400).json({ success: false, error: 'tipo obrigatório: ' + Object.keys(TIPOS).join(', ') });

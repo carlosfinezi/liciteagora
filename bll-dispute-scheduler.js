@@ -21,8 +21,10 @@
 const { createEngine } = require('./bll-dispute-engine');
 const bllSalas = require('./bll-salas');
 const bllCaptchaBridge = require('./bll-captcha-bridge');
+const bllChat = require('./bll-chat-ingest');
 
 const SYNC_TICK_MS = 60 * 1000;
+const CHAT_POLL_MS = 45 * 1000;   // fallback de captura de chat (além do gatilho SignalR)
 
 // Candidatos de campo do payload cru (a confirmar in-vivo — ver bll-dispute-engine)
 const BEST_KEYS = ['WinnerBidValue', 'WinnerValue', 'BestValue', 'BestBidValue', 'bidValue', 'Value', 'value'];
@@ -47,7 +49,7 @@ const tenants = new Map();
 
 function ensureSchedulerForTenant(tenant, db) {
   if (tenants.has(tenant.slug)) return tenants.get(tenant.slug);
-  const state = { tenant, db, engines: new Map(), cache: { disputas: [], updatedAt: null }, tickTimer: null, rawDumped: false };
+  const state = { tenant, db, engines: new Map(), cache: { disputas: [], updatedAt: null }, tickTimer: null, chatPollTimer: null, chatTimers: new Map(), rawDumped: false };
   tenants.set(tenant.slug, state);
   if (process.env.DISABLE_SCHEDULERS === '1') {
     console.log(`[BLL-Scheduler ${tenant.slug}] DESABILITADO (DISABLE_SCHEDULERS=1)`);
@@ -58,7 +60,25 @@ function ensureSchedulerForTenant(tenant, db) {
   state.tickTimer = setInterval(() => {
     syncEngines(state).catch(e => console.error(`[BLL-Scheduler ${tenant.slug}] tick:`, e.message));
   }, SYNC_TICK_MS);
+  // Poll de fallback do chat (o gatilho principal é o evento SignalR).
+  state.chatPollTimer = setInterval(() => {
+    for (const s of bllSalas.listarSalas(state.db, { ativo: true })) agendarCapturaChat(state, s.id, 0);
+  }, CHAT_POLL_MS);
   return state;
+}
+
+// Debounce por sala: no máximo 1 captura de chat agendada por vez.
+function agendarCapturaChat(state, salaId, delay = 1200) {
+  if (state.chatTimers.has(salaId)) return;
+  const t = setTimeout(async () => {
+    state.chatTimers.delete(salaId);
+    const sala = bllSalas.getSala(state.db, salaId);
+    if (!sala || !sala.ativo) return;
+    try {
+      await bllChat.capturarChat(state.db, sala, { log: (...a) => console.log(`[BLL-Chat ${state.tenant.slug}/#${salaId}]`, ...a) });
+    } catch (e) { console.error(`[BLL-Chat ${state.tenant.slug}/#${salaId}]`, e.message); }
+  }, delay);
+  state.chatTimers.set(salaId, t);
 }
 
 async function syncEngines(state) {
@@ -126,15 +146,17 @@ async function startEngineParaSala(state, sala) {
 
   log(`startEngine: dryRun=${dryRun} (uid fresco=${uid.slice(0, 12)}…)`);
 
-  const getLoteConfig = (idBatchUuid) => {
-    if (!idBatchUuid) return null;
+  // Estratégia de escada resolve config por batchNumber (a escada sempre traz o
+  // número do lote; o idBatchUuid do SignalR nem sempre existe).
+  const getLoteConfig = (batchNumber) => {
+    if (batchNumber == null) return null;
     return state.db.prepare(`
       SELECT a.ativo, a.limiteMinimo, a.decremento, a.throttleMs
         FROM bll_auto_lance a
         JOIN bll_salas_lotes l ON l.id = a.loteId
-       WHERE l.salaId = ? AND l.idBatchUuid = ?
+       WHERE l.salaId = ? AND l.batchNumber = ?
        LIMIT 1
-    `).get(sala.id, idBatchUuid) || null;
+    `).get(sala.id, Number(batchNumber)) || null;
   };
 
   const engine = createEngine({
@@ -168,11 +190,19 @@ async function startEngineParaSala(state, sala) {
   });
   engine.on('updateStatus', (data) => onUpdateStatus(state, sala.id, data));
   engine.on('updateInfoStatus', (data) => { if (data && pickStr(data, BATCHID_KEYS)) onUpdateStatus(state, sala.id, data); });
+  engine.on('escada', (payload) => onEscada(state, sala.id, payload));
+  engine.on('chatSignal', () => agendarCapturaChat(state, sala.id, 1000));
+  engine.on('escadaEncerrada', () => log('escada: fase de lances encerrada'));
+  engine.on('bidSent', (b) => log(`✅ lance aceito lote ${b.batchNumber} = R$${b.value}`));
+  engine.on('bidFailed', (b) => log(`❌ lance falhou lote ${b.batchNumber} (${b.stage}): ${b.error}`));
   engine.on('connected', () => log('connected'));
   engine.on('disconnected', (r) => log('disconnected', r));
   engine.on('error', (e) => log('error', e.message));
 
   await engine.start().catch(e => log('start falhou:', e.message));
+
+  // Seed inicial do chat (marca histórico como já-notificado; não spamma Telegram).
+  bllChat.capturarChat(state.db, sala, { seed: true, log }).catch(e => log('chat seed falhou:', e.message));
 
   return { engine, sala, starting: false };
 }
@@ -215,6 +245,45 @@ function onUpdateStatus(state, salaId, data) {
   rebuildCache(state);
 }
 
+// Persiste a escada ao vivo de um lote (evento 'escada' do engine). Upsert por
+// (salaId, batchNumber). Grava ladder completa + nossa colocação.
+function onEscada(state, salaId, p) {
+  const now = new Date().toISOString();
+  const esc = p.escada || {};
+  const escadaJson = JSON.stringify(esc.ladder || []);
+  const isWinner = esc.minhaPosicao === 1 ? 1 : 0;
+
+  const lote = state.db.prepare('SELECT id FROM bll_salas_lotes WHERE salaId=? AND batchNumber=?')
+    .get(salaId, p.batchNumber);
+  if (lote) {
+    state.db.prepare(`UPDATE bll_salas_lotes SET
+      title = COALESCE(?, title),
+      batchTokenGkz = COALESCE(?, batchTokenGkz),
+      currentBest = ?,
+      winnerBidderId = ?,
+      escadaJson = ?, minhaPosicao = ?, meuParticipante = ?, meuValor = ?,
+      isWinner = ?, lastUpdate = ?
+      WHERE id = ?`)
+      .run(p.title, p.fbToken, p.currentBest ?? null, p.winnerBidderId ?? null,
+        escadaJson, esc.minhaPosicao ?? null, esc.meuParticipante ?? null, esc.meuValor ?? null,
+        isWinner, now, lote.id);
+  } else {
+    state.db.prepare(`INSERT INTO bll_salas_lotes
+      (salaId, batchNumber, title, batchTokenGkz, currentBest, winnerBidderId,
+       escadaJson, minhaPosicao, meuParticipante, meuValor, isWinner, lastUpdate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(salaId, p.batchNumber, p.title, p.fbToken, p.currentBest ?? null, p.winnerBidderId ?? null,
+        escadaJson, esc.minhaPosicao ?? null, esc.meuParticipante ?? null, esc.meuValor ?? null,
+        isWinner, now);
+  }
+
+  if (p.statusName) {
+    state.db.prepare('UPDATE bll_salas SET statusName = ?, updatedAt = ? WHERE id = ?')
+      .run(p.statusName, now, salaId);
+  }
+  rebuildCache(state);
+}
+
 function rebuildCache(state) {
   const salas = bllSalas.listarSalas(state.db, { ativo: true });
   state.cache.disputas = salas.map(s => ({
@@ -224,20 +293,28 @@ function rebuildCache(state) {
     statusName: s.statusName,
     ativo: !!s.ativo,
     dryRun: dryRunOf(s),
-    lotes: (s.lotes || []).map(l => ({
-      id: l.id,
-      idBatchUuid: l.idBatchUuid,
-      batchNumber: l.batchNumber,
-      title: l.title,
-      baseValue: l.baseValue,
-      currentBest: l.currentBest,
-      fkParticipantLider: l.fkParticipantLider,
-      winnerBidderId: l.winnerBidderId,
-      isWinner: !!l.isWinner,
-      offers: l.offers,
-      lastUpdate: l.lastUpdate,
-      knowsBatchToken: !!l.batchTokenGkz,
-    })),
+    lotes: (s.lotes || []).map(l => {
+      let escada = [];
+      try { escada = l.escadaJson ? JSON.parse(l.escadaJson) : []; } catch { escada = []; }
+      return {
+        id: l.id,
+        idBatchUuid: l.idBatchUuid,
+        batchNumber: l.batchNumber,
+        title: l.title,
+        baseValue: l.baseValue,
+        currentBest: l.currentBest,
+        fkParticipantLider: l.fkParticipantLider,
+        winnerBidderId: l.winnerBidderId,
+        isWinner: !!l.isWinner,
+        offers: l.offers,
+        lastUpdate: l.lastUpdate,
+        knowsBatchToken: !!l.batchTokenGkz,
+        escada,
+        minhaPosicao: l.minhaPosicao,
+        meuParticipante: l.meuParticipante,
+        meuValor: l.meuValor,
+      };
+    }),
   }));
   state.cache.updatedAt = new Date().toISOString();
 }
@@ -266,6 +343,9 @@ function refreshTenant(tenantSlug) {
 function stopAll() {
   for (const [slug, state] of tenants) {
     if (state.tickTimer) clearInterval(state.tickTimer);
+    if (state.chatPollTimer) clearInterval(state.chatPollTimer);
+    for (const t of state.chatTimers.values()) clearTimeout(t);
+    state.chatTimers.clear();
     for (const [, holder] of state.engines) {
       try { holder.engine && holder.engine.stop(); } catch {}
     }

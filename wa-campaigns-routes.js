@@ -158,7 +158,10 @@ async function runCampaign(tdb, slug, id) {
     }
 
     const restam = tdb.prepare("SELECT COUNT(*) AS n FROM wa_campanha_dest WHERE campanha_id = ? AND status = 'pendente'").get(id).n;
-    const fim = ctl.cancelled ? 'cancelada' : (restam > 0 ? 'pausada' : 'concluida');
+    // Pausar e cancelar param o mesmo laço, mas significam coisas diferentes:
+    // pausada volta de onde parou, cancelada não volta.
+    const fim = ctl.pausado ? 'pausada'
+      : (ctl.cancelled ? 'cancelada' : (restam > 0 ? 'pausada' : 'concluida'));
     tdb.prepare("UPDATE wa_campanhas SET status = ? WHERE id = ?").run(fim, id);
     logCamp(tdb, id, `fim: ${fim} (pendentes: ${restam})`);
   } catch (e) {
@@ -428,6 +431,29 @@ function registrarRotasWaCampanhas(app, db) {
       }
       runCampaign(tdb, slug, c.id).catch(e => console.error('[wa-camp run]', e.message));
       res.json({ success: true, started: true });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  /**
+   * Pausa o disparo em curso. Diferente de cancelar: os destinatários seguem
+   * 'pendente' e um /run depois continua de onde parou.
+   */
+  app.post('/api/wa-campanhas/:id/pausar', gate, (req, res) => {
+    try {
+      const slug = req.tenantCtx && req.tenantCtx.slug;
+      const ctl = running.get(slug + ':' + req.params.id);
+      if (ctl) { ctl.pausado = true; ctl.cancelled = true; }   // cancelled só encerra o laço
+      else db.prepare("UPDATE wa_campanhas SET status = 'pausada' WHERE id = ? AND status IN ('agendada','enviando')").run(req.params.id);
+      // Pausar quem estava agendada também tira o agendamento do caminho, senão
+      // o scheduler a dispara de novo no próximo tick.
+      try {
+        const c = db.prepare('SELECT config FROM wa_campanhas WHERE id = ?').get(req.params.id);
+        if (c) {
+          const cfg = JSON.parse(c.config || '{}');
+          if (cfg.agendadaPara) { delete cfg.agendadaPara; db.prepare('UPDATE wa_campanhas SET config = ? WHERE id = ?').run(JSON.stringify(cfg), req.params.id); }
+        }
+      } catch (_) { }
+      res.json({ success: true, emExecucao: !!ctl });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 

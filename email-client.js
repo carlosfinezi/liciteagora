@@ -24,6 +24,29 @@ function migrarEmailLog(db) {
     erro TEXT,
     dataEnvio TEXT DEFAULT (datetime('now'))
   )`);
+
+  // temPdf/temBoleto são só booleanos: dizem QUE havia anexo, não QUAL. Sem
+  // nome, tamanho e origem não há como conferir o que o cliente recebeu.
+  for (const col of [
+    'anexos TEXT',            // JSON: [{ nome, tipo, bytes }]
+    'origemTipo TEXT',        // 'nfse' | 'conta_receber' | 'nfe' | ...
+    'origemId INTEGER',       // id do documento, para abrir o anexo de novo
+    'reenviadoDeId INTEGER',  // aponta para o envio original quando é reenvio
+  ]) {
+    try { db.exec(`ALTER TABLE email_log ADD COLUMN ${col}`); } catch { /* já existe */ }
+  }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_email_log_status ON email_log(status, dataEnvio)'); } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_email_log_origem ON email_log(origemTipo, origemId)'); } catch {}
+}
+
+/** Descreve os anexos de forma conferível: nome, tipo e tamanho. */
+function descreverAnexos(lista) {
+  const anexos = (lista || []).filter(Boolean).map((a) => ({
+    nome: a.filename || a.nome || 'anexo',
+    tipo: a.contentType || a.tipo || null,
+    bytes: a.content ? a.content.length : (a.bytes || null),
+  }));
+  return anexos.length ? JSON.stringify(anexos) : null;
 }
 
 /**
@@ -32,14 +55,34 @@ function migrarEmailLog(db) {
 function registrarLog(db, dados) {
   try {
     migrarEmailLog(db);
-    db.prepare(`INSERT INTO email_log (tipo, destinatario, assunto, nfseNumero, descricao, valor, competencia, temPdf, temBoleto, messageId, status, erro)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(dados.tipo || 'nfse', dados.to, dados.subject, dados.nfseNumero || null,
+    // `to`/`subject` é o nome usado pelas funções de documento; `destinatario`/
+    // `assunto` apareceu depois. Aceitar os dois evita que uma chamada com o
+    // nome "errado" grave destinatário NULL — o INSERT falhava em NOT NULL e o
+    // catch engolia, então o envio simplesmente não aparecia no log.
+    const destinatario = dados.to || dados.destinatario;
+    const assunto = dados.subject || dados.assunto;
+    if (!destinatario) {
+      console.error('[Email Log] envio sem destinatário — não registrado:', JSON.stringify(dados).slice(0, 200));
+      return null;
+    }
+    const r = db.prepare(`INSERT INTO email_log
+      (tipo, destinatario, assunto, nfseNumero, descricao, valor, competencia, temPdf, temBoleto,
+       messageId, status, erro, anexos, origemTipo, origemId, reenviadoDeId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(dados.tipo || 'nfse', destinatario, assunto, dados.nfseNumero || null,
         dados.descricao || null, dados.valor || null, dados.competencia || null,
         dados.temPdf ? 1 : 0, dados.temBoleto ? 1 : 0,
-        dados.messageId || null, dados.status || 'enviado', dados.erro || null);
+        dados.messageId || null,
+        // 'falha' e 'erro' conviviam; o filtro da tela só conhece 'erro', então
+        // as falhas gravadas como 'falha' ficavam invisíveis.
+        dados.status === 'falha' ? 'erro' : (dados.status || 'enviado'),
+        dados.erro || null,
+        dados.anexos ? (typeof dados.anexos === 'string' ? dados.anexos : descreverAnexos(dados.anexos)) : null,
+        dados.origemTipo || null, dados.origemId || null, dados.reenviadoDeId || null);
+    return r.lastInsertRowid;
   } catch (err) {
     console.error('[Email Log] Erro ao registrar:', err.message);
+    return null;
   }
 }
 
@@ -47,7 +90,11 @@ function registrarLog(db, dados) {
  * Carrega config SMTP do banco
  */
 function loadSmtpConfig(db) {
-  const rows = db.prepare('SELECT key, value FROM smtp_config').all();
+  // Tenant sem a tabela devolve "SMTP nao configurado", que é a verdade —
+  // antes vazava "no such table: smtp_config" para a tela do usuário.
+  let rows;
+  try { rows = db.prepare('SELECT key, value FROM smtp_config').all(); }
+  catch { return null; }
   if (!rows.length) return null;
 
   const cfg = {};
@@ -83,7 +130,7 @@ function criarTransport(cfg) {
 /**
  * Envia email com DANFSE PDF + info do boleto
  */
-async function enviarEmailNfse(db, { to, cc, subject, nfseNumero, descricao, valor, competencia, pdfBuffer, boletoWritableLine, boletoUrl }) {
+async function enviarEmailNfse(db, { to, cc, subject, nfseNumero, descricao, valor, competencia, pdfBuffer, boletoWritableLine, boletoUrl, origemTipo, origemId }) {
   const cfg = loadSmtpConfig(db);
   if (!cfg) throw new Error('SMTP nao configurado');
 
@@ -148,8 +195,8 @@ async function enviarEmailNfse(db, { to, cc, subject, nfseNumero, descricao, val
     registrarLog(db, {
       tipo: nfseNumero ? 'nfse' : 'boleto', to: cc ? `${to}, ${cc}` : to, subject: finalSubject,
       nfseNumero, descricao, valor, competencia,
-      temPdf: !!pdfBuffer, temBoleto: !!boletoWritableLine,
-      messageId: info.messageId, status: 'enviado',
+      temPdf: !!pdfBuffer, temBoleto: !!boletoWritableLine, anexos: attachments,
+      messageId: info.messageId, status: 'enviado', origemTipo, origemId,
     });
 
     console.log(`[Email] NFSe ${nfseNumero} enviada para ${to}${cc ? ' cc:' + cc : ''} (messageId: ${info.messageId})`);
@@ -158,7 +205,7 @@ async function enviarEmailNfse(db, { to, cc, subject, nfseNumero, descricao, val
       tipo: nfseNumero ? 'nfse' : 'boleto', to: cc ? `${to}, ${cc}` : to, subject: finalSubject,
       nfseNumero, descricao, valor, competencia,
       temPdf: !!pdfBuffer, temBoleto: !!boletoWritableLine,
-      status: 'erro', erro: err.message,
+      status: 'erro', erro: err.message, origemTipo, origemId,
     });
     throw err;
   }
@@ -206,7 +253,7 @@ async function enviarEmailNfe(db, { to, cc, numero, chave, valor, danfePdf, xmlB
     const info = await transport.sendMail(mailOpts);
     registrarLog(db, {
       tipo: 'nfe', to: cc ? `${to}, ${cc}` : to, subject: finalSubject,
-      nfseNumero: numero, descricao: chave, valor, temPdf: !!danfePdf, temBoleto: false,
+      nfseNumero: numero, descricao: chave, valor, temPdf: !!danfePdf, temBoleto: false, anexos: attachments,
       messageId: info.messageId, status: 'enviado',
     });
     console.log(`[Email] NF-e ${numero} enviada para ${to}${cc ? ' cc:' + cc : ''} (messageId: ${info.messageId})`);
@@ -539,4 +586,41 @@ async function enviarEmailAlerta(db, { subject, htmlBody, to }) {
   return info;
 }
 
-module.exports = { loadSmtpConfig, enviarEmailNfse, enviarEmailNfe, enviarEmailBoleto, enviarEmailPix, enviarEmailCobranca, enviarEmailCancelamento, enviarEmailTeste, enviarEmailAlerta };
+/**
+ * Envio de e-mail livre — corpo já pronto, sem template de documento.
+ *
+ * As funções acima são todas de documento (NFS-e, boleto, PIX). Campanha
+ * precisava de um envio genérico, e sem ele o módulo de comunicação marcava
+ * tudo como 'enviado-simulado' e ainda contava como enviado.
+ */
+async function enviarEmailSimples(db, { to, cc, assunto, texto, html, headers, anexos }) {
+  const cfg = loadSmtpConfig(db);
+  if (!cfg) throw new Error('SMTP nao configurado');
+  if (!to) throw new Error('destinatario obrigatorio');
+
+  const transport = criarTransport(cfg);
+  const corpoHtml = html || `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;">`
+    + String(texto || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')
+    + '</div>';
+
+  try {
+    const info = await transport.sendMail({
+      from: cfg.from || cfg.user,
+      to, cc: cc || undefined,
+      subject: assunto || '(sem assunto)',
+      text: texto || undefined,
+      html: corpoHtml,
+      headers: headers || undefined,
+      // [{ filename, content }] — usado pelo envio de pedido de compra, que
+      // anexa o PDF.
+      attachments: Array.isArray(anexos) && anexos.length ? anexos : undefined,
+    });
+    registrarLog(db, { tipo: 'campanha', to, subject: assunto, messageId: info.messageId, status: 'enviado' });
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    registrarLog(db, { tipo: 'campanha', to, subject: assunto, status: 'erro', erro: err.message });
+    return { success: false, error: err.message };
+  }
+}
+
+module.exports = { loadSmtpConfig, enviarEmailSimples, registrarLog, migrarEmailLog, descreverAnexos, criarTransport, enviarEmailNfse, enviarEmailNfe, enviarEmailBoleto, enviarEmailPix, enviarEmailCobranca, enviarEmailCancelamento, enviarEmailTeste, enviarEmailAlerta };

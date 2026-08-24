@@ -5,214 +5,309 @@
 <title>Relatórios de OS · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* .num não existe no app-modern.css — sem isto toda coluna numérica
+     ficava alinhada à esquerda. */
+  .num { text-align:right; white-space:nowrap; }
+  .sub { display:block; color:var(--text-3); font-size:.78em; font-weight:400; }
+  .pos { color:var(--success); }
+  .neg { color:var(--danger); }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
   <div class="page-header">
     <div>
       <h1>Relatórios de Ordem de Serviço</h1>
-      <small>Lucratividade, SLA, comissões e desempenho por técnico/cliente/equipamento</small>
+      <small>Lucratividade, SLA, comissões e desempenho por técnico, cliente e equipamento</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="exportarCSV()">Exportar CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="carregar()">Gerar</button>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
+  <div id="avisos"></div>
 
-  <div class="card">
-    <div class="toolbar">
-      <label>De: <input type="date" id="fDe"></label>
-      <label>Até: <input type="date" id="fAte"></label>
-      <select id="fRel">
-        <option value="por-tecnico">Por técnico (produtividade + comissão)</option>
-        <option value="por-cliente">Por cliente</option>
-        <option value="por-equipamento">Por equipamento</option>
-        <option value="lucratividade">Lucratividade (OS a OS)</option>
-        <option value="sla">SLA (cumprimento de prazos)</option>
-        <option value="comissoes">Comissões (OS faturadas)</option>
-      </select>
-      <button class="btn btn-primary" onclick="carregar()">Gerar</button>
-    </div>
+  <div class="toolbar">
+    <label style="display:flex;align-items:center;gap:6px;">De
+      <input type="date" id="fDe" onchange="carregar()"></label>
+    <label style="display:flex;align-items:center;gap:6px;">Até
+      <input type="date" id="fAte" onchange="carregar()"></label>
+    <select id="fRel" onchange="carregar()" style="min-width:280px;">
+      <option value="por-tecnico">Por técnico — produtividade, margem e comissão</option>
+      <option value="por-cliente">Por cliente — receita, margem e reincidência</option>
+      <option value="por-equipamento">Por equipamento — retorno e garantia</option>
+      <option value="lucratividade">Lucratividade — OS a OS</option>
+      <option value="sla">SLA — cumprimento de prazos</option>
+      <option value="comissoes">Comissões — OS faturadas</option>
+      <option value="qualidade-cadastro">Qualidade do cadastro — o que falta para a margem fechar</option>
+    </select>
   </div>
 
   <div id="conteudo" style="margin-top:16px;"></div>
-
 </main></div>
 
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('os-relatorios');</script>
 <script>
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
-function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function pct(n, total){ if (!total) return '0%'; return Math.round((n/total)*100) + '%'; }
+function fmtNum(v){ return v==null?'—':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:2}); }
+function pct(v){ return v==null?'—':v+'%'; }
+const cor = v => v >= 0 ? 'pos' : 'neg';
+
+let ULTIMO = null;   // { rel, dados } para o CSV exportar o que está na tela
 
 async function carregar(){
   const rel = document.getElementById('fRel').value;
-  const de  = document.getElementById('fDe').value;
-  const ate = document.getElementById('fAte').value;
   const q = new URLSearchParams();
-  if (de) q.set('de', de); if (ate) q.set('ate', ate);
-  const r = await fetch(`/api/os/relatorios/${rel}?${q}`).then(r=>r.json());
+  if (document.getElementById('fDe').value)  q.set('de',  document.getElementById('fDe').value);
+  if (document.getElementById('fAte').value) q.set('ate', document.getElementById('fAte').value);
+
   const div = document.getElementById('conteudo');
-  if (!r.success) return div.innerHTML = `<div class="alert alert-error">Erro: ${escapeHtml(r.error)}</div>`;
+  div.innerHTML = '<div class="card">Carregando…</div>';
+  document.getElementById('avisos').innerHTML = '';
+
+  const r = await fetch(`/api/os/relatorios/${rel}?${q}`).then(r=>r.json()).catch(e=>({success:false,error:e.message}));
+  if (!r.success) { div.innerHTML = `<div class="alert error" style="display:block;">Erro: ${esc(r.error)}</div>`; return; }
+  ULTIMO = { rel, dados: r };
   div.innerHTML = RENDERERS[rel](r);
+  renderAvisos(rel, r);
 }
+
+// Margem calculada sobre cadastro incompleto é margem errada — quem lê o
+// relatório precisa saber disso na hora, não depois.
+function renderAvisos(rel, r){
+  const av = [];
+  if (r.totais && r.totais.semValorHora) {
+    av.push(`${r.totais.semValorHora} OS com horas apontadas de técnico sem valor/hora — o custo de mão de obra delas entrou como zero.`);
+  }
+  if ((rel === 'por-tecnico' || rel === 'por-cliente') && (r.linhas||[]).some(l => l.semValorHora)) {
+    av.push('Há técnico sem valor/hora cadastrado — a margem dessas linhas ignora o custo de mão de obra.');
+  }
+  if (av.length) {
+    av.push('Veja o relatório <strong>Qualidade do cadastro</strong> para saber exatamente o que corrigir.');
+    document.getElementById('avisos').innerHTML =
+      `<div class="alert warn" style="display:block;">${av.join('<br>')}</div>`;
+  }
+}
+
+const vazio = txt => `<div class="card">${txt}</div>`;
+const tabela = (cabecalho, linhas) => `<div class="tbl-wrap"><table>
+  <thead><tr>${cabecalho}</tr></thead><tbody>${linhas}</tbody></table></div>`;
 
 const RENDERERS = {
   'por-tecnico': (r) => {
-    if (!r.linhas.length) return '<div class="card">Sem dados no período.</div>';
-    const rows = r.linhas.map(x => `
-      <tr>
-        <td>${escapeHtml(x.tecnicoNome||'— (sem técnico)')}</td>
-        <td class="num">${x.totalOS}</td>
-        <td class="num">${x.faturadas}</td>
-        <td class="num">${x.canceladas}</td>
-        <td class="num">${fmtBRL(x.valorPecas)}</td>
-        <td class="num">${fmtBRL(x.valorServicos)}</td>
-        <td class="num"><strong>${fmtBRL(x.valorTotal)}</strong></td>
-        <td class="num">${x.comissaoPercentual ? x.comissaoPercentual + '%' : '—'}</td>
-        <td class="num" style="color:#059669;"><strong>${fmtBRL(x.comissaoDevida)}</strong></td>
-      </tr>`).join('');
-    return `<div class="card"><table class="table">
-      <thead><tr>
-        <th>Técnico</th><th class="num">Total</th><th class="num">Faturadas</th><th class="num">Canc.</th>
-        <th class="num">Peças</th><th class="num">Serviços</th><th class="num">Total</th>
-        <th class="num">%</th><th class="num">Comissão</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
+    if (!r.linhas.length) return vazio('Sem dados no período.');
+    const rows = r.linhas.map(x => `<tr>
+      <td><strong>${esc(x.tecnicoNome||'— sem técnico')}</strong>
+        ${x.semValorHora?'<span class="sub">sem valor/hora cadastrado</span>':''}</td>
+      <td class="num">${x.totalOS}<span class="sub">${x.faturadas} fat. · ${x.canceladas} canc.</span></td>
+      <td class="num">${fmtBRL(x.valorTotal)}</td>
+      <td class="num">${fmtBRL(x.custoPecas)}</td>
+      <td class="num">${fmtBRL(x.custoMaoDeObra)}</td>
+      <td class="num ${cor(x.margem)}"><strong>${fmtBRL(x.margem)}</strong><span class="sub">${pct(x.margemPct)}</span></td>
+      <td class="num">${fmtNum(x.horasApontadas)}h<span class="sub">${fmtNum(x.horasCobradas)}h cobradas</span></td>
+      <td class="num ${x.aproveitamentoHoras!=null && x.aproveitamentoHoras<80?'neg':''}">${pct(x.aproveitamentoHoras)}
+        ${x.horasNaoCobradas>0?`<span class="sub">${fmtNum(x.horasNaoCobradas)}h sem cobrar</span>`:''}</td>
+      <td class="num pos"><strong>${fmtBRL(x.comissaoDevida)}</strong><span class="sub">${x.comissaoPercentual?x.comissaoPercentual+'%':'—'}</span></td>
+    </tr>`).join('');
+    return tabela(`<th>Técnico</th><th class="num">OS</th><th class="num">Receita</th>
+      <th class="num">Custo peças</th><th class="num">Custo M.O.</th><th class="num">Margem</th>
+      <th class="num">Horas</th><th class="num" title="Horas cobradas ÷ horas apontadas">Aproveit.</th>
+      <th class="num">Comissão</th>`, rows);
   },
+
   'por-cliente': (r) => {
-    if (!r.linhas.length) return '<div class="card">Sem dados no período.</div>';
-    const rows = r.linhas.map(x => `
-      <tr>
-        <td>${escapeHtml(x.clienteNome)} <small class="muted">${x.cpfCnpj||''}</small></td>
-        <td class="num">${x.totalOS}</td>
-        <td class="num">${x.faturadas}</td>
-        <td class="num">${fmtBRL(x.valorTotal)}</td>
-        <td class="num"><strong>${fmtBRL(x.receitaFaturada)}</strong></td>
-        <td>${x.ultimaAbertura?.slice(0,10)||'—'}</td>
-      </tr>`).join('');
-    return `<div class="card"><table class="table">
-      <thead><tr>
-        <th>Cliente</th><th class="num">Total</th><th class="num">Faturadas</th>
-        <th class="num">Total R$</th><th class="num">Receita faturada</th><th>Última</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
+    if (!r.linhas.length) return vazio('Sem dados no período.');
+    const rows = r.linhas.map(x => `<tr>
+      <td><strong>${esc(x.clienteNome)}</strong><span class="sub">${esc(x.cpfCnpj||'')}</span></td>
+      <td class="num">${x.totalOS}<span class="sub">${x.faturadas} faturadas</span></td>
+      <td class="num">${fmtBRL(x.valorTotal)}<span class="sub">${fmtBRL(x.receitaFaturada)} fat.</span></td>
+      <td class="num">${fmtBRL(x.custoPecas)}</td>
+      <td class="num">${fmtBRL(x.custoMaoDeObra)}</td>
+      <td class="num ${cor(x.margem)}"><strong>${fmtBRL(x.margem)}</strong><span class="sub">${pct(x.margemPct)}</span></td>
+      <td class="num ${x.osPorEquipamento>1.5?'neg':''}">${x.osPorEquipamento!=null?fmtNum(x.osPorEquipamento):'—'}
+        <span class="sub">${x.equipamentos||0} equip.</span></td>
+      <td>${(x.ultimaAbertura||'').slice(0,10)||'—'}</td>
+    </tr>`).join('');
+    return tabela(`<th>Cliente</th><th class="num">OS</th><th class="num">Receita</th>
+      <th class="num">Custo peças</th><th class="num">Custo M.O.</th><th class="num">Margem</th>
+      <th class="num" title="OS ÷ equipamentos: acima de 1 indica aparelho voltando">OS/equip.</th>
+      <th>Última</th>`, rows);
   },
+
   'por-equipamento': (r) => {
-    if (!r.linhas.length) return '<div class="card">Sem dados no período.</div>';
-    const rows = r.linhas.map(x => `
-      <tr>
-        <td>${escapeHtml(x.equipamento)}</td>
-        <td>${escapeHtml(x.marca)}</td>
-        <td>${escapeHtml(x.modelo)}</td>
-        <td class="num">${x.totalOS}</td>
-        <td class="num">${x.emGarantia}</td>
-        <td class="num">${fmtBRL(x.valorTotal)}</td>
-      </tr>`).join('');
-    return `<div class="card"><table class="table">
-      <thead><tr>
-        <th>Equipamento</th><th>Marca</th><th>Modelo</th>
-        <th class="num">Total OS</th><th class="num">Em garantia</th><th class="num">Receita</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
+    if (!r.linhas.length) return vazio('Sem dados no período.');
+    const rows = r.linhas.map(x => `<tr>
+      <td><strong>${esc(x.equipamento)}</strong>
+        ${x.equipamentoId?`<span class="sub"><a href="/os/equipamento.html?id=${x.equipamentoId}">ver ficha →</a></span>`
+          :'<span class="sub">só texto (OS antiga, sem cadastro)</span>'}</td>
+      <td>${esc(x.marca)}</td>
+      <td>${esc(x.modelo)}</td>
+      <td class="mono">${esc(x.numeroSerie||'—')}</td>
+      <td class="num ${x.totalOS>2?'neg':''}">${x.totalOS}</td>
+      <td class="num">${x.clientes||1}</td>
+      <td class="num">${x.emGarantia}</td>
+      <td class="num">${fmtBRL(x.valorTotal)}</td>
+    </tr>`).join('');
+    return tabela(`<th>Equipamento</th><th>Marca</th><th>Modelo</th><th>Série</th>
+      <th class="num">OS</th><th class="num">Clientes</th><th class="num">Em garantia</th>
+      <th class="num">Receita</th>`, rows);
   },
+
   'lucratividade': (r) => {
-    if (!r.linhas.length) return '<div class="card">Sem OS concluídas/faturadas no período.</div>';
-    const tot = r.linhas.reduce((a,x)=>{ a.valor += x.valorTotal; a.custo += x.custoPecas; a.margem += x.margemBruta; return a; }, {valor:0,custo:0,margem:0});
-    const rows = r.linhas.map(x => {
-      const mpct = x.valorTotal ? (x.margemBruta/x.valorTotal*100).toFixed(1) : '0.0';
+    if (!r.linhas.length) return vazio('Sem OS concluídas ou faturadas no período.');
+    // Totais vêm do backend — recalcular no JS já divergiu antes.
+    const t = r.totais || {};
+    const rows = r.linhas.map(x => `<tr>
+      <td><a href="/os/ordem-servico.html?id=${x.osId}"><strong>${esc(x.numero)}</strong></a>
+        <span class="sub">${(x.dataAbertura||'').slice(0,10)}</span></td>
+      <td>${esc(x.clienteNome||'')}<span class="sub">${esc(x.tecnicoNome||'sem técnico')}</span></td>
+      <td class="num">${fmtBRL(x.valorTotal)}<span class="sub">${fmtBRL(x.valorPecas)} peças · ${fmtBRL(x.valorServicos)} serv.</span></td>
+      <td class="num">${fmtBRL(x.custoPecas)}</td>
+      <td class="num">${fmtBRL(x.custoMaoDeObra)}
+        ${x.custoMaoDeObraEstimado?'':'<span class="sub">sem valor/hora</span>'}</td>
+      <td class="num ${cor(x.margemBruta)}">${fmtBRL(x.margemBruta)}</td>
+      <td class="num ${cor(x.margemLiquida)}"><strong>${fmtBRL(x.margemLiquida)}</strong><span class="sub">${pct(x.margemPct)}</span></td>
+      <td class="num ${x.horasNaoCobradas>0?'neg':''}">${fmtNum(x.horasApontadas)}h
+        <span class="sub">${fmtNum(x.horasCobradas)}h cobradas</span></td>
+    </tr>`).join('');
+    return `<div class="kpi-grid">
+        <div class="kpi"><div class="label">Receita</div><div class="value">${fmtBRL(t.receita)}</div></div>
+        <div class="kpi"><div class="label">Custo de peças</div><div class="value">${fmtBRL(t.custoPecas)}</div></div>
+        <div class="kpi"><div class="label">Custo de mão de obra</div><div class="value">${fmtBRL(t.custoMaoDeObra)}</div></div>
+        <div class="kpi ${t.margemLiquida>=0?'success':'danger'}"><div class="label">Margem líquida</div>
+          <div class="value">${fmtBRL(t.margemLiquida)}</div><small class="muted">${pct(t.margemPct)}</small></div>
+        <div class="kpi ${(t.horasApontadas-t.horasCobradas)>0?'warn':''}"><div class="label">Horas</div>
+          <div class="value">${fmtNum(t.horasApontadas)}h</div>
+          <small class="muted">${fmtNum(t.horasCobradas)}h cobradas</small></div>
+      </div>` + tabela(`<th>OS</th><th>Cliente / técnico</th><th class="num">Receita</th>
+      <th class="num">Custo peças</th><th class="num">Custo M.O.</th>
+      <th class="num" title="Receita menos peças">Margem bruta</th>
+      <th class="num" title="Receita menos peças e mão de obra">Margem líquida</th>
+      <th class="num">Horas</th>`, rows);
+  },
+
+  'sla': (r) => {
+    const s = r.resumo || {};
+    const base = (s.cumpridos||0) + (s.estourados||0);
+    const taxa = base ? Math.round(s.cumpridos / base * 100) : null;
+    const rows = (r.porTecnico||[]).map(t => {
+      const b = (t.cumpridos||0) + (t.estourados||0);
+      const tx = b ? Math.round(t.cumpridos / b * 100) : null;
       return `<tr>
-        <td><a href="/os/ordem-servico.html?id=${x.osId}">${escapeHtml(x.numero)}</a></td>
-        <td>${x.dataAbertura?.slice(0,10)}</td>
-        <td>${escapeHtml(x.clienteNome||'')}</td>
-        <td>${escapeHtml(x.tecnicoNome||'—')}</td>
-        <td class="num">${fmtBRL(x.valorTotal)}</td>
-        <td class="num">${fmtBRL(x.custoPecas)}</td>
-        <td class="num"><strong style="color:${x.margemBruta>=0?'#059669':'#dc2626'};">${fmtBRL(x.margemBruta)}</strong></td>
-        <td class="num">${mpct}%</td>
+        <td>${esc(t.tecnicoNome||'— sem técnico')}</td>
+        <td class="num">${t.total}</td>
+        <td class="num pos">${t.cumpridos}</td>
+        <td class="num neg">${t.estourados}</td>
+        <td class="num neg">${t.atrasados}</td>
+        <td class="num ${tx!=null&&tx<80?'neg':''}">${pct(tx)}</td>
       </tr>`;
     }).join('');
-    return `<div class="card">
-      <div class="kpi-grid">
-        <div class="kpi"><div class="label">Receita total</div><div class="value">${fmtBRL(tot.valor)}</div></div>
-        <div class="kpi"><div class="label">Custo de peças</div><div class="value">${fmtBRL(tot.custo)}</div></div>
-        <div class="kpi"><div class="label">Margem bruta</div><div class="value" style="color:${tot.margem>=0?'#059669':'#dc2626'};">${fmtBRL(tot.margem)}</div></div>
+    return `<div class="kpi-grid">
+        <div class="kpi"><div class="label">Total de OS</div><div class="value">${s.total||0}</div></div>
+        <div class="kpi ${taxa!=null&&taxa>=80?'success':'danger'}"><div class="label">Taxa de cumprimento</div>
+          <div class="value">${pct(taxa)}</div><small class="muted">sobre ${base} concluída(s)</small></div>
+        <div class="kpi success"><div class="label">Cumpridos</div><div class="value">${s.cumpridos||0}</div></div>
+        <div class="kpi danger"><div class="label">Estourados</div><div class="value">${s.estourados||0}</div></div>
+        <div class="kpi danger"><div class="label">Atrasados agora</div><div class="value">${s.atrasados||0}</div></div>
+        <div class="kpi warn"><div class="label">Em risco</div><div class="value">${s.emRisco||0}</div></div>
+        <div class="kpi"><div class="label">No prazo</div><div class="value">${s.noPrazo||0}</div></div>
+        <div class="kpi"><div class="label">Sem SLA definido</div><div class="value">${s.semSla||0}</div>
+          <small class="muted">sem data de promessa</small></div>
       </div>
-      <table class="table">
-        <thead><tr>
-          <th>OS</th><th>Abertura</th><th>Cliente</th><th>Técnico</th>
-          <th class="num">Receita</th><th class="num">Custo peças</th>
-          <th class="num">Margem</th><th class="num">%</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+      <h3 style="margin-top:20px;">Por técnico</h3>` +
+      tabela(`<th>Técnico</th><th class="num">Total</th><th class="num">Cumpridos</th>
+        <th class="num">Estourados</th><th class="num">Atrasados</th><th class="num">Taxa</th>`,
+        rows || '<tr><td colspan="6" class="empty">Sem OS com SLA no período</td></tr>');
   },
-  'sla': (r) => {
-    const s = r.resumo;
-    const porTec = r.porTecnico || [];
-    const semSla = s.total - (s.cumpridos + s.estourados + s.atrasados + s.emRisco + s.noPrazo);
-    const base = s.cumpridos + s.estourados;
-    const taxa = base ? Math.round(s.cumpridos/base*100) : 0;
-    const tecRows = porTec.map(t => `
-      <tr>
-        <td>${escapeHtml(t.tecnicoNome||'—')}</td>
-        <td class="num">${t.total}</td>
-        <td class="num" style="color:#059669;">${t.cumpridos}</td>
-        <td class="num" style="color:#dc2626;">${t.estourados}</td>
-        <td class="num" style="color:#dc2626;">${t.atrasados}</td>
-        <td class="num">${t.total ? Math.round((t.cumpridos/(t.cumpridos+t.estourados||1))*100) : 0}%</td>
-      </tr>`).join('');
-    return `<div class="card">
-      <div class="kpi-grid">
-        <div class="kpi"><div class="label">Total</div><div class="value">${s.total}</div></div>
-        <div class="kpi"><div class="label">Cumpridos</div><div class="value" style="color:#059669;">${s.cumpridos}</div></div>
-        <div class="kpi"><div class="label">Estourados</div><div class="value" style="color:#dc2626;">${s.estourados}</div></div>
-        <div class="kpi"><div class="label">Atrasados</div><div class="value" style="color:#dc2626;">${s.atrasados}</div></div>
-        <div class="kpi"><div class="label">Em risco</div><div class="value" style="color:#d97706;">${s.emRisco}</div></div>
-        <div class="kpi"><div class="label">No prazo</div><div class="value">${s.noPrazo}</div></div>
-        <div class="kpi"><div class="label">Taxa de cumprimento</div><div class="value">${taxa}%</div></div>
-        <div class="kpi"><div class="label">Sem SLA</div><div class="value">${semSla||0}</div></div>
-      </div>
-      <h3 style="margin-top:20px;">Por técnico</h3>
-      <table class="table">
-        <thead><tr>
-          <th>Técnico</th><th class="num">Total</th>
-          <th class="num">Cumpridos</th><th class="num">Estourados</th><th class="num">Atrasados</th>
-          <th class="num">Taxa</th>
-        </tr></thead>
-        <tbody>${tecRows||'<tr><td colspan="6" class="muted">Sem dados</td></tr>'}</tbody>
-      </table>
-    </div>`;
-  },
+
   'comissoes': (r) => {
-    if (!r.linhas.length) return '<div class="card">Sem OS faturadas com comissão no período.</div>';
-    const rows = r.linhas.map(x => `
-      <tr>
-        <td>${x.dataFaturamento?.slice(0,10)}</td>
-        <td><a href="/os/ordem-servico.html?id=${x.osId}">${escapeHtml(x.numero)}</a></td>
-        <td>${escapeHtml(x.tecnicoNome)}</td>
-        <td class="num">${fmtBRL(x.valorServicos)}</td>
-        <td class="num">${x.comissaoPercentual}%</td>
-        <td class="num" style="color:#059669;"><strong>${fmtBRL(x.comissao)}</strong></td>
-      </tr>`).join('');
-    return `<div class="card">
-      <div class="kpi-grid">
+    if (!r.linhas.length) return vazio('Sem OS faturadas com comissão no período.');
+    const rows = r.linhas.map(x => `<tr>
+      <td>${(x.dataFaturamento||'').slice(0,10)}</td>
+      <td><a href="/os/ordem-servico.html?id=${x.osId}">${esc(x.numero)}</a></td>
+      <td>${esc(x.tecnicoNome)}</td>
+      <td class="num">${fmtBRL(x.valorServicos)}</td>
+      <td class="num">${x.comissaoPercentual}%</td>
+      <td class="num pos"><strong>${fmtBRL(x.comissao)}</strong></td>
+    </tr>`).join('');
+    return `<div class="kpi-grid">
         <div class="kpi"><div class="label">Serviços faturados</div><div class="value">${fmtBRL(r.totais.valorServicos)}</div></div>
-        <div class="kpi"><div class="label">Comissão total</div><div class="value" style="color:#059669;">${fmtBRL(r.totais.comissao)}</div></div>
+        <div class="kpi success"><div class="label">Comissão total</div><div class="value">${fmtBRL(r.totais.comissao)}</div></div>
+      </div>` + tabela(`<th>Faturamento</th><th>OS</th><th>Técnico</th>
+      <th class="num">Serviços</th><th class="num">%</th><th class="num">Comissão</th>`, rows);
+  },
+
+  'qualidade-cadastro': (r) => {
+    const rs = r.resumo || {};
+    if (rs.cadastroCompleto) {
+      return `<div class="alert" style="display:block;">Cadastro completo no período — a margem dos demais relatórios é confiável.</div>`;
+    }
+    const tecs = (r.tecnicosSemValorHora||[]).map(t => `<tr>
+      <td><strong>${esc(t.nome)}</strong></td>
+      <td class="num">${t.osNoPeriodo}</td>
+      <td class="num neg">${fmtNum(t.horasApontadas)}h</td>
+      <td><a href="/configuracoes/usuarios.html">cadastrar valor/hora →</a></td>
+    </tr>`).join('');
+    const prods = (r.produtosSemCusto||[]).map(p => `<tr>
+      <td class="mono">${esc(p.sku)}</td>
+      <td>${esc(p.descricao)}</td>
+      <td class="num">${p.osNoPeriodo}</td>
+      <td class="num">${fmtNum(p.quantidade)}</td>
+      <td class="num neg">${fmtBRL(p.valorVendido)}</td>
+    </tr>`).join('');
+    return `<div class="kpi-grid">
+        <div class="kpi ${rs.horasSemCusto>0?'danger':''}"><div class="label">Horas sem custo</div>
+          <div class="value">${fmtNum(rs.horasSemCusto)}h</div>
+          <small class="muted">entram como custo zero</small></div>
+        <div class="kpi ${rs.receitaComPecaSemCusto>0?'danger':''}"><div class="label">Receita com peça sem custo</div>
+          <div class="value">${fmtBRL(rs.receitaComPecaSemCusto)}</div></div>
+        <div class="kpi ${r.osSemTecnico.n>0?'warn':''}"><div class="label">OS sem técnico</div>
+          <div class="value">${r.osSemTecnico.n}</div>
+          <small class="muted">${fmtBRL(r.osSemTecnico.valor)} fora do rateio</small></div>
       </div>
-      <table class="table">
-        <thead><tr>
-          <th>Faturamento</th><th>OS</th><th>Técnico</th>
-          <th class="num">Serviços</th><th class="num">%</th><th class="num">Comissão</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+      <h3 style="margin-top:20px;">Técnicos sem valor/hora</h3>
+      ${tecs ? tabela(`<th>Técnico</th><th class="num">OS</th><th class="num">Horas apontadas</th><th></th>`, tecs)
+             : vazio('Todos os técnicos com hora apontada têm valor/hora cadastrado.')}
+      <h3 style="margin-top:20px;">Produtos sem custo conhecido</h3>
+      ${prods ? tabela(`<th>SKU</th><th>Descrição</th><th class="num">OS</th><th class="num">Qtd</th><th class="num">Vendido</th>`, prods)
+              : vazio('Todas as peças consumidas têm custo conhecido.')}`;
   },
 };
 
-// Default: mês atual
+// Exporta o que está na tela. Achata os objetos do relatório atual.
+function exportarCSV(){
+  if (!ULTIMO) return showAlert('Gere um relatório primeiro','error');
+  const { rel, dados } = ULTIMO;
+  const linhas = dados.linhas || dados.porTecnico || dados.tecnicosSemValorHora || [];
+  if (!linhas.length) return showAlert('Nada para exportar','error');
+
+  const colunas = Object.keys(linhas[0]).filter(k => typeof linhas[0][k] !== 'object');
+  const escapaCSV = v => {
+    const s = v == null ? '' : String(v);
+    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  // ; como separador e BOM: é o que o Excel em pt-BR abre sem preencher
+  // tudo numa coluna só.
+  const csv = '﻿' + [colunas.join(';'),
+    ...linhas.map(l => colunas.map(c => escapaCSV(l[c])).join(';'))].join('\n');
+
+  const de = document.getElementById('fDe').value || 'inicio';
+  const ate = document.getElementById('fAte').value || 'hoje';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  a.download = `os-${rel}-${de}-a-${ate}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 (function iniciar(){
   const hoje = new Date();
   const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
@@ -221,7 +316,4 @@ const RENDERERS = {
   carregar();
 })();
 </script>
-<script src="/js/menu-config.js"></script>
-<script src="/js/sidebar.js"></script>
-<script>initSidebar('os-relatorios');</script>
 </body></html>

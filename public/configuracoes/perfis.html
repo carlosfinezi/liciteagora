@@ -42,9 +42,10 @@
 
   <div id="painelNativos"></div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="perfis">
     <table>
       <thead><tr>
+        <th class="col-editar"></th>
         <th>Perfil</th>
         <th>Identificador</th>
         <th>Páginas</th>
@@ -52,7 +53,7 @@
         <th>Status</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -112,6 +113,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('perfis');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
@@ -180,6 +183,7 @@ async function carregar(){
   // O perfil fixo do sistema encabeça a lista: ele não é um registro editável,
   // mas é onde os administradores estão.
   const linhaFixa = d.fixo ? `<tr style="opacity:.9;">
+    <td class="col-editar"></td>
     <td><strong>${esc(d.fixo.nome)}</strong> <span class="badge" title="Perfil do sistema">fixo</span>
         <br><small class="muted">${esc(d.fixo.descricao)}</small></td>
     <td class="mono">${esc(d.fixo.slug)}</td>
@@ -189,13 +193,13 @@ async function carregar(){
     <td style="text-align:right;"><small class="muted">não editável</small></td>
   </tr>` : '';
   tb.innerHTML = linhaFixa + (d.perfis.length ? d.perfis.map(p=>`<tr>
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar perfil" onclick='editar(${JSON.stringify(p)})'><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td><strong>${esc(p.nome)}</strong>${p.descricao?`<br><small class="muted">${esc(p.descricao)}</small>`:''}</td>
     <td class="mono">${esc(p.slug)}</td>
     <td>${p.paginas.length} de ${d.totalPaginas}</td>
     <td>${p.usuarios}</td>
     <td><span class="badge ${p.ativo?'ativo':'inativo'}">${p.ativo?'ativo':'inativo'}</span></td>
     <td style="text-align:right;white-space:nowrap;">
-      <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(p)})'>Editar</button>
       <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluir(${p.id},'${esc(p.slug)}')">Excluir</button>
     </td>
   </tr>`).join('') : '<tr><td colspan="6" class="empty">Nenhum perfil além do administrador — crie um para limitar o que um usuário abre</td></tr>');

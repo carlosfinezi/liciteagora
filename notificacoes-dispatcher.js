@@ -1,8 +1,19 @@
 // notificacoes-dispatcher.js (2026-05-21)
 //
 // Despacha notificações pros canais habilitados do tenant — fonte única
-// de verdade para Telegram + Email. Consumidores: alertas de disputa
-// (sniper-lance-routes), descoberta IA (analise-ia-scheduler).
+// de verdade para Telegram + Email.
+//
+// 2026-08-02: passou a ser fonte única DE FATO. Antes o arquivo dizia isso e
+// não era: sniper-lance-routes.js e alertas-disputa-vigilancia.js tinham
+// cópias idênticas de lerCanais/enviarAlerta, e outros nove pontos do sistema
+// (OS, PCP, preventivas, BNC, propostas, habilitação, sync PNCP) chamavam
+// sendTelegram direto, sem consultar canal nenhum. As cópias foram removidas
+// e o interruptor do Telegram passou a ser verificado no transporte
+// (telegram-client.canalTelegramLigado), onde nenhum emissor escapa.
+//
+// Consumidores diretos: alertas de disputa (sniper-lance-routes), vigia de
+// disputa (alertas-disputa-vigilancia), descoberta IA (analise-ia-scheduler),
+// teste de canais (notificacoes-routes).
 //
 // Config (tabela `config`):
 //   alerta_canal_telegram   '1' | '0'   (default '1')

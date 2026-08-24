@@ -596,7 +596,9 @@ async function sincronizarIncremental() {
   dataFinal.setDate(hoje.getDate() + 7);
 
   const dias = gerarDiasEntre(dataInicial.toISOString().split('T')[0], dataFinal.toISOString().split('T')[0]);
-  const modalidades = [6, 1, 7, 8];
+  // 9=Inexigibilidade só nos fluxos daqui-pra-frente (incremental/sweep);
+  // fora de MODALIDADES_PADRAO de propósito pra não entrar no retroativo.
+  const modalidades = [6, 1, 7, 8, 9];
 
   syncStatus.total = dias.length * modalidades.length;
 
@@ -728,7 +730,7 @@ async function sincronizarAtualizacoes(diasAtras = 1) {
   dataInicial.setDate(hoje.getDate() - diasAtras);
 
   const dias = gerarDiasEntre(dataInicial.toISOString().split('T')[0], hoje.toISOString().split('T')[0]);
-  const modalidades = MODALIDADES_PADRAO;
+  const modalidades = [...MODALIDADES_PADRAO, 9]; // 9=Inexigibilidade, ver comentário no incremental
   syncStatus.total = dias.length * modalidades.length;
 
   console.log(`[SWEEP ATUALIZAÇÃO] Janela ${dias[0]}..${dias[dias.length - 1]} × ${modalidades.length} modalidades`);

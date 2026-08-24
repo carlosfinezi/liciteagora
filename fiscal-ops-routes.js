@@ -9,6 +9,7 @@
  */
 
 const { logAction } = require('./audit-log');
+const { garantirFornecedor } = require('./pessoas-fornecedor');
 
 function tag(xml, nome) {
   const m = String(xml || '').match(new RegExp(`<${nome}[^>]*>([\\s\\S]*?)</${nome}>`));
@@ -179,15 +180,14 @@ function registrarRotasFiscalOps(app, db) {
       const tx = db.transaction(() => {
         if (gerarContaPagar) {
           const nomeForn = `SEFAZ ${String(uf).toUpperCase()}`;
-          let forn = db.prepare('SELECT id FROM fornecedores WHERE razaoSocial = ?').get(nomeForn);
-          if (!forn) {
-            const rf = db.prepare(`INSERT INTO fornecedores (razaoSocial, cpfCnpj, tipo) VALUES (?, ?, 'PJ')`)
-              .run(nomeForn, '00000000000000');
-            forn = { id: rf.lastInsertRowid };
-          }
+          // Marcador por UF, não '00000000000000': cpfCnpj é UNIQUE em
+          // `pessoas`, então um zero fixo deixaria só a primeira SEFAZ entrar.
+          const fornecedorId = garantirFornecedor(db, {
+            razaoSocial: nomeForn, cpfCnpj: `SEFAZ-${String(uf).toUpperCase()}`,
+          });
           const { criarContaAPagar } = require('./contas-pagar-routes');
           contaPagarId = criarContaAPagar(db, {
-            fornecedorId: forn.id,
+            fornecedorId,
             descricao: `GNRE ${String(uf).toUpperCase()} — DIFAL${fcpPct ? '+FCP' : ''}${faturaId ? ' NF ' + faturaId : ''}`,
             valor: valorTotal,
             dataVencimento: dataVencimento || new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10),

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Equipamentos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .num { text-align:right; white-space:nowrap; }
+  .sub { display:block; color:var(--text-3); font-size:.78em; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Equipamentos</h1>
+      <small>Base instalada — histórico de atendimento, reincidência e garantia por aparelho</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo equipamento</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="text" id="fQ" placeholder="Buscar descrição, marca, modelo, série ou patrimônio…"
+           oninput="debounce(carregar)" style="flex:1;min-width:260px;">
+    <select id="fCliente" onchange="carregar()" style="min-width:200px;">
+      <option value="">Todos os clientes</option>
+    </select>
+    <select id="fAtivo" onchange="carregar()">
+      <option value="">Ativos e inativos</option>
+      <option value="1" selected>Só ativos</option>
+      <option value="0">Só inativos</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap" data-grid="equipamentos">
+    <table>
+      <thead><tr>
+        <th class="col-editar"></th><th>Equipamento</th><th>Cliente</th><th>Nº de série</th><th>Patrimônio</th>
+        <th class="num">OS</th><th>Última OS</th><th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalNovo">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Novo equipamento</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharNovo()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Cliente</label><select id="nCliente"><option value="">— sem dono definido —</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição *</label><input type="text" id="nDesc" placeholder="Ex.: Notebook, Compressor, Servidor"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Marca</label><input type="text" id="nMarca"></div>
+      <div class="form-group"><label>Modelo</label><input type="text" id="nModelo"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Nº de série</label><input type="text" id="nSerie"></div>
+      <div class="form-group"><label>Patrimônio</label><input type="text" id="nPatrimonio"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Aquisição</label><input type="date" id="nAquisicao"></div>
+      <div class="form-group"><label>Garantia de fábrica até</label><input type="date" id="nGarantiaFab"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observações</label><input type="text" id="nObs"></div>
+    </div>
+    <small class="muted">Se a série já existir, o cadastro existente é reaproveitado em vez de duplicar.</small>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharNovo()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNovo()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
+<script>initSidebar('equipamentos');</script>
+<script>
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',6000);}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const val=id=>document.getElementById(id).value;
+let debT; function debounce(fn){ clearTimeout(debT); debT=setTimeout(fn,300); }
+let LISTA=[];
+
+async function carregar(){
+  const p=new URLSearchParams();
+  if(val('fQ')) p.set('q',val('fQ'));
+  if(val('fCliente')) p.set('clienteId',val('fCliente'));
+  if(val('fAtivo')!=='') p.set('ativo',val('fAtivo'));
+  const r=await fetch('/api/equipamentos?'+p); const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  LISTA=d.equipamentos||[];
+
+  const comSerie=LISTA.filter(e=>e.numeroSerie).length;
+  const comOS=LISTA.filter(e=>e.totalOS>0).length;
+  const semDono=LISTA.filter(e=>!e.clienteId).length;
+  document.getElementById('kpis').innerHTML=`
+    <div class="kpi"><div class="label">Equipamentos</div><div class="value">${LISTA.length}</div></div>
+    <div class="kpi"><div class="label">Com nº de série</div><div class="value">${comSerie}</div>
+      <small class="muted">identidade forte</small></div>
+    <div class="kpi"><div class="label">Já atendidos</div><div class="value">${comOS}</div>
+      <small class="muted">têm histórico de OS</small></div>
+    ${semDono?`<div class="kpi warn"><div class="label">Sem cliente</div><div class="value">${semDono}</div>
+      <small class="muted">defina o dono</small></div>`:''}`;
+
+  document.getElementById('tb').innerHTML=LISTA.length?LISTA.map(e=>`<tr style="cursor:pointer;" onclick="abrir(${e.id})">
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir equipamento" onclick="event.stopPropagation();abrir(${e.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
+    <td><strong>${esc(e.descricao)}</strong>${e.ativo?'':' <span class="badge inativo">inativo</span>'}
+      <span class="sub">${esc([e.marca,e.modelo].filter(Boolean).join(' ')||'—')}</span></td>
+    <td>${esc(e.clienteNome||'—')}</td>
+    <td class="mono">${esc(e.numeroSerie||'—')}</td>
+    <td class="mono">${esc(e.patrimonio||'—')}</td>
+    <td class="num">${e.totalOS||0}</td>
+    <td>${(e.ultimaOS||'').slice(0,10)||'—'}</td>
+    <td></td>
+  </tr>`).join(''):'<tr><td colspan="8" class="empty">Nenhum equipamento no filtro</td></tr>';
+}
+
+function abrir(id){ location.href='/os/equipamento.html?id='+id; }
+
+function abrirNovo(){
+  ['nDesc','nMarca','nModelo','nSerie','nPatrimonio','nAquisicao','nGarantiaFab','nObs'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('nCliente').value=val('fCliente')||'';
+  document.getElementById('modalNovo').classList.add('open');
+}
+function fecharNovo(){ document.getElementById('modalNovo').classList.remove('open'); }
+
+async function salvarNovo(){
+  const body={
+    clienteId:Number(val('nCliente'))||null,
+    descricao:val('nDesc').trim(), marca:val('nMarca').trim()||null, modelo:val('nModelo').trim()||null,
+    numeroSerie:val('nSerie').trim()||null, patrimonio:val('nPatrimonio').trim()||null,
+    dataAquisicao:val('nAquisicao')||null, garantiaFabricanteAte:val('nGarantiaFab')||null,
+    observacoes:val('nObs').trim()||null,
+  };
+  if(!body.descricao && !body.marca && !body.modelo) return showAlert('Informe ao menos descrição, marca ou modelo','error');
+  const r=await fetch('/api/equipamentos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  fecharNovo();
+  // Série repetida devolve o cadastro existente — dizer isso evita o
+  // usuário achar que criou um novo e sair procurando.
+  showAlert(d.criado?'Equipamento cadastrado':'Já existia um equipamento com essa série — abrindo o cadastro existente');
+  abrir(d.id);
+}
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape')fecharNovo();});
+(async()=>{
+  try{
+    const r=await fetch('/api/pessoas'); const d=await r.json();
+    const opts=(d.pessoas||[]).map(p=>`<option value="${p.id}">${esc(p.razaoSocial||p.nomeFantasia||('#'+p.id))}</option>`).join('');
+    document.getElementById('fCliente').innerHTML='<option value="">Todos os clientes</option>'+opts;
+    document.getElementById('nCliente').innerHTML='<option value="">— sem dono definido —</option>'+opts;
+  }catch{}
+  const qsCliente=new URLSearchParams(location.search).get('clienteId');
+  if(qsCliente) document.getElementById('fCliente').value=qsCliente;
+  await carregar();
+})();
+</script>
+</body></html>

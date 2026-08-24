@@ -120,7 +120,7 @@ async function main() {
     // Resultado: erro (023/pendência) | PDF | aba nova
     result.step = 'resultado';
     const erro = await page.evaluate(() => { const t = (document.body ? document.body.innerText : ''); const m = t.match(/N[ãa]o foi poss[íi]vel concluir a a[çc][ãa]o[^.]*\.\s*[^.]*\.\s*(\d{3})?[^\n]{0,30}/i); return m ? m[0].replace(/\s+/g, ' ').trim() : null; }).catch(() => null);
-    if (erro) { await shot(page, 'erro'); throw new Error('Receita recusou: "' + erro + '" — provável pendência fiscal federal (empresa não regular). Regularize e tente novamente.'); }
+    if (erro) { await shot(page, 'erro'); throw new Error('Receita recusou: "' + erro + '". Este código NÃO indica pendência fiscal — foi medido em 03/08/2026 emitindo normalmente pelo navegador com certidão válida vigente. Causa provável: hCaptcha invisível reprovando o cliente automatizado.'); }
 
     // procura PDF (download ou nova aba)
     let pdfBuf = null;

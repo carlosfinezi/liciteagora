@@ -60,7 +60,11 @@ async function buscarLicitacoesDoGrupo(db, grupo, config, limite) {
     }
   }
 
-  const ufs = parseJsonArray(config.ufs);
+  // UFs: as do agendamento prevalecem; vazias, herda as do próprio grupo (grupos_palavras.ufs)
+  let ufs = parseJsonArray(config.ufs);
+  if (ufs.length === 0) ufs = parseJsonArray(grupo.ufs);
+  // Municípios: só existem no grupo (grupos_palavras.municipios)
+  const municipios = parseJsonArray(grupo.municipios);
   const modalidades = parseJsonArray(config.modalidades);
   const valorMinimo = Number(config.valor_minimo) || 0;
   const lim = Math.max(1, Math.min(500, limite || 100));
@@ -113,6 +117,9 @@ async function buscarLicitacoesDoGrupo(db, grupo, config, limite) {
     if (ufs.length > 0) {
       const phs = ufs.map(u => ph(u)).join(',');
       outerConds.push(`l."ufSigla" IN (${phs})`);
+    }
+    if (municipios.length > 0) {
+      outerConds.push(`l."municipioNome" ILIKE ANY(${ph(municipios)})`);
     }
     if (modalidades.length > 0) {
       const phs = modalidades.map(m => ph(Number(m) || 0)).join(',');
@@ -169,6 +176,10 @@ async function buscarLicitacoesDoGrupo(db, grupo, config, limite) {
   if (ufs.length > 0) {
     conditions.push(`l.ufSigla IN (${ufs.map(() => '?').join(',')})`);
     params.push(...ufs);
+  }
+  if (municipios.length > 0) {
+    conditions.push(`LOWER(l.municipioNome) IN (${municipios.map(() => '?').join(',')})`);
+    params.push(...municipios.map(m => String(m).toLowerCase()));
   }
   if (modalidades.length > 0) {
     conditions.push(`l.modalidadeId IN (${modalidades.map(() => '?').join(',')})`);

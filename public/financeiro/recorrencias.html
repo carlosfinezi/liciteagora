@@ -19,6 +19,7 @@
             <small>Emissão automática mensal de NFS-e + boleto + e-mail</small>
           </div>
           <div class="actions">
+            <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova recorrência</button>
             <button class="btn btn-secondary btn-sm" onclick="executarTodas()">⚡ Executar todas (mês atual)</button>
           </div>
         </div>
@@ -27,7 +28,6 @@
 
         <div class="tabs">
             <button class="tab active" data-tab="lista">Recorrências</button>
-            <button class="tab" data-tab="emails">E-mails enviados</button>
         </div>
 
         <!-- ABA: LISTA -->
@@ -57,38 +57,63 @@
             </div>
         </div>
 
-        <!-- ABA: EMAILS ENVIADOS -->
-        <div id="tab-emails" class="tab-content">
-            <div class="panel">
-                <h3>Relatorio de Emails Enviados</h3>
-                <p style="color:var(--text-2); margin-bottom:15px;">Registro de todos os e-mails enviados pelo sistema com comprovante (Message-ID SMTP).</p>
-
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Data/Hora</th>
-                                <th>Destinatario</th>
-                                <th>Assunto</th>
-                                <th>NFSe</th>
-                                <th>Valor</th>
-                                <th>PDF</th>
-                                <th>Boleto</th>
-                                <th>Status</th>
-                                <th>Message-ID</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tabelaEmails"></tbody>
-                    </table>
-                </div>
-                <div id="emptyEmails" class="empty-state" style="display:none;">
-                    <div class="icon">📧</div>
-                    <p>Nenhum email enviado ainda</p>
-                </div>
-            </div>
-        </div>
-
     </main>
+</div>
+
+<div class="modal-bg" id="modalRec">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <div><h3 style="margin:0;" id="recTitulo">Nova recorrência</h3>
+        <small class="muted">Emite NFS-e todo mês para o mesmo cliente</small></div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharRec()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="rId">
+
+    <div class="form-row">
+      <div class="form-group full-width"><label>Cliente *</label>
+        <select id="rPessoa"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição do serviço *</label>
+        <textarea id="rDescricao" rows="2" placeholder="Ex.: Mensalidade de suporte técnico"></textarea></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Valor do serviço (R$) *</label>
+        <input type="number" id="rValor" step="0.01" min="0.01"></div>
+      <div class="form-group"><label>Código de tributação nacional *</label>
+        <input type="text" id="rCodTrib" placeholder="Ex.: 010101"></div>
+      <div class="form-group"><label>Item da lista de serviço</label>
+        <input type="text" id="rCodLista" placeholder="Ex.: 01.01"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Alíquota (%)</label><input type="number" id="rAliquota" step="0.01" min="0"></div>
+      <div class="form-group"><label>Deduções (R$)</label><input type="number" id="rDeducoes" step="0.01" min="0"></div>
+      <div class="form-group"><label>Dia de vencimento</label>
+        <input type="number" id="rDiaVenc" min="1" max="31" value="10"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label style="display:flex;gap:6px;align-items:center;">
+          <input type="checkbox" id="rGerarBoleto" style="width:auto;"> Gerar boleto</label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;gap:6px;align-items:center;">
+          <input type="checkbox" id="rEnviarEmail" style="width:auto;"> Enviar por e-mail</label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;gap:6px;align-items:center;">
+          <input type="checkbox" id="rAtivo" style="width:auto;" checked> Ativa</label>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Observações</label>
+        <textarea id="rObs" rows="2"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharRec()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarRec()">Salvar</button>
+    </div>
+  </div>
 </div>
 
 <script src="/js/menu-config.js"></script>
@@ -103,7 +128,6 @@ document.querySelectorAll('.tab').forEach(tab => {
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-        if (tab.dataset.tab === 'emails') carregarEmailsLog();
     });
 });
 
@@ -145,6 +169,10 @@ async function carregarRecorrencias() {
                 <td><span class="badge ${r.ativo ? 'ativo' : 'inativo'}">${r.ativo ? 'Ativo' : 'Inativo'}</span></td>
                 <td style="text-align:right;white-space:nowrap;">
                     <button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="executarUma(${r.id})" title="Executar agora">▶</button>
+                    <button class="btn btn-ghost btn-sm" onclick="editar(${r.id})" title="Editar">✏️</button>
+                    ${r.ativo
+                        ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${r.id}, ${JSON.stringify(r.descricao)})" title="Desativar">⏸</button>`
+                        : `<button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="reativar(${r.id})" title="Reativar">↻</button>`}
                 </td>
             </tr>
         `).join('');
@@ -181,45 +209,6 @@ async function executarTodas() {
     }
 }
 
-// ==================== EMAILS ENVIADOS ====================
-async function carregarEmailsLog() {
-    try {
-        const resp = await fetch('/api/emails/log?limit=200');
-        const data = await resp.json();
-        if (!data.success) throw new Error(data.error);
-
-        const tbody = document.getElementById('tabelaEmails');
-        const empty = document.getElementById('emptyEmails');
-
-        if (!data.logs.length) {
-            tbody.innerHTML = '';
-            empty.style.display = 'block';
-            return;
-        }
-        empty.style.display = 'none';
-
-        tbody.innerHTML = data.logs.map(e => {
-            const dataFmt = e.dataEnvio ? new Date(e.dataEnvio + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '-';
-            const valorFmt = e.valor ? Number(e.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-';
-            const statusClass = e.status === 'enviado' ? 'color:#51cf66' : 'color:#ff6b6b';
-            const msgId = e.messageId ? `<span title="${e.messageId}" style="cursor:pointer;color:#4dabf7;font-size:0.8em;" onclick="navigator.clipboard.writeText('${e.messageId}').then(()=>alert('Message-ID copiado!'))">Copiar</span>` : '-';
-
-            return `<tr>
-                <td style="white-space:nowrap;">${dataFmt}</td>
-                <td>${e.destinatario}</td>
-                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${e.assunto || ''}">${e.assunto || '-'}</td>
-                <td>${e.nfseNumero || '-'}</td>
-                <td>${valorFmt}</td>
-                <td>${e.temPdf ? '<span style="color:#51cf66;">Sim</span>' : '<span style="color:#888;">Nao</span>'}</td>
-                <td>${e.temBoleto ? '<span style="color:#51cf66;">Sim</span>' : '<span style="color:#888;">Nao</span>'}</td>
-                <td style="${statusClass};font-weight:bold;">${e.status}${e.erro ? ' <span title="'+e.erro+'" style="cursor:help;">⚠</span>' : ''}</td>
-                <td>${msgId}</td>
-            </tr>`;
-        }).join('');
-    } catch (err) {
-        showAlert('Erro ao carregar log de emails: ' + err.message, 'error');
-    }
-}
 
 // ==================== UTILS ====================
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -234,6 +223,121 @@ function formatDoc(d) {
 
 // ==================== INIT ====================
 carregarRecorrencias();
+// ==================== CRIAR / EDITAR / EXCLUIR ====================
+// A tela so executava. O backend ja tinha POST/PUT/DELETE, e o contrato
+// mandava "Criar nova" para ca — sem botao nenhum aqui, o caminho morria.
+let PESSOAS = [];
+
+async function carregarPessoas() {
+    if (PESSOAS.length) return PESSOAS;
+    try {
+        // /api/pessoas nao filtra por tipo — pedir ?tipo=cliente sugeriria um
+        // filtro inexistente e devolveria a lista toda do mesmo jeito.
+        const d = await fetch('/api/pessoas').then(r => r.json());
+        PESSOAS = d.pessoas || [];
+    } catch { PESSOAS = []; }
+    return PESSOAS;
+}
+
+function fecharRec() { document.getElementById('modalRec').classList.remove('open'); }
+
+async function abrirNova() {
+    await carregarPessoas();
+    document.getElementById('rPessoa').innerHTML = '<option value="">Selecione…</option>' +
+        PESSOAS.map(p => `<option value="${p.id}">${esc(p.razaoSocial || p.nome || '')}</option>`).join('');
+    document.getElementById('recTitulo').textContent = 'Nova recorrência';
+    ['rId','rDescricao','rValor','rCodTrib','rCodLista','rAliquota','rDeducoes','rObs']
+        .forEach(x => document.getElementById(x).value = '');
+    document.getElementById('rDiaVenc').value = 10;
+    document.getElementById('rGerarBoleto').checked = false;
+    document.getElementById('rEnviarEmail').checked = false;
+    document.getElementById('rAtivo').checked = true;
+    document.getElementById('modalRec').classList.add('open');
+}
+
+async function editar(id) {
+    await carregarPessoas();
+    const d = await fetch('/api/recorrencias/' + id).then(r => r.json());
+    if (!d.success) return showAlert(d.error, 'error');
+    const r = d.recorrencia || d.rec || d;
+    document.getElementById('rPessoa').innerHTML = '<option value="">Selecione…</option>' +
+        PESSOAS.map(p => `<option value="${p.id}"${p.id === r.pessoaId ? ' selected' : ''}>${esc(p.razaoSocial || p.nome || '')}</option>`).join('');
+    document.getElementById('recTitulo').textContent = 'Editar recorrência';
+    document.getElementById('rId').value = r.id;
+    document.getElementById('rDescricao').value = r.descricao || '';
+    document.getElementById('rValor').value = r.valorServico ?? '';
+    document.getElementById('rCodTrib').value = r.codigoTributacaoNacional || '';
+    document.getElementById('rCodLista').value = r.codigoListaServico || '';
+    document.getElementById('rAliquota').value = r.aliquota ?? '';
+    document.getElementById('rDeducoes').value = r.valorDeducoes ?? '';
+    document.getElementById('rDiaVenc').value = r.diaVencimentoBoleto ?? 10;
+    document.getElementById('rGerarBoleto').checked = !!r.gerarBoleto;
+    document.getElementById('rEnviarEmail').checked = !!r.enviarEmail;
+    document.getElementById('rAtivo').checked = !!r.ativo;
+    document.getElementById('rObs').value = r.observacoes || '';
+    document.getElementById('modalRec').classList.add('open');
+}
+
+async function salvarRec() {
+    const id = document.getElementById('rId').value;
+    const num = (v) => v === '' ? null : Number(v);
+    const corpo = {
+        pessoaId: Number(document.getElementById('rPessoa').value) || null,
+        descricao: document.getElementById('rDescricao').value.trim(),
+        valorServico: num(document.getElementById('rValor').value),
+        codigoTributacaoNacional: document.getElementById('rCodTrib').value.trim(),
+        codigoListaServico: document.getElementById('rCodLista').value.trim() || null,
+        aliquota: num(document.getElementById('rAliquota').value),
+        valorDeducoes: num(document.getElementById('rDeducoes').value),
+        diaVencimentoBoleto: num(document.getElementById('rDiaVenc').value) || 10,
+        gerarBoleto: document.getElementById('rGerarBoleto').checked,
+        enviarEmail: document.getElementById('rEnviarEmail').checked,
+        ativo: document.getElementById('rAtivo').checked,
+        observacoes: document.getElementById('rObs').value.trim() || null,
+    };
+    // Mesma exigencia do backend, dita antes de o servidor recusar.
+    if (!corpo.pessoaId) return showAlert('Selecione o cliente', 'error');
+    if (!corpo.descricao) return showAlert('Descrição do serviço obrigatória', 'error');
+    if (!(corpo.valorServico > 0)) return showAlert('Valor do serviço deve ser maior que zero', 'error');
+    if (!corpo.codigoTributacaoNacional) return showAlert('Código de tributação nacional obrigatório', 'error');
+
+    const d = await fetch(id ? '/api/recorrencias/' + id : '/api/recorrencias', {
+        method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo)
+    }).then(r => r.json());
+    if (!d.success) return showAlert(d.error, 'error');
+    fecharRec();
+    showAlert(id ? 'Recorrência atualizada' : 'Recorrência criada');
+    carregarRecorrencias();
+}
+
+// O DELETE do backend DESATIVA, nao apaga — e correto: a recorrencia tem
+// historico de emissao atras dela. O botao diz o que acontece de verdade.
+async function desativar(id, descricao) {
+    if (!confirm(`Desativar a recorrência "${descricao}"?\n\nEla para de emitir nos próximos meses. O histórico e as NFS-e já emitidas continuam.`)) return;
+    const d = await fetch('/api/recorrencias/' + id, { method: 'DELETE' }).then(r => r.json());
+    if (!d.success) return showAlert(d.error, 'error');
+    showAlert('Recorrência desativada — volta a emitir se você reativar');
+    carregarRecorrencias();
+}
+
+async function reativar(id) {
+    const d = await fetch('/api/recorrencias/' + id, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativo: 1 })
+    }).then(r => r.json());
+    if (!d.success) return showAlert(d.error, 'error');
+    showAlert('Recorrência reativada');
+    carregarRecorrencias();
+}
+
+// O contrato manda "/financeiro/recorrencias.html?id=N" para ver a recorrencia
+// completa; sem isto o id chegava e era ignorado.
+document.addEventListener('DOMContentLoaded', () => {
+    const id = new URLSearchParams(location.search).get('id');
+    if (id) setTimeout(() => editar(Number(id)), 300);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharRec(); });
+
 </script>
 </body>
 </html>

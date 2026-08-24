@@ -63,7 +63,7 @@ function registrarRotasProdutos(app, db) {
                                   ELSE quantidade END)
                   FROM movimentacoes_estoque WHERE produtoId = p.id), 0) AS saldo
         FROM produtos p
-        LEFT JOIN fornecedores f ON f.id = p.fornecedorId
+        LEFT JOIN pessoas f ON f.id = p.fornecedorId
         WHERE 1=1`;
       const params = [];
       if (ativo !== undefined) { sql += ' AND p.ativo = ?'; params.push(Number(ativo)); }
@@ -298,7 +298,7 @@ function registrarRotasProdutos(app, db) {
       const codigos = db.prepare(`
         SELECT pc.*, f.razaoSocial AS fornecedorNome
         FROM produto_codigos pc
-        LEFT JOIN fornecedores f ON f.id = pc.fornecedorId
+        LEFT JOIN pessoas f ON f.id = pc.fornecedorId
         WHERE pc.produtoId = ? AND pc.ativo = 1
         ORDER BY pc.tipo, pc.codigo`).all(req.params.id);
       res.json({ success: true, codigos });

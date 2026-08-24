@@ -31,9 +31,10 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="contratos">
     <table>
       <thead><tr>
+        <th class="col-editar"></th>
         <th>Número</th>
         <th>Cliente</th>
         <th>Descrição</th>
@@ -42,7 +43,7 @@
         <th>Status</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -73,7 +74,14 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Valor mensal (R$) *</label>
+        <label>Periodicidade *</label>
+        <select id="fPeriodicidade" onchange="ajustarRotuloValor()">
+          <option value="mensal">Mensal</option>
+          <option value="anual">Anual</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label id="lblValor">Valor mensal (R$) *</label>
         <input type="number" id="fValor" step="0.01" min="0">
       </div>
       <div class="form-group">
@@ -174,6 +182,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('contratos');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -195,19 +205,29 @@ async function carregar(){
   `;
   const tb = document.getElementById('tb');
   tb.innerHTML = d.contratos.length ? d.contratos.map(c=>`<tr>
+    <td class="col-editar"><a class="btn btn-ghost btn-sm btn-icon-only" title="Abrir contrato" href="/comercial/contrato.html?id=${c.id}"><svg class="ic-sm"><use href="#i-edit"/></svg></a></td>
     <td class="mono"><strong>${c.numero}</strong></td>
     <td>${c.clienteNome}</td>
     <td>${c.descricao}</td>
-    <td class="num">${fmtBRL(c.valorMensal)}</td>
+    <td class="num">${fmtBRL(c.valorMensal)}${c.periodicidade==='anual'?'<br><small class="muted">anual</small>':''}</td>
     <td>${c.dataInicio} → ${c.dataFim||'—'}</td>
     <td><span class="badge ${c.status==='ativo'?'ativo':c.status==='suspenso'?'pendente':'inativo'}">${c.status}</span></td>
-    <td style="text-align:right;"><a class="btn btn-ghost btn-sm" href="/comercial/contrato.html?id=${c.id}" style="text-decoration:none;">Abrir →</a></td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhum contrato</td></tr>';
+    <td></td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum contrato</td></tr>';
+}
+
+// Num contrato anual o campo guarda o valor do ANO — deixar o rótulo dizendo
+// "mensal" faria alguém digitar 1/12 do valor.
+function ajustarRotuloValor(){
+  const anual = document.getElementById('fPeriodicidade').value === 'anual';
+  document.getElementById('lblValor').textContent = anual ? 'Valor anual (R$) *' : 'Valor mensal (R$) *';
 }
 
 function abrirNovo(){
   ['fCliBusca','fClienteId','fDesc','fValor','fIni','fFim','fPercReajuste','fDataReajuste','fObs'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('fDia').value='10';
+  document.getElementById('fPeriodicidade').value='mensal';
+  ajustarRotuloValor();
   document.getElementById('fRenov').value='1';
   document.getElementById('fRenovMeses').value='12';
   document.getElementById('fIndice').value='';
@@ -245,6 +265,7 @@ async function salvar(){
     clienteId: Number(document.getElementById('fClienteId').value),
     descricao: document.getElementById('fDesc').value.trim(),
     valorMensal: Number(document.getElementById('fValor').value),
+    periodicidade: document.getElementById('fPeriodicidade').value,
     diaVencimento: Number(document.getElementById('fDia').value)||10,
     dataInicio: document.getElementById('fIni').value,
     dataFim: document.getElementById('fFim').value||null,

@@ -8,6 +8,8 @@
  *   GET /api/fluxo-caixa?dataInicio=YYYY-MM-DD&dataFim=YYYY-MM-DD&contas=1,2
  */
 
+const { escopoContas } = require('./contas-financeiras-routes');
+
 function dataBrasilia() {
   const now = new Date();
   const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -48,12 +50,14 @@ function registrarRotas(app, db) {
       }
 
       const idsParam = parseContasParam(req.query.contas);
+      // Mesmo teto do extrato: usuário preso a uma unidade não projeta caixa de outra.
+      const rbac = escopoContas(req);
       let contas;
       if (idsParam) {
         const placeholders = idsParam.map(() => '?').join(',');
-        contas = db.prepare(`SELECT * FROM contas_financeiras WHERE id IN (${placeholders})`).all(...idsParam);
+        contas = db.prepare(`SELECT * FROM contas_financeiras WHERE id IN (${placeholders})${rbac.sql}`).all(...idsParam, ...rbac.params);
       } else {
-        contas = db.prepare('SELECT * FROM contas_financeiras WHERE ativo = 1').all();
+        contas = db.prepare(`SELECT * FROM contas_financeiras WHERE ativo = 1${rbac.sql}`).all(...rbac.params);
       }
       if (!contas.length) {
         return res.status(400).json({ success: false, error: 'Nenhuma conta financeira ativa encontrada' });

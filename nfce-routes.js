@@ -28,6 +28,7 @@
 const { codigoUF, gerarCNF } = require('./nfe-ibge');
 const { montarNFeProc } = require('./nfe-proc');
 const { resolverEstab, serieAtual, avancarSerie } = require('./nfe-emit-routes');
+const { erroMeioPorCpfCnpj, erroMeioPermitido } = require('./meios-pagamento');
 const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
 
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* ok */ } }
@@ -195,6 +196,13 @@ async function emitirNFCe(db, payload) {
 
   const pagamentos = payload.pagamentos || [];
   if (!pagamentos.length) throw new Error('Informe a forma de pagamento');
+
+  // Consumidor identificado e com whitelist de meios: o balcão respeita a mesma
+  // regra do pedido. Sem CPF/CNPJ não há cliente a consultar e nada é barrado.
+  for (const p of pagamentos) {
+    const erroMeio = erroMeioPorCpfCnpj(db, payload.consumidorCpfCnpj, p.tPag, '', 'pdv');
+    if (erroMeio) throw new Error(erroMeio);
+  }
 
   const cpfCnpjCons = (payload.consumidorCpfCnpj || '').replace(/\D/g, '');
   const valorProdTot = itens.reduce((s, it) => s + Number(it.valorTotal || (it.quantidade * it.precoUnitario) || 0), 0);
@@ -420,10 +428,20 @@ function registrarRotas(app, db) {
         b.serie != null ? Number(b.serie) : atual.serie,
         proximoNumero,
         b.cscId != null ? b.cscId : atual.cscId,
-        b.csc ? b.csc : atual.csc,  // Vazio mantém atual
+        // Vazio mantém o atual (o campo chega em branco quando não se quer
+        // trocar o token). Para apagar de fato, mande cscLimpar.
+        b.cscLimpar ? null : (b.csc ? b.csc : atual.csc),
         b.observacao != null ? b.observacao : atual.observacao
       );
-      const atualizado = db.prepare('SELECT id, tpAmb, serie, proximoNumero, cscId, (csc IS NOT NULL) AS cscCadastrado, observacao, dataAtualizacao FROM nfce_config WHERE id = 1').get();
+      // O GET usa !!cfg.csc; usar `IS NOT NULL` aqui fazia string vazia contar
+      // como cadastrada e a tela dizia "CSC cadastrado" logo após salvar sem CSC.
+      const linha = db.prepare('SELECT * FROM nfce_config WHERE id = 1').get();
+      const atualizado = {
+        id: linha.id, tpAmb: linha.tpAmb, serie: linha.serie,
+        proximoNumero: linha.proximoNumero, cscId: linha.cscId || null,
+        cscCadastrado: !!linha.csc, observacao: linha.observacao,
+        dataAtualizacao: linha.dataAtualizacao,
+      };
       res.json({ success: true, trocouAmbiente: trocouAmb, config: atualizado });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -574,6 +592,12 @@ function registrarRotas(app, db) {
       const valorDesc = Number(payload.valorDesconto || 0);
       const valorTotal = Number((valorBruto - valorDesc).toFixed(2));
       const meioPrincipal = (Array.isArray(payload.pagamentos) && payload.pagamentos[0]?.tPag) || null;
+
+      // Ramo NFe não passa por emitirNFCe — a whitelist do cliente é checada aqui.
+      for (const p of (payload.pagamentos || [])) {
+        const erroMeio = erroMeioPermitido(db, pessoa.id, p.tPag, '', 'pdv');
+        if (erroMeio) throw new Error(erroMeio);
+      }
 
       const ultimo = db.prepare("SELECT numero FROM pedidos ORDER BY id DESC LIMIT 1").get();
       let numPed = 1;

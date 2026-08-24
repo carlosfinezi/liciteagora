@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Certificados SSL · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Certificados SSL</h1>
+      <small>Compra e ciclo de vida na NicSRS — o arquivo vale ~200 dias, a assinatura vale o contrato</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="importar()">Importar da NicSRS</button>
+      <button class="btn btn-ghost" onclick="abrirConfig()">Integração NicSRS</button>
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo certificado</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="toolbar">
+    <input type="search" id="fQ" name="busca-certificado" placeholder="Buscar domínio ou certId…"
+           oninput="debounce(carregar)" autocomplete="off" style="flex:1;min-width:240px;">
+    <button class="btn btn-ghost" id="btnVincular" onclick="abrirVinculo()" disabled>Vincular a contrato</button>
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todos status</option>
+      <option value="rascunho">Rascunho</option>
+      <option value="aguardando-aprovacao">Aguardando aprovação</option>
+      <option value="aguardando-dados">Comprado — falta enviar dados</option>
+      <option value="comprado">Comprado (validando)</option>
+      <option value="emitido">Emitido</option>
+      <option value="reemitindo">Reemitindo</option>
+      <option value="substituido">Substituído (reemitido)</option>
+      <option value="expirado">Expirado</option>
+      <option value="cancelado">Cancelado</option>
+    </select>
+    <div style="position:relative;">
+      <button class="btn btn-ghost btn-sm" onclick="toggleColunasMenu(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
+      <div id="colunasMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-1);border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px;z-index:50;min-width:220px;box-shadow:0 8px 20px rgba(0,0,0,0.4);"></div>
+    </div>
+  </div>
+
+  <div class="tbl-wrap" data-grid="ssl-certificados">
+    <table>
+      <thead><tr id="thead"></tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- Modal Novo -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Novo certificado</h3>
+        <small class="muted">Entra na fila como <strong>aguardando aprovação</strong> — nada é comprado até você aprovar</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group" style="flex:1;position:relative;">
+        <label>Cliente</label>
+        <input type="text" id="fCliBusca" placeholder="Razão social…" oninput="acCli()" autocomplete="off">
+        <input type="hidden" id="fClienteId">
+        <div id="acCliList" class="ac-list"></div>
+      </div>
+      <div class="form-group">
+        <label>Contrato</label>
+        <select id="fContratoId"><option value="">— sem contrato —</option></select>
+      </div>
+    </div>
+
+    <!-- Aparece só quando a emissão nasce de um item de contrato. -->
+    <div id="ctxItem" class="alert" style="display:none;margin-bottom:12px;font-size:13px;"></div>
+
+    <div class="form-row" style="display:none;">
+      <input type="hidden" id="fContratoItemId">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Produto NicSRS *</label>
+        <select id="fProductCode" onchange="aoTrocarProduto()"><option value="">Sincronize o catálogo em "Integração NicSRS"</option></select>
+      </div>
+    </div>
+
+    <!-- Antes dos campos de domínio: é o CSR que os preenche. -->
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>CSR *</label>
+        <textarea id="fCsr" rows="6" placeholder="-----BEGIN CERTIFICATE REQUEST----- …"
+                  oninput="debounceCsr()" onchange="lerCsr()" style="font-family:monospace;font-size:0.85em;"></textarea>
+        <small class="muted">Cole o CSR e o domínio é lido dele. O mesmo CSR é reaproveitado nas reemissões automáticas.</small>
+        <div id="csrInfo" style="margin-top:6px;font-size:12px;"></div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Domínio principal (CN) *</label>
+        <input type="text" id="fCN" placeholder="preenchido pelo CSR" onchange="carregarEmailsDcv()">
+      </div>
+      <div class="form-group">
+        <label>Anos de assinatura</label>
+        <input type="number" id="fAnos" min="1" max="6" value="1" onchange="atualizarCusto()">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Domínios adicionais (SAN)</label>
+        <input type="text" id="fSan" placeholder="separados por vírgula — deixe vazio se não houver">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Validação de domínio (DCV) *</label>
+        <select id="fDcv" onchange="toggleDcvEmail()">
+          <option value="CNAME_CSR_HASH">DNS CNAME</option>
+          <option value="EMAIL">E-mail de aprovação</option>
+          <option value="HTTP_CSR_HASH">Arquivo HTTP</option>
+          <option value="HTTPS_CSR_HASH">Arquivo HTTPS</option>
+        </select>
+      </div>
+      <div class="form-group" id="grpDcvEmail" style="display:none;">
+        <label>E-mail aprovador *</label>
+        <select id="fDcvEmail"><option value="">— informe o domínio primeiro —</option></select>
+        <small class="muted">Só estes endereços são aceitos pela CA, montados a partir do domínio.</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Servidor</label>
+        <select id="fServidor">
+          <option value="nginx">NGINX</option>
+          <option value="apache2">Apache</option>
+          <option value="apachessl">Apache-SSL</option>
+          <option value="iis7">IIS 7+</option>
+          <option value="tomcat">Tomcat</option>
+          <option value="plesk">Plesk</option>
+          <option value="cpanel">cPanel</option>
+          <option value="other">Outro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Custo NicSRS (US$)</label>
+        <input type="number" id="fCustoUsd" step="0.01" min="0" placeholder="ex.: 23.30">
+      </div>
+    </div>
+
+    <h4 style="margin:18px 0 4px;color:var(--text-2);font-size:0.95em;">Contatos exigidos pela CA</h4>
+    <p class="muted" style="font-size:12px;margin:0 0 10px;">
+      A organização validada é a do <strong>cliente do contrato</strong> e vem do cadastro dele.
+      Estes três contatos a CA pede separadamente — preencha o administrativo e use
+      <em>Copiar do administrativo</em> se os outros forem a mesma pessoa.
+    </p>
+    <div id="boxContatos"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Cadastrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Vínculo -->
+<div class="modal-bg" id="modalVinc">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Vincular a contrato</h3>
+        <small class="muted" id="vincResumo"></small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharVinculo()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Contrato</label>
+        <select id="vContratoId"><option value="">— nenhum (apenas desvincular) —</option></select>
+        <small class="muted">O cliente vem do próprio contrato.</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width" style="position:relative;">
+        <label>Ou apenas o cliente, sem contrato</label>
+        <input type="text" id="vCliBusca" placeholder="Razão social…" oninput="acCliVinc()" autocomplete="off">
+        <input type="hidden" id="vClienteId">
+        <div id="acCliVincList" class="ac-list"></div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharVinculo()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarVinculo()">Vincular</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Config -->
+<div class="modal-bg" id="modalCfg">
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Integração NicSRS</h3>
+        <small class="muted">Token da API, contato administrativo e regra de reemissão</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharConfig()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <div id="cfgStatus" class="muted" style="margin-bottom:12px;"></div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>API token</label>
+        <!-- new-password (e não "off") é o que realmente impede o Chrome de
+             oferecer a credencial salva do site aqui. Com um type=password na
+             página, ele tratava a tela inteira como formulário de login e
+             preenchia o usuário salvo no campo de busca. -->
+        <input type="password" id="cToken" name="nicsrs-api-token"
+               placeholder="deixe vazio para manter o atual" autocomplete="new-password">
+        <small class="muted">Access Secret de console.nicsrs.com/interface (ou o token entregue pelo suporte).</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Cotação USD → BRL</label>
+        <div id="cCotacao" style="padding:8px 0;font-weight:600;">—</div>
+        <small class="muted">PTAX de venda do Banco Central, buscada no dia da compra.</small>
+      </div>
+      <div class="form-group">
+        <label>Reemitir com antecedência de</label>
+        <input type="number" id="cAntecedencia" min="1" max="60" placeholder="15">
+        <small class="muted">dias antes de o arquivo expirar</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label><input type="checkbox" id="cReissueAuto"> Reemitir automaticamente dentro da assinatura</label>
+        <small class="muted">Reissue é gratuito. Desligue só se quiser controlar cada reemissão à mão.</small>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Contato administrativo (JSON)</label>
+        <textarea id="cAdmin" rows="7" style="font-family:monospace;font-size:0.82em;" placeholder='{"firstName":"...","lastName":"...","email":"...","mobile":"...","job":"...","organization":"...","address":"...","city":"...","state":"...","postCode":"...","country":"BR"}'></textarea>
+        <small class="muted">Vai em todo pedido como contato do requerente.</small>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="testar()">Testar token</button>
+      <button class="btn btn-ghost" onclick="sincronizarCatalogo()">Sincronizar catálogo</button>
+      <button class="btn btn-ghost" onclick="atualizarPrecos()">Atualizar preços dos produtos</button>
+      <button class="btn btn-primary" onclick="salvarConfig()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
+<script>initSidebar('ssl-certificados');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+const BADGE = {
+  'rascunho':'inativo', 'aguardando-aprovacao':'pendente', 'aguardando-dados':'pendente', 'comprado':'pendente',
+  'emitido':'ativo', 'reemitindo':'pendente', 'substituido':'inativo',
+  'expirado':'inativo', 'cancelado':'inativo'
+};
+
+function diasAte(iso){
+  if (!iso) return null;
+  const d = Math.round((new Date(iso+'T12:00:00Z') - new Date()) / 86400000);
+  return d;
+}
+function celulaData(iso, alertaDias){
+  if (!iso) return '—';
+  const d = diasAte(iso);
+  const cls = d == null ? '' : (d < 0 ? 'inativo' : (d <= alertaDias ? 'pendente' : 'ativo'));
+  return `${esc(iso)} <span class="badge ${cls}">${d < 0 ? 'vencido' : d + 'd'}</span>`;
+}
+
+
+// ==================== colunas do grid ====================
+//
+// Mesma ideia de /comercial/pedidos.html: o usuário escolhe o que ver e a
+// escolha fica no navegador dele. Aqui a função do menu existe de fato —
+// naquela tela ela é chamada mas nunca foi definida.
+
+const COLUNAS = [
+  { key:'commonName',   label:'Domínio',          default:true  },
+  { key:'cliente',      label:'Cliente / Contrato', default:true },
+  { key:'productName',  label:'Produto',          default:true  },
+  { key:'endDate',      label:'Arquivo até',      default:true  },
+  { key:'cobertoAte',   label:'Assinatura até',   default:true  },
+  { key:'reissues',     label:'Reissues',         default:true,  num:true },
+  { key:'status',       label:'Status',           default:true  },
+  { key:'vendor',       label:'Marca',            default:false },
+  { key:'dcvMethod',    label:'DCV',              default:false },
+  { key:'servidor',     label:'Servidor',         default:false },
+  { key:'anos',         label:'Anos',             default:false, num:true },
+  { key:'custoUsd',     label:'Custo US$',        default:false, num:true },
+  { key:'custoBrl',     label:'Custo R$',         default:false, num:true },
+  { key:'dataCompra',   label:'Compra',           default:false },
+  { key:'orderNum',     label:'Pedido NicSRS',    default:false },
+  { key:'certId',       label:'certId',           default:false },
+];
+
+let colunasVisiveis = JSON.parse(localStorage.getItem('ssl_colunas') || 'null')
+  || COLUNAS.filter(c => c.default).map(c => c.key);
+
+function salvarColunas(){ localStorage.setItem('ssl_colunas', JSON.stringify(colunasVisiveis)); }
+
+function toggleColunasMenu(ev){
+  ev.stopPropagation();
+  const menu = document.getElementById('colunasMenu');
+  if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+  menu.innerHTML = COLUNAS.map(c => `
+    <label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:0.9em;cursor:pointer;">
+      <input type="checkbox" style="width:auto;" ${colunasVisiveis.includes(c.key)?'checked':''}
+             onchange="alternarColuna('${c.key}', this.checked)">
+      <span>${c.label}</span>
+    </label>`).join('')
+    + `<div style="border-top:1px solid var(--bg-2);margin-top:8px;padding-top:8px;">
+         <button class="btn btn-ghost btn-sm" onclick="restaurarColunas()">Restaurar padrão</button>
+       </div>`;
+  menu.style.display = 'block';
+}
+
+function alternarColuna(key, marcada){
+  if (marcada) {
+    // Mantém a ordem declarada em COLUNAS, não a ordem de clique.
+    colunasVisiveis = COLUNAS.filter(c => colunasVisiveis.includes(c.key) || c.key === key).map(c => c.key);
+  } else {
+    if (colunasVisiveis.length === 1) return;   // nunca deixa a tabela sem coluna
+    colunasVisiveis = colunasVisiveis.filter(k => k !== key);
+  }
+  salvarColunas();
+  carregar();
+}
+
+function restaurarColunas(){
+  colunasVisiveis = COLUNAS.filter(c => c.default).map(c => c.key);
+  salvarColunas();
+  document.getElementById('colunasMenu').style.display = 'none';
+  carregar();
+}
+
+document.addEventListener('click', () => {
+  const menu = document.getElementById('colunasMenu');
+  if (menu) menu.style.display = 'none';
+});
+
+/** Conteúdo de uma célula conforme a coluna. */
+function celulaColuna(c, col){
+  switch (col.key) {
+    case 'commonName': {
+      const faltaDados = c.status === 'aguardando-dados'
+        ? `<div class="muted" style="color:var(--warn);font-size:0.8em;">assinatura paga — envie os dados do certificado</div>` : '';
+      const err = c.ultimoErro ? `<div class="muted" style="color:var(--danger);font-size:0.8em;">${esc(c.ultimoErro)}</div>` : '';
+      return `<strong class="mono">${esc(c.commonName)}</strong>${faltaDados}${err}`;
+    }
+    case 'cliente':
+      return `${esc(c.clienteNome||'—')}${c.contratoNumero?`<br><small class="muted">${esc(c.contratoNumero)}</small>`:''}`;
+    case 'productName': return esc(c.productName || c.productCode || '—');
+    case 'endDate':     return celulaData(c.endDate, 30);
+    case 'cobertoAte':  return celulaData(c.cobertoAte, 90);
+    case 'reissues':    return c.reissuesFeitos || 0;
+    case 'status':      return `<span class="badge ${BADGE[c.status]||''}">${esc(c.status)}</span>`;
+    case 'custoUsd':    return c.custoUsd != null ? 'US$ ' + Number(c.custoUsd).toFixed(2) : '—';
+    case 'custoBrl':    return c.custoBrl != null ? 'R$ ' + Number(c.custoBrl).toFixed(2) : '—';
+    case 'certId':      return c.certId ? `<span class="mono" style="font-size:0.8em;">${esc(c.certId)}</span>` : '—';
+    case 'orderNum':    return c.orderNum ? `<span class="mono" style="font-size:0.8em;">${esc(c.orderNum)}</span>` : '—';
+    default:            return esc(c[col.key] != null && c[col.key] !== '' ? c[col.key] : '—');
+  }
+}
+
+async function carregar(){
+  const p = new URLSearchParams();
+  const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
+  const s = document.getElementById('fStatus').value;   if (s) p.set('status', s);
+  const r = await fetch('/api/ssl/certificados?'+p);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Total</div><div class="value">${d.kpis.total||0}</div></div>
+    <div class="kpi success"><div class="label">Emitidos</div><div class="value">${d.kpis.emitidos||0}</div></div>
+    <div class="kpi warn"><div class="label">Aguardando compra</div><div class="value">${d.kpis.aguardandoAprovacao||0}</div></div>
+    <div class="kpi warn"><div class="label">Falta enviar dados</div><div class="value">${d.kpis.aguardandoDados||0}</div></div>
+    <div class="kpi"><div class="label">Em validação</div><div class="value">${d.kpis.emAndamento||0}</div></div>
+    <div class="kpi warn"><div class="label">Arquivo vence em 30d</div><div class="value">${d.kpis.arquivoVencendo30d||0}</div></div>
+    <div class="kpi warn"><div class="label">Assinatura vence em 90d</div><div class="value">${d.kpis.assinaturaVencendo90d||0}</div></div>
+  `;
+
+  const cols = COLUNAS.filter(c => colunasVisiveis.includes(c.key));
+  document.getElementById('thead').innerHTML =
+      '<th style="width:34px;"><input type="checkbox" id="chkTodos" onchange="marcarTodos(this.checked)" title="Selecionar todos"></th>'
+    + '<th class="col-editar"></th>'
+    + cols.map(c => `<th${c.num?' class="num"':''}>${c.label}</th>`).join('')
+    + '<th>Ações</th>';
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = d.certificados.length ? d.certificados.map(c=>{
+    const acoes = [];
+    if (c.status === 'aguardando-aprovacao') {
+      acoes.push(c.pedidoCompraId
+        ? `<a class="btn btn-ghost btn-sm" href="/compras/pedidos.html" title="Pedido de compra #${c.pedidoCompraId} — envie-o para efetivar a compra">Pedido #${c.pedidoCompraId}</a>`
+        : `<button class="btn btn-primary btn-sm" onclick="gerarPedido(${c.id})" title="Cria o pedido de compra; a compra ocorre ao enviá-lo">Gerar pedido</button>`);
+    }
+    if (c.certId) acoes.push(`<button class="btn btn-ghost btn-sm" onclick="sincronizar(${c.id})">Sincronizar</button>`);
+    if (c.status === 'emitido') acoes.push(`<button class="btn btn-ghost btn-sm" onclick="reemitir(${c.id})">Reemitir</button>`);
+    if (c.certificado) acoes.push(`<a class="btn btn-ghost btn-sm" href="/api/ssl/certificados/${c.id}/download">Baixar</a>`);
+    if (c.certificado) acoes.push(`<button class="btn btn-ghost btn-sm" onclick="enviar(${c.id})">Enviar</button>`);
+    const tds = cols.map(col => `<td${col.num?' class="num"':''}>${celulaColuna(c, col)}</td>`).join('');
+    return `<tr style="cursor:pointer;" onclick="editar(${c.id})">
+      <td onclick="event.stopPropagation();"><input type="checkbox" class="selCert" value="${c.id}" onchange="atualizarSelecao()"></td>
+      <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar certificado"
+        onclick="event.stopPropagation(); editar(${c.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
+      ${tds}
+      <td onclick="event.stopPropagation();">${acoes.join(' ')}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="${cols.length+3}" class="empty">Nenhum certificado</td></tr>`;
+
+  // A tabela foi redesenhada: o que estava marcado sumiu junto.
+  document.getElementById('chkTodos').checked = false;
+  atualizarSelecao();
+}
+
+// ==================== seleção e vínculo ====================
+//
+// Vincular é metadado nosso, não vai para a NicSRS — por isso vale em
+// qualquer status, inclusive nos certificados importados, que nascem
+// 'emitido' e não passariam pela tela de edição.
+
+function idsSelecionados(){
+  return [...document.querySelectorAll('.selCert:checked')].map(c=>Number(c.value));
+}
+function marcarTodos(marcar){
+  document.querySelectorAll('.selCert').forEach(c=>{ c.checked = marcar; });
+  atualizarSelecao();
+}
+function atualizarSelecao(){
+  const n = idsSelecionados().length;
+  const btn = document.getElementById('btnVincular');
+  btn.disabled = n === 0;
+  btn.textContent = n ? `Vincular ${n} a contrato` : 'Vincular a contrato';
+}
+
+async function abrirVinculo(){
+  const ids = idsSelecionados();
+  if (!ids.length) return showAlert('Selecione ao menos um certificado','error');
+  document.getElementById('vincResumo').textContent =
+    `${ids.length} certificado(s) selecionado(s)`;
+  document.getElementById('vCliBusca').value = '';
+  document.getElementById('vClienteId').value = '';
+  document.getElementById('modalVinc').classList.add('open');
+  const r = await fetch('/api/contratos?status=ativo');
+  const d = await r.json();
+  const lista = (d.success && d.contratos) ? d.contratos : [];
+  document.getElementById('vContratoId').innerHTML =
+    '<option value="">— nenhum (apenas desvincular) —</option>' +
+    lista.map(c=>`<option value="${c.id}">${esc(c.numero)} · ${esc(c.clienteNome)}</option>`).join('');
+}
+function fecharVinculo(){ document.getElementById('modalVinc').classList.remove('open'); }
+
+let acTimerVinc;
+function acCliVinc(){
+  clearTimeout(acTimerVinc);
+  const q = document.getElementById('vCliBusca').value.trim();
+  if (q.length<2){ document.getElementById('acCliVincList').innerHTML=''; return; }
+  acTimerVinc = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = d.pessoas || d.data || [];
+    document.getElementById('acCliVincList').innerHTML = lista.slice(0,10).map(p=>
+      `<div onclick='selCliVinc(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${esc(p.razaoSocial)} <small class="muted">${esc(p.cpfCnpj||'')}</small></div>`
+    ).join('');
+  },200);
+}
+function selCliVinc(id, nome){
+  document.getElementById('vClienteId').value=id;
+  document.getElementById('vCliBusca').value=nome;
+  document.getElementById('acCliVincList').innerHTML='';
+}
+
+async function salvarVinculo(){
+  const ids = idsSelecionados();
+  if (!ids.length) return showAlert('Nenhum certificado selecionado','error');
+  const body = {
+    ids,
+    contratoId: Number(document.getElementById('vContratoId').value) || null,
+    clienteId: Number(document.getElementById('vClienteId').value) || null,
+  };
+  const r = await fetch('/api/ssl/certificados/vincular', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(body.contratoId ? `${d.vinculados} certificado(s) vinculado(s)` : `${d.vinculados} certificado(s) desvinculado(s)`);
+  fecharVinculo();
+  carregar();
+}
+
+// ==================== novo ====================
+
+// async e com await nas cargas: sem isso, abrir a partir de um item disputava
+// com o carregamento do catálogo e a seleção do produto era sobrescrita.
+async function abrirNovo(){
+  ['fCliBusca','fClienteId','fCN','fSan','fDcvEmail','fCustoUsd','fCsr','fContratoItemId'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fAnos').value='1';
+  document.getElementById('fDcv').value='CNAME_CSR_HASH';
+  document.getElementById('ctxItem').style.display='none';
+  // Destrava o que a emissão por item tenha travado numa abertura anterior.
+  document.getElementById('fContratoId').disabled = false;
+  document.getElementById('fProductCode').disabled = false;
+  EDITANDO = null;
+  for (const id of ['fCN','fSan','fAnos','fCsr','fServidor','fDcv','fDcvEmail']) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  }
+  const h3 = document.querySelector('#modal h3');
+  if (h3) h3.textContent = 'Novo certificado';
+  const btn = document.querySelector('#modal .btn-primary');
+  if (btn) btn.textContent = 'Cadastrar';
+  toggleDcvEmail();
+  renderContatos();
+  document.getElementById('modal').classList.add('open');
+  await carregarProdutos();
+  await carregarContratos();
+}
+
+/**
+ * Abre o cadastro já amarrado a um item de contrato. Chamado pelo botão
+ * "Emitir" da tela do contrato — é o que garante que a emissão seja contada
+ * naquele item, em vez de depender de alguém vincular depois.
+ */
+async function abrirNovoParaItem(itemId){
+  await abrirNovo();
+  const el = document.getElementById('ctxItem');
+  el.style.display = '';
+  el.className = 'alert';
+  el.textContent = 'Carregando o item do contrato…';
+  try {
+    const r = await fetch(`/api/ssl/contexto-item/${itemId}`);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const it = d.item;
+
+    document.getElementById('fContratoItemId').value = it.id;
+    if (it.clienteId) {
+      document.getElementById('fClienteId').value = it.clienteId;
+      document.getElementById('fCliBusca').value = it.clienteNome || '';
+    }
+    // O contrato vem do item e não deve ser trocado aqui.
+    const selC = document.getElementById('fContratoId');
+    selC.innerHTML = `<option value="${it.contratoId}">${esc(it.contratoNumero)}</option>`;
+    selC.value = it.contratoId;
+    selC.disabled = true;
+
+    if (it.productCode) {
+      const selP = document.getElementById('fProductCode');
+      selP.value = it.productCode;
+      aoTrocarProduto();
+      selP.disabled = true;
+    }
+
+    el.className = 'alert success';
+    el.innerHTML = `Emitindo para o item <strong>${esc(it.descricao)}</strong> do contrato `
+      + `<strong>${esc(it.contratoNumero)}</strong>${it.clienteNome?` · ${esc(it.clienteNome)}`:''}`
+      + `<br>Já emitidos neste item: <strong>${d.emitidos}</strong>`
+      + `${it.productCode?'':' — <strong>o produto do item não é um certificado do catálogo NicSRS</strong>, escolha um abaixo.'}`;
+  } catch (err) {
+    el.className = 'alert error';
+    el.textContent = `Não foi possível carregar o item: ${err.message}`;
+  }
+}
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+function toggleDcvEmail(){
+  const ehEmail = document.getElementById('fDcv').value === 'EMAIL';
+  document.getElementById('grpDcvEmail').style.display = ehEmail ? '' : 'none';
+  if (ehEmail) carregarEmailsDcv();
+}
+
+// A NicSRS não tem endpoint que devolva os aprovadores (conferido nos 17
+// artigos da API dela). A lista é fixada pelo CA/Browser Forum e derivada do
+// domínio — melhor oferecer as opções válidas do que aceitar texto livre que
+// a CA recusaria depois da compra.
+async function carregarEmailsDcv(){
+  const cn = document.getElementById('fCN').value.trim();
+  const sel = document.getElementById('fDcvEmail');
+  if (!cn){ sel.innerHTML = '<option value="">— informe o domínio primeiro —</option>'; return; }
+  const anterior = sel.value;
+  try {
+    const r = await fetch('/api/ssl/dcv-emails?commonName=' + encodeURIComponent(cn));
+    const d = await r.json();
+    if (!d.success || !d.emails.length){ sel.innerHTML = '<option value="">— domínio inválido —</option>'; return; }
+    sel.innerHTML = d.emails.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    if (anterior && d.emails.includes(anterior)) sel.value = anterior;
+  } catch (err) {
+    sel.innerHTML = `<option value="">— falha: ${esc(err.message)} —</option>`;
+  }
+}
+
+async function carregarProdutos(){
+  const r = await fetch('/api/ssl/produtos');
+  const d = await r.json();
+  const sel = document.getElementById('fProductCode');
+  if (!d.success || !d.produtos.length){
+    sel.innerHTML = '<option value="">Catálogo vazio — sincronize em "Integração NicSRS"</option>';
+    return;
+  }
+  // Preço e maxYear vêm no option: o custo alimenta o lançamento em contas a
+  // pagar, e redigitar à mão um valor que o catálogo já tem só gera erro.
+  sel.innerHTML = d.produtos.map(p=>{
+    const precos = p.basePrice || {};
+    const p12 = precos.price012;
+    return `<option value="${esc(p.code)}" data-nome="${esc(p.productName||p.code)}" data-vendor="${esc(p.vendor||'')}"`
+      + ` data-precos='${esc(JSON.stringify(precos))}' data-maxyear="${p.maxYear||1}">`
+      + `${esc(p.vendor||'')} · ${esc(p.productName||p.code)} (${esc(p.validationType||'')})`
+      + `${p12!=null?` — US$ ${p12}/ano`:''}</option>`;
+  }).join('');
+  aoTrocarProduto();
+}
+
+// Preço da NicSRS é por período: price012 = 12 meses, price024 = 24, etc.
+function aoTrocarProduto(){
+  const opt = document.getElementById('fProductCode').selectedOptions[0];
+  if (!opt || !opt.dataset.precos) return;
+  const maxYear = Number(opt.dataset.maxyear) || 1;
+  const campoAnos = document.getElementById('fAnos');
+  campoAnos.max = maxYear;
+  if (Number(campoAnos.value) > maxYear) campoAnos.value = maxYear;
+  atualizarCusto();
+}
+
+function atualizarCusto(){
+  const opt = document.getElementById('fProductCode').selectedOptions[0];
+  if (!opt || !opt.dataset.precos) return;
+  let precos;
+  try { precos = JSON.parse(opt.dataset.precos); } catch { return; }
+  const anos = Number(document.getElementById('fAnos').value) || 1;
+  const chave = 'price' + String(anos*12).padStart(3,'0');
+  const valor = precos[chave];
+  document.getElementById('fCustoUsd').value = valor != null ? valor : '';
+}
+
+async function carregarContratos(){
+  const r = await fetch('/api/contratos?status=ativo');
+  const d = await r.json();
+  const sel = document.getElementById('fContratoId');
+  const lista = (d.success && d.contratos) ? d.contratos : [];
+  sel.innerHTML = '<option value="">— sem contrato —</option>' + lista.map(c=>
+    `<option value="${c.id}">${esc(c.numero)} · ${esc(c.clienteNome)}</option>`
+  ).join('');
+}
+
+let acTimer;
+function acCli(){
+  clearTimeout(acTimer);
+  const q = document.getElementById('fCliBusca').value.trim();
+  if (q.length<2){ document.getElementById('acCliList').innerHTML=''; return; }
+  acTimer = setTimeout(async()=>{
+    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
+    const d=await r.json();
+    const lista = d.pessoas || d.data || [];
+    document.getElementById('acCliList').innerHTML = lista.slice(0,10).map(p=>
+      `<div onclick='selCli(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${esc(p.razaoSocial)} <small class="muted">${esc(p.cpfCnpj||'')}</small></div>`
+    ).join('');
+  },200);
+}
+function selCli(id, nome){
+  document.getElementById('fClienteId').value=id;
+  document.getElementById('fCliBusca').value=nome;
+  document.getElementById('acCliList').innerHTML='';
+}
+
+// O domínio está dentro do CSR. Lê de lá em vez de exigir digitação — CSR com
+// CN diferente do pedido é recusado pela CA depois da compra já paga.
+let csrTimer;
+function debounceCsr(){ clearTimeout(csrTimer); csrTimer = setTimeout(lerCsr, 600); }
+
+async function lerCsr(){
+  const csr = document.getElementById('fCsr').value.trim();
+  const info = document.getElementById('csrInfo');
+  if (!csr){ info.textContent=''; return; }
+  info.textContent = 'lendo o CSR…';
+  info.style.color = 'var(--text-3)';
+  try {
+    const r = await fetch('/api/ssl/csr/inspecionar', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ csr })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    const c = d.csr;
+
+    const campoCN = document.getElementById('fCN');
+    if (c.commonName && !campoCN.value.trim()) { campoCN.value = c.commonName; carregarEmailsDcv(); }
+    const campoSan = document.getElementById('fSan');
+    if (c.dominios.length && !campoSan.value.trim()) campoSan.value = c.dominios.join(', ');
+
+    const divergente = c.commonName && campoCN.value.trim() && campoCN.value.trim() !== c.commonName;
+    info.style.color = divergente ? 'var(--danger)' : 'var(--success)';
+    info.innerHTML = divergente
+      ? `<strong>Atenção:</strong> o CSR é de <strong>${esc(c.commonName)}</strong>, diferente do domínio digitado. A CA recusaria o pedido.`
+      : `CSR válido — ${esc(c.commonName || 'sem CN')}`
+        + (c.dominios.length ? ` + ${c.dominios.length} SAN` : '')
+        + (c.algoritmo ? ` · ${esc(c.algoritmo)} ${c.bits || ''} bits` : '')
+        + (c.subject && c.subject.O ? ` · ${esc(c.subject.O)}` : '');
+  } catch (err) {
+    info.style.color = 'var(--danger)';
+    info.textContent = err.message;
+  }
+}
+
+
+// ==================== contatos exigidos pela CA ====================
+//
+// A NicSRS pede admin, financeiro e técnico separadamente. Antes mandávamos o
+// contato do tenant nos três; agora são informados aqui, por certificado.
+
+const PAPEIS_CONTATO = [
+  { chave:'contatoAdmin',      rotulo:'Administrativo' },
+  { chave:'contatoFinanceiro', rotulo:'Financeiro' },
+  { chave:'contatoTecnico',    rotulo:'Técnico' },
+];
+const CAMPOS_CONTATO = [
+  { chave:'firstName', rotulo:'Nome' },
+  { chave:'lastName',  rotulo:'Sobrenome' },
+  { chave:'email',     rotulo:'E-mail' },
+  { chave:'mobile',    rotulo:'Telefone', dica:'com DDI, ex.: +5561399612800' },
+  { chave:'job',       rotulo:'Cargo' },
+];
+
+function renderContatos(valores){
+  valores = valores || {};
+  document.getElementById('boxContatos').innerHTML = PAPEIS_CONTATO.map(p => {
+    const v = valores[p.chave] || {};
+    const copiar = p.chave === 'contatoAdmin' ? ''
+      : `<button type="button" class="btn btn-ghost btn-sm" onclick="copiarDoAdmin('${p.chave}')">Copiar do administrativo</button>`;
+    return `<fieldset style="border:1px solid var(--bg-2);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+      <legend style="font-size:0.85em;color:var(--text-2);padding:0 6px;">${p.rotulo} ${copiar}</legend>
+      <div class="form-row">
+        ${CAMPOS_CONTATO.map(c => `
+          <div class="form-group">
+            <label>${c.rotulo}</label>
+            <input type="text" id="ct_${p.chave}_${c.chave}" value="${(v[c.chave]||'').replace(/"/g,'&quot;')}">
+            ${c.dica ? `<small class="muted">${c.dica}</small>` : ''}
+          </div>`).join('')}
+      </div>
+    </fieldset>`;
+  }).join('');
+}
+
+function copiarDoAdmin(papel){
+  for (const c of CAMPOS_CONTATO) {
+    const origem = document.getElementById('ct_contatoAdmin_' + c.chave);
+    const destino = document.getElementById(`ct_${papel}_${c.chave}`);
+    if (origem && destino) destino.value = origem.value;
+  }
+}
+
+/** Devolve o contato do papel, ou null se estiver vazio. */
+function colherContato(papel){
+  const obj = {};
+  let algum = false;
+  for (const c of CAMPOS_CONTATO) {
+    const el = document.getElementById(`ct_${papel}_${c.chave}`);
+    const v = el ? (el.value||'').trim() : '';
+    if (v) { obj[c.chave] = v; algum = true; }
+  }
+  return algum ? obj : null;
+}
+
+
+// ==================== edicao ====================
+//
+// Antes de ir para a CA edita-se tudo; depois, só o que é gestão nossa
+// (contatos, custo, observações) — o backend recusa o resto para não divergir
+// do que a CA está validando.
+
+let EDITANDO = null;
+
+async function editar(id){
+  const r = await fetch('/api/ssl/certificados/' + id);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  const c = d.certificado || d.cert || d;
+
+  await abrirNovo();
+  EDITANDO = c.id;
+
+  const ANTES_DA_CA = ['rascunho','aguardando-aprovacao','aguardando-dados'];
+  const livre = ANTES_DA_CA.includes(c.status);
+
+  document.getElementById('fCN').value = c.commonName || '';
+  document.getElementById('fSan').value = (() => {
+    try { return (JSON.parse(c.dominiosSan||'[]')||[]).join(', '); } catch { return ''; }
+  })();
+  document.getElementById('fAnos').value = c.anos || 1;
+  document.getElementById('fCsr').value = c.csr || '';
+  document.getElementById('fServidor').value = (c.servidor||'nginx').toLowerCase();
+  document.getElementById('fDcv').value = c.dcvMethod || 'CNAME_CSR_HASH';
+  document.getElementById('fCustoUsd').value = c.custoUsd != null ? c.custoUsd : '';
+  if (c.clienteId) document.getElementById('fClienteId').value = c.clienteId;
+  if (c.contratoId) document.getElementById('fContratoId').value = c.contratoId;
+  toggleDcvEmail();
+  if (c.dcvEmail) {
+    const sel = document.getElementById('fDcvEmail');
+    if (![...sel.options].some(o=>o.value===c.dcvEmail)) sel.add(new Option(c.dcvEmail, c.dcvEmail));
+    sel.value = c.dcvEmail;
+  }
+
+  const contatos = {};
+  for (const p of ['contatoAdmin','contatoFinanceiro','contatoTecnico']) {
+    try { contatos[p] = c[p] ? JSON.parse(c[p]) : null; } catch { contatos[p] = null; }
+  }
+  renderContatos(contatos);
+
+  // O que já foi para a CA não se altera daqui.
+  // DCV continua editável depois da submissão: a NicSRS aceita trocá-lo pelo
+  // /ssl/updateDCV, e o salvamento propaga. O resto dos campos técnicos já foi
+  // para a CA e não pode divergir.
+  for (const id of ['fCN','fSan','fAnos','fCsr','fServidor','fProductCode']) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !livre;
+  }
+  for (const id of ['fDcv','fDcvEmail']) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  }
+  document.querySelector('#modal h3').textContent =
+    'Editar certificado' + (livre ? '' : ' — em validação: DCV, contatos, custo e vínculo');
+  document.querySelector('#modal .btn-primary').textContent = 'Salvar';
+}
+
+async function salvarEdicao(){
+  const corpo = {
+    contatoAdmin: colherContato('contatoAdmin'),
+    contatoFinanceiro: colherContato('contatoFinanceiro'),
+    contatoTecnico: colherContato('contatoTecnico'),
+  };
+  const custo = document.getElementById('fCustoUsd').value;
+  if (custo !== '') corpo.custoUsd = Number(custo);
+  // DCV sempre vai: o backend propaga para a NicSRS quando já submetido.
+  corpo.dcvMethod = document.getElementById('fDcv').value;
+  corpo.dcvEmail = document.getElementById('fDcvEmail').value.trim() || null;
+
+  // Campos técnicos só quando ainda editáveis (o input desabilitado sinaliza).
+  if (!document.getElementById('fCsr').disabled) {
+    const san = document.getElementById('fSan').value.split(',').map(x=>x.trim()).filter(Boolean);
+    Object.assign(corpo, {
+      commonName: document.getElementById('fCN').value.trim(),
+      dominiosSan: san.length ? san : null,
+      anos: Number(document.getElementById('fAnos').value) || 1,
+      csr: document.getElementById('fCsr').value.trim() || null,
+      servidor: document.getElementById('fServidor').value,
+    });
+  }
+
+  const r = await fetch('/api/ssl/certificados/' + EDITANDO, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(corpo)
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Certificado atualizado'
+    + (d.efeitos && d.efeitos.length ? ' — ' + d.efeitos.join('; ') : ''));
+  EDITANDO = null;
+  fecharModal();
+  carregar();
+}
+
+async function salvar(){
+  if (EDITANDO) return salvarEdicao();
+  const sel = document.getElementById('fProductCode');
+  const opt = sel.selectedOptions[0];
+  const san = document.getElementById('fSan').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const body = {
+    clienteId: Number(document.getElementById('fClienteId').value) || null,
+    contratoId: Number(document.getElementById('fContratoId').value) || null,
+    contratoItemId: Number(document.getElementById('fContratoItemId').value) || null,
+    productCode: sel.value,
+    productName: opt ? opt.dataset.nome : null,
+    vendor: opt ? opt.dataset.vendor : null,
+    commonName: document.getElementById('fCN').value.trim(),
+    dominiosSan: san.length ? san : null,
+    anos: Number(document.getElementById('fAnos').value) || 1,
+    csr: document.getElementById('fCsr').value.trim() || null,
+    servidor: document.getElementById('fServidor').value,
+    dcvMethod: document.getElementById('fDcv').value,
+    dcvEmail: document.getElementById('fDcvEmail').value.trim() || null,
+    custoUsd: document.getElementById('fCustoUsd').value ? Number(document.getElementById('fCustoUsd').value) : null,
+    contatoAdmin: colherContato('contatoAdmin'),
+    contatoFinanceiro: colherContato('contatoFinanceiro'),
+    contatoTecnico: colherContato('contatoTecnico'),
+  };
+  // Diz qual campo falta: a mensagem genérica mandava procurar os dois.
+  const faltando = [];
+  if (!body.productCode) faltando.push('produto NicSRS');
+  if (!body.commonName)  faltando.push('domínio principal (cole o CSR e ele é preenchido)');
+  if (faltando.length) return showAlert(`Falta preencher: ${faltando.join(' e ')}`,'error');
+  if (body.dcvMethod === 'EMAIL' && !body.dcvEmail) return showAlert('Informe o e-mail aprovador','error');
+
+  const r = await fetch('/api/ssl/certificados', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(d.status === 'rascunho' ? 'Cadastrado como rascunho (falta o CSR)' : 'Cadastrado — aguardando sua aprovação para comprar');
+  fecharModal();
+  carregar();
+}
+
+// ==================== ações ====================
+
+// A compra passa pelo módulo de Compras: aqui só nasce o pedido. Quem dispara
+// a compra na NicSRS é o "enviar" do pedido, depois da alçada.
+async function gerarPedido(id){
+  if (!confirm('Gerar o pedido de compra deste certificado?\n\nNada é comprado agora: a compra na NicSRS acontece quando você ENVIAR o pedido em Compras.')) return;
+  const r = await fetch(`/api/ssl/certificados/${id}/pedido-compra`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Pedido ${d.numero} criado (R$ ${Number(d.custoBrl).toFixed(2)}) — envie-o em Compras para efetivar`);
+  carregar();
+}
+
+async function aprovar(id, cn){
+  if (!confirm(`Comprar o certificado de ${cn} na NicSRS?\n\nIsto debita o saldo da conta NicSRS e não pode ser desfeito sem cancelamento.`)) return;
+  const r = await fetch(`/api/ssl/certificados/${id}/aprovar`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Comprado (certId ${d.certId})` + (d.avisoFinanceiro ? ` — conta a pagar não lançada: ${d.avisoFinanceiro}` : ''));
+  carregar();
+}
+
+async function sincronizar(id){
+  const r = await fetch(`/api/ssl/certificados/${id}/sincronizar`, { method:'POST' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Status na NicSRS: ${d.statusNicsrs||'—'}`);
+  carregar();
+}
+
+async function reemitir(id){
+  if (!confirm('Reemitir agora? A reemissão é gratuita dentro da assinatura, mas dispara nova validação de domínio.')) return;
+  const r = await fetch(`/api/ssl/certificados/${id}/reemitir`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Reemissão solicitada');
+  carregar();
+}
+
+async function enviar(id){
+  const to = prompt('Enviar o certificado para qual e-mail? (vazio = e-mail do cliente)');
+  if (to === null) return;
+  const r = await fetch(`/api/ssl/certificados/${id}/enviar-email`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(to.trim() ? { to: to.trim() } : {})
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Enviado para ${d.to}`);
+  carregar();
+}
+
+// ==================== config ====================
+
+// Abre o modal ANTES de buscar: se a chamada falhar, o usuário vê o erro em
+// vez de um botão que não faz nada.
+async function abrirConfig(){
+  document.getElementById('cToken').value = '';
+  document.getElementById('cfgStatus').textContent = 'Carregando…';
+  document.getElementById('modalCfg').classList.add('open');
+  try {
+    const r = await fetch('/api/ssl/config');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'resposta sem sucesso');
+    const c = d.config;
+    const cat = d.catalogo || {};
+    const vendores = (cat.porVendor || []).map(v=>`${esc(v.vendor)} ${v.total}`).join(' · ');
+    document.getElementById('cfgStatus').innerHTML = [
+      c.tokenConfigurado
+        ? `Token configurado (final <strong>${esc(c.tokenSufixo)}</strong>).`
+        : '<strong>Nenhum token configurado</strong> — a integração está inerte.',
+      cat.total
+        ? `Catálogo: <strong>${cat.total}</strong> produtos (${vendores}) — sincronizado em ${esc(String(cat.ultimaSincronizacao||'').slice(0,16))}.`
+        : 'Catálogo vazio — use "Sincronizar catálogo".',
+      c.administradorConfigurado ? '' : '<strong>Contato administrativo não preenchido</strong> — sem ele a compra é recusada.',
+    ].filter(Boolean).join('<br>');
+    document.getElementById('cAntecedencia').value = c.reissueAntecedenciaDias || 15;
+    document.getElementById('cReissueAuto').checked = !!c.reissueAutomatico;
+    // Sem isto o textarea nasce vazio mesmo com o contato gravado, e quem
+    // abrir a tela conclui que não há nada configurado.
+    if (c.administrator) {
+      try { document.getElementById('cAdmin').value = JSON.stringify(JSON.parse(c.administrator), null, 1); }
+      catch { document.getElementById('cAdmin').value = c.administrator; }
+    }
+    mostrarCotacao();
+  } catch (err) {
+    document.getElementById('cfgStatus').textContent = `Falha ao ler a configuração: ${err.message}`;
+    showAlert(`Falha ao ler a configuração: ${err.message}`,'error');
+  }
+}
+
+async function mostrarCotacao(){
+  const el = document.getElementById('cCotacao');
+  el.textContent = 'consultando PTAX…';
+  try {
+    const r = await fetch('/api/ssl/cotacao');
+    const d = await r.json();
+    const c = d.cotacao || {};
+    el.textContent = c.valor
+      ? `R$ ${Number(c.valor).toFixed(4)} — ${c.fonte} de ${c.data}`
+      : `indisponível (${c.erro || 'sem resposta do BCB'})`;
+  } catch (err) {
+    el.textContent = `falha ao consultar: ${err.message}`;
+  }
+}
+function fecharConfig(){ document.getElementById('modalCfg').classList.remove('open'); }
+
+async function salvarConfig(){
+  const body = {
+    reissueAntecedenciaDias: Number(document.getElementById('cAntecedencia').value) || 15,
+    reissueAutomatico: document.getElementById('cReissueAuto').checked,
+  };
+  const token = document.getElementById('cToken').value.trim();
+  if (token) body.apiToken = token;
+  const admin = document.getElementById('cAdmin').value.trim();
+  if (admin) {
+    try { JSON.parse(admin); } catch { return showAlert('Contato administrativo não é um JSON válido','error'); }
+    body.administrator = admin;
+  }
+  const r = await fetch('/api/ssl/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Configuração salva');
+  fecharConfig();
+}
+
+async function testar(){
+  const r = await fetch('/api/ssl/config/testar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Token válido — ${d.produtos} produto(s) em ${d.vendor}`);
+}
+
+// Puxa o que já existe na conta NicSRS. Só lê — nenhuma compra acontece aqui.
+async function importar(){
+  if (!confirm('Importar os certificados que já existem na conta NicSRS?\n\nSó leitura: nada é comprado. Pode levar alguns segundos, pois cada certificado vivo é detalhado individualmente.')) return;
+  showAlert('Importando da NicSRS… aguarde.');
+  try {
+    const r = await fetch('/api/ssl/certificados/importar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const d = await r.json();
+    if (!d.success) return showAlert(d.error,'error');
+    const erros = d.erros && d.erros.length ? ` — ${d.erros.length} com erro` : '';
+    showAlert(`${d.encontrados} na conta: ${d.criados} novo(s), ${d.atualizados} atualizado(s), ${d.detalhados} detalhado(s)${erros}`, erros ? 'warn' : 'success');
+    carregar();
+  } catch (err) {
+    showAlert(`Falha na importação: ${err.message}`,'error');
+  }
+}
+
+// Leva o preço da NicSRS (US$) para o catálogo de produtos (R$), pela PTAX.
+async function atualizarPrecos(){
+  if (!confirm('Atualizar o custo dos produtos SSL com o preço atual da NicSRS convertido pela PTAX do dia?\n\nOnde houver markup cadastrado, o preço de VENDA é recalculado junto — senão o produto ficaria com custo novo e venda antiga.')) return;
+  showAlert('Atualizando preços…');
+  try {
+    // Cria no catálogo o que a API oferece e o tenant não tem: sem o produto
+    // cadastrado não há o que vincular a um item de contrato.
+    const criar = confirm('Criar também os produtos que existem na NicSRS e ainda não estão no seu catálogo?\n\nOK = cria (SKU SSL-NICSRS-NNN, markup 100%). Cancelar = só atualiza preços dos já cadastrados.');
+    const r = await fetch('/api/ssl/produtos/atualizar-precos', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ criarFaltantes: criar })
+    });
+    const d = await r.json();
+    if (!d.success) return showAlert(d.error,'error');
+    const orfaos = d.semCorrespondenteNaApi ? d.semCorrespondenteNaApi.length : 0;
+    const novos = d.criados ? d.criados.length : 0;
+    showAlert(`${d.atualizados} produto(s) atualizados pela PTAX de ${d.cotacaoData} (R$ ${d.cotacao})`
+      + `, ${d.vendaRecalculada} com venda recalculada`
+      + (novos ? `, ${novos} produto(s) criados` : '')
+      + (orfaos ? ` — ${orfaos} produto(s) locais não existem mais na API e ficaram como estão` : ''),
+      orfaos ? 'warn' : 'success');
+  } catch (err) {
+    showAlert(`Falha ao atualizar preços: ${err.message}`,'error');
+  }
+}
+
+async function sincronizarCatalogo(){
+  showAlert('Sincronizando catálogo NicSRS…');
+  const r = await fetch('/api/ssl/produtos/sincronizar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  const ok = d.resultado.filter(x=>!x.erro).reduce((s,x)=>s+x.produtos,0);
+  const falhas = d.resultado.filter(x=>x.erro).map(x=>x.vendor).join(', ');
+  showAlert(`${ok} produto(s) sincronizados` + (falhas ? ` — falhou em: ${falhas}` : ''), falhas ? 'warn' : 'success');
+}
+
+// O Chrome autopreenche o campo de busca (vimos "admin" vindo do gerenciador
+// de senhas, apesar do autocomplete="off"). Sem limpar antes da primeira
+// carga, a lista nasceria filtrada por um texto que ninguém digitou.
+document.getElementById('fQ').value = '';
+carregar();
+
+// Chegou pelo botão "Emitir" de um item de contrato.
+const _itemParaEmitir = new URLSearchParams(location.search).get('novoParaItem');
+if (_itemParaEmitir) abrirNovoParaItem(Number(_itemParaEmitir));
+</script>
+</body></html>

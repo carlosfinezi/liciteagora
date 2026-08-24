@@ -20,10 +20,10 @@
 
   <div id="alertGlobal"></div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="plano-contabil">
     <table>
-      <thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Natureza</th><th>Status</th><th></th></tr></thead>
-      <tbody id="tbContas"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      <thead><tr><th class="col-editar"></th><th>Código</th><th>Nome</th><th>Tipo</th><th>Natureza</th><th>Status</th><th></th></tr></thead>
+      <tbody id="tbContas"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -58,6 +58,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('ctb-plano');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -70,16 +72,16 @@ async function carregar(){
   if(!d.success) return showAlert(d.error,'error');
   contas = d.contas;
   document.getElementById('tbContas').innerHTML = contas.length ? contas.map(c=>`<tr${c.ativo?'':' style="opacity:0.55;"'}>
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar conta" onclick='editar(${JSON.stringify(c).replace(/'/g,"&#39;")})'><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td style="padding-left:${(c.nivel-1)*22+8}px;"><code>${c.codigo}</code></td>
     <td>${c.tipoConta==='sintetica'?'<strong>'+c.nome+'</strong>':c.nome}</td>
     <td>${c.tipoConta==='sintetica'?'<span class="badge ajuste">SINTÉTICA</span>':'<span class="badge entrada">ANALÍTICA</span>'}</td>
     <td>${c.natureza==='D'?'Devedora':'Credora'}</td>
     <td>${c.ativo?'ativa':'inativa'}</td>
     <td>
-      <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(c).replace(/'/g,"&#39;")})'>Editar</button>
       <button class="btn btn-ghost btn-sm" onclick="toggleAtivo(${c.id}, ${c.ativo?0:1})">${c.ativo?'Inativar':'Reativar'}</button>
     </td>
-  </tr>`).join('') : '<tr><td colspan="6" class="empty">Plano vazio</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Plano vazio</td></tr>';
 }
 
 function abrirNova(){

@@ -17,6 +17,7 @@
 
 const { logAction } = require('./audit-log');
 const { gravarLancamento } = require('./contabilidade-routes');
+const { escopoUsuario } = require('./estabelecimentos-routes');
 
 const EVENTOS = {
   nfe_saida: {
@@ -104,6 +105,11 @@ function registrarRotasContabilizacao(app, db) {
   // Pendências: fontes do período ainda sem lançamento, por evento
   app.get('/api/contabilidade/pendencias', (req, res) => {
     try {
+      // RBAC: escrituração é da pessoa jurídica inteira. Um recorte por filial
+      // sairia com balancete que não fecha — pior que não exportar.
+      if (escopoUsuario(req)) {
+        return res.status(403).json({ success: false, error: 'Contabilidade consolidada: requer acesso a todos os estabelecimentos' });
+      }
       const { inicio, fim } = req.query;
       if (!inicio || !fim) return res.status(400).json({ success: false, error: 'inicio e fim obrigatórios' });
       const jaFeito = new Set(db.prepare(`SELECT origemRef FROM lancamentos_contabeis
@@ -126,6 +132,11 @@ function registrarRotasContabilizacao(app, db) {
   // O motor: contabiliza tudo que está pendente no período (idempotente)
   app.post('/api/contabilidade/processar', (req, res) => {
     try {
+      // RBAC: escrituração é da pessoa jurídica inteira. Um recorte por filial
+      // sairia com balancete que não fecha — pior que não exportar.
+      if (escopoUsuario(req)) {
+        return res.status(403).json({ success: false, error: 'Contabilidade consolidada: requer acesso a todos os estabelecimentos' });
+      }
       const { inicio, fim } = req.body || {};
       if (!inicio || !fim) return res.status(400).json({ success: false, error: 'inicio e fim obrigatórios' });
       const configs = db.prepare(`SELECT * FROM contabilizacao_eventos WHERE ativo = 1`).all();
@@ -171,6 +182,11 @@ function registrarRotasContabilizacao(app, db) {
   // Zip mensal: XMLs autorizados + lançamentos + balancete + extrato financeiro.
   app.get('/api/contabilidade/exportar-contador', (req, res) => {
     try {
+      // RBAC: escrituração é da pessoa jurídica inteira. Um recorte por filial
+      // sairia com balancete que não fecha — pior que não exportar.
+      if (escopoUsuario(req)) {
+        return res.status(403).json({ success: false, error: 'Contabilidade consolidada: requer acesso a todos os estabelecimentos' });
+      }
       const comp = req.query.competencia;
       if (!/^\d{4}-\d{2}$/.test(comp || '')) return res.status(400).json({ success: false, error: 'competencia YYYY-MM' });
       const inicio = comp + '-01', fim = comp + '-31';

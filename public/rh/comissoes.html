@@ -43,12 +43,21 @@
         <option value="pendente">Pendentes</option>
         <option value="paga">Pagas</option>
       </select>
+      <select id="apBase" title="O que conta como venda comissionável">
+        <option value="confirmado">Base: pedido confirmado</option>
+        <option value="faturado">Base: nota emitida</option>
+        <option value="recebido">Base: pagamento recebido</option>
+      </select>
       <button class="btn btn-ghost btn-sm" onclick="carregarApuracao()">Filtrar</button>
-      <button class="btn btn-secondary btn-sm" onclick="apurar()">⚙️ Apurar período</button>
-      <button class="btn btn-success btn-sm" onclick="pagarSelecionadas()">💰 Marcar pagas</button>
+      <button class="btn btn-ghost btn-sm" onclick="apurar(true)" title="Calcula sem gravar">🔍 Simular</button>
+      <button class="btn btn-secondary btn-sm" onclick="apurar(false)">⚙️ Apurar período</button>
+      <button class="btn btn-success btn-sm" onclick="pagarSelecionadas()">💰 Pagar selecionadas</button>
+      <button class="btn btn-ghost btn-sm" onclick="verDiagnostico()">🩺 Diagnóstico</button>
     </div>
+    <div id="painelMetas"></div>
+    <div id="painelApuracao"></div>
     <div id="totaisVendedores" class="totais-grid"></div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="comissoes-apuracao">
       <table>
         <thead><tr>
           <th><input type="checkbox" id="chkAll" onchange="toggleAll(this)"></th>
@@ -74,7 +83,7 @@
     <div class="toolbar">
       <button class="btn btn-primary btn-sm" onclick="abrirNovaRegra()">+ Nova regra</button>
     </div>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="comissoes-regras">
       <table>
         <thead><tr>
           <th>Nome</th>
@@ -151,6 +160,18 @@
     </div>
     <div class="form-row">
       <div class="form-group">
+        <label>Gatilho de meta (%)</label>
+        <input type="number" id="rGatilho" step="1" min="0" max="300" placeholder="em branco = sem gatilho">
+        <small class="muted" style="font-size:11px;">Abaixo deste % da meta do período não há comissão nenhuma.</small>
+      </div>
+      <div class="form-group">
+        <label>Valor acelerado</label>
+        <input type="number" id="rAcelerado" step="0.01" min="0" placeholder="em branco = sem acelerador">
+        <small class="muted" style="font-size:11px;">Vale no lugar do valor normal quando a meta é batida.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
         <label>Vigência início</label>
         <input type="date" id="rIni">
       </div>
@@ -174,6 +195,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('comissoes');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -243,27 +266,61 @@ function toggleAll(el){
   document.querySelectorAll('.chkApur:not(:disabled)').forEach(c=>c.checked = el.checked);
 }
 
-async function apurar(){
+async function apurar(simular){
   const periodo = document.getElementById('apPeriodo').value;
   if (!periodo) return showAlert('Escolha o período','error');
-  if (!confirm(`Apurar comissões para ${periodo}?\nApurações pendentes serão recalculadas. Pagas serão preservadas.`)) return;
-  const p = new URLSearchParams({ periodo });
+  const base = document.getElementById('apBase').value;
+  if (!simular && !confirm(`Apurar comissões para ${periodo} (${base})?\nApurações pendentes serão recalculadas. Pagas serão preservadas.`)) return;
+
+  const p = new URLSearchParams({ periodo, base });
   const v = document.getElementById('apVendedor').value; if (v) p.set('vendedorId', v);
+  if (simular) p.set('simular','1');
   const r = await fetch('/api/comissoes/apurar?'+p, { method:'POST' });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
-  showAlert(`Apuradas ${d.geradas} comissão(ões) de ${d.pedidos} pedido(s). ${d.ignoradasSemRegra} item(ns) sem regra aplicável.`);
-  carregarApuracao();
+
+  renderMetas(d.metas);
+  renderResultadoApuracao(d);
+  showAlert(simular
+    ? `Simulação: ${d.geradas} comissão(ões), ${fmtBRL(d.total)} — nada foi gravado.`
+    : `Apuradas ${d.geradas} comissão(ões) de ${d.pedidos} pedido(s), ${fmtBRL(d.total)}.`,
+    d.ignoradasSemRegra ? 'warning' : 'success');
+  if (!simular) carregarApuracao();
+}
+
+// Pagar comissão tira dinheiro da conta: sem informar de qual, a rota recusa —
+// e a tela nunca mandava esse campo, então o botão sempre tomava 400.
+let CONTAS_FIN = [];
+async function carregarContasFin(){
+  if (CONTAS_FIN.length) return CONTAS_FIN;
+  try {
+    const d = await fetch('/api/contas-financeiras').then(r=>r.json());
+    CONTAS_FIN = (d.contas || d.dados || []).filter(c => c.ativo !== 0);
+  } catch { CONTAS_FIN = []; }
+  return CONTAS_FIN;
 }
 
 async function pagarSelecionadas(){
   const ids = Array.from(document.querySelectorAll('.chkApur:checked')).map(c=>Number(c.dataset.id));
   if (!ids.length) return showAlert('Selecione ao menos uma apuração pendente','error');
-  if (!confirm(`Marcar ${ids.length} apuração(ões) como paga(s)?`)) return;
-  const r = await fetch('/api/comissoes/apuracao/pagar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+
+  const contas = await carregarContasFin();
+  if (!contas.length) return showAlert('Nenhuma conta financeira ativa — cadastre uma antes de pagar comissão','error');
+
+  const opcoes = contas.map((c,i)=>`${i+1}) ${c.nome}`).join('\n');
+  const escolha = prompt(`Pagar ${ids.length} apuração(ões).\n\nDe qual conta sai o dinheiro?\n${opcoes}\n\nDigite o número:`, '1');
+  if (escolha === null) return;
+  const conta = contas[Number(escolha)-1];
+  if (!conta) return showAlert('Conta inválida','error');
+
+  const r = await fetch('/api/comissoes/apuracao/pagar', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ids, contaFinanceiraId: conta.id })
+  });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
-  showAlert(`${d.marcadas} marcada(s) como paga(s)`);
+  showAlert(`${d.marcadas} paga(s), ${fmtBRL(d.total)} debitado de ${conta.nome}. `
+    + `Conta a pagar e movimentação financeira geradas.`);
   carregarApuracao();
 }
 
@@ -302,7 +359,7 @@ async function carregarRegras(){
 function abrirNovaRegra(){
   document.getElementById('rTit').textContent = 'Nova regra';
   document.getElementById('rId').value='';
-  ['rNome','rCategoria','rProdBusca','rProdId','rCliBusca','rCliId','rIni','rFim','rObs'].forEach(id=>document.getElementById(id).value='');
+  ['rNome','rCategoria','rProdBusca','rProdId','rCliBusca','rCliId','rIni','rFim','rObs','rGatilho','rAcelerado'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('rVendedor').value='';
   document.getElementById('rTipo').value='percentual_venda';
   document.getElementById('rValor').value='';
@@ -323,6 +380,8 @@ function editarRegra(r){
   document.getElementById('rIni').value=r.dataInicio||'';
   document.getElementById('rFim').value=r.dataFim||'';
   document.getElementById('rObs').value=r.observacoes||'';
+  document.getElementById('rGatilho').value=r.metaMinimaPercentual??'';
+  document.getElementById('rAcelerado').value=r.valorAcelerado??'';
   document.getElementById('modalRegra').classList.add('open');
 }
 function fecharModalRegra(){ document.getElementById('modalRegra').classList.remove('open'); }
@@ -339,14 +398,21 @@ async function salvarRegra(){
     valor: Number(document.getElementById('rValor').value),
     dataInicio: document.getElementById('rIni').value || null,
     dataFim:    document.getElementById('rFim').value || null,
-    observacoes: document.getElementById('rObs').value || null
+    observacoes: document.getElementById('rObs').value || null,
+    metaMinimaPercentual: document.getElementById('rGatilho').value === '' ? null : Number(document.getElementById('rGatilho').value),
+    valorAcelerado: document.getElementById('rAcelerado').value === '' ? null : Number(document.getElementById('rAcelerado').value)
   };
   if (!body.nome || !body.valor) return showAlert('Nome e valor obrigatórios','error');
   const url = id ? '/api/comissoes/regras/'+id : '/api/comissoes/regras';
   const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
-  showAlert(id?'Regra atualizada':'Regra criada');
+  // Aviso nao bloqueia (regra sombreada, percentual incomum), mas some se nao
+  // for mostrado — e ai ninguem confere.
+  const avisos = (d.avisos || []).map(x => x.mensagem);
+  showAlert(avisos.length
+    ? (id?'Regra atualizada':'Regra criada') + '. Confira: ' + avisos.join(' · ')
+    : (id?'Regra atualizada':'Regra criada'), avisos.length ? 'warning' : 'success');
   fecharModalRegra();
   carregarRegras();
 }
@@ -406,5 +472,99 @@ document.addEventListener('keydown', e => {
 const hoje = new Date();
 document.getElementById('apPeriodo').value = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
 carregarUsuarios();
+
+// ==================== RESULTADO DA APURAÇÃO ====================
+// A apuração devolvia só um número de "itens sem regra". Saber que 12 itens
+// ficaram de fora não ajuda a escrever a regra que falta — saber quais, sim.
+
+function renderMetas(metas){
+  const alvo = document.getElementById('painelMetas');
+  if (!metas || !metas.length) { alvo.innerHTML = ''; return; }
+  alvo.innerHTML = `<div class="panel" style="margin-bottom:10px;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">Metas do período</h3>
+    <div style="font-size:0.88em;line-height:1.8;">${metas.map(m => {
+      const cor = m.atingida ? 'var(--success)' : (m.percentual >= 80 ? 'var(--warn)' : 'var(--text-2)');
+      return `<div>Vendedor #${m.vendedorId}: <strong style="color:${cor};">${m.percentual.toFixed(1)}%</strong>
+        — ${fmtBRL(m.realizado)} de ${fmtBRL(m.valorMeta)}${m.atingida ? ' ✓ batida' : ''}</div>`;
+    }).join('')}</div>
+    <div class="muted" style="font-size:0.8em;margin-top:6px;">
+      Gatilho e acelerador das regras usam estes números.
+    </div>
+  </div>`;
+}
+
+function listaItens(titulo, cor, itens, linha, rodape){
+  if (!itens || !itens.length) return '';
+  const mostra = itens.slice(0, 30);
+  return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
+    <div style="font-size:0.85em;line-height:1.7;">${mostra.map(linha).join('<br>')}</div>
+    ${itens.length > mostra.length ? `<div class="muted" style="font-size:0.8em;margin-top:6px;">…e mais ${itens.length - mostra.length}.</div>` : ''}
+    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:6px;">${rodape}</div>` : ''}
+  </div>`;
+}
+
+function renderResultadoApuracao(d){
+  const alvo = document.getElementById('painelApuracao');
+  const blocos = [];
+
+  if (d.simulacao && d.previa && d.previa.length) {
+    blocos.push(listaItens(`Prévia — ${d.previa.length} linha(s), ${fmtBRL(d.total)}`, 'accent', d.previa,
+      x => `Pedido ${escTxt(x.pedidoNumero||x.pedidoId)} · ${escTxt(x.descricao||'')} — <strong>${fmtBRL(x.valor)}</strong>`
+           + ` <span class="muted">(${escTxt(x.regraNome)}${x.acelerado ? ', acelerado' : ''})</span>`,
+      'Nada foi gravado. Use "Apurar período" para efetivar.'));
+  }
+
+  blocos.push(listaItens(
+    `Itens sem regra (${(d.itensSemRegra||[]).length}) — ${fmtBRL(d.valorSemRegra||0)} em vendas sem comissão`,
+    'warn', d.itensSemRegra,
+    x => `Pedido ${escTxt(x.pedidoNumero||x.pedidoId)} · ${escTxt(x.descricao||'')} — ${fmtBRL(x.valor)}`,
+    'Crie uma regra que cubra estes itens ou preencha o percentual na ficha do vendedor.'));
+
+  blocos.push(listaItens(
+    `Itens que calcularam zero (${(d.itensSemValor||[]).length})`, 'warn', d.itensSemValor,
+    x => `Pedido ${escTxt(x.pedidoNumero||x.pedidoId)} · ${escTxt(x.descricao||'')} — <span class="muted">${escTxt(x.motivo)}</span>`));
+
+  blocos.push(listaItens(
+    `Regras ambíguas (${(d.itensAmbiguos||[]).length})`, 'warn', d.itensAmbiguos,
+    x => `Item #${x.itemId}: aplicada a regra #${x.aplicada}, empatada com ${x.empatadas.map(e=>'#'+e.id+' '+escTxt(e.nome)).join(', ')}`,
+    'Duas regras com a mesma especificidade: vence a mais antiga. Restrinja o escopo de uma delas.'));
+
+  if (d.geradasPorCadastro) {
+    blocos.push(`<div class="panel" style="margin-bottom:10px;font-size:0.88em;">
+      ${d.geradasPorCadastro} linha(s) usaram o percentual da ficha do vendedor, não uma regra escrita.
+    </div>`);
+  }
+
+  alvo.innerHTML = blocos.join('');
+}
+
+async function verDiagnostico(){
+  const periodo = document.getElementById('apPeriodo').value;
+  if (!periodo) return showAlert('Escolha o período','error');
+  const base = document.getElementById('apBase').value;
+  const d = await fetch(`/api/comissoes/diagnostico?periodo=${periodo}&base=${base}`).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  const g = d.diagnostico;
+
+  const blocos = [
+    listaItens(`Regras ativas que não casaram com nada (${g.regrasSemUso.length})`, 'warn', g.regrasSemUso,
+      r => `#${r.id} <strong>${escTxt(r.nome)}</strong> — ${escTxt(r.tipo)} ${r.valor}`,
+      'Ou o escopo está errado, ou outra regra mais específica sempre vence.'),
+    listaItens(`Itens sem regra (${g.itensSemRegra.length}) — ${fmtBRL(g.valorSemRegra)}`, 'warn', g.itensSemRegra,
+      x => `Pedido ${escTxt(x.pedidoNumero||x.pedidoId)} · ${escTxt(x.descricao||'')} — ${fmtBRL(x.valor)}`),
+    listaItens(`Pedidos fora desta base (${g.pedidosForaDaBase.length}) — ${fmtBRL(g.valorForaDaBase)}`, 'accent',
+      g.pedidosForaDaBase,
+      p => `Pedido ${escTxt(p.numero||p.id)} — ${escTxt(p.status)}/${escTxt(p.statusPagamento||'')} — ${fmtBRL(p.valorTotal)}`,
+      `Têm vendedor e não estão cancelados, mas a base "${escTxt(g.base)}" os deixa de fora.`),
+  ].filter(Boolean);
+
+  document.getElementById('painelApuracao').innerHTML = blocos.length
+    ? blocos.join('')
+    : '<div class="panel" style="margin-bottom:10px;font-size:0.9em;">Nenhum problema encontrado no período.</div>';
+}
+
+function escTxt(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
+
 </script>
 </body></html>

@@ -39,9 +39,10 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="certidoes">
     <table>
       <thead><tr>
+        <th class="col-editar"></th>
         <th>Documento</th>
         <th>Órgão emissor</th>
         <th>Número</th>
@@ -51,7 +52,7 @@
         <th>Arquivo</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -139,6 +140,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('habilitacao-certidoes');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -175,6 +178,7 @@ async function carregar(){
   `;
   const tb = document.getElementById('tb');
   tb.innerHTML = d.documentos.length ? d.documentos.map(x=>`<tr>
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar documento" onclick='editar(${JSON.stringify(x)})'><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td><strong>${esc(x.tipo)}</strong><br><small class="muted">${CAT_LABEL[x.categoria]||x.categoria}${x.esfera?' · '+x.esfera:''}</small></td>
     <td>${esc(x.orgaoEmissor)||'—'}</td>
     <td class="mono">${esc(x.numero)||'—'}</td>
@@ -188,10 +192,9 @@ async function carregar(){
     </td>
     <td style="text-align:right;white-space:nowrap;">
       ${PROVEDORES.includes(x.tipo) ? `<button class="btn btn-ghost btn-sm" onclick="buscarAuto(${x.id})" title="Buscar automaticamente no portal">🔎</button>` : ''}
-      <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(x)})'>Editar</button>
       <button class="btn btn-ghost btn-sm" onclick="excluir(${x.id})" title="Excluir">🗑</button>
     </td>
-  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum documento cadastrado</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhum documento cadastrado</td></tr>';
 }
 function esc(s){ return s==null ? '' : String(s).replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
 

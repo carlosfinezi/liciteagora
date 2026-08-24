@@ -97,7 +97,7 @@ async function carregar(){
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
   renderArvore(d.arvore);
-  renderSumario(d.sumario, d.semClassificacao);
+  renderSumario(d.sumario, d.semClassificacao, d.origens);
 }
 
 function renderArvore(arvore){
@@ -136,14 +136,64 @@ function labelTipo(t){
   })[t] || t;
 }
 
-function renderSumario(s, semClass){
+// Diz de onde vieram os números e o que ficou fora. Um DRE sem isso parece
+// completo mesmo quando metade do extrato não foi classificada.
+function avisosOrigem(origens){
+  if (!origens) return '';
+  const b = origens.banco || {};
+  const e = origens.encargos || {};
+  const partes = [];
+
+  if (e.receita || e.despesa) {
+    partes.push(`<div style="margin-top:8px;font-size:12px;" class="muted">
+      Resultado financeiro inclui juros e multa acertados no pagamento dos títulos:
+      ${fmtBRL(e.receita)} recebidos, ${fmtBRL(e.despesa)} pagos (descontos entram aqui).
+    </div>`);
+  }
+  if (e.semContaNoPlano) {
+    partes.push(`<div style="margin-top:6px;font-size:12px;color:var(--warn);">
+      ⚠ ${fmtBRL(e.semContaNoPlano)} de encargos fora do resultado: falta conta analítica de
+      resultado financeiro no <a href="/contabilidade/plano-contas.html">plano de contas</a>.
+    </div>`);
+  }
+
+  if (b.incluido && b.lancamentos) {
+    partes.push(`<div style="margin-top:8px;font-size:12px;" class="muted">
+      Inclui ${b.lancamentos} conta(s) do plano alimentada(s) por movimento bancário sem título
+      (tarifas, rendimentos, taxas): ${fmtBRL(b.receitas)} em receitas, ${fmtBRL(b.despesas)} em despesas.
+    </div>`);
+  }
+  if (b.incluido && b.pendenteRevisao) {
+    partes.push(`<div style="margin-top:6px;font-size:12px;color:var(--warn);">
+      ⚠ ${b.pendenteRevisao} movimento(s) bancário(s) entraram classificados por regra, mas ainda
+      <strong>não foram conciliados</strong> por ninguém.
+    </div>`);
+  }
+  if (b.incluido && b.naoClassificado && b.naoClassificado.qtd) {
+    partes.push(`<div style="margin-top:6px;font-size:12px;color:var(--warn);">
+      ⚠ Fora do resultado: ${b.naoClassificado.qtd} movimento(s) do extrato sem conta do plano
+      (${fmtBRL(b.naoClassificado.valor)}). <a href="/financeiro/conciliacao-bancaria.html">Classificar</a>
+    </div>`);
+  }
+  if (!b.incluido && b.motivoExclusao) {
+    partes.push(`<div style="margin-top:6px;font-size:12px;color:var(--warn);">
+      ⚠ Movimentos bancários fora deste DRE: ${escTxtDre(b.motivoExclusao)}.
+    </div>`);
+  }
+  return partes.join('');
+}
+
+function escTxtDre(t){ const d = document.createElement('div'); d.textContent = String(t || ''); return d.innerHTML; }
+
+function renderSumario(s, semClass, origens){
   const margBruta = s.receitaLiquida ? (s.lucroBruto / s.receitaLiquida * 100) : 0;
   const margEbitda = s.receitaLiquida ? (s.ebitda / s.receitaLiquida * 100) : 0;
   const margLiq = s.receitaLiquida ? (s.resultado / s.receitaLiquida * 100) : 0;
   const cls = s.resultado >= 0 ? '' : 'neg';
   const semClassAlerta = (semClass.receitas + semClass.despesas) > 0
-    ? `<div class="muted" style="margin-top:8px;font-size:12px;color:var(--warn);">⚠ Sem classificação: ${fmtBRL(semClass.receitas + semClass.despesas)} (configure planoContaId nas categorias)</div>`
+    ? `<div class="muted" style="margin-top:8px;font-size:12px;color:var(--warn);">⚠ Títulos sem classificação: ${fmtBRL(semClass.receitas + semClass.despesas)} — fora do resultado. <a href="/contabilidade/plano-contas.html">Vincular no plano de contas</a></div>`
     : '';
+  const avisos = avisosOrigem(origens);
   document.getElementById('dreSummary').innerHTML = `
     <div class="dre-summary">
       <h3 style="margin-top:0;">Resumo</h3>
@@ -158,6 +208,7 @@ function renderSumario(s, semClass){
       <div class="row"><span class="label">(–) Despesas Financeiras</span><span class="value tipo-financeiro_despesa">${fmtBRL(s.finDespesa)}</span></div>
       <div class="row"><span class="label"><strong>Resultado Líquido</strong></span><span class="value destaque ${cls}">${fmtBRL(s.resultado)} (${margLiq.toFixed(1)}%)</span></div>
       ${semClassAlerta}
+      ${avisos}
     </div>
   `;
 }

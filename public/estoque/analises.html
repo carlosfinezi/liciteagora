@@ -21,6 +21,18 @@
   .abc-barra .seg-a { background: var(--success); }
   .abc-barra .seg-b { background: var(--warn); }
   .abc-barra .seg-c { background: var(--text-3); }
+  .anomalias { display: grid; gap: 10px; margin-bottom: 16px; }
+  .anomalia {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: var(--bg-2); border: 1px solid var(--warn); border-left-width: 3px;
+    border-radius: var(--r-md); padding: 12px 14px;
+  }
+  .anomalia.grave { border-color: var(--danger); }
+  .anomalia .txt { flex: 1; font-size: 0.88em; }
+  .anomalia .txt strong { display: block; margin-bottom: 3px; }
+  .anomalia .itens { color: var(--text-2); font-size: 0.92em; margin-top: 4px; }
+  .evolucao-svg .delta-pos { fill: var(--success); font-size: 9px; }
+  .evolucao-svg .delta-neg { fill: var(--danger); font-size: 9px; }
 </style>
 </head>
 <body>
@@ -32,16 +44,19 @@
     </div>
     <div class="actions">
       <a class="btn btn-ghost btn-sm" href="/estoque/estoque.html" style="text-decoration:none;">← Estoque</a>
+      <select id="filtDeposito" onchange="recarregar()" style="width:auto;display:none;"></select>
       <select id="periodoMeses" onchange="recarregar()" style="width:auto;">
         <option value="3">Últimos 3 meses</option>
         <option value="6">Últimos 6 meses</option>
         <option value="12" selected>Últimos 12 meses</option>
         <option value="24">Últimos 24 meses</option>
       </select>
+      <button class="btn btn-ghost btn-sm" onclick="exportarAba()">Exportar CSV</button>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
+  <div id="avisoDeposito"></div>
 
   <div class="tabs">
     <button class="tab active" data-tab="valorizacao" onclick="switchTab('valorizacao')">Valorização</button>
@@ -53,6 +68,7 @@
   <!-- ============= VALORIZAÇÃO ============= -->
   <div class="tab-content" id="tab-valorizacao">
     <div class="kpi-grid" id="kpisVal"></div>
+    <div class="anomalias" id="anomaliasVal"></div>
 
     <div class="chart-wrap">
       <h3>Evolução do valor do estoque</h3>
@@ -175,11 +191,85 @@ function switchTab(t){
 }
 
 const dadosCarregados = { valorizacao: false, abc: false, giro: false, cmv: false };
+// Guarda a última resposta de cada aba para o CSV sair exatamente com o que
+// está na tela — exportar refazendo a consulta arrisca divergir do que o
+// usuário está vendo.
+const ultimo = {};
 
 function getMeses(){ return Number(document.getElementById('periodoMeses').value) || 12; }
+function getDeposito(){ return document.getElementById('filtDeposito').value || ''; }
+function depParam(){ const d = getDeposito(); return d ? '&depositoId=' + encodeURIComponent(d) : ''; }
+
+// As análises somavam todos os depósitos sem dizer; com mais de um armazém o
+// "valor do estoque" era a soma de coisas que ninguém guarda junto.
+(async function initDepositos(){
+  try {
+    const d = await fetch('/api/depositos').then(r=>r.json());
+    if (d.success && d.depositos && d.depositos.length > 1) {
+      const sel = document.getElementById('filtDeposito');
+      sel.innerHTML = '<option value="">Todos os depósitos</option>' +
+        d.depositos.map(x=>`<option value="${x.id}">${x.nome}</option>`).join('');
+      sel.style.display = '';
+    }
+  } catch { /* instalação com um depósito só: o seletor não faz falta */ }
+})();
+
+function avisarEscopo(){
+  const sel = document.getElementById('filtDeposito');
+  const el = document.getElementById('avisoDeposito');
+  const nome = sel.value ? sel.options[sel.selectedIndex].text : '';
+  el.innerHTML = nome
+    ? `<div class="alert info" style="display:block;">Números restritos ao depósito <strong>${nome}</strong>. O custo médio continua sendo o da empresa.</div>`
+    : '';
+}
+
+function csvCelula(v){
+  if (v == null) return '';
+  const t = String(v);
+  return /[";\r\n]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
+}
+function baixarCsv(nome, cabecalho, linhas){
+  if (!linhas.length) return showAlert('Nada para exportar nesta aba.','warn');
+  const corpo = [cabecalho, ...linhas].map(l => l.map(csvCelula).join(';')).join('\r\n');
+  // BOM para o Excel em pt-BR não estragar os acentos.
+  const blob = new Blob(['\ufeff' + corpo], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nome + '-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+const num = v => (v == null || isNaN(v)) ? '' : String(v).replace('.', ',');
+
+function exportarAba(){
+  const aba = document.querySelector('.tab.active')?.dataset.tab || 'valorizacao';
+  const d = ultimo[aba];
+  if (!d) return showAlert('Abra a aba antes de exportar.','warn');
+  if (aba === 'valorizacao') {
+    // Exporta o estoque inteiro, não só o Top 10 da tela: quem exporta quer
+    // fechar número, e um recorte de 10 linhas não fecha nada.
+    baixarCsv('valorizacao-estoque',
+      ['SKU','Descrição','Unidade','Saldo','Custo médio','Valor','Situação'],
+      [
+        ...d.top10.map(i => [i.sku, i.descricao, i.unidade, num(i.saldo), num(i.custoMedio), num(i.valor), 'ativo']),
+        ...(d.inativosComSaldo?.lista || []).map(i => [i.sku, i.descricao, i.unidade, num(i.saldo), num(i.custoMedio), num(i.valor), 'INATIVO COM SALDO']),
+        ...(d.saldoNegativo?.lista || []).map(i => [i.sku, i.descricao, i.unidade, num(i.saldo), num(i.custoMedio), num(i.valor), 'SALDO NEGATIVO']),
+      ]);
+  } else if (aba === 'abc') {
+    baixarCsv('curva-abc', ['Classe','SKU','Descrição','Qtd saída','Valor saída','% período','% acumulado'],
+      d.itens.map(i => [i.classe, i.sku, i.descricao, num(i.qtdSaida), num(i.valorSaida), num(i.percentual), num(i.percentualAcumulado)]));
+  } else if (aba === 'giro') {
+    baixarCsv('giro-cobertura', ['SKU','Descrição','Saldo atual','Custo médio','Valor em estoque','Saída período','Giro','Cobertura (dias)','Dias sem saída','Parado'],
+      d.itens.map(i => [i.sku, i.descricao, num(i.saldoAtual), num(i.custoMedio), num(i.valorEstoque), num(i.qtdSaidaPeriodo), num(i.giro), num(i.coberturaDias), i.diasSemSaida ?? '', i.parado ? 'sim' : 'não']));
+  } else {
+    baixarCsv('cmv', ['SKU','Descrição','Qtd vendida','CMV'],
+      d.porProduto.map(p => [p.sku, p.descricao, num(p.qtdSaida), num(p.cmv)]));
+  }
+}
 
 function recarregar(){
   Object.keys(dadosCarregados).forEach(k => dadosCarregados[k] = false);
+  avisarEscopo();
   const atual = document.querySelector('.tab.active')?.dataset.tab || 'valorizacao';
   switchTab(atual);
 }
@@ -188,17 +278,27 @@ function recarregar(){
 
 async function carregarValorizacao(){
   const [vr, ev] = await Promise.all([
-    fetch('/api/estoque/valorizacao').then(r=>r.json()),
-    fetch('/api/estoque/evolucao-valor?meses='+getMeses()).then(r=>r.json())
+    fetch('/api/estoque/valorizacao?_=1'+depParam()).then(r=>r.json()),
+    fetch('/api/estoque/evolucao-valor?meses='+getMeses()+depParam()).then(r=>r.json())
   ]);
   if (!vr.success) return showAlert(vr.error,'error');
+  ultimo.valorizacao = vr;
 
+  const pctTop = vr.valorTotal > 0 ? (vr.top10.reduce((s,i)=>s+i.valor,0) / vr.valorTotal * 100) : 0;
   document.getElementById('kpisVal').innerHTML = `
-    <div class="kpi"><div class="label">Valor total do estoque</div><div class="value">R$ ${fmt(vr.valorTotal)}</div></div>
-    <div class="kpi success"><div class="label">Produtos com saldo</div><div class="value">${fmtInt(vr.produtosComSaldo)}</div></div>
-    <div class="kpi"><div class="label">Produtos ativos</div><div class="value">${fmtInt(vr.qtdProdutos)}</div></div>
-    <div class="kpi warn"><div class="label">Top 10 representam</div><div class="value">R$ ${fmt(vr.top10.reduce((s,i)=>s+i.valor,0))}</div></div>
-  `;
+    <div class="kpi"><div class="label">Valor total do estoque</div><div class="value">R$ ${fmt(vr.valorTotal)}</div><small class="muted">saldo positivo, produtos ativos</small></div>
+    <div class="kpi success"><div class="label">Produtos com saldo</div><div class="value">${fmtInt(vr.produtosComSaldo)}</div><small class="muted">de ${fmtInt(vr.qtdProdutos)} ativos</small></div>
+    <div class="kpi warn"><div class="label">Top 10 representam</div><div class="value">R$ ${fmt(vr.top10.reduce((s,i)=>s+i.valor,0))}</div><small class="muted">${fmt(pctTop)}% do estoque</small></div>
+  ` + (() => {
+    const ult = (ev.pontos || []).at(-1);
+    if (!ult || ult.variacao == null) return '';
+    const sobe = ult.variacao >= 0;
+    return `<div class="kpi ${sobe ? '' : 'danger'}"><div class="label">Variação no mês</div>
+      <div class="value">${sobe ? '+' : '-'} R$ ${fmt(Math.abs(ult.variacao))}</div>
+      <small class="muted">${ult.variacaoPct == null ? '' : fmt(ult.variacaoPct) + '% vs. mês anterior'}</small></div>`;
+  })();
+
+  renderAnomalias(vr, ev);
 
   // Tabela Top 10
   document.getElementById('tbValTop').innerHTML = vr.top10.map(i => {
@@ -214,12 +314,55 @@ async function carregarValorizacao(){
   }).join('') || '<tr><td colspan="6" class="empty">Sem produtos com saldo</td></tr>';
 
   // SVG evolução
-  renderBarsSvg('svgEvol', ev.pontos || [], p => p.valor, p => p.mes, v => 'R$ ' + fmt(v));
+  if (!ev.success) {
+    // Antes um erro aqui virava um gráfico vazio indistinguível de "sem dados".
+    document.getElementById('svgEvol').innerHTML =
+      '<text x="400" y="120" text-anchor="middle" class="label">Evolução indisponível: ' + (ev.error || 'erro') + '</text>';
+  } else {
+    renderBarsSvg('svgEvol', ev.pontos || [], p => p.valor, p => p.mes, v => 'R$ ' + fmt(v), p => p.variacao);
+  }
 
   dadosCarregados.valorizacao = true;
 }
 
-function renderBarsSvg(svgId, pontos, getY, getLabel, fmtY){
+// Estoque que não aparece em relatório nenhum é estoque que ninguém corrige.
+function renderAnomalias(vr, ev){
+  const cartoes = [];
+  const neg = vr.saldoNegativo || { itens: 0, lista: [] };
+  if (neg.itens) cartoes.push(`
+    <div class="anomalia grave"><div class="txt">
+      <strong>${neg.itens} produto(s) com saldo negativo</strong>
+      Saldo negativo não existe fisicamente: ou faltou registrar uma entrada, ou uma saída foi lançada duas vezes.
+      Estes itens ficam fora do valor total até serem acertados.
+      <div class="itens">${neg.lista.map(i=>`${i.sku} (${fmt(i.saldo)})`).join(' - ')}</div>
+    </div></div>`);
+
+  const ina = vr.inativosComSaldo || { itens: 0, valor: 0, lista: [] };
+  if (ina.itens) cartoes.push(`
+    <div class="anomalia"><div class="txt">
+      <strong>${ina.itens} produto(s) inativo(s) ainda com saldo - R$ ${fmt(ina.valor)}</strong>
+      É mercadoria real no depósito, mas fora do relatório porque o cadastro está inativo. Reative para vender ou baixe o saldo.
+      <div class="itens">${ina.lista.map(i=>`${i.sku} (${fmt(i.saldo)} un, R$ ${fmt(i.valor)})`).join(' - ')}</div>
+    </div></div>`);
+
+  const sc = vr.semCusto || { itens: 0, saldo: 0 };
+  if (sc.itens) cartoes.push(`
+    <div class="anomalia"><div class="txt">
+      <strong>${sc.itens} produto(s) com saldo e sem custo</strong>
+      Entram na valorização valendo R$ 0, então o valor total está subestimado. Informe o preço de custo ou lance a entrada com o custo real.
+    </div></div>`);
+
+  const semCustoHist = (ev.pontos || []).some(p => p.semCusto > 0);
+  if (semCustoHist && !sc.itens) cartoes.push(`
+    <div class="anomalia"><div class="txt">
+      <strong>Meses anteriores com produto sem custo</strong>
+      Alguns pontos da curva estão subestimados porque naquela data o produto ainda não tinha custo registrado.
+    </div></div>`);
+
+  document.getElementById('anomaliasVal').innerHTML = cartoes.join('');
+}
+
+function renderBarsSvg(svgId, pontos, getY, getLabel, fmtY, getDelta){
   const svg = document.getElementById(svgId);
   if (!pontos || !pontos.length) { svg.innerHTML = '<text x="400" y="120" text-anchor="middle" class="label" fill="#94a3b8">Sem dados</text>'; return; }
   const W = 800, H = 240, pad = 40;
@@ -242,6 +385,11 @@ function renderBarsSvg(svgId, pontos, getY, getLabel, fmtY){
       <title>${getLabel(p)}: ${fmtY(v)}</title>
     </rect>`;
     html += `<text class="label" x="${x + (barW-12)/2}" y="${H - pad + 14}" text-anchor="middle">${getLabel(p)}</text>`;
+    // A forma da barra não diz quanto subiu; o delta em cima resolve.
+    const dl = getDelta ? getDelta(p) : null;
+    if (dl != null && Math.abs(dl) > 0.005) {
+      html += `<text class="${dl >= 0 ? 'delta-pos' : 'delta-neg'}" x="${x + (barW-12)/2}" y="${y - 4}" text-anchor="middle">${dl >= 0 ? '+' : '-'}${fmtY(Math.abs(dl))}</text>`;
+    }
   });
   svg.innerHTML = html;
 }
@@ -249,9 +397,10 @@ function renderBarsSvg(svgId, pontos, getY, getLabel, fmtY){
 // ======== ABC ========
 
 async function carregarAbc(){
-  const r = await fetch('/api/estoque/abc?meses='+getMeses());
+  const r = await fetch('/api/estoque/abc?meses='+getMeses()+depParam());
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
+  ultimo.abc = d;
 
   document.getElementById('kpisAbc').innerHTML = `
     <div class="kpi success"><div class="label">Classe A (80% valor)</div><div class="value">${d.resumo.A.itens} <small>itens</small></div><small class="muted">R$ ${fmt(d.resumo.A.valor)}</small></div>
@@ -288,16 +437,18 @@ async function carregarAbc(){
 // ======== GIRO ========
 
 async function carregarGiro(){
-  const r = await fetch('/api/estoque/giro?meses='+getMeses());
+  const r = await fetch('/api/estoque/giro?meses='+getMeses()+depParam());
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
+  ultimo.giro = d;
 
   document.getElementById('kpisGiro').innerHTML = `
     <div class="kpi"><div class="label">Produtos com saldo</div><div class="value">${d.resumo.comSaldo}</div></div>
     <div class="kpi warn"><div class="label">Parados (&gt; 90d sem saída)</div><div class="value">${d.resumo.parados}</div><small class="muted">R$ ${fmt(d.resumo.valorParado)} em estoque</small></div>
     <div class="kpi danger"><div class="label">Cobertura ≤ 30 dias</div><div class="value">${d.resumo.cobertura30dias}</div></div>
     <div class="kpi"><div class="label">Sem estoque com saída</div><div class="value">${d.resumo.semCobertura}</div></div>
-  `;
+  ` + (d.resumo.semCusto ? `
+    <div class="kpi danger"><div class="label">Com saldo e sem custo</div><div class="value">${d.resumo.semCusto}</div><small class="muted">entram valendo R$ 0</small></div>` : '');
 
   document.getElementById('tbGiro').innerHTML = d.itens.map(i => {
     let status, statusClass;
@@ -337,9 +488,10 @@ async function carregarCmv(){
     document.getElementById('cmvFim').value = fim;
   }
 
-  const r = await fetch(`/api/estoque/cmv?inicio=${inicio}&fim=${fim}`);
+  const r = await fetch(`/api/estoque/cmv?inicio=${inicio}&fim=${fim}${depParam()}`);
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
+  ultimo.cmv = d;
 
   document.getElementById('kpisCmv').innerHTML = `
     <div class="kpi"><div class="label">CMV total</div><div class="value">R$ ${fmt(d.cmvTotal)}</div><small class="muted">${inicio} a ${fim}</small></div>
@@ -365,6 +517,7 @@ async function carregarCmv(){
 }
 
 // Inicial
+avisarEscopo();
 carregarValorizacao();
 </script>
 </body></html>

@@ -427,6 +427,8 @@ db.exec(`
     cor TEXT DEFAULT '#1a5f7a',
     tipo TEXT DEFAULT 'pesquisa',
     ativo INTEGER DEFAULT 1,
+    ufs TEXT,
+    municipios TEXT,
     dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
     dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
   );
@@ -684,6 +686,11 @@ alterSafe(db, 'ALTER TABLE fornecedor ADD COLUMN contribuinteIPI INTEGER DEFAULT
 // nao_cumulativo (típico Lucro Real) → PIS/COFINS recuperáveis saem do custo.
 // cumulativo (típico Lucro Presumido) ou NULL → ficam no custo.
 alterSafe(db, 'ALTER TABLE fornecedor ADD COLUMN regimeApuracaoPISCOFINS TEXT');
+// fornecedor.serieDps: série do DPS na NFS-e. Fica no cadastro da empresa
+// porque identifica o emissor, não a tela de notas; quem edita é Fiscal >
+// Configuração de Emissão (PUT /api/nfse/serie-dps). Filial tem a sua em
+// estabelecimento_serie. Vazio = série 1 na emissão.
+alterSafe(db, 'ALTER TABLE fornecedor ADD COLUMN serieDps TEXT');
 
 // ==================== MULTI-LOJA / ESTABELECIMENTOS ====================
 // Dimensão de estabelecimento (matriz + filiais) dentro do tenant. Fase 1.
@@ -795,7 +802,32 @@ alterSafe(db, 'ALTER TABLE depositos ADD COLUMN estabelecimentoId INTEGER');
 alterSafe(db, 'ALTER TABLE contas_financeiras ADD COLUMN estabelecimentoId INTEGER');
 alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN estabelecimentoId INTEGER');
 alterSafe(db, 'ALTER TABLE contas_a_pagar ADD COLUMN estabelecimentoId INTEGER');
+// Em que módulo cada tipo de operação pode ser escolhido (2026-08-21). Espelho
+// de tipos-operacao-routes.migrar pelo mesmo motivo do bloco acima: lá só roda
+// no provision. Sem isso o select do pedido lista os OS-* (que não têm CFOP).
+// O valor inicial sai da categoria e só preenche NULL — quem o usuário desmarcar
+// no cadastro continua desmarcado nos boots seguintes.
+try {
+  const _usos = {
+    usarEmPedido: ['venda', 'bonificacao', 'remessa', 'transferencia'],
+    usarEmOS: ['servico'],
+    usarEmDevolucao: ['devolucao_venda'],
+    usarEmNFAvulsa: ['venda', 'bonificacao', 'remessa', 'transferencia']
+  };
+  for (const col of Object.keys(_usos)) {
+    alterSafe(db, `ALTER TABLE tipos_operacao ADD COLUMN ${col} INTEGER`);
+  }
+  for (const [col, cats] of Object.entries(_usos)) {
+    const inList = cats.map(c => `'${c}'`).join(',');
+    db.exec(`UPDATE tipos_operacao
+             SET ${col} = CASE WHEN categoriaOperacao IN (${inList}) THEN 1 ELSE 0 END
+             WHERE ${col} IS NULL`);
+  }
+} catch {}
+
 // Série/numeração NF-e/NFC-e por estabelecimento (espelho de nfe-emit-routes.migrar).
+// Escrita pela emissão e, desde a tela Fiscal > Configuração de Emissão, também
+// pelas rotas GET/PUT /api/estabelecimentos/:id/emissao.
 db.exec(`
   CREATE TABLE IF NOT EXISTS estabelecimento_serie (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -812,6 +844,38 @@ alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN categoriaId INTEGER');
 alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN parcelaNumero INTEGER');
 alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN totalParcelas INTEGER');
 alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN grupoParcelaId TEXT');
+
+// Rastro do estorno/retificação de baixa (2026-08-21). Antes só existia
+// estornadoEm: dava para saber QUANDO, nunca QUEM nem POR QUÊ. retificadoPorId
+// liga a baixa estornada à que a substituiu (retificação = estorno + relançamento);
+// retificaPagamentoId é o ponteiro inverso.
+//
+// Os de CP estão repetidos em contas-pagar-routes.migrar de propósito: aquele
+// migrar só roda no provisionamento do tenant (applyRouteMigrations), e este
+// arquivo roda em todo tenant já existente. Em tenant novo a tabela de CP
+// ainda não existe aqui — alterSafe engole "no such table" e quem aplica é o
+// migrar de lá, junto do CREATE TABLE.
+for (const t of ['contas_receber_pagamentos', 'contas_pagar_pagamentos']) {
+  alterSafe(db, `ALTER TABLE ${t} ADD COLUMN estornadoPor TEXT`);
+  alterSafe(db, `ALTER TABLE ${t} ADD COLUMN motivoEstorno TEXT`);
+  alterSafe(db, `ALTER TABLE ${t} ADD COLUMN retificadoPorId INTEGER`);
+  alterSafe(db, `ALTER TABLE ${t} ADD COLUMN retificaPagamentoId INTEGER`);
+}
+
+// aprovacoes.autoAprovada (2026-08-21): marca a aprovação que o próprio
+// solicitante liberou. Mesma razão do bloco acima para estar aqui — o migrarDB
+// de governanca-alcadas roda no registro das rotas, uma vez, no db do contexto
+// de boot; este arquivo é que alcança todo tenant já existente. Sem a coluna,
+// o UPDATE da decisão falharia com "no such column".
+alterSafe(db, 'ALTER TABLE aprovacoes ADD COLUMN autoAprovada INTEGER DEFAULT 0');
+
+// sniper_historico: estado do item no instante em que o lance foi calculado
+// (2026-08-21). Um 422 de "intervalo mínimo" só é explicável sabendo qual era o
+// melhor valor e o passo mínimo naquele momento — e isso vivia só no log do
+// journald, que rotaciona. Agora fica na própria linha do lance.
+alterSafe(db, 'ALTER TABLE sniper_historico ADD COLUMN nossoValorAntes REAL');
+alterSafe(db, 'ALTER TABLE sniper_historico ADD COLUMN melhorValorAntes REAL');
+alterSafe(db, 'ALTER TABLE sniper_historico ADD COLUMN variacaoMinimaUsada REAL');
 
 // Seed de categorias padrão (idempotente)
 const _seedCr = db.prepare('INSERT OR IGNORE INTO categorias_cr (nome, icone) VALUES (?, ?)');
@@ -1124,23 +1188,11 @@ db.exec(`
     UNIQUE(tipo, valor)
   );
   CREATE INDEX IF NOT EXISTS idx_lookup_tipo ON produto_lookup(tipo, ativo);
-
-  CREATE TABLE IF NOT EXISTS fornecedores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cpfCnpj TEXT NOT NULL UNIQUE,
-    tipo TEXT NOT NULL DEFAULT 'PJ',
-    razaoSocial TEXT NOT NULL,
-    nomeFantasia TEXT,
-    inscricaoEstadual TEXT,
-    inscricaoMunicipal TEXT,
-    endereco TEXT, numero TEXT, complemento TEXT, bairro TEXT,
-    codigoMunicipio TEXT, cidade TEXT, uf TEXT, cep TEXT,
-    telefone TEXT, email TEXT, contato TEXT, observacoes TEXT,
-    ativo INTEGER DEFAULT 1,
-    dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
-    dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
-  );
 `);
+// A tabela `fornecedores` deixou de existir em 2026-08-20: fornecedor virou
+// pessoa com a categoria "fornecedor" (ver migracao-fornecedores-pessoas.js).
+// O CREATE saiu daqui de propósito — é a ausência da tabela que diz à
+// migração que ela já rodou.
 
 // ALTERs idempotentes para produtos (iteração 2 + fases)
 for (const col of [
@@ -1396,6 +1448,30 @@ try {
     console.log('[Migração] Coluna "tipo" adicionada à tabela grupos_palavras');
   } else {
     console.log('[Migração] Coluna "tipo" já existe');
+
+// Migração: adicionar coluna 'ufs' na tabela grupos_palavras (filtro multi-UF, JSON array ex.: ["MG","SP"])
+try {
+  const infoUfs = db.pragma('table_info(grupos_palavras)');
+  const temUfs = infoUfs.some(col => col.name === 'ufs');
+  if (!temUfs) {
+    db.exec(`ALTER TABLE grupos_palavras ADD COLUMN ufs TEXT`);
+    console.log('[Migração] Coluna "ufs" adicionada à tabela grupos_palavras');
+  }
+} catch (e) {
+  // Ignora se já existe
+}
+
+// Migração: adicionar coluna 'municipios' na tabela grupos_palavras (JSON array ex.: ["Belo Horizonte","Contagem"])
+try {
+  const infoMun = db.pragma('table_info(grupos_palavras)');
+  const temMun = infoMun.some(col => col.name === 'municipios');
+  if (!temMun) {
+    db.exec(`ALTER TABLE grupos_palavras ADD COLUMN municipios TEXT`);
+    console.log('[Migração] Coluna "municipios" adicionada à tabela grupos_palavras');
+  }
+} catch (e) {
+  // Ignora se já existe
+}
 
 // Migração: adicionar coluna 'lido' na tabela chat_mensagens
 try {
@@ -1890,6 +1966,7 @@ for (const col of [
   'limiteCredito REAL',
   'prazoMedioDias INTEGER',
   'condicaoPagamentoPadrao TEXT',
+  'meiosPagamentoPermitidos TEXT',                     // JSON array de tPag; vazio = sem restrição
   'tags TEXT',                                         // JSON array
   // LGPD
   'lgpdConsentimento INTEGER DEFAULT 0',
@@ -1903,6 +1980,61 @@ for (const col of [
 ]) {
   alterSafe(db, `ALTER TABLE pessoas ADD COLUMN ${col}`);
 }
+
+// Políticas de prazo — regra de pagamento reutilizável (2026-08-21).
+// Antes cada pessoa carregava a regra em campos soltos (condicaoPagamentoPadrao,
+// meiosPagamentoPermitidos); agora a regra é cadastro e a pessoa aponta para ela.
+// Fica aqui, e não no módulo de rotas, porque tenant existente só recebe
+// initSchema no primeiro open — migração de rota só roda na criação do tenant.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS politicas_prazo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL UNIQUE,
+    ativo INTEGER DEFAULT 1,
+    tipo TEXT NOT NULL DEFAULT 'prazo',                -- 'vista' | 'prazo'
+    prazoDias TEXT,                                    -- "30" ou "30/60/90"; NULL em 'vista'
+    meiosPermitidos TEXT,                              -- JSON array de tPag; vazio = todos
+    valorMinimoParcela REAL,
+    coeficiente REAL DEFAULT 0,                        -- % sobre o total: + acréscimo, − desconto
+    ignoraLimiteCredito INTEGER DEFAULT 0,
+    aplicaVendas INTEGER DEFAULT 1,
+    aplicaCompras INTEGER DEFAULT 0,
+    aplicaPdv INTEGER DEFAULT 1,
+    observacoes TEXT,
+    dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+alterSafe(db, 'ALTER TABLE pessoas ADD COLUMN politicaPrazoId INTEGER');
+alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_pessoas_politica ON pessoas(politicaPrazoId)');
+
+// Políticas padrão — o conjunto que cobre a maioria dos casos, para o tenant não
+// começar com a tela vazia e ter de inventar a nomenclatura sozinho.
+//
+// Semeado UMA vez por tenant, marcado em config. Um INSERT OR IGNORE por nome
+// (como os outros seeds deste arquivo) ressuscitaria no próximo boot a política
+// que alguém apagou de propósito; a marca evita isso. Editar ou inativar as que
+// vêm daqui é esperado: são ponto de partida, não configuração do sistema.
+try {
+  const jaSemeado = db.prepare("SELECT valor FROM config WHERE chave = 'politicas_prazo_seed'").get();
+  if (!jaSemeado) {
+    const insPol = db.prepare(`INSERT OR IGNORE INTO politicas_prazo
+      (nome, tipo, prazoDias, meiosPermitidos, aplicaVendas, aplicaCompras, aplicaPdv, observacoes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const p of [
+      // nome, tipo, prazoDias, meios (tPag), vendas, compras, pdv
+      ['À vista',            'vista', null,       null,           1, 0, 1, 'Vencimento na emissão, qualquer meio de recebimento.'],
+      ['PIX à vista',        'vista', null,       '["17"]',       1, 0, 1, 'Balcão e venda rápida: só PIX.'],
+      ['Cartão de crédito',  'vista', null,       '["03"]',       1, 0, 1, 'A conta a receber sai vinculada à adquirente.'],
+      ['Boleto 30 dias',     'prazo', '30',       '["15"]',       1, 0, 0, 'Faturamento mensal em boleto.'],
+      ['Boleto 30/60/90',    'prazo', '30/60/90', '["15"]',       1, 0, 0, 'Três parcelas mensais em boleto.'],
+      ['Faturamento 30 dias','prazo', '30',       null,           1, 0, 0, 'Prazo de 30 dias sem fixar o meio.'],
+      ['Órgão público 30 dias','prazo','30',      null,           1, 0, 0, 'Empenho: prazo legal de pagamento após liquidação.'],
+      ['Fornecedor 28 dias', 'prazo', '28',       null,           0, 1, 0, 'Lado da compra: vencimento das contas a pagar.'],
+    ]) insPol.run(...p);
+    db.prepare("INSERT OR REPLACE INTO config (chave, valor) VALUES ('politicas_prazo_seed', '1')").run();
+  }
+} catch (_) { /* tabela config/politicas indisponível neste contexto */ }
 
 // Contatos múltiplos por área
 db.exec(`
@@ -2053,9 +2185,33 @@ require('./bnc-schema').initBNCSchema(db);
 // Tabelas BLL (bllcompras.com) — conector BLL (proposta + lance). Mesmo padrão.
 require('./bll-schema').initBLLSchema(db);
 
+// Config individual do monitor de chat por portal (palavras-chave + Telegram).
+require('./chat-monitor-config').ensureSchema(db);
+
 // Perfis de acesso (RBAC por página). Cadastro que dá conteúdo a `users.role`:
 // sem linha aqui, o role continua sem restrição — ver perfis-acesso.js.
 require('./perfis-acesso').ensureSchema(db);
+
+// Itens de contrato e periodicidade mensal/anual (2026-08-20). Mesmo caso: o
+// migrarDB de contratos-routes roda contra o BOOT_STUB e não alcança tenant
+// nenhum. Idempotente — cria o que faltar e ignora o resto.
+require('./contratos-routes').migrarDB(db);
+
+// Como cada fornecedor recebe um pedido de compra (2026-08-21): sem linha aqui,
+// "enviar ao fornecedor" continua só mudando o status, como sempre foi.
+require('./fornecedor-integracoes').ensureSchema(db);
+
+// Certificados SSL / NicSRS (2026-08-20). Mesma razão dos blocos acima: o
+// migrarDB() de ssl-certificados-routes roda contra o BOOT_STUB do proxy
+// multi-tenant e é no-op nos tenants; aqui roda contra o DB real. O módulo só
+// aparece para quem tiver a feature `ssl` ligada, mas o schema é criado em
+// todos — tabela vazia não custa nada e evita divergência entre tenants.
+require('./ssl-certificados-routes').migrarDB(db);
+
+// Unificação do cadastro de fornecedores dentro de `pessoas` (2026-08-20).
+// Fica por ÚLTIMO porque depende de `pessoas` e das tabelas de compras já
+// criadas acima. Idempotente: no-op depois da primeira passada.
+require('./migracao-fornecedores-pessoas').migrarFornecedoresParaPessoas(db);
 
 }
 

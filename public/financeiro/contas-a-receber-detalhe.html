@@ -37,6 +37,8 @@
 <body>
 <div class="layout">
   <main class="main-content">
+<div id="avisoAdiantamento"></div>
+
     <div class="page-header">
       <div>
         <h1>Conta a receber</h1>
@@ -54,7 +56,7 @@
     <div class="resumo-pag" id="resumoPag"></div>
     <div class="row"><label>Conta financeira (entrada) *</label><select id="pContaFin"></select></div>
     <div class="row-2">
-      <div class="row"><label>Data recebimento</label><input type="date" id="pData"></div>
+      <div class="row"><label>Data recebimento</label><input type="date" id="pData" onchange="atualizarSugestaoJuros()"></div>
       <div class="row">
         <label>Forma</label>
         <select id="pForma">
@@ -77,6 +79,11 @@
       <div class="row"><label>+ Juros</label><input type="number" step="0.01" id="pJuros" value="0" oninput="recalc()"></div>
       <div class="row"><label>+ Multa</label><input type="number" step="0.01" id="pMulta" value="0" oninput="recalc()"></div>
     </div>
+    <div class="row">
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;">
+        <input type="checkbox" id="pJurosPend" onchange="recalc()"> Juros/multa não recebidos — gerar título pendente para cobrança
+      </label>
+    </div>
     <div class="row-2">
       <div class="row"><label>− Desconto</label><input type="number" step="0.01" id="pDesc" value="0" oninput="recalc()"></div>
       <div class="row"><label>&nbsp;</label>
@@ -87,6 +94,44 @@
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="fecharReceber()">Cancelar</button>
       <button class="btn btn-success" onclick="confirmarReceber()">Confirmar recebimento</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Retificar recebimento -->
+<div class="modal-bg" id="modalRetificar">
+  <div class="modal">
+    <h2>Editar recebimento</h2>
+    <div class="resumo-pag" id="retifResumo"></div>
+    <div class="row"><label>Conta financeira (entrada) *</label><select id="rContaFin"></select></div>
+    <div class="row-2">
+      <div class="row"><label>Data recebimento</label><input type="date" id="rData"></div>
+      <div class="row">
+        <label>Forma (opcional)</label>
+        <select id="rForma">
+          <option value="">—</option>
+          <option value="pix">PIX</option><option value="boleto">Boleto</option>
+          <option value="transferencia">Transferência</option>
+          <option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>Valor base</label><input type="number" step="0.01" id="rBase" oninput="recalcRetif()"></div>
+      <div class="row"><label>&nbsp;</label>
+        <div class="resumo-pag" style="margin:0;"><div class="linha total">Total: <span id="rTotal">R$ 0,00</span></div></div>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>+ Juros</label><input type="number" step="0.01" id="rJuros" value="0" oninput="recalcRetif()"></div>
+      <div class="row"><label>+ Multa</label><input type="number" step="0.01" id="rMulta" value="0" oninput="recalcRetif()"></div>
+    </div>
+    <div class="row"><label>− Desconto</label><input type="number" step="0.01" id="rDesc" value="0" oninput="recalcRetif()"></div>
+    <div class="row"><label>Observações</label><textarea id="rObs" rows="2"></textarea></div>
+    <div class="row"><label>Motivo da correção * (fica no histórico)</label><input type="text" id="rMotivo" placeholder="ex.: valor digitado errado, data do extrato diferente"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fecharRetificar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarRetificar()">Salvar correção</button>
     </div>
   </div>
 </div>
@@ -152,10 +197,60 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/politica-prazo.js"></script>
 <script src="/js/icons.js"></script>
 <script>initSidebar('contas-a-receber');</script>
 <script>
 let CR_ID = null, DADOS = null;
+// Whitelist de meios do cliente desta conta (tPag SEFAZ; null = sem restrição)
+// e a política que a define — sem ela o operador via botões sumirem sem motivo.
+let MEIOS_PERMITIDOS = null;
+let POLITICA_CLIENTE = null;
+const ROTULOS_MEIO_CR = {
+  '01': 'Dinheiro', '02': 'Cheque', '03': 'Cartão de crédito', '04': 'Cartão de débito',
+  '15': 'Boleto', '16': 'Depósito', '17': 'PIX', '18': 'Transferência', '19': 'Carteira digital',
+};
+const SLUG_TPAG = { dinheiro:['01'], cheque:['02'], cartao:['03','04'], boleto:['15'], transferencia:['18'], pix:['17'] };
+
+function podeMeio(slug){
+  if (!MEIOS_PERMITIDOS) return true;
+  return (SLUG_TPAG[slug] || []).some(c => MEIOS_PERMITIDOS.includes(c));
+}
+
+// Emitir boleto/PIX que o cliente não aceita é recusado pelo servidor — o botão
+// nem aparece para não oferecer o que vai falhar.
+function botoesCobranca(){
+  const bts = [];
+  if (podeMeio('boleto')) bts.push(`<button class="btn btn-primary btn-sm" onclick="gerarBoleto()">${icon('plus','ic-sm')}Gerar boleto</button>`);
+  if (podeMeio('pix')) bts.push(`<button class="btn btn-primary btn-sm" onclick="gerarPix()">${icon('plus','ic-sm')}Gerar PIX</button>`);
+  if (!bts.length) return `<div style="color:var(--text-3);font-size:0.9em;">Cliente não aceita boleto nem PIX — ajuste os meios de recebimento no cadastro dele.</div>`;
+  return bts.join(' ');
+}
+
+// O banco tem formas fora da lista fixa do select ('outros' e códigos SEFAZ
+// como '17'). Sem injetar a opção, o campo cai em "—" e a tela dá a impressão
+// de que a forma se perdeu — ela é opcional, mas não pode ser apagada à toa.
+const ROTULO_FORMA = { '01':'Dinheiro','02':'Cheque','03':'Cartão de crédito','04':'Cartão de débito','15':'Boleto bancário','16':'Depósito bancário','17':'PIX','18':'Transferência bancária','99':'Outros' };
+function garantirOpcaoForma(selectId, valor){
+  const sel = document.getElementById(selectId);
+  if (!sel || !valor) return;
+  if ([...sel.options].some(o => o.value === valor)) return;
+  const o = document.createElement('option');
+  o.value = valor;
+  o.textContent = ROTULO_FORMA[valor] || valor;
+  sel.appendChild(o);
+}
+function filtrarFormasCR(selectId){
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  for (const o of sel.options) {
+    const cods = SLUG_TPAG[o.value] || [];
+    const bloqueada = !!MEIOS_PERMITIDOS && cods.length > 0 && !cods.some(c => MEIOS_PERMITIDOS.includes(c));
+    o.hidden = bloqueada;
+    o.disabled = bloqueada;
+  }
+  if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = '';
+}
 function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtData(iso){ if(!iso) return '-'; const d = new Date((iso||'').length===10?iso+'T12:00:00':iso); return isNaN(d)?iso:d.toLocaleDateString('pt-BR'); }
 function hoje(){ const d = new Date(Date.now() - 3*60*60*1000); return d.toISOString().slice(0,10); }
@@ -168,11 +263,19 @@ async function carregar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     DADOS = d;
+    MEIOS_PERMITIDOS = null;
+    POLITICA_CLIENTE = null;
+    if (d.conta && d.conta.pessoaId) {
+      const cond = await PoliticaPrazo.carregar({ pessoaId: d.conta.pessoaId, semCache: true });
+      MEIOS_PERMITIDOS = cond.permitidos;
+      POLITICA_CLIENTE = cond.politica;
+    }
     render();
   } catch(e){ document.getElementById('conteudo').textContent = 'Erro: '+e.message; }
 }
 
 function render(){
+  setTimeout(verSaldoAdiantamento, 0);
   const c = DADOS.conta, pagtos = DADOS.pagamentos, anexos = DADOS.anexos, parcelas = DADOS.parcelas, boletos = DADOS.boletos;
   const h = hoje();
   const vencida = ['aberta','parcial'].includes(c.status) && c.dataVencimento < h;
@@ -210,6 +313,9 @@ function render(){
         <div class="info-item"><div class="lbl">Forma</div><div class="val">${c.formaPagamento||'—'}</div></div>
       </div>
 
+      ${PoliticaPrazo.avisoHTML({ permitidos: MEIOS_PERMITIDOS, politica: POLITICA_CLIENTE }, ROTULOS_MEIO_CR)
+        ? `<div style="margin-top:12px;">${PoliticaPrazo.avisoHTML({ permitidos: MEIOS_PERMITIDOS, politica: POLITICA_CLIENTE }, ROTULOS_MEIO_CR)}</div>` : ''}
+
       ${c.observacoes ? `<p style="margin-top:14px;padding:10px;background:var(--bg-1);border-radius:var(--r-sm);color:var(--text-1);font-size:0.88em;">${c.observacoes}</p>` : ''}
     </div>
 
@@ -217,7 +323,7 @@ function render(){
       <h3>Histórico de recebimentos <span style="color:var(--text-3);font-size:0.85em;font-weight:normal;">(${pagtos.length})</span></h3>
       ${pagtos.length ? `
         <table>
-          <thead><tr><th>Data</th><th>Conta financeira</th><th>Forma</th><th style="text-align:right;">Base</th><th style="text-align:right;">Juros</th><th style="text-align:right;">Multa</th><th style="text-align:right;">Desc.</th><th style="text-align:right;">Total</th><th>Origem</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Conta financeira</th><th>Forma</th><th style="text-align:right;">Base</th><th style="text-align:right;">Juros</th><th style="text-align:right;">Multa</th><th style="text-align:right;">Desc.</th><th style="text-align:right;">Total</th><th>Origem</th><th>Lançado por</th><th>Status</th><th></th></tr></thead>
           <tbody>${pagtos.map(p => `
             <tr style="${p.estornado?'opacity:0.55;':''}">
               <td>${fmtData(p.dataPagamento)}</td>
@@ -228,9 +334,15 @@ function render(){
               <td style="text-align:right;color:var(--warn);">R$ ${fmt(p.multa)}</td>
               <td style="text-align:right;color:var(--success);">R$ ${fmt(p.desconto)}</td>
               <td style="text-align:right;"><strong>R$ ${fmt(p.valorPago)}</strong></td>
-              <td><small style="color:var(--text-3);">${p.origem||'manual'}</small></td>
-              <td><span class="badge ${p.estornado?'estornado':'paga'}">${p.estornado?'estornado':'pago'}</span></td>
-              <td>${!p.estornado ? `<button class="btn btn-warn btn-sm" onclick="estornar(${p.id})">Estornar</button>` : ''}</td>
+              <td><small style="color:var(--text-3);">${p.origem||'manual'}${p.retificaPagamentoId?`<br>retifica #${p.retificaPagamentoId}`:''}</small></td>
+              <td><small>${p.usuario||'—'}</small></td>
+              <td>
+                <span class="badge ${p.estornado?'estornado':'paga'}">${p.estornado?'estornado':'pago'}</span>
+                ${p.estornado ? `<div style="margin-top:4px;"><small style="color:var(--text-3);">por ${p.estornadoPor||'—'}${p.estornadoEm?' · '+fmtData(p.estornadoEm):''}${p.retificadoPorId?`<br>substituído pelo #${p.retificadoPorId}`:''}${p.motivoEstorno?`<br>${p.motivoEstorno}`:''}</small></div>` : ''}
+              </td>
+              <td>${!p.estornado ? `
+                <button class="btn btn-secondary btn-sm" onclick="abrirRetificar(${p.id})" title="Corrige a baixa: estorna esta e relança a corrigida, com motivo registrado">Editar</button>
+                <button class="btn btn-warn btn-sm" onclick="estornar(${p.id})">Estornar</button>` : ''}</td>
             </tr>`).join('')}</tbody>
         </table>` : '<p style="color:var(--text-3);">Nenhum recebimento registrado.</p>'}
     </div>
@@ -260,12 +372,11 @@ function render(){
               ? `${b.pixQrImage ? `<div style="text-align:center;margin-top:10px;"><img src="data:image/png;base64,${b.pixQrImage}" alt="QR Code PIX" style="width:170px;height:170px;background:#fff;padding:6px;border-radius:8px;"></div>` : ''}${b.pixPayload ? `<div class="boleto-linha" style="cursor:pointer;" title="Clique para copiar" onclick="copiarTexto(this)">${b.pixPayload}</div><div style="font-size:0.8em;color:var(--text-3);margin-top:2px;">PIX copia e cola — clique no código para copiar</div>` : ''}`
               : (b.writableLine ? `<div class="boleto-linha">${b.writableLine}</div>` : '')}
           </div>`).join('')}
-        ${['aberta','parcial'].includes(c.status) && !boletoAtivo ? `<button class="btn btn-primary btn-sm" onclick="gerarBoleto()">${icon('plus','ic-sm')}Gerar boleto</button> <button class="btn btn-primary btn-sm" onclick="gerarPix()">${icon('plus','ic-sm')}Gerar PIX</button>` : ''}
+        ${['aberta','parcial'].includes(c.status) && !boletoAtivo ? botoesCobranca() : ''}
       </div>` : (['aberta','parcial'].includes(c.status) ? `
       <div class="panel">
         <h3>Cobrança</h3>
-        <button class="btn btn-primary btn-sm" onclick="gerarBoleto()">${icon('plus','ic-sm')}Gerar boleto</button>
-        <button class="btn btn-primary btn-sm" onclick="gerarPix()">${icon('plus','ic-sm')}Gerar PIX</button>
+        ${botoesCobranca()}
       </div>` : '')}
 
     <div class="panel">
@@ -303,7 +414,7 @@ function render(){
       <div class="panel">
         <h3>NFSe vinculada</h3>
         <p>NFSe ${c.nfseNumero || ''} · status <span class="badge">${c.nfseStatus||'—'}</span></p>
-        <a href="/fiscal/nfse-emitidas.html" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;margin-top:8px;">Abrir NFSe</a>
+        <a href="/fiscal/notas-fiscais.html?tipo=nfse" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;margin-top:8px;">Abrir NFSe</a>
       </div>` : ''}
   `;
   document.getElementById('conteudo').innerHTML = html;
@@ -317,12 +428,12 @@ function render(){
 //   juros simples   = saldo × jurosMesPct/100 × (dias_efetivos/30)
 //   juros composto  = saldo × ((1 + jurosMesPct/100)^(dias_efetivos/30) − 1)
 // Retorna { juros, multa, diasAtraso, diasEfetivos }.
-async function calcularJurosMultaSugeridos(saldo, dataVencimento) {
+async function calcularJurosMultaSugeridos(saldo, dataVencimento, dataRecebimento) {
   try {
     const r = await fetch('/api/financeiro/config-juros');
     const cfg = await r.json();
     if (!cfg.success) return { juros: 0, multa: 0 };
-    const atraso = diffDias(dataVencimento);
+    const atraso = diffDias(dataVencimento, dataRecebimento);
     const efetivos = Math.max(0, atraso - (cfg.carenciaDias || 0));
     if (efetivos <= 0 || saldo <= 0) return { juros: 0, multa: 0, diasAtraso: atraso, diasEfetivos: 0 };
     const jPct = Number(cfg.jurosMesPct) || 0;
@@ -345,22 +456,35 @@ async function calcularJurosMultaSugeridos(saldo, dataVencimento) {
   }
 }
 
+// Recalcula juros/multa sugeridos a partir da data de recebimento informada
+// (pData) — baixas lançadas depois do recebimento real usam a data correta.
+async function atualizarSugestaoJuros(){
+  const c = DADOS.conta;
+  const dataRec = document.getElementById('pData').value || hoje();
+  const sugerido = await calcularJurosMultaSugeridos(c.saldoRestante, c.dataVencimento, dataRec);
+  document.getElementById('pJuros').value = sugerido.juros || 0;
+  document.getElementById('pMulta').value = sugerido.multa || 0;
+  document.getElementById('linhaAtraso').innerHTML = sugerido.diasEfetivos > 0
+    ? `<div class="linha" style="color:var(--warn);"><span>Em atraso</span><span>${sugerido.diasAtraso} dias (${sugerido.diasEfetivos} após carência)</span></div>` : '';
+  recalc();
+}
 async function abrirReceber(){
   const c = DADOS.conta;
-  const sugerido = await calcularJurosMultaSugeridos(c.saldoRestante, c.dataVencimento);
   document.getElementById('resumoPag').innerHTML = `
     <div class="linha"><span>Valor total</span><strong>R$ ${fmt(c.valor)}</strong></div>
     <div class="linha"><span>Já recebido</span><strong style="color:var(--success);">R$ ${fmt(c.totalPago)}</strong></div>
     <div class="linha total"><span>Saldo restante</span><span>R$ ${fmt(c.saldoRestante)}</span></div>
-    ${sugerido.diasEfetivos > 0 ? `<div class="linha" style="color:var(--warn);"><span>Em atraso</span><span>${sugerido.diasAtraso} dias (${sugerido.diasEfetivos} após carência)</span></div>` : ''}
+    <div id="linhaAtraso"></div>
   `;
   document.getElementById('pBase').value = c.saldoRestante.toFixed(2);
-  document.getElementById('pJuros').value = sugerido.juros || 0;
-  document.getElementById('pMulta').value = sugerido.multa || 0;
   document.getElementById('pDesc').value = 0;
   document.getElementById('pData').value = hoje();
   document.getElementById('pParcial').checked = false;
+  document.getElementById('pJurosPend').checked = false;
+  await atualizarSugestaoJuros();
+  garantirOpcaoForma('pForma', c.formaPagamento);
   document.getElementById('pForma').value = c.formaPagamento || '';
+  filtrarFormasCR('pForma');
   recalc();
   try {
     const r = await fetch('/api/contas-financeiras');
@@ -372,18 +496,24 @@ async function abrirReceber(){
 function fecharReceber(){ document.getElementById('modalReceber').classList.remove('open'); }
 function recalc(){
   const b = Number(document.getElementById('pBase').value) || 0;
-  const j = Number(document.getElementById('pJuros').value) || 0;
-  const m = Number(document.getElementById('pMulta').value) || 0;
+  const jPend = document.getElementById('pJurosPend').checked;
+  const j = jPend ? 0 : (Number(document.getElementById('pJuros').value) || 0);
+  const m = jPend ? 0 : (Number(document.getElementById('pMulta').value) || 0);
   const d = Number(document.getElementById('pDesc').value) || 0;
   document.getElementById('pTotal').textContent = 'R$ ' + fmt(b + j + m - d);
 }
 async function confirmarReceber(){
+  const jurosVal = Number(document.getElementById('pJuros').value) || 0;
+  const multaVal = Number(document.getElementById('pMulta').value) || 0;
+  const jurosPend = document.getElementById('pJurosPend').checked;
   const body = {
     contaFinanceiraId: Number(document.getElementById('pContaFin').value),
     dataPagamento: document.getElementById('pData').value,
     valorBase: Number(document.getElementById('pBase').value),
-    juros: Number(document.getElementById('pJuros').value) || 0,
-    multa: Number(document.getElementById('pMulta').value) || 0,
+    juros: jurosPend ? 0 : jurosVal,
+    jurosPendente: jurosPend ? jurosVal : 0,
+    multa: jurosPend ? 0 : multaVal,
+    multaPendente: jurosPend ? multaVal : 0,
     desconto: Number(document.getElementById('pDesc').value) || 0,
     parcial: document.getElementById('pParcial').checked,
     formaPagamento: document.getElementById('pForma').value || null,
@@ -398,16 +528,79 @@ async function confirmarReceber(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     fecharReceber(); carregar();
+    if (d.jurosPendenteCrId) alert('Baixa registrada. Título de juros/multa pendente criado (conta #'+d.jurosPendenteCrId+').');
   } catch(e){ alert('Erro: '+e.message); }
 }
 
 async function estornar(pagamentoId){
-  if (!confirm('Estornar este recebimento?\n\nO registro fica marcado como estornado (histórico preservado) e a movimentação financeira será removida.')) return;
+  if (!confirm('Estornar este recebimento?\n\nO registro fica marcado como estornado (histórico preservado) e a movimentação financeira é anulada por um lançamento reverso.')) return;
+  const motivo = prompt('Motivo do estorno (fica no histórico):') || '';
   try {
-    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/estornar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pagamentoId }) });
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/estornar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pagamentoId, motivo: motivo.trim() || null }) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+// ===== Retificar recebimento (estorno + relançamento) =====
+let RETIF_ID = null;
+async function abrirRetificar(pagamentoId){
+  const p = (DADOS.pagamentos||[]).find(x => x.id === pagamentoId);
+  if (!p) return;
+  RETIF_ID = pagamentoId;
+  document.getElementById('retifResumo').innerHTML = `
+    <div class="linha"><span>Lançamento original #${p.id}</span><strong>R$ ${fmt(p.valorPago)}</strong></div>
+    <div class="linha"><span>Lançado por</span><strong>${p.usuario||'—'} · ${fmtData(p.dataPagamento)}</strong></div>
+    <div class="linha" style="color:var(--text-3);"><span>Ao salvar, este lançamento é estornado e um novo entra corrigido — os dois ficam no histórico.</span></div>
+  `;
+  document.getElementById('rData').value = (p.dataPagamento||'').slice(0,10);
+  document.getElementById('rBase').value = Number(p.valorBase).toFixed(2);
+  document.getElementById('rJuros').value = Number(p.juros||0).toFixed(2);
+  document.getElementById('rMulta').value = Number(p.multa||0).toFixed(2);
+  document.getElementById('rDesc').value = Number(p.desconto||0).toFixed(2);
+  document.getElementById('rObs').value = p.observacoes || '';
+  document.getElementById('rMotivo').value = '';
+  recalcRetif();
+  try {
+    const r = await fetch('/api/contas-financeiras');
+    const d = await r.json();
+    document.getElementById('rContaFin').innerHTML = (d.contas || []).filter(x => x.ativo)
+      .map(x => `<option value="${x.id}" ${x.id==p.contaFinanceiraId?'selected':''}>${x.nome} (${x.tipo})</option>`).join('');
+  } catch(e){}
+  garantirOpcaoForma('rForma', p.formaPagamento);
+  document.getElementById('rForma').value = p.formaPagamento || '';
+  filtrarFormasCR('rForma');
+  document.getElementById('modalRetificar').classList.add('open');
+}
+function fecharRetificar(){ document.getElementById('modalRetificar').classList.remove('open'); RETIF_ID = null; }
+function recalcRetif(){
+  const b = Number(document.getElementById('rBase').value) || 0;
+  const j = Number(document.getElementById('rJuros').value) || 0;
+  const m = Number(document.getElementById('rMulta').value) || 0;
+  const d = Number(document.getElementById('rDesc').value) || 0;
+  document.getElementById('rTotal').textContent = 'R$ ' + fmt(b + j + m - d);
+}
+async function confirmarRetificar(){
+  const motivo = (document.getElementById('rMotivo').value || '').trim();
+  if (motivo.length < 5) { alert('Informe o motivo da correção (mín. 5 caracteres)'); return; }
+  const body = {
+    pagamentoId: RETIF_ID, motivo,
+    contaFinanceiraId: Number(document.getElementById('rContaFin').value) || null,
+    dataPagamento: document.getElementById('rData').value,
+    valorBase: Number(document.getElementById('rBase').value),
+    juros: Number(document.getElementById('rJuros').value) || 0,
+    multa: Number(document.getElementById('rMulta').value) || 0,
+    desconto: Number(document.getElementById('rDesc').value) || 0,
+    formaPagamento: document.getElementById('rForma').value || null,
+    observacoes: document.getElementById('rObs').value || null
+  };
+  if (!body.valorBase || body.valorBase <= 0) { alert('Valor base inválido'); return; }
+  try {
+    const r = await fetch('/api/contas-a-receber/'+CR_ID+'/retificar-baixa', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharRetificar(); carregar();
   } catch(e){ alert('Erro: '+e.message); }
 }
 
@@ -417,7 +610,9 @@ async function abrirEditar(){
   document.getElementById('eDesc').value = c.descricao || '';
   document.getElementById('eValor').value = Number(c.valor).toFixed(2);
   document.getElementById('eVenc').value = (c.dataVencimento||'').slice(0,10);
+  garantirOpcaoForma('eForma', c.formaPagamento);
   document.getElementById('eForma').value = c.formaPagamento || '';
+  filtrarFormasCR('eForma');
   document.getElementById('eObs').value = c.observacoes || '';
   try {
     const [rc, rp, rcc] = await Promise.all([
@@ -692,9 +887,9 @@ async function confirmarCobrar(){
   }
 }
 
-function diffDias(dataVenc){
+function diffDias(dataVenc, dataRef){
   if (!dataVenc) return 0;
-  const h = new Date(hoje() + 'T12:00:00Z');
+  const h = new Date(String(dataRef || hoje()).slice(0,10) + 'T12:00:00Z');
   const v = new Date(String(dataVenc).slice(0,10) + 'T12:00:00Z');
   return Math.floor((h - v) / 86400000);
 }
@@ -719,5 +914,41 @@ async function reativarPerda(){
   if (!d.success) return alert(d.error);
   location.reload();
 }
+// ---------- adiantamento ----------
+// O saldo do cliente/fornecedor só aparecia na tela de adiantamentos. Quem
+// está com o título aberto na mão não tinha como saber que existia crédito.
+async function verSaldoAdiantamento(){
+  const c = DADOS && DADOS.conta;
+  const el = document.getElementById('avisoAdiantamento');
+  if (!el || !c || !['aberta','parcial'].includes(c.status) || !c.pessoaId) {
+    if (el) el.innerHTML = '';
+    return;
+  }
+  try {
+    const d = await fetch('/api/adiantamentos/saldo?pessoaId=' + c.pessoaId).then(r=>r.json());
+    if (!d.success || !(d.disponivel > 0)) { el.innerHTML = ''; return; }
+    const fmtBRL = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    el.innerHTML = `<div class="alert info" style="display:block;">
+      Este cliente tem <strong>R$ ${fmtBRL(d.disponivel)}</strong> de adiantamento disponível
+      (${d.adiantamentos.length} lançamento(s)).
+      <button class="btn btn-primary btn-sm" style="margin-left:10px;" onclick="abaterAdiantamento()">
+        Abater deste título</button></div>`;
+  } catch { el.innerHTML = ''; }
+}
+
+async function abaterAdiantamento(){
+  if (!confirm('Abater este título com o saldo de adiantamento? O caixa não se move — o dinheiro já entrou quando o adiantamento foi lançado.')) return;
+  const r = await fetch(`/api/contas-a-receber/${CR_ID}/abater-adiantamento`,
+    { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+  const d = await r.json();
+  if (!d.success) return (typeof showAlert === 'function'
+    ? showAlert(d.error, 'error') : alert('Erro: ' + d.error));
+  const msg = `Abatido R$ ${Number(d.abatido).toLocaleString('pt-BR',{minimumFractionDigits:2})}`
+    + ` — título ${d.statusTitulo}`
+    + (d.saldoRestanteTitulo > 0 ? `, restam R$ ${Number(d.saldoRestanteTitulo).toLocaleString('pt-BR',{minimumFractionDigits:2})}` : '');
+  if (typeof showAlert === 'function') showAlert(msg); else alert(msg);
+  location.reload();
+}
+
 </script>
 </body></html>

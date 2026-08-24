@@ -26,9 +26,10 @@
       Define o comportamento de cada tipo de OS: SLA padrão, modo fiscal, e o que é obrigatório
       no cadastro (endereço de execução, orçamento aprovado, assinatura do cliente).
     </p>
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="os-tipos">
       <table>
         <thead><tr>
+          <th class="col-editar"></th>
           <th></th>
           <th>Nome</th>
           <th>Slug</th>
@@ -37,7 +38,7 @@
           <th>Status</th>
           <th></th>
         </tr></thead>
-        <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -94,7 +95,7 @@
           <option value="">— sem padrão (usa VDA-NORMAL) —</option>
         </select>
         <small class="muted" style="font-size:11px;">
-          Cadastre novos em <a href="/configuracoes/cadastro-tipos-operacao.html" target="_blank">Tipos de Operação</a>.
+          Cadastre novos em <a href="/fiscal/cadastro-tipos-operacao.html" target="_blank">Tipos de Operação</a>.
         </small>
       </div>
     </div>
@@ -122,6 +123,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('cadastro-os-tipos');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -132,7 +135,7 @@ let tiposOperacao = [];
 
 async function carregarTiposOperacao(){
   try {
-    const r = await fetch('/api/tipos-operacao?categoria=servico');
+    const r = await fetch('/api/tipos-operacao?usoOS=1');
     const d = await r.json();
     if (!d.success) return;
     tiposOperacao = d.tipos || [];
@@ -165,13 +168,14 @@ function renderTabela(){
     if (t.exigeOrcamentoAprovado) exig.push('orçamento');
     if (t.exigeAssinaturaCliente) exig.push('assinatura');
     return `<tr style="${t.ativo?'':'opacity:0.5;'}">
+      <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar tipo" onclick="editar(${t.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
       <td><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${t.cor||'#4dabf7'};border:1px solid #0002;vertical-align:middle;"></span></td>
       <td><strong>${escTxt(t.nome)}</strong>${t.descricao?'<br><small class="muted">'+escTxt(t.descricao)+'</small>':''}</td>
       <td><code>${escTxt(t.slug)}</code></td>
       <td>${t.slaDiasPadrao ? t.slaDiasPadrao+'d' : '—'}</td>
       <td>${exig.length ? exig.join(', ') : '—'}</td>
       <td>${t.ativo ? '<span class="badge success">ativo</span>' : '<span class="badge">inativo</span>'}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="editar(${t.id})">Editar</button></td>
+      <td></td>
     </tr>`;
   }).join('');
 }

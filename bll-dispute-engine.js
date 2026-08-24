@@ -64,6 +64,80 @@ function firstDefined(obj, keys) {
   return null;
 }
 
+// ── Estratégia de ESCADA (posicionamento) — validada in-vivo 2026-08-05 ───────
+// A BLL expõe a escada COMPLETA de participantes via /BatchListParticipant/BidAndInfo
+// (≠ Comprasnet). Diferente da regra antiga (só cobrir o líder), o motor agora
+// se posiciona no melhor degrau alcançável respeitando o piso. As leituras são:
+//   1) /BatchList/PartialUnique?idProcess=<Pid>&idStatus=7 → 1 <tr id="rowN"> por
+//      lote em disputa; do onclick extraímos:
+//        FastBid   → ['[gkz]TOKEN_A','1']            (TOKEN_A = batchId do PerformBid)
+//        BidAndInfo→ ['[gkz]TOKEN_A','[gkz]TOKEN_B'] (param2 = TOKEN_B p/ a escada)
+//   2) /BatchListParticipant/BidAndInfo?param1=TOKEN_A&param2=TOKEN_B → {html} com
+//      a tabela "PARTICIPANTE NNN | melhor lance" + "LANCE (PARTICIPANTE <nós>)".
+// value do PerformBid é REAIS INTEIROS.
+
+function pbrl(s) { // parse número pt-BR "4.485,00" → 4485
+  if (s == null) return null;
+  const n = Number(String(s).replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+// Linhas de lote do PartialUnique com os tokens de lance/escada.
+function parsePartialRows(html) {
+  const out = [];
+  const rows = String(html || '').match(/<tr[^>]*id="row\d+"[\s\S]*?<\/tr>/gi) || [];
+  for (const row of rows) {
+    const td = (id) => {
+      const m = row.match(new RegExp('<td[^>]*id="' + id + '"[^>]*>([\\s\\S]*?)<\\/td>', 'i'));
+      return m ? m[1].replace(/<[^>]+>/g, '').replace(/&#\d+;|&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim() : null;
+    };
+    const batchNumber = td('BatchNumber') != null ? Number(td('BatchNumber')) : null;
+    if (batchNumber == null || Number.isNaN(batchNumber)) continue;
+    const fb = row.match(/'FastBid'\s*,\s*\[\s*'(\[gkz\][^']+)'/);
+    const bi = row.match(/'BidAndInfo'\s*,\s*\[\s*'(\[gkz\][^']+)'\s*,\s*'(\[gkz\][^']+)'/);
+    out.push({
+      batchNumber,
+      title: td('Title') || ('LOTE ' + batchNumber),
+      statusName: td('CurrentStatusName') || null,
+      winnerBidderId: td('WinnerBidderId') || null,
+      winnerBidValue: pbrl(td('WinnerBidValue')),
+      fbToken: fb ? fb[1] : null,       // = batchId do PerformBid
+      biToken1: bi ? bi[1] : (fb ? fb[1] : null),
+      biToken2: bi ? bi[2] : null,
+    });
+  }
+  return out;
+}
+
+// Escada + nossa posição a partir do JSON {html} do BidAndInfo.
+function parseEscada(bodyJsonOrHtml) {
+  let html = bodyJsonOrHtml;
+  try { const j = JSON.parse(bodyJsonOrHtml); if (j && j.html) html = j.html; } catch { /* já é html */ }
+  html = String(html || '');
+  const ladder = [...html.matchAll(/PARTICIPANTE (\d+)\s*<\/td>\s*<td[^>]*>\s*([\d.,]+)/g)]
+    .map(m => ({ p: m[1], v: pbrl(m[2]) }))
+    .filter(x => x.v != null);
+  ladder.sort((a, b) => a.v - b.v);
+  const meuId = (html.match(/LANCE \(PARTICIPANTE (\d+)\)/) || [])[1] || null;
+  const minha = meuId ? ladder.find(x => x.p === meuId) : null;
+  return {
+    ladder,
+    meuParticipante: meuId,
+    meuValor: minha ? minha.v : null,
+    minhaPosicao: minha ? ladder.indexOf(minha) + 1 : null,
+  };
+}
+
+// Menor degrau (excluindo o nosso) coberto por V-dec >= piso → alvo = V-dec.
+// Retorna null se já estamos na melhor posição alcançável ou nada é viável.
+function calcAlvoEscada(escada, piso, dec) {
+  const cand = escada.ladder.find(x => x.p !== escada.meuParticipante && x.v - dec >= piso);
+  if (!cand) return null;
+  const alvo = Math.floor(cand.v - dec);
+  if (escada.meuValor != null && alvo >= escada.meuValor) return null; // já posicionado
+  return { alvo, cobre: cand };
+}
+
 function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }) {
   if (!db) throw new Error('db obrigatório');
   if (!processId) throw new Error('processId obrigatório');
@@ -74,6 +148,8 @@ function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }
     decremento: Number(config.decremento ?? 1),
     throttleMs: Number(config.throttleMs ?? 2000),
     dryRun: config.dryRun !== false,  // default DRY-RUN por segurança
+    escadaMode: config.escadaMode !== false,   // default: estratégia de escada
+    fallbackMs: Number(config.fallbackMs ?? 5000),  // re-leitura periódica da escada
   };
   // Injeção do provedor de token reCAPTCHA v3 (action 'performBid'). Sem ele,
   // sendBid falha de forma controlada (nunca em dryRun, que não envia).
@@ -91,6 +167,13 @@ function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }
   let myParticipantUuid = null;      // aprendido reativamente
   let pendingLearnBid = null;        // { value, sentAt }
   let rawSampleDumped = false;       // dump único do payload cru pra mapear campos
+
+  // Estado da estratégia de escada
+  const escadaLastBidAt = new Map(); // batchNumber → ts do último PerformBid (throttle)
+  let escadaBusy = false;            // 1 ciclo por vez
+  let escadaPending = false;         // pedido chegou durante um ciclo → re-roda
+  let escadaTimer = null;            // fallback interval
+  let disputaEncerrada = false;      // idStatus=7 sem FastBid → fim
 
   function fmtBatch(idBatch) {
     return idBatch ? String(idBatch).slice(0, 8) : '?';
@@ -180,6 +263,14 @@ function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }
 
     emitter.emit('updateStatus', data);
 
+    // Estratégia de escada: o UpdateStatus é só um GATILHO — a decisão vem da
+    // leitura fresca da escada (posição real de todos), não dos campos do payload.
+    if (cfg.escadaMode) {
+      escadaCycle('push').catch(e => emitter.emit('error', e));
+      return;
+    }
+
+    // Legado (cobrir só o líder pelos campos do payload) — mantido p/ fallback.
     const decision = decide(data, novo);
     emitter.emit('decision', decision);
 
@@ -266,6 +357,136 @@ function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }
     emitter.emit('bidUnknown', { ...decision, response: body, status: resp.status });
   }
 
+  // ── Ciclo de ESCADA ────────────────────────────────────────────────────────
+  // Lê a escada ao vivo (PartialUnique + BidAndInfo), persiste via evento
+  // 'escada' e — se dryRun=0 e o lote tiver auto-lance ativo — se reposiciona.
+  async function escadaCycle(trigger) {
+    if (disputaEncerrada) return;
+    if (escadaBusy) { escadaPending = true; return; }
+    escadaBusy = true;
+    try {
+      let pu;
+      try {
+        pu = await bllFetch(db, '/BatchList/PartialUnique?idProcess=' + encodeURIComponent(processId) + '&idStatus=7&startingNumber=0', {
+          method: 'GET', headers: { Accept: 'text/html,*/*' },
+        });
+      } catch (e) { _log('escada: PartialUnique falhou:', e.message); return; }
+      const rows = parsePartialRows(pu.body || '');
+      const comLance = rows.filter(r => r.fbToken);
+      if (!comLance.length) {
+        // Sem botão de lance em idStatus=7 → disputa saiu da fase (encerrou/julgamento)
+        disputaEncerrada = true;
+        _log('escada: sem lote com FastBid (fase de lances encerrou) — motor em repouso');
+        emitter.emit('escadaEncerrada', { trigger });
+        return;
+      }
+      for (const row of comLance) {
+        let esc;
+        try {
+          if (!row.biToken2) { esc = { ladder: [], meuParticipante: null, meuValor: null, minhaPosicao: null }; }
+          else {
+            const bi = await bllFetch(db, '/BatchListParticipant/BidAndInfo?param1=' + encodeURIComponent(row.biToken1) + '&param2=' + encodeURIComponent(row.biToken2), {
+              method: 'GET', headers: { Accept: 'application/json,*/*', 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            esc = parseEscada(bi.body || '');
+          }
+        } catch (e) { _log(`escada: BidAndInfo lote ${row.batchNumber} falhou:`, e.message); continue; }
+
+        // Persistência (o scheduler grava em bll_salas_lotes + rebuild cache)
+        emitter.emit('escada', {
+          batchNumber: row.batchNumber,
+          title: row.title,
+          statusName: row.statusName,
+          fbToken: row.fbToken,
+          winnerBidderId: (esc.ladder[0] && ('PARTICIPANTE ' + esc.ladder[0].p)) || row.winnerBidderId,
+          currentBest: (esc.ladder[0] && esc.ladder[0].v) != null ? esc.ladder[0].v : row.winnerBidValue,
+          escada: esc,
+        });
+
+        // Decisão de lance
+        let loteCfg = null;
+        if (resolveLoteConfig) { try { loteCfg = resolveLoteConfig(row.batchNumber); } catch { loteCfg = null; } }
+        const piso = Number(loteCfg ? (loteCfg.limiteMinimo ?? cfg.limiteMinimo) : cfg.limiteMinimo);
+        const dec = Number(loteCfg ? (loteCfg.decremento ?? cfg.decremento) : cfg.decremento);
+        const thr = Number(loteCfg ? (loteCfg.throttleMs ?? cfg.throttleMs) : cfg.throttleMs);
+        const ativo = loteCfg ? !!loteCfg.ativo : false;
+
+        const plano = calcAlvoEscada(esc, piso, dec);
+        const posLabel = esc.minhaPosicao ? `${esc.minhaPosicao}º/${esc.ladder.length}` : '—';
+
+        if (cfg.dryRun) {
+          const msg = plano
+            ? `🤖 DRY-RUN lote ${row.batchNumber} [${posLabel}] DARIA LANCE R$${plano.alvo} (cobre ${plano.cobre.p}@${plano.cobre.v}, piso ${piso})`
+            : `🤖 DRY-RUN lote ${row.batchNumber} [${posLabel}] skip (nosso ${esc.meuValor ?? '—'}, líder ${esc.ladder[0] ? esc.ladder[0].v : '—'}, piso ${piso})`;
+          _log(msg);
+          continue;
+        }
+        if (!ativo) continue;
+        if (!plano) continue;
+        const since = escadaLastBidAt.has(row.batchNumber) ? Date.now() - escadaLastBidAt.get(row.batchNumber) : Infinity;
+        if (since < thr) continue;
+        escadaLastBidAt.set(row.batchNumber, Date.now());
+        await sendBidEscada(row.fbToken, plano.alvo, row.batchNumber, plano.cobre)
+          .catch(e => emitter.emit('error', e));
+      }
+    } finally {
+      escadaBusy = false;
+      if (escadaPending && !disputaEncerrada) {
+        escadaPending = false;
+        setTimeout(() => escadaCycle('pending').catch(() => {}), 40);
+      }
+    }
+  }
+
+  // PerformBid da estratégia de escada: batchId = token do FastBid da linha.
+  async function sendBidEscada(fbToken, value, batchNumber, cobre) {
+    if (!requestCaptchaToken) {
+      emitter.emit('bidFailed', { batchNumber, value, error: 'sem requestCaptchaToken', stage: 'captcha-missing' });
+      return;
+    }
+    let captchaToken;
+    try {
+      captchaToken = await requestCaptchaToken({ action: 'performBid', timeoutMs: 20000 });
+    } catch (e) {
+      _log(`⚠️  captcha falhou (lote ${batchNumber}): ${e.message}`);
+      emitter.emit('bidFailed', { batchNumber, value, error: e.message, stage: 'captcha' });
+      return;
+    }
+    const qs = new URLSearchParams({ batchId: fbToken, value: String(value), token: captchaToken }).toString();
+    const t0 = Date.now();
+    let resp;
+    try {
+      resp = await bllFetch(db, '/BatchListParticipant/PerformBid?' + qs, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json;charset=utf-8',
+          Accept: 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      });
+    } catch (e) {
+      _log(`⚠️  PerformBid HTTP falhou (lote ${batchNumber}): ${e.message}`);
+      emitter.emit('bidFailed', { batchNumber, value, error: e.message, stage: 'http' });
+      return;
+    }
+    let body; try { body = JSON.parse(resp.body); } catch { body = { raw: resp.body }; }
+    if (body && body.message === 'null') {
+      _log(`✅ LANCE ACEITO lote ${batchNumber}: R$${value}${cobre ? ` (cobriu ${cobre.p}@${cobre.v})` : ''} em ${Date.now() - t0}ms`);
+      emitter.emit('bidSent', { batchNumber, value, response: body });
+      // re-lê logo em seguida pra confirmar posição
+      escadaPending = true;
+      return;
+    }
+    if (body && body.modal === 'error') {
+      const errHtml = String(body.html || '').replace(/<[^>]+>/g, '').trim().slice(0, 200);
+      _log(`❌ PerformBid recusado (lote ${batchNumber}): ${errHtml}`);
+      emitter.emit('bidFailed', { batchNumber, value, error: errHtml, stage: 'server', raw: body });
+      return;
+    }
+    _log(`⚠️  PerformBid resposta inesperada (lote ${batchNumber}) status=${resp.status}: ${JSON.stringify(body).slice(0, 160)}`);
+    emitter.emit('bidUnknown', { batchNumber, value, response: body, status: resp.status });
+  }
+
   // Descobre tokens [gkz] dos lotes via GET /BatchList parseando o HTML.
   // ⚠️  O regex abaixo é o do BNC ('FastBid') — a estrutura do botão de lance da
   // BLL PODE diferir. A confirmar com a página /BatchList real (ver Dispute-1.0.3.js
@@ -289,19 +510,42 @@ function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }
     return Array.from(tokens);
   }
 
-  sig.on('updateInfoStatus', (data) => emitter.emit('updateInfoStatus', data));
+  sig.on('updateInfoStatus', (data) => {
+    emitter.emit('updateInfoStatus', data);
+    if (cfg.escadaMode) escadaCycle('push-info').catch(e => emitter.emit('error', e));
+  });
   sig.on('newDisputingBatch', (data) => emitter.emit('newDisputingBatch', data));
+  // Sinais de chat (só gatilhos — não trazem texto; o conteúdo vem por fetch).
+  for (const ev of ['newBatchMsg', 'newProcessMsg', 'newReadBatchMsg', 'newProcessAlert']) {
+    sig.on(ev, (data) => emitter.emit('chatSignal', { event: ev, data }));
+  }
   sig.on('connected', (info) => emitter.emit('connected', info));
   sig.on('disconnected', (reason) => emitter.emit('disconnected', reason));
   sig.on('error', (e) => emitter.emit('error', e));
 
+  async function start() {
+    await sig.start();
+    if (cfg.escadaMode) {
+      escadaCycle('boot').catch(e => emitter.emit('error', e));
+      // fallback: re-lê a escada periodicamente mesmo sem push do SignalR
+      escadaTimer = setInterval(() => {
+        if (!disputaEncerrada) escadaCycle('fallback').catch(() => {});
+      }, cfg.fallbackMs);
+    }
+  }
+  function stop() {
+    if (escadaTimer) { clearInterval(escadaTimer); escadaTimer = null; }
+    sig.stop();
+  }
+
   return Object.assign(emitter, {
-    start: () => sig.start(),
-    stop: () => sig.stop(),
+    start,
+    stop,
     status: () => ({
       signalR: sig.status(),
       cfg: { ...cfg, hasCaptcha: !!requestCaptchaToken },
       myParticipantUuid,
+      disputaEncerrada,
       lotes: Array.from(lotes.entries()).map(([id, s]) => ({ id, ...s })),
       batchTokens: Array.from(batchTokens.entries()),
     }),
@@ -314,4 +558,4 @@ function createEngine({ db, processId, userId, config = {}, log, getLoteConfig }
   });
 }
 
-module.exports = { createEngine };
+module.exports = { createEngine, parsePartialRows, parseEscada, calcAlvoEscada };

@@ -28,15 +28,20 @@ db.prepare(`INSERT INTO transacoes_bancarias (contaFinanceiraId, fitid, data, va
 db.prepare(`INSERT INTO transacoes_bancarias (contaFinanceiraId, fitid, data, valor, tipo, descricao)
   VALUES (1, 'TESTE-2', date('now'), 1500.00, 'CREDIT', 'PIX RECEBIDO CLIENTE XYZ')`).run();
 db.prepare(`INSERT INTO conciliacao_regras (padraoTexto, tipoLancamento, acao) VALUES ('TARIFA', 'saida', 'ignorar')`).run();
-db.prepare(`INSERT INTO conciliacao_regras (padraoTexto, tipoLancamento, acao, categoria) VALUES ('PIX RECEBIDO', 'entrada', 'categorizar', 'Recebimentos PIX')`).run();
-const aplicadas = aplicarRegrasConciliacao(db, 1);
+// Regra que categoriza precisa de conta do plano (CHECK categorizar_exige_conta):
+// sem ela a classificacao nao chegaria ao orcamento, entao o banco recusa.
+const pcReceita = db.prepare("SELECT id FROM plano_contas WHERE codigo = '1.1'").get();
+db.prepare(`INSERT INTO conciliacao_regras (padraoTexto, tipoLancamento, acao, categoria, planoContaId)
+  VALUES ('PIX RECEBIDO', 'entrada', 'categorizar', 'Recebimentos PIX', ?)`).run(pcReceita.id);
+const aplicadas = aplicarRegrasConciliacao(db, 1).aplicadas;
 assert(aplicadas === 2, `regras aplicadas a 2 transações`);
 const t1 = db.prepare("SELECT * FROM transacoes_bancarias WHERE fitid='TESTE-1'").get();
 assert(t1.conciliadaCom === 'ignorada', 'tarifa marcada como ignorada');
 const t2 = db.prepare("SELECT * FROM transacoes_bancarias WHERE fitid='TESTE-2'").get();
 assert(t2.categoriaSugerida === 'Recebimentos PIX' && !t2.conciliadaCom, 'PIX categorizado (sem conciliar)');
+assert(t2.planoContaIdSugerido === pcReceita.id, 'classificacao levou a conta do plano (chega ao orcamento)');
 // idempotência: reaplicar não conta de novo
-assert(aplicarRegrasConciliacao(db, 1) === 0, 'reaplicar é idempotente (regraAplicadaId)');
+assert(aplicarRegrasConciliacao(db, 1).aplicadas === 0, 'reaplicar é idempotente (regraAplicadaId)');
 
 // ===== agenda de cartões =====
 // adquirente com taxa 3% e prazo 30 dias (seed já tem Cielo etc — pega a 1ª e ajusta)

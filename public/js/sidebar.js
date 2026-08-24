@@ -138,20 +138,21 @@ function getFeaturesCache() {
     try { return JSON.parse(localStorage.getItem('featuresCache') || '{}'); }
     catch { return {}; }
 }
-function refreshFeaturesCache() {
-    fetch('/api/features/status').then(r => r.ok ? r.json() : null).then(d => {
-        if (!d || !d.features) return;
+// Busca as flags e grava no cache; resolve com `true` se mudou algo.
+function buscarFeatures() {
+    return fetch('/api/features/status').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d || !d.features) return false;
         const cur = getFeaturesCache();
         const next = { ...cur, ...d.features };
-        const changed = JSON.stringify(cur) !== JSON.stringify(next);
+        const mudou = JSON.stringify(cur) !== JSON.stringify(next);
         localStorage.setItem('featuresCache', JSON.stringify(next));
-        // Se a flag virou em segundo plano, recarrega a página uma vez pra
-        // a sidebar pegar o estado novo. Evita loop com sessionStorage.
-        if (changed && !sessionStorage.getItem('featuresCacheReloaded')) {
-            sessionStorage.setItem('featuresCacheReloaded', '1');
-            location.reload();
-        }
-    }).catch(() => {});
+        return mudou;
+    }).catch(() => false);
+}
+// Antes isto dava location.reload() quando a flag virava. Agora o menu é
+// redesenhado — no shell, recarregar custa a página aberta no iframe.
+function refreshFeaturesCache() {
+    buscarFeatures().then(mudou => { if (mudou) montarMenu(paginaAtualMenu); });
 }
 function isFeatureEnabled(name) {
     if (!name) return true;
@@ -165,17 +166,23 @@ function getAcessoCache() {
     try { return JSON.parse(localStorage.getItem('acessoCache') || 'null'); }
     catch { return null; }
 }
-function refreshAcessoCache() {
-    fetch('/api/perfis/meu-acesso').then(r => r.ok ? r.json() : null).then(d => {
-        if (!d || !d.success) return;
+// Busca o acesso e grava no cache. Resolve com `true` quando o que veio é
+// diferente do que estava — aí o menu desenhado está errado e precisa ser refeito.
+function buscarAcesso() {
+    return fetch('/api/perfis/meu-acesso').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d || !d.success) return false;
         const next = { irrestrito: !!d.irrestrito, paginas: d.paginas || [] };
-        const changed = JSON.stringify(getAcessoCache()) !== JSON.stringify(next);
+        const mudou = JSON.stringify(getAcessoCache()) !== JSON.stringify(next);
         localStorage.setItem('acessoCache', JSON.stringify(next));
-        if (changed && !sessionStorage.getItem('acessoCacheReloaded')) {
-            sessionStorage.setItem('acessoCacheReloaded', '1');
-            location.reload();
-        }
-    }).catch(() => {});
+        return mudou;
+    }).catch(() => false);
+}
+
+// Revalida em segundo plano. Antes isto dava location.reload(); no shell (app.html)
+// recarregar significa perder a página aberta dentro do iframe, então o menu é
+// redesenhado no lugar.
+function refreshAcessoCache() {
+    buscarAcesso().then(mudou => { if (mudou) montarMenu(paginaAtualMenu); });
 }
 function isPaginaPermitida(page) {
     const c = getAcessoCache();
@@ -327,6 +334,26 @@ function renderIcon(emoji) {
     // O fallback fica como `data-lucide-fallback` — se o CSS do Lucide
     // não carregar (offline), o emoji aparece pelo texto interno.
     return `<i data-lucide="${name}" data-lucide-fallback="${emoji}"></i>`;
+}
+
+// Última página marcada como ativa — o menu é redesenhado quando o acesso do
+// perfil chega, e precisa reacender o item certo.
+let paginaAtualMenu = null;
+
+// Desenha (ou redesenha) o menu no documento atual. Serve tanto para a página
+// solta quanto para o shell: os dois montam o mesmo bloco no topo do body.
+function montarMenu(pageName) {
+    paginaAtualMenu = pageName ?? paginaAtualMenu;
+    for (const sel of ['.menu-toggle', '.sidebar-overlay', '#sidebar']) {
+        const el = document.querySelector(sel);
+        if (el) el.remove();
+    }
+    document.body.insertAdjacentHTML('afterbegin', gerarMenuHTML(paginaAtualMenu));
+    if (paginaAtualMenu) setActiveMenuItem(paginaAtualMenu);
+    try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (_) {}
+    carregarEstabSwitcher();
+    carregarContadorInteresses();
+    carregarContadorAprovacoes();
 }
 
 // Gera o HTML do menu a partir da configuração
@@ -481,22 +508,33 @@ function initSidebar(pageName) {
         try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (_) {}
         return;
     }
-    const sidebarHTML = gerarMenuHTML(pageName);
-    document.body.insertAdjacentHTML('afterbegin', sidebarHTML);
-    setActiveMenuItem(pageName);
+    // desenharMenuComAcesso já revalida acesso e features em segundo plano.
+    desenharMenuComAcesso(pageName);
     padronizarIconesDaPagina();
     observarIconesDinamicos();
-    carregarContadorInteresses();
-    carregarContadorAprovacoes();
-    // Renderiza os SVGs do Lucide. Se a lib ainda não carregou, o próprio
-    // onload do script (em injectLucide) cuida disso.
-    try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (_) {}
-    // Atualiza cache de feature flags em background (recarrega se mudou)
-    refreshFeaturesCache();
-    // Idem para o acesso do perfil do usuário.
+}
+
+// Desenha o menu já sabendo o que o perfil alcança.
+//
+// No primeiro carregamento deste browser não há cache: desenhar direto mostraria
+// o menu inteiro por um instante e encolheria depois — para um perfil restrito,
+// isso é exibir a lista das telas que ele não pode abrir. Então espera a
+// resposta, com teto de 1,5s para que uma API lenta não segure a tela; se o teto
+// estourar, o menu sai pelo cache (ou completo) e é corrigido quando a resposta
+// chegar.
+async function desenharMenuComAcesso(pageName) {
+    const faltando = [];
+    if (!getAcessoCache()) faltando.push(buscarAcesso());
+    // Mesma história do outro lado: sem featuresCache, o menu nasce com as
+    // seções do tenant escondidas (só "Configurações" sobra) — era o que o
+    // location.reload() consertava depois.
+    if (!Object.keys(getFeaturesCache()).length) faltando.push(buscarFeatures());
+    if (faltando.length) {
+        await Promise.race([Promise.all(faltando), new Promise(r => setTimeout(r, 1500))]);
+    }
+    montarMenu(pageName);
     refreshAcessoCache();
-    // Seletor de estabelecimento (multi-loja): só aparece quando há +de 1 ativo.
-    carregarEstabSwitcher();
+    refreshFeaturesCache();
 }
 
 // Página embutida no shell: links pra outra origem (ex.: portais externos) devem
@@ -521,12 +559,9 @@ function interceptarLinksExternos() {
 function initShell() {
     window.__liciteShell = true;
 
-    document.body.insertAdjacentHTML('afterbegin', gerarMenuHTML(null));
-    try { if (window.lucide && window.lucide.createIcons) window.lucide.createIcons(); } catch (_) {}
-    refreshFeaturesCache();
-    carregarEstabSwitcher();
-    carregarContadorInteresses();
-    carregarContadorAprovacoes();
+    // O menu do shell é o menu de verdade: toda página redireciona para cá. Sem
+    // passar pelo acesso do perfil aqui, o filtro do menu não valia na prática.
+    desenharMenuComAcesso(null);
 
     const iframe = document.getElementById('conteudo');
 
@@ -563,6 +598,7 @@ function initShell() {
     // Chamada pela página filha (initSidebar embutido) quando termina de carregar
     window.__shellPageChanged = function (pageName, path, title) {
         if (pageName) {
+            paginaAtualMenu = pageName;   // o menu pode ser redesenhado depois
             setActiveMenuItem(pageName);
             // Deep link: se o item ativo está num grupo recolhido, abre o grupo
             const ativo = document.querySelector('.menu-item.active');
@@ -737,6 +773,9 @@ async function fazerLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });
     } catch (e) {}
+    // O acesso é do usuário, não do browser: sem limpar, o próximo a entrar
+    // nesta máquina veria o menu do anterior até a primeira resposta da API.
+    try { localStorage.removeItem('acessoCache'); } catch (_) {}
     window.location.href = '/login.html';
 }
 

@@ -99,6 +99,7 @@ async function handleSearch(event) {
         palavraExclusao: document.getElementById('palavraExclusao').value.trim(),
         grupoExclusaoId: document.getElementById('grupoExclusao') ? document.getElementById('grupoExclusao').value : '',
         uf: document.getElementById('uf').value,
+        municipio: document.getElementById('municipio') ? document.getElementById('municipio').value.trim() : '',
         portal: document.getElementById('portal').value,
         ordenacao: document.getElementById('ordenacao').value
     };
@@ -154,6 +155,9 @@ async function buscarLicitacoes() {
         }
         if (currentFilters.uf) {
             params.append('uf', currentFilters.uf);
+        }
+        if (currentFilters.municipio) {
+            params.append('municipio', currentFilters.municipio);
         }
         if (currentFilters.portal) {
             params.append('portal', currentFilters.portal);

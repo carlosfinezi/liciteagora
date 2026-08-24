@@ -12,6 +12,7 @@ const https = require('https');
 const crypto = require('crypto');
 const axios = require('axios');
 const { buildCompraId } = require('./sniper-lance');
+const cm = require('./chat-monitor-config');
 
 const BASE_URL = 'https://cnetmobile.estaleiro.serpro.gov.br';
 const API_HEADERS = {
@@ -90,11 +91,13 @@ async function ingerirMensagensGlobais(db, mensagens, { origemCaptura = 'extensa
   let novas = 0;
   const alertas = [];
 
-  // Carregar palavras-chave ativas do tenant uma vez (caches na ingestão do batch)
+  // Palavras-chave + flag "notificar todas" do monitor Comprasnet (config por portal).
   let palavrasChaveAtivas = [];
+  let notifTodasCompras = false;
   try {
-    palavrasChaveAtivas = db.prepare("SELECT palavra FROM chat_palavras_chave WHERE ativo = 1").all()
-      .map(r => String(r.palavra || '').toLowerCase()).filter(p => p.length >= 2);
+    palavrasChaveAtivas = cm.getPalavras(db, 'comprasnet').filter(p => p.ativo)
+      .map(p => String(p.palavra || '').toLowerCase()).filter(p => p.length >= 2);
+    notifTodasCompras = !!cm.getConfig(db, 'comprasnet').notifTodas;
   } catch (e) { /* tabela pode não existir */ }
 
   // Pregões silenciados pelo usuário — não geram alerta Telegram (captura segue normal)
@@ -193,6 +196,7 @@ async function ingerirMensagensGlobais(db, mensagens, { origemCaptura = 'extensa
         motivos.push('palavra-chave');
       }
 
+      if (notifTodasCompras && !motivos.length) motivos.push('todas as mensagens');
       if (motivos.length > 0 && !silenciados.has(compraId)) {
         alertas.push({
           conteudo, dataHora, compraId,
@@ -218,8 +222,9 @@ async function ingerirMensagensGlobais(db, mensagens, { origemCaptura = 'extensa
   // enxurrada de alertas de mensagens antigas — só daqui pra frente notifica.
   if (alertar && alertas.length > 0) {
     try {
-      const telegramConfig = db.prepare('SELECT botToken, chatId FROM telegram_config WHERE id = 1 AND ativo = 1').get();
-      if (telegramConfig?.botToken && telegramConfig?.chatId) {
+      // Telegram PRÓPRIO do monitor Comprasnet (config por portal).
+      const cfgCompras = cm.getConfig(db, 'comprasnet');
+      if (cfgCompras.telegramAtivo && cfgCompras.telegramBotToken && cfgCompras.telegramChatId) {
         const stmtMarcarNotificado = db.prepare(
           `UPDATE chat_mensagens SET notificado = 1
            WHERE (mensagemIdComprasnet = ? AND ? IS NOT NULL)
@@ -251,22 +256,18 @@ async function ingerirMensagensGlobais(db, mensagens, { origemCaptura = 'extensa
             `\n💬 ${conteudoLimitado}\n\n` +
             `⚠️ <b>VERIFIQUE NO COMPRASNET!</b>`;
 
-          try {
-            await axios.post(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
-              chat_id: telegramConfig.chatId,
-              text: texto,
-              parse_mode: 'HTML'
-            });
+          const enviado = await cm.enviarTelegram(db, 'comprasnet', texto);
+          if (enviado) {
             // Marca como notificado para evitar reenvio se Electron repostar
             try { stmtMarcarNotificado.run(alerta.mensagemId, alerta.mensagemId, alerta.hashMensagem); }
             catch (_) {}
             console.log(`[ALERTA] Telegram enviado: ${alerta.motivos.join('+')} em ${alerta.compraId}`);
-          } catch (axiosErr) {
-            console.error(`[ALERTA] Telegram falhou em ${alerta.compraId}: ${axiosErr.message}`);
+          } else {
+            console.error(`[ALERTA] Telegram falhou em ${alerta.compraId}`);
           }
         }
       } else {
-        console.log(`[ALERTA] ${alertas.length} alerta(s) candidatos mas Telegram não configurado/ativo neste tenant`);
+        console.log(`[ALERTA] ${alertas.length} alerta(s) candidatos mas Telegram do monitor Comprasnet não configurado/ativo`);
       }
     } catch (telegramErr) {
       console.error('[ALERTA] Erro Telegram:', telegramErr.message);

@@ -28,6 +28,22 @@
 
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* ok */ } }
 
+// Módulos onde um tipo de operação pode ser escolhido. A coluna é a fonte da
+// verdade (o usuário liga/desliga no cadastro); a categoria só define o padrão
+// inicial de quem já existia antes das flags.
+const USOS = ['usarEmPedido', 'usarEmOS', 'usarEmDevolucao', 'usarEmNFAvulsa'];
+const CATEGORIAS_SAIDA = ['venda', 'bonificacao', 'remessa', 'transferencia'];
+
+function usosPorCategoria(cat) {
+  const saida = CATEGORIAS_SAIDA.includes(cat) ? 1 : 0;
+  return {
+    usarEmPedido: saida,
+    usarEmOS: cat === 'servico' ? 1 : 0,
+    usarEmDevolucao: cat === 'devolucao_venda' ? 1 : 0,
+    usarEmNFAvulsa: saida
+  };
+}
+
 const SEED_TIPOS = [
   {
     codigo: 'VDA-NORMAL', descricao: 'Venda normal',
@@ -154,6 +170,23 @@ function migrar(db) {
     CREATE INDEX IF NOT EXISTS idx_tipos_op_categoria ON tipos_operacao(categoriaOperacao);
   `);
 
+  // Em que módulo cada tipo pode ser escolhido (2026-08-21). Sem isso o select
+  // do pedido listava tudo, inclusive os OS-* (que não têm CFOP).
+  for (const col of USOS) {
+    alterSafe(db, `ALTER TABLE tipos_operacao ADD COLUMN ${col} INTEGER`);
+  }
+  // Backfill só de quem está NULL — escolha manual do usuário nunca é revista.
+  const backfill = db.prepare(
+    `UPDATE tipos_operacao SET usarEmPedido = @usarEmPedido, usarEmOS = @usarEmOS,
+       usarEmDevolucao = @usarEmDevolucao, usarEmNFAvulsa = @usarEmNFAvulsa
+     WHERE id = @id`);
+  const semUso = db.prepare(
+    `SELECT id, categoriaOperacao FROM tipos_operacao WHERE ${USOS.map(c => `${c} IS NULL`).join(' OR ')}`
+  ).all();
+  db.transaction(() => {
+    for (const t of semUso) backfill.run({ id: t.id, ...usosPorCategoria(t.categoriaOperacao) });
+  })();
+
   // Colunas novas em tabelas que usam tipo de operação.
   alterSafe(db, 'ALTER TABLE pedidos ADD COLUMN tipoOperacaoId INTEGER');
   alterSafe(db, 'ALTER TABLE devolucoes ADD COLUMN tipoOperacaoId INTEGER');
@@ -165,14 +198,17 @@ function migrar(db) {
   // Seed idempotente — UPSERT por código.
   const insTipo = db.prepare(`INSERT OR IGNORE INTO tipos_operacao
     (codigo, descricao, categoriaOperacao, finalidadeNFe, geraFinanceiro, movimentaEstoque,
-     gerencial, emiteNFe, cfopInterno, cfopInterestadual, cfopExterior, textoPadraoNFe, observacaoFiscalPadrao)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+     gerencial, emiteNFe, cfopInterno, cfopInterestadual, cfopExterior, textoPadraoNFe, observacaoFiscalPadrao,
+     usarEmPedido, usarEmOS, usarEmDevolucao, usarEmNFAvulsa)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const txSeed = db.transaction(() => {
     for (const t of SEED_TIPOS) {
+      const u = usosPorCategoria(t.categoriaOperacao);
       insTipo.run(t.codigo, t.descricao, t.categoriaOperacao, t.finalidadeNFe,
         t.geraFinanceiro, t.movimentaEstoque, t.gerencial, t.emiteNFe,
         t.cfopInterno, t.cfopInterestadual, t.cfopExterior,
-        t.textoPadraoNFe, t.observacaoFiscalPadrao);
+        t.textoPadraoNFe, t.observacaoFiscalPadrao,
+        u.usarEmPedido, u.usarEmOS, u.usarEmDevolucao, u.usarEmNFAvulsa);
     }
   });
   txSeed();
@@ -337,6 +373,17 @@ function registrarRotas(app, db) {
       if (ativo !== undefined) { sql += ' AND ativo = ?'; p.push(Number(ativo)); }
       else { sql += ' AND ativo = 1'; }
       if (categoria) { sql += ' AND categoriaOperacao = ?'; p.push(categoria); }
+      // Filtro por módulo: ?usoPedido=1, ?usoOS=1, ?usoDevolucao=1, ?usoNFAvulsa=1
+      const filtrosUso = {
+        usoPedido: 'usarEmPedido', usoOS: 'usarEmOS',
+        usoDevolucao: 'usarEmDevolucao', usoNFAvulsa: 'usarEmNFAvulsa'
+      };
+      for (const [param, col] of Object.entries(filtrosUso)) {
+        if (req.query[param] !== undefined) {
+          sql += ` AND COALESCE(${col}, 0) = ?`;
+          p.push(Number(req.query[param]) ? 1 : 0);
+        }
+      }
       sql += ' ORDER BY descricao ASC';
       res.json({ success: true, tipos: db.prepare(sql).all(...p) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -354,11 +401,16 @@ function registrarRotas(app, db) {
     try {
       const b = req.body || {};
       if (!b.codigo || !b.descricao) return res.status(400).json({ success: false, error: 'codigo e descricao obrigatórios' });
+      // Sem flag informada, o padrão vem da categoria — tipo novo nunca nasce
+      // invisível em todos os módulos.
+      const u = usosPorCategoria(b.categoriaOperacao || null);
+      for (const col of USOS) if (b[col] != null) u[col] = b[col] ? 1 : 0;
       const r = db.prepare(`INSERT INTO tipos_operacao
         (codigo, descricao, categoriaOperacao, finalidadeNFe, geraFinanceiro, movimentaEstoque,
          gerencial, emiteNFe, cfopInterno, cfopInterestadual, cfopExterior,
-         textoPadraoNFe, observacaoFiscalPadrao)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+         textoPadraoNFe, observacaoFiscalPadrao,
+         usarEmPedido, usarEmOS, usarEmDevolucao, usarEmNFAvulsa)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         b.codigo.trim(), b.descricao.trim(), b.categoriaOperacao || null,
         b.finalidadeNFe != null ? Number(b.finalidadeNFe) : 1,
         b.geraFinanceiro != null ? (b.geraFinanceiro ? 1 : 0) : 1,
@@ -366,7 +418,8 @@ function registrarRotas(app, db) {
         b.gerencial != null ? (b.gerencial ? 1 : 0) : 1,
         b.emiteNFe != null ? (b.emiteNFe ? 1 : 0) : 1,
         b.cfopInterno || null, b.cfopInterestadual || null, b.cfopExterior || null,
-        b.textoPadraoNFe || null, b.observacaoFiscalPadrao || null
+        b.textoPadraoNFe || null, b.observacaoFiscalPadrao || null,
+        u.usarEmPedido, u.usarEmOS, u.usarEmDevolucao, u.usarEmNFAvulsa
       );
       res.json({ success: true, tipo: db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -382,6 +435,7 @@ function registrarRotas(app, db) {
         geraFinanceiro = ?, movimentaEstoque = ?, gerencial = ?, emiteNFe = ?,
         cfopInterno = ?, cfopInterestadual = ?, cfopExterior = ?,
         textoPadraoNFe = ?, observacaoFiscalPadrao = ?, ativo = ?,
+        usarEmPedido = ?, usarEmOS = ?, usarEmDevolucao = ?, usarEmNFAvulsa = ?,
         dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(
         b.codigo ?? atual.codigo,
         b.descricao ?? atual.descricao,
@@ -397,6 +451,7 @@ function registrarRotas(app, db) {
         b.textoPadraoNFe ?? atual.textoPadraoNFe,
         b.observacaoFiscalPadrao ?? atual.observacaoFiscalPadrao,
         b.ativo != null ? (b.ativo ? 1 : 0) : atual.ativo,
+        ...USOS.map(col => (b[col] != null ? (b[col] ? 1 : 0) : (atual[col] ?? 0))),
         req.params.id
       );
       res.json({ success: true, tipo: db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(req.params.id) });

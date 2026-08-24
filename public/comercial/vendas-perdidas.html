@@ -26,21 +26,27 @@
     <input type="date" id="filtFim" onchange="carregar()">
     <select id="filtMotivo" onchange="carregar()">
       <option value="">Todos motivos</option>
-      <option value="sem_estoque">Sem estoque</option>
-      <option value="preco">Preço</option>
-      <option value="prazo">Prazo</option>
-      <option value="outro">Outro</option>
+    </select>
+    <select id="filtCliente" onchange="carregar()">
+      <option value="">Todos clientes</option>
+    </select>
+    <select id="filtOrigem" onchange="carregar()">
+      <option value="">Todas origens</option>
+      <option value="manual">Avulsa</option>
+      <option value="pedido_item">De item de pedido</option>
+      <option value="pedido_cancelado">Pedido cancelado</option>
+      <option value="orcamento_perdido">Orçamento perdido</option>
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="vendas-perdidas">
     <table>
       <thead><tr>
         <th>Data</th><th>Produto/Descrição</th><th style="text-align:right;">Qtd</th>
         <th style="text-align:right;">Preço alvo</th><th style="text-align:right;">Valor perdido</th>
-        <th>Motivo</th><th>Cliente</th><th></th>
+        <th>Motivo</th><th>Cliente</th><th>Pedido</th><th></th>
       </tr></thead>
-      <tbody id="tbVP"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tbVP"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -52,23 +58,42 @@
       <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
+      <div class="form-group full-width">
+        <label>Vincular a pedido / orçamento</label>
+        <input type="text" id="nPedidoBusca" placeholder="Digite o número ou o cliente e escolha abaixo…" oninput="buscarPedidos()" autocomplete="off">
+        <select id="nPedido" onchange="selecionarPedido()" style="margin-top:6px;">
+          <option value="">— sem vínculo (perda avulsa) —</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="rowItemPedido" style="display:none;">
+      <div class="form-group full-width">
+        <label>Item do pedido *</label>
+        <select id="nPedidoItem" onchange="selecionarItem()"><option value="">— selecione —</option></select>
+        <small class="muted" id="hintItem"></small>
+      </div>
+    </div>
+    <div class="form-row">
       <div class="form-group full-width"><label>Produto (ou deixe vazio e descreva)</label><select id="nProduto"><option value="">— avulso —</option></select></div>
     </div>
     <div class="form-row">
       <div class="form-group full-width"><label>Descrição livre (se avulso)</label><input type="text" id="nDescLivre"></div>
     </div>
     <div class="form-row">
+      <div class="form-group"><label>Cliente</label><select id="nCliente"><option value="">— não informado —</option></select></div>
+      <div class="form-group"><label>Vendedor</label><select id="nVendedor"><option value="">— não informado —</option></select>
+        <small class="muted">Sem vendedor, a perda fica fora da conversão nas metas</small></div>
+    </div>
+    <div class="form-row">
       <div class="form-group"><label>Quantidade *</label><input type="number" id="nQtd" min="0.001" step="any"></div>
       <div class="form-group"><label>Preço alvo (R$)</label><input type="number" id="nPreco" step="0.01"></div>
       <div class="form-group"><label>Motivo</label>
-        <select id="nMotivo">
-          <option value="sem_estoque">Sem estoque</option>
-          <option value="preco">Preço</option>
-          <option value="prazo">Prazo</option>
-          <option value="outro">Outro</option>
-        </select>
+        <select id="nMotivo" onchange="toggleConcorrente()"></select>
       </div>
       <div class="form-group"><label>Data</label><input type="date" id="nData"></div>
+    </div>
+    <div class="form-row" id="rowConcorrente" style="display:none;">
+      <div class="form-group full-width"><label>Concorrente que levou</label><input type="text" id="nConcorrente" placeholder="Nome do concorrente"></div>
     </div>
     <div class="form-row">
       <div class="form-group full-width"><label>Observação</label><input type="text" id="nObs"></div>
@@ -84,55 +109,190 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('comercial-vendas-perdidas');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fechar(){ document.getElementById('modalNova').classList.remove('open'); }
 
-const MOTIVO_TXT = { sem_estoque:'📦 Sem estoque', preco:'💰 Preço', prazo:'⏱️ Prazo', outro:'❓ Outro' };
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const val = id => document.getElementById(id).value;
+
+// Vocabulário vem do backend (GET /api/vendas-perdidas/motivos) para não
+// divergir da validação — antes havia lista hardcoded em 3 lugares.
+let MOTIVOS = [];
+let MOTIVO_TXT = {};
+const ORIGEM_TXT = { manual:'Avulsa', pedido_item:'Item de pedido', pedido_cancelado:'Pedido cancelado', orcamento_perdido:'Orçamento perdido' };
+
+async function carregarMotivos(){
+  try {
+    const r = await fetch('/api/vendas-perdidas/motivos'); const d = await r.json();
+    MOTIVOS = d.motivos || [];
+  } catch { MOTIVOS = [{valor:'outro', texto:'Outro', icone:'❓'}]; }
+  MOTIVO_TXT = Object.fromEntries(MOTIVOS.map(m => [m.valor, `${m.icone} ${m.texto}`]));
+  document.getElementById('filtMotivo').innerHTML = '<option value="">Todos motivos</option>' +
+    MOTIVOS.map(m=>`<option value="${m.valor}">${esc(m.texto)}</option>`).join('');
+  document.getElementById('nMotivo').innerHTML =
+    MOTIVOS.map(m=>`<option value="${m.valor}">${esc(m.texto)}</option>`).join('');
+}
+
+async function carregarClientes(){
+  try {
+    const r = await fetch('/api/pessoas'); const d = await r.json();
+    const opts = (d.pessoas||[]).map(p=>`<option value="${p.id}">${esc(p.razaoSocial||p.nomeFantasia||('#'+p.id))}</option>`).join('');
+    document.getElementById('filtCliente').innerHTML = '<option value="">Todos clientes</option>' + opts;
+    document.getElementById('nCliente').innerHTML = '<option value="">— não informado —</option>' + opts;
+  } catch { /* segue sem o filtro de cliente */ }
+}
+
+async function carregarVendedores(){
+  try {
+    const r = await fetch('/api/usuarios?vendedor=1'); const d = await r.json();
+    document.getElementById('nVendedor').innerHTML = '<option value="">— não informado —</option>' +
+      (d.usuarios||d.users||[]).map(u=>`<option value="${u.id}">${esc(u.nome||u.username)}</option>`).join('');
+  } catch { /* segue sem vendedor */ }
+}
 
 async function carregar(){
   const p = new URLSearchParams();
-  const i=document.getElementById('filtInicio').value, f=document.getElementById('filtFim').value, m=document.getElementById('filtMotivo').value;
-  if(i) p.set('inicio',i); if(f) p.set('fim',f); if(m) p.set('motivo',m);
+  const campos = { inicio:'filtInicio', fim:'filtFim', motivo:'filtMotivo', clienteId:'filtCliente', origem:'filtOrigem' };
+  for (const [param, id] of Object.entries(campos)) { const v = val(id); if (v) p.set(param, v); }
+  if (qsPedido) p.set('pedidoId', qsPedido);
   const r = await fetch('/api/vendas-perdidas?'+p); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
 
-  document.getElementById('kpis').innerHTML = (d.porMotivo||[]).map(x=>`
-    <div class="kpi"><div class="kpi-label">${MOTIVO_TXT[x.motivo]||x.motivo}</div>
+  const t = d.totais || { n:0, valor:0, vinculadas:0 };
+  document.getElementById('kpis').innerHTML =
+    `<div class="kpi"><div class="kpi-label">💸 Total perdido</div>
+      <div class="kpi-value">R$ ${fmt(t.valor)}</div><small class="muted">${t.n} registro(s)</small></div>
+     <div class="kpi"><div class="kpi-label">🔗 Vinculadas a pedido</div>
+      <div class="kpi-value">${t.vinculadas}</div><small class="muted">de ${t.n}</small></div>` +
+    (d.porMotivo||[]).map(x=>`
+    <div class="kpi"><div class="kpi-label">${MOTIVO_TXT[x.motivo]||esc(x.motivo)}</div>
     <div class="kpi-value">${x.n}</div><small class="muted">R$ ${fmt(x.valor)}</small></div>`).join('');
 
   document.getElementById('tbVP').innerHTML = d.registros.length ? d.registros.map(x=>`<tr>
-    <td>${x.data}</td>
-    <td>${x.sku ? x.sku+' — '+x.produtoDescricao : (x.descricaoLivre||'-')}</td>
+    <td>${esc(x.data)}</td>
+    <td>${x.sku ? esc(x.sku)+' — '+esc(x.produtoDescricao) : esc(x.descricaoLivre||'-')}</td>
     <td style="text-align:right;">${fmt(x.quantidade)}</td>
     <td style="text-align:right;">${x.precoAlvo!=null?'R$ '+fmt(x.precoAlvo):'-'}</td>
     <td style="text-align:right;">${x.precoAlvo!=null?'<strong>R$ '+fmt(x.quantidade*x.precoAlvo)+'</strong>':'-'}</td>
-    <td>${MOTIVO_TXT[x.motivo]||x.motivo}</td>
-    <td>${x.clienteNome||'-'}</td>
+    <td>${MOTIVO_TXT[x.motivo]||esc(x.motivo)}${x.concorrente?`<br><small class="muted">${esc(x.concorrente)}</small>`:''}</td>
+    <td>${esc(x.clienteNome||'-')}</td>
+    <td>${linkPedido(x)}</td>
     <td><button class="btn btn-ghost btn-sm" onclick="excluir(${x.id})">×</button></td>
-  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum registro no filtro</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhum registro no filtro</td></tr>';
+}
+
+// pedidoNumero é snapshot: sobrevive à exclusão do pedido (FK vira NULL),
+// e aí mostramos o número sem link.
+function linkPedido(x){
+  const origem = `<small class="muted">${esc(ORIGEM_TXT[x.origem]||x.origem||'')}</small>`;
+  if (x.pedidoId) return `<a href="/comercial/pedido.html?id=${x.pedidoId}">${esc(x.pedidoNumeroAtual||x.pedidoNumero)}</a><br>${origem}`;
+  if (x.pedidoNumero) return `${esc(x.pedidoNumero)} <small class="muted">(excluído)</small><br>${origem}`;
+  return origem;
+}
+
+// ==================== VÍNCULO COM PEDIDO ====================
+let itensPedidoAtual = [];
+let buscaTimer = null;
+
+function buscarPedidos(){
+  clearTimeout(buscaTimer);
+  buscaTimer = setTimeout(async () => {
+    const q = val('nPedidoBusca').trim();
+    try {
+      const r = await fetch('/api/vendas-perdidas/pedidos-busca?busca='+encodeURIComponent(q));
+      const d = await r.json();
+      if (!d.success) return;
+      document.getElementById('nPedido').innerHTML = '<option value="">— sem vínculo (perda avulsa) —</option>' +
+        (d.pedidos||[]).map(p=>`<option value="${p.id}">${esc(p.numero)} · ${esc(p.clienteNome||'sem cliente')} · ${esc(p.status)}</option>`).join('');
+    } catch { /* mantem a lista atual */ }
+  }, 300);
+}
+
+async function selecionarPedido(){
+  const pid = val('nPedido');
+  const row = document.getElementById('rowItemPedido');
+  itensPedidoAtual = [];
+  if (!pid) {
+    row.style.display = 'none';
+    document.getElementById('nPedidoItem').innerHTML = '<option value="">— selecione —</option>';
+    return;
+  }
+  const r = await fetch('/api/vendas-perdidas/pedido/'+pid+'/itens');
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  if (d.pedido.bloqueado) {
+    showAlert(`${d.pedido.numero} está ${d.pedido.status} — a venda foi concretizada, não pode virar perda`,'error');
+    document.getElementById('nPedido').value = '';
+    row.style.display = 'none';
+    return;
+  }
+  itensPedidoAtual = d.itens || [];
+  if (d.pedido.clienteId) document.getElementById('nCliente').value = d.pedido.clienteId;
+  // Perda de pedido herda o vendedor dele — o backend faz o mesmo.
+  if (d.pedido.vendedorId) document.getElementById('nVendedor').value = d.pedido.vendedorId;
+  row.style.display = '';
+  document.getElementById('nPedidoItem').innerHTML = '<option value="">— selecione —</option>' +
+    itensPedidoAtual.map(i=>`<option value="${i.pedidoItemId}"${i.vendaPerdidaId?' disabled':''}>${
+      esc(i.sku ? i.sku+' — '+i.descricao : i.descricao)} · ${fmt(i.quantidade)} un${i.vendaPerdidaId?' (já registrado)':''}</option>`).join('');
+  document.getElementById('hintItem').textContent =
+    itensPedidoAtual.every(i=>i.vendaPerdidaId) && itensPedidoAtual.length
+      ? 'Todos os itens deste pedido já têm perda registrada.' : '';
+}
+
+// Item escolhido manda no conteúdo: produto, qtd e preço vêm dele.
+function selecionarItem(){
+  const it = itensPedidoAtual.find(i => String(i.pedidoItemId) === val('nPedidoItem'));
+  if (!it) return;
+  document.getElementById('nProduto').value = it.produtoId || '';
+  document.getElementById('nDescLivre').value = it.produtoId ? '' : (it.descricao || '');
+  document.getElementById('nQtd').value = it.quantidade;
+  document.getElementById('nPreco').value = it.precoUnitario != null ? it.precoUnitario : '';
+  document.getElementById('hintItem').textContent =
+    `Quantidade do item: ${fmt(it.quantidade)}. Reduza acima se a perda foi parcial.`;
+}
+
+function toggleConcorrente(){
+  document.getElementById('rowConcorrente').style.display = val('nMotivo')==='concorrente' ? '' : 'none';
 }
 
 async function abrirNova(){
   const r = await fetch('/api/produtos'); const d = await r.json();
   document.getElementById('nProduto').innerHTML = '<option value="">— avulso —</option>' +
-    (d.produtos||[]).map(p=>`<option value="${p.id}">${p.sku} — ${p.descricao}</option>`).join('');
-  ['nDescLivre','nQtd','nPreco','nObs'].forEach(i=>document.getElementById(i).value='');
+    (d.produtos||[]).map(p=>`<option value="${p.id}">${esc(p.sku)} — ${esc(p.descricao)}</option>`).join('');
+  ['nDescLivre','nQtd','nPreco','nObs','nPedidoBusca','nConcorrente'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('nCliente').value = '';
+  document.getElementById('nVendedor').value = '';
+  document.getElementById('nPedido').innerHTML = '<option value="">— sem vínculo (perda avulsa) —</option>';
+  document.getElementById('rowItemPedido').style.display = 'none';
+  document.getElementById('hintItem').textContent = '';
+  itensPedidoAtual = [];
+  toggleConcorrente();
   document.getElementById('nData').value = new Date().toISOString().slice(0,10);
   document.getElementById('modalNova').classList.add('open');
+  buscarPedidos();
 }
 
 async function salvar(){
+  const pedidoId = Number(val('nPedido'))||null;
+  const pedidoItemId = Number(val('nPedidoItem'))||null;
+  if (pedidoId && !pedidoItemId) return showAlert('Escolha o item do pedido','error');
   const body = {
-    produtoId: Number(document.getElementById('nProduto').value)||null,
-    descricaoLivre: document.getElementById('nDescLivre').value.trim()||null,
-    quantidade: Number(document.getElementById('nQtd').value),
-    precoAlvo: Number(document.getElementById('nPreco').value)||null,
-    motivo: document.getElementById('nMotivo').value,
-    data: document.getElementById('nData').value||null,
-    observacao: document.getElementById('nObs').value.trim()||null
+    produtoId: Number(val('nProduto'))||null,
+    descricaoLivre: val('nDescLivre').trim()||null,
+    clienteId: Number(val('nCliente'))||null,
+    vendedorUserId: Number(val('nVendedor'))||null,
+    quantidade: Number(val('nQtd')),
+    precoAlvo: Number(val('nPreco'))||null,
+    motivo: val('nMotivo'),
+    concorrente: val('nConcorrente').trim()||null,
+    data: val('nData')||null,
+    observacao: val('nObs').trim()||null,
+    pedidoId, pedidoItemId
   };
   const r = await fetch('/api/vendas-perdidas', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
@@ -151,6 +311,24 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') fechar(); });
 const hj = new Date();
 document.getElementById('filtInicio').value = hj.getFullYear()+'-'+String(hj.getMonth()+1).padStart(2,'0')+'-01';
 document.getElementById('filtFim').value = hj.toISOString().slice(0,10);
-carregar();
+// Filtros vindos de outras telas: ?pedidoId=N (tela do pedido) e
+// ?motivo=sem_estoque (aviso da sugestão de compra).
+const qs = new URLSearchParams(location.search);
+const qsPedido = qs.get('pedidoId');
+(async () => {
+  await carregarMotivos();
+  await carregarClientes();
+  await carregarVendedores();
+  if (qsPedido) {
+    document.getElementById('filtInicio').value = '';
+    document.getElementById('filtFim').value = '';
+  }
+  const qsMotivo = qs.get('motivo');
+  if (qsMotivo && MOTIVOS.some(m => m.valor === qsMotivo)) {
+    document.getElementById('filtMotivo').value = qsMotivo;
+  }
+  await carregar();
+  if (qsPedido) showAlert('Mostrando apenas as perdas do pedido selecionado','info');
+})();
 </script>
 </body></html>

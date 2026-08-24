@@ -135,6 +135,7 @@
 
             <!-- Alertas -->
             <div id="alertContainer"></div>
+            <div id="painelNegocio"></div>
 
             <div class="status-grid">
                 <!-- Cobertura de Dados -->
@@ -479,9 +480,12 @@
         document.addEventListener('DOMContentLoaded', () => {
             carregarStatus();
             carregarInteresses();
+            carregarStatusNegocio();
 
             // Atualizar a cada 3 segundos durante sync
             refreshInterval = setInterval(carregarStatus, 3000);
+            // O painel de negócio consulta o catálogo: 3s seria desperdício.
+            setInterval(carregarStatusNegocio, 120000);
         });
 
         // Parar atualização ao sair da página
@@ -491,6 +495,164 @@
     </script>
     <script src="/js/menu-config.js"></script>
     <script src="/js/sidebar.js"></script>
-    <script>initSidebar('status');</script>
+    <script>initSidebar('status');
+// ==================== STATUS DO NEGÓCIO ====================
+// A tela respondia "o sync rodou?" e "quantas licitações existem?". Com 935 mil
+// no catálogo, nenhum dos dois muda o dia de ninguém. O que muda é: tem
+// oportunidade aberta parada, algum prazo vencendo, e o catálogo continua
+// recebendo dado.
+
+function escN(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
+function fmtN(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0}); }
+function dataBR(d){ if(!d) return '—'; const s=String(d).slice(0,10); const [a,m,x]=s.split('-'); return x?`${x}/${m}/${a}`:s; }
+
+function cartaoNeg(titulo, cor, corpo, rodape){
+  return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
+    <div style="font-size:0.9em;line-height:1.7;">${corpo}</div>
+    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+  </div>`;
+}
+
+async function carregarStatusNegocio(){
+  const alvo = document.getElementById('painelNegocio');
+  if (!alvo) return;
+  let d;
+  try { d = await fetch('/api/status/negocio').then(r=>r.json()); } catch { alvo.innerHTML=''; return; }
+  if (!d || !d.success) { alvo.innerHTML=''; return; }
+  const p = d.painel;
+  const blocos = [];
+
+  // --- coleta parada: o alerta mais importante da tela ---
+  const cat = p.catalogo || {};
+  if (cat.fonte && cat.fonte !== 'postgres' && p.backendCatalogo === 'postgres') {
+    blocos.push(cartaoNeg('Painel lendo a cópia antiga do catálogo', 'danger',
+      'Os números abaixo vêm do catálogo SQLite, congelado na migração para o Postgres.',
+      'Isto é um defeito de configuração, não um diagnóstico do seu negócio.'));
+  }
+  if (cat.diasSemPublicacaoNova != null && cat.diasSemPublicacaoNova > 2) {
+    blocos.push(cartaoNeg(
+      `⚠ Catálogo sem licitação nova há ${cat.diasSemPublicacaoNova} dias`, 'danger',
+      `Última publicação recebida: <strong>${dataBR(cat.ultimaPublicacao)}</strong>.
+       Nos últimos 7 dias entraram ${cat.publicadas7d} licitações.`,
+      'A sincronização pode estar rodando e mesmo assim não trazer nada — sem dado novo, '
+      + 'nenhum grupo de palavras encontra oportunidade.'));
+  } else if (cat.suspeito && !cat.fimDeSemana) {
+    blocos.push(cartaoNeg('Nenhuma licitação entrou hoje', 'warn',
+      `A média dos últimos 7 dias é de ${cat.mediaDiaria7d} por dia.`,
+      'Pode ser só o horário — confira mais tarde antes de investigar.'));
+  }
+
+  // --- certificado ---
+  const c = p.certificado || {};
+  if (c.configurado && c.vencido) {
+    blocos.push(cartaoNeg('⚠ Certificado digital VENCIDO', 'danger',
+      `Venceu em <strong>${dataBR(c.validade)}</strong> — ${escN(c.titular||'')}`,
+      'Sem certificado válido não há emissão fiscal nem assinatura de proposta.'));
+  } else if (c.configurado && c.aVencer) {
+    blocos.push(cartaoNeg(`Certificado digital vence em ${c.diasParaVencer} dia(s)`, 'warn',
+      `Validade: <strong>${dataBR(c.validade)}</strong> — ${escN(c.titular||'')}`,
+      'Renove antes de vencer: a troca costuma levar alguns dias.'));
+  }
+
+  // --- oportunidade qualificada e parada ---
+  // Vem de licitacao_analise (o que o pipeline de descoberta já qualificou),
+  // não de uma varredura nova do catálogo: refazer o casamento de palavras ao
+  // vivo custa 13s no menor tenant e estoura o timeout no maior.
+  const o = p.oportunidades || {};
+  if (o.disponivel && o.abertas > 0) {
+    const linhas = (o.amostra || []).map(x =>
+      `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+        <strong>${escN(x.razaoSocial||'')}</strong> <span class="muted">${escN(x.ufSigla||'')}</span> ·
+        encerra ${dataBR(x.encerra)} · ${fmtN(x.valorTotalEstimado)}
+        ${x.score!=null ? `· <span class="muted">score ${x.score}</span>` : ''}
+        <br><span class="muted" style="font-size:0.9em;">${escN(x.objeto||'')}</span>
+      </div>`).join('');
+    blocos.push(cartaoNeg(
+      `${o.abertas} licitação(ões) qualificada(s) esperando decisão`, 'warn',
+      `A IA analisou e ninguém marcou como interesse nem descartou. Ainda estão em prazo.
+       Valor estimado somado: <strong>${fmtN(o.valorAberto)}</strong>.
+       <div style="margin-top:8px;">${linhas}</div>`,
+      `<a href="/licitacoes/consulta.html">Abrir consulta</a>`));
+  }
+  if (o.disponivel && o.encerradasSemDecisao > 0) {
+    blocos.push(cartaoNeg(
+      `${o.encerradasSemDecisao} licitação(ões) encerraram sem ninguém decidir`, 'accent',
+      `A IA tinha qualificado, o prazo passou e não houve marcação de interesse nem descarte.`,
+      'Não é alerta de hoje — é o tamanho do que passou batido. Se o número for alto, '
+      + 'o gargalo está na triagem, não na busca.'));
+  }
+  if (o.cobertura && o.cobertura.ativa === false) {
+    blocos.push(cartaoNeg('Descoberta automática desligada', 'warn',
+      'Nenhum grupo tem análise por IA agendada, então nada é qualificado sozinho.',
+      '<a href="/operacional/analises-ia.html">Configurar descoberta</a>'));
+  } else if (o.cobertura && o.cobertura.comFalha > 0) {
+    blocos.push(cartaoNeg(`${o.cobertura.comFalha} grupo(s) com falha no último scan`, 'danger',
+      `Último scan: ${dataBR(o.cobertura.ultimoScan)}.`,
+      'Grupo que falha no scan para de trazer oportunidade sem avisar.'));
+  }
+
+  // --- prazos ---
+  const pr = p.prazos || {};
+  if ((pr.vencendo || []).length) {
+    blocos.push(cartaoNeg(`${pr.vencendo.length} interesse(s) com prazo curto`, 'danger',
+      pr.vencendo.map(x => `<strong>${escN(x.razaoSocial||'')}</strong> — encerra
+        <strong>${dataBR(x.dataEncerramentoProposta)}</strong> · ${fmtN(x.valorTotalEstimado)}`).join('<br>'),
+      'Perder a data de encerramento é o erro mais caro do ramo.'));
+  }
+  if ((pr.vencidos || []).length) {
+    blocos.push(cartaoNeg(`${pr.vencidos.length} interesse(s) com prazo já encerrado`, 'accent',
+      pr.vencidos.slice(0, 10).map(x => `<strong>${escN(x.razaoSocial||'')}</strong> — encerrou
+        ${dataBR(x.dataEncerramentoProposta)}`).join('<br>'),
+      'Marcados como interesse e o prazo passou — vale conferir se houve participação.'));
+  }
+
+  // --- funil ---
+  const fu = p.funil || {};
+  blocos.push(`<div class="panel" style="margin-bottom:10px;font-size:0.9em;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">Funil dos últimos ${fu.periodoDias} dias</h3>
+    <div style="line-height:1.8;">
+      Licitações lidas: <strong>${fu.lidas ?? '—'}</strong> ·
+      analisadas pela IA no período: <strong>${fu.analisadasNoPeriodo ?? '—'}</strong> ·
+      viraram interesse: <strong>${fu.interessesNoPeriodo ?? '—'}</strong> ·
+      descartadas: <strong>${fu.descartadasNoPeriodo ?? '—'}</strong>
+      <div class="muted" style="font-size:0.9em;">
+        Acumulado: ${fu.analisadas ?? '—'} análise(s), ${fu.interesses ?? '—'} interesse(s)
+        e ${fu.descartadas ?? '—'} descarte(s).
+        ${p.oportunidades && p.oportunidades.cobertura && p.oportunidades.cobertura.ativa
+          ? `Descoberta cobre ${p.oportunidades.cobertura.grupos} grupo(s), até
+             ${p.oportunidades.cobertura.tetoDiario} análise(s)/dia.` : ''}
+      </div>
+    </div>
+    <div style="margin-top:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="analisarGrupos(this)">Analisar grupos de palavras</button>
+      <span id="gruposResultado" class="muted" style="font-size:0.85em;"></span>
+    </div>
+  </div>`);
+
+  alvo.innerHTML = blocos.join('');
+}
+
+// Varre o catálogo por grupo — leva alguns segundos, por isso é sob demanda.
+async function analisarGrupos(btn){
+  const alvo = document.getElementById('gruposResultado');
+  btn.disabled = true; alvo.textContent = ' analisando…';
+  try {
+    const d = await fetch('/api/status/negocio/grupos').then(r=>r.json());
+    if (!d.success) throw new Error(d.error);
+    const nota = `<br><span class="muted">Considera ${escN(d.escopo||'')}, últimos ${d.dias} dias.</span>`;
+    if (!d.grupos.length) {
+      alvo.innerHTML = ' todos os grupos de pesquisa trouxeram resultado.' + nota; return;
+    }
+    alvo.innerHTML = '<br>' + d.grupos.map(g => g.erro
+      ? `• <strong>${escN(g.nome)}</strong> — não foi possível avaliar: ${escN(g.erro)}`
+      : `• <strong>${escN(g.nome)}</strong> (${g.palavras} palavra(s)) — ${escN(g.motivo)}`).join('<br>')
+      + nota;
+  } catch (e) {
+    alvo.textContent = ' falhou: ' + e.message;
+  } finally { btn.disabled = false; }
+}
+
+</script>
 </body>
 </html>

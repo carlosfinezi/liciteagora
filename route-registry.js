@@ -29,7 +29,7 @@
  *   - registrarRotasPortalAdmin vem de ./portal-routes (mesmo módulo
  *     que o Portal público registrado pré-auth no server.js). Node cacheia
  *     o require; não há custo em re-importar.
- *   - agendarJornal / agendarRecorrencias / agendarCobrancas /
+ *   - agendarRecorrencias / agendarCobrancas /
  *     agendarPollingBoletos / iniciarReconciliadorS6 NÃO são registrados
  *     aqui — ficam em server.js porque são passados para createRoleDispatch
  *     (o master-only pode chamá-los sem Express).
@@ -43,8 +43,12 @@ const { registrarRotasGerencial } = require('./gerencial-routes');
 const { registrarRotasConciliacao } = require('./conciliacao-routes');
 const { registrarRotasComissoes } = require('./comissoes-routes');
 const { registrarRotasContratos } = require('./contratos-routes');
+const { registrarRotasSslCertificados } = require('./ssl-certificados-routes');
+const { registrarRotasFornecedorIntegracoes } = require('./fornecedor-integracoes');
 const { registrarRotasHabilitacao } = require('./habilitacao-routes');
 const { registrarRotasComprasnetAnexos } = require('./comprasnet-anexos-routes');
+const { registrarRotasResultadoItem } = require('./resultado-item-routes');
+const { registrarRotasComprasnetMensagem } = require('./comprasnet-mensagem-routes');
 const { registrarRotasOS } = require('./os-routes');
 const { registrarRotasComm } = require('./comm-routes');
 const { registrarRotasMDFe } = require('./mdfe-routes');
@@ -72,6 +76,7 @@ const { registrarRotasCotacoes } = require('./cotacoes-routes');
 const { registrarRotasContabilidade } = require('./contabilidade-routes');
 const { registrarRotasRequisicoes } = require('./requisicoes-routes');
 const { registrarRotasPrecos } = require('./precos-routes');
+const { registrarRotasPoliticasPrazo } = require('./politicas-prazo-routes');
 const { registrarRotasFiscalOps } = require('./fiscal-ops-routes');
 const { registrarRotasGovernanca } = require('./governanca-routes');
 const { registrarRotasTesouraria } = require('./tesouraria-routes');
@@ -83,6 +88,7 @@ const { registrarRotasSerial } = require('./serial-routes');
 const { registrarRotasReservas } = require('./reservas-routes');
 const { registrarRotasInventario } = require('./inventario-routes');
 const { registrarRotasCompras } = require('./compras-routes');
+const { registrarRotasNecessidadesCompra } = require('./necessidades-compra-routes');
 const { registrarRotasPedidos } = require('./pedidos-routes');
 const { registrarRotasFaturas } = require('./faturas-routes');
 const { registrarRotasContasFinanceiras } = require('./contas-financeiras-routes');
@@ -142,6 +148,7 @@ const { registrarRotasWhatsApp } = require('./whatsapp-adapter');
 const { registrarRotasWaCampanhas } = require('./wa-campaigns-routes');
 const { registrarRotasPortalAdmin } = require('./portal-routes');
 const { sendTelegram } = require('./telegram-client');
+const { registrarRotasNotificacoes } = require('./notificacoes-routes');
 
 // NFSE-M06 onda 6.44 (2026-04-20): PORT + PNCP_API_BASE + PNCP_API_ITENS
 // saem do deps bag e viram require direto de config.js. server.js nao
@@ -161,11 +168,16 @@ function registerProtectedRoutes(app, deps) {
   // extensao-chrome-routes (desativado 2026-04-22, substituído pelo
   // Electron Standalone); ficou disponível no telegram-client para
   // quem precisar no futuro.
-  const enviarTelegram = (mensagem) => sendTelegram(db, mensagem);
+  // As opções são repassadas para que o teste de credenciais possa usar
+  // { ignorarCanal: true } (ver telegram-client.canalTelegramLigado).
+  const enviarTelegram = (mensagem, opts) => sendTelegram(db, mensagem, opts);
 
   // ==================== CATÁLOGO PNCP ====================
   // onda 6.29: 5 rotas /api/licitacoes, /api/orgaos, detalhes, itens e sync-itens.
   registrarRotasLicitacoes(app, db, { pncpSync, salvarItens, PNCP_API_BASE, PNCP_API_ITENS });
+
+  // ==================== NOTIFICAÇÕES (canais de alerta) ====================
+  registrarRotasNotificacoes(app, db);
 
   // ==================== SNIPER DE LANCES ====================
   registrarRotasSniper(app, db);
@@ -219,9 +231,13 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasContasReceber(app, db);
   registrarRotasFinanceiroAvancado(app, db);
   registrarRotasCotacoes(app, db);
+  // Depende das migrações de compras, pedidos e cotações já terem rodado —
+  // as colunas de origem que ele grava nascem lá.
+  registrarRotasNecessidadesCompra(app, db);
   registrarRotasContabilidade(app, db);
   registrarRotasRequisicoes(app, db);
   registrarRotasPrecos(app, db);
+  registrarRotasPoliticasPrazo(app, db);
   registrarRotasFiscalOps(app, db);
   registrarRotasGovernanca(app, db);
   registrarRotasFluxoCaixa(app, db);
@@ -260,8 +276,12 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasIbsCbs(app, db);
   registrarRotasComissoes(app, db);
   registrarRotasContratos(app, db);
+  registrarRotasSslCertificados(app, db);
+  registrarRotasFornecedorIntegracoes(app, db);
   registrarRotasHabilitacao(app, db);
   registrarRotasComprasnetAnexos(app, db);
+  registrarRotasResultadoItem(app, db);
+  registrarRotasComprasnetMensagem(app, db);
   registrarRotasPortalAdmin(app, db);
   registrarRotasServicos(app, db);
   registrarRotasOS(app, db);
@@ -305,6 +325,8 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasBLL(app, db);
   // BLL: cadastro de salas de disputa + auto-lance (Fase 3) — alimenta scheduler.
   registrarRotasBLLSalas(app, db);
+  // Config individual do monitor de chat por portal (palavras-chave + Telegram).
+  require('./chat-monitor-routes').registrarRotasChatMonitor(app, db);
   // Portal de Compras Públicas — sessão autenticada + listagem de Seus Pregões / Sessões Públicas.
   registrarRotasPcp(app, db);
   // Robô SC (cotacao.licitacao.sc.gov.br) — credenciais, sessão, sync (participações/disputa/chat).

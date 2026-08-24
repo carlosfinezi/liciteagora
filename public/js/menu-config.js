@@ -83,6 +83,7 @@ const menuConfig = {
                 { page: 'comercial-vendas-perdidas', icone: '📉', texto: 'Vendas Perdidas', link: '/comercial/vendas-perdidas.html' },
                 { page: 'comercial-metas', icone: '🏁', texto: 'Metas de Vendas', link: '/comercial/metas.html' },
                 { page: 'contratos', icone: '📄', texto: 'Contratos', link: '/comercial/contratos.html' },
+                { page: 'ssl-certificados', icone: '🛡️', texto: 'Certificados SSL', link: '/comercial/ssl-certificados.html', feature: 'ssl' },
                 { page: 'devolucoes', icone: '↩️', texto: 'Devoluções', link: '/comercial/devolucoes.html' }
             ]
         },
@@ -141,20 +142,15 @@ const menuConfig = {
             itens: [
                 { page: 'compras-cotacoes', icone: '📊', texto: 'Cotações', link: '/compras/cotacoes.html' },
                 { page: 'pedidos-compra', icone: '🧾', texto: 'Pedidos de Compra', link: '/compras/pedidos.html' },
+                { page: 'integracao-tipos', icone: '🧩', texto: 'Tipos de Integração', link: '/compras/integracao-tipos.html' },
+                // Irmãs, não duplicatas: necessidade = venda que já existe sem
+                // lastro; sugestão = reposição por ponto de reposição/histórico.
+                { page: 'compras-necessidades', icone: '🛍️', texto: 'Necessidades de Compra', link: '/compras/necessidades.html' },
                 { page: 'compras-sugestao', icone: '🛒', texto: 'Sugestão de Compra', link: '/compras/sugestao.html' },
-                { page: 'fornecedores', icone: '🏢', texto: 'Fornecedores', link: '/compras/fornecedores.html' }
-            ]
-        },
-        {
-            // Fica entre Compras e Financeiro de propósito: são exatamente os
-            // dois módulos que a alçada governa. As REGRAS continuam em
-            // Configurações; aqui é só a fila de quem decide.
-            titulo: 'Aprovações',
-            icone: '🛡️',
-            colapsavel: true,
-            feature: 'governanca',
-            itens: [
-                { page: 'aprovacoes', icone: '🛡️', texto: 'Fila de Aprovações', link: '/aprovacoes/aprovacoes.html', badge: 'aprovacoesCount' }
+                // Cadastro unificado (2026-08-20): fornecedor é pessoa com a
+                // categoria "fornecedor". O item continua em Compras porque é
+                // onde se procura por ele, mas leva à tela única.
+                { page: 'pessoas', icone: '🏢', texto: 'Fornecedores', link: '/comercial/pessoas.html?categoria=fornecedor' }
             ]
         },
         {
@@ -191,6 +187,22 @@ const menuConfig = {
                 { page: 'fin-lotes-pagamento', icone: '📦', texto: 'Pagamento em Lote', link: '/financeiro/lotes-pagamento.html' },
                 { page: 'fin-cartoes', icone: '💳', texto: 'Agenda de Cartões', link: '/financeiro/cartoes.html' },
                 { page: 'adquirentes-cartao', icone: '💳', texto: 'Adquirentes de Cartão', link: '/financeiro/adquirentes-cartao.html' },
+                { page: 'politicas-prazo', icone: '⏱️', texto: 'Políticas de Prazo', link: '/financeiro/politicas-prazo.html' },
+                // Alçadas vieram para cá em 2026-08-21: quem define teto de
+                // pagamento e quem decide na fila é o financeiro, não quem
+                // administra o sistema. A fila era um módulo próprio entre
+                // Compras e Financeiro e as regras estavam em Configurações;
+                // os arquivos seguem em /aprovacoes/ e /configuracoes/ — só o
+                // lugar no menu mudou. A fila também governa pedido de compra.
+                //
+                // SEM `feature: 'governanca'` de propósito: essa chave não
+                // existe em FEATURE_KEYS (features-routes.js), então
+                // isFeatureEnabled devolve false para todo tenant e o item
+                // some do menu — foi o que manteve a Fila invisível enquanto
+                // ela era um grupo próprio. Só voltará a fazer sentido quando
+                // a flag existir no endpoint e estiver gravada por tenant.
+                { page: 'aprovacoes', icone: '🛡️', texto: 'Fila de Aprovações', link: '/aprovacoes/aprovacoes.html', badge: 'aprovacoesCount' },
+                { page: 'config-alcadas', icone: '🛡️', texto: 'Regras de Alçada', link: '/configuracoes/alcadas.html' },
                 { page: 'recorrencias', icone: '🔄', texto: 'Recorrências (Receber)', link: '/financeiro/recorrencias.html' },
                 { page: 'cp-recorrencias', icone: '🔁', texto: 'Recorrências (Pagar)', link: '/financeiro/cp-recorrencias.html' }
             ]
@@ -313,7 +325,6 @@ const menuConfig = {
                 { page: 'meu-perfil', icone: '👤', texto: 'Meu Perfil', link: '/configuracoes/meu-perfil.html' },
                 { page: 'usuarios', icone: '🔑', texto: 'Usuários', link: '/configuracoes/usuarios.html' },
                 { page: 'perfis', icone: '🔒', texto: 'Perfis de Acesso', link: '/configuracoes/perfis.html' },
-                { page: 'config-alcadas', icone: '🛡️', texto: 'Regras de Alçada', link: '/configuracoes/alcadas.html' },
                 { page: 'minha-empresa', icone: '🏢', texto: 'Minha Empresa', link: '/configuracoes/minha-empresa.html' },
                 { page: 'estabelecimentos', icone: '🏪', texto: 'Estabelecimentos', link: '/configuracoes/estabelecimentos.html' },
                 { page: 'importacao', icone: '⬆️', texto: 'Importação', link: '/configuracoes/importacao.html' },

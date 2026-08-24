@@ -3,6 +3,11 @@ let eventos = [];
 let agendamentos = [];      // atividades do CRM (agendamentos com data/hora)
 let eventoSelecionado = null;
 let agendSelecionado = null;
+let ocultarEncerradas = false;
+let visao = 'mes';          // 'mes' (grade) ou 'lista' (agenda agrupada por dia)
+
+// Quantas pílulas cabem na célula antes de virar "+N mais" (mantém a grade alinhada).
+const MAX_EVENTOS_DIA = 3;
 
 const TIPO_AGEND_LABEL = {
   ligacao: '📞 Ligação', reuniao: '🤝 Reunião', visita: '📍 Visita',
@@ -29,18 +34,41 @@ async function carregarEventos() {
         ]);
         eventos = rEventos.data || [];
         agendamentos = rAgend.atividades || [];
-        renderizarCalendario();
+        renderizar();
     } catch (error) {
         console.error('Erro ao carregar agenda:', error);
     }
 }
 
+// Decide qual das duas visões desenhar. Ambas leem os mesmos dados já carregados.
+function renderizar() {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    document.getElementById('currentMonth').textContent = `${meses[month]} ${year}`;
+
+    const cal = document.querySelector('.calendar');
+    const lista = document.getElementById('agendaLista');
+    if (visao === 'lista') {
+        cal.style.display = 'none';
+        lista.style.display = '';
+        renderizarLista();
+    } else {
+        cal.style.display = '';
+        lista.style.display = 'none';
+        renderizarCalendario();
+    }
+}
+
+function setVisao(v) {
+    visao = v;
+    document.getElementById('viewMes').className = 'btn btn-sm ' + (v === 'mes' ? 'btn-primary' : 'btn-ghost');
+    document.getElementById('viewLista').className = 'btn btn-sm ' + (v === 'lista' ? 'btn-primary' : 'btn-ghost');
+    renderizar();
+}
+
 function renderizarCalendario() {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-
-    // Atualizar título
-    document.getElementById('currentMonth').textContent = `${meses[month]} ${year}`;
 
     // Primeiro dia do mês
     const firstDay = new Date(year, month, 1);
@@ -93,62 +121,141 @@ function criarDia(day, isOtherMonth, date, isToday = false) {
     dayNumber.textContent = day;
     div.appendChild(dayNumber);
 
-    // Buscar eventos para este dia
     const dateStr = formatarData(date);
-    const eventosHoje = eventos.filter(e => {
-        if (!e.dataEncerramentoProposta) return false;
-        const eventDate = e.dataEncerramentoProposta.split('T')[0];
-        return eventDate === dateStr;
-    });
+    const itens = itensDoDia(dateStr);
 
-    if (eventosHoje.length > 0) {
+    if (itens.length > 0) {
         const eventsDiv = document.createElement('div');
         eventsDiv.className = 'day-events';
 
-        eventosHoje.forEach(evento => {
-            const eventEl = document.createElement('div');
-            eventEl.className = 'day-event';
+        itens.slice(0, MAX_EVENTOS_DIA).forEach(item => eventsDiv.appendChild(criarEventoEl(item)));
 
-            // Status visual
-            const agora = new Date();
-            const dataEnc = new Date(evento.dataEncerramentoProposta);
-            if (dataEnc < agora) {
-                eventEl.classList.add('status-vencida');
-            } else if (evento.status === 'enviada') {
-                eventEl.classList.add('status-enviada');
-            } else if (evento.status === 'proposta') {
-                eventEl.classList.add('status-proposta');
-            } else {
-                eventEl.classList.add('status-analise');
-            }
-
-            eventEl.textContent = truncar(evento.objetoCompra || 'Sem objeto', 30);
-            eventEl.title = evento.objetoCompra;
-            eventEl.onclick = () => abrirModal(evento);
-            eventsDiv.appendChild(eventEl);
-        });
+        if (itens.length > MAX_EVENTOS_DIA) {
+            const more = document.createElement('div');
+            more.className = 'day-more';
+            more.textContent = `+${itens.length - MAX_EVENTOS_DIA} mais`;
+            more.onclick = () => abrirModalDia(date, itens);
+            eventsDiv.appendChild(more);
+        }
 
         div.appendChild(eventsDiv);
     }
 
-    // Agendamentos do CRM (atividades) neste dia
-    const agendHoje = agendamentos.filter(a => a.dataHora && a.dataHora.split('T')[0] === dateStr);
-    if (agendHoje.length > 0) {
-        const agDiv = document.createElement('div');
-        agDiv.className = 'day-events';
-        agendHoje.forEach(ag => {
-            const el = document.createElement('div');
-            el.className = 'day-event agend-event' + (ag.concluida ? ' agend-done' : '');
-            const hora = (ag.dataHora.split('T')[1] || '').slice(0, 5);
-            el.textContent = (hora ? hora + ' ' : '') + truncar(ag.titulo || 'Agendamento', 26);
-            el.title = `${TIPO_AGEND_LABEL[ag.tipo] || ag.tipo} — ${ag.titulo || ''}${ag.clienteNome ? ' · ' + ag.clienteNome : ''}`;
-            el.onclick = () => abrirModalAgend(ag);
-            agDiv.appendChild(el);
+    return div;
+}
+
+// Licitações + agendamentos do CRM de um dia, na mesma lista e em ordem cronológica.
+function itensDoDia(dateStr) {
+    const agora = new Date();
+    const itens = [];
+
+    eventos.forEach(evento => {
+        if (!evento.dataEncerramentoProposta) return;
+        if (evento.dataEncerramentoProposta.split('T')[0] !== dateStr) return;
+
+        const dataEnc = new Date(evento.dataEncerramentoProposta);
+        let classe;
+        if (dataEnc < agora) classe = 'status-vencida';
+        else if (evento.status === 'enviada') classe = 'status-enviada';
+        else if (evento.status === 'proposta') classe = 'status-proposta';
+        else classe = 'status-analise';
+
+        if (ocultarEncerradas && classe === 'status-vencida') return;
+
+        itens.push({
+            hora: (evento.dataEncerramentoProposta.split('T')[1] || '').slice(0, 5),
+            classe,
+            texto: truncar(evento.objetoCompra || 'Sem objeto', 30),
+            title: evento.objetoCompra || '',
+            abrir: () => abrirModal(evento)
         });
-        div.appendChild(agDiv);
+    });
+
+    agendamentos.forEach(ag => {
+        if (!ag.dataHora || ag.dataHora.split('T')[0] !== dateStr) return;
+        if (ocultarEncerradas && ag.concluida) return;
+        itens.push({
+            hora: (ag.dataHora.split('T')[1] || '').slice(0, 5),
+            classe: 'agend-event' + (ag.concluida ? ' agend-done' : ''),
+            texto: truncar(ag.titulo || 'Agendamento', 26),
+            title: `${TIPO_AGEND_LABEL[ag.tipo] || ag.tipo} — ${ag.titulo || ''}${ag.clienteNome ? ' · ' + ag.clienteNome : ''}`,
+            abrir: () => abrirModalAgend(ag)
+        });
+    });
+
+    // Sem hora vai para o fim.
+    itens.sort((a, b) => (a.hora || '99:99').localeCompare(b.hora || '99:99'));
+    return itens;
+}
+
+// `completo`: usa a descrição inteira em vez da truncada (lista e modal têm largura de sobra).
+function criarEventoEl(item, completo = false) {
+    const el = document.createElement('div');
+    el.className = 'day-event ' + item.classe;
+    if (item.hora) {
+        const h = document.createElement('span');
+        h.className = 'ev-hora';
+        h.textContent = item.hora;
+        el.appendChild(h);
+    }
+    el.appendChild(document.createTextNode(completo ? (item.title || item.texto) : item.texto));
+    el.title = item.title;
+    el.onclick = item.abrir;
+    return el;
+}
+
+// Visão lista: só os dias do mês que têm algo, em ordem, sem células vazias.
+function renderizarLista() {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const hojeStr = formatarData(new Date());
+
+    const container = document.getElementById('agendaLista');
+    container.innerHTML = '';
+    let total = 0;
+
+    for (let day = 1; day <= totalDays; day++) {
+        const date = new Date(year, month, day);
+        const dateStr = formatarData(date);
+        const itens = itensDoDia(dateStr);
+        if (itens.length === 0) continue;
+        total += itens.length;
+
+        const grupo = document.createElement('div');
+        grupo.className = 'lista-dia' + (dateStr === hojeStr ? ' is-hoje' : '');
+
+        const head = document.createElement('div');
+        head.className = 'lista-dia-head';
+        const label = document.createElement('strong');
+        label.textContent = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+        const cont = document.createElement('span');
+        cont.textContent = `${itens.length} item(s)`;
+        head.appendChild(label);
+        head.appendChild(cont);
+        grupo.appendChild(head);
+
+        const corpo = document.createElement('div');
+        corpo.className = 'dia-lista';
+        itens.forEach(item => corpo.appendChild(criarEventoEl(item, true)));
+        grupo.appendChild(corpo);
+
+        container.appendChild(grupo);
     }
 
-    return div;
+    if (total === 0) {
+        const vazio = document.createElement('div');
+        vazio.className = 'lista-vazia';
+        vazio.textContent = ocultarEncerradas
+            ? 'Nada em aberto neste mês.'
+            : 'Nenhum compromisso neste mês.';
+        container.appendChild(vazio);
+    }
+}
+
+function toggleEncerradas(el) {
+    ocultarEncerradas = el.checked;
+    renderizar();
 }
 
 function formatarData(date) {
@@ -240,6 +347,28 @@ function fecharModal() {
     eventoSelecionado = null;
 }
 
+// ----- Dia cheio ("+N mais") -----
+function abrirModalDia(date, itens) {
+    document.getElementById('diaModalTitulo').textContent = date.toLocaleDateString('pt-BR', {
+        weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
+    });
+    document.getElementById('diaModalCount').textContent = `${itens.length} item(s)`;
+
+    const lista = document.getElementById('diaModalLista');
+    lista.innerHTML = '';
+    itens.forEach(item => {
+        const el = criarEventoEl(item, true);
+        el.onclick = () => { fecharModalDia(); item.abrir(); };
+        lista.appendChild(el);
+    });
+
+    document.getElementById('diaModal').classList.add('open');
+}
+
+function fecharModalDia() {
+    document.getElementById('diaModal').classList.remove('open');
+}
+
 function verEmInteresses() {
     if (!eventoSelecionado) return;
     const { cnpj, ano, sequencial } = eventoSelecionado;
@@ -293,8 +422,11 @@ document.getElementById('eventModal').addEventListener('click', (e) => {
 document.getElementById('agendModal').addEventListener('click', (e) => {
     if (e.target.id === 'agendModal') fecharModalAgend();
 });
+document.getElementById('diaModal').addEventListener('click', (e) => {
+    if (e.target.id === 'diaModal') fecharModalDia();
+});
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { fecharModal(); fecharModalAgend(); }
+    if (e.key === 'Escape') { fecharModal(); fecharModalAgend(); fecharModalDia(); }
 });
 
 // Carregar ao iniciar

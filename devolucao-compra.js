@@ -21,6 +21,8 @@
  */
 
 // ─── Helpers de XML (mesmo estilo regex do nfe-entrada-routes.js) ────────────
+const { garantirFornecedor } = require('./pessoas-fornecedor');
+
 function tag(str, t) {
   const re = new RegExp(`<${t}[^>]*>([\\s\\S]*?)<\\/${t}>`, 'i');
   const m = str && str.match(re);
@@ -368,26 +370,27 @@ function registrar(app, db) {
   });
 }
 
-// Garante um registro em `pessoas` para o fornecedor (destinatário da devolução). Casa por
-// CNPJ normalizado; cria a partir de `fornecedores` (endereço) + emitente da entrada.
+// Destinatário da devolução. Desde a unificação (2026-08-20) o fornecedor da
+// entrada JÁ É uma pessoa — esta função existia só para copiar um cadastro no
+// outro, e agora se resume a casar por CNPJ normalizado (a entrada guarda o
+// CNPJ com máscara em alguns XMLs) e criar quando a nota veio sem fornecedor.
 function garantirPessoaFornecedor(db, ent) {
   const cnpj = (ent.emitenteCnpj || '').replace(/\D/g, '');
   if (!cnpj) throw new Error('Entrada sem CNPJ do emitente');
+  if (ent.fornecedorId) {
+    const p = db.prepare('SELECT id FROM pessoas WHERE id = ?').get(ent.fornecedorId);
+    if (p) return p.id;
+  }
   const ex = db.prepare(
     `SELECT id FROM pessoas WHERE REPLACE(REPLACE(REPLACE(cpfCnpj,'.',''),'/',''),'-','') = ?`
   ).get(cnpj);
   if (ex) return ex.id;
-  const forn = ent.fornecedorId ? db.prepare('SELECT * FROM fornecedores WHERE id = ?').get(ent.fornecedorId) : null;
-  const s = forn || {};
-  const r = db.prepare(`
-    INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial, endereco, numero, bairro, codigoMunicipio,
-      cidade, uf, cep, email, inscricaoEstadual)
-    VALUES (?, 'PJ', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    cnpj, s.razaoSocial || ent.emitenteRazaoSocial || 'FORNECEDOR',
-    s.endereco || null, s.numero || null, s.bairro || null, s.codigoMunicipio || null,
-    s.cidade || null, s.uf || ent.emitenteUf || null, s.cep || null, s.email || null,
-    s.inscricaoEstadual || ent.emitenteIe || null);
-  return r.lastInsertRowid;
+  return garantirFornecedor(db, {
+    cpfCnpj: cnpj,
+    razaoSocial: ent.emitenteRazaoSocial || 'FORNECEDOR',
+    uf: ent.emitenteUf || null,
+    inscricaoEstadual: ent.emitenteIe || null,
+  });
 }
 
 // Torna faturas.pedidoId NULLABLE (rebuild) — devolução de compra não tem pedido. SQLite não

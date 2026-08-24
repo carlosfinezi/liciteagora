@@ -11,6 +11,25 @@
  */
 
 const { logAction } = require('./audit-log');
+const clt = require('./rh-clt');
+
+// Erro bloqueia a gravação; aviso vai junto na resposta para a tela mostrar.
+// Separar os dois evita o vício de barrar o que a convenção coletiva permite.
+function separar(problemas) {
+  return {
+    erros: problemas.filter((p) => p.nivel === 'erro'),
+    avisos: problemas.filter((p) => p.nivel === 'aviso'),
+  };
+}
+
+// O piso muda todo ano e varia por categoria: fica em config, e sem ele a
+// regra de salário simplesmente não roda.
+function salarioMinimoConfigurado(db) {
+  try {
+    const r = db.prepare("SELECT value FROM config WHERE key = 'rh_salario_minimo'").get();
+    return r && Number(r.value) > 0 ? Number(r.value) : 0;
+  } catch { return 0; }
+}
 
 const TIPOS_CONTRATO = ['CLT', 'PJ', 'MEI', 'autonomo', 'estagio', 'jovem-aprendiz'];
 const STATUS_FERIAS = ['planejada', 'aprovada', 'em-curso', 'concluida', 'cancelada'];
@@ -98,11 +117,9 @@ function diffHoras(hi, hf) {
   return ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60;
 }
 
-function calcularHorasTrabalhadas(p) {
-  let h = diffHoras(p.horaEntrada, p.horaSaida);
-  if (p.horaSaidaAlmoco && p.horaVoltaAlmoco) h -= diffHoras(p.horaSaidaAlmoco, p.horaVoltaAlmoco);
-  return Math.max(0, h);
-}
+// Delegado ao motor CLT, que trata virada de meia-noite: a conta antiga dava
+// ZERO hora para quem entrava às 22h e saía às 6h, sem avisar nada.
+const calcularHorasTrabalhadas = (p) => clt.calcularHoras(p);
 
 function diasEntreDatas(ini, fim) {
   if (!ini || !fim) return 0;
@@ -131,7 +148,17 @@ function registrarRotasRH(app, db) {
           SUM(CASE WHEN ativo = 1 THEN salario ELSE 0 END) AS folhaTotal
         FROM funcionarios
       `).get();
-      res.json({ success: true, funcionarios, kpis, tiposContrato: TIPOS_CONTRATO });
+
+      // O passivo de férias é o número que muda decisão; folha bruta sozinha
+      // não diz se a empresa está acumulando dias em dobro.
+      let alertas = null;
+      try { alertas = clt.alertasRH(db); } catch (e) { console.warn('[RH] alertas:', e.message); }
+      if (alertas) {
+        kpis.feriasVencidas = alertas.feriasVencidas.length;
+        kpis.passivoFeriasEstimado = alertas.passivoFeriasEstimado;
+      }
+
+      res.json({ success: true, funcionarios, kpis, alertas, tiposContrato: TIPOS_CONTRATO });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -148,6 +175,11 @@ function registrarRotasRH(app, db) {
       const b = req.body;
       if (!b.nome || !b.dataAdmissao) return res.status(400).json({ success: false, error: 'nome e dataAdmissao obrigatórios' });
       if (b.tipoContrato && !TIPOS_CONTRATO.includes(b.tipoContrato)) return res.status(400).json({ success: false, error: 'tipoContrato inválido' });
+
+      const { erros, avisos } = separar(
+        clt.validarFuncionario(db, b, { salarioMinimo: salarioMinimoConfigurado(db) }));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+
       const r = db.prepare(`
         INSERT INTO funcionarios (cpf, nome, dataNascimento, dataAdmissao, cargo, departamento, salario, tipoContrato,
                                   jornadaSemanalHoras, email, telefone, endereco, banco, agencia, conta, pix, observacoes)
@@ -157,15 +189,36 @@ function registrarRotasRH(app, db) {
               Number(b.jornadaSemanalHoras) || 44, b.email || null, b.telefone || null, b.endereco || null,
               b.banco || null, b.agencia || null, b.conta || null, b.pix || null, b.observacoes || null);
       logAction(db, req, 'criar', 'funcionario', r.lastInsertRowid, { nome: b.nome, cargo: b.cargo });
-      res.json({ success: true, funcionario: db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(r.lastInsertRowid) });
+      res.json({ success: true, avisos,
+        funcionario: db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
   app.put('/api/funcionarios/:id', (req, res) => {
     try {
-      const camposValidos = ['cpf','nome','dataNascimento','cargo','departamento','salario','tipoContrato',
+      // dataAdmissao faltava na lista: uma admissão digitada errada era
+      // impossível de corrigir pela tela, e ela é a base do cálculo de férias.
+      const camposValidos = ['cpf','nome','dataNascimento','dataAdmissao','cargo','departamento','salario','tipoContrato',
                              'jornadaSemanalHoras','email','telefone','endereco','banco','agencia','conta','pix',
                              'ativo','observacoes','dataDemissao'];
+
+      const atual = db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(req.params.id);
+      if (!atual) return res.status(404).json({ success: false, error: 'Funcionário não encontrado' });
+
+      // Valida o estado final, não o pedaço enviado: quem muda só a jornada
+      // ainda assim tem que resultar num cadastro coerente.
+      const final = { ...atual, ...req.body };
+      const { erros, avisos } = separar(
+        clt.validarFuncionario(db, final, { id: Number(req.params.id), salarioMinimo: salarioMinimoConfigurado(db) }));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+
+      // Data de demissão preenchida com o funcionário marcado como ativo era um
+      // estado que a tela mostrava como "trabalhando" e a folha não pagava.
+      if (final.dataDemissao && Number(final.ativo) === 1 && req.body.ativo === undefined) {
+        avisos.push({ nivel: 'aviso', codigo: 'demitido_ainda_ativo',
+          mensagem: 'Data de demissão preenchida mas o funcionário continua ativo — use a ação de desligamento' });
+      }
+
       const sets = [], vals = [];
       for (const c of camposValidos) {
         if (req.body[c] !== undefined) {
@@ -177,16 +230,58 @@ function registrarRotasRH(app, db) {
       vals.push(req.params.id);
       db.prepare(`UPDATE funcionarios SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
       logAction(db, req, 'editar', 'funcionario', req.params.id, req.body);
-      res.json({ success: true });
+      res.json({ success: true, avisos });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.delete('/api/funcionarios/:id', (req, res) => {
     try {
       const dataDemissao = req.body?.dataDemissao || new Date().toISOString().slice(0, 10);
+      const f = db.prepare('SELECT * FROM funcionarios WHERE id = ?').get(req.params.id);
+      if (!f) return res.status(404).json({ success: false, error: 'Funcionário não encontrado' });
+      if (dataDemissao < f.dataAdmissao) {
+        return res.status(400).json({ success: false, error: 'Data de demissão anterior à admissão' });
+      }
+
+      // Desligar sem saber o que é devido é como a empresa descobre o passivo
+      // na audiência. Férias não gozadas são indenizadas na rescisão, e as
+      // vencidas saem em dobro (CLT art. 137 e 146).
+      const situacao = clt.situacaoFerias(db, Number(req.params.id), { hoje: dataDemissao });
+      const rescisao = situacao ? {
+        diasFeriasAIndenizar: situacao.saldoTotal,
+        diasEmDobro: situacao.diasEmDobro,
+        custoDobroEstimado: situacao.custoDobroEstimado,
+      } : null;
+
       db.prepare('UPDATE funcionarios SET ativo = 0, dataDemissao = ? WHERE id = ?').run(dataDemissao, req.params.id);
-      logAction(db, req, 'demitir', 'funcionario', req.params.id, { dataDemissao });
-      res.json({ success: true });
+      logAction(db, req, 'demitir', 'funcionario', req.params.id, { dataDemissao, rescisao });
+      res.json({ success: true, rescisao });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // ==================== INTELIGÊNCIA ====================
+
+  // Situação de férias calculada da admissão: períodos aquisitivos, saldo,
+  // vencimento e o que já virou passivo em dobro.
+  app.get('/api/funcionarios/:id/ferias/situacao', (req, res) => {
+    try {
+      const s = clt.situacaoFerias(db, Number(req.params.id));
+      if (!s) return res.status(404).json({ success: false, error: 'Funcionário não encontrado' });
+      res.json({ success: true, situacao: s });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // Simula sem gravar — a tela pode avisar antes de o usuário clicar em salvar.
+  app.post('/api/funcionarios/:id/ferias/validar', (req, res) => {
+    try {
+      const problemas = clt.validarFerias(db, Number(req.params.id), req.body || {});
+      res.json({ success: true, ...separar(problemas) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.get('/api/rh/alertas', (req, res) => {
+    try {
+      res.json({ success: true, alertas: clt.alertasRH(db) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -209,6 +304,12 @@ function registrarRotasRH(app, db) {
     try {
       const b = req.body;
       if (!b.data) return res.status(400).json({ success: false, error: 'data obrigatória' });
+
+      const { erros, avisos } = separar(clt.validarPonto(db, Number(req.params.id), b));
+      if (erros.length && !b.forcar) {
+        return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+      }
+
       const horas = calcularHorasTrabalhadas(b);
       const r = db.prepare(`
         INSERT OR REPLACE INTO funcionarios_ponto (funcionarioId, data, horaEntrada, horaSaidaAlmoco, horaVoltaAlmoco, horaSaida, horasTrabalhadas, observacoes, tipo)
@@ -216,7 +317,8 @@ function registrarRotasRH(app, db) {
       `).run(req.params.id, b.data, b.horaEntrada || null, b.horaSaidaAlmoco || null, b.horaVoltaAlmoco || null,
               b.horaSaida || null, horas, b.observacoes || null, b.tipo || 'normal');
       logAction(db, req, 'registrar-ponto', 'funcionario', req.params.id, { data: b.data, horas });
-      res.json({ success: true, ponto: db.prepare('SELECT * FROM funcionarios_ponto WHERE id = ?').get(r.lastInsertRowid) });
+      res.json({ success: true, avisos,
+        ponto: db.prepare('SELECT * FROM funcionarios_ponto WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
@@ -243,6 +345,11 @@ function registrarRotasRH(app, db) {
         return res.status(400).json({ success: false, error: 'período aquisitivo obrigatório' });
       }
       const dias = b.dias || (b.dataInicio && b.dataFim ? diasEntreDatas(b.dataInicio, b.dataFim) : 30);
+
+      const { erros, avisos } = separar(
+        clt.validarFerias(db, Number(req.params.id), { ...b, dias }));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+
       const r = db.prepare(`
         INSERT INTO funcionarios_ferias (funcionarioId, periodoAquisitivoIni, periodoAquisitivoFim, dataInicio, dataFim, dias, status, diasAbono, observacoes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -250,7 +357,8 @@ function registrarRotasRH(app, db) {
               b.dataInicio || null, b.dataFim || null, dias,
               b.status || 'planejada', Number(b.diasAbono) || 0, b.observacoes || null);
       logAction(db, req, 'criar-ferias', 'funcionario', req.params.id, { dias, periodo: b.periodoAquisitivoIni });
-      res.json({ success: true, ferias: db.prepare('SELECT * FROM funcionarios_ferias WHERE id = ?').get(r.lastInsertRowid) });
+      res.json({ success: true, avisos,
+        ferias: db.prepare('SELECT * FROM funcionarios_ferias WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
@@ -291,6 +399,9 @@ function registrarRotasRH(app, db) {
     try {
       const b = req.body;
       if (!b.dataInicio || !b.dataFim) return res.status(400).json({ success: false, error: 'dataInicio e dataFim obrigatórios' });
+
+      const { erros, avisos } = separar(clt.validarAtestado(db, Number(req.params.id), b));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
       const dias = diasEntreDatas(b.dataInicio, b.dataFim);
       const r = db.prepare(`
         INSERT INTO funcionarios_atestados (funcionarioId, dataInicio, dataFim, dias, cid, profissionalSaude, crm, motivo, observacoes)
@@ -298,7 +409,8 @@ function registrarRotasRH(app, db) {
       `).run(req.params.id, b.dataInicio, b.dataFim, dias,
               b.cid || null, b.profissionalSaude || null, b.crm || null, b.motivo || null, b.observacoes || null);
       logAction(db, req, 'criar-atestado', 'funcionario', req.params.id, { dias, cid: b.cid });
-      res.json({ success: true, atestado: db.prepare('SELECT * FROM funcionarios_atestados WHERE id = ?').get(r.lastInsertRowid) });
+      res.json({ success: true, avisos,
+        atestado: db.prepare('SELECT * FROM funcionarios_atestados WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 

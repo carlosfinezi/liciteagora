@@ -33,6 +33,15 @@ function validarXmlLocal(xmlNfe) {
   }
 }
 
+// Mesmo roundtrip (e mesmas opções) que o node-sped-nfe aplica internamente após assinar,
+// tornando o XML um ponto fixo da re-serialização — ver comentário no ponto de assinatura.
+function normalizarXmlPreAssinatura(xml) {
+  const { XMLParser, XMLBuilder } = require('fast-xml-parser');
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@', parseTagValue: false });
+  const builder = new XMLBuilder({ ignoreAttributes: false, attributeNamePrefix: '@' });
+  return builder.build(parser.parse(xml));
+}
+
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* ok */ } }
 
 function migrar(db) {
@@ -293,6 +302,11 @@ async function emitirNFe(db, faturaId) {
   // finalidadeNFe também vem do tipo (1=normal, 2=complementar, 3=ajuste, 4=devolução).
   const finalidadeNFe = tipoOpRow?.finalidadeNFe || (ehDevolucao ? 4 : 1);
 
+  // A lib roteia MA/PA para SVAN (sefazvirtual.fazenda.gov.br), que em homologação
+  // atende como SVC-AN e exige tpEmis=6 + dhCont/xJust. As demais UFs (SVRS etc.)
+  // recebem no autorizador normal, onde tpEmis=6 é rejeitado (cStat 570).
+  const homologSvcAn = cfg.tpAmb === 2 && ['MA','PA'].includes((emit.uf || '').toUpperCase());
+
   NFe.tagIde({
     cUF: String(cUF),
     cNF,
@@ -308,9 +322,9 @@ async function emitirNFe(db, faturaId) {
       : '2',
     cMunFG: String(emit.codigoMunicipio || '0').padStart(7,'0'),
     tpImp: '1',
-    // Em homologação PA a lib chega em SVC-AN → tpEmis=6 é exigido
-    // Em produção PA a URL atende como SVAN normal → tpEmis=1
-    tpEmis: cfg.tpAmb === 2 ? '6' : '1',
+    // Em homologação MA/PA a lib chega em SVC-AN → tpEmis=6 é exigido
+    // Em produção a URL atende como autorizador normal → tpEmis=1
+    tpEmis: homologSvcAn ? '6' : '1',
     cDV: '0',
     tpAmb: String(cfg.tpAmb),
     finNFe: String(finalidadeNFe),
@@ -319,7 +333,7 @@ async function emitirNFe(db, faturaId) {
     indIntermed: '0',
     procEmi: '0',
     verProc: 'LiciteAgora1.0',
-    ...(cfg.tpAmb === 2 ? {
+    ...(homologSvcAn ? {
       dhCont: (() => {
         const brt = new Date(Date.now() - 3*60*60*1000 - 5*60*1000);
         const pad = n => String(n).padStart(2,'0');
@@ -596,7 +610,12 @@ async function emitirNFe(db, faturaId) {
   // Injeta <cobr> imediatamente antes de <pag> (ordem exigida pelo schema). A lib não
   // implementa tagFat/tagDup, então montamos o grupo à mão; o XSD local (pós-assinatura) valida.
   const xmlRaw0 = NFe.xml();
-  const xmlRaw = cobrXml ? xmlRaw0.replace('<pag>', cobrXml + '<pag>') : xmlRaw0;
+  const xmlRawBruto = cobrXml ? xmlRaw0.replace('<pag>', cobrXml + '<pag>') : xmlRaw0;
+  // O xmlSign da lib (mod 55) calcula o digest sobre a string original mas transmite o XML
+  // re-serializado por xml2json→json2xml (fast-xml-parser, trimValues) — qualquer espaço nas
+  // bordas de um texto (ex.: xFant) muda os bytes enviados e a SEFAZ rejeita com cStat 297.
+  // Normalizar pelo MESMO roundtrip antes de assinar garante bytes assinados == bytes enviados.
+  const xmlRaw = normalizarXmlPreAssinatura(xmlRawBruto);
   console.log('[NFe] XML gerado (primeiros 2000 chars):\n', xmlRaw.substring(0, 2000));
 
   const xmlAssinado = await tools.xmlSign(xmlRaw);

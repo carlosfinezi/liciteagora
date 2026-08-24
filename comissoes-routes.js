@@ -24,6 +24,9 @@
 
 const { logAction } = require('./audit-log');
 const { lancarMovimentacao } = require('./contas-financeiras-routes');
+const { escopoSqlHerdado, escopoUsuario, noEscopo, guardEscopo } = require('./estabelecimentos-routes');
+const calc = require('./comissoes-calculo');
+const { E_FORNECEDOR } = require('./pessoas-fornecedor');
 
 const TIPOS_REGRA = ['percentual_venda', 'percentual_lucro', 'fixo_por_unidade'];
 
@@ -31,6 +34,15 @@ function alterSafe(db, sql) { try { db.exec(sql); } catch { /* idempotente */ } 
 
 function migrarDB(db) {
   alterSafe(db, 'ALTER TABLE pedidos ADD COLUMN vendedorId INTEGER');
+  // Plano de comissão de verdade tem gatilho e acelerador de meta; sem eles a
+  // regra é uma taxa fixa que ignora se o vendedor bateu o número.
+  alterSafe(db, 'ALTER TABLE comissoes_regras ADD COLUMN metaMinimaPercentual REAL');
+  alterSafe(db, 'ALTER TABLE comissoes_regras ADD COLUMN valorAcelerado REAL');
+  // Rastro do pagamento, para o estorno saber o que desfazer.
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN contaPagarId INTEGER');
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN movimentacaoId INTEGER');
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN motivoSemComissao TEXT');
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN baseApuracao TEXT');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS comissoes_regras (
@@ -79,51 +91,24 @@ function migrarDB(db) {
   `);
 }
 
-function escolheRegra(regras, item, pedido, produto) {
-  // Filtra por validade temporal e escopo aplicável
-  const dataPedido = (pedido.dataPedido || '').slice(0, 10);
-  const aplicaveis = regras.filter(r => {
-    if (!r.ativo) return false;
-    if (r.dataInicio && dataPedido && dataPedido < r.dataInicio) return false;
-    if (r.dataFim    && dataPedido && dataPedido > r.dataFim)    return false;
-    if (r.vendedorId && r.vendedorId !== pedido.vendedorId) return false;
-    if (r.produtoId  && r.produtoId !== item.produtoId)     return false;
-    if (r.clienteId  && r.clienteId !== pedido.clienteId)   return false;
-    if (r.categoriaProduto && r.categoriaProduto !== (produto?.categoria || null)) return false;
-    return true;
-  });
-  if (!aplicaveis.length) return null;
-  // Ordena por especificidade (mais específica primeiro)
-  function score(r) {
-    let s = 0;
-    if (r.vendedorId) s += 2;
-    if (r.produtoId)  s += 2;
-    if (r.categoriaProduto) s += 1;
-    if (r.clienteId)  s += 1;
-    return s;
-  }
-  aplicaveis.sort((a, b) => score(b) - score(a));
-  return aplicaveis[0];
-}
+// Escolha de regra, custo e cálculo migraram para comissoes-calculo.js — a
+// versão local desempatava pela ordem que o SQLite devolvesse e usava o custo
+// de hoje para apurar lucro de meses fechados.
 
-function calcularComissao(regra, item, custoMedio) {
-  const qtd  = Number(item.quantidade);
-  const total = Number(item.valorTotal);
-  if (regra.tipo === 'percentual_venda') {
-    return { base: total, percentual: regra.valor, valor: total * regra.valor / 100 };
-  }
-  if (regra.tipo === 'percentual_lucro') {
-    const custo = Number(custoMedio || 0) * qtd;
-    const lucro = total - custo;
-    return { base: lucro, percentual: regra.valor, valor: lucro > 0 ? lucro * regra.valor / 100 : 0 };
-  }
-  if (regra.tipo === 'fixo_por_unidade') {
-    return { base: qtd, percentual: null, valor: qtd * regra.valor };
-  }
-  return { base: 0, percentual: null, valor: 0 };
+
+// Erro bloqueia; aviso vai junto na resposta. Regra sombreada e percentual
+// incomum não devem impedir a gravação — só precisam ser ditos.
+function separar(problemas) {
+  return {
+    erros: problemas.filter((p) => p.nivel === 'erro'),
+    avisos: problemas.filter((p) => p.nivel === 'aviso'),
+  };
 }
 
 function registrarRotasComissoes(app, db) {
+  // RBAC: a apuração herda a unidade do vendedor.
+  app.use('/api/comissoes/apuracao/:id', guardEscopo(db, 'comissoes_apuracao', { fk: 'vendedorId', pai: 'users' }));
+
   migrarDB(db);
 
   // ==================== REGRAS CRUD ====================
@@ -145,22 +130,40 @@ function registrarRotasComissoes(app, db) {
 
   app.post('/api/comissoes/regras', (req, res) => {
     try {
-      const { nome, vendedorId, produtoId, categoriaProduto, clienteId, tipo, valor, dataInicio, dataFim, observacoes } = req.body;
-      if (!nome || !tipo || valor == null) return res.status(400).json({ success: false, error: 'nome, tipo e valor obrigatórios' });
-      if (!TIPOS_REGRA.includes(tipo)) return res.status(400).json({ success: false, error: `tipo inválido. Use: ${TIPOS_REGRA.join(', ')}` });
+      const { nome, vendedorId, produtoId, categoriaProduto, clienteId, tipo, valor,
+              dataInicio, dataFim, observacoes, metaMinimaPercentual, valorAcelerado } = req.body;
+
+      const { erros, avisos } = separar(calc.validarRegra(db, req.body));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+
       const r = db.prepare(`
-        INSERT INTO comissoes_regras (nome, vendedorId, produtoId, categoriaProduto, clienteId, tipo, valor, dataInicio, dataFim, observacoes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO comissoes_regras (nome, vendedorId, produtoId, categoriaProduto, clienteId, tipo, valor,
+                                      dataInicio, dataFim, observacoes, metaMinimaPercentual, valorAcelerado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(nome, vendedorId || null, produtoId || null, categoriaProduto || null, clienteId || null,
-              tipo, Number(valor), dataInicio || null, dataFim || null, observacoes || null);
+              tipo, Number(valor), dataInicio || null, dataFim || null, observacoes || null,
+              metaMinimaPercentual != null && metaMinimaPercentual !== '' ? Number(metaMinimaPercentual) : null,
+              valorAcelerado != null && valorAcelerado !== '' ? Number(valorAcelerado) : null);
       logAction(db, req, 'criar', 'comissao-regra', r.lastInsertRowid, { nome, tipo, valor });
-      res.json({ success: true, regra: db.prepare('SELECT * FROM comissoes_regras WHERE id = ?').get(r.lastInsertRowid) });
+      // avisos vao junto: regra sombreada nasce funcionando, mas inutil.
+      res.json({ success: true, avisos, regra: db.prepare('SELECT * FROM comissoes_regras WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
   app.put('/api/comissoes/regras/:id', (req, res) => {
     try {
-      const camposValidos = ['nome','vendedorId','produtoId','categoriaProduto','clienteId','tipo','valor','dataInicio','dataFim','ativo','observacoes'];
+      const camposValidos = ['nome','vendedorId','produtoId','categoriaProduto','clienteId','tipo','valor',
+                             'dataInicio','dataFim','ativo','observacoes','metaMinimaPercentual','valorAcelerado'];
+
+      const atual = db.prepare('SELECT * FROM comissoes_regras WHERE id = ?').get(req.params.id);
+      if (!atual) return res.status(404).json({ success: false, error: 'Regra nao encontrada' });
+
+      // Valida o estado final: quem muda so o percentual ainda precisa resultar
+      // numa regra coerente.
+      const final = { ...atual, ...req.body };
+      const { erros, avisos } = separar(calc.validarRegra(db, final, { id: Number(req.params.id) }));
+      if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
+
       const sets = [], vals = [];
       for (const c of camposValidos) {
         if (req.body[c] !== undefined) {
@@ -172,7 +175,7 @@ function registrarRotasComissoes(app, db) {
       vals.push(req.params.id);
       db.prepare(`UPDATE comissoes_regras SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
       logAction(db, req, 'editar', 'comissao-regra', req.params.id, req.body);
-      res.json({ success: true });
+      res.json({ success: true, avisos });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -192,34 +195,42 @@ function registrarRotasComissoes(app, db) {
     try {
       const periodo = req.query.periodo || req.body?.periodo;
       const vendedorFiltro = req.query.vendedorId || req.body?.vendedorId;
+      const base = req.query.base || req.body?.base || 'confirmado';
+      const simular = req.query.simular === '1' || req.body?.simular === true;
       if (!periodo || !/^\d{4}-\d{2}$/.test(periodo)) {
         return res.status(400).json({ success: false, error: 'periodo no formato YYYY-MM obrigatório' });
       }
+      if (!calc.BASES[base]) {
+        return res.status(400).json({ success: false,
+          error: `base inválida: use ${Object.keys(calc.BASES).join(', ')}` });
+      }
       const ini = `${periodo}-01`;
-      // último dia do mês
+      // Date.UTC para o último dia não escorregar de fuso.
       const [y, m] = periodo.split('-').map(Number);
-      const fim = new Date(y, m, 0).toISOString().slice(0, 10);
+      const fim = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 
-      // Pega todas as regras ativas (filtragem em memória)
       const regras = db.prepare('SELECT * FROM comissoes_regras WHERE ativo = 1').all();
 
-      // Pedidos elegíveis: confirmados ou pagos no período (por dataPedido) com vendedor
-      let pedidosSql = `
-        SELECT p.*, c.razaoSocial AS clienteNome
-        FROM pedidos p
-        LEFT JOIN pessoas c ON c.id = p.clienteId
-        WHERE p.dataPedido >= ? AND p.dataPedido <= ?
-          AND p.vendedorId IS NOT NULL
-          AND (p.status = 'confirmado' OR p.statusPagamento = 'pago')
-      `;
+      let pedidosSql = calc.sqlPedidosElegiveis(base);
       const params = [ini, fim];
       if (vendedorFiltro) { pedidosSql += ' AND p.vendedorId = ?'; params.push(Number(vendedorFiltro)); }
       const pedidos = db.prepare(pedidosSql).all(...params);
 
+      // Meta por vendedor, calculada uma vez — gatilho e acelerador precisam
+      // dela e recalcular por item seria N consultas à toa.
+      const metaPorVendedor = new Map();
+      const cadastroPorVendedor = new Map();
+      for (const ped of pedidos) {
+        if (!metaPorVendedor.has(ped.vendedorId)) {
+          metaPorVendedor.set(ped.vendedorId, calc.situacaoMeta(db, ped.vendedorId, periodo, base));
+          cadastroPorVendedor.set(ped.vendedorId, calc.regraDoCadastro(db, ped.vendedorId));
+        }
+      }
+
       // Apaga apurações pendentes do período (não toca em pagas)
       const delSql = `DELETE FROM comissoes_apuracao WHERE periodo = ? AND status = 'pendente'${vendedorFiltro?' AND vendedorId = ?':''}`;
       const delParams = vendedorFiltro ? [periodo, Number(vendedorFiltro)] : [periodo];
-      db.prepare(delSql).run(...delParams);
+      if (!simular) db.prepare(delSql).run(...delParams);
 
       const stmtItens = db.prepare(`
         SELECT pi.*, pr.categoria, pr.descricao AS produtoDescricao
@@ -228,40 +239,92 @@ function registrarRotasComissoes(app, db) {
         WHERE pi.pedidoId = ?
       `);
 
-      // Custo médio: tenta da última movimentação posterior, fallback simples
-      const stmtCusto = db.prepare(`
-        SELECT custoMedioPosterior FROM movimentacoes_estoque
-        WHERE produtoId = ? AND custoMedioPosterior IS NOT NULL
-        ORDER BY data DESC, id DESC LIMIT 1
-      `);
-
       const stmtJaPago = db.prepare(`SELECT id FROM comissoes_apuracao WHERE periodo = ? AND pedidoItemId = ? AND status = 'paga'`);
       const stmtInsert = db.prepare(`
-        INSERT INTO comissoes_apuracao (periodo, vendedorId, pedidoId, pedidoItemId, regraId, tipo, baseCalculo, percentual, valorComissao, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente')
+        INSERT INTO comissoes_apuracao (periodo, vendedorId, pedidoId, pedidoItemId, regraId, tipo,
+                                        baseCalculo, percentual, valorComissao, status, baseApuracao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?)
       `);
 
-      let geradas = 0, ignoradasSemRegra = 0;
+      let geradas = 0, total = 0, porCadastro = 0;
+      const semRegra = [];
+      const semValor = [];
+      const ambiguos = [];
+      const previa = [];
+
       const trx = db.transaction(() => {
         for (const ped of pedidos) {
-          const itens = stmtItens.all(ped.id);
-          for (const it of itens) {
-            // Pula se já foi pago (preserva)
-            if (stmtJaPago.get(periodo, it.id)) continue;
-            const produto = it.produtoId ? { categoria: it.categoria } : null;
-            const regra = escolheRegra(regras, it, ped, produto);
-            if (!regra) { ignoradasSemRegra++; continue; }
-            const custoMedio = it.produtoId ? (stmtCusto.get(it.produtoId)?.custoMedioPosterior || 0) : 0;
-            const calc = calcularComissao(regra, it, custoMedio);
-            if (calc.valor <= 0) continue;
-            stmtInsert.run(periodo, ped.vendedorId, ped.id, it.id, regra.id, regra.tipo, calc.base, calc.percentual, calc.valor);
+          const meta = metaPorVendedor.get(ped.vendedorId);
+          for (const it of stmtItens.all(ped.id)) {
+            if (stmtJaPago.get(periodo, it.id)) continue;   // já pago: preserva
+
+            let { regra, empatadas } = calc.escolherRegra(regras, it, ped, { categoria: it.categoria });
+            if (!regra) {
+              // Antes de desistir, o percentual da ficha do vendedor.
+              regra = cadastroPorVendedor.get(ped.vendedorId) || null;
+              if (regra) porCadastro++;
+            }
+            if (!regra) {
+              semRegra.push({ pedidoId: ped.id, pedidoNumero: ped.numero, itemId: it.id,
+                              descricao: it.descricao, valor: Number(it.valorTotal) || 0 });
+              continue;
+            }
+            if (empatadas.length) {
+              ambiguos.push({ pedidoId: ped.id, itemId: it.id, aplicada: regra.id,
+                              empatadas: empatadas.map((r) => ({ id: r.id, nome: r.nome })) });
+            }
+
+            const c = calc.custoNaData(db, it.produtoId, (ped.dataPedido || '').slice(0, 10));
+            const r = calc.calcularComissao(regra, it,
+              { meta, custoUnitario: c.custo, custoEncontrado: c.encontrado });
+
+            if (!(r.valor > 0)) {
+              // Antes isto era um `continue` mudo: o item saía do relatório sem
+              // dizer que existiu nem por que valeu zero.
+              semValor.push({ pedidoId: ped.id, pedidoNumero: ped.numero, itemId: it.id,
+                              descricao: it.descricao, regraId: regra.id, regraNome: regra.nome,
+                              motivo: r.motivo || 'comissão calculada em zero' });
+              continue;
+            }
+
+            previa.push({ pedidoId: ped.id, pedidoNumero: ped.numero, itemId: it.id,
+                          descricao: it.descricao, vendedorId: ped.vendedorId, regraId: regra.id,
+                          regraNome: regra.nome, base: r.base, percentual: r.percentual,
+                          valor: r.valor, acelerado: !!r.acelerado });
+            if (!simular) {
+              stmtInsert.run(periodo, ped.vendedorId, ped.id, it.id, regra.id || null, regra.tipo,
+                             r.base, r.percentual, r.valor, base);
+            }
             geradas++;
+            total += r.valor;
           }
         }
       });
       trx();
-      logAction(db, req, 'apurar', 'comissao', null, { periodo, geradas, ignoradasSemRegra, pedidos: pedidos.length });
-      res.json({ success: true, periodo, pedidos: pedidos.length, geradas, ignoradasSemRegra });
+
+      const metas = Array.from(metaPorVendedor.entries())
+        .filter(([, v]) => v).map(([vendedorId, v]) => ({ vendedorId, ...v }));
+
+      if (!simular) {
+        logAction(db, req, 'apurar', 'comissao', null,
+          { periodo, base, geradas, total, semRegra: semRegra.length, pedidos: pedidos.length });
+      }
+      res.json({
+        success: true, periodo, base, simulacao: simular,
+        pedidos: pedidos.length, geradas, total: Number(total.toFixed(2)),
+        // Quantas linhas vieram do percentual da ficha do vendedor, e não de
+        // uma regra escrita: é bom saber que o plano de comissão está implícito.
+        geradasPorCadastro: porCadastro,
+        // Contagem sozinha não conserta nada: quem apura precisa saber QUAIS
+        // itens ficaram de fora para escrever a regra que falta.
+        ignoradasSemRegra: semRegra.length,
+        itensSemRegra: semRegra,
+        valorSemRegra: Number(semRegra.reduce((a, x) => a + x.valor, 0).toFixed(2)),
+        itensSemValor: semValor,
+        itensAmbiguos: ambiguos,
+        metas,
+        previa: simular ? previa : undefined,
+      });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -284,6 +347,9 @@ function registrarRotasComissoes(app, db) {
         WHERE 1=1
       `;
       const params = [];
+      // RBAC: a comissão pertence à unidade do vendedor (users.estabelecimentoId).
+      const rbac = escopoSqlHerdado(req, 'a.vendedorId', 'users');
+      sql += rbac.sql; params.push(...rbac.params);
       if (periodo)    { sql += ' AND a.periodo = ?';    params.push(periodo); }
       if (vendedorId) { sql += ' AND a.vendedorId = ?'; params.push(Number(vendedorId)); }
       if (status)     { sql += ' AND a.status = ?';     params.push(status); }
@@ -315,7 +381,34 @@ function registrarRotasComissoes(app, db) {
       const data = dataPagamento || new Date().toISOString().slice(0, 10);
 
       const contaFin = db.prepare('SELECT * FROM contas_financeiras WHERE id = ? AND ativo = 1').get(contaFinanceiraId);
-      if (!contaFin) return res.status(404).json({ success: false, error: 'Conta financeira não encontrada ou inativa' });
+      if (!contaFin || !noEscopo(req, contaFin.estabelecimentoId)) {
+        return res.status(404).json({ success: false, error: 'Conta financeira não encontrada ou inativa' });
+      }
+      // Os ids vêm no corpo: barra pagar comissão de vendedor de outra unidade.
+      const escopoUser = escopoUsuario(req);
+      if (escopoUser) {
+        const fora = db.prepare(`SELECT COUNT(*) AS n FROM comissoes_apuracao a
+          JOIN users u ON u.id = a.vendedorId
+          WHERE a.id IN (${ids.map(() => '?').join(',')})
+            AND u.estabelecimentoId IS NOT NULL AND u.estabelecimentoId != ?`).get(...ids, escopoUser).n;
+        if (fora) return res.status(404).json({ success: false, error: 'Apuração não encontrada' });
+      }
+
+      // contas_a_pagar.fornecedorId é NOT NULL. A rota mandava `|| null` e o
+      // pagamento morria com um erro cru do SQLite. Resolve pelo CPF/CNPJ do
+      // vendedor e, quando não dá, diz o que falta em vez de estourar.
+      function resolverFornecedor(vendedorId) {
+        if (fornecedorId) return Number(fornecedorId);
+        try {
+          const u = db.prepare('SELECT cpfCnpj FROM users WHERE id = ?').get(vendedorId);
+          const doc = String((u && u.cpfCnpj) || '').replace(/\D/g, '');
+          if (!doc) return null;
+          const forn = db.prepare(`SELECT id FROM pessoas
+            WHERE ${E_FORNECEDOR}
+              AND REPLACE(REPLACE(REPLACE(COALESCE(cpfCnpj,''),'.',''),'-',''),'/','') = ?`).get(doc);
+          return forn ? forn.id : null;
+        } catch { return null; }
+      }
 
       // Agrega por vendedor e valida cada apuração
       const placeholders = ids.map(() => '?').join(',');
@@ -331,20 +424,34 @@ function registrarRotasComissoes(app, db) {
         if (!porVendedor.has(key)) porVendedor.set(key, { vendedorId: a.vendedorId, vendedorNome: a.vendedorNome, ids: [], total: 0, periodo: a.periodo });
         const agg = porVendedor.get(key);
         agg.ids.push(a.id);
-        agg.total += Number(a.valor) || 0;
+        // A coluna é `valorComissao`. Somar `a.valor` dava NaN -> 0, o total
+        // ficava zero, o `continue` abaixo pulava todo mundo e a rota devolvia
+        // "sucesso" sem pagar nada, sem criar conta a pagar e sem marcar as
+        // apurações. O vendedor não recebia e ninguém via.
+        agg.total += Number(a.valorComissao) || 0;
       }
 
       const resultados = [];
+      const semValor = [];
+      let marcadas = 0;
       const tx = db.transaction(() => {
         for (const agg of porVendedor.values()) {
           const vPago = Number(agg.total.toFixed(2));
-          if (vPago <= 0) continue;
+          if (vPago <= 0) { semValor.push({ vendedorId: agg.vendedorId, apuracoes: agg.ids }); continue; }
+
+          const fornDoVendedor = resolverFornecedor(agg.vendedorId);
+          if (!fornDoVendedor) {
+            throw new Error(
+              `Vendedor ${agg.vendedorNome || '#' + agg.vendedorId} não tem fornecedor vinculado. `
+              + 'Cadastre o CPF/CNPJ dele em Usuários e um fornecedor com o mesmo documento, '
+              + 'ou informe fornecedorId na requisição — a conta a pagar exige um credor.');
+          }
           // 1) cria conta_a_pagar (documento do passivo)
           const cp = db.prepare(`INSERT INTO contas_a_pagar
             (fornecedorId, descricao, valor, dataEmissao, dataVencimento, dataPagamento,
              status, valorPago, contaFinanceiraId, formaPagamento, observacoes)
             VALUES (?, ?, ?, ?, ?, ?, 'paga', ?, ?, 'comissao', ?)`).run(
-            fornecedorId || null,
+            fornDoVendedor,
             `Comissão ${agg.periodo || ''} — ${agg.vendedorNome || 'vendedor id ' + agg.vendedorId}`,
             vPago, data, data, data, vPago, contaFinanceiraId,
             observacao || `apuracoes: ${agg.ids.join(',')}`
@@ -358,31 +465,119 @@ function registrarRotasComissoes(app, db) {
             categoria: 'comissoes',
             usuario: req.user?.username || null
           });
-          // 3) marca apurações como pagas (status + link)
+          // 3) marca apurações como pagas, guardando o rastro em COLUNA — o
+          // estorno precisa saber qual conta a pagar e qual movimentação
+          // desfazer, e texto livre em `observacao` não serve para isso.
           const ph = agg.ids.map(() => '?').join(',');
-          db.prepare(`UPDATE comissoes_apuracao
-             SET status = 'paga', dataPagamento = ?, observacao = COALESCE(?, observacao)
+          const upd = db.prepare(`UPDATE comissoes_apuracao
+             SET status = 'paga', dataPagamento = ?, contaPagarId = ?, movimentacaoId = ?,
+                 observacao = COALESCE(?, observacao)
              WHERE id IN (${ph})`)
-            .run(data, observacao || `cp_id=${cp.lastInsertRowid} mov_id=${movId}`, ...agg.ids);
+            .run(data, cp.lastInsertRowid, movId, observacao || null, ...agg.ids);
+          marcadas += upd.changes;
           resultados.push({ vendedorId: agg.vendedorId, apuracoes: agg.ids, contaPagarId: cp.lastInsertRowid, movimentacaoId: movId, valor: vPago });
         }
       });
       tx();
 
       logAction(db, req, 'pagar', 'comissao', null, { ids, dataPagamento: data, resultados });
-      res.json({ success: true, marcadas: apuracoes.length, pagamentos: resultados });
+      // `marcadas` conta o que foi efetivamente pago, não o que foi encontrado.
+      res.json({ success: true, marcadas, encontradas: apuracoes.length,
+        total: Number(resultados.reduce((t, r) => t + r.valor, 0).toFixed(2)),
+        pagamentos: resultados, semValor });
     } catch (err) {
-      console.error('[pagar comissao]', err);
+      // Falta de cadastro é erro do usuário, não do servidor.
+      const doUsuario = /fornecedor vinculado/.test(err.message);
+      if (!doUsuario) console.error('[pagar comissao]', err);
+      res.status(doUsuario ? 400 : 500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Estorno desfaz o pagamento inteiro, não só o status.
+  //
+  // Antes voltava a apuração para 'pendente' e deixava a conta a pagar quitada
+  // e o dinheiro fora da conta. A comissão podia ser paga de novo — o mesmo
+  // valor saía duas vezes e o caixa nunca fechava.
+  app.post('/api/comissoes/apuracao/:id/estornar', (req, res) => {
+    try {
+      const a = db.prepare("SELECT * FROM comissoes_apuracao WHERE id = ? AND status = 'paga'").get(req.params.id);
+      if (!a) return res.status(400).json({ success: false, error: 'Apuração não está paga' });
+
+      // O pagamento foi feito em lote por vendedor: estornar uma linha sozinha
+      // deixaria a conta a pagar com valor que não corresponde a nada. Ou
+      // desfaz o lote todo, ou não desfaz.
+      const irmas = a.contaPagarId
+        ? db.prepare("SELECT * FROM comissoes_apuracao WHERE contaPagarId = ? AND status = 'paga'").all(a.contaPagarId)
+        : [a];
+
+      const desfeito = { contaPagarId: a.contaPagarId || null, movimentacaoId: a.movimentacaoId || null, linhas: irmas.length };
+
+      const tx = db.transaction(() => {
+        if (a.movimentacaoId) {
+          const mov = db.prepare('SELECT * FROM movimentacoes_financeiras WHERE id = ?').get(a.movimentacaoId);
+          if (mov) {
+            // Contra-lançamento em vez de DELETE: extrato conciliado não se
+            // reescreve, e a entrada tem que aparecer na data em que ocorreu.
+            lancarMovimentacao(db, {
+              contaId: mov.contaId, tipo: 'entrada', valor: mov.valor,
+              descricao: `Estorno de comissão — ${mov.descricao}`,
+              origem: 'comissao_estorno', origemId: a.contaPagarId || a.id,
+              categoria: 'comissoes', usuario: req.user?.username || null,
+            });
+          }
+        }
+        if (a.contaPagarId) {
+          db.prepare(`UPDATE contas_a_pagar
+            SET status = 'cancelada', valorPago = 0, dataPagamento = NULL,
+                observacoes = COALESCE(observacoes, '') || ' | estornada em ' || DATE('now')
+            WHERE id = ?`).run(a.contaPagarId);
+        }
+        const ids = irmas.map((x) => x.id);
+        const ph = ids.map(() => '?').join(',');
+        db.prepare(`UPDATE comissoes_apuracao
+          SET status = 'pendente', dataPagamento = NULL, contaPagarId = NULL, movimentacaoId = NULL
+          WHERE id IN (${ph})`).run(...ids);
+      });
+      tx();
+
+      logAction(db, req, 'estornar-pagamento', 'comissao', req.params.id, desfeito);
+      res.json({ success: true, desfeito });
+    } catch (err) {
+      console.error('[estornar comissao]', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  app.post('/api/comissoes/apuracao/:id/estornar', (req, res) => {
+  // ==================== INTELIGÊNCIA ====================
+
+  // Por que a apuração ficou assim: itens sem regra, itens com regra ambígua,
+  // regras que nunca casaram e pedidos que a base escolhida deixou de fora.
+  app.get('/api/comissoes/diagnostico', (req, res) => {
     try {
-      const r = db.prepare(`UPDATE comissoes_apuracao SET status='pendente', dataPagamento=NULL WHERE id = ? AND status='paga'`).run(req.params.id);
-      if (!r.changes) return res.status(400).json({ success: false, error: 'Apuração não está paga' });
-      logAction(db, req, 'estornar-pagamento', 'comissao', req.params.id, null);
-      res.json({ success: true });
+      const { periodo, base } = req.query;
+      if (!periodo || !/^\d{4}-\d{2}$/.test(periodo)) {
+        return res.status(400).json({ success: false, error: 'periodo no formato YYYY-MM obrigatório' });
+      }
+      res.json({ success: true, diagnostico: calc.diagnosticoRegras(db, periodo, { base: base || 'confirmado' }) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // Quanto cada vendedor vendeu contra a meta — é o que decide gatilho e
+  // acelerador, então precisa ser visível antes de apurar.
+  app.get('/api/comissoes/metas', (req, res) => {
+    try {
+      const { periodo, base } = req.query;
+      if (!periodo || !/^\d{4}-\d{2}$/.test(periodo)) {
+        return res.status(400).json({ success: false, error: 'periodo no formato YYYY-MM obrigatório' });
+      }
+      const vendedores = db.prepare(`SELECT DISTINCT p.vendedorId AS id, u.nome, u.username
+        FROM pedidos p JOIN users u ON u.id = p.vendedorId
+        WHERE p.vendedorId IS NOT NULL AND p.dataPedido LIKE ?`).all(periodo + '-%');
+      const metas = vendedores.map((v) => ({
+        vendedorId: v.id, nome: v.nome || v.username,
+        meta: calc.situacaoMeta(db, v.id, periodo, base || 'confirmado'),
+      }));
+      res.json({ success: true, metas });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 }

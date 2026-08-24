@@ -5,126 +5,250 @@
 <title>Notificações de OS · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .sub { display:block; color:var(--text-3); font-size:.78em; }
+  .tpl { max-width:420px; white-space:pre-wrap; font-family:monospace; font-size:12px; }
+  code.ph { cursor:pointer; }
+  code.ph:hover { text-decoration:underline; }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
   <div class="page-header">
     <div>
       <h1>Notificações de Ordem de Serviço</h1>
-      <small>Configure envios automáticos por email, WhatsApp ou Telegram para eventos da OS</small>
+      <small>Envio automático por email, WhatsApp ou Telegram nos eventos da OS</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="carregarLog()">Atualizar histórico</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova regra</button>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
+  <div id="avisos"></div>
 
-  <div class="card">
-    <h3>Nova regra</h3>
-    <form id="fNovo" class="grid-2col">
-      <div>
-        <label>Evento</label>
-        <select id="evento" required>
-          <option value="abertura">Abertura da OS</option>
-          <option value="enviado">Orçamento enviado</option>
-          <option value="aprovado">Orçamento aprovado</option>
-          <option value="rejeitado">Orçamento rejeitado</option>
-          <option value="inicio">Início de execução</option>
-          <option value="aguardando-peca">Aguardando peça</option>
-          <option value="conclusao">Conclusão</option>
-          <option value="faturamento">Faturamento</option>
-          <option value="cancelamento">Cancelamento</option>
-          <option value="sla-risco">SLA em risco</option>
-          <option value="sla-atrasado">SLA atrasado</option>
-        </select>
-      </div>
-      <div>
-        <label>Canal</label>
-        <select id="canal" required>
-          <option value="email">Email (para o cliente)</option>
-          <option value="whatsapp">WhatsApp (para o cliente)</option>
-          <option value="telegram">Telegram (para admin)</option>
-        </select>
-      </div>
-      <div class="full">
-        <label>Template (use {{placeholders}} para substituição)</label>
-        <textarea id="template" rows="4" placeholder="OS {{numero}} — {{clienteNome}}&#10;Olá! Sua OS está {{status}}. {{descricao}}"></textarea>
-        <small style="color:#666;">
-          Placeholders disponíveis:
-          <code>{{numero}}</code>,
-          <code>{{clienteNome}}</code>,
-          <code>{{titulo}}</code>,
-          <code>{{status}}</code>,
-          <code>{{descricao}}</code>,
-          <code>{{prazo}}</code>,
-          <code>{{tecnicoNome}}</code>,
-          <code>{{assinanteNome}}</code>,
-          <code>{{motivo}}</code>
-        </small>
-      </div>
-      <div class="full">
-        <label><input type="checkbox" id="ativo" checked> Ativa</label>
-      </div>
-      <div class="full">
-        <button class="btn btn-primary" type="submit">Salvar regra</button>
-      </div>
-    </form>
-  </div>
-
-  <div class="card" style="margin-top:16px;">
-    <h3>Regras ativas</h3>
-    <table class="table">
+  <div class="tbl-wrap" data-grid="os-notif-regras">
+    <table>
       <thead><tr>
-        <th>Evento</th><th>Canal</th><th>Template</th><th>Ativa</th><th></th>
+        <th>Evento</th><th>Canal</th><th>Mensagem</th><th style="width:90px;">Ativa</th><th style="width:210px;"></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="5">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 
+  <div class="page-header" style="margin-top:26px;">
+    <div>
+      <h2 style="margin:0;font-size:1.05em;">Últimos envios</h2>
+      <small>Cada tentativa fica registrada — canal fora do ar aparece aqui em vez de falhar em silêncio</small>
+    </div>
+  </div>
+  <div class="tbl-wrap" data-grid="os-notif-log">
+    <table>
+      <thead><tr>
+        <th>Quando</th><th>OS</th><th>Evento</th><th>Canal</th><th>Destino</th><th>Resultado</th>
+      </tr></thead>
+      <tbody id="tbLog"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
 </main></div>
 
+<div class="modal-bg" id="modalRegra">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <h3 style="margin:0;" id="modalTitulo">Nova regra</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Evento *</label><select id="rEvento" onchange="atualizarHintEvento()"></select>
+        <small class="muted" id="rEventoHint"></small></div>
+      <div class="form-group"><label>Canal *</label><select id="rCanal"></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Mensagem</label>
+        <textarea id="rTemplate" rows="4" placeholder="Deixe vazio para usar a mensagem padrão do sistema."></textarea>
+        <small class="muted">Clique para inserir: <span id="rPlaceholders"></span></small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;">
+          <input type="checkbox" id="rAtivo" checked> Regra ativa
+        </label>
+      </div>
+    </div>
+    <div id="rTesteResultado"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="testar()">Enviar teste</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar regra</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
+<script>initSidebar('os-notificacoes');</script>
 <script>
-function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',7000);}
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const val=id=>document.getElementById(id).value;
+
+let VOCAB={eventos:[],canais:[],placeholders:[]};
+let REGRAS=[];
+let editando=null;   // {evento, canal} da regra aberta para edição
+
+const rotuloEvento=v=>(VOCAB.eventos.find(e=>e.valor===v)||{}).texto||v;
+const rotuloCanal=v=>(VOCAB.canais.find(c=>c.valor===v)||{}).texto||v;
+
+// A lista vem do backend: era escrita à mão no HTML e tinha divergido dos
+// eventos que o sistema realmente emite.
+async function carregarVocabulario(){
+  try{
+    const d=await fetch('/api/os/notificacoes-vocabulario').then(r=>r.json());
+    if(d.success) VOCAB=d;
+  }catch{}
+  document.getElementById('rEvento').innerHTML=VOCAB.eventos.map(e=>
+    `<option value="${e.valor}">${esc(e.texto)}${e.automatico?' (automático)':''}</option>`).join('');
+  document.getElementById('rCanal').innerHTML=VOCAB.canais.map(c=>
+    `<option value="${c.valor}">${esc(c.texto)}</option>`).join('');
+  document.getElementById('rPlaceholders').innerHTML=VOCAB.placeholders.map(p=>
+    `<code class="ph" onclick="inserirPh('${p}')">{{${p}}}</code>`).join(' ');
+}
+
+function inserirPh(p){
+  const ta=document.getElementById('rTemplate');
+  const ini=ta.selectionStart==null?ta.value.length:ta.selectionStart;
+  const fim=ta.selectionEnd==null?ini:ta.selectionEnd;
+  ta.value=ta.value.slice(0,ini)+`{{${p}}}`+ta.value.slice(fim);
+  ta.focus();
+}
+
+function atualizarHintEvento(){
+  const e=VOCAB.eventos.find(x=>x.valor===val('rEvento'));
+  document.getElementById('rEventoHint').textContent=e&&e.automatico
+    ? 'Disparado pela varredura de SLA, a cada 30 minutos.'
+    : 'Disparado quando alguém executa a ação na OS.';
+}
 
 async function carregar(){
-  const r = await fetch('/api/os/notificacoes-config').then(r=>r.json());
-  const tb = document.getElementById('tb');
-  if (!r.success) return tb.innerHTML = `<tr><td colspan="5">Erro: ${escapeHtml(r.error)}</td></tr>`;
-  if (!r.configs.length) return tb.innerHTML = '<tr><td colspan="5">Nenhuma regra configurada.</td></tr>';
-  tb.innerHTML = r.configs.map(c => `
-    <tr>
-      <td><strong>${escapeHtml(c.evento)}</strong></td>
-      <td>${escapeHtml(c.canal)}</td>
-      <td style="max-width:400px;white-space:pre-wrap;font-family:monospace;font-size:12px;">${escapeHtml(c.template||'(padrão)')}</td>
-      <td>${c.ativo ? '✓ sim' : '— não'}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="remover(${c.id})">Remover</button></td>
-    </tr>
-  `).join('');
+  const d=await fetch('/api/os/notificacoes-config').then(r=>r.json());
+  if(!d.success) return showAlert(d.error,'error');
+  REGRAS=d.configs||[];
+  document.getElementById('tb').innerHTML=REGRAS.length?REGRAS.map(c=>`<tr${c.ativo?'':' style="opacity:.55;"'}>
+    <td><strong>${esc(rotuloEvento(c.evento))}</strong><span class="sub mono">${esc(c.evento)}</span></td>
+    <td>${esc(rotuloCanal(c.canal))}</td>
+    <td class="tpl">${esc(c.template||'(mensagem padrão)')}</td>
+    <td>${c.ativo?'<span class="badge entrada">ativa</span>':'<span class="badge inativo">inativa</span>'}</td>
+    <td style="text-align:right;white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick="editar(${c.id})">Editar</button>
+      <button class="btn btn-ghost btn-sm" onclick="alternar(${c.id})">${c.ativo?'Desativar':'Ativar'}</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="remover(${c.id})">Remover</button>
+    </td>
+  </tr>`).join(''):'<tr><td colspan="5" class="empty">Nenhuma regra configurada — nada é enviado automaticamente.</td></tr>';
+}
+
+async function carregarLog(){
+  const d=await fetch('/api/os/notificacoes-log?limit=50').then(r=>r.json()).catch(()=>({}));
+  if(!d||!d.success){ document.getElementById('tbLog').innerHTML='<tr><td colspan="6" class="empty">Sem histórico</td></tr>'; return; }
+  document.getElementById('avisos').innerHTML=d.falhas7d
+    ? `<div class="alert warn" style="display:block;">${d.falhas7d} falha(s) de envio nos últimos 7 dias — o motivo está no histórico abaixo.</div>` : '';
+  document.getElementById('tbLog').innerHTML=(d.log||[]).length?d.log.map(l=>`<tr>
+    <td>${esc((l.data||'').slice(0,16).replace('T',' '))}</td>
+    <td>${l.osNumero?esc(l.osNumero):'—'}</td>
+    <td>${esc(rotuloEvento(l.evento))}${l.teste?' <span class="badge pendente">teste</span>':''}</td>
+    <td>${esc(l.canal)}</td>
+    <td class="mono">${esc(l.destino||'—')}</td>
+    <td>${l.status==='ok'?'<span class="badge entrada">enviado</span>'
+      :`<span class="badge cancelado">erro</span><span class="sub">${esc(l.erro||'')}</span>`}</td>
+  </tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhum envio registrado ainda</td></tr>';
+}
+
+function abrirNova(){
+  editando=null;
+  document.getElementById('modalTitulo').textContent='Nova regra';
+  document.getElementById('rEvento').disabled=false;
+  document.getElementById('rCanal').disabled=false;
+  document.getElementById('rTemplate').value='';
+  document.getElementById('rAtivo').checked=true;
+  document.getElementById('rTesteResultado').innerHTML='';
+  atualizarHintEvento();
+  document.getElementById('modalRegra').classList.add('open');
+}
+
+// O POST faz upsert por (evento, canal): editar é reabrir a mesma chave
+// com os valores atuais, em vez de apagar e recriar.
+function editar(id){
+  const c=REGRAS.find(x=>x.id===id); if(!c) return;
+  editando={evento:c.evento,canal:c.canal};
+  document.getElementById('modalTitulo').textContent='Editar regra';
+  document.getElementById('rEvento').value=c.evento;
+  document.getElementById('rCanal').value=c.canal;
+  document.getElementById('rEvento').disabled=true;
+  document.getElementById('rCanal').disabled=true;
+  document.getElementById('rTemplate').value=c.template||'';
+  document.getElementById('rAtivo').checked=!!c.ativo;
+  document.getElementById('rTesteResultado').innerHTML='';
+  atualizarHintEvento();
+  document.getElementById('modalRegra').classList.add('open');
+}
+
+function fechar(){ document.getElementById('modalRegra').classList.remove('open'); }
+
+async function salvar(){
+  const body={
+    evento: editando?editando.evento:val('rEvento'),
+    canal: editando?editando.canal:val('rCanal'),
+    template: val('rTemplate').trim()||null,
+    ativo: document.getElementById('rAtivo').checked?1:0,
+  };
+  const d=await fetch('/api/os/notificacoes-config',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  if(!d.success) return showAlert(d.error,'error');
+  fechar(); showAlert('Regra salva'); carregar();
+}
+
+async function alternar(id){
+  const c=REGRAS.find(x=>x.id===id); if(!c) return;
+  const d=await fetch('/api/os/notificacoes-config',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({evento:c.evento,canal:c.canal,template:c.template,ativo:c.ativo?0:1})}).then(r=>r.json());
+  if(!d.success) return showAlert(d.error,'error');
+  carregar();
 }
 
 async function remover(id){
-  if (!confirm('Remover esta regra?')) return;
-  await fetch('/api/os/notificacoes-config/' + id, { method: 'DELETE' });
+  const c=REGRAS.find(x=>x.id===id); if(!c) return;
+  if(!confirm(`Remover a regra de "${rotuloEvento(c.evento)}" por ${rotuloCanal(c.canal)}?`)) return;
+  const d=await fetch('/api/os/notificacoes-config/'+id,{method:'DELETE'}).then(r=>r.json());
+  if(!d.success) return showAlert(d.error,'error');
   carregar();
 }
 
-document.getElementById('fNovo').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const body = {
-    evento:   document.getElementById('evento').value,
-    canal:    document.getElementById('canal').value,
-    template: document.getElementById('template').value.trim() || null,
-    ativo:    document.getElementById('ativo').checked ? 1 : 0,
-  };
-  const r = await fetch('/api/os/notificacoes-config', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-  }).then(r=>r.json());
-  if (!r.success) return alert('Erro: ' + r.error);
-  document.getElementById('template').value = '';
-  carregar();
-});
+async function testar(){
+  const box=document.getElementById('rTesteResultado');
+  box.innerHTML='<div class="card card-info" style="margin-bottom:10px;font-size:13px;">Enviando…</div>';
+  const d=await fetch('/api/os/notificacoes-config/testar',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({evento:val('rEvento'),canal:val('rCanal'),template:val('rTemplate').trim()||null})
+  }).then(r=>r.json()).catch(e=>({success:false,error:e.message}));
 
-carregar();
+  if(!d.success){ box.innerHTML=`<div class="alert error" style="display:block;">${esc(d.error)}</div>`; return; }
+  box.innerHTML=d.ok
+    ? `<div class="alert" style="display:block;">Enviado para <strong>${esc(d.destino||'—')}</strong>, usando a OS ${esc(d.osUsada||'')}.</div>`
+    : `<div class="alert error" style="display:block;">Não enviou: ${esc(d.erro||'motivo desconhecido')}</div>`;
+  carregarLog();
+}
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape')fechar();});
+(async()=>{
+  await carregarVocabulario();
+  await carregar();
+  await carregarLog();
+})();
 </script>
-<script src="/js/menu-config.js"></script>
-<script src="/js/sidebar.js"></script>
-<script>initSidebar('os-notificacoes');</script>
 </body></html>

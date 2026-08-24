@@ -10,19 +10,35 @@
 .tab-pane { display:none; } .tab-pane.active { display:block; }
 .cards-grid { display:grid; grid-template-columns:1fr 320px; gap:14px; }
 @media (max-width:980px) { .cards-grid { grid-template-columns:1fr; } }
-/* sub-abas (próprias / terceiros) dentro de uma aba */
-.subtabs { display:flex; gap:6px; margin-bottom:14px; padding-bottom:8px; border-bottom:1px solid #2a3a5c; }
-.subtab { padding:6px 14px; border-radius:6px; background:transparent; border:1px solid transparent; cursor:pointer; color:#94a3b8; font-size:13px; }
-.subtab:hover { background:#0f1a30; color:#cbd5e1; }
-.subtab.active { background:#1a2540; color:#fff; border-color:#2a3a5c; }
+/* sub-abas (próprias / terceiros): mesma linguagem das .tab, em escala menor */
+.subtabs { display:flex; gap:6px; margin-bottom:14px; }
+.subtab {
+  padding:6px 12px; border-radius:var(--r-sm); cursor:pointer; font-size:0.85em; font-weight:500;
+  background:var(--bg-1); border:1px solid var(--border); color:var(--text-2);
+}
+.subtab:hover { background:var(--bg-hover); color:var(--text-0); }
+.subtab.active { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
 .sec-pane { display:none; } .sec-pane.active { display:block; }
+
+/* Ficha da OS — mesmo padrão das páginas de detalhe (label pequeno + valor) */
+.grid-info { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:14px; }
+.info-item { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.info-item .lbl { color:var(--text-3); font-size:0.68em; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; }
+.info-item .val { color:var(--text-0); font-size:0.95em; font-weight:600; word-break:break-word; }
+.bloco-texto { background:var(--bg-1); border:1px solid var(--border); border-radius:var(--r-md); padding:10px 12px; font-size:0.9em; color:var(--text-1); white-space:pre-wrap; }
+.bloco-titulo { color:var(--text-3); font-size:0.68em; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin:16px 0 6px; }
+.resumo-linha { display:flex; justify-content:space-between; padding:5px 0; font-size:0.9em; }
+.resumo-total { display:flex; justify-content:space-between; padding:8px 0 0; margin-top:4px; border-top:1px solid var(--border); font-size:1.05em; }
 </style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
   <div class="page-header">
     <div>
-      <h1 id="pgTitulo">OS</h1>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h1 id="pgTitulo">OS</h1>
+        <span class="badge" id="pgStatus" style="display:none;"></span>
+      </div>
       <small id="pgSub"></small>
     </div>
     <div class="actions">
@@ -36,13 +52,13 @@
     <div class="card">
       <div class="tabs">
         <div class="tab active" onclick="trocarTab('info')">Informações</div>
-        <div class="tab" onclick="trocarTab('checklist')">✓ Checklist</div>
+        <div class="tab" onclick="trocarTab('checklist')">Checklist</div>
         <div class="tab" onclick="trocarTab('pecas')">Peças</div>
         <div class="tab" onclick="trocarTab('servicos')">Serviços</div>
         <div class="tab" onclick="trocarTab('apont')">Apontamentos</div>
-        <div class="tab" onclick="trocarTab('anexos')">📎 Anexos</div>
-        <div class="tab" onclick="trocarTab('assinaturas')">✍ Assinaturas</div>
-        <div class="tab" onclick="trocarTab('timeline')">📅 Timeline</div>
+        <div class="tab" onclick="trocarTab('anexos')">Anexos</div>
+        <div class="tab" onclick="trocarTab('assinaturas')">Assinaturas</div>
+        <div class="tab" onclick="trocarTab('timeline')">Timeline</div>
         <div class="tab" onclick="trocarTab('pagamento')">Pagamento</div>
       </div>
 
@@ -345,7 +361,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;">
           <div>
             <h4>Cliente</h4>
-            <canvas id="sigCliente" width="360" height="130" style="border:1px solid #2a3a5c;border-radius:var(--r-sm);background:#fff;cursor:crosshair;width:100%;max-width:360px;"></canvas>
+            <canvas id="sigCliente" width="360" height="130" style="border:1px solid var(--border-strong);border-radius:var(--r-sm);background:#fff;cursor:crosshair;width:100%;max-width:360px;"></canvas>
             <div class="actions-bar" style="margin-top:8px;">
               <button class="btn btn-ghost btn-sm" onclick="limparSig('cliente')">Limpar</button>
               <button class="btn btn-primary btn-sm" onclick="salvarSig('cliente')">Salvar</button>
@@ -354,7 +370,7 @@
           </div>
           <div>
             <h4>Técnico</h4>
-            <canvas id="sigTecnico" width="360" height="130" style="border:1px solid #2a3a5c;border-radius:var(--r-sm);background:#fff;cursor:crosshair;width:100%;max-width:360px;"></canvas>
+            <canvas id="sigTecnico" width="360" height="130" style="border:1px solid var(--border-strong);border-radius:var(--r-sm);background:#fff;cursor:crosshair;width:100%;max-width:360px;"></canvas>
             <div class="actions-bar" style="margin-top:8px;">
               <button class="btn btn-ghost btn-sm" onclick="limparSig('tecnico')">Limpar</button>
               <button class="btn btn-primary btn-sm" onclick="salvarSig('tecnico')">Salvar</button>
@@ -372,6 +388,8 @@
 
       <div class="tab-pane" id="tab-pagamento">
         <small class="muted">Configuração aplicada no faturamento. Pode ser ajustada aqui ou no momento de faturar.</small>
+        <!-- Política de prazo do cliente: explica a restrição dos campos abaixo. -->
+        <div id="osPolitica" style="margin-top:10px;display:none;"></div>
         <div class="form-row" style="margin-top:10px;">
           <div class="form-group">
             <label>Forma de pagamento</label>
@@ -410,7 +428,7 @@
     <div class="card">
       <h3>Resumo</h3>
       <div id="resumo" class="muted">…</div>
-      <hr style="margin:14px 0;border:0;border-top:1px solid #2a3a5c;">
+      <hr style="margin:14px 0;border:0;border-top:1px solid var(--border);">
       <h3>Ações</h3>
       <div id="acoes"></div>
     </div>
@@ -428,6 +446,7 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharFaturar()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div id="ftResumo" style="background:var(--bg-1);padding:10px;border-radius:var(--r-md);margin-bottom:12px;font-size:0.9em;"></div>
+    <div id="ftPolitica" style="margin-bottom:12px;display:none;"></div>
     <div class="form-row">
       <div class="form-group">
         <label>Forma de pagamento</label>
@@ -459,6 +478,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/politica-prazo.js"></script>
 <script>initSidebar('ordens-servico');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -475,8 +495,45 @@ const MEIOS_PAGAMENTO = [['','—'],
   ['15','15 · Boleto bancário'],['16','16 · Depósito bancário'],['17','17 · PIX'],
   ['18','18 · Transferência bancária'],['19','19 · Carteira digital'],['90','90 · Sem pagamento'],['99','99 · Outros']];
 
+// Meios de recebimento aceitos pelo cliente da OS — null = sem restrição. O
+// servidor valida de novo ao salvar e ao faturar; aqui é só para não oferecer
+// o que vai ser recusado.
+let MEIOS_PERMITIDOS = null;
+// Prazo e política do cliente — a mesma regra que o servidor aplica ao faturar
+// (os-routes usa prazoDaPessoa). Aqui servem para semear a data de vencimento e
+// o número de parcelas, em vez de propor o +30 fixo que ignorava o cadastro.
+let PRAZO_CLIENTE = null;
+let POLITICA_CLIENTE = null;
+let ROTULOS_MEIO = null;
+
+async function carregarMeiosPermitidos(clienteId){
+  MEIOS_PERMITIDOS = null;
+  PRAZO_CLIENTE = null;
+  POLITICA_CLIENTE = null;
+  if (!clienteId) return;
+  const cond = await PoliticaPrazo.carregar({ pessoaId: clienteId, semCache: true });
+  MEIOS_PERMITIDOS = cond.permitidos;
+  PRAZO_CLIENTE = cond.prazo;
+  POLITICA_CLIENTE = cond.politica;
+  ROTULOS_MEIO = Object.fromEntries(MEIOS_PAGAMENTO.filter(([v]) => v)
+    .map(([v, l]) => [v, l.replace(/^\d+\s·\s/, '')]));
+}
+
+/** Pinta o chip da política num container, ou esconde se não há o que dizer. */
+function mostrarPolitica(elId){
+  const box = document.getElementById(elId);
+  if (!box) return;
+  const html = PoliticaPrazo.avisoHTML(
+    { permitidos: MEIOS_PERMITIDOS, prazo: PRAZO_CLIENTE, politica: POLITICA_CLIENTE }, ROTULOS_MEIO);
+  box.innerHTML = html;
+  box.style.display = html ? 'block' : 'none';
+}
+
 function popularFormasPag(selectId, selected){
-  document.getElementById(selectId).innerHTML = MEIOS_PAGAMENTO.map(([v,l]) =>
+  const disp = MEIOS_PERMITIDOS
+    ? MEIOS_PAGAMENTO.filter(([v]) => !v || MEIOS_PERMITIDOS.includes(v))
+    : MEIOS_PAGAMENTO;
+  document.getElementById(selectId).innerHTML = disp.map(([v,l]) =>
     `<option value="${v}" ${(selected||'')===v?'selected':''}>${l}</option>`).join('');
 }
 
@@ -495,6 +552,7 @@ async function carregar(){
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
   osData = d;
+  await carregarMeiosPermitidos(d.os.clienteId);
   document.getElementById('pgTitulo').textContent = d.os.numero;
   document.getElementById('pgSub').textContent = d.os.titulo;
   renderInfo();
@@ -514,24 +572,56 @@ async function carregar(){
   document.getElementById('aIni').value = now.toISOString().slice(0,16);
 }
 
+// Histórico do equipamento no topo da OS: o técnico precisa saber que o
+// aparelho já voltou ANTES de começar a diagnosticar.
+function renderEquipamentoHistorico(){
+  const f = osData.equipamentoFicha;
+  if (!f) return '';
+  const r = f.resumo;
+  const linhas = (f.historico || []).slice(0, 5).map(h =>
+    `<li><a href="/os/ordem-servico.html?id=${h.id}">${h.numero}</a> · ${(h.dataAbertura||'').slice(0,10)}
+      · ${escapeHtml(h.status)}${h.solucao ? ' · ' + escapeHtml(String(h.solucao).slice(0,60)) : ''}</li>`).join('');
+  const reincidente = r.retornosRapidos > 0;
+  return `
+    <div class="${reincidente ? 'alert warn' : 'card card-info'}" style="display:block;margin-bottom:14px;padding:10px;font-size:13px;">
+      <strong>Histórico do equipamento</strong>
+      ${f.equipamento.numeroSerie ? `<span class="mono muted"> · série ${escapeHtml(f.equipamento.numeroSerie)}</span>` : ''}
+      <div style="margin-top:6px;">
+        ${r.totalOS} OS no total${r.valorAcumulado ? ` · R$ ${fmtBRL0(r.valorAcumulado)} acumulados` : ''}
+        ${reincidente ? `<br><strong style="color:var(--warn);">Reincidente: ${r.retornosRapidos} retorno(s) em até 90 dias`
+          + `${r.menorIntervaloDias != null ? ` — o menor foi ${r.menorIntervaloDias} dia(s)` : ''}</strong>` : ''}
+        ${f.garantiaVigente ? `<br><strong style="color:var(--success);">Em garantia até ${f.garantiaVigente.ate}`
+          + ` (${f.garantiaVigente.diasRestantes} dia(s)) pela OS ${f.garantiaVigente.numero}</strong>` : ''}
+      </div>
+      ${linhas ? `<ul style="margin:8px 0 0 16px;padding:0;">${linhas}</ul>` : ''}
+    </div>`;
+}
+function fmtBRL0(v){ return (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
 function renderInfo(){
   const o = osData.os;
+  const campo = (lbl, val, mono) => val
+    ? `<div class="info-item"><span class="lbl">${lbl}</span><span class="val${mono ? ' mono' : ''}">${val}</span></div>` : '';
+  const bloco = (titulo, texto) => texto
+    ? `<div class="bloco-titulo">${titulo}</div><div class="bloco-texto">${escapeHtml(texto)}</div>` : '';
+
   document.getElementById('info').innerHTML = `
-    <table style="width:100%;font-size:13px;">
-      <tr><td class="muted">Cliente</td><td>${o.clienteNome} <small class="muted">${o.clienteCpfCnpj||''}</small></td></tr>
-      <tr><td class="muted">Técnico</td><td>${o.tecnicoNomeExibicao||o.tecnicoNome||'—'}</td></tr>
-      <tr><td class="muted">Equipamento</td><td>${[o.equipamento,o.marca,o.modelo].filter(Boolean).join(' ') || '—'}</td></tr>
-      <tr><td class="muted">Nº de série</td><td class="mono">${o.numeroSerieEquipamento||'—'}</td></tr>
-      <tr><td class="muted">Garantia</td><td>${o.garantiaDias||0} dia(s)</td></tr>
-      <tr><td class="muted">Aberta em</td><td>${o.dataAbertura}</td></tr>
-      ${o.dataInicioExecucao ? `<tr><td class="muted">Iniciada em</td><td>${o.dataInicioExecucao}</td></tr>` : ''}
-      ${o.dataConclusao ? `<tr><td class="muted">Concluída em</td><td>${o.dataConclusao}</td></tr>` : ''}
-      ${o.dataFaturamento ? `<tr><td class="muted">Faturada em</td><td>${o.dataFaturamento} (pedido #${o.pedidoId})</td></tr>` : ''}
-    </table>
-    ${o.defeitoRelatado ? `<h4 style="margin-top:14px;">Defeito relatado</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.defeitoRelatado)}</div>` : ''}
-    ${o.diagnostico ? `<h4 style="margin-top:14px;">Diagnóstico</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.diagnostico)}</div>` : ''}
-    ${o.solucao ? `<h4 style="margin-top:14px;">Solução</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.solucao)}</div>` : ''}
-    ${o.observacoes ? `<h4 style="margin-top:14px;">Observações</h4><div style="background:#0f1a30;padding:8px;border-radius:6px;font-size:13px;">${escapeHtml(o.observacoes)}</div>` : ''}
+    ${renderEquipamentoHistorico()}
+    <div class="grid-info">
+      ${campo('Cliente', `${escapeHtml(o.clienteNome || '—')}${o.clienteCpfCnpj ? `<br><small class="muted mono">${escapeHtml(o.clienteCpfCnpj)}</small>` : ''}`)}
+      ${campo('Técnico', escapeHtml(o.tecnicoNomeExibicao || o.tecnicoNome || '—'))}
+      ${campo('Equipamento', escapeHtml([o.equipamento, o.marca, o.modelo].filter(Boolean).join(' ') || '—'))}
+      ${campo('Nº de série', escapeHtml(o.numeroSerieEquipamento || '—'), true)}
+      ${campo('Garantia', `${o.garantiaDias || 0} dia(s)`)}
+      ${campo('Aberta em', o.dataAbertura)}
+      ${campo('Iniciada em', o.dataInicioExecucao)}
+      ${campo('Concluída em', o.dataConclusao)}
+      ${campo('Faturada em', o.dataFaturamento ? `${o.dataFaturamento}<br><small class="muted">pedido #${o.pedidoId}</small>` : '')}
+    </div>
+    ${bloco('Defeito relatado', o.defeitoRelatado)}
+    ${bloco('Diagnóstico', o.diagnostico)}
+    ${bloco('Solução', o.solucao)}
+    ${bloco('Observações', o.observacoes)}
   `;
 }
 
@@ -546,12 +636,12 @@ function renderPecas(pecas){
     <td class="num">${fmtBRL(p.valorUnitario)}</td>
     <td class="num">${fmtBRL(p.valorTotal)}</td>
     <td>${p.loteNumero||'—'}</td>
-    <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-danger btn-sm" onclick="remPeca(${p.id})">×</button>`}</td>
+    <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
   </tr>`).join('') : '<tr><td colspan="7" class="empty">Sem peças</td></tr>';
 
   document.getElementById('tbPecasTerceiras').innerHTML = terceiras.length ? terceiras.map(p=>{
     const apSt = p.terceiroStatusAP || 'aberta';
-    const apCls = apSt === 'paga' ? 'success' : apSt === 'cancelada' ? 'inativo' : 'pendente';
+    const apCls = apSt === 'paga' ? 'paga' : apSt === 'cancelada' ? 'cancelado' : 'aberta';
     return `<tr>
       <td>${escapeHtml(p.descricao||'')}</td>
       <td>${p.sku ? '<span class="mono">'+escapeHtml(p.sku)+'</span>' : '<small class="muted">livre</small>'}</td>
@@ -561,7 +651,7 @@ function renderPecas(pecas){
       <td>${escapeHtml(p.terceiroFornecedorNome||'—')}</td>
       <td>${escapeHtml(p.notaFiscalTerceiro||'—')}</td>
       <td><span class="badge ${apCls}">${apSt}</span></td>
-      <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-danger btn-sm" onclick="remPeca(${p.id})">×</button>`}</td>
+      <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="9" class="empty">Sem peças de terceiro</td></tr>';
 }
@@ -580,13 +670,13 @@ function renderServicos(servicos){
       <td class="num">${s.horas||'—'}</td>
       <td class="num">${s.valorHora?fmtBRL(s.valorHora):'—'}</td>
       <td class="num">${fmtBRL(s.valorTotal)}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="remServico(${s.id})">×</button></td>
+      <td><button class="btn btn-ghost btn-sm" title="Remover" onclick="remServico(${s.id})">🗑</button></td>
     </tr>`;
   }).join('') : '<tr><td colspan="6" class="empty">Sem serviços próprios</td></tr>';
 
   document.getElementById('tbServicosTerceiros').innerHTML = terceiros.length ? terceiros.map(s=>{
     const apSt = s.terceiroStatusAP || 'aberta';
-    const apCls = apSt === 'paga' ? 'success' : apSt === 'cancelada' ? 'inativo' : 'pendente';
+    const apCls = apSt === 'paga' ? 'paga' : apSt === 'cancelada' ? 'cancelado' : 'aberta';
     return `<tr>
       <td>${escapeHtml(s.descricao)}</td>
       <td class="num">${fmtBRL(s.valorTotal)}</td>
@@ -594,7 +684,7 @@ function renderServicos(servicos){
       <td>${escapeHtml(s.terceiroFornecedorNome||'—')}</td>
       <td>${escapeHtml(s.notaFiscalTerceiro||'—')}</td>
       <td><span class="badge ${apCls}">${apSt}</span></td>
-      <td><button class="btn btn-danger btn-sm" onclick="remServico(${s.id})">×</button></td>
+      <td><button class="btn btn-ghost btn-sm" title="Remover" onclick="remServico(${s.id})">🗑</button></td>
     </tr>`;
   }).join('') : '<tr><td colspan="7" class="empty">Sem serviços de terceiro</td></tr>';
 
@@ -608,10 +698,10 @@ function renderServicos(servicos){
     statusEl.innerHTML = '<span class="badge">fiscal: padrão global</span> <small>nenhum serviço de catálogo — NFS-e usará o cTribNac configurado em NFSe › Config (sem &lt;cNBS&gt;).</small>';
   } else if (nbsDistintos.size === 1) {
     const [unico] = nbsDistintos;
-    statusEl.innerHTML = `<span class="badge success">fiscal: catálogo · NBS ${unico}</span>`;
+    statusEl.innerHTML = `<span class="badge sucesso">fiscal: catálogo · NBS ${unico}</span>`;
   } else {
     const dominante = comCatalogo.reduce((a,b)=> (Number(b.valorTotal)||0) > (Number(a.valorTotal)||0) ? b : a);
-    statusEl.innerHTML = `<span class="badge" style="background:#fff3cd;color:#664d03;">⚠ múltiplos NBS detectados — emitirá com NBS ${dominante.servicoCnbs} (item de maior valor)</span>`;
+    statusEl.innerHTML = `<span class="badge processando">⚠ múltiplos NBS detectados — emitirá com NBS ${dominante.servicoCnbs} (item de maior valor)</span>`;
   }
 }
 
@@ -622,20 +712,28 @@ function renderApontamentos(ap){
     <td>${a.horas?Number(a.horas).toFixed(2):'—'}</td>
     <td>${a.tecnicoNome||'—'}</td>
     <td>${a.descricao||'—'}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="remApont(${a.id})">×</button></td>
+    <td><button class="btn btn-ghost btn-sm" title="Remover" onclick="remApont(${a.id})">🗑</button></td>
   </tr>`).join('') : '<tr><td colspan="6" class="empty">Sem apontamentos</td></tr>';
 }
 
+// Status da OS → classe de badge do design system.
+const CLASSE_STATUS_OS = {
+  'aberta': 'aberta', 'em-andamento': 'processando', 'aguardando-peca': 'parcial',
+  'concluida': 'entregue', 'faturada': 'faturado', 'cancelada': 'cancelado',
+};
+function classeStatusOS(st){ return CLASSE_STATUS_OS[st] || 'rascunho'; }
+
 function renderResumo(){
   const o = osData.os;
+  const st = document.getElementById('pgStatus');
+  st.className = 'badge ' + classeStatusOS(o.status);
+  st.textContent = o.status;
+  st.style.display = '';
   document.getElementById('resumo').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <span class="badge ${o.status==='concluida'||o.status==='faturada'?'entrada':o.status==='cancelada'?'inativo':'pendente'}">${o.status}</span>
-    </div>
-    <div style="font-size:13px;">
-      <div style="display:flex;justify-content:space-between;padding:4px 0;"><span class="muted">Peças</span><strong>${fmtBRL(o.valorPecas)}</strong></div>
-      <div style="display:flex;justify-content:space-between;padding:4px 0;"><span class="muted">Serviços</span><strong>${fmtBRL(o.valorServicos)}</strong></div>
-      <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #2a3a5c;margin-top:4px;font-size:15px;"><span><strong>Total</strong></span><strong style="color:#69db7c;">${fmtBRL(o.valorTotal)}</strong></div>
+    <div>
+      <div class="resumo-linha"><span class="muted">Peças</span><strong>${fmtBRL(o.valorPecas)}</strong></div>
+      <div class="resumo-linha"><span class="muted">Serviços</span><strong>${fmtBRL(o.valorServicos)}</strong></div>
+      <div class="resumo-total"><strong>Total</strong><strong style="color:var(--success);">${fmtBRL(o.valorTotal)}</strong></div>
     </div>
   `;
 }
@@ -653,7 +751,7 @@ function renderAcoes(){
     }
   }
   if (orcSt === 'aprovado' && o.status === 'aberta') {
-    html += `<div style="padding:8px;text-align:center;font-size:12px;color:#34d399;margin-bottom:6px;border:1px solid rgba(52,211,153,0.3);border-radius:6px;background:rgba(52,211,153,0.08);">✓ Orçamento aprovado pelo cliente</div>`;
+    html += `<div style="padding:8px;text-align:center;font-size:12px;color:var(--success);margin-bottom:6px;border:1px solid var(--success);border-radius:var(--r-sm);background:var(--success-soft);">✓ Orçamento aprovado pelo cliente</div>`;
   }
   if (o.status === 'aberta' || o.status === 'aguardando-peca') html += `<button class="btn btn-primary" style="width:100%;margin-bottom:6px;" onclick="iniciar()">▶ Iniciar execução</button>`;
   if (o.status === 'em-andamento' || o.status === 'aberta') html += `<button class="btn btn-secondary" style="width:100%;margin-bottom:6px;" onclick="aguardar()">⏳ Aguardando peça</button>`;
@@ -935,6 +1033,7 @@ async function cancelar(){
 function renderPagamento(){
   const o = osData.os;
   popularFormasPag('fFormaPag', o.formaPagamento);
+  mostrarPolitica('osPolitica');
   document.getElementById('fDataVenc').value = o.dataVencimento || '';
   document.getElementById('fParcelas').value = o.numeroParcelas || 1;
   document.getElementById('fNaoEmitirNFe').checked = !!o.naoEmitirNFe;
@@ -948,7 +1047,7 @@ function renderCRs(){
   const box = document.getElementById('crList');
   const lista = osData.contasReceber || [];
   if (!lista.length) { box.innerHTML = '<small class="muted">Nenhuma CR gerada. Faturamento ainda não foi feito.</small>'; return; }
-  const statusBadge = s => ({'aberta':'pendente','pago':'entrada','paga':'entrada','cancelada':'inativo','vencida':'danger'})[s] || '';
+  const statusBadge = s => ({'aberta':'aberta','pago':'pago','paga':'paga','cancelada':'cancelado','vencida':'vencida'})[s] || 'rascunho';
   box.innerHTML = `<table style="width:100%;font-size:13px;">
     <thead><tr><th>#</th><th>Descrição</th><th class="num">Valor</th><th>Vencimento</th><th>Status</th><th>Nota</th><th></th></tr></thead>
     <tbody>${lista.map(c => `<tr>
@@ -991,11 +1090,16 @@ function faturar(){
   document.getElementById('ftResumo').innerHTML = `
     <div style="display:flex;justify-content:space-between;"><span class="muted">Peças</span><strong>${fmtBRL(valorPecas)}</strong></div>
     <div style="display:flex;justify-content:space-between;"><span class="muted">Serviços</span><strong>${fmtBRL(valorServicos)}</strong></div>
-    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:4px;padding-top:4px;"><strong>Total</strong><strong style="color:#69db7c;">${fmtBRL(valorPecas+valorServicos)}</strong></div>
+    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:4px;padding-top:4px;"><strong>Total</strong><strong style="color:var(--success);">${fmtBRL(valorPecas+valorServicos)}</strong></div>
   `;
   popularFormasPag('ftFormaPag', o.formaPagamento);
-  document.getElementById('ftDataVenc').value = o.dataVencimento || addDiasISO(null, 30);
-  document.getElementById('ftParcelas').value = o.numeroParcelas || 1;
+  mostrarPolitica('ftPolitica');
+  // Sem data na OS, a política do cliente manda — é o mesmo prazo que o
+  // servidor aplicaria; propor +30 aqui só criaria divergência na tela.
+  document.getElementById('ftDataVenc').value = o.dataVencimento
+    || addDiasISO(null, (PRAZO_CLIENTE && PRAZO_CLIENTE.length) ? PRAZO_CLIENTE[0] : 30);
+  document.getElementById('ftParcelas').value = o.numeroParcelas
+    || ((PRAZO_CLIENTE && PRAZO_CLIENTE.length) || 1);
   document.getElementById('ftNaoEmitirNFe').checked = !!o.naoEmitirNFe;
   document.getElementById('modalFaturar').classList.add('open');
 }
@@ -1052,14 +1156,14 @@ function renderChecklist(items) {
     return;
   }
   el.innerHTML = items.map(it => `
-    <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;">
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;">
       <input type="checkbox" ${it.concluido ? 'checked' : ''} onchange="toggleChecklist(${it.id}, this.checked)" style="width:auto;transform:scale(1.3);margin:0;">
       <span style="flex:1;">
-        ${it.obrigatorio ? '<span style="color:#ff6b6b;font-weight:700;">*</span> ' : ''}
+        ${it.obrigatorio ? '<span style="color:var(--danger);font-weight:700;">*</span> ' : ''}
         ${escapeHtml(it.descricao)}
       </span>
       ${it.concluido && it.responsavel ? `<small class="muted">${escapeHtml(it.responsavel)} · ${(it.dataConclusao||'').slice(0,16).replace('T',' ')}</small>` : ''}
-      <button class="btn btn-ghost btn-sm" onclick="event.preventDefault();removeChecklist(${it.id})" title="Remover">✕</button>
+      <button class="btn btn-ghost btn-sm" onclick="event.preventDefault();removeChecklist(${it.id})" title="Remover">🗑</button>
     </label>
   `).join('');
 }
@@ -1104,17 +1208,17 @@ function renderAnexos(anexos) {
   el.innerHTML = anexos.map(a => {
     const isImg = /^image\//.test(a.mimeType || '');
     return `
-      <div style="border:1px solid #1e293b;border-radius:var(--r-md);padding:8px;background:var(--bg-1);">
+      <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:8px;background:var(--bg-1);">
         ${isImg
           ? `<img src="/${a.caminho}" style="width:100%;height:120px;object-fit:cover;border-radius:var(--r-sm);cursor:pointer;" onclick="window.open('/${a.caminho}','_blank')">`
           : `<div style="height:120px;display:flex;align-items:center;justify-content:center;font-size:36px;">📄</div>`}
         <div style="font-size:12px;margin-top:6px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span class="badge ${a.categoria==='antes'?'pendente':a.categoria==='depois'?'entrada':'inativo'}" style="font-size:10px;">${escapeHtml(a.categoria)}</span>
-            <button class="btn btn-ghost btn-sm" onclick="removerAnexo(${a.id})" title="Remover" style="padding:2px 6px;">✕</button>
+            <span class="badge ${a.categoria==='antes'?'aberta':a.categoria==='depois'?'entregue':'rascunho'}" style="font-size:10px;">${escapeHtml(a.categoria)}</span>
+            <button class="btn btn-ghost btn-sm" onclick="removerAnexo(${a.id})" title="Remover" style="padding:2px 6px;">🗑</button>
           </div>
           <div style="margin-top:4px;word-break:break-all;">${escapeHtml(a.nomeOriginal)}</div>
-          <a href="/api/os/anexos/${a.id}/download" style="color:#4dabf7;font-size:11px;">⬇ baixar</a>
+          <a href="/api/os/anexos/${a.id}/download" style="color:var(--accent);font-size:11px;">⬇ baixar</a>
         </div>
       </div>
     `;
@@ -1152,14 +1256,14 @@ function renderTimeline(eventos) {
                   inicio:'▶', pausa:'⏸', retomada:'▶', conclusao:'✓', faturamento:'💰',
                   cancelamento:'🚫', anexo:'📎', assinatura:'✍', edicao:'✎' };
   el.innerHTML = eventos.map(e => `
-    <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #1e293b;">
+    <div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
       <div style="font-size:22px;">${ICONS[e.tipo]||'•'}</div>
       <div style="flex:1;">
         <div style="font-size:13px;">
-          <strong style="color:#4dabf7;">${e.tipo.toUpperCase()}</strong>
-          <span style="color:#bbb;">${escapeHtml(e.descricao||'')}</span>
+          <strong style="color:var(--accent);">${e.tipo.toUpperCase()}</strong>
+          <span style="color:var(--text-1);">${escapeHtml(e.descricao||'')}</span>
         </div>
-        <div style="font-size:11px;color:#888;margin-top:2px;">
+        <div style="font-size:11px;color:var(--text-3);margin-top:2px;">
           ${(e.data||'').replace('T',' ').slice(0,19)} · ${escapeHtml(e.usuario||'sistema')}
         </div>
       </div>

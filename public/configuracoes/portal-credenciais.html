@@ -21,7 +21,7 @@
 
   <div id="alertGlobal"></div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="portal-credenciais">
     <table>
       <thead><tr>
         <th>Cliente</th>
@@ -76,6 +76,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('portal-credenciais');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',7000); }

@@ -20,7 +20,7 @@
       <option value="realizada">Realizadas</option><option value="cancelada">Canceladas</option>
     </select>
   </div>
-  <div class="tbl-wrap"><table>
+  <div class="tbl-wrap" data-grid="provisoes"><table>
     <thead><tr><th>Data prevista</th><th>Descrição</th><th>Tipo</th><th style="text-align:right;">Valor</th><th>Conta gerencial</th><th>Status</th><th></th></tr></thead>
     <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
   </table></div>
@@ -44,6 +44,8 @@
 </div></div>
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('fin-provisoes');</script>
 <script>
 function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',5000);}

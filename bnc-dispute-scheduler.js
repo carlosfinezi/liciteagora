@@ -26,10 +26,11 @@
 
 const { createEngine } = require('./bnc-dispute-engine');
 const bncSalas = require('./bnc-salas');
-const { sincronizarMensagens } = require('./bnc-mensagens');
+const bncChat = require('./bnc-chat-ingest');
+
+const CHAT_POLL_MS = 45 * 1000;   // fallback de captura de chat (além do SignalR)
 
 const SYNC_TICK_MS = 60 * 1000;
-const MSG_POLL_MS = 45 * 1000;   // polling das mensagens do pregão → Telegram
 
 // Estado por tenant: { tenant, db, engines: Map<salaId, {engine, sala}>, cache, tickTimer }
 const tenants = new Map();
@@ -48,6 +49,8 @@ function ensureSchedulerForTenant(tenant, db) {
     engines: new Map(),
     cache: { disputas: [], updatedAt: null },
     tickTimer: null,
+    chatPollTimer: null,
+    chatTimers: new Map(),
   };
   tenants.set(tenant.slug, state);
 
@@ -57,8 +60,26 @@ function ensureSchedulerForTenant(tenant, db) {
   state.tickTimer = setInterval(() => {
     syncEngines(state).catch(e => console.error(`[BNC-Scheduler ${tenant.slug}] tick:`, e.message));
   }, SYNC_TICK_MS);
+  // Poll de fallback do chat (gatilho principal é o evento SignalR).
+  state.chatPollTimer = setInterval(() => {
+    for (const s of bncSalas.listarSalas(state.db, { ativo: true })) agendarCapturaChat(state, s.id, 0);
+  }, CHAT_POLL_MS);
 
   return state;
+}
+
+// Debounce por sala: no máximo 1 captura de chat agendada por vez.
+function agendarCapturaChat(state, salaId, delay = 1200) {
+  if (state.chatTimers.has(salaId)) return;
+  const t = setTimeout(async () => {
+    state.chatTimers.delete(salaId);
+    const sala = bncSalas.getSala(state.db, salaId);
+    if (!sala || !sala.ativo) return;
+    try {
+      await bncChat.capturarChat(state.db, sala, { log: (...a) => console.log(`[BNC-Chat ${state.tenant.slug}/#${salaId}]`, ...a) });
+    } catch (e) { console.error(`[BNC-Chat ${state.tenant.slug}/#${salaId}]`, e.message); }
+  }, delay);
+  state.chatTimers.set(salaId, t);
 }
 
 async function syncEngines(state) {
@@ -69,7 +90,8 @@ async function syncEngines(state) {
   for (const [salaId, holder] of state.engines) {
     if (!ativasIds.has(salaId)) {
       console.log(`[BNC-Scheduler ${state.tenant.slug}] parando engine sala #${salaId}`);
-      if (holder.msgTimer) clearInterval(holder.msgTimer);
+      const ct = state.chatTimers.get(salaId);
+      if (ct) { clearTimeout(ct); state.chatTimers.delete(salaId); }
       try { holder.engine.stop(); } catch (e) { /* swallow */ }
       state.engines.delete(salaId);
     }
@@ -149,30 +171,20 @@ function startEngineParaSala(state, sala) {
 
   engine.on('updateStatus', (data) => onUpdateStatus(state, sala.id, data));
   engine.on('updateInfoStatus', (data) => onUpdateInfoStatus(state, sala.id, data));
+  engine.on('chatSignal', () => agendarCapturaChat(state, sala.id, 1000));
   engine.on('connected', () => log('connected'));
   engine.on('disconnected', (r) => log('disconnected', r));
   engine.on('error', (e) => log('error', e.message));
 
-  // Poll das mensagens da sala → Telegram. Usa o payload estável persistido em
-  // bnc_salas_lotes.statusPayloadJson (gravado no onUpdateStatus) — não depende
-  // de UpdateStatus ao vivo, então funciona na negociação e após restart.
-  // Dedup + escopo (PROCESSO + PREGOEIRO) ficam em bnc-mensagens.js.
-  const msgTimer = setInterval(() => {
-    const lotes = state.db.prepare(
-      `SELECT idBatchUuid, statusPayloadJson FROM bnc_salas_lotes WHERE salaId = ? AND statusPayloadJson IS NOT NULL`
-    ).all(sala.id);
-    for (const l of lotes) {
-      let data;
-      try { data = JSON.parse(l.statusPayloadJson); } catch { continue; }
-      Promise.resolve(sincronizarMensagens(state.db, { salaId: sala.id, idBatch: l.idBatchUuid, processNumber: sala.processNumber }, data))
-        .then((r) => { if (r && r.alertadas) log(`📨 ${r.alertadas} mensagem(ns) do pregão → Telegram`); })
-        .catch((e) => log('msg-sync erro:', e.message));
-    }
-  }, MSG_POLL_MS);
-
   engine.start().catch(e => log('start falhou:', e.message));
 
-  return { engine, sala, msgTimer };
+  // Seed inicial do chat (histórico como já-notificado; não spamma Telegram).
+  // Captura via GetMsgCountDetailedView (só precisa do processId estável) — o
+  // poll de fallback + o gatilho SignalR mantêm atualizado.
+  Promise.resolve(bncChat.capturarChat(state.db, sala, { seed: true, log }))
+    .catch((e) => log('chat seed falhou:', e.message));
+
+  return { engine, sala };
 }
 
 function onUpdateStatus(state, salaId, data) {
@@ -280,8 +292,9 @@ function refreshTenant(tenantSlug) {
 function stopAll() {
   for (const [slug, state] of tenants) {
     if (state.tickTimer) clearInterval(state.tickTimer);
+    if (state.chatPollTimer) clearInterval(state.chatPollTimer);
+    if (state.chatTimers) { for (const t of state.chatTimers.values()) clearTimeout(t); state.chatTimers.clear(); }
     for (const [, holder] of state.engines) {
-      if (holder.msgTimer) clearInterval(holder.msgTimer);
       try { holder.engine.stop(); } catch {}
     }
     console.log(`[BNC-Scheduler ${slug}] parado`);

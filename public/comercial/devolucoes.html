@@ -28,14 +28,16 @@
       <option value="aberta">Aberta</option>
       <option value="efetivada">Efetivada</option>
       <option value="cancelada">Cancelada</option>
+      <option value="estornada">Estornada</option>
     </select>
     <input type="date" id="fIni" onchange="carregar()" title="De">
     <input type="date" id="fFim" onchange="carregar()" title="Até">
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="devolucoes">
     <table>
       <thead><tr>
+        <th class="col-editar"></th>
         <th>Número</th>
         <th>Data</th>
         <th>Cliente</th>
@@ -44,7 +46,7 @@
         <th class="num">Valor</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -179,6 +181,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('devolucoes');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -206,6 +210,7 @@ async function carregar(){
   renderKPIs(d.devolucoes);
   const tb=document.getElementById('tb');
   tb.innerHTML = d.devolucoes.length ? d.devolucoes.map(x=>`<tr>
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir devolução" onclick="abrirEditar(${x.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td class="mono"><strong>${x.numero}</strong></td>
     <td>${(x.dataAbertura||'').slice(0,10)}</td>
     <td>${x.clienteNome}</td>
@@ -213,11 +218,11 @@ async function carregar(){
     <td><span class="badge ${x.status==='efetivada'?'entrada':x.status==='aberta'?'pendente':'cancelado'}">${x.status}</span></td>
     <td class="num">${fmtBRL(x.valorTotal)}</td>
     <td style="text-align:right;white-space:nowrap;">
-      <button class="btn btn-ghost btn-sm" onclick="abrirEditar(${x.id})">Abrir →</button>
       ${x.status==='efetivada' ? `<button class="btn btn-ghost btn-sm" onclick="emitirNFeDev(${x.id})" title="Emitir NF-e de devolução (finNFe=4) na SEFAZ">📄 NF-e</button>` : ''}
+      ${x.status==='efetivada' ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="estornar(${x.id}, '${x.numero}')" title="Desfaz a entrada de estoque e cancela o crédito">Estornar</button>` : ''}
       ${x.status==='aberta' ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="cancelar(${x.id})">Cancelar</button>` : ''}
     </td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma devolução</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma devolução</td></tr>';
 }
 
 function renderKPIs(ds){
@@ -242,7 +247,7 @@ let TIPOS_OP_DEV = [];
 async function carregarTiposOpDevolucao(){
   if (TIPOS_OP_DEV.length) return;
   try {
-    const r = await fetch('/api/tipos-operacao?categoria=devolucao_venda');
+    const r = await fetch('/api/tipos-operacao?usoDevolucao=1');
     const d = await r.json();
     if (d.success) {
       TIPOS_OP_DEV = d.tipos;
@@ -514,7 +519,15 @@ async function salvar(efetivar){
       const r = await fetch('/api/devolucoes/'+devId+'/efetivar', { method:'POST' });
       const d = await r.json();
       if (!d.success) throw new Error(d.error);
-      showAlert('Devolução efetivada — estoque retornado e crédito gerado');
+      let msg = 'Devolução efetivada — estoque retornado e crédito gerado';
+      if (d.comissoesEstornadas) {
+        msg += `, ${d.comissoesEstornadas} comissão(ões) reduzida(s)`;
+        if (d.valorComissaoEstornado) msg += ` (R$ ${Number(d.valorComissaoEstornado).toFixed(2)})`;
+      }
+      showAlert(msg);
+      // Comissão já paga não é reduzida na linha — vira acerto manual, e
+      // um toast que some em segundos não serve para dinheiro.
+      if (d.avisoComissaoPaga) alert(d.avisoComissaoPaga);
     } else {
       showAlert(id ? 'Devolução atualizada' : 'Devolução salva');
     }
@@ -547,6 +560,30 @@ async function cancelar(id){
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
   showAlert('Devolução cancelada');
+  carregar();
+}
+
+// Desfaz uma devolução já efetivada: saída compensatória no estoque,
+// cancelamento do crédito e liberação do saldo devolvível do item.
+async function estornar(id, numero){
+  const motivo = prompt(`Estornar a devolução ${numero}?\n\n`
+    + 'O estoque volta a sair, o crédito ao cliente é cancelado e os itens ficam devolvíveis de novo.\n\n'
+    + 'Motivo do estorno:');
+  if (motivo === null) return;
+  if (!motivo.trim()) return showAlert('Motivo obrigatório','error');
+  const r = await fetch('/api/devolucoes/'+id+'/estornar', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ motivo: motivo.trim() })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  let msg = `Devolução estornada — ${d.movimentacoesEstornadas} movimentação(ões) revertida(s)`;
+  if (d.creditoCancelado) msg += ', crédito cancelado';
+  if (d.comissoesRestauradas) msg += `, ${d.comissoesRestauradas} comissão(ões) restaurada(s)`;
+  showAlert(msg);
+  // Crédito já baixado não pode ser desfeito por aqui — envolve dinheiro e
+  // um toast some em segundos, então vai de alert para não passar batido.
+  if (d.avisoCredito) alert(d.avisoCredito);
   carregar();
 }
 

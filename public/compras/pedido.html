@@ -122,6 +122,9 @@ const NOVO = params.get('novo') === '1';
 let PED_ID = Number(params.get('id')) || null;
 let pedido = null;
 let itens = [];
+// Como este fornecedor recebe o pedido (ver fornecedor-integracoes.js).
+// null = fornecedor sem integração, comportamento de sempre.
+let INTEGRACAO = null;
 
 async function carregar(){
   if (NOVO && !PED_ID) {
@@ -141,6 +144,7 @@ async function carregar(){
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
   pedido = d.pedido;
+  INTEGRACAO = d.integracao || null;
   itens = d.itens;
   render();
 }
@@ -163,10 +167,20 @@ function render(){
   // Ações header
   const acoes = document.getElementById('acoesHeader');
   let btns = '<a class="btn btn-secondary" href="/compras/pedidos.html">← Voltar</a>';
+  // PDF vale em qualquer status: serve para enviar ao fornecedor e para arquivo.
+  btns += ` <a class="btn btn-ghost" href="/api/pedidos-compra/${PED_ID}/pdf" target="_blank" rel="noopener">PDF</a>`;
   if (pedido.status === 'rascunho') {
-    btns += ` <button class="btn btn-primary" onclick="enviar()">Enviar fornecedor</button>`;
+    // O rótulo vem do fornecedor: sem integração é "Enviar fornecedor"; com
+    // integração, o adaptador diz o que o botão realmente faz.
+    const integ = INTEGRACAO || {};
+    const rotulo = integ.rotulo || 'Enviar fornecedor';
+    if (integ.canal && integ.ok === false) {
+      btns += ` <button class="btn btn-primary" disabled title="${(integ.pendencias||[]).join(' · ').replace(/"/g,'&quot;')}">${rotulo}</button>`;
+    } else {
+      btns += ` <button class="btn btn-primary" onclick="enviar()">${rotulo}</button>`;
+    }
     btns += ` <button class="btn btn-danger" onclick="cancelar()">Cancelar</button>`;
-  } else if (['enviado','recebido_parcial'].includes(pedido.status)) {
+  } else if (['enviado','enviado_parcial','recebido_parcial'].includes(pedido.status)) {
     btns += ` <button class="btn btn-primary" onclick="abrirReceber()">Receber</button>`;
     btns += ` <button class="btn btn-danger" onclick="cancelar()">Cancelar</button>`;
   }
@@ -296,9 +310,26 @@ async function removerItem(itemId){
 // ==================== AÇÕES STATUS ====================
 
 async function enviar(){
-  if (!confirm('Marcar como enviado ao fornecedor?')) return;
+  const integ = INTEGRACAO || {};
+  // Fornecedor com integração executa algo de verdade (compra, envio): a
+  // confirmação vem do adaptador e diz qual é a consequência.
+  const pergunta = integ.confirmacao || 'Marcar como enviado ao fornecedor?';
+  if (!confirm(pergunta)) return;
   const r = await fetch(`/api/pedidos-compra/${PED_ID}/enviar`, { method:'POST' });
   const d = await r.json();
+  // Alçada: a mensagem dizia o motivo mas não para onde ir, e a solicitação
+  // ficava numa fila que ninguém tinha como adivinhar onde era.
+  if (!d.success && d.aprovacaoId) {
+    const alvo = document.getElementById('alertGlobal');
+    if (alvo) {
+      alvo.className = 'alert ' + (d.statusAprovacao === 'reprovada' ? 'error' : 'warning');
+      alvo.innerHTML = String(d.error || '').replace(/</g, '&lt;')
+        + ` <a href="/aprovacoes/aprovacoes.html">Ver solicitação #${d.aprovacaoId}</a>`;
+      alvo.style.display = 'block';
+      return;
+    }
+    return showAlert(d.error, 'error');
+  }
   if (!d.success) return showAlert(d.error,'error');
   showAlert('Enviado'); carregar();
 }

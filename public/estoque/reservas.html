@@ -21,6 +21,8 @@
   <div id="alertGlobal"></div>
 
   <div class="kpi-grid" id="kpis"></div>
+  <div id="semReserva"></div>
+  <div id="avisoTrunc"></div>
 
   <div class="toolbar">
     <select id="filtStatus" onchange="carregar()">
@@ -29,11 +31,16 @@
       <option value="cancelada">Canceladas</option>
       <option value="">Todas</option>
     </select>
-    <input type="text" id="filtProduto" placeholder="produtoId" oninput="debounce(carregar)" style="width:120px;">
-    <input type="text" id="filtPedido" placeholder="pedidoId" oninput="debounce(carregar)" style="width:120px;">
+    <input type="text" id="filtQ" placeholder="Buscar por SKU, produto, nº do pedido ou cliente…"
+           oninput="debounce(carregar)" style="flex:1;min-width:260px;">
+    <select id="filtLimite" onchange="carregar()">
+      <option value="200">200 linhas</option>
+      <option value="500">500</option>
+      <option value="2000">2000</option>
+    </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="estoque-reservas">
     <table>
       <thead><tr>
         <th>Data reserva</th>
@@ -54,6 +61,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('estoque-reservas');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -63,29 +72,31 @@ let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout
 
 async function carregar(){
   const status=document.getElementById('filtStatus').value;
-  const produtoId=document.getElementById('filtProduto').value.trim();
-  const pedidoId=document.getElementById('filtPedido').value.trim();
   const p=new URLSearchParams();
   if(status) p.set('status',status);
-  if(produtoId) p.set('produtoId',produtoId);
-  if(pedidoId) p.set('pedidoId',pedidoId);
-  p.set('limit','500');
+  const q=document.getElementById('filtQ').value.trim();
+  if(q) p.set('q',q);
+  p.set('limit',document.getElementById('filtLimite').value);
   const r=await fetch('/api/reservas?'+p);
   const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');
 
   const reservas = d.reservas;
-  const ativas = reservas.filter(r=>r.status==='ativa');
-  const qtdTotalAtiva = ativas.reduce((s,r)=>s+Number(r.quantidade),0);
-  const pedidosDistintos = new Set(ativas.map(r=>r.pedidoId)).size;
-  const produtosDistintos = new Set(ativas.map(r=>r.produtoId)).size;
+  // Totais vêm do backend: calcular sobre a página errava a partir do limite.
+  const t = d.totais || { registros:0, quantidade:0, pedidos:0, produtos:0 };
+  const rotulo = status==='ativa' ? 'ativas' : status==='consumida' ? 'consumidas'
+               : status==='cancelada' ? 'canceladas' : 'no filtro';
 
   document.getElementById('kpis').innerHTML = `
-    <div class="kpi warn"><div class="label">Reservas ativas</div><div class="value">${ativas.length}</div></div>
-    <div class="kpi"><div class="label">Qtd total reservada</div><div class="value">${fmt(qtdTotalAtiva)}</div></div>
-    <div class="kpi"><div class="label">Pedidos com reserva</div><div class="value">${pedidosDistintos}</div></div>
-    <div class="kpi success"><div class="label">Produtos reservados</div><div class="value">${produtosDistintos}</div></div>
+    <div class="kpi ${status==='ativa'?'warn':''}"><div class="label">Reservas ${rotulo}</div>
+      <div class="value">${t.registros}</div></div>
+    <div class="kpi"><div class="label">Qtd reservada</div><div class="value">${fmt(t.quantidade)}</div></div>
+    <div class="kpi"><div class="label">Pedidos</div><div class="value">${t.pedidos}</div></div>
+    <div class="kpi success"><div class="label">Produtos</div><div class="value">${t.produtos}</div></div>
   `;
+  document.getElementById('avisoTrunc').innerHTML = d.truncado
+    ? `<div class="alert warn" style="display:block;">Mostrando ${reservas.length} de <strong>${t.registros}</strong>.
+       Refine a busca ou aumente o limite.</div>` : '';
 
   const tb=document.getElementById('tb');
   tb.innerHTML = reservas.length ? reservas.map(r=>{
@@ -106,6 +117,50 @@ async function carregar(){
   }).join('') : '<tr><td colspan="8" class="empty">Nenhuma reserva</td></tr>';
 }
 
+/**
+ * Pedido confirmado sem reserva ativa. Antes isso era invisível: o pedido
+ * simplesmente não aparecia na lista, então dava para ter venda confirmada
+ * sem estoque comprometido e ninguém perceber.
+ */
+async function carregarSemReserva(){
+  const box = document.getElementById('semReserva');
+  const d = await fetch('/api/reservas/pedidos-sem-reserva').then(r=>r.json()).catch(()=>({}));
+  if (!d || !d.success || !d.pedidos.length) { box.innerHTML=''; return; }
+  box.innerHTML = `
+    <div class="alert warn" style="display:block;">
+      <strong>${d.pedidos.length} pedido(s) confirmado(s) sem reserva de estoque.</strong>
+      A mercadoria deles não está comprometida — outro pedido pode consumir o mesmo saldo.
+      <div class="tbl-wrap" style="margin-top:10px;">
+        <table><thead><tr>
+          <th>Pedido</th><th>Cliente</th><th>Status</th><th>Itens</th><th>Motivo</th><th></th>
+        </tr></thead><tbody>
+        ${d.pedidos.map(p=>`<tr>
+          <td><a href="/comercial/pedido.html?id=${p.id}"><strong>${p.numero}</strong></a>
+            <small class="muted"> ${p.tipo}</small></td>
+          <td>${p.clienteNome||'—'}</td>
+          <td><span class="badge ${p.status}">${p.status}</span></td>
+          <td>${p.itens}${p.itensSemProduto?` <small class="muted">(${p.itensSemProduto} sem produto)</small>`:''}</td>
+          <td><small>${p.motivo}</small></td>
+          <td style="text-align:right;">${p.itensSemProduto===p.itens
+            ? '<small class="muted">vincule o produto nos itens</small>'
+            : `<button class="btn btn-ghost btn-sm" onclick="reservarPedido(${p.id})">Reservar agora</button>`}</td>
+        </tr>`).join('')}
+        </tbody></table>
+      </div>
+    </div>`;
+}
+
+async function reservarPedido(pedidoId){
+  const d = await fetch('/api/reservas/pedidos/'+pedidoId+'/reservar', { method:'POST' }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  let msg = `${d.reservasCriadas} reserva(s) criada(s)`;
+  if (d.insuficiencias && d.insuficiencias.length) {
+    msg += ` — ${d.insuficiencias.length} item(ns) sem saldo suficiente`;
+  }
+  showAlert(msg);
+  carregar(); carregarSemReserva();
+}
+
 async function cancelar(id){
   const motivo = prompt('Motivo para liberar esta reserva:');
   if (motivo == null) return;
@@ -120,5 +175,6 @@ async function cancelar(id){
 }
 
 carregar();
+carregarSemReserva();
 </script>
 </body></html>

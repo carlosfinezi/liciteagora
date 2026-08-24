@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Extrato de Contas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .ex-contas { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .ex-chip {
+    display: flex; flex-direction: column; gap: 2px; cursor: pointer; user-select: none;
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 7px 14px; color: var(--text-2); font-size: 0.85em; line-height: 1.3;
+  }
+  .ex-chip strong { color: var(--text-0); font-size: 1.05em; }
+  .ex-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+  .ex-chip.on strong { color: var(--accent); }
+
+  .ex-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+  .ex-toolbar .field { display: flex; flex-direction: column; gap: 4px; }
+  .ex-toolbar label { font-size: 0.78em; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .ex-toolbar input, .ex-toolbar select {
+    background: var(--bg-input); color: var(--text-0); border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm); padding: 6px 10px; width: auto;
+  }
+  .ex-toolbar .check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 7px; }
+  .ex-toolbar .check input { width: auto; }
+  .ex-toolbar .check label { text-transform: none; letter-spacing: 0; font-size: 0.85em; color: var(--text-1); }
+
+  .kpi-grid .kpi .value { font-variant-numeric: tabular-nums; }
+
+  .ex-tbl { width: 100%; border-collapse: collapse; background: var(--bg-2); border-radius: var(--r-lg); overflow: hidden; }
+  .ex-tbl th { text-align: left; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-2); padding: 10px 12px; background: var(--bg-1); border-bottom: 1px solid var(--border); }
+  .ex-tbl td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.92em; color: var(--text-0); vertical-align: top; }
+  .ex-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ex-tbl td.data { white-space: nowrap; }
+  .ex-tbl td.entrada { color: var(--success); font-weight: 600; }
+  .ex-tbl td.saida { color: var(--danger); font-weight: 600; }
+  .ex-tbl td.saldo { font-weight: 700; }
+  .ex-tbl tr.abertura td { background: var(--bg-1); color: var(--text-2); font-style: italic; }
+  .ex-tbl tr.subtotal td { background: var(--bg-1); font-weight: 700; color: var(--text-1); }
+  .ex-tbl tfoot td { background: var(--bg-1); font-weight: 700; color: var(--accent); }
+  .ex-tbl small { color: var(--text-3); }
+
+  .ex-paginacao { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 14px; color: var(--text-2); font-size: 0.85em; }
+
+  @media print {
+    .sidebar, .page-header .actions, .ex-toolbar, .ex-contas, .ex-paginacao { display: none !important; }
+    .main-content { margin: 0 !important; padding: 0 !important; }
+    .ex-tbl td, .ex-tbl th { color: #000 !important; background: #fff !important; }
+  }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Extrato de Contas</h1>
+      <small id="subtitulo">Movimentações com saldo acumulado</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="abrirLancamento()">+ Lançamento manual</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportCSV()">⬇ Exportar CSV</button>
+      <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Imprimir</button>
+      <a class="btn btn-ghost btn-sm" href="/financeiro/contas-financeiras.html" style="text-decoration:none;">← Contas</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="ex-contas" id="chipsContas"></div>
+
+  <div class="ex-toolbar">
+    <!-- Empresa/filial: só aparece em tenant multi-loja, como o seletor do sidebar -->
+    <div class="field" id="campoEstab" style="display:none;">
+      <label>Empresa / filial</label>
+      <select id="fEstab" onchange="trocarEstabelecimento()">
+        <option value="">Todas</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Período</label>
+      <select id="fPeriodo" onchange="aplicarPeriodo()">
+        <option value="mes-atual">Mês atual</option>
+        <option value="mes-anterior">Mês anterior</option>
+        <option value="hoje">Hoje</option>
+        <option value="ontem">Ontem</option>
+        <option value="semana-atual">Semana atual</option>
+        <option value="semana-anterior">Semana anterior</option>
+        <option value="ultimos-30">Últimos 30 dias</option>
+        <option value="ultimos-90">Últimos 90 dias</option>
+        <option value="ano-atual">Ano atual</option>
+        <option value="ano-anterior">Ano anterior</option>
+        <option value="tudo">Tudo</option>
+        <option value="manual">Manual</option>
+      </select>
+    </div>
+    <div class="field"><label>De</label><input type="date" id="fDataInicio" onchange="marcarManual()"></div>
+    <div class="field"><label>Até</label><input type="date" id="fDataFim" onchange="marcarManual()"></div>
+    <div class="field">
+      <label>Movimento</label>
+      <select id="fDc" onchange="carregar(1)">
+        <option value="todos">Entradas e saídas</option>
+        <option value="entrada">Só entradas</option>
+        <option value="saida">Só saídas</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Origem</label>
+      <select id="fOrigem" onchange="carregar(1)"><option value="">Todas</option></select>
+    </div>
+    <div class="field">
+      <label>Categoria</label>
+      <select id="fCategoria" onchange="carregar(1)"><option value="">Todas</option></select>
+    </div>
+    <div class="field">
+      <label>Buscar</label>
+      <input type="search" id="fBusca" placeholder="descrição, origem..." style="min-width:200px;" onchange="carregar(1)">
+    </div>
+    <div class="field"><label>Valor de</label><input type="number" id="fValorMin" step="0.01" style="width:110px;" onchange="carregar(1)"></div>
+    <div class="field"><label>Valor até</label><input type="number" id="fValorMax" step="0.01" style="width:110px;" onchange="carregar(1)"></div>
+    <div class="field">
+      <label>Totalizar</label>
+      <select id="fAgrupar" onchange="carregar(1)">
+        <option value="">Sem subtotais</option>
+        <option value="dia">Por dia</option>
+        <option value="mes">Por mês</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Ordem</label>
+      <select id="fOrdem" onchange="carregar(1)">
+        <option value="asc">Mais antigos primeiro</option>
+        <option value="desc">Mais recentes primeiro</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Por página</label>
+      <select id="fPorPagina" onchange="carregar(1)">
+        <option value="50">50</option>
+        <option value="200" selected>200</option>
+        <option value="1000">1000</option>
+        <option value="0">Tudo</option>
+      </select>
+    </div>
+    <div class="field check">
+      <input type="checkbox" id="fSemTransf" onchange="carregar(1)">
+      <label for="fSemTransf">Ocultar transferências internas</label>
+    </div>
+    <div class="field"><button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar filtros</button></div>
+  </div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <table class="ex-tbl">
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th class="colConta">Conta</th>
+        <th>Descrição</th>
+        <th>Origem</th>
+        <th style="text-align:right;">Entrada</th>
+        <th style="text-align:right;">Saída</th>
+        <th style="text-align:right;">Saldo</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+    <tfoot id="tfoot"></tfoot>
+  </table>
+
+  <div class="ex-paginacao" id="paginacao"></div>
+</main></div>
+
+<!-- Modal Lançamento Manual -->
+<div class="modal-bg" id="modalLanc">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Lançamento manual</h3>
+        <small class="muted">Entrada ou saída avulsa na conta</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharLancamento()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Conta *</label><select id="lancConta"></select></div>
+      <div class="form-group"><label>Tipo *</label>
+        <select id="lancTipo"><option value="entrada">Entrada</option><option value="saida">Saída</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Valor (R$) *</label><input type="number" id="lancValor" step="0.01"></div>
+      <div class="form-group"><label>Data</label><input type="date" id="lancData"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Descrição *</label><input type="text" id="lancDesc" placeholder="Ex: Pagamento de conta de luz"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Categoria</label><input type="text" id="lancCat" placeholder="vendas, despesas, taxas..."></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharLancamento()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarLancamento()">Lançar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('contas-financeiras');</script>
+<script>
+let contasCache = [];
+let selecionadas = new Set();   // vazio = todas as contas ativas
+let paginaAtual = 1;
+
+const ROTULO_ORIGEM = {
+  baixa_cr: 'Baixa a receber', pagto_cp: 'Pagamento a pagar', estorno_cr: 'Estorno a receber',
+  estorno_fatura: 'Estorno de fatura', fatura_avista: 'Fatura à vista', boleto_mp: 'Boleto',
+  transferencia: 'Transferência', manual: 'Manual', nfse: 'NFS-e', backfill_v1: 'Backfill'
+};
+
+function fmt(v){ return (v==null||isNaN(v))?'0,00':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtData(ymd){ if(!ymd)return''; const p=ymd.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:ymd; }
+function fmtMes(ym){ const [y,m]=ym.split('-'); return `${m}/${y}`; }
+function val(id){ return document.getElementById(id).value; }
+function setVal(id,v){ document.getElementById(id).value = v ?? ''; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showAlert(m,t='success'){
+  const e=document.getElementById('alertGlobal');
+  e.className='alert '+t; e.textContent=m; e.style.display='block';
+  setTimeout(()=>e.style.display='none',5000);
+}
+
+// ==================== PERÍODO ====================
+function hojeISO(){ return new Date().toISOString().slice(0,10); }
+function addDias(ymd,n){ const d=new Date(ymd+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function ultimoDiaMes(ym){ const [y,m]=ym.split('-').map(Number); return new Date(Date.UTC(y,m,0)).toISOString().slice(0,10); }
+
+function marcarManual(){ setVal('fPeriodo','manual'); carregar(1); }
+
+function aplicarPeriodo(){
+  const p = val('fPeriodo');
+  const hoje = hojeISO();
+  const [y,m] = hoje.split('-').map(Number);
+  if (p === 'manual') return;
+  if (p === 'hoje')            { setVal('fDataInicio',hoje); setVal('fDataFim',hoje); }
+  else if (p === 'ontem')      { const d=addDias(hoje,-1); setVal('fDataInicio',d); setVal('fDataFim',d); }
+  else if (p === 'mes-atual')  { setVal('fDataInicio',hoje.slice(0,7)+'-01'); setVal('fDataFim',hoje); }
+  else if (p === 'mes-anterior'){
+    const ym = new Date(Date.UTC(y,m-2,1)).toISOString().slice(0,7);
+    setVal('fDataInicio',ym+'-01'); setVal('fDataFim',ultimoDiaMes(ym));
+  }
+  else if (p === 'semana-atual'){
+    const dow = new Date(hoje+'T12:00:00Z').getUTCDay();
+    setVal('fDataInicio',addDias(hoje,-dow)); setVal('fDataFim',hoje);
+  }
+  else if (p === 'semana-anterior'){
+    const dow = new Date(hoje+'T12:00:00Z').getUTCDay();
+    const ini = addDias(hoje,-dow-7);
+    setVal('fDataInicio',ini); setVal('fDataFim',addDias(ini,6));
+  }
+  else if (p === 'ultimos-30')  { setVal('fDataInicio',addDias(hoje,-29)); setVal('fDataFim',hoje); }
+  else if (p === 'ultimos-90')  { setVal('fDataInicio',addDias(hoje,-89)); setVal('fDataFim',hoje); }
+  else if (p === 'ano-atual')   { setVal('fDataInicio',hoje.slice(0,4)+'-01-01'); setVal('fDataFim',hoje); }
+  else if (p === 'ano-anterior'){ const a=y-1; setVal('fDataInicio',a+'-01-01'); setVal('fDataFim',a+'-12-31'); }
+  else if (p === 'tudo')        { setVal('fDataInicio',''); setVal('fDataFim',hoje); }
+  carregar(1);
+}
+
+function limparFiltros(){
+  setVal('fDc','todos'); setVal('fOrigem',''); setVal('fCategoria','');
+  setVal('fBusca',''); setVal('fValorMin',''); setVal('fValorMax','');
+  setVal('fAgrupar',''); setVal('fOrdem','asc');
+  document.getElementById('fSemTransf').checked = false;
+  setVal('fPeriodo','mes-atual');
+  aplicarPeriodo();
+}
+
+// ==================== EMPRESA / FILIAL ====================
+// Uma unidade só (o caso de todo tenant hoje) = o filtro não aparece.
+async function carregarEstabelecimentos(){
+  try {
+    const j = await fetch('/api/estabelecimentos').then(r=>r.json());
+    if (!j.success) return;
+    const ativos = (j.data||[]).filter(e=>e.ativo && !e.bloqueado);
+    if (ativos.length <= 1) return;
+    const sel = document.getElementById('fEstab');
+    sel.innerHTML = '<option value="">Todas</option>' +
+      ativos.map(e=>`<option value="${e.id}">${esc(e.nomeFantasia||e.razaoSocial||'Estabelecimento')}${e.matriz?' (Matriz)':''}</option>`).join('') +
+      '<option value="sem-vinculo">Sem vínculo</option>';
+    document.getElementById('campoEstab').style.display = '';
+  } catch(_) { /* filtro é opcional */ }
+}
+
+async function trocarEstabelecimento(){
+  selecionadas.clear();   // as contas do escopo anterior podem não existir no novo
+  await carregarContas();
+  carregar(1);
+}
+
+// ==================== CONTAS ====================
+async function carregarContas(){
+  const p = new URLSearchParams();
+  if (val('fEstab')) p.set('estabelecimentoId', val('fEstab'));
+  const r = await fetch('/api/contas-financeiras?'+p).then(r=>r.json());
+  if (!r.success) throw new Error(r.error);
+  contasCache = r.contas;
+  const pre = Number(new URLSearchParams(location.search).get('conta'));
+  if (pre && contasCache.some(c=>c.id===pre)) selecionadas.add(pre);
+  renderChips();
+  document.getElementById('lancConta').innerHTML = contasCache.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+}
+
+function renderChips(){
+  const todas = selecionadas.size === 0;
+  document.getElementById('chipsContas').innerHTML =
+    `<div class="ex-chip ${todas?'on':''}" onclick="toggleConta(0)"><strong>Todas as contas</strong><span>consolidado</span></div>` +
+    contasCache.map(c=>`
+      <div class="ex-chip ${selecionadas.has(c.id)?'on':''}" onclick="toggleConta(${c.id})">
+        <strong>${esc(c.nome)}</strong><span>R$ ${fmt(c.saldo)}</span>
+      </div>`).join('');
+}
+
+function toggleConta(id){
+  if (id === 0) selecionadas.clear();
+  else if (selecionadas.has(id)) selecionadas.delete(id);
+  else selecionadas.add(id);
+  renderChips();
+  carregar(1);
+}
+
+// ==================== EXTRATO ====================
+function montarParams(){
+  const p = new URLSearchParams();
+  if (val('fEstab')) p.set('estabelecimentoId', val('fEstab'));
+  if (selecionadas.size) p.set('contas', [...selecionadas].join(','));
+  if (val('fDataInicio')) p.set('dataInicio', val('fDataInicio'));
+  if (val('fDataFim')) p.set('dataFim', val('fDataFim'));
+  if (val('fDc') !== 'todos') p.set('dc', val('fDc'));
+  if (val('fOrigem')) p.set('origens', val('fOrigem'));
+  if (val('fCategoria')) p.set('categorias', val('fCategoria'));
+  if (val('fBusca').trim()) p.set('busca', val('fBusca').trim());
+  if (val('fValorMin')) p.set('valorMin', val('fValorMin'));
+  if (val('fValorMax')) p.set('valorMax', val('fValorMax'));
+  if (val('fAgrupar')) p.set('agrupar', val('fAgrupar'));
+  p.set('ordem', val('fOrdem'));
+  if (document.getElementById('fSemTransf').checked) p.set('semTransferenciasInternas','1');
+  return p;
+}
+
+async function carregar(pagina){
+  paginaAtual = pagina || paginaAtual;
+  const p = montarParams();
+  p.set('pagina', paginaAtual);
+  p.set('porPagina', val('fPorPagina'));
+  try {
+    const d = await fetch('/api/contas-financeiras/extrato?'+p).then(r=>r.json());
+    if (!d.success) throw new Error(d.error);
+    renderFacetas(d.facetas);
+    renderCabecalho(d);
+    renderKpis(d);
+    renderTabela(d);
+    renderPaginacao(d.paginacao);
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+function renderFacetas(f){
+  const preencher = (id, valores, rotular) => {
+    const sel = document.getElementById(id);
+    const atual = sel.value;
+    const todas = sel.options[0].textContent;
+    sel.innerHTML = `<option value="">${todas}</option>` +
+      valores.map(v=>`<option value="${esc(v)}">${esc(rotular?(ROTULO_ORIGEM[v]||v):v)}</option>`).join('');
+    if (valores.includes(atual)) sel.value = atual;
+  };
+  preencher('fOrigem', f.origens, true);
+  preencher('fCategoria', f.categorias, false);
+}
+
+function renderCabecalho(d){
+  const nomes = d.contas.map(c=>c.nome);
+  const alvo = selecionadas.size ? nomes.join(' · ') : `${nomes.length} contas (consolidado)`;
+  const ini = d.periodo.dataInicio === '0001-01-01' ? 'início' : fmtData(d.periodo.dataInicio);
+  document.getElementById('subtitulo').textContent = `${alvo} · ${ini} a ${fmtData(d.periodo.dataFim)}`;
+  // Coluna Conta só faz sentido quando há mais de uma conta no resultado
+  const mostrarConta = d.contas.length > 1;
+  document.querySelectorAll('.colConta').forEach(th => th.style.display = mostrarConta ? '' : 'none');
+  document.getElementById('tbody').dataset.conta = mostrarConta ? '1' : '';
+}
+
+function renderKpis(d){
+  // Com filtro ativo, entradas/saídas somam só o que está na tela; o saldo é sempre o real.
+  const suf = d.filtrado ? ' (filtro)' : '';
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Saldo inicial</div><div class="value">R$ ${fmt(d.saldoInicialPeriodo)}</div></div>
+    <div class="kpi success"><div class="label">Entradas${suf}</div><div class="value">R$ ${fmt(d.totais.entradas)}</div></div>
+    <div class="kpi danger"><div class="label">Saídas${suf}</div><div class="value">R$ ${fmt(d.totais.saidas)}</div></div>
+    <div class="kpi ${d.totais.liquido>=0?'success':'danger'}"><div class="label">Resultado${suf}</div><div class="value">R$ ${fmt(d.totais.liquido)}</div></div>
+    <div class="kpi"><div class="label">Saldo final</div><div class="value">R$ ${fmt(d.saldoFinalPeriodo)}</div></div>
+    <div class="kpi"><div class="label">Lançamentos</div><div class="value">${d.totais.qtd}</div></div>`;
+}
+
+function renderTabela(d){
+  const comConta = d.contas.length > 1;
+  const cols = comConta ? 7 : 6;
+  const tb = document.getElementById('tbody');
+  const tf = document.getElementById('tfoot');
+  const celConta = m => comConta ? `<td><small>${esc(m.contaNome)}</small></td>` : '';
+
+  if (!d.linhas.length) {
+    tb.innerHTML = `<tr><td colspan="${cols}" style="color:var(--text-2);text-align:center;padding:20px;">Nenhum lançamento com esses filtros.</td></tr>`;
+    tf.innerHTML = '';
+    return;
+  }
+
+  const chaveGrupo = m => d.agrupar === 'dia' ? m.data : m.data.slice(0,7);
+  const linhaSubtotal = (k) => {
+    const g = d.subtotais[k]; if (!g) return '';
+    const rotulo = d.agrupar === 'dia' ? fmtData(k) : fmtMes(k);
+    return `<tr class="subtotal">
+      <td colspan="${cols-3}">Subtotal ${rotulo} · ${g.qtd} lanç.</td>
+      <td class="num">R$ ${fmt(g.entradas)}</td>
+      <td class="num">R$ ${fmt(g.saidas)}</td>
+      <td class="num">R$ ${fmt(g.liquido)}</td>
+    </tr>`;
+  };
+
+  // A abertura ancora o saldo: fica antes do primeiro lançamento cronológico,
+  // que em ordem decrescente é a última linha da última página.
+  const desc = val('fOrdem') === 'desc';
+  const paginaDaAbertura = desc ? d.paginacao.paginas : 1;
+  const ini = d.periodo.dataInicio === '0001-01-01' ? '—' : fmtData(d.periodo.dataInicio);
+  const abertura = d.paginacao.pagina === paginaDaAbertura
+    ? `<tr class="abertura"><td class="data">${ini}</td>${comConta?'<td></td>':''}<td colspan="2">Saldo inicial do período</td><td class="num">—</td><td class="num">—</td><td class="num saldo">R$ ${fmt(d.saldoInicialPeriodo)}</td></tr>`
+    : '';
+
+  let html = desc ? '' : abertura;
+
+  let grupoAnterior = null;
+  d.linhas.forEach(m => {
+    if (d.agrupar) {
+      const k = chaveGrupo(m);
+      if (grupoAnterior !== null && k !== grupoAnterior) html += linhaSubtotal(grupoAnterior);
+      grupoAnterior = k;
+    }
+    const origem = ROTULO_ORIGEM[m.origem||'manual'] || m.origem;
+    html += `<tr>
+      <td class="data">${fmtData(m.data)}</td>
+      ${celConta(m)}
+      <td>${esc(m.descricao)}${m.usuario?` <small>· ${esc(m.usuario)}</small>`:''}</td>
+      <td><small>${esc(origem)}${m.origemId?` #${m.origemId}`:''}${m.categoria?` · ${esc(m.categoria)}`:''}</small></td>
+      <td class="num entrada">${m.delta>0?'R$ '+fmt(m.valor):''}</td>
+      <td class="num saida">${m.delta<0?'R$ '+fmt(m.valor):''}</td>
+      <td class="num saldo">R$ ${fmt(m.saldoAcumulado)}</td>
+    </tr>`;
+  });
+  if (d.agrupar && grupoAnterior !== null) html += linhaSubtotal(grupoAnterior);
+  if (desc) html += abertura;
+  tb.innerHTML = html;
+
+  tf.innerHTML = `<tr>
+    <td colspan="${cols-3}">Totais do período · ${d.totais.qtd} lançamentos</td>
+    <td class="num">R$ ${fmt(d.totais.entradas)}</td>
+    <td class="num">R$ ${fmt(d.totais.saidas)}</td>
+    <td class="num">R$ ${fmt(d.saldoFinalPeriodo)}</td>
+  </tr>`;
+}
+
+function renderPaginacao(p){
+  const el = document.getElementById('paginacao');
+  if (!p.porPagina || p.paginas <= 1) {
+    el.innerHTML = p.total ? `${p.total} lançamento(s)` : '';
+    return;
+  }
+  const ini = (p.pagina-1)*p.porPagina + 1;
+  const fim = Math.min(p.pagina*p.porPagina, p.total);
+  el.innerHTML = `
+    <span>${ini}–${fim} de ${p.total}</span>
+    <button class="btn btn-ghost btn-sm" ${p.pagina<=1?'disabled':''} onclick="carregar(${p.pagina-1})">‹ Anterior</button>
+    <span>Página ${p.pagina} de ${p.paginas}</span>
+    <button class="btn btn-ghost btn-sm" ${p.pagina>=p.paginas?'disabled':''} onclick="carregar(${p.pagina+1})">Próxima ›</button>`;
+}
+
+function exportCSV(){
+  const p = montarParams();
+  p.set('formato','csv');
+  window.open('/api/contas-financeiras/extrato?'+p, '_blank');
+}
+
+// ==================== LANÇAMENTO MANUAL ====================
+function abrirLancamento(){
+  if (!contasCache.length) return showAlert('Nenhuma conta cadastrada','error');
+  const alvo = selecionadas.size === 1 ? [...selecionadas][0] : contasCache[0].id;
+  setVal('lancConta', alvo);
+  setVal('lancTipo','entrada');
+  setVal('lancValor','');
+  setVal('lancData', hojeISO());
+  setVal('lancDesc','');
+  setVal('lancCat','');
+  document.getElementById('modalLanc').classList.add('open');
+}
+function fecharLancamento(){ document.getElementById('modalLanc').classList.remove('open'); }
+
+async function salvarLancamento(){
+  const body = {
+    tipo: val('lancTipo'),
+    valor: parseFloat(val('lancValor')),
+    data: val('lancData') || undefined,
+    descricao: val('lancDesc').trim(),
+    categoria: val('lancCat') || null,
+  };
+  if (!(body.valor > 0)) return showAlert('Valor deve ser maior que zero','error');
+  if (!body.descricao) return showAlert('Descrição obrigatória','error');
+  try {
+    const r = await fetch('/api/contas-financeiras/'+val('lancConta')+'/movimentar',
+      { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert('Lançamento registrado');
+    fecharLancamento();
+    await carregarContas();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharLancamento(); });
+
+(async function init(){
+  try {
+    await carregarEstabelecimentos();
+    await carregarContas();
+    setVal('fPeriodo','mes-atual');
+    aplicarPeriodo();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+})();
+</script>
+</body>
+</html>

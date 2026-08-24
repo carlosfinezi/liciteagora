@@ -16,6 +16,20 @@ const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 const grupoMembership = require('./bi-grupo-membership');
 const { currentTenant } = require('./tenant-middleware');
 
+// Normaliza lista de UFs pra JSON (ex.: ["MG","SP"]) ou null quando vazia/inválida.
+function _ufsToJson(ufs) {
+  if (!Array.isArray(ufs)) return null;
+  const limpas = [...new Set(ufs.map(u => String(u).trim().toUpperCase()).filter(u => /^[A-Z]{2}$/.test(u)))];
+  return limpas.length ? JSON.stringify(limpas) : null;
+}
+
+// Normaliza lista de municípios pra JSON (ex.: ["Belo Horizonte","Contagem"]) ou null quando vazia.
+function _municipiosToJson(municipios) {
+  if (!Array.isArray(municipios)) return null;
+  const limpos = [...new Set(municipios.map(m => String(m).trim()).filter(Boolean))];
+  return limpos.length ? JSON.stringify(limpos) : null;
+}
+
 function registrarRotasGruposPalavras(app, db) {
 
   // Recomputa (async, best-effort) a membership afetada por uma edição de grupo.
@@ -123,7 +137,7 @@ function registrarRotasGruposPalavras(app, db) {
   // Criar novo grupo
   app.post('/api/grupos-palavras', (req, res) => {
     try {
-      const { nome, descricao, cor, palavras, tipo, gruposExclusaoIds } = req.body;
+      const { nome, descricao, cor, palavras, tipo, gruposExclusaoIds, ufs, municipios } = req.body;
 
       if (!nome) {
         return res.status(400).json({ success: false, error: 'Nome é obrigatório' });
@@ -133,8 +147,8 @@ function registrarRotasGruposPalavras(app, db) {
 
       // Inserir grupo
       const result = db.prepare(`
-        INSERT INTO grupos_palavras (nome, descricao, cor, tipo) VALUES (?, ?, ?, ?)
-      `).run(nome, descricao || '', cor || '#1a5f7a', tipoGrupo);
+        INSERT INTO grupos_palavras (nome, descricao, cor, tipo, ufs, municipios) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(nome, descricao || '', cor || '#1a5f7a', tipoGrupo, _ufsToJson(ufs), _municipiosToJson(municipios));
 
       const grupoId = result.lastInsertRowid;
 
@@ -181,7 +195,7 @@ function registrarRotasGruposPalavras(app, db) {
   app.put('/api/grupos-palavras/:id', (req, res) => {
     try {
       const { id } = req.params;
-      const { nome, descricao, cor, palavras, ativo, gruposExclusaoIds } = req.body;
+      const { nome, descricao, cor, palavras, ativo, gruposExclusaoIds, ufs, municipios } = req.body;
 
       // Verificar se grupo existe
       const grupo = db.prepare(`SELECT * FROM grupos_palavras WHERE id = ?`).get(id);
@@ -192,13 +206,15 @@ function registrarRotasGruposPalavras(app, db) {
       // Atualizar grupo
       db.prepare(`
         UPDATE grupos_palavras
-        SET nome = ?, descricao = ?, cor = ?, ativo = ?, dataAtualizacao = CURRENT_TIMESTAMP
+        SET nome = ?, descricao = ?, cor = ?, ativo = ?, ufs = ?, municipios = ?, dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(
         nome || grupo.nome,
         descricao !== undefined ? descricao : grupo.descricao,
         cor || grupo.cor,
         ativo !== undefined ? (ativo ? 1 : 0) : grupo.ativo,
+        ufs !== undefined ? _ufsToJson(ufs) : grupo.ufs,
+        municipios !== undefined ? _municipiosToJson(municipios) : grupo.municipios,
         id
       );
 
@@ -345,6 +361,14 @@ function registrarRotasGruposPalavras(app, db) {
         return res.json({ success: true, data: [], message: 'Grupo sem palavras configuradas' });
       }
 
+      // UFs e municípios do grupo (JSON arrays; vazio = sem restrição)
+      let ufsGrupo = [];
+      try { ufsGrupo = JSON.parse(grupo.ufs || '[]'); } catch (_) {}
+      if (!Array.isArray(ufsGrupo)) ufsGrupo = [];
+      let munsGrupo = [];
+      try { munsGrupo = JSON.parse(grupo.municipios || '[]'); } catch (_) {}
+      if (!Array.isArray(munsGrupo)) munsGrupo = [];
+
       // Buscar grupos de exclusão vinculados e suas palavras
       let palavrasExclusao = [];
       if (grupo.tipo === 'pesquisa' || !grupo.tipo) {
@@ -372,13 +396,31 @@ function registrarRotasGruposPalavras(app, db) {
       // Etapa 1: Busca rápida no objetoCompra
       let licitacoesObjeto, licitacoesItens;
       if (USE_PG) {
+        // Placeholders geográficos vêm depois dos das palavras ($1=data, $2..=palavras)
+        let geoIdx = palavras.length + 2;
+        let geoCond = '', geoCondAlias = '';
+        const geoParams = [];
+        if (ufsGrupo.length) {
+          geoCond += ` AND "ufSigla" = ANY($${geoIdx})`;
+          geoCondAlias += ` AND l."ufSigla" = ANY($${geoIdx})`;
+          geoParams.push(ufsGrupo); geoIdx++;
+        }
+        if (munsGrupo.length) {
+          geoCond += ` AND "municipioNome" ILIKE ANY($${geoIdx})`;
+          geoCondAlias += ` AND l."municipioNome" ILIKE ANY($${geoIdx})`;
+          geoParams.push(munsGrupo); geoIdx++;
+        }
+        const ufCondPg = geoCond;
+        const ufCondPgAlias = geoCondAlias;
+        const ufParamsPg = geoParams;
+
         const condObj = palavras.map((_, j) => `"objetoCompra" ILIKE $${j + 2}`).join(' OR ');
         licitacoesObjeto = await catalogPg.query(`
           SELECT *, COALESCE("dataEncerramentoPortal", "dataEncerramentoProposta") AS "dataEncerramentoProposta" FROM licitacoes
-           WHERE "dataPublicacaoPncp" >= $1 AND (${condObj})
+           WHERE "dataPublicacaoPncp" >= $1 AND (${condObj})${ufCondPg}
         ORDER BY "dataPublicacaoPncp" DESC
            LIMIT 100
-        `, [dataLimiteStr, ...palavras.map(p => `%${p}%`)]);
+        `, [dataLimiteStr, ...palavras.map(p => `%${p}%`), ...ufParamsPg]);
 
         const condItens = palavras.map((_, j) => `i."descricao" ILIKE $${j + 2}`).join(' OR ');
         licitacoesItens = await catalogPg.query(`
@@ -388,18 +430,27 @@ function registrarRotasGruposPalavras(app, db) {
               WHERE i."licitacaoId" IN (SELECT "id" FROM licitacoes WHERE "dataPublicacaoPncp" >= $1)
                 AND (${condItens})
               LIMIT 100
-           )
+           )${ufCondPgAlias}
         ORDER BY l."dataPublicacaoPncp" DESC
-        `, [dataLimiteStr, ...palavras.map(p => `%${p}%`)]);
+        `, [dataLimiteStr, ...palavras.map(p => `%${p}%`), ...ufParamsPg]);
       } else {
+        const munsLower = munsGrupo.map(m => m.toLowerCase());
+        let ufCondLite = ufsGrupo.length ? ` AND ufSigla IN (${ufsGrupo.map(() => '?').join(',')})` : '';
+        let ufCondLiteAlias = ufsGrupo.length ? ` AND l.ufSigla IN (${ufsGrupo.map(() => '?').join(',')})` : '';
+        if (munsLower.length) {
+          ufCondLite += ` AND LOWER(municipioNome) IN (${munsLower.map(() => '?').join(',')})`;
+          ufCondLiteAlias += ` AND LOWER(l.municipioNome) IN (${munsLower.map(() => '?').join(',')})`;
+        }
+        const geoParamsLite = [...ufsGrupo, ...munsLower];
+
         const conditionsObjeto = palavras.map(() => `objetoCompra LIKE ?`).join(' OR ');
         const paramsObjeto = palavras.map(p => `%${p}%`);
         licitacoesObjeto = db.prepare(`
           SELECT * FROM licitacoes
-          WHERE dataPublicacaoPncp >= ? AND (${conditionsObjeto})
+          WHERE dataPublicacaoPncp >= ? AND (${conditionsObjeto})${ufCondLite}
           ORDER BY dataPublicacaoPncp DESC
           LIMIT 100
-        `).all(dataLimiteStr, ...paramsObjeto);
+        `).all(dataLimiteStr, ...paramsObjeto, ...geoParamsLite);
 
         const conditionsItens = palavras.map(() => `i.descricao LIKE ?`).join(' OR ');
         const paramsItens = palavras.map(p => `%${p}%`);
@@ -410,9 +461,9 @@ function registrarRotasGruposPalavras(app, db) {
             WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE dataPublicacaoPncp >= ?)
               AND (${conditionsItens})
             LIMIT 100
-          )
+          )${ufCondLiteAlias}
           ORDER BY l.dataPublicacaoPncp DESC
-        `).all(dataLimiteStr, ...paramsItens);
+        `).all(dataLimiteStr, ...paramsItens, ...geoParamsLite);
       }
 
       // Combinar resultados únicos

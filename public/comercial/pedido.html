@@ -71,7 +71,7 @@
 
   <div class="ped-tabs" id="pedTabs"></div>
 
-  <div class="ped-painel" data-aba="cliente">
+  <div class="ped-painel" data-aba="operacao">
     <h3>Tipo de operação</h3>
     <div class="panel">
       <div class="form-row">
@@ -82,8 +82,10 @@
         </div>
       </div>
     </div>
+  </div>
 
-    <h3 style="margin-top:20px;">Cliente e entrega</h3>
+  <div class="ped-painel" data-aba="cliente">
+    <h3>Cliente e entrega</h3>
     <div class="panel">
       <div class="form-row">
         <div class="form-group full-width" style="position:relative;">
@@ -138,13 +140,15 @@
       </select>
       <span class="muted" style="font-size:.82em;">Força uma tabela neste pedido. Vazio = usa a tabela do cliente, senão a vigente por prioridade, senão o preço do cadastro.</span>
     </div>
+    <div id="avisoFalta" style="display:none;"></div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>#</th><th>Produto</th><th>Descrição</th><th>Qtd</th><th>V.Unit</th><th>CFOP</th><th>Total</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Produto</th><th>Descrição</th><th>Qtd</th><th title="Disponível = saldo físico menos as reservas de OUTROS pedidos">Disp.</th><th>V.Unit</th><th>CFOP</th><th>Total</th><th></th></tr></thead>
         <tbody id="tbItens"></tbody>
         <tfoot id="tfItens"></tfoot>
       </table>
     </div>
+    <div id="comprasVinculadas" style="display:none;"></div>
     <div class="card card-info" id="addItemCard" style="margin-top:16px;">
       <h4 style="margin-bottom:12px; color:var(--text-1); font-weight:500;">Adicionar item</h4>
       <div class="form-row">
@@ -194,7 +198,17 @@
         <div class="form-group"><label>Faturamento previsto</label><input type="date" id="dataFaturamentoPrevista"></div>
       </div>
       <div class="form-row">
-        <div class="form-group full-width">
+        <div class="form-group">
+          <label>Vendedor</label>
+          <select id="vendedorId"></select>
+          <small>Base das metas e da apuração de comissão</small>
+        </div>
+        <div class="form-group">
+          <label>Depósito</label>
+          <select id="depositoId"></select>
+          <small>De onde a mercadoria sai na entrega</small>
+        </div>
+        <div class="form-group" style="grid-column: span 2;">
           <label>Código do pedido no cliente</label>
           <input type="text" id="codigoPedidoCliente">
           <small>Nº do pedido no ERP do cliente (referência externa)</small>
@@ -207,11 +221,17 @@
   <div class="ped-painel" data-aba="pgto">
     <h3>Pagamento</h3>
 
+    <!-- Política de prazo do cliente: é ela que define meios aceitos, prazo das
+         parcelas e valor mínimo. Fica no topo da aba porque explica por que os
+         seletores abaixo aparecem restritos. -->
+    <div id="pgtoPolitica" style="margin-bottom:12px;display:none;"></div>
+
     <!-- Modo pagamento único (padrão) -->
     <div class="panel" id="pgtoModoUnico">
       <div class="form-row">
         <div class="form-group" style="grid-column: span 2;"><label>Meio de pagamento</label>
           <select id="meioPagamento"></select>
+          <small id="meioPagamentoRestricao" class="muted" style="display:block;color:var(--warn);"></small>
           <small id="meioPagamentoHint" class="muted"></small>
         </div>
         <div class="form-group"><label>Valor total</label><input type="text" id="resValorTotal" disabled></div>
@@ -326,9 +346,89 @@
       <label>Motivo *</label>
       <textarea id="motivoTexto" rows="3" placeholder="Descreva o motivo…"></textarea>
     </div></div>
+    <!-- Venda perdida no cancelamento: é aqui que a informação existe.
+         Registrar depois, à mão, quase nunca acontece. -->
+    <div id="motivoBlocoPerda" style="display:none;">
+      <div class="divider"></div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;">
+        <input type="checkbox" id="motivoRegistrarPerda" onchange="togglePerdaCancelamento()">
+        <span>Registrar os itens como <strong>venda perdida</strong></span>
+      </label>
+      <div id="motivoCamposPerda" style="display:none;">
+        <div class="form-row">
+          <div class="form-group"><label>Motivo da perda</label><select id="motivoPerdaTipo" onchange="togglePerdaConcorrente()"></select></div>
+          <div class="form-group" id="motivoPerdaConcorrenteWrap" style="display:none;">
+            <label>Concorrente</label><input type="text" id="motivoPerdaConcorrente" placeholder="Quem levou">
+          </div>
+        </div>
+        <small class="muted" id="motivoPerdaResumo"></small>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModalMotivo()">Cancelar</button>
       <button class="btn btn-primary" id="motivoBotaoConfirmar" onclick="confirmarAcaoMotivo()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: falta de saldo — comprar o que falta, ou seguir mesmo assim -->
+<div class="modal-bg" id="modalFalta">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Saldo insuficiente</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalFalta()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div id="faltaResumo" class="card card-info" style="margin-bottom:14px;"></div>
+    <div class="tbl-wrap" style="max-height:320px;overflow:auto;">
+      <table>
+        <thead><tr>
+          <th style="width:34px;"><input type="checkbox" id="faltaTodos" onchange="faltaMarcarTodos(this.checked)" checked></th>
+          <th>Item</th><th style="text-align:right;">Pedido</th><th style="text-align:right;">Disponível</th>
+          <th style="text-align:right;">A caminho</th><th style="text-align:right;width:120px;">Comprar</th>
+          <th>Fornecedor</th>
+        </tr></thead>
+        <tbody id="faltaItens"></tbody>
+      </table>
+    </div>
+    <div class="modal-actions" style="flex-wrap:wrap;gap:8px;">
+      <button class="btn btn-ghost" onclick="fecharModalFalta()">Cancelar</button>
+      <button class="btn btn-secondary" id="btnFaltaForcar" onclick="faltaConfirmarMesmoAssim()">Confirmar mesmo assim</button>
+      <button class="btn btn-secondary" onclick="gerarCompraDaFalta('cotacao')">Gerar cotação</button>
+      <button class="btn btn-primary" onclick="gerarCompraDaFalta('pedido_compra')">Gerar pedido de compra</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: registrar venda perdida a partir dos itens do pedido -->
+<div class="modal-bg" id="modalPerda">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Registrar venda perdida</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalPerda()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div id="perdaPreview" class="card card-info" style="margin-bottom:14px;"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Motivo *</label><select id="perdaMotivo" onchange="togglePerdaModalConcorrente()"></select></div>
+      <div class="form-group" id="perdaConcorrenteWrap" style="display:none;">
+        <label>Concorrente</label><input type="text" id="perdaConcorrente" placeholder="Quem levou">
+      </div>
+    </div>
+    <div class="tbl-wrap" style="max-height:320px;overflow:auto;">
+      <table>
+        <thead><tr>
+          <th style="width:34px;"><input type="checkbox" id="perdaTodos" onchange="perdaMarcarTodos(this.checked)"></th>
+          <th>Item</th><th style="text-align:right;">Qtd pedida</th>
+          <th style="text-align:right;width:120px;">Qtd perdida</th><th style="text-align:right;">Preço</th>
+        </tr></thead>
+        <tbody id="perdaItens"></tbody>
+      </table>
+    </div>
+    <div class="form-row" style="margin-top:10px;">
+      <div class="form-group full-width"><label>Observação</label><input type="text" id="perdaObs" placeholder="Opcional"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalPerda()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarPerda()">Registrar perda</button>
     </div>
   </div>
 </div>
@@ -337,7 +437,7 @@
 <div class="modal-bg" id="modalBandeira">
   <div class="modal" style="max-width:460px;">
     <div class="modal-header"><h3>Bandeira do cartão</h3></div>
-    <p class="muted" style="margin-bottom:12px;font-size:0.88em;">Pagamento em cartão — informe a bandeira (Cielo, Stone, Rede…) para criar a CR em nome dela.</p>
+    <p class="muted" style="margin-bottom:12px;font-size:0.88em;">Pagamento em cartão — informe a adquirente (Cielo, Stone, Rede…). A conta a receber sai em nome do cliente, vinculada à adquirente que vai liquidar; a taxa dela vira despesa financeira na liquidação.</p>
     <div class="form-row"><div class="form-group full-width" style="position:relative;">
       <label>Bandeira *</label>
       <input type="text" id="fatBandeiraBusca" placeholder="Ex.: Cielo, Stone, Rede…" oninput="acBandeira()" autocomplete="off">
@@ -395,6 +495,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/politica-prazo.js"></script>
 <script>initSidebar('pedidos');</script>
 <script>
 let pedidoAtual = null;
@@ -416,6 +517,106 @@ const MEIOS_PAGAMENTO = [['','—'],
   ['18','18 · Transferência bancária'],['19','19 · Carteira digital'],['90','90 · Sem pagamento'],['99','99 · Outros']];
 const TRANSICAO_REABRIR = { confirmado:'rascunho', em_separacao:'confirmado', entregue:'em_separacao', cancelado:'rascunho', faturado:'entregue' };
 
+// Meios de recebimento aceitos pelo cliente do pedido — null = sem restrição.
+// A lista some do seletor, mas quem manda é o servidor: o PUT do pedido e o das
+// parcelas recusam meio fora dela.
+let MEIOS_PERMITIDOS = null;
+// Prazo do cliente ([30,60,90]) — semeia o parcelamento.
+let PRAZO_CLIENTE = null;
+// Política de prazo em vigor para este cliente (null = cliente sem política).
+// É a fonte de MEIOS_PERMITIDOS e PRAZO_CLIENTE; guardada à parte porque o
+// valor mínimo da parcela e o nome dela não cabem nas outras duas.
+let POLITICA_CLIENTE = null;
+let ROTULOS_MEIO = null;
+
+function meiosDisponiveis(){
+  if (!MEIOS_PERMITIDOS) return MEIOS_PAGAMENTO;
+  return MEIOS_PAGAMENTO.filter(([v]) => !v || MEIOS_PERMITIDOS.includes(v));
+}
+
+// Default que não nasce inválido: se o preferido não couber na whitelist, cai
+// no primeiro meio que o cliente aceita.
+function meioDefault(preferido){
+  if (!MEIOS_PERMITIDOS) return preferido;
+  return MEIOS_PERMITIDOS.includes(preferido) ? preferido : MEIOS_PERMITIDOS[0];
+}
+
+async function carregarMeiosPermitidos(clienteId){
+  MEIOS_PERMITIDOS = null;
+  PRAZO_CLIENTE = null;
+  POLITICA_CLIENTE = null;
+  if (!clienteId) return;
+  const cond = await PoliticaPrazo.carregar({ pessoaId: clienteId, semCache: true });
+  MEIOS_PERMITIDOS = cond.permitidos;
+  PRAZO_CLIENTE = cond.prazo;
+  POLITICA_CLIENTE = cond.politica;
+  // Rótulo curto ("Boleto bancário") a partir da lista longa da tela ("15 · Boleto…").
+  ROTULOS_MEIO = Object.fromEntries(MEIOS_PAGAMENTO.filter(([v]) => v)
+    .map(([v, l]) => [v, l.replace(/^\d+\s·\s/, '')]));
+}
+
+// Semeia o gerador de parcelas com o que a política diz, para o operador não
+// ter de reproduzir à mão a regra que já está cadastrada.
+function semearGeradorPelaPolitica(){
+  if (!PRAZO_CLIENTE || !PRAZO_CLIENTE.length) return;
+  const qtd = document.getElementById('parcQtd');
+  const venc = document.getElementById('parcVencIni');
+  const intv = document.getElementById('parcIntervalo');
+  if (qtd) qtd.value = PRAZO_CLIENTE.length;
+  if (venc) {
+    const d = new Date();
+    d.setDate(d.getDate() + PRAZO_CLIENTE[0]);
+    venc.value = d.toISOString().slice(0, 10);
+  }
+  // Prazo irregular (30/45/90) não vira intervalo único: o gerador é linear,
+  // então fica o passo entre as duas primeiras e o operador ajusta o resto.
+  if (intv && PRAZO_CLIENTE.length > 1) intv.value = PRAZO_CLIENTE[1] - PRAZO_CLIENTE[0];
+}
+
+/** Mensagem quando alguma parcela fura o mínimo da política; '' se está tudo certo. */
+function erroValorMinimoParcela(parcelas){
+  const min = POLITICA_CLIENTE ? Number(POLITICA_CLIENTE.valorMinimoParcela) || 0 : 0;
+  if (!(min > 0)) return '';
+  const i = (parcelas || []).findIndex(p => Number(p.valor) < min);
+  return i >= 0
+    ? `Parcela ${i + 1} (R$ ${fmt(parcelas[i].valor)}) abaixo do mínimo de R$ ${fmt(min)} da política "${POLITICA_CLIENTE.nome}".`
+    : '';
+}
+
+// Repopula os seletores de meio depois que a whitelist do cliente é conhecida.
+function aplicarMeiosPermitidos(){
+  const disp = meiosDisponiveis();
+  const sel = document.getElementById('meioPagamento');
+  if (sel) {
+    const atual = sel.value;
+    const fixo = MEIOS_PERMITIDOS && MEIOS_PERMITIDOS.length === 1 ? MEIOS_PERMITIDOS[0] : null;
+    const escolhido = disp.some(([v]) => v === atual) ? atual : (fixo || '');
+    sel.innerHTML = disp.map(([v,l]) => `<option value="${v}" ${escolhido===v?'selected':''}>${l}</option>`).join('');
+    atualizarHintMeio();
+  }
+  const selDef = document.getElementById('parcMeioDefault');
+  if (selDef && selDef.options.length) {
+    const atualDef = selDef.value;
+    selDef.innerHTML = disp.map(([v,l]) => `<option value="${v}" ${atualDef===v?'selected':''}>${l}</option>`).join('');
+  }
+  const aviso = document.getElementById('meioPagamentoRestricao');
+  if (aviso) {
+    aviso.textContent = MEIOS_PERMITIDOS
+      ? `Cliente aceita somente: ${disp.filter(([v]) => v).map(([, l]) => l).join(', ')}.`
+      : '';
+  }
+  // Bloco no topo da aba: nomeia a política e leva até ela.
+  const boxPol = document.getElementById('pgtoPolitica');
+  if (boxPol) {
+    const html = PoliticaPrazo.avisoHTML(
+      { permitidos: MEIOS_PERMITIDOS, prazo: PRAZO_CLIENTE, politica: POLITICA_CLIENTE }, ROTULOS_MEIO);
+    boxPol.innerHTML = html;
+    boxPol.style.display = html ? 'block' : 'none';
+  }
+  semearGeradorPelaPolitica();
+  if (PARCELAS.length) renderParcelas();
+}
+
 function showAlert(m,t='success'){
   const box = document.getElementById('toasts');
   const el = document.createElement('div');
@@ -434,8 +635,8 @@ function atualizarHintMeio(){
   const msgs = {
     '01':'Dinheiro: ao faturar, CR baixada imediatamente + entrada no caixa padrão.',
     '17':'PIX: ao faturar, CR baixada imediatamente + entrada no banco padrão.',
-    '03':'Cartão de crédito: CR criada em nome da bandeira ao faturar.',
-    '04':'Cartão de débito: CR criada em nome da bandeira ao faturar.',
+    '03':'Cartão de crédito: CR em nome do cliente, vinculada à adquirente, com previsão de liquidação.',
+    '04':'Cartão de débito: CR em nome do cliente, vinculada à adquirente, com previsão de liquidação.',
     '15':'Boleto: CR aberta até cliente pagar; polling MP baixa automaticamente.',
   };
   hint.textContent = msgs[meio] || (meio ? 'CR aberta até baixa manual na tela Financeiro.' : 'Escolha o meio para ver o comportamento ao faturar.');
@@ -469,18 +670,29 @@ function atualizarModoPagamento(){
 
 function ativarParcelamento(){
   PARCELADO_ATIVO = true;
-  // Se não tem parcelas ainda, semeia 2 linhas de 50%
   if (PARCELAS.length === 0) {
     const total = Number(pedidoAtual.valorTotal || 0);
     const meioHoje = pedidoAtual.meioPagamento || '';
-    const v1 = Number((total / 2).toFixed(2));
-    const v2 = Number((total - v1).toFixed(2));
     const hoje = new Date().toISOString().slice(0,10);
-    const d30 = new Date(Date.now() + 30*86400000).toISOString().slice(0,10);
-    PARCELAS = [
-      { valor: v1, dataVencimento: hoje, meioPagamento: meioHoje || '17', bandeiraId: null, bandeiraNome: '' },
-      { valor: v2, dataVencimento: d30, meioPagamento: meioHoje || '15', bandeiraId: null, bandeiraNome: '' }
-    ];
+    const addDias = (n) => new Date(Date.now() + n*86400000).toISOString().slice(0,10);
+    if (PRAZO_CLIENTE && PRAZO_CLIENTE.length) {
+      // Cliente com prazo no cadastro: uma parcela por prazo, nos dias dele.
+      const n = PRAZO_CLIENTE.length;
+      const base = Math.floor((total * 100) / n) / 100;
+      let acumulado = 0;
+      PARCELAS = PRAZO_CLIENTE.map((dias, i) => {
+        const valor = (i === n - 1) ? Number((total - acumulado).toFixed(2)) : base;
+        acumulado = Number((acumulado + valor).toFixed(2));
+        return { valor, dataVencimento: addDias(dias), meioPagamento: meioDefault(meioHoje || '15'), bandeiraId: null, bandeiraNome: '' };
+      });
+    } else {
+      // Sem prazo cadastrado: as 2 linhas de 50% de sempre.
+      const v1 = Number((total / 2).toFixed(2));
+      PARCELAS = [
+        { valor: v1, dataVencimento: hoje, meioPagamento: meioDefault(meioHoje || '17'), bandeiraId: null, bandeiraNome: '' },
+        { valor: Number((total - v1).toFixed(2)), dataVencimento: addDias(30), meioPagamento: meioDefault(meioHoje || '15'), bandeiraId: null, bandeiraNome: '' }
+      ];
+    }
   }
   atualizarModoPagamento();
 }
@@ -493,7 +705,7 @@ function gerarParcelas(){
   const n = Math.max(1, Math.min(60, parseInt(document.getElementById('parcQtd').value) || 1));
   const vencIni = document.getElementById('parcVencIni').value || new Date().toISOString().slice(0,10);
   const intervalo = Math.max(0, Math.min(365, parseInt(document.getElementById('parcIntervalo').value) || 30));
-  const meio = document.getElementById('parcMeioDefault').value || pedidoAtual.meioPagamento || '15';
+  const meio = meioDefault(document.getElementById('parcMeioDefault').value || pedidoAtual.meioPagamento || '15');
 
   if (PARCELAS.length > 0 && !confirm(`Gerar ${n} parcela(s) irá substituir as parcelas atuais. Continuar?`)) return;
 
@@ -521,6 +733,8 @@ function gerarParcelas(){
   }
   PARCELAS = novas;
   renderParcelas();
+  const erroMin = erroValorMinimoParcela(novas);
+  if (erroMin) return showAlert(erroMin + ' Reduza o número de parcelas.', 'error');
   showAlert(`${n} parcela(s) geradas (${parcelaBase.toFixed(2)} + última ajustada)`, 'success');
 }
 
@@ -553,7 +767,7 @@ function renderParcelas(){
   const selMeioDef = document.getElementById('parcMeioDefault');
   if (selMeioDef && !selMeioDef.options.length) {
     const meioPedido = pedidoAtual.meioPagamento || '15';
-    selMeioDef.innerHTML = MEIOS_PAGAMENTO.map(([v,l]) =>
+    selMeioDef.innerHTML = meiosDisponiveis().map(([v,l]) =>
       `<option value="${v}" ${v===meioPedido?'selected':''}>${l}</option>`).join('');
   }
   // Default do vencimento inicial: hoje
@@ -581,7 +795,7 @@ function renderParcelas(){
           <div style="flex:1.3;min-width:170px;">
             <small class="muted">Meio</small>
             <select onchange="atualizarParcela(${i},'meioPagamento',this.value)">
-              ${MEIOS_PAGAMENTO.map(([v,l]) => `<option value="${v}" ${p.meioPagamento===v?'selected':''}>${l}</option>`).join('')}
+              ${meiosDisponiveis().map(([v,l]) => `<option value="${v}" ${p.meioPagamento===v?'selected':''}>${l}</option>`).join('')}
             </select>
           </div>
           <div style="flex:1.3;min-width:170px;display:${ehCartao?'block':'none'};position:relative;">
@@ -673,6 +887,10 @@ async function salvarParcelas(){
       return showAlert(`Parcela ${i+1}: selecione a bandeira do cartão`,'error');
     }
   }
+  // Valor mínimo da política — o servidor recusa igual, aqui é para não gastar
+  // a ida e volta.
+  const erroMin = erroValorMinimoParcela(PARCELAS);
+  if (erroMin) return showAlert(erroMin, 'error');
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/parcelas', {
       method:'PUT', headers:{'Content-Type':'application/json'},
@@ -764,6 +982,7 @@ async function carregar(){
     verificarNFeRejeitada();
     const abaInicial = ABA_INICIAL || (pedidoAtual.clienteId ? 'itens' : 'cliente');
     ativarAba(abaInicial);
+    carregarFalta();
   } catch(e) { showAlert('Erro ao carregar: '+e.message,'error'); }
 }
 
@@ -782,13 +1001,13 @@ async function carregarTabelasPreco(){
 
 async function carregarTiposOperacao(){
   try {
-    const r = await fetch('/api/tipos-operacao');
+    const r = await fetch('/api/tipos-operacao?usoPedido=1');
     const d = await r.json();
     if (d.success) {
       TIPOS_OPERACAO = d.tipos;
       const sel = document.getElementById('tipoOperacaoId');
       sel.innerHTML = TIPOS_OPERACAO.map(t =>
-        `<option value="${t.id}">${t.codigo} — ${t.descricao}</option>`
+        `<option value="${t.id}">${t.descricao}</option>`
       ).join('');
       // Default: "Venda normal" (VDA-NORMAL). Pedido já salvo sobrescreve adiante.
       const vdaNormal = TIPOS_OPERACAO.find(t => t.codigo === 'VDA-NORMAL');
@@ -842,7 +1061,7 @@ function renderHeader(){
   document.getElementById('hMeta').innerHTML = `
     <span class="badge ${p.tipo}">${p.tipo}</span>
     ${statusBadge}
-    ${ehOrcamento ? '' : `<span class="badge ${p.statusPagamento}">${p.statusPagamento}</span>`}
+    ${ehOrcamento || p.status === 'cancelado' ? '' : `<span class="badge ${p.statusPagamento}">${p.statusPagamento}</span>`}
     <span>· <strong>${p.clienteNome || '<em class="muted">Sem cliente — configure na aba Cliente</em>'}</strong></span>
     <span>· ${p.dataPedido}</span>
     <span>· Total <strong>R$ ${fmt(p.valorTotal)}</strong></span>
@@ -887,15 +1106,35 @@ function renderDrawerBody(){
     `<button class="btn btn-secondary" onclick="enviarWhatsApp()">Enviar via WhatsApp</button>`,
   ];
 
+  // Venda perdida: só faz sentido enquanto a venda não se concretizou —
+  // entregue/faturado viraram receita e o backend recusa o vínculo.
+  const perdaItems = [];
+  const podePerder = !['entregue','faturado'].includes(p.status);
+  if (podePerder)
+    perdaItems.push(`<button class="btn btn-secondary" onclick="fecharDrawer(); abrirModalPerda()">Registrar venda perdida</button>`);
+  perdaItems.push(`<button class="btn btn-ghost" onclick="location.href='/comercial/vendas-perdidas.html?pedidoId=${p.id}'">Ver perdas deste ${ehOrcamento ? 'orçamento' : 'pedido'}</button>`);
+
   const dangerItems = [];
   if (!ehOrcamento && ['rascunho','confirmado','em_separacao','entregue','faturado'].includes(p.status))
     dangerItems.push(`<button class="btn btn-danger" onclick="fecharDrawer(); tentarCancelar()">Cancelar pedido</button>`);
+  // Orçamento não tinha desfecho negativo: só dava para excluir, o que
+  // apaga o histórico. "Perdido" cancela e registra a perda.
+  if (ehOrcamento && p.status !== 'cancelado')
+    dangerItems.push(`<button class="btn btn-danger" onclick="fecharDrawer(); tentarCancelar()">Marcar orçamento como perdido</button>`);
   if (p.status==='rascunho')
     dangerItems.push(`<button class="btn btn-danger" onclick="fecharDrawer(); excluir()">Excluir ${ehOrcamento ? 'orçamento' : 'rascunho'}</button>`);
 
+  // Compra por falta de saldo: fica no drawer também, para quem quer abrir a
+  // compra sem esperar o pedido bater no 409 da confirmação.
+  const estoqueItems = [];
+  if (podeComprarFalta())
+    estoqueItems.push(`<button class="btn btn-secondary" onclick="fecharDrawer(); abrirModalFalta(false)">Comprar itens em falta</button>`);
+
   const sections = [];
   if (statusItems.length) sections.push(`<div class="group-label">Fluxo</div>` + statusItems.join(''));
+  if (estoqueItems.length) sections.push(`<div class="group-label">Estoque</div>` + estoqueItems.join(''));
   sections.push(`<div class="group-label">Documentos</div>` + docsItems.join(''));
+  sections.push(`<div class="group-label">Venda perdida</div>` + perdaItems.join(''));
   if (dangerItems.length) sections.push(`<div class="group-label">Zona de perigo</div>` + dangerItems.join(''));
 
   document.getElementById('drawerBody').innerHTML = sections.join(`<div class="divider"></div>`);
@@ -952,6 +1191,7 @@ document.addEventListener('keydown', e => {
 function renderAbas(){
   const p = pedidoAtual;
   const abas = [
+    ['operacao', 'Operação', null],
     ['cliente', 'Cliente', p.clienteId ? null : '!'],
     ['itens', 'Itens', p.itens.length],
     ['frete', 'Frete', null],
@@ -1007,6 +1247,45 @@ window.addEventListener('beforeunload', e => {
   if (isDirty) { e.preventDefault(); e.returnValue = ''; return ''; }
 });
 
+
+// Depósitos para o seletor. Some quando só há um — não faz sentido pedir
+// escolha se não existe alternativa.
+async function preencherDepositos(selectId, selecionado){
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  try {
+    const d = await fetch('/api/depositos').then(r=>r.json());
+    const lista = (d.depositos||[]).filter(x=>x.ativo);
+    sel.innerHTML = lista.map(x=>`<option value="${x.id}">${x.nome}${x.padrao?' (padrão)':''}</option>`).join('');
+    if (selecionado) sel.value = selecionado;
+    const linha = sel.closest('.form-group');
+    if (linha) linha.style.display = lista.length > 1 ? '' : 'none';
+  } catch { /* sem multi-depósito */ }
+}
+
+// Lista de vendedores em cache — o select é repovoado a cada preencher().
+let VENDEDORES = null;
+async function preencherVendedores(selecionado){
+  const sel = document.getElementById('vendedorId');
+  if (!sel) return;
+  if (!VENDEDORES) {
+    try {
+      const r = await fetch('/api/usuarios?vendedor=1'); const d = await r.json();
+      VENDEDORES = d.usuarios || d.users || [];
+    } catch { VENDEDORES = []; }
+  }
+  sel.innerHTML = '<option value="">— sem vendedor —</option>' +
+    VENDEDORES.map(u => `<option value="${u.id}">${u.nome || u.username}</option>`).join('');
+  sel.value = selecionado || '';
+  // Vendedor de pedido antigo pode ter sido desativado e sumir da lista;
+  // mostra assim mesmo em vez de aparecer como "sem vendedor".
+  if (selecionado && sel.value !== String(selecionado)) {
+    sel.insertAdjacentHTML('beforeend',
+      `<option value="${selecionado}">${pedidoAtual?.vendedorNome || 'usuário #' + selecionado} (inativo)</option>`);
+    sel.value = selecionado;
+  }
+}
+
 function preencher(){
   const p = pedidoAtual;
   const editavel = !['entregue','faturado','cancelado'].includes(p.status);
@@ -1035,7 +1314,7 @@ function preencher(){
   // ITENS
   const tb = document.getElementById('tbItens');
   if (!p.itens.length) {
-    tb.innerHTML = '<tr><td colspan="8" class="muted" style="text-align:center;padding:30px;">Sem itens</td></tr>';
+    tb.innerHTML = '<tr><td colspan="9" class="muted" style="text-align:center;padding:30px;">Sem itens</td></tr>';
   } else {
     tb.innerHTML = p.itens.map((it,i) => {
       if (!editavel) {
@@ -1044,6 +1323,7 @@ function preencher(){
           <td class="mono">${it.sku||'<span class="muted">livre</span>'}</td>
           <td>${it.descricao}</td>
           <td>${fmt(it.quantidade)} <span class="muted">${it.unidade||''}</span></td>
+          <td data-disp="${it.produtoId||''}" class="muted">—</td>
           <td>R$ ${fmt(it.precoUnitario)}</td>
           <td><span class="mono">${it.cfop || '—'}</span></td>
           <td><strong>R$ ${fmt(it.valorTotal)}</strong></td>
@@ -1055,6 +1335,7 @@ function preencher(){
         <td class="mono">${it.sku||'<span class="muted">livre</span>'}</td>
         <td><input type="text" value="${esc(it.descricao||'')}" onchange="salvarItemCampo(${it.id},'descricao',this.value)" style="width:100%;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
         <td><input type="number" step="0.01" min="0" value="${Number(it.quantidade)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'quantidade',this.value)" style="width:80px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="qtd"> <span class="muted">${it.unidade||''}</span></td>
+        <td data-disp="${it.produtoId||''}" class="muted">—</td>
         <td><input type="number" step="0.01" min="0" value="${Number(it.precoUnitario)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'precoUnitario',this.value)" style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="pu"></td>
         <td>${cfopSelectHtml(it.id, it.cfop)}</td>
         <td><strong data-campo="total">R$ ${fmt(it.valorTotal)}</strong></td>
@@ -1065,10 +1346,10 @@ function preencher(){
   const fretePed = Number(p.valorFrete) || 0;
   const subItens = (Number(p.valorTotal) || 0) - fretePed;
   document.getElementById('tfItens').innerHTML = `
-    ${fretePed ? `<tr><td colspan="6" class="text-right muted">Subtotal itens</td><td>R$ ${fmt(subItens)}</td><td></td></tr>
-    <tr><td colspan="6" class="text-right muted">Frete</td><td>R$ ${fmt(fretePed)}</td><td></td></tr>` : ''}
-    <tr><td colspan="6" class="text-right">Total</td><td><strong>R$ ${fmt(p.valorTotal)}</strong></td><td></td></tr>
-    ${p.valorPago?`<tr><td colspan="6" class="text-right">Pago</td><td class="text-success">R$ ${fmt(p.valorPago)}</td><td></td></tr>`:''}`;
+    ${fretePed ? `<tr><td colspan="7" class="text-right muted">Subtotal itens</td><td>R$ ${fmt(subItens)}</td><td></td></tr>
+    <tr><td colspan="7" class="text-right muted">Frete</td><td>R$ ${fmt(fretePed)}</td><td></td></tr>` : ''}
+    <tr><td colspan="7" class="text-right">Total</td><td><strong>R$ ${fmt(p.valorTotal)}</strong></td><td></td></tr>
+    ${p.valorPago?`<tr><td colspan="7" class="text-right">Pago</td><td class="text-success">R$ ${fmt(p.valorPago)}</td><td></td></tr>`:''}`;
   document.getElementById('addItemCard').style.display = editavel ? 'block' : 'none';
 
   // FRETE
@@ -1088,6 +1369,8 @@ function preencher(){
   document.getElementById('dataValidade').value = p.dataValidade || '';
   document.getElementById('dataFaturamentoPrevista').value = p.dataFaturamentoPrevista || '';
   document.getElementById('codigoPedidoCliente').value = p.codigoPedidoCliente || '';
+  preencherVendedores(p.vendedorId);   // preencher() é síncrona; o select se resolve sozinho
+  preencherDepositos('depositoId', p.depositoId);
   const dreBox = document.getElementById('dataEntregaRealBox');
   if (p.dataEntregaReal) {
     dreBox.innerHTML = `<small class="muted">Entrega real:</small> <strong>${p.dataEntregaReal}</strong>`;
@@ -1098,6 +1381,8 @@ function preencher(){
   document.getElementById('meioPagamento').innerHTML = MEIOS_PAGAMENTO.map(([v,l]) =>
     `<option value="${v}" ${p.meioPagamento===v?'selected':''}>${l}</option>`).join('');
   document.getElementById('meioPagamento').addEventListener('change', atualizarHintMeio);
+  // A whitelist do cliente chega por fetch e recorta os seletores em seguida.
+  carregarMeiosPermitidos(p.clienteId).then(aplicarMeiosPermitidos);
   document.getElementById('resValorTotal').value = 'R$ ' + fmt(p.valorTotal);
   atualizarHintMeio();
   renderPgtoFatura();
@@ -1136,6 +1421,8 @@ function coletarBody(){
     dataValidade: val('dataValidade') || null,
     dataFaturamentoPrevista: val('dataFaturamentoPrevista') || null,
     codigoPedidoCliente: val('codigoPedidoCliente') || null,
+    vendedorId: val('vendedorId') ? Number(val('vendedorId')) : null,
+    depositoId: val('depositoId') ? Number(val('depositoId')) : null,
     meioPagamento: val('meioPagamento') || null,
     observacao: val('observacao') || null,
     observacoesInterna: val('observacoesInterna') || null,
@@ -1223,6 +1510,8 @@ async function selCliente(id){
     document.getElementById('cepEntrega').value = c.cep || '';
     document.getElementById('telefoneEntrega').value = c.telefone || '';
     document.getElementById('clList').innerHTML = '';
+    await carregarMeiosPermitidos(c.id);
+    aplicarMeiosPermitidos();
     marcarDirty();
     showAlert('Cliente selecionado: '+c.razaoSocial);
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
@@ -1230,6 +1519,8 @@ async function selCliente(id){
 function limparCliente(){
   ['clId','clBusca','clCpfCnpj','clNomeFantasia','clEmail'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('clList').innerHTML = '';
+  MEIOS_PERMITIDOS = null;
+  aplicarMeiosPermitidos();
   marcarDirty();
 }
 function copiarEnderecoCliente(){
@@ -1330,7 +1621,7 @@ async function addItem(){
     if (!d.success) throw new Error(d.error);
     pedidoAtual = d.pedido;
     ['itBusca','itProdId','itDesc','itQtd','itPu'].forEach(id=>document.getElementById(id).value='');
-    renderHeader(); renderAbas(); preencher();
+    renderHeader(); renderAbas(); preencher(); carregarFalta();
     showAlert('Item adicionado');
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }
@@ -1341,7 +1632,7 @@ async function removerItem(itemId){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     pedidoAtual = d.pedido;
-    renderHeader(); renderAbas(); preencher();
+    renderHeader(); renderAbas(); preencher(); carregarFalta();
     showAlert('Item removido');
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }
@@ -1382,11 +1673,12 @@ async function salvarItemCampo(itemId, campo, valor){
     pedidoAtual = d.pedido;
     // Re-renderiza rodapé (total do pedido) mantendo os inputs atuais sem blur confuso
     document.getElementById('tfItens').innerHTML = `
-      <tr><td colspan="6" class="text-right">Total</td><td><strong>R$ ${fmt(pedidoAtual.valorTotal)}</strong></td><td></td></tr>
-      ${pedidoAtual.valorPago?`<tr><td colspan="6" class="text-right">Pago</td><td class="text-success">R$ ${fmt(pedidoAtual.valorPago)}</td><td></td></tr>`:''}`;
+      <tr><td colspan="7" class="text-right">Total</td><td><strong>R$ ${fmt(pedidoAtual.valorTotal)}</strong></td><td></td></tr>
+      ${pedidoAtual.valorPago?`<tr><td colspan="7" class="text-right">Pago</td><td class="text-success">R$ ${fmt(pedidoAtual.valorPago)}</td><td></td></tr>`:''}`;
     // Se houver parcelas, recarrega para refletir novo total
     if (PARCELADO_ATIVO) carregarParcelas();
     document.getElementById('resValorTotal').value = 'R$ ' + fmt(pedidoAtual.valorTotal);
+    if (campo === 'quantidade') carregarFalta();
   } catch(e){ showAlert('Erro ao salvar: '+e.message, 'error'); }
 }
 
@@ -1467,6 +1759,175 @@ async function salvarTransportadora(){
   } catch(e){ showAlert('Erro: '+e.message,'error'); }
 }
 
+// ==================== FALTA DE SALDO / COMPRA ====================
+// Antes daqui, produto sem saldo só tinha uma saída: confirmar forçado e ficar
+// com reserva sem lastro. A falta agora é visível na grade e tem para onde ir.
+
+let FALTA = { itens: [], faltantes: [], compras: [] };
+// Quando o modal é aberto pelo 409 da confirmação, "confirmar mesmo assim"
+// precisa retomar exatamente aquela ação; aberto pelo botão, esse caminho não
+// existe e o botão some.
+let faltaOrigemConfirmacao = false;
+
+async function carregarFalta(){
+  if (!PEDIDO_ID) return;
+  try {
+    const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/falta');
+    const d = await r.json();
+    if (!d.success) return;
+    FALTA = d;
+    aplicarFalta();
+    renderComprasVinculadas();
+  } catch(_) { /* a falta é informativa: não derruba a tela */ }
+}
+
+function aplicarFalta(){
+  const porProduto = new Map(FALTA.itens.map(i => [String(i.produtoId), i]));
+  document.querySelectorAll('#tbItens td[data-disp]').forEach(td => {
+    const info = porProduto.get(td.dataset.disp);
+    if (!info) { td.textContent = '—'; td.className = 'muted'; return; }
+    if (info.faltando > 0) {
+      td.className = 'text-danger';
+      td.innerHTML = `<strong>${fmt(info.disponivel)}</strong>` +
+        `<br><span style="font-size:.82em;">faltam ${fmt(info.faltando)}</span>` +
+        (info.emTransito > 0 ? `<br><span class="muted" style="font-size:.78em;">${fmt(info.emTransito)} a caminho</span>` : '');
+    } else {
+      td.className = 'text-success';
+      td.textContent = fmt(info.disponivel);
+    }
+  });
+
+  const aviso = document.getElementById('avisoFalta');
+  if (!aviso) return;
+  const faltantes = FALTA.faltantes || [];
+  if (!faltantes.length) { aviso.style.display = 'none'; aviso.innerHTML = ''; return; }
+  const emTransito = faltantes.filter(i => i.emTransito > 0);
+  aviso.style.display = 'block';
+  aviso.className = 'card';
+  aviso.style.cssText = 'display:block;margin-bottom:14px;border-left:3px solid var(--danger, #d9534f);';
+  aviso.innerHTML =
+    `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+       <div>
+         <strong>Sem saldo para ${faltantes.length} ${faltantes.length === 1 ? 'item' : 'itens'}:</strong>
+         ${faltantes.map(i => `${esc(i.sku || i.descricao)} (faltam ${fmt(i.faltando)})`).join(', ')}
+         ${emTransito.length ? `<br><span class="muted" style="font-size:.85em;">Já há compra a caminho para ${emTransito.map(i => esc(i.sku)).join(', ')}.</span>` : ''}
+       </div>
+       <button class="btn btn-primary btn-sm" onclick="abrirModalFalta(false)">Comprar faltantes</button>
+     </div>`;
+}
+
+function renderComprasVinculadas(){
+  const box = document.getElementById('comprasVinculadas');
+  if (!box) return;
+  const compras = FALTA.compras || [];
+  if (!compras.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.className = 'card card-info';
+  box.style.marginTop = '16px';
+  box.innerHTML = `<h4 style="margin-bottom:10px;color:var(--text-1);font-weight:500;">Compras abertas por este pedido</h4>` +
+    `<div class="tbl-wrap"><table><thead><tr>
+       <th>Documento</th><th>Fornecedor</th><th>Status</th>
+       <th style="text-align:right;">Qtd</th><th style="text-align:right;">Recebido</th><th></th>
+     </tr></thead><tbody>` +
+    compras.map(c => {
+      const link = c.tipo === 'cotacao' ? `/compras/cotacoes.html` : `/compras/pedido.html?id=${c.id}`;
+      return `<tr>
+        <td class="mono">${esc(c.numero)}</td>
+        <td>${esc(c.fornecedorNome || (c.tipo === 'cotacao' ? 'cotação' : 'a definir'))}</td>
+        <td>${esc(String(c.status).replace(/_/g,' '))}</td>
+        <td style="text-align:right;">${fmt(c.quantidade)}</td>
+        <td style="text-align:right;">${c.quantidadeRecebida != null ? fmt(c.quantidadeRecebida) : '—'}</td>
+        <td><a class="btn btn-ghost btn-sm" href="${link}">Abrir</a></td>
+      </tr>`;
+    }).join('') + `</tbody></table></div>`;
+}
+
+// `daConfirmacao` distingue os dois caminhos até este modal: o 409 (que ainda
+// pode seguir forçado) e o botão da grade (que não tem confirmação pendente).
+function abrirModalFalta(daConfirmacao, insuficiencias){
+  faltaOrigemConfirmacao = !!daConfirmacao;
+  // O 409 traz a lista pronta, mas sem fornecedor/custo — recarrega para ter
+  // tudo o que a compra precisa.
+  const faltantes = (FALTA.faltantes || []).length ? FALTA.faltantes : [];
+  if (!faltantes.length && Array.isArray(insuficiencias) && insuficiencias.length) {
+    // Fallback: a rota de falta não respondeu; usa o que o 409 devolveu.
+    FALTA.faltantes = insuficiencias.map(i => ({
+      produtoId: i.produtoId, sku: i.sku, descricao: i.descricao, quantidade: i.pedido || i.faltando,
+      disponivel: i.disponivel != null ? i.disponivel : 0, faltando: i.faltando,
+      emTransito: 0, fornecedorNome: null, custoUnitario: 0, pedidoItemId: null,
+    }));
+  }
+  const lista = FALTA.faltantes || [];
+  document.getElementById('btnFaltaForcar').style.display = faltaOrigemConfirmacao ? '' : 'none';
+  document.getElementById('faltaResumo').innerHTML = lista.length
+    ? `Falta saldo para <strong>${lista.length}</strong> ${lista.length === 1 ? 'item' : 'itens'}.
+       Comprar abre documento em <strong>rascunho</strong> — nada é enviado ao fornecedor agora.`
+    : 'Nenhum item em falta.';
+  document.getElementById('faltaItens').innerHTML = lista.map((i, n) => `
+    <tr>
+      <td><input type="checkbox" class="falta-chk" data-idx="${n}" checked></td>
+      <td>${esc(i.sku || '')} ${esc(i.descricao || '')}</td>
+      <td style="text-align:right;">${fmt(i.quantidade)}</td>
+      <td style="text-align:right;">${fmt(i.disponivel)}</td>
+      <td style="text-align:right;">${i.emTransito > 0 ? `<strong>${fmt(i.emTransito)}</strong>` : '<span class="muted">—</span>'}</td>
+      <td><input type="number" step="0.01" min="0" class="falta-qtd" data-idx="${n}" value="${Number(i.faltando)||0}"
+             style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
+      <td>${esc(i.fornecedorNome || 'a definir')}</td>
+    </tr>`).join('');
+  document.getElementById('modalFalta').classList.add('open');
+}
+function fecharModalFalta(){ document.getElementById('modalFalta').classList.remove('open'); }
+// Comprar por falta só faz sentido enquanto a saída não aconteceu — entregue e
+// faturado já baixaram estoque, e cancelado não tem o que atender.
+function podeComprarFalta(){
+  return (FALTA.faltantes || []).length > 0
+    && !['entregue','faturado','cancelado'].includes((pedidoAtual || {}).status);
+}
+function faltaMarcarTodos(v){ document.querySelectorAll('.falta-chk').forEach(c => c.checked = v); }
+
+function faltaConfirmarMesmoAssim(){
+  fecharModalFalta();
+  acao('confirmar', { forcar: true });
+}
+
+async function gerarCompraDaFalta(destino){
+  const lista = FALTA.faltantes || [];
+  const itens = [];
+  document.querySelectorAll('.falta-chk').forEach(chk => {
+    if (!chk.checked) return;
+    const idx = Number(chk.dataset.idx);
+    const origem = lista[idx];
+    const qtd = Number(document.querySelector(`.falta-qtd[data-idx="${idx}"]`).value);
+    if (!origem || !(qtd > 0)) return;
+    itens.push({
+      produtoId: origem.produtoId, quantidade: qtd,
+      origemTipo: 'pedido_venda', origemId: Number(PEDIDO_ID),
+      origemItemId: origem.pedidoItemId || null,
+      custoUnitario: origem.custoUnitario || undefined,
+    });
+  });
+  if (!itens.length) { showAlert('Selecione ao menos um item com quantidade','error'); return; }
+
+  try {
+    const r = await fetch('/api/compras/gerar-de-necessidade', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ destino, itens })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'HTTP '+r.status);
+    fecharModalFalta();
+    if (destino === 'cotacao') {
+      showAlert(`Cotação ${d.cotacao.numero} criada em rascunho`);
+    } else {
+      const nums = d.pedidos.map(x => x.numero).join(', ');
+      const semForn = d.pedidos.filter(x => x.semFornecedor).length;
+      showAlert(`Pedido(s) de compra ${nums} criado(s) em rascunho` +
+        (semForn ? ' — um deles sem fornecedor definido' : ''));
+    }
+    await carregarFalta();
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
 // ==================== STATUS/AÇÕES ====================
 async function acao(a, body){
   try {
@@ -1475,13 +1936,11 @@ async function acao(a, body){
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+a, opts);
     const d = await r.json();
     if (!d.success) {
-      // 409 na confirmação = saldo insuficiente; backend aceita { forcar: true }
+      // 409 na confirmação = saldo insuficiente. Antes era um confirm() com uma
+      // saída só (forçar); agora o modal também deixa comprar o que falta.
       if (a === 'confirmar' && r.status === 409 && Array.isArray(d.insuficiencias) && d.insuficiencias.length) {
-        const linhas = d.insuficiencias.map(i =>
-          `• ${i.descricao || i.sku || ('Produto '+i.produtoId)} — faltam ${i.faltando}`).join('\n');
-        if (confirm('Saldo insuficiente para reservar:\n\n'+linhas+'\n\nConfirmar mesmo assim?')) {
-          return acao('confirmar', { forcar: true });
-        }
+        await carregarFalta();
+        abrirModalFalta(true, d.insuficiencias);
         return;
       }
       throw new Error(d.error);
@@ -1518,14 +1977,108 @@ function tentarCancelar(){
   abrirModalMotivo('cancelar');
 }
 
+// ==================== VENDA PERDIDA ====================
+// Vocabulário de motivos vem do backend para não divergir da validação.
+let MOTIVOS_PERDA = [];
+async function carregarMotivosPerda(){
+  if (MOTIVOS_PERDA.length) return MOTIVOS_PERDA;
+  try {
+    const r = await fetch('/api/vendas-perdidas/motivos'); const d = await r.json();
+    MOTIVOS_PERDA = d.motivos || [];
+  } catch { MOTIVOS_PERDA = [{ valor:'outro', texto:'Outro' }]; }
+  const html = MOTIVOS_PERDA.map(m=>`<option value="${m.valor}">${m.texto}</option>`).join('');
+  document.getElementById('motivoPerdaTipo').innerHTML = html;
+  document.getElementById('perdaMotivo').innerHTML = html;
+  return MOTIVOS_PERDA;
+}
+
+function togglePerdaCancelamento(){
+  const on = document.getElementById('motivoRegistrarPerda').checked;
+  document.getElementById('motivoCamposPerda').style.display = on ? '' : 'none';
+}
+function togglePerdaConcorrente(){
+  document.getElementById('motivoPerdaConcorrenteWrap').style.display =
+    val('motivoPerdaTipo') === 'concorrente' ? '' : 'none';
+}
+function togglePerdaModalConcorrente(){
+  document.getElementById('perdaConcorrenteWrap').style.display =
+    val('perdaMotivo') === 'concorrente' ? '' : 'none';
+}
+
+let itensPerda = [];
+async function abrirModalPerda(){
+  await carregarMotivosPerda();
+  const r = await fetch('/api/vendas-perdidas/pedido/'+PEDIDO_ID+'/itens');
+  const d = await r.json();
+  if (!d.success) return showAlert('Erro: '+d.error,'error');
+  if (d.pedido.bloqueado) return showAlert(`Pedido ${d.pedido.status} — a venda foi concretizada`,'error');
+  itensPerda = d.itens || [];
+  if (!itensPerda.length) return showAlert('Pedido sem itens','error');
+
+  document.getElementById('perdaPreview').innerHTML =
+    `<strong>${d.pedido.numero}</strong> · ${d.pedido.clienteNome || 'sem cliente'}<br>
+     <small class="muted">Marque os itens que a empresa deixou de vender. Ajuste a quantidade se a perda foi parcial.</small>`;
+  document.getElementById('perdaItens').innerHTML = itensPerda.map(i=>{
+    const ja = !!i.vendaPerdidaId;
+    return `<tr${ja?' style="opacity:.5;"':''}>
+      <td><input type="checkbox" class="perda-chk" data-item="${i.pedidoItemId}" ${ja?'disabled':''}></td>
+      <td>${i.sku ? i.sku+' — '+i.descricao : i.descricao}${ja?' <small class="muted">(já registrado)</small>':''}</td>
+      <td style="text-align:right;">${fmt(i.quantidade)}</td>
+      <td style="text-align:right;"><input type="number" class="perda-qtd" data-item="${i.pedidoItemId}"
+          value="${i.quantidade}" min="0" max="${i.quantidade}" step="any" style="width:100px;text-align:right;" ${ja?'disabled':''}></td>
+      <td style="text-align:right;">${i.precoUnitario!=null?'R$ '+fmt(i.precoUnitario):'-'}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('perdaTodos').checked = false;
+  document.getElementById('perdaObs').value = '';
+  document.getElementById('perdaConcorrente').value = '';
+  togglePerdaModalConcorrente();
+  document.getElementById('modalPerda').classList.add('open');
+}
+function fecharModalPerda(){ document.getElementById('modalPerda').classList.remove('open'); }
+function perdaMarcarTodos(on){
+  document.querySelectorAll('#perdaItens .perda-chk').forEach(c => { if (!c.disabled) c.checked = on; });
+}
+async function confirmarPerda(){
+  const itens = [];
+  document.querySelectorAll('#perdaItens .perda-chk').forEach(c => {
+    if (!c.checked || c.disabled) return;
+    const id = Number(c.dataset.item);
+    const q = document.querySelector(`#perdaItens .perda-qtd[data-item="${id}"]`);
+    itens.push({ pedidoItemId: id, quantidade: Number(q.value) });
+  });
+  if (!itens.length) return showAlert('Selecione ao menos um item','error');
+  if (itens.some(i => !(i.quantidade > 0))) return showAlert('Quantidade perdida deve ser maior que zero','error');
+  try {
+    const r = await fetch('/api/vendas-perdidas/pedido/'+PEDIDO_ID, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        motivo: val('perdaMotivo'),
+        concorrente: val('perdaConcorrente').trim() || null,
+        observacao: val('perdaObs').trim() || null,
+        origem: 'pedido_item',
+        itens
+      })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharModalPerda();
+    showAlert(`${d.geradas} item(ns) registrado(s) como venda perdida`);
+  } catch(e){ showAlert('Erro: '+e.message,'error'); }
+}
+
 // ==================== MODAL MOTIVO ====================
 let acaoMotivo = null;
-function abrirModalMotivo(acao){
+async function abrirModalMotivo(acao){
   acaoMotivo = acao;
   const p = pedidoAtual;
   const isReabrir = acao === 'reabrir';
+  const ehOrcamento = p.modoDocumento === 'orcamento';
   const destino = isReabrir ? TRANSICAO_REABRIR[p.status] : 'cancelado';
-  document.getElementById('motivoTitulo').textContent = isReabrir ? 'Reabrir pedido' : 'Cancelar pedido';
+  const rotulo = ehOrcamento ? 'orçamento' : 'pedido';
+  document.getElementById('motivoTitulo').textContent = isReabrir
+    ? `Reabrir ${rotulo}`
+    : (ehOrcamento ? 'Marcar orçamento como perdido' : 'Cancelar pedido');
   document.getElementById('motivoPreview').innerHTML =
     `<strong>${p.numero}</strong><br><small class="muted">Transição:</small> <span class="badge ${p.status}">${p.status}</span> → <span class="badge ${destino}">${destino}</span>`;
   const aviso = document.getElementById('motivoAvisoEstoque');
@@ -1534,8 +2087,28 @@ function abrirModalMotivo(acao){
     aviso.style.display = 'block';
   } else aviso.style.display = 'none';
   document.getElementById('motivoTexto').value = '';
+
+  // Bloco de venda perdida — só no cancelamento. Reabrir faz o inverso
+  // (estorna as perdas automáticas), então nem aparece.
+  const blocoPerda = document.getElementById('motivoBlocoPerda');
+  if (!isReabrir) {
+    await carregarMotivosPerda();
+    const nItens = (p.itens || []).length;
+    blocoPerda.style.display = '';
+    // Orçamento perdido é, por definição, venda perdida — já vem marcado.
+    document.getElementById('motivoRegistrarPerda').checked = ehOrcamento;
+    document.getElementById('motivoPerdaConcorrente').value = '';
+    document.getElementById('motivoPerdaResumo').textContent =
+      `${nItens} item(ns) do ${rotulo} serão registrados. Itens já registrados são ignorados.`;
+    togglePerdaCancelamento();
+    togglePerdaConcorrente();
+  } else {
+    blocoPerda.style.display = 'none';
+    document.getElementById('motivoRegistrarPerda').checked = false;
+  }
+
   const btn = document.getElementById('motivoBotaoConfirmar');
-  btn.textContent = isReabrir ? 'Reabrir' : 'Cancelar pedido';
+  btn.textContent = isReabrir ? 'Reabrir' : (ehOrcamento ? 'Marcar como perdido' : 'Cancelar pedido');
   btn.className = 'btn ' + (isReabrir ? 'btn-primary' : 'btn-danger');
   document.getElementById('modalMotivo').classList.add('open');
 }
@@ -1543,13 +2116,23 @@ function fecharModalMotivo(){ document.getElementById('modalMotivo').classList.r
 async function confirmarAcaoMotivo(){
   const motivo = val('motivoTexto').trim();
   if (!motivo) return showAlert('Motivo obrigatório','error');
+  const registrarPerda = acaoMotivo === 'cancelar' && document.getElementById('motivoRegistrarPerda').checked;
   try {
     const r = await fetch('/api/pedidos/'+PEDIDO_ID+'/'+acaoMotivo, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ motivo })
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        motivo,
+        registrarPerda,
+        motivoPerda: registrarPerda ? val('motivoPerdaTipo') : undefined,
+        concorrente: registrarPerda ? (val('motivoPerdaConcorrente').trim() || null) : undefined,
+      })
     });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
-    showAlert(acaoMotivo==='reabrir' ? `Reaberto para ${d.statusNovo}` : 'Pedido cancelado');
+    let msg = acaoMotivo==='reabrir' ? `Reaberto para ${d.statusNovo}` : 'Pedido cancelado';
+    if (d.vendasPerdidasGeradas) msg += ` · ${d.vendasPerdidasGeradas} venda(s) perdida(s) registrada(s)`;
+    if (d.vendasPerdidasEstornadas) msg += ` · ${d.vendasPerdidasEstornadas} perda(s) estornada(s)`;
+    showAlert(msg);
     fecharModalMotivo();
     await carregar();
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
@@ -1739,7 +2322,7 @@ async function carregarFaturaInfo(){
           <a href="/api/faturas/${f.id}/pdf" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;">Baixar fatura (PDF interno)</a>
           ${podeEmitir && !ehNaoFiscal ?`<button class="btn btn-primary btn-sm" onclick="emitirNFe(${f.id})">${f.statusSefaz==='rejeitada'?'Reenviar NF-e':'Emitir NF-e'}</button>`:''}
           ${ehNaoFiscal ? `<span class="badge" style="background:var(--warn-soft,#78350f60);color:var(--warn,#fbbf24);">📄 Documento interno (sem NF-e)</span>` : ''}
-          ${f.status==='emitida' && !f.statusSefaz?`<button class="btn btn-danger btn-sm" onclick="cancelarFatura(${f.id})">Cancelar fatura</button>`:''}
+          ${f.status==='emitida' && f.statusSefaz!=='autorizada'?`<button class="btn btn-danger btn-sm" onclick="cancelarFatura(${f.id})">Cancelar fatura</button>`:''}
           ${f.statusSefaz==='autorizada'?`<button class="btn btn-danger btn-sm" onclick="cancelarFatura(${f.id}, true)">Cancelar NF-e + fatura</button>`:''}
         </div>
       </div>

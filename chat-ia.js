@@ -19,7 +19,10 @@ const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
 async function chatCerebras(apiKey, messages) {
   const resp = await axios.post('https://api.cerebras.ai/v1/chat/completions', {
-    model: 'llama-3.3-70b',
+    // llama-3.3-70b também saiu do catálogo da Cerebras (404). Hoje a conta só
+    // lista gemma-4-31b e gpt-oss-120b. Corrigido junto, mas note: a conta está
+    // sem saldo (402), então este provider não responde enquanto não recarregar.
+    model: 'gpt-oss-120b',
     messages,
     temperature: 0.4,
     max_tokens: 1200,
@@ -69,10 +72,19 @@ async function chatDeepSeek(apiKey, messages) {
 
 async function chatGroq(apiKey, messages) {
   const resp = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-    model: 'llama-3.3-70b-versatile',
+    // llama-3.3-70b-versatile foi aposentado pela Groq — respondia 404 e derrubava
+    // a chain inteira (2026-08-21). O que a conta lista hoje: gpt-oss-20b/120b,
+    // qwen3.6-27b e groq/compound.
+    model: 'openai/gpt-oss-120b',
     messages,
     temperature: 0.4,
     max_tokens: 1200,
+    // gpt-oss é modelo de raciocínio e o raciocínio é COBRADO como saída: medido
+    // na M1 real da campanha, 875 dos 1011 tokens de saída eram pensamento. Com
+    // 'low' a saída cai para 389 e o custo dos 15,4 mil leads vai de US$15 para
+    // US$9,6, sem reprovar mais na validação. Mesmo motivo do thinkingBudget:0
+    // do Gemini logo acima.
+    reasoning_effort: 'low',
   }, {
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     timeout: 30000,
@@ -82,11 +94,16 @@ async function chatGroq(apiKey, messages) {
 
 // ===== Fallback chain =====
 async function chamarChatLLM(messages, keys) {
+  // Ordem por custo e disponibilidade real, medidos em 2026-08-21 contra as
+  // chaves em uso: groq responde e é a mais barata por lead da campanha; gemini
+  // é o único outro de pé, e cobra ~4x a saída da groq, então fica de reserva.
+  // Cerebras e DeepSeek entram por último porque estão sem saldo (402) — ficam
+  // na lista para voltarem sozinhos quando recarregarem, e falham rápido.
   const tentativas = [
-    keys.cerebras  && { name: 'cerebras',  fn: () => chatCerebras(keys.cerebras, messages) },
-    keys.gemini    && { name: 'gemini',    fn: () => chatGemini(keys.gemini, messages) },
-    keys.deepseek  && { name: 'deepseek',  fn: () => chatDeepSeek(keys.deepseek, messages) },
     keys.groq      && { name: 'groq',      fn: () => chatGroq(keys.groq, messages) },
+    keys.gemini    && { name: 'gemini',    fn: () => chatGemini(keys.gemini, messages) },
+    keys.cerebras  && { name: 'cerebras',  fn: () => chatCerebras(keys.cerebras, messages) },
+    keys.deepseek  && { name: 'deepseek',  fn: () => chatDeepSeek(keys.deepseek, messages) },
   ].filter(Boolean);
 
   let ultimoErro = null;

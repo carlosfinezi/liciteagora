@@ -25,6 +25,11 @@ const pessoa = db.prepare("SELECT id FROM pessoas WHERE cpfCnpj = '1122233300018
 assert(pessoa, 'cliente de teste existe (criado no e2e do 1.2)');
 
 // limpeza de execuções anteriores
+// Os pagamentos primeiro: apagar só o título deixa o pagamento apontando para
+// um id que não existe mais, e quem consulta recebimentos por JOIN some com ele.
+db.prepare(`DELETE FROM contas_receber_pagamentos WHERE contaReceberId IN (
+  SELECT id FROM contas_a_receber
+   WHERE descricao LIKE 'TESTE-1.3%' OR descricao LIKE 'Renegociação #%')`).run();
 db.prepare("DELETE FROM contas_a_receber WHERE descricao LIKE 'TESTE-1.3%' OR descricao LIKE 'Renegociação #%'").run();
 db.prepare("DELETE FROM renegociacoes").run();
 db.prepare("DELETE FROM adiantamento_utilizacoes").run();
@@ -90,6 +95,7 @@ assert(db.prepare("SELECT COUNT(*) n FROM contas_a_receber WHERE status IN ('abe
 
 // limpeza
 db.prepare("DELETE FROM contas_receber_pagamentos WHERE contaReceberId IN (SELECT id FROM contas_a_receber WHERE renegociacaoId=?)").run(reneg);
+db.prepare("DELETE FROM contas_receber_pagamentos WHERE contaReceberId IN (?,?)").run(t1, t2);
 db.prepare("DELETE FROM contas_a_receber WHERE renegociacaoId=? OR id IN (?,?)").run(reneg, t1, t2);
 db.prepare("DELETE FROM renegociacoes WHERE id=?").run(reneg);
 db.prepare("DELETE FROM adiantamento_utilizacoes WHERE adiantamentoId=?").run(adiant);

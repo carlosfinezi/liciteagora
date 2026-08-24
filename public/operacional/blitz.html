@@ -97,6 +97,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('blitz');</script>
 <script>
 function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
@@ -153,7 +155,7 @@ async function carregarAgendadas() {
         loading.style.display = 'none';
         if (lista.length === 0) { empty.style.display = ''; return; }
 
-        var html = '<div class="tbl-wrap"><table><thead><tr>'+
+        var html = '<div class="tbl-wrap" data-grid="blitz-agendadas"><table><thead><tr>'+
             '<th>Horário alvo</th><th>CompraId</th><th>Item</th><th>Modo</th>'+
             '<th style="text-align:right">Máx lances</th><th>Agendada em</th><th>Ações</th>'+
             '</tr></thead><tbody>';
@@ -205,7 +207,7 @@ async function carregarHistorico() {
         if (lista.length === 0) { empty.style.display = ''; return; }
 
         var html = '<div class="info-line">'+lista.length+' registro(s) — ordenados por data de agendamento (mais recentes primeiro).</div>';
-        html += '<div class="tbl-wrap"><table><thead><tr>'+
+        html += '<div class="tbl-wrap" data-grid="blitz-historico"><table><thead><tr>'+
             '<th>Agendada</th><th>Horário alvo</th><th>CompraId</th><th>Item</th>'+
             '<th>Status</th><th style="text-align:right">Lances</th><th>Modo</th>'+
             '<th>Executada/Cancelada</th><th>Observação</th>'+

@@ -894,10 +894,16 @@ class SniperLance {
 }
 
 // Classifica um 422 do Comprasnet pra decidir se vale continuar a rajada.
-// Hoje o batch loop trata 422 como fatal — mas várias 422 são regra-de-negócio
-// específica do lance individual (colisão de valor, valor abaixo do mínimo) que
-// não impedem os próximos lances do batch de serem aceitos. Só fase encerrada
-// é fatal de verdade.
+// Várias 422 são regra-de-negócio do lance INDIVIDUAL e não impedem os
+// próximos degraus do batch — que são menores e costumam passar.
+//
+// 'intervalo-minimo' entrou em 2026-08-21 depois de uma blitz de 5 lances que
+// enviou 1: o primeiro valor não guardava o intervalo mínimo em relação ao
+// melhor valor do item, caía em 'outro' e abortava as 4 rodadas seguintes.
+//
+// Fatal de verdade só quando insistir não adianta:
+//   fase-invalida  — item fechado, nenhum lance entra;
+//   valor-baixo    — já bateu no piso do portal, e os próximos são MENORES.
 function classificar422(resposta) {
   let msg = '';
   try {
@@ -907,13 +913,21 @@ function classificar422(resposta) {
     msg = String(resposta || '').toLowerCase();
   }
   if (/diferente.*registrado|j[áa] registrado.*outr|igual.*outr/.test(msg)) return 'colisao';
+  // Antes de valor-baixo: "intervalo mínimo entre lances" fala de PASSO, não de
+  // piso, e as duas mensagens compartilham a palavra "mínimo".
+  if (/intervalo\s*m[íi]nimo|varia[çc][ãa]o\s*m[íi]nima|melhor que seu [úu]ltimo lance/.test(msg)) return 'intervalo-minimo';
   if (/abaixo.*m[íi]nimo|menor.*m[íi]nimo|valor.*m[íi]nimo/.test(msg))      return 'valor-baixo';
-  if (/fase.*inv[áa]lid|encerrad|fora.*disputa|n[ãa]o.*permitido.*fase/.test(msg)) return 'fase-invalida';
+  if (/fase.*inv[áa]lid|encerrad|fora.*disputa|n[ãa]o.*permitido.*fase|item n[ãa]o est[áa] aberto|situa[çc][ãa]o do item/.test(msg)) return 'fase-invalida';
   return 'outro';
 }
+
+// Tipos que NÃO abortam o resto do batch. O laço da blitz consulta este set em
+// vez de comparar com 'colisao' na mão.
+const TIPOS_422_NAO_FATAIS = new Set(['colisao', 'intervalo-minimo']);
 
 module.exports = SniperLance;
 module.exports.TOKEN_MAX_AGE_S = TOKEN_MAX_AGE_S;
 module.exports.TOKEN_SAFE_MARGIN_S = TOKEN_SAFE_MARGIN_S;
 module.exports.buildCompraId = buildCompraId;
 module.exports.classificar422 = classificar422;
+module.exports.TIPOS_422_NAO_FATAIS = TIPOS_422_NAO_FATAIS;

@@ -6,6 +6,13 @@
 <title>Notas Fiscais · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* page-local: cabeçalhos ordenáveis */
+  th.ord { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.ord:hover { color: var(--text-0); }
+  th.ord::after { content: attr(data-seta); font-size: 0.8em; margin-left: 4px; }
+  th.ord-ativa { color: var(--text-0); }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
@@ -26,6 +33,8 @@
           <option value="todas">Todas</option>
           <option value="entrada">Entrada</option>
           <option value="saida">Saída</option>
+          <option value="nfse">NFS-e (serviço)</option>
+          <option value="nfce">NFC-e (consumidor)</option>
         </select>
       </div>
       <div class="form-group" style="flex:2;min-width:240px;">
@@ -80,27 +89,147 @@
       </div>
     </div>
 
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="notas-fiscais">
       <table>
         <thead><tr>
-          <th>Tipo</th>
-          <th>Nº/Série</th>
-          <th>Emissão</th>
-          <th>Pessoa</th>
+          <th class="ord" data-ord="tipo" onclick="ordenarPor('tipo')">Tipo</th>
+          <th class="ord" data-ord="numero" onclick="ordenarPor('numero')">Nº/Série</th>
+          <th class="ord" data-ord="nDPS" onclick="ordenarPor('nDPS')" title="Número da DPS — só NFS-e tem">DPS</th>
+          <th class="ord" data-ord="dataEmissao" onclick="ordenarPor('dataEmissao')">Emissão</th>
+          <th class="ord" data-ord="pessoaNome" onclick="ordenarPor('pessoaNome')">Pessoa</th>
           <th>Chave</th>
           <th>CFOP</th>
           <th>Tipo Op.</th>
-          <th class="num">Valor</th>
-          <th>SEFAZ</th>
+          <th class="num ord" data-ord="valor" onclick="ordenarPor('valor')">Valor</th>
+          <th class="ord" data-ord="statusSefaz" onclick="ordenarPor('statusSefaz')">SEFAZ</th>
           <th></th>
         </tr></thead>
-        <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+        <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </div>
 </main></div>
 
 <!-- Modal: editar metadados -->
+<div class="modal-bg" id="modalCancelarNfce">
+  <div class="modal" style="max-width: 500px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Cancelar NFC-e</h3>
+        <small class="muted">Evento 110111 na SEFAZ — prazo legal de 30 minutos após a autorização</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharCancelarNfce()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-group">
+      <label>Justificativa (mín. 15 caracteres)</label>
+      <textarea id="nfceMotivo" placeholder="Descreva o motivo do cancelamento…" style="min-height:100px;"></textarea>
+    </div>
+    <input type="hidden" id="nfceCancelarId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharCancelarNfce()">Voltar</button>
+      <button class="btn btn-danger" id="btnCancelarNfce" onclick="confirmarCancelamentoNfce()">Confirmar cancelamento</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalDetalhesNfse">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Detalhes da NFS-e</h3>
+        <small class="muted">Dados completos da nota emitida</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharDetalhesNfse()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div id="detalhesNfseConteudo"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharDetalhesNfse()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalEditarNfse">
+  <div class="modal" style="max-width: 620px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Editar NFS-e rejeitada</h3>
+        <small class="muted">Série, nDPS e ID da DPS são preservados — a nota é remontada com estes dados na reemissão</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharEdicaoNfse()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>CPF/CNPJ do tomador</label>
+        <input type="text" id="edTomaCpfCnpj">
+      </div>
+      <div class="form-group" style="flex:2;">
+        <label>Razão social / Nome</label>
+        <input type="text" id="edTomaRazaoSocial">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Descrição do serviço</label>
+      <textarea id="edDescricao" style="min-height:70px;"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Código tributação nacional</label>
+        <input type="text" id="edCTribNac">
+      </div>
+      <div class="form-group">
+        <label>Valor do serviço</label>
+        <input type="number" id="edValor" step="0.01" min="0.01">
+      </div>
+      <div class="form-group">
+        <label>Competência</label>
+        <input type="date" id="edCompetencia">
+      </div>
+    </div>
+    <p class="muted" style="font-size:12px;margin:4px 0 0;">
+      O endereço do tomador é mantido como veio da emissão. Para trocar de tomador,
+      o certo é emitir uma nota nova.
+    </p>
+    <input type="hidden" id="edNfseId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharEdicaoNfse()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="salvarEdicaoNfse(false)">Salvar</button>
+      <button class="btn btn-primary" onclick="salvarEdicaoNfse(true)">Salvar e reemitir</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalCancelarNfse">
+  <div class="modal" style="max-width: 500px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Cancelar NFS-e</h3>
+        <small class="muted">Irreversível — cancela nota, conta a receber e boleto</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharCancelarNfse()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <p style="margin:0 0 14px;color:var(--danger);font-size:13px;">
+      ⚠ Conta a receber e boleto associados também serão cancelados.
+    </p>
+    <div class="form-group" style="margin-bottom:15px;">
+      <label>Motivo</label>
+      <select id="nfseCodigoMotivo">
+        <option value="1">Erro na emissão</option>
+        <option value="2">Serviço não prestado</option>
+        <option value="9">Outros</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Justificativa (mín. 15 caracteres)</label>
+      <textarea id="nfseMotivo" placeholder="Descreva o motivo do cancelamento…" style="min-height:100px;"></textarea>
+    </div>
+    <input type="hidden" id="nfseCancelarId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharCancelarNfse()">Voltar</button>
+      <button class="btn btn-danger" id="btnCancelarNfse" onclick="confirmarCancelamentoNfse()">Confirmar cancelamento</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modalMeta">
   <div class="modal" style="max-width:560px;">
     <div class="modal-header">
@@ -153,6 +282,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('notas-fiscais');</script>
 <script>
 function showAlert(m, t='success'){
@@ -167,10 +298,35 @@ function trunc(s, n){ if (!s) return '—'; return s.length > n ? s.slice(0, n) 
 
 let notas = [];
 let buscaTimer = null;
+let ordem = 'dataEmissao', dir = 'desc';
+
+// Clicar de novo na mesma coluna inverte; trocar de coluna começa decrescente
+// (mais recente / maior primeiro), que é o que se espera de nota fiscal.
+function ordenarPor(col){
+  if (ordem === col) dir = (dir === 'asc') ? 'desc' : 'asc';
+  else { ordem = col; dir = 'desc'; }
+  carregar();
+}
+
+function marcarCabecalhoOrdenado(){
+  document.querySelectorAll('th.ord').forEach(th => {
+    const ativo = th.dataset.ord === ordem;
+    th.classList.toggle('ord-ativa', ativo);
+    th.dataset.seta = ativo ? (dir === 'asc' ? '▲' : '▼') : '';
+  });
+}
 
 function onBusca(){
   clearTimeout(buscaTimer);
   buscaTimer = setTimeout(carregar, 350);
+}
+
+// O menu e o redirect de /fiscal/nfse-emitidas.html chegam com ?tipo=nfse.
+// Sem isso o usuário cairia em "Todas" e acharia que o filtro não funcionou.
+function aplicarTipoDaUrl(){
+  const t = new URLSearchParams(location.search).get('tipo');
+  const sel = document.getElementById('fTipo');
+  if (t && sel && [...sel.options].some(o => o.value === t)) sel.value = t;
 }
 
 async function carregarTiposOperacao(){
@@ -195,8 +351,10 @@ async function carregar(){
     dataFim: document.getElementById('fDataFim').value,
     cfop: document.getElementById('fCfop').value.trim(),
     tipoOperacao: document.getElementById('fTipoOperacao').value,
-    statusSefaz: document.getElementById('fStatusSefaz').value
+    statusSefaz: document.getElementById('fStatusSefaz').value,
+    ordem, dir
   });
+  marcarCabecalhoOrdenado();
   try {
     const r = await fetch('/api/notas-fiscais?' + q.toString());
     if (r.status === 401) { window.location.href = '/login.html'; return; }
@@ -206,7 +364,7 @@ async function carregar(){
     renderTabela();
   } catch (e) {
     showAlert('Erro ao carregar: ' + e.message, 'error');
-    document.getElementById('tb').innerHTML = '<tr><td colspan="10" class="empty">Falha ao carregar</td></tr>';
+    document.getElementById('tb').innerHTML = '<tr><td colspan="11" class="empty">Falha ao carregar</td></tr>';
   }
 }
 
@@ -228,11 +386,15 @@ function badgeStatusSefaz(s){
 
 function renderTabela(){
   const tb = document.getElementById('tb');
-  if (!notas.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhuma nota encontrada</td></tr>'; return; }
+  if (!notas.length) { tb.innerHTML = '<tr><td colspan="11" class="empty">Nenhuma nota encontrada</td></tr>'; return; }
   tb.innerHTML = notas.map(n => {
     const tipoLabel = n.tipo === 'entrada'
       ? '<span class="badge success">Entrada</span>'
-      : '<span class="badge info">Saída</span>';
+      : (n.tipo === 'nfse'
+          ? '<span class="badge warning">NFS-e</span>'
+          : (n.tipo === 'nfce'
+              ? '<span class="badge">NFC-e</span>'
+              : '<span class="badge info">Saída</span>'));
     const excluidaBadge = n.excluida
       ? `<br><span class="badge warning" title="${escTxt(n.motivoExclusao || '')}">EXCLUÍDA</span>`
       : '';
@@ -264,6 +426,33 @@ function renderTabela(){
         <div class="divider"></div>
         <button class="danger" onclick="abrirExcluir('${n.tipo}', ${n.id}, '${escTxt(String(n.numero || ''))}')">Excluir lançamento</button>
       `;
+    } else if (n.tipo === 'nfce') {
+      // Cupom não tem DANFE em PDF aqui — o documento é o XML autorizado.
+      const xmlItem = n.links && n.links.xml
+        ? `<a href="${escTxt(n.links.xml)}" target="_blank">📄 Baixar XML</a>`
+        : `<button disabled title="XML disponível apenas para NFC-e autorizada">📄 Baixar XML</button>`;
+      menuItens = `
+        ${xmlItem}
+        ${n.status === 'autorizada'
+            ? `<div class="divider"></div><button class="danger" onclick="abrirCancelamentoNfce(${n.id})">Cancelar NFC-e</button>` : ''}
+      `;
+    } else if (n.tipo === 'nfse') {
+      // NFS-e: detalhe é modal (não há tela separada). Sem excluir nem
+      // observação — a tabela nfse não guarda esses campos, e oferecer o
+      // botão seria prometer o que não existe.
+      const pdfItem = n.links && n.links.danfe
+        ? `<button onclick="baixarDanfse(${n.id})">📄 Baixar DANFSE</button>`
+        : `<button disabled title="DANFSE indisponível (nota sem chave de acesso)">📄 Baixar DANFSE</button>`;
+      menuItens = `
+        <button onclick="verDetalhesNfse(${n.id})">Abrir detalhe</button>
+        ${pdfItem}
+        ${(n.status === 'erro' || n.status === 'erro_timeout')
+            ? `<div class="divider"></div>
+               <button onclick="abrirEdicaoNfse(${n.id})">Editar nota</button>
+               <button onclick="reemitirNfse(${n.id})">Reemitir NFS-e</button>` : ''}
+        ${n.status === 'autorizada'
+            ? `<div class="divider"></div><button class="danger" onclick="abrirCancelamentoNfse(${n.id})">Cancelar NFS-e</button>` : ''}
+      `;
     } else {
       // Saída: notas emitidas são permanentes — sem opção de exclusão
       menuItens = `
@@ -277,8 +466,9 @@ function renderTabela(){
     return `<tr style="${n.excluida ? 'opacity:0.55;' : ''}">
       <td>${tipoLabel}${excluidaBadge}</td>
       <td><strong>${escTxt(n.numero || '—')}</strong>${n.serie ? '<small class="muted"> /' + escTxt(n.serie) + '</small>' : ''}</td>
+      <td>${n.nDPS != null ? escTxt(n.nDPS) : '<span class="muted">—</span>'}</td>
       <td>${fmtData(n.dataEmissao)}</td>
-      <td><strong>${escTxt(n.pessoa.nome || '—')}</strong>${n.pessoa.cpfCnpj ? '<br><small class="muted">' + escTxt(n.pessoa.cpfCnpj) + '</small>' : ''}</td>
+      <td><strong>${escTxt(n.pessoa.nome || (n.tipo === 'nfce' ? 'Consumidor não identificado' : '—'))}</strong>${n.pessoa.cpfCnpj ? '<br><small class="muted">' + escTxt(n.pessoa.cpfCnpj) + '</small>' : ''}</td>
       <td><code title="${escTxt(n.chaveAcesso || '')}" style="font-size:11px;cursor:pointer;" onclick="copiarChave('${escTxt(n.chaveAcesso || '')}')">${escTxt(trunc(n.chaveAcesso, 14))}</code></td>
       <td><code style="font-size:12px;">${escTxt(n.cfop || '—')}</code></td>
       <td>${tipoOpCell}</td>
@@ -345,6 +535,9 @@ async function salvarMeta(){
   const tipo = document.getElementById('metaTipo').value;
   const id = document.getElementById('metaId').value;
   const obs = document.getElementById('metaObs').value.trim();
+  // Ternario binario com tres tipos manda NFS-e para a rota de fatura em
+  // silencio. Melhor recusar aqui do que gravar no registro errado.
+  if (tipo !== 'entrada' && tipo !== 'saida') return showAlert('Observação não se aplica a este tipo de nota', 'error');
   const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/metadados` : `/api/faturas/${id}/metadados`;
   try {
     const r = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ observacaoInterna: obs }) });
@@ -372,6 +565,7 @@ async function confirmarExcluir(){
   const id = document.getElementById('excluirId').value;
   const motivo = document.getElementById('excluirMotivo').value.trim();
   if (!motivo) return showAlert('Motivo obrigatório', 'error');
+  if (tipo !== 'entrada' && tipo !== 'saida') return showAlert('Este tipo de nota não tem exclusão de lançamento', 'error');
   const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/excluir` : `/api/faturas/${id}/excluir`;
   try {
     const r = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
@@ -385,6 +579,7 @@ async function confirmarExcluir(){
 
 async function restaurar(tipo, id){
   if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
+  if (tipo !== 'entrada' && tipo !== 'saida') return showAlert('Este tipo de nota não tem restauração', 'error');
   const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/restaurar` : `/api/faturas/${id}/restaurar`;
   try {
     const r = await fetch(url, { method: 'POST' });
@@ -423,8 +618,253 @@ document.addEventListener('keydown', e => {
   }
 });
 
+aplicarTipoDaUrl();
 carregarTiposOperacao();
 carregar();
+
+// ==================== NFS-e ====================
+// A NFS-e tem ciclo próprio (DANFSE, reemissão, cancelamento com justificativa
+// na prefeitura). Ficava numa tela só dela; agora mora aqui junto das demais.
+
+function fecharDetalhesNfse(){ document.getElementById('modalDetalhesNfse').classList.remove('open'); }
+function fecharCancelarNfse(){ document.getElementById('modalCancelarNfse').classList.remove('open'); }
+
+function linhaDet(rot, val, cor){
+  return `<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);">
+    <span class="muted" style="font-size:13px;">${escTxt(rot)}</span>
+    <span style="font-size:13px;text-align:right;${cor ? 'color:' + cor + ';' : ''}">${escTxt(val == null || val === '' ? '—' : val)}</span>
+  </div>`;
+}
+
+async function verDetalhesNfse(id){
+  fecharDropdowns();
+  try {
+    const r = await fetch('/api/nfse/' + id);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    const n = d.nota;
+
+    let retorno = '';
+    try { retorno = JSON.stringify(JSON.parse(n.xmlRetorno), null, 2); } catch { retorno = n.xmlRetorno || '—'; }
+
+    document.getElementById('detalhesNfseConteudo').innerHTML =
+      linhaDet('ID DPS', n.idDps)
+      + linhaDet('Série / nDPS', `${n.serie || '—'} / ${n.nDPS}`)
+      + linhaDet('Ambiente', n.tpAmb === 1 ? 'Produção' : 'Homologação')
+      + linhaDet('Chave de acesso', n.chaveAcesso)
+      + linhaDet('Número NFS-e', n.nNFSe)
+      + linhaDet('Status', n.status)
+      + linhaDet('Tomador', `${n.tomadorRazaoSocial || '—'} (${n.tomadorCpfCnpj || '—'})`)
+      + linhaDet('Serviço', n.descricaoServico)
+      + linhaDet('cTribNac', n.codigoTributacaoNacional)
+      + linhaDet('Valor', fmtBRL(n.valorServico))
+      + linhaDet('Competência', fmtData(n.dataCompetencia))
+      + linhaDet('Emissão', n.dataCriacao)
+      + (n.motivoCancelamento ? linhaDet('Cancelamento', n.motivoCancelamento, 'var(--danger)') : '')
+      + histNfseHtml(d.historico)
+      + `<details style="margin-top:14px;">
+           <summary style="cursor:pointer;font-size:13px;">Resposta da SEFIN</summary>
+           <pre style="font-size:11px;margin-top:10px;white-space:pre-wrap;word-break:break-all;background:var(--bg-2);padding:10px;border-radius:6px;max-height:300px;overflow:auto;">${escTxt(retorno)}</pre>
+         </details>`;
+
+    document.getElementById('modalDetalhesNfse').classList.add('open');
+  } catch (e) { showAlert('Erro ao carregar detalhes: ' + e.message, 'error'); }
+}
+
+const ACAO_LABEL = { emitir: 'Emitiu', reemitir: 'Reemitiu', editar: 'Editou', cancelar: 'Cancelou' };
+
+// Quem mexeu na nota. Só existe do momento em que a auditoria da NFS-e passou
+// a gravar — nota anterior a isso não tem registro, e dizer isso é melhor do
+// que mostrar um quadro vazio sem explicação.
+function histNfseHtml(hist){
+  if (!hist || !hist.length) {
+    return `<div style="margin-top:14px;"><strong style="font-size:13px;">Histórico</strong>
+      <p class="muted" style="font-size:12px;margin:6px 0 0;">Sem movimentações registradas para esta nota.</p></div>`;
+  }
+  const linhas = hist.map(h => {
+    let detalhe = '';
+    try {
+      const p = JSON.parse(h.payload || '{}');
+      if (h.action === 'editar' && p.depois) detalhe = 'campos: ' + Object.keys(p.depois).join(', ');
+      else if (p.resultado) detalhe = p.resultado;
+      else if (p.status) detalhe = p.status;
+      else if (p.motivo) detalhe = p.motivo;
+    } catch (_) { /* payload ilegível: mostra só ação e usuário */ }
+    return `<tr>
+      <td style="padding:4px 8px;">${escTxt(new Date(h.createdAt.replace(' ', 'T')).toLocaleString('pt-BR'))}</td>
+      <td style="padding:4px 8px;"><strong>${escTxt(ACAO_LABEL[h.action] || h.action)}</strong></td>
+      <td style="padding:4px 8px;">${escTxt(h.username || '—')}</td>
+      <td style="padding:4px 8px;" class="muted">${escTxt(detalhe)}</td>
+    </tr>`;
+  }).join('');
+  return `<div style="margin-top:14px;"><strong style="font-size:13px;">Histórico</strong>
+    <table style="width:100%;font-size:12px;margin-top:6px;">
+      <thead><tr><th style="text-align:left;padding:4px 8px;">Quando</th><th style="text-align:left;padding:4px 8px;">Ação</th><th style="text-align:left;padding:4px 8px;">Usuário</th><th style="text-align:left;padding:4px 8px;">Detalhe</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table></div>`;
+}
+
+async function abrirEdicaoNfse(id){
+  fecharDropdowns();
+  try {
+    const r = await fetch('/api/nfse/' + id);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    const n = d.nota;
+    document.getElementById('edNfseId').value = n.id;
+    document.getElementById('edTomaCpfCnpj').value = n.tomadorCpfCnpj || '';
+    document.getElementById('edTomaRazaoSocial').value = n.tomadorRazaoSocial || '';
+    document.getElementById('edDescricao').value = n.descricaoServico || '';
+    document.getElementById('edCTribNac').value = n.codigoTributacaoNacional || '';
+    document.getElementById('edValor').value = n.valorServico != null ? n.valorServico : '';
+    document.getElementById('edCompetencia').value = (n.dataCompetencia || '').slice(0, 10);
+    document.getElementById('modalEditarNfse').classList.add('open');
+  } catch (e) { showAlert('Erro ao abrir edição: ' + e.message, 'error'); }
+}
+
+function fecharEdicaoNfse(){ document.getElementById('modalEditarNfse').classList.remove('open'); }
+
+async function salvarEdicaoNfse(reemitir){
+  const id = document.getElementById('edNfseId').value;
+  const body = {
+    tomadorCpfCnpj: document.getElementById('edTomaCpfCnpj').value,
+    tomadorRazaoSocial: document.getElementById('edTomaRazaoSocial').value,
+    descricaoServico: document.getElementById('edDescricao').value,
+    codigoTributacaoNacional: document.getElementById('edCTribNac').value,
+    valorServico: document.getElementById('edValor').value,
+    dataCompetencia: document.getElementById('edCompetencia').value,
+  };
+  try {
+    const r = await fetch('/api/nfse/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    fecharEdicaoNfse();
+    showAlert(d.semAlteracao ? 'Nenhum campo alterado' : 'Nota atualizada', 'success');
+    if (reemitir) await reemitirNfse(Number(id), true);
+    else carregar();
+  } catch (e) { showAlert('Erro ao salvar: ' + e.message, 'error'); }
+}
+
+async function baixarDanfse(id){
+  fecharDropdowns();
+  try {
+    const r = await fetch('/api/nfse/' + id + '/danfse');
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || 'Erro ao gerar DANFSE');
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'DANFSE_' + id + '.pdf'; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+let _reemitindo = false;
+// jaConfirmado: veio do "Salvar e reemitir", onde o usuário já decidiu.
+async function reemitirNfse(id, jaConfirmado){
+  fecharDropdowns();
+  if (_reemitindo) return;
+  if (!jaConfirmado && !confirm('Reemitir esta NFS-e para a SEFIN?')) return;
+  _reemitindo = true;
+  showAlert('Reemitindo nota, aguarde…', 'info');
+  try {
+    const r = await fetch('/api/nfse/' + id + '/reemitir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha desconhecida');
+    const st = d.nfse && d.nfse.status;
+    showAlert(st === 'autorizada'
+      ? 'NFS-e autorizada' + (d.nfse.nNFSe ? ' (nº ' + d.nfse.nNFSe + ')' : '') + '.'
+      : 'NFS-e reenviada, aguardando processamento na SEFIN.');
+  } catch (e) {
+    showAlert('Erro na reemissão: ' + e.message, 'error');
+  } finally { _reemitindo = false; carregar(); }
+}
+
+function abrirCancelamentoNfse(id){
+  fecharDropdowns();
+  document.getElementById('nfseCancelarId').value = id;
+  document.getElementById('nfseMotivo').value = '';
+  document.getElementById('modalCancelarNfse').classList.add('open');
+}
+
+let _cancelandoNfse = false;
+async function confirmarCancelamentoNfse(){
+  if (_cancelandoNfse) return;
+  const id = document.getElementById('nfseCancelarId').value;
+  const motivo = document.getElementById('nfseMotivo').value.trim();
+  const codigoMotivo = document.getElementById('nfseCodigoMotivo').value;
+  if (motivo.length < 15) return showAlert('Justificativa deve ter pelo menos 15 caracteres', 'error');
+
+  _cancelandoNfse = true;
+  const btn = document.getElementById('btnCancelarNfse');
+  btn.disabled = true; btn.textContent = 'Cancelando…';
+  try {
+    const r = await fetch('/api/nfse/' + id + '/cancelar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo, codigoMotivo }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    fecharCancelarNfse();
+    showAlert('Nota cancelada.' + (d.emailEnviado === 'sim'
+      ? ' Email de cancelamento enviado ao cliente.'
+      : d.emailEnviado === 'erro' ? ' (falha ao enviar o email)' : ''));
+    carregar();
+  } catch (e) {
+    showAlert('Erro: ' + e.message, 'error');
+  } finally {
+    _cancelandoNfse = false;
+    btn.disabled = false; btn.textContent = 'Confirmar cancelamento';
+  }
+}
+
+
+// ==================== NFC-e ====================
+function fecharCancelarNfce(){ document.getElementById('modalCancelarNfce').classList.remove('open'); }
+
+function abrirCancelamentoNfce(id){
+  fecharDropdowns();
+  document.getElementById('nfceCancelarId').value = id;
+  document.getElementById('nfceMotivo').value = '';
+  document.getElementById('modalCancelarNfce').classList.add('open');
+}
+
+let _cancelandoNfce = false;
+async function confirmarCancelamentoNfce(){
+  if (_cancelandoNfce) return;
+  const id = document.getElementById('nfceCancelarId').value;
+  const motivo = document.getElementById('nfceMotivo').value.trim();
+  if (motivo.length < 15) return showAlert('Justificativa deve ter pelo menos 15 caracteres', 'error');
+
+  _cancelandoNfce = true;
+  const btn = document.getElementById('btnCancelarNfce');
+  btn.disabled = true; btn.textContent = 'Cancelando…';
+  try {
+    const r = await fetch('/api/nfce/' + id + '/cancelar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    fecharCancelarNfce();
+    showAlert('NFC-e cancelada.');
+    carregar();
+  } catch (e) {
+    showAlert('Erro: ' + e.message, 'error');
+  } finally {
+    _cancelandoNfce = false;
+    btn.disabled = false; btn.textContent = 'Confirmar cancelamento';
+  }
+}
+
 </script>
 </body>
 </html>

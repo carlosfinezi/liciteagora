@@ -11,6 +11,9 @@
  *   registrarRotasInventario(app, db);
  */
 
+// Depósito da contagem e do ajuste.
+const { resolverDeposito } = require('./estoque-routes');
+
 function dataBrasilia() {
   const now = new Date();
   const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -126,6 +129,10 @@ function registrarRotasInventario(app, db) {
   app.post('/api/inventarios', (req, res) => {
     try {
       const { descricao, observacoes, usuarioResponsavel, filtro } = req.body;
+      // Contagem é sempre de UM depósito: sem isso o saldo do sistema vinha
+      // global e a diferença contra a contagem de um depósito virava ajuste
+      // fantasma do tamanho do estoque inteiro.
+      const depositoInv = req.body.depositoId ? Number(req.body.depositoId) : resolverDeposito(db, {});
       // filtro: 'todos' | 'comSaldo' | 'porCategoria:<cat>' | 'rastreiaLote' | 'rastreiaSerial'
       const modo = filtro || 'comSaldo';
 
@@ -137,9 +144,9 @@ function registrarRotasInventario(app, db) {
 
       const trx = db.transaction(() => {
         const invResult = db.prepare(`
-          INSERT INTO inventarios (codigo, descricao, status, usuarioResponsavel, observacoes)
-          VALUES (?, ?, 'aberto', ?, ?)
-        `).run(codigo, descricao || null, usuarioResponsavel || null, observacoes || null);
+          INSERT INTO inventarios (codigo, descricao, status, usuarioResponsavel, observacoes, depositoId)
+          VALUES (?, ?, 'aberto', ?, ?, ?)
+        `).run(codigo, descricao || null, usuarioResponsavel || null, observacoes || null, depositoInv);
         const inventarioId = invResult.lastInsertRowid;
 
         // Para produtos SEM rastreio de lote: 1 linha por produto (saldo agregado)
@@ -150,13 +157,15 @@ function registrarRotasInventario(app, db) {
             COALESCE((SELECT SUM(CASE WHEN tipo='entrada' THEN quantidade
                                       WHEN tipo='saida' THEN -quantidade
                                       ELSE quantidade END)
-                      FROM movimentacoes_estoque WHERE produtoId = p.id), 0) AS saldo,
+                      FROM movimentacoes_estoque
+                      WHERE produtoId = p.id
+                        AND COALESCE(depositoId, ?) = ?), 0) AS saldo,
             COALESCE((SELECT custoMedioPosterior FROM movimentacoes_estoque
                       WHERE produtoId = p.id AND custoMedioPosterior IS NOT NULL
                       ORDER BY data DESC, id DESC LIMIT 1), p.precoCusto) AS custoMedio
           FROM produtos p WHERE ${whereProdutos}
           ORDER BY p.descricao ASC
-        `).all();
+        `).all(depositoInv, depositoInv);
 
         const insertItem = db.prepare(`
           INSERT INTO inventario_itens (inventarioId, produtoId, loteId, saldoSistema, custoUnitario)
@@ -293,13 +302,17 @@ function registrarRotasInventario(app, db) {
           const result = db.prepare(`
             INSERT INTO movimentacoes_estoque
               (produtoId, tipo, quantidade, origem, origemId, observacao, data,
-               loteId, custoMedioAnterior, custoMedioPosterior, saldoPosterior)
-            VALUES (?, 'ajuste', ?, 'inventario', ?, ?, ?, ?, ?, ?, ?)
+               loteId, custoMedioAnterior, custoMedioPosterior, saldoPosterior, depositoId)
+            VALUES (?, 'ajuste', ?, 'inventario', ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             item.produtoId, dif, req.params.id,
             `Ajuste de inventário ${inv.codigo}: sistema=${item.saldoSistema} contado=${item.saldoContado}`,
             dataAjuste, item.loteId,
-            ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior
+            ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior,
+            // A contagem ainda não é por depósito (inventarios não tem a
+            // coluna), então o ajuste vai para o padrão — explícito, para
+            // o saldo por depósito não depender do COALESCE.
+            resolverDeposito(db, { depositoId: inv.depositoId })
           );
           const movId = result.lastInsertRowid;
 

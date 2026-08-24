@@ -258,8 +258,11 @@ function construirDPS(dados) {
   xml += `<cTribNac>${escapeXml(servico.codigoTributacaoNacional)}</cTribNac>`;
   // TCCodTribMun: pattern [0-9]{3}, minOccurs=0. Se a fonte mandou algo que
   // não bate (ex: '0106' do cadastro de serviço), omite o elemento.
+  // MEI (opSimpNac=2) não pode informar código de tributação municipal: a SEFIN
+  // rejeita com E0313 ("Não é permitido informar o código de tributação
+  // municipal quando o emitente da DPS for MEI na data de competência").
   const cTribMunRaw = String(servico.codigoListaServico || '').trim();
-  if (/^\d{3}$/.test(cTribMunRaw)) {
+  if (/^\d{3}$/.test(cTribMunRaw) && (prestador.opSimpNac || 1) != 2) {
     xml += `<cTribMun>${cTribMunRaw}</cTribMun>`;
   }
   xml += `<xDescServ>${escapeXml(servico.descricao)}</xDescServ>`;

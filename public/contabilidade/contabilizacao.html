@@ -15,7 +15,7 @@
   <div id="alertGlobal"></div>
 
   <h2 style="margin:10px 0 8px;">Mapeamentos</h2>
-  <div class="tbl-wrap"><table>
+  <div class="tbl-wrap" data-grid="contab-config"><table>
     <thead><tr><th>Evento</th><th>Débito (código)</th><th>Crédito (código)</th><th>Status</th><th></th></tr></thead>
     <tbody id="tbCfg"></tbody>
   </table></div>
@@ -26,7 +26,7 @@
     <button class="btn btn-secondary btn-sm" onclick="verPendencias()">Ver pendências</button>
     <button class="btn btn-primary btn-sm" onclick="processar()">⚙️ Contabilizar período</button>
   </div>
-  <div class="tbl-wrap"><table>
+  <div class="tbl-wrap" data-grid="contab-pendencias"><table>
     <thead><tr><th>Evento</th><th>Configurado</th><th style="text-align:right;">Total no período</th>
       <th style="text-align:right;">Pendentes</th><th style="text-align:right;">Valor pendente</th></tr></thead>
     <tbody id="tbPend"><tr><td colspan="5" class="empty">Use "Ver pendências"</td></tr></tbody>
@@ -41,6 +41,8 @@
 </main></div>
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('ctb-contabilizacao');</script>
 <script>
 function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',7000);}

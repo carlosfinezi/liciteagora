@@ -2,6 +2,7 @@ const zlib = require('zlib');
 const multer = require('multer');
 const { getTools } = require('./nfe-emit-routes');
 const { lancarMovimentacao } = require('./contas-financeiras-routes');
+const { E_FORNECEDOR, garantirFornecedor } = require('./pessoas-fornecedor');
 
 const uploadXmlNfe = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -135,7 +136,7 @@ function migrar(db) {
       observacoes TEXT,
       dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
       dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (fornecedorId) REFERENCES fornecedores(id)
+      FOREIGN KEY (fornecedorId) REFERENCES pessoas(id)
     );
     CREATE INDEX IF NOT EXISTS idx_nfe_ent_fornecedor ON nfe_entrada(fornecedorId);
     CREATE INDEX IF NOT EXISTS idx_nfe_ent_data ON nfe_entrada(dataEmissao);
@@ -194,7 +195,7 @@ function migrar(db) {
       origem TEXT,
       dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
       dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (fornecedorId) REFERENCES fornecedores(id),
+      FOREIGN KEY (fornecedorId) REFERENCES pessoas(id),
       FOREIGN KEY (nfeEntradaId) REFERENCES nfe_entrada(id),
       FOREIGN KEY (duplicataId) REFERENCES nfe_entrada_duplicatas(id),
       FOREIGN KEY (contaFinanceiraId) REFERENCES contas_financeiras(id)
@@ -632,18 +633,13 @@ function registrarRotas(app, db) {
         // Fornecedor (auto-criar por CNPJ se não existir)
         let fornecedorId = null;
         if (cab.emitenteCnpj) {
-          const existe = db.prepare(`SELECT id FROM fornecedores WHERE cpfCnpj = ?`).get(cab.emitenteCnpj);
-          if (existe) fornecedorId = existe.id;
-          else {
-            const r = db.prepare(`INSERT INTO fornecedores
-              (cpfCnpj, tipo, razaoSocial, inscricaoEstadual, endereco, numero, complemento, bairro, codigoMunicipio, cidade, uf, cep, telefone)
-              VALUES (?, 'PJ', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-              cab.emitenteCnpj, cab.emitenteRazaoSocial, cab.emitenteIe,
-              cab.endereco, cab.numero, cab.complemento, cab.bairro,
-              cab.codigoMunicipio, cab.cidade, cab.uf, cab.cep, cab.telefone
-            );
-            fornecedorId = r.lastInsertRowid;
-          }
+          fornecedorId = garantirFornecedor(db, {
+            cpfCnpj: cab.emitenteCnpj, razaoSocial: cab.emitenteRazaoSocial,
+            inscricaoEstadual: cab.emitenteIe,
+            endereco: cab.endereco, numero: cab.numero, complemento: cab.complemento,
+            bairro: cab.bairro, codigoMunicipio: cab.codigoMunicipio, cidade: cab.cidade,
+            uf: cab.uf, cep: cab.cep, telefone: cab.telefone,
+          });
         }
 
         const r = db.prepare(`INSERT INTO nfe_entrada
@@ -765,7 +761,7 @@ function registrarRotas(app, db) {
     try {
       const { situacao, statusEstoque, fornecedorId, dataInicio, dataFim, busca, incluirExcluidas } = req.query;
       let sql = `SELECT n.*, f.razaoSocial AS fornecedorNome, (SELECT COUNT(*) FROM nfe_entrada_itens WHERE nfeId=n.id) AS totalItens
-                 FROM nfe_entrada n LEFT JOIN fornecedores f ON f.id = n.fornecedorId WHERE 1=1`;
+                 FROM nfe_entrada n LEFT JOIN pessoas f ON f.id = n.fornecedorId WHERE 1=1`;
       const p = [];
       if (incluirExcluidas !== '1') { sql += ' AND COALESCE(n.excluida, 0) = 0'; }
       if (situacao) { sql += ' AND n.situacao = ?'; p.push(situacao); }
@@ -781,7 +777,7 @@ function registrarRotas(app, db) {
 
   app.get('/api/nfe-entrada/:id', (req, res) => {
     try {
-      const nota = db.prepare(`SELECT n.*, f.razaoSocial AS fornecedorNome FROM nfe_entrada n LEFT JOIN fornecedores f ON f.id=n.fornecedorId WHERE n.id = ?`).get(req.params.id);
+      const nota = db.prepare(`SELECT n.*, f.razaoSocial AS fornecedorNome FROM nfe_entrada n LEFT JOIN pessoas f ON f.id=n.fornecedorId WHERE n.id = ?`).get(req.params.id);
       if (!nota) return res.status(404).json({ success: false, error: 'Não encontrada' });
       const itens = db.prepare(`SELECT i.*, p.sku, p.descricao AS produtoDescricao FROM nfe_entrada_itens i LEFT JOIN produtos p ON p.id=i.produtoId WHERE nfeId = ? ORDER BY numero`).all(req.params.id);
       const duplicatas = db.prepare(`SELECT * FROM nfe_entrada_duplicatas WHERE nfeId = ? ORDER BY dataVencimento`).all(req.params.id);
@@ -1065,12 +1061,19 @@ function registrarRotas(app, db) {
       const dups = db.prepare('SELECT * FROM nfe_entrada_duplicatas WHERE nfeId = ? ORDER BY dataVencimento').all(nfe.id);
       const dataEmi = (nfe.dataEmissao || '').slice(0, 10) || dataBrasilia();
 
-      // Se não houver duplicatas, cria uma única conta com venc = dataEmissao + 30d
+      // Sem duplicatas na NF-e, quem manda é a política de prazo do fornecedor
+      // (a que tem "aplica em compras"); sem política, segue o +30 de sempre.
       let parcelas = dups;
       if (!parcelas.length) {
-        const d = new Date(dataEmi + 'T00:00:00');
-        d.setDate(d.getDate() + 30);
-        parcelas = [{ id: null, numero: '001', dataVencimento: d.toISOString().slice(0, 10), valor: nfe.valorTotal }];
+        const { prazoDaPessoa, vencimentosDoPrazo, dividirValor } = require('./prazo-pagamento');
+        const dias = prazoDaPessoa(db, nfe.fornecedorId, 'compras') || [30];
+        const valores = dividirValor(Number(nfe.valorTotal) || 0, dias.length);
+        parcelas = vencimentosDoPrazo(dataEmi, dias).map((venc, i) => ({
+          id: null,
+          numero: String(i + 1).padStart(3, '0'),
+          dataVencimento: venc,
+          valor: valores[i],
+        }));
       }
 
       const inseridas = [];
@@ -1122,9 +1125,14 @@ function registrarRotas(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
-  // ==================== GESTÃO UNIFICADA NF-e (entrada + saída) ====================
+  // ==================== GESTÃO UNIFICADA DE NOTAS ====================
   // Endpoints consumidos por /notas-fiscais.html para listar, editar metadados,
   // excluir (soft) e restaurar NFs lançadas no sistema.
+  //
+  // Três origens: NF-e de entrada (nfe_entrada), NF-e de saída (faturas) e
+  // NFS-e (nfse). A NFS-e ficava de fora e só aparecia numa tela própria —
+  // para a maioria dos tenants isso deixava a tela "unificada" escondendo o
+  // documento mais emitido da casa.
 
   app.get('/api/notas-fiscais', (req, res) => {
     try {
@@ -1139,7 +1147,7 @@ function registrarRotas(app, db) {
       // Entrada: CFOP fica em nfe_entrada_itens (por item). Mesmo padrão
       // da saída — agregamos os CFOPs distintos numa string ("5102,5949").
       const sqlEntrada = `
-        SELECT 'entrada' AS tipo, n.id, n.numero, n.serie, n.chaveAcesso,
+        SELECT 'entrada' AS tipo, n.id, n.numero, NULL AS nDPS, n.serie, n.chaveAcesso,
                n.dataEmissao, n.valorTotal AS valor,
                n.situacao AS status, n.statusEstoque, n.statusFinanceiro,
                (SELECT GROUP_CONCAT(DISTINCT cfop) FROM nfe_entrada_itens
@@ -1158,14 +1166,14 @@ function registrarRotas(app, db) {
                COALESCE(f.razaoSocial, n.emitenteRazaoSocial) AS pessoaNome,
                COALESCE(f.cpfCnpj, n.emitenteCnpj) AS pessoaCpfCnpj
           FROM nfe_entrada n
-          LEFT JOIN fornecedores f ON f.id = n.fornecedorId
+          LEFT JOIN pessoas f ON f.id = n.fornecedorId
           LEFT JOIN nfe_entrada_inbox ib ON ib.chaveAcesso = n.chaveAcesso
       `;
       // Saída: CFOP fica em fatura_itens (por item). Agregamos os CFOPs
       // distintos dos itens em uma lista (ex.: "5102,5949") pra exibição
       // e filtragem por LIKE.
       const sqlSaida = `
-        SELECT 'saida' AS tipo, fa.id, fa.numero, COALESCE(fa.serieNFe, '1') AS serie, fa.chaveAcesso,
+        SELECT 'saida' AS tipo, fa.id, fa.numero, NULL AS nDPS, COALESCE(fa.serieNFe, '1') AS serie, fa.chaveAcesso,
                fa.dataEmissao, fa.valorTotal AS valor,
                fa.status, NULL AS statusEstoque, fa.statusSefaz AS statusFinanceiro,
                (SELECT GROUP_CONCAT(DISTINCT cfop) FROM fatura_itens
@@ -1183,10 +1191,86 @@ function registrarRotas(app, db) {
           LEFT JOIN tipos_operacao op ON op.id = fa.tipoOperacaoId
       `;
 
+      // NFS-e: documento municipal de serviço. Não tem CFOP nem tipo de
+      // operação (são conceitos de mercadoria), então vão NULL e os filtros
+      // correspondentes a excluem sozinhos — mesmo comportamento da entrada
+      // com tipoOperacao.
+      //
+      // Não tem exclusão lógica: nota de serviço autorizada se cancela na
+      // prefeitura, não se apaga aqui. `excluida = 0` fixo mantém a coluna
+      // compatível com o UNION sem prometer um botão que não existe.
+      const sqlNfse = `
+        SELECT 'nfse' AS tipo, ns.id,
+               -- Número de NFS-e só existe depois de autorizada, e o nDPS é
+               -- outro documento (a declaração enviada). Misturar os dois na
+               -- mesma coluna fazia rejeitada aparecer com o número de uma
+               -- nota real — o nDPS 29 convivia com a NFS-e nº 29.
+               ns.nNFSe AS numero, ns.nDPS,
+               ns.serie, ns.chaveAcesso,
+               REPLACE(ns.dataCriacao, ' ', 'T') AS dataEmissao,
+               ns.valorServico AS valor,
+               ns.status, NULL AS statusEstoque, NULL AS statusFinanceiro,
+               NULL AS cfop,
+               NULL AS tipoOperacaoCodigo,
+               ns.descricaoServico AS tipoOperacaoDescricao,
+               CASE ns.status
+                 WHEN 'autorizada' THEN 'autorizada'
+                 WHEN 'cancelada' THEN 'cancelada_sefaz'
+                 WHEN 'processando' THEN 'aguardando'
+                 ELSE 'rejeitada'
+               END AS statusSefaz,
+               (ns.chaveAcesso IS NOT NULL AND ns.chaveAcesso != '') AS temXmlCompleto,
+               0 AS excluida, NULL AS dataExclusao, NULL AS motivoExclusao,
+               NULL AS observacaoInterna,
+               ns.tomadorRazaoSocial AS pessoaNome,
+               ns.tomadorCpfCnpj AS pessoaCpfCnpj
+          FROM nfse ns
+      `;
+
+      // NFC-e (modelo 65): venda ao consumidor. A pessoa pode ser anônima —
+      // cupom sem CPF é a regra, não a exceção, então pessoaNome fica nulo e a
+      // tela mostra o travessão em vez de fingir que faltou cadastro.
+      const sqlNfce = `
+        SELECT 'nfce' AS tipo, nc.id, nc.numero, NULL AS nDPS, nc.serie, nc.chaveAcesso,
+               REPLACE(nc.dataEmissao, ' ', 'T') AS dataEmissao,
+               nc.valorTotal AS valor,
+               nc.statusSefaz AS status, NULL AS statusEstoque, NULL AS statusFinanceiro,
+               NULL AS cfop,
+               NULL AS tipoOperacaoCodigo,
+               'Venda ao consumidor' AS tipoOperacaoDescricao,
+               CASE nc.statusSefaz
+                 WHEN 'pendente' THEN 'aguardando'
+                 WHEN 'cancelada' THEN 'cancelada_sefaz'
+                 ELSE nc.statusSefaz
+               END AS statusSefaz,
+               (nc.xmlAssinado IS NOT NULL) AS temXmlCompleto,
+               0 AS excluida, NULL AS dataExclusao, NULL AS motivoExclusao,
+               NULL AS observacaoInterna,
+               nc.consumidorNome AS pessoaNome,
+               nc.consumidorCpfCnpj AS pessoaCpfCnpj
+          FROM nfce nc
+      `;
+
+      const existe = (t) => !!db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?"
+      ).get(t);
+      const temNfse = existe('nfse');
+      const temNfce = existe('nfce');
+
       let union;
       if (tipo === 'entrada') union = sqlEntrada;
       else if (tipo === 'saida') union = sqlSaida;
-      else union = `${sqlEntrada} UNION ALL ${sqlSaida}`;
+      else if (tipo === 'nfse') {
+        if (!temNfse) return res.json({ success: true, notas: [] });
+        union = sqlNfse;
+      } else if (tipo === 'nfce') {
+        if (!temNfce) return res.json({ success: true, notas: [] });
+        union = sqlNfce;
+      } else {
+        union = `${sqlEntrada} UNION ALL ${sqlSaida}`;
+        if (temNfse) union += ` UNION ALL ${sqlNfse}`;
+        if (temNfce) union += ` UNION ALL ${sqlNfce}`;
+      }
 
       let where = '';
       if (status === 'ativa') where = ' WHERE excluida = 0';
@@ -1228,7 +1312,23 @@ function registrarRotas(app, db) {
         params.push(statusSefaz);
       }
 
-      const sqlFinal = `SELECT * FROM (${union})${where} ORDER BY dataEmissao DESC LIMIT ? OFFSET ?`;
+      // Ordenação por coluna. Whitelist porque o nome entra na SQL cru — e
+      // `numero` é texto no banco, por isso ordena pelo valor numérico, senão
+      // 10 viria antes de 9.
+      const ORDENS = {
+        tipo: 'tipo',
+        numero: 'CAST(numero AS INTEGER)',
+        nDPS: 'nDPS',
+        dataEmissao: 'dataEmissao',
+        pessoaNome: 'pessoaNome',
+        valor: 'valor',
+        statusSefaz: 'statusSefaz',
+      };
+      const colOrdem = ORDENS[req.query.ordem] || ORDENS.dataEmissao;
+      const dirOrdem = String(req.query.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+      const orderBy = colOrdem.split(', ').map(c => `${c} ${dirOrdem}`).join(', ');
+
+      const sqlFinal = `SELECT * FROM (${union})${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
       params.push(Number(limite), Number(offset));
 
       const rows = db.prepare(sqlFinal).all(...params);
@@ -1236,12 +1336,24 @@ function registrarRotas(app, db) {
         ...r,
         pessoa: { nome: r.pessoaNome, cpfCnpj: r.pessoaCpfCnpj },
         links: {
+          // NFS-e abre num modal da própria lista: não existe tela de detalhe
+          // separada para ela, e inventar uma seria repetir o problema.
           detalhe: r.tipo === 'entrada'
             ? `/fiscal/nfe-entrada-detalhe.html?chave=${encodeURIComponent(r.chaveAcesso || '')}`
-            : `/fiscal/nfe-detalhe.html?id=${r.id}`,
-          danfe: r.statusSefaz === 'autorizada' && r.temXmlCompleto
-            ? (r.tipo === 'entrada' ? `/api/nfe-entrada/${r.id}/danfe` : `/api/faturas/${r.id}/danfe`)
-            : null
+            : (r.tipo === 'saida' ? `/fiscal/nfe-detalhe.html?id=${r.id}` : null),
+          // NFC-e não tem DANFE em PDF no sistema; o que existe é o XML
+          // autorizado. Chamar de DANFE seria oferecer o que não sai.
+          xml: r.tipo === 'nfce' && r.statusSefaz === 'autorizada' && r.temXmlCompleto
+            ? `/api/nfce/${r.id}/xml`
+            : null,
+          // DANFSE sai enquanto houver chave — inclusive de nota cancelada,
+          // que continua sendo documento e ainda precisa ser apresentada.
+          danfe: r.tipo === 'nfse'
+            ? (r.temXmlCompleto ? `/api/nfse/${r.id}/danfse` : null)
+            : (r.tipo === 'nfce' ? null
+              : r.statusSefaz === 'autorizada' && r.temXmlCompleto
+                ? (r.tipo === 'entrada' ? `/api/nfe-entrada/${r.id}/danfe` : `/api/faturas/${r.id}/danfe`)
+                : null)
         }
       }));
       res.json({ success: true, notas: notasNormalizadas });
@@ -1350,7 +1462,7 @@ function registrarRotas(app, db) {
       let sql = `SELECT cp.*, f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
                    n.numero AS nfeNumero, n.serie AS nfeSerie
                  FROM contas_a_pagar cp
-                 LEFT JOIN fornecedores f ON f.id = cp.fornecedorId
+                 LEFT JOIN pessoas f ON f.id = cp.fornecedorId
                  LEFT JOIN nfe_entrada n ON n.id = cp.nfeEntradaId
                  WHERE 1=1`;
       const p = [];
@@ -1378,7 +1490,7 @@ function registrarRotas(app, db) {
       const conta = db.prepare(`SELECT cp.*, f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
           n.numero AS nfeNumero, n.serie AS nfeSerie
         FROM contas_a_pagar cp
-        LEFT JOIN fornecedores f ON f.id = cp.fornecedorId
+        LEFT JOIN pessoas f ON f.id = cp.fornecedorId
         LEFT JOIN nfe_entrada n ON n.id = cp.nfeEntradaId
         WHERE cp.id = ?`).get(req.params.id);
       if (!conta) return res.status(404).json({ success: false, error: 'Não encontrada' });
@@ -1392,7 +1504,7 @@ function registrarRotas(app, db) {
       if (!fornecedorId || !descricao || valor == null || !dataVencimento) {
         return res.status(400).json({ success: false, error: 'fornecedorId, descricao, valor e dataVencimento são obrigatórios' });
       }
-      const fornec = db.prepare('SELECT id FROM fornecedores WHERE id = ? AND ativo = 1').get(Number(fornecedorId));
+      const fornec = db.prepare(`SELECT id FROM pessoas WHERE id = ? AND ativo = 1 AND ${E_FORNECEDOR}`).get(Number(fornecedorId));
       if (!fornec) return res.status(404).json({ success: false, error: 'Fornecedor não encontrado' });
 
       const r = db.prepare(`INSERT INTO contas_a_pagar

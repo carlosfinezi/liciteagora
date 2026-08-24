@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
-      .day-event.agend-event { background:var(--accent); color:#fff; border-left:3px solid #fff3; }
+      .day-event.agend-event { border-left-color:var(--accent); }
       .day-event.agend-event.agend-done { opacity:.55; text-decoration:line-through; }
     </style>
 </head>
@@ -21,6 +21,13 @@
         <small>Datas de encerramento das propostas dos seus interesses</small>
       </div>
       <div class="actions calendar-nav">
+        <div class="view-toggle">
+          <button class="btn btn-sm btn-primary" id="viewMes" onclick="setVisao('mes')">Mês</button>
+          <button class="btn btn-sm btn-ghost" id="viewLista" onclick="setVisao('lista')">Lista</button>
+        </div>
+        <label class="cal-filtro" title="Esconde licitações com prazo vencido e agendamentos já concluídos">
+          <input type="checkbox" onchange="toggleEncerradas(this)"> Ocultar encerrados
+        </label>
         <button class="btn btn-ghost btn-sm" onclick="mesAnterior()" title="Mês anterior">◀</button>
         <span class="current-month" id="currentMonth">—</span>
         <button class="btn btn-ghost btn-sm" onclick="proximoMes()" title="Próximo mês">▶</button>
@@ -34,6 +41,8 @@
       </div>
       <div class="calendar-days" id="calendarDays"></div>
     </div>
+
+    <div class="agenda-lista" id="agendaLista" style="display:none;"></div>
 
     <div class="legenda">
       <div class="legenda-item"><span class="legenda-cor" style="background:var(--warn);"></span>Em análise</div>
@@ -95,9 +104,27 @@
   </div>
 </div>
 
+<div class="modal-bg" id="diaModal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;" id="diaModalTitulo"></h3>
+        <small class="muted" id="diaModalCount"></small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalDia()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <div class="dia-lista" id="diaModalLista"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalDia()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
-<script src="agenda.js?v=20260720"></script>
+<script src="agenda.js?v=20260811c"></script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script>initSidebar('agenda');</script>

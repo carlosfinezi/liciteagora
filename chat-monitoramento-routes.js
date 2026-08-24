@@ -53,35 +53,35 @@
 function registrarRotasChatMonitoramento(app, db) {
   // ==================== PALAVRAS-CHAVE DE ALERTA ====================
 
-  // Listar palavras-chave
+  // Palavras-chave do monitor COMPRASNET (config por portal — chat_monitor_palavras).
+  // Mantém a rota/shape antiga para a página comprasnet-monitor.html, mas grava na
+  // config individual do portal (lida pelo chat-mensagens-ingest).
   app.get('/api/chat/palavras-chave', (req, res) => {
     try {
-      const palavras = db.prepare('SELECT * FROM chat_palavras_chave ORDER BY palavra').all();
+      const palavras = db.prepare("SELECT id, palavra, ativo FROM chat_monitor_palavras WHERE portal='comprasnet' ORDER BY palavra").all();
       res.json({ success: true, data: palavras });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  // Adicionar palavra-chave
   app.post('/api/chat/palavras-chave', (req, res) => {
     try {
       const { palavra } = req.body;
       if (!palavra || palavra.trim().length < 2) {
         return res.status(400).json({ success: false, error: 'Palavra deve ter pelo menos 2 caracteres' });
       }
-      db.prepare('INSERT OR IGNORE INTO chat_palavras_chave (palavra) VALUES (?)').run(palavra.trim().toLowerCase());
+      db.prepare("INSERT OR IGNORE INTO chat_monitor_palavras (portal, palavra) VALUES ('comprasnet', ?)").run(palavra.trim().toLowerCase());
       res.json({ success: true, message: 'Palavra-chave adicionada' });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
-  // Remover palavra-chave
   app.delete('/api/chat/palavras-chave/:id', (req, res) => {
     try {
       const { id } = req.params;
-      db.prepare('DELETE FROM chat_palavras_chave WHERE id = ?').run(id);
+      db.prepare("DELETE FROM chat_monitor_palavras WHERE portal='comprasnet' AND id = ?").run(id);
       res.json({ success: true, message: 'Palavra-chave removida' });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });

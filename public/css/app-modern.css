@@ -541,7 +541,9 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 
 /* ==================== UTILS ==================== */
 .muted { color: var(--text-3); }
-.mono { font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace; font-size: 0.88em; }
+/* Monoespaçada no mesmo corpo do texto ao redor: o 0.88em daqui fazia número
+   de pedido e CPF/CNPJ parecerem menores que a célula vizinha. */
+.mono { font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace; font-size: 1em; }
 .text-right { text-align: right; }
 .text-success { color: var(--success); }
 .text-danger { color: var(--danger); }

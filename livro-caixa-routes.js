@@ -8,6 +8,8 @@
  *   GET /api/fiscal/livro-caixa?dataInicio=YYYY-MM-DD&dataFim=YYYY-MM-DD&contas=csv&formato=json|csv
  */
 
+const { escopoContas } = require('./contas-financeiras-routes');
+
 function dataBrasilia() {
   const now = new Date();
   const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -116,12 +118,14 @@ function registrarRotas(app, db) {
       if (dataFim < dataInicio) return res.status(400).json({ success: false, error: 'dataFim deve ser >= dataInicio' });
 
       const idsParam = parseContasParam(req.query.contas);
+      // Mesmo teto do extrato: o livro caixa é o mesmo dado consolidado.
+      const rbac = escopoContas(req);
       let contaIds;
       if (idsParam) {
         const ph = idsParam.map(() => '?').join(',');
-        contaIds = db.prepare(`SELECT id FROM contas_financeiras WHERE id IN (${ph})`).all(...idsParam).map(r => r.id);
+        contaIds = db.prepare(`SELECT id FROM contas_financeiras WHERE id IN (${ph})${rbac.sql}`).all(...idsParam, ...rbac.params).map(r => r.id);
       } else {
-        contaIds = db.prepare('SELECT id FROM contas_financeiras WHERE ativo = 1').all().map(r => r.id);
+        contaIds = db.prepare(`SELECT id FROM contas_financeiras WHERE ativo = 1${rbac.sql}`).all(...rbac.params).map(r => r.id);
       }
       if (!contaIds.length) return res.status(400).json({ success: false, error: 'Nenhuma conta ativa' });
 

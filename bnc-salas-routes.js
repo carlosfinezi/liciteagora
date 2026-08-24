@@ -195,6 +195,24 @@ function registrarRotasBNCSalas(app, db) {
     }
   });
 
+  // Feed de chat capturado (todas as salas ou uma). Mais recentes primeiro.
+  app.get('/api/bnc/chat', (req, res) => {
+    try {
+      const tdb = req.tenantDb || db;
+      const limit = Math.min(Number(req.query.limit) || 200, 500);
+      const salaId = req.query.salaId ? Number(req.query.salaId) : null;
+      let sql = `SELECT m.id, m.salaId, m.escopo, m.lote, m.autor, m.texto, m.dataHora, m.criadoEm,
+                        s.processNumber, s.title
+                   FROM bnc_chat_mensagens m JOIN bnc_salas s ON s.id = m.salaId`;
+      const params = [];
+      if (salaId) { sql += ' WHERE m.salaId = ?'; params.push(salaId); }
+      sql += ' ORDER BY m.id DESC LIMIT ?'; params.push(limit);
+      res.json({ success: true, mensagens: tdb.prepare(sql).all(...params) });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   app.post('/api/bnc/salas/:id/redescobrir', async (req, res) => {
     try {
       const tdb = req.tenantDb || db;

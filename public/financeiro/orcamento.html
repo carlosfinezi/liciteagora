@@ -20,15 +20,21 @@
     <input type="number" id="oValor" placeholder="Previsto (R$)" step="0.01" style="width:140px;">
     <button class="btn btn-primary btn-sm" onclick="salvarPrevisto()">Definir previsto</button>
   </div>
-  <div class="tbl-wrap"><table>
+  <div class="tbl-wrap" data-grid="orcamento">
+<div id="avisoCobertura"></div>
+<table>
     <thead><tr><th>Conta</th><th>Competência</th>
       <th style="text-align:right;">Previsto</th><th style="text-align:right;">Realizado</th>
+      <th style="text-align:right;" title="Títulos abertos com vencimento na competência">A realizar</th>
+      <th style="text-align:right;" title="Realizado + a realizar">Projetado</th>
       <th style="text-align:right;">Desvio</th><th style="text-align:right;">%</th></tr></thead>
     <tbody id="tb"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
   </table></div>
 </main></div>
 <div id="toasts"></div>
 <script src="/js/menu-config.js"></script><script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('fin-orcamento');</script>
 <script>
 function showAlert(m,t='success'){const e=document.getElementById('alertGlobal');e.className='alert '+t;e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',5000);}
@@ -37,15 +43,49 @@ async function carregar(){
   const ano=document.getElementById('ano').value;
   const r=await fetch('/api/orcamento/previsto-realizado?ano='+ano);const d=await r.json();
   if(!d.success)return showAlert(d.error,'error');
+  renderCobertura(d);
   document.getElementById('tb').innerHTML=d.linhas.length?d.linhas.map(l=>{
     const pct=l.previsto>0?(l.realizado/l.previsto*100):null;
     const cor=l.desvio>=0?(l.tipo==='receita'?'var(--success)':'var(--danger)'):(l.tipo==='receita'?'var(--danger)':'var(--success)');
+    // Estouro previsível: o projetado já passa do previsto antes de pagar.
+    const estoura = l.tipo!=='receita' && l.previsto>0 && l.projetado>l.previsto && l.realizado<=l.previsto;
     return `<tr><td>${l.codigo||''} ${l.nome||'#'+l.planoContaId}</td><td>${l.competencia}</td>
       <td style="text-align:right;">${fmt(l.previsto)}</td>
       <td style="text-align:right;"><strong>${fmt(l.realizado)}</strong></td>
+      <td style="text-align:right;color:var(--text-2);">${l.aRealizar?fmt(l.aRealizar):'—'}</td>
+      <td style="text-align:right;${estoura?'color:var(--warn);font-weight:600;':''}"
+          ${estoura?'title="Já comprometido acima do previsto — o estouro acontece quando estes títulos forem pagos"':''}>${fmt(l.projetado)}</td>
       <td style="text-align:right;color:${cor};">${fmt(l.desvio)}</td>
       <td style="text-align:right;">${pct!=null?pct.toFixed(0)+'%':'-'}</td></tr>`;
-  }).join(''):'<tr><td colspan="6" class="empty">Sem dados no ano — defina previstos acima</td></tr>';
+  }).join(''):'<tr><td colspan="8" class="empty">Sem dados no ano — defina previstos acima</td></tr>';
+}
+
+// O relatório só enxerga título com plano de contas. Sem dizer o que ficou de
+// fora, "realizado R$ 0" parece ausência de movimento e não falta de cadastro.
+function renderCobertura(d){
+  const el=document.getElementById('avisoCobertura'); if(!el) return;
+  const c=d.cobertura||{}, sc=d.semClassificacao||{};
+  if(!(c.naoClassificado>0)){ el.innerHTML=''; return; }
+  const cats=[...(sc.receber?.categoriasSemConta||[]),...(sc.pagar?.categoriasSemConta||[])];
+  const semCat=(sc.receber?.semCategoria?.titulos||0)+(sc.pagar?.semCategoria?.titulos||0);
+  el.innerHTML=`<div class="alert warn" style="display:block;">
+    <strong>R$ ${fmt(c.naoClassificado)} movimentados neste ano estão fora deste relatório</strong>
+    porque os títulos não têm plano de contas
+    ${c.percentual!=null?` — o orçamento enxerga ${c.percentual}% do dinheiro`:''}.
+    ${cats.length?`<br>Resolva na categoria (vale para todos os títulos dela de uma vez):
+      <strong>${cats.map(x=>`${x.nome} (${x.titulos})`).join(', ')}</strong>.` : ''}
+    ${semCat?`<br>${semCat} título(s) sem categoria nenhuma precisam ser classificados um a um.`:''}
+    <br><button class="btn btn-secondary btn-sm" style="margin-top:6px;" onclick="classificarPendentes()">
+      Aplicar plano das categorias nos títulos pendentes</button>
+  </div>`;
+}
+
+async function classificarPendentes(){
+  const r=await fetch('/api/orcamento/classificar-pendentes',{method:'POST'});
+  const d=await r.json(); if(!d.success)return showAlert(d.error,'error');
+  const n=(d.receber||0)+(d.pagar||0);
+  showAlert(n?`${n} título(s) classificado(s) pela categoria`:'Nenhum título pôde ser classificado — as categorias envolvidas ainda não têm plano de contas', n?'success':'warn');
+  carregar();
 }
 async function salvarPrevisto(){
   const body={planoContaId:Number(document.getElementById('oConta').value),

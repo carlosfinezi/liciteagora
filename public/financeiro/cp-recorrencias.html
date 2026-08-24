@@ -17,6 +17,8 @@
       </div>
       <div class="actions">
         <a class="btn btn-ghost btn-sm" href="/financeiro/contas-a-pagar.html" style="text-decoration:none;">← Contas a pagar</a>
+        <button class="btn btn-secondary btn-sm" onclick="simularPix()" title="Ver o que sairia, sem enviar nada">Simular PIX</button>
+        <button class="btn btn-secondary btn-sm" onclick="executarPix()">Enviar PIX agora</button>
         <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova recorrência</button>
       </div>
     </div>
@@ -25,7 +27,7 @@
       <table>
         <thead><tr>
           <th>Fornecedor</th><th>Descrição</th><th>Categoria</th><th>Frequência</th>
-          <th style="text-align:right;">Valor</th><th>Próxima geração</th><th>Status</th><th></th>
+          <th style="text-align:right;">Valor</th><th>Próxima geração</th><th>PIX auto</th><th>Status</th><th></th>
         </tr></thead>
         <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
       </table>
@@ -80,6 +82,32 @@
       <div class="row"><label>Dia do mês (opcional)</label><input type="number" min="1" max="28" id="rDia" placeholder="ex: 10"></div>
     </div>
     <div class="row"><label>Observações</label><textarea id="rObs" rows="2"></textarea></div>
+
+    <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:12px;margin-top:12px;">
+      <label style="display:flex;gap:8px;align-items:center;font-weight:600;">
+        <input type="checkbox" id="rPagarAuto" onchange="alternarAuto()" style="width:auto;">
+        Pagar automaticamente por PIX
+      </label>
+      <p class="muted" style="font-size:0.85em;margin:6px 0 0;">
+        O dinheiro sai da conta sem ninguém clicar. Só acontece se o fornecedor tiver chave PIX,
+        o valor estiver dentro do teto e a alçada de aprovação liberar.
+      </p>
+      <div id="blocoAuto" style="display:none;margin-top:10px;">
+        <div class="row-2">
+          <div class="row"><label>Conta de origem *</label><select id="rContaFin"></select></div>
+          <div class="row"><label>Teto por pagamento (R$) *</label>
+            <input type="number" id="rLimite" step="0.01" min="0.01" placeholder="ex: 500,00"></div>
+        </div>
+        <div class="row"><label>Pagar até quantos dias antes do vencimento</label>
+          <input type="number" id="rDiasAntes" min="0" max="30" value="0">
+          <small class="muted">0 = paga no dia do vencimento.</small></div>
+        <p class="muted" style="font-size:0.85em;margin:8px 0 0;">
+          Acima do teto o título <strong>não sai sozinho</strong> — fica aberto esperando você.
+          É a proteção contra a conta que veio dobrada.
+        </p>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fechar()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvar()">Salvar</button>
@@ -122,6 +150,9 @@ function render(){
       <td>${r.frequencia}</td>
       <td style="text-align:right;"><strong>R$ ${fmt(r.valor)}</strong></td>
       <td>${fmtData(r.proximaGeracao)}</td>
+      <td>${r.pagarAutomatico
+        ? `<span class="badge ativo">PIX auto</span><br><small class="muted">teto R$ ${Number(r.limiteValorAuto||0).toFixed(2)}</small>`
+        : '<span style="color:var(--text-3);">manual</span>'}</td>
       <td><span class="badge ${r.ativo?'ativo':'inativo'}">${r.ativo?'ativo':'inativo'}</span></td>
       <td style="text-align:right;white-space:nowrap;">
         ${r.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="gerarAgora(${r.id})">Gerar agora</button>` : ''}
@@ -140,6 +171,11 @@ function abrirNova(){
   document.getElementById('rCategoria').value = '';
   document.getElementById('rForma').value = '';
   document.getElementById('rFreq').value = 'mensal';
+  document.getElementById('rPagarAuto').checked = false;
+  document.getElementById('rLimite').value = '';
+  document.getElementById('rDiasAntes').value = 0;
+  carregarContasFin();
+  alternarAuto();
   const d = new Date(Date.now() - 3*60*60*1000); d.setDate(d.getDate() + 7);
   document.getElementById('rProxima').value = d.toISOString().slice(0,10);
   document.getElementById('modal').classList.add('open');
@@ -162,6 +198,15 @@ function abrirEditar(id){
   document.getElementById('rProxima').value = (r.proximaGeracao||'').slice(0,10);
   document.getElementById('rDia').value = r.diaVencimento || '';
   document.getElementById('rObs').value = r.observacoes || '';
+  // Sem carregar isto, editar uma recorrencia automatica desligaria o
+  // pagamento sem ninguem pedir — o formulario mandaria os campos vazios.
+  carregarContasFin().then(() => {
+    document.getElementById('rContaFin').value = r.contaFinanceiraId || '';
+  });
+  document.getElementById('rPagarAuto').checked = !!r.pagarAutomatico;
+  document.getElementById('rLimite').value = r.limiteValorAuto ?? '';
+  document.getElementById('rDiasAntes').value = r.diasAntesVencimento ?? 0;
+  alternarAuto();
   document.getElementById('modal').classList.add('open');
 }
 
@@ -198,9 +243,18 @@ async function salvar(){
     proximaGeracao: document.getElementById('rProxima').value,
     diaVencimento: document.getElementById('rDia').value ? Number(document.getElementById('rDia').value) : null,
     formaPagamentoPadrao: document.getElementById('rForma').value || null,
-    observacoes: document.getElementById('rObs').value || null
+    observacoes: document.getElementById('rObs').value || null,
+    pagarAutomatico: document.getElementById('rPagarAuto').checked ? 1 : 0,
+    contaFinanceiraId: document.getElementById('rContaFin').value || null,
+    limiteValorAuto: document.getElementById('rLimite').value || null,
+    diasAntesVencimento: Number(document.getElementById('rDiasAntes').value) || 0
   };
   if (!body.descricao || !body.valor || !body.proximaGeracao) { alert('Descrição, valor e próxima geração obrigatórios'); return; }
+  // Mesma exigência do backend, dita antes de o servidor recusar.
+  if (body.pagarAutomatico === 1) {
+    if (!body.contaFinanceiraId) { alert('Pagamento automático exige a conta de origem'); return; }
+    if (!(Number(body.limiteValorAuto) > 0)) { alert('Pagamento automático exige um teto de valor'); return; }
+  }
   try {
     const url = EDITANDO ? '/api/cp-recorrencias/'+EDITANDO : '/api/cp-recorrencias';
     const method = EDITANDO ? 'PUT' : 'POST';
@@ -236,5 +290,51 @@ document.addEventListener('keydown', e => {
 });
 
 carregar();
+// ==================== PAGAMENTO AUTOMATICO POR PIX ====================
+let CONTAS_FIN = [];
+
+function alternarAuto(){
+  document.getElementById('blocoAuto').style.display =
+    document.getElementById('rPagarAuto').checked ? '' : 'none';
+}
+
+async function carregarContasFin(){
+  if (CONTAS_FIN.length) return CONTAS_FIN;
+  try {
+    const d = await fetch('/api/contas-financeiras').then(r => r.json());
+    CONTAS_FIN = d.contas || [];
+  } catch { CONTAS_FIN = []; }
+  const sel = document.getElementById('rContaFin');
+  if (sel) sel.innerHTML = '<option value="">Selecione…</option>' +
+    CONTAS_FIN.map(c => `<option value="${c.id}">${c.nome}</option>`).join('');
+  return CONTAS_FIN;
+}
+
+// Mostra o que sairia ANTES de sair. Dinheiro saindo sozinho merece ensaio.
+async function simularPix(){
+  const d = await fetch('/api/cp-recorrencias/pagamento-automatico/simular').then(r => r.json());
+  if (!d.success) return alert('Erro: ' + d.error);
+  const linhas = (d.simulacao || []).map(x => `• CP #${x.contaPagarId} — R$ ${Number(x.valor).toFixed(2)} → ${x.chavePix}`);
+  const pulados = (d.recusados || []).map(x => `• ${x.descricao || 'CP #' + x.contaPagarId}: ${x.motivo}`);
+  alert(`Sairiam agora: ${d.elegiveis}\n${linhas.join('\n') || '(nenhum)'}`
+    + (pulados.length ? `\n\nNão sairiam (${pulados.length}):\n${pulados.join('\n')}` : ''));
+}
+
+async function executarPix(){
+  const d0 = await fetch('/api/cp-recorrencias/pagamento-automatico/simular').then(r => r.json());
+  if (!d0.success) return alert('Erro: ' + d0.error);
+  if (!d0.elegiveis) return alert('Nenhum título elegível agora.'
+    + ((d0.recusados || []).length ? `\n\n${d0.recusados.length} pulado(s) — use Simular para ver o motivo.` : ''));
+  const total = (d0.simulacao || []).reduce((t, x) => t + Number(x.valor), 0);
+  // Confirmacao diz quanto e para quantos: e a ultima barreira antes do PIX.
+  if (!confirm(`Enviar PIX de ${d0.elegiveis} título(s), total R$ ${total.toFixed(2)}?\n\nO dinheiro sai da conta agora.`)) return;
+  const d = await fetch('/api/cp-recorrencias/pagamento-automatico/executar', { method: 'POST' }).then(r => r.json());
+  if (!d.success) return alert('Erro: ' + d.error);
+  alert(`${d.pagos} pagamento(s) enviado(s).`
+    + ((d.erros || []).length ? `\n${d.erros.length} com erro: ${d.erros.map(e => e.erro).join('; ')}` : '')
+    + ((d.recusados || []).length ? `\n${d.recusados.length} pulado(s).` : ''));
+  carregar();
+}
+
 </script>
 </body></html>

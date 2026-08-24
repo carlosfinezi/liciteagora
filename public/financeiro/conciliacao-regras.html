@@ -28,14 +28,27 @@
       <option value="categorizar">Sugerir categoria</option>
       <option value="ignorar">Ignorar (marca conciliada)</option>
     </select>
-    <input type="text" id="rCategoria" placeholder="Categoria" style="width:140px;">
+    <input type="text" id="rCategoria" placeholder="Rótulo" style="width:120px;">
+    <select id="rPlanoConta" style="width:210px;"><option value="">Conta do plano *</option></select>
+    <select id="rModo" style="width:150px;" title="Como o padrão é procurado no extrato">
+      <option value="palavra">Palavra inteira</option>
+      <option value="contem">Contém (mais amplo)</option>
+    </select>
+    <input type="number" id="rValorMin" placeholder="Valor mín." step="0.01" style="width:110px;">
+    <input type="number" id="rValorMax" placeholder="Valor máx." step="0.01" style="width:110px;">
+    <button class="btn btn-secondary btn-sm" onclick="testarRegra()">Testar</button>
     <button class="btn btn-primary btn-sm" onclick="addRegra()">+ Regra</button>
   </div>
 
-  <div class="tbl-wrap">
+  <div id="resultadoTeste"></div>
+  <div id="avisoDiagnostico"></div>
+
+  <div class="tbl-wrap" data-grid="conciliacao-regras">
     <table>
-      <thead><tr><th>Padrão</th><th>Lançamentos</th><th>Ação</th><th>Categoria</th><th>Conta</th><th>Status</th><th></th></tr></thead>
-      <tbody id="tbRegras"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      <thead><tr><th>Padrão</th><th>Modo</th><th>Lançamentos</th><th>Ação</th>
+        <th>Conta do plano</th><th>Conta banco</th><th style="text-align:right;">Usos</th>
+        <th>Status</th><th></th></tr></thead>
+      <tbody id="tbRegras"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 
@@ -43,7 +56,9 @@
     Para reaplicar as regras às transações já importadas de uma conta, use o botão abaixo.
     <div class="toolbar" style="margin-top:10px;">
       <select id="aplicarConta"></select>
-      <button class="btn btn-secondary btn-sm" onclick="reaplicar()">Reaplicar regras</button>
+      <button class="btn btn-secondary btn-sm" onclick="reaplicar(false)">Reaplicar nas pendentes</button>
+      <button class="btn btn-ghost btn-sm" onclick="reaplicar(true)" title="Reavalia também o que já foi classificado por regra">
+        Reprocessar tudo</button>
     </div>
   </div>
 </main></div>
@@ -52,6 +67,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('fin-conciliacao-regras');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -59,25 +76,103 @@ function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'
 async function carregar(){
   const r = await fetch('/api/conciliacao/regras'); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
-  document.getElementById('tbRegras').innerHTML = d.regras.length ? d.regras.map(x=>`<tr${x.ativo?'':' style="opacity:0.55;"'}>
-    <td><code>${x.padraoTexto}</code></td>
+  renderDiagnostico(d.diagnostico);
+  const mortas = new Set((d.diagnostico?.mortas||[]).map(m=>m.id));
+  const sombra = new Set((d.diagnostico?.sombreadas||[]).map(m=>m.id));
+  document.getElementById('tbRegras').innerHTML = d.regras.length ? d.regras.map(x=>{
+    const faixa = [x.valorMin!=null?`≥ ${x.valorMin}`:null, x.valorMax!=null?`≤ ${x.valorMax}`:null]
+      .filter(Boolean).join(' e ');
+    // Regra sem conta do plano categoriza para o nada — o orçamento não a vê.
+    const semPlano = x.acao === 'categorizar' && !x.planoContaId;
+    return `<tr${x.ativo?'':' style="opacity:0.55;"'}>
+    <td><code>${x.padraoTexto}</code>${faixa?`<br><small class="muted">${faixa}</small>`:''}
+      ${sombra.has(x.id)?'<br><small style="color:var(--warn);">nunca alcançada</small>':''}</td>
+    <td><small>${x.modo==='palavra'?'palavra inteira':'contém'}</small></td>
     <td>${x.tipoLancamento}</td>
     <td>${x.acao==='ignorar'?'🚫 ignorar':'🏷️ categorizar'}</td>
-    <td>${x.categoria||'-'}</td>
+    <td>${x.planoContaCodigo?`${x.planoContaCodigo} ${x.planoContaNome}`
+        : (semPlano?'<span style="color:var(--danger);">sem conta — não entra no orçamento</span>':'—')}
+      ${x.categoria?`<br><small class="muted">${x.categoria}</small>`:''}</td>
     <td>${x.contaNome||'todas'}</td>
+    <td style="text-align:right;">${x.vezesAplicada||0}${mortas.has(x.id)?'<br><small style="color:var(--warn);">nunca usada</small>':''}</td>
     <td>${x.ativo?'ativa':'inativa'}</td>
-    <td><button class="btn btn-ghost btn-sm" onclick="toggle(${x.id}, ${x.ativo?0:1})">${x.ativo?'Desativar':'Reativar'}</button></td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma regra</td></tr>';
+    <td style="white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick="toggle(${x.id}, ${x.ativo?0:1})">${x.ativo?'Desativar':'Reativar'}</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);"
+        onclick="excluirRegra(${x.id}, ${JSON.stringify(x.padraoTexto)})">Excluir</button></td>
+  </tr>`;
+  }).join('') : '<tr><td colspan="9" class="empty">Nenhuma regra</td></tr>';
+}
+
+
+// ---------- conta do plano, teste e diagnóstico ----------
+// A regra passou a exigir conta do plano: sem ela, categorizar só produzia um
+// texto solto que não entrava no orçamento nem em relatório nenhum.
+async function carregarPlanoContas(){
+  try {
+    const d = await fetch('/api/plano-contas').then(r=>r.json());
+    const lista = d.plano || [];
+    const sel = document.getElementById('rPlanoConta');
+    if (!lista.length) { sel.innerHTML = '<option value="">(plano de contas vazio)</option>'; return; }
+    // Só analítica: conta sintética soma no cabeçalho do grupo e o relatório
+    // perde a quebra por natureza.
+    const analiticas = lista.filter(c => !lista.some(f => f.parentId === c.id));
+    sel.innerHTML = '<option value="">Conta do plano *</option>' +
+      analiticas.map(c => `<option value="${c.id}">${c.codigo} ${c.nome}</option>`).join('');
+  } catch { /* tenant sem plano de contas */ }
+}
+
+function corpoRegra(){
+  const v = (id) => document.getElementById(id).value.trim();
+  return {
+    padraoTexto: v('rPadrao'),
+    tipoLancamento: document.getElementById('rTipo').value,
+    acao: document.getElementById('rAcao').value,
+    categoria: v('rCategoria') || null,
+    planoContaId: Number(document.getElementById('rPlanoConta').value) || null,
+    modo: document.getElementById('rModo').value,
+    valorMin: v('rValorMin') || null,
+    valorMax: v('rValorMax') || null,
+    contaFinanceiraId: Number(document.getElementById('aplicarConta').value) || null,
+  };
+}
+
+// Ver o que a regra pega ANTES de gravar. Padrão largo demais só aparecia
+// depois, com dezenas de lançamentos classificados errado.
+async function testarRegra(){
+  const body = corpoRegra();
+  if (body.padraoTexto.length < 3) return showAlert('Padrão de texto (mín. 3 caracteres)','error');
+  const d = await fetch('/api/conciliacao/regras/testar', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  const el = document.getElementById('resultadoTeste');
+  const fmtV = (v) => Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2});
+  el.innerHTML = `<div class="alert ${d.avisos.length?'warn':'info'}" style="display:block;">
+    <strong>${d.casam} de ${d.total} transação(ões) casariam</strong> (${d.percentual}%).
+    ${d.avisos.map(a=>`<br>⚠ ${a}`).join('')}
+    ${d.amostra.length?`<div style="margin-top:8px;font-size:0.88em;max-height:180px;overflow:auto;">
+      ${d.amostra.map(x=>`<div>${x.data} · R$ ${fmtV(x.valor)} · ${x.descricao||''} ${x.memo||''}
+        ${x.jaConciliada?'<em>(já conciliada)</em>':''}</div>`).join('')}</div>`:''}
+  </div>`;
+}
+
+function renderDiagnostico(d){
+  const el = document.getElementById('avisoDiagnostico'); if (!el) return;
+  const partes = [];
+  if (d?.mortas?.length) partes.push(`<strong>${d.mortas.length} regra(s) nunca pegaram nada</strong>:
+    ${d.mortas.map(m=>m.padraoTexto).join(', ')} — confira o texto exatamente como sai no extrato.`);
+  if (d?.sombreadas?.length) partes.push(`<strong>${d.sombreadas.length} regra(s) nunca serão alcançadas</strong>:
+    ${d.sombreadas.map(x=>`"${x.padraoTexto}" é engolida por "${x.engolidaPor.padraoTexto}"`).join('; ')}.`);
+  el.innerHTML = partes.length
+    ? `<div class="alert warn" style="display:block;">${partes.join('<br>')}</div>` : '';
 }
 
 async function addRegra(){
-  const body = {
-    padraoTexto: document.getElementById('rPadrao').value.trim(),
-    tipoLancamento: document.getElementById('rTipo').value,
-    acao: document.getElementById('rAcao').value,
-    categoria: document.getElementById('rCategoria').value.trim() || null
-  };
+  const body = corpoRegra();
   if (body.padraoTexto.length < 3) return showAlert('Padrão de texto (mín. 3 caracteres)','error');
+  if (body.acao === 'categorizar' && !body.planoContaId) {
+    return showAlert('Escolha a conta do plano — sem ela a categorização não chega ao orçamento','error');
+  }
   const r = await fetch('/api/conciliacao/regras', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
@@ -91,15 +186,30 @@ async function toggle(id, ativo){
   carregar();
 }
 
-async function reaplicar(){
+async function reaplicar(reprocessar){
   const contaFinanceiraId = Number(document.getElementById('aplicarConta').value);
-  const r = await fetch('/api/conciliacao/regras/aplicar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contaFinanceiraId }) });
+  if (!contaFinanceiraId) return showAlert('Escolha a conta','error');
+  // Reprocessar desfaz o que as regras decidiram antes — inclusive devolver à
+  // fila o que foi "ignorado". Conciliação feita por pessoa não é tocada.
+  if (reprocessar && !confirm('Reavaliar também o que já foi classificado por regra? A conciliação feita manualmente não é alterada.')) return;
+  const r = await fetch('/api/conciliacao/regras/aplicar', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ contaFinanceiraId, reprocessar: !!reprocessar }) });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
-  showAlert(`${d.aplicadas} transação(ões) processada(s)`);
+  showAlert(`${d.aplicadas} transação(ões) classificada(s)`
+    + (d.revertidas ? ` · ${d.revertidas} reavaliada(s)` : ''));
+  carregar();
+}
+
+async function excluirRegra(id, padrao){
+  if (!confirm(`Excluir a regra "${padrao}"? As transações pendentes que ela classificou voltam a ficar sem classificação.`)) return;
+  const d = await fetch('/api/conciliacao/regras/'+id, { method:'DELETE' }).then(r=>r.json());
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Regra excluída'); carregar();
 }
 
 (async () => {
+  await carregarPlanoContas();
   const r = await fetch('/api/contas-financeiras'); const d = await r.json();
   document.getElementById('aplicarConta').innerHTML = (d.contas||[]).map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
 })();

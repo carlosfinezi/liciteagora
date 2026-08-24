@@ -5,6 +5,12 @@
 <title>Movimentações de Estoque · Licite Agora</title>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* .num não existe no app-modern.css — sem isto a coluna numérica fica
+     alinhada à esquerda. */
+  .num { text-align:right; white-space:nowrap; }
+  .sub { display:block; color:var(--text-3); font-size:.78em; }
+</style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
@@ -21,29 +27,43 @@
 
   <div id="alertGlobal"></div>
 
+  <div class="kpi-grid" id="kpis"></div>
+  <div id="avisoTrunc"></div>
+
   <div class="toolbar">
-    <input type="text" id="filtProdMov" placeholder="Filtrar por produtoId (opcional)" oninput="carregarMov()" style="width:220px;">
+    <input type="text" id="filtQ" placeholder="Buscar por SKU ou descrição…" oninput="debounce(carregarMov)" style="flex:1;min-width:220px;">
+    <label style="display:flex;align-items:center;gap:6px;">De <input type="date" id="filtDe" onchange="carregarMov()"></label>
+    <label style="display:flex;align-items:center;gap:6px;">Até <input type="date" id="filtAte" onchange="carregarMov()"></label>
+    <select id="filtTipo" onchange="carregarMov()">
+      <option value="">Todos os tipos</option>
+      <option value="entrada">Entrada</option>
+      <option value="saida">Saída</option>
+      <option value="ajuste">Ajuste</option>
+    </select>
     <select id="filtOrigem" onchange="carregarMov()">
       <option value="">Todas origens</option>
-      <option value="ajuste_manual">Ajuste manual</option>
-      <option value="compra">Compra</option>
-      <option value="pedido">Pedido</option>
-      <option value="inventario">Inventário</option>
-      <option value="transferencia">Transferência</option>
-      <option value="estorno">Estorno</option>
     </select>
     <select id="filtDeposito" onchange="carregarMov()" style="display:none;">
       <option value="">Todos os depósitos</option>
     </select>
+    <select id="filtLimite" onchange="carregarMov()">
+      <option value="200">200 linhas</option>
+      <option value="500">500</option>
+      <option value="1000">1000</option>
+      <option value="2000">2000</option>
+    </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="estoque-movimentacoes">
     <table>
       <thead><tr>
         <th>Data</th><th>SKU</th><th>Descrição</th><th>Tipo</th>
-        <th style="text-align:right;">Qtd</th><th>Origem</th><th>Status</th><th>Observação</th><th></th>
+        <th class="num">Qtd</th>
+        <th class="num" title="Custo unitário registrado na movimentação">Custo un.</th>
+        <th class="num" title="Saldo do produto logo após esta movimentação">Saldo depois</th>
+        <th>Origem</th><th>Depósito</th><th>Status</th><th>Observação</th><th></th>
       </tr></thead>
-      <tbody id="tbMov"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tbMov"><tr><td colspan="12" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -75,6 +95,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('estoque-movimentacoes');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -82,37 +104,70 @@ function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR'
 
 let movAtual = null;
 
+let debT; function debounce(fn){ clearTimeout(debT); debT=setTimeout(fn,300); }
+const val = id => document.getElementById(id).value;
+
 async function carregarMov(){
-  const produtoId=document.getElementById('filtProdMov').value;
-  const origem=document.getElementById('filtOrigem').value;
-  const dep=document.getElementById('filtDeposito').value;
   const p=new URLSearchParams();
-  if(produtoId) p.set('produtoId',produtoId);
-  if(origem) p.set('origem',origem);
-  if(dep) p.set('depositoId',dep);
+  for (const [param,id] of Object.entries({q:'filtQ', de:'filtDe', ate:'filtAte',
+      tipo:'filtTipo', origem:'filtOrigem', depositoId:'filtDeposito', limit:'filtLimite'})) {
+    const v = val(id); if (v) p.set(param, v);
+  }
   const r=await fetch('/api/estoque/movimentacoes?'+p); const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');
+
+  const t = d.totais || {};
+  const saldo = (t.qtdEntrada||0) - (t.qtdSaida||0) + (t.qtdAjuste||0);
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">Movimentações</div><div class="value">${t.registros||0}</div>
+      <small class="muted">${t.estornadas||0} estornada(s)</small></div>
+    <div class="kpi success"><div class="label">Entradas</div><div class="value">${fmt(t.qtdEntrada)}</div>
+      <small class="muted">R$ ${fmt(t.valorEntrada)}</small></div>
+    <div class="kpi danger"><div class="label">Saídas</div><div class="value">${fmt(t.qtdSaida)}</div>
+      <small class="muted">R$ ${fmt(t.valorSaida)}</small></div>
+    <div class="kpi ${saldo>=0?'':'warn'}"><div class="label">Variação no período</div>
+      <div class="value">${saldo>=0?'+':''}${fmt(saldo)}</div>
+      <small class="muted">entradas − saídas ± ajustes</small></div>`;
+
+  // O LIMIT cortava as mais antigas em silêncio.
+  document.getElementById('avisoTrunc').innerHTML = d.truncado
+    ? `<div class="alert warn" style="display:block;">Mostrando ${d.movimentacoes.length} de
+       <strong>${t.registros}</strong> movimentações. Refine o período ou aumente o limite.</div>` : '';
+
   const tb=document.getElementById('tbMov');
   tb.innerHTML = d.movimentacoes.length ? d.movimentacoes.map(m=>{
     const estornada = m.estornada === 1 || m.estornada === true;
     const statusBadge = estornada
       ? `<span class="badge cancelado" title="Estornada pela mov #${m.movEstornoId}">ESTORNADA</span>`
-      : (m.origem === 'estorno' ? `<span class="badge saida" title="Estorno da mov #${m.movOriginalId}">ESTORNO</span>` : '<span class="badge entrada">OK</span>');
+      : (String(m.origem||'').startsWith('estorno') ? `<span class="badge saida" title="Estorno da mov #${m.movOriginalId}">ESTORNO</span>` : '<span class="badge entrada">OK</span>');
     const podeEstornar = !estornada && !['pedido','estorno','transferencia'].includes(m.origem);
     const acao = podeEstornar
       ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick='abrirModalEstorno(${JSON.stringify(m).replace(/'/g,"&#39;")})'>Estornar</button>`
       : '';
-    const origemTxt = m.depositoNome ? `${m.origem||'-'} · ${m.depositoNome}` : (m.origem||'-');
     return `<tr${estornada?' style="opacity:0.6;"':''}>
-      <td>${m.data}</td><td>${m.sku}</td><td>${m.descricao}</td>
+      <td>${(m.data||'').slice(0,10)}</td><td class="mono">${m.sku}</td><td>${m.descricao}</td>
       <td><span class="badge ${m.tipo}">${m.tipo}</span></td>
-      <td style="text-align:right;">${fmt(m.quantidade)}</td>
-      <td>${origemTxt}</td>
+      <td class="num">${fmt(m.quantidade)}</td>
+      <td class="num">${m.custoUnitario!=null?('R$ '+fmt(m.custoUnitario)):'—'}</td>
+      <td class="num">${m.saldoPosterior!=null?fmt(m.saldoPosterior):'—'}</td>
+      <td>${m.origem||'-'}</td>
+      <td>${m.depositoNome||'<span class="muted">padrão</span>'}</td>
       <td>${statusBadge}</td>
       <td>${m.observacao||'-'}</td>
       <td>${acao}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="9" class="empty">Sem movimentações</td></tr>';
+  }).join('') : '<tr><td colspan="12" class="empty">Sem movimentações no filtro</td></tr>';
+}
+
+async function carregarOrigens(){
+  // Vem do banco: a lista fixa no HTML oferecia origens inexistentes e
+  // escondia as reais.
+  try {
+    const d = await fetch('/api/estoque/movimentacoes/origens').then(r=>r.json());
+    if (!d.success) return;
+    document.getElementById('filtOrigem').innerHTML = '<option value="">Todas origens</option>' +
+      d.origens.map(o=>`<option value="${o.origem}">${o.origem} (${o.n})</option>`).join('');
+  } catch { /* mantém só "Todas origens" */ }
 }
 
 (async function initDepositos(){
@@ -163,6 +218,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('modalEstorno').classList.contains('open')) fecharModal();
 });
 
-carregarMov();
+(async function iniciar(){
+  const hoje = new Date();
+  const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  document.getElementById('filtDe').value  = ini.toISOString().slice(0,10);
+  document.getElementById('filtAte').value = hoje.toISOString().slice(0,10);
+  await carregarOrigens();
+  await carregarMov();
+})();
 </script>
 </body></html>

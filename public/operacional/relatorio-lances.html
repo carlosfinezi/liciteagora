@@ -6,9 +6,23 @@
     <title>Relatório de Lances · Licite Agora</title>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* grid.js mede a coluna pelo título e impõe nowrap + reticências: a mensagem
+     do portal ("O Lance Ofertado deve atender ao Intervalo Mínimo...") não cabe
+     e seria cortada. Piso de largura + quebra de linha só nesta coluna.
+     Seletor mais específico que o `.grid-on td` do grid.js de propósito — o CSS
+     dele é injetado em runtime, depois deste. */
+  .tbl-wrap th.col-motivo { min-width: 300px; }
+  /* Estado do item quando o lance foi calculado — é o que explica o 422 de
+     intervalo mínimo (líder já estava colado no valor enviado). */
+  .sub-ctx { display: block; color: var(--text-3); font-size: 0.74em; margin-top: 2px; }
+  .tbl-wrap table.grid-on td.col-motivo { white-space: normal; overflow: visible;
+                                          text-overflow: clip; overflow-wrap: break-word;
+                                          color: var(--text-2); font-size: 0.88em; }
+</style>
     <style>
         /* Page-local: fonte mono para colunas numéricas */
-        .mono { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 0.9em; }
+        .mono { font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 1em; }
     </style>
 </head>
 <body>
@@ -54,7 +68,7 @@
 
     <div class="panel">
         <h3 style="margin-bottom:12px;">Lances <small id="totalLabel"></small></h3>
-        <div class="tbl-wrap">
+        <div class="tbl-wrap" data-grid="relatorio-lances">
             <table>
                 <thead>
                     <tr>
@@ -63,6 +77,7 @@
                         <th>Item</th>
                         <th>Valor</th>
                         <th>Resultado</th>
+                        <th class="col-motivo">Motivo da recusa</th>
                         <th>Latência</th>
                         <th>Fonte</th>
                     </tr>
@@ -85,6 +100,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('relatorio-lances');</script>
 <script>
 var lancesData = [];
@@ -119,6 +136,9 @@ async function carregar() {
         alert('Erro: ' + e.message);
     }
 }
+
+// A mensagem vem do portal — trata como texto, nunca como HTML.
+function esc(t) { var d = document.createElement('div'); d.textContent = String(t == null ? '' : t); return d.innerHTML; }
 
 function kpi(label, value, modifier) {
     var cls = modifier ? 'kpi ' + modifier : 'kpi';
@@ -162,8 +182,14 @@ function renderTabela(lances) {
             '<td class="mono">' + horaCN + '</td>' +
             '<td class="mono" title="' + h.compraId + '">' + (h.compraId||'').substring(0, 6) + '…' + (h.compraId||'').slice(-4) + '</td>' +
             '<td>' + h.itemNumero + '</td>' +
-            '<td class="mono">R$ ' + Number(h.valor).toFixed(2) + '</td>' +
+            '<td class="mono">R$ ' + Number(h.valor).toFixed(2) +
+                (h.melhorValorAntes != null || h.nossoValorAntes != null
+                  ? '<span class="sub-ctx">nosso ' + (h.nossoValorAntes != null ? Number(h.nossoValorAntes).toFixed(2) : '?') +
+                    ' · líder ' + (h.melhorValorAntes != null ? Number(h.melhorValorAntes).toFixed(2) : '?') +
+                    (h.variacaoMinimaUsada != null ? ' · passo ' + Number(h.variacaoMinimaUsada).toFixed(2) : '') + '</span>'
+                  : '') + '</td>' +
             '<td>' + badgeRes + '</td>' +
+            '<td class="col-motivo">' + (h.motivo ? '<span title="' + esc(h.motivo) + '">' + esc(h.motivo) + '</span>' : '—') + '</td>' +
             '<td class="mono">' + (h.tempoMs || '—') + 'ms</td>' +
             '<td><span class="badge confirmado">' + (h.fonte || '—') + '</span></td>' +
             '</tr>';
@@ -261,7 +287,7 @@ function hojeISO(){
 
 function exportarCSV() {
     if (lancesData.length === 0) return;
-    var csv = 'Comprasnet,CompraId,Item,Valor,Sucesso,Latencia_ms,Fonte,HTTP\n';
+    var csv = 'Comprasnet,CompraId,Item,Valor,Sucesso,Latencia_ms,Fonte,HTTP,NossoAntes,LiderAntes,PassoMin,Motivo\n';
     lancesData.forEach(function(l) {
         var cn = '';
         if (l.comprasnetHora) cn = l.comprasnetHora;
@@ -272,7 +298,12 @@ function exportarCSV() {
                 if (item0 && item0.dataHoraAtualizacao) cn = item0.dataHoraAtualizacao.substring(11, 23);
             } catch(e) {}
         }
-        csv += cn + ',' + l.compraId + ',' + l.itemNumero + ',' + l.valor + ',' + (l.sucesso?'OK':'FALHA') + ',' + (l.tempoMs||0) + ',' + (l.fonte||'') + ',' + (l.httpStatus||'') + '\n';
+        // Aspas no motivo: a mensagem do portal tem vírgula ("Envio de lance
+        // não permitido: ...") e sem isso ela quebraria a coluna no CSV.
+        var motivo = l.motivo ? '"' + String(l.motivo).replace(/"/g, '""') + '"' : '';
+        csv += cn + ',' + l.compraId + ',' + l.itemNumero + ',' + l.valor + ',' + (l.sucesso?'OK':'FALHA') + ',' + (l.tempoMs||0) + ',' + (l.fonte||'') + ',' + (l.httpStatus||'') + ',' +
+            (l.nossoValorAntes != null ? l.nossoValorAntes : '') + ',' + (l.melhorValorAntes != null ? l.melhorValorAntes : '') + ',' +
+            (l.variacaoMinimaUsada != null ? l.variacaoMinimaUsada : '') + ',' + motivo + '\n';
     });
     var blob = new Blob([csv], {type:'text/csv'});
     var a = document.createElement('a');

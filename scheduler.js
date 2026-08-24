@@ -20,6 +20,7 @@ const resultadosBackfill = require('./resultados-backfill');
 const marcaBackfill = require('./marca-backfill');
 const marcaPortalBackfill = require('./marca-portal-backfill');
 const ftsBackfill = require('./fts-backfill');
+const catalogWatchdog = require('./catalog-watchdog');
 const { agendarRecorrencias } = require('./recorrencia-scheduler');
 const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarPollingBoletos } = require('./financeiro-routes');
@@ -27,6 +28,9 @@ const { agendarPollingBoletosAsaas } = require('./boleto-orchestrator');
 const { iniciarReconciliadorS6 } = require('./nfse-routes');
 const { sincronizarInboxNfe } = require('./nfe-entrada-routes');
 const { sendTelegram } = require('./telegram-client');
+// Mesmo dispatcher usado pela API: o sweep de SLA precisa notificar pelas
+// regras configuradas, não só gravar o evento e mandar Telegram fixo.
+const { dispatchNotificacoes, migrarNotificacoesDB } = require('./os-notificacoes');
 const { agendarPcpMonitor } = require('./pcp-monitor');
 const { agendarResolverSalas: agendarResolverSalasBNC } = require('./bnc-sala-resolver');
 const { agendarAlertasDisputa } = require('./alertas-disputa-vigilancia');
@@ -145,6 +149,30 @@ function ligarBackfillFts() {
   ftsBackfill.iniciarBackfillEngine();
 }
 
+// Vigilância das engines acima (2026-08-11, depois do resultados-backfill ter
+// morrido calado por 4 dias). O alerta sai no log sempre e no Telegram do
+// primeiro tenant com o canal ligado — o catálogo é compartilhado, não tem
+// dono, e mandar para um db sem telegram_config é o que já acontece no
+// watchdog do pncp-sync (nunca entregou nada).
+function _dbParaAlertaMaster() {
+  for (const t of _listTenantsSafe()) {
+    try {
+      const db = mgr.getDb(t.slug);
+      const row = db.prepare(
+        "SELECT 1 FROM telegram_config WHERE id = 1 AND ativo = 1 AND botToken IS NOT NULL AND botToken <> ''"
+      ).get();
+      if (row) return db;
+    } catch (err) {
+      // tenant sem a tabela ou sem canal: segue para o próximo
+    }
+  }
+  return null;
+}
+
+function ligarWatchdogCatalogo() {
+  catalogWatchdog.iniciarWatchdogCatalogo({ dbAlerta: _dbParaAlertaMaster() });
+}
+
 // ==================== JOBS POR TENANT ====================
 
 function ligarJobsPorTenant() {
@@ -159,8 +187,9 @@ function ligarJobsPorTenant() {
     // o DB direto recebido; o storage é garantia extra para handlers
     // internos que porventura consultem currentDb().
     tenantStorage.run({ kind: 'tenant', tenant: t, db }, () => {
-      // Jornal de Licitações removido (2026-08-02): a descoberta por IA
-      // varre os mesmos grupos e usa os mesmos canais.
+      // Jornal de Licitações removido: a descoberta por IA varre os mesmos
+      // grupos de palavras, qualifica por score e usa os mesmos canais. Manter
+      // os dois mandava duas mensagens sobre a mesma licitação.
       try { agendarRecorrencias(db); } catch (err) { console.error(`[master][${t.slug}] recorrencias:`, err.message); }
       try { agendarCobrancas(db); } catch (err) { console.error(`[master][${t.slug}] cobrancas:`, err.message); }
       try { agendarPollingBoletos(db); } catch (err) { console.error(`[master][${t.slug}] boletos:`, err.message); }
@@ -322,6 +351,8 @@ async function cicloSLASweep() {
   for (const t of tenants) {
     let db;
     try { db = mgr.getDb(t.slug); } catch (_) { continue; }
+    // O master pode rodar antes do worker ter migrado o tenant.
+    try { migrarNotificacoesDB(db); } catch (_) { /* idempotente */ }
 
     try {
       // Atrasadas novas: status ativo + dataPromessa < hoje + slaStatus != 'atrasado'
@@ -353,7 +384,11 @@ async function cicloSLASweep() {
         const msgs = [];
         for (const o of atrasadas) {
           updSt.run(o.id);
-          insEvt.run(o.id, `OS ${o.numero} ultrapassou o prazo (${o.dataPromessa})`);
+          const desc = `OS ${o.numero} ultrapassou o prazo (${o.dataPromessa})`;
+          insEvt.run(o.id, desc);
+          // O INSERT acima não passa pelo dispatcher — a regra de
+          // notificação de 'sla-atrasado' ficava ativa sem enviar nada.
+          try { await dispatchNotificacoes(db, o.id, 'sla-atrasado', desc, null); } catch (_) {}
           msgs.push(`🚨 <b>${o.numero}</b> — ${o.titulo || ''} | prazo: ${o.dataPromessa} | técnico: ${o.tecnicoNome || o.tecnicoUser || '—'}`);
         }
         if (msgs.length) {
@@ -369,13 +404,58 @@ async function cicloSLASweep() {
         const insEvt = db.prepare(`INSERT INTO os_eventos (osId, tipo, descricao, usuario) VALUES (?, 'sla-risco', ?, 'sistema')`);
         for (const o of emRisco) {
           updRisc.run(o.id);
-          insEvt.run(o.id, `OS ${o.numero} em risco de atraso (<=24h)`);
+          const desc = `OS ${o.numero} em risco de atraso (<=24h)`;
+          insEvt.run(o.id, desc);
+          try { await dispatchNotificacoes(db, o.id, 'sla-risco', desc, null); } catch (_) {}
         }
       }
     } catch (err) {
       console.error(`[master][${t.slug}] SLA sweep:`, err.message);
     }
   }
+}
+
+// ==================== ALÇADAS: AVISOS REMOVIDOS ====================
+//
+// Havia aqui um ciclo de 6 em 6 horas que varria os tenants e mandava aviso de
+// aprovação prestes a vencer (governanca-avisos.avisarExpirando), par do aviso
+// de criação que saía do hook em governanca-routes. Os dois foram REMOVIDOS em
+// 2026-08-21, a pedido: mandavam mensagem no Telegram/e-mail do tenant a cada
+// solicitação de alçada. A fila fica em Financeiro > Fila de Aprovações, com
+// contador no menu, e o vencimento aparece na própria linha.
+//
+// O módulo governanca-avisos.js segue no repo — ele cria as colunas
+// avisoCriacaoEm/avisoExpiracaoEm e é usado pelos testes —, mas nada o chama
+// em produção. Para religar: restaurar este ciclo e a chamada a avisarCriacao.
+
+// ==================== SSL NICSRS: CICLO DE VIDA DOS CERTIFICADOS ====================
+//
+// O arquivo emitido vale ~200 dias; o contrato com o cliente vale 12+ meses.
+// Quem cobre essa diferença é o reissue gratuito dentro da assinatura — e ele
+// precisa de alguém varrendo o calendário. Inerte em tenant sem token NicSRS.
+const SSL_NICSRS_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+async function cicloSslNicsrs() {
+  const sslSched = require('./ssl-certificados-scheduler');
+  const tenants = _listTenantsSafe();
+  for (const t of tenants) {
+    let db;
+    try { db = mgr.getDb(t.slug); } catch (_) { continue; }
+    try {
+      const r = await sslSched.varrerTenant(db, t.slug);
+      if (r && (r.emitidos || r.reemitidos || r.expirados || r.alertas)) {
+        console.log(`[master][${t.slug}] ssl: ${r.emitidos} emitido(s), ${r.reemitidos} reemitido(s), ${r.expirados} expirado(s), ${r.alertas} alerta(s)`);
+      }
+    } catch (err) {
+      console.error(`[master][${t.slug}] ssl-nicsrs:`, err.message);
+    }
+  }
+}
+
+function ligarSslNicsrs() {
+  setInterval(() => { cicloSslNicsrs().catch(e => console.error('[master] ssl-nicsrs:', e.message)); }, SSL_NICSRS_INTERVAL_MS);
+  setTimeout(() => { cicloSslNicsrs().catch(()=>{}); }, 180 * 1000);
+  console.log('[master] ciclo SSL NicSRS ativo (a cada 12h)');
 }
 
 function ligarSLASweep() {
@@ -1012,10 +1092,12 @@ try {
   ligarBackfillMarca();
   ligarBackfillMarcaPortal();
   ligarBackfillFts();
+  ligarWatchdogCatalogo();
   ligarJobsPorTenant();
   ligarReconciliadorFiscal();
   ligarSLASweep();
   ligarPreventivas();
+  ligarSslNicsrs();
   ligarPrefetchDadosAbertos();
   ligarExpurgoCache();
   ligarDistDFeInbox();

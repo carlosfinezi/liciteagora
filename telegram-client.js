@@ -17,13 +17,44 @@
 const axios = require('axios');
 
 /**
+ * O canal Telegram está ligado para este tenant?
+ *
+ * Lê `alerta_canal_telegram`, a mesma chave que
+ * /configuracoes/notificacoes.html grava. Default ON: tenant que nunca
+ * abriu a tela continua recebendo exatamente como antes.
+ *
+ * POR QUE A CHECAGEM MORA AQUI, no transporte, e não em cada chamador:
+ * até 2026-08-02 só três emissores consultavam essa chave (sniper, vigia de
+ * disputa e descoberta por IA). Outros nove chamavam sendTelegram direto —
+ * OS, PCP, preventivas, BNC, propostas, habilitação e o sync do PNCP. Quem
+ * desmarcasse "Enviar pelo Telegram" desligava três e continuava recebendo
+ * nove. Uma tela que promete desligar um canal e não desliga é pior que não
+ * ter a tela. No transporte não há como um emissor novo escapar por
+ * esquecimento.
+ */
+function canalTelegramLigado(db) {
+  try {
+    const row = db.prepare("SELECT valor FROM config WHERE chave = 'alerta_canal_telegram'").get();
+    return !row || row.valor == null ? true : row.valor === '1';
+  } catch (_) {
+    // Sem tabela config (banco em migração): não é motivo para engolir alerta.
+    return true;
+  }
+}
+
+/**
  * Envia uma mensagem de texto HTML via Telegram Bot API usando as
  * credenciais gravadas em telegram_config (id=1, ativo=1).
  * Retorna true se a API retornou ok, false em qualquer falha (config
  * ausente, erro de rede, resposta não-ok). Nunca lança.
  */
-async function sendTelegram(db, mensagem) {
+async function sendTelegram(db, mensagem, { ignorarCanal = false } = {}) {
   try {
+    // `ignorarCanal` existe para UM caso: testar as credenciais do bot. Sem
+    // ele, com o canal desligado o usuário não conseguiria validar o token —
+    // o teste falharia e pareceria problema de configuração.
+    if (!ignorarCanal && !canalTelegramLigado(db)) return false;
+
     const config = db.prepare('SELECT botToken, chatId FROM telegram_config WHERE id = 1 AND ativo = 1').get();
     if (!config || !config.botToken || !config.chatId) return false;
 
@@ -159,4 +190,4 @@ async function sendNotificacao(db, dados) {
   }
 }
 
-module.exports = { sendTelegram, sendNotificacao };
+module.exports = { sendTelegram, sendNotificacao, canalTelegramLigado };

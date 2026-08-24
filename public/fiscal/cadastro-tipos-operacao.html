@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tipos de Operação · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Tipos de Operação</h1>
+      <small>Cabeçalho gerencial do pedido — define se gera financeiro, movimenta estoque e emite NF-e</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo tipo</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <p style="color:var(--text-2);font-size:0.9em;margin-bottom:10px;">
+      O tipo de operação é escolhido no cabeçalho do pedido (ou devolução) e propaga para
+      todos os itens: CFOP correto por destino, se baixa estoque, se gera contas a receber,
+      se emite NF-e e qual a finalidade fiscal.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Código</th>
+          <th>Descrição</th>
+          <th>Categoria</th>
+          <th title="Finalidade NF-e">Fin.</th>
+          <th title="Emite NF-e / Gera Financeiro / Movimenta Estoque / Gerencial (DRE)">Flags</th>
+          <th>CFOPs (int / inter / ext)</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitulo" style="margin:0;">Novo tipo de operação</h3>
+        <small class="muted">Define comportamento gerencial e fiscal da operação</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="hidden" id="fId">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Código *</label>
+        <input type="text" id="fCodigo" maxlength="20" placeholder="VDA-NORMAL" style="text-transform:uppercase;">
+      </div>
+      <div class="form-group" style="flex:2;">
+        <label>Descrição *</label>
+        <input type="text" id="fDesc" placeholder="Venda normal">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Categoria</label>
+        <select id="fCategoria">
+          <option value="venda">Venda</option>
+          <option value="compra">Compra</option>
+          <option value="compra_uso_consumo">Compra (uso e consumo)</option>
+          <option value="devolucao_venda">Devolução de venda</option>
+          <option value="devolucao_compra">Devolução de compra</option>
+          <option value="bonificacao">Bonificação / brinde</option>
+          <option value="transferencia">Transferência</option>
+          <option value="remessa">Remessa</option>
+          <option value="retorno">Retorno</option>
+          <option value="exportacao">Exportação</option>
+          <option value="servico">Serviço</option>
+          <option value="outros">Outros</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Finalidade NF-e</label>
+        <select id="fFinalidade">
+          <option value="1">1 · Normal</option>
+          <option value="2">2 · Complementar</option>
+          <option value="3">3 · Ajuste</option>
+          <option value="4">4 · Devolução</option>
+        </select>
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;margin-bottom:8px;">Comportamento</h4>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Emite NF-e?</label>
+        <select id="fEmiteNFe"><option value="1">Sim</option><option value="0">Não (doc. interno)</option></select>
+      </div>
+      <div class="form-group">
+        <label>Gera financeiro (contas a receber)?</label>
+        <select id="fGeraFin"><option value="1">Sim</option><option value="0">Não</option></select>
+      </div>
+      <div class="form-group">
+        <label>Movimenta estoque?</label>
+        <select id="fMovEst"><option value="1">Sim</option><option value="0">Não</option></select>
+      </div>
+      <div class="form-group">
+        <label>Entra no DRE (gerencial)?</label>
+        <select id="fGerencial"><option value="1">Sim</option><option value="0">Não</option></select>
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;margin-bottom:8px;">Disponível em</h4>
+    <p class="muted" style="font-size:0.85em;margin-bottom:10px;">
+      Em quais telas este tipo aparece para escolha. Desmarcado, ele continua
+      valendo nos documentos que já o usam — só some do seletor.
+    </p>
+    <div class="form-row">
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
+          <input type="checkbox" id="fUsoPedido" style="width:auto;"> Pedido de venda
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
+          <input type="checkbox" id="fUsoOS" style="width:auto;"> Ordem de serviço
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
+          <input type="checkbox" id="fUsoDevolucao" style="width:auto;"> Devolução
+        </label>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
+          <input type="checkbox" id="fUsoNFAvulsa" style="width:auto;"> NF avulsa
+        </label>
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;margin-bottom:8px;">CFOPs default por destino</h4>
+    <p class="muted" style="font-size:0.85em;margin-bottom:10px;">
+      O motor refina automaticamente (ex: venda interestadual a não-contribuinte usa 6108 em vez de 6102).
+    </p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>CFOP interno (mesma UF)</label>
+        <input type="text" id="fCfopInterno" maxlength="4" placeholder="5102" style="font-family:monospace;">
+      </div>
+      <div class="form-group">
+        <label>CFOP interestadual</label>
+        <input type="text" id="fCfopInterestadual" maxlength="4" placeholder="6102" style="font-family:monospace;">
+      </div>
+      <div class="form-group">
+        <label>CFOP exterior</label>
+        <input type="text" id="fCfopExterior" maxlength="4" placeholder="7102" style="font-family:monospace;">
+      </div>
+    </div>
+
+    <h4 style="margin-top:16px;margin-bottom:8px;">Textos padrão</h4>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Texto da natureza da operação na NF-e (natOp)</label>
+        <input type="text" id="fTextoNFe" maxlength="60" placeholder="VENDA DE MERCADORIA">
+        <small class="muted">Vai literalmente no campo natOp da NF-e (máx 60 chars, sem acentos).</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Observação fiscal padrão (infCpl)</label>
+        <textarea id="fObsFiscal" rows="2" placeholder="Cláusulas legais, artigos, etc."></textarea>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('cadastro-tipos-operacao');</script>
+<script>
+function val(id){ return document.getElementById(id).value; }
+function setVal(id, v){ document.getElementById(id).value = v == null ? '' : v; }
+function chk(id){ return document.getElementById(id).checked ? 1 : 0; }
+function setChk(id, v){ document.getElementById(id).checked = !!v; }
+function showAlert(m, t='success'){
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(()=>e.style.display='none', 5000);
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function carregar(){
+  try {
+    const r = await fetch('/api/tipos-operacao');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    render(d.tipos);
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+
+function render(lista){
+  const tb = document.getElementById('tb');
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhum tipo cadastrado.</td></tr>'; return; }
+  tb.innerHTML = lista.map(t => {
+    const flags = [
+      t.emiteNFe        ? 'N' : '·',
+      t.geraFinanceiro  ? 'F' : '·',
+      t.movimentaEstoque? 'E' : '·',
+      t.gerencial       ? 'G' : '·'
+    ].join('');
+    const usos = [
+      t.usarEmPedido    ? 'P' : '·',
+      t.usarEmOS        ? 'O' : '·',
+      t.usarEmDevolucao ? 'D' : '·',
+      t.usarEmNFAvulsa  ? 'A' : '·'
+    ].join('');
+    const cfops = [t.cfopInterno || '—', t.cfopInterestadual || '—', t.cfopExterior || '—'].join(' / ');
+    return `<tr>
+      <td class="mono"><strong>${esc(t.codigo)}</strong></td>
+      <td>${esc(t.descricao)}</td>
+      <td><small class="muted">${esc(t.categoriaOperacao || '—')}</small></td>
+      <td>${t.finalidadeNFe || 1}</td>
+      <td>
+        <code style="letter-spacing:2px;" title="N=emite NF-e · F=financeiro · E=estoque · G=gerencial/DRE">${flags}</code>
+        <code style="letter-spacing:2px;margin-left:8px;opacity:.75;" title="Disponível em — P=pedido · O=OS · D=devolução · A=NF avulsa">${usos}</code>
+      </td>
+      <td class="mono" style="font-size:0.85em;">${cfops}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(t)})'>Editar</button>
+        ${t.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${t.id})" title="Desativar">✕</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function abrirNovo(){
+  setVal('fId', '');
+  setVal('fCodigo', '');
+  setVal('fDesc', '');
+  setVal('fCategoria', 'venda');
+  setVal('fFinalidade', '1');
+  setVal('fEmiteNFe', '1');
+  setVal('fGeraFin', '1');
+  setVal('fMovEst', '1');
+  setVal('fGerencial', '1');
+  setVal('fCfopInterno', '');
+  setVal('fCfopInterestadual', '');
+  setVal('fCfopExterior', '');
+  setVal('fTextoNFe', '');
+  setVal('fObsFiscal', '');
+  // Default acompanha a categoria inicial (venda): saída de mercadoria.
+  setChk('fUsoPedido', 1);
+  setChk('fUsoNFAvulsa', 1);
+  setChk('fUsoOS', 0);
+  setChk('fUsoDevolucao', 0);
+  document.getElementById('modalTitulo').textContent = 'Novo tipo de operação';
+  document.getElementById('modal').classList.add('open');
+}
+
+function editar(t){
+  setVal('fId', t.id);
+  setVal('fCodigo', t.codigo);
+  setVal('fDesc', t.descricao);
+  setVal('fCategoria', t.categoriaOperacao || 'venda');
+  setVal('fFinalidade', String(t.finalidadeNFe || 1));
+  setVal('fEmiteNFe', t.emiteNFe ? '1' : '0');
+  setVal('fGeraFin', t.geraFinanceiro ? '1' : '0');
+  setVal('fMovEst', t.movimentaEstoque ? '1' : '0');
+  setVal('fGerencial', t.gerencial ? '1' : '0');
+  setVal('fCfopInterno', t.cfopInterno || '');
+  setVal('fCfopInterestadual', t.cfopInterestadual || '');
+  setVal('fCfopExterior', t.cfopExterior || '');
+  setVal('fTextoNFe', t.textoPadraoNFe || '');
+  setVal('fObsFiscal', t.observacaoFiscalPadrao || '');
+  setChk('fUsoPedido', t.usarEmPedido);
+  setChk('fUsoOS', t.usarEmOS);
+  setChk('fUsoDevolucao', t.usarEmDevolucao);
+  setChk('fUsoNFAvulsa', t.usarEmNFAvulsa);
+  document.getElementById('modalTitulo').textContent = 'Editar ' + t.codigo;
+  document.getElementById('modal').classList.add('open');
+}
+
+function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
+
+async function salvar(){
+  const id = val('fId');
+  const body = {
+    codigo: val('fCodigo').trim().toUpperCase(),
+    descricao: val('fDesc').trim(),
+    categoriaOperacao: val('fCategoria') || null,
+    finalidadeNFe: Number(val('fFinalidade')) || 1,
+    emiteNFe: Number(val('fEmiteNFe')),
+    geraFinanceiro: Number(val('fGeraFin')),
+    movimentaEstoque: Number(val('fMovEst')),
+    gerencial: Number(val('fGerencial')),
+    cfopInterno: val('fCfopInterno').trim() || null,
+    cfopInterestadual: val('fCfopInterestadual').trim() || null,
+    cfopExterior: val('fCfopExterior').trim() || null,
+    textoPadraoNFe: val('fTextoNFe').trim() || null,
+    observacaoFiscalPadrao: val('fObsFiscal').trim() || null,
+    usarEmPedido: chk('fUsoPedido'),
+    usarEmOS: chk('fUsoOS'),
+    usarEmDevolucao: chk('fUsoDevolucao'),
+    usarEmNFAvulsa: chk('fUsoNFAvulsa')
+  };
+  if (!body.codigo || !body.descricao) return showAlert('Código e descrição obrigatórios', 'error');
+  try {
+    const url = id ? '/api/tipos-operacao/' + id : '/api/tipos-operacao';
+    const method = id ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    showAlert(id ? 'Tipo atualizado' : 'Tipo criado');
+    fecharModal();
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+
+async function desativar(id){
+  if (!confirm('Desativar este tipo de operação? Pedidos existentes não serão afetados.')) return;
+  try {
+    const r = await fetch('/api/tipos-operacao/' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+}
+
+carregar();
+</script>
+</body>
+</html>

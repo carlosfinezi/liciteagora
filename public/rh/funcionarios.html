@@ -14,13 +14,14 @@
   </div>
   <div id="alertGlobal"></div>
   <div class="kpi-grid" id="kpis"></div>
+  <div id="painelAlertas"></div>
   <div class="toolbar">
     <input type="text" id="fQ" placeholder="Buscar nome, CPF ou cargo…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
     <select id="fAtivo" onchange="carregar()" style="width:auto;"><option value="1">Ativos</option><option value="0">Inativos</option></select>
   </div>
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="funcionarios">
     <table>
-      <thead><tr><th>Nome</th><th>CPF</th><th>Cargo</th><th>Departamento</th><th>Tipo</th><th>Admissão</th><th class="num">Salário</th><th></th></tr></thead>
+      <thead><tr><th>Nome</th><th>CPF</th><th>Cargo</th><th>Departamento</th><th>Tipo</th><th>Admissão</th><th>Férias</th><th class="num">Salário</th><th></th></tr></thead>
       <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
@@ -74,6 +75,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('funcionarios');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -86,11 +89,21 @@ async function carregar(){
   p.set('ativo', document.getElementById('fAtivo').value);
   const r = await fetch('/api/funcionarios?'+p);
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
+  // Folha bruta sozinha não diz se a empresa está acumulando passivo: férias
+  // vencidas são pagas em DOBRO (CLT art. 137) e é isso que muda decisão.
+  const temPassivo = (d.kpis.feriasVencidas || 0) > 0;
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="label">Total</div><div class="value">${d.kpis.total||0}</div></div>
     <div class="kpi success"><div class="label">Ativos</div><div class="value">${d.kpis.ativos||0}</div></div>
     <div class="kpi"><div class="label">Folha mensal</div><div class="value">${fmtBRL(d.kpis.folhaTotal)}</div></div>
+    <div class="kpi ${temPassivo ? 'danger' : ''}">
+      <div class="label">Férias vencidas</div>
+      <div class="value">${d.kpis.feriasVencidas || 0}</div>
+      ${temPassivo ? `<div class="label">≈ ${fmtBRL(d.kpis.passivoFeriasEstimado)} em dobro</div>` : ''}
+    </div>
   `;
+  renderAlertas(d.alertas);
+  SITUACAO_FERIAS = mapaFerias(d.alertas);
   document.getElementById('tb').innerHTML = d.funcionarios.length ? d.funcionarios.map(f=>`<tr>
     <td><strong>${f.nome}</strong></td>
     <td class="mono">${f.cpf||'—'}</td>
@@ -98,9 +111,10 @@ async function carregar(){
     <td>${f.departamento||'—'}</td>
     <td>${f.tipoContrato}</td>
     <td>${f.dataAdmissao}</td>
+    <td>${badgeFerias(f.id)}</td>
     <td class="num">${fmtBRL(f.salario)}</td>
     <td style="text-align:right;white-space:nowrap;"><a class="btn btn-ghost btn-sm" href="/rh/funcionario.html?id=${f.id}" style="text-decoration:none;">Abrir →</a></td>
-  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum funcionário</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhum funcionário</td></tr>';
 }
 
 function abrirNovo(){
@@ -135,8 +149,14 @@ async function salvar(){
   };
   if (!body.nome || !body.dataAdmissao) return showAlert('Nome e data de admissão obrigatórios','error');
   const r = await fetch('/api/funcionarios', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
-  showAlert('Funcionário criado'); fecharModal(); carregar();
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  // Aviso não bloqueia (piso de categoria, acordo coletivo), mas some se não for
+  // mostrado — e aí ninguém confere.
+  const avisos = (d.avisos || []).map(a => a.mensagem);
+  showAlert(avisos.length ? 'Funcionário criado. Confira: ' + avisos.join(' · ') : 'Funcionário criado',
+            avisos.length ? 'warning' : 'success');
+  fecharModal(); carregar();
 }
 
 document.addEventListener('keydown', e => {
@@ -144,5 +164,82 @@ document.addEventListener('keydown', e => {
 });
 
 carregar();
+
+// ==================== PAINEL DE ALERTAS ====================
+// Só entra o que tem consequência: passivo trabalhista, prazo legal correndo,
+// cadastro que trava o eSocial. Painel que mostra tudo não é lido.
+let SITUACAO_FERIAS = {};
+
+function mapaFerias(alertas){
+  const m = {};
+  if (!alertas) return m;
+  for (const x of alertas.feriasVencidas || []) m[x.funcionarioId] = { tipo: 'vencida', dias: x.dias, desde: x.desde };
+  for (const x of alertas.feriasAVencer || []) {
+    if (!m[x.funcionarioId]) m[x.funcionarioId] = { tipo: 'aVencer', dias: x.dias, emDias: x.emDias };
+  }
+  return m;
+}
+
+function badgeFerias(id){
+  const s = SITUACAO_FERIAS[id];
+  if (!s) return '<small class="muted">em dia</small>';
+  if (s.tipo === 'vencida') {
+    return `<span class="badge danger" title="Concessivo venceu em ${s.desde} — pagamento em dobro (CLT art. 137)">${s.dias}d em dobro</span>`;
+  }
+  return `<span class="badge warning" title="Vence em ${s.emDias} dias">${s.dias}d · vence em ${s.emDias}d</span>`;
+}
+
+function bloco(titulo, cor, linhas, rodape){
+  if (!linhas.length) return '';
+  return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
+    <div style="font-size:0.88em;line-height:1.7;">${linhas.join('<br>')}</div>
+    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+  </div>`;
+}
+
+function renderAlertas(a){
+  const alvo = document.getElementById('painelAlertas');
+  if (!a) { alvo.innerHTML = ''; return; }
+  const blocos = [];
+
+  blocos.push(bloco(
+    `⚠ Férias vencidas — pagamento em dobro (${a.feriasVencidas.length})`, 'danger',
+    a.feriasVencidas.map(x =>
+      `<strong>${escTxt(x.nome)}</strong>: ${x.dias} dias vencidos desde ${x.desde} · ≈ ${fmtBRL(x.custoDobroEstimado)}`),
+    `Passivo estimado: <strong>${fmtBRL(a.passivoFeriasEstimado)}</strong>. `
+    + 'Estimativa sobre o salário atual — o cálculo da rescisão inclui o terço constitucional.'));
+
+  blocos.push(bloco(
+    `Férias vencendo em até 90 dias (${a.feriasAVencer.length})`, 'warn',
+    a.feriasAVencer.map(x =>
+      `<strong>${escTxt(x.nome)}</strong>: ${x.dias} dias · vence em ${x.emDias} dias (${x.venceEm})`),
+    'Depois dessa data o período passa a ser devido em dobro (CLT art. 137).'));
+
+  blocos.push(bloco(
+    `Contrato de experiência a vencer (${a.experienciaAVencer.length})`, 'warn',
+    a.experienciaAVencer.map(x =>
+      `<strong>${escTxt(x.nome)}</strong>: ${x.diasDeCasa} dias de casa · limite ${x.limite}`),
+    'Passando de 90 dias o contrato vira prazo indeterminado (CLT art. 445 §único).'));
+
+  blocos.push(bloco(
+    `Faltas no mês (${a.absenteismoMes.length})`, 'warn',
+    a.absenteismoMes.map(x => `<strong>${escTxt(x.nome)}</strong>: ${x.faltas} falta(s)`),
+    'Acima de 5 faltas injustificadas no período aquisitivo os dias de férias são reduzidos (CLT art. 130).'));
+
+  blocos.push(bloco(
+    `Cadastro sem CPF válido (${a.cadastroIncompleto.length})`, 'warn',
+    a.cadastroIncompleto.map(x => `<strong>${escTxt(x.nome)}</strong>${x.cpf ? ` — CPF ${escTxt(x.cpf)} inválido` : ' — sem CPF'}`),
+    'Sem CPF válido não há envio ao eSocial.'));
+
+  blocos.push(bloco(
+    `Aniversariantes do mês (${a.aniversariantes.length})`, 'accent',
+    a.aniversariantes.map(x => `dia ${x.dia} — ${escTxt(x.nome)}`)));
+
+  alvo.innerHTML = blocos.join('');
+}
+
+function escTxt(t){ const d=document.createElement('div'); d.textContent=String(t||''); return d.innerHTML; }
+
 </script>
 </body></html>

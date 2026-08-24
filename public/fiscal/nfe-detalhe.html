@@ -11,10 +11,19 @@
   .nfe-grid { display:grid; grid-template-columns: 1fr 360px; gap:16px; align-items:start; }
   @media (max-width: 1024px) { .nfe-grid { grid-template-columns: 1fr; } }
 
-  /* Sections inside cards */
-  .nfe-section { margin-bottom: 18px; }
-  .nfe-section:last-child { margin-bottom: 0; }
-  .nfe-section h3 { font-size: 0.92em; color: var(--text-2); margin: 0 0 10px 0; padding-bottom: 6px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.04em; }
+  /* Agrupadores colapsáveis — mesmo padrão de catalogo/produto.html */
+  details.sec { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: 14px; overflow: hidden; }
+  details.sec:last-child { margin-bottom: 0; }
+  details.sec > summary { cursor: pointer; list-style: none; padding: 12px 16px; color: var(--text-0); font-weight: 600; font-size: 0.95em; display: flex; align-items: center; gap: 10px; background: var(--bg-2); transition: background 0.15s; }
+  details.sec > summary:hover { background: var(--bg-hover); }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::after { content: '▾'; color: var(--text-3); font-size: 0.8em; transition: transform 0.15s; }
+  details.sec[open] > summary::after { transform: rotate(180deg); }
+  details.sec > .sec-body { padding: 14px 16px 16px; border-top: 1px solid var(--border); }
+
+  /* Resumo à direita do título: deixa ver o essencial sem abrir a seção */
+  .sec-hint { margin-left: auto; font-weight: 400; font-size: 0.85em; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+  details.sec[open] > summary .sec-hint { opacity: 0; }
 
   /* Tabela de pares chave/valor */
   .kv { width: 100%; }
@@ -64,12 +73,11 @@
       <small id="pgSub" class="muted">Carregando…</small>
     </div>
     <div class="actions" style="flex-wrap:wrap;gap:6px;">
-      <a class="btn btn-secondary btn-sm" href="/fiscal/notas-fiscais.html">← Lista</a>
-      <a class="btn btn-ghost btn-sm" id="btnDanfe" href="#" target="_blank">📄 DANFE</a>
-      <a class="btn btn-ghost btn-sm" id="btnXml" href="#" target="_blank">📥 XML</a>
-      <button class="btn btn-secondary btn-sm" id="btnCce" onclick="abrirModalCce()">✏️ CC-e</button>
-      <button class="btn btn-warning btn-sm" id="btnCancelar" onclick="abrirModalCancelar()">🚫 Cancelar SEFAZ</button>
-      <button class="btn btn-danger btn-sm" id="btnAnular" onclick="abrirModalAnular()">🗑️ Anular</button>
+      <a class="btn btn-secondary btn-sm" href="/fiscal/notas-fiscais.html">← Notas Fiscais</a>
+      <a class="btn btn-ghost btn-sm" id="btnDanfe" href="#" target="_blank">Baixar DANFE</a>
+      <a class="btn btn-ghost btn-sm" id="btnXml" href="#" target="_blank">Baixar XML</a>
+      <button class="btn btn-ghost btn-sm" id="btnCce" onclick="abrirModalCce()">Carta de correção</button>
+      <button class="btn btn-ghost btn-sm" id="btnCancelar" style="color:var(--danger);" onclick="abrirModalCancelar()">Cancelar SEFAZ</button>
     </div>
   </div>
 
@@ -116,11 +124,17 @@
   <div class="modal" style="max-width:560px;">
     <div class="modal-header">
       <div>
-        <h3 style="margin:0;">Cancelar NF-e na SEFAZ</h3>
+        <h3 style="margin:0;">Cancelar NF-e</h3>
         <small class="muted">Evento SEFAZ 110111 · NF passa pra status "cancelada_sefaz"</small>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="fecharModalCancelar()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
+    <p class="muted" style="font-size:13px;margin:0 0 12px 0;">
+      Cancela a nota <strong>e desfaz o faturamento</strong>, em uma operação só:<br>
+      <strong>1)</strong> Cancela a NF-e na SEFAZ (evento 110111)<br>
+      <strong>2)</strong> Cancela a fatura, estorna estoque e movimentações financeiras,
+      cancela as contas a receber e reabre o pedido
+    </p>
     <p class="muted" style="font-size:13px;margin-bottom:12px;">
       Só é possível cancelar até <strong>24h após a autorização</strong>. Após esse prazo, use evento de inutilização ou nota de devolução.
     </p>
@@ -132,35 +146,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModalCancelar()">Voltar</button>
-      <button class="btn btn-warning" onclick="confirmarCancelar()">Cancelar na SEFAZ</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal Anular nota (composto: cancela SEFAZ + cancela fatura local) -->
-<div class="modal-bg" id="modalAnular">
-  <div class="modal" style="max-width:580px;">
-    <div class="modal-header">
-      <div>
-        <h3 style="margin:0;">Anular nota completa</h3>
-        <small class="muted">Cancela na SEFAZ <strong>e</strong> reverte fatura local (estoque + contas em aberto)</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharModalAnular()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-    <p class="muted" style="font-size:13px;margin:0 0 12px 0;">
-      Esta ação executa em sequência:<br>
-      <strong>1)</strong> Cancela NF-e na SEFAZ (evento 110111)<br>
-      <strong>2)</strong> Cancela fatura local (reabre estoque, marca contas a receber em aberto como canceladas)
-    </p>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Motivo <small class="muted">(15+ caracteres)</small></label>
-        <textarea id="anularMotivo" rows="3" placeholder="Ex.: 'Erro de emissão; nota será refeita com dados corretos.'"></textarea>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fecharModalAnular()">Voltar</button>
-      <button class="btn btn-danger" onclick="confirmarAnular()">Anular tudo</button>
+      <button class="btn btn-danger" onclick="confirmarCancelar()">Confirmar cancelamento</button>
     </div>
   </div>
 </div>
@@ -251,7 +237,6 @@ function render(){
   const btnXml = document.getElementById('btnXml');
   const btnCce = document.getElementById('btnCce');
   const btnCancelar = document.getElementById('btnCancelar');
-  const btnAnular = document.getElementById('btnAnular');
 
   if (sefazAutorizada) {
     btnDanfe.href = `/api/faturas/${f.id}/danfe`;
@@ -262,14 +247,11 @@ function render(){
     btnXml.style.opacity = '';
     btnCce.disabled = false;
     btnCancelar.disabled = false;
-    btnAnular.disabled = false;
   } else {
     btnDanfe.href = '#'; btnDanfe.style.pointerEvents = 'none'; btnDanfe.style.opacity = '0.45'; btnDanfe.title = 'Disponível só com NF-e autorizada';
     btnXml.href = '#'; btnXml.style.pointerEvents = 'none'; btnXml.style.opacity = '0.45'; btnXml.title = 'Disponível só com NF-e autorizada';
     btnCce.disabled = true; btnCce.title = 'Disponível só com NF-e autorizada';
     btnCancelar.disabled = true; btnCancelar.title = 'Disponível só com NF-e autorizada';
-    btnAnular.disabled = (f.statusSefaz !== 'autorizada' && f.status === 'cancelada');
-    btnAnular.title = btnAnular.disabled ? 'Já cancelada' : 'Disponível com NF-e autorizada';
   }
 
   // ====== Conteúdo principal ======
@@ -301,9 +283,9 @@ function render(){
   document.getElementById('conteudo').innerHTML = `
     <div class="nfe-grid">
       <div>
-        <div class="card">
-          <div class="nfe-section">
-            <h3>Identificação NF-e</h3>
+        <details class="sec" data-sec="ident">
+          <summary>Identificação NF-e<span class="sec-hint">${escTxt(f.numeroNFe || f.numero || '—')} / ${escTxt(f.serieNFe || '1')}</span></summary>
+          <div class="sec-body">
             <table class="kv">
               <tr><td>Chave de acesso</td><td><span class="chave-mono" onclick="copiarChave()" style="cursor:pointer;" title="Clique para copiar">${escTxt(f.chaveAcesso || '—')}</span></td></tr>
               <tr><td>Número / Série</td><td><strong>${escTxt(f.numeroNFe || f.numero || '—')}</strong> / ${escTxt(f.serieNFe || '1')}</td></tr>
@@ -314,11 +296,11 @@ function render(){
               ${f.rejeicaoMotivo ? `<tr><td>Motivo SEFAZ</td><td><small class="muted">${escTxt(f.rejeicaoMotivo)}</small></td></tr>` : ''}
             </table>
           </div>
-        </div>
+        </details>
 
-        <div class="card" style="margin-top:14px;">
-          <div class="nfe-section">
-            <h3>Emitente</h3>
+        <details class="sec" data-sec="emitente">
+          <summary>Emitente<span class="sec-hint">${escTxt(emitente?.razaoSocial || emitente?.nome || '—')}</span></summary>
+          <div class="sec-body">
             ${emitente ? `
             <table class="kv">
               <tr><td>Razão social</td><td><strong>${escTxt(emitente.razaoSocial || emitente.nome || '—')}</strong></td></tr>
@@ -328,11 +310,11 @@ function render(){
               <tr><td>Endereço</td><td>${renderEnderecoEmitente(emitente)}</td></tr>
             </table>` : '<p class="muted">Cadastro do emitente não disponível</p>'}
           </div>
-        </div>
+        </details>
 
-        <div class="card" style="margin-top:14px;">
-          <div class="nfe-section">
-            <h3>Destinatário</h3>
+        <details class="sec" data-sec="destinatario">
+          <summary>Destinatário<span class="sec-hint">${escTxt(f.clienteNome || '—')}</span></summary>
+          <div class="sec-body">
             <table class="kv">
               <tr><td>Razão social</td><td><strong>${escTxt(f.clienteNome || '—')}</strong></td></tr>
               <tr><td>CPF / CNPJ</td><td><code>${escTxt(fmtCpfCnpj(f.clienteCpfCnpj))}</code></td></tr>
@@ -342,11 +324,11 @@ function render(){
               <tr><td>Endereço</td><td>${renderEnderecoCliente(f)}</td></tr>
             </table>
           </div>
-        </div>
+        </details>
 
-        <div class="card" style="margin-top:14px;">
-          <div class="nfe-section">
-            <h3>Itens da NF-e (${(f.itens || []).length})</h3>
+        <details class="sec" data-sec="itens">
+          <summary>Itens da NF-e (${(f.itens || []).length})<span class="sec-hint">${fmtBRL(f.valorTotal)}</span></summary>
+          <div class="sec-body">
             <div class="tbl-wrap">
               <table class="itens-tbl">
                 <thead><tr>
@@ -362,40 +344,63 @@ function render(){
               </table>
             </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <div>
-        <div class="card">
-          <div class="nfe-section">
-            <h3>Totais</h3>
+        <details class="sec" data-sec="totais">
+          <summary>Totais<span class="sec-hint">${fmtBRL(f.valorTotal)}</span></summary>
+          <div class="sec-body">
             <div class="totais-row"><span class="lbl">Valor bruto</span><span class="val">${fmtBRL(f.valorBruto)}</span></div>
             ${f.valorDesconto ? `<div class="totais-row"><span class="lbl">Desconto</span><span class="val">− ${fmtBRL(f.valorDesconto)}</span></div>` : ''}
             ${f.valorFrete ? `<div class="totais-row"><span class="lbl">Frete</span><span class="val">+ ${fmtBRL(f.valorFrete)}</span></div>` : ''}
             <div class="totais-row grand"><span class="lbl">Total</span><span class="val">${fmtBRL(f.valorTotal)}</span></div>
           </div>
-        </div>
+        </details>
 
-        <div class="card" style="margin-top:14px;">
-          <div class="nfe-section">
-            <h3>Cobrança / parcelas</h3>
+        <details class="sec" data-sec="cobranca">
+          <summary>Cobrança / parcelas<span class="sec-hint">${parcelas.length} parcela${parcelas.length === 1 ? '' : 's'}</span></summary>
+          <div class="sec-body">
             ${parcelasHtml}
           </div>
-        </div>
+        </details>
 
-        <div class="card" style="margin-top:14px;">
-          <div class="nfe-section">
-            <h3>Vínculos</h3>
+        <details class="sec" data-sec="vinculos">
+          <summary>Vínculos<span class="sec-hint">${f.pedidoNumero ? '#' + escTxt(f.pedidoNumero) : '—'}</span></summary>
+          <div class="sec-body">
             <table class="kv">
               <tr><td>Pedido</td><td>${f.pedidoNumero ? `<a href="/comercial/pedido.html?id=${f.pedidoId}">#${escTxt(f.pedidoNumero)}</a>` : '—'}</td></tr>
               <tr><td>Status interno</td><td>${escTxt(f.status || '—')}</td></tr>
               ${f.observacaoInterna ? `<tr><td>Obs. interna</td><td><small class="muted">${escTxt(f.observacaoInterna)}</small></td></tr>` : ''}
             </table>
           </div>
-        </div>
+        </details>
       </div>
     </div>
   `;
+
+  aplicarEstadoSecoes();
+}
+
+// Abre/fecha os agrupadores conforme a última escolha do usuário, para o
+// estado valer de uma nota para a outra. Sem preferência salva, Emitente
+// nasce fechado (é sempre a própria empresa) e o resto aberto.
+const SEC_PADRAO = { ident: true, emitente: false, destinatario: true, itens: true, totais: true, cobranca: true, vinculos: true };
+
+function aplicarEstadoSecoes(){
+  let salvo = {};
+  try { salvo = JSON.parse(localStorage.getItem('nfeDetalheSecoes') || '{}'); } catch (_) {}
+
+  document.querySelectorAll('details.sec[data-sec]').forEach(d => {
+    const chave = d.dataset.sec;
+    d.open = (chave in salvo) ? !!salvo[chave] : (SEC_PADRAO[chave] !== false);
+    d.addEventListener('toggle', () => {
+      let atual = {};
+      try { atual = JSON.parse(localStorage.getItem('nfeDetalheSecoes') || '{}'); } catch (_) {}
+      atual[chave] = d.open;
+      try { localStorage.setItem('nfeDetalheSecoes', JSON.stringify(atual)); } catch (_) {}
+    });
+  });
 }
 
 async function copiarChave(){
@@ -459,43 +464,9 @@ async function confirmarCancelar(){
   } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
 }
 
-// ====== Modal Anular (composto SEFAZ + fatura local) ======
-function abrirModalAnular(){
-  document.getElementById('anularMotivo').value = '';
-  document.getElementById('modalAnular').classList.add('open');
-}
-function fecharModalAnular(){ document.getElementById('modalAnular').classList.remove('open'); }
-
-async function confirmarAnular(){
-  const motivo = document.getElementById('anularMotivo').value.trim();
-  if (motivo.length < 15) return showAlert('Motivo precisa ter pelo menos 15 caracteres', 'error');
-  fecharModalAnular();
-  try {
-    // Passo 1: cancelar NF-e na SEFAZ
-    showAlert('Cancelando NF-e na SEFAZ…', 'success');
-    const r1 = await fetch(`/api/faturas/${id}/cancelar-nfe`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ motivo })
-    });
-    const d1 = await r1.json();
-    if (!d1.success) throw new Error('SEFAZ: ' + (d1.error || d1.xMotivo || 'falha'));
-
-    // Passo 2: cancelar fatura local (reverte estoque + contas em aberto)
-    const r2 = await fetch(`/api/faturas/${id}/cancelar`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ motivo })
-    });
-    const d2 = await r2.json();
-    if (!d2.success) throw new Error('Fatura local: ' + (d2.error || 'falha'));
-
-    showAlert('Nota anulada com sucesso · SEFAZ: ' + (d1.xMotivo || 'OK') + ' · fatura local cancelada');
-    carregar();
-  } catch (e) { showAlert('Erro ao anular: ' + e.message, 'error'); }
-}
-
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    fecharModalCce(); fecharModalCancelar(); fecharModalAnular();
+    fecharModalCce(); fecharModalCancelar();
   }
 });
 

@@ -19,10 +19,12 @@
   </div>
 
   <div id="alertGlobal"></div>
+  <div id="painelAcesso"></div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="usuarios">
     <table>
       <thead><tr>
+        <th class="col-editar"></th>
         <th>Username</th>
         <th>Nome</th>
         <th>E-mail</th>
@@ -31,7 +33,7 @@
         <th>Último login</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -68,6 +70,8 @@
     <div class="form-row">
       <div class="form-group full-width">
         <label>Perfil *</label>
+        <!-- Preenchido por preencherPerfis() com os nativos + os cadastrados em
+             Perfis de Acesso. As opções abaixo são o fallback se a lista falhar. -->
         <select id="fRole">
           <option value="admin">admin — acesso total</option>
           <option value="financeiro">financeiro — fiscal + financeiro</option>
@@ -146,9 +150,102 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('usuarios');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+
+async function carregar(){
+  const r=await fetch('/api/usuarios');
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error||'Erro ao carregar','error');
+  preencherPerfis(d.perfis);
+  const tb=document.getElementById('tb');
+  tb.innerHTML = d.usuarios.length ? d.usuarios.map(u=>`<tr>
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar usuário" onclick='editar(${JSON.stringify(u)})'><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
+    <td class="mono"><strong>${u.username}</strong></td>
+    <td>${u.nome||'—'}${u.ehVendedor?` <span class="badge" style="background:var(--accent);color:#fff;font-size:9px;">vendedor</span>`:''}</td>
+    <td>${u.email||'—'}</td>
+    <td><span class="badge ${u.role==='admin'?'faturado':'confirmado'}">${u.role}</span></td>
+    <td><span class="badge ${u.ativo?'ativo':'inativo'}">${u.ativo?'ativo':'inativo'}</span></td>
+    <td>${u.ultimoLogin?new Date(u.ultimoLogin).toLocaleString('pt-BR'):'—'}</td>
+    <td style="text-align:right;white-space:nowrap;">
+      ${u.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${u.id}, '${u.username}')">Desativar</button>` : ''}
+    </td>
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum usuário</td></tr>';
+  carregarDiagnostico();
+}
+
+// ==================== SITUAÇÃO DE ACESSO ====================
+// A tela listava nomes e parava aí. Quem nunca entrou, quem sumiu e quem não
+// consegue receber comissão são coisas que o administrador só descobria
+// quando davam problema.
+
+function escU(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
+
+function blocoAcesso(titulo, cor, linhas, rodape){
+  if (!linhas.length) return '';
+  return `<div class="panel" style="border-left:4px solid var(--${cor});margin-bottom:10px;">
+    <h3 style="margin:0 0 8px;font-size:0.95em;">${titulo}</h3>
+    <div style="font-size:0.88em;line-height:1.7;">${linhas.join('<br>')}</div>
+    ${rodape ? `<div class="muted" style="font-size:0.8em;margin-top:8px;">${rodape}</div>` : ''}
+  </div>`;
+}
+
+async function carregarDiagnostico(){
+  const alvo = document.getElementById('painelAcesso');
+  if (!alvo) return;
+  let d;
+  try {
+    d = await fetch('/api/usuarios/diagnostico').then(r => r.json());
+  } catch { alvo.innerHTML = ''; return; }
+  if (!d || !d.success) { alvo.innerHTML = ''; return; }
+  const g = d.diagnostico;
+  const blocos = [];
+
+  if (g.adminUnico) {
+    blocos.push(`<div class="panel" style="border-left:4px solid var(--warn);margin-bottom:10px;font-size:0.9em;">
+      ⚠ <strong>${escU(g.adminUnico.username)}</strong> é o único administrador ativo.
+      Férias, desligamento ou senha perdida deixam a empresa sem quem administre o sistema.
+    </div>`);
+  }
+
+  blocos.push(blocoAcesso(
+    `Vendedores que não conseguem receber comissão (${g.vendedoresSemPagamento.length})`, 'danger',
+    g.vendedoresSemPagamento.map(v => `<strong>${escU(v.username)}</strong> — CPF/CNPJ ${v.cpfCnpj ? 'inválido' : 'não informado'}`),
+    'A comissão é apurada normalmente, mas o pagamento não encontra o fornecedor e falha.'));
+
+  blocos.push(blocoAcesso(
+    `Comissão pendente de vendedor desativado (${g.comissaoPendentePorVendedorInativo.length})`, 'danger',
+    g.comissaoPendentePorVendedorInativo.map(v =>
+      `<strong>${escU(v.username)}</strong> — ${v.linhas} linha(s), ${fmtBRLu(v.valor)}`),
+    'O acesso foi desligado e a comissão continua em aberto.'));
+
+  blocos.push(blocoAcesso(
+    `Nunca acessaram (${g.nuncaEntraram.length})`, 'warn',
+    g.nuncaEntraram.map(u => `<strong>${escU(u.username)}</strong> — criado há ${u.diasDesdeCriacao ?? '?'} dia(s)`),
+    'Conta criada e nunca usada: ou a pessoa não recebeu o acesso, ou não precisa dele.'));
+
+  blocos.push(blocoAcesso(
+    `Sem acessar há 60 dias ou mais (${g.semAcessoRecente.length})`, 'warn',
+    g.semAcessoRecente.map(u => `<strong>${escU(u.username)}</strong> — ${u.dias} dias (último: ${escU((u.ultimoLogin||'').slice(0,10))})`),
+    'Conta ativa sem uso é porta aberta sem vigilância.'));
+
+  blocos.push(blocoAcesso(
+    `Sem e-mail válido (${g.semEmail.length})`, 'warn',
+    g.semEmail.map(u => `<strong>${escU(u.username)}</strong>${u.email ? ` — ${escU(u.email)} inválido` : ' — sem e-mail'}`),
+    'Sem e-mail não há como enviar recuperação de acesso nem notificação.'));
+
+  const resumo = `<div class="panel" style="margin-bottom:10px;font-size:0.88em;">
+    ${g.ativos} ativo(s) · ${g.inativos} inativo(s) · ${g.vendedores} vendedor(es) ·
+    perfis: ${g.porRole.map(x => `${escU(x.role)} ${x.n}`).join(', ')}
+  </div>`;
+
+  alvo.innerHTML = blocos.filter(Boolean).join('') + resumo;
+}
+
+function fmtBRLu(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
 
 // Perfis cadastrados em Perfis de Acesso entram no select junto dos nativos —
 // sem isto, um perfil recém-criado não teria como ser atribuído a ninguém.
@@ -164,26 +261,6 @@ function preencherPerfis(perfis){
     return `<option value="${escOpt(p.slug)}">${escOpt(p.slug)} — ${sufixo}</option>`;
   }).join('');
   if(atual && perfis.some(p=>p.slug===atual)) sel.value=atual;
-}
-
-async function carregar(){
-  const r=await fetch('/api/usuarios');
-  const d=await r.json();
-  if(!d.success) return showAlert(d.error||'Erro ao carregar','error');
-  preencherPerfis(d.perfis);
-  const tb=document.getElementById('tb');
-  tb.innerHTML = d.usuarios.length ? d.usuarios.map(u=>`<tr>
-    <td class="mono"><strong>${u.username}</strong></td>
-    <td>${u.nome||'—'}${u.ehVendedor?` <span class="badge" style="background:var(--accent);color:#fff;font-size:9px;">vendedor</span>`:''}</td>
-    <td>${u.email||'—'}</td>
-    <td><span class="badge ${u.role==='admin'?'faturado':'confirmado'}">${u.role}</span></td>
-    <td><span class="badge ${u.ativo?'ativo':'inativo'}">${u.ativo?'ativo':'inativo'}</span></td>
-    <td>${u.ultimoLogin?new Date(u.ultimoLogin).toLocaleString('pt-BR'):'—'}</td>
-    <td style="text-align:right;white-space:nowrap;">
-      <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(u)})'>Editar</button>
-      ${u.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${u.id}, '${u.username}')">Desativar</button>` : ''}
-    </td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhum usuário</td></tr>';
 }
 
 function toggleVendedor(){
@@ -265,18 +342,35 @@ async function salvar(){
     const r=await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d=await r.json();
     if(!d.success) throw new Error(d.error);
-    showAlert(id?'Usuário atualizado':'Usuário criado');
+    // Aviso não bloqueia (vendedor sem fornecedor, e-mail repetido), mas some
+    // se não for mostrado — e aí ninguém confere.
+    const avisos = (d.avisos || []).map(a => a.mensagem);
+    showAlert(avisos.length
+      ? (id?'Usuário atualizado':'Usuário criado') + '. Confira: ' + avisos.join(' · ')
+      : (id?'Usuário atualizado':'Usuário criado'), avisos.length ? 'warning' : 'success');
     fecharModal();
     carregar();
   } catch(e){ showAlert('Erro: '+e.message,'error'); }
 }
 
 async function desativar(id, username){
-  if(!confirm(`Desativar ${username}? O usuário não conseguirá mais acessar o sistema.`)) return;
+  // Perguntar antes o que fica órfão: desativar é reversível, mas o trabalho
+  // pendente dele não some — só deixa de ter dono.
+  let aviso = '';
+  try {
+    const imp = await fetch(`/api/usuarios/${id}/impacto-desativacao`).then(r => r.json());
+    if (imp.success) {
+      const p = imp.impacto.pendencias || [];
+      if (p.length) aviso = '\n\nEm aberto com este usuário:\n' + p.map(x => `• ${x.n} ${x.rotulo}`).join('\n');
+      if (imp.impacto.ficariaSemAdmin) aviso += '\n\n⚠ É o único administrador ativo.';
+    }
+  } catch { /* segue com a confirmação simples */ }
+
+  if(!confirm(`Desativar ${username}? O usuário não conseguirá mais acessar o sistema.${aviso}`)) return;
   const r=await fetch('/api/usuarios/'+id, { method:'DELETE' });
   const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');
-  showAlert('Usuário desativado');
+  showAlert(d.aviso || 'Usuário desativado', d.aviso ? 'warning' : 'success');
   carregar();
 }
 

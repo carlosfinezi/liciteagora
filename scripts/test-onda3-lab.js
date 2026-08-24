@@ -27,7 +27,19 @@ ins.run('9.1', 'Caixa teste', 'D'); ins.run('9.2', 'Receita teste', 'C');
 db.prepare(`INSERT INTO contabilizacao_eventos (evento, contaDebitoCodigo, contaCreditoCodigo)
   VALUES ('recebimento', '9.1', '9.2')`).run();
 
-// fonte: recebimentos existentes no lab (dos e2e anteriores) — julho/2026
+// Fonte própria em vez de sobras de e2e anteriores: quando outro teste
+// apagava a conta a receber e deixava o pagamento para trás, o JOIN da fonte
+// zerava e este teste quebrava sem ter nada a ver com contabilização.
+const pessoaOnda = db.prepare('SELECT id FROM pessoas LIMIT 1').get();
+assert(pessoaOnda, 'lab tem ao menos uma pessoa cadastrada');
+const crSeed = db.prepare(`INSERT INTO contas_a_receber
+  (pessoaId, descricao, valor, dataEmissao, dataVencimento, status, origem)
+  VALUES (?, 'TESTE-3.2 recebimento', 630, '2026-07-01', '2026-07-01', 'paga', 'manual')`)
+  .run(pessoaOnda.id).lastInsertRowid;
+db.prepare(`INSERT INTO contas_receber_pagamentos
+  (contaReceberId, dataPagamento, valorPago, valorBase, estornado)
+  VALUES (?, '2026-07-02', 630, 630, 0)`).run(crSeed);
+
 const fonte = EVENTOS.recebimento.fonte(db, '2026-07-01', '2026-07-31');
 assert(fonte.length >= 1, `fonte de recebimentos tem ${fonte.length} registro(s)`);
 
@@ -89,6 +101,8 @@ db.exec(`DELETE FROM provisoes; DELETE FROM orcamento_plano_contas; DELETE FROM 
   DELETE FROM contabilizacao_eventos; DELETE FROM ibscbs_creditos;
   DELETE FROM lancamento_partidas; DELETE FROM lancamentos_contabeis;
   DELETE FROM contas_contabeis WHERE codigo LIKE '9.%';`);
+db.prepare('DELETE FROM contas_receber_pagamentos WHERE contaReceberId = ?').run(crSeed);
+db.prepare('DELETE FROM contas_a_receber WHERE id = ?').run(crSeed);
 db.close();
 console.log('\nTODOS OS TESTES PASSARAM');
 process.exit(0);

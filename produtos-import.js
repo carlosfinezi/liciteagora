@@ -9,6 +9,7 @@
  */
 
 const XLSX = require('xlsx');
+const { E_FORNECEDOR, garantirFornecedor } = require('./pessoas-fornecedor');
 
 const TIPOS_SEFAZ = new Set(['00','01','02','03','04','05','06','07','99']);
 const ORIGENS_SEFAZ = new Set(['0','1','2','3','4','5','6','7']);
@@ -202,7 +203,7 @@ function validarLinhas(db, linhas) {
   const avisos = [];
   const duplicatasSku = [];
   const stmtSkuExiste = db.prepare('SELECT id FROM produtos WHERE sku = ?');
-  const stmtFornecedorExiste = db.prepare('SELECT id FROM fornecedores WHERE cpfCnpj = ?');
+  const stmtFornecedorExiste = db.prepare('SELECT id FROM pessoas WHERE cpfCnpj = ?');
 
   for (const { numeroLinha, dados } of linhas) {
     const { produto, erros: errLinha, avisos: warnLinha } = validarLinha(dados);
@@ -236,10 +237,6 @@ function executarImport(db, buffer, politicaDuplicata = 'atualizar') {
   const { validas, erros: errosValidacao } = validarLinhas(db, linhas);
 
   const stmtGetBySku = db.prepare('SELECT * FROM produtos WHERE sku = ?');
-  const stmtGetForn = db.prepare('SELECT id FROM fornecedores WHERE cpfCnpj = ?');
-  const stmtInsertForn = db.prepare(
-    `INSERT INTO fornecedores (cpfCnpj, tipo, razaoSocial) VALUES (?, ?, ?)`
-  );
 
   const CAMPOS_INSERT = [
     'sku','codigoInterno','referenciaInterna','codigoBarras','descricao','categoria','marca',
@@ -250,18 +247,17 @@ function executarImport(db, buffer, politicaDuplicata = 'atualizar') {
 
   function resolverFornecedorId(produto) {
     if (!produto.fornecedorCnpj) return null;
-    const exist = stmtGetForn.get(produto.fornecedorCnpj);
-    if (exist) return exist.id;
-    const tipo = produto.fornecedorCnpj.length <= 11 ? 'PF' : 'PJ';
-    return stmtInsertForn.run(
-      produto.fornecedorCnpj, tipo, produto.fornecedorRazaoSocial || 'Importado via planilha'
-    ).lastInsertRowid;
+    return garantirFornecedor(db, {
+      cpfCnpj: produto.fornecedorCnpj,
+      tipo: produto.fornecedorCnpj.length <= 11 ? 'PF' : 'PJ',
+      razaoSocial: produto.fornecedorRazaoSocial || 'Importado via planilha',
+    });
   }
 
   let inseridos = 0, atualizados = 0, pulados = 0, fornecedoresCriados = 0;
   const errosCommit = [];
 
-  const fornecedoresAntes = db.prepare('SELECT COUNT(*) AS n FROM fornecedores').get().n;
+  const fornecedoresAntes = db.prepare(`SELECT COUNT(*) AS n FROM pessoas WHERE ${E_FORNECEDOR}`).get().n;
 
   const tx = db.transaction((items) => {
     for (const { linha, produto } of items) {
@@ -306,7 +302,7 @@ function executarImport(db, buffer, politicaDuplicata = 'atualizar') {
   });
   tx(validas);
 
-  const fornecedoresDepois = db.prepare('SELECT COUNT(*) AS n FROM fornecedores').get().n;
+  const fornecedoresDepois = db.prepare(`SELECT COUNT(*) AS n FROM pessoas WHERE ${E_FORNECEDOR}`).get().n;
   fornecedoresCriados = fornecedoresDepois - fornecedoresAntes;
 
   return {

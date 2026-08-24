@@ -261,7 +261,7 @@ function registrarRotasBi(app, db) {
       q, apenasHomologados,
       dataInicio, dataFim, uf, modalidadeId, situacao,
       marca, fornecedor, valorHomolMin, valorHomolMax,
-      grupoId, apenasIaValidados,
+      grupoId, apenasIaValidados, marcaColetada,
     } = query;
     let { status } = query;
 
@@ -325,7 +325,9 @@ function registrarRotasBi(app, db) {
     // Filtros que dependem de resultados_bi (vencedor cacheado) — exigem
     // status=homologado quando o usuário não escolheu nada. Marca está
     // em itens.marcaExtraida (extraído do edital), NÃO depende de vencedor.
-    const usaResultadosFilter = !!(fornecedor || valorHomolMin || valorHomolMax);
+    // marcaColetada entra aqui para forçar status=homologado: filtrar por marca
+    // do vencedor em item sem vencedor não faz sentido (mesma regra do fornecedor).
+    const usaResultadosFilter = !!(fornecedor || valorHomolMin || valorHomolMax || marcaColetada);
     if (usaResultadosFilter && (!status || status === 'qualquer' || status === 'pendente' || status === 'sem_resultado')) {
       status = 'homologado';
     }
@@ -451,6 +453,9 @@ function registrarRotasBi(app, db) {
       }
       if (valorHomolMin) { where.push(`rb.valorUnitarioHomologado >= ?`); params.push(parseFloat(valorHomolMin)); }
       if (valorHomolMax) { where.push(`rb.valorUnitarioHomologado <= ?`); params.push(parseFloat(valorHomolMax)); }
+      // Paridade com o backend PG — ver comentário lá sobre string vazia.
+      if (marcaColetada === '1') where.push(`length(coalesce(rb.marcaFabricante,'')) > 0`);
+      if (marcaColetada === '0') where.push(`length(coalesce(rb.marcaFabricante,'')) = 0`);
     } else {
       // status='qualquer' (default): LEFT JOIN para que o item venha com
       // dados do vencedor SE já estiverem no cache local. Não filtra fora
@@ -496,7 +501,7 @@ function registrarRotasBi(app, db) {
       q, apenasHomologados,
       dataInicio, dataFim, uf, modalidadeId, situacao,
       marca, fornecedor, valorHomolMin, valorHomolMax,
-      grupoId, apenasIaValidados,
+      grupoId, apenasIaValidados, marcaColetada,
     } = query;
     let { status } = query;
 
@@ -528,7 +533,9 @@ function registrarRotasBi(app, db) {
     }
 
     if (!status && apenasHomologados === '1') status = 'homologado';
-    const usaResultadosFilter = !!(fornecedor || valorHomolMin || valorHomolMax);
+    // marcaColetada entra aqui para forçar status=homologado: filtrar por marca
+    // do vencedor em item sem vencedor não faz sentido (mesma regra do fornecedor).
+    const usaResultadosFilter = !!(fornecedor || valorHomolMin || valorHomolMax || marcaColetada);
     if (usaResultadosFilter && (!status || status === 'qualquer' || status === 'pendente' || status === 'sem_resultado')) {
       status = 'homologado';
     }
@@ -609,6 +616,13 @@ function registrarRotasBi(app, db) {
       }
       if (valorHomolMin) { where.push(`rb."valorUnitarioHomologado" >= ${ph(parseFloat(valorHomolMin))}`); }
       if (valorHomolMax) { where.push(`rb."valorUnitarioHomologado" <= ${ph(parseFloat(valorHomolMax))}`); }
+      // Marca do VENCEDOR (rb.marcaFabricante), não a extraída do edital
+      // (i.marcaExtraida, filtro `marca`). Testa por comprimento e não por
+      // IS NULL: o PNCP grava STRING VAZIA no lugar de nulo — 871.956 linhas
+      // "não-nulas" estão vazias, e `IS NOT NULL` daria 16% de cobertura onde
+      // a real é 0,74%.
+      if (marcaColetada === '1') where.push(`length(coalesce(rb."marcaFabricante",'')) > 0`);
+      if (marcaColetada === '0') where.push(`length(coalesce(rb."marcaFabricante",'')) = 0`);
     } else {
       joinClause = `LEFT JOIN resultados_bi rb ON rb."id" = ${PICK_ONE_VENCEDOR}`;
       hasResultsJoin = true;

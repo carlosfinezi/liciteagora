@@ -21,13 +21,13 @@
 
   <div id="alertGlobal"></div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="tabelas-preco">
     <table>
       <thead><tr>
-        <th>Nome</th><th style="text-align:right;">Prioridade</th><th>Vigência</th>
+        <th class="col-editar"></th><th>Nome</th><th style="text-align:right;">Prioridade</th><th>Vigência</th>
         <th style="text-align:right;">Itens</th><th style="text-align:right;">Clientes</th><th>Status</th><th></th>
       </tr></thead>
-      <tbody id="tbTabelas"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tbTabelas"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 
@@ -118,6 +118,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('comercial-tabelas-preco');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -143,18 +145,18 @@ async function carregar(){
   if(!d.success) return showAlert(d.error,'error');
   tabelasCache = d.tabelas;
   document.getElementById('tbTabelas').innerHTML = d.tabelas.length ? d.tabelas.map(t=>`<tr${t.ativo?'':' style="opacity:0.55;"'}>
+    <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar tabela" onclick='editarTab(${JSON.stringify(t).replace(/'/g,"&#39;")})'><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td><strong>${t.nome}</strong></td>
     <td style="text-align:right;">${t.prioridade}</td>
     <td>${t.vigenciaInicio||'—'} → ${t.vigenciaFim||'—'} ${t.vigente?'<span class="badge entrada">VIGENTE</span>':'<span class="badge ajuste">FORA</span>'}</td>
     <td style="text-align:right;">${t.qtdItens}</td>
     <td style="text-align:right;">${t.qtdClientes}</td>
-    <td>${t.ativo?'ativa':'inativa'}</td>
+    <td>${t.ativo?'<span class="badge ativo">ativa</span>':'<span class="badge inativo">inativa</span>'}</td>
     <td style="white-space:nowrap;">
       <button class="btn btn-ghost btn-sm" onclick='verItens(${JSON.stringify(t).replace(/'/g,"&#39;")})'>Itens</button>
-      <button class="btn btn-ghost btn-sm" onclick='editarTab(${JSON.stringify(t).replace(/'/g,"&#39;")})'>Editar</button>
       <button class="btn btn-ghost btn-sm" onclick="toggleAtivo(${t.id}, ${t.ativo?0:1})">${t.ativo?'Inativar':'Reativar'}</button>
     </td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma tabela</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma tabela</td></tr>';
 }
 
 function abrirNova(){ tabEdit=null; document.getElementById('mTitulo').textContent='Nova tabela';

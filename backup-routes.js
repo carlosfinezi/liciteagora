@@ -1,19 +1,30 @@
 // backup-routes.js
 //
-// Sistema de backup do banco SQLite (cópia + metadados JSON + restore) e
-// versionamento via Git (info do HEAD, listar/criar/restaurar tags).
-// Extraído de server.js em NFSE-M06 onda 6.4.
+// Backup do banco e informação de versão do código.
 //
-// Dependências externas: fs, path, child_process (Node built-ins) +
-// Express (app) + better-sqlite3 (db). dbPath e PORT chegam via options
-// para preservar a semântica original 1:1 — o backup precisa do caminho
-// do arquivo do banco; /api/versao expõe a porta no retorno JSON.
+// 2026-08-02 — três rotas foram REMOVIDAS por serem executáveis por qualquer
+// usuário autenticado, de qualquer papel e de qualquer tenant:
 //
-// __dirname aqui aponta para o mesmo diretório onde server.js vive
-// (layout flat em /home/carlosfinezi/web/liciteagora.com.br/private/),
-// então git rev-parse etc. operam no mesmo repo que antes.
+//   POST /api/versao/tag       `git tag -a ${nome}` — nome vinha do corpo da
+//   POST /api/versao/restaurar `git checkout ${tag}` — requisição e ia direto
+//                              para o shell: injeção de comando no servidor
+//                              compartilhado. E o checkout trocaria o código
+//                              de TODOS os tenants.
+//   POST /api/backup/restaurar path.join(backupsDir, arquivo) aceitava
+//                              "../.." e copiava o arquivo escolhido por cima
+//                              do banco do tenant.
+//
+// DELETE /api/backup/:arquivo tinha a mesma travessia de caminho e continua
+// existindo (é a limpeza normal de backups): agora exige admin, valida o nome
+// e confere que o caminho resolvido não saiu da pasta.
+//
+// Nenhuma tela chamava as três. Rollback de código e restauração de banco são
+// operação de servidor (SSH), não de API voltada ao cliente.
+//
+// O que sobrou exige papel admin.
 
 const fs = require('fs');
+const { requireRole } = require('./auth');
 const path = require('path');
 const { execSync } = require('child_process');
 
@@ -44,7 +55,7 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   }
 
   // Criar backup do banco de dados
-  app.post('/api/backup/criar', async (req, res) => {
+  app.post('/api/backup/criar', requireRole(['admin']), async (req, res) => {
     try {
       const { descricao } = req.body;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -82,7 +93,7 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   });
 
   // Listar backups disponíveis
-  app.get('/api/backup/listar', (req, res) => {
+  app.get('/api/backup/listar', requireRole(['admin']), (req, res) => {
     try {
       const arquivos = fs.readdirSync(backupsDir)
         .filter(f => f.endsWith('.db'))
@@ -109,51 +120,23 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   });
 
   // Restaurar backup
-  app.post('/api/backup/restaurar', (req, res) => {
-    try {
-      const { arquivo } = req.body;
-
-      if (!arquivo) {
-        return res.status(400).json({ success: false, error: 'Nome do arquivo é obrigatório' });
-      }
-
-      const caminhoBackup = path.join(backupsDir, arquivo);
-
-      if (!fs.existsSync(caminhoBackup)) {
-        return res.status(404).json({ success: false, error: 'Backup não encontrado' });
-      }
-
-      // Criar backup do estado atual antes de restaurar
-      const timestampAtual = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const backupAtual = path.join(backupsDir, `pncp-pre-restore-${timestampAtual}.db`);
-      fs.copyFileSync(dbPath, backupAtual);
-
-      // Fechar conexão com banco atual
-      db.close();
-
-      // Restaurar backup
-      fs.copyFileSync(caminhoBackup, dbPath);
-
-      console.log(`[Backup] Restaurado: ${arquivo}`);
-      console.log(`[Backup] Estado anterior salvo em: pncp-pre-restore-${timestampAtual}.db`);
-
-      res.json({
-        success: true,
-        message: 'Backup restaurado. Reinicie o servidor para aplicar as mudanças.',
-        backupAnterior: `pncp-pre-restore-${timestampAtual}.db`
-      });
-    } catch (error) {
-      console.error('[Backup] Erro ao restaurar:', error.message);
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
 
   // Excluir backup
-  app.delete('/api/backup/:arquivo', (req, res) => {
+  app.delete('/api/backup/:arquivo', requireRole(['admin']), (req, res) => {
     try {
       const { arquivo } = req.params;
+      // O nome vem da URL: sem esta checagem, "..%2F..%2Falgo" saía da pasta
+      // de backups e apagava arquivo do servidor.
+      if (!/^[A-Za-z0-9._-]+$/.test(arquivo) || arquivo.includes('..')) {
+        return res.status(400).json({ success: false, error: 'Nome de arquivo inválido' });
+      }
       const caminhoBackup = path.join(backupsDir, arquivo);
       const caminhoMetadados = path.join(backupsDir, `${arquivo}.json`);
+      // Cinto e suspensório: mesmo com o nome validado, confirma que o caminho
+      // resolvido continua dentro da pasta de backups.
+      if (!path.resolve(caminhoBackup).startsWith(path.resolve(backupsDir) + path.sep)) {
+        return res.status(400).json({ success: false, error: 'Caminho fora da pasta de backups' });
+      }
 
       if (!fs.existsSync(caminhoBackup)) {
         return res.status(404).json({ success: false, error: 'Backup não encontrado' });
@@ -172,7 +155,7 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   });
 
   // Obter informações de versão do Git
-  app.get('/api/versao', async (req, res) => {
+  app.get('/api/versao', requireRole(['admin']), async (req, res) => {
     try {
       let gitInfo = { disponivel: false };
 
@@ -220,7 +203,7 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   });
 
   // Listar tags/versões do Git
-  app.get('/api/versao/tags', (req, res) => {
+  app.get('/api/versao/tags', requireRole(['admin']), (req, res) => {
     try {
       const tagsOutput = execSync('git tag -l --sort=-version:refname', { cwd: __dirname, encoding: 'utf8' });
       const tags = tagsOutput.trim().split('\n').filter(t => t).map(tag => {
@@ -240,61 +223,8 @@ function registrarRotasBackup(app, db, { dbPath, PORT }) {
   });
 
   // Criar nova tag/versão
-  app.post('/api/versao/tag', (req, res) => {
-    try {
-      const { nome, descricao } = req.body;
-
-      if (!nome) {
-        return res.status(400).json({ success: false, error: 'Nome da tag é obrigatório' });
-      }
-
-      // Verificar se há alterações não commitadas
-      const status = execSync('git status --porcelain', { cwd: __dirname, encoding: 'utf8' }).trim();
-      if (status) {
-        return res.status(400).json({
-          success: false,
-          error: 'Existem alterações não commitadas. Faça commit antes de criar uma tag.'
-        });
-      }
-
-      execSync(`git tag -a ${nome} -m "${descricao || nome}"`, { cwd: __dirname, encoding: 'utf8' });
-      console.log(`[Versão] Tag criada: ${nome}`);
-
-      res.json({ success: true, tag: nome });
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
 
   // Restaurar código para uma versão/tag específica
-  app.post('/api/versao/restaurar', (req, res) => {
-    try {
-      const { tag } = req.body;
-
-      if (!tag) {
-        return res.status(400).json({ success: false, error: 'Tag é obrigatória' });
-      }
-
-      // Verificar se há alterações não commitadas
-      const status = execSync('git status --porcelain', { cwd: __dirname, encoding: 'utf8' }).trim();
-      if (status) {
-        return res.status(400).json({
-          success: false,
-          error: 'Existem alterações não commitadas. Faça commit ou descarte antes de restaurar.'
-        });
-      }
-
-      execSync(`git checkout ${tag}`, { cwd: __dirname, encoding: 'utf8' });
-      console.log(`[Versão] Código restaurado para: ${tag}`);
-
-      res.json({
-        success: true,
-        message: `Código restaurado para ${tag}. Reinicie o servidor para aplicar.`
-      });
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
 
   console.log('[Backup] Rotas registradas');
 }

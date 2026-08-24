@@ -24,6 +24,21 @@ function tenantSlugFromReq(req) {
   return req.tenant?.slug || req.tenantSlug || (req.tenant && req.tenant.slug) || null;
 }
 
+// Enriquece cada lote da sala com a escada parseada + a config de auto-lance,
+// pra página renderizar lista + escada ao vivo + config num único fetch.
+function enrichSalas(tdb, salas) {
+  const cfgStm = tdb.prepare('SELECT ativo, limiteMinimo, decremento, throttleMs FROM bll_auto_lance WHERE loteId = ?');
+  return salas.map(s => ({
+    ...s,
+    lotes: (s.lotes || []).map(l => {
+      let escada = [];
+      try { escada = l.escadaJson ? JSON.parse(l.escadaJson) : []; } catch { escada = []; }
+      const cfg = cfgStm.get(l.id) || null;
+      return { ...l, escada, autoLance: cfg };
+    }),
+  }));
+}
+
 function registrarRotasBLLSalas(app, db) {
   app.post('/api/bll/salas/cadastrar', async (req, res) => {
     try {
@@ -47,7 +62,7 @@ function registrarRotasBLLSalas(app, db) {
     try {
       const tdb = req.tenantDb || db;
       const ativo = req.query.ativo === '1' ? true : (req.query.ativo === '0' ? false : null);
-      res.json({ success: true, salas: bllSalas.listarSalas(tdb, { ativo }) });
+      res.json({ success: true, salas: enrichSalas(tdb, bllSalas.listarSalas(tdb, { ativo })) });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
@@ -172,6 +187,25 @@ function registrarRotasBLLSalas(app, db) {
       const cache = bllScheduler.getDisputasCache(slug);
       const disputas = (cache.disputas || []).filter(s => (s.statusName || '').toUpperCase() === 'DISPUTA');
       res.json({ success: true, disputas, updatedAt: cache.updatedAt });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // Feed de chat capturado (todas as salas ou uma). Mais recentes primeiro.
+  app.get('/api/bll/chat', (req, res) => {
+    try {
+      const tdb = req.tenantDb || db;
+      const limit = Math.min(Number(req.query.limit) || 200, 500);
+      const salaId = req.query.salaId ? Number(req.query.salaId) : null;
+      let sql = `SELECT m.id, m.salaId, m.escopo, m.lote, m.autor, m.texto, m.dataHora, m.criadoEm,
+                        s.processNumber, s.title
+                   FROM bll_chat_mensagens m JOIN bll_salas s ON s.id = m.salaId`;
+      const params = [];
+      if (salaId) { sql += ' WHERE m.salaId = ?'; params.push(salaId); }
+      sql += ' ORDER BY m.id DESC LIMIT ?'; params.push(limit);
+      const mensagens = tdb.prepare(sql).all(...params);
+      res.json({ success: true, mensagens });
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }

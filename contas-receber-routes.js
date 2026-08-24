@@ -19,8 +19,13 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const { reentrarContextoTenant } = require('./tenant-middleware');
+const { comTratamentoDeErro, nomeOriginalUtf8 } = require('./upload-anexos');
 const PDFDocument = require('pdfkit');
 const { lancarMovimentacao } = require('./contas-financeiras-routes');
+const { escopoSql, escopoSqlHerdado, guardEscopo, escopoUsuario, noEscopo } = require('./estabelecimentos-routes');
+const { erroMeioPermitido } = require('./meios-pagamento');
+const { logAction } = require('./audit-log');
 
 function dataBrasilia() {
   const brt = new Date(Date.now() - 3 * 60 * 60 * 1000);
@@ -41,11 +46,33 @@ function dataBrasilia() {
  * Cria registro em contas_receber_pagamentos, lança movimentacao_financeira (tipo=entrada)
  * e atualiza status da CR.
  */
+// Reflete os recebimentos das CRs de uma fatura no pedido de origem
+// (pedidos.valorPago / statusPagamento). Agrega TODAS as parcelas da fatura —
+// não só a primeira — e é idempotente (recalcula do zero a cada chamada).
+function sincronizarPagamentoPedido(db, contaReceberId) {
+  try {
+    const cr = db.prepare('SELECT faturaId FROM contas_a_receber WHERE id = ?').get(contaReceberId);
+    if (!cr || !cr.faturaId) return;
+    const fat = db.prepare('SELECT pedidoId FROM faturas WHERE id = ?').get(cr.faturaId);
+    if (!fat || !fat.pedidoId) return;
+    const ped = db.prepare('SELECT valorTotal, status FROM pedidos WHERE id = ?').get(fat.pedidoId);
+    if (!ped || ped.status === 'cancelado') return;
+    const pago = Number((db.prepare(`SELECT COALESCE(SUM(COALESCE(valorPago, 0)), 0) AS t
+      FROM contas_a_receber WHERE faturaId = ? AND status != 'cancelada'`).get(cr.faturaId).t).toFixed(2));
+    let statusPag = 'pendente';
+    if ((ped.valorTotal || 0) > 0 && pago >= ped.valorTotal - 0.01) statusPag = 'pago';
+    else if (pago > 0) statusPag = 'parcial';
+    db.prepare(`UPDATE pedidos SET valorPago = ?, statusPagamento = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(pago, statusPag, fat.pedidoId);
+  } catch (e) { console.warn('[CR→pedido] sync falhou:', e.message); }
+}
+
 function registrarBaixaCR(db, opts) {
   const {
     contaReceberId, valorBase, dataPagamento, contaFinanceiraId,
     formaPagamento, origem, juros = 0, multa = 0, desconto = 0,
-    observacoes = null, usuario = null, parcial = false
+    observacoes = null, usuario = null, parcial = false,
+    jurosPendente = 0, multaPendente = 0
   } = opts;
 
   if (!contaReceberId) {
@@ -77,7 +104,7 @@ function registrarBaixaCR(db, opts) {
   const novoJaPago = Number((jaPago + vBase).toFixed(2));
   const novoStatus = (parcial || novoJaPago < conta.valor - 0.01) ? 'parcial' : 'paga';
 
-  let pagamentoId, movId;
+  let pagamentoId, movId, jurosPendenteCrId;
   const tx = db.transaction(() => {
     const r = db.prepare(`INSERT INTO contas_receber_pagamentos
       (contaReceberId, dataPagamento, valorPago, valorBase, juros, multa, desconto,
@@ -144,10 +171,111 @@ function registrarBaixaCR(db, opts) {
         }
       }
     }
+
+    // Juros/multa NÃO recebidos na baixa: gera um título aberto único
+    // (soma dos dois) pra cobrança posterior. Não toca o caixa nem entra
+    // no vPago desta baixa.
+    const jurosPendV = Number(jurosPendente) || 0;
+    const multaPendV = Number(multaPendente) || 0;
+    const totalPendV = Number((jurosPendV + multaPendV).toFixed(2));
+    if (totalPendV > 0) {
+      const cats = _garantirCategoriasJurosMulta(db);
+      const partes = [];
+      if (jurosPendV > 0) partes.push('Juros');
+      if (multaPendV > 0) partes.push('multa');
+      const categId = jurosPendV > 0 ? cats?.jurosCategId : cats?.multaCategId;
+      const r2 = db.prepare(`
+        INSERT INTO contas_a_receber
+          (pessoaId, categoriaId, planoContaId, descricao, valor, valorPago,
+           dataEmissao, dataVencimento, status, origem, dataAtualizacao)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'aberta', 'juros-baixa-pendente', CURRENT_TIMESTAMP)
+      `).run(
+        conta.pessoaId, categId || null, cats?.planoFinReceitaId || null,
+        `${partes.join('/')} sobre conta #${conta.id} — ${conta.descricao}`,
+        totalPendV, dp, dp
+      );
+      jurosPendenteCrId = r2.lastInsertRowid;
+    }
   });
   tx();
 
-  return { pagamentoId, movimentacaoFinanceiraId: movId, novoStatus, saldoRestante: Number((conta.valor - novoJaPago).toFixed(2)) };
+  sincronizarPagamentoPedido(db, contaReceberId);
+
+  return { pagamentoId, movimentacaoFinanceiraId: movId, novoStatus, saldoRestante: Number((conta.valor - novoJaPago).toFixed(2)), jurosPendenteCrId };
+}
+
+/**
+ * Estorna uma baixa de CR: marca estornado=1 (com quem/por quê), apaga as CRs
+ * sintéticas de juros/multa que ela criou, lança a movimentação reversa no
+ * caixa e recalcula o status da conta.
+ *
+ * Extraído do endpoint em 2026-08-21 porque a retificação (estorno +
+ * relançamento) precisa dele dentro da própria transação.
+ */
+function estornarBaixaCR(db, opts) {
+  const { contaReceberId, pagamentoId, usuario = null, motivo = null } = opts;
+  const pag = db.prepare('SELECT * FROM contas_receber_pagamentos WHERE id = ? AND contaReceberId = ?')
+    .get(pagamentoId, contaReceberId);
+  if (!pag) throw new Error('Pagamento não encontrado');
+  if (pag.estornado) throw new Error('Pagamento já estornado');
+  const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(contaReceberId);
+  if (!conta) throw new Error('Conta a receber não encontrada');
+
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE contas_receber_pagamentos
+      SET estornado = 1, estornadoEm = CURRENT_TIMESTAMP, estornadoPor = ?, motivoEstorno = ?
+      WHERE id = ?`).run(usuario, motivo, pagamentoId);
+    // Remove as CRs sintéticas de juros/multa criadas por esta baixa —
+    // sem isso ficam como receita "paga" no DRE após o estorno.
+    const delSintetica = (origem, valor) => {
+      if (!(Number(valor) > 0)) return;
+      const sint = db.prepare(`SELECT id FROM contas_a_receber
+        WHERE origem = ? AND valor = ? AND dataPagamento = ? AND status = 'paga'
+          AND descricao LIKE ? ORDER BY id DESC LIMIT 1`)
+        .get(origem, Number(valor), pag.dataPagamento, `%conta #${contaReceberId} — %`);
+      if (sint) db.prepare('DELETE FROM contas_a_receber WHERE id = ?').run(sint.id);
+    };
+    delSintetica('juros-baixa', pag.juros);
+    delSintetica('multa-baixa', pag.multa);
+    // CR-01 (2026-04-18): estorno como movimentação reversa, não DELETE.
+    if (pag.movimentacaoFinanceiraId) {
+      const mov = db.prepare('SELECT * FROM movimentacoes_financeiras WHERE id = ?').get(pag.movimentacaoFinanceiraId);
+      if (mov) {
+        lancarMovimentacao(db, {
+          contaId: mov.contaId,
+          tipo: mov.tipo === 'entrada' ? 'saida' : 'entrada',
+          valor: mov.valor,
+          data: dataBrasilia(),
+          descricao: `Estorno baixa CR #${contaReceberId} (mov original #${mov.id})`,
+          origem: 'estorno_cr',
+          origemId: pagamentoId,
+          categoria: mov.categoria,
+          usuario
+        });
+      }
+    }
+    const restante = Number(db.prepare(`SELECT COALESCE(SUM(valorBase), 0) AS t
+      FROM contas_receber_pagamentos WHERE contaReceberId = ? AND estornado = 0`).get(contaReceberId).t);
+    const novoStatus = restante <= 0 ? 'aberta' : (restante < conta.valor - 0.01 ? 'parcial' : 'paga');
+    db.prepare(`UPDATE contas_a_receber SET status = ?, valorPago = ?,
+      dataPagamento = CASE WHEN ? = 'paga' THEN dataPagamento ELSE NULL END,
+      dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(novoStatus, restante, novoStatus, contaReceberId);
+  });
+  tx();
+  sincronizarPagamentoPedido(db, contaReceberId);
+  return { pagamento: pag };
+}
+
+// Recorte da baixa que vai para o payload do audit_log — só o que o usuário
+// enxerga na tela, para o antes/depois ficar legível na tela de Auditoria.
+function _snapshotBaixa(p) {
+  if (!p) return null;
+  return {
+    id: p.id, dataPagamento: p.dataPagamento, valorBase: p.valorBase, valorPago: p.valorPago,
+    juros: p.juros, multa: p.multa, desconto: p.desconto,
+    formaPagamento: p.formaPagamento, contaFinanceiraId: p.contaFinanceiraId,
+    observacoes: p.observacoes, origem: p.origem, usuario: p.usuario
+  };
 }
 
 // ==================== MULTER (anexos) ====================
@@ -159,7 +287,13 @@ const uploadAnexo = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
       const dir = path.join(UPLOAD_DIR, String(req.params.id));
-      fs.mkdirSync(dir, { recursive: true });
+      // O erro TEM de ir pelo callback: um throw aqui vira uncaughtException
+      // e derruba o servidor inteiro (aconteceu em 2026-08-20, EACCES no mkdir).
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch (err) {
+        return cb(err);
+      }
       cb(null, dir);
     },
     filename: (req, file, cb) => {
@@ -170,8 +304,9 @@ const uploadAnexo = multer({
   }),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const ok = /pdf|image|octet-stream/i.test(file.mimetype) ||
-      /\.(pdf|png|jpg|jpeg|webp)$/i.test(file.originalname);
+    // Quem decide é a EXTENSÃO, não o mimetype — ver a nota em
+    // contas-pagar-routes.js. octet-stream deixava passar um .exe.
+    const ok = /\.(pdf|png|jpg|jpeg|webp)$/i.test(file.originalname);
     cb(ok ? null : new Error('Apenas PDF ou imagens'), ok);
   }
 });
@@ -185,7 +320,15 @@ const uploadAnexo = multer({
 // Retorna { jurosCategId, multaCategId, planoFinReceitaId } — null se faltar
 // plano contábil de receita financeira (sistema sem seed ainda).
 function _garantirCategoriasJurosMulta(db) {
+  // ORDER BY codigo pegava '5' antes de '5.1' — a sintética do grupo. Juros
+  // caíam no cabeçalho e o orçamento perdia a quebra por natureza. Analítica
+  // é a que não tem filhos.
   const planoFin = db.prepare(
+    `SELECT pc.id FROM plano_contas pc
+      WHERE pc.tipo = 'financeiro_receita' AND pc.ativo = 1
+        AND (SELECT COUNT(*) FROM plano_contas f WHERE f.parentId = pc.id) = 0
+      ORDER BY pc.codigo LIMIT 1`
+  ).get() || db.prepare(
     `SELECT id FROM plano_contas WHERE tipo = 'financeiro_receita' AND ativo = 1 ORDER BY codigo LIMIT 1`
   ).get();
   if (!planoFin) return null;
@@ -213,6 +356,10 @@ function _garantirCategoriasJurosMulta(db) {
 function registrarRotas(app, db) {
   // Seed idempotente das categorias contábeis pra juros/multa
   try { _garantirCategoriasJurosMulta(db); } catch (e) { console.error('[CR] seed juros/multa:', e.message); }
+
+  // RBAC de estabelecimento: fecha de uma vez toda rota /:id do módulo (abrir,
+  // editar, baixar, estornar, anexar...). Precisa vir antes das rotas.
+  app.use('/api/contas-a-receber/:id', guardEscopo(db, 'contas_a_receber'));
 
   // ========== CATEGORIAS ==========
   app.get('/api/cr-categorias', (req, res) => {
@@ -253,6 +400,135 @@ function registrarRotas(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
+  // ========== CRÉDITOS DE CLIENTE (CR com valor negativo) ==========
+  //
+  // Devolução efetivada gera um CR negativo. Antes ele só existia: ficava
+  // "aberto" para sempre, distorcendo o aging, e nada o consumia — na hora
+  // de faturar o cliente ninguém sabia que havia crédito. Aqui ele vira
+  // saldo consultável e compensável contra títulos em aberto.
+
+  const saldoCreditoSQL = `c.valor - COALESCE((SELECT SUM(valorPago)
+    FROM contas_receber_pagamentos WHERE contaReceberId = c.id AND estornado = 0), 0)`;
+
+  app.get('/api/contas-a-receber/creditos', (req, res) => {
+    try {
+      const { pessoaId } = req.query;
+      let sql = `SELECT c.id, c.pessoaId, c.descricao, c.valor, c.dataEmissao, c.status, c.origem,
+                        p.razaoSocial AS pessoaNome, p.cpfCnpj AS pessoaCpfCnpj,
+                        ABS(${saldoCreditoSQL}) AS saldoCredito
+        FROM contas_a_receber c
+        LEFT JOIN pessoas p ON p.id = c.pessoaId
+        WHERE c.valor < 0 AND c.status IN ('aberta','parcial')`;
+      const params = [];
+      const rbac = escopoSql(req, 'c.estabelecimentoId');
+      sql += rbac.sql; params.push(...rbac.params);
+      if (pessoaId) { sql += ' AND c.pessoaId = ?'; params.push(Number(pessoaId)); }
+      sql += ' ORDER BY c.dataEmissao, c.id';
+      const creditos = db.prepare(sql).all(...params).filter(c => c.saldoCredito > 0.005);
+
+      // Títulos em aberto do mesmo cliente — o que o crédito pode abater.
+      let titulos = [];
+      if (pessoaId) {
+        titulos = db.prepare(`SELECT c.id, c.descricao, c.valor, c.dataVencimento, c.status,
+                                     ${saldoCreditoSQL} AS saldoAberto
+          FROM contas_a_receber c
+          WHERE c.pessoaId = ? AND c.valor > 0 AND c.status IN ('aberta','parcial')${rbac.sql}
+          ORDER BY c.dataVencimento, c.id`).all(Number(pessoaId), ...rbac.params)
+          .filter(t => t.saldoAberto > 0.005);
+      }
+      res.json({
+        success: true, creditos, titulos,
+        totalCredito: Number(creditos.reduce((s, c) => s + c.saldoCredito, 0).toFixed(2)),
+      });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  /**
+   * Compensa um crédito contra um título em aberto do mesmo cliente.
+   * Não move caixa: registra a baixa com contaFinanceiraId nulo e
+   * origem 'compensacao_credito', e abate o saldo dos dois lados.
+   */
+  app.post('/api/contas-a-receber/:id/compensar', (req, res) => {
+    try {
+      const credito = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
+      if (!credito) return res.status(404).json({ success: false, error: 'Crédito não encontrado' });
+      if (!(credito.valor < 0)) return res.status(400).json({ success: false, error: 'Este título não é um crédito (valor deve ser negativo)' });
+      if (!['aberta', 'parcial'].includes(credito.status)) {
+        return res.status(400).json({ success: false, error: `Crédito com status ${credito.status} não pode ser compensado` });
+      }
+
+      const contaReceberId = Number(req.body?.contaReceberId);
+      if (!contaReceberId) return res.status(400).json({ success: false, error: 'contaReceberId obrigatório' });
+      const titulo = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(contaReceberId);
+      // O guard cobre o :id (o crédito); o destino vem no corpo e precisa da mesma checagem.
+      if (!titulo || !noEscopo(req, titulo.estabelecimentoId)) {
+        return res.status(404).json({ success: false, error: 'Título a compensar não encontrado' });
+      }
+      if (titulo.pessoaId !== credito.pessoaId) {
+        return res.status(400).json({ success: false, error: 'Crédito e título são de clientes diferentes' });
+      }
+      if (!(titulo.valor > 0)) return res.status(400).json({ success: false, error: 'O título de destino precisa ser um valor a receber' });
+      if (!['aberta', 'parcial'].includes(titulo.status)) {
+        return res.status(400).json({ success: false, error: `Título com status ${titulo.status} não aceita baixa` });
+      }
+
+      const pago = (id) => Number(db.prepare(`SELECT COALESCE(SUM(valorPago),0) t
+        FROM contas_receber_pagamentos WHERE contaReceberId = ? AND estornado = 0`).get(id).t) || 0;
+      const saldoCredito = Number((Math.abs(credito.valor) - Math.abs(pago(credito.id))).toFixed(2));
+      const saldoTitulo = Number((titulo.valor - pago(titulo.id)).toFixed(2));
+      if (saldoCredito <= 0) return res.status(400).json({ success: false, error: 'Crédito já totalmente utilizado' });
+      if (saldoTitulo <= 0) return res.status(400).json({ success: false, error: 'Título já quitado' });
+
+      // Sem valor informado, aplica o máximo possível.
+      const pedido = req.body?.valor != null && req.body.valor !== '' ? Number(req.body.valor) : null;
+      if (pedido != null && !(pedido > 0)) return res.status(400).json({ success: false, error: 'valor deve ser positivo' });
+      const valor = Number(Math.min(pedido ?? Infinity, saldoCredito, saldoTitulo).toFixed(2));
+
+      const hoje = dataBrasilia();
+      const usuario = req.session?.username || null;
+
+      db.transaction(() => {
+        // Baixa no título: valorPago preenchido para o aging enxergar a
+        // quitação, mas sem conta financeira e sem movimentação de caixa —
+        // não entrou dinheiro, entrou crédito.
+        db.prepare(`INSERT INTO contas_receber_pagamentos
+          (contaReceberId, dataPagamento, valorPago, valorBase, formaPagamento, origem, observacoes, usuario)
+          VALUES (?, ?, ?, ?, 'compensacao', 'compensacao_credito', ?, ?)`)
+          .run(contaReceberId, hoje, valor, valor,
+               `Compensação do crédito #${credito.id} (${credito.descricao || ''})`, usuario);
+        const novoPagoTitulo = Number((pago(titulo.id)).toFixed(2));
+        db.prepare(`UPDATE contas_a_receber SET valorPago = ?, status = ?,
+             dataPagamento = CASE WHEN ? THEN ? ELSE dataPagamento END,
+             dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(novoPagoTitulo,
+               novoPagoTitulo >= titulo.valor - 0.01 ? 'paga' : 'parcial',
+               novoPagoTitulo >= titulo.valor - 0.01 ? 1 : 0, hoje, contaReceberId);
+
+        // Consumo do lado do crédito: valorPago acompanha o sinal de `valor`
+        // para o saldo continuar sendo valor - valorPago.
+        const usadoAntes = Math.abs(pago(credito.id));
+        const usadoDepois = Number((usadoAntes + valor).toFixed(2));
+        db.prepare(`INSERT INTO contas_receber_pagamentos
+          (contaReceberId, dataPagamento, valorPago, valorBase, formaPagamento, origem, observacoes, usuario)
+          VALUES (?, ?, ?, ?, 'compensacao', 'compensacao_credito', ?, ?)`)
+          .run(credito.id, hoje, -valor, -valor,
+               `Aplicado no título #${contaReceberId}`, usuario);
+        db.prepare(`UPDATE contas_a_receber SET valorPago = ?, status = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
+          .run(-usadoDepois,
+               usadoDepois >= Math.abs(credito.valor) - 0.01 ? 'paga' : 'parcial',
+               credito.id);
+      })();
+
+      sincronizarPagamentoPedido(db, contaReceberId);
+      logAction(db, req, 'compensar', 'conta-receber', credito.id, { contaReceberId, valor });
+      res.json({
+        success: true, valorCompensado: valor,
+        saldoCreditoRestante: Number((saldoCredito - valor).toFixed(2)),
+        saldoTituloRestante: Number((saldoTitulo - valor).toFixed(2)),
+      });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
   // ========== LISTAGEM / DETALHE ==========
   app.get('/api/contas-a-receber', (req, res) => {
     try {
@@ -275,6 +551,8 @@ function registrarRotas(app, db) {
       LEFT JOIN nfse n ON n.id = c.nfseId
       WHERE 1=1`;
       const p = [];
+      const rbac = escopoSql(req, 'c.estabelecimentoId');
+      sql += rbac.sql; p.push(...rbac.params);
       if (status) {
         if (status === 'vencida') {
           sql += ` AND c.status IN ('aberta','parcial') AND c.dataVencimento < DATE('now','-3 hours')`;
@@ -311,18 +589,32 @@ function registrarRotas(app, db) {
       const d30 = new Date(hoje + 'T12:00:00'); d30.setDate(d30.getDate() + 30);
       const mesIni = hoje.slice(0,7) + '-01';
 
+      // RBAC: todo agregado do resumo respeita o escopo — um KPI que somasse a
+      // empresa inteira devolveria pela porta dos fundos o que o escopo tirou.
+      const rbac = escopoSql(req, 'c.estabelecimentoId');
+      const rbacPag = escopoSqlHerdado(req, 'contaReceberId', 'contas_a_receber');
+
       const saldoSQL = "c.valor - COALESCE((SELECT SUM(valorPago) FROM contas_receber_pagamentos WHERE contaReceberId=c.id AND estornado=0),0)";
+      // Crédito ao cliente (valor < 0, gerado por devolução) NÃO entra no
+      // aging: a partir de D+1 ele caía em "vencido" como número negativo e
+      // abatia inadimplência real de outros clientes, escondendo atraso.
+      // Crédito é saldo a compensar, não recebível em atraso — sai em bloco
+      // próprio abaixo.
       const sums = db.prepare(`SELECT
         COALESCE(SUM(CASE WHEN c.dataVencimento < ? THEN ${saldoSQL} ELSE 0 END), 0) AS vencido,
         COALESCE(SUM(CASE WHEN c.dataVencimento = ? THEN ${saldoSQL} ELSE 0 END), 0) AS venceHoje,
         COALESCE(SUM(CASE WHEN c.dataVencimento > ? AND c.dataVencimento <= ? THEN ${saldoSQL} ELSE 0 END), 0) AS prox7,
         COALESCE(SUM(CASE WHEN c.dataVencimento > ? AND c.dataVencimento <= ? THEN ${saldoSQL} ELSE 0 END), 0) AS prox30,
         COALESCE(SUM(${saldoSQL}), 0) AS aberto
-        FROM contas_a_receber c WHERE c.status IN ('aberta','parcial')`).get(
-        hoje, hoje, hoje, d7.toISOString().slice(0,10), hoje, d30.toISOString().slice(0,10)
+        FROM contas_a_receber c WHERE c.status IN ('aberta','parcial') AND c.valor > 0${rbac.sql}`).get(
+        hoje, hoje, hoje, d7.toISOString().slice(0,10), hoje, d30.toISOString().slice(0,10), ...rbac.params
       );
+      const creditos = db.prepare(`SELECT
+        COUNT(*) AS qtd,
+        COALESCE(SUM(ABS(${saldoSQL})), 0) AS total
+        FROM contas_a_receber c WHERE c.status IN ('aberta','parcial') AND c.valor < 0${rbac.sql}`).get(...rbac.params);
       const recebidoMes = db.prepare(`SELECT COALESCE(SUM(valorPago), 0) AS total
-        FROM contas_receber_pagamentos WHERE estornado = 0 AND dataPagamento >= ?`).get(mesIni);
+        FROM contas_receber_pagamentos WHERE estornado = 0 AND dataPagamento >= ?${rbacPag.sql}`).get(mesIni, ...rbacPag.params);
 
       const porCategoria = db.prepare(`SELECT
         COALESCE(cat.nome, 'Sem categoria') AS nome, cat.icone,
@@ -330,20 +622,21 @@ function registrarRotas(app, db) {
         SUM(${saldoSQL}) AS total
         FROM contas_a_receber c
         LEFT JOIN categorias_cr cat ON cat.id = c.categoriaId
-        WHERE c.status IN ('aberta','parcial')
-        GROUP BY cat.id, cat.nome, cat.icone ORDER BY total DESC`).all();
+        WHERE c.status IN ('aberta','parcial') AND c.valor > 0${rbac.sql}
+        GROUP BY cat.id, cat.nome, cat.icone ORDER BY total DESC`).all(...rbac.params);
 
       const topClientes = db.prepare(`SELECT
         p.razaoSocial AS nome, COUNT(*) AS qtd, SUM(${saldoSQL}) AS total
         FROM contas_a_receber c
         LEFT JOIN pessoas p ON p.id = c.pessoaId
-        WHERE c.status IN ('aberta','parcial')
-        GROUP BY p.id ORDER BY total DESC LIMIT 5`).all();
+        WHERE c.status IN ('aberta','parcial') AND c.valor > 0${rbac.sql}
+        GROUP BY p.id ORDER BY total DESC LIMIT 5`).all(...rbac.params);
 
       res.json({ success: true, resumo: {
         aberto: sums.aberto, vencido: sums.vencido,
         venceHoje: sums.venceHoje, prox7: sums.prox7, prox30: sums.prox30,
-        recebidoMes: recebidoMes.total, porCategoria, topClientes
+        recebidoMes: recebidoMes.total, porCategoria, topClientes,
+        creditosClientes: { qtd: creditos.qtd, total: creditos.total }
       }});
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -356,7 +649,8 @@ function registrarRotas(app, db) {
         FROM contas_a_receber c
         LEFT JOIN pessoas p ON p.id = c.pessoaId
         LEFT JOIN categorias_cr cat ON cat.id = c.categoriaId
-        ORDER BY c.dataVencimento ASC`).all();
+        WHERE 1=1${escopoSql(req, 'c.estabelecimentoId').sql}
+        ORDER BY c.dataVencimento ASC`).all(...escopoSql(req, 'c.estabelecimentoId').params);
       const cols = ['id','cliente','cpfCnpj','descricao','categoria','valor','totalPago','dataEmissao','dataVencimento','dataPagamento','status','formaPagamento','origem','parcelaNumero','totalParcelas'];
       const header = cols.join(';');
       const body = rows.map(r => cols.map(c => {
@@ -390,6 +684,8 @@ function registrarRotas(app, db) {
         LEFT JOIN categorias_cr cat ON cat.id = c.categoriaId
         WHERE 1=1`;
       const p = [];
+      const rbacPdf = escopoSql(req, 'c.estabelecimentoId');
+      sql += rbacPdf.sql; p.push(...rbacPdf.params);
       if (status) {
         if (status === 'vencida') sql += ` AND c.status IN ('aberta','parcial') AND c.dataVencimento < DATE('now','-3 hours')`;
         else { sql += ' AND c.status = ?'; p.push(status); }
@@ -513,21 +809,29 @@ function registrarRotas(app, db) {
 
       doc.font('Helvetica').fontSize(8).fillColor('#000');
       for (const c of contas) {
-        if (y > 560) { doc.addPage(); y = 50; y = desenharHeader(y); doc.font('Helvetica').fontSize(8); }
+        // A4 paisagem tem 595pt de altura; com margem de 30 a última linha
+        // precisa caber antes de 565. Iniciar em 560 estourava a margem.
+        if (y > 545) { doc.addPage(); y = 50; y = desenharHeader(y); doc.font('Helvetica').fontSize(8); }
         if (c.vencida) doc.fillColor('#b91c1c'); else doc.fillColor('#000');
-        doc.text(fmtDt(c.dataVencimento), colX.venc, y, { width: colW.venc });
-        doc.text((c.pessoaNome || '—').slice(0, 40), colX.cliente, y, { width: colW.cliente });
-        doc.text((c.descricao || '').slice(0, 60), colX.descricao, y, { width: colW.descricao, height: 10, ellipsis: true });
-        doc.text((c.categoriaNome || '—').slice(0, 25), colX.categoria, y, { width: colW.categoria });
-        doc.text(fmt(c.valor),         colX.valor, y, { width: colW.valor, align: 'right' });
-        doc.text(fmt(c.saldoRestante), colX.saldo, y, { width: colW.saldo, align: 'right' });
-        doc.text(c.comAtraso > c.saldoRestante ? fmt(c.comAtraso) : '—', colX.comAtraso, y, { width: colW.comAtraso, align: 'right' });
-        doc.text(c.statusDisplay, colX.status, y, { width: colW.status });
+        // height+ellipsis em toda célula de texto: sem isso o nome longo do
+        // cliente quebrava em 2 linhas dentro de um passo de 13pt e escrevia
+        // por cima da linha seguinte.
+        const cel = (w) => ({ width: w, height: 10, ellipsis: true });
+        const celNum = (w) => ({ width: w, align: 'right', lineBreak: false });
+        doc.text(fmtDt(c.dataVencimento), colX.venc, y, cel(colW.venc));
+        doc.text(c.pessoaNome || '—', colX.cliente, y, cel(colW.cliente));
+        doc.text(c.descricao || '', colX.descricao, y, cel(colW.descricao));
+        doc.text(c.categoriaNome || '—', colX.categoria, y, cel(colW.categoria));
+        doc.text(fmt(c.valor),         colX.valor, y, celNum(colW.valor));
+        doc.text(fmt(c.saldoRestante), colX.saldo, y, celNum(colW.saldo));
+        doc.text(c.comAtraso > c.saldoRestante ? fmt(c.comAtraso) : '—', colX.comAtraso, y, celNum(colW.comAtraso));
+        doc.text(c.statusDisplay, colX.status, y, cel(colW.status));
         y += 13;
       }
 
       // Totais
-      if (y > 540) { doc.addPage(); y = 60; }
+      // O bloco de totais ocupa ~50pt (faixa + duas linhas de rodapé).
+      if (y > 500) { doc.addPage(); y = 60; }
       y += 8;
       doc.fillColor('#000').rect(28, y, 794, 14).fillAndStroke('#eef', '#99c');
       doc.fillColor('#000').font('Helvetica-Bold').fontSize(8);
@@ -596,6 +900,8 @@ function registrarRotas(app, db) {
       }
       const pessoa = db.prepare('SELECT id FROM pessoas WHERE id = ? AND ativo = 1').get(Number(pessoaId));
       if (!pessoa) return res.status(404).json({ success: false, error: 'Cliente não encontrado' });
+      const erroMeio = erroMeioPermitido(db, pessoaId, formaPagamento);
+      if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
 
       // Plano 12: se planoContaId não veio mas a categoria tem mapeamento, usa
       // como fallback (mantém compatibilidade com dados antigos que só têm
@@ -623,12 +929,13 @@ function registrarRotas(app, db) {
           const desc = parcelasN > 1 ? `${descricao} (${i+1}/${parcelasN})` : descricao;
           const r = db.prepare(`INSERT INTO contas_a_receber
             (pessoaId, categoriaId, planoContaId, centroCustoId, descricao, valor, dataEmissao, dataVencimento,
-             formaPagamento, observacoes, origem, status, parcelaNumero, totalParcelas, grupoParcelaId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta', ?, ?, ?)`).run(
+             formaPagamento, observacoes, origem, status, parcelaNumero, totalParcelas, grupoParcelaId, estabelecimentoId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta', ?, ?, ?, ?)`).run(
             Number(pessoaId), categoriaId ? Number(categoriaId) : null,
             planoId, centroCustoId ? Number(centroCustoId) : null,
             desc, vlr, dataEmi, venc, formaPagamento || null, observacoes || null,
-            parcelasN > 1 ? (i+1) : null, parcelasN > 1 ? parcelasN : null, grupo
+            parcelasN > 1 ? (i+1) : null, parcelasN > 1 ? parcelasN : null, grupo,
+            escopoUsuario(req)   // usuário restrito lança na SUA unidade; sem escopo = NULL (empresa)
           );
           inseridas.push(r.lastInsertRowid);
         }
@@ -650,6 +957,9 @@ function registrarRotas(app, db) {
       }
       const { descricao, valor, dataVencimento, formaPagamento, observacoes, pessoaId,
               categoriaId, planoContaId, centroCustoId } = req.body || {};
+      const erroMeio = erroMeioPermitido(db, pessoaId ? Number(pessoaId) : existing.pessoaId,
+                                         formaPagamento ?? existing.formaPagamento);
+      if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
       db.prepare(`UPDATE contas_a_receber SET
           descricao = ?, valor = ?, dataVencimento = ?,
           formaPagamento = ?, observacoes = ?,
@@ -678,10 +988,11 @@ function registrarRotas(app, db) {
       const d = new Date(dataBrasilia() + 'T12:00:00'); d.setDate(d.getDate() + 30);
       const r = db.prepare(`INSERT INTO contas_a_receber
         (pessoaId, categoriaId, descricao, valor, dataEmissao, dataVencimento,
-         formaPagamento, observacoes, origem, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta')`).run(
+         formaPagamento, observacoes, origem, status, estabelecimentoId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'aberta', ?)`).run(
         src.pessoaId, src.categoriaId, src.descricao + ' (cópia)', src.valor,
-        dataBrasilia(), d.toISOString().slice(0,10), src.formaPagamento, src.observacoes
+        dataBrasilia(), d.toISOString().slice(0,10), src.formaPagamento, src.observacoes,
+        src.estabelecimentoId   // a cópia fica na mesma unidade do original
       );
       res.json({ success: true, id: r.lastInsertRowid });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -698,6 +1009,7 @@ function registrarRotas(app, db) {
           WHERE contaReceberId = ? AND status IN ('pendente','registrado')`).run(req.params.id);
       });
       tx();
+      sincronizarPagamentoPedido(db, req.params.id);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -708,6 +1020,7 @@ function registrarRotas(app, db) {
       if (!conta) return res.status(404).json({ success: false, error: 'Conta não encontrada' });
       if (conta.status !== 'cancelada') return res.status(400).json({ success: false, error: 'Só canceladas podem ser reabertas' });
       db.prepare(`UPDATE contas_a_receber SET status = 'aberta', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
+      sincronizarPagamentoPedido(db, req.params.id);
       res.json({ success: true });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -716,10 +1029,12 @@ function registrarRotas(app, db) {
   app.post('/api/contas-a-receber/:id/baixar', (req, res) => {
     try {
       const { contaFinanceiraId, dataPagamento, valorBase, juros, multa, desconto,
-              formaPagamento, parcial, observacoes } = req.body || {};
+              formaPagamento, parcial, observacoes, jurosPendente, multaPendente } = req.body || {};
       const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
       if (!conta) return res.status(404).json({ success: false, error: 'Conta não encontrada' });
       if (!['aberta','parcial'].includes(conta.status)) return res.status(400).json({ success: false, error: `Conta com status ${conta.status} não pode receber baixa` });
+      const erroMeio = erroMeioPermitido(db, conta.pessoaId, formaPagamento);
+      if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
       // Conta financeira é opcional: bonificação (desconto total → vPago=0) não
       // exige conta. Se informada, valida que existe e está ativa.
       if (contaFinanceiraId) {
@@ -731,6 +1046,7 @@ function registrarRotas(app, db) {
         contaReceberId: Number(req.params.id),
         valorBase, dataPagamento, contaFinanceiraId, formaPagamento,
         juros: Number(juros) || 0, multa: Number(multa) || 0, desconto: Number(desconto) || 0,
+        jurosPendente: Number(jurosPendente) || 0, multaPendente: Number(multaPendente) || 0,
         observacoes, parcial, origem: 'manual',
         usuario: req.session?.username || null
       });
@@ -740,6 +1056,9 @@ function registrarRotas(app, db) {
         db.prepare(`UPDATE boletos SET status = 'pago', dataAtualizacao = CURRENT_TIMESTAMP
           WHERE contaReceberId = ? AND status IN ('pendente','registrado')`).run(req.params.id);
       }
+      logAction(db, req, 'baixar', 'conta-receber', req.params.id, {
+        novo: _snapshotBaixa(db.prepare('SELECT * FROM contas_receber_pagamentos WHERE id = ?').get(result.pagamentoId))
+      });
       res.json({ success: true, ...result });
     } catch (err) {
       console.error('[baixar CR]', err);
@@ -749,43 +1068,96 @@ function registrarRotas(app, db) {
 
   app.post('/api/contas-a-receber/:id/estornar-baixa', (req, res) => {
     try {
-      const { pagamentoId } = req.body || {};
+      const { pagamentoId, motivo } = req.body || {};
       if (!pagamentoId) return res.status(400).json({ success: false, error: 'pagamentoId obrigatório' });
       const pag = db.prepare('SELECT * FROM contas_receber_pagamentos WHERE id = ? AND contaReceberId = ?').get(pagamentoId, req.params.id);
       if (!pag) return res.status(404).json({ success: false, error: 'Pagamento não encontrado' });
       if (pag.estornado) return res.status(400).json({ success: false, error: 'Pagamento já estornado' });
-      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
 
-      const tx = db.transaction(() => {
-        db.prepare(`UPDATE contas_receber_pagamentos SET estornado = 1, estornadoEm = CURRENT_TIMESTAMP WHERE id = ?`).run(pagamentoId);
-        // CR-01 (2026-04-18): estorno como movimentação reversa, não DELETE.
-        if (pag.movimentacaoFinanceiraId) {
-          const mov = db.prepare('SELECT * FROM movimentacoes_financeiras WHERE id = ?').get(pag.movimentacaoFinanceiraId);
-          if (mov) {
-            lancarMovimentacao(db, {
-              contaId: mov.contaId,
-              tipo: mov.tipo === 'entrada' ? 'saida' : 'entrada',
-              valor: mov.valor,
-              data: dataBrasilia(),
-              descricao: `Estorno baixa CR #${req.params.id} (mov original #${mov.id})`,
-              origem: 'estorno_cr',
-              origemId: pagamentoId,
-              categoria: mov.categoria,
-              usuario: req.session?.username || null
-            });
-          }
-        }
-        const restante = Number(db.prepare(`SELECT COALESCE(SUM(valorBase), 0) AS t
-          FROM contas_receber_pagamentos WHERE contaReceberId = ? AND estornado = 0`).get(req.params.id).t);
-        const novoStatus = restante <= 0 ? 'aberta' : (restante < conta.valor - 0.01 ? 'parcial' : 'paga');
-        db.prepare(`UPDATE contas_a_receber SET status = ?, valorPago = ?,
-          dataPagamento = CASE WHEN ? = 'paga' THEN dataPagamento ELSE NULL END,
-          dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(novoStatus, restante, novoStatus, req.params.id);
+      estornarBaixaCR(db, {
+        contaReceberId: Number(req.params.id), pagamentoId: Number(pagamentoId),
+        usuario: req.session?.username || null, motivo: motivo || null
       });
-      tx();
+      logAction(db, req, 'estornar-baixa', 'conta-receber', req.params.id, {
+        pagamentoId: Number(pagamentoId), motivo: motivo || null, anterior: _snapshotBaixa(pag)
+      });
       res.json({ success: true });
     } catch (err) {
       console.error('[estornar CR]', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * Retificação de baixa = estorno da original + relançamento corrigido, numa
+   * transação só. Lançamento não se apaga: a linha antiga fica visível como
+   * estornada e apontando para a nova (retificadoPorId), e o audit_log guarda
+   * o antes/depois com o usuário e o motivo.
+   */
+  app.post('/api/contas-a-receber/:id/retificar-baixa', (req, res) => {
+    try {
+      const { pagamentoId, motivo, contaFinanceiraId, dataPagamento, valorBase,
+              juros, multa, desconto, formaPagamento, observacoes } = req.body || {};
+      if (!pagamentoId) return res.status(400).json({ success: false, error: 'pagamentoId obrigatório' });
+      if (!motivo || String(motivo).trim().length < 5) {
+        return res.status(400).json({ success: false, error: 'motivo obrigatório (mín. 5 caracteres)' });
+      }
+      const pag = db.prepare('SELECT * FROM contas_receber_pagamentos WHERE id = ? AND contaReceberId = ?').get(pagamentoId, req.params.id);
+      if (!pag) return res.status(404).json({ success: false, error: 'Pagamento não encontrado' });
+      if (pag.estornado) return res.status(400).json({ success: false, error: 'Pagamento já estornado — lance uma baixa nova em vez de retificar' });
+
+      const conta = db.prepare('SELECT * FROM contas_a_receber WHERE id = ?').get(req.params.id);
+      if (!conta) return res.status(404).json({ success: false, error: 'Conta não encontrada' });
+      if (conta.status === 'cancelada') return res.status(400).json({ success: false, error: 'Conta cancelada não aceita retificação' });
+
+      const erroMeio = erroMeioPermitido(db, conta.pessoaId, formaPagamento);
+      if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
+      if (contaFinanceiraId) {
+        const contaFin = db.prepare('SELECT * FROM contas_financeiras WHERE id = ? AND ativo = 1').get(contaFinanceiraId);
+        if (!contaFin) return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
+      }
+
+      const usuario = req.session?.username || null;
+      let result;
+      // O estorno tem de vir antes do relançamento: é ele que devolve o saldo
+      // aberto que registrarBaixaCR valida. better-sqlite3 aninha via savepoint,
+      // então as transações internas das duas funções entram nesta.
+      const tx = db.transaction(() => {
+        estornarBaixaCR(db, {
+          contaReceberId: Number(req.params.id), pagamentoId: Number(pagamentoId),
+          usuario, motivo: `Retificação: ${String(motivo).trim()}`
+        });
+        result = registrarBaixaCR(db, {
+          contaReceberId: Number(req.params.id),
+          valorBase: (valorBase === undefined || valorBase === null || valorBase === '') ? pag.valorBase : valorBase,
+          dataPagamento: dataPagamento || pag.dataPagamento,
+          contaFinanceiraId: contaFinanceiraId || pag.contaFinanceiraId,
+          formaPagamento: formaPagamento || pag.formaPagamento,
+          juros: Number(juros) || 0, multa: Number(multa) || 0, desconto: Number(desconto) || 0,
+          observacoes: observacoes !== undefined ? observacoes : pag.observacoes,
+          origem: pag.origem || 'manual', usuario
+        });
+        db.prepare('UPDATE contas_receber_pagamentos SET retificadoPorId = ? WHERE id = ?')
+          .run(result.pagamentoId, pagamentoId);
+        db.prepare('UPDATE contas_receber_pagamentos SET retificaPagamentoId = ? WHERE id = ?')
+          .run(Number(pagamentoId), result.pagamentoId);
+      });
+      tx();
+
+      if (result.novoStatus === 'paga') {
+        db.prepare(`UPDATE boletos SET status = 'pago', dataAtualizacao = CURRENT_TIMESTAMP
+          WHERE contaReceberId = ? AND status IN ('pendente','registrado')`).run(req.params.id);
+      }
+
+      const nova = db.prepare('SELECT * FROM contas_receber_pagamentos WHERE id = ?').get(result.pagamentoId);
+      logAction(db, req, 'retificar-baixa', 'conta-receber', req.params.id, {
+        pagamentoId: Number(pagamentoId), novoPagamentoId: result.pagamentoId,
+        motivo: String(motivo).trim(),
+        anterior: _snapshotBaixa(pag), novo: _snapshotBaixa(nova)
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[retificar CR]', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -805,12 +1177,27 @@ function registrarRotas(app, db) {
         COALESCE((SELECT SUM(valorBase) FROM contas_receber_pagamentos
                   WHERE contaReceberId = c.id AND estornado = 0), 0) AS jaPago
         FROM contas_a_receber c WHERE c.id = ?`);
+      // RBAC: os ids vêm no corpo, então o guard de rota não alcança — filtra aqui.
+      const escopo = escopoUsuario(req);
+      if (escopo && contaFin.estabelecimentoId && contaFin.estabelecimentoId !== escopo) {
+        return res.status(404).json({ success: false, error: 'Conta financeira não encontrada' });
+      }
       const elegiveis = [];
+      const foraDoEscopo = [];
       for (const id of ids) {
         const c = selConta.get(id);
         if (!c || !['aberta','parcial'].includes(c.status)) continue;
+        if (escopo && c.estabelecimentoId && c.estabelecimentoId !== escopo) { foraDoEscopo.push(id); continue; }
         const saldo = Number((c.valor - c.jaPago).toFixed(2));
         if (saldo > 0) elegiveis.push({ ...c, saldo });
+      }
+
+      // A forma vale para o lote inteiro: basta um cliente que não a aceite
+      // para o lote ser recusado — baixar só as demais mudaria o valor
+      // distribuído sem o operador ter pedido.
+      for (const c of elegiveis) {
+        const erroMeio = erroMeioPermitido(db, c.pessoaId, formaPagamento, `Conta #${c.id}: `);
+        if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
       }
 
       // Lê config de juros pra projetar juros+multa por conta (mesma fórmula do detalhe + relatório).
@@ -910,7 +1297,9 @@ function registrarRotas(app, db) {
         // Sem valorTotal: baixa todos os IDs elegíveis pelo saldo cheio (comportamento anterior).
         const iterar = distribuicao ? [...distribuicao.keys()] : elegiveis.map(c => c.id);
         const naoElegiveis = ids.filter(id => !elegiveis.some(c => c.id === id));
-        for (const id of naoElegiveis) falhas.push({ id, erro: 'status inválido ou saldo zero' });
+        for (const id of naoElegiveis) {
+          falhas.push({ id, erro: foraDoEscopo.includes(id) ? 'fora do escopo' : 'status inválido ou saldo zero' });
+        }
 
         for (const id of iterar) {
           try {
@@ -943,7 +1332,11 @@ function registrarRotas(app, db) {
   });
 
   // ========== ANEXOS ==========
-  app.post('/api/contas-a-receber/:id/anexos', uploadAnexo.single('arquivo'), (req, res) => {
+  // reentrarContextoTenant: obrigatório depois do multer (ver nota em
+  // contas-pagar-routes.js).
+  app.post('/api/contas-a-receber/:id/anexos',
+    comTratamentoDeErro(uploadAnexo.single('arquivo'), { rotulo: 'cr-anexo', limiteMb: 10 }),
+    reentrarContextoTenant, (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ success: false, error: 'arquivo obrigatório' });
       const tipo = req.body.tipo || 'outro';
@@ -951,7 +1344,7 @@ function registrarRotas(app, db) {
       const r = db.prepare(`INSERT INTO contas_receber_anexos
         (contaReceberId, nomeOriginal, caminho, mimeType, tamanho, tipo)
         VALUES (?, ?, ?, ?, ?, ?)`).run(
-        req.params.id, req.file.originalname, rel, req.file.mimetype, req.file.size, tipo
+        req.params.id, nomeOriginalUtf8(req.file.originalname), rel, req.file.mimetype, req.file.size, tipo
       );
       res.json({ success: true, anexo: db.prepare('SELECT * FROM contas_receber_anexos WHERE id = ?').get(r.lastInsertRowid) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -966,16 +1359,24 @@ function registrarRotas(app, db) {
 
   app.get('/api/contas-a-receber/anexos/:anexoId/download', (req, res) => {
     try {
-      const a = db.prepare('SELECT * FROM contas_receber_anexos WHERE id = ?').get(req.params.anexoId);
-      if (!a) return res.status(404).json({ success: false, error: 'Anexo não encontrado' });
+      // Anexo herda o escopo do título: a rota é /anexos/:anexoId, fora do guard de /:id.
+      const a = db.prepare(`SELECT an.*, cr.estabelecimentoId AS crEstab
+        FROM contas_receber_anexos an
+        LEFT JOIN contas_a_receber cr ON cr.id = an.contaReceberId
+        WHERE an.id = ?`).get(req.params.anexoId);
+      if (!a || !noEscopo(req, a.crEstab)) return res.status(404).json({ success: false, error: 'Anexo não encontrado' });
       res.download(path.join(__dirname, 'public', a.caminho), a.nomeOriginal);
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.delete('/api/contas-a-receber/anexos/:anexoId', (req, res) => {
     try {
-      const a = db.prepare('SELECT * FROM contas_receber_anexos WHERE id = ?').get(req.params.anexoId);
-      if (!a) return res.status(404).json({ success: false, error: 'Anexo não encontrado' });
+      // Anexo herda o escopo do título: a rota é /anexos/:anexoId, fora do guard de /:id.
+      const a = db.prepare(`SELECT an.*, cr.estabelecimentoId AS crEstab
+        FROM contas_receber_anexos an
+        LEFT JOIN contas_a_receber cr ON cr.id = an.contaReceberId
+        WHERE an.id = ?`).get(req.params.anexoId);
+      if (!a || !noEscopo(req, a.crEstab)) return res.status(404).json({ success: false, error: 'Anexo não encontrado' });
       const abs = path.join(__dirname, 'public', a.caminho);
       if (fs.existsSync(abs)) fs.unlinkSync(abs);
       db.prepare('DELETE FROM contas_receber_anexos WHERE id = ?').run(req.params.anexoId);
@@ -1028,4 +1429,4 @@ function registrarRotas(app, db) {
   });
 }
 
-module.exports = { registrarRotasContasReceber: registrarRotas, registrarBaixaCR };
+module.exports = { registrarRotasContasReceber: registrarRotas, registrarBaixaCR, estornarBaixaCR, sincronizarPagamentoPedido };

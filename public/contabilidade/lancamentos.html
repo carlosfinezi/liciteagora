@@ -32,7 +32,7 @@
     </select>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="contab-lancamentos">
     <table>
       <thead><tr><th>#</th><th>Data</th><th>Histórico</th><th>Partidas</th><th style="text-align:right;">Valor</th><th>Origem</th><th>Status</th><th></th></tr></thead>
       <tbody id="tbLanc"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
@@ -69,6 +69,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('ctb-lancamentos');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }

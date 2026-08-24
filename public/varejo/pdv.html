@@ -119,6 +119,9 @@
           <div class="pag-opt" data-tpag="04" onclick="selPag('04')">💳 Cartão débito</div>
           <div class="pag-opt" data-tpag="17" onclick="selPag('17')">📱 PIX</div>
         </div>
+        <!-- Por que uma forma está apagada: a política de prazo do consumidor
+             identificado é que decide. Sem isto o operador só via o botão morto. -->
+        <div id="pdvPolitica" style="margin-top:8px;display:none;"></div>
 
         <h3 style="margin-top:14px;">Consumidor (opcional)</h3>
         <div class="consumidor-row">
@@ -173,6 +176,7 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/politica-prazo.js"></script>
 <script>initSidebar('pdv');</script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script>
@@ -262,6 +266,7 @@ function selecionarCliente(p){
   document.getElementById('inpBusca').value = '';
   document.getElementById('sugestoes').style.display = 'none';
   document.getElementById('inpBusca').focus();
+  atualizarMeiosPermitidos(String(p.cpfCnpj || '').replace(/\D/g,''));
   showAlert(`Cliente selecionado: ${p.razaoSocial || p.cpfCnpj}`, 'success');
 }
 
@@ -335,7 +340,55 @@ function selPag(t){
   document.querySelectorAll('.pag-opt').forEach(el => el.classList.toggle('selected', el.dataset.tpag === t));
   avaliarModeloDebounced();
 }
+// tmAval é declarado aqui, e não junto de avaliarModeloDebounced lá embaixo,
+// porque o selPag('01') da linha seguinte já dispara esse debounce: com o `let`
+// na declaração original o acesso caía em TDZ, a exceção abortava o resto deste
+// script e nada depois desta linha chegava a inicializar (inclusive a whitelist
+// de meios do consumidor).
+let tmAval;
 selPag('01');
+
+// ========== MEIOS ACEITOS PELO CLIENTE ==========
+// Consumidor identificado por CPF/CNPJ pode ter whitelist de meios no cadastro.
+// A emissão é recusada no servidor; aqui a opção fica apagada e não clicável.
+let MEIOS_PERMITIDOS = null;
+let _cpfMeios = null;
+
+let POLITICA_CLIENTE = null;
+
+async function atualizarMeiosPermitidos(cpf){
+  if (cpf === _cpfMeios) return;
+  _cpfMeios = cpf;
+  MEIOS_PERMITIDOS = null;
+  POLITICA_CLIENTE = null;
+  if (cpf) {
+    // onde:'pdv' — política marcada como "não aplica no PDV" não restringe o balcão.
+    const cond = await PoliticaPrazo.carregar({ cpfCnpj: cpf, onde: 'pdv', semCache: true });
+    MEIOS_PERMITIDOS = cond.permitidos;
+    POLITICA_CLIENTE = cond.politica;
+  }
+  const box = document.getElementById('pdvPolitica');
+  if (box) {
+    const html = PoliticaPrazo.avisoHTML({ permitidos: MEIOS_PERMITIDOS, politica: POLITICA_CLIENTE },
+      { '01':'Dinheiro','02':'Cheque','03':'Cartão de crédito','04':'Cartão de débito',
+        '15':'Boleto','16':'Depósito','17':'PIX','18':'Transferência','19':'Carteira digital' });
+    box.innerHTML = html;
+    box.style.display = html ? 'block' : 'none';
+  }
+  aplicarMeiosPermitidos();
+}
+
+function aplicarMeiosPermitidos(){
+  let primeiroLiberado = null;
+  document.querySelectorAll('.pag-opt').forEach(el => {
+    const bloqueado = !!MEIOS_PERMITIDOS && !MEIOS_PERMITIDOS.includes(el.dataset.tpag);
+    el.style.opacity = bloqueado ? '0.35' : '';
+    el.style.pointerEvents = bloqueado ? 'none' : '';
+    el.title = bloqueado ? 'Cliente não aceita este meio de pagamento' : '';
+    if (!bloqueado && !primeiroLiberado) primeiroLiberado = el.dataset.tpag;
+  });
+  if (MEIOS_PERMITIDOS && !MEIOS_PERMITIDOS.includes(tPagSel) && primeiroLiberado) selPag(primeiroLiberado);
+}
 
 // ========== DEFAULTS DE CONFIG DO PDV ==========
 let PDV_CONFIG = { limiteNFCe: 10000, pdvModeloPadrao: '', pdvFormaPagamentoPadrao: '01', pdvExigirCpfSempre: 0, pdvExigirClienteCadastrado: 0 };
@@ -361,7 +414,6 @@ function modeloForcado(){
   return sel ? sel.value : '';
 }
 
-let tmAval;
 function avaliarModeloDebounced(){ clearTimeout(tmAval); tmAval = setTimeout(avaliarModelo, 250); }
 
 async function avaliarModelo(){
@@ -370,6 +422,7 @@ async function avaliarModelo(){
   const desc = parseFloat(val('iDesconto')) || 0;
   const tot = +(prodTot - desc).toFixed(2);
   const cpf = val('iCpf').replace(/\D/g,'');
+  atualizarMeiosPermitidos(cpf);
 
   // Se forçado, não precisa avaliar
   if (forcado === '65' || forcado === '55') {

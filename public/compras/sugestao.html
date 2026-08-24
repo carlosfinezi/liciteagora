@@ -36,7 +36,7 @@
 
     <div class="kpi-grid" id="kpisMercado" style="margin-bottom:14px;"></div>
 
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" data-grid="sugestao-mercado">
       <table>
         <thead><tr>
           <th>Modelo</th>
@@ -58,10 +58,11 @@
   <!-- ============ SEÇÃO: REPOSIÇÃO DE ESTOQUE (existente) ============ -->
   <div style="margin-bottom:14px;">
     <h2 style="margin:0;font-size:1.1em;color:var(--text-1);">📦 Reposição de Estoque</h2>
-    <span style="color:var(--text-3);font-size:13px;">produtos cadastrados com saldo abaixo do ponto de reposição</span>
+    <span style="color:var(--text-3);font-size:13px;">saldo abaixo do ponto de reposição + demanda perdida por falta de estoque</span>
   </div>
 
   <div class="kpi-grid" id="kpis"></div>
+  <div id="avisoPerdas"></div>
 
   <div class="toolbar">
     <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);">
@@ -71,22 +72,32 @@
     <select id="filtFornec" onchange="renderItens()">
       <option value="">Todos fornecedores</option>
     </select>
+    <select id="filtOrigem" onchange="renderItens()">
+      <option value="">Todas as origens</option>
+      <option value="parametro">Só ponto de reposição</option>
+      <option value="demanda_perdida">Só demanda perdida</option>
+      <option value="ambos">Ambos</option>
+    </select>
+    <label style="display:inline-flex;align-items:center;gap:6px;color:var(--text-2);" title="Desmarque para ver a sugestão só pelos parâmetros de estoque">
+      <input type="checkbox" id="chkPerdas" checked onchange="carregar()"> Considerar demanda perdida
+    </label>
   </div>
 
-  <div class="tbl-wrap">
+  <div class="tbl-wrap" data-grid="sugestao-compra">
     <table>
       <thead><tr>
         <th style="width:32px;"></th>
         <th>SKU</th><th>Descrição</th>
         <th style="text-align:right;">Disponível</th>
         <th style="text-align:right;">Limite</th>
-        <th style="text-align:right;">Consumo diário</th>
+        <th style="text-align:right;" title="Saídas + demanda perdida por falta de estoque, dividido pela janela">Consumo diário</th>
+        <th style="text-align:right;" title="Quantidade e valor deixados de vender por falta de estoque na janela">Demanda perdida</th>
         <th style="text-align:right;">Qtd sugerida</th>
         <th style="text-align:right;">Cobertura proj.</th>
         <th style="text-align:right;">Custo estimado</th>
         <th>Fornecedor</th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -95,6 +106,8 @@
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('compras-sugestao');</script>
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -105,16 +118,32 @@ let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout
 let itensCache = [];
 
 async function carregar(){
-  const r=await fetch('/api/compras/sugestao');
+  const comPerdas = document.getElementById('chkPerdas').checked;
+  const r=await fetch('/api/compras/sugestao' + (comPerdas ? '' : '?incluirPerdas=0'));
   const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');
   itensCache = d.itens;
+  const rs = d.resumo;
 
   document.getElementById('kpis').innerHTML = `
-    <div class="kpi warn"><div class="label">Itens para comprar</div><div class="value">${d.resumo.totalItens}</div></div>
-    <div class="kpi"><div class="label">Custo total estimado</div><div class="value">R$ ${fmt(d.resumo.custoTotalEstimado)}</div></div>
-    <div class="kpi success"><div class="label">Fornecedores</div><div class="value">${d.resumo.fornecedoresDistintos}</div></div>
+    <div class="kpi warn"><div class="label">Itens para comprar</div><div class="value">${rs.totalItens}</div></div>
+    <div class="kpi"><div class="label">Custo total estimado</div><div class="value">R$ ${fmt(rs.custoTotalEstimado)}</div></div>
+    <div class="kpi success"><div class="label">Fornecedores</div><div class="value">${rs.fornecedoresDistintos}</div></div>
+    ${rs.incluiDemandaPerdida ? `
+    <div class="kpi warn"><div class="label">Demanda perdida (${rs.janelaDias}d)</div>
+      <div class="value">R$ ${fmt(rs.demandaPerdidaValor)}</div>
+      <small class="muted">${fmt(rs.demandaPerdidaQtd)} un · ${rs.itensPorDemandaPerdida} item(ns) só por perda</small></div>` : ''}
   `;
+
+  // Perda sem produto cadastrado não vira compra — não há o que comprar.
+  // Mas é acionável: é produto que falta cadastrar.
+  const semProd = rs.perdasSemProduto || { registros: 0 };
+  document.getElementById('avisoPerdas').innerHTML = semProd.registros ? `
+    <div class="alert warn" style="display:block;">
+      ${semProd.registros} perda(s) por falta de estoque em itens <strong>sem produto cadastrado</strong>
+      (${fmt(semProd.quantidade)} un · R$ ${fmt(semProd.valor)}) — não entram na sugestão.
+      <a href="/comercial/vendas-perdidas.html?motivo=sem_estoque">Ver quais são</a>
+    </div>` : '';
 
   // Popula select de fornecedores
   const fornecs = [...new Map(itensCache.filter(i=>i.fornecedorId).map(i=>[i.fornecedorId,i.fornecedorNome])).entries()];
@@ -124,35 +153,51 @@ async function carregar(){
   renderItens();
 }
 
+const ORIGEM_BADGE = {
+  parametro: '',
+  demanda_perdida: '<span class="badge" title="Produto sem ponto de reposição configurado — entrou porque houve venda perdida por falta de estoque">só perda</span>',
+  ambos: '<span class="badge" title="Abaixo do ponto de reposição E com venda perdida por falta de estoque">perda + reposição</span>',
+};
+
 function renderItens(){
   const q = document.getElementById('filtQ').value.toLowerCase();
   const fornec = document.getElementById('filtFornec').value;
+  const origem = document.getElementById('filtOrigem').value;
   const itens = itensCache.filter(i => {
     if (q && !((i.sku||'').toLowerCase().includes(q) || (i.descricao||'').toLowerCase().includes(q))) return false;
     if (fornec && String(i.fornecedorId||'') !== fornec) return false;
+    if (origem && i.origemSugestao !== origem) return false;
     return true;
   });
 
   const tb = document.getElementById('tb');
   tb.innerHTML = itens.length ? itens.map(i=>{
     const cobertura = i.coberturaProjetadaDias != null ? `${fmt(i.coberturaProjetadaDias)}d` : '—';
+    // Deixa explícito quanto da quantidade veio da demanda perdida — número
+    // de compra que ninguém consegue explicar não é usado.
+    const extra = i.quantidadePorDemandaPerdida > 0
+      ? `<br><small class="muted" title="Base pelo ponto de reposição: ${fmt(i.quantidadeSugeridaBase)}">+${fmt(i.quantidadePorDemandaPerdida)} por perda</small>` : '';
+    const perda = i.perdaQtd90d > 0
+      ? `<strong>${fmt(i.perdaQtd90d)}</strong><br><small class="muted">R$ ${fmt(i.perdaValor90d)} · ${i.perdaRegistros90d}x</small>`
+      : '<span class="muted">—</span>';
     return `<tr>
       <td><input type="checkbox" class="check-item" data-id="${i.id}" data-fornec="${i.fornecedorId||''}"
                  data-qtd="${i.quantidadeSugerida}" data-custo="${i.custoMedio||i.precoCusto||0}"></td>
       <td class="mono">${i.sku}</td>
-      <td>${i.descricao}</td>
+      <td>${i.descricao} ${ORIGEM_BADGE[i.origemSugestao]||''}</td>
       <td style="text-align:right;color:var(--danger);font-weight:700;">${fmt(i.disponivel)}</td>
-      <td style="text-align:right;color:var(--text-2);">${fmt(i.limite)}</td>
-      <td style="text-align:right;">${fmt(i.consumoDiarioMedio)}</td>
+      <td style="text-align:right;color:var(--text-2);">${i.limite > 0 ? fmt(i.limite) : '<span class="muted">n/d</span>'}</td>
+      <td style="text-align:right;">${fmt(i.consumoDiarioAjustado != null ? i.consumoDiarioAjustado : i.consumoDiarioMedio)}</td>
+      <td style="text-align:right;">${perda}</td>
       <td style="text-align:right;font-weight:600;">
         <input type="number" class="qtd-input" value="${i.quantidadeSugerida}" step="0.01" data-id="${i.id}"
-               style="width:90px;text-align:right;font-weight:600;" onchange="atualizarCusto(${i.id})">
+               style="width:90px;text-align:right;font-weight:600;" onchange="atualizarCusto(${i.id})">${extra}
       </td>
       <td style="text-align:right;">${cobertura}</td>
       <td style="text-align:right;" id="custoEst-${i.id}">R$ ${fmt(i.custoSugerido)}</td>
       <td>${i.fornecedorNome||'<span class="muted">—</span>'}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="10" class="empty">Nenhum produto precisa ser comprado 🎉</td></tr>';
+  }).join('') : '<tr><td colspan="11" class="empty">Nenhum produto precisa ser comprado 🎉</td></tr>';
 }
 
 function atualizarCusto(id){
@@ -265,6 +310,7 @@ async function carregarMercado() {
         <td><span style="color:${cor};font-weight:600;font-size:12px">${icone} ${decisaoLabel}</span></td>
       </tr>`;
     }).join('');
+  } catch (e) { /* silencioso */ }
 }
 
 // Sparkline SVG: barras dos últimos 6 meses. Tooltip mostra valor exato por mês.
@@ -287,7 +333,6 @@ function sparkline(valores, labels) {
     <svg width="${W}" height="${H}" style="display:block">${bars}</svg>
     <span style="color:var(--text-3);font-size:10px;white-space:nowrap">${total} em 6m</span>
   </div>`;
-  } catch (e) { /* silencioso */ }
 }
 
 carregar();

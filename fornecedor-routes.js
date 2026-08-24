@@ -37,8 +37,21 @@ function registrarRotasFornecedor(app, db) {
         banco, agencia, conta, tipoConta,
         logoBase64, observacoes,
         declaracaoMeEpp, declaracaoProgramasIntegridade, declaracaoEquidadeGenero,
-        regimeTributario, contribuinteIPI, regimeApuracaoPISCOFINS
+        regimeTributario, contribuinteIPI, regimeApuracaoPISCOFINS,
+        serieDps
       } = req.body;
+
+      // Série do DPS: vai inteira para o <serie> do XML e para o idDps, onde
+      // precisa caber em 5 dígitos numéricos. Recusar aqui evita descobrir o
+      // problema na rejeição da prefeitura.
+      if (serieDps !== undefined && serieDps !== null && String(serieDps).trim() !== '') {
+        if (!/^\d{1,5}$/.test(String(serieDps).trim())) {
+          return res.status(400).json({
+            success: false,
+            error: 'Série do DPS deve ser numérica, de 1 a 5 dígitos (ex: 1)',
+          });
+        }
+      }
 
       // Verificar se já existe registro
       const existe = db.prepare('SELECT id FROM fornecedor WHERE id = 1').get();
@@ -102,6 +115,16 @@ function registrarRotasFornecedor(app, db) {
           db.prepare('UPDATE fornecedor SET codigoMunicipio = ? WHERE id = 1').run(codigoMunicipio);
         }
       } catch {}
+
+      // serieDps (coluna da migração NFS-e; string vazia limpa o campo)
+      try {
+        if (serieDps !== undefined) {
+          const v = serieDps == null ? null : String(serieDps).trim();
+          db.prepare('UPDATE fornecedor SET serieDps = ? WHERE id = 1').run(v || null);
+        }
+      } catch (err) {
+        if (!/no such column/i.test(err.message)) throw err;
+      }
 
       // regimeTributario (coluna adicionada pela migração NFSe; ignora se não existir)
       try {

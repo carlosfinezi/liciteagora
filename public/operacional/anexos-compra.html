@@ -87,7 +87,7 @@ async function autoListarItens() {
     const r = await fetch(`/api/licitacoes/${PNCP.cnpj}/${PNCP.sequencial}/${PNCP.ano}/itens`);
     if (!r.ok) return;
     const j = await r.json();
-    const arr = Array.isArray(j) ? j : (j.itens || j.documentos || []);
+    const arr = Array.isArray(j) ? j : (j.data || j.itens || j.documentos || []);
     for (const it of arr) {
       const n = it.numeroItem || it.numero;
       if (n) await adicionarItem(n, it.descricao);

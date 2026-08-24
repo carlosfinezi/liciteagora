@@ -471,13 +471,24 @@ function registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getI
           const ids = alvo.map(r => r.id);
           let compoundKeys = [];
           if (ids.length > 0) {
+            // Itens casam por PALAVRA (FTS 'simple', mesmo match do scan e da
+            // membership) e não por substring: com muitas palavras no grupo o
+            // planner escolhia BitmapAnd no idx_itens_desc_trgm e o ILIKE ANY
+            // levava 34s (> statement_timeout 30s do pool → "Query read
+            // timeout"/500 no grupo 3 do 1bit). FTS 'simple' resolve em ~2s.
+            const exprIncl = palavrasGrupo.map(p => {
+              const pl = p.toLowerCase().replace(/"/g, ' ').trim();
+              return pl.includes(' ') ? `"${pl}"` : pl;
+            }).filter(Boolean).join(' OR ');
             const matched = await catalogPg.query(
               `SELECT DISTINCT id FROM (
                  SELECT id FROM licitacoes WHERE id = ANY($1) AND "objetoCompra" ILIKE ANY($2::text[])
                  UNION
-                 SELECT "licitacaoId" AS id FROM itens WHERE "licitacaoId" = ANY($1) AND descricao ILIKE ANY($2::text[])
+                 SELECT "licitacaoId" AS id FROM itens
+                  WHERE "licitacaoId" = ANY($1)
+                    AND to_tsvector('simple', coalesce(descricao,'')) @@ websearch_to_tsquery('simple', $3)
                ) x`,
-              [ids, likes]
+              [ids, likes, exprIncl]
             );
             compoundKeys = matched.map(m => keyById.get(String(m.id))).filter(Boolean);
           }
