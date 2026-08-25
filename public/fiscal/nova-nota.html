@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nova Nota Fiscal - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: grade de itens editável + painel de memória de cálculo */
+        .itens-tabela { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+        .itens-tabela th { text-align: left; padding: 8px 6px; color: var(--text-3); font-weight: 600; white-space: nowrap; }
+        .itens-tabela td { padding: 4px 6px; vertical-align: middle; border-top: 1px solid var(--border); }
+        .itens-tabela input { width: 100%; padding: 5px 7px; box-sizing: border-box; }
+        .itens-tabela .num { text-align: right; }
+        .itens-tabela .col-qtd, .itens-tabela .col-vlr { width: 100px; }
+        .itens-tabela .col-ncm { width: 110px; }
+        .itens-tabela .col-cfop { width: 80px; }
+        .itens-tabela .col-un { width: 70px; }
+        .itens-tabela .col-acao { width: 90px; white-space: nowrap; }
+        .linha-total { font-weight: 700; }
+        .badge-trib { display: inline-block; padding: 2px 7px; border-radius: var(--r-sm); font-size: 0.78em; font-weight: 600; }
+        .badge-trib.ok { background: var(--success-bg, rgba(40,167,69,.15)); color: var(--success, #28a745); }
+        .badge-trib.erro { background: var(--danger-bg, rgba(220,53,69,.15)); color: var(--danger, #dc3545); }
+        .badge-trib.manual { background: var(--warn-bg, rgba(255,193,7,.18)); color: var(--warn, #ffc107); }
+        .memoria { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8em;
+                   white-space: pre-wrap; color: var(--text-2); background: var(--bg-2);
+                   padding: 8px 10px; border-radius: var(--r-sm); margin-top: 6px; }
+        .totais-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+        .totais-grid .box { background: var(--bg-2); padding: 10px 12px; border-radius: var(--r-sm); }
+        .totais-grid .box small { color: var(--text-3); display: block; font-size: 0.8em; }
+        .totais-grid .box strong { font-size: 1.05em; }
+        .autocomplete-list { position: absolute; z-index: 40; left: 0; right: 0; background: var(--bg-1);
+                             border: 1px solid var(--border); border-radius: var(--r-sm); max-height: 240px;
+                             overflow-y: auto; display: none; }
+        .autocomplete-list div { padding: 7px 10px; cursor: pointer; font-size: 0.88em; }
+        .autocomplete-list div:hover { background: var(--bg-2); }
+        .status-chip { padding: 3px 10px; border-radius: 999px; font-size: 0.8em; font-weight: 600; }
+        .status-chip.rascunho { background: var(--warn-bg, rgba(255,193,7,.18)); color: var(--warn, #ffc107); }
+        .status-chip.emitida { background: var(--success-bg, rgba(40,167,69,.15)); color: var(--success, #28a745); }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Nova Nota Fiscal</h1>
+                <small>Emissão manual de NF-e — salva como rascunho até você mandar emitir</small>
+              </div>
+              <div class="actions">
+                <span id="chipStatus" class="status-chip rascunho" style="display:none;">rascunho</span>
+                <a class="btn btn-secondary btn-sm" href="/fiscal/notas-fiscais.html">🗂️ Notas emitidas</a>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div class="page-section">
+                <!-- ─── Capa ─────────────────────────────────────────────── -->
+                <div class="panel">
+                    <h3>Capa</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Operação *</label>
+                            <select id="tipoOperacaoId" onchange="aoTrocarOperacao()">
+                                <option value="">Selecione…</option>
+                            </select>
+                            <small id="hintOperacao" class="muted"></small>
+                        </div>
+                        <div class="form-group autocomplete-wrapper" style="position: relative;">
+                            <label>Destinatário *</label>
+                            <input type="text" id="destBusca" placeholder="Nome, CPF ou CNPJ"
+                                   oninput="buscarDestinatario(this.value)" autocomplete="off">
+                            <div id="destLista" class="autocomplete-list"></div>
+                            <small id="destInfo" class="muted"></small>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Data de emissão</label>
+                            <input type="date" id="dataEmissao">
+                        </div>
+                        <div class="form-group">
+                            <label>Vencimento</label>
+                            <input type="date" id="dataVencimento">
+                        </div>
+                        <div class="form-group">
+                            <label>Meio de pagamento</label>
+                            <select id="meioPagamento">
+                                <option value="">—</option>
+                                <option value="01">01 — Dinheiro</option>
+                                <option value="03">03 — Cartão de crédito</option>
+                                <option value="04">04 — Cartão de débito</option>
+                                <option value="15">15 — Boleto</option>
+                                <option value="17">17 — PIX</option>
+                                <option value="90">90 — Sem pagamento</option>
+                                <option value="99">99 — Outros</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Observação (vai para os dados adicionais da NF-e)</label>
+                        <textarea id="observacao" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <!-- ─── Itens ────────────────────────────────────────────── -->
+                <div class="panel">
+                    <h3>Itens</h3>
+                    <div class="form-row" style="align-items: flex-end;">
+                        <div class="form-group autocomplete-wrapper" style="position: relative; flex: 2;">
+                            <label>Adicionar produto</label>
+                            <input type="text" id="prodBusca" placeholder="SKU ou descrição — ou digite e use “Item livre”"
+                                   oninput="buscarProduto(this.value)" autocomplete="off">
+                            <div id="prodLista" class="autocomplete-list"></div>
+                        </div>
+                        <div class="form-group" style="flex: 0 0 auto;">
+                            <button class="btn btn-secondary btn-sm" onclick="adicionarItemLivre()">+ Item livre</button>
+                        </div>
+                    </div>
+
+                    <div style="overflow-x: auto;">
+                      <table class="itens-tabela">
+                        <thead>
+                          <tr>
+                            <th>Descrição</th>
+                            <th class="col-ncm">NCM</th>
+                            <th class="col-cfop">CFOP</th>
+                            <th class="col-un">Un</th>
+                            <th class="col-qtd">Qtd</th>
+                            <th class="col-vlr">Preço</th>
+                            <th class="col-vlr">Total</th>
+                            <th>Tributação</th>
+                            <th class="col-acao"></th>
+                          </tr>
+                        </thead>
+                        <tbody id="itensBody">
+                          <tr><td colspan="9" style="text-align:center; color: var(--text-3); padding: 18px;">Nenhum item</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                </div>
+
+                <!-- ─── Totais ───────────────────────────────────────────── -->
+                <div class="panel">
+                    <h3>Totais</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Frete</label>
+                            <input type="number" id="valorFrete" step="0.01" min="0" value="0" oninput="recalcular()">
+                        </div>
+                        <div class="form-group">
+                            <label>Desconto</label>
+                            <input type="number" id="valorDesconto" step="0.01" min="0" value="0" oninput="recalcular()">
+                        </div>
+                    </div>
+                    <div class="totais-grid" id="totaisGrid">
+                        <div class="box"><small>Produtos</small><strong id="tProdutos">0,00</strong></div>
+                        <div class="box"><small>Base ICMS</small><strong id="tBaseIcms">—</strong></div>
+                        <div class="box"><small>ICMS</small><strong id="tIcms">—</strong></div>
+                        <div class="box"><small>ICMS ST</small><strong id="tSt">—</strong></div>
+                        <div class="box"><small>IPI</small><strong id="tIpi">—</strong></div>
+                        <div class="box"><small>Total da nota</small><strong id="tTotal">0,00</strong></div>
+                    </div>
+                    <small class="muted" id="hintTotais">Os impostos aparecem depois de “Calcular impostos”.</small>
+                </div>
+
+                <div class="form-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn btn-secondary" id="btnSalvar" onclick="salvar()">💾 Salvar rascunho</button>
+                    <button class="btn btn-secondary" id="btnCalcular" onclick="calcularImpostos()">🧮 Calcular impostos</button>
+                    <button class="btn btn-primary" id="btnEmitir" onclick="emitir()">📤 Emitir NF-e</button>
+                    <button class="btn btn-danger" id="btnDescartar" onclick="descartar()" style="display:none;">🗑️ Descartar</button>
+                </div>
+
+                <!-- ─── Memória de cálculo ───────────────────────────────── -->
+                <div class="panel" id="panelMemoria" style="display:none;">
+                    <h3>Memória de cálculo</h3>
+                    <small class="muted">Por que cada imposto deu esse valor — o mesmo que a auditoria de um ERP mostra.</small>
+                    <div id="memoriaConteudo" style="margin-top: 10px;"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ─── Modal: tributação do item ───────────────────────────────────── -->
+    <div class="modal-bg" id="modalTrib" style="display:none;">
+      <div class="modal" style="max-width: 760px;">
+        <div class="modal-header">
+          <h3 style="margin:0;">Tributação do item</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharModalTrib()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" style="margin-top:0;">
+            Deixe em branco para o sistema resolver pela matriz de regras. O que for preenchido
+            aqui vence a regra e marca o item como <strong>MANUAL</strong>.
+          </p>
+          <div id="modalTribItemNome" style="font-weight:600; margin-bottom:12px;"></div>
+
+          <h4>ICMS</h4>
+          <div class="form-row">
+            <div class="form-group"><label>CST (regime normal)</label><input type="text" id="mCstIcms" maxlength="2" placeholder="00, 20, 10…"></div>
+            <div class="form-group"><label>CSOSN (Simples)</label><input type="text" id="mCsosnIcms" maxlength="3" placeholder="102, 400, 900…"></div>
+            <div class="form-group"><label>Alíquota %</label><input type="number" id="mPIcms" step="0.01" min="0"></div>
+            <div class="form-group"><label>Redução base %</label><input type="number" id="mPRedBC" step="0.0001" min="0"></div>
+          </div>
+          <h4>ICMS ST</h4>
+          <div class="form-row">
+            <div class="form-group"><label>MVA %</label><input type="number" id="mPMVAST" step="0.01" min="0"></div>
+            <div class="form-group"><label>Redução base ST %</label><input type="number" id="mPRedBCST" step="0.01" min="0"></div>
+            <div class="form-group"><label>Alíquota ST %</label><input type="number" id="mPIcmsST" step="0.01" min="0"></div>
+          </div>
+          <h4>IPI · PIS · COFINS</h4>
+          <div class="form-row">
+            <div class="form-group"><label>CST IPI</label><input type="text" id="mCstIpi" maxlength="2" placeholder="00, 49…"></div>
+            <div class="form-group"><label>IPI %</label><input type="number" id="mPIpi" step="0.01" min="0"></div>
+            <div class="form-group"><label>CST PIS</label><input type="text" id="mCstPis" maxlength="2"></div>
+            <div class="form-group"><label>PIS %</label><input type="number" id="mPPis" step="0.01" min="0"></div>
+            <div class="form-group"><label>CST COFINS</label><input type="text" id="mCstCofins" maxlength="2"></div>
+            <div class="form-group"><label>COFINS %</label><input type="number" id="mPCofins" step="0.01" min="0"></div>
+          </div>
+          <div class="form-group">
+            <label>Informação adicional do item (lote, validade, ONU…)</label>
+            <textarea id="mInfAdProd" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end;">
+          <button class="btn btn-secondary" onclick="limparTribItem()">Limpar</button>
+          <button class="btn btn-primary" onclick="salvarTribItem()">Aplicar</button>
+        </div>
+      </div>
+    </div>
+
+<script>
+'use strict';
+
+let notaId = null;
+let itens = [];
+let clienteId = null;
+let statusAtual = 'rascunho';
+let idxTribAberto = null;
+
+const CAMPOS_TRIB = ['cstIcms','csosnIcms','pIcms','pRedBC','pMVAST','pRedBCST','pIcmsST',
+                     'cstIpi','pIpi','cstPis','pPis','cstCofins','pCofins'];
+
+function $(id) { return document.getElementById(id); }
+function n2(v) { return (Number(v) || 0).toFixed(2).replace('.', ','); }
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
+function alerta(msg, tipo) {
+  const box = $('alertBox');
+  box.className = 'alert alert-' + (tipo || 'info');
+  box.textContent = msg;
+  box.style.display = 'block';
+  if (tipo === 'success') setTimeout(() => { box.style.display = 'none'; }, 5000);
+}
+
+// ─── Carga inicial ──────────────────────────────────────────────────────────
+async function init() {
+  $('dataEmissao').value = new Date().toISOString().slice(0, 10);
+  const venc = new Date(); venc.setDate(venc.getDate() + 30);
+  $('dataVencimento').value = venc.toISOString().slice(0, 10);
+
+  try {
+    const r = await fetch('/api/tipos-operacao?usoNFAvulsa=1');
+    const j = await r.json();
+    const lista = j.tipos || j.tiposOperacao || [];
+    const sel = $('tipoOperacaoId');
+    for (const t of lista) {
+      if (t.ativo === 0) continue;
+      const o = document.createElement('option');
+      o.value = t.id;
+      o.textContent = t.codigo + ' — ' + t.descricao;
+      o.dataset.emiteNFe = t.emiteNFe;
+      o.dataset.geraFinanceiro = t.geraFinanceiro;
+      o.dataset.movimentaEstoque = t.movimentaEstoque;
+      o.dataset.cfopInterno = t.cfopInterno || '';
+      sel.appendChild(o);
+    }
+  } catch (e) { alerta('Falha ao carregar tipos de operação: ' + e.message, 'error'); }
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('id')) await carregar(Number(params.get('id')));
+  renderItens();
+}
+
+function aoTrocarOperacao() {
+  const o = $('tipoOperacaoId').selectedOptions[0];
+  if (!o || !o.value) { $('hintOperacao').textContent = ''; return; }
+  const efeitos = [];
+  if (o.dataset.geraFinanceiro === '1') efeitos.push('gera contas a receber');
+  if (o.dataset.movimentaEstoque === '1') efeitos.push('baixa estoque');
+  if (o.dataset.emiteNFe === '0') efeitos.push('NÃO emite NF-e (documento interno)');
+  $('hintOperacao').textContent = efeitos.length ? efeitos.join(' · ') : 'sem efeitos além da nota';
+
+  // CFOP padrão da operação preenche o que estiver vazio nos itens.
+  const cfop = o.dataset.cfopInterno;
+  if (cfop) {
+    let mudou = false;
+    itens.forEach(it => { if (!it.cfop) { it.cfop = cfop; mudou = true; } });
+    if (mudou) renderItens();
+  }
+}
+
+// ─── Autocomplete ───────────────────────────────────────────────────────────
+let tDest = null;
+function buscarDestinatario(q) {
+  clearTimeout(tDest);
+  if (!q || q.length < 2) { $('destLista').style.display = 'none'; return; }
+  tDest = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/pessoas/autocomplete?q=' + encodeURIComponent(q));
+      const j = await r.json();
+      const box = $('destLista');
+      box.innerHTML = '';
+      (j.pessoas || []).forEach(p => {
+        const d = document.createElement('div');
+        d.textContent = p.razaoSocial + ' — ' + (p.cpfCnpj || 's/ documento');
+        d.onclick = () => selecionarDestinatario(p);
+        box.appendChild(d);
+      });
+      box.style.display = (j.pessoas || []).length ? 'block' : 'none';
+    } catch (e) { /* silencioso: autocomplete não deve interromper digitação */ }
+  }, 250);
+}
+
+function selecionarDestinatario(p) {
+  clienteId = p.id;
+  $('destBusca').value = p.razaoSocial;
+  $('destInfo').textContent = (p.cpfCnpj || '') + (p.uf ? ' · ' + p.uf : '');
+  $('destLista').style.display = 'none';
+}
+
+let tProd = null;
+function buscarProduto(q) {
+  clearTimeout(tProd);
+  if (!q || q.length < 2) { $('prodLista').style.display = 'none'; return; }
+  tProd = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/produtos/autocomplete?q=' + encodeURIComponent(q));
+      const j = await r.json();
+      const box = $('prodLista');
+      box.innerHTML = '';
+      (j.produtos || []).forEach(p => {
+        const d = document.createElement('div');
+        d.textContent = p.sku + ' — ' + p.descricao;
+        d.onclick = () => adicionarProduto(p.id);
+        box.appendChild(d);
+      });
+      box.style.display = (j.produtos || []).length ? 'block' : 'none';
+    } catch (e) { /* idem */ }
+  }, 250);
+}
+
+async function adicionarProduto(id) {
+  $('prodLista').style.display = 'none';
+  $('prodBusca').value = '';
+  try {
+    const r = await fetch('/api/produtos/' + id);
+    const j = await r.json();
+    const p = j.produto || j;
+    const opSel = $('tipoOperacaoId').selectedOptions[0];
+    itens.push({
+      produtoId: p.id, sku: p.sku, descricao: p.descricao, unidade: p.unidade || 'UN',
+      quantidade: 1, precoUnitario: Number(p.precoVenda) || 0,
+      ncm: p.ncm || '', cfop: p.cfopPadrao || (opSel && opSel.dataset.cfopInterno) || '',
+      origem: p.origem || '0', infAdProd: '',
+    });
+    renderItens();
+  } catch (e) { alerta('Falha ao carregar produto: ' + e.message, 'error'); }
+}
+
+function adicionarItemLivre() {
+  const opSel = $('tipoOperacaoId').selectedOptions[0];
+  itens.push({
+    produtoId: null, sku: '', descricao: $('prodBusca').value || '', unidade: 'UN',
+    quantidade: 1, precoUnitario: 0, ncm: '', cfop: (opSel && opSel.dataset.cfopInterno) || '',
+    origem: '0', infAdProd: '',
+  });
+  $('prodBusca').value = '';
+  renderItens();
+}
+
+// ─── Grade de itens ─────────────────────────────────────────────────────────
+function renderItens() {
+  const tb = $('itensBody');
+  if (!itens.length) {
+    tb.innerHTML = '<tr><td colspan="9" style="text-align:center; color: var(--text-3); padding: 18px;">Nenhum item</td></tr>';
+    recalcular();
+    return;
+  }
+  tb.innerHTML = itens.map((it, i) => {
+    const total = (Number(it.quantidade) || 0) * (Number(it.precoUnitario) || 0);
+    const manual = CAMPOS_TRIB.some(c => it[c] !== undefined && it[c] !== null && it[c] !== '');
+    let badge = '<span class="badge-trib">automática</span>';
+    if (manual) badge = '<span class="badge-trib manual">manual</span>';
+    if (it._trib && it._trib.ok === false) badge = '<span class="badge-trib erro" title="' + escHtml(it._trib.erro) + '">sem regra</span>';
+    else if (it._trib && it._trib.ok) {
+      const c = it._trib.icms || {};
+      badge = '<span class="badge-trib ok">' + escHtml(c.CST || c.CSOSN || '') +
+              (c.vICMS ? ' · ICMS ' + n2(c.vICMS) : '') + '</span>';
+    }
+    return '<tr>' +
+      '<td><input value="' + escHtml(it.descricao) + '" oninput="editar(' + i + ',\'descricao\',this.value)"></td>' +
+      '<td><input class="num" value="' + escHtml(it.ncm) + '" oninput="editar(' + i + ',\'ncm\',this.value)"></td>' +
+      '<td><input class="num" value="' + escHtml(it.cfop) + '" oninput="editar(' + i + ',\'cfop\',this.value)"></td>' +
+      '<td><input value="' + escHtml(it.unidade) + '" oninput="editar(' + i + ',\'unidade\',this.value)"></td>' +
+      '<td><input class="num" type="number" step="0.0001" min="0" value="' + (Number(it.quantidade) || 0) + '" oninput="editar(' + i + ',\'quantidade\',this.value)"></td>' +
+      '<td><input class="num" type="number" step="0.01" min="0" value="' + (Number(it.precoUnitario) || 0) + '" oninput="editar(' + i + ',\'precoUnitario\',this.value)"></td>' +
+      '<td class="num">' + n2(total) + '</td>' +
+      '<td>' + badge + '</td>' +
+      '<td class="col-acao">' +
+        '<button class="btn btn-secondary btn-sm" onclick="abrirModalTrib(' + i + ')" title="Tributação do item">🧾</button> ' +
+        '<button class="btn btn-danger btn-sm" onclick="removerItem(' + i + ')" title="Remover">✕</button>' +
+      '</td></tr>';
+  }).join('');
+  recalcular();
+}
+
+function editar(i, campo, valor) {
+  itens[i][campo] = (campo === 'quantidade' || campo === 'precoUnitario') ? Number(valor) : valor;
+  if (campo === 'quantidade' || campo === 'precoUnitario') {
+    // Só os totais mudam — refazer a grade inteira tiraria o foco do campo.
+    const linha = $('itensBody').rows[i];
+    if (linha) linha.cells[6].textContent = n2((Number(itens[i].quantidade) || 0) * (Number(itens[i].precoUnitario) || 0));
+    recalcular();
+  }
+}
+
+function removerItem(i) { itens.splice(i, 1); renderItens(); }
+
+function recalcular() {
+  const prod = itens.reduce((s, it) => s + (Number(it.quantidade) || 0) * (Number(it.precoUnitario) || 0), 0);
+  const frete = Number($('valorFrete').value) || 0;
+  const desc = Number($('valorDesconto').value) || 0;
+  let st = 0, ipi = 0, bIcms = 0, vIcms = 0, temTrib = false;
+  itens.forEach(it => {
+    if (it._trib && it._trib.ok && it._trib.totais) {
+      temTrib = true;
+      st += Number(it._trib.totais.vICMSST) || 0;
+      ipi += Number(it._trib.totais.vIPI) || 0;
+      bIcms += Number(it._trib.totais.vBC) || 0;
+      vIcms += Number(it._trib.totais.vICMS) || 0;
+    }
+  });
+  $('tProdutos').textContent = n2(prod);
+  $('tBaseIcms').textContent = temTrib ? n2(bIcms) : '—';
+  $('tIcms').textContent = temTrib ? n2(vIcms) : '—';
+  $('tSt').textContent = temTrib ? n2(st) : '—';
+  $('tIpi').textContent = temTrib ? n2(ipi) : '—';
+  $('tTotal').textContent = n2(prod + frete - desc + st + ipi);
+  $('hintTotais').textContent = temTrib
+    ? 'ST e IPI entram no total da nota; ICMS e PIS/COFINS já estão no preço.'
+    : 'Os impostos aparecem depois de “Calcular impostos”.';
+}
+
+// ─── Modal de tributação do item ────────────────────────────────────────────
+function abrirModalTrib(i) {
+  idxTribAberto = i;
+  const it = itens[i];
+  $('modalTribItemNome').textContent = it.descricao || '(sem descrição)';
+  $('mCstIcms').value = it.cstIcms || '';
+  $('mCsosnIcms').value = it.csosnIcms || '';
+  $('mPIcms').value = it.pIcms != null ? it.pIcms : '';
+  $('mPRedBC').value = it.pRedBC != null ? it.pRedBC : '';
+  $('mPMVAST').value = it.pMVAST != null ? it.pMVAST : '';
+  $('mPRedBCST').value = it.pRedBCST != null ? it.pRedBCST : '';
+  $('mPIcmsST').value = it.pIcmsST != null ? it.pIcmsST : '';
+  $('mCstIpi').value = it.cstIpi || '';
+  $('mPIpi').value = it.pIpi != null ? it.pIpi : '';
+  $('mCstPis').value = it.cstPis || '';
+  $('mPPis').value = it.pPis != null ? it.pPis : '';
+  $('mCstCofins').value = it.cstCofins || '';
+  $('mPCofins').value = it.pCofins != null ? it.pCofins : '';
+  $('mInfAdProd').value = it.infAdProd || '';
+  $('modalTrib').style.display = 'flex';
+}
+
+function fecharModalTrib() { $('modalTrib').style.display = 'none'; idxTribAberto = null; }
+
+function salvarTribItem() {
+  if (idxTribAberto === null) return;
+  const it = itens[idxTribAberto];
+  const v = id => { const s = $(id).value; return s === '' ? null : s; };
+  it.cstIcms = v('mCstIcms'); it.csosnIcms = v('mCsosnIcms');
+  it.pIcms = v('mPIcms'); it.pRedBC = v('mPRedBC');
+  it.pMVAST = v('mPMVAST'); it.pRedBCST = v('mPRedBCST'); it.pIcmsST = v('mPIcmsST');
+  it.cstIpi = v('mCstIpi'); it.pIpi = v('mPIpi');
+  it.cstPis = v('mCstPis'); it.pPis = v('mPPis');
+  it.cstCofins = v('mCstCofins'); it.pCofins = v('mPCofins');
+  it.infAdProd = $('mInfAdProd').value || null;
+  it._trib = null;
+  fecharModalTrib();
+  renderItens();
+}
+
+function limparTribItem() {
+  ['mCstIcms','mCsosnIcms','mPIcms','mPRedBC','mPMVAST','mPRedBCST','mPIcmsST',
+   'mCstIpi','mPIpi','mCstPis','mPPis','mCstCofins','mPCofins'].forEach(id => { $(id).value = ''; });
+}
+
+// ─── Persistência ───────────────────────────────────────────────────────────
+function corpo() {
+  return {
+    clienteId,
+    tipoOperacaoId: $('tipoOperacaoId').value || null,
+    dataEmissao: $('dataEmissao').value || null,
+    dataVencimento: $('dataVencimento').value || null,
+    meioPagamento: $('meioPagamento').value || null,
+    observacao: $('observacao').value || null,
+    valorFrete: Number($('valorFrete').value) || 0,
+    valorDesconto: Number($('valorDesconto').value) || 0,
+    itens: itens.map(it => {
+      const copia = Object.assign({}, it);
+      delete copia._trib;
+      return copia;
+    }),
+  };
+}
+
+async function salvar() {
+  if (!clienteId) { alerta('Escolha o destinatário.', 'error'); return; }
+  $('btnSalvar').disabled = true;
+  try {
+    const url = notaId ? '/api/nf-avulsa/' + notaId : '/api/nf-avulsa';
+    const r = await fetch(url, {
+      method: notaId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo()),
+    });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error || 'falha ao salvar');
+    if (!notaId) {
+      notaId = j.id;
+      history.replaceState(null, '', '?id=' + notaId);
+    }
+    aplicarNota(j.nota);
+    alerta('Rascunho ' + j.nota.numero + ' salvo.', 'success');
+    return true;
+  } catch (e) {
+    alerta('Erro ao salvar: ' + e.message, 'error');
+    return false;
+  } finally { $('btnSalvar').disabled = false; }
+}
+
+async function carregar(id) {
+  try {
+    const r = await fetch('/api/nf-avulsa/' + id);
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+    notaId = id;
+    aplicarNota(j.nota);
+  } catch (e) { alerta('Erro ao carregar: ' + e.message, 'error'); }
+}
+
+function aplicarNota(nota) {
+  if (!nota) return;
+  statusAtual = nota.status;
+  clienteId = nota.clienteId;
+  $('destBusca').value = nota.clienteNome || '';
+  $('destInfo').textContent = (nota.clienteCpfCnpj || '') + (nota.clienteUf ? ' · ' + nota.clienteUf : '');
+  if (nota.tipoOperacaoId) $('tipoOperacaoId').value = nota.tipoOperacaoId;
+  if (nota.dataEmissao) $('dataEmissao').value = String(nota.dataEmissao).slice(0, 10);
+  if (nota.dataVencimento) $('dataVencimento').value = String(nota.dataVencimento).slice(0, 10);
+  $('meioPagamento').value = nota.meioPagamento || '';
+  $('observacao').value = nota.observacao || '';
+  $('valorFrete').value = Number(nota.valorFrete) || 0;
+  $('valorDesconto').value = Number(nota.valorDesconto) || 0;
+  itens = (nota.itens || []).map(it => Object.assign({}, it));
+  aoTrocarOperacao();
+
+  const chip = $('chipStatus');
+  chip.style.display = 'inline-block';
+  chip.className = 'status-chip ' + (statusAtual === 'rascunho' ? 'rascunho' : 'emitida');
+  chip.textContent = statusAtual;
+  $('btnDescartar').style.display = (statusAtual === 'rascunho' && notaId) ? '' : 'none';
+
+  const bloquear = statusAtual !== 'rascunho';
+  ['btnSalvar', 'btnEmitir'].forEach(b => { $(b).disabled = bloquear; });
+  if (bloquear) alerta('Esta nota já foi emitida — só leitura.', 'info');
+  renderItens();
+}
+
+// ─── Prévia de impostos ─────────────────────────────────────────────────────
+async function calcularImpostos() {
+  if (!notaId && !(await salvar())) return;
+  $('btnCalcular').disabled = true;
+  try {
+    const r = await fetch('/api/nf-avulsa/' + notaId + '/previa-tributacao', { method: 'POST' });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+
+    // A prévia volta por itemId (id no banco); a grade está na mesma ordem.
+    j.itens.forEach((res, i) => { if (itens[i]) itens[i]._trib = res; });
+    renderItens();
+
+    const falhas = j.itens.filter(x => !x.ok);
+    if (falhas.length) alerta(falhas.length + ' item(ns) sem regra tributária — veja o detalhe na coluna Tributação.', 'error');
+    else alerta('Impostos calculados (CRT ' + j.crt + ').', 'success');
+
+    renderMemoria(j.itens);
+  } catch (e) {
+    alerta('Erro ao calcular: ' + e.message, 'error');
+  } finally { $('btnCalcular').disabled = false; }
+}
+
+function renderMemoria(res) {
+  const alvo = $('memoriaConteudo');
+  const blocos = res.map(r => {
+    if (!r.ok) {
+      return '<div style="margin-bottom:14px;"><strong>' + escHtml(r.descricao) + '</strong>' +
+             '<div class="memoria">' + escHtml(r.erro) + '</div></div>';
+    }
+    const linhas = (r.memoria || []).map(m =>
+      '<div class="memoria"><strong>' + escHtml(m.imposto) + '</strong> — CST ' + escHtml(m.cst || '—') +
+      ' · base ' + n2(m.base) + ' · alíq ' + n2(m.aliquota) + '% · valor ' + n2(m.valor) + '\n' +
+      escHtml(m.formula || '') + '</div>').join('');
+    return '<div style="margin-bottom:14px;"><strong>' + escHtml(r.descricao) + '</strong> ' +
+           '<span class="badge-trib ' + (r.origem === 'MANUAL' ? 'manual' : 'ok') + '">' + escHtml(r.origem) + '</span>' +
+           linhas + '</div>';
+  }).join('');
+  alvo.innerHTML = blocos || '<p class="muted">Sem itens.</p>';
+  $('panelMemoria').style.display = 'block';
+}
+
+// ─── Emissão ────────────────────────────────────────────────────────────────
+async function emitir() {
+  if (!notaId && !(await salvar())) return;
+  if (statusAtual !== 'rascunho') { alerta('Esta nota já foi emitida.', 'error'); return; }
+  if (!confirm('Emitir a NF-e? Depois disso o documento não pode mais ser editado.')) return;
+
+  $('btnEmitir').disabled = true;
+  alerta('Emitindo… isso pode levar alguns segundos.', 'info');
+  try {
+    if (!(await salvar())) return;
+    const r = await fetch('/api/nf-avulsa/' + notaId + '/emitir', { method: 'POST' });
+    const j = await r.json();
+    if (j.nota) aplicarNota(j.nota);
+    if (!j.success) throw new Error(j.error || 'falha na emissão');
+    alerta('NF-e emitida.', 'success');
+    setTimeout(() => { location.href = '/fiscal/notas-fiscais.html'; }, 1500);
+  } catch (e) {
+    alerta('Erro na emissão: ' + e.message, 'error');
+  } finally { $('btnEmitir').disabled = false; }
+}
+
+async function descartar() {
+  if (!notaId || !confirm('Descartar este rascunho? Ele some junto com os itens.')) return;
+  try {
+    const r = await fetch('/api/nf-avulsa/' + notaId + '/excluir', { method: 'POST' });
+    const j = await r.json();
+    if (!j.success) throw new Error(j.error);
+    location.href = '/fiscal/nova-nota.html';
+  } catch (e) { alerta('Erro ao descartar: ' + e.message, 'error'); }
+}
+
+document.addEventListener('click', (ev) => {
+  if (!ev.target.closest('.autocomplete-wrapper')) {
+    $('destLista').style.display = 'none';
+    $('prodLista').style.display = 'none';
+  }
+});
+
+init();
+</script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('nova-nota');</script>
+</body>
+</html>

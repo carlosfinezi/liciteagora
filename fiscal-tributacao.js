@@ -126,8 +126,14 @@ function resolverRegraDetalhado(db, ctx) {
   }
 
   const ncm = String(ctx.ncm || '').replace(/\D/g, '');
-  // Vigência (2026-08-25): a regra vale na data do DOCUMENTO, não na de hoje.
-  // Sem isto, reemitir uma nota de meses atrás aplicaria a alíquota atual.
+  // Vigência (2026-08-25). NÃO existe emissão retroativa — o dhEmi do XML é
+  // sempre o instante da transmissão, e a SEFAZ recusa data anterior. Então na
+  // EMISSÃO a data de referência é sempre hoje, e a vigência serve a outra coisa:
+  //   - agendar a virada: cadastrar hoje a alíquota que passa a valer em 01/01,
+  //     sem depender de alguém lembrar de editar a regra na data;
+  //   - aposentar regra: com fim de vigência ela sai de circulação sozinha;
+  //   - consultar o passado: o simulador responde "qual era a alíquota em X";
+  //   - e, adiante, os livros de apuração, que recalculam competência fechada.
   // Regra sem vigência gravada vale sempre — é o comportamento anterior.
   const dataRef = String(ctx.dataReferencia || '').slice(0, 10) || hojeBrasilia();
   const candidatas = regras.filter(r => {

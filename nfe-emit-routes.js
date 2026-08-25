@@ -8,6 +8,7 @@
  */
 
 const { codigoUF, modFrete, gerarCNF } = require('./nfe-ibge');
+const { crtDoEmitente, ehSimples, ambitoDe, resolverRegra, calcularItem, gravarMemoria, hojeBrasilia } = require('./fiscal-tributacao');
 const { montarNFeProc } = require('./nfe-proc');
 const { cancelarFaturaLocal } = require('./fatura-cancelamento');
 const { tPagFromForma } = require('./meio-pagamento');
@@ -43,6 +44,127 @@ function normalizarXmlPreAssinatura(xml) {
 }
 
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* ok */ } }
+
+/**
+ * Contorna um bug do node-sped-nfe no grupo IPI.
+ *
+ * `tagProdIPI` normaliza os campos com `obj[key] == 0 ? "0.00" : obj[key]` e passa
+ * por TODAS as chaves, CST inclusive. Em JavaScript `'00' == 0` é true, então o CST
+ * '00' (industrialização tributada — o mais comum) vira literalmente "0.00" e a
+ * SEFAZ rejeita: o XSD só aceita {00,49,50,99} ali.
+ *
+ * Não dá para evitar pelo lado de fora — a lib precisa receber CST '00' para
+ * escolher o grupo IPITrib. Então corrige-se no XML, antes de assinar, no mesmo
+ * ponto em que o <cobr> já é injetado por limitação parecida. Só toca CST dentro
+ * de IPITrib, e só quando vale exatamente "0.00".
+ */
+function corrigirCstIpiZero(xml) {
+  return xml.replace(/(<IPITrib>)(\s*)<CST>0\.00<\/CST>/g, '$1$2<CST>00</CST>');
+}
+
+// ─── Ponte com o motor de tributação (fiscal-tributacao.js) ──────────────────
+// Toda a decisão fiscal por item mora lá; aqui só se traduz o item da fatura em
+// contexto e se decide QUANDO o motor assume. Ele assume quando há algo de fato
+// resolvido a aplicar — regime normal, override manual gravado no item, ou uma
+// regra da matriz que case. Caso contrário devolve null e a emissão segue pelo
+// caminho Simples de sempre, sem alteração de saída.
+function calcularTributacaoItem(db, { crt, it, cfop, prod, cfopMeta, emitUf, destUf, tipoOpRow,
+                                      vFreteItem, dataReferencia, clienteEhPJ, clienteIE }) {
+  const manual = {};
+  for (const [campoItem, campoMotor] of [
+    ['cstIcms', 'cstIcms'], ['csosnIcms', 'csosnIcms'], ['modBC', 'modBC'],
+    ['pIcms', 'pIcms'], ['pRedBC', 'pRedBC'], ['pFcp', 'pFCP'], ['pDif', 'pDif'],
+    ['modBCST', 'modBCST'], ['pMVAST', 'pMVAST'], ['pRedBCST', 'pRedBCST'], ['pIcmsST', 'pIcmsST'],
+    ['cstIpi', 'cstIpi'], ['pIpi', 'pIpi'],
+    ['cstPis', 'cstPis'], ['pPis', 'pPis'], ['cstCofins', 'cstCofins'], ['pCofins', 'pCofins'],
+    ['codBenef', 'codBenef'],
+  ]) {
+    const v = it[campoItem];
+    if (v !== null && v !== undefined && v !== '') manual[campoMotor] = v;
+  }
+
+  // Perfil do destinatário, derivado dos mesmos sinais que o grupo <dest> usa:
+  // quem tem IE é contribuinte; PJ sem IE é isento; PF é não contribuinte — e
+  // não contribuinte é, por definição, consumidor final. É o que decide o DIFAL.
+  const temIE = !!String(clienteIE || '').replace(/\D/g, '');
+  const tipoContribuinte = temIE ? 'contribuinte' : (clienteEhPJ ? 'isento' : 'nao_contribuinte');
+  const consumidorFinal = temIE ? 0 : 1;
+
+  const ctx = {
+    crt,
+    tipoOperacaoId: tipoOpRow ? tipoOpRow.id : null,
+    cfop,
+    ncm: it.ncm,
+    produtoId: it.produtoId || null,
+    ufOrigem: (emitUf || '').toUpperCase() || null,
+    ufDestino: (destUf || '').toUpperCase() || null,
+    dataReferencia,
+    tipoContribuinte,
+    consumidorFinal,
+    origemProduto: String(it.origem || '0'),
+    vProd: Number(it.valorTotal) || 0,
+    vFrete: Number(vFreteItem) || 0,
+    vDesc: 0,
+    vOutro: 0,
+    csosnFallback: (prod?.csosn || cfopMeta?.csosnPadrao || '400').trim(),
+    cstPisFallback: (prod?.cstPIS || cfopMeta?.cstPadrao || '49').trim(),
+    cstCofinsFallback: (prod?.cstCOFINS || cfopMeta?.cstPadrao || '49').trim(),
+    manual,
+  };
+
+  const temManual = Object.keys(manual).length > 0;
+  const ehNormal = !ehSimples(crt);
+  const temRegra = !!resolverRegra(db, { ...ctx, ambito: ambitoDe(ctx.ufOrigem, ctx.ufDestino) });
+  // Regime normal SEMPRE passa pelo motor — inclusive para estourar com mensagem
+  // clara quando não há regra, em vez de emitir imposto zerado calado.
+  if (!ehNormal && !temManual && !temRegra) return null;
+
+  return calcularItem(db, ctx);
+}
+
+function acumularTotaisTrib(acc, t) {
+  acc.usado = true;
+  for (const k of ['vBC', 'vICMS', 'vBCST', 'vICMSST', 'vFCP', 'vIPI', 'vPIS', 'vCOFINS',
+                   'vICMSUFDest', 'vICMSUFRemet', 'vFCPUFDest']) {
+    acc[k] = Number((acc[k] + (Number(t[k]) || 0)).toFixed(2));
+  }
+}
+
+// Grava no item o que foi resolvido + a memória de cálculo. Best-effort: uma falha
+// aqui não pode derrubar uma emissão que a SEFAZ já vai autorizar.
+function persistirTributacaoItem(db, faturaId, it, trib) {
+  try {
+    const icms = trib.icms || {};
+    db.prepare(`UPDATE fatura_itens SET
+        cstIcms = ?, csosnIcms = ?, modBC = ?, vBcIcms = ?, pIcms = ?, pRedBC = ?, vIcms = ?,
+        vBcST = ?, pMVAST = ?, pIcmsST = ?, vIcmsST = ?, pFcp = ?, vFcp = ?,
+        cstIpi = ?, pIpi = ?, vIpi = ?,
+        cstPis = ?, pPis = ?, vPis = ?, cstCofins = ?, pCofins = ?, vCofins = ?,
+        tributacaoOrigem = ?, regraTribId = ?
+      WHERE id = ?`).run(
+      icms.CST ?? null, icms.CSOSN ?? null, icms.modBC ?? null,
+      Number(icms.vBC) || 0, Number(icms.pICMS) || 0, Number(icms.pRedBC) || 0, Number(icms.vICMS) || 0,
+      Number(icms.vBCST) || 0, Number(icms.pMVAST) || 0, Number(icms.pICMSST) || 0, Number(icms.vICMSST) || 0,
+      Number(icms.pFCP) || 0, Number(icms.vFCP) || 0,
+      trib.ipi?.CST ?? null, Number(trib.ipi?.pIPI) || 0, Number(trib.ipi?.vIPI) || 0,
+      trib.pis?.CST ?? null, Number(trib.pis?.pPIS) || 0, Number(trib.pis?.vPIS) || 0,
+      trib.cofins?.CST ?? null, Number(trib.cofins?.pCOFINS) || 0, Number(trib.cofins?.vCOFINS) || 0,
+      trib.origem, trib.regraId, it.id);
+    // DIFAL e benefício ficam no item para a nota poder ser explicada depois.
+    const uf = trib.icmsUFDest || {};
+    db.prepare(`UPDATE fatura_itens SET
+        vBcUFDest = ?, pIcmsUFDest = ?, pIcmsInter = ?, vIcmsUFDest = ?,
+        vIcmsUFRemet = ?, pFcpUFDest = ?, vFcpUFDest = ?, codBenef = COALESCE(?, codBenef)
+      WHERE id = ?`).run(
+      Number(uf.vBCUFDest) || 0, Number(uf.pICMSUFDest) || 0, Number(uf.pICMSInter) || 0,
+      Number(uf.vICMSUFDest) || 0, Number(uf.vICMSUFRemet) || 0,
+      Number(uf.pFCPUFDest) || 0, Number(uf.vFCPUFDest) || 0,
+      trib.codBenef || null, it.id);
+    gravarMemoria(db, { documentoId: faturaId, itemId: it.id, resultado: trib });
+  } catch (err) {
+    console.warn('[NF-e tributação] falha ao persistir item', it.id, '—', err.message);
+  }
+}
 
 function migrar(db) {
   db.exec(`
@@ -352,12 +474,18 @@ async function emitirNFe(db, faturaId) {
     }
   }
 
+  // CRT do cadastro (fornecedor.regimeTributario), a mesma fonte que a entrada de
+  // NF-e e a NFS-e já liam. Era fixo em '1' — o que declarava Simples Nacional para
+  // todo tenant, inclusive quem não é. Sem regime gravado continua devolvendo 1, então
+  // quem já emitia segue emitindo igual.
+  const crt = crtDoEmitente(db, estab ? estab.id : null);
+
   NFe.tagEmit({
     CNPJ: emit.cnpj.replace(/\D/g,''),
     xNome: emit.razaoSocial,
     xFant: emit.nomeFantasia || emit.razaoSocial,
     IE: emit.inscricaoEstadual.replace(/\D/g,''),
-    CRT: '1'  // Simples Nacional
+    CRT: String(crt)
   });
   NFe.tagEnderEmit({
     xLgr: emit.endereco || 'NAO INFORMADO',
@@ -424,35 +552,98 @@ async function emitirNFe(db, faturaId) {
     });
   }
 
-  // Produtos — CFOP final vem do mapa `cfopResolvidoPorItem` já calculado acima.
-  const prodList = itens.map(it => ({
-    cProd: String(it.sku || it.produtoId || 'ITEM-'+it.id),
-    cEAN: 'SEM GTIN',
-    xProd: (it.descricao || '').substring(0, 120),
-    NCM: (it.ncm || '00000000').replace(/\D/g,'').padStart(8,'0'),
-    CFOP: cfopResolvidoPorItem.get(it.id),
-    uCom: (it.unidade || 'UN').substring(0, 6),
-    qCom: Number(it.quantidade).toFixed(4),
-    vUnCom: Number(it.precoUnitario).toFixed(4),
-    vProd: Number(it.valorTotal).toFixed(2),
-    cEANTrib: 'SEM GTIN',
-    uTrib: (it.unidade || 'UN').substring(0, 6),
-    qTrib: Number(it.quantidade).toFixed(4),
-    vUnTrib: Number(it.precoUnitario).toFixed(4),
-    ...(freteRateio.get(it.id) ? { vFrete: freteRateio.get(it.id).toFixed(2) } : {}),
-    indTot: '1'
-  }));
-  NFe.tagProd(prodList);
-
-  // Impostos (Simples Nacional).
+  // Metadados fiscais do produto.
   // Precedência CSOSN/CST: produto cadastrado → CFOP (csosnPadrao/cstPadrao) → fallback 400/49.
   // Devolução de compra usa os impostos espelhados (não o cadastro do produto) → pula a query.
   const produtoIds = ehDevolucaoCompra ? [] : [...new Set(itens.map(it => it.produtoId).filter(Boolean))];
   const produtosPor = new Map();
   if (produtoIds.length) {
-    const rows = db.prepare(`SELECT id, csosn, cstPIS, cstCOFINS, cstIBS, cClassTrib FROM produtos WHERE id IN (${produtoIds.map(()=>'?').join(',')})`).all(...produtoIds);
+    const rows = db.prepare(`SELECT id, csosn, cstPIS, cstCOFINS, cstIBS, cClassTrib, cest FROM produtos WHERE id IN (${produtoIds.map(()=>'?').join(',')})`).all(...produtoIds);
     for (const r of rows) produtosPor.set(r.id, r);
   }
+
+  // Tributação resolvida ANTES de montar <prod>: o cBenef sai da regra tributária
+  // e vive no grupo <prod>, não no de imposto — então precisa estar pronto antes
+  // do tagProd. O forEach de impostos abaixo reusa este mapa em vez de recalcular.
+  const tribPorItem = new Map();
+  if (!ehDevolucaoCompra) {
+    for (const it of itens) {
+      tribPorItem.set(it.id, calcularTributacaoItem(db, {
+        crt, it, cfop: cfopResolvidoPorItem.get(it.id),
+        prod: it.produtoId ? produtosPor.get(it.produtoId) : null,
+        cfopMeta: getCfopMeta(cfopResolvidoPorItem.get(it.id)),
+        emitUf: emit.uf, destUf: fatura.clienteUf, tipoOpRow, fatura,
+        vFreteItem: freteRateio.get(it.id) || 0,
+        // A regra tem de ser resolvida pela data que vai no XML — o dhEmi, que é
+        // SEMPRE agora (não existe emissão retroativa: a SEFAZ recusa). Usar
+        // `fatura.dataEmissao` divergiria num rascunho de NF avulsa criado num dia
+        // e emitido em outro, justo na virada de alíquota que a vigência existe
+        // para tratar.
+        dataReferencia: hojeBrasilia(),
+        clienteEhPJ, clienteIE: fatura.clienteInscricaoEstadual,
+      }));
+    }
+  }
+
+  // Produtos — CFOP final vem do mapa `cfopResolvidoPorItem` já calculado acima.
+  // ORDEM DAS CHAVES = ordem do XSD: … NCM, CEST, cBenef, CFOP, uCom …
+  const prodList = itens.map(it => {
+    const prodMeta = it.produtoId ? produtosPor.get(it.produtoId) : null;
+    const trib = tribPorItem.get(it.id);
+    // CEST identifica mercadoria sujeita a substituição tributária. Estava no
+    // cadastro e nunca ia para o XML — obrigatório quando o item tem ST.
+    const cest = (it.cest || prodMeta?.cest || '').replace(/\D/g, '');
+    const codBenef = (it.codBenef || trib?.codBenef || '').trim();
+    return {
+      cProd: String(it.sku || it.produtoId || 'ITEM-'+it.id),
+      cEAN: 'SEM GTIN',
+      xProd: (it.descricao || '').substring(0, 120),
+      NCM: (it.ncm || '00000000').replace(/\D/g,'').padStart(8,'0'),
+      ...(cest.length === 7 ? { CEST: cest } : {}),
+      ...(codBenef ? { cBenef: codBenef } : {}),
+      CFOP: cfopResolvidoPorItem.get(it.id),
+      uCom: (it.unidade || 'UN').substring(0, 6),
+      qCom: Number(it.quantidade).toFixed(4),
+      vUnCom: Number(it.precoUnitario).toFixed(4),
+      vProd: Number(it.valorTotal).toFixed(2),
+      cEANTrib: 'SEM GTIN',
+      uTrib: (it.unidade || 'UN').substring(0, 6),
+      qTrib: Number(it.quantidade).toFixed(4),
+      vUnTrib: Number(it.precoUnitario).toFixed(4),
+      ...(freteRateio.get(it.id) ? { vFrete: freteRateio.get(it.id).toFixed(2) } : {}),
+      indTot: '1'
+    };
+  });
+  NFe.tagProd(prodList);
+  // Reforma tributária (NT 2025.002): grupo UB — IBS/CBS por item, opt-in
+  // via nfe_config.ibsCbsAtivo. CST/cClassTrib do cadastro do produto
+  // (fallback 000/000001 = tributação integral). A lib acumula o IBSCBSTot.
+  // Extraído para função em 2026-08-25: o caminho do motor de tributação também
+  // precisa aplicá-lo, e duplicar o bloco era convite a divergirem.
+  const aplicarIbsCbs = (i, it, prod) => {
+    if (!cfg.ibsCbsAtivo) return;
+    const vBC = Number(it.valorTotal);
+    const vIBSUF = vBC * (cfg.pIBSUF || 0) / 100;
+    const vIBSMun = vBC * (cfg.pIBSMun || 0) / 100;
+    const vCBS = vBC * (cfg.pCBS || 0) / 100;
+    NFe.tagProdIBSCBS(i, {
+      CST: (prod?.cstIBS || '000').trim(),
+      cClassTrib: (prod?.cClassTrib || '000001').trim(),
+      gIBSCBS: {
+        vBC: vBC.toFixed(2),
+        gIBSUF: { pIBSUF: (cfg.pIBSUF || 0).toFixed(4), vIBSUF: vIBSUF.toFixed(2) },
+        gIBSMun: { pIBSMun: (cfg.pIBSMun || 0).toFixed(4), vIBSMun: vIBSMun.toFixed(2) },
+        vIBS: (vIBSUF + vIBSMun).toFixed(2),
+        gCBS: { pCBS: (cfg.pCBS || 0).toFixed(4), vCBS: vCBS.toFixed(2) }
+      }
+    });
+  };
+
+  // Acumulador dos totais vindos do motor de tributação. Fica zerado quando
+  // nenhum item passa por ele — e aí o bloco de totais mantém a forma antiga.
+  const totaisTrib = { usado: false, vBC: 0, vICMS: 0, vBCST: 0, vICMSST: 0, vFCP: 0, vIPI: 0, vPIS: 0, vCOFINS: 0,
+                       vICMSUFDest: 0, vICMSUFRemet: 0, vFCPUFDest: 0 };
+
   itens.forEach((it, i) => {
     // Devolução de compra: impostos ESPELHADOS da entrada (CSOSN 900 c/ destaque, IPI no
     // item, PIS/COFINS reproduzidos, ST quando originou). Pula o caminho Simples-zerado.
@@ -471,6 +662,32 @@ async function emitirNFe(db, faturaId) {
     const csosn = (prod?.csosn || cfopMeta?.csosnPadrao || '400').trim();
     const cstPIS = (prod?.cstPIS || cfopMeta?.cstPadrao || '49').trim();
     const cstCOFINS = (prod?.cstCOFINS || cfopMeta?.cstPadrao || '49').trim();
+
+    // ─── Motor de tributação (2026-08-25) ────────────────────────────────────
+    // Assume o item quando há tributação resolvida a gravar: regime normal (CRT≠1/2/4),
+    // override manual no item, ou regra da matriz que case com o contexto. Fora
+    // desses casos o caminho Simples abaixo continua valendo palavra por palavra —
+    // é o que mantém as notas dos tenants do Simples byte-a-byte iguais.
+    // Já foi calculado antes do tagProd (o cBenef precisa entrar no grupo <prod>).
+    const tribItem = tribPorItem.get(it.id);
+    if (tribItem) {
+      if (tribItem.grupo === 'ICMS') NFe.tagProdICMS(i, tribItem.icms);
+      else NFe.tagProdICMSSN(i, tribItem.icms);
+      if (tribItem.ipi) NFe.tagProdIPI(i, tribItem.ipi);
+      NFe.tagProdPIS(i, tribItem.pis);
+      NFe.tagProdCOFINS(i, tribItem.cofins);
+      // DIFAL (EC 87/2015): grupo ICMSUFDest quando a venda é interestadual a
+      // não contribuinte. O motor devolve null quando não se aplica.
+      if (tribItem.icmsUFDest) NFe.tagProdICMSUFDest(i, tribItem.icmsUFDest);
+      if (tribItem.difalErro) {
+        throw new Error(`Item "${it.descricao}": DIFAL não pôde ser calculado — ${tribItem.difalErro}`);
+      }
+      acumularTotaisTrib(totaisTrib, tribItem.totais);
+      persistirTributacaoItem(db, faturaId, it, tribItem);
+      aplicarIbsCbs(i, it, prod);
+      return;
+    }
+
     // CSOSN 101, 201 têm alíquotas de crédito ICMS. 102, 103, 300, 400 não tributadas. 500 ICMS-ST. 900 outros.
     if (csosn === '101' || csosn === '201') {
       NFe.tagProdICMSSN(i, { orig: String(it.origem || '0'), CSOSN: csosn, pCredSN: '0.00', vCredICMSSN: '0.00' });
@@ -485,36 +702,46 @@ async function emitirNFe(db, faturaId) {
     NFe.tagProdPIS(i, { CST: cstPIS, vBC: '0.00', pPIS: '0.00', vPIS: '0.00' });
     NFe.tagProdCOFINS(i, { CST: cstCOFINS, vBC: '0.00', pCOFINS: '0.00', vCOFINS: '0.00' });
 
-    // Reforma tributária (NT 2025.002): grupo UB — IBS/CBS por item, opt-in
-    // via nfe_config.ibsCbsAtivo. CST/cClassTrib do cadastro do produto
-    // (fallback 000/000001 = tributação integral). A lib acumula o IBSCBSTot.
-    if (cfg.ibsCbsAtivo) {
-      const vBC = Number(it.valorTotal);
-      const vIBSUF = vBC * (cfg.pIBSUF || 0) / 100;
-      const vIBSMun = vBC * (cfg.pIBSMun || 0) / 100;
-      const vCBS = vBC * (cfg.pCBS || 0) / 100;
-      NFe.tagProdIBSCBS(i, {
-        CST: (prod?.cstIBS || '000').trim(),
-        cClassTrib: (prod?.cClassTrib || '000001').trim(),
-        gIBSCBS: {
-          vBC: vBC.toFixed(2),
-          gIBSUF: { pIBSUF: (cfg.pIBSUF || 0).toFixed(4), vIBSUF: vIBSUF.toFixed(2) },
-          gIBSMun: { pIBSMun: (cfg.pIBSMun || 0).toFixed(4), vIBSMun: vIBSMun.toFixed(2) },
-          vIBS: (vIBSUF + vIBSMun).toFixed(2),
-          gCBS: { pCBS: (cfg.pCBS || 0).toFixed(4), vCBS: vCBS.toFixed(2) }
-        }
-      });
-    }
+    aplicarIbsCbs(i, it, prod);
   });
 
   // Totais — incluindo frete da fatura no vNF
   const vProdTot = itens.reduce((s, it) => s + Number(it.valorTotal || 0), 0);
   const vFreteTot = Number(fatura.valorFrete) || 0;
   const vDescTot = Number(fatura.valorDesconto) || 0;
-  const vNF = vProdTot + vFreteTot - vDescTot;
+  const vNFBase = vProdTot + vFreteTot - vDescTot;
+  // ST e IPI destacados entram no total da nota (são cobrados do destinatário).
+  // Precisa ser o MESMO número usado em detPag e nas duplicatas — a SEFAZ valida
+  // Σ vPag = vNF e Σ vDup = vNF.
+  const vNF = totaisTrib.usado
+    ? Number((vNFBase + totaisTrib.vICMSST + totaisTrib.vIPI).toFixed(2))
+    : vNFBase;
   if (ehDevolucaoCompra) {
     // Totais espelhados (vBC/vICMS/vST/vIPI/vPIS/vCOFINS + vNF = vProd+IPI+ST).
     NFe.tagTotal({ ICMSTot: espelhoTotais });
+  } else if (totaisTrib.usado) {
+    // Motor de tributação: o total tem de bater com a soma dos itens, senão a SEFAZ
+    // rejeita. ICMS próprio e PIS/COFINS não somam ao vNF — já estão embutidos no preço.
+    NFe.tagTotal({ ICMSTot: {
+      vBC: totaisTrib.vBC.toFixed(2),
+      vICMS: totaisTrib.vICMS.toFixed(2),
+      vBCST: totaisTrib.vBCST.toFixed(2),
+      vST: totaisTrib.vICMSST.toFixed(2),
+      ...(totaisTrib.vFCP ? { vFCP: totaisTrib.vFCP.toFixed(2) } : {}),
+      vProd: vProdTot.toFixed(2),
+      vFrete: vFreteTot.toFixed(2),
+      vDesc: vDescTot.toFixed(2),
+      vIPI: totaisTrib.vIPI.toFixed(2),
+      vPIS: totaisTrib.vPIS.toFixed(2),
+      vCOFINS: totaisTrib.vCOFINS.toFixed(2),
+      // DIFAL: a SEFAZ valida que os totais batem com a soma dos itens.
+      ...(totaisTrib.vICMSUFDest || totaisTrib.vFCPUFDest ? {
+        vFCPUFDest: totaisTrib.vFCPUFDest.toFixed(2),
+        vICMSUFDest: totaisTrib.vICMSUFDest.toFixed(2),
+        vICMSUFRemet: totaisTrib.vICMSUFRemet.toFixed(2),
+      } : {}),
+      vNF: vNF.toFixed(2)
+    }});
   } else {
     NFe.tagTotal({ ICMSTot: {
       vFrete: vFreteTot.toFixed(2),
@@ -609,7 +836,7 @@ async function emitirNFe(db, faturaId) {
 
   // Injeta <cobr> imediatamente antes de <pag> (ordem exigida pelo schema). A lib não
   // implementa tagFat/tagDup, então montamos o grupo à mão; o XSD local (pós-assinatura) valida.
-  const xmlRaw0 = NFe.xml();
+  const xmlRaw0 = corrigirCstIpiZero(NFe.xml());
   const xmlRawBruto = cobrXml ? xmlRaw0.replace('<pag>', cobrXml + '<pag>') : xmlRaw0;
   // O xmlSign da lib (mod 55) calcula o digest sobre a string original mas transmite o XML
   // re-serializado por xml2json→json2xml (fast-xml-parser, trimValues) — qualquer espaço nas
@@ -929,4 +1156,7 @@ function registrarRotas(app, db) {
   });
 }
 
-module.exports = { registrarRotasNfeEmit: registrarRotas, getTools, emitirNFe, resolverEstab, carregarEmitente, carregarCert, serieAtual, avancarSerie, migrar };
+module.exports = { registrarRotasNfeEmit: registrarRotas, getTools, emitirNFe, resolverEstab, carregarEmitente, carregarCert, serieAtual, avancarSerie, migrar,
+  // Exportadas para o teste de regressão (scripts/test-nfe-tributacao-integracao.js):
+  // é por elas que se prova que uma nota do Simples continua tomando o caminho antigo.
+  calcularTributacaoItem, validarXmlLocal, corrigirCstIpiZero };

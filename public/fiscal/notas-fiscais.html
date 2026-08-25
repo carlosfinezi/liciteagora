@@ -21,9 +21,19 @@
       <h1>Notas Fiscais</h1>
       <small>Entrada e saída em uma só visão · soft-delete reversível</small>
     </div>
+    <div class="actions">
+      <a class="btn btn-primary btn-sm" href="/fiscal/nova-nota.html">📝 Nova NF-e manual</a>
+    </div>
   </div>
 
   <div id="alertGlobal"></div>
+
+  <!-- Rascunhos de NF manual: documentos ainda não emitidos, que por isso não
+       aparecem na lista abaixo (ela só mostra o que tem chave de acesso). -->
+  <div class="panel" id="panelRascunhos" style="display:none;">
+    <h3 style="margin-top:0;">Rascunhos de NF manual</h3>
+    <div id="listaRascunhos"></div>
+  </div>
 
   <div class="panel">
     <div class="form-row" style="align-items:end;flex-wrap:wrap;">
@@ -362,6 +372,7 @@ async function carregar(){
     if (!d.success) throw new Error(d.error || 'falha');
     notas = d.notas || [];
     renderTabela();
+    carregarRascunhos();
   } catch (e) {
     showAlert('Erro ao carregar: ' + e.message, 'error');
     document.getElementById('tb').innerHTML = '<tr><td colspan="11" class="empty">Falha ao carregar</td></tr>';
@@ -862,6 +873,48 @@ async function confirmarCancelamentoNfce(){
   } finally {
     _cancelandoNfce = false;
     btn.disabled = false; btn.textContent = 'Confirmar cancelamento';
+  }
+}
+
+// ─── Rascunhos de NF manual ─────────────────────────────────────────────────
+// Ficam num painel próprio acima da lista: a tabela principal vem de
+// /api/notas-fiscais, que só enxerga documento com chave de acesso. Rascunho
+// não tem chave — e não deve ter, ele ainda não é documento fiscal.
+async function carregarRascunhos() {
+  const painel = document.getElementById('panelRascunhos');
+  if (!painel) return;
+  try {
+    const r = await fetch('/api/nf-avulsa?status=rascunho');
+    if (!r.ok) { painel.style.display = 'none'; return; }
+    const d = await r.json();
+    const lista = (d && d.notas) || [];
+    if (!lista.length) { painel.style.display = 'none'; return; }
+
+    const esc = s => { const x = document.createElement('div'); x.textContent = s == null ? '' : s; return x.innerHTML; };
+    document.getElementById('listaRascunhos').innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:0.9em;">' +
+      '<thead><tr>' +
+        '<th style="text-align:left;padding:6px;">Número</th>' +
+        '<th style="text-align:left;padding:6px;">Emissão</th>' +
+        '<th style="text-align:left;padding:6px;">Destinatário</th>' +
+        '<th style="text-align:left;padding:6px;">Operação</th>' +
+        '<th style="text-align:right;padding:6px;">Total</th>' +
+        '<th style="padding:6px;"></th>' +
+      '</tr></thead><tbody>' +
+      lista.map(n =>
+        '<tr style="border-top:1px solid var(--border);">' +
+        '<td style="padding:6px;"><strong>' + esc(n.numero) + '</strong></td>' +
+        '<td style="padding:6px;">' + esc(String(n.dataEmissao || '').slice(0, 10)) + '</td>' +
+        '<td style="padding:6px;">' + esc(n.clienteNome || '—') + '</td>' +
+        '<td style="padding:6px;">' + esc(n.tipoOperacaoCodigo || '—') + '</td>' +
+        '<td style="padding:6px;text-align:right;">' + (Number(n.valorTotal) || 0).toFixed(2).replace('.', ',') + '</td>' +
+        '<td style="padding:6px;text-align:right;">' +
+          '<a class="btn btn-secondary btn-sm" href="/fiscal/nova-nota.html?id=' + n.id + '">Abrir</a>' +
+        '</td></tr>').join('') +
+      '</tbody></table>';
+    painel.style.display = 'block';
+  } catch (e) {
+    painel.style.display = 'none';  // sem a rota (tenant antigo), o painel só não aparece
   }
 }
 

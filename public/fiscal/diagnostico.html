@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico Fiscal - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: cartões de severidade + lista de achados */
+        .resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .resumo .card { background: var(--bg-2); border-radius: var(--r-sm); padding: 14px 16px; border-left: 4px solid var(--border); }
+        .resumo .card .n { font-size: 1.9em; font-weight: 700; line-height: 1; }
+        .resumo .card .rot { color: var(--text-3); font-size: 0.82em; margin-top: 5px; }
+        .resumo .card.bloqueio { border-left-color: #dc3545; }
+        .resumo .card.risco    { border-left-color: #fd7e14; }
+        .resumo .card.atencao  { border-left-color: #ffc107; }
+        .resumo .card.ok       { border-left-color: #28a745; }
+
+        .veredito { padding: 14px 18px; border-radius: var(--r-sm); margin-bottom: 18px; font-weight: 600; }
+        .veredito.pronto { background: rgba(40,167,69,.14); color: #4ade80; }
+        .veredito.travado { background: rgba(220,53,69,.14); color: #f87171; }
+
+        .bloco { margin-bottom: 22px; }
+        .bloco > h3 { margin: 0 0 10px 0; font-size: 1.02em; }
+        .achado { border-left: 4px solid var(--border); background: var(--bg-2);
+                  border-radius: var(--r-sm); padding: 12px 15px; margin-bottom: 9px; }
+        .achado.bloqueio { border-left-color: #dc3545; }
+        .achado.risco    { border-left-color: #fd7e14; }
+        .achado.atencao  { border-left-color: #ffc107; }
+        .achado.ok       { border-left-color: #28a745; }
+        .achado .cab { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .achado .tit { font-weight: 650; }
+        .achado .det { color: var(--text-2); font-size: 0.9em; margin-top: 6px; line-height: 1.5; }
+        .achado .exemplos { margin-top: 8px; font-size: 0.83em; color: var(--text-3);
+                            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                            background: var(--bg-1); border-radius: var(--r-sm); padding: 8px 10px; }
+        .achado .exemplos div { padding: 1px 0; }
+        .achado .acoes { margin-top: 9px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .sev { padding: 2px 9px; border-radius: 999px; font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+        .sev.bloqueio { background: rgba(220,53,69,.18); color: #f87171; }
+        .sev.risco    { background: rgba(253,126,20,.18); color: #fb923c; }
+        .sev.atencao  { background: rgba(255,193,7,.18); color: #fbbf24; }
+        .sev.ok       { background: rgba(40,167,69,.16); color: #4ade80; }
+        .qtd { background: var(--bg-1); border-radius: var(--r-sm); padding: 1px 8px; font-size: 0.8em; color: var(--text-2); }
+        .identidade { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 16px; }
+        .identidade div small { display: block; color: var(--text-3); font-size: 0.78em; }
+        .identidade div strong { font-size: 1.02em; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Diagnóstico Fiscal</h1>
+                <small>O que falta para esta empresa emitir corretamente — conferido conforme o regime</small>
+              </div>
+              <div class="actions">
+                <button class="btn btn-secondary btn-sm" onclick="carregar()">🔄 Reconferir</button>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+            <div id="conteudo">
+              <p class="muted">Conferindo…</p>
+            </div>
+        </main>
+    </div>
+
+<script>
+'use strict';
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
+const ROTULO_SEV = { bloqueio: 'Bloqueio', risco: 'Risco', atencao: 'Atenção', ok: 'OK' };
+const ORDEM_SEV = { bloqueio: 0, risco: 1, atencao: 2, ok: 3 };
+
+async function carregar() {
+  const alvo = $('conteudo');
+  alvo.innerHTML = '<p class="muted">Conferindo…</p>';
+  try {
+    const r = await fetch('/api/fiscal/diagnostico');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    alvo.innerHTML = render(d);
+  } catch (e) {
+    alvo.innerHTML = '<div class="alert alert-error">Erro ao conferir: ' + esc(e.message) + '</div>';
+  }
+}
+
+function render(d) {
+  const e = d.empresa;
+  let html = '';
+
+  // Identidade
+  html += '<div class="panel"><div class="identidade">' +
+    campo('Empresa', e.razaoSocial || '—') +
+    campo('CNPJ', e.cnpj || '—') +
+    campo('UF', e.uf || '—') +
+    campo('Regime', e.regimeTributario || 'não informado') +
+    campo('CRT na emissão', String(e.crt) + (e.regime === 'normal' ? ' — regime normal' : ' — Simples/MEI')) +
+    '</div>';
+
+  html += '<div class="veredito ' + (d.prontoParaEmitir ? 'pronto' : 'travado') + '">' +
+    (d.prontoParaEmitir
+      ? '✓ Nenhum bloqueio: esta empresa consegue emitir.'
+      : '✕ ' + d.contagem.bloqueio + ' bloqueio(s): a emissão vai falhar enquanto não forem resolvidos.') +
+    '</div>';
+
+  html += '<div class="resumo">' +
+    cartao('bloqueio', d.contagem.bloqueio, 'impedem emitir') +
+    cartao('risco', d.contagem.risco, 'emite, porém errado') +
+    cartao('atencao', d.contagem.atencao, 'vale ajustar') +
+    cartao('ok', d.contagem.ok, 'conferidos') +
+    '</div></div>';
+
+  // Achados por bloco, na ordem em que vieram
+  const blocos = [];
+  for (const a of d.achados) {
+    let b = blocos.find(x => x.nome === a.bloco);
+    if (!b) { b = { nome: a.bloco, itens: [] }; blocos.push(b); }
+    b.itens.push(a);
+  }
+
+  for (const b of blocos) {
+    b.itens.sort((x, y) => ORDEM_SEV[x.severidade] - ORDEM_SEV[y.severidade]);
+    html += '<div class="panel bloco"><h3>' + esc(b.nome) + '</h3>';
+    html += b.itens.map(renderAchado).join('');
+    html += '</div>';
+  }
+  return html;
+}
+
+function campo(rot, val) {
+  return '<div><small>' + esc(rot) + '</small><strong>' + esc(val) + '</strong></div>';
+}
+
+function cartao(sev, n, rot) {
+  return '<div class="card ' + sev + '"><div class="n">' + (n || 0) + '</div>' +
+         '<div class="rot">' + esc(ROTULO_SEV[sev]) + ' · ' + esc(rot) + '</div></div>';
+}
+
+function renderAchado(a) {
+  let h = '<div class="achado ' + a.severidade + '">';
+  h += '<div class="cab"><span class="sev ' + a.severidade + '">' + ROTULO_SEV[a.severidade] + '</span>';
+  h += '<span class="tit">' + esc(a.titulo) + '</span>';
+  if (a.quantidade) h += '<span class="qtd">' + a.quantidade + '</span>';
+  h += '</div>';
+  if (a.detalhe) h += '<div class="det">' + esc(a.detalhe) + '</div>';
+  if (a.exemplos && a.exemplos.length) {
+    h += '<div class="exemplos">' + a.exemplos.map(x => '<div>' + esc(x) + '</div>').join('');
+    if (a.quantidade && a.quantidade > a.exemplos.length) {
+      h += '<div style="opacity:.65;">… e mais ' + (a.quantidade - a.exemplos.length) + '</div>';
+    }
+    h += '</div>';
+  }
+  if (a.onde || a.comoResolver) {
+    h += '<div class="acoes">';
+    if (a.onde) h += '<a class="btn btn-secondary btn-sm" href="' + esc(a.onde) + '">Resolver →</a>';
+    if (a.comoResolver) h += '<span class="det" style="margin:0;">' + esc(a.comoResolver) + '</span>';
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+carregar();
+</script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('fiscal-diagnostico');</script>
+</body>
+</html>

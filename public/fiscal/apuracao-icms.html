@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apuração de ICMS - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: o livro em duas colunas (débitos × créditos) + saldo */
+        .livro { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .livro { grid-template-columns: 1fr; } }
+        .coluna { background: var(--bg-2); border-radius: var(--r-sm); padding: 14px 16px; }
+        .coluna h3 { margin: 0 0 10px; font-size: 0.98em; }
+        .coluna.deb { border-top: 3px solid #fd7e14; }
+        .coluna.cred { border-top: 3px solid #28a745; }
+        .linha { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0;
+                 border-bottom: 1px solid var(--border); font-size: 0.9em; }
+        .linha:last-child { border-bottom: 0; }
+        .linha .rot { color: var(--text-2); }
+        .linha .val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .linha.total { font-weight: 700; border-top: 2px solid var(--border); border-bottom: 0;
+                       margin-top: 6px; padding-top: 9px; }
+        .linha button { background: none; border: 0; color: var(--text-3); cursor: pointer;
+                        font-size: 0.85em; padding: 0 4px; text-decoration: underline; }
+        .linha button:hover { color: var(--text-0); }
+
+        .saldo { margin-top: 16px; padding: 18px 20px; border-radius: var(--r-sm); }
+        .saldo.recolher { background: rgba(253,126,20,.13); border-left: 4px solid #fd7e14; }
+        .saldo.credor { background: rgba(40,167,69,.13); border-left: 4px solid #28a745; }
+        .saldo .rot { font-size: 0.85em; color: var(--text-2); }
+        .saldo .n { font-size: 2.1em; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+
+        .fora { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 14px; }
+        .fora .box { background: var(--bg-2); border-radius: var(--r-sm); padding: 10px 13px; }
+        .fora .box small { display: block; color: var(--text-3); font-size: 0.78em; }
+        .fora .box strong { font-size: 1.05em; font-variant-numeric: tabular-nums; }
+
+        .chip { padding: 3px 11px; border-radius: 999px; font-size: 0.8em; font-weight: 600; }
+        .chip.aberta { background: rgba(255,193,7,.18); color: #fbbf24; }
+        .chip.fechada { background: rgba(40,167,69,.16); color: #4ade80; }
+
+        table.det { width: 100%; border-collapse: collapse; font-size: 0.86em; }
+        table.det th { text-align: left; padding: 7px 6px; color: var(--text-3); font-weight: 600;
+                       background: var(--bg-2); white-space: nowrap; }
+        table.det td { padding: 6px; border-top: 1px solid var(--border); }
+        table.det .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .semcred { color: var(--text-3); }
+        .memoria { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8em;
+                   white-space: pre-wrap; color: var(--text-2); background: var(--bg-2);
+                   padding: 10px 12px; border-radius: var(--r-sm); }
+        .hint { color: var(--text-3); font-size: 0.84em; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Apuração de ICMS</h1>
+                <small>Débitos das saídas contra créditos das entradas — o livro do regime normal</small>
+              </div>
+              <div class="actions">
+                <input type="month" id="competencia" onchange="carregar()" style="width:auto;">
+                <span id="chipStatus" class="chip aberta" style="display:none;">aberta</span>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+            <div id="conteudo"><p class="hint">Carregando…</p></div>
+        </main>
+    </div>
+
+    <!-- ─── Modal: detalhamento ─────────────────────────────────────────── -->
+    <div class="modal-bg" id="modalDet" style="display:none;">
+      <div class="modal" style="max-width: 960px;">
+        <div class="modal-header">
+          <h3 style="margin:0;" id="detTitulo">Detalhamento</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharDet()">✕</button>
+        </div>
+        <div class="modal-body" id="detConteudo" style="overflow-x:auto;"></div>
+      </div>
+    </div>
+
+    <!-- ─── Modal: novo ajuste ──────────────────────────────────────────── -->
+    <div class="modal-bg" id="modalAjuste" style="display:none;">
+      <div class="modal" style="max-width: 620px;">
+        <div class="modal-header">
+          <h3 style="margin:0;">Lançar ajuste</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharAjuste()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint" style="margin-top:0;">
+            Para o que não vem de documento: estorno, crédito extemporâneo, dedução de incentivo.
+            Informe sempre valor <strong>positivo</strong> — o sinal vem do tipo escolhido.
+          </p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tipo *</label>
+              <select id="ajTipo"></select>
+            </div>
+            <div class="form-group">
+              <label>Valor *</label>
+              <input type="number" id="ajValor" step="0.01" min="0.01">
+            </div>
+            <div class="form-group">
+              <label>Código do ajuste</label>
+              <input type="text" id="ajCodigo" placeholder="TO020001">
+              <small class="hint">Tabela do SPED, opcional.</small>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Descrição *</label>
+            <input type="text" id="ajDescricao" placeholder="Crédito extemporâneo referente a maio/2026">
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+          <button class="btn btn-secondary" onclick="fecharAjuste()">Cancelar</button>
+          <button class="btn btn-primary" id="btnSalvarAjuste" onclick="salvarAjuste()">Lançar</button>
+        </div>
+      </div>
+    </div>
+
+<script>
+'use strict';
+
+let apuracao = null;
+let detalhe = null;
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function n2(v) { return (Number(v) || 0).toFixed(2).replace('.', ','); }
+function dataBR(iso) {
+  const p = String(iso || '').slice(0, 10).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : String(iso || '');
+}
+
+function alerta(msg, tipo) {
+  const box = $('alertBox');
+  box.className = 'alert alert-' + (tipo || 'info');
+  box.textContent = msg;
+  box.style.display = 'block';
+  if (tipo === 'success') setTimeout(() => { box.style.display = 'none'; }, 4000);
+}
+
+async function carregar() {
+  const comp = $('competencia').value;
+  if (!comp) return;
+  $('conteudo').innerHTML = '<p class="hint">Apurando…</p>';
+  $('chipStatus').style.display = 'none';
+  try {
+    const r = await fetch('/api/fiscal/apuracao-icms/' + comp);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    apuracao = d.apuracao;
+
+    const det = await fetch('/api/fiscal/apuracao-icms/' + comp + '/detalhe');
+    detalhe = (await det.json());
+
+    render();
+  } catch (e) {
+    apuracao = null;
+    $('conteudo').innerHTML = '<div class="alert alert-error">' + esc(e.message) + '</div>';
+  }
+}
+
+function render() {
+  const a = apuracao;
+  const chip = $('chipStatus');
+  chip.style.display = 'inline-block';
+  chip.className = 'chip ' + a.status;
+  chip.textContent = a.status + (a.dataFechamento ? ' em ' + dataBR(a.dataFechamento) : '');
+
+  let html = '';
+
+  if (a.divergenciaAposFechamento) {
+    html += '<div class="alert alert-warning">Documento do período mudou depois do fechamento: ' +
+      'o livro foi fechado com saldo ' + n2(a.divergenciaAposFechamento.gravado) +
+      ' e hoje recalcula ' + n2(a.divergenciaAposFechamento.recalculado) +
+      '. Reabra e feche de novo para regravar.</div>';
+  }
+
+  html += '<div class="panel"><div class="livro">';
+
+  // Débitos
+  html += '<div class="coluna deb"><h3>Débitos</h3>';
+  html += linha('Por saídas com débito', a.vDebitos,
+    a.contagem.saidas ? 'verDetalhe(\'debitos\')' : null,
+    a.contagem.saidas + ' documento(s)');
+  html += linha('Outros débitos', a.vOutrosDebitos);
+  html += linha('Estorno de créditos', a.vEstornoCreditos);
+  html += linha('Total de débitos', a.totalDebitos, null, null, true);
+  html += '</div>';
+
+  // Créditos
+  html += '<div class="coluna cred"><h3>Créditos</h3>';
+  html += linha('Por entradas com direito', a.vCreditos,
+    a.contagem.entradas ? 'verDetalhe(\'creditos\')' : null,
+    a.contagem.entradas + ' documento(s)');
+  html += linha('Outros créditos', a.vOutrosCreditos);
+  html += linha('Estorno de débitos', a.vEstornoDebitos);
+  html += linha('Saldo credor do período anterior', a.saldoCredorAnterior);
+  html += linha('Total de créditos', a.totalCreditos, null, null, true);
+  html += '</div>';
+
+  html += '</div>';  // livro
+
+  if (a.vDeducoes) {
+    html += '<div style="margin-top:12px;">' + linha('Deduções', a.vDeducoes) + '</div>';
+  }
+
+  // Saldo
+  const devedor = a.saldoApurado > 0;
+  html += '<div class="saldo ' + (devedor ? 'recolher' : 'credor') + '">';
+  html += '<div class="rot">' + (devedor ? 'ICMS a recolher' : 'Saldo credor a transportar') + '</div>';
+  html += '<div class="n">' + n2(devedor ? a.vRecolher : a.saldoCredorTransportar) + '</div>';
+  if (!devedor && a.saldoCredorTransportar > 0) {
+    html += '<div class="rot" style="margin-top:6px;">Só é transportado para a competência seguinte ' +
+            'depois que esta for fechada.</div>';
+  }
+  html += '</div>';
+
+  // Fora da conta
+  if (a.vIcmsST || a.vDifal || a.vFcp || a.creditoNegado) {
+    html += '<div class="fora">';
+    if (a.vIcmsST) html += box('ICMS ST', a.vIcmsST, 'guia própria');
+    if (a.vDifal) html += box('DIFAL', a.vDifal, 'guia própria');
+    if (a.vFcp) html += box('FCP', a.vFcp, 'guia própria');
+    if (a.creditoNegado) html += box('ICMS sem direito a crédito', a.creditoNegado, 'uso e consumo, ST');
+    html += '</div>';
+    html += '<p class="hint" style="margin-top:8px;">Estes valores não se compensam com o ICMS ' +
+            'próprio — têm recolhimento em guia separada.</p>';
+  }
+  html += '</div>';  // panel
+
+  // Ajustes
+  html += '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<h3 style="margin:0;">Ajustes</h3>';
+  if (a.status !== 'fechada') {
+    html += '<button class="btn btn-secondary btn-sm" onclick="abrirAjuste()">+ Lançar ajuste</button>';
+  }
+  html += '</div>';
+  const ajustes = (detalhe && detalhe.ajustes) || [];
+  if (!ajustes.length) {
+    html += '<p class="hint" style="margin-top:10px;">Nenhum ajuste nesta competência.</p>';
+  } else {
+    html += '<table class="det" style="margin-top:10px;"><thead><tr>' +
+      '<th>Tipo</th><th>Descrição</th><th>Código</th><th class="num">Valor</th><th></th>' +
+      '</tr></thead><tbody>' +
+      ajustes.map(x => {
+        const t = (detalhe.tiposAjuste || {})[x.tipo] || { rotulo: x.tipo, sinal: 1 };
+        return '<tr>' +
+          '<td>' + esc(t.rotulo) + '</td>' +
+          '<td>' + esc(x.descricao) + '</td>' +
+          '<td>' + esc(x.codigoAjuste || '—') + '</td>' +
+          '<td class="num">' + (t.sinal > 0 ? '+' : '−') + ' ' + n2(x.valor) + '</td>' +
+          '<td class="num">' + (a.status !== 'fechada'
+            ? '<button class="btn btn-danger btn-sm" onclick="excluirAjuste(' + x.id + ')">✕</button>' : '') +
+          '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  html += '</div>';
+
+  // Memória + ações
+  html += '<div class="panel"><h3 style="margin-top:0;">Memória da apuração</h3>' +
+          '<div class="memoria">' + esc(a.memoria) + '</div></div>';
+
+  html += '<div class="form-actions" style="display:flex;gap:10px;">';
+  if (a.status === 'fechada') {
+    html += '<button class="btn btn-secondary" onclick="reabrir()">🔓 Reabrir competência</button>';
+  } else {
+    html += '<button class="btn btn-primary" onclick="fechar()">🔒 Fechar competência</button>';
+    html += '<span class="hint" style="align-self:center;">Fechar congela os números e libera o ' +
+            'saldo credor para o mês seguinte.</span>';
+  }
+  html += '</div>';
+
+  $('conteudo').innerHTML = html;
+}
+
+function linha(rot, valor, acao, sub, total) {
+  return '<div class="linha' + (total ? ' total' : '') + '">' +
+    '<span class="rot">' + esc(rot) +
+      (sub ? ' <span class="hint">· ' + esc(sub) + '</span>' : '') +
+      (acao ? ' <button onclick="' + acao + '">ver</button>' : '') +
+    '</span>' +
+    '<span class="val">' + n2(valor) + '</span></div>';
+}
+
+function box(rot, valor, sub) {
+  return '<div class="box"><small>' + esc(rot) + '</small><strong>' + n2(valor) + '</strong>' +
+         (sub ? '<small>' + esc(sub) + '</small>' : '') + '</div>';
+}
+
+// ─── Detalhamento ───────────────────────────────────────────────────────────
+function verDetalhe(qual) {
+  if (!detalhe) return;
+  $('detTitulo').textContent = qual === 'debitos'
+    ? 'Saídas com débito de ICMS' : 'Entradas do período';
+  let html = '';
+  if (qual === 'debitos') {
+    html = '<table class="det"><thead><tr><th>Documento</th><th>Data</th><th>Destinatário</th>' +
+      '<th class="num">Base</th><th class="num">ICMS</th><th class="num">ST</th><th class="num">DIFAL</th>' +
+      '</tr></thead><tbody>' +
+      detalhe.debitos.map(d => '<tr>' +
+        '<td>' + esc(d.numeroNFe || d.numero) + '</td>' +
+        '<td>' + dataBR(d.dataEmissao) + '</td>' +
+        '<td>' + esc(d.destinatario || '—') + '</td>' +
+        '<td class="num">' + n2(d.vBase) + '</td>' +
+        '<td class="num">' + n2(d.vIcms) + '</td>' +
+        '<td class="num">' + n2(d.vST) + '</td>' +
+        '<td class="num">' + n2(d.vDifal) + '</td>' +
+        '</tr>').join('') + '</tbody></table>';
+  } else {
+    html = '<p class="hint" style="margin-top:0;">O direito ao crédito vem do CFOP: compra para uso ' +
+      'e consumo, ou mercadoria com ICMS já substituído, aparecem com o valor na coluna ' +
+      '“sem direito”.</p>' +
+      '<table class="det"><thead><tr><th>Documento</th><th>Data</th><th>Fornecedor</th><th>CFOP</th>' +
+      '<th class="num">Crédito</th><th class="num">Sem direito</th></tr></thead><tbody>' +
+      detalhe.creditos.map(c => '<tr>' +
+        '<td>' + esc(c.numero) + '</td>' +
+        '<td>' + dataBR(c.dataEmissao) + '</td>' +
+        '<td>' + esc(c.fornecedor || '—') + '</td>' +
+        '<td>' + esc(c.cfops || '—') + '</td>' +
+        '<td class="num">' + n2(c.vIcms) + '</td>' +
+        '<td class="num semcred">' + n2(c.vIcmsSemCredito) + '</td>' +
+        '</tr>').join('') + '</tbody></table>';
+  }
+  $('detConteudo').innerHTML = html;
+  $('modalDet').style.display = 'flex';
+}
+function fecharDet() { $('modalDet').style.display = 'none'; }
+
+// ─── Ajustes ────────────────────────────────────────────────────────────────
+function abrirAjuste() {
+  const sel = $('ajTipo');
+  const tipos = (detalhe && detalhe.tiposAjuste) || {};
+  sel.innerHTML = Object.entries(tipos).map(([k, v]) =>
+    '<option value="' + k + '">' + esc(v.rotulo) + (v.sinal > 0 ? ' (aumenta o saldo)' : ' (reduz o saldo)') + '</option>'
+  ).join('');
+  $('ajValor').value = '';
+  $('ajCodigo').value = '';
+  $('ajDescricao').value = '';
+  $('modalAjuste').style.display = 'flex';
+}
+function fecharAjuste() { $('modalAjuste').style.display = 'none'; }
+
+async function salvarAjuste() {
+  $('btnSalvarAjuste').disabled = true;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-icms/' + $('competencia').value + '/ajustes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tipo: $('ajTipo').value, valor: $('ajValor').value,
+        codigoAjuste: $('ajCodigo').value, descricao: $('ajDescricao').value,
+      }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharAjuste();
+    alerta('Ajuste lançado.', 'success');
+    carregar();
+  } catch (e) {
+    alerta('Erro: ' + e.message, 'error');
+  } finally { $('btnSalvarAjuste').disabled = false; }
+}
+
+async function excluirAjuste(id) {
+  if (!confirm('Excluir este ajuste?')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-icms/ajustes/' + id + '/excluir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch (e) { alerta('Erro: ' + e.message, 'error'); }
+}
+
+// ─── Fechar / reabrir ───────────────────────────────────────────────────────
+async function fechar() {
+  if (!confirm('Fechar a competência? Os números ficam congelados e o saldo credor passa ' +
+               'a ser transportado para o mês seguinte.')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-icms/' + $('competencia').value + '/fechar', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alerta('Competência fechada.', 'success');
+    carregar();
+  } catch (e) { alerta('Erro ao fechar: ' + e.message, 'error'); }
+}
+
+async function reabrir() {
+  if (!confirm('Reabrir a competência?')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-icms/' + $('competencia').value + '/reabrir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alerta('Competência reaberta.', 'success');
+    carregar();
+  } catch (e) { alerta('Erro ao reabrir: ' + e.message, 'error'); }
+}
+
+document.addEventListener('click', (ev) => {
+  if (ev.target.classList && ev.target.classList.contains('modal-bg')) {
+    fecharDet(); fecharAjuste();
+  }
+});
+
+// Boot: competência anterior à atual (a que normalmente se está apurando).
+(function () {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  $('competencia').value = d.toISOString().slice(0, 7);
+  carregar();
+})();
+</script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('apuracao-icms');</script>
+</body>
+</html>

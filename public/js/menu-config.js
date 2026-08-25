@@ -1,6 +1,20 @@
 /* Configuração do Menu Lateral - Licite Agora */
 /* Adicione novas páginas aqui para que apareçam automaticamente no menu */
 
+/* Módulos do menu (modo 'modulos' — ver sidebar.js).
+   A chave É a feature da seção, a mesma que o admin liga por tenant
+   (FEATURES em control-plane-routes.js). Logo o seletor de módulos mostra
+   exatamente o que foi vendido: nada aqui precisa ser mantido em paralelo.
+
+   Só entram aqui os módulos que agrupam MAIS DE UMA seção e precisam de um
+   nome próprio; módulo de uma seção só herda título e ícone dela. 'sistema'
+   é o balde das seções sem feature (Configurações), que ninguém contrata. */
+const menuModulos = {
+    operacional: { titulo: 'Operacional', icone: '🎯' },   // Operacional + Portais
+    produtos:    { titulo: 'Suprimentos', icone: '📦' },   // Catálogo + Estoque + Compras
+    sistema:     { titulo: 'Sistema',     icone: '⚙️' },
+};
+
 const menuConfig = {
     logo: {
         icone: '📋',
@@ -178,6 +192,15 @@ const menuConfig = {
                 { page: 'fin-adiantamentos', icone: '💠', texto: 'Adiantamentos', link: '/financeiro/adiantamentos.html' },
                 { page: 'fin-renegociacoes', icone: '🤝', texto: 'Renegociações', link: '/financeiro/renegociacoes.html' },
                 { page: 'contas-financeiras', icone: '🏦', texto: 'Contas Financeiras', link: '/financeiro/contas-financeiras.html' },
+                // Vieram da seção Contabilidade em 2026-08-25, quando a
+                // escrituração virou módulo pago à parte. São do Financeiro:
+                // batem em /api/plano-contas e /api/centros-custo (não no
+                // /api/contabilidade gated) e estão na descrição da feature
+                // `financeiro`. Se ficassem lá, desligar Contabilidade tiraria
+                // do cliente duas telas que ele paga. Os arquivos seguem em
+                // /contabilidade/ — só o lugar no menu mudou.
+                { page: 'plano-contas', icone: '🗂️', texto: 'Plano de Contas · Gerencial', link: '/contabilidade/plano-contas.html' },
+                { page: 'centros-custo', icone: '🎯', texto: 'Centros de Custo', link: '/contabilidade/centros-custo.html' },
                 { page: 'fluxo-caixa', icone: '💧', texto: 'Fluxo de Caixa', link: '/financeiro/fluxo-caixa.html' },
                 { page: 'fin-provisoes', icone: '📌', texto: 'Provisões', link: '/financeiro/provisoes.html' },
                 { page: 'fin-orcamento', icone: '🎯', texto: 'Orçamento', link: '/financeiro/orcamento.html' },
@@ -221,10 +244,8 @@ const menuConfig = {
             titulo: 'Contabilidade',
             icone: '📚',
             colapsavel: true,
-            feature: 'financeiro',
+            feature: 'contabilidade',
             itens: [
-                { page: 'plano-contas', icone: '🗂️', texto: 'Plano de Contas · Gerencial', link: '/contabilidade/plano-contas.html' },
-                { page: 'centros-custo', icone: '🎯', texto: 'Centros de Custo', link: '/contabilidade/centros-custo.html' },
                 { page: 'ctb-plano', icone: '📚', texto: 'Plano Contábil · Escrituração', link: '/contabilidade/plano-contabil.html' },
                 { page: 'ctb-lancamentos', icone: '✍️', texto: 'Lançamentos (Diário)', link: '/contabilidade/lancamentos.html' },
                 { page: 'ctb-balancete', icone: '⚖️', texto: 'Balancete', link: '/contabilidade/balancete.html' },
@@ -238,6 +259,8 @@ const menuConfig = {
             colapsavel: true,
             feature: 'fiscal',
             itens: [
+                { page: 'fiscal-diagnostico', icone: '🩺', texto: 'Diagnóstico Fiscal', link: '/fiscal/diagnostico.html' },
+                { page: 'nova-nota', icone: '📝', texto: 'Emitir NF-e', link: '/fiscal/nova-nota.html' },
                 { page: 'nfse', icone: '🧾', texto: 'Emitir NFS-e', link: '/fiscal/nfse.html' },
                 { page: 'faturas', icone: '📃', texto: 'Faturas', link: '/fiscal/faturas.html' },
                 // Entrada única para a lista unificada: os antigos itens
@@ -249,12 +272,16 @@ const menuConfig = {
                 { page: 'manifestador', icone: '📬', texto: 'Manifestador de Documentos', link: '/fiscal/manifestador.html' },
                 { page: 'mdfe', icone: '🚛', texto: 'MDF-e', link: '/fiscal/mdfe.html' },
                 { page: 'cte', icone: '📦', texto: 'CT-e', link: '/fiscal/cte.html' },
+                { page: 'regras-tributarias', icone: '⚖️', texto: 'Regras Tributárias', link: '/fiscal/regras-tributarias.html' },
                 { page: 'cadastro-cfops', icone: '🏷️', texto: 'CFOPs', link: '/fiscal/cadastro-cfops.html' },
                 { page: 'cadastro-tipos-operacao', icone: '🎯', texto: 'Tipos de Operação', link: '/fiscal/cadastro-tipos-operacao.html' },
                 { page: 'retencoes', icone: '✂️', texto: 'Retenções', link: '/fiscal/retencoes.html' },
                 { page: 'fiscal-gnre', icone: '🧾', texto: 'GNRE / DIFAL', link: '/fiscal/gnre.html' },
                 { page: 'fiscal-ibscbs', icone: '🏛️', texto: 'IBS/CBS (Reforma)', link: '/fiscal/ibscbs.html' },
                 { page: 'fiscal-inutilizacao', icone: '🚫', texto: 'Inutilização NF-e', link: '/fiscal/inutilizacao.html' },
+                { page: 'apuracao-icms', icone: '📗', texto: 'Apuração de ICMS', link: '/fiscal/apuracao-icms.html' },
+                { page: 'apuracao-piscofins', icone: '📘', texto: 'Apuração PIS/COFINS', link: '/fiscal/apuracao-piscofins.html' },
+                { page: 'apuracao-ipi', icone: '📙', texto: 'Apuração de IPI', link: '/fiscal/apuracao-ipi.html' },
                 { page: 'apuracao-sn', icone: '🧮', texto: 'Apuração SN', link: '/fiscal/apuracao-sn.html' },
                 { page: 'dre', icone: '📊', texto: 'DRE', link: '/fiscal/dre.html' },
                 { page: 'defis', icone: '📋', texto: 'DEFIS', link: '/fiscal/defis.html' },

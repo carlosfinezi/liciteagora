@@ -6,6 +6,115 @@ working tree.
 
 ## 2026-08-25
 
+Emissão manual de NF-e e o módulo fiscal fora do Simples Nacional. A referência
+foi o Solution ERP da JA Agrícola (pré-nota, rotina 1017 de Tributações ICMS,
+simulador 2850), lido tela a tela para entender o modelo antes de desenhar o
+nosso.
+
+**O motor de tributação por regime.** Até aqui o `emitirNFe` montava imposto
+assumindo Simples: CSOSN do cadastro do produto e PIS/COFINS zerados — correto
+para Simples, e é por isso que a ausência de configuração nunca doeu nos três
+tenants que emitem. Não atendia Lucro Real/Presumido, que precisa de CST de dois
+dígitos, base, alíquota e redução. `fiscal-tributacao.js` resolve a tributação
+por contexto a partir de `fiscal_regras_trib` (operação × CFOP × NCM por prefixo
+× produto × UF × âmbito × perfil do destinatário × regime), com override manual
+por item e memória de cálculo persistida — o equivalente da aba Auditoria do
+Solution. O caso-verdade usado em todos os testes é a pré-nota 197 deles: CST 20,
+alíquota 12, redução 78,95 sobre R$ 1,00, que dá base 0,21 e ICMS **0,03** — o
+mesmo centavo.
+
+- **`CRT` era fixo em `'1'`** — toda nota declarava Simples Nacional, de qualquer
+  tenant. Agora vem de `fornecedor.regimeTributario`, a mesma fonte que a entrada
+  de NF-e e a NFS-e já liam. Sem regime gravado devolve 1, então quem já emitia
+  emite igual: os 323 itens reais das faturas autorizadas dos tenants do Simples
+  foram medidos e **nenhum muda de caminho**
+- **Dois bugs encontrados pela validação XSD.** O `pRedBC` vem antes do `vBC` no
+  `ICMS20` e a lib serializa na ordem das chaves; e `tagProdIPI` do node-sped-nfe
+  faz `obj[key] == 0 ? "0.00"` em todas as chaves — como `'00' == 0` é `true` em
+  JS, o CST 00 de IPI virava `0.00` e a SEFAZ rejeita. Contornado em
+  `corrigirCstIpiZero`, no mesmo ponto onde o `<cobr>` já é injetado
+
+**NF-e manual com rascunho** (`nf-avulsa-routes.js`, `nova-nota.html`). O
+documento é uma `faturas` com `pedidoId` NULL e `origemDocumento='avulsa'` —
+mesmo padrão da devolução de compra, que já emitia sem pedido. Rascunho editável
+(`status='rascunho'`), prévia de impostos antes de transmitir, e os efeitos que o
+Tipo de Operação pedir: contas a receber quando `geraFinanceiro=1`, baixa de
+estoque quando `movimentaEstoque=1`. A flag `usarEmNFAvulsa` de `tipos_operacao`,
+provisionada em 21/08 e sem consumidor desde então, finalmente tem uso.
+
+- **`faturas.pedidoId` era NOT NULL em 10 dos 11 tenants.** O rebuild existia em
+  `devolucao-compra.js`, mas chamado *dentro da rota* de devolução de compra — só
+  migrava quem usasse a função. Passou para o schema, via `fiscal-trib-schema.js`
+- **Não existe emissão retroativa** e o código não sabia disso: a regra era
+  resolvida por `fatura.dataEmissao` enquanto o XML levava `dhEmi` = agora. Nas
+  notas históricas as datas sempre coincidiram, mas o rascunho cria a divergência.
+  A emissão resolve por hoje, e o rascunho passa a ser carimbado com a data real
+  ao ser emitido
+
+**Matriz de regras cadastrável** (`fiscal-regras-routes.js`,
+`regras-tributarias.html`). CRUD com validações que recusam regra que só falharia
+na emissão (regime normal sem CST, MVA sem alíquota de ST, CST e CSOSN juntos), e
+um **simulador** que responde qual regra vence, *por que* vence — o ranking de
+candidatas com a especificidade de cada uma — e que imposto sai. Regra já usada
+em nota emitida é desativada, nunca apagada: a memória de cálculo aponta para
+ela.
+
+**Camada 3 — refinos na emissão.** Vigência nas regras (serve para agendar a
+virada de alíquota e aposentar regra sozinha, não para emitir retroativo);
+`cBenef`, que fica no grupo `<prod>` e não dentro do ICMS; **CEST**, que existia
+em `produtos.cest` e nunca ia para o XML; e **DIFAL** completo (`ICMSUFDest`, FCP
+do destino, partilha de 100% ao destino). A tabela `fiscal_aliquotas_uf` nasce
+com as 27 UFs **vazias de propósito**: alíquota interna errada produz imposto
+errado numa nota autorizada, então sem o valor cadastrado o DIFAL não é calculado
+e a emissão diz qual estado falta.
+
+**Camada 1 — os livros de apuração.** Três livros com a mesma mecânica de
+competência, ajustes, fechamento e transporte de saldo, mas com a regra de
+crédito de cada imposto:
+
+- **ICMS** (`fiscal-apuracao-icms.js`) — o crédito vem do CFOP, não do valor
+  destacado: uso e consumo e mercadoria com ST vêm com ICMS na nota e não
+  creditam. ST e DIFAL ficam fora da conta principal (guia própria)
+- **PIS/COFINS** (`fiscal-apuracao-piscofins.js`) — dois regimes que produzem
+  contas incompatíveis. No cumulativo **não há crédito nenhum**; a mesma massa de
+  documentos dá PIS a recolher de 1.250 no não-cumulativo e 1.650 no cumulativo.
+  `cfops.geraCreditoPisCofins` nasce copiada da flag do ICMS como ponto de
+  partida, e o diagnóstico cobra a revisão enquanto ninguém mexer nela
+- **IPI** (`fiscal-apuracao-ipi.js`) — só indústria apura, e **compra para
+  revenda não credita**: só insumo de industrialização. `geraCreditoIpi` tem seed
+  próprio e explícito, porque copiar a do ICMS marcaria revenda como creditável
+
+Os três exigem que a competência anterior esteja fechada para transportar saldo,
+recusam ajuste em competência fechada, e acusam quando um documento do período
+muda depois do fechamento.
+
+**Diagnóstico fiscal por tenant** (`fiscal-diagnostico-routes.js`,
+`diagnostico.html`). Seis blocos — identidade fiscal, produtos, CFOP/operações,
+matriz, documentos e apuração — com severidade, contagem, exemplos nominais e
+link para a tela que resolve. O que ele cobra **depende do regime**: para Simples
+a matriz não é exigida. O achado mais útil não é "cadastre regras", é listar as
+combinações concretas de produto × UF de destino que ficariam sem resposta.
+
+Estado levantado nos 12 tenants: **8 estão sem regime tributário informado** e
+por isso emitem declarando CRT 1 — certo por acaso para quem é do Simples. Nenhum
+produto de nenhum tenant tem CST de PIS/COFINS preenchido, o que nunca doeu
+porque no Simples esse campo sai zerado de qualquer forma.
+
+**Testes.** 11 suítes, 446 asserts, rodadas em ordem direta e inversa (a inversa
+é o que prova que nenhuma suíte depende da massa deixada por outra — pegou
+interferência duas vezes). Cobrem regressão contra os 323 itens reais de
+produção, validação XSD com `xmllint`, e as telas em Chrome headless, que é o
+buraco que o `npm run verify` não alcança. Tenant `labfiscal` criado como
+laboratório (`scripts/create-tenant-labfiscal.js`).
+
+**Levado junto por fecho de requires:** `feature-gate.js` (untracked, de outra
+frente) — o `route-registry.js` desta frente registra `registrarFeatureGates` e
+sem o módulo o HEAD não bootaria. `perfis-api-map.js` é gerado por
+`scripts/gerar-mapa-api.js` e vai inteiro; `public/js/menu-config.js` carrega
+itens de outras frentes além dos seis fiscais adicionados aqui.
+
+## 2026-08-25
+
 Comparação da nossa tela de Tipos de OS com o cadastro equivalente do Solution
 ERP (Oficina › Tipo de Ordem de Serviço, 83 campos em 4 abas contra os nossos
 11). O tipo lá é o motor de comportamento da OS inteira; aqui era taxonomia com

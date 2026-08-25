@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apuração de PIS/COFINS - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: dois tributos lado a lado + faixa de regime */
+        .regime-faixa { padding: 12px 16px; border-radius: var(--r-sm); margin-bottom: 16px;
+                        display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+        .regime-faixa.naocum { background: rgba(13,110,253,.12); border-left: 4px solid #6ea8fe; }
+        .regime-faixa.cum { background: rgba(255,193,7,.12); border-left: 4px solid #fbbf24; }
+        .regime-faixa strong { font-size: 1.02em; }
+        .regime-faixa .exp { color: var(--text-2); font-size: 0.88em; }
+
+        .tributos { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 860px) { .tributos { grid-template-columns: 1fr; } }
+        .trib { background: var(--bg-2); border-radius: var(--r-sm); padding: 15px 17px; }
+        .trib h3 { margin: 0 0 12px; font-size: 1.05em; display: flex; justify-content: space-between; }
+        .trib h3 .aliq { font-weight: 400; font-size: 0.76em; color: var(--text-3); }
+        .linha { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0;
+                 border-bottom: 1px solid var(--border); font-size: 0.89em; }
+        .linha:last-of-type { border-bottom: 0; }
+        .linha .rot { color: var(--text-2); }
+        .linha .val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .linha.sub { font-weight: 600; border-top: 1px solid var(--border); }
+        .resultado { margin-top: 12px; padding: 12px 14px; border-radius: var(--r-sm); }
+        .resultado.recolher { background: rgba(253,126,20,.14); }
+        .resultado.credor { background: rgba(40,167,69,.14); }
+        .resultado .rot { font-size: 0.82em; color: var(--text-2); }
+        .resultado .n { font-size: 1.7em; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+
+        .chip { padding: 3px 11px; border-radius: 999px; font-size: 0.8em; font-weight: 600; }
+        .chip.aberta { background: rgba(255,193,7,.18); color: #fbbf24; }
+        .chip.fechada { background: rgba(40,167,69,.16); color: #4ade80; }
+
+        table.det { width: 100%; border-collapse: collapse; font-size: 0.86em; }
+        table.det th { text-align: left; padding: 7px 6px; color: var(--text-3); font-weight: 600;
+                       background: var(--bg-2); white-space: nowrap; }
+        table.det td { padding: 6px; border-top: 1px solid var(--border); }
+        table.det .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .semcred { color: var(--text-3); }
+        .memoria { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8em;
+                   white-space: pre-wrap; color: var(--text-2); background: var(--bg-2);
+                   padding: 10px 12px; border-radius: var(--r-sm); }
+        .hint { color: var(--text-3); font-size: 0.84em; }
+        .receita { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 14px; }
+        .receita div small { display: block; color: var(--text-3); font-size: 0.78em; }
+        .receita div strong { font-size: 1.15em; font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Apuração de PIS/COFINS</h1>
+                <small>Débitos sobre a receita e créditos sobre aquisições — quando o regime permite</small>
+              </div>
+              <div class="actions">
+                <input type="month" id="competencia" onchange="carregar()" style="width:auto;">
+                <span id="chipStatus" class="chip aberta" style="display:none;">aberta</span>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+            <div id="conteudo"><p class="hint">Carregando…</p></div>
+        </main>
+    </div>
+
+    <div class="modal-bg" id="modalDet" style="display:none;">
+      <div class="modal" style="max-width: 980px;">
+        <div class="modal-header">
+          <h3 style="margin:0;" id="detTitulo">Detalhamento</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharDet()">✕</button>
+        </div>
+        <div class="modal-body" id="detConteudo" style="overflow-x:auto;"></div>
+      </div>
+    </div>
+
+    <div class="modal-bg" id="modalAjuste" style="display:none;">
+      <div class="modal" style="max-width: 640px;">
+        <div class="modal-header">
+          <h3 style="margin:0;">Lançar ajuste</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharAjuste()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint" style="margin-top:0;">Valor sempre <strong>positivo</strong> — o sinal vem do tipo.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tributo *</label>
+              <select id="ajTributo">
+                <option value="pis">Só PIS</option>
+                <option value="cofins">Só COFINS</option>
+                <option value="ambos">Ambos</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Tipo *</label><select id="ajTipo"></select></div>
+            <div class="form-group"><label>Valor *</label><input type="number" id="ajValor" step="0.01" min="0.01"></div>
+            <div class="form-group">
+              <label>Código</label>
+              <input type="text" id="ajCodigo" placeholder="opcional">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Descrição *</label>
+            <input type="text" id="ajDescricao" placeholder="Crédito extemporâneo de maio/2026">
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+          <button class="btn btn-secondary" onclick="fecharAjuste()">Cancelar</button>
+          <button class="btn btn-primary" id="btnSalvarAjuste" onclick="salvarAjuste()">Lançar</button>
+        </div>
+      </div>
+    </div>
+
+<script>
+'use strict';
+
+let apuracao = null;
+let detalhe = null;
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function n2(v) { return (Number(v) || 0).toFixed(2).replace('.', ','); }
+function dataBR(iso) {
+  const p = String(iso || '').slice(0, 10).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : String(iso || '');
+}
+function alerta(msg, tipo) {
+  const box = $('alertBox');
+  box.className = 'alert alert-' + (tipo || 'info');
+  box.textContent = msg;
+  box.style.display = 'block';
+  if (tipo === 'success') setTimeout(() => { box.style.display = 'none'; }, 4000);
+}
+
+async function carregar() {
+  const comp = $('competencia').value;
+  if (!comp) return;
+  $('conteudo').innerHTML = '<p class="hint">Apurando…</p>';
+  $('chipStatus').style.display = 'none';
+  try {
+    const r = await fetch('/api/fiscal/apuracao-piscofins/' + comp);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    apuracao = d.apuracao;
+    const det = await fetch('/api/fiscal/apuracao-piscofins/' + comp + '/detalhe');
+    detalhe = await det.json();
+    render();
+  } catch (e) {
+    apuracao = null;
+    $('conteudo').innerHTML = '<div class="alert alert-error">' + esc(e.message) + '</div>';
+  }
+}
+
+function render() {
+  const a = apuracao;
+  const chip = $('chipStatus');
+  chip.style.display = 'inline-block';
+  chip.className = 'chip ' + a.status;
+  chip.textContent = a.status + (a.dataFechamento ? ' em ' + dataBR(a.dataFechamento) : '');
+
+  let html = '';
+
+  if (a.regimeMudouAposFechamento) {
+    html += '<div class="alert alert-warning">Esta competência foi fechada no regime <strong>' +
+      esc(a.regimeMudouAposFechamento.fechadoComo) + '</strong>, e a empresa hoje está em <strong>' +
+      esc(a.regimeMudouAposFechamento.hoje) + '</strong>. Os números gravados seguem a regra da época.</div>';
+  }
+  if (a.divergenciaAposFechamento) {
+    html += '<div class="alert alert-warning">Documento do período mudou depois do fechamento. ' +
+      'PIS gravado ' + n2(a.divergenciaAposFechamento.pisGravado) + ' × recalculado ' +
+      n2(a.divergenciaAposFechamento.pisRecalculado) + '. Reabra e feche de novo para regravar.</div>';
+  }
+
+  // Faixa do regime — é a informação que muda a leitura de tudo o que vem abaixo
+  html += '<div class="regime-faixa ' + (a.naoCumulativo ? 'naocum' : 'cum') + '">';
+  html += '<strong>' + (a.naoCumulativo ? 'Não-cumulativo' : 'Cumulativo') + '</strong>';
+  html += '<span class="exp">' + (a.naoCumulativo
+    ? 'Lucro Real · PIS ' + a.aliquotasReferencia.pis + '% e COFINS ' + a.aliquotasReferencia.cofins +
+      '% · aquisições geram crédito'
+    : 'Lucro Presumido · PIS ' + a.aliquotasReferencia.pis + '% e COFINS ' + a.aliquotasReferencia.cofins +
+      '% · não há crédito: o PIS/COFINS da compra é custo') + '</span>';
+  html += '</div>';
+
+  html += '<div class="panel">';
+  html += '<div class="receita">' +
+    '<div><small>Receita bruta do período</small><strong>' + n2(a.receitaBruta) + '</strong></div>' +
+    '<div><small>Documentos de saída</small><strong>' + a.contagem.saidas + '</strong></div>' +
+    '<div><small>Documentos de entrada</small><strong>' + a.contagem.entradas + '</strong></div>' +
+    '</div>';
+
+  html += '<div class="tributos">' + colunaTributo('PIS', a.pis, a.aliquotasReferencia.pis, a.pisSemCredito, a) +
+          colunaTributo('COFINS', a.cofins, a.aliquotasReferencia.cofins, a.cofinsSemCredito, a) + '</div>';
+  html += '</div>';
+
+  // Ajustes
+  html += '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<h3 style="margin:0;">Ajustes</h3>';
+  if (a.status !== 'fechada') {
+    html += '<button class="btn btn-secondary btn-sm" onclick="abrirAjuste()">+ Lançar ajuste</button>';
+  }
+  html += '</div>';
+  const ajustes = (detalhe && detalhe.ajustes) || [];
+  if (!ajustes.length) {
+    html += '<p class="hint" style="margin-top:10px;">Nenhum ajuste nesta competência.</p>';
+  } else {
+    html += '<table class="det" style="margin-top:10px;"><thead><tr><th>Tributo</th><th>Tipo</th>' +
+      '<th>Descrição</th><th class="num">Valor</th><th></th></tr></thead><tbody>' +
+      ajustes.map(x => {
+        const t = (detalhe.tiposAjuste || {})[x.tipo] || { rotulo: x.tipo, sinal: 1 };
+        return '<tr><td>' + esc(x.tributo.toUpperCase()) + '</td><td>' + esc(t.rotulo) + '</td>' +
+          '<td>' + esc(x.descricao) + '</td>' +
+          '<td class="num">' + (t.sinal > 0 ? '+' : '−') + ' ' + n2(x.valor) + '</td>' +
+          '<td class="num">' + (a.status !== 'fechada'
+            ? '<button class="btn btn-danger btn-sm" onclick="excluirAjuste(' + x.id + ')">✕</button>' : '') +
+          '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  html += '</div>';
+
+  html += '<div class="panel"><h3 style="margin-top:0;">Memória da apuração</h3>' +
+          '<div class="memoria">' + esc(a.memoria) + '</div></div>';
+
+  html += '<div class="form-actions" style="display:flex;gap:10px;">';
+  if (a.status === 'fechada') {
+    html += '<button class="btn btn-secondary" onclick="reabrir()">🔓 Reabrir competência</button>';
+  } else {
+    html += '<button class="btn btn-primary" onclick="fechar()">🔒 Fechar competência</button>';
+    html += '<span class="hint" style="align-self:center;">Fechar congela os números e libera o ' +
+            'crédito para o mês seguinte.</span>';
+  }
+  html += '</div>';
+
+  $('conteudo').innerHTML = html;
+}
+
+function colunaTributo(nome, t, aliq, semCredito, a) {
+  const devedor = t.saldo > 0;
+  let h = '<div class="trib"><h3>' + nome + ' <span class="aliq">' + aliq + '%</span></h3>';
+  h += linha('Débitos sobre a receita', t.vDebitos, a.contagem.saidas ? 'verDetalhe(\'debitos\')' : null);
+  if (t.outrosDebitos) h += linha('Outros débitos', t.outrosDebitos);
+  h += linha('Total de débitos', t.totalDebitos, null, true);
+
+  if (a.naoCumulativo) {
+    h += linha('Créditos sobre aquisições', t.vCreditos, a.contagem.entradas ? 'verDetalhe(\'creditos\')' : null);
+  } else {
+    h += '<div class="linha"><span class="rot">Créditos sobre aquisições</span>' +
+         '<span class="val hint">não se aplica</span></div>';
+  }
+  if (t.outrosCreditos) h += linha('Outros créditos', t.outrosCreditos);
+  h += linha('Crédito do período anterior', t.creditoAnterior);
+  h += linha('Total de créditos', t.totalCreditos, null, true);
+
+  h += '<div class="resultado ' + (devedor ? 'recolher' : 'credor') + '">' +
+       '<div class="rot">' + (devedor ? nome + ' a recolher' : 'Crédito a transportar') + '</div>' +
+       '<div class="n">' + n2(devedor ? t.vRecolher : t.creditoTransportar) + '</div></div>';
+
+  if (semCredito > 0) {
+    h += '<p class="hint" style="margin:10px 0 0;">' + n2(semCredito) + ' de ' + nome +
+         ' nas entradas sem direito a crédito' +
+         (a.naoCumulativo ? ' (uso e consumo, ST).' : ' — o regime cumulativo não permite crédito.') + '</p>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function linha(rot, valor, acao, sub) {
+  return '<div class="linha' + (sub ? ' sub' : '') + '">' +
+    '<span class="rot">' + esc(rot) +
+      (acao ? ' <button style="background:none;border:0;color:var(--text-3);cursor:pointer;text-decoration:underline;font-size:0.9em;" onclick="' + acao + '">ver</button>' : '') +
+    '</span><span class="val">' + n2(valor) + '</span></div>';
+}
+
+function verDetalhe(qual) {
+  if (!detalhe) return;
+  const cum = apuracao && !apuracao.naoCumulativo;
+  $('detTitulo').textContent = qual === 'debitos' ? 'Saídas do período' : 'Entradas do período';
+  let html = '';
+  if (qual === 'debitos') {
+    html = '<table class="det"><thead><tr><th>Documento</th><th>Data</th><th>Destinatário</th>' +
+      '<th class="num">Receita</th><th class="num">PIS</th><th class="num">COFINS</th></tr></thead><tbody>' +
+      detalhe.debitos.map(d => '<tr>' +
+        '<td>' + esc(d.numeroNFe || d.numero) + '</td><td>' + dataBR(d.dataEmissao) + '</td>' +
+        '<td>' + esc(d.destinatario || '—') + '</td>' +
+        '<td class="num">' + n2(d.receita) + '</td>' +
+        '<td class="num">' + n2(d.vPis) + '</td><td class="num">' + n2(d.vCofins) + '</td>' +
+        '</tr>').join('') + '</tbody></table>';
+  } else {
+    html = '<p class="hint" style="margin-top:0;">' + (cum
+      ? 'No regime cumulativo nada aqui gera crédito — os valores aparecem inteiros como "sem direito".'
+      : 'O direito ao crédito vem do CFOP da entrada. Uso e consumo não credita.') + '</p>' +
+      '<table class="det"><thead><tr><th>Documento</th><th>Data</th><th>Fornecedor</th><th>CFOP</th>' +
+      '<th class="num">PIS crédito</th><th class="num">COFINS crédito</th>' +
+      '<th class="num">Sem direito</th></tr></thead><tbody>' +
+      detalhe.creditos.map(c => '<tr>' +
+        '<td>' + esc(c.numero) + '</td><td>' + dataBR(c.dataEmissao) + '</td>' +
+        '<td>' + esc(c.fornecedor || '—') + '</td><td>' + esc(c.cfops || '—') + '</td>' +
+        '<td class="num">' + n2(c.vPis) + '</td><td class="num">' + n2(c.vCofins) + '</td>' +
+        '<td class="num semcred">' + n2(Number(c.vPisSemCredito) + Number(c.vCofinsSemCredito)) + '</td>' +
+        '</tr>').join('') + '</tbody></table>';
+  }
+  $('detConteudo').innerHTML = html;
+  $('modalDet').style.display = 'flex';
+}
+function fecharDet() { $('modalDet').style.display = 'none'; }
+
+function abrirAjuste() {
+  const tipos = (detalhe && detalhe.tiposAjuste) || {};
+  $('ajTipo').innerHTML = Object.entries(tipos).map(([k, v]) =>
+    '<option value="' + k + '">' + esc(v.rotulo) + (v.sinal > 0 ? ' (aumenta)' : ' (reduz)') + '</option>').join('');
+  $('ajValor').value = ''; $('ajCodigo').value = ''; $('ajDescricao').value = '';
+  $('modalAjuste').style.display = 'flex';
+}
+function fecharAjuste() { $('modalAjuste').style.display = 'none'; }
+
+async function salvarAjuste() {
+  $('btnSalvarAjuste').disabled = true;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-piscofins/' + $('competencia').value + '/ajustes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tributo: $('ajTributo').value, tipo: $('ajTipo').value, valor: $('ajValor').value,
+        codigoAjuste: $('ajCodigo').value, descricao: $('ajDescricao').value,
+      }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    fecharAjuste();
+    alerta('Ajuste lançado.', 'success');
+    carregar();
+  } catch (e) {
+    alerta('Erro: ' + e.message, 'error');
+  } finally { $('btnSalvarAjuste').disabled = false; }
+}
+
+async function excluirAjuste(id) {
+  if (!confirm('Excluir este ajuste?')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-piscofins/ajustes/' + id + '/excluir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    carregar();
+  } catch (e) { alerta('Erro: ' + e.message, 'error'); }
+}
+
+async function fechar() {
+  if (!confirm('Fechar a competência? Os números ficam congelados e o crédito passa a ser ' +
+               'transportado para o mês seguinte.')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-piscofins/' + $('competencia').value + '/fechar', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alerta('Competência fechada.', 'success');
+    carregar();
+  } catch (e) { alerta('Erro ao fechar: ' + e.message, 'error'); }
+}
+
+async function reabrir() {
+  if (!confirm('Reabrir a competência?')) return;
+  try {
+    const r = await fetch('/api/fiscal/apuracao-piscofins/' + $('competencia').value + '/reabrir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alerta('Competência reaberta.', 'success');
+    carregar();
+  } catch (e) { alerta('Erro ao reabrir: ' + e.message, 'error'); }
+}
+
+document.addEventListener('click', (ev) => {
+  if (ev.target.classList && ev.target.classList.contains('modal-bg')) { fecharDet(); fecharAjuste(); }
+});
+
+(function () {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  $('competencia').value = d.toISOString().slice(0, 7);
+  carregar();
+})();
+</script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('apuracao-piscofins');</script>
+</body>
+</html>

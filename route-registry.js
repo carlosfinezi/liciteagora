@@ -93,6 +93,12 @@ const { registrarRotasPedidos } = require('./pedidos-routes');
 const { registrarRotasFaturas } = require('./faturas-routes');
 const { registrarRotasContasFinanceiras } = require('./contas-financeiras-routes');
 const { registrarRotasNfeEmit } = require('./nfe-emit-routes');
+const { registrarRotasNfAvulsa } = require('./nf-avulsa-routes');
+const { registrarRotasFiscalRegras } = require('./fiscal-regras-routes');
+const { registrarRotasFiscalDiagnostico } = require('./fiscal-diagnostico-routes');
+const { registrarRotasFiscalApuracaoIcms } = require('./fiscal-apuracao-icms');
+const { registrarRotasFiscalApuracaoPisCofins } = require('./fiscal-apuracao-piscofins');
+const { registrarRotasFiscalApuracaoIpi } = require('./fiscal-apuracao-ipi');
 const { registrarRotasNfeEntrada } = require('./nfe-entrada-routes');
 const { registrarRotasContasPagar } = require('./contas-pagar-routes');
 const { registrarRotasContasReceber } = require('./contas-receber-routes');
@@ -149,6 +155,7 @@ const { registrarRotasWaCampanhas } = require('./wa-campaigns-routes');
 const { registrarRotasPortalAdmin } = require('./portal-routes');
 const { sendTelegram } = require('./telegram-client');
 const { registrarRotasNotificacoes } = require('./notificacoes-routes');
+const { registrarFeatureGates } = require('./feature-gate');
 
 // NFSE-M06 onda 6.44 (2026-04-20): PORT + PNCP_API_BASE + PNCP_API_ITENS
 // saem do deps bag e viram require direto de config.js. server.js nao
@@ -171,6 +178,10 @@ function registerProtectedRoutes(app, deps) {
   // As opções são repassadas para que o teste de credenciais possa usar
   // { ignorarCanal: true } (ver telegram-client.canalTelegramLigado).
   const enviarTelegram = (mensagem, opts) => sendTelegram(db, mensagem, opts);
+
+  // Gate dos módulos pagos ANTES de qualquer rota: um app.use registrado
+  // depois do handler não é consultado, e o gate viraria decoração.
+  registrarFeatureGates(app, db);
 
   // ==================== CATÁLOGO PNCP ====================
   // onda 6.29: 5 rotas /api/licitacoes, /api/orgaos, detalhes, itens e sync-itens.
@@ -226,6 +237,15 @@ function registerProtectedRoutes(app, deps) {
   registrarRotasPedidos(app, db);
   registrarRotasFaturas(app, db);
   registrarRotasNfeEmit(app, db);
+  // Depois do NfeEmit: a NF avulsa chama o emitirNFe dele, e o migrar() daqui
+  // precisa de `faturas` já criada por registrarRotasFaturas, acima.
+  registrarRotasNfAvulsa(app, db);
+  // Depois da NF avulsa: o migrar() dela é que garante a tabela fiscal_regras_trib.
+  registrarRotasFiscalRegras(app, db);
+  registrarRotasFiscalDiagnostico(app, db);
+  registrarRotasFiscalApuracaoIcms(app, db);
+  registrarRotasFiscalApuracaoPisCofins(app, db);
+  registrarRotasFiscalApuracaoIpi(app, db);
   registrarRotasNfeEntrada(app, db);
   registrarRotasContasPagar(app, db);
   registrarRotasContasReceber(app, db);

@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Regras Tributárias - Licite Agora</title>
+    <link rel="stylesheet" href="/css/sidebar.css">
+    <link rel="stylesheet" href="/css/app-modern.css">
+    <style>
+        /* page-local: grade da matriz + painel do simulador */
+        .grade { width: 100%; border-collapse: collapse; font-size: 0.86em; }
+        .grade th { text-align: left; padding: 8px 6px; color: var(--text-3); font-weight: 600; white-space: nowrap; }
+        .grade td { padding: 7px 6px; border-top: 1px solid var(--border); vertical-align: top; }
+        .grade tr.inativa { opacity: 0.5; }
+        .grade .num { text-align: right; }
+        .ctx-tag { display: inline-block; background: var(--bg-2); border-radius: var(--r-sm);
+                   padding: 1px 6px; margin: 1px 2px 1px 0; font-size: 0.85em; color: var(--text-2); white-space: nowrap; }
+        .ctx-vazio { color: var(--text-3); font-style: italic; }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78em; font-weight: 600; }
+        .pill.normal { background: rgba(13,110,253,.15); color: #6ea8fe; }
+        .pill.simples { background: rgba(40,167,69,.15); color: #4ade80; }
+        .pill.qualquer { background: var(--bg-2); color: var(--text-3); }
+        .pill.vence { background: rgba(40,167,69,.18); color: #4ade80; }
+        .memoria { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8em;
+                   white-space: pre-wrap; color: var(--text-2); background: var(--bg-2);
+                   padding: 8px 10px; border-radius: var(--r-sm); margin-top: 6px; }
+        .modal-secao { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+        .modal-secao h4 { margin: 0 0 10px 0; font-size: 0.95em; color: var(--text-1); }
+        .hint { color: var(--text-3); font-size: 0.82em; }
+        .cand-linha { padding: 6px 8px; border-radius: var(--r-sm); margin-bottom: 4px; background: var(--bg-2); font-size: 0.86em; }
+        .cand-linha.venceu { background: rgba(40,167,69,.12); }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <main class="main-content">
+            <div class="page-header">
+              <div>
+                <h1>Regras Tributárias</h1>
+                <small>A matriz que decide CST, alíquota e redução por contexto — operação × NCM × UF × destinatário</small>
+              </div>
+              <div class="actions">
+                <button class="btn btn-secondary btn-sm" onclick="abrirAliquotas()">🗺️ Alíquotas por UF</button>
+                <button class="btn btn-secondary btn-sm" onclick="abrirSimulador()">🔍 Simular</button>
+                <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova regra</button>
+              </div>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <div class="panel">
+              <div class="form-row" style="align-items:end;">
+                <div class="form-group">
+                  <label>Buscar</label>
+                  <input type="text" id="fBusca" placeholder="descrição, NCM ou CFOP" oninput="carregarDebounce()">
+                </div>
+                <div class="form-group">
+                  <label>Regime</label>
+                  <select id="fRegime" onchange="carregar()">
+                    <option value="">Todos</option>
+                    <option value="1">1 — Simples Nacional</option>
+                    <option value="2">2 — Simples (excesso)</option>
+                    <option value="3">3 — Regime Normal</option>
+                    <option value="4">4 — MEI</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Situação</label>
+                  <select id="fAtivo" onchange="carregar()">
+                    <option value="">Todas</option>
+                    <option value="1" selected>Ativas</option>
+                    <option value="0">Inativas</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div style="overflow-x:auto;">
+                <table class="grade">
+                  <thead>
+                    <tr>
+                      <th>Descrição</th>
+                      <th>Regime</th>
+                      <th>Contexto (quando se aplica)</th>
+                      <th>ICMS</th>
+                      <th>ST</th>
+                      <th>IPI</th>
+                      <th>PIS/COFINS</th>
+                      <th class="num">Prio</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="corpo">
+                    <tr><td colspan="9" style="text-align:center;color:var(--text-3);padding:20px;">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <small class="hint" style="display:block;margin-top:10px;">
+                Campo de contexto vazio significa “vale para qualquer”. Quando duas regras servem,
+                vence a que tem <strong>mais campos preenchidos</strong>; empate resolve pela prioridade.
+                Use <strong>Simular</strong> para ver quem ganha num caso concreto.
+              </small>
+            </div>
+        </main>
+    </div>
+
+    <!-- ─── Modal: regra ────────────────────────────────────────────────── -->
+    <div class="modal-bg" id="modalRegra" style="display:none;">
+      <div class="modal" style="max-width: 900px;">
+        <div class="modal-header">
+          <h3 style="margin:0;" id="modalTitulo">Nova regra</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group" style="flex:3;">
+              <label>Descrição *</label>
+              <input type="text" id="rDescricao" placeholder="Ex.: Fertilizante NCM 3105 — ICMS c/ redução de base">
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>Prioridade</label>
+              <input type="number" id="rPrioridade" value="10">
+              <small class="hint">Desempata regras de mesma especificidade.</small>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>Ativa</label>
+              <select id="rAtivo"><option value="1">Sim</option><option value="0">Não</option></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Vigência — início</label>
+              <input type="date" id="rVigenciaInicio">
+              <small class="hint">Vazio = vale desde sempre.</small>
+            </div>
+            <div class="form-group">
+              <label>Vigência — fim</label>
+              <input type="date" id="rVigenciaFim">
+              <small class="hint">Vazio = sem prazo. Serve para agendar a virada de alíquota
+                e aposentar a regra — a emissão é sempre na data de hoje.</small>
+            </div>
+            <div class="form-group">
+              <label>Código de benefício fiscal</label>
+              <input type="text" id="rCodBenef" maxlength="10" placeholder="TO800001">
+              <small class="hint">Obrigatório em várias UFs quando há redução ou isenção.</small>
+            </div>
+          </div>
+
+          <div class="modal-secao">
+            <h4>Quando se aplica <span class="hint">— deixe vazio o que não importar</span></h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Regime do emitente</label>
+                <select id="rRegimeEmitente">
+                  <option value="">Qualquer</option>
+                  <option value="1">1 — Simples Nacional</option>
+                  <option value="2">2 — Simples (excesso)</option>
+                  <option value="3">3 — Regime Normal</option>
+                  <option value="4">4 — MEI</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Operação</label>
+                <select id="rTipoOperacaoId"><option value="">Qualquer</option></select>
+              </div>
+              <div class="form-group">
+                <label>CFOP</label>
+                <input type="text" id="rCfop" maxlength="4" placeholder="5102">
+              </div>
+              <div class="form-group">
+                <label>Prefixo de NCM</label>
+                <input type="text" id="rNcmPrefixo" maxlength="8" placeholder="3105">
+                <small class="hint">“3105” pega 31051000.</small>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Âmbito</label>
+                <select id="rAmbito">
+                  <option value="">Qualquer</option>
+                  <option value="interna">Interna (mesma UF)</option>
+                  <option value="interestadual">Interestadual</option>
+                  <option value="exterior">Exterior</option>
+                </select>
+              </div>
+              <div class="form-group"><label>UF origem</label><input type="text" id="rUfOrigem" maxlength="2" placeholder="TO"></div>
+              <div class="form-group"><label>UF destino</label><input type="text" id="rUfDestino" maxlength="2" placeholder="GO"></div>
+              <div class="form-group">
+                <label>Destinatário</label>
+                <select id="rTipoContribuinte">
+                  <option value="">Qualquer</option>
+                  <option value="contribuinte">Contribuinte de ICMS</option>
+                  <option value="isento">Isento de IE</option>
+                  <option value="nao_contribuinte">Não contribuinte</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Consumidor final</label>
+                <select id="rConsumidorFinal">
+                  <option value="">Qualquer</option><option value="1">Sim</option><option value="0">Não</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Produto específico (id)</label>
+              <input type="number" id="rProdutoId" placeholder="deixe vazio para valer para todos">
+            </div>
+          </div>
+
+          <div class="modal-secao">
+            <h4>ICMS</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>CST <span class="hint">(regime normal)</span></label>
+                <select id="rCstIcms"><option value="">—</option></select>
+              </div>
+              <div class="form-group">
+                <label>CSOSN <span class="hint">(Simples)</span></label>
+                <select id="rCsosnIcms"><option value="">—</option></select>
+              </div>
+              <div class="form-group">
+                <label>Modalidade da base</label>
+                <select id="rModBC">
+                  <option value="">—</option>
+                  <option value="0">0 — Margem valor agregado</option>
+                  <option value="1">1 — Pauta</option>
+                  <option value="2">2 — Preço tabelado</option>
+                  <option value="3">3 — Valor da operação</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Alíquota %</label><input type="number" id="rPIcms" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label>Redução de base %</label><input type="number" id="rPRedBC" step="0.0001" min="0" max="100"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>FCP %</label><input type="number" id="rPFCP" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label>Diferimento %</label><input type="number" id="rPDif" step="0.01" min="0" max="100"></div>
+              <div class="form-group">
+                <label>Motivo da desoneração</label>
+                <input type="number" id="rMotDesIcms" placeholder="CST 40/41/50">
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-secao">
+            <h4>ICMS ST <span class="hint">— só para CST 10, 30, 70 ou 90</span></h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Modalidade base ST</label>
+                <select id="rModBCST">
+                  <option value="">—</option>
+                  <option value="0">0 — Preço tabelado</option>
+                  <option value="1">1 — Lista negativa</option>
+                  <option value="2">2 — Lista positiva</option>
+                  <option value="3">3 — Lista neutra</option>
+                  <option value="4">4 — Margem valor agregado</option>
+                  <option value="5">5 — Pauta</option>
+                </select>
+              </div>
+              <div class="form-group"><label>MVA %</label><input type="number" id="rPMVAST" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label>Redução base ST %</label><input type="number" id="rPRedBCST" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label>Alíquota ST %</label><input type="number" id="rPIcmsST" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label>FCP ST %</label><input type="number" id="rPFCPST" step="0.01" min="0" max="100"></div>
+            </div>
+          </div>
+
+          <div class="modal-secao">
+            <h4>DIFAL <span class="hint">— venda interestadual a não contribuinte (EC 87/2015)</span></h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>FCP da UF de destino %</label>
+                <input type="number" id="rPFcpUFDest" step="0.01" min="0" max="100">
+                <small class="hint">Vazio usa o FCP cadastrado em Alíquotas por UF.</small>
+              </div>
+            </div>
+            <p class="hint" style="margin:0;">A alíquota interna do destino não fica aqui — ela é da
+              outra UF e vive em <strong>Alíquotas por UF</strong>. Sem ela cadastrada, o DIFAL não é
+              calculado e a emissão avisa qual estado falta.</p>
+          </div>
+
+          <div class="modal-secao">
+            <h4>IPI · PIS · COFINS</h4>
+            <div class="form-row">
+              <div class="form-group"><label>CST IPI</label><select id="rCstIpi"><option value="">—</option></select></div>
+              <div class="form-group"><label>IPI %</label><input type="number" id="rPIpi" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label>CST PIS</label><input type="text" id="rCstPis" maxlength="2" placeholder="01"></div>
+              <div class="form-group"><label>PIS %</label><input type="number" id="rPPis" step="0.01" min="0" max="100"></div>
+              <div class="form-group"><label>CST COFINS</label><input type="text" id="rCstCofins" maxlength="2" placeholder="01"></div>
+              <div class="form-group"><label>COFINS %</label><input type="number" id="rPCofins" step="0.01" min="0" max="100"></div>
+            </div>
+          </div>
+
+          <div class="modal-secao">
+            <div class="form-group">
+              <label>Observação fiscal <span class="hint">— vai para os dados adicionais do item (ex.: base legal)</span></label>
+              <textarea id="rObservacaoFiscal" rows="2" placeholder="ICMS com redução de base — Conv. ICMS 100/97"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;">
+          <button class="btn btn-secondary" onclick="fecharModal()">Cancelar</button>
+          <button class="btn btn-primary" id="btnSalvarRegra" onclick="salvarRegra()">Salvar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Modal: simulador ────────────────────────────────────────────── -->
+    <div class="modal-bg" id="modalSim" style="display:none;">
+      <div class="modal" style="max-width: 900px;">
+        <div class="modal-header">
+          <h3 style="margin:0;">Simular tributação</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharSimulador()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint" style="margin-top:0;">
+            Descreva uma operação e veja qual regra ganha, por quê, e que imposto sai.
+            Nada é gravado.
+          </p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Regime do emitente</label>
+              <select id="sCrt">
+                <option value="">Do cadastro</option>
+                <option value="1">1 — Simples Nacional</option>
+                <option value="3">3 — Regime Normal</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Operação</label><select id="sTipoOperacaoId"><option value="">—</option></select></div>
+            <div class="form-group"><label>CFOP</label><input type="text" id="sCfop" maxlength="4" placeholder="5102"></div>
+            <div class="form-group"><label>NCM</label><input type="text" id="sNcm" maxlength="8" placeholder="31051000"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>UF origem</label><input type="text" id="sUfOrigem" maxlength="2" placeholder="do cadastro"></div>
+            <div class="form-group"><label>UF destino</label><input type="text" id="sUfDestino" maxlength="2" placeholder="TO"></div>
+            <div class="form-group">
+              <label>Destinatário</label>
+              <select id="sTipoContribuinte">
+                <option value="">Qualquer</option>
+                <option value="contribuinte">Contribuinte</option>
+                <option value="isento">Isento de IE</option>
+                <option value="nao_contribuinte">Não contribuinte</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Data do documento</label><input type="date" id="sData"></div>
+            <div class="form-group"><label>Valor do produto</label><input type="number" id="sVProd" step="0.01" value="100"></div>
+            <div class="form-group"><label>Frete</label><input type="number" id="sVFrete" step="0.01" value="0"></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;">
+            <button class="btn btn-primary" onclick="simular()">Simular</button>
+          </div>
+          <div id="simResultado" style="margin-top:16px;"></div>
+        </div>
+      </div>
+    </div>
+
+<!-- ─── Modal: alíquotas por UF ─────────────────────────────────────── -->
+    <div class="modal-bg" id="modalUf" style="display:none;">
+      <div class="modal" style="max-width: 820px;">
+        <div class="modal-header">
+          <h3 style="margin:0;">Alíquotas internas por UF</h3>
+          <button class="btn btn-secondary btn-sm" onclick="fecharAliquotas()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint" style="margin-top:0;">
+            Usadas no cálculo do DIFAL — a diferença entre a alíquota interna do destino e a
+            interestadual. Nascem vazias de propósito: preencher com número errado produziria
+            imposto errado numa nota autorizada. Enquanto a UF estiver em branco, o DIFAL para
+            ela não é calculado e a emissão avisa.
+          </p>
+          <p class="hint" id="ufResumo" style="font-weight:600;"></p>
+          <div id="ufConteudo" style="overflow-x:auto;"></div>
+        </div>
+      </div>
+    </div>
+
+<script>
+'use strict';
+
+let regras = [];
+let opcoes = { CST_ICMS: [], CSOSN: [], CST_IPI: [] };
+let editandoId = null;
+let tBusca = null;
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function n2(v) { return (Number(v) || 0).toFixed(2).replace('.', ','); }
+function dataBR(iso) {
+  const p = String(iso || '').slice(0, 10).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : String(iso || '');
+}
+
+function alerta(msg, tipo) {
+  const box = $('alertBox');
+  box.className = 'alert alert-' + (tipo || 'info');
+  box.textContent = msg;
+  box.style.display = 'block';
+  if (tipo === 'success') setTimeout(() => { box.style.display = 'none'; }, 4000);
+}
+
+const ROTULO_CTX = {
+  regimeEmitente: 'regime', tipoOperacaoId: 'operação', cfop: 'CFOP', ncmPrefixo: 'NCM',
+  produtoId: 'produto', ufOrigem: 'UF orig', ufDestino: 'UF dest', ambito: 'âmbito',
+  tipoContribuinte: 'destinatário', consumidorFinal: 'cons. final',
+};
+
+// ─── Lista ──────────────────────────────────────────────────────────────────
+function carregarDebounce() { clearTimeout(tBusca); tBusca = setTimeout(carregar, 300); }
+
+async function carregar() {
+  try {
+    const q = new URLSearchParams();
+    if ($('fBusca').value.trim()) q.set('q', $('fBusca').value.trim());
+    if ($('fRegime').value) q.set('regime', $('fRegime').value);
+    if ($('fAtivo').value) q.set('ativo', $('fAtivo').value);
+    const r = await fetch('/api/fiscal-regras?' + q.toString());
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    regras = d.regras || [];
+    if (d.opcoes) { opcoes = d.opcoes; popularSelectsCst(); }
+    render();
+  } catch (e) { alerta('Erro ao carregar: ' + e.message, 'error'); }
+}
+
+function render() {
+  const corpo = $('corpo');
+  if (!regras.length) {
+    corpo.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-3);padding:20px;">' +
+      'Nenhuma regra cadastrada. Sem regra, o regime normal não consegue emitir — o Simples continua funcionando.' +
+      '</td></tr>';
+    return;
+  }
+  corpo.innerHTML = regras.map(r => {
+    const ctx = Object.keys(ROTULO_CTX)
+      .filter(k => r[k] !== null && r[k] !== undefined)
+      .map(k => {
+        let v = r[k];
+        if (k === 'tipoOperacaoId') v = r.tipoOperacaoCodigo || v;
+        if (k === 'produtoId') v = r.produtoDescricao || v;
+        if (k === 'consumidorFinal') v = v ? 'sim' : 'não';
+        return '<span class="ctx-tag">' + ROTULO_CTX[k] + ': ' + esc(v) + '</span>';
+      }).join('');
+
+    const regimePill = r.regimeEmitente === 3 ? '<span class="pill normal">Normal</span>'
+      : r.regimeEmitente ? '<span class="pill simples">CRT ' + r.regimeEmitente + '</span>'
+      : '<span class="pill qualquer">qualquer</span>';
+
+    let vig = '';
+    if (r.vigenciaInicio || r.vigenciaFim) {
+      const de = r.vigenciaInicio ? dataBR(r.vigenciaInicio) : '—';
+      const ate = r.vigenciaFim ? dataBR(r.vigenciaFim) : 'sem prazo';
+      const hojeISO = new Date().toISOString().slice(0, 10);
+      const expirada = r.vigenciaFim && r.vigenciaFim < hojeISO;
+      const futura = r.vigenciaInicio && r.vigenciaInicio > hojeISO;
+      const rot = expirada ? 'expirada' : (futura ? 'futura' : 'vigente');
+      vig = '<br><span class="ctx-tag" title="' + esc(de + ' a ' + ate) + '">' +
+            (expirada || futura ? '⚠ ' : '') + rot + ': ' + esc(de) + ' → ' + esc(ate) + '</span>';
+    }
+    const benef = r.codBenef ? '<br><span class="ctx-tag">cBenef ' + esc(r.codBenef) + '</span>' : '';
+
+    const icms = r.cstIcms
+      ? 'CST ' + esc(r.cstIcms) + (r.pIcms != null ? ' · ' + n2(r.pIcms) + '%' : '') +
+        (r.pRedBC ? '<br><span class="hint">red. ' + n2(r.pRedBC) + '%</span>' : '')
+      : r.csosnIcms ? 'CSOSN ' + esc(r.csosnIcms) : '<span class="ctx-vazio">—</span>';
+    const st = r.pIcmsST != null
+      ? n2(r.pIcmsST) + '%' + (r.pMVAST != null ? '<br><span class="hint">MVA ' + n2(r.pMVAST) + '%</span>' : '')
+      : '<span class="ctx-vazio">—</span>';
+    const ipi = r.cstIpi ? esc(r.cstIpi) + (r.pIpi != null ? ' · ' + n2(r.pIpi) + '%' : '') : '<span class="ctx-vazio">—</span>';
+    const pc = (r.cstPis || r.cstCofins)
+      ? esc(r.cstPis || '—') + '/' + esc(r.cstCofins || '—') +
+        '<br><span class="hint">' + n2(r.pPis) + '% / ' + n2(r.pCofins) + '%</span>'
+      : '<span class="ctx-vazio">—</span>';
+
+    return '<tr class="' + (r.ativo ? '' : 'inativa') + '">' +
+      '<td><strong>' + esc(r.descricao) + '</strong>' +
+        (r.observacaoFiscal ? '<br><span class="hint">' + esc(r.observacaoFiscal) + '</span>' : '') +
+        vig + benef + '</td>' +
+      '<td>' + regimePill + '</td>' +
+      '<td>' + (ctx || '<span class="ctx-vazio">qualquer operação</span>') + '</td>' +
+      '<td>' + icms + '</td>' +
+      '<td>' + st + '</td>' +
+      '<td>' + ipi + '</td>' +
+      '<td>' + pc + '</td>' +
+      '<td class="num">' + (r.prioridade != null ? r.prioridade : 10) + '</td>' +
+      '<td style="white-space:nowrap;">' +
+        '<button class="btn btn-secondary btn-sm" onclick="editar(' + r.id + ')" title="Editar">✏️</button> ' +
+        '<button class="btn btn-secondary btn-sm" onclick="duplicar(' + r.id + ')" title="Duplicar">⧉</button> ' +
+        '<button class="btn btn-danger btn-sm" onclick="excluir(' + r.id + ')" title="Excluir">✕</button>' +
+      '</td></tr>';
+  }).join('');
+}
+
+// ─── Formulário ─────────────────────────────────────────────────────────────
+function popularSelectsCst() {
+  const preencher = (id, lista) => {
+    const s = $(id);
+    const atual = s.value;
+    s.innerHTML = '<option value="">—</option>' + lista.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+    s.value = atual;
+  };
+  preencher('rCstIcms', opcoes.CST_ICMS || []);
+  preencher('rCsosnIcms', opcoes.CSOSN || []);
+  preencher('rCstIpi', opcoes.CST_IPI || []);
+}
+
+const CAMPOS_FORM = {
+  rDescricao: 'descricao', rPrioridade: 'prioridade', rAtivo: 'ativo',
+  rRegimeEmitente: 'regimeEmitente', rTipoOperacaoId: 'tipoOperacaoId', rCfop: 'cfop',
+  rNcmPrefixo: 'ncmPrefixo', rProdutoId: 'produtoId', rUfOrigem: 'ufOrigem', rUfDestino: 'ufDestino',
+  rAmbito: 'ambito', rTipoContribuinte: 'tipoContribuinte', rConsumidorFinal: 'consumidorFinal',
+  rCstIcms: 'cstIcms', rCsosnIcms: 'csosnIcms', rModBC: 'modBC', rPIcms: 'pIcms', rPRedBC: 'pRedBC',
+  rPFCP: 'pFCP', rPDif: 'pDif', rMotDesIcms: 'motDesIcms',
+  rModBCST: 'modBCST', rPMVAST: 'pMVAST', rPRedBCST: 'pRedBCST', rPIcmsST: 'pIcmsST', rPFCPST: 'pFCPST',
+  rCstIpi: 'cstIpi', rPIpi: 'pIpi', rCstPis: 'cstPis', rPPis: 'pPis', rCstCofins: 'cstCofins', rPCofins: 'pCofins',
+  rObservacaoFiscal: 'observacaoFiscal',
+  rVigenciaInicio: 'vigenciaInicio', rVigenciaFim: 'vigenciaFim',
+  rCodBenef: 'codBenef', rPFcpUFDest: 'pFcpUFDest',
+};
+
+function abrirNova() {
+  editandoId = null;
+  $('modalTitulo').textContent = 'Nova regra';
+  Object.keys(CAMPOS_FORM).forEach(id => { $(id).value = ''; });
+  $('rPrioridade').value = 10;
+  $('rAtivo').value = '1';
+  $('modalRegra').style.display = 'flex';
+}
+
+async function editar(id) {
+  try {
+    const r = await fetch('/api/fiscal-regras/' + id);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    editandoId = id;
+    $('modalTitulo').textContent = 'Editar regra #' + id;
+    Object.entries(CAMPOS_FORM).forEach(([elId, campo]) => {
+      const v = d.regra[campo];
+      $(elId).value = (v === null || v === undefined) ? '' : v;
+    });
+    $('modalRegra').style.display = 'flex';
+  } catch (e) { alerta('Erro: ' + e.message, 'error'); }
+}
+
+function fecharModal() { $('modalRegra').style.display = 'none'; editandoId = null; }
+
+async function salvarRegra() {
+  const corpo = {};
+  Object.entries(CAMPOS_FORM).forEach(([elId, campo]) => {
+    const v = $(elId).value;
+    corpo[campo] = v === '' ? null : v;
+  });
+  $('btnSalvarRegra').disabled = true;
+  try {
+    const url = editandoId ? '/api/fiscal-regras/' + editandoId : '/api/fiscal-regras';
+    const r = await fetch(url, {
+      method: editandoId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao salvar');
+    fecharModal();
+    alerta('Regra salva.', 'success');
+    carregar();
+  } catch (e) {
+    alerta('Erro: ' + e.message, 'error');
+  } finally { $('btnSalvarRegra').disabled = false; }
+}
+
+async function duplicar(id) {
+  try {
+    const r = await fetch('/api/fiscal-regras/' + id + '/duplicar', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alerta('Regra duplicada — ajuste a cópia.', 'success');
+    await carregar();
+    editar(d.id);
+  } catch (e) { alerta('Erro: ' + e.message, 'error'); }
+}
+
+async function excluir(id) {
+  if (!confirm('Excluir esta regra?')) return;
+  try {
+    const r = await fetch('/api/fiscal-regras/' + id + '/excluir', { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alerta(d.aviso || 'Regra excluída.', d.desativada ? 'info' : 'success');
+    carregar();
+  } catch (e) { alerta('Erro: ' + e.message, 'error'); }
+}
+
+// ─── Simulador ──────────────────────────────────────────────────────────────
+function abrirSimulador() { $('modalSim').style.display = 'flex'; }
+function fecharSimulador() { $('modalSim').style.display = 'none'; }
+
+async function simular() {
+  const corpo = {
+    crt: $('sCrt').value || null,
+    tipoOperacaoId: $('sTipoOperacaoId').value || null,
+    cfop: $('sCfop').value || null,
+    ncm: $('sNcm').value || null,
+    ufOrigem: $('sUfOrigem').value || null,
+    ufDestino: $('sUfDestino').value || null,
+    tipoContribuinte: $('sTipoContribuinte').value || null,
+    consumidorFinal: $('sTipoContribuinte').value === 'nao_contribuinte' ? 1 : null,
+    dataReferencia: $('sData').value || null,
+    vProd: Number($('sVProd').value) || 0,
+    vFrete: Number($('sVFrete').value) || 0,
+  };
+  const alvo = $('simResultado');
+  alvo.innerHTML = '<p class="hint">Simulando…</p>';
+  try {
+    const r = await fetch('/api/fiscal-regras/simular', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alvo.innerHTML = renderSimulacao(d);
+  } catch (e) {
+    alvo.innerHTML = '<div class="alert alert-error">' + esc(e.message) + '</div>';
+  }
+}
+
+function renderSimulacao(d) {
+  let html = '<div class="panel" style="margin:0;">';
+  html += '<p><strong>CRT ' + d.crt + '</strong> · âmbito <strong>' + esc(d.ambito) + '</strong></p>';
+
+  if (!d.candidatas.length) {
+    html += '<div class="alert alert-warning">Nenhuma regra casa com este contexto.</div>';
+  } else {
+    html += '<h4>Regras candidatas <span class="hint">(a de maior especificidade vence)</span></h4>';
+    html += d.candidatas.map(c =>
+      '<div class="cand-linha ' + (c.vencedora ? 'venceu' : '') + '">' +
+        (c.vencedora ? '<span class="pill vence">vence</span> ' : '') +
+        '<strong>#' + c.id + ' ' + esc(c.descricao) + '</strong> ' +
+        '<span class="hint">— especificidade ' + c.especificidade + ' · prioridade ' + c.prioridade + '</span>' +
+        (c.contexto.length ? '<br>' + c.contexto.map(x => '<span class="ctx-tag">' + esc(x) + '</span>').join('') : '') +
+      '</div>').join('');
+  }
+
+  if (d.calculo && !d.calculo.ok) {
+    html += '<div class="alert alert-error" style="margin-top:12px;">' + esc(d.calculo.erro) + '</div>';
+  } else if (d.calculo) {
+    const c = d.calculo;
+    const i = c.icms || {};
+    html += '<h4 style="margin-top:16px;">Resultado</h4>';
+    html += '<div class="form-row">';
+    html += '<div class="form-group"><label>Grupo</label><div>' + esc(c.grupo) + '</div></div>';
+    html += '<div class="form-group"><label>CST/CSOSN</label><div>' + esc(i.CST || i.CSOSN || '—') + '</div></div>';
+    html += '<div class="form-group"><label>Base ICMS</label><div>' + n2(c.totais.vBC) + '</div></div>';
+    html += '<div class="form-group"><label>ICMS</label><div>' + n2(c.totais.vICMS) + '</div></div>';
+    html += '<div class="form-group"><label>ST</label><div>' + n2(c.totais.vICMSST) + '</div></div>';
+    html += '<div class="form-group"><label>IPI</label><div>' + n2(c.totais.vIPI) + '</div></div>';
+    html += '<div class="form-group"><label>PIS</label><div>' + n2(c.totais.vPIS) + '</div></div>';
+    html += '<div class="form-group"><label>COFINS</label><div>' + n2(c.totais.vCOFINS) + '</div></div>';
+    html += '</div>';
+    if (c.difalErro) {
+      html += '<div class="alert alert-warning" style="margin-top:10px;">DIFAL não calculado: ' +
+              esc(c.difalErro) + '</div>';
+    } else if (c.icmsUFDest) {
+      html += '<h4 style="margin-top:14px;">DIFAL — partilha para a UF de destino</h4><div class="form-row">';
+      html += '<div class="form-group"><label>Alíq. interna destino</label><div>' + esc(c.icmsUFDest.pICMSUFDest) + '%</div></div>';
+      html += '<div class="form-group"><label>Alíq. interestadual</label><div>' + esc(c.icmsUFDest.pICMSInter) + '%</div></div>';
+      html += '<div class="form-group"><label>DIFAL ao destino</label><div><strong>' + n2(c.icmsUFDest.vICMSUFDest) + '</strong></div></div>';
+      if (c.icmsUFDest.vFCPUFDest) html += '<div class="form-group"><label>FCP</label><div>' + n2(c.icmsUFDest.vFCPUFDest) + '</div></div>';
+      html += '</div>';
+    }
+    if (c.codBenef) {
+      html += '<p class="hint" style="margin-top:8px;">Código de benefício fiscal aplicado: <strong>' +
+              esc(c.codBenef) + '</strong></p>';
+    }
+    html += '<h4 style="margin-top:12px;">Memória de cálculo</h4>';
+    html += (c.memoria || []).map(m =>
+      '<div class="memoria"><strong>' + esc(m.imposto) + '</strong> — CST ' + esc(m.cst || '—') +
+      ' · base ' + n2(m.base) + ' · alíq ' + n2(m.aliquota) + '% · valor ' + n2(m.valor) + '\n' +
+      esc(m.formula || '') + '</div>').join('');
+  }
+  html += '</div>';
+  return html;
+}
+
+// ─── Alíquotas por UF ───────────────────────────────────────────────────────
+// A alíquota interna do destino é dado da OUTRA UF — o emitente não tem como
+// deduzi-la. Sem ela, o DIFAL não é calculado (e a emissão diz qual falta).
+async function abrirAliquotas() {
+  $('modalUf').style.display = 'flex';
+  const alvo = $('ufConteudo');
+  alvo.innerHTML = '<p class="hint">Carregando…</p>';
+  try {
+    const r = await fetch('/api/fiscal-regras/aliquotas-uf');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    $('ufResumo').textContent = d.preenchidas + ' de ' + d.total + ' UFs com alíquota cadastrada';
+    alvo.innerHTML = '<table class="grade"><thead><tr>' +
+      '<th>UF</th><th>Alíquota interna %</th><th>FCP %</th><th>Observação</th><th></th>' +
+      '</tr></thead><tbody>' +
+      d.aliquotas.map(a =>
+        '<tr' + (a.aliquotaInterna == null ? ' class="inativa"' : '') + '>' +
+        '<td><strong>' + esc(a.uf) + '</strong></td>' +
+        '<td><input type="number" step="0.01" min="0" max="100" style="width:100px;" ' +
+          'id="uf_' + a.uf + '_aliq" value="' + (a.aliquotaInterna != null ? a.aliquotaInterna : '') + '"></td>' +
+        '<td><input type="number" step="0.01" min="0" max="100" style="width:90px;" ' +
+          'id="uf_' + a.uf + '_fcp" value="' + (a.pFcp != null ? a.pFcp : '') + '"></td>' +
+        '<td><input type="text" style="width:100%;" id="uf_' + a.uf + '_obs" ' +
+          'value="' + esc(a.observacao || '') + '" placeholder="base legal, data do decreto…"></td>' +
+        '<td><button class="btn btn-secondary btn-sm" onclick="salvarUf(\'' + a.uf + '\')">Salvar</button></td>' +
+        '</tr>').join('') +
+      '</tbody></table>';
+  } catch (e) {
+    alvo.innerHTML = '<div class="alert alert-error">' + esc(e.message) + '</div>';
+  }
+}
+
+function fecharAliquotas() { $('modalUf').style.display = 'none'; }
+
+async function salvarUf(uf) {
+  try {
+    const r = await fetch('/api/fiscal-regras/aliquotas-uf/' + uf, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        aliquotaInterna: $('uf_' + uf + '_aliq').value,
+        pFcp: $('uf_' + uf + '_fcp').value,
+        observacao: $('uf_' + uf + '_obs').value,
+      }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    alerta(uf + ' salva.', 'success');
+    abrirAliquotas();
+  } catch (e) { alerta('Erro em ' + uf + ': ' + e.message, 'error'); }
+}
+
+// ─── Boot ───────────────────────────────────────────────────────────────────
+async function carregarOperacoes() {
+  try {
+    const r = await fetch('/api/tipos-operacao');
+    const d = await r.json();
+    const lista = d.tipos || d.tiposOperacao || [];
+    ['rTipoOperacaoId', 'sTipoOperacaoId'].forEach(id => {
+      const s = $(id);
+      lista.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t.id;
+        o.textContent = t.codigo + ' — ' + t.descricao;
+        s.appendChild(o);
+      });
+    });
+  } catch (e) { /* a matriz funciona sem o filtro por operação */ }
+}
+
+carregarOperacoes();
+carregar();
+</script>
+    <script src="/js/menu-config.js"></script>
+    <script src="/js/sidebar.js"></script>
+    <script>initSidebar('regras-tributarias');</script>
+</body>
+</html>

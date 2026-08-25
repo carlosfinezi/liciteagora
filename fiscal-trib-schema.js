@@ -81,9 +81,10 @@ function initFiscalTribSchema(db) {
   `);
 
   // ─── Camada 3 (2026-08-25): vigência, benefício fiscal e DIFAL ────────────
-  // Vigência: alíquota muda por decreto, com data. Sem isto, reemitir uma nota
-  // antiga aplica a regra de hoje. É o que o Solution guarda em toda linha da
-  // matriz como Data Validade Inicial/Final.
+  // Vigência: alíquota muda por decreto, com data. Serve para AGENDAR a virada
+  // (cadastrar hoje o que vale a partir de 01/01) e para aposentar regra sozinha
+  // — não para emitir retroativo, que a SEFAZ não permite. É o que o Solution
+  // guarda em toda linha da matriz como Data Validade Inicial/Final.
   for (const col of [
     'vigenciaInicio TEXT',   // 'YYYY-MM-DD' — NULL = vale desde sempre
     'vigenciaFim TEXT',      // 'YYYY-MM-DD' — NULL = sem prazo
