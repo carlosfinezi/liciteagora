@@ -15,175 +15,208 @@
       <small>Cabeçalho gerencial do pedido — define se gera financeiro, movimenta estoque e emite NF-e</small>
     </div>
     <div class="actions">
-      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo tipo</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo tipo</button>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
 
-  <div class="panel">
-    <p style="color:var(--text-2);font-size:0.9em;margin-bottom:10px;">
-      O tipo de operação é escolhido no cabeçalho do pedido (ou devolução) e propaga para
-      todos os itens: CFOP correto por destino, se baixa estoque, se gera contas a receber,
-      se emite NF-e e qual a finalidade fiscal.
-    </p>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr>
-          <th>Código</th>
-          <th>Descrição</th>
-          <th>Categoria</th>
-          <th title="Finalidade NF-e">Fin.</th>
-          <th title="Emite NF-e / Gera Financeiro / Movimenta Estoque / Gerencial (DRE)">Flags</th>
-          <th>CFOPs (int / inter / ext)</th>
-          <th></th>
-        </tr></thead>
-        <tbody id="tb"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
-      </table>
+  <!-- id próprio: as sub-abas do formulário também usam .tabs/.tab, e sem isso
+       o switchTab limparia o estado delas junto. -->
+  <div class="tabs" id="abasPrincipais">
+    <button class="tab active" onclick="switchTab('lista')">Lista</button>
+    <button class="tab" onclick="switchTab('form')" id="tabFormBtn">Novo tipo</button>
+  </div>
+
+  <!-- ABA LISTA -->
+  <div id="tab-lista" class="tab-content active">
+    <div class="panel">
+      <p class="muted" style="font-size:0.9em;margin-bottom:10px;">
+        O tipo de operação é escolhido no cabeçalho do pedido (ou devolução) e propaga para
+        todos os itens: CFOP correto por destino, se baixa estoque, se gera contas a receber,
+        se emite NF-e e qual a finalidade fiscal.
+      </p>
+      <div class="toolbar">
+        <input type="text" id="filtBusca" placeholder="Buscar por código ou descrição…" style="flex:1;min-width:220px;" oninput="renderTabela()">
+        <select id="filtAtivo" onchange="carregar()" style="width:auto;">
+          <option value="1">Ativos</option>
+          <option value="0">Inativos</option>
+          <option value="">Todos</option>
+        </select>
+        <span id="totalTipos" style="font-size:0.85em;color:var(--text-3);"></span>
+      </div>
+      <div class="tbl-wrap" data-grid="tipos-operacao">
+        <table>
+          <thead><tr>
+            <th class="col-editar"></th>
+            <th>Código</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th title="Finalidade NF-e">Fin.</th>
+            <th title="Emite NF-e / Gera Financeiro / Movimenta Estoque / Gerencial (DRE)">Flags</th>
+            <th>CFOPs (int / inter / ext)</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ABA CADASTRO -->
+  <div id="tab-form" class="tab-content">
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap;">
+        <h3 id="formTitle" style="margin:0;">Novo tipo de operação</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button type="button" class="btn btn-ghost btn-sm" id="btnDesativar" onclick="desativar()" style="display:none;color:var(--danger);">Desativar</button>
+          <button class="btn btn-ghost btn-sm" onclick="switchTab('lista')">Cancelar</button>
+          <button class="btn btn-primary btn-sm" onclick="salvar()">💾 Salvar</button>
+        </div>
+      </div>
+
+      <input type="hidden" id="fId">
+
+      <div class="tabs" style="margin-bottom:16px;">
+        <button type="button" class="tab tab-form-sub active" data-subtab="geral" onclick="switchSubTab('geral')">Geral</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="comportamento" onclick="switchSubTab('comportamento')">Comportamento</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="disponivel" onclick="switchSubTab('disponivel')">Disponível em</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="fiscal" onclick="switchSubTab('fiscal')">Fiscal</button>
+      </div>
+
+      <!-- SUB-ABA: GERAL -->
+      <div class="subtab-content" data-subtab-pane="geral">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Código *</label>
+            <input type="text" id="fCodigo" maxlength="20" placeholder="VDA-NORMAL" style="text-transform:uppercase;">
+          </div>
+          <div class="form-group" style="flex:2;">
+            <label>Descrição *</label>
+            <input type="text" id="fDesc" placeholder="Venda normal">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="fCategoria">
+              <option value="venda">Venda</option>
+              <option value="compra">Compra</option>
+              <option value="compra_uso_consumo">Compra (uso e consumo)</option>
+              <option value="devolucao_venda">Devolução de venda</option>
+              <option value="devolucao_compra">Devolução de compra</option>
+              <option value="bonificacao">Bonificação / brinde</option>
+              <option value="transferencia">Transferência</option>
+              <option value="remessa">Remessa</option>
+              <option value="retorno">Retorno</option>
+              <option value="exportacao">Exportação</option>
+              <option value="servico">Serviço</option>
+              <option value="outros">Outros</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Finalidade NF-e</label>
+            <select id="fFinalidade">
+              <option value="1">1 · Normal</option>
+              <option value="2">2 · Complementar</option>
+              <option value="3">3 · Ajuste</option>
+              <option value="4">4 · Devolução</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-ABA: COMPORTAMENTO -->
+      <div class="subtab-content" data-subtab-pane="comportamento" style="display:none;">
+        <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+          O que este tipo faz quando é usado num documento.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Emite NF-e?</label>
+            <select id="fEmiteNFe"><option value="1">Sim</option><option value="0">Não (doc. interno)</option></select>
+          </div>
+          <div class="form-group">
+            <label>Gera financeiro (contas a receber)?</label>
+            <select id="fGeraFin"><option value="1">Sim</option><option value="0">Não</option></select>
+          </div>
+          <div class="form-group">
+            <label>Movimenta estoque?</label>
+            <select id="fMovEst"><option value="1">Sim</option><option value="0">Não</option></select>
+          </div>
+          <div class="form-group">
+            <label>Entra no DRE (gerencial)?</label>
+            <select id="fGerencial"><option value="1">Sim</option><option value="0">Não</option></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-ABA: DISPONÍVEL EM -->
+      <div class="subtab-content" data-subtab-pane="disponivel" style="display:none;">
+        <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+          Em quais telas este tipo aparece para escolha. Desmarcado, ele continua
+          valendo nos documentos que já o usam — só some do seletor.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 22px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fUsoPedido"> Pedido de venda
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fUsoOS"> Ordem de serviço
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fUsoDevolucao"> Devolução
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fUsoNFAvulsa"> NF avulsa
+          </label>
+        </div>
+      </div>
+
+      <!-- SUB-ABA: FISCAL -->
+      <div class="subtab-content" data-subtab-pane="fiscal" style="display:none;">
+        <h4 style="margin:0 0 4px;">CFOPs default por destino</h4>
+        <p class="muted" style="font-size:0.85em;margin:0 0 12px;">
+          O motor refina automaticamente (ex: venda interestadual a não-contribuinte usa 6108 em vez de 6102).
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>CFOP interno (mesma UF)</label>
+            <input type="text" id="fCfopInterno" maxlength="4" placeholder="5102" style="font-family:monospace;">
+          </div>
+          <div class="form-group">
+            <label>CFOP interestadual</label>
+            <input type="text" id="fCfopInterestadual" maxlength="4" placeholder="6102" style="font-family:monospace;">
+          </div>
+          <div class="form-group">
+            <label>CFOP exterior</label>
+            <input type="text" id="fCfopExterior" maxlength="4" placeholder="7102" style="font-family:monospace;">
+          </div>
+        </div>
+
+        <h4 style="margin:18px 0 8px;">Textos padrão</h4>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Texto da natureza da operação na NF-e (natOp)</label>
+            <input type="text" id="fTextoNFe" maxlength="60" placeholder="VENDA DE MERCADORIA">
+            <small class="muted">Vai literalmente no campo natOp da NF-e (máx 60 chars, sem acentos).</small>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Observação fiscal padrão (infCpl)</label>
+            <textarea id="fObsFiscal" rows="2" placeholder="Cláusulas legais, artigos, etc."></textarea>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </main></div>
 
-<div class="modal-bg" id="modal">
-  <div class="modal" style="max-width:720px;">
-    <div class="modal-header">
-      <div>
-        <h3 id="modalTitulo" style="margin:0;">Novo tipo de operação</h3>
-        <small class="muted">Define comportamento gerencial e fiscal da operação</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-    <input type="hidden" id="fId">
-    <div class="form-row">
-      <div class="form-group">
-        <label>Código *</label>
-        <input type="text" id="fCodigo" maxlength="20" placeholder="VDA-NORMAL" style="text-transform:uppercase;">
-      </div>
-      <div class="form-group" style="flex:2;">
-        <label>Descrição *</label>
-        <input type="text" id="fDesc" placeholder="Venda normal">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Categoria</label>
-        <select id="fCategoria">
-          <option value="venda">Venda</option>
-          <option value="compra">Compra</option>
-          <option value="compra_uso_consumo">Compra (uso e consumo)</option>
-          <option value="devolucao_venda">Devolução de venda</option>
-          <option value="devolucao_compra">Devolução de compra</option>
-          <option value="bonificacao">Bonificação / brinde</option>
-          <option value="transferencia">Transferência</option>
-          <option value="remessa">Remessa</option>
-          <option value="retorno">Retorno</option>
-          <option value="exportacao">Exportação</option>
-          <option value="servico">Serviço</option>
-          <option value="outros">Outros</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Finalidade NF-e</label>
-        <select id="fFinalidade">
-          <option value="1">1 · Normal</option>
-          <option value="2">2 · Complementar</option>
-          <option value="3">3 · Ajuste</option>
-          <option value="4">4 · Devolução</option>
-        </select>
-      </div>
-    </div>
-
-    <h4 style="margin-top:16px;margin-bottom:8px;">Comportamento</h4>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Emite NF-e?</label>
-        <select id="fEmiteNFe"><option value="1">Sim</option><option value="0">Não (doc. interno)</option></select>
-      </div>
-      <div class="form-group">
-        <label>Gera financeiro (contas a receber)?</label>
-        <select id="fGeraFin"><option value="1">Sim</option><option value="0">Não</option></select>
-      </div>
-      <div class="form-group">
-        <label>Movimenta estoque?</label>
-        <select id="fMovEst"><option value="1">Sim</option><option value="0">Não</option></select>
-      </div>
-      <div class="form-group">
-        <label>Entra no DRE (gerencial)?</label>
-        <select id="fGerencial"><option value="1">Sim</option><option value="0">Não</option></select>
-      </div>
-    </div>
-
-    <h4 style="margin-top:16px;margin-bottom:8px;">Disponível em</h4>
-    <p class="muted" style="font-size:0.85em;margin-bottom:10px;">
-      Em quais telas este tipo aparece para escolha. Desmarcado, ele continua
-      valendo nos documentos que já o usam — só some do seletor.
-    </p>
-    <div class="form-row">
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
-          <input type="checkbox" id="fUsoPedido" style="width:auto;"> Pedido de venda
-        </label>
-      </div>
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
-          <input type="checkbox" id="fUsoOS" style="width:auto;"> Ordem de serviço
-        </label>
-      </div>
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
-          <input type="checkbox" id="fUsoDevolucao" style="width:auto;"> Devolução
-        </label>
-      </div>
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;">
-          <input type="checkbox" id="fUsoNFAvulsa" style="width:auto;"> NF avulsa
-        </label>
-      </div>
-    </div>
-
-    <h4 style="margin-top:16px;margin-bottom:8px;">CFOPs default por destino</h4>
-    <p class="muted" style="font-size:0.85em;margin-bottom:10px;">
-      O motor refina automaticamente (ex: venda interestadual a não-contribuinte usa 6108 em vez de 6102).
-    </p>
-    <div class="form-row">
-      <div class="form-group">
-        <label>CFOP interno (mesma UF)</label>
-        <input type="text" id="fCfopInterno" maxlength="4" placeholder="5102" style="font-family:monospace;">
-      </div>
-      <div class="form-group">
-        <label>CFOP interestadual</label>
-        <input type="text" id="fCfopInterestadual" maxlength="4" placeholder="6102" style="font-family:monospace;">
-      </div>
-      <div class="form-group">
-        <label>CFOP exterior</label>
-        <input type="text" id="fCfopExterior" maxlength="4" placeholder="7102" style="font-family:monospace;">
-      </div>
-    </div>
-
-    <h4 style="margin-top:16px;margin-bottom:8px;">Textos padrão</h4>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Texto da natureza da operação na NF-e (natOp)</label>
-        <input type="text" id="fTextoNFe" maxlength="60" placeholder="VENDA DE MERCADORIA">
-        <small class="muted">Vai literalmente no campo natOp da NF-e (máx 60 chars, sem acentos).</small>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Observação fiscal padrão (infCpl)</label>
-        <textarea id="fObsFiscal" rows="2" placeholder="Cláusulas legais, artigos, etc."></textarea>
-      </div>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
-    </div>
-  </div>
-</div>
-
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/grid.js"></script>
 <script>initSidebar('cadastro-tipos-operacao');</script>
 <script>
 function val(id){ return document.getElementById(id).value; }
@@ -197,24 +230,63 @@ function showAlert(m, t='success'){
 }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-async function carregar(){
-  try {
-    const r = await fetch('/api/tipos-operacao');
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    render(d.tipos);
-  } catch(e){ showAlert('Erro: '+e.message, 'error'); }
+let tipos = [];
+
+// ==================== ABAS ====================
+function switchTab(tab){
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  const abas = document.querySelectorAll('#abasPrincipais > .tab');
+  abas.forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'lista') { abas[0].classList.add('active'); carregar(); }
+  else { abas[1].classList.add('active'); }
+  window.scrollTo(0, 0);
 }
 
-function render(lista){
+function switchSubTab(sub){
+  document.querySelectorAll('.tab-form-sub').forEach(t => t.classList.remove('active'));
+  const btn = document.querySelector(`.tab-form-sub[data-subtab="${sub}"]`);
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.subtab-content').forEach(p => {
+    p.style.display = p.dataset.subtabPane === sub ? 'block' : 'none';
+  });
+}
+
+// ==================== LISTA ====================
+async function carregar(){
+  try {
+    // O backend filtra por um valor de ativo por vez; 'Todos' é a união das
+    // duas consultas.
+    const ativo = val('filtAtivo');
+    const alvos = ativo === '' ? ['1', '0'] : [ativo];
+    const partes = await Promise.all(alvos.map(async a => {
+      const d = await (await fetch('/api/tipos-operacao?ativo=' + a)).json();
+      if (!d.success) throw new Error(d.error);
+      return d.tipos || [];
+    }));
+    tipos = partes.flat().sort((a, b) => String(a.descricao).localeCompare(String(b.descricao)));
+    renderTabela();
+  } catch(e){
+    showAlert('Erro: '+e.message, 'error');
+    document.getElementById('tb').innerHTML = '<tr><td colspan="8" class="empty">Falha ao carregar</td></tr>';
+  }
+}
+
+function renderTabela(){
   const tb = document.getElementById('tb');
-  if (!lista.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhum tipo cadastrado.</td></tr>'; return; }
+  const q = val('filtBusca').trim().toLowerCase();
+  const lista = q
+    ? tipos.filter(t => (String(t.codigo)+' '+String(t.descricao)).toLowerCase().includes(q))
+    : tipos;
+  document.getElementById('totalTipos').textContent = lista.length
+    ? `${lista.length} tipo(s)` : '';
+  if (!lista.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">Nenhum tipo cadastrado.</td></tr>'; return; }
   tb.innerHTML = lista.map(t => {
     const flags = [
-      t.emiteNFe        ? 'N' : '·',
-      t.geraFinanceiro  ? 'F' : '·',
-      t.movimentaEstoque? 'E' : '·',
-      t.gerencial       ? 'G' : '·'
+      t.emiteNFe         ? 'N' : '·',
+      t.geraFinanceiro   ? 'F' : '·',
+      t.movimentaEstoque ? 'E' : '·',
+      t.gerencial        ? 'G' : '·'
     ].join('');
     const usos = [
       t.usarEmPedido    ? 'P' : '·',
@@ -223,7 +295,8 @@ function render(lista){
       t.usarEmNFAvulsa  ? 'A' : '·'
     ].join('');
     const cfops = [t.cfopInterno || '—', t.cfopInterestadual || '—', t.cfopExterior || '—'].join(' / ');
-    return `<tr>
+    return `<tr style="${t.ativo?'':'opacity:0.5;'}">
+      <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar tipo" onclick="editar(${t.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
       <td class="mono"><strong>${esc(t.codigo)}</strong></td>
       <td>${esc(t.descricao)}</td>
       <td><small class="muted">${esc(t.categoriaOperacao || '—')}</small></td>
@@ -233,15 +306,15 @@ function render(lista){
         <code style="letter-spacing:2px;margin-left:8px;opacity:.75;" title="Disponível em — P=pedido · O=OS · D=devolução · A=NF avulsa">${usos}</code>
       </td>
       <td class="mono" style="font-size:0.85em;">${cfops}</td>
-      <td style="text-align:right;">
-        <button class="btn btn-ghost btn-sm" onclick='editar(${JSON.stringify(t)})'>Editar</button>
-        ${t.ativo ? `<button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="desativar(${t.id})" title="Desativar">✕</button>` : ''}
-      </td>
+      <td>${t.ativo ? '<span class="badge success">ativo</span>' : '<span class="badge">inativo</span>'}</td>
     </tr>`;
   }).join('');
 }
 
-function abrirNovo(){
+// ==================== FORMULÁRIO ====================
+function limparForm(){
+  document.getElementById('formTitle').textContent = 'Novo tipo de operação';
+  document.getElementById('tabFormBtn').textContent = 'Novo tipo';
   setVal('fId', '');
   setVal('fCodigo', '');
   setVal('fDesc', '');
@@ -261,11 +334,21 @@ function abrirNovo(){
   setChk('fUsoNFAvulsa', 1);
   setChk('fUsoOS', 0);
   setChk('fUsoDevolucao', 0);
-  document.getElementById('modalTitulo').textContent = 'Novo tipo de operação';
-  document.getElementById('modal').classList.add('open');
+  document.getElementById('btnDesativar').style.display = 'none';
+  switchSubTab('geral');
 }
 
-function editar(t){
+function abrirNovo(){
+  limparForm();
+  switchTab('form');
+}
+
+function editar(id){
+  const t = tipos.find(x => x.id === id);
+  if (!t) return;
+  limparForm();
+  document.getElementById('formTitle').textContent = 'Editar: ' + t.codigo;
+  document.getElementById('tabFormBtn').textContent = 'Editando';
   setVal('fId', t.id);
   setVal('fCodigo', t.codigo);
   setVal('fDesc', t.descricao);
@@ -284,11 +367,9 @@ function editar(t){
   setChk('fUsoOS', t.usarEmOS);
   setChk('fUsoDevolucao', t.usarEmDevolucao);
   setChk('fUsoNFAvulsa', t.usarEmNFAvulsa);
-  document.getElementById('modalTitulo').textContent = 'Editar ' + t.codigo;
-  document.getElementById('modal').classList.add('open');
+  document.getElementById('btnDesativar').style.display = t.ativo ? '' : 'none';
+  switchTab('form');
 }
-
-function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
 
 async function salvar(){
   const id = val('fId');
@@ -311,7 +392,11 @@ async function salvar(){
     usarEmDevolucao: chk('fUsoDevolucao'),
     usarEmNFAvulsa: chk('fUsoNFAvulsa')
   };
-  if (!body.codigo || !body.descricao) return showAlert('Código e descrição obrigatórios', 'error');
+  // Aponta a sub-aba do problema: o campo que falta pode estar fora de vista.
+  if (!body.codigo || !body.descricao) {
+    switchSubTab('geral');
+    return showAlert('Código e descrição obrigatórios', 'error');
+  }
   try {
     const url = id ? '/api/tipos-operacao/' + id : '/api/tipos-operacao';
     const method = id ? 'PUT' : 'POST';
@@ -319,22 +404,29 @@ async function salvar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     showAlert(id ? 'Tipo atualizado' : 'Tipo criado');
-    fecharModal();
-    carregar();
+    await carregar();
+    switchTab('lista');
+    limparForm();
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }
 
-async function desativar(id){
+async function desativar(){
+  const id = val('fId');
+  if (!id) return;
   if (!confirm('Desativar este tipo de operação? Pedidos existentes não serão afetados.')) return;
   try {
     const r = await fetch('/api/tipos-operacao/' + id, { method: 'DELETE' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
-    carregar();
+    showAlert('Tipo desativado');
+    await carregar();
+    switchTab('lista');
+    limparForm();
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }
 
 carregar();
+switchSubTab('geral');
 </script>
 </body>
 </html>

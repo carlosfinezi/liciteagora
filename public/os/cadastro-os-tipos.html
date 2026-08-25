@@ -15,111 +15,315 @@
       <small>Catálogo dos tipos de ordem de serviço — usados em <a href="/os/ordens-servico.html">Ordens de Serviço</a></small>
     </div>
     <div class="actions">
-      <button class="btn btn-primary" onclick="abrirNovo()">+ Novo tipo</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo tipo</button>
     </div>
   </div>
 
   <div id="alertGlobal"></div>
 
-  <div class="panel">
-    <p class="muted" style="margin-bottom:10px;">
-      Define o comportamento de cada tipo de OS: SLA padrão, modo fiscal, e o que é obrigatório
-      no cadastro (endereço de execução, orçamento aprovado, assinatura do cliente).
-    </p>
-    <div class="tbl-wrap" data-grid="os-tipos">
-      <table>
-        <thead><tr>
-          <th class="col-editar"></th>
-          <th></th>
-          <th>Nome</th>
-          <th>Slug</th>
-          <th>SLA</th>
-          <th>Exigências</th>
-          <th>Status</th>
-          <th></th>
-        </tr></thead>
-        <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
-      </table>
+  <!-- id próprio: as sub-abas do formulário também usam .tabs/.tab, e sem isso
+       o switchTab limparia o estado delas junto. -->
+  <div class="tabs" id="abasPrincipais">
+    <button class="tab active" onclick="switchTab('lista')">Lista</button>
+    <button class="tab" onclick="switchTab('form')" id="tabFormBtn">Novo tipo</button>
+  </div>
+
+  <!-- ABA LISTA -->
+  <div id="tab-lista" class="tab-content active">
+    <div class="panel">
+      <p class="muted" style="margin-bottom:10px;">
+        Define o comportamento de cada tipo de OS: SLA padrão, natureza, como o deslocamento
+        é cobrado, o checklist que a OS herda e o que é obrigatório no cadastro.
+      </p>
+      <div class="tbl-wrap" data-grid="os-tipos">
+        <table>
+          <thead><tr>
+            <th class="col-editar"></th>
+            <th></th>
+            <th>Nome</th>
+            <th>Slug</th>
+            <th>Natureza</th>
+            <th>SLA</th>
+            <th>Deslocamento</th>
+            <th>Checklist</th>
+            <th>Exigências</th>
+            <th>Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ABA CADASTRO -->
+  <div id="tab-form" class="tab-content">
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap;">
+        <h3 id="formTitle" style="margin:0;">Novo tipo de OS</h3>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:0.85em;color:var(--text-2);">
+            Status
+            <select id="fAtivo" style="width:auto;"><option value="1">Ativo</option><option value="0">Inativo</option></select>
+          </label>
+          <button type="button" class="btn btn-ghost btn-sm" id="btnInativar" onclick="inativar()" style="display:none;color:var(--danger);">Inativar</button>
+          <button class="btn btn-ghost btn-sm" onclick="switchTab('lista')">Cancelar</button>
+          <button class="btn btn-primary btn-sm" onclick="salvar()">💾 Salvar</button>
+        </div>
+      </div>
+
+      <input type="hidden" id="fId">
+
+      <div class="tabs" style="margin-bottom:16px;">
+        <button type="button" class="tab tab-form-sub active" data-subtab="geral" onclick="switchSubTab('geral')">Geral</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="precificacao" onclick="switchSubTab('precificacao')">Precificação</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="faturamento" onclick="switchSubTab('faturamento')">Faturamento</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="exigencias" onclick="switchSubTab('exigencias')">Exigências</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="encerramento" onclick="switchSubTab('encerramento')">Encerramento</button>
+        <button type="button" class="tab tab-form-sub" data-subtab="checklist" onclick="switchSubTab('checklist')">Checklist padrão</button>
+      </div>
+
+      <!-- SUB-ABA: GERAL -->
+      <div class="subtab-content" data-subtab-pane="geral">
+        <div class="form-row">
+          <div class="form-group" style="flex:2;">
+            <label>Nome *</label>
+            <input type="text" id="fNome" placeholder="Ex.: Manutenção em campo">
+          </div>
+          <div class="form-group" style="flex:0 0 90px;">
+            <label>Cor</label>
+            <input type="color" id="fCor" value="#4dabf7">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Slug <small class="muted">(usado internamente; gerado do nome se vazio)</small></label>
+            <input type="text" id="fSlug" placeholder="manutencao-em-campo">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Descrição</label>
+            <textarea id="fDesc" rows="2"></textarea>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>SLA padrão (dias)</label>
+            <input type="number" id="fSla" min="0" placeholder="ex: 7">
+          </div>
+          <div class="form-group">
+            <label>Natureza <small class="muted">(o que a OS é)</small></label>
+            <select id="fNatureza">
+              <option value="cliente">Cliente</option>
+              <option value="garantia-propria">Garantia própria</option>
+              <option value="garantia-fabrica">Garantia de fábrica</option>
+              <option value="consumo-interno">Consumo interno</option>
+              <option value="retrabalho">Retrabalho</option>
+              <option value="entrega-tecnica">Entrega técnica</option>
+              <option value="seguro">Seguro</option>
+              <option value="transferencia-interna">Transferência interna</option>
+              <option value="revisao">Revisão</option>
+            </select>
+            <small class="muted" style="font-size:11px;">As de garantia abrem a OS já marcada como em garantia.</small>
+          </div>
+          <div class="form-group">
+            <label>Local de prestação</label>
+            <select id="fLocalPrestacao">
+              <option value="indefinido">— indefinido —</option>
+              <option value="interno">Interno (na oficina)</option>
+              <option value="externo">Externo (no cliente)</option>
+            </select>
+            <small class="muted" style="font-size:11px;">Externo exige endereço de execução.</small>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Tipo de Operação padrão
+              <small class="muted">(natureza fiscal: NFS-e, CFOP, finalidade — usada como padrão ao criar OS deste tipo)</small>
+            </label>
+            <select id="fTipoOperacaoPadrao">
+              <option value="">— sem padrão (usa VDA-NORMAL) —</option>
+            </select>
+            <small class="muted" style="font-size:11px;">
+              Cadastre novos em <a href="/fiscal/cadastro-tipos-operacao.html" target="_blank">Tipos de Operação</a>.
+            </small>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-ABA: PRECIFICAÇÃO (serviços + deslocamento) -->
+      <div class="subtab-content" data-subtab-pane="precificacao" style="display:none;">
+        <h4 style="margin:0 0 4px;">Serviços</h4>
+        <p class="muted" style="font-size:12px;margin:0 0 12px;">
+          De onde sai o valor de cada linha de serviço lançada na OS.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo de cálculo</label>
+            <select id="fCalcModo" onchange="atualizarCamposCalculo()">
+              <option value="livre">Livre — quem lança define</option>
+              <option value="preco-fixo">Preço fixo do catálogo</option>
+              <option value="horas-x-valor">Horas apontadas × valor hora</option>
+              <option value="tempo-padrao">Tempo padrão do catálogo × valor hora</option>
+            </select>
+          </div>
+          <div class="form-group" id="grpValorHora" style="display:none;">
+            <label>Valor hora padrão (R$)</label>
+            <input type="number" id="fValorHoraPadrao" step="0.01" min="0" placeholder="ex: 120,00">
+            <small class="muted" style="font-size:11px;">Usado quando a linha não traz valor hora próprio.</small>
+          </div>
+          <div class="form-group" id="grpAlterarCalc" style="display:none;">
+            <label>Alteração do valor</label>
+            <select id="fPermiteAlterarCalc">
+              <option value="1">Permitir alterar na OS</option>
+              <option value="0">Travar no valor calculado</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 style="margin:18px 0 4px;">Deslocamento</h4>
+        <p class="muted" style="font-size:12px;margin:0 0 12px;">
+          Quando cobra, o sistema lança sozinho a linha de deslocamento em Serviços,
+          recalculada a cada vez que o km da OS é salvo — e ela vai para o total, a nota
+          e a cobrança. OS em garantia nunca cobra deslocamento.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Como cobrar</label>
+            <select id="fDeslocModo" onchange="atualizarCamposDeslocamento()">
+              <option value="manual">Manual — lançado à mão em Serviços</option>
+              <option value="nao-cobrar">Não cobrar</option>
+              <option value="por-km">Por km percorrido</option>
+              <option value="valor-fixo">Valor fixo por OS</option>
+            </select>
+          </div>
+          <div class="form-group" id="grpDeslocKm" style="display:none;">
+            <label>Valor por km (R$)</label>
+            <input type="number" id="fDeslocValorKm" step="0.01" min="0" placeholder="ex: 2,50">
+          </div>
+          <div class="form-group" id="grpDeslocFixo" style="display:none;">
+            <label>Valor fixo (R$)</label>
+            <input type="number" id="fDeslocValorFixo" step="0.01" min="0" placeholder="ex: 80,00">
+          </div>
+        </div>
+        <small class="muted">
+          Mudar a regra aqui vale para OS novas e para as abertas no próximo salvamento do km —
+          não altera o valor de OS já orçadas e aprovadas pelo cliente.
+        </small>
+      </div>
+
+      <!-- SUB-ABA: FATURAMENTO -->
+      <div class="subtab-content" data-subtab-pane="faturamento" style="display:none;">
+        <p class="muted" style="font-size:12px;margin:0 0 12px;">
+          Contra quem a OS é faturada. Quando não é o cliente, <strong>quem paga é
+          informado em cada OS</strong> — cada sinistro tem sua seguradora — e é ele
+          que entra no pedido, nas contas a receber e como tomador da nota.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Faturar para</label>
+            <select id="fFaturarPara" onchange="atualizarAvisoFaturarPara()">
+              <option value="cliente">O cliente da OS</option>
+              <option value="fabrica">A fábrica</option>
+              <option value="seguradora">A seguradora</option>
+              <option value="outro">Outro pagador</option>
+            </select>
+            <small class="muted" style="font-size:11px;" id="avisoFaturarPara"></small>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-ABA: EXIGÊNCIAS -->
+      <div class="subtab-content" data-subtab-pane="exigencias" style="display:none;">
+        <p class="muted" style="font-size:12px;margin:0 0 12px;">
+          O que o sistema cobra de quem abre ou conclui uma OS deste tipo.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 22px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fEndereco"> Exige endereço de execução
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fOrcamento"> Exige orçamento aprovado
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fAssinatura"> Exige assinatura do cliente
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fDataPrevista"> Exige data prevista
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fBloqueiaFat"> Não fatura
+          </label>
+        </div>
+      </div>
+
+      <!-- SUB-ABA: ENCERRAMENTO -->
+      <div class="subtab-content" data-subtab-pane="encerramento" style="display:none;">
+        <p class="muted" style="font-size:12px;margin:0 0 12px;">
+          O que fazer quando a OS vai ser concluída com alguma coisa pendente.
+          <strong>Venda perdida</strong> deixa concluir e registra o item em
+          <a href="/comercial/vendas-perdidas.html" target="_blank">Vendas Perdidas</a>,
+          para o que o cliente não aprovou não sumir do relatório.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Peça orçada não confirmada</label>
+            <select id="fEncPeca">
+              <option value="permitido">Permitido</option>
+              <option value="venda-perdida">Permitido, com venda perdida</option>
+              <option value="bloqueado">Não permitido</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Serviço orçado não confirmado</label>
+            <select id="fEncServico">
+              <option value="permitido">Permitido</option>
+              <option value="venda-perdida">Permitido, com venda perdida</option>
+              <option value="bloqueado">Não permitido</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Item de terceiro sem custo</label>
+            <select id="fEncTerceiro">
+              <option value="permitido">Permitido</option>
+              <option value="bloqueado">Não permitido</option>
+            </select>
+            <small class="muted" style="font-size:11px;">Sem custo lançado, o a pagar do fornecedor não nasce.</small>
+          </div>
+          <div class="form-group">
+            <label>Km não informado</label>
+            <select id="fEncKm">
+              <option value="permitido">Permitido</option>
+              <option value="bloqueado">Não permitido</option>
+            </select>
+            <small class="muted" style="font-size:11px;">Só vale quando o deslocamento é cobrado por km.</small>
+          </div>
+          <div class="form-group">
+            <label>Apontamento em aberto</label>
+            <select id="fEncApontamento">
+              <option value="permitido">Permitido</option>
+              <option value="bloqueado">Não permitido</option>
+            </select>
+            <small class="muted" style="font-size:11px;">Técnico que não fechou o ponto.</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-ABA: CHECKLIST -->
+      <div class="subtab-content" data-subtab-pane="checklist" style="display:none;">
+        <p class="muted" style="font-size:12px;margin:0 0 12px;">
+          Copiado para cada OS deste tipo na criação. Item obrigatório impede a conclusão
+          enquanto não for marcado. Alterar aqui não afeta OS já abertas.
+        </p>
+        <div id="checklistBox"></div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="addChecklistItem()" style="margin-top:6px;">+ Adicionar item</button>
+      </div>
     </div>
   </div>
 </main></div>
-
-<div class="modal-bg" id="modal">
-  <div class="modal" style="max-width:680px;">
-    <div class="modal-header">
-      <div>
-        <h3 id="modalTitulo" style="margin:0;">Novo tipo de OS</h3>
-        <small class="muted">Comportamento padrão das ordens deste tipo</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-    <input type="hidden" id="fId">
-    <div class="form-row">
-      <div class="form-group" style="flex:2;">
-        <label>Nome *</label>
-        <input type="text" id="fNome" placeholder="Ex.: Manutenção em campo">
-      </div>
-      <div class="form-group" style="flex:0 0 90px;">
-        <label>Cor</label>
-        <input type="color" id="fCor" value="#4dabf7">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Slug <small class="muted">(usado internamente; gerado do nome se vazio)</small></label>
-        <input type="text" id="fSlug" placeholder="manutencao-em-campo">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Descrição</label>
-        <textarea id="fDesc" rows="2"></textarea>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>SLA padrão (dias)</label>
-        <input type="number" id="fSla" min="0" placeholder="ex: 7">
-      </div>
-      <div class="form-group" style="flex:0 0 110px;">
-        <label>Status</label>
-        <select id="fAtivo"><option value="1">Ativo</option><option value="0">Inativo</option></select>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Tipo de Operação padrão
-          <small class="muted">(natureza fiscal: NFS-e, CFOP, finalidade — usada como padrão ao criar OS deste tipo)</small>
-        </label>
-        <select id="fTipoOperacaoPadrao">
-          <option value="">— sem padrão (usa VDA-NORMAL) —</option>
-        </select>
-        <small class="muted" style="font-size:11px;">
-          Cadastre novos em <a href="/fiscal/cadastro-tipos-operacao.html" target="_blank">Tipos de Operação</a>.
-        </small>
-      </div>
-    </div>
-
-    <h4 style="margin-top:16px;margin-bottom:8px;">Exigências da OS</h4>
-    <div class="form-row" style="gap:14px;flex-wrap:wrap;">
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
-        <input type="checkbox" id="fEndereco"> Exige endereço de execução
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
-        <input type="checkbox" id="fOrcamento"> Exige orçamento aprovado
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
-        <input type="checkbox" id="fAssinatura"> Exige assinatura do cliente
-      </label>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn btn-ghost btn-sm" id="btnInativar" onclick="inativar()" style="display:none;">Inativar</button>
-      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
-    </div>
-  </div>
-</div>
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
@@ -129,10 +333,126 @@
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function escTxt(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function escAttr(s){ return escTxt(s).replace(/"/g,'&quot;'); }
+
+const NATUREZA_LABEL = {
+  'cliente':'Cliente', 'garantia-propria':'Garantia própria', 'garantia-fabrica':'Garantia de fábrica',
+  'consumo-interno':'Consumo interno', 'retrabalho':'Retrabalho', 'entrega-tecnica':'Entrega técnica',
+  'seguro':'Seguro', 'transferencia-interna':'Transferência interna', 'revisao':'Revisão',
+};
 
 let tipos = [];
 let tiposOperacao = [];
+let checklistEdit = [];
 
+// Regras de encerramento: id do select ↔ coluna do tipo. Uma lista só evita
+// repetir os cinco campos em limparForm, editar e salvar.
+const CAMPOS_ENCERRAMENTO = [
+  ['fEncPeca',        'encerraPecaPendente'],
+  ['fEncServico',     'encerraServicoPendente'],
+  ['fEncTerceiro',    'encerraTerceiroPendente'],
+  ['fEncKm',          'encerraKmPendente'],
+  ['fEncApontamento', 'encerraApontamentoAberto'],
+];
+
+// ==================== ABAS ====================
+function switchTab(tab){
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  const abas = document.querySelectorAll('#abasPrincipais > .tab');
+  abas.forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'lista') { abas[0].classList.add('active'); carregar(); }
+  else { abas[1].classList.add('active'); }
+  window.scrollTo(0, 0);
+}
+
+function switchSubTab(sub){
+  document.querySelectorAll('.tab-form-sub').forEach(t => t.classList.remove('active'));
+  const btn = document.querySelector(`.tab-form-sub[data-subtab="${sub}"]`);
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.subtab-content').forEach(p => {
+    p.style.display = p.dataset.subtabPane === sub ? 'block' : 'none';
+  });
+}
+
+// ==================== CHECKLIST ====================
+function parseChecklist(v){
+  try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+}
+
+// Lê do DOM, não do array: é o DOM que tem o que o usuário acabou de digitar.
+function lerChecklistDOM(){
+  return [...document.querySelectorAll('#checklistBox .ck-row')].map(r => ({
+    descricao: r.querySelector('.ck-desc').value,
+    obrigatorio: r.querySelector('.ck-obr').checked ? 1 : 0,
+  }));
+}
+
+function renderChecklist(){
+  const box = document.getElementById('checklistBox');
+  if (!checklistEdit.length) {
+    box.innerHTML = '<p class="muted" style="font-size:12px;margin:0;">Nenhum item — a OS deste tipo nasce sem checklist.</p>';
+    return;
+  }
+  box.innerHTML = checklistEdit.map((ck, i) => `
+    <div class="ck-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <span class="muted" style="width:18px;text-align:right;font-size:12px;">${i+1}</span>
+      <input type="text" class="ck-desc" value="${escAttr(ck.descricao)}" placeholder="Descrição do item" style="flex:1;">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;">
+        <input type="checkbox" class="ck-obr" ${ck.obrigatorio ? 'checked' : ''}> obrigatório
+      </label>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="removeChecklistItem(${i})" title="Remover item" style="line-height:1;padding:4px 10px;">×</button>
+    </div>`).join('');
+}
+
+function addChecklistItem(){
+  checklistEdit = lerChecklistDOM();
+  checklistEdit.push({ descricao:'', obrigatorio:0 });
+  renderChecklist();
+  const campos = document.querySelectorAll('#checklistBox .ck-desc');
+  if (campos.length) campos[campos.length-1].focus();
+}
+
+function removeChecklistItem(i){
+  checklistEdit = lerChecklistDOM();
+  checklistEdit.splice(i, 1);
+  renderChecklist();
+}
+
+// ==================== DESLOCAMENTO ====================
+function atualizarCamposDeslocamento(){
+  const modo = document.getElementById('fDeslocModo').value;
+  document.getElementById('grpDeslocKm').style.display = modo === 'por-km' ? '' : 'none';
+  document.getElementById('grpDeslocFixo').style.display = modo === 'valor-fixo' ? '' : 'none';
+}
+
+function atualizarCamposCalculo(){
+  const modo = document.getElementById('fCalcModo').value;
+  const calculado = modo !== 'livre';
+  // Valor hora só interessa aos modos que multiplicam por hora.
+  document.getElementById('grpValorHora').style.display =
+    (modo === 'horas-x-valor' || modo === 'tempo-padrao') ? '' : 'none';
+  document.getElementById('grpAlterarCalc').style.display = calculado ? '' : 'none';
+}
+
+function atualizarAvisoFaturarPara(){
+  const modo = document.getElementById('fFaturarPara').value;
+  document.getElementById('avisoFaturarPara').textContent = modo === 'cliente'
+    ? 'Comportamento padrão.'
+    : 'A OS não fatura enquanto o pagador não for informado nela.';
+}
+
+function resumoDeslocamento(t){
+  const v = n => Number(n || 0).toFixed(2).replace('.', ',');
+  switch (t.deslocamentoModo) {
+    case 'nao-cobrar': return 'não cobra';
+    case 'por-km':     return t.deslocamentoValorKm ? 'R$ '+v(t.deslocamentoValorKm)+'/km' : '<span class="badge">por km, sem valor</span>';
+    case 'valor-fixo': return t.deslocamentoValorFixo ? 'R$ '+v(t.deslocamentoValorFixo)+' fixo' : '<span class="badge">fixo, sem valor</span>';
+    default:           return '<span class="muted">manual</span>';
+  }
+}
+
+// ==================== CARGA ====================
 async function carregarTiposOperacao(){
   try {
     const r = await fetch('/api/tipos-operacao?usoOS=1');
@@ -155,24 +475,30 @@ async function carregar(){
     renderTabela();
   } catch (e) {
     showAlert('Erro ao carregar: '+e.message, 'error');
-    document.getElementById('tb').innerHTML = '<tr><td colspan="7" class="empty">Falha ao carregar</td></tr>';
+    document.getElementById('tb').innerHTML = '<tr><td colspan="11" class="empty">Falha ao carregar</td></tr>';
   }
 }
 
 function renderTabela(){
   const tb = document.getElementById('tb');
-  if (!tipos.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhum tipo cadastrado</td></tr>'; return; }
+  if (!tipos.length) { tb.innerHTML = '<tr><td colspan="11" class="empty">Nenhum tipo cadastrado</td></tr>'; return; }
   tb.innerHTML = tipos.map(t => {
     const exig = [];
-    if (t.exigeEnderecoExec) exig.push('endereço');
+    if (t.exigeEnderecoExec || t.localPrestacao === 'externo') exig.push('endereço');
     if (t.exigeOrcamentoAprovado) exig.push('orçamento');
     if (t.exigeAssinaturaCliente) exig.push('assinatura');
+    if (t.obrigarDataPrevista) exig.push('data prevista');
+    const ck = parseChecklist(t.checklistPadrao);
+    const ckObr = ck.filter(i => i.obrigatorio).length;
     return `<tr style="${t.ativo?'':'opacity:0.5;'}">
       <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar tipo" onclick="editar(${t.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
       <td><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${t.cor||'#4dabf7'};border:1px solid #0002;vertical-align:middle;"></span></td>
       <td><strong>${escTxt(t.nome)}</strong>${t.descricao?'<br><small class="muted">'+escTxt(t.descricao)+'</small>':''}</td>
       <td><code>${escTxt(t.slug)}</code></td>
+      <td>${escTxt(NATUREZA_LABEL[t.natureza] || 'Cliente')}${t.bloqueiaFaturamento?'<br><span class="badge">não fatura</span>':''}</td>
       <td>${t.slaDiasPadrao ? t.slaDiasPadrao+'d' : '—'}</td>
+      <td>${resumoDeslocamento(t)}</td>
+      <td>${ck.length ? ck.length+' item(ns)'+(ckObr?'<br><small class="muted">'+ckObr+' obrigatório(s)</small>':'') : '—'}</td>
       <td>${exig.length ? exig.join(', ') : '—'}</td>
       <td>${t.ativo ? '<span class="badge success">ativo</span>' : '<span class="badge">inativo</span>'}</td>
       <td></td>
@@ -180,8 +506,10 @@ function renderTabela(){
   }).join('');
 }
 
-function abrirNovo(){
-  document.getElementById('modalTitulo').textContent = 'Novo tipo de OS';
+// ==================== FORMULÁRIO ====================
+function limparForm(){
+  document.getElementById('formTitle').textContent = 'Novo tipo de OS';
+  document.getElementById('tabFormBtn').textContent = 'Novo tipo';
   document.getElementById('fId').value = '';
   document.getElementById('fNome').value = '';
   document.getElementById('fSlug').value = '';
@@ -192,15 +520,39 @@ function abrirNovo(){
   document.getElementById('fEndereco').checked = false;
   document.getElementById('fOrcamento').checked = false;
   document.getElementById('fAssinatura').checked = false;
+  document.getElementById('fDataPrevista').checked = false;
+  document.getElementById('fBloqueiaFat').checked = false;
+  document.getElementById('fNatureza').value = 'cliente';
+  document.getElementById('fLocalPrestacao').value = 'indefinido';
+  document.getElementById('fDeslocModo').value = 'manual';
+  document.getElementById('fDeslocValorKm').value = '';
+  document.getElementById('fDeslocValorFixo').value = '';
+  atualizarCamposDeslocamento();
+  document.getElementById('fCalcModo').value = 'livre';
+  document.getElementById('fValorHoraPadrao').value = '';
+  document.getElementById('fPermiteAlterarCalc').value = '1';
+  document.getElementById('fFaturarPara').value = 'cliente';
+  atualizarCamposCalculo();
+  atualizarAvisoFaturarPara();
   document.getElementById('fTipoOperacaoPadrao').value = '';
+  CAMPOS_ENCERRAMENTO.forEach(([campo]) => { document.getElementById(campo).value = 'permitido'; });
+  checklistEdit = [];
+  renderChecklist();
   document.getElementById('btnInativar').style.display = 'none';
-  document.getElementById('modal').classList.add('open');
+  switchSubTab('geral');
+}
+
+function abrirNovo(){
+  limparForm();
+  switchTab('form');
 }
 
 function editar(id){
   const t = tipos.find(x => x.id === id);
   if (!t) return;
-  document.getElementById('modalTitulo').textContent = 'Editar tipo de OS';
+  limparForm();
+  document.getElementById('formTitle').textContent = 'Editar: ' + t.nome;
+  document.getElementById('tabFormBtn').textContent = 'Editando';
   document.getElementById('fId').value = t.id;
   document.getElementById('fNome').value = t.nome || '';
   document.getElementById('fSlug').value = t.slug || '';
@@ -211,12 +563,27 @@ function editar(id){
   document.getElementById('fEndereco').checked = !!t.exigeEnderecoExec;
   document.getElementById('fOrcamento').checked = !!t.exigeOrcamentoAprovado;
   document.getElementById('fAssinatura').checked = !!t.exigeAssinaturaCliente;
+  document.getElementById('fDataPrevista').checked = !!t.obrigarDataPrevista;
+  document.getElementById('fBloqueiaFat').checked = !!t.bloqueiaFaturamento;
+  document.getElementById('fNatureza').value = t.natureza || 'cliente';
+  document.getElementById('fLocalPrestacao').value = t.localPrestacao || 'indefinido';
+  document.getElementById('fDeslocModo').value = t.deslocamentoModo || 'manual';
+  document.getElementById('fDeslocValorKm').value = t.deslocamentoValorKm != null ? t.deslocamentoValorKm : '';
+  document.getElementById('fDeslocValorFixo').value = t.deslocamentoValorFixo != null ? t.deslocamentoValorFixo : '';
+  atualizarCamposDeslocamento();
+  document.getElementById('fCalcModo').value = t.servicoCalculoModo || 'livre';
+  document.getElementById('fValorHoraPadrao').value = t.servicoValorHoraPadrao != null ? t.servicoValorHoraPadrao : '';
+  document.getElementById('fPermiteAlterarCalc').value = (t.permiteAlterarCalculoServico === 0) ? '0' : '1';
+  document.getElementById('fFaturarPara').value = t.faturarPara || 'cliente';
+  atualizarCamposCalculo();
+  atualizarAvisoFaturarPara();
   document.getElementById('fTipoOperacaoPadrao').value = t.tipoOperacaoPadraoId || '';
+  CAMPOS_ENCERRAMENTO.forEach(([campo, col]) => { document.getElementById(campo).value = t[col] || 'permitido'; });
+  checklistEdit = parseChecklist(t.checklistPadrao);
+  renderChecklist();
   document.getElementById('btnInativar').style.display = t.ativo ? '' : 'none';
-  document.getElementById('modal').classList.add('open');
+  switchTab('form');
 }
-
-function fecharModal(){ document.getElementById('modal').classList.remove('open'); }
 
 async function salvar(){
   const id = document.getElementById('fId').value;
@@ -230,19 +597,39 @@ async function salvar(){
     exigeEnderecoExec: document.getElementById('fEndereco').checked,
     exigeOrcamentoAprovado: document.getElementById('fOrcamento').checked,
     exigeAssinaturaCliente: document.getElementById('fAssinatura').checked,
+    obrigarDataPrevista: document.getElementById('fDataPrevista').checked,
+    bloqueiaFaturamento: document.getElementById('fBloqueiaFat').checked,
+    natureza: document.getElementById('fNatureza').value,
+    localPrestacao: document.getElementById('fLocalPrestacao').value,
+    deslocamentoModo: document.getElementById('fDeslocModo').value,
+    deslocamentoValorKm: document.getElementById('fDeslocValorKm').value || null,
+    deslocamentoValorFixo: document.getElementById('fDeslocValorFixo').value || null,
+    servicoCalculoModo: document.getElementById('fCalcModo').value,
+    servicoValorHoraPadrao: document.getElementById('fValorHoraPadrao').value || null,
+    permiteAlterarCalculoServico: document.getElementById('fPermiteAlterarCalc').value === '1',
+    faturarPara: document.getElementById('fFaturarPara').value,
+    checklistPadrao: lerChecklistDOM(),
+    ...Object.fromEntries(CAMPOS_ENCERRAMENTO.map(([campo, col]) => [col, document.getElementById(campo).value])),
     tipoOperacaoPadraoId: document.getElementById('fTipoOperacaoPadrao').value
       ? Number(document.getElementById('fTipoOperacaoPadrao').value)
       : null,
   };
-  if (!body.nome) return showAlert('Nome obrigatório', 'error');
+  // Aponta a sub-aba do problema: o campo que falta pode estar numa aba que
+  // não está à vista.
+  if (!body.nome) { switchSubTab('geral'); return showAlert('Nome obrigatório', 'error'); }
+  if (body.checklistPadrao.some(ck => !ck.descricao.trim())) {
+    switchSubTab('checklist');
+    return showAlert('Há item de checklist sem descrição — preencha ou remova', 'error');
+  }
   const url = id ? '/api/os-tipos/'+id : '/api/os-tipos';
   try {
     const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const d = await r.json();
     if (!d.success) throw new Error(d.error||'falha');
     showAlert(id ? 'Tipo atualizado' : 'Tipo criado');
-    fecharModal();
     await carregar();
+    switchTab('lista');
+    limparForm();
   } catch (e) {
     showAlert('Erro ao salvar: '+e.message, 'error');
   }
@@ -257,19 +644,17 @@ async function inativar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error||'falha');
     showAlert('Tipo inativado');
-    fecharModal();
     await carregar();
+    switchTab('lista');
+    limparForm();
   } catch (e) {
     showAlert('Erro ao inativar: '+e.message, 'error');
   }
 }
 
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) fecharModal();
-});
-
 carregar();
 carregarTiposOperacao();
+switchSubTab('geral');
 </script>
 </body>
 </html>

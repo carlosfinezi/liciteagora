@@ -4,6 +4,89 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-25
+
+Comparação da nossa tela de Tipos de OS com o cadastro equivalente do Solution
+ERP (Oficina › Tipo de Ordem de Serviço, 83 campos em 4 abas contra os nossos
+11). O tipo lá é o motor de comportamento da OS inteira; aqui era taxonomia com
+três checkboxes. Quatro frentes saíram daí, todas com default que preserva o
+comportamento anterior.
+
+- **`checklistPadrao` era um campo morto — bug, não feature.** A coluna existia
+  em `os_tipos`, o seed populava os 4 tipos padrão e quatro pontos do código a
+  **liam** (`os-routes`, `crm-routes`, `scheduler`, `nova-os.html`), mas o
+  INSERT e o UPDATE de `/api/os-tipos` não a listavam. Todo tipo criado pela tela
+  nascia com checklist vazio para sempre, e não havia como editar o dos
+  seedados. Gravação corrigida (normaliza: trima, descarta item sem descrição,
+  renumera `ordem`, recusa JSON malformado) e editor de itens no formulário
+- **O tipo passou a ditar comportamento da OS.** `natureza` (9 valores — as duas
+  de garantia abrem a OS com `emGarantia=1`), `localPrestacao` (`externo` exige
+  endereço, como `exigeEnderecoExec`), `bloqueiaFaturamento` (tipo que não
+  fatura: consumo interno, retrabalho) e `obrigarDataPrevista` (recusa OS sem
+  data de promessa, própria ou derivada do SLA)
+- **Deslocamento virou dinheiro.** `kmPercorrido` e `valorDeslocamento` existiam
+  em `os_ordens` desde sempre, mas eram digitados à mão e **não entravam em
+  total nenhum** — a própria tela mandava "lance-o como um serviço na aba
+  Serviços". Agora o tipo define a regra (`manual` / `nao-cobrar` / `por-km` /
+  `valor-fixo`) e o sistema mantém a linha em `os_itens_servicos` com
+  `origem='deslocamento'`: entra no total, na NFS-e e na conta a receber pelo
+  mesmo caminho de qualquer serviço. Recalculada a cada salvamento do km, some
+  quando o km zera, e **garantia nunca cobra deslocamento** qualquer que seja a
+  regra. A linha é protegida de edição/remoção manual — voltaria no próximo
+  recálculo. `origem` é NULL nas linhas lançadas à mão, que seguem intocadas
+- **Regras de encerramento (Encerramento da OS, do Solution).** Cinco
+  pendências, cada uma com os níveis que fazem sentido para ela: peça e serviço
+  orçados aceitam `permitido` / `venda-perdida` / `bloqueado`; item de terceiro
+  sem custo, km não informado (só quando o tipo cobra por km) e apontamento em
+  aberto aceitam `permitido` / `bloqueado`. `venda-perdida` grava em
+  `vendas_perdidas` com `motivo='desistencia'` e `origem='os_item'`, entrando no
+  relatório e na sugestão de compras. As cinco categorias são levantadas antes
+  de agir: um 400 lista tudo que falta de uma vez. Bloqueio vence perda — numa
+  conclusão recusada nada é gravado
+- **Cálculo do serviço pelo tipo.** `livre` (precedência histórica),
+  `preco-fixo` (catálogo), `horas-x-valor` e `tempo-padrao` — este último trouxe
+  `servicos.tempoPadraoHoras`. Nos modos calculados, horas e valor hora usados
+  ficam gravados na linha, senão ninguém saberia de onde o preço saiu.
+  `permiteAlterarCalculoServico=0` **recusa** um valor digitado, em vez de
+  ignorá-lo em silêncio
+- **Faturar contra quem não é o cliente** (garantia de fábrica, sinistro de
+  seguradora). O Solution guarda a conta de faturamento no próprio tipo; aqui
+  não serviria, porque cada sinistro tem sua seguradora. Dividido: o tipo diz a
+  categoria (`faturarPara`: cliente / fabrica / seguradora / outro) e a OS diz
+  quem é (`os_ordens.pagadorId`). O pagador passa a valer em cinco lugares —
+  `pedidos.clienteId`, `contas_a_receber.pessoaId`, `faturas.clienteId`, tomador
+  da NFS-e — mais política de prazo e meios aceitos. **Sem pagador informado a
+  OS não fatura**: emitir contra o cliente seria cobrar de quem não deve. O
+  `clienteId` da OS não muda, e o histórico do equipamento fica intacto
+- **Fora de propósito, do bloco Faturamento do Solution:** "impedir faturamento
+  parcial" (o nosso já é tudo-ou-nada), "geração de provisão" (não temos
+  provisão contábil) e o tipo de garantia A/C/D/H/I/J/S/Z (taxonomia da
+  CNH/CASE). Também ficaram fora as "Configurações de Uso" (8 selects sobre
+  misturar tipos entre capa e item) e segregação contábil / centro de custo —
+  complexidade de concessionária multi-filial
+- **Tipos de OS e Tipos de Operação saíram do modal para o padrão do
+  `pessoas.html`**: abas Lista / Cadastro na própria página, header de
+  formulário com Status e ações à direita, e sub-abas agrupando os campos (em
+  Tipos de OS: Geral · Precificação · Faturamento · Exigências · Encerramento ·
+  Checklist, o agrupamento do Solution). Validação que falha salta para a
+  sub-aba do problema — senão o alerta apontaria campo fora de vista
+- Na conversão de Tipos de Operação caíram dois defeitos: tipo desativado sumia
+  da tela sem forma de reativá-lo (o GET sem query devolve só ativos — agora há
+  filtro Ativos/Inativos/Todos), e a lista montava `onclick='editar(<json>)'`
+  com o objeto inteiro no atributo, que uma aspa na descrição quebrava
+- Migrações espelhadas em `db-schema.js` e no `migrarDB` do `os-routes.js`, pelo
+  mesmo motivo da nota de 24/08: só o `db-schema` alcança tenant existente, e o
+  `migrarDB` cobre o tenant que ainda não tem as tabelas de OS
+- Validado por 313 testes em 7 suítes (banco descartável em `/tmp`, porta alta,
+  e Chrome headless com perfil próprio para as telas). A ferramenta não vai para
+  o repo, mas a receita está descrita no fim deste bloco
+
+Nota para quem for testar de novo: `initSchema` **não é auto-suficiente em banco
+vazio** — pressupõe tabelas que nascem no registro de outros módulos
+(`contas_financeiras`, `reservas_estoque` antes dela ganhar `osId`). E página em
+`public/` só roda dentro de iframe: o `sidebar.js` redireciona carga top-level
+para `/app.html#…`.
+
 ## 2026-08-24
 
 - **Cadastro de filial ganhou a busca de CNPJ que só existia em Minha Empresa.**

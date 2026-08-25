@@ -64,12 +64,45 @@
 
       <div class="tab-pane active" id="tab-info">
         <div id="info">Carregando…</div>
+
+        <div class="bloco-titulo">Deslocamento</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Km percorrido</label>
+            <input type="number" id="fKm" step="0.1" min="0">
+          </div>
+          <div class="form-group">
+            <label>Valor do deslocamento (R$)</label>
+            <input type="number" id="fVlrDesloc" step="0.01" min="0">
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button class="btn btn-primary btn-sm" onclick="salvarDeslocamento()">Salvar deslocamento</button>
+          </div>
+        </div>
+        <small class="muted" id="avisoDesloc"></small>
+
+        <!-- Só aparece quando o Tipo de OS fatura contra outro que não o cliente. -->
+        <div id="blocoPagador" style="display:none;">
+          <div class="bloco-titulo">Quem paga esta OS</div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <label>Pagador</label>
+              <select id="fPagador"></select>
+            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end;">
+              <button class="btn btn-primary btn-sm" onclick="salvarPagador()">Salvar pagador</button>
+            </div>
+          </div>
+          <small class="muted" id="avisoPagador"></small>
+        </div>
       </div>
 
       <div class="tab-pane" id="tab-pecas">
         <div class="subtabs">
           <button class="subtab active" onclick="trocarSecao('pecas','propria')">📦 Próprias (estoque)</button>
           <button class="subtab" onclick="trocarSecao('pecas','terceiro')">🛒 Terceiros</button>
+          <button class="subtab" onclick="trocarSecao('pecas','serie')">🔢 Com nº de série</button>
+          <button class="subtab" onclick="trocarSecao('pecas','defeito')">⚠ Com defeito</button>
         </div>
 
         <!-- Seção: Peças próprias (estoque) -->
@@ -90,6 +123,17 @@
             <div class="form-group">
               <label>Valor unit. *</label>
               <input type="number" id="pValor" step="0.01" min="0" value="0">
+            </div>
+            <div class="form-group">
+              <label>Desconto (R$)</label>
+              <input type="number" id="pDesconto" step="0.01" min="0" value="0" title="Desconto desta linha. O total do item já sai líquido.">
+            </div>
+            <div class="form-group">
+              <label>Situação</label>
+              <select id="pSituacao" title="Orçado é proposta: não conta no total, não baixa estoque, não vai para a nota.">
+                <option value="confirmado">Confirmado</option>
+                <option value="orcado">Orçado</option>
+              </select>
             </div>
           </div>
           <div class="form-row" id="pRowLote" style="display:none;">
@@ -176,6 +220,47 @@
             <tbody id="tbPecasTerceiras"></tbody>
           </table>
         </div>
+
+        <!-- Seção: peças aplicadas que carregam número de série -->
+        <div class="sec-pane" id="sec-pecas-serie">
+          <small class="muted">Peças rastreadas por série que foram aplicadas nesta OS. É o que liga a
+            garantia à unidade física, não só ao modelo.</small>
+          <table style="margin-top:10px;">
+            <thead><tr><th>Peça</th><th>SKU</th><th class="num">Qtd</th><th>Números de série</th><th>Baixa</th></tr></thead>
+            <tbody id="tbPecasSerie"></tbody>
+          </table>
+        </div>
+
+        <!-- Seção: peças RETIRADAS do equipamento por defeito -->
+        <div class="sec-pane" id="sec-pecas-defeito">
+          <small class="muted">Peça retirada do equipamento. Registro técnico — <strong>não soma no total
+            da OS nem entra em nota</strong>; serve para acionar garantia do fabricante e justificar a troca.</small>
+          <div class="form-row" style="margin-top:10px;">
+            <div class="form-group" style="flex:2;"><label>Descrição *</label><input type="text" id="pdDesc" placeholder="Ex.: Fonte ATX 500W"></div>
+            <div class="form-group"><label>Qtd</label><input type="number" id="pdQtd" step="any" min="0.001" value="1"></div>
+            <div class="form-group"><label>Nº de série</label><input type="text" id="pdSerie"></div>
+            <div class="form-group">
+              <label>Destino</label>
+              <select id="pdDestino">
+                <option value="">—</option>
+                <option value="garantia-fabricante">Garantia do fabricante</option>
+                <option value="devolvida-cliente">Devolvida ao cliente</option>
+                <option value="descarte">Descarte</option>
+                <option value="retida">Retida na oficina</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group full-width"><label>Laudo / motivo</label><input type="text" id="pdLaudo" placeholder="O que foi constatado"></div>
+          </div>
+          <div class="actions-bar">
+            <button class="btn btn-primary btn-sm" onclick="addPecaDefeito()">+ Registrar peça com defeito</button>
+          </div>
+          <table style="margin-top:10px;">
+            <thead><tr><th>Descrição</th><th class="num">Qtd</th><th>Nº série</th><th>Laudo</th><th>Destino</th><th>Registro</th><th></th></tr></thead>
+            <tbody id="tbPecasDefeito"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="tab-pane" id="tab-servicos">
@@ -210,6 +295,17 @@
             <div class="form-group">
               <label>Total (alternativo)</label>
               <input type="number" id="sTotal" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+              <label>Desconto (R$)</label>
+              <input type="number" id="sDesconto" step="0.01" min="0" value="0" title="Desconto desta linha. O total do item já sai líquido.">
+            </div>
+            <div class="form-group">
+              <label>Situação</label>
+              <select id="sSituacao" title="Orçado é proposta: não conta no total nem vai para a nota.">
+                <option value="confirmado">Confirmado</option>
+                <option value="orcado">Orçado</option>
+              </select>
             </div>
           </div>
           <div class="actions-bar">
@@ -302,6 +398,8 @@
         <div class="actions-bar">
           <button class="btn btn-primary btn-sm" onclick="addApont()">+ Adicionar apontamento</button>
         </div>
+        <div id="horasResumo" style="margin-top:14px;"></div>
+
         <table style="margin-top:10px;">
           <thead><tr><th>Início</th><th>Fim</th><th>Horas</th><th>Técnico</th><th>Descrição</th><th></th></tr></thead>
           <tbody id="tbApont"></tbody>
@@ -391,8 +489,13 @@
         <!-- Política de prazo do cliente: explica a restrição dos campos abaixo. -->
         <div id="osPolitica" style="margin-top:10px;display:none;"></div>
         <div class="form-row" style="margin-top:10px;">
+          <div class="form-group" style="flex:2;">
+            <label>Condição de pagamento <a href="/financeiro/politicas-prazo.html" target="_blank" style="font-size:11px;font-weight:normal;margin-left:6px;">⚙ gerenciar</a></label>
+            <select id="fPolitica" onchange="aoTrocarPolitica()"></select>
+            <small id="fPoliticaInfo" class="muted" style="font-size:11px;display:block;margin-top:4px;"></small>
+          </div>
           <div class="form-group">
-            <label>Forma de pagamento</label>
+            <label>Meio de recebimento</label>
             <select id="fFormaPag"></select>
           </div>
           <div class="form-group">
@@ -404,18 +507,9 @@
             <input type="number" id="fParcelas" min="1" max="60" value="1">
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group full-width">
-            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:500;">
-              <input type="checkbox" id="fNaoEmitirNFe" style="width:auto;margin:0;transform:scale(1.2);">
-              <span>📄 Documento interno — não emitir NFSe / NF-e</span>
-            </label>
-            <small class="muted" style="margin-left:32px;margin-top:6px;display:block;">
-              Quando marcado, ao emitir nota (Phase 2) a nota <strong>não</strong> será enviada para a SEFAZ.
-              As contas a receber são geradas normalmente.
-            </small>
-          </div>
-        </div>
+        <!-- Emitir nota e gerar cobrança são decisão do Tipo de OS (via Tipo de
+             Operação), não escolha por OS. Aqui só se mostra o que vale. -->
+        <div id="regraOperacao" style="margin-top:12px;"></div>
         <div class="actions-bar">
           <button class="btn btn-primary btn-sm" onclick="salvarPagamento()">Salvar configuração de pagamento</button>
         </div>
@@ -448,8 +542,13 @@
     <div id="ftResumo" style="background:var(--bg-1);padding:10px;border-radius:var(--r-md);margin-bottom:12px;font-size:0.9em;"></div>
     <div id="ftPolitica" style="margin-bottom:12px;display:none;"></div>
     <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Condição de pagamento</label>
+        <select id="ftPoliticaSel" onchange="aoTrocarPolitica('ft')"></select>
+        <small id="ftPoliticaInfo" class="muted" style="font-size:11px;display:block;margin-top:4px;"></small>
+      </div>
       <div class="form-group">
-        <label>Forma de pagamento</label>
+        <label>Meio de recebimento</label>
         <select id="ftFormaPag"></select>
       </div>
       <div class="form-group">
@@ -461,14 +560,7 @@
         <input type="number" id="ftParcelas" min="1" max="60" value="1">
       </div>
     </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-          <input type="checkbox" id="ftNaoEmitirNFe" style="width:auto;margin:0;transform:scale(1.2);">
-          <span>📄 Não emitir NFSe / NF-e (documento interno)</span>
-        </label>
-      </div>
-    </div>
+    <div id="ftRegra" style="margin:4px 0 12px;"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharFaturar()">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarFaturar()">💰 Faturar</button>
@@ -515,6 +607,7 @@ async function carregarMeiosPermitidos(clienteId){
   MEIOS_PERMITIDOS = cond.permitidos;
   PRAZO_CLIENTE = cond.prazo;
   POLITICA_CLIENTE = cond.politica;
+  await carregarPoliticas(clienteId);
   ROTULOS_MEIO = Object.fromEntries(MEIOS_PAGAMENTO.filter(([v]) => v)
     .map(([v, l]) => [v, l.replace(/^\d+\s·\s/, '')]));
 }
@@ -529,12 +622,100 @@ function mostrarPolitica(elId){
   box.style.display = html ? 'block' : 'none';
 }
 
-function popularFormasPag(selectId, selected){
-  const disp = MEIOS_PERMITIDOS
-    ? MEIOS_PAGAMENTO.filter(([v]) => !v || MEIOS_PERMITIDOS.includes(v))
-    : MEIOS_PAGAMENTO;
-  document.getElementById(selectId).innerHTML = disp.map(([v,l]) =>
-    `<option value="${v}" ${(selected||'')===v?'selected':''}>${l}</option>`).join('');
+// ==================== CONDIÇÃO DE PAGAMENTO ====================
+// As opções vêm do cadastro em Financeiro › Políticas de prazo. Quando o
+// cliente tem política vinculada, ela é a única — o servidor recusa outra.
+let POLITICAS = [];
+let POLITICA_OBRIGATORIA = null;
+
+async function carregarPoliticas(clienteId){
+  const qs = new URLSearchParams({ onde: 'vendas' });
+  if (clienteId) qs.set('pessoaId', clienteId);
+  const d = await fetch('/api/politicas-prazo/aplicaveis?' + qs).then(r => r.json()).catch(() => ({}));
+  POLITICAS = d.politicas || [];
+  POLITICA_OBRIGATORIA = d.obrigatoria || null;
+}
+
+function resumoPolitica(p){
+  if (!p) return '';
+  const partes = [];
+  if (p.tipo === 'vista') partes.push('à vista (vence na emissão)');
+  else {
+    const dias = String(p.prazoDias || '').split('/').filter(Boolean);
+    if (dias.length) partes.push(dias.length > 1 ? `${dias.length} parcelas: ${dias.join('/')} dias` : `${dias[0]} dias`);
+  }
+  const meios = meiosDaPol(p);
+  const nome = (c) => (ROTULOS_MEIO && ROTULOS_MEIO[c]) || c;
+  // Um meio só: a condição já resolve, e o seletor de meio some da tela.
+  if (meios) partes.push(meios.length === 1
+    ? `recebimento em ${nome(meios[0])}`
+    : 'meios: ' + meios.map(nome).join(', '));
+  if (p.valorMinimoParcela > 0) partes.push(`parcela mín. ${fmtBRL(p.valorMinimoParcela)}`);
+  if (Number(p.coeficiente)) partes.push(`${Number(p.coeficiente) > 0 ? 'acréscimo' : 'desconto'} de ${Math.abs(Number(p.coeficiente))}%`);
+  return partes.join(' · ');
+}
+
+function meiosDaPol(p){
+  if (!p || !p.meiosPermitidos) return null;
+  try { const l = JSON.parse(p.meiosPermitidos); return (Array.isArray(l) && l.length) ? l : null; }
+  catch { return null; }
+}
+
+function popularPoliticas(prefixo, selecionada){
+  const sel = document.getElementById(prefixo === 'ft' ? 'ftPoliticaSel' : 'fPolitica');
+  if (!sel) return;
+  const lista = POLITICA_OBRIGATORIA
+    ? POLITICAS.filter(p => p.id === POLITICA_OBRIGATORIA)
+    : POLITICAS;
+  const atual = selecionada || POLITICA_OBRIGATORIA || '';
+  sel.innerHTML = (POLITICA_OBRIGATORIA ? '' : '<option value="">— não definida —</option>')
+    + lista.map(p => `<option value="${p.id}" ${String(atual) === String(p.id) ? 'selected' : ''}>${escapeHtml(p.nome)}</option>`).join('');
+  aoTrocarPolitica(prefixo === 'ft' ? 'ft' : '');
+}
+
+function aoTrocarPolitica(prefixo){
+  const ehFt = prefixo === 'ft';
+  const sel = document.getElementById(ehFt ? 'ftPoliticaSel' : 'fPolitica');
+  const info = document.getElementById(ehFt ? 'ftPoliticaInfo' : 'fPoliticaInfo');
+  if (!sel) return;
+  const p = POLITICAS.find(x => String(x.id) === sel.value) || null;
+  if (info) {
+    info.textContent = p
+      ? resumoPolitica(p) + (POLITICA_OBRIGATORIA ? ' · condição obrigatória deste cliente' : '')
+      : 'Sem condição definida — vence em 30 dias, parcela única.';
+  }
+  // A política restringe os meios; o combo de meio segue a escolha dela.
+  const alvo = ehFt ? 'ftFormaPag' : 'fFormaPag';
+  const guardado = document.getElementById(alvo)?.value || null;
+  popularFormasPag(alvo, guardado, meiosDaPol(p));
+  // Prazo e parcelas derivam da política — no modal, que é onde viram CR.
+  if (ehFt && p) {
+    const dias = p.tipo === 'vista' ? [0] : String(p.prazoDias || '').split('/').map(Number).filter(n => !isNaN(n));
+    if (dias.length) {
+      document.getElementById('ftDataVenc').value = addDiasISO(null, dias[0]);
+      document.getElementById('ftParcelas').value = dias.length;
+    }
+  }
+}
+
+function popularFormasPag(selectId, selected, meiosPolitica){
+  // Dois filtros somados: os meios que a condição escolhida aceita e os que o
+  // cadastro do cliente permite. O servidor revalida os dois.
+  const permitido = (v) => !v
+    || ((!meiosPolitica || meiosPolitica.includes(v))
+        && (!MEIOS_PERMITIDOS || MEIOS_PERMITIDOS.includes(v)));
+  const disp = MEIOS_PAGAMENTO.filter(([v]) => permitido(v));
+  const el = document.getElementById(selectId);
+  if (!el) return;
+  const reais = disp.filter(([v]) => v);
+  // Condição que fixa um único meio (ex.: "Boleto 30/60/90") não deixa nada
+  // para escolher: o campo vira um select de uma opção só, repetindo o que a
+  // condição já diz. Nesse caso ele se aplica sozinho e some da tela.
+  const unico = reais.length === 1 ? reais[0][0] : null;
+  el.innerHTML = (unico ? reais : disp).map(([v,l]) =>
+    `<option value="${v}" ${(unico || selected || '')===v?'selected':''}>${l}</option>`).join('');
+  const grupo = el.closest('.form-group');
+  if (grupo) grupo.style.display = unico ? 'none' : '';
 }
 
 function addDiasISO(iso, n){ const d = new Date((iso||new Date().toISOString().slice(0,10))+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
@@ -557,6 +738,7 @@ async function carregar(){
   document.getElementById('pgSub').textContent = d.os.titulo;
   renderInfo();
   renderPecas(d.pecas);
+  renderPecasDefeito(d.pecasDefeito);
   renderServicos(d.servicos);
   renderApontamentos(d.apontamentos);
   renderChecklist(d.checklist || []);
@@ -623,6 +805,127 @@ function renderInfo(){
     ${bloco('Solução', o.solucao)}
     ${bloco('Observações', o.observacoes)}
   `;
+  document.getElementById('fKm').value = o.kmPercorrido != null ? o.kmPercorrido : '';
+  document.getElementById('fVlrDesloc').value = o.valorDeslocamento != null ? o.valorDeslocamento : '';
+
+  // Quando o Tipo de OS precifica o deslocamento, o valor é derivado do km:
+  // deixar o campo editável só criaria a expectativa de que o que se digita
+  // vale alguma coisa.
+  const modo = o.deslocamentoModo || 'manual';
+  const auto = modo === 'por-km' || modo === 'valor-fixo';
+  const campoVlr = document.getElementById('fVlrDesloc');
+  campoVlr.readOnly = auto;
+  campoVlr.style.opacity = auto ? '0.6' : '';
+  const moeda = n => Number(n || 0).toFixed(2).replace('.', ',');
+  let aviso;
+  if (o.emGarantia && auto) {
+    aviso = 'Registro do trajeto. OS <strong>em garantia</strong> — o tipo "'+escapeHtml(o.tipoNome || '')+'" não cobra deslocamento.';
+  } else if (modo === 'por-km') {
+    aviso = 'Valor calculado pelo tipo "'+escapeHtml(o.tipoNome || '')+'": <strong>R$ '+moeda(o.deslocamentoValorKm)+' por km</strong>. '
+          + 'Salvar o km lança a linha em Serviços — <strong>entra no total, na nota e na cobrança</strong>.';
+  } else if (modo === 'valor-fixo') {
+    aviso = 'Valor fixo do tipo "'+escapeHtml(o.tipoNome || '')+'": <strong>R$ '+moeda(o.deslocamentoValorFixo)+' por OS</strong>. '
+          + 'A linha está em Serviços — <strong>entra no total, na nota e na cobrança</strong>.';
+  } else if (modo === 'nao-cobrar') {
+    aviso = 'Registro do trajeto. O tipo "'+escapeHtml(o.tipoNome || '')+'" <strong>não cobra deslocamento</strong>.';
+  } else {
+    aviso = 'Registro do trajeto. <strong>Não entra no total da OS</strong> — para cobrar o deslocamento, '
+          + 'lance-o como um serviço na aba Serviços, que aí ele vai para a nota e para a cobrança.';
+  }
+  document.getElementById('avisoDesloc').innerHTML = aviso;
+  renderPagador(o);
+}
+
+const ROTULO_FATURAR = { fabrica:'a fábrica', seguradora:'a seguradora', outro:'um terceiro' };
+
+// O bloco só existe quando o tipo manda faturar contra outro: para a OS
+// normal ele seria uma pergunta sem sentido.
+function renderPagador(o){
+  const modo = o.faturarPara || 'cliente';
+  const bloco = document.getElementById('blocoPagador');
+  if (modo === 'cliente') { bloco.style.display = 'none'; return; }
+  bloco.style.display = '';
+  const alvo = ROTULO_FATURAR[modo] || 'um terceiro';
+  document.getElementById('avisoPagador').innerHTML = o.pagadorId
+    ? `Tipo "${escapeHtml(o.tipoNome||'')}" fatura contra ${alvo}. Pedido, contas a receber e nota sairão em nome de <strong>${escapeHtml(o.pagadorNome||'')}</strong>.`
+    : `Tipo "${escapeHtml(o.tipoNome||'')}" fatura contra ${alvo}. <strong>A OS não fatura enquanto o pagador não for informado.</strong>`;
+  carregarPagadores(o.pagadorId);
+}
+
+let PAGADORES = null;
+async function carregarPagadores(selecionado){
+  const sel = document.getElementById('fPagador');
+  if (!PAGADORES) {
+    try {
+      const d = await (await fetch('/api/pessoas?ativo=1')).json();
+      PAGADORES = d.pessoas || d.dados || [];
+    } catch { PAGADORES = []; }
+  }
+  sel.innerHTML = '<option value="">— selecione —</option>' + PAGADORES
+    .map(p => `<option value="${p.id}">${escapeHtml(p.razaoSocial || p.nomeFantasia || '')}</option>`).join('');
+  sel.value = selecionado || '';
+}
+
+async function salvarPagador(){
+  const v = document.getElementById('fPagador').value;
+  const r = await fetch('/api/os/'+id, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ pagadorId: v === '' ? null : Number(v) }),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  showAlert('Pagador salvo');
+  carregar();
+}
+
+async function salvarDeslocamento(){
+  const km = document.getElementById('fKm').value;
+  const vlr = document.getElementById('fVlrDesloc').value;
+  const r = await fetch('/api/os/'+id, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      kmPercorrido: km === '' ? null : Number(km),
+      valorDeslocamento: vlr === '' ? null : Number(vlr),
+    }),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  showAlert('Deslocamento salvo');
+  carregar();
+}
+
+// ==================== ORÇADO × CONFIRMADO ====================
+// Item orçado é proposta: não conta no total, não baixa estoque, não vai
+// para a nota. O badge é o próprio botão de alternar.
+function badgeSituacao(especie, it){
+  const orcado = (it.situacao || 'confirmado') === 'orcado';
+  const travado = especie === 'pecas' && it.movSaidaId; // já baixada: não volta
+  if (!orcado) {
+    return travado ? '' : `<button class="btn btn-ghost btn-sm" style="font-size:11px;"
+      title="Voltar este item para orçamento (sai do total)"
+      onclick="mudarSituacao('${especie}', ${it.id}, 'orcado')">✓ confirmado</button>`;
+  }
+  return `<button class="btn btn-sm" style="font-size:11px;background:var(--warn);color:#fff;border-color:var(--warn);"
+    title="Confirmar: passa a contar no total e pode ser faturado"
+    onclick="mudarSituacao('${especie}', ${it.id}, 'confirmado')">◷ orçado</button>`;
+}
+
+async function mudarSituacao(especie, itemId, situacao){
+  const r = await fetch(`/api/os/itens/${especie}/${itemId}/situacao`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ situacao }),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
+async function confirmarOrcados(){
+  const r = await fetch('/api/os/'+id+'/confirmar-orcados', { method:'POST' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(d.confirmados ? `${d.confirmados} item(ns) confirmado(s)` : 'Nenhum item orçado');
+  carregar();
 }
 
 function renderPecas(pecas){
@@ -634,9 +937,10 @@ function renderPecas(pecas){
     <td>${escapeHtml(p.descricao||'')}</td>
     <td class="num">${p.quantidade}</td>
     <td class="num">${fmtBRL(p.valorUnitario)}</td>
-    <td class="num">${fmtBRL(p.valorTotal)}</td>
+    <td class="num">${fmtBRL(p.valorTotal)}${Number(p.desconto) ? `<br><small style="color:var(--danger);">− ${fmtBRL(p.desconto)}</small>` : ''}</td>
     <td>${p.loteNumero||'—'}</td>
-    <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
+    <td style="white-space:nowrap;">${badgeSituacao('pecas', p)}
+      ${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
   </tr>`).join('') : '<tr><td colspan="7" class="empty">Sem peças</td></tr>';
 
   document.getElementById('tbPecasTerceiras').innerHTML = terceiras.length ? terceiras.map(p=>{
@@ -654,6 +958,55 @@ function renderPecas(pecas){
       <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="9" class="empty">Sem peças de terceiro</td></tr>';
+
+  // Visão por número de série: só as peças que carregam serial resolvido.
+  const comSerie = pecas.filter(p => (p.seriais || []).length);
+  document.getElementById('tbPecasSerie').innerHTML = comSerie.length ? comSerie.map(p=>`<tr>
+    <td>${escapeHtml(p.descricao||'')}</td>
+    <td class="mono">${escapeHtml(p.sku||'—')}</td>
+    <td class="num">${p.quantidade}</td>
+    <td>${p.seriais.map(s=>`<span class="badge" style="font-size:11px;">${escapeHtml(s.numeroSerie||('#'+s.id))}</span>`).join(' ')}</td>
+    <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : '<small class="muted">pendente</small>'}</td>
+  </tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhuma peça com número de série nesta OS</td></tr>';
+}
+
+function renderPecasDefeito(lista){
+  const tb = document.getElementById('tbPecasDefeito');
+  if (!tb) return;
+  tb.innerHTML = (lista && lista.length) ? lista.map(d=>`<tr>
+    <td>${escapeHtml(d.descricao||'')}${d.sku?`<br><small class="muted mono">${escapeHtml(d.sku)}</small>`:''}</td>
+    <td class="num">${d.quantidade}</td>
+    <td class="mono">${escapeHtml(d.numeroSerie||'—')}</td>
+    <td><small>${escapeHtml(d.laudo||'—')}</small></td>
+    <td>${d.destino?`<span class="badge">${escapeHtml(d.destino)}</span>`:'<small class="muted">—</small>'}</td>
+    <td><small class="muted">${escapeHtml((d.dataRegistro||'').slice(0,10))}<br>${escapeHtml(d.usuario||'')}</small></td>
+    <td><button class="btn btn-ghost btn-sm" title="Remover" onclick="remPecaDefeito(${d.id})">🗑</button></td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhuma peça com defeito registrada</td></tr>';
+}
+
+async function addPecaDefeito(){
+  const body = {
+    descricao: document.getElementById('pdDesc').value.trim(),
+    quantidade: Number(document.getElementById('pdQtd').value) || 1,
+    numeroSerie: document.getElementById('pdSerie').value.trim() || null,
+    laudo: document.getElementById('pdLaudo').value.trim() || null,
+    destino: document.getElementById('pdDestino').value || null,
+  };
+  if (!body.descricao) return showAlert('Descrição obrigatória','error');
+  const r = await fetch('/api/os/'+id+'/pecas-defeito', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  ['pdDesc','pdSerie','pdLaudo'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('pdQtd').value='1';
+  document.getElementById('pdDestino').value='';
+  carregar();
+}
+
+async function remPecaDefeito(idItem){
+  const r = await fetch('/api/os/pecas-defeito/'+idItem, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
 }
 
 function renderServicos(servicos){
@@ -664,13 +1017,17 @@ function renderServicos(servicos){
     const nbsCell = s.servicoCnbs
       ? `<code title="${escapeHtml(s.servicoXnbs||'')}">${s.servicoCnbs}</code>`
       : (s.servicoId ? '<small class="muted">sem NBS</small>' : '<small class="muted">—</small>');
+    // A linha de deslocamento é derivada do Tipo de OS: não tem botão de
+    // remover porque removê-la só a faria voltar no próximo recálculo.
+    const auto = s.origem === 'deslocamento';
     return `<tr>
-      <td>${escapeHtml(s.descricao)}${s.servicoCodigo?'<br><small class="muted">['+escapeHtml(s.servicoCodigo)+']</small>':''}</td>
+      <td>${escapeHtml(s.descricao)}${s.servicoCodigo?'<br><small class="muted">['+escapeHtml(s.servicoCodigo)+']</small>':''}${auto?'<br><small class="muted">calculado pelo Tipo de OS</small>':''}</td>
       <td>${nbsCell}</td>
       <td class="num">${s.horas||'—'}</td>
       <td class="num">${s.valorHora?fmtBRL(s.valorHora):'—'}</td>
-      <td class="num">${fmtBRL(s.valorTotal)}</td>
-      <td><button class="btn btn-ghost btn-sm" title="Remover" onclick="remServico(${s.id})">🗑</button></td>
+      <td class="num">${fmtBRL(s.valorTotal)}${Number(s.desconto) ? `<br><small style="color:var(--danger);">− ${fmtBRL(s.desconto)}</small>` : ''}</td>
+      <td style="white-space:nowrap;">${badgeSituacao('servicos', s)}
+        ${auto ? '' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remServico(${s.id})">🗑</button>`}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="6" class="empty">Sem serviços próprios</td></tr>';
 
@@ -714,6 +1071,52 @@ function renderApontamentos(ap){
     <td>${a.descricao||'—'}</td>
     <td><button class="btn btn-ghost btn-sm" title="Remover" onclick="remApont(${a.id})">🗑</button></td>
   </tr>`).join('') : '<tr><td colspan="6" class="empty">Sem apontamentos</td></tr>';
+  renderHoras(ap);
+}
+
+// Previsto × realizado. O previsto são as horas dos serviços vendidos
+// (os_itens_servicos.horas); o realizado é o que os apontamentos somam.
+// Os dois dados já existiam e nunca eram confrontados.
+function renderHoras(ap){
+  const el = document.getElementById('horasResumo');
+  if (!el) return;
+  const servicos = (osData.servicos || []).filter(s => !s.compradoTerceiro);
+  const previsto = servicos.reduce((t,s) => t + (Number(s.horas) || 0), 0);
+  const realizado = ap.reduce((t,a) => t + (Number(a.horas) || 0), 0);
+
+  if (!previsto && !realizado) { el.innerHTML = ''; return; }
+
+  const saldo = previsto - realizado;
+  const corSaldo = !previsto ? 'var(--text-2)' : (saldo < 0 ? 'var(--danger)' : 'var(--success)');
+  const rotuloSaldo = !previsto ? 'sem previsão'
+    : saldo < 0 ? `${Math.abs(saldo).toFixed(2)}h acima do previsto`
+    : `${saldo.toFixed(2)}h de folga`;
+
+  // Resumo por técnico — o "Resumo por Mecânico" do Solution, mas dentro da OS.
+  const porTecnico = {};
+  for (const a of ap) {
+    const nome = a.tecnicoNome || '— sem técnico —';
+    porTecnico[nome] = (porTecnico[nome] || 0) + (Number(a.horas) || 0);
+  }
+  const linhas = Object.entries(porTecnico).sort((a,b) => b[1] - a[1]);
+
+  el.innerHTML = `
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;">
+      <div class="kpi"><div class="label">Horas previstas</div><div class="value">${previsto.toFixed(2)}h</div></div>
+      <div class="kpi"><div class="label">Horas realizadas</div><div class="value">${realizado.toFixed(2)}h</div></div>
+      <div class="kpi"><div class="label">Saldo</div><div class="value" style="color:${corSaldo};font-size:0.85em;">${rotuloSaldo}</div></div>
+    </div>
+    ${linhas.length ? `
+      <div class="bloco-titulo">Por técnico</div>
+      <table>
+        <thead><tr><th>Técnico</th><th class="num">Horas</th><th class="num">% do realizado</th></tr></thead>
+        <tbody>${linhas.map(([nome,h]) => `<tr>
+          <td>${escapeHtml(nome)}</td>
+          <td class="num">${h.toFixed(2)}h</td>
+          <td class="num">${realizado ? ((h/realizado)*100).toFixed(0) : 0}%</td>
+        </tr>`).join('')}</tbody>
+      </table>` : ''}
+  `;
 }
 
 // Status da OS → classe de badge do design system.
@@ -729,13 +1132,60 @@ function renderResumo(){
   st.className = 'badge ' + classeStatusOS(o.status);
   st.textContent = o.status;
   st.style.display = '';
+  const desc = Number(o.valorDesconto) || 0;
+  const editavel = !['faturada','cancelada'].includes(o.status);
+
+  // Orçado fora do total: sem esta linha o total pareceria simplesmente errado
+  // para quem acabou de lançar os itens.
+  const orcados = [...(osData.pecas||[]), ...(osData.servicos||[])]
+    .filter(i => (i.situacao||'confirmado') === 'orcado');
+  const totalOrcado = orcados.reduce((t,i) => t + (Number(i.valorTotal)||0), 0);
+
   document.getElementById('resumo').innerHTML = `
     <div>
       <div class="resumo-linha"><span class="muted">Peças</span><strong>${fmtBRL(o.valorPecas)}</strong></div>
       <div class="resumo-linha"><span class="muted">Serviços</span><strong>${fmtBRL(o.valorServicos)}</strong></div>
+      ${desc > 0 ? `<div class="resumo-linha"><span class="muted">Desconto</span><strong style="color:var(--danger);">− ${fmtBRL(desc)}</strong></div>` : ''}
       <div class="resumo-total"><strong>Total</strong><strong style="color:var(--success);">${fmtBRL(o.valorTotal)}</strong></div>
     </div>
+    ${orcados.length ? `
+      <div style="margin-top:10px;padding:8px 10px;background:var(--bg-1);border:1px solid var(--warn);border-radius:var(--r-md);">
+        <div class="resumo-linha" style="padding:0;">
+          <span style="color:var(--warn);">◷ ${orcados.length} item(ns) orçado(s)</span>
+          <strong style="color:var(--warn);">${fmtBRL(totalOrcado)}</strong>
+        </div>
+        <small class="muted" style="font-size:11px;display:block;margin-top:4px;">
+          Fora do total: não baixa estoque nem entra em nota enquanto não for confirmado.</small>
+        ${editavel ? `<button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px;"
+          onclick="confirmarOrcados()">Confirmar todos os orçados</button>` : ''}
+      </div>` : ''}
+    ${editavel ? `
+      <div class="form-row" style="margin-top:12px;align-items:flex-end;">
+        <div class="form-group" style="flex:1;">
+          <label style="font-size:0.7em;">Desconto na OS (R$)</label>
+          <input type="number" id="fDescontoCapa" step="0.01" min="0" value="${desc || ''}" placeholder="0,00">
+        </div>
+        <div class="form-group" style="flex:0;">
+          <button class="btn btn-secondary btn-sm" onclick="salvarDescontoCapa()">Aplicar</button>
+        </div>
+      </div>
+      <small class="muted" style="font-size:11px;">Abate no total da OS. Ao faturar é rateado entre peças e
+        serviços, e vai como desconto na NF-e (vDesc) e na NFS-e (vDescIncond, que reduz a base do ISS).
+        Para desconto de uma linha só, use o campo Desconto ao lançar a peça ou o serviço.</small>
+    ` : ''}
   `;
+}
+
+async function salvarDescontoCapa(){
+  const v = document.getElementById('fDescontoCapa').value;
+  const r = await fetch('/api/os/'+id, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ valorDesconto: v === '' ? 0 : Number(v) }),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  showAlert('Desconto aplicado');
+  carregar();
 }
 
 function renderAcoes(){
@@ -861,6 +1311,8 @@ async function addPecaPropria(){
     quantidade: Number(document.getElementById('pQtd').value),
     valorUnitario: Number(document.getElementById('pValor').value),
     loteId: document.getElementById('pLote').value ? Number(document.getElementById('pLote').value) : null,
+    desconto: Number(document.getElementById('pDesconto').value) || 0,
+    situacao: document.getElementById('pSituacao').value,
     compradoTerceiro: 0,
   };
   if (!body.produtoId || !body.quantidade) return showAlert('Produto e quantidade obrigatórios','error');
@@ -869,6 +1321,7 @@ async function addPecaPropria(){
   if (!d.success) return showAlert(d.error,'error');
   ['pProdId','pProdBusca'].forEach(x=>document.getElementById(x).value='');
   document.getElementById('pQtd').value='1'; document.getElementById('pValor').value='0';
+  document.getElementById('pDesconto').value='0';
   carregar();
 }
 
@@ -944,12 +1397,15 @@ async function addServicoProprio(){
     horas: document.getElementById('sHoras').value ? Number(document.getElementById('sHoras').value) : null,
     valorHora: document.getElementById('sValor').value ? Number(document.getElementById('sValor').value) : null,
     valorTotal: document.getElementById('sTotal').value ? Number(document.getElementById('sTotal').value) : null,
+    desconto: Number(document.getElementById('sDesconto').value) || 0,
+    situacao: document.getElementById('sSituacao').value,
     compradoTerceiro: 0,
   };
   if (!body.descricao && !body.servicoId) return showAlert('Descrição obrigatória (ou escolha um serviço do catálogo)','error');
   const r = await fetch('/api/os/'+id+'/servicos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
   ['sDesc','sHoras','sValor','sTotal'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('sDesconto').value='0';
   document.getElementById('sServicoSel').value = '';
   carregar();
 }
@@ -1020,8 +1476,21 @@ async function concluir(){
   if (solucao === null) return;
   const baixar = confirm('Baixar peças do estoque agora? (Cancelar = não baixar)');
   const r = await fetch(`/api/os/${id}/concluir`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ solucao, baixarEstoque: baixar }) });
-  const d = await r.json(); if (!d.success) return showAlert(d.error,'error');
-  showAlert('OS concluída'); carregar();
+  const d = await r.json();
+  if (!d.success) {
+    // O tipo pode barrar por pendência: mostra o que falta, não só o resumo.
+    if (Array.isArray(d.pendencias) && d.pendencias.length) {
+      const detalhe = d.pendencias
+        .map(p => `${p.rotulo}: ` + p.itens.map(i => i.descricao || `#${i.id}`).join(', '))
+        .join(' · ');
+      return showAlert(`${d.error} — ${detalhe}`, 'error');
+    }
+    return showAlert(d.error, 'error');
+  }
+  showAlert(d.vendasPerdidas
+    ? `OS concluída — ${d.vendasPerdidas} item(ns) não aprovado(s) registrado(s) em Vendas Perdidas`
+    : 'OS concluída');
+  carregar();
 }
 async function cancelar(){
   const motivo = prompt('Motivo do cancelamento (mín. 5 caracteres):');
@@ -1032,15 +1501,37 @@ async function cancelar(){
 }
 function renderPagamento(){
   const o = osData.os;
-  popularFormasPag('fFormaPag', o.formaPagamento);
+  popularPoliticas('', o.politicaPrazoId);
+  popularFormasPag('fFormaPag', o.formaPagamento, meiosDaPol(POLITICAS.find(p => String(p.id) === String(o.politicaPrazoId))));
   mostrarPolitica('osPolitica');
   document.getElementById('fDataVenc').value = o.dataVencimento || '';
   document.getElementById('fParcelas').value = o.numeroParcelas || 1;
-  document.getElementById('fNaoEmitirNFe').checked = !!o.naoEmitirNFe;
   const bloqueado = ['faturada','cancelada'].includes(o.status);
-  ['fFormaPag','fDataVenc','fParcelas','fNaoEmitirNFe'].forEach(fid => {
+  ['fPolitica','fFormaPag','fDataVenc','fParcelas'].forEach(fid => {
     document.getElementById(fid).disabled = bloqueado;
   });
+  document.getElementById('regraOperacao').innerHTML = regraHTML();
+}
+
+// O que o Tipo de OS determina para esta OS. Substitui o checkbox
+// "documento interno", que deixava a decisão solta por OS.
+function regraHTML(){
+  const op = osData.tipoOperacao;
+  if (!op) {
+    return '<div class="alert warn" style="display:block;">Esta OS está sem Tipo de Operação — '
+      + 'defina o Tipo de Operação padrão no cadastro do Tipo de OS.</div>';
+  }
+  const linha = (on, sim, nao) => `<div style="padding:3px 0;font-size:0.88em;">
+    <strong style="color:${on ? 'var(--success)' : 'var(--text-3)'};">${on ? '●' : '○'}</strong>
+    ${on ? sim : nao}</div>`;
+  return `<div style="background:var(--bg-1);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;">
+    <div style="font-size:0.7em;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:6px;">
+      Definido pelo tipo de OS${osData.tipo ? ' · ' + escapeHtml(osData.tipo.nome) : ''}</div>
+    <div style="font-size:0.82em;color:var(--text-2);margin-bottom:4px;">
+      Operação: <strong>${escapeHtml(op.codigo)}</strong> — ${escapeHtml(op.descricao || '')}</div>
+    ${linha(!!op.emiteNFe, 'Emite nota fiscal (NFS-e / NF-e)', 'Documento interno — não emite nota fiscal')}
+    ${linha(!!op.geraFinanceiro, 'Gera cobrança (contas a receber)', 'Sem cobrança — não gera contas a receber')}
+  </div>`;
 }
 
 function renderCRs(){
@@ -1064,10 +1555,10 @@ function renderCRs(){
 
 async function salvarPagamento(){
   const body = {
+    politicaPrazoId: document.getElementById('fPolitica').value ? Number(document.getElementById('fPolitica').value) : null,
     formaPagamento: document.getElementById('fFormaPag').value || null,
     dataVencimento: document.getElementById('fDataVenc').value || null,
     numeroParcelas: Number(document.getElementById('fParcelas').value) || 1,
-    naoEmitirNFe: document.getElementById('fNaoEmitirNFe').checked ? 1 : 0,
   };
   const r = await fetch('/api/os/'+id, {
     method:'PUT', headers:{'Content-Type':'application/json'},
@@ -1092,7 +1583,8 @@ function faturar(){
     <div style="display:flex;justify-content:space-between;"><span class="muted">Serviços</span><strong>${fmtBRL(valorServicos)}</strong></div>
     <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:4px;padding-top:4px;"><strong>Total</strong><strong style="color:var(--success);">${fmtBRL(valorPecas+valorServicos)}</strong></div>
   `;
-  popularFormasPag('ftFormaPag', o.formaPagamento);
+  popularPoliticas('ft', o.politicaPrazoId);
+  popularFormasPag('ftFormaPag', o.formaPagamento, meiosDaPol(POLITICAS.find(p => String(p.id) === String(o.politicaPrazoId || POLITICA_OBRIGATORIA))));
   mostrarPolitica('ftPolitica');
   // Sem data na OS, a política do cliente manda — é o mesmo prazo que o
   // servidor aplicaria; propor +30 aqui só criaria divergência na tela.
@@ -1100,14 +1592,14 @@ function faturar(){
     || addDiasISO(null, (PRAZO_CLIENTE && PRAZO_CLIENTE.length) ? PRAZO_CLIENTE[0] : 30);
   document.getElementById('ftParcelas').value = o.numeroParcelas
     || ((PRAZO_CLIENTE && PRAZO_CLIENTE.length) || 1);
-  document.getElementById('ftNaoEmitirNFe').checked = !!o.naoEmitirNFe;
+  document.getElementById('ftRegra').innerHTML = regraHTML();
   document.getElementById('modalFaturar').classList.add('open');
 }
 function fecharFaturar(){ document.getElementById('modalFaturar').classList.remove('open'); }
 
 async function emitirNfse(){
-  const aviso = osData.os.naoEmitirNFe
-    ? 'A OS está marcada como "documento interno" — NFSe NÃO será enviada à SEFIN (apenas registrada localmente). Continuar?'
+  const aviso = !osData.tipoOperacao?.emiteNFe
+    ? 'O tipo desta OS é documento interno — a NFSe NÃO será enviada à SEFIN (apenas registrada localmente). Continuar?'
     : 'Emitir NFSe dos serviços para a SEFIN? Esta ação transmite a nota fiscal eletrônica.';
   if (!confirm(aviso)) return;
   const r = await fetch(`/api/os/${id}/emitir-nfse`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
@@ -1118,8 +1610,8 @@ async function emitirNfse(){
 }
 
 async function emitirNfe(){
-  const aviso = osData.os.naoEmitirNFe
-    ? 'A OS está marcada como "documento interno" — NF-e NÃO será enviada à SEFAZ. Continuar?'
+  const aviso = !osData.tipoOperacao?.emiteNFe
+    ? 'O tipo desta OS é documento interno — a NF-e NÃO será enviada à SEFAZ. Continuar?'
     : 'Emitir NF-e das peças para a SEFAZ? Esta ação transmite a nota fiscal eletrônica.';
   if (!confirm(aviso)) return;
   const r = await fetch(`/api/os/${id}/emitir-nfe`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
@@ -1131,10 +1623,10 @@ async function emitirNfe(){
 
 async function confirmarFaturar(){
   const body = {
+    politicaPrazoId: document.getElementById('ftPoliticaSel').value ? Number(document.getElementById('ftPoliticaSel').value) : null,
     formaPagamento: document.getElementById('ftFormaPag').value || null,
     dataVencimento: document.getElementById('ftDataVenc').value || null,
     numeroParcelas: Number(document.getElementById('ftParcelas').value) || 1,
-    naoEmitirNFe: document.getElementById('ftNaoEmitirNFe').checked ? 1 : 0,
   };
   const r = await fetch(`/api/os/${id}/faturar`, {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -1266,9 +1758,26 @@ function renderTimeline(eventos) {
         <div style="font-size:11px;color:var(--text-3);margin-top:2px;">
           ${(e.data||'').replace('T',' ').slice(0,19)} · ${escapeHtml(e.usuario||'sistema')}
         </div>
+        ${snapshotEvento(e)}
       </div>
     </div>
   `).join('');
+}
+
+// Quanto a OS valia no instante do evento. Eventos antigos não têm o
+// snapshot; nesses a linha simplesmente não aparece.
+function snapshotEvento(e){
+  let s = null;
+  try { s = JSON.parse(e.payload || '{}')._snapshot; } catch { return ''; }
+  if (!s) return '';
+  const parte = (rot, v, cor) => `<span style="color:var(--text-3);">${rot}</span>
+    <strong style="color:${cor||'var(--text-2)'};">${fmtBRL(v)}</strong>`;
+  return `<div style="font-size:11px;margin-top:4px;display:flex;gap:12px;flex-wrap:wrap;">
+    ${parte('peças', s.pecas)}
+    ${parte('serviços', s.servicos)}
+    ${s.desconto ? parte('desconto', s.desconto, 'var(--danger)') : ''}
+    ${parte('total', s.total, 'var(--success)')}
+  </div>`;
 }
 
 // ==================== ASSINATURAS ====================

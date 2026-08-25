@@ -975,7 +975,10 @@ for (const col of [
   'telefoneEntrega TEXT',
   "modoDocumento TEXT NOT NULL DEFAULT 'pedido'",
   'naoEmitirNFe INTEGER NOT NULL DEFAULT 0',
-  'tabelaPrecoId INTEGER'
+  'tabelaPrecoId INTEGER',
+  // Condição de pagamento escolhida (politicas_prazo): define prazo das
+  // parcelas e meios aceitos. Antes o pedido guardava só o meio solto.
+  'politicaPrazoId INTEGER'
 ]) alterSafe(db, `ALTER TABLE pedidos ADD COLUMN ${col}`);
 
 alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN adquirenteCartaoId INTEGER');
@@ -1627,6 +1630,49 @@ db.exec(`
   );
 `);
 
+// ALTERs idempotentes em os_tipos (tenants existentes ganham colunas).
+// Comportamento que o tipo passa a ditar na OS:
+//  - natureza            classifica a OS (cliente, garantia, consumo interno...);
+//                        as de garantia nascem com emGarantia = 1
+//  - localPrestacao      'externo' exige endereço de execução, como exigeEnderecoExec
+//  - bloqueiaFaturamento tipo que nunca fatura (consumo interno, retrabalho)
+//  - obrigarDataPrevista recusa a OS sem data de promessa
+//  - deslocamento*       regra que transforma o trajeto em linha de serviço
+//                        cobrável (ver sincronizarDeslocamento em os-routes)
+for (const col of [
+  "natureza TEXT DEFAULT 'cliente'",
+  "localPrestacao TEXT DEFAULT 'indefinido'",
+  'bloqueiaFaturamento INTEGER DEFAULT 0',
+  'obrigarDataPrevista INTEGER DEFAULT 0',
+  "deslocamentoModo TEXT DEFAULT 'manual'",
+  'deslocamentoValorKm REAL',
+  'deslocamentoValorFixo REAL',
+  // encerra*: o que fazer com cada pendência ao concluir a OS.
+  // 'permitido' em todas preserva o comportamento anterior à Fase 3.
+  "encerraPecaPendente TEXT DEFAULT 'permitido'",
+  "encerraServicoPendente TEXT DEFAULT 'permitido'",
+  "encerraTerceiroPendente TEXT DEFAULT 'permitido'",
+  "encerraKmPendente TEXT DEFAULT 'permitido'",
+  "encerraApontamentoAberto TEXT DEFAULT 'permitido'",
+  // Fase 4 — como o serviço é precificado e contra quem a OS fatura.
+  // 'livre' e 'cliente' preservam o comportamento anterior.
+  "servicoCalculoModo TEXT DEFAULT 'livre'",
+  'servicoValorHoraPadrao REAL',
+  'permiteAlterarCalculoServico INTEGER DEFAULT 1',
+  "faturarPara TEXT DEFAULT 'cliente'",
+]) alterSafe(db, `ALTER TABLE os_tipos ADD COLUMN ${col}`);
+
+// Tempo padrão do serviço de catálogo: base do modo 'tempo-padrao'.
+alterSafe(db, 'ALTER TABLE servicos ADD COLUMN tempoPadraoHoras REAL');
+
+// Quem paga a OS quando não é o cliente (fábrica em garantia, seguradora em
+// sinistro). NULL = o próprio cliente, que é o caso normal.
+alterSafe(db, 'ALTER TABLE os_ordens ADD COLUMN pagadorId INTEGER');
+
+// Marca a linha de serviço gerada pelo sistema. NULL = lançada à mão, e o
+// deslocamento automático nunca encosta nela.
+alterSafe(db, 'ALTER TABLE os_itens_servicos ADD COLUMN origem TEXT');
+
 // ALTERs idempotentes em os_ordens (tenants existentes ganham colunas)
 for (const col of [
   'tipoId INTEGER',
@@ -1803,6 +1849,12 @@ for (const col of [
   'metaMensal REAL',
   'telefoneVendedor TEXT',
 ]) alterSafe(db, `ALTER TABLE users ADD COLUMN ${col}`);
+
+// users.menuModo: como este usuário quer o menu lateral desenhado.
+// 'unico' = todas as seções numa lista (padrão histórico), 'modulos' = uma
+// seção por vez, escolhida num seletor de módulos. NULL = herda o
+// `menu_modo` do tenant (config), que por sua vez cai em 'unico'.
+alterSafe(db, 'ALTER TABLE users ADD COLUMN menuModo TEXT');
 
 // CRM / contratos: retornam link para OS
 alterSafe(db, 'ALTER TABLE crm_oportunidades ADD COLUMN osId INTEGER');
@@ -2207,6 +2259,19 @@ require('./fornecedor-integracoes').ensureSchema(db);
 // aparece para quem tiver a feature `ssl` ligada, mas o schema é criado em
 // todos — tabela vazia não custa nada e evita divergência entre tenants.
 require('./ssl-certificados-routes').migrarDB(db);
+
+// Tarifa por boleto liquidado (2026-08-25): `contas_financeiras_boleto.tarifaBoleto`
+// e `boletos.contaPagarTarifaId`. Mesmo caso dos blocos acima — o migrarSchema()
+// de boleto-orchestrator roda via boleto-provedores-routes contra o BOOT_STUB e
+// não alcança tenant nenhum. Idempotente e tolerante a tabela ausente.
+require('./boleto-orchestrator').migrarSchema(db);
+
+// Motor de tributação por regime + NF manual (2026-08-25): matriz de regras
+// (operação × NCM × UF × perfil do destinatário), memória de cálculo e os campos
+// de imposto no item da fatura. Também é aqui que `faturas.pedidoId` finalmente
+// vira nulável em TODOS os tenants — antes o rebuild só rodava dentro da rota de
+// devolução de compra, e só o `1bit` o tinha recebido.
+require('./fiscal-trib-schema').initFiscalTribSchema(db);
 
 // Unificação do cadastro de fornecedores dentro de `pessoas` (2026-08-20).
 // Fica por ÚLTIMO porque depende de `pessoas` e das tabelas de compras já

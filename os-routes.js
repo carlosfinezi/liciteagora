@@ -79,10 +79,32 @@ const uploadOSAnexo = multer({
 // Helper único para registrar evento em os_eventos — viabiliza timeline.
 function registrarEvento(db, osId, tipo, descricao, usuario, payload) {
   try {
+    // Snapshot financeiro: grava quanto a OS valia NO MOMENTO do evento.
+    // Sem isso o histórico responde "o que aconteceu" mas não "quanto valia
+    // quando aconteceu" — a pergunta que aparece ao revisar uma aprovação ou
+    // um faturamento depois de a OS ter mudado.
+    let snap = null;
+    try {
+      const o = db.prepare(`SELECT valorPecas, valorServicos, valorDesconto, valorTotal,
+                                   kmPercorrido, valorDeslocamento, status
+                            FROM os_ordens WHERE id = ?`).get(osId);
+      if (o) {
+        snap = {
+          pecas: Number(o.valorPecas) || 0,
+          servicos: Number(o.valorServicos) || 0,
+          desconto: Number(o.valorDesconto) || 0,
+          total: Number(o.valorTotal) || 0,
+          km: o.kmPercorrido != null ? Number(o.kmPercorrido) : null,
+          deslocamento: o.valorDeslocamento != null ? Number(o.valorDeslocamento) : null,
+          status: o.status,
+        };
+      }
+    } catch (_) { /* colunas novas podem faltar em banco não migrado */ }
+    const corpo = snap ? { ...(payload || {}), _snapshot: snap } : payload;
     db.prepare(`
       INSERT INTO os_eventos (osId, tipo, descricao, usuario, payload)
       VALUES (?, ?, ?, ?, ?)
-    `).run(osId, tipo, descricao || null, usuario || null, payload ? JSON.stringify(payload) : null);
+    `).run(osId, tipo, descricao || null, usuario || null, corpo ? JSON.stringify(corpo) : null);
   } catch (_) { /* tabela pode não existir em boot antigo */ }
   // Dispara notificações configuradas em os_notificacoes_config (fase 9.5).
   // Roda em background — falhas não afetam a escrita do evento.
@@ -230,6 +252,81 @@ function migrarDB(db) {
   // Custo da peça no momento da baixa. Sem isso, o custo histórico se
   // perdia e a lucratividade só podia usar o custo de hoje.
   alterSafe(`ALTER TABLE os_itens_pecas ADD COLUMN custoUnitario REAL`);
+
+  // Desconto em dois níveis, como em ERP: na linha e no rodapé.
+  //  - item:  o valorTotal do item já sai líquido, então capa, contas a
+  //           receber e nota fiscal batem sem ninguém precisar lembrar.
+  //  - capa:  rateado proporcionalmente entre peças e serviços no faturamento
+  //           (mesmo algoritmo do frete da NF-e) e informado como desconto no
+  //           documento — vDesc na NF-e, vDescIncond na NFS-e.
+  alterSafe(`ALTER TABLE os_itens_pecas ADD COLUMN desconto REAL DEFAULT 0`);
+  alterSafe(`ALTER TABLE os_itens_servicos ADD COLUMN desconto REAL DEFAULT 0`);
+  alterSafe(`ALTER TABLE os_ordens ADD COLUMN valorDesconto REAL DEFAULT 0`);
+
+  // Orçado × Confirmado por item. Antes o orçamento era da OS inteira
+  // (os_ordens.orcamentoStatus), tudo-ou-nada: não dava para o cliente aprovar
+  // 3 de 5 itens nem faturar parte agora e parte depois.
+  //
+  // REGRA: só item 'confirmado' entra no financeiro — totais da capa, baixa de
+  // estoque, contas a receber e nota fiscal. Item 'orcado' é proposta: aparece
+  // no orçamento e no PDF, não vira dinheiro.
+  //
+  // Default 'confirmado' de propósito: sem isso todo item já existente viraria
+  // orçamento e as OS abertas zerariam o total no primeiro recálculo.
+  alterSafe(`ALTER TABLE os_itens_pecas ADD COLUMN situacao TEXT DEFAULT 'confirmado'`);
+  alterSafe(`ALTER TABLE os_itens_servicos ADD COLUMN situacao TEXT DEFAULT 'confirmado'`);
+  // Linhas gravadas antes da coluna existir ficam com NULL, não com o default.
+  alterSafe(`UPDATE os_itens_pecas SET situacao = 'confirmado' WHERE situacao IS NULL`);
+  alterSafe(`UPDATE os_itens_servicos SET situacao = 'confirmado' WHERE situacao IS NULL`);
+  alterSafe(`ALTER TABLE nfse ADD COLUMN valorDescontoIncondicionado REAL DEFAULT 0`);
+
+  // Condição de pagamento escolhida: aponta para politicas_prazo, o cadastro
+  // que já define prazo, parcelas e meios aceitos. Antes a OS guardava só o
+  // tPag solto e o prazo vinha do cadastro da pessoa por baixo dos panos.
+  alterSafe(`ALTER TABLE os_ordens ADD COLUMN politicaPrazoId INTEGER`);
+
+  // Comportamento ditado pelo Tipo de OS. Espelha db-schema.js — aqui garante
+  // as colunas em tenant que só passa pelo ensureMigrated.
+  for (const col of [
+    "natureza TEXT DEFAULT 'cliente'",
+    "localPrestacao TEXT DEFAULT 'indefinido'",
+    'bloqueiaFaturamento INTEGER DEFAULT 0',
+    'obrigarDataPrevista INTEGER DEFAULT 0',
+    "deslocamentoModo TEXT DEFAULT 'manual'",
+    'deslocamentoValorKm REAL',
+    'deslocamentoValorFixo REAL',
+    "encerraPecaPendente TEXT DEFAULT 'permitido'",
+    "encerraServicoPendente TEXT DEFAULT 'permitido'",
+    "encerraTerceiroPendente TEXT DEFAULT 'permitido'",
+    "encerraKmPendente TEXT DEFAULT 'permitido'",
+    "encerraApontamentoAberto TEXT DEFAULT 'permitido'",
+    "servicoCalculoModo TEXT DEFAULT 'livre'",
+    'servicoValorHoraPadrao REAL',
+    'permiteAlterarCalculoServico INTEGER DEFAULT 1',
+    "faturarPara TEXT DEFAULT 'cliente'",
+  ]) alterSafe(`ALTER TABLE os_tipos ADD COLUMN ${col}`);
+  alterSafe(`ALTER TABLE os_itens_servicos ADD COLUMN origem TEXT`);
+  alterSafe(`ALTER TABLE servicos ADD COLUMN tempoPadraoHoras REAL`);
+  alterSafe(`ALTER TABLE os_ordens ADD COLUMN pagadorId INTEGER`);
+
+  // Peça retirada do equipamento por defeito. Tabela à parte, e não um flag em
+  // os_itens_pecas, porque ela não é vendida: não pode entrar no valorPecas
+  // nem virar item de nota. O que importa aqui é rastrear o que saiu do
+  // equipamento e para onde foi (garantia do fabricante, descarte, devolução).
+  alterSafe(`CREATE TABLE IF NOT EXISTS os_pecas_defeito (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    osId INTEGER NOT NULL,
+    produtoId INTEGER,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL DEFAULT 1,
+    numeroSerie TEXT,
+    laudo TEXT,
+    destino TEXT,
+    dataRegistro TEXT DEFAULT CURRENT_TIMESTAMP,
+    usuario TEXT,
+    FOREIGN KEY (osId) REFERENCES os_ordens(id) ON DELETE CASCADE
+  )`);
+  alterSafe(`CREATE INDEX IF NOT EXISTS idx_os_pecas_defeito_os ON os_pecas_defeito(osId)`);
   alterSafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_os_orcamento_token ON os_ordens(orcamentoToken) WHERE orcamentoToken IS NOT NULL`);
 
   // ==================== EQUIPAMENTOS ====================
@@ -369,10 +466,330 @@ function recalcStatusFiscal(db, osId) {
   return status;
 }
 
+// Cláusula única do "só confirmado conta". Fica em constante para que quem
+// mexer no financeiro depois não precise lembrar de repetir o filtro.
+const SO_CONFIRMADOS = ` AND COALESCE(situacao,'confirmado') = 'confirmado'`;
+
+/**
+ * Condição de pagamento válida para esta OS.
+ *
+ * A política vinculada à pessoa é OBRIGATÓRIA: se o cliente tem condição
+ * negociada, é ela que vale e nenhuma outra é aceita. Sem vínculo, qualquer
+ * política ativa de vendas serve.
+ *
+ * @returns {{politica:object|null, erro:string|null}}
+ */
+function resolverPolitica(db, clienteId, politicaPrazoId) {
+  const { politicaDaPessoa, valePara } = require('./politicas-prazo');
+  const daPessoa = politicaDaPessoa(db, clienteId);
+  const obrigatoria = daPessoa && valePara(daPessoa, 'vendas') ? daPessoa : null;
+
+  if (!politicaPrazoId) {
+    // Sem escolha explícita: usa a do cliente quando existe.
+    return { politica: obrigatoria, erro: null };
+  }
+  const escolhida = db.prepare('SELECT * FROM politicas_prazo WHERE id = ? AND ativo = 1').get(Number(politicaPrazoId));
+  if (!escolhida) return { politica: null, erro: 'Condição de pagamento inválida ou inativa' };
+  if (!escolhida.aplicaVendas) return { politica: null, erro: `Condição "${escolhida.nome}" não se aplica a vendas` };
+  if (obrigatoria && obrigatoria.id !== escolhida.id) {
+    return { politica: null, erro: `Cliente tem condição obrigatória "${obrigatoria.nome}" — não é possível usar outra` };
+  }
+  return { politica: escolhida, erro: null };
+}
+
+/** Meios aceitos por uma política; null = sem restrição. */
+function meiosDaPolitica(politica) {
+  if (!politica || !politica.meiosPermitidos) return null;
+  try {
+    const l = JSON.parse(politica.meiosPermitidos);
+    return Array.isArray(l) && l.length ? l : null;
+  } catch { return null; }
+}
+
+/**
+ * Regra de comportamento da OS — quem manda é o Tipo de Operação, herdado do
+ * Tipo de OS (os_tipos.tipoOperacaoPadraoId).
+ *
+ * Antes a mesma decisão saía de quatro lugares em cascata
+ * (tipoOperacao.emiteNFe > os_tipos.modoFiscal > os_ordens.ambienteFiscal >
+ * checkbox naoEmitirNFe), o que permitia estados contraditórios e escondia o
+ * `geraFinanceiro` — que não era consultado em lugar nenhum, fazendo OS de
+ * garantia gerar cobrança. Agora é uma fonte só.
+ *
+ * @returns {{emiteNFe:boolean, geraFinanceiro:boolean, codigo:string|null}}
+ */
+function regraDaOS(db, os) {
+  if (os && os.tipoOperacaoId) {
+    const op = db.prepare('SELECT codigo, emiteNFe, geraFinanceiro FROM tipos_operacao WHERE id = ?').get(os.tipoOperacaoId);
+    if (op) return { emiteNFe: !!op.emiteNFe, geraFinanceiro: !!op.geraFinanceiro, codigo: op.codigo };
+  }
+  // OS anterior à migração, sem operação: mantém o comportamento histórico
+  // (emite e cobra), em vez de silenciosamente parar de faturar.
+  return { emiteNFe: true, geraFinanceiro: true, codigo: null };
+}
+
 function recalcTotais(db, osId) {
-  const p = db.prepare('SELECT COALESCE(SUM(valorTotal),0) AS t FROM os_itens_pecas WHERE osId = ?').get(osId).t;
-  const s = db.prepare('SELECT COALESCE(SUM(valorTotal),0) AS t FROM os_itens_servicos WHERE osId = ?').get(osId).t;
-  db.prepare('UPDATE os_ordens SET valorPecas = ?, valorServicos = ?, valorTotal = ? WHERE id = ?').run(p, s, p+s, osId);
+  const p = db.prepare(`SELECT COALESCE(SUM(valorTotal),0) AS t FROM os_itens_pecas WHERE osId = ?${SO_CONFIRMADOS}`).get(osId).t;
+  const s = db.prepare(`SELECT COALESCE(SUM(valorTotal),0) AS t FROM os_itens_servicos WHERE osId = ?${SO_CONFIRMADOS}`).get(osId).t;
+  // valorPecas/valorServicos ficam BRUTOS (já líquidos do desconto de item, que
+  // está embutido no valorTotal da linha). O desconto de capa entra só no
+  // valorTotal — quem fatura o rateia entre os dois lados.
+  const d = Math.min(
+    Number(db.prepare('SELECT COALESCE(valorDesconto,0) AS d FROM os_ordens WHERE id = ?').get(osId).d) || 0,
+    p + s
+  );
+  db.prepare('UPDATE os_ordens SET valorPecas = ?, valorServicos = ?, valorTotal = ? WHERE id = ?')
+    .run(p, s, p + s - d, osId);
+}
+
+// Deslocamento cobrável: é o Tipo de OS que decide se o trajeto vira dinheiro.
+//
+// A linha vive em os_itens_servicos com origem='deslocamento', e não num campo
+// à parte, porque assim ela entra no total, na NFS-e e na conta a receber pelo
+// mesmo caminho de qualquer outro serviço — sem ninguém precisar lembrar de
+// lançá-la à mão, que era a instrução que a própria tela dava.
+//
+// os_ordens.valorDeslocamento continua espelhando o valor, para o histórico e
+// os relatórios que já leem a coluna.
+//
+// Não chama recalcTotais: quem chama decide quando recalcular (às vezes há
+// outras mudanças na mesma transação).
+function sincronizarDeslocamento(db, osId) {
+  const os = db.prepare('SELECT tipoId, kmPercorrido, emGarantia FROM os_ordens WHERE id = ?').get(osId);
+  if (!os) return;
+
+  const remover = () => {
+    db.prepare("DELETE FROM os_itens_servicos WHERE osId = ? AND origem = 'deslocamento'").run(osId);
+    db.prepare('UPDATE os_ordens SET valorDeslocamento = NULL WHERE id = ?').run(osId);
+  };
+
+  const tipo = os.tipoId
+    ? db.prepare(`SELECT deslocamentoModo, deslocamentoValorKm, deslocamentoValorFixo
+                    FROM os_tipos WHERE id = ?`).get(os.tipoId)
+    : null;
+  const modo = (tipo && tipo.deslocamentoModo) || 'manual';
+
+  // 'manual' é o comportamento histórico: a linha é do usuário e nada aqui
+  // pode tocá-la. É o default, então tipo antigo não muda de comportamento.
+  if (modo === 'manual') return;
+
+  // Garantia não cobra deslocamento, seja qual for a regra do tipo — mesma
+  // lógica que já força OS-GARANTIA no tipo de operação.
+  if (modo === 'nao-cobrar' || os.emGarantia) { remover(); return; }
+
+  const km = Number(os.kmPercorrido) || 0;
+  let valor = 0;
+  let descricao = 'Deslocamento';
+  if (modo === 'por-km') {
+    const vKm = Number(tipo.deslocamentoValorKm) || 0;
+    valor = Number((km * vKm).toFixed(2));
+    descricao = `Deslocamento (${km} km)`;
+  } else if (modo === 'valor-fixo') {
+    valor = Number(Number(tipo.deslocamentoValorFixo || 0).toFixed(2));
+  }
+
+  // Sem km lançado ainda, ou valor não configurado: não existe linha de zero.
+  if (valor <= 0) { remover(); return; }
+
+  const atual = db.prepare("SELECT id FROM os_itens_servicos WHERE osId = ? AND origem = 'deslocamento'").get(osId);
+  if (atual) {
+    db.prepare('UPDATE os_itens_servicos SET descricao = ?, valorTotal = ? WHERE id = ?')
+      .run(descricao, valor, atual.id);
+  } else {
+    db.prepare(`INSERT INTO os_itens_servicos (osId, descricao, valorTotal, origem, situacao)
+                VALUES (?, ?, ?, 'deslocamento', 'confirmado')`).run(osId, descricao, valor);
+  }
+  db.prepare('UPDATE os_ordens SET valorDeslocamento = ? WHERE id = ?').run(valor, osId);
+}
+
+// ==================== QUEM PAGA A OS ====================
+//
+// Por padrão quem paga é o cliente da OS. O Tipo pode dizer que a conta vai
+// para outro: garantia de fábrica cobra do fabricante, sinistro cobra da
+// seguradora. Quem é esse pagador não cabe no Tipo — muda a cada OS (cada
+// sinistro tem sua seguradora), então mora em os_ordens.pagadorId.
+//
+// O pagador entra no pedido, nas contas a receber e como tomador da NFS-e:
+// é a pessoa contra quem o documento é emitido.
+const MODOS_FATURAR_PARA = ['cliente', 'fabrica', 'seguradora', 'outro'];
+const ROTULO_FATURAR_PARA = {
+  cliente: 'o cliente', fabrica: 'a fábrica',
+  seguradora: 'a seguradora', outro: 'um terceiro',
+};
+
+// Devolve { pagadorId } ou { erro }. Falha explícita quando o tipo manda
+// faturar contra outro e ninguém foi informado — emitir nota para o cliente
+// nesse caso seria cobrar de quem não deve.
+function resolverPagadorOS(db, os, tipo) {
+  const modo = (tipo && tipo.faturarPara) || 'cliente';
+  if (modo === 'cliente') return { pagadorId: os.clienteId };
+  if (!os.pagadorId) {
+    return { erro: `Tipo "${tipo.nome}" fatura contra ${ROTULO_FATURAR_PARA[modo] || 'outro'} — informe quem paga antes de faturar` };
+  }
+  const p = db.prepare('SELECT id FROM pessoas WHERE id = ?').get(os.pagadorId);
+  if (!p) return { erro: 'Pagador informado na OS não existe mais no cadastro' };
+  return { pagadorId: os.pagadorId };
+}
+
+// ==================== PREÇO DO SERVIÇO ====================
+//
+// O Tipo de OS decide de onde sai o valor da linha de serviço:
+//   'livre'         — precedência histórica: valorTotal > horas×valorHora >
+//                     valorPadrao do catálogo. É o default.
+//   'preco-fixo'    — sempre o valorPadrao do catálogo
+//   'horas-x-valor' — horas apontadas × valor hora (do item ou do tipo)
+//   'tempo-padrao'  — tempoPadraoHoras do catálogo × valor hora
+//
+// permiteAlterarCalculoServico=0 recusa um valorTotal digitado que
+// contrarie a regra — senão a regra é só sugestão.
+const MODOS_CALCULO_SERVICO = ['livre', 'preco-fixo', 'horas-x-valor', 'tempo-padrao'];
+
+function calcularValorServico({ modo, tipo, catalogo, horas, valorHora, valorTotal }) {
+  const informado = valorTotal != null && valorTotal !== '' ? Number(valorTotal) : null;
+  const h = horas != null && horas !== '' ? Number(horas) : null;
+  const vh = valorHora != null && valorHora !== ''
+    ? Number(valorHora)
+    : (tipo && tipo.servicoValorHoraPadrao != null ? Number(tipo.servicoValorHoraPadrao) : null);
+
+  if (modo === 'livre') {
+    if (informado != null) return { total: informado };
+    if (h && vh) return { total: h * vh, valorHora: vh };
+    if (catalogo && catalogo.valorPadrao != null) return { total: Number(catalogo.valorPadrao) };
+    return { erro: 'Informe valorTotal, horas+valorHora ou vincule um serviço com valor padrão' };
+  }
+
+  // Um valor digitado só vale se o tipo deixar alterar o cálculo.
+  const podeAlterar = !tipo || tipo.permiteAlterarCalculoServico == null || !!tipo.permiteAlterarCalculoServico;
+  if (informado != null) {
+    if (podeAlterar) return { total: informado };
+    return { erro: `Tipo "${tipo.nome}" não permite alterar o valor calculado do serviço` };
+  }
+
+  if (modo === 'preco-fixo') {
+    if (!catalogo || catalogo.valorPadrao == null) {
+      return { erro: 'Preço fixo: vincule um serviço de catálogo com valor padrão' };
+    }
+    return { total: Number(catalogo.valorPadrao) };
+  }
+  if (modo === 'horas-x-valor') {
+    if (!(h > 0)) return { erro: 'Cálculo por horas: informe as horas' };
+    if (!(vh > 0)) return { erro: 'Cálculo por horas: sem valor hora no item nem no Tipo de OS' };
+    return { total: Number((h * vh).toFixed(2)), valorHora: vh };
+  }
+  if (modo === 'tempo-padrao') {
+    if (!catalogo || !(Number(catalogo.tempoPadraoHoras) > 0)) {
+      return { erro: 'Tempo padrão: vincule um serviço de catálogo com tempo padrão' };
+    }
+    if (!(vh > 0)) return { erro: 'Tempo padrão: sem valor hora no item nem no Tipo de OS' };
+    const ht = Number(catalogo.tempoPadraoHoras);
+    return { total: Number((ht * vh).toFixed(2)), horas: ht, valorHora: vh };
+  }
+  return { erro: `Modo de cálculo desconhecido: ${modo}` };
+}
+
+// ==================== ENCERRAMENTO DA OS ====================
+//
+// O Tipo de OS decide o que fazer com cada pendência na hora de concluir.
+// Três regras possíveis:
+//   'permitido'     — conclui e ignora (comportamento anterior à Fase 3)
+//   'venda-perdida' — conclui e registra o item em vendas_perdidas, para o
+//                     que o cliente não aprovou não sumir do relatório
+//   'bloqueado'     — recusa a conclusão e devolve a lista do que falta
+//
+// Só peça e serviço aceitam 'venda-perdida': as outras pendências não são
+// item que o cliente deixou de levar, então não há perda a registrar.
+const REGRAS_ENCERRAMENTO = ['permitido', 'venda-perdida', 'bloqueado'];
+const REGRAS_ENCERRAMENTO_SEM_PERDA = ['permitido', 'bloqueado'];
+
+const CATEGORIAS_ENCERRAMENTO = [
+  { chave: 'encerraPecaPendente',      rotulo: 'peça orçada não confirmada',        perda: true },
+  { chave: 'encerraServicoPendente',   rotulo: 'serviço orçado não confirmado',     perda: true },
+  { chave: 'encerraTerceiroPendente',  rotulo: 'item de terceiro sem custo',        perda: false },
+  { chave: 'encerraKmPendente',        rotulo: 'km não informado',                  perda: false },
+  { chave: 'encerraApontamentoAberto', rotulo: 'apontamento em aberto',             perda: false },
+];
+
+// Levanta o que está pendente na OS, por categoria. Leitura pura.
+function coletarPendenciasOS(db, os, tipo) {
+  const out = {};
+
+  out.encerraPecaPendente = db.prepare(`
+    SELECT pi.id, pi.descricao, pi.quantidade, pi.valorUnitario, pi.produtoId
+      FROM os_itens_pecas pi
+     WHERE pi.osId = ? AND COALESCE(pi.situacao,'confirmado') = 'orcado'
+     ORDER BY pi.id`).all(os.id);
+
+  out.encerraServicoPendente = db.prepare(`
+    SELECT id, descricao, valorTotal
+      FROM os_itens_servicos
+     WHERE osId = ? AND COALESCE(situacao,'confirmado') = 'orcado'
+       AND COALESCE(compradoTerceiro,0) = 0
+     ORDER BY id`).all(os.id);
+
+  // Terceiro sem custo lançado: a OS fecha e o AP do fornecedor nunca nasce,
+  // então o custo desaparece da margem.
+  const terceiroPecas = db.prepare(`
+    SELECT id, descricao FROM os_itens_pecas
+     WHERE osId = ? AND compradoTerceiro = 1 AND (custoTerceiro IS NULL OR custoTerceiro = 0)`).all(os.id);
+  const terceiroServicos = db.prepare(`
+    SELECT id, descricao FROM os_itens_servicos
+     WHERE osId = ? AND compradoTerceiro = 1 AND (custoTerceiro IS NULL OR custoTerceiro = 0)`).all(os.id);
+  out.encerraTerceiroPendente = [...terceiroPecas, ...terceiroServicos];
+
+  // Só é pendência quando o tipo cobra por km: aí o km vazio significa
+  // deslocamento não cobrado.
+  out.encerraKmPendente = (tipo && tipo.deslocamentoModo === 'por-km' && !(Number(os.kmPercorrido) > 0))
+    ? [{ descricao: 'Quilometragem não informada' }]
+    : [];
+
+  out.encerraApontamentoAberto = db.prepare(`
+    SELECT a.id, a.dataInicio, u.username AS tecnico
+      FROM os_apontamentos a
+      LEFT JOIN users u ON u.id = a.tecnicoId
+     WHERE a.osId = ? AND a.dataFim IS NULL
+     ORDER BY a.id`).all(os.id);
+
+  return out;
+}
+
+// Registra em vendas_perdidas os itens que o cliente não aprovou. Roda dentro
+// da transação de conclusão. Motivo 'desistencia' — o orçamento existiu e o
+// cliente não seguiu com ele.
+function registrarPerdasDaOS(db, os, itens, usuario) {
+  if (!itens.length) return 0;
+  const data = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const ins = db.prepare(`INSERT INTO vendas_perdidas
+    (data, produtoId, descricaoLivre, quantidade, precoAlvo, motivo, clienteId,
+     origem, observacao, usuario)
+    VALUES (?, ?, ?, ?, ?, 'desistencia', ?, 'os_item', ?, ?)`);
+  for (const it of itens) {
+    const qtd = Number(it.quantidade) > 0 ? Number(it.quantidade) : 1;
+    const preco = it.valorUnitario != null ? Number(it.valorUnitario)
+                : it.valorTotal != null ? Number(it.valorTotal) / qtd
+                : null;
+    ins.run(
+      data,
+      it.produtoId || null,
+      it.produtoId ? null : (it.descricao || 'Item da OS'),
+      qtd,
+      preco,
+      os.clienteId || null,
+      `Item orçado e não confirmado na OS ${os.numero}`,
+      usuario || null,
+    );
+  }
+  return itens.length;
+}
+
+// Ratea o desconto de capa entre peças e serviços, proporcional ao valor de
+// cada lado. Mesmo algoritmo do frete da NF-e (nfe-emit-routes.js): o resto
+// dos centavos cai no último para a soma fechar exatamente com o desconto.
+function ratearDesconto(valorPecas, valorServicos, desconto) {
+  const base = valorPecas + valorServicos;
+  if (!desconto || base <= 0) return { pecas: 0, servicos: 0 };
+  const d = Math.min(desconto, base);
+  const dPecas = Number((d * (valorPecas / base)).toFixed(2));
+  return { pecas: dPecas, servicos: Number((d - dPecas).toFixed(2)) };
 }
 
 // Cria mov_entrada para peça/serviço terceiro com produtoId (catálogo).
@@ -687,32 +1104,63 @@ function registrarRotasOS(app, db) {
 
   app.get('/api/os', (req, res) => {
     try {
-      const { clienteId, tecnicoId, status, q, dataIni, dataFim, limit } = req.query;
-      let sql = `
-        SELECT o.*, p.razaoSocial AS clienteNome, t.username AS tecnicoNome, t.nome AS tecnicoNomeExibicao
+      const { clienteId, tecnicoId, status, q, dataIni, dataFim, tipoId, limit } = req.query;
+      const de = `
         FROM os_ordens o
         JOIN pessoas p ON p.id = o.clienteId
         LEFT JOIN users t ON t.id = o.tecnicoId
+        LEFT JOIN os_tipos tp ON tp.id = o.tipoId
         WHERE 1=1
       `;
+      let filtros = '';
       const params = [];
-      if (clienteId) { sql += ' AND o.clienteId = ?'; params.push(Number(clienteId)); }
-      if (tecnicoId) { sql += ' AND o.tecnicoId = ?'; params.push(Number(tecnicoId)); }
-      if (status)    { sql += ' AND o.status = ?';    params.push(status); }
-      if (dataIni)   { sql += ' AND o.dataAbertura >= ?'; params.push(dataIni); }
-      if (dataFim)   { sql += ' AND o.dataAbertura <= ?'; params.push(dataFim + ' 23:59:59'); }
-      if (q)         { sql += ' AND (o.numero LIKE ? OR o.titulo LIKE ? OR p.razaoSocial LIKE ? OR o.equipamento LIKE ?)';
-                       const like = `%${q}%`; params.push(like, like, like, like); }
-      // Filtro SLA em risco (só aplica quando explicitamente requisitado)
-      const slaFiltro = req.query.sla; // 'risco' | 'atrasado' | 'no-prazo'
-      sql += ' ORDER BY o.id DESC LIMIT ?';
-      params.push(Number(limit) || 200);
-      let ordens = db.prepare(sql).all(...params);
+      if (clienteId) { filtros += ' AND o.clienteId = ?'; params.push(Number(clienteId)); }
+      if (tecnicoId) { filtros += ' AND o.tecnicoId = ?'; params.push(Number(tecnicoId)); }
+      if (tipoId)    { filtros += ' AND o.tipoId = ?';    params.push(Number(tipoId)); }
+      if (status)    { filtros += ' AND o.status = ?';    params.push(status); }
+      if (dataIni)   { filtros += ' AND o.dataAbertura >= ?'; params.push(dataIni); }
+      if (dataFim)   { filtros += ' AND o.dataAbertura <= ?'; params.push(dataFim + ' 23:59:59'); }
+      // Cliente não entra aqui: quem filtra por cliente é o `clienteId`, por id
+      // exato. Ter os dois duplicava o filtro na tela, e o LIKE em razaoSocial
+      // ainda casava homônimo que o autocomplete já resolve.
+      if (q)         { filtros += ' AND (o.numero LIKE ? OR o.titulo LIKE ? OR o.equipamento LIKE ?)';
+                       const like = `%${q}%`; params.push(like, like, like); }
 
-      // Fase 9.4: anexa slaStatus calculado dinamicamente (não depende
-      // do scheduler ter rodado ainda).
-      for (const o of ordens) o.slaStatus = calcSlaStatus(o);
-      if (slaFiltro) ordens = ordens.filter(o => o.slaStatus === slaFiltro);
+      const colunas = `SELECT o.*, p.razaoSocial AS clienteNome,
+                       t.username AS tecnicoNome, t.nome AS tecnicoNomeExibicao,
+                       tp.nome AS tipoNome, tp.cor AS tipoCor `;
+      const slaFiltro = req.query.sla; // 'risco' | 'atrasado' | 'no-prazo'
+      const porPagina = Math.min(500, Math.max(1, Number(limit) || 50));
+      const pagina = Math.max(1, Number(req.query.pagina) || 1);
+
+      // Ordenação: whitelist de expressão SQL por chave. Interpolar o nome
+      // vindo da query seria injeção — aqui a query só escolhe um item do mapa.
+      const ORDENS = {
+        numero: 'o.numero', cliente: 'p.razaoSocial', titulo: 'o.titulo',
+        tipo: 'tp.nome', tecnico: 'COALESCE(t.nome, t.username)', status: 'o.status',
+        prazo: 'o.dataPromessa', aberta: 'o.dataAbertura', total: 'o.valorTotal',
+      };
+      const colOrd = ORDENS[req.query.ordem] || 'o.id';
+      const dirOrd = String(req.query.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+      const orderBy = ` ORDER BY ${colOrd} ${dirOrd}` + (colOrd === 'o.id' ? '' : ', o.id DESC');
+
+      // Fase 9.4: slaStatus é calculado em JS (não depende do scheduler ter
+      // rodado). Por isso o filtro de SLA não cabe no WHERE: com LIMIT/OFFSET
+      // no SQL ele filtraria só a página, devolvendo página e total errados.
+      // Nesse caso carrega o conjunto filtrado e pagina em memória.
+      let ordens, total;
+      if (slaFiltro) {
+        const todas = db.prepare(colunas + de + filtros + orderBy).all(...params);
+        for (const o of todas) o.slaStatus = calcSlaStatus(o);
+        const casadas = todas.filter((o) => o.slaStatus === slaFiltro);
+        total = casadas.length;
+        ordens = casadas.slice((pagina - 1) * porPagina, pagina * porPagina);
+      } else {
+        total = db.prepare('SELECT COUNT(*) AS n ' + de + filtros).get(...params).n;
+        ordens = db.prepare(colunas + de + filtros + orderBy + ' LIMIT ? OFFSET ?')
+          .all(...params, porPagina, (pagina - 1) * porPagina);
+        for (const o of ordens) o.slaStatus = calcSlaStatus(o);
+      }
 
       const kpis = db.prepare(`
         SELECT
@@ -742,7 +1190,10 @@ function registrarRotasOS(app, db) {
         else if (s === 'cumprido') slaKpis.cumpridas++;
         else if (s === 'estourado') slaKpis.estouradas++;
       }
-      res.json({ success: true, ordens, kpis: { ...kpis, ...slaKpis }, status: STATUS });
+      res.json({
+        success: true, ordens, kpis: { ...kpis, ...slaKpis }, status: STATUS,
+        total, pagina, porPagina, paginas: Math.max(1, Math.ceil(total / porPagina)),
+      });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -814,11 +1265,17 @@ function registrarRotasOS(app, db) {
                p.email AS clienteEmail, p.telefone AS clienteTelefone,
                t.username AS tecnicoNome, t.nome AS tecnicoNomeExibicao,
                e.descricao AS equipamentoDescricao, e.numeroSerie AS equipamentoSerie,
-               e.marca AS equipamentoMarca, e.modelo AS equipamentoModelo
+               e.marca AS equipamentoMarca, e.modelo AS equipamentoModelo,
+               ot.nome AS tipoNome, ot.deslocamentoModo, ot.deslocamentoValorKm,
+               ot.deslocamentoValorFixo, ot.faturarPara,
+               ot.servicoCalculoModo, ot.servicoValorHoraPadrao, ot.permiteAlterarCalculoServico,
+               pg.razaoSocial AS pagadorNome, pg.cpfCnpj AS pagadorCpfCnpj
         FROM os_ordens o
         JOIN pessoas p ON p.id = o.clienteId
         LEFT JOIN users t ON t.id = o.tecnicoId
         LEFT JOIN equipamentos e ON e.id = o.equipamentoId
+        LEFT JOIN os_tipos ot ON ot.id = o.tipoId
+        LEFT JOIN pessoas pg ON pg.id = o.pagadorId
         WHERE o.id = ?
       `).get(req.params.id);
       if (!os) return res.status(404).json({ success: false, error: 'OS não encontrada' });
@@ -842,6 +1299,25 @@ function registrarRotasOS(app, db) {
         LEFT JOIN pessoas f ON f.id = pi.fornecedorId
         LEFT JOIN contas_a_pagar cp ON cp.id = pi.contasPagarId
         WHERE pi.osId = ? ORDER BY pi.id
+      `).all(os.id);
+      // Números de série aplicados: serialIds guarda ids, não os números.
+      // Sem esta resolução a visão "com nº de série" mostraria ids crus.
+      for (const p of pecas) {
+        p.seriais = [];
+        if (!p.serialIds) continue;
+        try {
+          const ids = JSON.parse(p.serialIds) || [];
+          if (ids.length) {
+            p.seriais = db.prepare(
+              `SELECT id, numeroSerie FROM serial_numbers WHERE id IN (${ids.map(() => '?').join(',')})`
+            ).all(...ids);
+          }
+        } catch (_) { /* json inválido em linha antiga */ }
+      }
+      const pecasDefeito = db.prepare(`
+        SELECT d.*, pr.sku FROM os_pecas_defeito d
+        LEFT JOIN produtos pr ON pr.id = d.produtoId
+        WHERE d.osId = ? ORDER BY d.id
       `).all(os.id);
       const servicos = db.prepare(`
         SELECT i.*,
@@ -889,8 +1365,13 @@ function registrarRotasOS(app, db) {
       os.slaStatus = calcSlaStatus(os);
 
       res.json({
-        success: true, os, pecas, servicos, apontamentos, contasReceber,
+        success: true, os, pecas, pecasDefeito, servicos, apontamentos, contasReceber,
         tipo, checklist, anexos, eventos, reservasAtivas, equipamentoFicha,
+        // A tela mostra o que o tipo determina (emite nota? cobra?) no lugar
+        // do antigo checkbox por OS.
+        tipoOperacao: os.tipoOperacaoId
+          ? db.prepare('SELECT id, codigo, descricao, emiteNFe, geraFinanceiro FROM tipos_operacao WHERE id = ?').get(os.tipoOperacaoId)
+          : null,
       });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -910,6 +1391,8 @@ function registrarRotasOS(app, db) {
         enderecoExecucao, numeroExecucao, complementoExecucao, bairroExecucao,
         municipioExecucao, ufExecucao, cepExecucao,
         prazoSLADias, dataPromessa,
+        kmPercorrido, valorDeslocamento,
+        pagadorId,
       } = req.body;
 
       if (!clienteId || !titulo) return res.status(400).json({ success: false, error: 'clienteId e titulo obrigatórios' });
@@ -924,8 +1407,10 @@ function registrarRotasOS(app, db) {
         if (!tipo) return res.status(400).json({ success: false, error: 'tipoId inválido ou inativo' });
       }
 
-      // Validação de endereço quando o tipo exige (ex.: OS de campo)
-      if (tipo && tipo.exigeEnderecoExec && !enderecoExecucao) {
+      // Validação de endereço quando o tipo exige (ex.: OS de campo).
+      // localPrestacao 'externo' implica o mesmo: serviço fora não tem onde
+      // acontecer sem endereço.
+      if (tipo && (tipo.exigeEnderecoExec || tipo.localPrestacao === 'externo') && !enderecoExecucao) {
         return res.status(400).json({ success: false, error: `Tipo "${tipo.nome}" exige endereço de execução` });
       }
 
@@ -941,19 +1426,15 @@ function registrarRotasOS(app, db) {
         }).id;
       }
 
-      // Garantia: se osPaiId e dentro do período, marca emGarantia e força ambienteFiscal='interno'
+      // Garantia: retorno dentro do prazo não cobra nem emite nota.
       let emGarantia = 0;
       let osPaiFinal = osPaiId || null;
-      let ambienteFiscal = tipo ? tipo.modoFiscal : 'sefaz';
       if (osPaiId) {
         const pai = db.prepare('SELECT dataFaturamento, garantiaDias FROM os_ordens WHERE id = ?').get(osPaiId);
         if (pai && pai.dataFaturamento && pai.garantiaDias > 0) {
           const limiteGarantia = new Date(pai.dataFaturamento);
           limiteGarantia.setDate(limiteGarantia.getDate() + pai.garantiaDias);
-          if (Date.now() <= limiteGarantia.getTime()) {
-            emGarantia = 1;
-            ambienteFiscal = 'interno'; // OS de garantia não cobra
-          }
+          if (Date.now() <= limiteGarantia.getTime()) emGarantia = 1;
         }
       } else if (equipamentoIdFinal) {
         // Sem OS pai informada: o próprio equipamento diz se está em
@@ -963,23 +1444,32 @@ function registrarRotasOS(app, db) {
         if (ficha?.garantiaVigente) {
           emGarantia = 1;
           osPaiFinal = ficha.garantiaVigente.osId;
-          ambienteFiscal = 'interno';
         }
       }
-
-      // Resolução do tipoOperacaoId: body > default do os_tipo > derivado das flags legado.
-      //   emGarantia → OS-GARANTIA
-      //   naoEmitirNFe / ambienteFiscal='interno' → OS-INTERNA
-      //   caso normal → OS-NORMAL
-      let tipoOperacaoFinal = tipoOperacaoId || tipo?.tipoOperacaoPadraoId || null;
-      if (!tipoOperacaoFinal) {
-        let codigoAlvo;
-        if (emGarantia) codigoAlvo = 'OS-GARANTIA';
-        else if (naoEmitirNFe || ambienteFiscal === 'interno' || ambienteFiscal === 'nenhum') codigoAlvo = 'OS-INTERNA';
-        else codigoAlvo = 'OS-NORMAL';
-        const t = db.prepare('SELECT id FROM tipos_operacao WHERE codigo = ? AND ativo = 1').get(codigoAlvo);
-        tipoOperacaoFinal = t?.id || null;
+      // A natureza do tipo também decide: OS aberta como garantia é garantia
+      // mesmo sem OS pai nem equipamento com cobertura vigente.
+      if (!emGarantia && tipo && ['garantia-propria', 'garantia-fabrica'].includes(tipo.natureza)) {
+        emGarantia = 1;
       }
+
+      // Tipo de Operação: body > padrão do Tipo de OS. Garantia sobrepõe,
+      // porque retorno em garantia não cobra qualquer que seja o tipo.
+      let tipoOperacaoFinal = tipoOperacaoId || tipo?.tipoOperacaoPadraoId || null;
+      if (emGarantia) {
+        const g = db.prepare("SELECT id FROM tipos_operacao WHERE codigo = 'OS-GARANTIA' AND ativo = 1").get();
+        if (g) tipoOperacaoFinal = g.id;
+      }
+      // Sem operação não há como saber se a OS cobra ou emite nota. Em vez de
+      // adivinhar, recusa e aponta o cadastro que falta.
+      if (!tipoOperacaoFinal) {
+        return res.status(400).json({ success: false, error: tipo
+          ? `Tipo de OS "${tipo.nome}" está sem Tipo de Operação padrão. Defina em Ordens de Serviço › Tipos de OS.`
+          : 'Informe o tipo de OS (ele define o tratamento fiscal e financeiro).' });
+      }
+      // ambienteFiscal é legado: fica coerente com a operação para não
+      // contradizer relatórios antigos que ainda leem a coluna.
+      const opEscolhida = db.prepare('SELECT emiteNFe FROM tipos_operacao WHERE id = ?').get(tipoOperacaoFinal);
+      const ambienteFiscal = opEscolhida && !opEscolhida.emiteNFe ? 'interno' : 'sefaz';
 
       // Status inicial: se o tipo exige orçamento aprovado → rascunho; senão → aberta.
       const statusInicial = (tipo && tipo.exigeOrcamentoAprovado) ? 'rascunho' : 'aberta';
@@ -993,6 +1483,11 @@ function registrarRotasOS(app, db) {
         d.setDate(d.getDate() + Number(sla));
         promessa = d.toISOString().slice(0, 10);
       }
+      // Tipo que obriga data prevista: sem promessa (informada ou derivada do
+      // SLA) a OS não abre — é o prazo que o cliente ouviu no balcão.
+      if (tipo && tipo.obrigarDataPrevista && !promessa) {
+        return res.status(400).json({ success: false, error: `Tipo "${tipo.nome}" exige data prevista de conclusão` });
+      }
 
       const numero = gerarNumero(db);
       const newId = db.transaction(() => {
@@ -1005,9 +1500,10 @@ function registrarRotasOS(app, db) {
             enderecoExecucao, numeroExecucao, complementoExecucao, bairroExecucao,
             municipioExecucao, ufExecucao, cepExecucao,
             prazoSLADias, dataPromessa,
-            orcamentoStatus, emGarantia, ambienteFiscal, tipoOperacaoId, equipamentoId, depositoId
+            orcamentoStatus, emGarantia, ambienteFiscal, tipoOperacaoId, equipamentoId, depositoId,
+            kmPercorrido, valorDeslocamento, pagadorId
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           numero, clienteId, tecnicoId || null, statusInicial, titulo,
           equipamento || null, marca || null, modelo || null, numeroSerieEquipamento || null,
@@ -1018,7 +1514,10 @@ function registrarRotasOS(app, db) {
           municipioExecucao || null, ufExecucao || null, cepExecucao || null,
           sla || null, promessa,
           orcamentoStatus, emGarantia, ambienteFiscal, tipoOperacaoFinal, equipamentoIdFinal,
-          depositoIdBody ? Number(depositoIdBody) : resolverDeposito(db, {})
+          depositoIdBody ? Number(depositoIdBody) : resolverDeposito(db, {}),
+          kmPercorrido != null && kmPercorrido !== '' ? Number(kmPercorrido) : null,
+          valorDeslocamento != null && valorDeslocamento !== '' ? Number(valorDeslocamento) : null,
+          pagadorId != null && pagadorId !== '' ? Number(pagadorId) : null
         );
         const id = r.lastInsertRowid;
 
@@ -1033,6 +1532,11 @@ function registrarRotasOS(app, db) {
             }
           } catch (_) { /* JSON inválido — ignora */ }
         }
+
+        // Deslocamento cobrável do tipo: se já veio km na abertura, a linha
+        // de serviço nasce junto (e o total sai certo desde o começo).
+        sincronizarDeslocamento(db, id);
+        recalcTotais(db, id);
 
         registrarEvento(db, id, 'abertura', `OS ${numero} aberta${tipo ? ` (tipo: ${tipo.nome})` : ''}`, req.user?.username, {
           clienteId, tipoId: tipoId || null, status: statusInicial, emGarantia,
@@ -1056,7 +1560,29 @@ function registrarRotasOS(app, db) {
       if (os.status === 'cancelada') return res.status(400).json({ success: false, error: 'OS cancelada' });
       const camposValidos = ['tecnicoId','titulo','equipamento','marca','modelo','numeroSerieEquipamento',
                              'defeitoRelatado','diagnostico','solucao','garantiaDias','observacoes',
-                             'formaPagamento','dataVencimento','numeroParcelas','naoEmitirNFe','tipoOperacaoId'];
+                             'formaPagamento','dataVencimento','numeroParcelas','naoEmitirNFe','tipoOperacaoId',
+                             'kmPercorrido','valorDeslocamento','valorDesconto','politicaPrazoId','pagadorId'];
+      // Condição de pagamento: mesma regra do faturamento — a política do
+      // cliente, quando existe, é obrigatória e nenhuma outra é aceita.
+      if (req.body.politicaPrazoId !== undefined || req.body.formaPagamento !== undefined) {
+        const { politica, erro } = resolverPolitica(db, os.clienteId,
+          req.body.politicaPrazoId !== undefined ? req.body.politicaPrazoId : os.politicaPrazoId);
+        if (erro) return res.status(400).json({ success: false, error: erro });
+        const meio = req.body.formaPagamento !== undefined ? req.body.formaPagamento : os.formaPagamento;
+        const meiosOk = meiosDaPolitica(politica);
+        if (meio && meiosOk && !meiosOk.includes(String(meio))) {
+          return res.status(400).json({ success: false,
+            error: `Condição "${politica.nome}" não aceita esse meio de recebimento` });
+        }
+      }
+      if (req.body.valorDesconto !== undefined) {
+        const d = Number(req.body.valorDesconto) || 0;
+        const bruto = (Number(os.valorPecas) || 0) + (Number(os.valorServicos) || 0);
+        if (d < 0) return res.status(400).json({ success: false, error: 'Desconto não pode ser negativo' });
+        if (d > bruto) {
+          return res.status(400).json({ success: false, error: `Desconto (${d.toFixed(2)}) maior que o valor da OS (${bruto.toFixed(2)})` });
+        }
+      }
       if (req.body.formaPagamento !== undefined) {
         const erroMeio = erroMeioPermitido(db, os.clienteId, req.body.formaPagamento);
         if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
@@ -1068,6 +1594,19 @@ function registrarRotasOS(app, db) {
       if (sets.length) {
         vals.push(os.id);
         db.prepare(`UPDATE os_ordens SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+        // Km mudou → o deslocamento cobrável do tipo é recalculado. Quando o
+        // tipo cobra, o valorDeslocamento enviado no body é descartado: quem
+        // manda no preço é a regra do tipo, não quem digitou.
+        if (req.body.kmPercorrido !== undefined || req.body.valorDeslocamento !== undefined) {
+          sincronizarDeslocamento(db, os.id);
+        }
+        // O desconto de capa entra no valorTotal — sem isto a OS ficaria com o
+        // total velho até o próximo item mexido.
+        if (req.body.valorDesconto !== undefined
+            || req.body.kmPercorrido !== undefined
+            || req.body.valorDeslocamento !== undefined) {
+          recalcTotais(db, os.id);
+        }
         logAction(db, req, 'editar', 'os', os.id, req.body);
       }
       res.json({ success: true });
@@ -1154,22 +1693,48 @@ function registrarRotasOS(app, db) {
         });
       }
 
+      const tipoOS = os.tipoId
+        ? db.prepare('SELECT * FROM os_tipos WHERE id = ?').get(os.tipoId)
+        : null;
+
       // Fase 9.1: valida assinatura do cliente se o tipo exigir
-      if (os.tipoId) {
-        const tipo = db.prepare('SELECT exigeAssinaturaCliente, nome FROM os_tipos WHERE id = ?').get(os.tipoId);
-        if (tipo && tipo.exigeAssinaturaCliente && !os.assinaturaClienteDataUrl) {
-          return res.status(400).json({
-            success: false,
-            error: `Tipo "${tipo.nome}" exige assinatura do cliente antes de concluir`,
-          });
+      if (tipoOS && tipoOS.exigeAssinaturaCliente && !os.assinaturaClienteDataUrl) {
+        return res.status(400).json({
+          success: false,
+          error: `Tipo "${tipoOS.nome}" exige assinatura do cliente antes de concluir`,
+        });
+      }
+
+      // Fase 3: regras de encerramento do tipo. Levanta tudo antes de agir —
+      // um único 400 lista todas as pendências que barram, em vez de o
+      // usuário descobrir uma por vez.
+      const pendencias = coletarPendenciasOS(db, os, tipoOS);
+      const bloqueios = [];
+      const paraPerder = [];
+      for (const cat of CATEGORIAS_ENCERRAMENTO) {
+        const achados = pendencias[cat.chave] || [];
+        if (!achados.length) continue;
+        const regra = (tipoOS && tipoOS[cat.chave]) || 'permitido';
+        if (regra === 'bloqueado') {
+          bloqueios.push({ categoria: cat.chave, rotulo: cat.rotulo, itens: achados });
+        } else if (regra === 'venda-perdida' && cat.perda) {
+          paraPerder.push(...achados);
         }
+      }
+      if (bloqueios.length) {
+        const resumo = bloqueios.map(b => `${b.itens.length} ${b.rotulo}`).join('; ');
+        return res.status(400).json({
+          success: false,
+          error: `Tipo "${tipoOS.nome}" não permite concluir com ${resumo}`,
+          pendencias: bloqueios,
+        });
       }
 
       const pecas = db.prepare(`
         SELECT pi.*, pr.sku, pr.rastreiaLote, pr.rastreiaSerial
         FROM os_itens_pecas pi
         JOIN produtos pr ON pr.id = pi.produtoId
-        WHERE pi.osId = ?
+        WHERE pi.osId = ? AND COALESCE(pi.situacao,'confirmado') = 'confirmado'
       `).all(os.id);
 
       // Validações de rastreabilidade (lote/serial)
@@ -1193,6 +1758,7 @@ function registrarRotasOS(app, db) {
 
       // Peças próprias (com estoque) — terceiros têm fluxo separado mais abaixo.
       const pecasProprias = pecas.filter(p => !p.compradoTerceiro);
+      let perdasRegistradas = 0;
       const trx = db.transaction(() => {
         if (baixar && pecasProprias.length) {
           if (temReservas) {
@@ -1242,14 +1808,18 @@ function registrarRotasOS(app, db) {
                  solucao = COALESCE(?, solucao)
            WHERE id = ?
         `).run(solucao || null, os.id);
+
+        // Na mesma transação da conclusão: ou a OS fecha com as perdas
+        // registradas, ou nada acontece.
+        perdasRegistradas = registrarPerdasDaOS(db, os, paraPerder, req.user?.username);
       });
       trx();
 
       registrarEvento(db, os.id, 'conclusao', solucao || 'OS concluída', req.user?.username, {
-        pecas: pecas.length, viaReservas: temReservas, baixouEstoque: baixar,
+        pecas: pecas.length, viaReservas: temReservas, baixouEstoque: baixar, perdasRegistradas,
       });
-      logAction(db, req, 'concluir', 'os', os.id, { baixouEstoque: baixar, pecas: pecas.length, viaReservas: temReservas });
-      res.json({ success: true, viaReservas: temReservas });
+      logAction(db, req, 'concluir', 'os', os.id, { baixouEstoque: baixar, pecas: pecas.length, viaReservas: temReservas, perdasRegistradas });
+      res.json({ success: true, viaReservas: temReservas, vendasPerdidas: perdasRegistradas });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
@@ -1322,12 +1892,17 @@ function registrarRotasOS(app, db) {
     try {
       const os = db.prepare('SELECT * FROM os_ordens WHERE id = ?').get(osId);
       if (!os) return { success: false, error: 'OS não encontrada' };
-      const servicos = db.prepare('SELECT * FROM os_itens_servicos WHERE osId = ?').all(osId);
+      const servicos = db.prepare(`SELECT * FROM os_itens_servicos WHERE osId = ?${SO_CONFIRMADOS}`).all(osId);
       if (!servicos.length) return { success: true, skipped: true, reason: 'sem serviços' };
       const jaEmitida = db.prepare(`SELECT id FROM nfse WHERE osId = ? AND status IN ('autorizada','processando','nao_fiscal')`).get(osId);
       if (jaEmitida) return { success: true, skipped: true, reason: 'nfse já emitida', nfseId: jaEmitida.id };
 
-      const cliente = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(os.clienteId);
+      // Tomador da NFS-e é quem paga, não necessariamente o cliente da OS
+      // (garantia de fábrica, sinistro de seguradora).
+      const tipoNfse = os.tipoId ? db.prepare('SELECT nome, faturarPara FROM os_tipos WHERE id = ?').get(os.tipoId) : null;
+      const pagNfse = resolverPagadorOS(db, os, tipoNfse);
+      if (pagNfse.erro) return { success: false, error: pagNfse.erro };
+      const cliente = db.prepare('SELECT * FROM pessoas WHERE id = ?').get(pagNfse.pagadorId);
       if (!cliente) return { success: false, error: 'Cliente não encontrado' };
 
       const b = body || {};
@@ -1348,7 +1923,10 @@ function registrarRotasOS(app, db) {
         servicoFiscalDominante?.codigoTributacaoNacional
         || b.codigoTributacaoNacional
         || db.prepare("SELECT value FROM nfse_config WHERE key = 'codigo_tributacao_default'").get()?.value;
-      if (!codigoTributacaoNacional) {
+      // Só exigido quando a nota vai mesmo para a SEFIN. Documento interno
+      // (garantia, cortesia) não precisa de código de tributação — cobrar isso
+      // impedia encerrar OS interna em tenant sem config fiscal.
+      if (!codigoTributacaoNacional && regraDaOS(db, os).emiteNFe) {
         return { success: false, error: 'codigoTributacaoNacional padrão não configurado em NFSe > Config' };
       }
       const codigoListaServico = servicoFiscalDominante?.codigoListaServico || b.codigoListaServico || null;
@@ -1358,13 +1936,18 @@ function registrarRotasOS(app, db) {
       const descricaoAgregada = servicos.map(s => `${s.descricao}${s.horas ? ` (${s.horas}h)` : ''}`).join(' | ').substring(0, 500);
       const valorTotalServicos = servicos.reduce((sum, s) => sum + (Number(s.valorTotal) || 0), 0);
 
-      // Decisão: sefaz vs interno. Precedência: tipoOperacao.emiteNFe > ambienteFiscal > naoEmitirNFe.
-      const tipoOp = os.tipoOperacaoId
-        ? db.prepare('SELECT emiteNFe FROM tipos_operacao WHERE id = ?').get(os.tipoOperacaoId)
-        : null;
-      const modo = tipoOp
-        ? (tipoOp.emiteNFe ? 'sefaz' : 'interno')
-        : (os.ambienteFiscal || (os.naoEmitirNFe ? 'interno' : 'sefaz'));
+      // Desconto de capa: a parte que cabe aos serviços vai como desconto
+      // INCONDICIONADO (vDescIncond) — é abatimento já concedido, sem condição
+      // futura, e por isso reduz a base do ISSQN. O desconto de item não entra
+      // aqui: ele já está embutido no valorTotal de cada serviço.
+      const pecasBrutoNfse = Number(os.valorPecas) || 0;
+      const descontoNfse = ratearDesconto(
+        pecasBrutoNfse, valorTotalServicos,
+        Math.min(Number(os.valorDesconto) || 0, pecasBrutoNfse + valorTotalServicos)
+      ).servicos;
+
+      // Decisão fiscal: só o Tipo de Operação, herdado do Tipo de OS.
+      const modo = regraDaOS(db, os).emiteNFe ? 'sefaz' : 'interno';
 
       if (modo === 'interno' || modo === 'nenhum') {
         const stubId = db.prepare(`
@@ -1404,6 +1987,7 @@ function registrarRotasOS(app, db) {
           xNBS,
           descricao: `OS ${os.numero} — ${descricaoAgregada}`,
           valorServico: valorTotalServicos,
+          descontoIncondicionado: descontoNfse,
           aliquota: Number(b.aliquota) || null,
         },
       });
@@ -1426,13 +2010,27 @@ function registrarRotasOS(app, db) {
       const pecas = db.prepare(`
         SELECT pi.*, pr.sku, pr.unidade, pr.ncm, pr.cfopPadrao AS cfop, pr.origem
         FROM os_itens_pecas pi LEFT JOIN produtos pr ON pr.id = pi.produtoId
-        WHERE pi.osId = ?
+        WHERE pi.osId = ? AND COALESCE(pi.situacao,'confirmado') = 'confirmado'
       `).all(osId);
       if (!pecas.length) return { success: true, skipped: true, reason: 'sem peças' };
       const jaEmitida = db.prepare(`SELECT id FROM faturas WHERE osId = ? AND statusSefaz IN ('autorizada','nao_fiscal','processando')`).get(osId);
       if (jaEmitida) return { success: true, skipped: true, reason: 'fatura já existe', faturaId: jaEmitida.id };
 
+      // Destinatário da NF-e de peças: mesmo pagador da OS.
+      const tipoNfe = os.tipoId ? db.prepare('SELECT nome, faturarPara FROM os_tipos WHERE id = ?').get(os.tipoId) : null;
+      const pagNfe = resolverPagadorOS(db, os, tipoNfe);
+      if (pagNfe.erro) return { success: false, error: pagNfe.erro };
+      const clienteFatura = pagNfe.pagadorId;
+
       const valorBruto = pecas.reduce((s, p) => s + Number(p.valorTotal), 0);
+      // Parte do desconto de capa que cabe às peças. Vai para faturas.valorDesconto,
+      // que o emissor já converte em <vDesc> do ICMSTot (nfe-emit-routes.js:513),
+      // com vNF = vProd + vFrete − vDesc.
+      const servicosBrutoNfe = Number(os.valorServicos) || 0;
+      const descontoNfe = ratearDesconto(
+        valorBruto, servicosBrutoNfe,
+        Math.min(Number(os.valorDesconto) || 0, valorBruto + servicosBrutoNfe)
+      ).pecas;
       const dataEmissao = new Date().toISOString().slice(0, 10);
       const dataVencimento = os.dataVencimento || dataEmissao;
 
@@ -1441,22 +2039,17 @@ function registrarRotasOS(app, db) {
       if (ultimaFat) { const m = String(ultimaFat.numero).match(/(\d+)/); if (m) numFat = parseInt(m[1], 10) + 1; }
       const numeroFatura = String(numFat).padStart(6, '0');
 
-      const tipoOpPecas = os.tipoOperacaoId
-        ? db.prepare('SELECT emiteNFe FROM tipos_operacao WHERE id = ?').get(os.tipoOperacaoId)
-        : null;
-      const modo = tipoOpPecas
-        ? (tipoOpPecas.emiteNFe ? 'sefaz' : 'interno')
-        : (os.ambienteFiscal || (os.naoEmitirNFe ? 'interno' : 'sefaz'));
-      const statusSefazInicial = (modo === 'interno' || modo === 'nenhum') ? 'nao_fiscal' : null;
+      const modo = regraDaOS(db, os).emiteNFe ? 'sefaz' : 'interno';
+      const statusSefazInicial = modo === 'interno' ? 'nao_fiscal' : null;
 
       const faturaId = db.transaction(() => {
         const fId = db.prepare(`
           INSERT INTO faturas (numero, pedidoId, osId, clienteId, dataEmissao, dataVencimento,
             valorBruto, valorFrete, valorDesconto, valorTotal, meioPagamento, observacao, statusSefaz,
             tipoOperacaoId)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
-        `).run(numeroFatura, os.pedidoId, osId, os.clienteId, dataEmissao, dataVencimento,
-          valorBruto, valorBruto, os.formaPagamento || null,
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+        `).run(numeroFatura, os.pedidoId, osId, clienteFatura, dataEmissao, dataVencimento,
+          valorBruto, descontoNfe, Number((valorBruto - descontoNfe).toFixed(2)), os.formaPagamento || null,
           `OS ${os.numero} — peças`, statusSefazInicial,
           os.tipoOperacaoId || null
         ).lastInsertRowid;
@@ -1504,43 +2097,112 @@ function registrarRotasOS(app, db) {
       if (os.status !== 'concluida') return res.status(400).json({ success: false, error: 'OS deve estar concluída' });
       if (os.pedidoId) return res.status(400).json({ success: false, error: 'OS já faturada (pedido #'+os.pedidoId+')' });
 
-      const pecas = db.prepare('SELECT * FROM os_itens_pecas WHERE osId = ?').all(os.id);
-      const servicos = db.prepare('SELECT * FROM os_itens_servicos WHERE osId = ?').all(os.id);
-      if (!pecas.length && !servicos.length) return res.status(400).json({ success: false, error: 'OS sem peças nem serviços' });
+      const tipoFat = os.tipoId ? db.prepare('SELECT * FROM os_tipos WHERE id = ?').get(os.tipoId) : null;
+
+      // Tipo que não fatura (consumo interno, retrabalho, transferência):
+      // a OS existe para registrar o custo, não para virar dinheiro.
+      if (tipoFat && tipoFat.bloqueiaFaturamento) {
+        return res.status(400).json({ success: false, error: `Tipo "${tipoFat.nome}" não fatura` });
+      }
+
+      // Só confirmados: item orçado não vira pedido, conta a receber nem nota.
+      const pecas = db.prepare(`SELECT * FROM os_itens_pecas WHERE osId = ?${SO_CONFIRMADOS}`).all(os.id);
+      const servicos = db.prepare(`SELECT * FROM os_itens_servicos WHERE osId = ?${SO_CONFIRMADOS}`).all(os.id);
+      if (!pecas.length && !servicos.length) {
+        const orcados = db.prepare(`SELECT
+            (SELECT COUNT(*) FROM os_itens_pecas WHERE osId = ? AND situacao='orcado') +
+            (SELECT COUNT(*) FROM os_itens_servicos WHERE osId = ? AND situacao='orcado') AS n`).get(os.id, os.id).n;
+        return res.status(400).json({ success: false, error: orcados
+          ? `OS só tem itens orçados (${orcados}). Confirme os itens antes de faturar.`
+          : 'OS sem peças nem serviços' });
+      }
 
       // Parâmetros de faturamento: body tem prioridade, depois os.campos persistidos, depois defaults
       const b = req.body || {};
+
+      // Fase 4: quem paga pode não ser o cliente da OS. Daqui para baixo o
+      // pagador é quem manda em política, meios, prazo, pedido e a receber.
+      const pag = resolverPagadorOS(db, os, tipoFat);
+      if (pag.erro) return res.status(400).json({ success: false, error: pag.erro });
+      const pagadorId = pag.pagadorId;
+
+      // Condição de pagamento manda no prazo, nas parcelas e nos meios aceitos.
+      const { politica, erro: erroPolitica } = resolverPolitica(
+        db, pagadorId, b.politicaPrazoId ?? os.politicaPrazoId);
+      if (erroPolitica) return res.status(400).json({ success: false, error: erroPolitica });
+
       const formaPagamento = b.formaPagamento ?? os.formaPagamento ?? null;
-      const erroMeio = erroMeioPermitido(db, os.clienteId, formaPagamento);
+      const meiosOk = meiosDaPolitica(politica);
+      if (formaPagamento && meiosOk && !meiosOk.includes(String(formaPagamento))) {
+        return res.status(400).json({ success: false,
+          error: `Condição "${politica.nome}" não aceita esse meio de recebimento` });
+      }
+      const erroMeio = erroMeioPermitido(db, pagadorId, formaPagamento);
       if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
+
       const dataHoje = new Date().toISOString().slice(0, 10);
       const addDias = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-      // Prazo do cadastro do cliente ("30/60/90") define vencimento e parcelas
-      // quando a OS e o body não trazem os seus. Sem prazo, segue o +30 de antes.
-      const prazoCliente = prazoDaPessoa(db, os.clienteId);
-      // `||` e não `??`: campo em branco na OS chega como '' e vale por ausente.
-      const vencInformado = (b.dataVencimento || os.dataVencimento) || null;
-      const dataVencimento = vencInformado
-        || addDias(dataHoje, prazoCliente ? prazoCliente[0] : 30);
-      const parcelasInformadas = Number(b.numeroParcelas ?? os.numeroParcelas) || 0;
-      const numeroParcelas = Math.max(1, parcelasInformadas
-        || (!vencInformado && prazoCliente ? prazoCliente.length : 1));
-      // Com prazo do cliente mandando, cada parcela cai no dia dele; senão, o
-      // escalonamento mensal de sempre.
-      const vencDaParcela = (i) => (!vencInformado && !parcelasInformadas && prazoCliente)
-        ? addDias(dataHoje, prazoCliente[i - 1])
-        : addDias(dataVencimento, (i - 1) * 30);
-      const naoEmitirNFe = b.naoEmitirNFe !== undefined ? (b.naoEmitirNFe ? 1 : 0) : (os.naoEmitirNFe ? 1 : 0);
+      // Prazo: da política escolhida ("30/60/90" → 3 parcelas); 'vista' vence
+      // na emissão. Sem política, cai no prazo do cadastro do cliente e, por
+      // fim, no +30 de sempre.
+      const { parsePrazo } = require('./prazo-pagamento');
+      const prazoPolitica = politica
+        ? (politica.tipo === 'vista' ? [0] : (parsePrazo(politica.prazoDias) || null))
+        : null;
+      const prazoCliente = prazoPolitica || prazoDaPessoa(db, pagadorId);
+      // O que o usuário realmente escolheu. `os.numeroParcelas` tem DEFAULT 1
+      // no schema, então tratá-lo como escolha (era o que o `||` fazia) fazia
+      // o prazo parcelado nunca valer: "30/60/90" virava uma parcela só.
+      // Só conta como escolha o que veio no corpo da requisição, ou um número
+      // de parcelas maior que 1 já gravado na OS.
+      const vencEscolhido = b.dataVencimento || os.dataVencimento || null;
+      const parcelasEscolhidas = (b.numeroParcelas != null && b.numeroParcelas !== '')
+        ? Math.max(1, Number(b.numeroParcelas) || 1)
+        : (Number(os.numeroParcelas) > 1 ? Number(os.numeroParcelas) : null);
 
-      // Próximo número de pedido (mesmo padrão usado em pedidos)
-      const ultimo = db.prepare(`SELECT numero FROM pedidos ORDER BY id DESC LIMIT 1`).get();
-      let numPed = 1;
-      if (ultimo) { const m = String(ultimo.numero).match(/(\d+)/); if (m) numPed = parseInt(m[1],10) + 1; }
+      let dataVencimento, numeroParcelas, vencDaParcela;
+      if (!vencEscolhido && !parcelasEscolhidas && prazoCliente) {
+        // Prazo manda: uma parcela por vencimento declarado.
+        dataVencimento = addDias(dataHoje, prazoCliente[0]);
+        numeroParcelas = prazoCliente.length;
+        vencDaParcela = (i) => addDias(dataHoje, prazoCliente[i - 1]);
+      } else {
+        dataVencimento = vencEscolhido
+          || addDias(dataHoje, prazoCliente ? prazoCliente[0] : 30);
+        numeroParcelas = parcelasEscolhidas || 1;
+        vencDaParcela = (i) => addDias(dataVencimento, (i - 1) * 30);
+      }
+      // Quem decide se esta OS vira cobrança é o Tipo de Operação do Tipo de
+      // OS — não mais um checkbox por OS. Com geraFinanceiro=0 (ex.: garantia)
+      // o pedido é criado como DOCUMENTO INTERNO: registra o que foi entregue
+      // e não gera conta a receber nem nota.
+      const regra = regraDaOS(db, os);
+      const naoEmitirNFe = regra.emiteNFe ? 0 : 1;
+
+      // Próximo número de pedido.
+      // O faturamento de OS numera com 6 dígitos ("002028"); o módulo de
+      // pedidos usa outro padrão ("PED-2026-00029") na MESMA tabela. Ler o
+      // último pedido por id e extrair o primeiro grupo de dígitos pegava o
+      // ANO do formato PED- (2026 -> tentava gravar "002027", que já existia)
+      // e o faturamento morria com UNIQUE constraint. Aqui a base é o maior
+      // número entre os que seguem o padrão numérico deste fluxo.
+      const ultimo = db.prepare(
+        `SELECT numero FROM pedidos WHERE numero GLOB '[0-9]*'
+         ORDER BY CAST(numero AS INTEGER) DESC LIMIT 1`
+      ).get();
+      const numPed = ultimo ? parseInt(String(ultimo.numero), 10) + 1 : 1;
       const numeroPedido = String(numPed).padStart(6, '0');
 
       // Cria uma ou mais parcelas de CR para um "slot" (peças ou serviços)
-      const valorPecas = Number(os.valorPecas) || 0;
-      const valorServicos = Number(os.valorServicos) || 0;
+      // Peças/serviços aqui são BRUTOS. O desconto de capa é rateado entre os
+      // dois e cada lado é cobrado/documentado já líquido — é o que mantém
+      // contas a receber, NF-e e NFS-e batendo com o total da OS.
+      const valorPecasBruto = Number(os.valorPecas) || 0;
+      const valorServicosBruto = Number(os.valorServicos) || 0;
+      const descontoCapa = Math.min(Number(os.valorDesconto) || 0, valorPecasBruto + valorServicosBruto);
+      const rateio = ratearDesconto(valorPecasBruto, valorServicosBruto, descontoCapa);
+      const valorPecas = Number((valorPecasBruto - rateio.pecas).toFixed(2));
+      const valorServicos = Number((valorServicosBruto - rateio.servicos).toFixed(2));
       const valorTotal = valorPecas + valorServicos;
 
       const stmtCR = db.prepare(`
@@ -1563,7 +2225,7 @@ function registrarRotasOS(app, db) {
           const desc = numeroParcelas > 1
             ? `OS ${os.numero} — ${origemLabel} (${i}/${numeroParcelas}): ${os.titulo}`
             : `OS ${os.numero} — ${origemLabel}: ${os.titulo}`;
-          const r = stmtCR.run(os.clienteId, os.id, pedidoId, `os_${origem}`, desc, valorParc, dataHoje, venc, formaPagamento);
+          const r = stmtCR.run(pagadorId, os.id, pedidoId, `os_${origem}`, desc, valorParc, dataHoje, venc, formaPagamento);
           ids.push(r.lastInsertRowid);
         }
         return ids;
@@ -1584,7 +2246,7 @@ function registrarRotasOS(app, db) {
         const r = db.prepare(`
           INSERT INTO pedidos (numero, tipo, clienteId, status, dataPedido, valorTotal, observacao, tipoOperacaoId)
           VALUES (?, 'os', ?, 'confirmado', ?, ?, ?, ?)
-        `).run(numeroPedido, os.clienteId, dataHoje, valorTotal,
+        `).run(numeroPedido, pagadorId, dataHoje, valorTotal,
           `Originado da OS ${os.numero}: ${os.titulo}`, pedidoTipoOpId);
         const pedidoId = r.lastInsertRowid;
 
@@ -1599,10 +2261,19 @@ function registrarRotasOS(app, db) {
           stmtItem.run(pedidoId, null, sv.descricao + (sv.horas ? ` (${sv.horas}h)` : ''),
             sv.horas || 1, sv.valorHora || sv.valorTotal, sv.valorTotal);
         }
+        // `pedidos` não tem coluna de desconto: sem esta linha o pedido ficaria
+        // com itens somando mais que o próprio valorTotal, sem nada explicando.
+        if (descontoCapa > 0) {
+          stmtItem.run(pedidoId, null, `Desconto concedido na OS ${os.numero}`, 1, -descontoCapa, -descontoCapa);
+        }
 
         // OS mista → 2 CRs (peças/serviços separados). Caso puro → 1 CR do tipo correspondente.
+        // Sem geraFinanceiro (garantia, cortesia) o pedido fica como documento
+        // interno e nenhuma conta a receber nasce.
         let crIds = [];
-        if (valorPecas > 0 && valorServicos > 0) {
+        if (!regra.geraFinanceiro) {
+          // nada a cobrar
+        } else if (valorPecas > 0 && valorServicos > 0) {
           crIds = crIds.concat(criarCRs(pedidoId, valorPecas, 'pecas'));
           crIds = crIds.concat(criarCRs(pedidoId, valorServicos, 'servicos'));
         } else if (valorPecas > 0) {
@@ -1613,35 +2284,34 @@ function registrarRotasOS(app, db) {
 
         db.prepare(`UPDATE os_ordens SET status = 'faturada', pedidoId = ?, dataFaturamento = CURRENT_TIMESTAMP,
           formaPagamento = ?, dataVencimento = ?, numeroParcelas = ?, naoEmitirNFe = ?,
-          statusFiscal = 'pendente' WHERE id = ?`)
-          .run(pedidoId, formaPagamento, dataVencimento, numeroParcelas, naoEmitirNFe, os.id);
+          politicaPrazoId = ?, statusFiscal = 'pendente' WHERE id = ?`)
+          .run(pedidoId, formaPagamento, dataVencimento, numeroParcelas, naoEmitirNFe,
+            politica ? politica.id : null, os.id);
         return { pedidoId, crIds };
       });
       const { pedidoId, crIds } = trx();
 
-      // Fase 9.3: emissão fiscal automática.
-      // Precedência: tipoOperacao.emiteNFe (novo) > ambienteFiscal (legado) > naoEmitirNFe.
+      // Emissão fiscal: mesma fonte única do resto (Tipo de Operação).
+      // Os helpers criam o registro 'nao_fiscal' quando emiteNFe=0, o que
+      // mantém o documento no histórico sem ir para a SEFAZ/SEFIN.
       const resultadoFiscal = { nfse: null, nfe: null };
-      const tipoOpFat = os.tipoOperacaoId
-        ? db.prepare('SELECT emiteNFe FROM tipos_operacao WHERE id = ?').get(os.tipoOperacaoId)
-        : null;
-      const ambiente = tipoOpFat
-        ? (tipoOpFat.emiteNFe ? 'sefaz' : 'interno')
-        : (os.ambienteFiscal || (naoEmitirNFe ? 'interno' : 'sefaz'));
-      if (ambiente !== 'nenhum') {
-        if (valorServicos > 0) {
-          resultadoFiscal.nfse = await _emitirNfseDaOS(os.id, b.nfseParams || {}, req.user?.username);
-        }
-        if (valorPecas > 0) {
-          resultadoFiscal.nfe = await _emitirNfeDaOS(os.id, req.user?.username);
-        }
+      const ambiente = regra.emiteNFe ? 'sefaz' : 'interno';
+      if (valorServicos > 0) {
+        resultadoFiscal.nfse = await _emitirNfseDaOS(os.id, b.nfseParams || {}, req.user?.username);
+      }
+      if (valorPecas > 0) {
+        resultadoFiscal.nfe = await _emitirNfeDaOS(os.id, req.user?.username);
       }
 
-      registrarEvento(db, os.id, 'faturamento',
-        `OS faturada (pedido #${pedidoId}, ${crIds.length} CR)`, req.user?.username,
-        { pedidoId, crIds, ambienteFiscal: ambiente, fiscal: resultadoFiscal });
-      logAction(db, req, 'faturar', 'os', os.id, { pedidoId, crIds, ambiente, resultadoFiscal });
-      res.json({ success: true, pedidoId, crIds, ambienteFiscal: ambiente, fiscal: resultadoFiscal });
+      const rotulo = regra.geraFinanceiro
+        ? `OS faturada (pedido #${pedidoId}, ${crIds.length} CR)`
+        : `OS encerrada como documento interno (pedido #${pedidoId}, sem cobrança — ${regra.codigo || 'sem operação'})`;
+      registrarEvento(db, os.id, 'faturamento', rotulo, req.user?.username,
+        { pedidoId, crIds, ambienteFiscal: ambiente, operacao: regra.codigo,
+          geraFinanceiro: regra.geraFinanceiro, fiscal: resultadoFiscal });
+      logAction(db, req, 'faturar', 'os', os.id, { pedidoId, crIds, ambiente, operacao: regra.codigo, resultadoFiscal });
+      res.json({ success: true, pedidoId, crIds, ambienteFiscal: ambiente,
+        operacao: regra.codigo, geraFinanceiro: regra.geraFinanceiro, fiscal: resultadoFiscal });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
@@ -1691,6 +2361,11 @@ function registrarRotasOS(app, db) {
       if (!quantidade || valorUnitario == null) {
         return res.status(400).json({ success: false, error: 'quantidade e valorUnitario obrigatórios' });
       }
+      const desconto = Number(req.body.desconto) || 0;
+      if (desconto < 0) return res.status(400).json({ success: false, error: 'Desconto não pode ser negativo' });
+      if (desconto > qtd * valor) {
+        return res.status(400).json({ success: false, error: 'Desconto maior que o valor do item' });
+      }
       if (terceiro) {
         if (!descricao) return res.status(400).json({ success: false, error: 'Descrição obrigatória para peça de terceiro' });
         if (!fornecedorId || custoTerceiro == null) {
@@ -1702,11 +2377,12 @@ function registrarRotasOS(app, db) {
 
       const newId = db.transaction(() => {
         const r = db.prepare(`
-          INSERT INTO os_itens_pecas (osId, produtoId, descricao, quantidade, valorUnitario, valorTotal, loteId, serialIds,
+          INSERT INTO os_itens_pecas (osId, produtoId, descricao, quantidade, valorUnitario, valorTotal, desconto, situacao, loteId, serialIds,
             compradoTerceiro, fornecedorId, custoTerceiro, notaFiscalTerceiro,
             dataCompraTerceiro, formaPagamentoTerceiro, dataVencimentoTerceiro)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(os.id, produtoId || null, descricao || '', qtd, valor, qtd*valor,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(os.id, produtoId || null, descricao || '', qtd, valor, qtd*valor - desconto, desconto,
+                req.body.situacao === 'orcado' ? 'orcado' : 'confirmado',
                 loteId || null, Array.isArray(serialIds) && serialIds.length ? JSON.stringify(serialIds) : null,
                 terceiro,
                 terceiro ? Number(fornecedorId) : null,
@@ -1782,6 +2458,97 @@ function registrarRotasOS(app, db) {
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
+  // ==================== ORÇADO × CONFIRMADO ====================
+  // Muda a situação de um item. Confirmar traz o item para o financeiro;
+  // reverter para orçado o tira. Recalcula os totais nos dois sentidos.
+
+  app.post('/api/os/itens/:especie/:itemId/situacao', (req, res) => {
+    try {
+      const especie = req.params.especie === 'pecas' ? 'pecas'
+        : req.params.especie === 'servicos' ? 'servicos' : null;
+      if (!especie) return res.status(400).json({ success: false, error: 'espécie inválida' });
+      const tabela = especie === 'pecas' ? 'os_itens_pecas' : 'os_itens_servicos';
+
+      const situacao = String(req.body.situacao || '').trim();
+      if (!['orcado', 'confirmado'].includes(situacao)) {
+        return res.status(400).json({ success: false, error: "situacao deve ser 'orcado' ou 'confirmado'" });
+      }
+      const item = db.prepare(`SELECT * FROM ${tabela} WHERE id = ?`).get(req.params.itemId);
+      if (!item) return res.status(404).json({ success: false, error: 'Item não encontrado' });
+      const os = db.prepare('SELECT id, status FROM os_ordens WHERE id = ?').get(item.osId);
+      if (os && ['faturada', 'cancelada'].includes(os.status)) {
+        return res.status(400).json({ success: false, error: 'OS não permite alteração' });
+      }
+      // Peça já baixada do estoque não volta a ser proposta: o material saiu.
+      if (especie === 'pecas' && situacao === 'orcado' && item.movSaidaId) {
+        return res.status(400).json({ success: false, error: 'Peça já baixada do estoque — não pode voltar a orçamento' });
+      }
+
+      db.prepare(`UPDATE ${tabela} SET situacao = ? WHERE id = ?`).run(situacao, item.id);
+      recalcTotais(db, item.osId);
+      recalcStatusFiscal(db, item.osId);
+      registrarEvento(db, item.osId, 'orcamento',
+        `Item ${situacao === 'confirmado' ? 'confirmado' : 'devolvido ao orçamento'}: ${item.descricao}`,
+        req.user?.username, { especie, itemId: item.id, situacao });
+      logAction(db, req, 'situacao-item', 'os', item.osId, { especie, itemId: item.id, situacao });
+      res.json({ success: true, situacao });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // Confirma de uma vez tudo que está orçado — o caso comum quando o cliente
+  // aprova o orçamento inteiro.
+  app.post('/api/os/:id/confirmar-orcados', (req, res) => {
+    try {
+      const os = db.prepare('SELECT id, status FROM os_ordens WHERE id = ?').get(req.params.id);
+      if (!os) return res.status(404).json({ success: false, error: 'Não encontrada' });
+      if (['faturada', 'cancelada'].includes(os.status)) {
+        return res.status(400).json({ success: false, error: 'OS não permite alteração' });
+      }
+      const n = db.transaction(() => {
+        const a = db.prepare("UPDATE os_itens_pecas SET situacao='confirmado' WHERE osId = ? AND situacao='orcado'").run(os.id).changes;
+        const b = db.prepare("UPDATE os_itens_servicos SET situacao='confirmado' WHERE osId = ? AND situacao='orcado'").run(os.id).changes;
+        return a + b;
+      })();
+      recalcTotais(db, os.id);
+      recalcStatusFiscal(db, os.id);
+      if (n) registrarEvento(db, os.id, 'orcamento', `${n} item(ns) confirmado(s) do orçamento`, req.user?.username, { confirmados: n });
+      logAction(db, req, 'confirmar-orcados', 'os', os.id, { confirmados: n });
+      res.json({ success: true, confirmados: n });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // ==================== PEÇAS COM DEFEITO (retiradas do equipamento) ====================
+  // Registro técnico, não financeiro: não soma no total nem vira item de nota.
+
+  app.post('/api/os/:id/pecas-defeito', (req, res) => {
+    try {
+      const os = db.prepare('SELECT * FROM os_ordens WHERE id = ?').get(req.params.id);
+      if (!os) return res.status(404).json({ success: false, error: 'Não encontrada' });
+      if (['cancelada'].includes(os.status)) return res.status(400).json({ success: false, error: 'OS cancelada' });
+      const { produtoId, descricao, quantidade, numeroSerie, laudo, destino } = req.body;
+      if (!descricao) return res.status(400).json({ success: false, error: 'descricao obrigatória' });
+      const r = db.prepare(`
+        INSERT INTO os_pecas_defeito (osId, produtoId, descricao, quantidade, numeroSerie, laudo, destino, usuario)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(os.id, produtoId || null, descricao, Number(quantidade) || 1,
+        numeroSerie || null, laudo || null, destino || null, req.user?.username || null);
+      registrarEvento(db, os.id, 'edicao', `Peça com defeito registrada: ${descricao}`, req.user?.username,
+        { pecaDefeitoId: r.lastInsertRowid });
+      logAction(db, req, 'add-peca-defeito', 'os', os.id, { id: r.lastInsertRowid, descricao });
+      res.json({ success: true, id: r.lastInsertRowid });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  app.delete('/api/os/pecas-defeito/:itemId', (req, res) => {
+    try {
+      const item = db.prepare('SELECT * FROM os_pecas_defeito WHERE id = ?').get(req.params.itemId);
+      if (!item) return res.status(404).json({ success: false, error: 'Não encontrado' });
+      db.prepare('DELETE FROM os_pecas_defeito WHERE id = ?').run(item.id);
+      logAction(db, req, 'del-peca-defeito', 'os', item.osId, { id: item.id });
+      res.json({ success: true });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
   app.delete('/api/os/pecas/:itemId', (req, res) => {
     try {
       const item = db.prepare('SELECT * FROM os_itens_pecas WHERE id = ?').get(req.params.itemId);
@@ -1828,25 +2595,39 @@ function registrarRotasOS(app, db) {
 
       if (!descricao) return res.status(400).json({ success: false, error: 'descricao obrigatória' });
 
-      let total;
-      if (valorTotal != null && valorTotal !== '') total = Number(valorTotal);
-      else if (horas && valorHora) total = Number(horas) * Number(valorHora);
-      else if (catalogo && catalogo.valorPadrao != null) total = Number(catalogo.valorPadrao);
-      else return res.status(400).json({ success: false, error: 'Informe valorTotal, horas+valorHora ou vincule um serviço com valor padrão' });
+      // Preço pela regra do Tipo de OS (Fase 4). O modo 'livre' é o default e
+      // mantém a precedência histórica.
+      const tipoServ = os.tipoId
+        ? db.prepare('SELECT nome, servicoCalculoModo, servicoValorHoraPadrao, permiteAlterarCalculoServico FROM os_tipos WHERE id = ?').get(os.tipoId)
+        : null;
+      const calc = calcularValorServico({
+        modo: (tipoServ && tipoServ.servicoCalculoModo) || 'livre',
+        tipo: tipoServ, catalogo, horas, valorHora, valorTotal,
+      });
+      if (calc.erro) return res.status(400).json({ success: false, error: calc.erro });
+      const total = calc.total;
+      // O cálculo pode preencher horas/valorHora (tempo padrão, valor do tipo):
+      // sem isso a linha ficaria sem mostrar de onde o preço saiu.
+      const horasFinal = calc.horas != null ? calc.horas : (horas != null && horas !== '' ? Number(horas) : null);
+      const valorHoraFinal = calc.valorHora != null ? calc.valorHora : (valorHora != null && valorHora !== '' ? Number(valorHora) : null);
 
       const terceiro = compradoTerceiro ? 1 : 0;
       if (terceiro && (!fornecedorId || custoTerceiro == null)) {
         return res.status(400).json({ success: false, error: 'Serviço de terceiro exige fornecedor e custo' });
       }
 
+      const descontoSv = Number(req.body.desconto) || 0;
+      if (descontoSv < 0) return res.status(400).json({ success: false, error: 'Desconto não pode ser negativo' });
+      if (descontoSv > total) return res.status(400).json({ success: false, error: 'Desconto maior que o valor do serviço' });
+
       const newId = db.transaction(() => {
         const r = db.prepare(`
-          INSERT INTO os_itens_servicos (osId, descricao, horas, valorHora, valorTotal, servicoId,
+          INSERT INTO os_itens_servicos (osId, descricao, horas, valorHora, valorTotal, desconto, situacao, servicoId,
             compradoTerceiro, fornecedorId, custoTerceiro, notaFiscalTerceiro,
             dataCompraTerceiro, formaPagamentoTerceiro, dataVencimentoTerceiro)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(os.id, descricao, horas != null && horas !== '' ? Number(horas) : null,
-          valorHora != null && valorHora !== '' ? Number(valorHora) : null, total,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(os.id, descricao, horasFinal, valorHoraFinal, total - descontoSv, descontoSv,
+          req.body.situacao === 'orcado' ? 'orcado' : 'confirmado',
           catalogo ? catalogo.id : null,
           terceiro,
           terceiro ? Number(fornecedorId) : null,
@@ -1885,6 +2666,10 @@ function registrarRotasOS(app, db) {
       if (os && ['faturada','cancelada'].includes(os.status)) {
         return res.status(400).json({ success: false, error: 'OS não permite alteração' });
       }
+      if (item.origem === 'deslocamento') {
+        return res.status(400).json({ success: false,
+          error: 'Linha de deslocamento é calculada pelo Tipo de OS — altere o km da OS ou a regra do tipo' });
+      }
       const merged = {
         ...item,
         ...req.body,
@@ -1919,6 +2704,12 @@ function registrarRotasOS(app, db) {
       if (!item) return res.status(404).json({ success: false, error: 'Não encontrado' });
       if (item.contasPagarId && contaAPagarTemPagamento(db, item.contasPagarId)) {
         return res.status(409).json({ success: false, error: 'AP do terceiro já foi pago — baixe ou cancele em Contas a Pagar antes de remover' });
+      }
+      // Removê-la aqui só a faria voltar no próximo recálculo: para tirar o
+      // deslocamento da OS, zere o km ou mude a regra do tipo.
+      if (item.origem === 'deslocamento') {
+        return res.status(400).json({ success: false,
+          error: 'Linha de deslocamento é calculada pelo Tipo de OS — zere o km da OS ou mude a regra do tipo' });
       }
       db.transaction(() => {
         if (item.contasPagarId) removerContaAPagarSeAberta(db, item.contasPagarId);
@@ -1999,16 +2790,105 @@ function registrarRotasOS(app, db) {
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   }
 
+  // Naturezas aceitas em os_tipos.natureza. As duas de garantia fazem a OS
+  // nascer com emGarantia = 1 (ver POST /api/os).
+  const NATUREZAS_OS = [
+    'cliente', 'garantia-propria', 'garantia-fabrica', 'consumo-interno',
+    'retrabalho', 'entrega-tecnica', 'seguro', 'transferencia-interna', 'revisao',
+  ];
+  const LOCAIS_PRESTACAO = ['indefinido', 'interno', 'externo'];
+  // 'manual' preserva o comportamento histórico (usuário lança a linha à mão).
+  const MODOS_DESLOCAMENTO = ['manual', 'nao-cobrar', 'por-km', 'valor-fixo'];
+
+  // Valida os enums da Fase 4 e devolve o que gravar. 'livre' e 'cliente'
+  // são os defaults que preservam o comportamento anterior.
+  function camposFase4DoBody(b, atual) {
+    const calculo = b.servicoCalculoModo !== undefined
+      ? b.servicoCalculoModo : ((atual && atual.servicoCalculoModo) || 'livre');
+    if (!MODOS_CALCULO_SERVICO.includes(calculo)) {
+      throw new Error(`servicoCalculoModo inválido: ${calculo}`);
+    }
+    const faturar = b.faturarPara !== undefined
+      ? b.faturarPara : ((atual && atual.faturarPara) || 'cliente');
+    if (!MODOS_FATURAR_PARA.includes(faturar)) {
+      throw new Error(`faturarPara inválido: ${faturar}`);
+    }
+    return { calculo, faturar };
+  }
+
+  const numOuNull = v => (v == null || v === '' ? null : Number(v));
+
+  // Valida as regras de encerramento vindas do body e devolve o valor a
+  // gravar por categoria. Lança com a mensagem pronta quando algo não bate.
+  function regrasEncerramentoDoBody(b, atual) {
+    const out = {};
+    for (const cat of CATEGORIAS_ENCERRAMENTO) {
+      const permitidas = cat.perda ? REGRAS_ENCERRAMENTO : REGRAS_ENCERRAMENTO_SEM_PERDA;
+      const valor = b[cat.chave] !== undefined
+        ? b[cat.chave]
+        : ((atual && atual[cat.chave]) || 'permitido');
+      if (!permitidas.includes(valor)) {
+        throw new Error(`${cat.chave} inválido: ${valor} (aceita ${permitidas.join(', ')})`);
+      }
+      out[cat.chave] = valor;
+    }
+    return out;
+  }
+
+  // Aceita array de {descricao, obrigatorio} (ordem é renumerada aqui) ou a
+  // string JSON já pronta. Devolve string JSON, ou undefined quando o body
+  // não trouxe o campo — o que no PUT significa "não mexer".
+  function normalizarChecklist(v) {
+    if (v === undefined) return undefined;
+    if (v === null || v === '') return '[]';
+    let arr = v;
+    if (typeof v === 'string') {
+      try { arr = JSON.parse(v); } catch { throw new Error('checklistPadrao inválido (JSON malformado)'); }
+    }
+    if (!Array.isArray(arr)) throw new Error('checklistPadrao deve ser uma lista');
+    const itens = arr
+      .filter(ck => ck && String(ck.descricao || '').trim())
+      .map((ck, i) => ({
+        ordem: i + 1,
+        descricao: String(ck.descricao).trim(),
+        obrigatorio: ck.obrigatorio ? 1 : 0,
+      }));
+    return JSON.stringify(itens);
+  }
+
   app.post('/api/os-tipos', (req, res) => {
     try {
       const b = req.body || {};
       if (!b.nome) return res.status(400).json({ success: false, error: 'nome obrigatório' });
       const slug = (b.slug && slugify(b.slug)) || slugify(b.nome);
       if (!slug) return res.status(400).json({ success: false, error: 'slug inválido' });
+      // Obrigatório: é este vínculo que define se a OS emite nota e se cobra.
+      if (b.tipoOperacaoPadraoId == null || b.tipoOperacaoPadraoId === '') {
+        return res.status(400).json({ success: false, error: 'Tipo de Operação padrão é obrigatório — é ele que define se a OS emite nota fiscal e se gera cobrança' });
+      }
+      const natureza = b.natureza || 'cliente';
+      if (!NATUREZAS_OS.includes(natureza)) {
+        return res.status(400).json({ success: false, error: `natureza inválida: ${natureza}` });
+      }
+      const localPrestacao = b.localPrestacao || 'indefinido';
+      if (!LOCAIS_PRESTACAO.includes(localPrestacao)) {
+        return res.status(400).json({ success: false, error: `localPrestacao inválido: ${localPrestacao}` });
+      }
+      const deslocamentoModo = b.deslocamentoModo || 'manual';
+      if (!MODOS_DESLOCAMENTO.includes(deslocamentoModo)) {
+        return res.status(400).json({ success: false, error: `deslocamentoModo inválido: ${deslocamentoModo}` });
+      }
+      const enc = regrasEncerramentoDoBody(b, null);
+      const f4 = camposFase4DoBody(b, null);
       const r = db.prepare(`INSERT INTO os_tipos
         (nome, slug, descricao, modoFiscal, slaDiasPadrao, exigeEnderecoExec,
-         exigeAssinaturaCliente, exigeOrcamentoAprovado, cor, tipoOperacaoPadraoId)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+         exigeAssinaturaCliente, exigeOrcamentoAprovado, cor, tipoOperacaoPadraoId,
+         checklistPadrao, natureza, localPrestacao, bloqueiaFaturamento, obrigarDataPrevista,
+         deslocamentoModo, deslocamentoValorKm, deslocamentoValorFixo,
+         encerraPecaPendente, encerraServicoPendente, encerraTerceiroPendente,
+         encerraKmPendente, encerraApontamentoAberto,
+         servicoCalculoModo, servicoValorHoraPadrao, permiteAlterarCalculoServico, faturarPara)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         b.nome.trim(), slug, b.descricao || null,
         b.modoFiscal || 'sefaz',
         b.slaDiasPadrao != null && b.slaDiasPadrao !== '' ? Number(b.slaDiasPadrao) : null,
@@ -2016,7 +2896,20 @@ function registrarRotasOS(app, db) {
         b.exigeAssinaturaCliente ? 1 : 0,
         b.exigeOrcamentoAprovado ? 1 : 0,
         b.cor || '#4dabf7',
-        b.tipoOperacaoPadraoId != null && b.tipoOperacaoPadraoId !== '' ? Number(b.tipoOperacaoPadraoId) : null
+        b.tipoOperacaoPadraoId != null && b.tipoOperacaoPadraoId !== '' ? Number(b.tipoOperacaoPadraoId) : null,
+        normalizarChecklist(b.checklistPadrao) ?? '[]',
+        natureza, localPrestacao,
+        b.bloqueiaFaturamento ? 1 : 0,
+        b.obrigarDataPrevista ? 1 : 0,
+        deslocamentoModo,
+        numOuNull(b.deslocamentoValorKm),
+        numOuNull(b.deslocamentoValorFixo),
+        enc.encerraPecaPendente, enc.encerraServicoPendente, enc.encerraTerceiroPendente,
+        enc.encerraKmPendente, enc.encerraApontamentoAberto,
+        f4.calculo,
+        numOuNull(b.servicoValorHoraPadrao),
+        b.permiteAlterarCalculoServico === false ? 0 : 1,
+        f4.faturar
       );
       logAction(db, req, 'criar', 'os-tipo', r.lastInsertRowid, { nome: b.nome, slug });
       res.json({ success: true, tipo: db.prepare(SQL_OS_TIPOS_BASE + ' WHERE t.id = ?').get(r.lastInsertRowid) });
@@ -2029,10 +2922,39 @@ function registrarRotasOS(app, db) {
       if (!atual) return res.status(404).json({ success: false, error: 'Tipo não encontrado' });
       const b = req.body || {};
       const slug = b.slug ? slugify(b.slug) : atual.slug;
+      // Não deixa apagar o vínculo de um tipo que já o tem.
+      if (b.tipoOperacaoPadraoId !== undefined
+          && (b.tipoOperacaoPadraoId === null || b.tipoOperacaoPadraoId === '')) {
+        return res.status(400).json({ success: false, error: 'Tipo de Operação padrão é obrigatório — é ele que define se a OS emite nota fiscal e se gera cobrança' });
+      }
+      const natureza = b.natureza !== undefined ? b.natureza : (atual.natureza || 'cliente');
+      if (!NATUREZAS_OS.includes(natureza)) {
+        return res.status(400).json({ success: false, error: `natureza inválida: ${natureza}` });
+      }
+      const localPrestacao = b.localPrestacao !== undefined
+        ? b.localPrestacao : (atual.localPrestacao || 'indefinido');
+      if (!LOCAIS_PRESTACAO.includes(localPrestacao)) {
+        return res.status(400).json({ success: false, error: `localPrestacao inválido: ${localPrestacao}` });
+      }
+      const checklist = normalizarChecklist(b.checklistPadrao);
+      const deslocamentoModo = b.deslocamentoModo !== undefined
+        ? b.deslocamentoModo : (atual.deslocamentoModo || 'manual');
+      if (!MODOS_DESLOCAMENTO.includes(deslocamentoModo)) {
+        return res.status(400).json({ success: false, error: `deslocamentoModo inválido: ${deslocamentoModo}` });
+      }
+      const enc = regrasEncerramentoDoBody(b, atual);
+      const f4 = camposFase4DoBody(b, atual);
       db.prepare(`UPDATE os_tipos SET
         nome = ?, slug = ?, descricao = ?, modoFiscal = ?, slaDiasPadrao = ?,
         exigeEnderecoExec = ?, exigeAssinaturaCliente = ?, exigeOrcamentoAprovado = ?,
-        cor = ?, ativo = ?, tipoOperacaoPadraoId = ? WHERE id = ?`).run(
+        cor = ?, ativo = ?, tipoOperacaoPadraoId = ?, checklistPadrao = ?,
+        natureza = ?, localPrestacao = ?, bloqueiaFaturamento = ?, obrigarDataPrevista = ?,
+        deslocamentoModo = ?, deslocamentoValorKm = ?, deslocamentoValorFixo = ?,
+        encerraPecaPendente = ?, encerraServicoPendente = ?, encerraTerceiroPendente = ?,
+        encerraKmPendente = ?, encerraApontamentoAberto = ?,
+        servicoCalculoModo = ?, servicoValorHoraPadrao = ?,
+        permiteAlterarCalculoServico = ?, faturarPara = ?
+        WHERE id = ?`).run(
         b.nome != null ? String(b.nome).trim() : atual.nome,
         slug,
         b.descricao !== undefined ? b.descricao : atual.descricao,
@@ -2048,6 +2970,21 @@ function registrarRotasOS(app, db) {
         b.tipoOperacaoPadraoId !== undefined
           ? (b.tipoOperacaoPadraoId === null || b.tipoOperacaoPadraoId === '' ? null : Number(b.tipoOperacaoPadraoId))
           : atual.tipoOperacaoPadraoId,
+        checklist !== undefined ? checklist : (atual.checklistPadrao || '[]'),
+        natureza, localPrestacao,
+        b.bloqueiaFaturamento != null ? (b.bloqueiaFaturamento ? 1 : 0) : (atual.bloqueiaFaturamento || 0),
+        b.obrigarDataPrevista != null ? (b.obrigarDataPrevista ? 1 : 0) : (atual.obrigarDataPrevista || 0),
+        deslocamentoModo,
+        b.deslocamentoValorKm !== undefined ? numOuNull(b.deslocamentoValorKm) : atual.deslocamentoValorKm,
+        b.deslocamentoValorFixo !== undefined ? numOuNull(b.deslocamentoValorFixo) : atual.deslocamentoValorFixo,
+        enc.encerraPecaPendente, enc.encerraServicoPendente, enc.encerraTerceiroPendente,
+        enc.encerraKmPendente, enc.encerraApontamentoAberto,
+        f4.calculo,
+        b.servicoValorHoraPadrao !== undefined ? numOuNull(b.servicoValorHoraPadrao) : atual.servicoValorHoraPadrao,
+        b.permiteAlterarCalculoServico != null
+          ? (b.permiteAlterarCalculoServico ? 1 : 0)
+          : (atual.permiteAlterarCalculoServico == null ? 1 : atual.permiteAlterarCalculoServico),
+        f4.faturar,
         req.params.id
       );
       logAction(db, req, 'editar', 'os-tipo', Number(req.params.id), { nome: b.nome, slug });
@@ -2376,7 +3313,19 @@ function registrarRotasOS(app, db) {
         WHERE id = ?
       `).run(os.id);
 
-      registrarEvento(db, os.id, 'aprovado', `Orçamento aprovado pelo cliente (${assinanteNome})`, null, { ip, userAgent: ua, assinanteNome });
+      // O cliente aprovou o orçamento: o que estava orçado vira confirmado e
+      // passa a contar no financeiro. Sem isto a aprovação mudaria o status da
+      // OS mas deixaria os itens fora do total.
+      const confirmados = db.transaction(() => {
+        const a = db.prepare("UPDATE os_itens_pecas SET situacao='confirmado' WHERE osId = ? AND situacao='orcado'").run(os.id).changes;
+        const b = db.prepare("UPDATE os_itens_servicos SET situacao='confirmado' WHERE osId = ? AND situacao='orcado'").run(os.id).changes;
+        return a + b;
+      })();
+      if (confirmados) { recalcTotais(db, os.id); recalcStatusFiscal(db, os.id); }
+
+      registrarEvento(db, os.id, 'aprovado',
+        `Orçamento aprovado pelo cliente (${assinanteNome})${confirmados ? ` — ${confirmados} item(ns) confirmado(s)` : ''}`,
+        null, { ip, userAgent: ua, assinanteNome, confirmados });
       res.json({ success: true, numero: os.numero });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
