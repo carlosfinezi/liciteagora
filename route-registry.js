@@ -286,7 +286,8 @@ function registerProtectedRoutes(app, deps) {
   require('./perfis-acesso').registrarRotasPerfis(app, db);
   registrarRotasAuditoria(app, db);
   registrarRotasDevolucoes(app, db);
-  require('./devolucao-compra').registrar(app, db); // Fase 1: migra schema espelho (rotas na Fase 3)
+  require('./devolucao-compra').registrar(app, db); // devolução ao fornecedor (espelho da entrada)
+  require('./devolucao-venda').registrar(app, db);  // devolução do cliente (espelho da saída)
   registrarRotasCrm(app, db);
   registrarRotasGerencial(app, db);
   registrarRotasConciliacao(app, db);

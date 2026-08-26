@@ -141,6 +141,9 @@ if (MULTI_TENANT) {
           // Schema espelho da devolução de compra (mesmo motivo: migrarSchema no registro roda
           // contra o proxy). Aplicado por-tenant aqui, idempotente.
           try { require('./devolucao-compra').migrarSchema(tdb); } catch (e) { console.error(`[devolucao-compra migrar ${t.slug}] ${e.message}`); }
+          // Espelho da devolução de VENDA: vínculo fatura↔devolução (faturaOrigemId,
+          // faturaItemOrigemId) em faturas/fatura_itens e no RMA. Mesmo motivo do de cima.
+          try { require('./devolucao-venda').migrarSchema(tdb); } catch (e) { console.error(`[devolucao-venda migrar ${t.slug}] ${e.message}`); }
           // ML Fase 0: colunas de token (cifrado) em marketplaces_integracoes. Idempotente.
           try { require('./marketplaces-ml').migrarSchemaTenant(tdb); } catch (e) { console.error(`[ml migrar ${t.slug}] ${e.message}`); }
           tenantStorage.run({ kind: 'tenant', tenant: t, db: tdb }, () => {

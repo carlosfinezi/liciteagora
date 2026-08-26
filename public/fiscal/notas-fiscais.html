@@ -7,11 +7,56 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
-  /* page-local: cabeçalhos ordenáveis */
-  th.ord { cursor: pointer; user-select: none; white-space: nowrap; }
-  th.ord:hover { color: var(--text-0); }
-  th.ord::after { content: attr(data-seta); font-size: 0.8em; margin-left: 4px; }
-  th.ord-ativa { color: var(--text-0); }
+  /* O grid (largura ajustável, corte das células, colunas fixas do lápis e do
+     menu) vem do /js/grid.js, igual às demais listagens. Aqui fica só o que é
+     desta tela: o cabeçalho que ordena, o seletor de colunas e a coluna-sobra
+     do fim da linha. */
+  .tbl-wrap th.sortable { cursor: pointer; user-select: none; }
+  .tbl-wrap th.sortable:hover { background: var(--bg-2); }
+  .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: 10px; margin-left: 4px; }
+  .tbl-wrap th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+  .col-spacer { width: auto; padding: 0; }
+
+  /* Seletor de colunas — mesmo desenho da lista de pessoas */
+  .col-chooser-wrap { position: relative; }
+  .col-chooser {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 10px;
+    min-width: 220px;
+    max-height: 380px;
+    overflow-y: auto;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.3);
+    z-index: 40;
+    display: none;
+  }
+  .col-chooser.open { display: block; }
+  .col-chooser label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.88em;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text-1);
+  }
+  .col-chooser label:hover { background: var(--bg-2); }
+  .col-chooser input[type=checkbox] { width: auto; margin: 0; }
+  .col-chooser .col-chooser-footer {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 8px;
+    margin-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .col-chooser .col-chooser-footer button { font-size: 0.78em; padding: 4px 10px; }
 </style>
 </head>
 <body>
@@ -97,24 +142,19 @@
       <div class="form-group" style="flex:0 0 auto;">
         <button class="btn btn-secondary btn-sm" onclick="carregar()">Atualizar</button>
       </div>
+      <div class="form-group col-chooser-wrap" style="flex:0 0 auto;">
+        <button class="btn btn-ghost btn-sm" id="btnColunas" onclick="toggleColChooser(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
+        <div class="col-chooser" id="colChooser"></div>
+      </div>
+      <div class="form-group" style="flex:0 0 auto;">
+        <span id="totalNotas" style="font-size:0.85em; color:var(--text-3);"></span>
+      </div>
     </div>
 
     <div class="tbl-wrap" data-grid="notas-fiscais">
       <table>
-        <thead><tr>
-          <th class="ord" data-ord="tipo" onclick="ordenarPor('tipo')">Tipo</th>
-          <th class="ord" data-ord="numero" onclick="ordenarPor('numero')">Nº/Série</th>
-          <th class="ord" data-ord="nDPS" onclick="ordenarPor('nDPS')" title="Número da DPS — só NFS-e tem">DPS</th>
-          <th class="ord" data-ord="dataEmissao" onclick="ordenarPor('dataEmissao')">Emissão</th>
-          <th class="ord" data-ord="pessoaNome" onclick="ordenarPor('pessoaNome')">Pessoa</th>
-          <th>Chave</th>
-          <th>CFOP</th>
-          <th>Tipo Op.</th>
-          <th class="num ord" data-ord="valor" onclick="ordenarPor('valor')">Valor</th>
-          <th class="ord" data-ord="statusSefaz" onclick="ordenarPor('statusSefaz')">SEFAZ</th>
-          <th></th>
-        </tr></thead>
-        <tbody id="tb"><tr><td colspan="11" class="empty">Carregando…</td></tr></tbody>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tb"><tr><td colspan="12" class="empty">Carregando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -152,9 +192,9 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharDetalhesNfse()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
     <div id="detalhesNfseConteudo"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fecharDetalhesNfse()">Fechar</button>
-    </div>
+    <!-- As ações da NFS-e (DANFSE, edição, reemissão, cancelamento) vivem aqui:
+         este modal é a página de detalhe dela. -->
+    <div class="modal-actions" id="acoesNfse"></div>
   </div>
 </div>
 
@@ -240,53 +280,19 @@
   </div>
 </div>
 
-<div class="modal-bg" id="modalMeta">
-  <div class="modal" style="max-width:560px;">
+<!-- Detalhe da NFC-e: o cupom não tem tela própria, então o modal é a página de
+     detalhe dele — inclusive para baixar o XML e cancelar. -->
+<div class="modal-bg" id="modalDetalhesNfce">
+  <div class="modal">
     <div class="modal-header">
       <div>
-        <h3 style="margin:0;">Editar metadados internos</h3>
-        <small class="muted">Apenas observação interna · campos fiscais permanecem imutáveis</small>
+        <h3 style="margin:0;">Detalhes da NFC-e</h3>
+        <small class="muted">Cupom fiscal eletrônico</small>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharMeta()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+      <button class="btn btn-ghost btn-sm" onclick="fecharDetalhesNfce()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
-    <input type="hidden" id="metaTipo">
-    <input type="hidden" id="metaId">
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Observação interna</label>
-        <textarea id="metaObs" rows="4" placeholder="Anotações internas, contexto da entrada/saída, referências…"></textarea>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fecharMeta()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarMeta()">Salvar</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: excluir -->
-<div class="modal-bg" id="modalExcluir">
-  <div class="modal" style="max-width:520px;">
-    <div class="modal-header">
-      <div>
-        <h3 style="margin:0;">Excluir lançamento interno</h3>
-        <small class="muted">Soft-delete reversível · reverte estoque e contas em aberto</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharExcluir()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-    <input type="hidden" id="excluirTipo">
-    <input type="hidden" id="excluirId">
-    <p class="muted" id="excluirAviso" style="font-size:13px;margin:6px 0 12px 0;"></p>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Motivo *</label>
-        <textarea id="excluirMotivo" rows="3" placeholder="Por que está excluindo? (obrigatório)"></textarea>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fecharExcluir()">Cancelar</button>
-      <button class="btn btn-danger" onclick="confirmarExcluir()">Excluir</button>
-    </div>
+    <div id="detalhesNfceConteudo"></div>
+    <div class="modal-actions" id="acoesNfce"></div>
   </div>
 </div>
 
@@ -310,6 +316,82 @@ let notas = [];
 let buscaTimer = null;
 let ordem = 'dataEmissao', dir = 'desc';
 
+// ==================== COLUNAS ====================
+// cada coluna: { key, label, default, ordem?, cls?, title?, render(n)->html }
+// `ordem` é o nome que /api/notas-fiscais aceita em ?ordem= — coluna sem ele
+// não ordena, porque a ordenação é do banco (a lista vem paginada, ordenar só
+// a página na tela mentiria sobre o conjunto).
+const COLUNAS = [
+  { key:'tipo',        label:'Tipo',      default:true, ordem:'tipo',
+    render: n => badgeTipo(n) },
+  { key:'numero',      label:'Nº/Série',  default:true, ordem:'numero',
+    render: n => `<strong>${escTxt(n.numero || '—')}</strong>${n.serie ? '<small class="muted"> /' + escTxt(n.serie) + '</small>' : ''}` },
+  { key:'nDPS',        label:'DPS',       default:true, ordem:'nDPS', title:'Número da DPS — só NFS-e tem',
+    render: n => n.nDPS != null ? escTxt(n.nDPS) : '<span class="muted">—</span>' },
+  { key:'dataEmissao', label:'Emissão',   default:true, ordem:'dataEmissao',
+    render: n => fmtData(n.dataEmissao) },
+  { key:'pessoaNome',  label:'Pessoa',    default:true, ordem:'pessoaNome',
+    render: n => `<strong>${escTxt(n.pessoa.nome || (n.tipo === 'nfce' ? 'Consumidor não identificado' : '—'))}</strong>${n.pessoa.cpfCnpj ? '<br><small class="muted">' + escTxt(n.pessoa.cpfCnpj) + '</small>' : ''}` },
+  { key:'chaveAcesso', label:'Chave',     default:true,
+    render: n => `<code title="${escTxt(n.chaveAcesso || '')}" style="font-size:11px;cursor:pointer;" onclick="copiarChave('${escTxt(n.chaveAcesso || '')}')">${escTxt(trunc(n.chaveAcesso, 14))}</code>` },
+  { key:'cfop',        label:'CFOP',      default:true,
+    render: n => `<code style="font-size:12px;">${escTxt(n.cfop || '—')}</code>` },
+  { key:'tipoOperacao', label:'Tipo Op.', default:true,
+    render: n => celulaTipoOperacao(n) },
+  { key:'valor',       label:'Valor',     default:true, ordem:'valor', cls:'num',
+    render: n => fmtBRL(n.valor) },
+  { key:'statusSefaz', label:'SEFAZ',     default:true, ordem:'statusSefaz',
+    render: n => `${badgeStatusSefaz(n.statusSefaz)}${n.status && n.status !== n.statusSefaz ? '<br><small class="muted">' + escTxt(n.status) + '</small>' : ''}` },
+  { key:'observacaoInterna', label:'Obs. interna', default:false,
+    render: n => n.observacaoInterna ? `<small>${escTxt(n.observacaoInterna)}</small>` : '<span class="muted">—</span>' },
+];
+
+const COLS_KEY = 'notas_fiscais_colunas';
+let colunasVisiveis = JSON.parse(localStorage.getItem(COLS_KEY) || 'null')
+  || COLUNAS.filter(c => c.default).map(c => c.key);
+
+function colsVisiveis(){ return COLUNAS.filter(c => colunasVisiveis.includes(c.key)); }
+function salvarColunas(){ try { localStorage.setItem(COLS_KEY, JSON.stringify(colunasVisiveis)); } catch (_) {} }
+
+function toggleColChooser(ev){
+  if (ev) ev.stopPropagation();
+  const el = document.getElementById('colChooser');
+  if (el.classList.contains('open')) { el.classList.remove('open'); return; }
+  el.innerHTML = COLUNAS.map(c => `
+    <label>
+      <input type="checkbox" ${colunasVisiveis.includes(c.key) ? 'checked' : ''} data-key="${c.key}">
+      ${escTxt(c.label)}
+    </label>`).join('') + `
+    <div class="col-chooser-footer">
+      <button class="btn btn-ghost btn-sm" onclick="restaurarColunas()">Restaurar padrão</button>
+      <button class="btn btn-primary btn-sm" onclick="toggleColChooser()">Fechar</button>
+    </div>`;
+  el.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (cb.checked && !colunasVisiveis.includes(cb.dataset.key)) colunasVisiveis.push(cb.dataset.key);
+      else if (!cb.checked) colunasVisiveis = colunasVisiveis.filter(k => k !== cb.dataset.key);
+      salvarColunas();
+      renderTabela();
+    });
+  });
+  el.classList.add('open');
+}
+
+function restaurarColunas(){
+  colunasVisiveis = COLUNAS.filter(c => c.default).map(c => c.key);
+  salvarColunas();
+  renderTabela();
+  toggleColChooser();
+}
+
+// Clique fora fecha o seletor
+document.addEventListener('click', e => {
+  const el = document.getElementById('colChooser');
+  if (!el || !el.classList.contains('open')) return;
+  if (el.contains(e.target) || e.target.closest('#btnColunas')) return;
+  el.classList.remove('open');
+});
+
 // Clicar de novo na mesma coluna inverte; trocar de coluna começa decrescente
 // (mais recente / maior primeiro), que é o que se espera de nota fiscal.
 function ordenarPor(col){
@@ -318,11 +400,23 @@ function ordenarPor(col){
   carregar();
 }
 
-function marcarCabecalhoOrdenado(){
-  document.querySelectorAll('th.ord').forEach(th => {
-    const ativo = th.dataset.ord === ordem;
-    th.classList.toggle('ord-ativa', ativo);
-    th.dataset.seta = ativo ? (dir === 'asc' ? '▲' : '▼') : '';
+function renderCabecalho(){
+  const arrow = (k) => k === ordem ? (dir === 'asc' ? '▲' : '▼') : '↕';
+  const ths = colsVisiveis().map(c => {
+    const cls = [c.cls || '', c.ordem ? 'sortable' : '', c.ordem === ordem ? 'sorted' : ''].filter(Boolean).join(' ');
+    const seta = c.ordem ? ` <span class="sort-arrow">${arrow(c.ordem)}</span>` : '';
+    return `<th class="${cls}" ${c.ordem ? `data-ord="${c.ordem}"` : ''} ${c.title ? `title="${escTxt(c.title)}"` : ''}>${escTxt(c.label)}${seta}</th>`;
+  }).join('');
+  // Uma coluna fixa na frente: o lápis que abre a nota. As ações de cada nota
+  // vivem na página de detalhe dela, não na listagem.
+  const th = document.getElementById('thead');
+  th.innerHTML = '<th class="col-editar"></th>' + ths + '<th class="col-spacer"></th>';
+  th.querySelectorAll('th.sortable').forEach(el => {
+    el.addEventListener('click', (e) => {
+      // Arrastar a divisória não pode ordenar junto.
+      if (e.target.classList.contains('grid-resizer')) return;
+      ordenarPor(el.dataset.ord);
+    });
   });
 }
 
@@ -364,7 +458,6 @@ async function carregar(){
     statusSefaz: document.getElementById('fStatusSefaz').value,
     ordem, dir
   });
-  marcarCabecalhoOrdenado();
   try {
     const r = await fetch('/api/notas-fiscais?' + q.toString());
     if (r.status === 401) { window.location.href = '/login.html'; return; }
@@ -375,7 +468,7 @@ async function carregar(){
     carregarRascunhos();
   } catch (e) {
     showAlert('Erro ao carregar: ' + e.message, 'error');
-    document.getElementById('tb').innerHTML = '<tr><td colspan="11" class="empty">Falha ao carregar</td></tr>';
+    document.getElementById('tb').innerHTML = `<tr><td colspan="${colsVisiveis().length + 3}" class="empty">Falha ao carregar</td></tr>`;
   }
 }
 
@@ -395,242 +488,72 @@ function badgeStatusSefaz(s){
   return `<span class="badge ${cls}">${escTxt(label)}</span>`;
 }
 
+function badgeTipo(n){
+  const tipoLabel = n.tipo === 'entrada'
+    ? '<span class="badge success">Entrada</span>'
+    : (n.tipo === 'nfse'
+        ? '<span class="badge warning">NFS-e</span>'
+        : (n.tipo === 'nfce'
+            ? '<span class="badge">NFC-e</span>'
+            : '<span class="badge info">Saída</span>'));
+  const excluidaBadge = n.excluida
+    ? `<br><span class="badge warning" title="${escTxt(n.motivoExclusao || '')}">EXCLUÍDA</span>`
+    : '';
+  return tipoLabel + excluidaBadge;
+}
+
+function celulaTipoOperacao(n){
+  return n.tipoOperacaoCodigo
+    ? `<small><strong>${escTxt(n.tipoOperacaoCodigo)}</strong>${n.tipoOperacaoDescricao ? '<br><span class="muted">' + escTxt(n.tipoOperacaoDescricao) + '</span>' : ''}</small>`
+    : (n.tipoOperacaoDescricao
+        ? `<small class="muted">${escTxt(n.tipoOperacaoDescricao)}</small>`
+        : '<small class="muted">—</small>');
+}
+
+// Lápis: abre a nota, e é o único botão da linha. Entrada e saída têm tela
+// própria; NFS-e e NFC-e abrem no modal desta mesma lista — em todos os casos
+// é lá que ficam as ações do documento (DANFE, cancelamento, reversões).
+function celulaAbrir(n){
+  if (n.links && n.links.detalhe) {
+    return `<td class="col-editar"><a class="btn btn-ghost btn-sm btn-icon-only" title="Abrir detalhe"
+      href="${escTxt(n.links.detalhe)}"><svg class="ic-sm"><use href="#i-edit"/></svg></a></td>`;
+  }
+  const abrir = n.tipo === 'nfce' ? `verDetalhesNfce(${n.id})` : `verDetalhesNfse(${n.id})`;
+  return `<td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir detalhe"
+    onclick="${abrir}"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>`;
+}
+
 function renderTabela(){
   const tb = document.getElementById('tb');
-  if (!notas.length) { tb.innerHTML = '<tr><td colspan="11" class="empty">Nenhuma nota encontrada</td></tr>'; return; }
+  const cols = colsVisiveis();
+  renderCabecalho();
+
+  const total = document.getElementById('totalNotas');
+  if (total) total.textContent = notas.length ? `${notas.length} registro${notas.length !== 1 ? 's' : ''}` : '';
+
+  if (!notas.length) { tb.innerHTML = `<tr><td colspan="${cols.length + 2}" class="empty">Nenhuma nota encontrada</td></tr>`; return; }
   tb.innerHTML = notas.map(n => {
-    const tipoLabel = n.tipo === 'entrada'
-      ? '<span class="badge success">Entrada</span>'
-      : (n.tipo === 'nfse'
-          ? '<span class="badge warning">NFS-e</span>'
-          : (n.tipo === 'nfce'
-              ? '<span class="badge">NFC-e</span>'
-              : '<span class="badge info">Saída</span>'));
-    const excluidaBadge = n.excluida
-      ? `<br><span class="badge warning" title="${escTxt(n.motivoExclusao || '')}">EXCLUÍDA</span>`
-      : '';
-
-    const tipoOpCell = n.tipoOperacaoCodigo
-      ? `<small><strong>${escTxt(n.tipoOperacaoCodigo)}</strong>${n.tipoOperacaoDescricao ? '<br><span class="muted">' + escTxt(n.tipoOperacaoDescricao) + '</span>' : ''}</small>`
-      : (n.tipoOperacaoDescricao
-          ? `<small class="muted">${escTxt(n.tipoOperacaoDescricao)}</small>`
-          : '<small class="muted">—</small>');
-
-    const sefazCell = `${badgeStatusSefaz(n.statusSefaz)}${n.status && n.status !== n.statusSefaz ? '<br><small class="muted">' + escTxt(n.status) + '</small>' : ''}`;
-
-    // Item DANFE — só habilita se backend retornou link (statusSefaz=autorizada + xml disponível)
-    const danfeItem = n.links && n.links.danfe
-      ? `<a href="${escTxt(n.links.danfe)}" target="_blank">📄 Gerar DANFE</a>`
-      : `<button disabled title="DANFE indisponível (NF não autorizada ou XML não baixado)">📄 Gerar DANFE</button>`;
-
-    let menuItens;
-    if (n.excluida) {
-      menuItens = `<button class="success" onclick="restaurar('${n.tipo}', ${n.id})">Restaurar lançamento</button>`;
-    } else if (n.tipo === 'entrada') {
-      menuItens = `
-        <a href="${escTxt(n.links.detalhe)}">Abrir detalhe</a>
-        ${danfeItem}
-        <button onclick='abrirMeta(${JSON.stringify({tipo:n.tipo,id:n.id,obs:n.observacaoInterna||""})})'>Editar observação</button>
-        <div class="divider"></div>
-        <button onclick="reverterEstoque(${n.id})">Reverter estoque</button>
-        <button onclick="reverterContasPagar(${n.id})">Reverter contas a pagar</button>
-        <div class="divider"></div>
-        <button class="danger" onclick="abrirExcluir('${n.tipo}', ${n.id}, '${escTxt(String(n.numero || ''))}')">Excluir lançamento</button>
-      `;
-    } else if (n.tipo === 'nfce') {
-      // Cupom não tem DANFE em PDF aqui — o documento é o XML autorizado.
-      const xmlItem = n.links && n.links.xml
-        ? `<a href="${escTxt(n.links.xml)}" target="_blank">📄 Baixar XML</a>`
-        : `<button disabled title="XML disponível apenas para NFC-e autorizada">📄 Baixar XML</button>`;
-      menuItens = `
-        ${xmlItem}
-        ${n.status === 'autorizada'
-            ? `<div class="divider"></div><button class="danger" onclick="abrirCancelamentoNfce(${n.id})">Cancelar NFC-e</button>` : ''}
-      `;
-    } else if (n.tipo === 'nfse') {
-      // NFS-e: detalhe é modal (não há tela separada). Sem excluir nem
-      // observação — a tabela nfse não guarda esses campos, e oferecer o
-      // botão seria prometer o que não existe.
-      const pdfItem = n.links && n.links.danfe
-        ? `<button onclick="baixarDanfse(${n.id})">📄 Baixar DANFSE</button>`
-        : `<button disabled title="DANFSE indisponível (nota sem chave de acesso)">📄 Baixar DANFSE</button>`;
-      menuItens = `
-        <button onclick="verDetalhesNfse(${n.id})">Abrir detalhe</button>
-        ${pdfItem}
-        ${(n.status === 'erro' || n.status === 'erro_timeout')
-            ? `<div class="divider"></div>
-               <button onclick="abrirEdicaoNfse(${n.id})">Editar nota</button>
-               <button onclick="reemitirNfse(${n.id})">Reemitir NFS-e</button>` : ''}
-        ${n.status === 'autorizada'
-            ? `<div class="divider"></div><button class="danger" onclick="abrirCancelamentoNfse(${n.id})">Cancelar NFS-e</button>` : ''}
-      `;
-    } else {
-      // Saída: notas emitidas são permanentes — sem opção de exclusão
-      menuItens = `
-        <a href="${escTxt(n.links.detalhe)}">Abrir detalhe</a>
-        ${danfeItem}
-        <button onclick='abrirMeta(${JSON.stringify({tipo:n.tipo,id:n.id,obs:n.observacaoInterna||""})})'>Editar observação</button>
-      `;
-    }
-
-    const dropdownId = `menu-${n.tipo}-${n.id}`;
-    return `<tr style="${n.excluida ? 'opacity:0.55;' : ''}">
-      <td>${tipoLabel}${excluidaBadge}</td>
-      <td><strong>${escTxt(n.numero || '—')}</strong>${n.serie ? '<small class="muted"> /' + escTxt(n.serie) + '</small>' : ''}</td>
-      <td>${n.nDPS != null ? escTxt(n.nDPS) : '<span class="muted">—</span>'}</td>
-      <td>${fmtData(n.dataEmissao)}</td>
-      <td><strong>${escTxt(n.pessoa.nome || (n.tipo === 'nfce' ? 'Consumidor não identificado' : '—'))}</strong>${n.pessoa.cpfCnpj ? '<br><small class="muted">' + escTxt(n.pessoa.cpfCnpj) + '</small>' : ''}</td>
-      <td><code title="${escTxt(n.chaveAcesso || '')}" style="font-size:11px;cursor:pointer;" onclick="copiarChave('${escTxt(n.chaveAcesso || '')}')">${escTxt(trunc(n.chaveAcesso, 14))}</code></td>
-      <td><code style="font-size:12px;">${escTxt(n.cfop || '—')}</code></td>
-      <td>${tipoOpCell}</td>
-      <td class="num">${fmtBRL(n.valor)}</td>
-      <td>${sefazCell}</td>
-      <td style="text-align:right;">
-        <div class="dropdown" id="${dropdownId}">
-          <button class="btn btn-ghost btn-sm" onclick="toggleAcoes('${dropdownId}', event)">Ações ▾</button>
-          <div class="dropdown-menu">${menuItens}</div>
-        </div>
-      </td>
-    </tr>`;
+    const tds = cols.map(c => `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.render(n)}</td>`).join('');
+    return `<tr style="${n.excluida ? 'opacity:0.55;' : ''}">${celulaAbrir(n)}${tds}<td class="col-spacer"></td></tr>`;
   }).join('');
 }
-
-function fecharDropdowns(){
-  document.querySelectorAll('.dropdown.open').forEach(d => {
-    d.classList.remove('open');
-    const m = d.querySelector('.dropdown-menu');
-    if (m) { m.style.position = ''; m.style.top = ''; m.style.left = ''; m.style.right = ''; m.style.minWidth = ''; }
-  });
-}
-function toggleAcoes(id, ev){
-  ev.stopPropagation();
-  const el = document.getElementById(id);
-  if (!el) return;
-  const jaAberto = el.classList.contains('open');
-  fecharDropdowns();
-  if (jaAberto) return;
-  el.classList.add('open');
-  const btn = el.querySelector('button');
-  const menu = el.querySelector('.dropdown-menu');
-  if (!btn || !menu) return;
-  // Posiciona em fixed pra escapar do overflow da tabela
-  const r = btn.getBoundingClientRect();
-  menu.style.position = 'fixed';
-  menu.style.minWidth = '200px';
-  // Mede após aplicar estilos pra calcular alinhamento à direita
-  const mw = Math.max(menu.offsetWidth, 200);
-  menu.style.top = (r.bottom + 4) + 'px';
-  menu.style.left = Math.max(8, r.right - mw) + 'px';
-  menu.style.right = 'auto';
-}
-document.addEventListener('click', e => {
-  if (!e.target.closest('.dropdown')) fecharDropdowns();
-});
-window.addEventListener('scroll', fecharDropdowns, true);
-window.addEventListener('resize', fecharDropdowns);
 
 async function copiarChave(c){
   if (!c) return;
   try { await navigator.clipboard.writeText(c); showAlert('Chave copiada'); } catch (_) {}
 }
 
-// === Editar metadados ===
-function abrirMeta(n){
-  document.getElementById('metaTipo').value = n.tipo;
-  document.getElementById('metaId').value = n.id;
-  document.getElementById('metaObs').value = n.obs || '';
-  document.getElementById('modalMeta').classList.add('open');
-}
-function fecharMeta(){ document.getElementById('modalMeta').classList.remove('open'); }
-async function salvarMeta(){
-  const tipo = document.getElementById('metaTipo').value;
-  const id = document.getElementById('metaId').value;
-  const obs = document.getElementById('metaObs').value.trim();
-  // Ternario binario com tres tipos manda NFS-e para a rota de fatura em
-  // silencio. Melhor recusar aqui do que gravar no registro errado.
-  if (tipo !== 'entrada' && tipo !== 'saida') return showAlert('Observação não se aplica a este tipo de nota', 'error');
-  const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/metadados` : `/api/faturas/${id}/metadados`;
-  try {
-    const r = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ observacaoInterna: obs }) });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error || 'falha');
-    showAlert('Observação salva');
-    fecharMeta();
-    carregar();
-  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
-}
-
-// === Excluir / Restaurar ===
-function abrirExcluir(tipo, id, numero){
-  document.getElementById('excluirTipo').value = tipo;
-  document.getElementById('excluirId').value = id;
-  document.getElementById('excluirMotivo').value = '';
-  document.getElementById('excluirAviso').textContent = tipo === 'entrada'
-    ? `Excluir NF-e de entrada ${numero}: reverte estoque (se aplicado) e remove contas a pagar em aberto.`
-    : `Excluir lançamento da fatura ${numero} (já cancelada): remove contas a receber em aberto e marca como excluída.`;
-  document.getElementById('modalExcluir').classList.add('open');
-}
-function fecharExcluir(){ document.getElementById('modalExcluir').classList.remove('open'); }
-async function confirmarExcluir(){
-  const tipo = document.getElementById('excluirTipo').value;
-  const id = document.getElementById('excluirId').value;
-  const motivo = document.getElementById('excluirMotivo').value.trim();
-  if (!motivo) return showAlert('Motivo obrigatório', 'error');
-  if (tipo !== 'entrada' && tipo !== 'saida') return showAlert('Este tipo de nota não tem exclusão de lançamento', 'error');
-  const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/excluir` : `/api/faturas/${id}/excluir`;
-  try {
-    const r = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ motivo }) });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error || 'falha');
-    showAlert('Lançamento excluído');
-    fecharExcluir();
-    carregar();
-  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
-}
-
-async function restaurar(tipo, id){
-  if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
-  if (tipo !== 'entrada' && tipo !== 'saida') return showAlert('Este tipo de nota não tem restauração', 'error');
-  const url = tipo === 'entrada' ? `/api/nfe-entrada/${id}/restaurar` : `/api/faturas/${id}/restaurar`;
-  try {
-    const r = await fetch(url, { method: 'POST' });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error || 'falha');
-    showAlert(d.aviso || 'Restaurado');
-    carregar();
-  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
-}
-
-async function reverterEstoque(id){
-  if (!confirm('Reverter estoque desta NF-e de entrada? As movimentações criadas pela NF serão removidas.')) return;
-  try {
-    const r = await fetch(`/api/nfe-entrada/${id}/reverter-estoque`, { method: 'POST' });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error || 'falha');
-    showAlert(d.aviso || 'Estoque revertido');
-    carregar();
-  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
-}
-
-async function reverterContasPagar(id){
-  if (!confirm('Reverter contas a pagar em aberto desta NF-e?')) return;
-  try {
-    const r = await fetch(`/api/nfe-entrada/${id}/reverter-contas-pagar`, { method: 'POST' });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error || 'falha');
-    showAlert('Contas a pagar revertidas');
-    carregar();
-  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
-}
-
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    fecharMeta(); fecharExcluir();
-  }
+  if (e.key !== 'Escape') return;
+  fecharDetalhesNfse(); fecharDetalhesNfce();
+  fecharEdicaoNfse(); fecharCancelarNfse(); fecharCancelarNfce();
 });
 
 aplicarTipoDaUrl();
 carregarTiposOperacao();
+// Cabeçalho antes do primeiro fetch: se ele falhar, a tela ainda mostra as
+// colunas em vez de uma tabela sem topo.
+renderCabecalho();
 carregar();
 
 // ==================== NFS-e ====================
@@ -648,7 +571,6 @@ function linhaDet(rot, val, cor){
 }
 
 async function verDetalhesNfse(id){
-  fecharDropdowns();
   try {
     const r = await fetch('/api/nfse/' + id);
     const d = await r.json();
@@ -678,7 +600,74 @@ async function verDetalhesNfse(id){
            <pre style="font-size:11px;margin-top:10px;white-space:pre-wrap;word-break:break-all;background:var(--bg-2);padding:10px;border-radius:6px;max-height:300px;overflow:auto;">${escTxt(retorno)}</pre>
          </details>`;
 
+    // Ações conforme o estado da nota: rejeitada pode ser editada e reemitida;
+    // autorizada pode ser cancelada; DANFSE sai enquanto houver chave.
+    const rejeitada = n.status === 'erro' || n.status === 'erro_timeout';
+    document.getElementById('acoesNfse').innerHTML = `
+      <button class="btn btn-ghost" onclick="fecharDetalhesNfse()">Fechar</button>
+      ${n.chaveAcesso
+          ? `<button class="btn btn-secondary" onclick="baixarDanfse(${n.id})">📄 Baixar DANFSE</button>`
+          : `<button class="btn btn-secondary" disabled title="DANFSE indisponível (nota sem chave de acesso)">📄 Baixar DANFSE</button>`}
+      ${rejeitada ? `<button class="btn btn-secondary" onclick="abrirEdicaoNfse(${n.id})">Editar nota</button>
+                     <button class="btn btn-primary" onclick="reemitirNfse(${n.id})">Reemitir NFS-e</button>` : ''}
+      ${n.status === 'autorizada' ? `<button class="btn btn-danger" onclick="abrirCancelamentoNfse(${n.id})">Cancelar NFS-e</button>` : ''}
+    `;
+
     document.getElementById('modalDetalhesNfse').classList.add('open');
+  } catch (e) { showAlert('Erro ao carregar detalhes: ' + e.message, 'error'); }
+}
+
+// ==================== NFC-e ====================
+// Sem tela própria: este modal é o detalhe do cupom, e é dele que saem o XML
+// autorizado e o cancelamento.
+function fecharDetalhesNfce(){ document.getElementById('modalDetalhesNfce').classList.remove('open'); }
+
+async function verDetalhesNfce(id){
+  try {
+    const r = await fetch('/api/nfce/' + id);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    const n = d.nfce;
+    const itens = d.itens || [];
+    const pagamentos = d.pagamentos || [];
+
+    const itensHtml = itens.length
+      ? `<table style="width:100%;font-size:12px;margin-top:6px;">
+           <thead><tr>
+             <th style="text-align:left;padding:4px 8px;">Produto</th>
+             <th style="text-align:right;padding:4px 8px;">Qtd</th>
+             <th style="text-align:right;padding:4px 8px;">Unit.</th>
+             <th style="text-align:right;padding:4px 8px;">Total</th>
+           </tr></thead>
+           <tbody>${itens.map(i => `<tr>
+             <td style="padding:4px 8px;">${escTxt(i.descricao || '—')}</td>
+             <td style="padding:4px 8px;text-align:right;">${escTxt(i.quantidade)}</td>
+             <td style="padding:4px 8px;text-align:right;">${fmtBRL(i.valorUnitario)}</td>
+             <td style="padding:4px 8px;text-align:right;">${fmtBRL(i.valorTotal)}</td>
+           </tr>`).join('')}</tbody>
+         </table>`
+      : '<p class="muted" style="font-size:12px;margin:6px 0 0;">Sem itens registrados.</p>';
+
+    document.getElementById('detalhesNfceConteudo').innerHTML =
+      linhaDet('Número / Série', `${n.numero || '—'} / ${n.serie || '—'}`)
+      + linhaDet('Chave de acesso', n.chaveAcesso)
+      + linhaDet('Emissão', fmtData(n.dataEmissao))
+      + linhaDet('Consumidor', n.consumidorNome || n.consumidorCpfCnpj || 'Não identificado')
+      + linhaDet('Valor total', fmtBRL(n.valorTotal))
+      + linhaDet('Status SEFAZ', n.statusSefaz)
+      + (n.rejeicaoMotivo ? linhaDet('Motivo SEFAZ', n.rejeicaoMotivo, 'var(--danger)') : '')
+      + (pagamentos.length ? linhaDet('Pagamento', pagamentos.map(p => `${p.tipo || p.meio || '—'}: ${fmtBRL(p.valor)}`).join(' · ')) : '')
+      + `<div style="margin-top:14px;"><strong style="font-size:13px;">Itens (${itens.length})</strong>${itensHtml}</div>`;
+
+    document.getElementById('acoesNfce').innerHTML = `
+      <button class="btn btn-ghost" onclick="fecharDetalhesNfce()">Fechar</button>
+      ${n.statusSefaz === 'autorizada'
+          ? `<a class="btn btn-secondary" href="/api/nfce/${n.id}/xml" target="_blank">📄 Baixar XML</a>
+             <button class="btn btn-danger" onclick="abrirCancelamentoNfce(${n.id})">Cancelar NFC-e</button>`
+          : `<button class="btn btn-secondary" disabled title="XML disponível apenas para NFC-e autorizada">📄 Baixar XML</button>`}
+    `;
+
+    document.getElementById('modalDetalhesNfce').classList.add('open');
   } catch (e) { showAlert('Erro ao carregar detalhes: ' + e.message, 'error'); }
 }
 
@@ -716,7 +705,7 @@ function histNfseHtml(hist){
 }
 
 async function abrirEdicaoNfse(id){
-  fecharDropdowns();
+  fecharDetalhesNfse();
   try {
     const r = await fetch('/api/nfse/' + id);
     const d = await r.json();
@@ -761,7 +750,6 @@ async function salvarEdicaoNfse(reemitir){
 }
 
 async function baixarDanfse(id){
-  fecharDropdowns();
   try {
     const r = await fetch('/api/nfse/' + id + '/danfse');
     if (!r.ok) {
@@ -779,7 +767,7 @@ async function baixarDanfse(id){
 let _reemitindo = false;
 // jaConfirmado: veio do "Salvar e reemitir", onde o usuário já decidiu.
 async function reemitirNfse(id, jaConfirmado){
-  fecharDropdowns();
+  fecharDetalhesNfse();
   if (_reemitindo) return;
   if (!jaConfirmado && !confirm('Reemitir esta NFS-e para a SEFIN?')) return;
   _reemitindo = true;
@@ -798,7 +786,7 @@ async function reemitirNfse(id, jaConfirmado){
 }
 
 function abrirCancelamentoNfse(id){
-  fecharDropdowns();
+  fecharDetalhesNfse();
   document.getElementById('nfseCancelarId').value = id;
   document.getElementById('nfseMotivo').value = '';
   document.getElementById('modalCancelarNfse').classList.add('open');
@@ -837,11 +825,11 @@ async function confirmarCancelamentoNfse(){
 }
 
 
-// ==================== NFC-e ====================
+// ==================== NFC-e: cancelamento ====================
 function fecharCancelarNfce(){ document.getElementById('modalCancelarNfce').classList.remove('open'); }
 
 function abrirCancelamentoNfce(id){
-  fecharDropdowns();
+  fecharDetalhesNfce();
   document.getElementById('nfceCancelarId').value = id;
   document.getElementById('nfceMotivo').value = '';
   document.getElementById('modalCancelarNfce').classList.add('open');

@@ -32,6 +32,38 @@
   </div>
 </div>
 
+<!-- Modal Observação interna -->
+<div class="modal-bg" id="modalObs">
+  <div class="modal" style="max-width:560px;">
+    <button class="close" onclick="fecharObs()">&times;</button>
+    <h2>Observação interna</h2>
+    <p style="color:#888;font-size:0.85em;">Anotação da empresa sobre o lançamento — os campos fiscais da NF continuam imutáveis.</p>
+    <textarea id="obsTexto" rows="4" style="width:100%;" placeholder="Contexto da entrada, referências, combinados com o fornecedor…"></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="btn btn-secondary" onclick="fecharObs()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarObs()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Excluir lançamento (soft-delete reversível) -->
+<div class="modal-bg" id="modalExcluir">
+  <div class="modal" style="max-width:560px;">
+    <button class="close" onclick="fecharExcluir()">&times;</button>
+    <h2>Excluir lançamento interno</h2>
+    <p style="color:#888;font-size:0.85em;">
+      Reverte o estoque (se aplicado) e remove as contas a pagar em aberto desta NF-e.
+      É reversível: o lançamento pode ser restaurado depois.
+    </p>
+    <label style="color:#888;font-size:0.85em;">Motivo *</label>
+    <textarea id="excluirMotivo" rows="3" style="width:100%;" placeholder="Por que está excluindo? (obrigatório)"></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="btn btn-secondary" onclick="fecharExcluir()">Cancelar</button>
+      <button class="btn btn-warn" style="color:#ef4444;" onclick="confirmarExcluir()">Excluir</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Devolução ao fornecedor (espelho da entrada) -->
 <div class="modal-bg" id="modalDevolucao">
   <div class="modal" style="max-width:1120px;width:96%;">
@@ -101,9 +133,16 @@ function render(){
           ? `<button class="btn btn-primary" onclick="gerarContasPagar()">💳 Gerar contas a pagar</button>`
           : `<button class="btn btn-warn" onclick="reverterContasPagar()">↶ Reverter contas a pagar</button>`}
         <button class="btn btn-secondary" onclick="abrirDevolucao()" title="Emitir NF-e de devolução ao fornecedor espelhando esta entrada (total ou parcial)">↩ Devolução ao fornecedor</button>
+        <a class="btn btn-secondary" href="/api/nfe-entrada/${NFE_ID}/danfe" target="_blank" title="Renderiza a DANFE a partir do XML completo — só sai se o XML já foi baixado da SEFAZ">📄 DANFE</a>
+        <button class="btn btn-secondary" onclick="abrirObs()">📝 Observação interna</button>
+        ${n.excluida
+          ? `<button class="btn btn-primary" onclick="restaurarLancamento()">↶ Restaurar lançamento</button>`
+          : `<button class="btn btn-warn" style="color:#ef4444;" onclick="abrirExcluir()">🗑 Excluir lançamento</button>`}
       </div>
     </div>
     ${itensSemVinculo > 0 ? `<p style="color:#f59e0b;margin-top:10px;font-size:0.85em;">⚠ ${itensSemVinculo} item(ns) ainda sem produto vinculado.</p>` : ''}
+    ${n.excluida ? `<p style="color:#ef4444;margin-top:10px;font-size:0.85em;">🗑 Lançamento excluído${n.motivoExclusao ? ' — ' + n.motivoExclusao : ''}. A nota fiscal em si continua válida; o que foi desfeito é o lançamento interno.</p>` : ''}
+    ${n.observacaoInterna ? `<p style="color:#888;margin-top:10px;font-size:0.85em;"><strong>Obs. interna:</strong> ${n.observacaoInterna}</p>` : ''}
   </div>`;
 
   let html = acoesHtml + `
@@ -214,6 +253,68 @@ async function reverterContasPagar(){
     carregar();
   } catch(e){ alert('Erro: '+e.message); }
 }
+
+// ===== Observação interna e exclusão do lançamento =====
+// Vieram da listagem de Notas Fiscais: ação de nota mora na página da nota.
+
+function abrirObs(){
+  document.getElementById('obsTexto').value = DADOS?.nota?.observacaoInterna || '';
+  document.getElementById('modalObs').classList.add('open');
+}
+function fecharObs(){ document.getElementById('modalObs').classList.remove('open'); }
+
+async function salvarObs(){
+  const observacaoInterna = document.getElementById('obsTexto').value.trim();
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/metadados', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ observacaoInterna })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'erro');
+    fecharObs();
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+function abrirExcluir(){
+  document.getElementById('excluirMotivo').value = '';
+  document.getElementById('modalExcluir').classList.add('open');
+}
+function fecharExcluir(){ document.getElementById('modalExcluir').classList.remove('open'); }
+
+async function confirmarExcluir(){
+  const motivo = document.getElementById('excluirMotivo').value.trim();
+  if (!motivo) { alert('Motivo obrigatório.'); return; }
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/excluir', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ motivo })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'erro');
+    fecharExcluir();
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function restaurarLancamento(){
+  if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
+  try {
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/restaurar', { method:'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error||'erro');
+    if (d.aviso) alert(d.aviso);
+    carregar();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+document.getElementById('modalObs').addEventListener('click', e => {
+  if (e.target.id === 'modalObs') fecharObs();
+});
+document.getElementById('modalExcluir').addEventListener('click', e => {
+  if (e.target.id === 'modalExcluir') fecharExcluir();
+});
 
 // ================= Modal Vincular =================
 

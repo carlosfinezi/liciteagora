@@ -345,18 +345,34 @@ async function emitirNFe(db, faturaId) {
   const itens = db.prepare('SELECT * FROM fatura_itens WHERE faturaId = ? ORDER BY id ASC').all(faturaId);
   if (!itens.length) throw new Error('Fatura sem itens');
 
-  // ─── Devolução de COMPRA (espelho da entrada) — saída, impostos reproduzidos ──
-  // Recomputa as tags de imposto a partir da entrada imutável (montarItensEspelho) +
-  // as quantidades gravadas na fatura (parcial/total). Fonte única = calcularImpostoEspelho.
-  const ehDevolucaoCompra = fatura.tipoDevolucao === 'compra';
+  // ─── Devolução ESPELHO — impostos reproduzidos do documento de origem ────────
+  // Dois sentidos, um motor (espelho-fiscal.js): 'compra' espelha a NF-e de entrada do
+  // fornecedor; 'venda' espelha a nossa NF-e de saída devolvida pelo cliente. Em ambos as
+  // tags são RECOMPUTADAS a partir do documento imutável + as quantidades gravadas na
+  // fatura (parcial/total) — a fatura guarda a seleção, nunca o imposto.
+  const modoEspelho = (fatura.tipoDevolucao === 'compra' || fatura.tipoDevolucao === 'venda')
+    ? fatura.tipoDevolucao : null;
+  const espelhoChave = modoEspelho === 'venda' ? 'faturaItemOrigemId' : 'nfeEntradaItemId';
   let espelhoTagsPorItem = null, espelhoTotais = null;
-  if (ehDevolucaoCompra) {
+  if (modoEspelho === 'compra') {
     if (!fatura.nfeEntradaId) throw new Error('Devolução de compra sem nfeEntradaId na fatura');
     const dc = require('./devolucao-compra');
     const espelho = dc.montarItensEspelho(db, fatura.nfeEntradaId, { nossaUf: emit.uf });
     const qtdMap = new Map(itens.map(it => [it.nfeEntradaItemId, Number(it.quantidade)]));
-    const calc = dc.calcularImpostoEspelho(espelho, qtdMap);
+    // O frete só entra se foi devolvido na criação — a fatura registrou isso no valorFrete.
+    const calc = dc.calcularImpostoEspelho(espelho, qtdMap, { devolverFrete: Number(fatura.valorFrete) > 0 });
     espelhoTagsPorItem = new Map(calc.itens.map(t => [t.nfeEntradaItemId, t]));
+    espelhoTotais = calc.totais;
+  } else if (modoEspelho === 'venda') {
+    if (!fatura.faturaOrigemId) throw new Error('Devolução de venda sem faturaOrigemId na fatura');
+    const dv = require('./devolucao-venda');
+    const { itens: espelho } = dv.montarItensEspelhoVenda(db, fatura.faturaOrigemId);
+    const qtdMap = new Map(itens.map(it => [it.faturaItemOrigemId, Number(it.quantidade)]));
+    const calc = require('./espelho-fiscal').calcularImpostoEspelho(espelho, qtdMap, {
+      chaveItem: 'faturaItemOrigemId',
+      devolverFrete: Number(fatura.valorFrete) > 0,
+    });
+    espelhoTagsPorItem = new Map(calc.itens.map(t => [t.faturaItemOrigemId, t]));
     espelhoTotais = calc.totais;
   }
 
@@ -378,7 +394,7 @@ async function emitirNFe(db, faturaId) {
   const tipoOpRow = fatura.tipoOperacaoId
     ? db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(fatura.tipoOperacaoId)
     : null;
-  const ehDevolucao = ehDevolucaoCompra || (tipoOpRow
+  const ehDevolucao = !!modoEspelho || (tipoOpRow
     ? (tipoOpRow.finalidadeNFe === 4 || tipoOpRow.categoriaOperacao === 'devolucao_venda')
     : Number(fatura.isDevolucao) === 1);
 
@@ -400,8 +416,9 @@ async function emitirNFe(db, faturaId) {
   const cfopResolvidoPorItem = new Map();
   for (const it of itens) {
     let cf = it.cfop || '5102';
-    // Devolução de compra: o CFOP gravado (5202/5411/…) já é o de devolução → não converter.
-    if (!ehDevolucaoCompra && ehDevolucao && /^[567]/.test(cf)) {
+    // Devolução espelho: o CFOP gravado (5202/5411/… na compra, 1202/2202 na venda) já é o
+    // de devolução → não converter de novo.
+    if (!modoEspelho && ehDevolucao && /^[567]/.test(cf)) {
       cf = getCfopMeta(cf)?.cfopContrapartida || fallbackDevolucao(fatura.clienteUf, emit.uf);
     }
     cfopResolvidoPorItem.set(it.id, cf);
@@ -412,7 +429,7 @@ async function emitirNFe(db, faturaId) {
   // Truncado a 60 chars (limite do layout NF-e) e sem diacríticos.
   const primeiroCfop = itens.length ? cfopResolvidoPorItem.get(itens[0].id) : null;
   const cfopMetaPrincipal = getCfopMeta(primeiroCfop);
-  const natOpFonte = ehDevolucaoCompra ? 'DEVOLUCAO DE COMPRA'
+  const natOpFonte = modoEspelho === 'compra' ? 'DEVOLUCAO DE COMPRA'
     : (tipoOpRow?.textoPadraoNFe
       || cfopMetaPrincipal?.descricao
       || (ehDevolucao ? 'DEVOLUCAO DE VENDA' : 'VENDA DE PRODUTO'));
@@ -437,7 +454,7 @@ async function emitirNFe(db, faturaId) {
     serie: String(serie),
     nNF: String(nNF),
     dhEmi: NFe.formatData(),
-    tpNF: ehDevolucaoCompra ? '1' : (ehDevolucao ? '0' : '1'),  // devolução de compra = SAÍDA (1)
+    tpNF: modoEspelho === 'compra' ? '1' : (ehDevolucao ? '0' : '1'),  // devolução de compra = SAÍDA (1)
     // 1 = mesma UF / 2 = interestadual / 3 = exterior (clienteUf 'EX')
     idDest: (fatura.clienteUf || '').toUpperCase() === 'EX' ? '3'
       : (fatura.clienteUf || '').toUpperCase() === (emit.uf || '').toUpperCase() ? '1'
@@ -555,7 +572,7 @@ async function emitirNFe(db, faturaId) {
   // Metadados fiscais do produto.
   // Precedência CSOSN/CST: produto cadastrado → CFOP (csosnPadrao/cstPadrao) → fallback 400/49.
   // Devolução de compra usa os impostos espelhados (não o cadastro do produto) → pula a query.
-  const produtoIds = ehDevolucaoCompra ? [] : [...new Set(itens.map(it => it.produtoId).filter(Boolean))];
+  const produtoIds = modoEspelho === 'compra' ? [] : [...new Set(itens.map(it => it.produtoId).filter(Boolean))];
   const produtosPor = new Map();
   if (produtoIds.length) {
     const rows = db.prepare(`SELECT id, csosn, cstPIS, cstCOFINS, cstIBS, cClassTrib, cest FROM produtos WHERE id IN (${produtoIds.map(()=>'?').join(',')})`).all(...produtoIds);
@@ -566,7 +583,7 @@ async function emitirNFe(db, faturaId) {
   // e vive no grupo <prod>, não no de imposto — então precisa estar pronto antes
   // do tagProd. O forEach de impostos abaixo reusa este mapa em vez de recalcular.
   const tribPorItem = new Map();
-  if (!ehDevolucaoCompra) {
+  if (!modoEspelho) {
     for (const it of itens) {
       tribPorItem.set(it.id, calcularTributacaoItem(db, {
         crt, it, cfop: cfopResolvidoPorItem.get(it.id),
@@ -611,6 +628,10 @@ async function emitirNFe(db, faturaId) {
       qTrib: Number(it.quantidade).toFixed(4),
       vUnTrib: Number(it.precoUnitario).toFixed(4),
       ...(freteRateio.get(it.id) ? { vFrete: freteRateio.get(it.id).toFixed(2) } : {}),
+      // Desconto por item — hoje só a devolução espelho grava fatura_itens.valorDesconto
+      // (o desconto da venda vive no total da fatura). A SEFAZ valida Σ vDesc dos itens
+      // contra o vDesc do total, então os dois têm de sair da mesma conta.
+      ...(Number(it.valorDesconto) ? { vDesc: Number(it.valorDesconto).toFixed(2) } : {}),
       indTot: '1'
     };
   });
@@ -639,21 +660,45 @@ async function emitirNFe(db, faturaId) {
     });
   };
 
+  // IBS/CBS na devolução espelho. Duas situações:
+  //  - nota de origem já emitida com o grupo → reproduz os valores rateados (t.ibsCbs);
+  //  - nota anterior à reforma, devolvida com o grupo ligado → não há o que espelhar, e a
+  //    devolução sai com o cClassTrib de devolução (nfe_config.cClassTribDevolucao, padrão
+  //    410031) e valores zerados, para manter as bases da origem.
+  // O código 410031 precisa de confirmação do contador antes de valer em produção.
+  const aplicarIbsCbsEspelho = (i, it, t) => {
+    if (!cfg.ibsCbsAtivo) return;
+    if (t.ibsCbs) { NFe.tagProdIBSCBS(i, t.ibsCbs); return; }
+    const prod = it.produtoId ? produtosPor.get(it.produtoId) : null;
+    NFe.tagProdIBSCBS(i, {
+      CST: (prod?.cstIBS || '000').trim(),
+      cClassTrib: String(cfg.cClassTribDevolucao || '410031').trim(),
+      gIBSCBS: {
+        vBC: Number(it.valorTotal).toFixed(2),
+        gIBSUF: { pIBSUF: '0.0000', vIBSUF: '0.00' },
+        gIBSMun: { pIBSMun: '0.0000', vIBSMun: '0.00' },
+        vIBS: '0.00',
+        gCBS: { pCBS: '0.0000', vCBS: '0.00' },
+      },
+    });
+  };
+
   // Acumulador dos totais vindos do motor de tributação. Fica zerado quando
   // nenhum item passa por ele — e aí o bloco de totais mantém a forma antiga.
   const totaisTrib = { usado: false, vBC: 0, vICMS: 0, vBCST: 0, vICMSST: 0, vFCP: 0, vIPI: 0, vPIS: 0, vCOFINS: 0,
                        vICMSUFDest: 0, vICMSUFRemet: 0, vFCPUFDest: 0 };
 
   itens.forEach((it, i) => {
-    // Devolução de compra: impostos ESPELHADOS da entrada (CSOSN 900 c/ destaque, IPI no
-    // item, PIS/COFINS reproduzidos, ST quando originou). Pula o caminho Simples-zerado.
-    if (ehDevolucaoCompra) {
-      const t = espelhoTagsPorItem.get(it.nfeEntradaItemId);
+    // Devolução espelho: impostos REPRODUZIDOS do documento de origem (CSOSN c/ destaque,
+    // IPI no item, PIS/COFINS, ST quando originou). Pula o caminho Simples-zerado.
+    if (modoEspelho) {
+      const t = espelhoTagsPorItem.get(it[espelhoChave]);
       if (t) {
         NFe.tagProdICMSSN(i, { ...t.icms });
         if (t.ipi) NFe.tagProdIPI(i, { ...t.ipi });
         NFe.tagProdPIS(i, { ...t.pis });
         NFe.tagProdCOFINS(i, { ...t.cofins });
+        aplicarIbsCbsEspelho(i, it, t);
       }
       return;
     }
@@ -716,8 +761,9 @@ async function emitirNFe(db, faturaId) {
   const vNF = totaisTrib.usado
     ? Number((vNFBase + totaisTrib.vICMSST + totaisTrib.vIPI).toFixed(2))
     : vNFBase;
-  if (ehDevolucaoCompra) {
-    // Totais espelhados (vBC/vICMS/vST/vIPI/vPIS/vCOFINS + vNF = vProd+IPI+ST).
+  if (modoEspelho) {
+    // Totais espelhados (vBC/vICMS/vST/vIPI/vPIS/vCOFINS + vNF = vProd − desconto + frete
+    // + IPI + ST). Vêm prontos do motor: os itens acima saíram da mesma conta.
     NFe.tagTotal({ ICMSTot: espelhoTotais });
   } else if (totaisTrib.usado) {
     // Motor de tributação: o total tem de bater com a soma dos itens, senão a SEFAZ
@@ -824,9 +870,10 @@ async function emitirNFe(db, faturaId) {
     const card = cardFor(t);
     if (card) dp.card = card;
     NFe.tagDetPag([dp]);
-  } else if (!geraFinanceiro || ehDevolucaoCompra) {
-    // Sem pagamento no documento (bonificação/remessa/comodato OU devolução de compra —
-    // o acerto financeiro é o abate da conta a pagar, não uma cobrança na NF-e): tPag 90.
+  } else if (!geraFinanceiro || modoEspelho) {
+    // Sem pagamento no documento (bonificação/remessa/comodato OU devolução espelho — o
+    // acerto financeiro é o abate da conta a pagar, na compra, e o crédito ao cliente, na
+    // venda; nenhum dos dois é cobrança na NF-e): tPag 90.
     NFe.tagDetPag([{ indPag: 0, tPag: '90', vPag: '0.00' }]);
   } else {
     // Gera financeiro mas sem parcelas nem meio → inconsistência: bloquear (não emitir "sem pagamento").

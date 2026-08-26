@@ -4,6 +4,72 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-26
+
+Devolução de venda como espelho da nota de origem, e a listagem de notas fiscais
+no padrão de grid das demais telas. A referência da devolução foi o wizard
+`lifdoctofiscaldevolucaowizard` do Solution ERP da Raízes Agrícola (9 etapas),
+lido para entender o modelo — sem reproduzir o wizard inteiro.
+
+**O espelho passou a valer nos dois sentidos.** A devolução de compra já era
+espelho de verdade: lê o XML da entrada, reproduz item a item o que o fornecedor
+destacou, controla saldo e emite com `finNFe=4` + `refNFe`. A de venda emitia
+nota, mas **recalculava** o imposto pelo pipeline normal, partia do RMA/pedido em
+vez da nota, exigia pedido de origem e não tratava frete nem desconto. O motor
+comum saiu para `espelho-fiscal.js` (parse dos `<det>`, rateio proporcional,
+condicionais de ICMS/ST e IPI, grupo IBS/CBS quando existe), parametrizado pela
+chave do item de origem e pelo CSOSN; `devolucao-compra.js` passou a consumi-lo e
+`devolucao-venda.js` nasceu em cima dele.
+
+- **`GET /api/faturas/:id/devolucao/preview`** e **`POST /api/faturas/:id/devolucao`**:
+  seleção item a item, saldo por linha da nota, avisos (CFOP fora do mapa, cliente
+  contribuinte, item sem produto) e emissão como nota de **entrada** (tpNF=0,
+  finNFe=4, refNFe da venda)
+- **O CFOP de devolução não precisou de tabela nova**: `cfops.cfopContrapartida`
+  já declarava 1202→5102, 2202→6102, 1411→5403 — consultar pelo lado da
+  contrapartida devolve o CFOP de entrada, e o prefixo 1/2 vem junto porque o
+  CFOP de saída já distingue interno de interestadual
+- **O espelho gera o RMA, não um caminho paralelo.** `criarDevolucao` e
+  `efetivarDevolucao` viraram funções exportadas de `devolucoes-routes.js` (os
+  handlers HTTP são cascas finas sobre elas) e o módulo novo as chama: estoque
+  com o custo da saída original, crédito em CR negativo e estorno de comissão
+  continuam saindo de um lugar só. Com `faturaOrigemId`/`faturaItemOrigemId`, o
+  saldo enxerga RMA manual e devolução espelho na mesma conta — devolver a mesma
+  peça duas vezes é recusado, venha de onde vier
+- **`vDesc` era zerado nos totais do espelho de compra** — entrada com desconto
+  gerava devolução valendo mais do que o fornecedor cobrou. Agora o desconto é
+  sempre espelhado (proporcional) e o frete virou opção, padrão não devolver.
+  O `<prod>` do emissor ganhou `vDesc` por item, que a SEFAZ valida contra o total
+- **IBS/CBS na devolução**: espelha o grupo quando a nota de origem tem; quando é
+  pré-reforma e `nfe_config.ibsCbsAtivo` está ligado, sai com o cClassTrib de
+  devolução (`nfe_config.cClassTribDevolucao`, padrão 410031). **O 410031 veio do
+  aviso na tela do Solution, não de uma NT conferida — confirmar com o contador.**
+  Limitação herdada da compra: o espelho só monta o grupo ICMS do Simples (CSOSN);
+  emitente em regime normal é recusado com mensagem, em vez de gerar nota errada
+
+Duas portas de entrada, uma implementação: botão "↩ Devolução do cliente" na tela
+da NF-e de saída e "↩ Devolver uma nota fiscal" na tela de Devoluções, que busca a
+nota e cai no mesmo modal via `?devolucao=1`.
+
+**Notas Fiscais: grid no padrão de `comercial/pessoas.html`.** Colunas declaradas
+em JS com seletor de colunas persistido, cabeçalho que ordena, larguras
+arrastáveis pelo `/js/grid.js` e contador de registros. A coluna "Ações ▾" saiu —
+cada linha tem só o lápis, que abre o detalhe, e as ações foram para onde o
+documento mora: DANFE, observação interna e excluir/restaurar lançamento na tela
+da NF-e de entrada; observação interna e restaurar na de saída; DANFSE, edição,
+reemissão e cancelamento no modal da NFS-e. A NFC-e não tinha detalhe nenhum e
+ganhou um modal (dados, itens, pagamento) com baixar XML e cancelar.
+
+Testes: `scripts/test-espelho-fiscal.js` (15) trava o motor — parse, rateio,
+condicionais e as opções de frete/desconto; `scripts/test-devolucao-venda-espelho.js`
+(17) roda o fluxo inteiro em banco descartável com a emissão stubada, incluindo a
+trava contra dupla devolução.
+
+Fica pendente: `data/tenants/labfiscal/pncp.db` é `root:root` e o serviço web roda
+como `carlosfinezi` — o boot registra `attempt to write a readonly database` e
+esse tenant não recebeu as colunas novas (nem as da devolução de compra, pelo
+mesmo motivo).
+
 ## 2026-08-25
 
 Emissão manual de NF-e e o módulo fiscal fora do Simples Nacional. A referência

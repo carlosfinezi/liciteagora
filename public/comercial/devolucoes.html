@@ -14,6 +14,7 @@
       <small>RMA: devoluções de venda, retorno de estoque e crédito ao cliente</small>
     </div>
     <div class="actions">
+      <button class="btn btn-secondary" onclick="abrirEscolhaNota()" title="Espelha a NF-e de venda: itens, quantidades e impostos vêm da nota">↩ Devolver uma nota fiscal</button>
       <button class="btn btn-primary" onclick="abrirNova()">+ Nova devolução</button>
     </div>
   </div>
@@ -50,6 +51,26 @@
     </table>
   </div>
 </main></div>
+
+<!-- Modal: escolher a nota de venda a devolver -->
+<!-- A seleção mora aqui, mas o espelho em si é a tela da nota: uma implementação só,
+     alcançável tanto por quem começa pelo documento quanto por quem começa pelo RMA. -->
+<div class="modal-bg" id="modalNota">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Devolver uma nota fiscal</h3>
+        <small class="muted">Só NF-e de saída autorizada — a devolução espelha os impostos dela</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharEscolhaNota()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <input type="text" id="notaBusca" placeholder="Buscar por número, chave, cliente ou CNPJ…" oninput="buscarNotas()" autocomplete="off">
+    <div id="notaResultados" style="margin-top:12px;max-height:52vh;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharEscolhaNota()">Fechar</button>
+    </div>
+  </div>
+</div>
 
 <!-- Modal Nova/Editar -->
 <div class="modal-bg" id="modal">
@@ -189,6 +210,54 @@ function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'
 function showItemAlert(m,t='error'){ const e=document.getElementById('alertItens'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',4000); }
 let debTimer; function debounce(fn){ clearTimeout(debTimer); debTimer=setTimeout(fn,300); }
 function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+
+// ----- Devolver uma nota fiscal (espelho) -----
+// Aqui só se escolhe a nota; a seleção de itens e a emissão acontecem na tela dela, que é
+// onde o espelho está implementado. `?devolucao=1` abre o modal já na chegada.
+
+function abrirEscolhaNota(){
+  document.getElementById('notaBusca').value = '';
+  document.getElementById('notaResultados').innerHTML =
+    '<p class="muted" style="font-size:0.88em;">Digite para buscar entre as notas de saída autorizadas.</p>';
+  document.getElementById('modalNota').classList.add('open');
+  setTimeout(() => document.getElementById('notaBusca').focus(), 50);
+}
+function fecharEscolhaNota(){ document.getElementById('modalNota').classList.remove('open'); }
+
+let notaTimer;
+function buscarNotas(){
+  clearTimeout(notaTimer);
+  notaTimer = setTimeout(async () => {
+    const q = document.getElementById('notaBusca').value.trim();
+    const box = document.getElementById('notaResultados');
+    if (q.length < 2) { box.innerHTML = '<p class="muted" style="font-size:0.88em;">Digite ao menos 2 caracteres.</p>'; return; }
+    box.innerHTML = '<p class="muted" style="font-size:0.88em;">Buscando…</p>';
+    try {
+      const r = await fetch('/api/notas-fiscais?tipo=saida&statusSefaz=autorizada&busca=' + encodeURIComponent(q));
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error || 'falha');
+      const notas = d.notas || [];
+      if (!notas.length) { box.innerHTML = '<p class="muted" style="font-size:0.88em;">Nenhuma nota autorizada encontrada.</p>'; return; }
+      const esc = s => { const x = document.createElement('div'); x.textContent = s == null ? '' : s; return x.innerHTML; };
+      box.innerHTML = `<table style="width:100%;font-size:0.88em;border-collapse:collapse;">
+        <thead><tr style="text-align:left;color:var(--text-3);">
+          <th style="padding:6px;">Nº</th><th style="padding:6px;">Emissão</th>
+          <th style="padding:6px;">Cliente</th><th style="padding:6px;text-align:right;">Valor</th><th></th>
+        </tr></thead><tbody>${notas.map(n => `
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:6px;"><strong>${esc(n.numero)}</strong></td>
+            <td style="padding:6px;">${esc(String(n.dataEmissao || '').slice(0, 10))}</td>
+            <td style="padding:6px;">${esc(n.pessoa?.nome || '—')}</td>
+            <td style="padding:6px;text-align:right;">${fmtBRL(n.valor)}</td>
+            <td style="padding:6px;text-align:right;">
+              <a class="btn btn-secondary btn-sm" href="/fiscal/nfe-detalhe.html?id=${n.id}&devolucao=1">Devolver</a>
+            </td>
+          </tr>`).join('')}</tbody></table>`;
+    } catch (e) {
+      box.innerHTML = `<p style="color:var(--danger);font-size:0.88em;">Erro: ${e.message}</p>`;
+    }
+  }, 300);
+}
 
 // ----- Listagem -----
 

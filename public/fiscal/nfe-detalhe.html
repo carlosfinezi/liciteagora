@@ -77,6 +77,9 @@
       <a class="btn btn-ghost btn-sm" id="btnDanfe" href="#" target="_blank">Baixar DANFE</a>
       <a class="btn btn-ghost btn-sm" id="btnXml" href="#" target="_blank">Baixar XML</a>
       <button class="btn btn-ghost btn-sm" id="btnCce" onclick="abrirModalCce()">Carta de correção</button>
+      <button class="btn btn-ghost btn-sm" id="btnDevolucao" onclick="abrirDevolucao()" title="Registrar a devolução do cliente espelhando esta nota (total ou parcial)">↩ Devolução do cliente</button>
+      <button class="btn btn-ghost btn-sm" onclick="abrirModalObs()">Observação interna</button>
+      <button class="btn btn-ghost btn-sm" id="btnRestaurar" style="display:none;" onclick="restaurarLancamento()">Restaurar lançamento</button>
       <button class="btn btn-ghost btn-sm" id="btnCancelar" style="color:var(--danger);" onclick="abrirModalCancelar()">Cancelar SEFAZ</button>
     </div>
   </div>
@@ -115,6 +118,43 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModalCce()">Cancelar</button>
       <button class="btn btn-primary" onclick="enviarCce()">Enviar CC-e</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Devolução do cliente (espelho desta nota) -->
+<div class="modal-bg" id="modalDevolucao">
+  <div class="modal" style="max-width:1120px;width:96%;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">↩ Devolução do cliente</h3>
+        <small class="muted">Espelho desta nota — os impostos destacados na venda são reproduzidos na devolução</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharDevolucao()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div id="devCabecalho"></div>
+    <div id="devConteudo"><p class="muted">Carregando espelho…</p></div>
+  </div>
+</div>
+
+<!-- Modal Observação interna -->
+<div class="modal-bg" id="modalObs">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Observação interna</h3>
+        <small class="muted">Anotação da empresa · campos fiscais permanecem imutáveis</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharModalObs()" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <textarea id="obsTexto" rows="4" placeholder="Contexto da emissão, referências, combinados com o cliente…"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalObs()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarObs()">Salvar</button>
     </div>
   </div>
 </div>
@@ -252,6 +292,26 @@ function render(){
     btnXml.href = '#'; btnXml.style.pointerEvents = 'none'; btnXml.style.opacity = '0.45'; btnXml.title = 'Disponível só com NF-e autorizada';
     btnCce.disabled = true; btnCce.title = 'Disponível só com NF-e autorizada';
     btnCancelar.disabled = true; btnCancelar.title = 'Disponível só com NF-e autorizada';
+  }
+
+  // Devolução do cliente: só faz sentido com nota autorizada e XML guardado — é o XML que
+  // dá o que espelhar.
+  const btnDev = document.getElementById('btnDevolucao');
+  btnDev.disabled = !sefazAutorizada;
+  btnDev.title = sefazAutorizada
+    ? 'Registrar a devolução do cliente espelhando esta nota (total ou parcial)'
+    : 'Disponível só com NF-e autorizada';
+  // Quem veio da tela de Devoluções já escolheu a nota — abre o espelho direto.
+  if (sefazAutorizada && new URLSearchParams(location.search).get('devolucao') === '1' && !DEV) {
+    abrirDevolucao();
+  }
+
+  // Lançamento excluído (soft-delete): a restauração vinha do menu da listagem
+  // e agora mora aqui, junto do documento a que se refere.
+  const btnRestaurar = document.getElementById('btnRestaurar');
+  btnRestaurar.style.display = f.excluida ? '' : 'none';
+  if (f.excluida) {
+    sub.innerHTML += ` <span style="margin:0 8px;color:var(--text-3);">·</span> <span style="color:var(--danger);">lançamento excluído${f.motivoExclusao ? ' — ' + escTxt(f.motivoExclusao) : ''}</span>`;
   }
 
   // ====== Conteúdo principal ======
@@ -441,6 +501,215 @@ async function enviarCce(){
   } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
 }
 
+// ====== Devolução do cliente (espelho desta nota) ======
+// A tela é irmã da devolução ao fornecedor (fiscal/nfe-entrada-detalhe.html): seleção item
+// a item, quantidade limitada ao saldo e rateio dos impostos recalculado ao vivo. Quem faz
+// a conta de verdade é o servidor — aqui é só a prévia para o usuário decidir.
+
+let DEV = null;
+
+function fecharDevolucao(){ document.getElementById('modalDevolucao').classList.remove('open'); DEV = null; }
+
+async function abrirDevolucao(){
+  document.getElementById('modalDevolucao').classList.add('open');
+  document.getElementById('devCabecalho').innerHTML = '';
+  document.getElementById('devConteudo').innerHTML = '<p class="muted">Carregando espelho…</p>';
+  try {
+    const r = await fetch(`/api/faturas/${id}/devolucao/preview`);
+    // 404 aqui é o servidor ainda rodando a versão anterior do código: a resposta é o HTML
+    // da página de erro, e tentar lê-la como JSON só produziria "Unexpected token '<'".
+    if (r.status === 404) throw new Error('Endpoint de devolução ainda não está no ar neste servidor — entra no próximo restart do serviço.');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    DEV = d;
+    renderDevolucao();
+  } catch (e) {
+    document.getElementById('devConteudo').innerHTML =
+      `<p style="color:var(--danger);">${escTxt(e.message)}</p>`;
+  }
+}
+
+function renderDevolucao(){
+  const n = DEV.nota, a = DEV.avisos || {};
+  const alertas = [];
+  if (a.regimeNaoSimples) alertas.push('⚠ Emitente fora do Simples: o espelho só monta o grupo ICMS do Simples (CSOSN). Emita a devolução manualmente.');
+  if (a.clienteContribuinte) alertas.push('⚠ Cliente com inscrição estadual: contribuinte devolve emitindo a nota dele. Confirme com o contador antes de emitir a nossa entrada.');
+  if (a.cfopsForaDoMapa) alertas.push(`⚠ ${a.cfopsForaDoMapa} item(ns) com CFOP fora do de/para — usando 1202/2202 (revisar).`);
+  if (a.itensSemXml) alertas.push(`⚠ ${a.itensSemXml} item(ns) sem correspondência no XML — os impostos desses itens não têm o que espelhar.`);
+  if (a.itensSemProduto) alertas.push(`⚠ ${a.itensSemProduto} item(ns) sem produto vinculado — não podem voltar ao estoque.`);
+
+  document.getElementById('devCabecalho').innerHTML = `
+    <div style="margin-bottom:12px;font-size:0.9em;">
+      <strong>NF-e ${escTxt(n.numeroNFe || n.numero)}${n.serie ? '/' + escTxt(n.serie) : ''}</strong>
+      · Cliente: ${escTxt(n.cliente || '—')} (${escTxt(n.uf || '—')})<br>
+      <span class="muted">Natureza: <b>${escTxt(DEV.natOp)}</b> · Entrada (tpNF=0, finNFe=4) · refNFe:
+        <span class="chave-mono">${escTxt(n.chave || '—')}</span></span>
+      ${alertas.map(x => `<div style="color:var(--warn);margin-top:6px;">${escTxt(x)}</div>`).join('')}
+    </div>`;
+
+  const linhas = DEV.itens.map((it, idx) => `
+    <tr data-idx="${idx}">
+      <td><input type="checkbox" class="dev-chk" data-idx="${idx}" ${it.saldoDisponivel > 0 ? 'checked' : 'disabled'} onchange="recalcDev()" style="width:auto;"></td>
+      <td>${it.numero}</td>
+      <td>${escTxt(it.descricao || '—')}<br><small class="muted">${escTxt(it.sku || '')}${it.produtoId ? '' : ' · <span style="color:var(--warn);">sem produto vinculado</span>'}</small></td>
+      <td><code>${escTxt(it.cfopSaida || '—')} → <b>${escTxt(it.cfopDevolucao)}</b></code>${it.cfopDevolucaoDoMapa ? '' : ' ⚠'}</td>
+      <td class="num">${fmtNum(it.saldoDisponivel, 2)} <small class="muted">/${fmtNum(it.quantidadeOrigem, 2)}</small></td>
+      <td><input type="number" class="dev-qtd" data-idx="${idx}" min="0" step="any" max="${it.saldoDisponivel}"
+                 value="${it.saldoDisponivel}" style="width:90px;" oninput="recalcDev()"></td>
+      <td class="num dev-vprod">—</td>
+      <td class="num dev-vicms">—</td>
+      <td class="num dev-vst">—</td>
+      <td class="num dev-vipi">—</td>
+    </tr>`).join('');
+
+  document.getElementById('devConteudo').innerHTML = `
+    <div style="display:flex;gap:10px;margin:6px 0 10px;flex-wrap:wrap;align-items:center;">
+      <button class="btn btn-secondary btn-sm" onclick="devSelecionar('total')">Devolução total</button>
+      <button class="btn btn-secondary btn-sm" onclick="devSelecionar('limpar')">Limpar seleção</button>
+      <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:0.85em;text-transform:none;">
+        <input type="checkbox" id="devFrete" style="width:auto;" onchange="recalcDev()"> Devolver o frete
+      </label>
+      <input type="text" id="devMotivo" placeholder="Motivo (opcional)" style="flex:1;min-width:200px;">
+    </div>
+    <div class="tbl-wrap">
+      <table class="itens-tbl">
+        <thead><tr>
+          <th style="width:36px;"></th><th style="width:40px;">#</th><th>Produto</th><th>CFOP</th>
+          <th class="num">Saldo</th><th style="width:110px;">Devolver</th>
+          <th class="num">V.Prod</th><th class="num">ICMS</th><th class="num">ST</th><th class="num">IPI</th>
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+        <tfoot><tr>
+          <td colspan="6" style="text-align:right;">Totais a devolver:</td>
+          <td class="num" id="devTotProd">—</td><td class="num" id="devTotIcms">—</td>
+          <td class="num" id="devTotSt">—</td><td class="num" id="devTotIpi">—</td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <p class="muted" style="font-size:0.82em;margin:10px 0 0;">
+      Impostos rateados proporcionalmente à quantidade devolvida — espelho da nota de origem.
+      A devolução entra no estoque e vira crédito ao cliente antes da emissão.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharDevolucao()">Cancelar</button>
+      <button class="btn btn-primary" id="btnEmitirDev" onclick="emitirDevolucao()">Registrar e emitir devolução</button>
+    </div>`;
+  recalcDev();
+}
+
+function devSelecionar(modo){
+  document.querySelectorAll('.dev-chk').forEach(chk => {
+    if (chk.disabled) return;
+    const idx = +chk.dataset.idx;
+    const qtd = document.querySelector(`.dev-qtd[data-idx="${idx}"]`);
+    if (modo === 'total') { chk.checked = true; qtd.value = DEV.itens[idx].saldoDisponivel; }
+    else chk.checked = false;
+  });
+  recalcDev();
+}
+
+function recalcDev(){
+  const devolverFrete = !!document.getElementById('devFrete')?.checked;
+  let tProd = 0, tIcms = 0, tSt = 0, tIpi = 0;
+  DEV.itens.forEach((it, idx) => {
+    const chk = document.querySelector(`.dev-chk[data-idx="${idx}"]`);
+    const inp = document.querySelector(`.dev-qtd[data-idx="${idx}"]`);
+    const tr = document.querySelector(`tr[data-idx="${idx}"]`);
+    if (!chk || !inp || !tr) return;
+    let qtd = parseFloat(inp.value) || 0;
+    if (qtd > it.saldoDisponivel) { qtd = it.saldoDisponivel; inp.value = qtd; }
+    const ativo = chk.checked && qtd > 0;
+    const f = (it.quantidadeOrigem > 0 && ativo) ? (qtd / it.quantidadeOrigem) : 0;
+    const imp = it.imposto || {};
+    const vProd = (it.valorTotal || 0) * f - (it.valorDesconto || 0) * f + (devolverFrete ? (it.valorFrete || 0) * f : 0);
+    const vIcms = (imp.vIcms || 0) * f, vSt = (imp.vIcmsST || 0) * f, vIpi = (imp.vIpi || 0) * f;
+    tr.querySelector('.dev-vprod').textContent = fmtBRL(vProd);
+    tr.querySelector('.dev-vicms').textContent = fmtBRL(vIcms);
+    tr.querySelector('.dev-vst').textContent = fmtBRL(vSt);
+    tr.querySelector('.dev-vipi').textContent = fmtBRL(vIpi);
+    tr.style.opacity = ativo ? '1' : '0.45';
+    if (ativo) { tProd += vProd; tIcms += vIcms; tSt += vSt; tIpi += vIpi; }
+  });
+  document.getElementById('devTotProd').textContent = fmtBRL(tProd);
+  document.getElementById('devTotIcms').textContent = fmtBRL(tIcms);
+  document.getElementById('devTotSt').textContent = fmtBRL(tSt);
+  document.getElementById('devTotIpi').textContent = fmtBRL(tIpi);
+}
+
+async function emitirDevolucao(){
+  const sel = [];
+  DEV.itens.forEach((it, idx) => {
+    const chk = document.querySelector(`.dev-chk[data-idx="${idx}"]`);
+    const qtd = parseFloat(document.querySelector(`.dev-qtd[data-idx="${idx}"]`)?.value) || 0;
+    if (chk && chk.checked && qtd > 0) sel.push({ faturaItemOrigemId: it.faturaItemOrigemId, quantidade: qtd });
+  });
+  if (!sel.length) return showAlert('Selecione ao menos 1 item com quantidade a devolver', 'error');
+
+  const total = sel.length === DEV.itens.length
+    && DEV.itens.every((it, idx) => (parseFloat(document.querySelector(`.dev-qtd[data-idx="${idx}"]`)?.value) || 0) >= it.saldoDisponivel);
+  if (!confirm(`Registrar a devolução de ${sel.length} item(ns)?\n\nDá entrada no estoque, gera crédito ao cliente e emite a NF-e de devolução. Só se desfaz estornando a devolução e cancelando a nota.`)) return;
+
+  const btn = document.getElementById('btnEmitirDev');
+  btn.disabled = true; btn.textContent = 'Emitindo…';
+  try {
+    const r = await fetch(`/api/faturas/${id}/devolucao`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(total ? { total: true } : { itens: sel }),
+        devolverFrete: !!document.getElementById('devFrete')?.checked,
+        motivo: document.getElementById('devMotivo')?.value.trim() || null,
+      }),
+    });
+    const d = await r.json();
+    if (d.success) {
+      fecharDevolucao();
+      showAlert(`Devolução ${d.numero} autorizada · chave ${d.chaveAcesso || '—'}`);
+      carregar();
+    } else {
+      // Falha depois do RMA: o retorno já está registrado e precisa ser dito.
+      showAlert((d.error || 'Não autorizada') + (d.devolucaoId ? ` (devolução #${d.devolucaoId} registrada)` : ''), 'error');
+      btn.disabled = false; btn.textContent = 'Registrar e emitir devolução';
+    }
+  } catch (e) {
+    showAlert('Erro: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Registrar e emitir devolução';
+  }
+}
+
+// ====== Observação interna / restauração do lançamento ======
+function abrirModalObs(){
+  document.getElementById('obsTexto').value = fatura?.observacaoInterna || '';
+  document.getElementById('modalObs').classList.add('open');
+}
+function fecharModalObs(){ document.getElementById('modalObs').classList.remove('open'); }
+
+async function salvarObs(){
+  const observacaoInterna = document.getElementById('obsTexto').value.trim();
+  try {
+    const r = await fetch(`/api/faturas/${id}/metadados`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ observacaoInterna })
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert('Observação salva');
+    fecharModalObs();
+    carregar();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
+async function restaurarLancamento(){
+  if (!confirm('Restaurar este lançamento? Estoque e contas não são reaplicados automaticamente.')) return;
+  try {
+    const r = await fetch(`/api/faturas/${id}/restaurar`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    showAlert(d.aviso || 'Lançamento restaurado');
+    carregar();
+  } catch (e) { showAlert('Erro: ' + e.message, 'error'); }
+}
+
 // ====== Modal Cancelar SEFAZ ======
 function abrirModalCancelar(){
   document.getElementById('cancelarMotivo').value = '';
@@ -466,7 +735,7 @@ async function confirmarCancelar(){
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    fecharModalCce(); fecharModalCancelar();
+    fecharModalCce(); fecharModalCancelar(); fecharModalObs(); fecharDevolucao();
   }
 });
 

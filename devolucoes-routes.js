@@ -89,6 +89,14 @@ function migrarDB(db) {
   // dependência implícita. ALTER idempotente aqui torna o módulo
   // autossuficiente; o ALTER de lá continua e não conflita.
   alterSafe(db, 'ALTER TABLE devolucoes ADD COLUMN tipoOperacaoId INTEGER');
+  // Devolução espelho da nota (devolucao-venda.js): guarda de qual NF-e de saída — e de
+  // qual linha dela — cada devolução saiu. Sem isso o saldo devolvível não distingue a
+  // nota, e devolver a mesma linha duas vezes passaria batido.
+  alterSafe(db, 'ALTER TABLE devolucoes ADD COLUMN faturaOrigemId INTEGER');
+  alterSafe(db, 'ALTER TABLE devolucoes ADD COLUMN devolverFrete INTEGER DEFAULT 0');
+  alterSafe(db, 'ALTER TABLE devolucao_itens ADD COLUMN faturaItemOrigemId INTEGER');
+  alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_dev_fatura_origem ON devolucoes(faturaOrigemId)');
+  alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_dev_itens_fatura_item ON devolucao_itens(faturaItemOrigemId)');
 }
 
 // Devolução só faz sentido para pedido que de fato saiu. Rascunho e
@@ -287,10 +295,210 @@ function desfazerEstornoComissoes(db, devolucaoId) {
   return linhas;
 }
 
+// Erro com código HTTP embutido: as funções abaixo são chamadas tanto pelas rotas daqui
+// quanto pela devolução espelho (devolucao-venda.js), e cada uma responde do seu jeito.
+function erroHttp(status, msg) { const e = new Error(msg); e.status = status; return e; }
+
 function recalcTotal(db, devolucaoId) {
   const total = db.prepare('SELECT COALESCE(SUM(valorTotal),0) AS t FROM devolucao_itens WHERE devolucaoId = ?').get(devolucaoId).t;
   db.prepare('UPDATE devolucoes SET valorTotal = ? WHERE id = ?').run(total, devolucaoId);
   return total;
+}
+
+/**
+ * Cria a devolução (RMA) e seus itens. Extraída do POST /api/devolucoes para que a
+ * devolução espelho da nota (devolucao-venda.js) use o MESMO caminho — dois jeitos de
+ * criar o mesmo fato dariam dois saldos diferentes.
+ *
+ * `faturaOrigemId` / `faturaItemOrigemId` só vêm do espelho; pelo formulário são nulos.
+ * Lança Error com `.status` — quem chama traduz para HTTP.
+ */
+function criarDevolucao(db, req, dados) {
+  const { pedidoId, clienteId, motivo, observacoes, itens, tipoOperacaoId,
+          faturaOrigemId = null, devolverFrete = 0 } = dados || {};
+  if (!clienteId) throw erroHttp(400, 'clienteId obrigatório');
+  if (!Array.isArray(itens) || itens.length === 0) throw erroHttp(400, 'Informe ao menos um item');
+
+  // tipoOperacaoId vem do seletor do modal — se ausente, usa DEV-DEFEITO (default).
+  let tipoOpFinal = tipoOperacaoId || null;
+  if (!tipoOpFinal) {
+    const def = db.prepare(`SELECT id FROM tipos_operacao WHERE codigo = 'DEV-DEFEITO'`).get();
+    tipoOpFinal = def?.id || null;
+  }
+
+  // Barra quantidade acima do devolvível ANTES de gravar qualquer coisa.
+  // /disponivel já calculava esse saldo, mas nenhum endpoint o consultava.
+  validarQuantidades(db, { pedidoId, itens });
+
+  const trx = db.transaction(() => {
+    const numero = gerarNumero(db);
+    const r = db.prepare(`
+      INSERT INTO devolucoes (numero, pedidoId, clienteId, motivo, observacoes, tipoOperacaoId,
+        usuarioCriacao, faturaOrigemId, devolverFrete)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(numero, pedidoId || null, clienteId, motivo || null, observacoes || null, tipoOpFinal,
+      req?.user?.username || null, faturaOrigemId, devolverFrete ? 1 : 0);
+    const devId = r.lastInsertRowid;
+
+    const stmtItem = db.prepare(`
+      INSERT INTO devolucao_itens
+        (devolucaoId, pedidoItemId, produtoId, descricao, quantidade, valorUnitario, valorTotal,
+         loteId, serialIds, motivo, faturaItemOrigemId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const it of itens) {
+      if (!it.produtoId || !it.quantidade || it.valorUnitario == null) {
+        throw new Error(`Item inválido: produtoId, quantidade e valorUnitario são obrigatórios`);
+      }
+      const qtd = Number(it.quantidade);
+      const valor = Number(it.valorUnitario);
+      stmtItem.run(
+        devId, it.pedidoItemId || null, it.produtoId,
+        it.descricao || '', qtd, valor, qtd * valor,
+        it.loteId || null,
+        Array.isArray(it.serialIds) && it.serialIds.length ? JSON.stringify(it.serialIds) : null,
+        it.motivo || null,
+        it.faturaItemOrigemId || null
+      );
+    }
+    recalcTotal(db, devId);
+    return devId;
+  });
+  return trx();
+}
+
+/**
+ * Efetiva a devolução: crédito ao cliente, entrada de estoque com o custo da saída
+ * original, estorno de comissão. Extraída do POST /api/devolucoes/:id/efetivar pelo mesmo
+ * motivo de criarDevolucao — o espelho não pode ter um caminho paralelo para o estoque.
+ */
+function efetivarDevolucao(db, req, devolucaoId) {
+  const dev = db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(devolucaoId);
+  if (!dev) throw erroHttp(404, 'Não encontrada');
+  if (dev.status !== 'aberta') throw erroHttp(400, 'Devolução não está aberta');
+
+  const itens = db.prepare(`
+    SELECT di.*, p.sku, p.rastreiaLote, p.rastreiaSerial
+    FROM devolucao_itens di
+    JOIN produtos p ON p.id = di.produtoId
+    WHERE di.devolucaoId = ?
+  `).all(dev.id);
+  if (!itens.length) throw erroHttp(400, 'Devolução sem itens');
+
+  // Validações de rastreabilidade antes de iniciar a transação
+  for (const it of itens) {
+    if (it.rastreiaLote && !it.loteId) {
+      throw erroHttp(400, `Item ${it.sku} rastreia lote — informe o lote`);
+    }
+    if (it.rastreiaSerial) {
+      const serials = it.serialIds ? JSON.parse(it.serialIds) : [];
+      if (serials.length !== Number(it.quantidade)) {
+        throw erroHttp(400, `Item ${it.sku} rastreia série — informe ${it.quantidade} série(s)`);
+      }
+    }
+  }
+
+  // Revalida na efetivação contando só o que já foi efetivado: entre a
+  // abertura e agora, outra devolução do mesmo item pode ter sido
+  // efetivada e comido o saldo.
+  try {
+    validarQuantidades(db, {
+      pedidoId: dev.pedidoId, itens, ignorarDevolucaoId: dev.id, apenasEfetivadas: true,
+    });
+  } catch (e) {
+    throw erroHttp(400, e.message);
+  }
+
+  const dataHoje = hojeBrasilia();
+  let comissoes = { linhas: 0, pagasNaoEstornadas: 0, valorEstornado: 0 };
+
+  const trx = db.transaction(() => {
+    // 1. Cria CR negativo (crédito ao cliente)
+    let crId = null;
+    if (Number(dev.valorTotal) > 0) {
+      const r = db.prepare(`
+        INSERT INTO contas_a_receber
+          (pessoaId, descricao, valor, dataEmissao, dataVencimento, status, origem)
+        VALUES (?, ?, ?, ?, ?, 'aberta', ?)
+      `).run(
+        dev.clienteId,
+        `Crédito por devolução ${dev.numero}`,
+        -Number(dev.valorTotal),
+        dataHoje,
+        dataHoje,
+        'devolucao'
+      );
+      crId = r.lastInsertRowid;
+    }
+
+    // 2. Para cada item: registra entrada no estoque + atualiza serial
+    //
+    // custoUnitario recebe o CUSTO da saída original, não o preço de
+    // venda. Gravar o preço aqui inflava o custo médio ponderado do
+    // produto (estoque-routes:254 faz média das entradas por
+    // custoUnitario) e contaminava margem e sugestão de compra.
+    const stmtMov = db.prepare(`
+      INSERT INTO movimentacoes_estoque
+        (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, loteId, motivo, usuario,
+         custoMedioAnterior, custoMedioPosterior, saldoPosterior, depositoId)
+      VALUES (?, 'entrada', ?, ?, 'devolucao', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const it of itens) {
+      const { custo, fonte } = custoRetorno(db, { pedidoId: dev.pedidoId, produtoId: it.produtoId });
+      // Contexto calculado ANTES do INSERT — calcularContextoMovimento lê
+      // o saldo/custo vigentes, então precisa rodar com o estado anterior.
+      const ctx = calcularContextoMovimento(db, it.produtoId, 'entrada', Number(it.quantidade), custo);
+      const movResult = stmtMov.run(
+        it.produtoId, Number(it.quantidade), custo,
+        dev.id,
+        `Devolução ${dev.numero} (custo: ${fonte})`,
+        dataHoje, it.loteId || null,
+        it.motivo || dev.motivo || null,
+        req?.user?.username || null,
+        ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior,
+        // Mercadoria devolvida volta para o depósito de onde saiu.
+        resolverDeposito(db, { pedidoId: dev.pedidoId, produtoId: it.produtoId })
+      );
+      const movId = movResult.lastInsertRowid;
+      db.prepare('UPDATE devolucao_itens SET movEntradaId = ? WHERE id = ?').run(movId, it.id);
+
+      // Atualiza saldo do lote (entrada)
+      if (it.loteId) {
+        db.prepare('UPDATE lotes SET saldoAtual = saldoAtual + ? WHERE id = ?').run(Number(it.quantidade), it.loteId);
+      }
+
+      // Atualiza seriais devolvidos: voltam para disponível
+      if (it.serialIds) {
+        const serials = JSON.parse(it.serialIds);
+        for (const sid of serials) {
+          db.prepare(`UPDATE serial_numbers SET status='disponivel', movEntradaId = ?, movSaidaId = NULL WHERE id = ?`)
+            .run(movId, sid);
+        }
+      }
+    }
+
+    // 3. Estorna a comissão proporcional — venda desfeita não gera
+    //    comissão, e antes a apuração seguia intocada.
+    comissoes = estornarComissoes(db, dev, itens);
+
+    // 4. Marca devolução como efetivada
+    db.prepare(`
+      UPDATE devolucoes
+         SET status = 'efetivada',
+             dataEfetivacao = ?,
+             crNegativoId = ?,
+             usuarioEfetivacao = ?
+       WHERE id = ?
+    `).run(agoraBrasilia(), crId, req?.user?.username || null, dev.id);
+  });
+  trx();
+  logAction(db, req, 'efetivar', 'devolucao', dev.id,
+    { valorTotal: dev.valorTotal, itens: itens.length, comissoes });
+  return {
+    devolucao: db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(dev.id),
+    itens,
+    comissoes,
+  };
 }
 
 function registrarRotasDevolucoes(app, db) {
@@ -386,59 +594,13 @@ function registrarRotasDevolucoes(app, db) {
 
   app.post('/api/devolucoes', (req, res) => {
     try {
-      const { pedidoId, clienteId, motivo, observacoes, itens, tipoOperacaoId } = req.body;
-      if (!clienteId) return res.status(400).json({ success: false, error: 'clienteId obrigatório' });
-      if (!Array.isArray(itens) || itens.length === 0) {
-        return res.status(400).json({ success: false, error: 'Informe ao menos um item' });
-      }
-
-      // tipoOperacaoId vem do seletor do modal — se ausente, usa DEV-DEFEITO (default).
-      let tipoOpFinal = tipoOperacaoId || null;
-      if (!tipoOpFinal) {
-        const def = db.prepare(`SELECT id FROM tipos_operacao WHERE codigo = 'DEV-DEFEITO'`).get();
-        tipoOpFinal = def?.id || null;
-      }
-
-      // Barra quantidade acima do devolvível ANTES de gravar qualquer coisa.
-      // /disponivel já calculava esse saldo, mas nenhum endpoint o consultava.
-      validarQuantidades(db, { pedidoId, itens });
-
-      const trx = db.transaction(() => {
-        const numero = gerarNumero(db);
-        const r = db.prepare(`
-          INSERT INTO devolucoes (numero, pedidoId, clienteId, motivo, observacoes, tipoOperacaoId, usuarioCriacao)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(numero, pedidoId || null, clienteId, motivo || null, observacoes || null, tipoOpFinal, req.user?.username || null);
-        const devId = r.lastInsertRowid;
-
-        const stmtItem = db.prepare(`
-          INSERT INTO devolucao_itens
-            (devolucaoId, pedidoItemId, produtoId, descricao, quantidade, valorUnitario, valorTotal, loteId, serialIds, motivo)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        for (const it of itens) {
-          if (!it.produtoId || !it.quantidade || it.valorUnitario == null) {
-            throw new Error(`Item inválido: produtoId, quantidade e valorUnitario são obrigatórios`);
-          }
-          const qtd = Number(it.quantidade);
-          const valor = Number(it.valorUnitario);
-          stmtItem.run(
-            devId, it.pedidoItemId || null, it.produtoId,
-            it.descricao || '', qtd, valor, qtd * valor,
-            it.loteId || null,
-            Array.isArray(it.serialIds) && it.serialIds.length ? JSON.stringify(it.serialIds) : null,
-            it.motivo || null
-          );
-        }
-        recalcTotal(db, devId);
-        return devId;
-      });
-      const devId = trx();
-      logAction(db, req, 'criar', 'devolucao', devId, { clienteId, pedidoId, itens: itens.length });
+      const devId = criarDevolucao(db, req, req.body);
+      logAction(db, req, 'criar', 'devolucao', devId,
+        { clienteId: req.body.clienteId, pedidoId: req.body.pedidoId, itens: req.body.itens.length });
       const dev = db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(devId);
       res.json({ success: true, devolucao: dev });
     } catch (err) {
-      res.status(400).json({ success: false, error: err.message });
+      res.status(err.status || 400).json({ success: false, error: err.message });
     }
   });
 
@@ -498,130 +660,9 @@ function registrarRotasDevolucoes(app, db) {
 
   app.post('/api/devolucoes/:id/efetivar', (req, res) => {
     try {
-      const dev = db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(req.params.id);
-      if (!dev) return res.status(404).json({ success: false, error: 'Não encontrada' });
-      if (dev.status !== 'aberta') return res.status(400).json({ success: false, error: 'Devolução não está aberta' });
-
-      const itens = db.prepare(`
-        SELECT di.*, p.sku, p.rastreiaLote, p.rastreiaSerial
-        FROM devolucao_itens di
-        JOIN produtos p ON p.id = di.produtoId
-        WHERE di.devolucaoId = ?
-      `).all(dev.id);
-      if (!itens.length) return res.status(400).json({ success: false, error: 'Devolução sem itens' });
-
-      // Validações de rastreabilidade antes de iniciar a transação
-      for (const it of itens) {
-        if (it.rastreiaLote && !it.loteId) {
-          return res.status(400).json({ success: false, error: `Item ${it.sku} rastreia lote — informe o lote` });
-        }
-        if (it.rastreiaSerial) {
-          const serials = it.serialIds ? JSON.parse(it.serialIds) : [];
-          if (serials.length !== Number(it.quantidade)) {
-            return res.status(400).json({ success: false, error: `Item ${it.sku} rastreia série — informe ${it.quantidade} série(s)` });
-          }
-        }
-      }
-
-      // Revalida na efetivação contando só o que já foi efetivado: entre a
-      // abertura e agora, outra devolução do mesmo item pode ter sido
-      // efetivada e comido o saldo.
-      try {
-        validarQuantidades(db, {
-          pedidoId: dev.pedidoId, itens, ignorarDevolucaoId: dev.id, apenasEfetivadas: true,
-        });
-      } catch (e) {
-        return res.status(400).json({ success: false, error: e.message });
-      }
-
-      const dataHoje = hojeBrasilia();
-      let comissoes = { linhas: 0, pagasNaoEstornadas: 0, valorEstornado: 0 };
-
-      const trx = db.transaction(() => {
-        // 1. Cria CR negativo (crédito ao cliente)
-        let crId = null;
-        if (Number(dev.valorTotal) > 0) {
-          const r = db.prepare(`
-            INSERT INTO contas_a_receber
-              (pessoaId, descricao, valor, dataEmissao, dataVencimento, status, origem)
-            VALUES (?, ?, ?, ?, ?, 'aberta', ?)
-          `).run(
-            dev.clienteId,
-            `Crédito por devolução ${dev.numero}`,
-            -Number(dev.valorTotal),
-            dataHoje,
-            dataHoje,
-            'devolucao'
-          );
-          crId = r.lastInsertRowid;
-        }
-
-        // 2. Para cada item: registra entrada no estoque + atualiza serial
-        //
-        // custoUnitario recebe o CUSTO da saída original, não o preço de
-        // venda. Gravar o preço aqui inflava o custo médio ponderado do
-        // produto (estoque-routes:254 faz média das entradas por
-        // custoUnitario) e contaminava margem e sugestão de compra.
-        const stmtMov = db.prepare(`
-          INSERT INTO movimentacoes_estoque
-            (produtoId, tipo, quantidade, custoUnitario, origem, origemId, observacao, data, loteId, motivo, usuario,
-             custoMedioAnterior, custoMedioPosterior, saldoPosterior, depositoId)
-          VALUES (?, 'entrada', ?, ?, 'devolucao', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        for (const it of itens) {
-          const { custo, fonte } = custoRetorno(db, { pedidoId: dev.pedidoId, produtoId: it.produtoId });
-          // Contexto calculado ANTES do INSERT — calcularContextoMovimento lê
-          // o saldo/custo vigentes, então precisa rodar com o estado anterior.
-          const ctx = calcularContextoMovimento(db, it.produtoId, 'entrada', Number(it.quantidade), custo);
-          const movResult = stmtMov.run(
-            it.produtoId, Number(it.quantidade), custo,
-            dev.id,
-            `Devolução ${dev.numero} (custo: ${fonte})`,
-            dataHoje, it.loteId || null,
-            it.motivo || dev.motivo || null,
-            req.user?.username || null,
-            ctx.custoMedioAnterior, ctx.custoMedioPosterior, ctx.saldoPosterior,
-            // Mercadoria devolvida volta para o depósito de onde saiu.
-            resolverDeposito(db, { pedidoId: dev.pedidoId, produtoId: it.produtoId })
-          );
-          const movId = movResult.lastInsertRowid;
-          db.prepare('UPDATE devolucao_itens SET movEntradaId = ? WHERE id = ?').run(movId, it.id);
-
-          // Atualiza saldo do lote (entrada)
-          if (it.loteId) {
-            db.prepare('UPDATE lotes SET saldoAtual = saldoAtual + ? WHERE id = ?').run(Number(it.quantidade), it.loteId);
-          }
-
-          // Atualiza seriais devolvidos: voltam para disponível
-          if (it.serialIds) {
-            const serials = JSON.parse(it.serialIds);
-            for (const sid of serials) {
-              db.prepare(`UPDATE serial_numbers SET status='disponivel', movEntradaId = ?, movSaidaId = NULL WHERE id = ?`)
-                .run(movId, sid);
-            }
-          }
-        }
-
-        // 3. Estorna a comissão proporcional — venda desfeita não gera
-        //    comissão, e antes a apuração seguia intocada.
-        comissoes = estornarComissoes(db, dev, itens);
-
-        // 4. Marca devolução como efetivada
-        db.prepare(`
-          UPDATE devolucoes
-             SET status = 'efetivada',
-                 dataEfetivacao = ?,
-                 crNegativoId = ?,
-                 usuarioEfetivacao = ?
-           WHERE id = ?
-        `).run(agoraBrasilia(), crId, req.user?.username || null, dev.id);
-      });
-      trx();
-      logAction(db, req, 'efetivar', 'devolucao', dev.id,
-        { valorTotal: dev.valorTotal, itens: itens.length, comissoes });
-      const atualizado = db.prepare('SELECT * FROM devolucoes WHERE id = ?').get(dev.id);
+      const { devolucao, comissoes } = efetivarDevolucao(db, req, req.params.id);
       res.json({
-        success: true, devolucao: atualizado,
+        success: true, devolucao,
         comissoesEstornadas: comissoes.linhas,
         valorComissaoEstornado: comissoes.valorEstornado,
         // Comissão já paga não pode ser reduzida na linha — vira acerto manual.
@@ -630,7 +671,7 @@ function registrarRotasDevolucoes(app, db) {
           : null,
       });
     } catch (err) {
-      res.status(400).json({ success: false, error: err.message });
+      res.status(err.status || 400).json({ success: false, error: err.message });
     }
   });
 
@@ -890,4 +931,13 @@ function registrarRotasDevolucoes(app, db) {
   });
 }
 
-module.exports = { registrarRotasDevolucoes };
+module.exports = {
+  registrarRotasDevolucoes,
+  // Usados pela devolução espelho da nota (devolucao-venda.js) — mesmo caminho de gravação
+  // e de saldo que o formulário de RMA, para os dois não divergirem.
+  migrarDB,
+  criarDevolucao,
+  efetivarDevolucao,
+  saldoDevolvivel,
+  validarQuantidades,
+};
