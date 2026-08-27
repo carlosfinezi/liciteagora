@@ -665,41 +665,43 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 }
 
 /* --- Botões legacy padronizados --- */
+/* Cores sempre por token: o tema do tenant é injetado inline no <html> e pode
+   ser claro. Valor fixo aqui vira texto ilegível quando a paleta inverte. */
 .btn-ver-itens {
-  background: rgba(251,191,36,0.12) !important;
-  color: #fbbf24 !important;
-  border: 1px solid rgba(251,191,36,0.4) !important;
+  background: var(--warn-soft) !important;
+  color: var(--warn) !important;
+  border: 1px solid var(--warn) !important;
 }
 .btn-ver-itens:hover {
-  background: rgba(251,191,36,0.2) !important;
-  color: #fcd34d !important;
+  background: var(--warn) !important;
+  color: var(--bg-1) !important;
 }
 .btn-detalhes, .btn-analise-ia {
-  background: var(--accent) !important;
-  color: #0b1120 !important;
-  border: none !important;
+  background: var(--accent-strong) !important;
+  color: #fff !important;
+  border: 1px solid var(--accent-strong) !important;
   border-radius: var(--r-md) !important;
 }
-.btn-detalhes:hover, .btn-analise-ia:hover { background: var(--accent-strong) !important; }
+.btn-detalhes:hover, .btn-analise-ia:hover { background: var(--accent) !important; border-color: var(--accent) !important; }
 .btn-remover, .btn-sem-interesse {
-  background: rgba(239,68,68,0.12) !important;
-  color: #fca5a5 !important;
-  border: 1px solid rgba(239,68,68,0.3) !important;
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+  border: 1px solid var(--danger) !important;
 }
-.btn-remover:hover, .btn-sem-interesse:hover { background: rgba(239,68,68,0.25) !important; }
+.btn-remover:hover, .btn-sem-interesse:hover { background: var(--danger) !important; color: var(--bg-1) !important; }
 .btn-excluir-todos {
-  background: rgba(239,68,68,0.15) !important;
-  color: #fca5a5 !important;
-  border: 1px solid rgba(239,68,68,0.4) !important;
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+  border: 1px solid var(--danger) !important;
 }
-.btn-excluir-todos:hover { background: rgba(239,68,68,0.28) !important; }
+.btn-excluir-todos:hover { background: var(--danger) !important; color: var(--bg-1) !important; }
 .btn-marcar-lida {
   background: var(--bg-3) !important;
   color: var(--text-1) !important;
-  border: 1px solid var(--border) !important;
+  border: 1px solid var(--border-strong) !important;
 }
-.btn-marcar-lida:hover { background: var(--bg-hover) !important; }
-.btn-marcar-lida.lida { background: rgba(52,211,153,0.15) !important; color: #34d399 !important; border-color: rgba(52,211,153,0.4) !important; }
+.btn-marcar-lida:hover { background: var(--bg-hover) !important; color: var(--text-0) !important; }
+.btn-marcar-lida.lida { background: var(--success-soft) !important; color: var(--success) !important; border-color: var(--success) !important; }
 .btn-kanban {
   background: rgba(96,165,250,0.15) !important;
   color: var(--accent) !important;
@@ -1002,7 +1004,9 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 }
 .calendar-days {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* minmax(0,...) impede que o título nowrap de um evento estique a coluna
+     além de 1fr — era o que desalinhava os dias do cabeçalho Dom..Sáb */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 .calendar-day {
   min-height: 110px;

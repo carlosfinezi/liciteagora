@@ -37,11 +37,16 @@ if [ "$RESOLVED" != "$SERVER_IP" ]; then
   exit 10
 fi
 
-# 2. Idempotência — se vhost já existe e SSL OK, encerra cedo.
+# 2. Idempotência — se vhost já existe, SSL OK e sem proxy template,
+# encerra cedo. O proxy entra na condição de propósito: um vhost com SSL
+# válido mas com proxy `default` está quebrado (ver passo 4b), e sair
+# cedo aqui deixaria o tenant fora do ar sem conserto.
 if v-list-web-domain "$USER" "$DOMAIN" >/dev/null 2>&1; then
-  SSL_OK=$(v-list-web-domain "$USER" "$DOMAIN" 2>/dev/null | awk '/^LETSENCRYPT:/ {print $2}')
-  if [ "$SSL_OK" = "yes" ]; then
-    log "ALREADY_OK: vhost + SSL já existem"
+  INFO=$(v-list-web-domain "$USER" "$DOMAIN" 2>/dev/null)
+  SSL_OK=$(awk '/^LETSENCRYPT:/ {print $2}' <<<"$INFO")
+  PROXY_TPL=$(awk '/^PROXY:/ {print $2}' <<<"$INFO")
+  if [ "$SSL_OK" = "yes" ] && [ -z "$PROXY_TPL" ]; then
+    log "ALREADY_OK: vhost + SSL já existem, sem proxy template"
     exit 20
   fi
 fi
@@ -56,6 +61,26 @@ fi
 log "aplicando template $TEMPLATE"
 v-change-web-domain-tpl "$USER" "$DOMAIN" "$TEMPLATE" >/dev/null
 
+# 4b. Remove o proxy template que o v-add-web-domain atribui sozinho.
+#
+# Desde que o upgrade 1.10.2 ligou PROXY_SYSTEM='nginx' (2026-08-15),
+# todo domínio novo nasce com proxy `default`, e é o template de PROXY
+# que gera o nginx.ssl.conf — o `v-change-web-domain-tpl` acima nunca
+# chega ao arquivo final. O `default` faz proxy_pass https://<ip>:443,
+# isto é, devolve a requisição ao próprio nginx: laço infinito, header
+# X-Forwarded-For crescendo a cada salto, até estourar o buffer → 400
+# "Request Header Or Cookie Too Large". Foi o que quebrou o crsolucoes
+# em 2026-08-27 e, em agosto, os 27 domínios do incidente do loop.
+#
+# PROXY='' é o estado dos demais tenants e o que sobreviveu àquele
+# incidente. O delete PRECISA ser seguido do rebuild: sozinho ele apaga
+# o vhost em vez de regenerá-lo, e o domínio sai do ar.
+if v-list-web-domain "$USER" "$DOMAIN" 2>/dev/null | awk '/^PROXY:/ {print $2}' | grep -q .; then
+  log "removendo proxy template herdado do Hestia"
+  v-delete-web-domain-proxy "$USER" "$DOMAIN" >/dev/null
+  v-rebuild-web-domain "$USER" "$DOMAIN" >/dev/null
+fi
+
 # 5. Remove alias automático www.<slug> se Hestia criou — não faz
 # sentido para subdomínio de tenant.
 v-delete-web-domain-alias "$USER" "$DOMAIN" "www.$DOMAIN" >/dev/null 2>&1 || true
@@ -68,6 +93,15 @@ fi
 
 # 7. Força HTTPS (redirect :80 → :443).
 v-add-web-domain-ssl-force "$USER" "$DOMAIN" >/dev/null 2>&1 || true
+
+# 8. Verificação — o vhost tem de encaminhar para a app local. Sem esta
+# checagem o script já gravou READY no control.db uma vez com o vhost em
+# laço de proxy, e o tenant só apareceu quebrado no primeiro acesso.
+SSL_CONF="/home/$USER/conf/web/$DOMAIN/nginx.ssl.conf"
+if ! grep -q 'proxy_pass http://127.0.0.1:3000' "$SSL_CONF" 2>/dev/null; then
+  log "FAILED: $SSL_CONF nao encaminha para 127.0.0.1:3000 — template de proxy errado"
+  exit 1
+fi
 
 log "READY: https://$DOMAIN/"
 exit 0

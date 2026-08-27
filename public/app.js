@@ -302,24 +302,20 @@ function createLicitacaoCard(licitacao) {
                 <div class="info-label">Valor Estimado</div>
                 <div class="valor-estimado">${valorEstimado}</div>
             </div>
-            <div>
+            <div class="card-acoes">
                 <button class="btn-marcar-lida${isLida(licitacao.orgaoEntidade?.cnpj, licitacao.anoCompra, licitacao.sequencialCompra) ? ' lida' : ''}"
-                        onclick="toggleLida('${licitacao.orgaoEntidade?.cnpj}', ${licitacao.anoCompra}, ${licitacao.sequencialCompra}, this)">
-                        ${isLida(licitacao.orgaoEntidade?.cnpj, licitacao.anoCompra, licitacao.sequencialCompra) ? '✓ Lida' : '👁 Marcar lida'}
-                    </button>
-                    <button class="btn-sem-interesse${isSemInteresse(cnpj, ano, seq) ? ' marcado' : ''}"
-                        onclick="toggleSemInteresse('${cnpj}', ${ano}, ${seq}, this)">
-                        ${isSemInteresse(cnpj, ano, seq) ? '🚫 Sem interesse' : '🚫 Não tenho interesse'}
-                    </button>
-                    <button class="btn-ver-itens" onclick="abrirModalItens('${licitacao.orgaoEntidade?.cnpj || ''}', ${licitacao.anoCompra || 0}, ${licitacao.sequencialCompra || 0})">Ver Itens</button>
-                    <button class="btn-analise-ia" id="btn-ia-${cnpj}-${ano}-${seq}" onclick="abrirAnaliseIA('${cnpj}', ${ano}, ${seq})">🤖 Análise IA</button>
+                    onclick="toggleLida('${licitacao.orgaoEntidade?.cnpj}', ${licitacao.anoCompra}, ${licitacao.sequencialCompra}, this)">${isLida(licitacao.orgaoEntidade?.cnpj, licitacao.anoCompra, licitacao.sequencialCompra) ? '✓ Lida' : '👁 Marcar lida'}</button>
+                <button class="btn-sem-interesse${isSemInteresse(cnpj, ano, seq) ? ' marcado' : ''}"
+                    onclick="toggleSemInteresse('${cnpj}', ${ano}, ${seq}, this)">${isSemInteresse(cnpj, ano, seq) ? '🚫 Sem interesse' : '🚫 Não tenho interesse'}</button>
+                <button class="btn-ver-itens" onclick="abrirModalItens('${licitacao.orgaoEntidade?.cnpj || ''}', ${licitacao.anoCompra || 0}, ${licitacao.sequencialCompra || 0})">Ver Itens</button>
+                <button class="btn-analise-ia" id="btn-ia-${cnpj}-${ano}-${seq}" onclick="abrirAnaliseIA('${cnpj}', ${ano}, ${seq})">🤖 Análise IA</button>
                 ${licitacao.linkSistemaOrigem ? `
                     <a href="${licitacao.linkSistemaOrigem}" target="_blank">
                         <button class="btn-detalhes">Abrir no Sistema</button>
                     </a>
                 ` : `
                     <a href="https://pncp.gov.br/app/editais/${licitacao.orgaoEntidade?.cnpj || licitacao.cnpj}/${licitacao.anoCompra}/${String(licitacao.sequencialCompra).padStart(6, '0')}" target="_blank">
-                        <button class="btn-detalhes" style="background: #ff9800;">Ver no PNCP</button>
+                        <button class="btn-detalhes">Ver no PNCP</button>
                     </a>
                 `}
             </div>

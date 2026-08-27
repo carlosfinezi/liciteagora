@@ -4,6 +4,59 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-27
+
+Duas correções sem relação entre si: os botões de ação do card de licitação, que
+estavam ilegíveis, e o provisionamento de tenant, que subia o vhost em laço de
+proxy.
+
+**As cores dos botões vinham de um tema que não existe mais.** Na consulta de
+licitações, "Não tenho interesse" era rosa claro sobre rosa claro, "Ver Itens"
+amarelo sobre amarelo e "Análise IA" quase preto sobre azul-marinho. A causa não
+estava na tela: o bloco "Botões legacy padronizados" do `app-modern.css` fixava
+`#fca5a5`, `#fbbf24`, `#0b1120` com `!important` — valores escolhidos para a
+paleta escura do `:root`. Só que o tema real é **injetado inline no `<html>`**
+pelo white-label do tenant e é claro, então cada uma dessas cores caiu sobre um
+fundo da mesma família. Nenhum `!important` na página venceria isso; a correção
+foi trocar valor fixo por token (`--danger-soft` + `--danger`, `--warn-soft` +
+`--warn`, `--accent-strong` + branco, `--success-soft` + `--success`), que é o
+par que o resto do arquivo já usa nos badges. Alcança também `.btn-remover` e
+`.btn-excluir-todos`, que dividiam a mesma declaração e estavam igualmente
+ilegíveis em outras telas.
+
+- **Os cinco botões tinham cinco geometrias**: padding 6×12, 8×14, 8×15 e 8×20,
+  raio 4, 5 e 6px, fonte 12 e 13px, e `margin-right` avulso no lugar de um
+  contêiner. Agora herdam uma base única em `consulta.html` e a barra é um
+  `.card-acoes` flex com `gap` e `flex-wrap`
+- **`min-height: 34px`** porque só alguns recebem ícone Lucide, e o svg deixava
+  esses 2px mais altos que os demais
+- Conferido no ar, no tenant `1bit`: os cinco medem 34px e o mesmo `top`
+
+**Tenant novo subia com o nginx em laço de proxy.** O `crsolucoes` foi criado e
+respondia **400 "Request Header Or Cookie Too Large"** — sem cookie nenhum na
+requisição. Desde que o upgrade 1.10.2 do Hestia ligou `PROXY_SYSTEM='nginx'`
+(15/08, o mesmo que derrubou 27 domínios), todo domínio novo nasce com proxy
+template `default`, que faz `proxy_pass https://<ip>:443`: o vhost devolve a
+requisição ao próprio nginx, o `X-Forwarded-For` cresce a cada volta e o buffer
+estoura. Reproduzido ao vivo num vhost descartável — logo após
+`v-add-web-domain`, `PROXY: default` e `proxy_pass http://217.216.85.37:80`.
+
+- **O `provision-tenant-vhost.sh` trocava só o template web.** O
+  `v-change-web-domain-tpl` conserta o `nginx.conf` (HTTP), mas o
+  `nginx.ssl.conf` é gerado pelo template de **proxy** — e com `SSL_FORCE` ligado
+  é ele que atende tudo. Daí o tenant ter SSL válido e mesmo assim só devolver
+  400. Passo 4b novo: remove o proxy herdado e **rebuilda** (o delete sozinho
+  apaga o vhost, como já constava do incidente de agosto)
+- **O script gravava `READY` no control.db com o vhost quebrado.** Passo 8 novo
+  verifica se o `nginx.ssl.conf` encaminha para `127.0.0.1:3000` e sai `FAILED`
+  em vez de declarar sucesso
+- **A idempotência escondia o estrago**: o early-exit olhava só o SSL, então
+  reprovisionar um tenant nesse estado não consertava nada. Agora exige também
+  proxy vazio
+- `crsolucoes` no ar (302 → `/login.html`), com `nginx.conf` e `nginx.ssl.conf`
+  idênticos aos de um tenant saudável. Varridos os 18 vhosts `*.liciteagora.app`:
+  nenhum outro em laço
+
 ## 2026-08-26
 
 Devolução de venda como espelho da nota de origem, e a listagem de notas fiscais
