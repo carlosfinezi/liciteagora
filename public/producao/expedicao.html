@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Expedição · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .peso-ok { color:#2b8a3e; font-weight:700; }
+  .peso-excedido { color:#c92a2a; font-weight:700; }
+  .seq { width:60px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Expedição</h1>
+      <small>O que é instalado primeiro tem de sair do caminhão primeiro — ou seja, sobe por último. Errar a ordem é descarregar tudo no chão do cliente com o equipamento de içamento parado ao lado.</small>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNovo()">Novo romaneio</button>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="fStatus" onchange="carregar()"><option value="">Todos os status</option></select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Romaneio</th><th>Data</th><th data-vocab="projeto">Projeto</th><th>Veículo</th><th>Motorista</th>
+        <th style="text-align:right;">Itens</th><th style="text-align:right;">Peso</th>
+        <th style="text-align:right;">Maior peça</th><th>Status</th><th></th></tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:880px;">
+      <div class="modal-header"><h3 id="modalTitulo">Romaneio</h3>
+        <button class="btn-close" onclick="fechar()">&times;</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-expedicao');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 9000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, c = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+
+let STATUS = [], OBRAS = [];
+
+/**
+ * Toda chamada ao backend passa por aqui.
+ *
+ * O `try` não é zelo: sessão expirada devolve o HTML da tela de login e o
+ * nginx devolve HTML no 502. Nos dois casos `r.json()` REJEITA, e sem captura
+ * a promise morre calada — o operador clica em "Concluir", nada acontece, e
+ * não há mensagem nenhuma. Aqui vira um erro com texto, que o chamador exibe.
+ */
+async function api(metodo, rota, corpo) {
+  let r;
+  try {
+    r = await fetch(rota, {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { status: 0, body: { success: false, error: 'sem conexão com o servidor: ' + e.message } };
+  }
+  try {
+    return { status: r.status, body: await r.json() };
+  } catch (_) {
+    return {
+      status: r.status,
+      body: {
+        success: false,
+        error: r.status === 401 || r.status === 403 || r.redirected
+          ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+          : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+      },
+    };
+  }
+}
+
+async function carregar() {
+  const p = new URLSearchParams();
+  if (document.getElementById('fStatus').value) p.set('status', document.getElementById('fStatus').value);
+
+  const r = await api('GET', '/api/producao/romaneios?' + p.toString());
+  if (!r.body.success) { showAlert(r.body.error || 'falha', 'error'); return; }
+
+  if (!STATUS.length && r.body.status) {
+    STATUS = r.body.status;
+    document.getElementById('fStatus').insertAdjacentHTML('beforeend',
+      STATUS.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join(''));
+  }
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.body.romaneios.length ? r.body.romaneios.map(x => `
+    <tr>
+      <td><strong>${esc(x.numero)}</strong></td>
+      <td>${esc(x.data)}</td>
+      <td>${esc(x.projetoNumero || '—')}</td>
+      <td>${esc(x.veiculoPlaca || '—')}<br><small class="muted">${esc(x.veiculoTipo || '')}</small></td>
+      <td>${esc(x.motorista || '—')}</td>
+      <td style="text-align:right;">${x.itens}</td>
+      <td style="text-align:right;" class="${x.capacidadeKg && x.pesoTotalKg > x.capacidadeKg ? 'peso-excedido' : 'peso-ok'}">
+        ${n(x.pesoTotalKg, 0)}${x.capacidadeKg ? ' / ' + n(x.capacidadeKg, 0) : ''} kg</td>
+      <td style="text-align:right;">${n(x.comprimentoMaiorM, 1)} m</td>
+      <td>${esc(x.status)}</td>
+      <td><button class="btn btn-sm" onclick="abrir(${x.id})">Abrir</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nenhum romaneio.</td></tr>';
+}
+
+async function abrirNovo() {
+  if (!OBRAS.length) {
+    const o = await api('GET', '/api/producao/obras');
+    OBRAS = (o.body.obras || []).filter(x => !['cancelada', 'concluida'].includes(x.status));
+  }
+  document.getElementById('modalTitulo').textContent = 'Novo romaneio';
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Obra</label>
+        <select id="rObra"><option value="">Sem obra (venda de catálogo)</option>
+          ${OBRAS.map(o => `<option value="${o.id}">${esc(o.numero)} — ${esc(o.nome)}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label>Data</label>
+        <input type="date" id="rData" value="${new Date().toISOString().slice(0, 10)}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Placa</label><input type="text" id="rPlaca"></div>
+      <div class="form-group"><label>Tipo de veículo</label><input type="text" id="rTipo" placeholder="Prancha 3 eixos"></div>
+      <div class="form-group"><label>Motorista</label><input type="text" id="rMot"></div>
+      <div class="form-group"><label>Capacidade (kg)</label><input type="number" id="rCap" min="0" step="1"></div>
+    </div>
+    <div style="text-align:right;">
+      <button class="btn" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="criar()">Criar</button>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function criar() {
+  const corpo = {
+    projetoId: Number(document.getElementById('rObra').value) || null,
+    data: document.getElementById('rData').value,
+    veiculoPlaca: document.getElementById('rPlaca').value || null,
+    veiculoTipo: document.getElementById('rTipo').value || null,
+    motorista: document.getElementById('rMot').value || null,
+    capacidadeKg: Number(document.getElementById('rCap').value) || null,
+  };
+  const r = await api('POST', '/api/producao/romaneios', corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  fechar(); await carregar(); abrir(r.body.romaneio.id);
+}
+
+async function abrir(id) {
+  const r = await api('GET', '/api/producao/romaneios/' + id);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  const x = r.body.romaneio;
+
+  const patio = await api('GET', '/api/producao/patio' + (x.projetoId ? '?projetoId=' + x.projetoId : ''));
+  const disponiveis = (patio.body.identificadas || []);
+  const catalogo = (patio.body.catalogo || []);
+
+  const excedido = x.capacidadeKg && x.pesoTotalKg > x.capacidadeKg;
+
+  document.getElementById('modalTitulo').textContent = `${x.numero} — ${x.projetoNome || 'sem obra'}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="card kpi"><small class="muted">Status</small><div>${esc(x.status)}</div>
+        <div style="margin-top:6px;">${botoes(x)}</div></div>
+      <div class="card kpi"><small class="muted">Peso da carga</small>
+        <div class="${excedido ? 'peso-excedido' : 'peso-ok'}" style="font-size:20px;">
+          ${n(x.pesoTotalKg, 0)}${x.capacidadeKg ? ' / ' + n(x.capacidadeKg, 0) : ''} kg</div>
+        <small class="muted">${excedido ? 'acima da capacidade — o fechamento vai recusar' : 'dentro da capacidade'}</small></div>
+      <div class="card kpi"><small class="muted">Maior peça</small>
+        <div>${n(x.comprimentoMaiorM, 1)} m</div>
+        <small class="muted">${esc(x.veiculoTipo || '')}</small></div>
+    </div>
+
+    <h4>Carga <small class="muted">— ordem de descarga: menor número sai primeiro</small></h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th style="width:90px;">Descarga</th><th>Peça</th><th>Identificação</th>
+        <th style="text-align:right;">Qtd</th><th style="text-align:right;">Peso</th><th></th></tr></thead>
+      <tbody>${x.itens.length ? x.itens.map(i => `
+        <tr>
+          <td><input type="number" class="seq" min="0" step="1" value="${i.sequenciaDescarga}"
+                data-item="${i.id}" ${['montagem', 'carregado'].includes(x.status) ? '' : 'disabled'}></td>
+          <td>${esc(i.produtoDescricao)}</td>
+          <td>${esc(i.identificacao || '—')}</td>
+          <td style="text-align:right;">${n(i.quantidade, 0)}</td>
+          <td style="text-align:right;">${n(i.pesoKg, 0)} kg</td>
+          <td>${x.status === 'montagem' ? `<button class="btn btn-sm" onclick="removerItem(${id},${i.id})">✕</button>` : ''}</td>
+        </tr>`).join('')
+        : '<tr><td colspan="6" class="empty">Carga vazia.</td></tr>'}</tbody>
+    </table></div>
+    ${['montagem', 'carregado'].includes(x.status) && x.itens.length
+      ? `<div style="text-align:right;margin-top:6px;">
+          <button class="btn btn-sm" onclick="salvarOrdem(${id})">Salvar ordem de descarga</button></div>` : ''}
+
+    ${x.status === 'montagem' ? `
+      <h4 style="margin-top:16px;">Adicionar à carga</h4>
+      <div class="form-row" style="align-items:flex-end;">
+        <div class="form-group" style="flex:2;"><label>Peça identificada (no pátio)</label>
+          <select id="aPeca"><option value="">Selecione…</option>
+            ${disponiveis.map(p => `<option value="${p.id}">${esc(p.identificacao)} — ${esc(p.produtoDescricao)} (${n(p.pesoKg, 0)} kg)</option>`).join('')}
+          </select></div>
+        <div class="form-group"><button class="btn btn-primary" onclick="adicionarPeca(${id})">Adicionar</button></div>
+      </div>
+      <div class="form-row" style="align-items:flex-end;">
+        <div class="form-group" style="flex:2;"><label>Ou peça de catálogo (por quantidade)</label>
+          <select id="aProduto"><option value="">Selecione…</option>
+            ${catalogo.map(c => `<option value="${c.produtoId}">${esc(c.descricao)} (saldo ${n(c.saldo, 0)})</option>`).join('')}
+          </select></div>
+        <div class="form-group"><label>Quantidade</label><input type="number" id="aQtd" min="1" step="1"></div>
+        <div class="form-group"><button class="btn btn-primary" onclick="adicionarQuantidade(${id})">Adicionar</button></div>
+      </div>` : ''}`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function botoes(x) {
+  const b = [];
+  if (x.status === 'montagem') b.push(`<button class="btn btn-primary btn-sm" onclick="fecharCarga(${x.id})">Fechar carga</button>`);
+  if (x.status === 'carregado') {
+    b.push(`<button class="btn btn-primary btn-sm" onclick="mudar(${x.id},'transito')">Saiu</button>`);
+    b.push(`<button class="btn btn-sm" onclick="mudar(${x.id},'montagem')">Desfazer carga</button>`);
+  }
+  if (x.status === 'transito') b.push(`<button class="btn btn-primary btn-sm" onclick="mudar(${x.id},'entregue')">Entregue</button>`);
+  if (['montagem', 'carregado'].includes(x.status)) b.push(`<button class="btn btn-sm" onclick="mudar(${x.id},'cancelado')">Cancelar</button>`);
+  return b.join(' ') || '<span class="muted">status final</span>';
+}
+
+async function adicionarPeca(id) {
+  const v = Number(document.getElementById('aPeca').value);
+  if (!v) return;
+  const r = await api('POST', `/api/producao/romaneios/${id}/itens`, { unidadeId: v });
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(id);
+}
+
+async function adicionarQuantidade(id) {
+  const corpo = {
+    produtoId: Number(document.getElementById('aProduto').value),
+    quantidade: Number(document.getElementById('aQtd').value),
+  };
+  if (!corpo.produtoId || !corpo.quantidade) return;
+  const r = await api('POST', `/api/producao/romaneios/${id}/itens`, corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(id);
+}
+
+async function removerItem(id, itemId) {
+  const r = await api('DELETE', `/api/producao/romaneios/${id}/itens/${itemId}`);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(id);
+}
+
+async function salvarOrdem(id) {
+  const ordem = Array.from(document.querySelectorAll('input.seq')).map(i => ({
+    itemId: Number(i.dataset.item), sequencia: Number(i.value),
+  }));
+  const r = await api('PUT', `/api/producao/romaneios/${id}/ordem`, { ordem });
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  showAlert('Ordem de descarga salva.');
+  abrir(id);
+}
+
+async function fecharCarga(id) {
+  const r = await api('POST', `/api/producao/romaneios/${id}/fechar`);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  await carregar(); abrir(id);
+}
+
+async function mudar(id, status) {
+  const r = await api('POST', `/api/producao/romaneios/${id}/status`, { status });
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  await carregar(); abrir(id);
+}
+
+function fechar() { document.getElementById('modal').style.display = 'none'; }
+
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>

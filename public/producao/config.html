@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Configuração · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .perigo { border-left:3px solid #fa5252; background:#fff5f5; padding:10px 12px; margin:10px 0; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Configuração — Produção</h1>
+      <small>Duas destas opções afrouxam travas que existem por um motivo. Elas nascem desligadas e o que passa por elas fica registrado com nome e justificativa.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card" style="max-width:720px;">
+    <h4>Numeração</h4>
+    <div class="form-row">
+      <div class="form-group"><label>Prefixo da OP</label><input type="text" id="producao_prefixo_ordem" maxlength="10"></div>
+      <div class="form-group"><label>Prefixo da obra</label><input type="text" id="producao_prefixo_projeto" maxlength="10"></div>
+      <div class="form-group"><label>Prefixo do romaneio</label><input type="text" id="producao_prefixo_romaneio" maxlength="10"></div>
+    </div>
+
+    <h4 style="margin-top:16px;">Custo</h4>
+    <div class="form-row">
+      <div class="form-group"><label>Custo-hora padrão (R$)</label>
+        <input type="number" id="producao_custo_hora_padrao" step="0.01" min="0">
+        <small class="muted">Em 0, a mão de obra não entra no custo da peça — e o painel de custo avisa em vez de fingir precisão.</small></div>
+      <div class="form-group"><label>Dias para alertar peça parada no pátio</label>
+        <input type="number" id="producao_dias_alerta_patio" step="1" min="1"></div>
+    </div>
+
+    <h4 style="margin-top:16px;">Travas</h4>
+
+    <div class="perigo">
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="producao_permitir_liberacao_sem_ensaio">
+          Permitir liberar a saída do recurso sem ensaio aprovado
+        </label>
+        <small class="muted">
+          Quando a ficha exige liberação por ensaio, a unidade só deve sair do recurso depois que a medição
+          atinge o limite cadastrado. Ligar isto não libera nada sozinho: cada liberação
+          ainda exige marcar "forçar" <em>e</em> escrever uma justificativa, que fica gravada na linha do
+          tempo da OP com o usuário. O painel de produtividade conta essas liberações separadamente.
+        </small>
+      </div>
+    </div>
+
+    <div class="perigo">
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="producao_permitir_recurso_sobreposto">
+          Permitir duas ordens no mesmo recurso em janela sobreposta
+        </label>
+        <small class="muted">
+          O recurso fica fisicamente preso do início do processo até a saída. Com isto ligado, a liberação passa
+          mas registra um aviso — útil quando a agenda da fábrica é mais frouxa que o cadastro.
+        </small>
+      </div>
+    </div>
+
+    <div style="text-align:right;margin-top:16px;">
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-config');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+
+const TEXTO = ['producao_prefixo_ordem', 'producao_prefixo_projeto', 'producao_prefixo_romaneio',
+  'producao_custo_hora_padrao', 'producao_dias_alerta_patio'];
+const BOOL = ['producao_permitir_liberacao_sem_ensaio', 'producao_permitir_recurso_sobreposto'];
+
+/**
+ * Sessão expirada devolve o HTML da tela de login e o nginx devolve HTML no
+ * 502 — nos dois casos `r.json()` REJEITA. Sem esta captura, "Salvar" vira um
+ * botão que não faz nada e não diz nada.
+ */
+async function pedir(metodo, corpo) {
+  let r;
+  try {
+    r = await fetch('/api/producao/config', {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { success: false, error: 'sem conexão com o servidor: ' + e.message };
+  }
+  try {
+    return await r.json();
+  } catch (_) {
+    return {
+      success: false,
+      error: r.status === 401 || r.status === 403 || r.redirected
+        ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+        : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+    };
+  }
+}
+
+async function carregar() {
+  const r = await pedir('GET');
+  if (!r.success) { showAlert(r.error || 'falha ao carregar', 'error'); return; }
+  for (const k of TEXTO) if (document.getElementById(k)) document.getElementById(k).value = r.config[k];
+  for (const k of BOOL) if (document.getElementById(k)) document.getElementById(k).checked = r.config[k] === '1';
+}
+
+async function salvar() {
+  const corpo = {};
+  for (const k of TEXTO) corpo[k] = document.getElementById(k).value;
+  for (const k of BOOL) corpo[k] = document.getElementById(k).checked ? '1' : '0';
+
+  const r = await pedir('PUT', corpo);
+  if (!r.success) { showAlert(r.error, 'error'); return; }
+  showAlert('Configuração salva.');
+  carregar();
+}
+
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>

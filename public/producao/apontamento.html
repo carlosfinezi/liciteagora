@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Apontamento · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Chão de fábrica: quem opera está de luva. Alvos grandes, poucos campos. */
+  .chao input, .chao select { font-size: 17px; padding: 12px; }
+  .chao label { font-size: 14px; font-weight: 600; }
+  .etapas { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+  .etapas button { padding: 14px 18px; font-size: 15px; border: 2px solid #ced4da;
+                   background: #fff; border-radius: 6px; cursor: pointer; }
+  .etapas button.sel { border-color: #1971c2; background: #d0ebff; font-weight: 700; }
+  .grande { font-size: 18px; padding: 16px 28px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Apontamento de produção</h1>
+      <small>O apontamento é da EQUIPE por padrão: a maior parte da manufatura é trabalho simultâneo, e atribuir a unidade a uma pessoa seria ficção. Só as etapas marcadas como individuais no cadastro aceitam nome próprio.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card chao" style="max-width:760px;">
+    <div class="form-group">
+      <label>Ordem de produção</label>
+      <select id="op" onchange="aoTrocarOp()"><option value="">Selecione…</option></select>
+    </div>
+
+    <div class="form-group">
+      <label>Etapa</label>
+      <div class="etapas" id="etapas"></div>
+      <small class="muted" id="dicaEtapa"></small>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group" id="grpEquipe">
+        <label>Equipe</label>
+        <select id="equipe"><option value="">Selecione…</option></select>
+      </div>
+      <div class="form-group" id="grpFuncionario" style="display:none;">
+        <label>Funcionário</label>
+        <select id="funcionario"><option value="">Selecione…</option></select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group"><label>Data</label><input type="date" id="data"></div>
+      <div class="form-group"><label>Início</label><input type="time" id="hIni"></div>
+      <div class="form-group"><label>Fim</label><input type="time" id="hFim"></div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group"><label>Unidades produzidas</label>
+        <input type="number" id="prod" min="0" step="1" value="0"></div>
+      <div class="form-group"><label>Refugo</label>
+        <input type="number" id="refugo" min="0" step="1" value="0" onchange="aoTrocarRefugo()"></div>
+    </div>
+
+    <div class="form-group" id="grpMotivo" style="display:none;">
+      <label>Motivo do refugo <small class="muted">(obrigatório)</small></label>
+      <input type="text" id="motivo" placeholder="trinca, falha de vibração, forma desalinhada…">
+    </div>
+
+    <button class="btn btn-primary grande" onclick="enviar()">Apontar</button>
+  </div>
+
+  <h3 style="margin-top:24px;">Últimos apontamentos</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Data</th><th>Ordem</th><th>Item</th><th>Etapa</th><th>Equipe / pessoa</th>
+        <th style="text-align:right;">Horas</th><th style="text-align:right;">Produzido</th>
+        <th style="text-align:right;">Refugo</th><th>Motivo</th><th></th></tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-apontamento');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, c = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+
+// Quais etapas aceitam apontamento individual vem do CADASTRO, junto com as
+// etapas — não de uma lista espelhada aqui, que sairia de sincronia no dia em
+// que alguém criasse uma etapa nova. A tela esconde o campo errado; o backend
+// recusa de qualquer jeito, e a validação de verdade é lá.
+let ETAPAS = [], etapaSel = '';
+
+/**
+ * Toda chamada ao backend passa por aqui.
+ *
+ * O `try` não é zelo: sessão expirada devolve o HTML da tela de login e o
+ * nginx devolve HTML no 502. Nos dois casos `r.json()` REJEITA, e sem captura
+ * a promise morre calada — o operador clica em "Concluir", nada acontece, e
+ * não há mensagem nenhuma. Aqui vira um erro com texto, que o chamador exibe.
+ */
+async function api(metodo, rota, corpo) {
+  let r;
+  try {
+    r = await fetch(rota, {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { status: 0, body: { success: false, error: 'sem conexão com o servidor: ' + e.message } };
+  }
+  try {
+    return { status: r.status, body: await r.json() };
+  } catch (_) {
+    return {
+      status: r.status,
+      body: {
+        success: false,
+        error: r.status === 401 || r.status === 403 || r.redirected
+          ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+          : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+      },
+    };
+  }
+}
+
+async function inicializar() {
+  document.getElementById('data').value = new Date().toISOString().slice(0, 10);
+
+  const ops = await api('GET', '/api/producao/ordens');
+  // Sem esta checagem, um 403 (módulo desligado) ou 500 abria a tela SEM
+  // nenhum botão de etapa — e etapa é obrigatória. Tela viva, funcionalmente
+  // morta, e sem uma palavra ao operador.
+  if (!ops.body.success) {
+    showAlert(ops.body.error || 'não foi possível carregar as ordens de produção', 'error');
+    return;
+  }
+  const apontaveis = (ops.body.ops || []).filter(
+    o => ['liberada', 'em_processo', 'liberada_saida'].includes(o.status));
+  document.getElementById('op').insertAdjacentHTML('beforeend',
+    apontaveis.map(o => `<option value="${o.id}">${esc(o.numero)} — ${esc(o.produtoDescricao)} (${esc(o.status.replace(/_/g, ' '))})</option>`).join(''));
+
+  const eq = await api('GET', '/api/producao/equipes');
+  document.getElementById('equipe').insertAdjacentHTML('beforeend',
+    (eq.body.equipes || []).filter(e => e.ativo)
+      .map(e => `<option value="${e.id}">${esc(e.nome)} (${e.membros} pessoa(s))</option>`).join(''));
+
+  const ap = await api('GET', '/api/producao/apontamentos');
+  if (!ap.body.success) {
+    showAlert(ap.body.error || 'não foi possível carregar os apontamentos', 'error');
+    return;
+  }
+  ETAPAS = ap.body.etapas || [];
+  // As etapas vêm do cadastro (prod_etapas), não de uma constante: cada objeto
+  // traz `codigo` (a chave estável), `nome` (o rótulo) e `individual` (se
+  // aceita apontamento de uma pessoa). O código do botão fica no data-*; o
+  // usuário lê o nome.
+  document.getElementById('etapas').innerHTML = ETAPAS.map(e =>
+    `<button type="button" data-etapa="${esc(e.codigo)}" data-individual="${e.individual ? 1 : 0}"
+       onclick="escolherEtapa(this.dataset.etapa)">${esc(e.nome || e.codigo)}</button>`).join('');
+  desenharLista(ap.body.apontamentos || []);
+
+  const f = await fetch('/api/funcionarios').then(r => r.json()).catch(() => ({}));
+  const lista = f.funcionarios || f.data || [];
+  document.getElementById('funcionario').insertAdjacentHTML('beforeend',
+    lista.filter(x => x.ativo !== 0).map(x => `<option value="${x.id}">${esc(x.nome)}</option>`).join(''));
+}
+
+function escolherEtapa(e) {
+  etapaSel = e;
+  document.querySelectorAll('#etapas button').forEach(b => {
+    b.classList.toggle('sel', b.dataset.etapa === e);
+  });
+  const etapa = ETAPAS.find(x => x.codigo === e) || {};
+  const individual = !!etapa.individual;
+  document.getElementById('grpEquipe').style.display = individual ? 'none' : 'block';
+  document.getElementById('grpFuncionario').style.display = individual ? 'block' : 'none';
+  document.getElementById('dicaEtapa').textContent = individual
+    ? 'Etapa individual: a tarefa é de uma pessoa, então o apontamento também é.'
+    : 'Etapa coletiva: aponte a equipe. O tamanho dela é congelado neste apontamento.';
+}
+
+function aoTrocarRefugo() {
+  const tem = Number(document.getElementById('refugo').value) > 0;
+  document.getElementById('grpMotivo').style.display = tem ? 'block' : 'none';
+}
+
+function aoTrocarOp() { /* espaço para futura pré-carga de contexto da OP */ }
+
+async function enviar() {
+  const opId = document.getElementById('op').value;
+  if (!opId) { showAlert('Escolha a ordem de produção.', 'error'); return; }
+  if (!etapaSel) { showAlert('Escolha a etapa.', 'error'); return; }
+
+  const etapaAtual = ETAPAS.find(x => x.codigo === etapaSel) || {};
+  const individual = !!etapaAtual.individual;
+  const corpo = {
+    etapa: etapaSel,
+    data: document.getElementById('data').value,
+    horaInicio: document.getElementById('hIni').value || null,
+    horaFim: document.getElementById('hFim').value || null,
+    quantidadeProduzida: Number(document.getElementById('prod').value) || 0,
+    quantidadeRefugo: Number(document.getElementById('refugo').value) || 0,
+    motivoRefugo: document.getElementById('motivo').value || null,
+  };
+  if (individual) corpo.funcionarioId = Number(document.getElementById('funcionario').value) || null;
+  else corpo.equipeId = Number(document.getElementById('equipe').value) || null;
+
+  const r = await api('POST', `/api/producao/ordens/${opId}/apontamentos`, corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+
+  showAlert('Apontamento registrado.');
+  document.getElementById('prod').value = 0;
+  document.getElementById('refugo').value = 0;
+  document.getElementById('motivo').value = '';
+  aoTrocarRefugo();
+  const ap = await api('GET', '/api/producao/apontamentos');
+  desenharLista(ap.body.apontamentos || []);
+}
+
+function desenharLista(linhas) {
+  const tb = document.getElementById('tb');
+  tb.innerHTML = linhas.length ? linhas.slice(0, 100).map(a => `
+    <tr>
+      <td>${esc(a.data)}</td><td>${esc(a.opNumero)}</td><td>${esc(a.produtoDescricao)}</td>
+      <td>${esc(a.etapa)}</td>
+      <td>${esc(a.equipeNome || a.funcionarioNome || '—')}</td>
+      <td style="text-align:right;">${n(a.horas, 1)}</td>
+      <td style="text-align:right;">${n(a.quantidadeProduzida, 0)}</td>
+      <td style="text-align:right;">${n(a.quantidadeRefugo, 0)}</td>
+      <td>${esc(a.motivoRefugo || '')}</td>
+      <td><button class="btn btn-sm" onclick="remover(${a.id})">Remover</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nenhum apontamento ainda.</td></tr>';
+}
+
+async function remover(id) {
+  if (!confirm('Remover este apontamento?')) return;
+  const r = await api('DELETE', '/api/producao/apontamentos/' + id);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  const ap = await api('GET', '/api/producao/apontamentos');
+  desenharLista(ap.body.apontamentos || []);
+}
+
+iniciarVocabulario();
+inicializar();
+</script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Recursos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 data-vocab="recursos">Recursos Produtivos</h1>
+      <small>A fila da fábrica é o recurso que satura: forma, molde, máquina, forno, linha. Enquanto o processo corre, ele está preso — e é essa janela que a agenda mostra.</small>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNova()" data-vocab-attr="title:recurso">Novo recurso</button>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Código</th><th>Descrição</th><th>Tipo</th>
+        <th style="text-align:right;">Compr. útil (m)</th>
+        <th style="text-align:right;">Capacidade</th>
+        <th>Localização</th><th style="text-align:right;">OPs abertas</th><th>Ativa</th><th></th></tr></thead>
+      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:760px;">
+      <div class="modal-header"><h3 id="modalTitulo">Forma</h3>
+        <button class="btn-close" onclick="fechar()">&times;</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-recursos');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, c = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+
+/**
+ * Toda chamada ao backend passa por aqui.
+ *
+ * O `try` não é zelo: sessão expirada devolve o HTML da tela de login e o
+ * nginx devolve HTML no 502. Nos dois casos `r.json()` REJEITA, e sem captura
+ * a promise morre calada — o operador clica em "Concluir", nada acontece, e
+ * não há mensagem nenhuma. Aqui vira um erro com texto, que o chamador exibe.
+ */
+async function api(metodo, rota, corpo) {
+  let r;
+  try {
+    r = await fetch(rota, {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { status: 0, body: { success: false, error: 'sem conexão com o servidor: ' + e.message } };
+  }
+  try {
+    return { status: r.status, body: await r.json() };
+  } catch (_) {
+    return {
+      status: r.status,
+      body: {
+        success: false,
+        error: r.status === 401 || r.status === 403 || r.redirected
+          ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+          : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+      },
+    };
+  }
+}
+
+async function carregar() {
+  const r = await api('GET', '/api/producao/formas');
+  if (!r.body.success) { showAlert(r.body.error || 'falha', 'error'); return; }
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.body.formas.length ? r.body.formas.map(f => `
+    <tr>
+      <td><strong>${esc(f.codigo)}</strong></td>
+      <td>${esc(f.descricao)}</td>
+      <td>${esc(f.tipo)}</td>
+      <td style="text-align:right;">${n(f.comprimentoUtilM, 1)}</td>
+      <td style="text-align:right;">${n(f.capacidadePecas, 0)}</td>
+      <td>${esc(f.localizacao || '—')}</td>
+      <td style="text-align:right;">${f.opsAbertas}</td>
+      <td>${f.ativo ? 'sim' : '<span class="muted">não</span>'}</td>
+      <td><button class="btn btn-sm" onclick="abrir(${f.id})">Agenda</button>
+          <button class="btn btn-sm" onclick="editar(${f.id})">Editar</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="9" class="empty">Nenhuma forma cadastrada.</td></tr>';
+}
+
+function abrirNova() {
+  document.getElementById('modalTitulo').textContent = 'Nova forma / pista';
+  document.getElementById('modalBody').innerHTML = campos({});
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function campos(f) {
+  return `
+    <input type="hidden" id="fId" value="${f.id || ''}">
+    <div class="form-row">
+      <div class="form-group"><label>Código</label>
+        <input type="text" id="fCodigo" value="${esc(f.codigo || '')}" ${f.id ? 'disabled' : ''}></div>
+      <div class="form-group" style="flex:2;"><label>Descrição</label>
+        <input type="text" id="fDescricao" value="${esc(f.descricao || '')}"></div>
+      <div class="form-group"><label>Tipo</label>
+        <select id="fTipo">
+          <option value="forma" ${f.tipo === 'forma' ? 'selected' : ''}>Forma</option>
+          <option value="pista" ${f.tipo === 'pista' ? 'selected' : ''}>Pista de protensão</option>
+        </select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Comprimento útil (m)</label>
+        <input type="number" id="fCompr" step="0.01" min="0" value="${esc(f.comprimentoUtilM != null ? f.comprimentoUtilM : '')}"></div>
+      <div class="form-group"><label>Capacidade (peças por ciclo)</label>
+        <input type="number" id="fCap" step="0.01" min="0" value="${f.capacidadePecas != null ? f.capacidadePecas : 1}"></div>
+      <div class="form-group"><label>Localização</label>
+        <input type="text" id="fLocal" value="${esc(f.localizacao || '')}"></div>
+      <div class="form-group"><label>Ativa</label>
+        <select id="fAtivo"><option value="1" ${f.ativo !== 0 ? 'selected' : ''}>Sim</option>
+          <option value="0" ${f.ativo === 0 ? 'selected' : ''}>Não</option></select></div>
+    </div>
+    <div style="text-align:right;">
+      <button class="btn" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>`;
+}
+
+let CACHE = [];
+async function editar(id) {
+  if (!CACHE.length) CACHE = (await api('GET', '/api/producao/formas')).body.formas || [];
+  const f = CACHE.find(x => x.id === id) || {};
+  document.getElementById('modalTitulo').textContent = 'Editar ' + (f.codigo || '');
+  document.getElementById('modalBody').innerHTML = campos(f);
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function salvar() {
+  const id = document.getElementById('fId').value;
+  const corpo = {
+    codigo: document.getElementById('fCodigo').value,
+    descricao: document.getElementById('fDescricao').value,
+    tipo: document.getElementById('fTipo').value,
+    comprimentoUtilM: document.getElementById('fCompr').value || null,
+    capacidadePecas: Number(document.getElementById('fCap').value) || 1,
+    localizacao: document.getElementById('fLocal').value || null,
+    ativo: Number(document.getElementById('fAtivo').value),
+  };
+  const r = id
+    ? await api('PUT', '/api/producao/formas/' + id, corpo)
+    : await api('POST', '/api/producao/formas', corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  CACHE = []; fechar(); carregar();
+}
+
+async function abrir(id) {
+  const r = await api('GET', `/api/producao/formas/${id}/agenda`);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  document.getElementById('modalTitulo').textContent = 'Agenda da forma';
+  document.getElementById('modalBody').innerHTML = `
+    <h4>Ordens ocupando a forma</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>OP</th><th>Peça</th><th>Status</th><th>Início</th><th>Libera em</th><th style="text-align:right;">Qtd</th></tr></thead>
+      <tbody>${r.body.ops.length ? r.body.ops.map(o => `
+        <tr><td>${esc(o.numero)}</td><td>${esc(o.produto)}</td>
+          <td>${esc(o.status.replace(/_/g, ' '))}</td>
+          <td>${esc(o.dataInicioProcesso || o.dataPlanejada || '—')}</td>
+          <td>${esc(o.dataFim || o.dataFimPrevisto || '—')}</td>
+          <td style="text-align:right;">${n(o.quantidadePlanejada, 0)}</td></tr>`).join('')
+        : '<tr><td colspan="6" class="empty">Forma livre.</td></tr>'}</tbody>
+    </table></div>
+
+    <h4 style="margin-top:16px;">Bloqueios</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>De</th><th>Até</th><th>Motivo</th></tr></thead>
+      <tbody>${r.body.bloqueios.length ? r.body.bloqueios.map(b => `
+        <tr><td>${esc(b.dataInicio)}</td><td>${esc(b.dataFim)}</td><td>${esc(b.motivo)}</td></tr>`).join('')
+        : '<tr><td colspan="3" class="empty">Nenhum bloqueio ativo.</td></tr>'}</tbody>
+    </table></div>
+
+    <div class="form-row" style="align-items:flex-end;margin-top:12px;">
+      <div class="form-group"><label>De</label><input type="datetime-local" id="bIni"></div>
+      <div class="form-group"><label>Até</label><input type="datetime-local" id="bFim"></div>
+      <div class="form-group" style="flex:2;"><label>Motivo</label>
+        <input type="text" id="bMotivo" placeholder="troca de molde, reforma, pintura…"></div>
+      <div class="form-group"><button class="btn btn-primary" onclick="bloquear(${id})">Bloquear</button></div>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function bloquear(id) {
+  const corpo = {
+    dataInicio: document.getElementById('bIni').value,
+    dataFim: document.getElementById('bFim').value,
+    motivo: document.getElementById('bMotivo').value,
+  };
+  const r = await api('POST', `/api/producao/formas/${id}/bloqueios`, corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(id);
+}
+
+function fechar() { document.getElementById('modal').style.display = 'none'; }
+
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>

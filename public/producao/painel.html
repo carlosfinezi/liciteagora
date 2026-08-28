@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Produtividade · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .barra { background: #e9ecef; border-radius: 3px; height: 14px; position: relative; min-width: 90px; }
+  .barra span { display: block; height: 100%; border-radius: 3px; background: #4dabf7; }
+  .barra span.ruim { background: #fa5252; }
+  .fonte-apontamento { color: #e8590c; font-weight: 600; }
+  .kpi { flex: 1 1 160px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Produtividade</h1>
+      <small>O denominador é o PONTO, não o apontamento: se a equipe esteve 8h presente e apontou 5h de trabalho, as 3h de espera são custo e entram na conta. Refugo aparece na mesma linha de propósito — produzir muito e quebrar não é produtividade.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <label class="muted">De <input type="date" id="de"></label>
+    <label class="muted">Até <input type="date" id="ate"></label>
+    <button class="btn btn-primary btn-sm" onclick="carregar()">Calcular</button>
+  </div>
+
+  <div id="avisos"></div>
+  <div id="resumo" class="form-row"></div>
+
+  <h3 style="margin-top:22px;">Por equipe</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Equipe</th><th>Especialidade</th>
+        <th style="text-align:right;">Peças boas</th>
+        <th style="text-align:right;">m³</th>
+        <th style="text-align:right;">Homem-hora</th>
+        <th>Fonte</th>
+        <th style="text-align:right;">m³ / homem-hora</th>
+        <th style="min-width:130px;">Refugo</th>
+      </tr></thead>
+      <tbody id="tbEquipes"><tr><td colspan="8" class="empty">Escolha o período.</td></tr></tbody>
+    </table>
+  </div>
+
+  <h3 style="margin-top:22px;" data-vocab="recursos">Por recurso produtivo</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th data-vocab="recurso">Recurso</th><th>Tipo</th>
+        <th style="text-align:right;">Ciclos</th>
+        <th style="text-align:right;">Peças</th>
+        <th style="text-align:right;">Peças / ciclo</th>
+        <th style="min-width:130px;">Ocupação do ciclo</th>
+        <th style="text-align:right;">Utilização do período</th>
+      </tr></thead>
+      <tbody id="tbFormas"><tr><td colspan="7" class="empty">—</td></tr></tbody>
+    </table>
+  </div>
+
+  <h3 style="margin-top:22px;">Aderência ao tempo de processo</h3>
+  <p class="muted" style="margin-top:-6px;">Tirar do recurso antes da hora aparece como produtividade hoje e volta como ensaio reprovado depois. Uma ordem adiantada é exceção; vinte, é método.</p>
+  <div id="cura"></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Ordem</th><th>Item</th><th>Ensaio</th><th>Prevista</th><th>Real</th><th style="text-align:right;">Horas adiantada</th></tr></thead>
+      <tbody id="tbCura"><tr><td colspan="6" class="empty">—</td></tr></tbody>
+    </table>
+  </div>
+
+  <h3 style="margin-top:22px;">Individual (só etapas individuais)</h3>
+  <p class="muted" style="margin-top:-6px;" id="notaIndividual"></p>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Funcionário</th><th>Cargo</th><th>Etapa</th><th style="text-align:right;">Quantidade</th><th style="text-align:right;">Horas</th><th style="text-align:right;">Por hora</th><th style="text-align:right;">Refugo</th></tr></thead>
+      <tbody id="tbIndividual"><tr><td colspan="7" class="empty">—</td></tr></tbody>
+    </table>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-painel');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, casas = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas }); }
+function moeda(v) { return v == null ? '—' : 'R$ ' + n(v); }
+function barra(pct, ruimAcima) {
+  if (pct == null) return '—';
+  const p = Math.max(0, Math.min(100, pct));
+  const classe = (ruimAcima != null && pct > ruimAcima) ? ' class="ruim"' : '';
+  return `<div class="barra"><span${classe} style="width:${p}%"></span></div><small class="muted">${n(pct, 1)}%</small>`;
+}
+
+function periodoPadrao() {
+  const hoje = new Date();
+  const antes = new Date(hoje.getTime() - 30 * 86400000);
+  const fmt = d => d.toISOString().slice(0, 10);
+  document.getElementById('ate').value = fmt(hoje);
+  document.getElementById('de').value = fmt(antes);
+}
+
+function query() {
+  const de = document.getElementById('de').value;
+  const ate = document.getElementById('ate').value;
+  return `?de=${encodeURIComponent(de)}&ate=${encodeURIComponent(ate)}`;
+}
+
+/**
+ * Sessão expirada devolve o HTML da tela de login e o nginx devolve HTML no
+ * 502 — `r.json()` rejeita nos dois casos. Sem captura, o painel fica em
+ * branco sem dizer por quê.
+ */
+async function pedir(rota) {
+  let r;
+  try {
+    r = await fetch(rota);
+  } catch (e) {
+    return { success: false, error: 'sem conexão com o servidor: ' + e.message };
+  }
+  try {
+    return await r.json();
+  } catch (_) {
+    return {
+      success: false,
+      error: r.status === 401 || r.status === 403 || r.redirected
+        ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+        : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+    };
+  }
+}
+
+async function carregar() {
+  const q = query();
+  const [resumo, equipes, formas, cura, individual] = await Promise.all([
+    pedir('/api/producao/produtividade/resumo' + q),
+    pedir('/api/producao/produtividade/equipes' + q),
+    pedir('/api/producao/produtividade/formas' + q),
+    pedir('/api/producao/produtividade/cura' + q),
+    pedir('/api/producao/produtividade/individual' + q),
+  ]);
+  if (!resumo.success) { showAlert(resumo.error || 'falha ao carregar', 'error'); return; }
+  desenharResumo(resumo);
+  // Cada bloco desenha só se a sua chamada deu certo: uma seção com erro não
+  // pode apagar as outras — o painel é o que o dono abre todo dia.
+  if (equipes.success) desenharEquipes(equipes);
+  if (formas.success) desenharFormas(formas);
+  if (cura.success) desenharCura(cura);
+  if (individual.success) desenharIndividual(individual);
+}
+
+function desenharResumo(r) {
+  const av = document.getElementById('avisos');
+  av.innerHTML = (r.avisos || []).length
+    ? `<div class="alert warning" style="display:block;">${(r.avisos || []).map(esc).join('<br>')}</div>` : '';
+
+  document.getElementById('resumo').innerHTML = [
+    ['m³ por homem-hora', n(r.basePorHomemHora, 4), 'o indicador do setor'],
+    ['m³ produzidos', n(r.baseProduzida, 2), `${n(r.unidadesBoas, 0)} peça(s) boa(s)`],
+    ['Homem-hora', n(r.homemHora, 1), 'do ponto, quando há'],
+    ['Refugo', n(r.refugoPercentual, 1) + '%', `${n(r.unidadesRefugo, 0)} peça(s) perdida(s)`],
+    ['Custo realizado', moeda(r.custoRealizado), 'insumo + mão de obra'],
+    ['Desvio do orçado', r.desvioCustoPercentual == null ? '—' : n(r.desvioCustoPercentual, 1) + '%', 'realizado × ficha'],
+  ].map(([t, v, s]) => `
+    <div class="card kpi">
+      <small class="muted">${esc(t)}</small>
+      <div style="font-size:22px;font-weight:700;">${esc(v)}</div>
+      <small class="muted">${esc(s)}</small>
+    </div>`).join('');
+}
+
+function desenharEquipes(d) {
+  const tb = document.getElementById('tbEquipes');
+  if (!d.equipes || !d.equipes.length) {
+    tb.innerHTML = '<tr><td colspan="8" class="empty">Nenhuma equipe cadastrada no período.</td></tr>';
+    return;
+  }
+  tb.innerHTML = d.equipes.map(e => `
+    <tr>
+      <td><strong>${esc(e.equipe)}</strong></td>
+      <td>${esc(e.especialidade)}</td>
+      <td style="text-align:right;">${n(e.unidadesBoas, 0)}</td>
+      <td style="text-align:right;">${n(e.baseProduzida, 3)}</td>
+      <td style="text-align:right;">${n(e.homemHora, 1)}</td>
+      <td>${e.fonteHomemHora === 'ponto'
+        ? '<span class="muted">ponto</span>'
+        : '<span class="fonte-apontamento" title="Sem ponto no período: o número ignora o tempo de espera e sai otimista">apontamento</span>'}</td>
+      <td style="text-align:right;"><strong>${n(e.basePorHomemHora, 4)}</strong></td>
+      <td>${barra(e.refugoPercentual, 5)}</td>
+    </tr>`).join('');
+}
+
+function desenharFormas(d) {
+  const tb = document.getElementById('tbFormas');
+  if (!d.formas || !d.formas.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma forma cadastrada.</td></tr>';
+    return;
+  }
+  tb.innerHTML = d.formas.map(f => `
+    <tr>
+      <td><strong>${esc(f.forma)}</strong><br><small class="muted">${esc(f.descricao)}</small></td>
+      <td>${esc(f.tipo)}</td>
+      <td style="text-align:right;">${n(f.ciclos, 0)}</td>
+      <td style="text-align:right;">${n(f.pecas, 0)}</td>
+      <td style="text-align:right;">${n(f.unidadesPorCiclo, 1)}</td>
+      <td>${barra(f.ocupacaoPorCicloPercentual)}</td>
+      <td style="text-align:right;">${n(f.utilizacaoPercentual, 1)}%</td>
+    </tr>`).join('');
+}
+
+function desenharCura(d) {
+  document.getElementById('cura').innerHTML = `
+    <div class="form-row">
+      <div class="card kpi"><small class="muted">Aderência</small>
+        <div style="font-size:22px;font-weight:700;">${d.aderenciaPercentual == null ? '—' : n(d.aderenciaPercentual, 1) + '%'}</div></div>
+      <div class="card kpi"><small class="muted">Desmoldadas antes da hora</small>
+        <div style="font-size:22px;font-weight:700;">${n(d.adiantadas, 0)}</div>
+        <small class="muted">de ${n(d.total, 0)} OPs</small></div>
+      <div class="card kpi"><small class="muted">Liberações forçadas</small>
+        <div style="font-size:22px;font-weight:700;">${n(d.liberacoesForcadas, 0)}</div>
+        <small class="muted">sem ensaio aprovado</small></div>
+    </div>`;
+
+  const tb = document.getElementById('tbCura');
+  tb.innerHTML = (d.piores || []).length
+    ? d.piores.map(p => `
+      <tr>
+        <td>${esc(p.numero)}</td><td>${esc(p.produto)}</td><td>${p.exigeEnsaioLiberacao ? 'com ensaio' : '—'}</td>
+        <td>${esc(p.dataFimPrevisto)}</td><td>${esc(p.dataFim)}</td>
+        <td style="text-align:right;"><strong>${n(p.horasAdiantada, 1)}</strong></td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" class="empty">Nenhuma saída antes da hora no período.</td></tr>';
+}
+
+function desenharIndividual(d) {
+  document.getElementById('notaIndividual').textContent = d.nota || '';
+  const tb = document.getElementById('tbIndividual');
+  tb.innerHTML = (d.linhas || []).length
+    ? d.linhas.map(l => `
+      <tr>
+        <td>${esc(l.funcionario)}</td><td>${esc(l.cargo)}</td><td>${esc(l.etapa)}</td>
+        <td style="text-align:right;">${n(l.quantidade, 0)}</td>
+        <td style="text-align:right;">${n(l.horas, 1)}</td>
+        <td style="text-align:right;"><strong>${n(l.porHora, 2)}</strong></td>
+        <td style="text-align:right;">${n(l.refugoPercentual, 1)}%</td>
+      </tr>`).join('')
+    : '<tr><td colspan="7" class="empty">Nenhum apontamento individual no período.</td></tr>';
+}
+
+periodoPadrao();
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>

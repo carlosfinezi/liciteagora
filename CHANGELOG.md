@@ -4,6 +4,76 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-08-28
+
+Nasceu um módulo de **Produção** (ordem de produção para manufatura discreta) e,
+no mesmo dia, foi generalizado: começou como vertical de pré-moldados de
+concreto para um prospect e terminou como núcleo neutro de segmento, com o
+concreto virando um perfil de indústria.
+
+**O núcleo não sabe o que é concreto.** Sabe ficha técnica com perda e
+sub-ficha (BOM multinível), ordem de produção com ficha congelada na liberação,
+agenda do recurso que satura, apontamento por equipe, ensaio que trava a saída
+do recurso, unidade identificada, estoque de acabados, romaneio e medição de
+projeto. O que muda entre fábricas vem de cadastro: as etapas (`prod_etapas`),
+os tipos de ensaio (`prod_ensaio_tipos`), a unidade do indicador
+(`prod_fichas.unidadeBase`) e o vocabulário das telas (`producao/perfis.js`,
+servido em `/api/producao/vocabulario` e aplicado por `data-vocab`). Dois
+perfis: `generico` e `premoldados`. Nenhuma tela é duplicada por segmento.
+
+- **A trava que dá identidade ao módulo**: quando a ficha exige liberação por
+  ensaio, a unidade só sai do recurso depois que uma medição atinge o limite —
+  no concreto é o fck de transferência antes de cortar a cordoalha; numa
+  fábrica de tintas seria a viscosidade. O limite é **congelado na ordem**
+  quando o processo inicia, porque editar o cadastro depois rebaixaria a
+  exigência de uma unidade que já está no recurso. O bypass exige config +
+  `forcar` + justificativa, grava evento nominal e é contado no painel.
+- **`prod_fichas.exigeIdentificacao` é derivado, não configurável**: vale 1 em
+  modo `projeto` ou com liberação por ensaio. É o elo unidade ↔ lote ↔ ensaio;
+  como opção de tela, alguém a desligaria na primeira semana apertada. `modo` e
+  liberação por ensaio também não mudam com ordem em andamento.
+- **O indicador de produtividade divide pelo PONTO, não pelo apontamento**: se
+  a equipe esteve 8h presente e apontou 5h, as 3h de espera são custo e entram
+  no denominador. Sem RH instalado (dois tenants não têm as tabelas), cai no
+  apontamento e **avisa** em vez de devolver 500. O refugo vem na mesma linha:
+  produzir muito e quebrar não é produtividade.
+- **A baixa de estoque grava `data` como data pura**, igual ao resto do core.
+  `estoque-routes.calcularCustoMedio` elege o custo vigente com
+  `ORDER BY data DESC`; uma linha com hora venceria a mais recente e o erro
+  seria materializado na movimentação seguinte, contaminando CMV e margem de
+  qualquer produto do tenant.
+
+Registro nos oito pontos do core (`db-schema`, `route-registry`, `plan-modules`,
+`module-gate`, `features-routes`, `perfis-api-map`, `menu-config` e o catálogo
+`FEATURES` do `control-plane-routes`). Flag `producao_enabled` nasce desligada
+em todos os 13 tenants; o schema e o seed do perfil genérico rodam no boot.
+
+**413 asserções** em cinco suítes contra banco descartável em `/tmp`
+(`scripts/test-producao-f0` a `f2`, `-telas`, `-sem-rh`). Duas rodadas de
+auditoria por agente encontraram 29 problemas, todos corrigidos com regressão —
+entre eles três críticos: reclassificar a ficha contornava a trava do ensaio, a
+trava confiava num flag persistido em vez de comparar ao vivo, e a baixa de
+estoque envenenava o custo médio.
+
+- **Duas descobertas que valem para o repo inteiro**: `npm run verify` roda
+  `node --check` só na raiz e em `scripts/` — **subdiretório não entra**, o que
+  também deixa `locacao/`, `farmacia/`, `posto/` e `restaurante/` sem cobertura
+  de sintaxe; e testar comportamento não prova fiação (as 344 asserções verdes
+  do dia anterior conviviam com o módulo ausente do painel do super-admin,
+  porque o `control-plane-routes.js` tem um catálogo próprio de features).
+- As 19 tabelas `pmo_*` da versão anterior do módulo foram removidas dos 13
+  tenants após conferência de que estavam vazias (0 linhas no total).
+
+**Este commit leva só os arquivos NOVOS do módulo.** O registro nos oito pontos
+do core (`db-schema.js`, `route-registry.js`, `plan-modules.js`,
+`module-gate.js`, `features-routes.js`, `perfis-api-map.js`, `menu-config.js`,
+`control-plane-routes.js`) segue **pendente**, junto da frente core/infra: os
+dois primeiros já requerem, na árvore, os módulos `farmacia/`, `locacao/`,
+`posto/` e `restaurante/`, que continuam fora do git. Commitá-los agora
+deixaria o HEAD sem bootar — o mesmo erro que quebrou o histórico entre b2bacdb
+e e094c43. Produção não é afetada: ela roda desta árvore, onde o registro está
+aplicado e o serviço já foi reiniciado.
+
 ## 2026-08-27
 
 Duas correções sem relação entre si: os botões de ação do card de licitação, que

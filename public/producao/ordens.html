@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Ordens · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .st { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .st-planejada { background:#e9ecef; color:#495057; }
+  .st-liberada { background:#d0ebff; color:#1971c2; }
+  .st-em_processo { background:#fff3bf; color:#e67700; }
+  .st-liberada_saida { background:#d3f9d8; color:#2b8a3e; }
+  .st-concluida { background:#e6fcf5; color:#087f5b; }
+  .st-cancelada { background:#ffe3e3; color:#c92a2a; }
+  .trava { background:#fff5f5; border-left:3px solid #fa5252; padding:8px 10px; margin:8px 0; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Ordens de Produção</h1>
+      <small>O ciclo é planejada → liberada → em processo → liberada para saída → concluída. A liberação congela a ficha; o início do processo baixa o insumo; a conclusão dá entrada do item acabado.</small>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNova()">Nova OP</button>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todos os status</option>
+    </select>
+    <label class="muted">De <input type="date" id="de" onchange="carregar()"></label>
+    <label class="muted">Até <input type="date" id="ate" onchange="carregar()"></label>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Ordem</th><th>Item</th><th>Origem</th><th>Forma</th>
+        <th style="text-align:right;">Planejado</th>
+        <th style="text-align:right;">Produzido</th>
+        <th style="text-align:right;">Refugo</th>
+        <th>Status</th><th>Início do processo</th><th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:760px;">
+      <div class="modal-header"><h3 id="modalTitulo">OP</h3>
+        <button class="btn-close" onclick="fechar()">&times;</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-ordens');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 8000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, c = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+function moeda(v) { return v == null ? '—' : 'R$ ' + n(v); }
+
+let STATUS = [], PECAS = [], FORMAS = [], OBRAS = [];
+
+/**
+ * Toda chamada ao backend passa por aqui.
+ *
+ * O `try` não é zelo: sessão expirada devolve o HTML da tela de login e o
+ * nginx devolve HTML no 502. Nos dois casos `r.json()` REJEITA, e sem captura
+ * a promise morre calada — o operador clica em "Concluir", nada acontece, e
+ * não há mensagem nenhuma. Aqui vira um erro com texto, que o chamador exibe.
+ */
+async function api(metodo, rota, corpo) {
+  let r;
+  try {
+    r = await fetch(rota, {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { status: 0, body: { success: false, error: 'sem conexão com o servidor: ' + e.message } };
+  }
+  try {
+    return { status: r.status, body: await r.json() };
+  } catch (_) {
+    return {
+      status: r.status,
+      body: {
+        success: false,
+        error: r.status === 401 || r.status === 403 || r.redirected
+          ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+          : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+      },
+    };
+  }
+}
+
+async function carregar() {
+  const p = new URLSearchParams();
+  const s = document.getElementById('fStatus').value;
+  if (s) p.set('status', s);
+  if (document.getElementById('de').value) p.set('de', document.getElementById('de').value);
+  if (document.getElementById('ate').value) p.set('ate', document.getElementById('ate').value);
+
+  const r = await api('GET', '/api/producao/ordens?' + p.toString());
+  if (!r.body.success) { showAlert(r.body.error || 'falha', 'error'); return; }
+
+  if (!STATUS.length && r.body.status) {
+    STATUS = r.body.status;
+    document.getElementById('fStatus').insertAdjacentHTML('beforeend',
+      STATUS.map(x => `<option value="${esc(x)}">${esc(x.replace(/_/g, ' '))}</option>`).join(''));
+  }
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.body.ops.length ? r.body.ops.map(o => `
+    <tr>
+      <td><strong>${esc(o.numero)}</strong></td>
+      <td>${esc(o.produtoDescricao)}<br><small class="muted">${esc(o.modo || '')}${o.exigeEnsaioLiberacao ? ' · liberação por ensaio' : ''}</small></td>
+      <td>${o.projetoNumero ? esc(o.projetoNumero) : '<span class="muted">estoque</span>'}</td>
+      <td>${esc(o.formaCodigo || '—')}</td>
+      <td style="text-align:right;">${n(o.quantidadePlanejada, 0)}</td>
+      <td style="text-align:right;">${n(o.quantidadeProduzida, 0)}</td>
+      <td style="text-align:right;">${n(o.quantidadeRefugo, 0)}</td>
+      <td><span class="st st-${esc(o.status)}">${esc(o.status.replace(/_/g, ' '))}</span></td>
+      <td>${esc(o.dataInicioProcesso || o.dataPlanejada || '—')}</td>
+      <td><button class="btn btn-sm" onclick="abrir(${o.id})">Abrir</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nenhuma OP no filtro.</td></tr>';
+}
+
+async function abrirNova() {
+  if (!PECAS.length) {
+    const p = await api('GET', '/api/producao/pecas?ativo=1');
+    PECAS = p.body.pecas || [];
+  }
+  if (!FORMAS.length) {
+    const f = await api('GET', '/api/producao/formas');
+    FORMAS = (f.body.formas || []).filter(x => x.ativo);
+  }
+  if (!OBRAS.length) {
+    const o = await api('GET', '/api/producao/obras');
+    OBRAS = (o.body.obras || []).filter(x => !['concluida', 'cancelada'].includes(x.status));
+  }
+
+  document.getElementById('modalTitulo').textContent = 'Nova ordem de produção';
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Peça</label>
+        <select id="nProduto" onchange="aoTrocarPeca()">
+          <option value="">Selecione…</option>
+          ${PECAS.map(p => `<option value="${p.produtoId}" data-modo="${esc(p.modo)}">${esc(p.descricao)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Quantidade</label>
+        <input type="number" id="nQtd" min="1" step="1" value="1"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Forma / pista</label>
+        <select id="nForma"><option value="">Usar a padrão da peça</option>
+          ${FORMAS.map(f => `<option value="${f.id}">${esc(f.codigo)} — ${esc(f.descricao)}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label>Data planejada</label>
+        <input type="datetime-local" id="nData"></div>
+    </div>
+    <div class="form-row" id="linhaObra" style="display:none;">
+      <div class="form-group" style="flex:2;"><label>Obra <small class="muted">(obrigatória para peça de obra)</small></label>
+        <select id="nObra"><option value="">Selecione…</option>
+          ${OBRAS.map(o => `<option value="${o.id}">${esc(o.numero)} — ${esc(o.nome)}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="form-group"><label>Observações</label><textarea id="nObs" rows="2"></textarea></div>
+    <div style="text-align:right;">
+      <button class="btn" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="criar()">Criar</button>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function aoTrocarPeca() {
+  const sel = document.getElementById('nProduto');
+  const modo = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.modo : '';
+  document.getElementById('linhaObra').style.display = modo === 'obra' ? 'flex' : 'none';
+}
+
+async function criar() {
+  const corpo = {
+    produtoId: Number(document.getElementById('nProduto').value),
+    quantidadePlanejada: Number(document.getElementById('nQtd').value),
+    formaId: Number(document.getElementById('nForma').value) || null,
+    dataPlanejada: document.getElementById('nData').value || null,
+    projetoId: Number((document.getElementById('nObra') || {}).value) || null,
+    observacoes: document.getElementById('nObs').value || null,
+  };
+  if (corpo.projetoId) corpo.origem = 'obra';
+  const r = await api('POST', '/api/producao/ordens', corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  fechar(); await carregar(); abrir(r.body.op.id);
+}
+
+async function abrir(id) {
+  const r = await api('GET', '/api/producao/ordens/' + id);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  const o = r.body.op;
+  const t = r.body.totaisApontados;
+
+  const custo = await api('GET', `/api/producao/ordens/${id}/custo`);
+  const c = custo.body;
+
+  document.getElementById('modalTitulo').textContent = `${o.numero} — ${o.produtoDescricao}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="card kpi"><small class="muted">Status</small>
+        <div><span class="st st-${esc(o.status)}">${esc(o.status.replace(/_/g, ' '))}</span></div></div>
+      <div class="card kpi"><small class="muted" data-vocab="tempoProcesso">Tempo de processo</small><div>${o.exigeEnsaioLiberacao ? 'com liberação por ensaio' : 'pelo tempo'}</div>
+        <small class="muted">${n(o.tempoProcessoHoras, 0)}h · saída prevista ${esc(o.dataFimPrevisto || '—')}</small></div>
+      <div class="card kpi"><small class="muted">Custo teórico × realizado</small>
+        <div>${moeda(c.custoTeorico)} → <strong>${moeda(c.custoRealizado)}</strong></div>
+        <small class="muted">${c.desvioPercentual == null ? '' : 'desvio ' + n(c.desvioPercentual, 1) + '%'}</small></div>
+    </div>
+    ${c.avisoCustoHora ? `<div class="alert warning" style="display:block;">${esc(c.avisoCustoHora)}</div>` : ''}
+    ${o.exigeEnsaioLiberacao && o.status === 'em_processo'
+      ? `<div class="trava"><strong>Esta ficha exige liberação por ensaio.</strong> A saída do recurso só
+         libera com ensaio aprovado no lote ${esc(o.loteCodigo || '(sem lote)')}, atingindo
+         ${o.ensaioLimiteExigido != null ? esc(o.ensaioLimiteExigido) : 'o limite cadastrado'}.</div>` : ''}
+
+    <h4>Ações</h4>
+    <div style="margin-bottom:14px;">${acoes(o)}</div>
+
+    <h4>Insumos ${o.status === 'planejada' ? '<small class="muted">(a ficha é congelada na liberação)</small>' : ''}</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Insumo</th><th style="text-align:right;">Previsto</th><th style="text-align:right;">Real</th><th style="text-align:right;">Desvio</th><th style="text-align:right;">Custo</th></tr></thead>
+      <tbody>${(c.insumos || []).length ? c.insumos.map(i => `
+        <tr><td>${esc(i.insumoDescricao)}</td>
+          <td style="text-align:right;">${n(i.quantidadePrevista, 3)} ${esc(i.unidade || '')}</td>
+          <td style="text-align:right;">${i.quantidadeReal == null ? '—' : n(i.quantidadeReal, 3)}</td>
+          <td style="text-align:right;">${i.desvio == null ? '—' : n(i.desvio, 3)}</td>
+          <td style="text-align:right;">${moeda(i.custoTotal)}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="empty">Ficha ainda não congelada.</td></tr>'}</tbody>
+    </table></div>
+
+    <h4 style="margin-top:14px;">Apontamentos <small class="muted">(produzido: ${n(t.quantidadeProduzida, 0)} · refugo: ${n(t.quantidadeRefugo, 0)} · ${n(t.horas, 1)}h)</small></h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Data</th><th>Etapa</th><th>Equipe / pessoa</th><th style="text-align:right;">Horas</th><th style="text-align:right;">Produzido</th><th style="text-align:right;">Refugo</th><th>Motivo</th></tr></thead>
+      <tbody>${o.apontamentos.length ? o.apontamentos.map(a => `
+        <tr><td>${esc(a.data)}</td><td>${esc(a.etapa)}</td>
+          <td>${esc(a.equipeNome || ('#' + a.funcionarioId))}</td>
+          <td style="text-align:right;">${n(a.horas, 1)}</td>
+          <td style="text-align:right;">${n(a.quantidadeProduzida, 0)}</td>
+          <td style="text-align:right;">${n(a.quantidadeRefugo, 0)}</td>
+          <td>${esc(a.motivoRefugo || '')}</td></tr>`).join('')
+        : '<tr><td colspan="7" class="empty">Nenhum apontamento.</td></tr>'}</tbody>
+    </table></div>
+
+    ${o.pecasProduzidas.length ? `
+      <h4 style="margin-top:14px;">Peças identificadas</h4>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Identificação</th><th>Status</th><th>Lote</th><th>Posição</th></tr></thead>
+        <tbody>${o.pecasProduzidas.map(p => `
+          <tr><td><strong>${esc(p.identificacao)}</strong></td><td>${esc(p.status)}</td>
+            <td>${p.loteId ? '#' + p.loteId : '—'}</td>
+            <td>${esc(p.posicaoPatio || '—')}</td></tr>`).join('')}</tbody>
+      </table></div>` : ''}
+
+    <h4 style="margin-top:14px;">Linha do tempo</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Data</th><th>Evento</th><th>Descrição</th><th>Usuário</th></tr></thead>
+      <tbody>${o.eventos.map(e => `
+        <tr><td>${esc(e.data)}</td><td>${esc(e.tipo)}</td><td>${esc(e.descricao || '')}</td><td>${esc(e.usuario || '')}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function acoes(o) {
+  const b = [];
+  if (o.status === 'planejada') b.push(`<button class="btn btn-primary btn-sm" onclick="acao(${o.id},'liberar')">Liberar (congela a ficha)</button>`);
+  if (o.status === 'liberada') b.push(`<button class="btn btn-primary btn-sm" onclick="iniciarProcesso(${o.id})"><span data-vocab="iniciarProcesso">Iniciar processo</span></button>`);
+  if (o.status === 'em_processo') b.push(`<button class="btn btn-primary btn-sm" onclick="acao(${o.id},'liberar-saida')"><span data-vocab="liberarSaida">Liberar saída</span></button>`);
+  if (o.status === 'liberada_saida') b.push(`<button class="btn btn-primary btn-sm" onclick="concluir(${o.id})">Concluir</button>`);
+  if (!['concluida', 'cancelada'].includes(o.status)) {
+    b.push(`<button class="btn btn-sm" onclick="cancelar(${o.id})">Cancelar OP</button>`);
+  }
+  return b.join(' ') || '<span class="muted">Nenhuma ação disponível neste status.</span>';
+}
+
+async function acao(id, rota, corpo) {
+  const r = await api('POST', `/api/producao/ordens/${id}/${rota}`, corpo || {});
+  if (!r.body.success) {
+    showAlert(r.body.error, 'error');
+    if (r.body.exigeEnsaio) mostrarBypass(id, r.body.error);
+    return;
+  }
+  if ((r.body.avisos || []).length) showAlert(r.body.avisos.join(' | '), 'warning');
+  await carregar(); abrir(id);
+}
+
+function mostrarBypass(id, motivo) {
+  const alvo = document.getElementById('modalBody');
+  if (!alvo) return;
+  alvo.insertAdjacentHTML('afterbegin', `
+    <div class="trava" id="bypass">
+      <strong>Liberação bloqueada:</strong> ${esc(motivo)}
+      <div style="margin-top:8px;">
+        <input type="text" id="justificativa" placeholder="Justificativa (fica registrada com o seu usuário)" style="width:70%;">
+        <button class="btn btn-sm" onclick="forcar(${id})">Liberar assim mesmo</button>
+      </div>
+      <small class="muted">Só funciona se a configuração producao_permitir_liberacao_sem_ensaio estiver ligada.</small>
+    </div>`);
+}
+
+async function forcar(id) {
+  const j = document.getElementById('justificativa').value;
+  await acao(id, 'liberar-saida', { forcar: true, justificativa: j });
+}
+
+async function iniciarProcesso(id) {
+  const lotes = await api('GET', '/api/producao/lotes');
+  const opcoes = (lotes.body.lotes || []).slice(0, 50);
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label>Data e hora do início do processo</label>
+      <input type="datetime-local" id="cData"></div>
+    <div class="form-group"><label data-vocab="lote">Lote de processo</label> <small class="muted">(obrigatório quando a ficha exige liberação por ensaio)</small>
+      <select id="cLote"><option value="">Sem lote</option>
+        ${opcoes.map(l => `<option value="${l.id}">${esc(l.codigo)} — ${esc(l.data)} — ${esc(l.situacao)}</option>`).join('')}
+      </select></div>
+    <div style="text-align:right;">
+      <button class="btn" onclick="abrir(${id})">Voltar</button>
+      <button class="btn btn-primary" onclick="acao(${id},'concretar',{dataInicioProcesso:document.getElementById('cData').value||null,loteId:Number(document.getElementById('cLote').value)||null})">Confirmar</button>
+    </div>`;
+}
+
+async function concluir(id) {
+  const r = await api('GET', '/api/producao/ordens/' + id);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  const o = r.body.op, t = r.body.totaisApontados;
+  document.getElementById('modalBody').innerHTML = `
+    <p class="muted">Os valores vêm do que já foi apontado. O custo unitário divide pelas peças BOAS: o refugo encarece o que sobrou.</p>
+    <div class="form-row">
+      <div class="form-group"><label>Peças boas</label>
+        <input type="number" id="fProd" min="0" step="1" value="${t.quantidadeProduzida}"></div>
+      <div class="form-group"><label>Refugo</label>
+        <input type="number" id="fRef" min="0" step="1" value="${t.quantidadeRefugo}"></div>
+      <div class="form-group"><label>Data da saída do recurso</label>
+        <input type="datetime-local" id="fData"></div>
+    </div>
+    <div class="form-group"><label>Motivo do refugo <small class="muted">(obrigatório se houver refugo)</small></label>
+      <input type="text" id="fMotivo"></div>
+    ${o.exigeIdentificacao ? `
+      <div class="form-group"><label>Identificações <small class="muted">(uma por linha; em branco = geradas a partir do número da OP)</small></label>
+        <textarea id="fIdents" rows="4"></textarea></div>` : ''}
+    <div style="text-align:right;">
+      <button class="btn" onclick="abrir(${id})">Voltar</button>
+      <button class="btn btn-primary" onclick="confirmarConclusao(${id})">Concluir</button>
+    </div>`;
+}
+
+async function confirmarConclusao(id) {
+  const idents = document.getElementById('fIdents');
+  const corpo = {
+    quantidadeProduzida: Number(document.getElementById('fProd').value),
+    quantidadeRefugo: Number(document.getElementById('fRef').value),
+    motivoRefugo: document.getElementById('fMotivo').value || null,
+    dataConclusao: document.getElementById('fData').value || null,
+  };
+  if (idents && idents.value.trim()) {
+    corpo.identificacoes = idents.value.split('\n').map(s => s.trim()).filter(Boolean);
+  }
+  await acao(id, 'concluir', corpo);
+}
+
+async function cancelar(id) {
+  const motivo = prompt('Motivo do cancelamento (obrigatório):');
+  if (!motivo) return;
+  await acao(id, 'cancelar', { motivo });
+}
+
+function fechar() { document.getElementById('modal').style.display = 'none'; }
+
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>

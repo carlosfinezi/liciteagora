@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Qualidade · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .sit { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .sit-pendente { background:#e9ecef; color:#495057; }
+  .sit-aprovado { background:#d3f9d8; color:#2b8a3e; }
+  .sit-reprovado { background:#ffe3e3; color:#c92a2a; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Qualidade e Ensaios</h1>
+      <small>Quando a ficha não exige liberação por ensaio, o ensaio confere o que já saiu. Quando exige, ele é operacional: a unidade só sai do recurso depois que a medição atinge o limite cadastrado — e é o sistema que trava.</small>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNovoLote()" data-vocab-attr="title:lote">Novo lote</button>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <label class="muted">De <input type="date" id="de" onchange="carregar()"></label>
+    <label class="muted">Até <input type="date" id="ate" onchange="carregar()"></label>
+    <select id="fSit" onchange="carregar()">
+      <option value="">Todas as situações</option>
+      <option value="pendente">Pendente</option>
+      <option value="aprovado">Aprovado</option>
+      <option value="reprovado">Reprovado</option>
+    </select>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Lote</th><th>Data</th><th>Traço</th>
+        <th style="text-align:right;">Volume (m³)</th>
+        <th style="text-align:right;">fck proj</th>
+        <th style="text-align:right;">Slump</th>
+        <th style="text-align:right;">CPs</th>
+        <th style="text-align:right;">OPs</th>
+        <th>Situação</th><th></th></tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:820px;">
+      <div class="modal-header"><h3 id="modalTitulo">Lote</h3>
+        <button class="btn-close" onclick="fechar()">&times;</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-qualidade');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 8000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, c = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+
+/**
+ * Toda chamada ao backend passa por aqui.
+ *
+ * O `try` não é zelo: sessão expirada devolve o HTML da tela de login e o
+ * nginx devolve HTML no 502. Nos dois casos `r.json()` REJEITA, e sem captura
+ * a promise morre calada — o operador clica em "Concluir", nada acontece, e
+ * não há mensagem nenhuma. Aqui vira um erro com texto, que o chamador exibe.
+ */
+async function api(metodo, rota, corpo) {
+  let r;
+  try {
+    r = await fetch(rota, {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { status: 0, body: { success: false, error: 'sem conexão com o servidor: ' + e.message } };
+  }
+  try {
+    return { status: r.status, body: await r.json() };
+  } catch (_) {
+    return {
+      status: r.status,
+      body: {
+        success: false,
+        error: r.status === 401 || r.status === 403 || r.redirected
+          ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+          : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+      },
+    };
+  }
+}
+
+async function carregar() {
+  const p = new URLSearchParams();
+  if (document.getElementById('de').value) p.set('de', document.getElementById('de').value);
+  if (document.getElementById('ate').value) p.set('ate', document.getElementById('ate').value);
+  if (document.getElementById('fSit').value) p.set('situacao', document.getElementById('fSit').value);
+
+  const r = await api('GET', '/api/producao/lotes?' + p.toString());
+  if (!r.body.success) { showAlert(r.body.error || 'falha', 'error'); return; }
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.body.lotes.length ? r.body.lotes.map(l => `
+    <tr>
+      <td><strong>${esc(l.codigo)}</strong></td>
+      <td>${esc(l.data)}</td>
+      <td>${esc(l.traco || '—')}</td>
+      <td style="text-align:right;">${n(l.volumeM3, 2)}</td>
+      <td style="text-align:right;">${n(l.ensaioLimiteConformidade, 0)}</td>
+      <td style="text-align:right;">${n(l.slumpMm, 0)}</td>
+      <td style="text-align:right;">${l.corposProva}</td>
+      <td style="text-align:right;">${l.ops}</td>
+      <td><span class="sit sit-${esc(l.situacao)}">${esc(l.situacao)}</span></td>
+      <td><button class="btn btn-sm" onclick="abrir(${l.id})">Abrir</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nenhum lote no filtro.</td></tr>';
+}
+
+function abrirNovoLote() {
+  document.getElementById('modalTitulo').textContent = vocab('lote', 'Novo lote de processo');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="form-group"><label>Código <small class="muted">(em branco = gerado)</small></label>
+        <input type="text" id="lCodigo"></div>
+      <div class="form-group"><label>Data</label>
+        <input type="date" id="lData" value="${new Date().toISOString().slice(0, 10)}"></div>
+      <div class="form-group"><label>Volume (m³)</label>
+        <input type="number" id="lVol" step="0.01" min="0" value="0"></div>
+    </div>
+    <div class="form-group"><label>Descrição do lote</label>
+      <input type="text" id="lTraco" placeholder="traço, receita, corrida, batelada…"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Limite de conformidade</label><input type="number" id="lFck" step="0.1" min="0"></div>
+      <div class="form-group"><label>Slump (mm)</label><input type="number" id="lSlump" step="1" min="0"></div>
+      <div class="form-group"><label>Temperatura (°C)</label><input type="number" id="lTemp" step="0.1"></div>
+      <div class="form-group"><label>Insumo principal</label><input type="text" id="lCimento" placeholder="CP-V ARI"></div>
+    </div>
+    <div style="text-align:right;">
+      <button class="btn" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="criarLote()">Criar</button>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function criarLote() {
+  const corpo = {
+    codigo: document.getElementById('lCodigo').value || null,
+    data: document.getElementById('lData').value,
+    volumeM3: Number(document.getElementById('lVol').value) || 0,
+    traco: document.getElementById('lTraco').value || null,
+    ensaioLimiteConformidade: document.getElementById('lFck').value || null,
+    slumpMm: document.getElementById('lSlump').value || null,
+    temperaturaC: document.getElementById('lTemp').value || null,
+    cimentoTipo: document.getElementById('lCimento').value || null,
+  };
+  const r = await api('POST', '/api/producao/lotes', corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  fechar(); await carregar(); abrir(r.body.lote.id);
+}
+
+async function abrir(id) {
+  const r = await api('GET', '/api/producao/lotes/' + id);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  const l = r.body.lote;
+
+  document.getElementById('modalTitulo').textContent = `Lote ${l.codigo} — ${l.data}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="card kpi"><small class="muted">Situação</small>
+        <div><span class="sit sit-${esc(l.situacao)}">${esc(l.situacao)}</span></div>
+        <small class="muted">definida pelos ensaios de projeto</small></div>
+      <div class="card kpi"><small class="muted">Traço</small><div>${esc(l.traco || '—')}</div>
+        <small class="muted">${n(l.volumeM3, 2)} m³ · slump ${n(l.slumpMm, 0)} mm</small></div>
+      <div class="card kpi"><small class="muted">Ordens servidas</small>
+        <div>${r.body.ops.length}</div>
+        <small class="muted">${r.body.ops.map(o => esc(o.numero)).join(', ') || '—'}</small></div>
+    </div>
+
+    <h4>Corpos de prova</h4>
+    <p class="muted" style="margin-top:-8px;">O resultado (aprovado/reprovado) é decidido pelo sistema, comparando a resistência medida com o fck exigido pela finalidade. Sem fck de referência, o ensaio fica registrado mas não aprova nada.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>ID</th><th>Finalidade</th><th>Moldagem</th><th style="text-align:right;">Idade</th>
+        <th>Ruptura</th><th style="text-align:right;">Resistência</th><th style="text-align:right;">Exigido</th>
+        <th>Resultado</th><th></th></tr></thead>
+      <tbody>${r.body.corposProva.length ? r.body.corposProva.map(cp => `
+        <tr>
+          <td><strong>${esc(cp.identificacao)}</strong></td>
+          <td>${esc(cp.finalidade)}</td>
+          <td>${esc(cp.dataMoldagem)}</td>
+          <td style="text-align:right;">${cp.idadeDias}d</td>
+          <td>${esc(cp.dataRuptura || '—')}</td>
+          <td style="text-align:right;">${n(cp.resistenciaMpa, 1)}</td>
+          <td style="text-align:right;">${n(cp.referenciaMpa, 1)}</td>
+          <td>${cp.aprovado === 1 ? '<span class="sit sit-aprovado">aprovado</span>'
+              : cp.aprovado === 0 ? '<span class="sit sit-reprovado">reprovado</span>'
+              : '<span class="sit sit-pendente">pendente</span>'}</td>
+          <td>${cp.dataRuptura ? '' : `<button class="btn btn-sm" onclick="romper(${cp.id}, ${id})">Registrar ruptura</button>`}</td>
+        </tr>`).join('')
+        : '<tr><td colspan="9" class="empty">Nenhum corpo de prova moldado.</td></tr>'}</tbody>
+    </table></div>
+
+    <div class="form-row" style="align-items:flex-end;margin-top:12px;">
+      <div class="form-group"><label>Identificação</label><input type="text" id="cpId" placeholder="CP-01"></div>
+      <div class="form-group"><label>Finalidade</label>
+        <select id="cpFin">
+          <option value="transferencia">transferência (libera a protensão)</option>
+          <option value="controle">controle (7 dias)</option>
+          <option value="projeto" selected>projeto (28 dias)</option>
+        </select></div>
+      <div class="form-group"><label>Moldagem</label><input type="date" id="cpData" value="${esc(l.data)}"></div>
+      <div class="form-group"><label>Idade (dias)</label><input type="number" id="cpIdade" min="0" placeholder="padrão da finalidade"></div>
+      <div class="form-group"><button class="btn btn-primary" onclick="moldar(${id})">Moldar</button></div>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function moldar(loteId) {
+  const corpo = {
+    identificacao: document.getElementById('cpId').value,
+    finalidade: document.getElementById('cpFin').value,
+    dataMoldagem: document.getElementById('cpData').value,
+    idadeDias: document.getElementById('cpIdade').value || null,
+  };
+  const r = await api('POST', `/api/producao/lotes/${loteId}/corpos-prova`, corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(loteId);
+}
+
+async function romper(cpId, loteId) {
+  const v = prompt('Resistência medida (MPa):');
+  if (!v) return;
+  const r = await api('POST', `/api/producao/corpos-prova/${cpId}/ruptura`,
+    { resistenciaMpa: Number(v) });
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  if (r.body.avisoSemReferencia) showAlert(r.body.avisoSemReferencia, 'warning');
+  else showAlert(r.body.corpoProva.aprovado === 1
+    ? `Aprovado: ${v} MPa contra ${r.body.referenciaMpa} exigidos.`
+    : `Reprovado: ${v} MPa contra ${r.body.referenciaMpa} exigidos.`,
+    r.body.corpoProva.aprovado === 1 ? 'success' : 'error');
+  await carregar();
+  abrir(loteId);
+}
+
+function fechar() { document.getElementById('modal').style.display = 'none'; }
+
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>

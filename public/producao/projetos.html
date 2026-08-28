@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Projetos · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .barra { background:#e9ecef; border-radius:3px; height:12px; min-width:80px; }
+  .barra span { display:block; height:100%; border-radius:3px; background:#40c057; }
+  .barra span.parcial { background:#4dabf7; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 data-vocab="projetos">Projetos</h1>
+      <small>A obra junta o contratado, o produzido, o entregue e o medido — e é ela que responde "quanto sobrou nesta obra". A medição fatura o que foi <strong>entregue</strong>: peça no pátio ainda é estoque da fábrica.</small>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNova()">Novo projeto</button>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="busca" placeholder="Buscar projeto…" onkeyup="if(event.key==='Enter')carregar()">
+    <select id="fStatus" onchange="carregar()"><option value="">Todos os status</option></select>
+    <button class="btn btn-sm" onclick="carregar()">Filtrar</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Projeto</th><th>Cliente</th><th>Status</th><th>Montagem</th>
+        <th style="text-align:right;">Contratado</th><th style="text-align:right;">Medido</th>
+        <th style="text-align:right;">Itens</th><th style="text-align:right;">OPs</th>
+        <th>Entrega prevista</th><th></th></tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:900px;">
+      <div class="modal-header"><h3 id="modalTitulo">Obra</h3>
+        <button class="btn-close" onclick="fechar()">&times;</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-projetos');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 8000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, c = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+function moeda(v) { return v == null ? '—' : 'R$ ' + n(v); }
+function barra(pct, classe) {
+  const p = Math.max(0, Math.min(100, pct || 0));
+  return `<div class="barra"><span class="${classe || ''}" style="width:${p}%"></span></div><small class="muted">${n(pct, 0)}%</small>`;
+}
+
+let STATUS = [], CLIENTES = [], PECAS = [];
+
+/**
+ * Toda chamada ao backend passa por aqui.
+ *
+ * O `try` não é zelo: sessão expirada devolve o HTML da tela de login e o
+ * nginx devolve HTML no 502. Nos dois casos `r.json()` REJEITA, e sem captura
+ * a promise morre calada — o operador clica em "Concluir", nada acontece, e
+ * não há mensagem nenhuma. Aqui vira um erro com texto, que o chamador exibe.
+ */
+async function api(metodo, rota, corpo) {
+  let r;
+  try {
+    r = await fetch(rota, {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { status: 0, body: { success: false, error: 'sem conexão com o servidor: ' + e.message } };
+  }
+  try {
+    return { status: r.status, body: await r.json() };
+  } catch (_) {
+    return {
+      status: r.status,
+      body: {
+        success: false,
+        error: r.status === 401 || r.status === 403 || r.redirected
+          ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+          : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+      },
+    };
+  }
+}
+
+async function carregar() {
+  const p = new URLSearchParams();
+  if (document.getElementById('busca').value) p.set('busca', document.getElementById('busca').value);
+  if (document.getElementById('fStatus').value) p.set('status', document.getElementById('fStatus').value);
+
+  const r = await api('GET', '/api/producao/obras?' + p.toString());
+  if (!r.body.success) { showAlert(r.body.error || 'falha', 'error'); return; }
+
+  if (!STATUS.length && r.body.status) {
+    STATUS = r.body.status;
+    document.getElementById('fStatus').insertAdjacentHTML('beforeend',
+      STATUS.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join(''));
+  }
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.body.obras.length ? r.body.obras.map(o => `
+    <tr>
+      <td><strong>${esc(o.numero)}</strong><br><small class="muted">${esc(o.nome)}</small></td>
+      <td>${esc(o.clienteNome || '—')}</td>
+      <td>${esc(o.status)}</td>
+      <td>${o.comMontagem ? 'sim' : '<span class="muted">não</span>'}</td>
+      <td style="text-align:right;">${moeda(o.valorContratado)}</td>
+      <td style="text-align:right;">${moeda(o.valorMedido)}</td>
+      <td style="text-align:right;">${o.itens}</td>
+      <td style="text-align:right;">${o.ops}</td>
+      <td>${esc(o.dataPrevistaEntrega || '—')}</td>
+      <td><button class="btn btn-sm" onclick="abrir(${o.id})">Abrir</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nenhuma obra.</td></tr>';
+}
+
+async function abrirNova() {
+  if (!CLIENTES.length) {
+    const r = await fetch('/api/pessoas?limite=1000').then(x => x.json()).catch(() => ({}));
+    CLIENTES = r.pessoas || r.data || [];
+  }
+  document.getElementById('modalTitulo').textContent = 'Nova obra';
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Cliente</label>
+        <select id="oCliente"><option value="">Selecione…</option>
+          ${CLIENTES.map(c => `<option value="${c.id}">${esc(c.nomeFantasia || c.razaoSocial)}</option>`).join('')}
+        </select></div>
+      <div class="form-group" style="flex:2;"><label>Nome da obra</label><input type="text" id="oNome"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label>Endereço</label><input type="text" id="oEnd"></div>
+      <div class="form-group"><label>Cidade</label><input type="text" id="oCidade"></div>
+      <div class="form-group"><label>UF</label><input type="text" id="oUf" maxlength="2" style="width:60px;"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Entrega prevista</label><input type="date" id="oPrev"></div>
+      <div class="form-group"><label>Responsável no cliente</label><input type="text" id="oResp"></div>
+      <div class="form-group"><label>Com montagem?</label>
+        <select id="oMontagem"><option value="0">Não — só fornecimento</option>
+          <option value="1">Sim — fornecimento + montagem</option></select>
+        <small class="muted">montagem gera NFS-e (LC 116, 7.02)</small></div>
+    </div>
+    <div style="text-align:right;">
+      <button class="btn" onclick="fechar()">Cancelar</button>
+      <button class="btn btn-primary" onclick="criar()">Criar</button>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+async function criar() {
+  const corpo = {
+    clienteId: Number(document.getElementById('oCliente').value),
+    nome: document.getElementById('oNome').value,
+    endereco: document.getElementById('oEnd').value || null,
+    cidade: document.getElementById('oCidade').value || null,
+    uf: document.getElementById('oUf').value || null,
+    dataPrevistaEntrega: document.getElementById('oPrev').value || null,
+    responsavelCliente: document.getElementById('oResp').value || null,
+    comMontagem: Number(document.getElementById('oMontagem').value),
+  };
+  const r = await api('POST', '/api/producao/obras', corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  fechar(); await carregar(); abrir(r.body.obra.id);
+}
+
+async function abrir(id) {
+  const [det, sit, previa] = await Promise.all([
+    api('GET', '/api/producao/obras/' + id),
+    api('GET', `/api/producao/obras/${id}/situacao`),
+    api('GET', `/api/producao/obras/${id}/medicao-previa`),
+  ]);
+  if (!det.body.success) { showAlert(det.body.error, 'error'); return; }
+  // `situacao` e a prévia são checadas junto: um 500 numa delas derrubava o
+  // modal inteiro, escondendo a obra que carregou bem.
+  if (!sit.body.success) { showAlert(sit.body.error || 'falha ao calcular a situação da obra', 'error'); return; }
+  const o = det.body.obra, s = sit.body, pv = previa.body.success ? previa.body : { itens: [] };
+
+  if (!PECAS.length) {
+    PECAS = (await api('GET', '/api/producao/pecas?ativo=1')).body.pecas || [];
+  }
+
+  document.getElementById('modalTitulo').textContent = `${o.numero} — ${o.nome}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <div class="card kpi"><small class="muted">Status</small><div>${esc(o.status)}</div>
+        <div style="margin-top:6px;">${botoesStatus(o)}</div></div>
+      <div class="card kpi"><small class="muted">Contratado</small><div>${moeda(s.valorContratado)}</div>
+        <small class="muted">medido ${moeda(s.valorMedido)} · falta ${moeda(s.saldoAMedir)}</small></div>
+      <div class="card kpi"><small class="muted">Custo de produção</small><div>${moeda(s.custoProducao)}</div>
+        <small class="muted">${s.margemSobreMedido == null ? 'sem medição ainda' : 'margem sobre medido: ' + n(s.margemSobreMedido, 1) + '%'}</small></div>
+    </div>
+
+    <h4>Itens contratados</h4>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Peça</th><th style="text-align:right;">Contratado</th><th style="text-align:right;">Produzido</th>
+        <th style="min-width:110px;">Produção</th><th style="text-align:right;">Entregue</th>
+        <th style="min-width:110px;">Entrega</th><th style="text-align:right;">Unitário</th>
+        <th style="text-align:right;">Montagem</th><th></th></tr></thead>
+      <tbody>${s.itens.length ? s.itens.map(i => `
+        <tr><td>${esc(i.produtoDescricao)}</td>
+          <td style="text-align:right;">${n(i.quantidade, 0)}</td>
+          <td style="text-align:right;">${n(i.quantidadeProduzida, 0)}</td>
+          <td>${barra(i.percentualProduzido, 'parcial')}</td>
+          <td style="text-align:right;">${n(i.quantidadeEntregue, 0)}</td>
+          <td>${barra(i.percentualEntregue)}</td>
+          <td style="text-align:right;">${moeda(i.valorUnitario)}</td>
+          <td style="text-align:right;">${moeda(i.valorMontagemUnitario)}</td>
+          <td><button class="btn btn-sm" onclick="removerItem(${id},${i.id})">✕</button></td></tr>`).join('')
+        : '<tr><td colspan="9" class="empty">Nenhum item.</td></tr>'}</tbody>
+    </table></div>
+
+    <div class="form-row" style="align-items:flex-end;margin-top:10px;">
+      <div class="form-group" style="flex:2;"><label>Peça</label>
+        <select id="iProduto"><option value="">Selecione…</option>
+          ${PECAS.map(p => `<option value="${p.produtoId}">${esc(p.descricao)}</option>`).join('')}
+        </select></div>
+      <div class="form-group"><label>Quantidade</label><input type="number" id="iQtd" min="1" step="1"></div>
+      <div class="form-group"><label>Unitário</label><input type="number" id="iVal" min="0" step="0.01"></div>
+      <div class="form-group"><label>Montagem/un</label>
+        <input type="number" id="iMont" min="0" step="0.01" value="0" ${o.comMontagem ? '' : 'disabled title="obra sem montagem"'}></div>
+      <div class="form-group"><button class="btn btn-primary" onclick="adicionarItem(${id})">Adicionar</button></div>
+    </div>
+
+    <h4 style="margin-top:18px;">Medição</h4>
+    ${pv.itens && pv.itens.length ? `
+      <p class="muted">${esc(pv.nota || '')}</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Romaneio</th><th>Descrição</th><th>Natureza</th><th style="text-align:right;">Qtd</th><th style="text-align:right;">Valor</th></tr></thead>
+        <tbody>${pv.itens.map(i => `
+          <tr><td>${esc(i.romaneioNumero)}</td><td>${esc(i.descricao)}</td><td>${esc(i.natureza)}</td>
+            <td style="text-align:right;">${n(i.quantidade, 0)}</td>
+            <td style="text-align:right;">${moeda(i.valorTotal)}</td></tr>`).join('')}
+          <tr><td colspan="4" style="text-align:right;"><strong>Total a medir</strong></td>
+            <td style="text-align:right;"><strong>${moeda(pv.valorTotal)}</strong></td></tr></tbody>
+      </table></div>
+      <div class="form-row" style="align-items:flex-end;">
+        <div class="form-group"><label>Competência (YYYY-MM)</label><input type="text" id="mComp" placeholder="2026-09"></div>
+        <div class="form-group"><button class="btn btn-primary" onclick="medir(${id})">Gerar medição</button></div>
+      </div>`
+      : '<p class="muted">Nada a medir: não há romaneio entregue e ainda não medido nesta obra.</p>'}
+    ${(pv.naoContratados || []).length ? `<div class="alert warning" style="display:block;">
+       Entregue mas fora do contrato (não entra na medição): ${pv.naoContratados.map(x => esc(`produto #${x.produtoId} × ${x.quantidade} (${x.romaneioNumero})`)).join(', ')}</div>` : ''}
+
+    <div class="tbl-wrap" style="margin-top:10px;"><table>
+      <thead><tr><th>Medição</th><th>Competência</th><th style="text-align:right;">Fornecimento</th>
+        <th style="text-align:right;">Montagem</th><th style="text-align:right;">Total</th><th>Status</th><th></th></tr></thead>
+      <tbody>${o.medicoes.length ? o.medicoes.map(m => `
+        <tr><td>#${m.numero}</td><td>${esc(m.competencia || '—')}</td>
+          <td style="text-align:right;">${moeda(m.valorFornecimento)}</td>
+          <td style="text-align:right;">${moeda(m.valorMontagem)}</td>
+          <td style="text-align:right;"><strong>${moeda(m.valorTotal)}</strong></td>
+          <td>${esc(m.status)}</td>
+          <td>${m.status !== 'cancelada' ? `<button class="btn btn-sm" onclick="cancelarMedicao(${m.id},${id})">Cancelar</button>` : ''}</td></tr>`).join('')
+        : '<tr><td colspan="7" class="empty">Nenhuma medição.</td></tr>'}</tbody>
+    </table></div>`;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function botoesStatus(o) {
+  const proximos = {
+    orcamento: ['contratada', 'cancelada'], contratada: ['produzindo', 'cancelada'],
+    produzindo: ['entregando', 'concluida'], entregando: ['concluida'],
+    concluida: [], cancelada: [],
+  }[o.status] || [];
+  return proximos.map(s =>
+    `<button class="btn btn-sm" onclick="mudarStatus(${o.id},'${s}')">${esc(s)}</button>`).join(' ')
+    || '<span class="muted">status final</span>';
+}
+
+async function mudarStatus(id, status) {
+  const r = await api('POST', `/api/producao/obras/${id}/status`, { status });
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  await carregar(); abrir(id);
+}
+
+async function adicionarItem(id) {
+  const corpo = {
+    produtoId: Number(document.getElementById('iProduto').value),
+    quantidade: Number(document.getElementById('iQtd').value),
+    valorUnitario: Number(document.getElementById('iVal').value),
+    valorMontagemUnitario: Number(document.getElementById('iMont').value) || 0,
+  };
+  const r = await api('POST', `/api/producao/obras/${id}/itens`, corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(id);
+}
+
+async function removerItem(projetoId, itemId) {
+  const r = await api('DELETE', `/api/producao/obras/${projetoId}/itens/${itemId}`);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(projetoId);
+}
+
+async function medir(id) {
+  const comp = document.getElementById('mComp').value || null;
+  const r = await api('POST', `/api/producao/obras/${id}/medicoes`, { competencia: comp });
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  showAlert('Medição gerada.');
+  await carregar(); abrir(id);
+}
+
+async function cancelarMedicao(medicaoId, projetoId) {
+  const motivo = prompt('Motivo do cancelamento (obrigatório):');
+  if (!motivo) return;
+  const r = await api('POST', `/api/producao/medicoes/${medicaoId}/cancelar`, { motivo });
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  await carregar(); abrir(projetoId);
+}
+
+function fechar() { document.getElementById('modal').style.display = 'none'; }
+
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>

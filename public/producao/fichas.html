@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produção · Fichas Técnicas · Licite Agora</title>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .tag { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .tag-obra { background:#ffe8cc; color:#d9480f; }
+  .tag-estoque { background:#e7f5ff; color:#1971c2; }
+  .tag-pista { background:#fff0f6; color:#a61e4d; }
+  .nota-regra { background:#f8f9fa; border-left:3px solid #868e96; padding:10px 12px; margin:10px 0; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1 data-vocab="fichas">Fichas Técnicas</h1>
+      <small>A ficha é o motor do módulo: ela decide se a produção é para estoque ou para projeto, se a saída do recurso depende de ensaio, e se cada unidade sai numerada.</small>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNovo()">Nova ficha</button>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="busca" placeholder="Buscar item…" onkeyup="if(event.key==='Enter')carregar()">
+    <select id="fModo" onchange="carregar()">
+      <option value="">Todos os modos</option>
+      <option value="estoque">Estoque</option>
+      <option value="projeto">Projeto</option>
+    </select>
+    <select id="fEnsaio" onchange="carregar()">
+      <option value="">Com e sem liberação por ensaio</option>
+      <option value="1">Só as que exigem ensaio</option>
+      <option value="0">Só as que não exigem</option>
+    </select>
+    <button class="btn btn-sm" onclick="carregar()">Filtrar</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Item</th><th>Modo</th><th>Ensaio</th>
+        <th style="text-align:right;">Volume (m³)</th>
+        <th style="text-align:right;">Peso (kg)</th>
+        <th style="text-align:right;">Limite conf. / liberação</th>
+        <th style="text-align:right;">Cura (h)</th>
+        <th>Identificação</th>
+        <th style="text-align:right;">Ficha</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:820px;">
+      <div class="modal-header"><h3 id="modalTitulo">Peça</h3>
+        <button class="btn-close" onclick="fechar()">&times;</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script src="/js/producao-vocab.js"></script>
+<script>initSidebar('producao-fichas');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function n(v, c = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+function moeda(v) { return v == null ? '—' : 'R$ ' + n(v, 4); }
+
+let PRODUTOS = [], FORMAS = [];
+
+/**
+ * Toda chamada ao backend passa por aqui.
+ *
+ * O `try` não é zelo: sessão expirada devolve o HTML da tela de login e o
+ * nginx devolve HTML no 502. Nos dois casos `r.json()` REJEITA, e sem captura
+ * a promise morre calada — o operador clica em "Concluir", nada acontece, e
+ * não há mensagem nenhuma. Aqui vira um erro com texto, que o chamador exibe.
+ */
+async function api(metodo, rota, corpo) {
+  let r;
+  try {
+    r = await fetch(rota, {
+      method: metodo, headers: { 'content-type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return { status: 0, body: { success: false, error: 'sem conexão com o servidor: ' + e.message } };
+  }
+  try {
+    return { status: r.status, body: await r.json() };
+  } catch (_) {
+    return {
+      status: r.status,
+      body: {
+        success: false,
+        error: r.status === 401 || r.status === 403 || r.redirected
+          ? 'sessão expirada ou sem permissão — recarregue a página e entre de novo'
+          : `o servidor respondeu ${r.status} sem JSON (provavelmente uma página de erro)`,
+      },
+    };
+  }
+}
+
+async function carregar() {
+  const p = new URLSearchParams();
+  if (document.getElementById('busca').value) p.set('busca', document.getElementById('busca').value);
+  if (document.getElementById('fModo').value) p.set('modo', document.getElementById('fModo').value);
+  const fe = document.getElementById('fEnsaio').value;
+  if (fe !== '') p.set('exigeEnsaioLiberacao', fe);
+
+  const r = await api('GET', '/api/producao/pecas?' + p.toString());
+  if (!r.body.success) { showAlert(r.body.error || 'falha', 'error'); return; }
+
+  const tb = document.getElementById('tb');
+  tb.innerHTML = r.body.pecas.length ? r.body.pecas.map(pc => `
+    <tr>
+      <td><strong>${esc(pc.descricao)}</strong><br><small class="muted">${esc(pc.sku || '')}</small></td>
+      <td><span class="tag tag-${esc(pc.modo)}">${esc(pc.modo)}</span></td>
+      <td>${pc.exigeEnsaioLiberacao
+        ? '<span class="tag tag-pista">liberação por ensaio</span>'
+        : '<span class="muted">sem ensaio</span>'}</td>
+      <td style="text-align:right;">${n(pc.quantidadeBase, 3)}</td>
+      <td style="text-align:right;">${n(pc.pesoKg, 0)}</td>
+      <td style="text-align:right;">${n(pc.ensaioLimiteConformidade, 0)} / ${n(pc.ensaioLimiteLiberacao, 0)}</td>
+      <td style="text-align:right;">${n(pc.tempoProcessoHoras, 0)}</td>
+      <td>${pc.exigeIdentificacao ? '<strong>peça a peça</strong>' : '<span class="muted">por quantidade</span>'}</td>
+      <td style="text-align:right;">${pc.itensFicha}</td>
+      <td><button class="btn btn-sm" onclick="abrir(${pc.produtoId})">Abrir</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nenhum tipo de peça cadastrado.</td></tr>';
+}
+
+async function abrirNovo() {
+  if (!PRODUTOS.length) {
+    const r = await fetch('/api/produtos?limite=1000').then(x => x.json()).catch(() => ({}));
+    PRODUTOS = r.produtos || r.data || [];
+  }
+  document.getElementById('modalTitulo').textContent = 'Cadastrar tipo de peça';
+  document.getElementById('modalBody').innerHTML = `
+    <p class="muted">A peça continua sendo um produto do catálogo — aqui se diz apenas <em>como ela é produzida</em>.</p>
+    <div class="form-group"><label>Produto</label>
+      <select id="pProduto">
+        <option value="">Selecione…</option>
+        ${PRODUTOS.map(p => `<option value="${p.id}">${esc(p.descricao)}</option>`).join('')}
+      </select></div>
+    <div id="camposPeca"></div>`;
+  document.getElementById('modal').style.display = 'flex';
+  renderCampos({});
+}
+
+async function abrir(produtoId) {
+  const r = await api('GET', '/api/producao/pecas/' + produtoId);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  const pc = r.body.peca;
+
+  document.getElementById('modalTitulo').textContent = pc.produtoDescricao;
+  document.getElementById('modalBody').innerHTML = `
+    <input type="hidden" id="pProduto" value="${pc.produtoId}">
+    <div id="camposPeca"></div>
+    <hr>
+    <h4>Ficha técnica <small class="muted">— custo por peça: ${moeda(r.body.custoUnitario)}</small></h4>
+    ${(r.body.avisos || []).length
+      ? `<div class="alert warning" style="display:block;">${r.body.avisos.map(esc).join('<br>')}</div>` : ''}
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Insumo</th><th style="text-align:right;">Qtd projeto</th><th style="text-align:right;">Perda</th>
+        <th style="text-align:right;">Consumo</th><th>Grupo</th><th style="text-align:right;">Custo</th><th></th></tr></thead>
+      <tbody>${(r.body.ficha || []).length ? r.body.ficha.map(i => `
+        <tr><td>${esc(i.insumoDescricao)}${i.subFicha ? ' <small class="muted">(sub-ficha)</small>' : ''}</td>
+          <td style="text-align:right;">${n(i.quantidade, 4)} ${esc(i.unidade || '')}</td>
+          <td style="text-align:right;">${n(i.perdaPercentual, 1)}%</td>
+          <td style="text-align:right;">${n(i.consumo, 4)}</td>
+          <td>${esc(i.grupo)}</td>
+          <td style="text-align:right;">${moeda(i.custoTotal)}</td>
+          <td><button class="btn btn-sm" onclick="removerFicha(${i.id}, ${pc.produtoId})">✕</button></td></tr>`).join('')
+        : '<tr><td colspan="7" class="empty">Sem ficha: a OP não pode ser liberada sem ela.</td></tr>'}</tbody>
+    </table></div>
+    <div class="form-row" style="align-items:flex-end;">
+      <div class="form-group" style="flex:2;"><label>Insumo</label>
+        <select id="fInsumo"><option value="">Selecione…</option></select></div>
+      <div class="form-group"><label>Quantidade</label><input type="number" id="fQtd" step="0.0001" min="0"></div>
+      <div class="form-group"><label>Unidade</label><input type="text" id="fUnid" value="KG" style="width:70px;"></div>
+      <div class="form-group"><label>Perda %</label><input type="number" id="fPerda" step="0.1" min="0" max="100" value="0"></div>
+      <div class="form-group"><label>Grupo</label>
+        <select id="fGrupo">
+          <option value="principal">principal</option><option value="concreto">concreto</option><option value="aco">aço</option>
+          <option value="forma">forma</option><option value="consumivel">consumível</option>
+          <option value="outro">outro</option>
+        </select></div>
+      <div class="form-group"><button class="btn btn-primary" onclick="adicionarFicha(${pc.produtoId})">Adicionar</button></div>
+    </div>`;
+  document.getElementById('modal').style.display = 'flex';
+  renderCampos(pc);
+  carregarInsumos();
+}
+
+async function carregarInsumos() {
+  if (!PRODUTOS.length) {
+    const r = await fetch('/api/produtos?limite=1000').then(x => x.json()).catch(() => ({}));
+    PRODUTOS = r.produtos || r.data || [];
+  }
+  const sel = document.getElementById('fInsumo');
+  if (sel) {
+    sel.insertAdjacentHTML('beforeend',
+      PRODUTOS.map(p => `<option value="${p.id}">${esc(p.descricao)}</option>`).join(''));
+  }
+}
+
+async function renderCampos(pc) {
+  if (!FORMAS.length) {
+    const f = await api('GET', '/api/producao/formas');
+    FORMAS = (f.body.formas || []).filter(x => x.ativo);
+  }
+  const alvo = document.getElementById('camposPeca');
+  if (!alvo) return;
+  alvo.innerHTML = `
+    <div class="form-row">
+      <div class="form-group"><label>Modo</label>
+        <select id="pModo" onchange="aoTrocar()">
+          <option value="estoque" ${pc.modo !== 'projeto' ? 'selected' : ''}>Estoque (produz para repor saldo)</option>
+          <option value="projeto" ${pc.modo === 'projeto' ? 'selected' : ''}>Projeto (produz sob encomenda)</option>
+        </select></div>
+      <div class="form-group"><label>Liberação por ensaio</label>
+        <select id="pEnsaio" onchange="aoTrocar()">
+          <option value="0" ${!pc.exigeEnsaioLiberacao ? 'selected' : ''}>Não — sai do recurso pelo tempo</option>
+          <option value="1" ${pc.exigeEnsaioLiberacao ? 'selected' : ''}>Sim — só sai com ensaio aprovado</option>
+        </select></div>
+      <div class="form-group"><label data-vocab="tempoProcesso">Tempo de processo (h)</label>
+        <input type="number" id="pCuraH" min="0" step="1" value="${pc.tempoProcessoHoras != null ? pc.tempoProcessoHoras : 24}"></div>
+    </div>
+    <div class="nota-regra" id="notaRegra"></div>
+    <div class="form-row">
+      <div class="form-group"><label data-vocab="quantidadeBase">Quantidade base</label>
+        <input type="number" id="pVol" step="0.0001" min="0" value="${pc.quantidadeBase || 0}">
+        <small class="muted">quanto UMA unidade representa — é o numerador do indicador</small></div>
+      <div class="form-group"><label>Unidade</label>
+        <input type="text" id="pUnidade" maxlength="10" style="width:80px;"
+          value="${esc(pc.unidadeBase || 'UN')}" placeholder="m3, kg, m2">
+        <small class="muted">m³, kg, m², UN…</small></div>
+      <div class="form-group"><label>Peso (kg)</label>
+        <input type="number" id="pPeso" step="0.01" min="0" value="${pc.pesoKg || 0}"></div>
+      <div class="form-group"><label>Peças por ciclo</label>
+        <input type="number" id="pCiclo" step="0.01" min="0.01" value="${pc.unidadesPorCiclo || 1}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Comprimento (m)</label>
+        <input type="number" id="pComp" step="0.01" min="0" value="${pc.comprimentoM != null ? pc.comprimentoM : ''}"></div>
+      <div class="form-group"><label>Largura (m)</label>
+        <input type="number" id="pLarg" step="0.01" min="0" value="${pc.larguraM != null ? pc.larguraM : ''}"></div>
+      <div class="form-group"><label>Altura (m)</label>
+        <input type="number" id="pAlt" step="0.01" min="0" value="${pc.alturaM != null ? pc.alturaM : ''}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Limite de conformidade</label>
+        <input type="number" id="pFckP" step="0.1" min="0" value="${pc.ensaioLimiteConformidade != null ? pc.ensaioLimiteConformidade : ''}">
+        <small class="muted">atesta o lote; não trava</small></div>
+      <div class="form-group" id="grpFckT"><label>Limite de liberação</label>
+        <input type="number" id="pFckT" step="0.1" min="0" value="${pc.ensaioLimiteLiberacao != null ? pc.ensaioLimiteLiberacao : ''}">
+        <small class="muted">o ensaio precisa atingir este valor para a unidade sair do recurso</small></div>
+      <div class="form-group"><label>Forma padrão</label>
+        <select id="pForma"><option value="">Nenhuma</option>
+          ${FORMAS.map(f => `<option value="${f.id}" ${pc.recursoPadraoId === f.id ? 'selected' : ''}>${esc(f.codigo)} — ${esc(f.descricao)}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Código do projeto</label>
+        <input type="text" id="pProj" value="${esc(pc.codigoProjeto || '')}"></div>
+      <div class="form-group"><label>Ativo</label>
+        <select id="pAtivo"><option value="1" ${pc.ativo !== 0 ? 'selected' : ''}>Sim</option>
+          <option value="0" ${pc.ativo === 0 ? 'selected' : ''}>Não</option></select></div>
+    </div>
+    <div style="text-align:right;">
+      <button class="btn" onclick="fechar()">Fechar</button>
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+    </div>`;
+  aoTrocar();
+}
+
+function aoTrocar() {
+  const modo = document.getElementById('pModo').value;
+  const protensao = document.getElementById('pEnsaio').value === '1';
+  document.getElementById('grpFckT').style.opacity = protensao ? '1' : '0.45';
+
+  const exige = modo === 'obra' || protensao;
+  document.getElementById('notaRegra').innerHTML = exige
+    ? '<strong>Esta ficha sai numerada, unidade a unidade.</strong> É a identificação individual que amarra '
+      + 'unidade → lote de processo → ensaio; sem ela o ensaio não prova nada sobre a unidade que foi '
+      + 'para o cliente. Não é configurável.'
+      + (protensao ? '<br><strong>Liberação por ensaio:</strong> a saída do recurso fica travada até haver ensaio aprovado no limite cadastrado.' : '')
+    : 'Produção para estoque, sem liberação por ensaio: o apontamento é <strong>por quantidade</strong>, sem numerar cada unidade.';
+}
+
+async function salvar() {
+  const produtoId = document.getElementById('pProduto').value;
+  if (!produtoId) { showAlert('Escolha o produto.', 'error'); return; }
+  const corpo = {
+    modo: document.getElementById('pModo').value,
+    exigeEnsaioLiberacao: document.getElementById('pEnsaio').value,
+    unidadeBase: document.getElementById('pUnidade').value || 'UN',
+    tempoProcessoHoras: Number(document.getElementById('pCuraH').value),
+    quantidadeBase: Number(document.getElementById('pVol').value) || 0,
+    pesoKg: Number(document.getElementById('pPeso').value) || 0,
+    unidadesPorCiclo: Number(document.getElementById('pCiclo').value) || 1,
+    comprimentoM: document.getElementById('pComp').value || null,
+    larguraM: document.getElementById('pLarg').value || null,
+    alturaM: document.getElementById('pAlt').value || null,
+    ensaioLimiteConformidade: document.getElementById('pFckP').value || null,
+    ensaioLimiteLiberacao: document.getElementById('pFckT').value || null,
+    recursoPadraoId: Number(document.getElementById('pForma').value) || null,
+    codigoProjeto: document.getElementById('pProj').value || null,
+    ativo: Number(document.getElementById('pAtivo').value),
+  };
+  const r = await api('PUT', '/api/producao/pecas/' + produtoId, corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  showAlert('Tipo de peça salvo.');
+  await carregar();
+  abrir(produtoId);
+}
+
+async function adicionarFicha(produtoId) {
+  const corpo = {
+    insumoProdutoId: Number(document.getElementById('fInsumo').value),
+    quantidade: Number(document.getElementById('fQtd').value),
+    unidade: document.getElementById('fUnid').value,
+    perdaPercentual: Number(document.getElementById('fPerda').value) || 0,
+    grupo: document.getElementById('fGrupo').value,
+  };
+  const r = await api('POST', `/api/producao/pecas/${produtoId}/ficha`, corpo);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(produtoId);
+}
+
+async function removerFicha(itemId, produtoId) {
+  const r = await api('DELETE', '/api/producao/ficha/' + itemId);
+  if (!r.body.success) { showAlert(r.body.error, 'error'); return; }
+  abrir(produtoId);
+}
+
+function fechar() { document.getElementById('modal').style.display = 'none'; }
+
+iniciarVocabulario();
+carregar();
+</script>
+</body>
+</html>
