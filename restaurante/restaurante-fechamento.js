@@ -372,10 +372,13 @@ function registrarRotasFechamento(app, db, gateFlag, deps) {
       const { emitirNFCe } = require('../nfce-routes');
       const r = await emitirNFCe(db, montado.payload);
 
-      if (r && r.nfceId) {
+      // O campo é `id` no retorno do nfce-routes, o mesmo que /api/nfce/emitir
+      // devolve. Ler `nfceId` aqui deixava o vínculo sem gravar em silêncio:
+      // a nota saía na SEFAZ e a comanda seguia sem referência a ela.
+      if (r && r.id) {
         db.prepare('UPDATE rest_comanda_pagamentos SET nfceId = ? WHERE comandaId = ? AND nfceId IS NULL')
-          .run(r.nfceId, c.id);
-        registrarEvento(db, c.id, 'nfce', `NFC-e emitida (id ${r.nfceId})`, null);
+          .run(r.id, c.id);
+        registrarEvento(db, c.id, 'nfce', `NFC-e emitida (id ${r.id})`, null);
       }
       res.json({ success: true, ...r });
     } catch (err) {
