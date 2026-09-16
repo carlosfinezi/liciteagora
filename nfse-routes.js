@@ -535,6 +535,8 @@ async function emitirNfseInterno(db, params) {
       descricao: servico.descricao,
       valorServico: servico.valorServico,
       valorDeducoes: servico.valorDeducoes,
+      descontoIncondicionado: servico.descontoIncondicionado,
+      descontoCondicionado: servico.descontoCondicionado,
       aliquota: servico.aliquota,
       // SEFIN aceita só código IBGE de 7 dígitos no cLocPrestacao. Se o caller
       // mandou algo não-numérico (ex: "Maceio" digitado no input), descarta e
@@ -557,8 +559,8 @@ async function emitirNfseInterno(db, params) {
   const insertStmt = db.prepare(`
     INSERT INTO nfse (idDps, serie, nDPS, tpAmb, tomadorCpfCnpj, tomadorRazaoSocial,
       tomadorEndereco, codigoTributacaoNacional, cNBS, xNBS, descricaoServico, valorServico,
-      dataCompetencia, status, xmlEnvio)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processando', ?)
+      valorDescontoIncondicionado, dataCompetencia, status, xmlEnvio)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processando', ?)
   `);
 
   const result = insertStmt.run(
@@ -570,6 +572,7 @@ async function emitirNfseInterno(db, params) {
     servico.xNBS || null,
     servico.descricao,
     servico.valorServico,
+    Number(servico.descontoIncondicionado) || 0,
     competencia || dataBrasilia(),
     signedXml
   );

@@ -1,0 +1,9 @@
+{
+  "name": "node-sped-pdf-local",
+  "version": "1.0.66-licite.1",
+  "type": "module",
+  "private": true,
+  "main": "./index.js",
+  "exports": { "import": "./index.js", "require": "./index.js" },
+  "license": "MIT"
+}

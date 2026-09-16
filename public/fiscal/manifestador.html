@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Manifestador de Documentos Fiscais — Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -21,7 +22,7 @@
   </div>
 
   <div class="alert" style="background:var(--accent-soft);border-left:4px solid var(--accent);padding:10px 14px;margin-bottom:14px;color:var(--text-1);font-size:0.88em;">
-    <strong>⏱ Download automático ativo:</strong> a cada 6h o sistema baixa os XMLs das NF-e destinadas ao seu CNPJ, <strong>sem manifestar ciência</strong> automaticamente. Você decide se/quando confirmar (Ciência, Confirmação, Desconhecimento ou Não realizada) dentro do prazo de 10 dias da SEFAZ.
+    <strong>⏱ Download automático ativo:</strong> a cada 65min o sistema baixa os XMLs das NF-e destinadas ao seu CNPJ, <strong>sem manifestar ciência</strong> automaticamente. Você decide se/quando confirmar (Ciência, Confirmação, Desconhecimento ou Não realizada) dentro do prazo de 10 dias da SEFAZ.
   </div>
 
   <div class="toolbar">
@@ -38,7 +39,7 @@
   <div class="tbl-wrap" data-grid="manifestador">
     <table>
       <thead><tr>
-        <th class="col-editar"></th><th>Emissão</th><th>Emitente</th><th>Nº / Série</th><th>Chave</th><th style="text-align:right;">Valor</th><th>Status</th><th>Manifestação</th><th></th>
+        <th class="col-editar"></th><th>Emissão</th><th>Emitente</th><th>Nº / Série</th><th>Chave</th><th style="text-align:right;">Valor</th><th>Prazo</th><th>Status</th><th>Manifestação</th><th></th>
       </tr></thead>
       <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
     </table>
@@ -77,7 +78,12 @@ async function sincronizar(){
     const r = await fetch('/api/nfe-entrada/inbox/sincronizar', { method:'POST' });
     const d = await r.json();
     if (!d.success) throw new Error(d.error || d.xMotivo || 'erro');
-    alert(`Sincronização concluída.\n\nNovos: ${d.novos}\nÚlt. NSU: ${d.ultNSU}\nMax NSU: ${d.maxNSU}\nStatus SEFAZ: ${d.cStat} ${d.xMotivo||''}`);
+    if (d.aguardando) {
+      const min = Math.ceil((d.esperarSegundos||0)/60);
+      alert(`Consulta não enviada — a SEFAZ limita a distribuição de XMLs a uma consulta por hora quando não há nota nova.\n\n${d.xMotivo}\n\nPróxima consulta liberada em ~${min} min. O download automático já roda sozinho a cada 65 min.`);
+    } else {
+      alert(`Sincronização concluída.\n\nNovos: ${d.novos}\nÚlt. NSU: ${d.ultNSU}\nMax NSU: ${d.maxNSU}\nStatus SEFAZ: ${d.cStat} ${d.xMotivo||''}`);
+    }
     await carregar();
   } catch (e) { alert('Erro: '+e.message); }
   finally { btn.disabled = false; btn.textContent = '🔄 Buscar novidades na SEFAZ'; }
@@ -113,14 +119,27 @@ async function carregar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     const c = d.cursor || {};
-    document.getElementById('cursorInfo').textContent = `NSU atual: ${c.ultNSU||'0'} · Max SEFAZ: ${c.maxNSU||'—'} · Última sync: ${c.ultimaSincronizacao||'nunca'}`;
+    const bloqueio = c.ultimoCStat === '656' ? ' · ⚠ SEFAZ bloqueou por consumo indevido (libera 1h após a última tentativa)' : '';
+    document.getElementById('cursorInfo').textContent = `NSU atual: ${c.ultNSU||'0'} · Max SEFAZ: ${c.maxNSU||'—'} · Última sync: ${c.ultimaSincronizacao||'nunca'}${bloqueio}`;
     render(d.items);
   } catch(e){ alert('Erro: '+e.message); }
 }
 
+// Prazo de 10 dias da SEFAZ para manifestar. Só faz sentido enquanto não há
+// evento registrado — depois de manifestada, a nota não corre mais prazo.
+function prazoBadge(i){
+  if (i.statusManifestacao) return '<small class="muted">—</small>';
+  const d = i.diasParaManifestar;
+  if (d === null || d === undefined) return '<small class="muted">—</small>';
+  if (d < 0) return `<span class="badge" style="background:var(--danger-soft);color:var(--danger);">venceu há ${Math.abs(d)}d</span>`;
+  if (d === 0) return '<span class="badge" style="background:var(--danger-soft);color:var(--danger);">vence hoje</span>';
+  if (d <= 3) return `<span class="badge" style="background:var(--warn-soft);color:var(--warn);">${d}d</span>`;
+  return `<span class="badge" style="background:var(--success-soft);color:var(--success);">${d}d</span>`;
+}
+
 function render(items){
   const tb = document.getElementById('tb');
-  if (!items.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma NF-e. Clique em "Buscar novidades" para consultar a SEFAZ.</td></tr>'; return; }
+  if (!items.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhuma NF-e. Clique em "Buscar novidades" para consultar a SEFAZ.</td></tr>'; return; }
   tb.innerHTML = items.map(i => {
     const man = i.statusManifestacao;
     const manBadge = man
@@ -135,6 +154,7 @@ function render(items){
     <td>${i.numeroNF||'-'} / ${i.serie||'-'}</td>
     <td class="mono" style="font-size:0.78em;" title="${i.chaveAcesso}">${chaveFmt(i.chaveAcesso)}</td>
     <td style="text-align:right;">R$ ${fmt(i.valorTotal)}</td>
+    <td>${prazoBadge(i)}</td>
     <td><span class="badge ${i.situacao}">${i.situacao}</span>${i.temXmlCompleto?' <small style="color:var(--success);">✓ XML</small>':' <small class="muted">só resumo</small>'}</td>
     <td>${manBadge}${manDate}</td>
     <td style="text-align:right;white-space:nowrap;">
@@ -267,10 +287,20 @@ async function manifestar(chave){
   } catch(e){ alert('Erro: '+e.message); }
 }
 
-async function importar(chave){
+async function importar(chave, confirmarTipoOperacao){
   try {
-    const r = await fetch('/api/nfe-entrada/inbox/'+chave+'/importar', { method:'POST' });
+    const r = await fetch('/api/nfe-entrada/inbox/'+chave+'/importar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ confirmarTipoOperacao: !!confirmarTipoOperacao })
+    });
     const d = await r.json();
+    // 409 = nota de entrada do emitente (tpNF=0): mercadoria normalmente SAI
+    // daqui. Confirma antes de deixar virar entrada de estoque.
+    if (r.status === 409 && d.tpNF === 0) {
+      const segue = confirm(`${d.error}.\n\nNatureza da operação: ${d.naturezaOperacao||'—'}\n\nImportar assim mesmo como entrada?`);
+      if (!segue) return;
+      return importar(chave, true);
+    }
     if (!d.success) throw new Error(d.error);
     alert(`Importada!\nItens: ${d.itens}\nDuplicatas: ${d.duplicatas}`);
     location.href = '/fiscal/nfe-entrada-detalhe.html?id=' + d.nfeId;

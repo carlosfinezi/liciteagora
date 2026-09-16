@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nova Nota Fiscal - Licite Agora</title>
+    <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
@@ -270,7 +271,7 @@ async function init() {
       if (t.ativo === 0) continue;
       const o = document.createElement('option');
       o.value = t.id;
-      o.textContent = t.codigo + ' — ' + t.descricao;
+      o.textContent = t.descricao;
       o.dataset.emiteNFe = t.emiteNFe;
       o.dataset.geraFinanceiro = t.geraFinanceiro;
       o.dataset.movimentaEstoque = t.movimentaEstoque;

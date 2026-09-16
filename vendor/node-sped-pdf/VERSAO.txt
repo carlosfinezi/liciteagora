@@ -1,0 +1,4 @@
+node-sped-pdf@1.0.66
+https://github.com/kalmonv/node-sped-pdf.git
+licença: MIT
+copiado em: 2026-09-12

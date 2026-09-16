@@ -282,6 +282,23 @@ function construirDPS(dados) {
   xml += `<vServ>${Number(servico.valorServico).toFixed(2)}</vServ>`;
   xml += `</vServPrest>`;
 
+  // vDescCondIncond (opcional) — vai DEPOIS de vServPrest e ANTES de trib.
+  // Só é emitido quando há desconto: as notas autorizadas até aqui não trazem
+  // o grupo, então mantê-lo ausente no caso normal preserva o que já funciona.
+  //   vDescIncond = desconto já concedido, sem condição — REDUZ a base do ISSQN
+  //                 (BC = vServ − vDR − vDescIncond − vCalcReeRepRes).
+  //   vDescCond   = desconto atrelado a condição futura (ex.: pagar até o dia X);
+  //                 abate o valor líquido, mas NÃO a base do ISSQN.
+  const vDescIncond = Number(servico.descontoIncondicionado) || 0;
+  const vDescCond = Number(servico.descontoCondicionado) || 0;
+  if (vDescIncond > 0 || vDescCond > 0) {
+    xml += `<vDescCondIncond>`;
+    // Ordem interna do grupo: incondicionado antes do condicionado.
+    if (vDescIncond > 0) xml += `<vDescIncond>${vDescIncond.toFixed(2)}</vDescIncond>`;
+    if (vDescCond > 0) xml += `<vDescCond>${vDescCond.toFixed(2)}</vDescCond>`;
+    xml += `</vDescCondIncond>`;
+  }
+
   // trib (obrigatório: tribMun + totTrib)
   xml += `<trib>`;
 

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NF-e Recebida · Detalhe</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -83,6 +84,22 @@ function fmtData(iso){ if(!iso) return '-'; const d=new Date(iso); return isNaN(
 
 let NFE_ID = null;
 let DADOS = null;
+let MARKUP_PCT = 0;
+
+// Markup com que os produtos criados a partir de itens da NF-e nascem.
+// 0 = produto sem preço de venda (era o comportamento fixo até então).
+async function salvarMarkup(valor){
+  const pct = Number(valor);
+  try {
+    const r = await fetch('/api/nfe-entrada/config/markup', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ markupPct: pct })
+    });
+    const d = await r.json();
+    if (!d.success) { alert('Erro: '+d.error); return; }
+    MARKUP_PCT = d.markupPct;
+  } catch(e){ alert('Erro ao salvar markup: '+e.message); }
+}
 
 async function carregar(){
   const qs = new URLSearchParams(location.search);
@@ -96,9 +113,13 @@ async function carregar(){
   if (!id) { document.getElementById('conteudo').textContent = 'Parâmetro id obrigatório'; return; }
   NFE_ID = id;
 
-  const r = await fetch('/api/nfe-entrada/'+id);
+  const [r, rm] = await Promise.all([
+    fetch('/api/nfe-entrada/'+id),
+    fetch('/api/nfe-entrada/config/markup').catch(() => null)
+  ]);
   const d = await r.json();
   if (!d.success) { document.getElementById('conteudo').textContent = 'Erro: '+d.error; return; }
+  if (rm) { const dm = await rm.json().catch(() => null); if (dm?.success) MARKUP_PCT = dm.markupPct; }
   DADOS = d;
   render();
 }
@@ -124,7 +145,11 @@ function render(){
       </div>
       <div class="acoes">
         ${!jaAplicado && itensSemVinculo > 0
-          ? `<button class="btn btn-primary" onclick="vincularTodos()" title="Cria/associa um produto para cada item ainda sem vínculo">✨ Criar e vincular todos (${itensSemVinculo})</button>`
+          ? `<span style="display:inline-flex;align-items:center;gap:6px;font-size:0.85em;color:var(--text-2);margin-right:4px;" title="Preço de venda dos produtos criados a partir desta nota = custo + markup. 0 = nasce sem preço de venda.">
+               <label for="markupPct">Markup</label>
+               <input type="number" id="markupPct" min="0" max="1000" step="1" value="${MARKUP_PCT}" onchange="salvarMarkup(this.value)" style="width:70px;">%
+             </span>
+             <button class="btn btn-primary" onclick="vincularTodos()" title="Cria/associa um produto para cada item ainda sem vínculo">✨ Criar e vincular todos (${itensSemVinculo})</button>`
           : ''}
         ${!jaAplicado
           ? `<button class="btn btn-primary" ${podeAplicarEstoque?'':'disabled'} onclick="aplicarEstoque()" title="${podeAplicarEstoque?'':'Vincule todos os itens a produtos antes'}">📦 Aplicar entrada no estoque</button>`
@@ -226,17 +251,51 @@ async function reverterEstoque(){
   try {
     const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/reverter-estoque', { method:'POST' });
     const d = await r.json();
-    if (!d.success) { alert('Erro: '+d.error); return; }
+    if (!d.success) {
+      // 409: a mercadoria já saiu — reverter deixaria saldo negativo.
+      if (d.produtos) {
+        alert(d.error + '\n\n' + d.produtos.map(p =>
+          `• ${p.sku} ${p.descricao}: saldo ${p.saldoAtual} → ${p.saldoAposReversao}`).join('\n') +
+          '\n\nAjuste o estoque desses produtos antes de reverter.');
+        return;
+      }
+      alert('Erro: '+d.error); return;
+    }
     alert('Estoque revertido.' + (d.aviso ? '\n\n' + d.aviso : ''));
     carregar();
   } catch(e){ alert('Erro: '+e.message); }
 }
 
-async function gerarContasPagar(){
-  if (!confirm('Gerar contas a pagar a partir das duplicatas da NF-e?')) return;
+async function gerarContasPagar(opts){
+  const o = opts || {};
+  if (!opts && !confirm('Gerar contas a pagar a partir das duplicatas da NF-e?')) return;
   try {
-    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/gerar-contas-pagar', { method:'POST' });
+    const r = await fetch('/api/nfe-entrada/'+NFE_ID+'/gerar-contas-pagar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        confirmarDivergencia: !!o.confirmarDivergencia,
+        confirmarVencimentoRetroativo: !!o.confirmarVencimentoRetroativo,
+        baseVencimento: o.baseVencimento
+      })
+    });
     const d = await r.json();
+    // 409: o prazo contado da emissão cai no passado — a conta nasceria vencida.
+    if (r.status === 409 && d.vencimentoRetroativo) {
+      const v = d.vencimentoRetroativo;
+      const usarEntrada = confirm(
+        `${d.error}.\n\n` +
+        `Contando da emissão (${v.dataEmissao}): ${v.vencimentosPorEmissao.join(', ')}\n` +
+        `Contando da entrada (${v.dataEntrada||'—'}): ${v.vencimentosPorEntrada.join(', ')}\n\n` +
+        `OK = contar da entrada da mercadoria\nCancelar = escolher manter as datas retroativas`);
+      if (usarEntrada) return gerarContasPagar({ ...o, baseVencimento: 'entrada' });
+      if (!confirm('Gerar com as datas retroativas, já vencidas?')) return;
+      return gerarContasPagar({ ...o, confirmarVencimentoRetroativo: true });
+    }
+    // 409: as duplicatas não somam o total da nota — gerar assim esconde passivo.
+    if (r.status === 409 && d.divergencia) {
+      if (!confirm(d.error + '\n\nGerar mesmo assim, só com o que veio nas duplicatas?')) return;
+      return gerarContasPagar({ ...o, confirmarDivergencia: true });
+    }
     if (!d.success) { alert('Erro: '+d.error); return; }
     alert(`${d.contas.length} conta(s) a pagar gerada(s).`);
     carregar();

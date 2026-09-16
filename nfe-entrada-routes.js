@@ -208,6 +208,10 @@ function migrar(db) {
 
   // Multi-loja (Fase 4): estabelecimento da conta a pagar (NULL = consolidado/matriz).
   alterSafe(db, "ALTER TABLE contas_a_pagar ADD COLUMN estabelecimentoId INTEGER");
+  alterSafe(db, "ALTER TABLE nfe_distribuicao_cursor ADD COLUMN ultimoCStat TEXT");
+  alterSafe(db, "ALTER TABLE nfe_entrada_inbox ADD COLUMN avisoPrazoEm TEXT");
+  alterSafe(db, "ALTER TABLE nfe_entrada_itens ADD COLUMN origemFiscal TEXT");
+  alterSafe(db, "ALTER TABLE nfe_entrada_itens ADD COLUMN cest TEXT");
   alterSafe(db, "ALTER TABLE nfe_entrada_inbox ADD COLUMN statusManifestacao TEXT");
   alterSafe(db, "ALTER TABLE nfe_entrada_inbox ADD COLUMN ultimoEventoTp TEXT");
   alterSafe(db, "ALTER TABLE nfe_entrada_inbox ADD COLUMN ultimoEventoProt TEXT");
@@ -313,6 +317,10 @@ function parseItens(xml) {
       descricao: tag(prod, 'xProd'),
       ean: tag(prod, 'cEAN'),
       ncm: tag(prod, 'NCM'),
+      cest: tag(prod, 'CEST'),
+      // <orig> vive dentro do grupo ICMS (ICMS00, ICMSSN102, ...) — o nome do
+      // grupo varia com o CST/CSOSN, então lê do bloco de imposto inteiro.
+      origem: tag(imp, 'orig'),
       cfop: tag(prod, 'CFOP'),
       unidade: tag(prod, 'uCom'),
       quantidade: num(tag(prod, 'qCom')),
@@ -359,10 +367,13 @@ function matchProdutoEntrada(db, item, fornecedorId) {
       || db.prepare(`SELECT produtoId AS id FROM produto_codigos WHERE codigo = ? AND tipo = 'ean' AND ativo = 1`).get(item.ean);
     if (porEan) return porEan.id;
   }
-  if (item.codigoProduto) {
-    const porSku = db.prepare(`SELECT id FROM produtos WHERE sku = ? AND ativo = 1`).get(item.codigoProduto);
-    if (porSku) return porSku.id;
-  }
+  // NÃO casar codigoProduto com produtos.sku: são namespaces diferentes — o
+  // código é do fornecedor, o SKU é nosso. Códigos curtos e numéricos ("1218",
+  // "00001") colidem com SKU interno e vinculam item errado em silêncio, e o
+  // aplicar-estoque leva o custo do produto errado junto. O casamento por
+  // código de fornecedor é o de produto_codigos, acima, que o vincular-todos
+  // alimenta a cada vínculo — a primeira nota exige vínculo manual, as
+  // seguintes casam sozinhas e sem ambiguidade.
   return null;
 }
 
@@ -384,6 +395,17 @@ function proximoSkuInterno(db) {
 // item precisa ter: fornecedorId, ean, codigoProduto, descricao, unidade, valorUnitario, ncm.
 // SKU = GTIN quando válido; senão série interna MERC-#### (nunca o código do fornecedor).
 // Retorna o id do produto criado.
+// Markup aplicado sobre o custo da NF-e para nascer com preço de venda, em %.
+// Sem a chave (ou com 0), o produto continua nascendo a R$ 0,00 — que era o
+// comportamento antigo e deixava produto vendável sem preço no catálogo.
+function markupPadrao(db) {
+  try {
+    const row = db.prepare(`SELECT valor FROM config WHERE chave = 'nfe_entrada_markup_pct'`).get();
+    const pct = Number(row?.valor);
+    return Number.isFinite(pct) && pct > 0 ? pct : 0;
+  } catch (_) { return 0; }
+}
+
 function criarProdutoDeItemNfe(db, item) {
   const eanValido = item.ean && item.ean !== 'SEM GTIN' && item.ean.length >= 8;
   let sku;
@@ -394,11 +416,18 @@ function criarProdutoDeItemNfe(db, item) {
   } else {
     sku = proximoSkuInterno(db);
   }
+  // origem/CEST vêm do XML e são obrigatórios na NF-e de saída — sem eles o
+  // produto nasce impossível de vender sem retrabalho manual.
+  const custo = item.valorUnitario || 0;
+  const pct = markupPadrao(db);
+  const precoVenda = pct > 0 ? Number((custo * (1 + pct / 100)).toFixed(2)) : 0;
+
   const r = db.prepare(`INSERT INTO produtos
-    (sku, descricao, unidade, precoCusto, ncm, codigoBarras, fornecedorId, ativo)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)`).run(
+    (sku, descricao, unidade, precoCusto, precoVenda, ncm, cest, origem, codigoBarras, fornecedorId, ativo)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
     sku, item.descricao || 'Produto NF-e', item.unidade || 'UN',
-    item.valorUnitario || 0, item.ncm || null,
+    custo, precoVenda, item.ncm || null,
+    item.cest || null, item.origem || null,
     eanValido ? item.ean : null, item.fornecedorId || null
   );
   return r.lastInsertRowid;
@@ -439,11 +468,66 @@ async function aplicarShimAN() {
   } catch (e) { console.error('[nfe-entrada] shim falhou:', e.message); }
 }
 
+// Consumo indevido da DistDFe: depois de uma consulta que volta 137 (nenhum
+// documento novo), a SEFAZ exige ~1h de espera. Insistir antes disso devolve
+// cStat 656 e bloqueia o CNPJ no serviço por 1h — trocaríamos atraso por
+// apagão. Vale para o job e para o botão da tela: a cota é do CNPJ, não da
+// origem da chamada. `forcar` existe só para o re-sync pós-ciência, onde há
+// documento novo esperado (procNFe) e a consulta não conta como indevida.
+const ESPERA_DISTDFE_SEG = 60 * 60;
+
+// Prazo da SEFAZ para manifestar Ciência a partir da emissão (cStat 596 fora
+// disso). Conta da autorização; usamos a emissão, que é o que o inbox guarda —
+// a diferença é de minutos e sempre a favor da margem.
+const PRAZO_MANIFESTACAO_DIAS = 10;
+
+// Notas ainda sem manifestação cujo prazo de 10 dias está por vencer.
+// `limiteDias` é a janela de aviso (ex.: 3 = avisa faltando 3 dias ou menos).
+// Já vencidas ficam de fora: avisar não recupera o prazo e viraria ruído
+// diário sobre um passivo que não muda mais.
+function notasComPrazoCritico(db, limiteDias = 3) {
+  try {
+    return db.prepare(`
+      SELECT chaveAcesso, numeroNF, serie, emitenteRazaoSocial, valorTotal,
+             CAST(${PRAZO_MANIFESTACAO_DIAS} - (julianday('now') - julianday(substr(dataEmissao, 1, 10))) AS INTEGER) AS diasParaManifestar
+        FROM nfe_entrada_inbox
+       WHERE situacao != 'ignorada'
+         AND (statusManifestacao IS NULL OR statusManifestacao = '')
+         AND avisoPrazoEm IS NULL
+         AND diasParaManifestar BETWEEN 0 AND ?
+       ORDER BY diasParaManifestar ASC, valorTotal DESC`).all(limiteDias);
+  } catch (_) { return []; }
+}
+
+// Cada nota avisa uma vez só — o ciclo roda de 65 em 65 min e sem isto o
+// mesmo aviso sairia ~22 vezes por dia até o prazo vencer.
+function marcarAvisoPrazo(db, chaves = []) {
+  if (!chaves.length) return;
+  const st = db.prepare(`UPDATE nfe_entrada_inbox SET avisoPrazoEm = CURRENT_TIMESTAMP WHERE chaveAcesso = ?`);
+  db.transaction(() => { for (const c of chaves) st.run(c); })();
+}
+
 // Sincroniza o inbox da NF-e (distribuição DFe) para o DB do tenant informado.
 // Função reutilizável: chamada pelo endpoint HTTP e pelo scheduler master.
 // IMPORTANTE: apenas baixa XMLs novos — NÃO manifesta ciência automaticamente.
 // Se o tenant não tem certificado A1 ou NF-e config válida, lança ou retorna skipped.
-async function sincronizarInboxNfe(db) {
+async function sincronizarInboxNfe(db, { forcar = false } = {}) {
+  const espera = db.prepare(`SELECT ultNSU, maxNSU, ultimoCStat,
+      CAST(strftime('%s','now') - strftime('%s', ultimaSincronizacao) AS INTEGER) AS idadeSeg
+    FROM nfe_distribuicao_cursor WHERE id = 1`).get();
+  if (!forcar && espera && (espera.ultimoCStat === '137' || espera.ultimoCStat === '656')
+      && espera.idadeSeg !== null && espera.idadeSeg < ESPERA_DISTDFE_SEG) {
+    return {
+      novos: 0, aguardando: true,
+      esperarSegundos: ESPERA_DISTDFE_SEG - espera.idadeSeg,
+      ultNSU: espera.ultNSU, maxNSU: espera.maxNSU,
+      cStat: espera.ultimoCStat,
+      xMotivo: espera.ultimoCStat === '656'
+        ? 'SEFAZ bloqueou o CNPJ por consumo indevido — aguardando liberação'
+        : 'Nenhum documento novo na última consulta — aguardando a janela de 1h da SEFAZ'
+    };
+  }
+
   await aplicarShimAN();
   const tools = await getTools(db);
   const cursor = db.prepare('SELECT * FROM nfe_distribuicao_cursor WHERE id = 1').get();
@@ -466,6 +550,12 @@ async function sincronizarInboxNfe(db) {
     ultimoMax = maxNSU;
 
     if (cStat !== '138' && cStat !== '137') {
+      // 656 precisa ficar gravado: é ele que segura a próxima consulta pela
+      // hora de bloqueio. O UPDATE do fim do fluxo não roda neste caminho.
+      if (cStat === '656') {
+        db.prepare(`UPDATE nfe_distribuicao_cursor
+          SET ultimoCStat = '656', ultimaSincronizacao = CURRENT_TIMESTAMP WHERE id = 1`).run();
+      }
       const err = new Error(`SEFAZ cStat ${cStat}: ${xMotivo}`);
       err.cStat = cStat; err.xMotivo = xMotivo; err.raw = str.slice(0, 2000);
       throw err;
@@ -505,7 +595,7 @@ async function sincronizarInboxNfe(db) {
     if (Number(maxNSU) <= Number(ultNSU)) break;
   }
 
-  db.prepare(`UPDATE nfe_distribuicao_cursor SET ultNSU = ?, maxNSU = ?, ultimaSincronizacao = CURRENT_TIMESTAMP WHERE id = 1`).run(ultNSU, ultimoMax);
+  db.prepare(`UPDATE nfe_distribuicao_cursor SET ultNSU = ?, maxNSU = ?, ultimoCStat = ?, ultimaSincronizacao = CURRENT_TIMESTAMP WHERE id = 1`).run(ultNSU, ultimoMax, ultimoStatus);
 
   return { novos: totalNovos, ultNSU, maxNSU: ultimoMax, cStat: ultimoStatus, xMotivo: ultimoMotivo };
 }
@@ -534,13 +624,18 @@ function registrarRotas(app, db) {
   app.get('/api/nfe-entrada/inbox', (req, res) => {
     try {
       const { situacao, busca } = req.query;
-      let sql = 'SELECT id, chaveAcesso, nsu, emitenteCnpj, emitenteRazaoSocial, numeroNF, serie, dataEmissao, valorTotal, tpNF, cStat, situacao, statusManifestacao, ultimoEventoTp, dataUltimoEvento, dataDescoberta, (xmlCompleto IS NOT NULL) AS temXmlCompleto FROM nfe_entrada_inbox WHERE 1=1';
+      // diasParaManifestar: quanto resta do prazo de 10 dias da SEFAZ (negativo
+      // = já venceu). Sem isso a nota envelhecia sem ninguém ver — no 1bit,
+      // 57 notas passaram do prazo em silêncio.
+      let sql = `SELECT id, chaveAcesso, nsu, emitenteCnpj, emitenteRazaoSocial, numeroNF, serie, dataEmissao, valorTotal, tpNF, cStat, situacao, statusManifestacao, ultimoEventoTp, dataUltimoEvento, dataDescoberta, (xmlCompleto IS NOT NULL) AS temXmlCompleto,
+        CAST(${PRAZO_MANIFESTACAO_DIAS} - (julianday('now') - julianday(substr(dataEmissao, 1, 10))) AS INTEGER) AS diasParaManifestar
+        FROM nfe_entrada_inbox WHERE 1=1`;
       const p = [];
       if (situacao) { sql += ' AND situacao = ?'; p.push(situacao); }
       if (busca) { sql += ' AND (emitenteRazaoSocial LIKE ? OR emitenteCnpj LIKE ? OR numeroNF LIKE ?)'; const t = '%'+busca+'%'; p.push(t,t,t); }
       sql += ' ORDER BY dataEmissao DESC, id DESC LIMIT 500';
       const items = db.prepare(sql).all(...p);
-      const cursor = db.prepare('SELECT ultNSU, maxNSU, ultimaSincronizacao FROM nfe_distribuicao_cursor WHERE id = 1').get();
+      const cursor = db.prepare('SELECT ultNSU, maxNSU, ultimoCStat, ultimaSincronizacao FROM nfe_distribuicao_cursor WHERE id = 1').get();
       res.json({ success: true, items, cursor });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -626,6 +721,20 @@ function registrarRotas(app, db) {
 
       const xml = inbox.xmlCompleto;
       const cab = parseCabecalho(xml);
+
+      // tpNF=0 é nota de ENTRADA do emitente — do nosso lado, mercadoria saindo
+      // (devolução que o fornecedor está recebendo de volta, retorno). Importar
+      // como entrada infla o estoque e cria conta a pagar de algo que é crédito.
+      // Existe caso legítimo, então avisa em vez de bloquear.
+      if (Number(cab.tpNF) === 0 && !req.body?.confirmarTipoOperacao) {
+        return res.status(409).json({
+          success: false,
+          error: 'Esta NF-e é de entrada do emitente (tpNF=0) — normalmente significa mercadoria saindo daqui, não chegando',
+          tpNF: 0,
+          naturezaOperacao: cab.naturezaOperacao,
+          comoProsseguir: 'Confira a natureza da operação. Para importar assim mesmo, reenvie com confirmarTipoOperacao: true'
+        });
+      }
       const itens = parseItens(xml);
       const dups = parseDuplicatas(xml);
 
@@ -636,7 +745,10 @@ function registrarRotas(app, db) {
           fornecedorId = garantirFornecedor(db, {
             cpfCnpj: cab.emitenteCnpj, razaoSocial: cab.emitenteRazaoSocial,
             inscricaoEstadual: cab.emitenteIe,
-            endereco: cab.endereco, numero: cab.numero, complemento: cab.complemento,
+            // numero_ender é o <nro> do endereço do emitente. cab.numero é o
+            // nNF — passá-lo aqui gravava o número da nota como número da rua,
+            // porque garantirFornecedor copia toda chave homônima de coluna.
+            endereco: cab.endereco, numero: cab.numero_ender, complemento: cab.complemento,
             bairro: cab.bairro, codigoMunicipio: cab.codigoMunicipio, cidade: cab.cidade,
             uf: cab.uf, cep: cab.cep, telefone: cab.telefone,
           });
@@ -661,13 +773,14 @@ function registrarRotas(app, db) {
         const { mapearCfopEntrada } = require('./cfops-entrada-map-routes');
 
         const insItem = db.prepare(`INSERT INTO nfe_entrada_itens
-          (nfeId, numero, codigoProduto, descricao, ean, ncm, cfop, cfopOriginal, cfopPendenteMapeamento,
+          (nfeId, numero, codigoProduto, descricao, ean, ncm, cest, origemFiscal, cfop, cfopOriginal, cfopPendenteMapeamento,
            unidade, quantidade, valorUnitario, valorTotal, valorDesconto, valorFrete, valorIcms, valorIpi,
            valorPis, valorCofins, produtoId)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
         for (const it of itens) {
           const map = mapearCfopEntrada(db, it.cfop);
           insItem.run(nfeId, it.numero, it.codigoProduto, it.descricao, it.ean, it.ncm,
+            it.cest || null, it.origem || null,
             map.cfopNosso, it.cfop, map.pendente ? 1 : 0,
             it.unidade, it.quantidade, it.valorUnitario, it.valorTotal,
             it.valorDesconto, it.valorFrete, it.valorIcms, it.valorIpi,
@@ -912,7 +1025,10 @@ function registrarRotas(app, db) {
 
       const tx = db.transaction(() => {
         for (const it of itens) {
-          const item = { ...it, fornecedorId: nfe.fornecedorId };
+          // criarProdutoDeItemNfe fala a língua do parseItens (origem); na
+          // tabela o campo é origemFiscal, para não colidir com o "origem"
+          // de procedência de registro usado no resto do sistema.
+          const item = { ...it, origem: it.origemFiscal, fornecedorId: nfe.fornecedorId };
           let produtoId = matchProdutoEntrada(db, item, nfe.fornecedorId);
           if (produtoId) vinculadosExistente++;
           else { produtoId = criarProdutoDeItemNfe(db, item); criados++; }
@@ -925,11 +1041,39 @@ function registrarRotas(app, db) {
       tx();
 
       const semVinculo = db.prepare('SELECT COUNT(*) AS c FROM nfe_entrada_itens WHERE nfeId = ? AND produtoId IS NULL').get(nfe.id).c;
-      res.json({ success: true, vinculadosExistente, criados, total: itens.length, semVinculo });
+      const pct = markupPadrao(db);
+      res.json({
+        success: true, vinculadosExistente, criados, total: itens.length, semVinculo,
+        markupPct: pct,
+        aviso: (criados > 0 && pct === 0)
+          ? `${criados} produto(s) criado(s) sem preço de venda — configure nfe_entrada_markup_pct para que nasçam precificados`
+          : undefined
+      });
     } catch (err) {
       console.error('[vincular-todos]', err);
       res.status(500).json({ success: false, error: err.message });
     }
+  });
+
+  // Markup aplicado ao criar produto a partir de item de NF-e. Fica aqui (e não
+  // numa tela de parâmetros) porque é onde o efeito acontece: quem cria produto
+  // pela entrada é quem decide a margem com que ele nasce.
+  app.get('/api/nfe-entrada/config/markup', (req, res) => {
+    try {
+      res.json({ success: true, markupPct: markupPadrao(db) });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/nfe-entrada/config/markup', (req, res) => {
+    try {
+      const pct = Number(req.body?.markupPct);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 1000) {
+        return res.status(400).json({ success: false, error: 'Markup deve ser um número entre 0 e 1000 (%)' });
+      }
+      db.prepare(`INSERT INTO config (chave, valor) VALUES ('nfe_entrada_markup_pct', ?)
+        ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`).run(String(pct));
+      res.json({ success: true, markupPct: pct });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   // ==================== APLICAR / REVERTER ESTOQUE ====================
@@ -1039,6 +1183,32 @@ function registrarRotas(app, db) {
       if (!nfe) return res.status(404).json({ success: false, error: 'NF-e não encontrada' });
       if (nfe.statusEstoque !== 'aplicado') return res.status(400).json({ success: false, error: 'Estoque não está aplicado' });
 
+      // A mercadoria pode já ter saído desde a entrada. Apagar a movimentação
+      // nesse caso deixa saldo negativo em silêncio — e o custo médio, que esta
+      // rota não reverte, fica ancorado numa entrada que não existe mais.
+      const negativados = db.prepare(`
+        SELECT p.id, p.sku, p.descricao,
+               (SELECT COALESCE(SUM(CASE WHEN m2.tipo='entrada' THEN m2.quantidade
+                                         WHEN m2.tipo='saida' THEN -m2.quantidade
+                                         ELSE m2.quantidade END), 0)
+                  FROM movimentacoes_estoque m2 WHERE m2.produtoId = p.id) AS saldoAtual,
+               SUM(m.quantidade) AS qtdEntrada
+          FROM movimentacoes_estoque m
+          JOIN produtos p ON p.id = m.produtoId
+         WHERE m.origem = 'nfe_entrada' AND m.origemId = ?
+         GROUP BY p.id
+        HAVING saldoAtual - qtdEntrada < 0`).all(nfe.id);
+      if (negativados.length) {
+        return res.status(409).json({
+          success: false,
+          error: 'Reverter deixaria saldo negativo — a mercadoria já saiu do estoque',
+          produtos: negativados.map(p => ({
+            id: p.id, sku: p.sku, descricao: p.descricao,
+            saldoAtual: p.saldoAtual, saldoAposReversao: p.saldoAtual - p.qtdEntrada
+          }))
+        });
+      }
+
       const tx = db.transaction(() => {
         db.prepare(`DELETE FROM movimentacoes_estoque WHERE origem = 'nfe_entrada' AND origemId = ?`).run(nfe.id);
         db.prepare(`UPDATE nfe_entrada_itens SET movimentacaoEstoqueId = NULL WHERE nfeId = ?`).run(nfe.id);
@@ -1063,17 +1233,61 @@ function registrarRotas(app, db) {
 
       // Sem duplicatas na NF-e, quem manda é a política de prazo do fornecedor
       // (a que tem "aplica em compras"); sem política, segue o +30 de sempre.
+      //
+      // A base do prazo é a emissão — é dela que o prazo comercial conta. Só
+      // que uma nota que entra meses depois de emitida faz o cálculo cair no
+      // passado, e a conta nasce vencida: uma inadimplência que ninguém
+      // combinou, num prazo que o fornecedor nem deu (aqui o prazo é nosso, não
+      // do documento). Quando isso acontece, pergunta em vez de decidir.
+      const hoje = dataBrasilia();
+      const baseVencimento = req.body?.baseVencimento === 'entrada' ? 'entrada' : 'emissao';
+      const dataBase = baseVencimento === 'entrada'
+        ? ((nfe.dataEntrada || '').slice(0, 10) || hoje)
+        : dataEmi;
+
       let parcelas = dups;
       if (!parcelas.length) {
         const { prazoDaPessoa, vencimentosDoPrazo, dividirValor } = require('./prazo-pagamento');
         const dias = prazoDaPessoa(db, nfe.fornecedorId, 'compras') || [30];
         const valores = dividirValor(Number(nfe.valorTotal) || 0, dias.length);
-        parcelas = vencimentosDoPrazo(dataEmi, dias).map((venc, i) => ({
+        parcelas = vencimentosDoPrazo(dataBase, dias).map((venc, i) => ({
           id: null,
           numero: String(i + 1).padStart(3, '0'),
           dataVencimento: venc,
           valor: valores[i],
         }));
+
+        const vencidas = parcelas.filter(p => p.dataVencimento < hoje);
+        if (vencidas.length && baseVencimento === 'emissao' && !req.body?.confirmarVencimentoRetroativo) {
+          const porEntrada = vencimentosDoPrazo((nfe.dataEntrada || '').slice(0, 10) || hoje, dias);
+          return res.status(409).json({
+            success: false,
+            error: `A nota foi emitida em ${dataEmi} e o prazo de ${dias.join('/')} dia(s) cai em ${vencidas.map(p => p.dataVencimento).join(', ')} — ${vencidas.length === parcelas.length ? 'a conta nasceria já vencida' : 'parte das parcelas nasceria já vencida'}`,
+            vencimentoRetroativo: {
+              dataEmissao: dataEmi,
+              dataEntrada: (nfe.dataEntrada || '').slice(0, 10) || null,
+              prazoDias: dias,
+              vencimentosPorEmissao: parcelas.map(p => p.dataVencimento),
+              vencimentosPorEntrada: porEntrada,
+            },
+            comoProsseguir: 'Reenvie com baseVencimento: "entrada" para contar o prazo da entrada da mercadoria, ou confirmarVencimentoRetroativo: true para manter as datas retroativas'
+          });
+        }
+      }
+
+      // As duplicatas do XML devem somar o total da nota. Quando não somam
+      // (XML mal formado, parse parcial), gerar só o que veio esconde passivo:
+      // a NF-e fica 'gerado' e a diferença nunca aparece no contas a pagar.
+      const somaParcelas = parcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+      const totalNota = Number(nfe.valorTotal) || 0;
+      const diferenca = Number((totalNota - somaParcelas).toFixed(2));
+      if (dups.length && Math.abs(diferenca) >= 0.01 && !req.body?.confirmarDivergencia) {
+        return res.status(409).json({
+          success: false,
+          error: `As duplicatas somam R$ ${somaParcelas.toFixed(2)}, mas a nota é de R$ ${totalNota.toFixed(2)} (diferença de R$ ${diferenca.toFixed(2)})`,
+          divergencia: { somaParcelas, totalNota, diferenca },
+          comoProsseguir: 'Reenvie com confirmarDivergencia: true para gerar mesmo assim'
+        });
       }
 
       const inseridas = [];
@@ -1431,6 +1645,12 @@ function registrarRotas(app, db) {
           statusEstoque = 'pendente', statusFinanceiro = 'pendente',
           dataAtualizacao = CURRENT_TIMESTAMP
           WHERE id = ?`).run(motivo, id);
+        // Devolve a nota à caixa de entrada. Sem isso ela fica 'importada'
+        // apontando para um lançamento excluído: o botão Importar da tela só
+        // aparece em 'pendente', então a nota ficava presa, sem saída pela UI.
+        db.prepare(`UPDATE nfe_entrada_inbox
+          SET situacao = 'pendente', nfeEntradaId = NULL, dataImportacao = NULL
+          WHERE nfeEntradaId = ?`).run(id);
       });
       tx();
       res.json({ success: true });
@@ -1442,11 +1662,20 @@ function registrarRotas(app, db) {
 
   app.post('/api/nfe-entrada/:id/restaurar', (req, res) => {
     try {
+      const id = Number(req.params.id);
+      const nfe = db.prepare('SELECT chaveAcesso FROM nfe_entrada WHERE id = ?').get(id);
       const r = db.prepare(`UPDATE nfe_entrada
         SET excluida = 0, dataExclusao = NULL, motivoExclusao = NULL,
         dataAtualizacao = CURRENT_TIMESTAMP
-        WHERE id = ? AND excluida = 1`).run(Number(req.params.id));
+        WHERE id = ? AND excluida = 1`).run(id);
       if (!r.changes) return res.status(404).json({ success: false, error: 'NF-e não encontrada ou não estava excluída' });
+      // Refaz o vínculo que o excluir desfez — senão o inbox fica 'pendente'
+      // com a nota já existente, e o Importar responde "Já importada".
+      if (nfe?.chaveAcesso) {
+        db.prepare(`UPDATE nfe_entrada_inbox
+          SET situacao = 'importada', nfeEntradaId = ?, dataImportacao = COALESCE(dataImportacao, CURRENT_TIMESTAMP)
+          WHERE chaveAcesso = ?`).run(id, nfe.chaveAcesso);
+      }
       res.json({ success: true, aviso: 'Lançamento restaurado. Estoque e contas a pagar não são reaplicados automaticamente.' });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -1679,7 +1908,7 @@ function registrarRotas(app, db) {
         SELECT chaveAcesso FROM nfe_entrada_inbox
         WHERE xmlCompleto IS NULL AND xmlResumo IS NOT NULL
           AND (statusManifestacao IS NULL OR statusManifestacao = '')
-          AND julianday('now') - julianday(substr(dataEmissao, 1, 10)) <= 10
+          AND julianday('now') - julianday(substr(dataEmissao, 1, 10)) <= ${PRAZO_MANIFESTACAO_DIAS}
         ORDER BY dataEmissao ASC
       `).all();
 
@@ -1703,7 +1932,9 @@ function registrarRotas(app, db) {
 
       let sync = null;
       if (out.manifestadas > 0 || out.jaRegistradas > 0) {
-        try { sync = await sincronizarInboxNfe(db); } catch (e) { sync = { erro: String(e.message || e) }; }
+        // forcar: acabamos de manifestar ciência, então há procNFe esperado na
+        // fila — esta consulta traz documento e não conta como consumo indevido.
+        try { sync = await sincronizarInboxNfe(db, { forcar: true }); } catch (e) { sync = { erro: String(e.message || e) }; }
       }
       const comXmlCompleto = db.prepare(`SELECT COUNT(*) n FROM nfe_entrada_inbox WHERE xmlCompleto IS NOT NULL`).get().n;
       res.json({ success: true, ...out, sync, totalComXmlCompleto: comXmlCompleto });
@@ -1714,4 +1945,7 @@ function registrarRotas(app, db) {
   });
 }
 
-module.exports = { registrarRotasNfeEntrada: registrarRotas, sincronizarInboxNfe, aplicarShimAN };
+module.exports = {
+  registrarRotasNfeEntrada: registrarRotas, sincronizarInboxNfe, aplicarShimAN,
+  notasComPrazoCritico, marcarAvisoPrazo, PRAZO_MANIFESTACAO_DIAS,
+};

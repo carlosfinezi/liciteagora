@@ -9,6 +9,12 @@
  *   - CSC + CSCid obrigatórios para geração do QR code
  *   - destinatário opcional até R$ 200 (com CPF acima disso)
  *
+ * O PDV emite só modelo 65. A natureza de operação (nfce_config.pdvTipoOperacaoId)
+ * é quem decide o CFOP dos itens e o que a venda dispara além do documento:
+ * conta a receber (geraFinanceiro) e baixa de estoque (movimentaEstoque), com o
+ * vencimento das parcelas saindo da política de prazo padrão do balcão
+ * (pdvPoliticaPrazoId). Mesmo contrato que a NF avulsa respeita.
+ *
  * Schema novo:
  *   nfce_config    — série/próximo número/CSC/CSCid (separado da NF-e mod 55)
  *   nfce           — NFC-e emitida
@@ -28,46 +34,111 @@
 const { codigoUF, gerarCNF } = require('./nfe-ibge');
 const { montarNFeProc } = require('./nfe-proc');
 const { resolverEstab, serieAtual, avancarSerie } = require('./nfe-emit-routes');
-const { erroMeioPorCpfCnpj, erroMeioPermitido } = require('./meios-pagamento');
+const { erroMeioPorCpfCnpj } = require('./meios-pagamento');
 const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
+const { parsePrazo, vencimentosDoPrazo, dividirValor } = require('./prazo-pagamento');
 
 function alterSafe(db, sql) { try { db.exec(sql); } catch { /* ok */ } }
 
-// Critérios padrão para decisão automática NFC-e vs NFe (modelo 65 vs 55).
-// Editáveis por tenant via coluna limiteNFCe em nfce_config. Cliente PJ,
-// venda interestadual, parcelamento múltiplo e valor acima do limite disparam NFe.
-function avaliarModeloFiscal(db, payload) {
-  const cfg = db.prepare('SELECT limiteNFCe FROM nfce_config WHERE id = 1').get() || {};
-  const limite = Number(cfg.limiteNFCe) || 10000;
-  const forn = db.prepare('SELECT uf FROM fornecedor WHERE id = 1').get() || {};
-  const ufEmitente = (forn.uf || '').toUpperCase();
+// ─── Natureza de operação do balcão ─────────────────────────────────────────
+// O PDV tem UMA natureza, escolhida em PDV · Config (nfce_config.pdvTipoOperacaoId).
+// É ela que decide o que a venda dispara além do documento — conta a receber
+// quando geraFinanceiro=1, baixa de estoque quando movimentaEstoque=1 —, o mesmo
+// contrato que a NF avulsa já respeita. Sem natureza configurada a emissão para:
+// venda que não sabe o que movimenta é pior do que venda que não sai.
+function naturezaDoPdv(db) {
+  const cfg = db.prepare('SELECT pdvTipoOperacaoId FROM nfce_config WHERE id = 1').get() || {};
+  if (!cfg.pdvTipoOperacaoId) return null;
+  return db.prepare('SELECT * FROM tipos_operacao WHERE id = ?').get(cfg.pdvTipoOperacaoId) || null;
+}
 
-  const cpfDigits = String(payload.consumidorCpfCnpj || '').replace(/\D/g, '');
-  const ehPJ = cpfDigits.length === 14;
-  const valorTotal = Number(payload.valorTotal) ||
-    (Array.isArray(payload.itens) ? payload.itens.reduce((s, it) => s + Number(it.valorTotal || 0), 0) - Number(payload.valorDesconto || 0) : 0);
+// Política de prazo padrão do balcão (nfce_config.pdvPoliticaPrazoId): de onde
+// saem os meios de pagamento oferecidos e o vencimento das parcelas da CR.
+function politicaDoPdv(db) {
+  const cfg = db.prepare('SELECT pdvPoliticaPrazoId FROM nfce_config WHERE id = 1').get() || {};
+  if (!cfg.pdvPoliticaPrazoId) return null;
+  return db.prepare('SELECT * FROM politicas_prazo WHERE id = ? AND ativo = 1').get(cfg.pdvPoliticaPrazoId) || null;
+}
 
-  // Detectar UF do destinatário (se cliente já cadastrado em pessoas)
-  let ufDestinatario = '';
-  if (cpfDigits) {
-    const p = db.prepare('SELECT uf FROM pessoas WHERE cpfCnpj = ?').get(cpfDigits);
-    if (p && p.uf) ufDestinatario = String(p.uf).toUpperCase();
+// Pessoa da venda: a CR precisa de pessoaId (NOT NULL). Com CPF/CNPJ na mão,
+// reaproveita o cadastro e só cria o que faltar — mesmo caminho que o antigo
+// ramo NFe do PDV usava.
+function pessoaDaVenda(db, cpfCnpj, nome) {
+  const digits = String(cpfCnpj || '').replace(/\D/g, '');
+  if (!digits) return null;
+  let pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(digits);
+  if (!pessoa) {
+    db.prepare('INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial) VALUES (?, ?, ?)').run(
+      digits, digits.length === 14 ? 'PJ' : 'PF',
+      String(nome || '').trim() || `Consumidor ${digits}`);
+    pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(digits);
   }
-  const ehInterUF = ufDestinatario && ufEmitente && ufDestinatario !== ufEmitente;
+  return pessoa;
+}
 
-  // Parcelamento complexo: múltiplos pagamentos OU cartão crédito (que costuma ter nParc no payload)
-  const pagamentos = Array.isArray(payload.pagamentos) ? payload.pagamentos : [];
-  const parcelamentoComplexo = pagamentos.length > 1 ||
-    pagamentos.some(p => Number(p.nParc) > 1);
+// Parcelas da CR conforme a política: 'prazo' abre uma por vencimento
+// (30/60/90 → três), 'vista' e ausência de política fecham em uma só, vencendo
+// no dia da venda.
+function parcelasDaPolitica(politica, total, dataEmissao) {
+  const dias = politica && politica.tipo === 'prazo' ? parsePrazo(politica.prazoDias) : null;
+  if (!dias || !dias.length) {
+    return [{ valor: Number(Number(total).toFixed(2)), dataVencimento: dataEmissao }];
+  }
+  const valores = dividirValor(total, dias.length);
+  return vencimentosDoPrazo(dataEmissao, dias).map((venc, i) => ({
+    valor: valores[i], dataVencimento: venc,
+  }));
+}
 
-  const motivos = [];
-  if (ehPJ) motivos.push('cliente PJ (CNPJ) exige NFe');
-  if (ehInterUF) motivos.push(`venda interestadual (${ufEmitente} → ${ufDestinatario})`);
-  if (parcelamentoComplexo) motivos.push('pagamento parcelado/múltiplo');
-  if (valorTotal > limite) motivos.push(`valor acima do limite NFC-e (R$ ${limite.toFixed(2)})`);
+// Os efeitos que a natureza pede, disparados só depois de a SEFAZ autorizar.
+// Roda dentro da transação de gravação da NFC-e.
+function aplicarEfeitosDaNatureza(db, { nfceId, numero, natureza, politica, pessoaId, itens, valorTotal, dataEmissao, tPag, lotesDaVenda }) {
+  if (!natureza) return;
 
-  const modelo = motivos.length > 0 ? '55' : '65';
-  return { modelo, motivos, limiteNFCe: limite, valorTotal, ufEmitente, ufDestinatario, ehPJ };
+  if (Number(natureza.geraFinanceiro) && pessoaId) {
+    const parcelas = parcelasDaPolitica(politica, valorTotal, dataEmissao);
+    const grupo = parcelas.length > 1 ? `nfce-${nfceId}` : null;
+    const insCR = db.prepare(`
+      INSERT INTO contas_a_receber (pessoaId, nfceId, descricao, valor, dataEmissao,
+        dataVencimento, formaPagamento, status, origem,
+        parcelaNumero, totalParcelas, grupoParcelaId, dataCriacao)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pendente', 'nfce', ?, ?, ?, CURRENT_TIMESTAMP)`);
+    parcelas.forEach((p, i) => {
+      insCR.run(pessoaId, nfceId, `NFC-e ${numero}`, p.valor, dataEmissao,
+        p.dataVencimento, tPag || null, i + 1, parcelas.length, grupo);
+    });
+  }
+
+  if (Number(natureza.movimentaEstoque)) {
+    const { resolverDeposito } = require('./estoque-routes');
+    const insMov = db.prepare(`
+      INSERT INTO movimentacoes_estoque
+        (produtoId, tipo, quantidade, origem, origemId, observacao, data, depositoId, loteId)
+      VALUES (?, 'saida', ?, 'nfce', ?, ?, ?, ?, ?)`);
+    itens.forEach((it, i) => {
+      if (!it.produtoId) return;
+      const deposito = resolverDeposito(db, { produtoId: it.produtoId });
+      const alocacoes = lotesDaVenda?.[i]?.alocacoes || [];
+      if (!alocacoes.length) {
+        // Produto que não rastreia lote (ou módulo Farmácia desligado):
+        // uma movimentação, sem lote — comportamento histórico do PDV.
+        insMov.run(it.produtoId, Number(it.quantidade), nfceId,
+          `Saída pela NFC-e ${numero}`, dataEmissao, deposito, null);
+        return;
+      }
+      // Uma movimentação por lote, para o saldo por lote continuar fechando —
+      // é isso que a ANVISA compara no SNGPC.
+      for (const a of alocacoes) {
+        insMov.run(it.produtoId, Number(a.quantidade), nfceId,
+          `Saída pela NFC-e ${numero} · lote ${a.numero}`, dataEmissao, deposito, a.loteId);
+      }
+    });
+
+    if (lotesDaVenda) {
+      const { baixarAlocacoes } = require('./farmacia/fefo');
+      baixarAlocacoes(db, lotesDaVenda.flatMap(l => l.alocacoes || []));
+    }
+  }
 }
 
 function migrar(db) {
@@ -132,12 +203,18 @@ function migrar(db) {
     );
   `);
   db.prepare('INSERT OR IGNORE INTO nfce_config (id, tpAmb, serie, proximoNumero) VALUES (1, 2, 1, 1)').run();
-  alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN limiteNFCe REAL DEFAULT 10000');
-  alterSafe(db, `ALTER TABLE nfce_config ADD COLUMN pdvModeloPadrao TEXT DEFAULT ''`);          // '' auto, '65', '55'
-  alterSafe(db, `ALTER TABLE nfce_config ADD COLUMN pdvFormaPagamentoPadrao TEXT DEFAULT '01'`);
   alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN pdvExigirCpfSempre INTEGER DEFAULT 0');
-  alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN pdvExigirClienteCadastrado INTEGER DEFAULT 0');
   alterSafe(db, `ALTER TABLE nfce_config ADD COLUMN pdvModoImpressao TEXT DEFAULT 'nenhum'`);   // 'nenhum' | 'termico-58' | 'termico-80' | 'a4' | 'email'
+  // limiteNFCe, pdvModeloPadrao, pdvFormaPagamentoPadrao e pdvExigirClienteCadastrado
+  // eram da decisão automática NFC-e/NFe, que saiu junto com o modelo 55 (2026-08-26).
+  // Em tenant já provisionado as colunas continuam lá, sem leitor.
+  // Natureza de operação e política de prazo do balcão (2026-08-26): quem decide
+  // CR/estoque e o vencimento das parcelas. Espelhados em db-schema.js — tenant
+  // existente não passa por aqui (ver scripts/migrate-pdv-natureza.js).
+  alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN pdvTipoOperacaoId INTEGER');
+  alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN pdvPoliticaPrazoId INTEGER');
+  alterSafe(db, 'ALTER TABLE nfce ADD COLUMN tipoOperacaoId INTEGER');
+  alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN nfceId INTEGER');
 }
 
 function tag(xml, name) {
@@ -197,6 +274,16 @@ async function emitirNFCe(db, payload) {
   const pagamentos = payload.pagamentos || [];
   if (!pagamentos.length) throw new Error('Informe a forma de pagamento');
 
+  // A natureza manda no CFOP dos itens e nos efeitos pós-autorização.
+  const natureza = naturezaDoPdv(db);
+  if (!natureza) {
+    throw new Error('Natureza de operação do PDV não configurada — defina em PDV · Configurações');
+  }
+  if (!Number(natureza.emiteNFe)) {
+    throw new Error(`A natureza "${natureza.descricao}" não emite documento fiscal — escolha outra em PDV · Configurações`);
+  }
+  const politica = politicaDoPdv(db);
+
   // Consumidor identificado e com whitelist de meios: o balcão respeita a mesma
   // regra do pedido. Sem CPF/CNPJ não há cliente a consultar e nada é barrado.
   for (const p of pagamentos) {
@@ -213,9 +300,58 @@ async function emitirNFCe(db, payload) {
   if (vNF > 200 && !cpfCnpjCons) {
     throw new Error('CPF/CNPJ do consumidor obrigatório para NFC-e acima de R$ 200,00');
   }
+  // Conta a receber não existe sem pessoa (contas_a_receber.pessoaId é NOT NULL):
+  // natureza que gera financeiro exige consumidor identificado em qualquer valor.
+  if (Number(natureza.geraFinanceiro) && !cpfCnpjCons) {
+    throw new Error(`CPF/CNPJ do consumidor obrigatório: a natureza "${natureza.descricao}" gera conta a receber`);
+  }
   const vPag = pagamentos.reduce((s, p) => s + Number(p.valor || 0), 0);
   if (Math.abs(vPag - vNF) > 0.02) {
     throw new Error(`Soma dos pagamentos (${vPag.toFixed(2)}) não bate com o total (${vNF.toFixed(2)})`);
+  }
+
+  // ─── Lote na saída (módulo Farmácia) ───────────────────────────────────────
+  // Resolvido AQUI, antes de a nota ganhar número: o grupo <rastro> do XML
+  // precisa do lote, e item sem lote disponível não pode queimar numeração.
+  // Só vale com o módulo ligado — sem ele o comportamento do PDV é o de sempre.
+  let lotesDaVenda = null;
+  let dadosMedicamento = null;
+  let reservaReceitaIds = [];
+  {
+    const farmacia = require('./farmacia/farmacia-routes');
+    if (farmacia.getFlag(db)) {
+      const { resolverLotesDaVenda } = require('./farmacia/fefo');
+      const { montarDadosMedicamento } = require('./farmacia/nfe-med-rastro');
+      const cfgFarm = farmacia.lerConfig(db);
+      lotesDaVenda = resolverLotesDaVenda(db, itens, {
+        bloquearVencido: cfgFarm.farmacia_bloquear_vencido !== '0',
+      });
+      // Falta de registro ANVISA, de PMC ou de lote aparece aqui, no balcão —
+      // não como rejeição 840 devolvida pela SEFAZ minutos depois.
+      dadosMedicamento = montarDadosMedicamento(db, itens, lotesDaVenda);
+
+      // Teto de preço da CMED. Conferido de novo aqui, e não só na tela: o PDV
+      // permite editar o preço do item, e o teto é legal, não é sugestão.
+      {
+        const { conferirPmc } = require('./farmacia/preco');
+        const { erros } = conferirPmc(db, itens, { travar: cfgFarm.farmacia_travar_pmc !== '0' });
+        if (erros.length) throw new Error('Preço acima do teto da CMED:\n· ' + erros.join('\n· '));
+      }
+
+      // Receita: controlado e antimicrobiano não saem sem os dados que o SNGPC
+      // vai cobrar depois. Desligável em config, mas ligado é o padrão.
+      //
+      // A conferência e a RESERVA do saldo acontecem juntas, numa transação
+      // síncrona, aqui — antes dos dois await de rede que vêm a seguir. Sem
+      // isso, duas vendas simultâneas da mesma receita passavam as duas na
+      // conferência e dispensavam acima do prescrito.
+      if (cfgFarm.farmacia_exigir_receita !== '0') {
+        const { reservarDispensacao } = require('./farmacia/receita');
+        reservaReceitaIds = reservarDispensacao(db, {
+          receitaId: payload.receitaId || null, itens, lotesDaVenda,
+        });
+      }
+    }
   }
 
   const _res = serieAtual(db, estab, cfg, '65');
@@ -230,7 +366,7 @@ async function emitirNFCe(db, payload) {
   NFe.tagIde({
     cUF: String(cUF),
     cNF: gerarCNF(),
-    natOp: 'VENDA AO CONSUMIDOR',
+    natOp: String(natureza.descricao || 'VENDA AO CONSUMIDOR').substring(0, 60),
     mod: '65',
     serie: String(serie),
     nNF: String(nNF),
@@ -287,7 +423,7 @@ async function emitirNFCe(db, payload) {
     cEAN: it.codigoBarras || 'SEM GTIN',
     xProd: (it.descricao || '').substring(0, 120),
     NCM: (it.ncm || '00000000').replace(/\D/g, '').padStart(8, '0'),
-    CFOP: it.cfop || '5102',
+    CFOP: it.cfop || natureza.cfopInterno || '5102',
     uCom: (it.unidade || 'UN').substring(0, 6),
     qCom: Number(it.quantidade).toFixed(4),
     vUnCom: Number(it.precoUnitario).toFixed(4),
@@ -337,11 +473,31 @@ async function emitirNFCe(db, payload) {
     vPag: Number(p.valor).toFixed(2)
   })));
 
-  const xmlRaw = NFe.xml();
-  const xmlAssinado = await tools.xmlSign(xmlRaw);
+  let xmlRaw = NFe.xml();
 
-  const resposta = await tools.sefazEnviaLote(xmlAssinado, { indSinc: 1 });
-  const respStr = typeof resposta === 'string' ? resposta : JSON.stringify(resposta);
+  // Grupos <med> e <rastro> do medicamento (NT 2021.004). Entram AQUI, entre a
+  // montagem e a assinatura, porque a lib node-sped-nfe declara tagMed/tagRastro
+  // mas as duas lançam "não implementado!". Assinar depois é o que torna a
+  // injeção segura. Ver farmacia/nfe-med-rastro.js.
+  if (dadosMedicamento && dadosMedicamento.length) {
+    const { injetarMedRastro } = require('./farmacia/nfe-med-rastro');
+    xmlRaw = injetarMedRastro(xmlRaw, dadosMedicamento);
+  }
+
+  // Daqui até a gravação existe reserva de saldo de receita em aberto. Qualquer
+  // saída por exceção (certificado, rede, SEFAZ fora do ar) tem de devolver o
+  // saldo, senão a receita fica travada por uma venda que nunca aconteceu.
+  let xmlAssinado, respStr;
+  try {
+    xmlAssinado = await tools.xmlSign(xmlRaw);
+    const resposta = await tools.sefazEnviaLote(xmlAssinado, { indSinc: 1 });
+    respStr = typeof resposta === 'string' ? resposta : JSON.stringify(resposta);
+  } catch (err) {
+    if (reservaReceitaIds.length) {
+      require('./farmacia/receita').liberarDispensacao(db, reservaReceitaIds);
+    }
+    throw err;
+  }
 
   const cStatLote = tag(respStr, 'cStat');
   const xMotivoLote = tag(respStr, 'xMotivo');
@@ -365,37 +521,73 @@ async function emitirNFCe(db, payload) {
     const r = db.prepare(`INSERT INTO nfce
       (numero, serie, chaveAcesso, protocoloAutorizacao, tpAmb, valorProdutos, valorDesconto, valorTotal,
        consumidorCpfCnpj, consumidorNome, xmlAssinado, qrCodeUrl, urlChave,
-       statusSefaz, rejeicaoMotivo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+       statusSefaz, rejeicaoMotivo, tipoOperacaoId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       nNF, serie, chave, protocolo, cfg.tpAmb,
       valorProdTot, valorDesc, vNF,
       cpfCnpjCons || null, payload.consumidorNome || null,
       xmlFinal, qrCodeUrl, urlChave,
       autorizada ? 'autorizada' : 'rejeitada',
-      autorizada ? null : `cStat=${cStat} · ${xMotivo}`
+      autorizada ? null : `cStat=${cStat} · ${xMotivo}`,
+      natureza.id
     );
     id = r.lastInsertRowid;
 
     const insItem = db.prepare(`INSERT INTO nfce_itens
-      (nfceId, produtoId, sku, descricao, ncm, cfop, unidade, quantidade, precoUnitario, valorTotal)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    for (const it of itens) {
+      (nfceId, produtoId, sku, descricao, ncm, cfop, unidade, quantidade, precoUnitario, valorTotal, loteId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    itens.forEach((it, i) => {
+      // `loteId` do item guarda o lote quando a quantidade saiu de um só —
+      // que é o caso do balcão. Quando a quantidade atravessa dois lotes, a
+      // verdade completa está nas movimentações de estoque (uma por lote) e
+      // no grupo <rastro> do XML, que aceita vários.
+      const aloc = lotesDaVenda?.[i]?.alocacoes || [];
       insItem.run(id, it.produtoId || null, it.sku || null, it.descricao,
         it.ncm || null, it.cfop || null, it.unidade || 'UN',
         Number(it.quantidade), Number(it.precoUnitario),
-        Number(it.valorTotal || (it.quantidade * it.precoUnitario)));
-    }
+        Number(it.valorTotal || (it.quantidade * it.precoUnitario)),
+        aloc.length === 1 ? aloc[0].loteId : null);
+    });
 
     const insPag = db.prepare('INSERT INTO nfce_pagamentos (nfceId, tPag, valor) VALUES (?, ?, ?)');
     for (const p of pagamentos) insPag.run(id, String(p.tPag).padStart(2, '0'), Number(p.valor));
 
     if (autorizada) {
       avancarSerie(db, estab, '65', nNF + 1, 'nfce_config');
+      // Efeitos só depois do "autorizada": nota rejeitada não move estoque nem
+      // abre cobrança. -3h porque a data que interessa é a do balcão (BRT).
+      const dataEmissao = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const pessoa = pessoaDaVenda(db, cpfCnpjCons, payload.consumidorNome);
+      aplicarEfeitosDaNatureza(db, {
+        nfceId: id, numero: nNF, natureza, politica,
+        pessoaId: pessoa ? pessoa.id : null,
+        itens, valorTotal: vNF, dataEmissao,
+        tPag: String(pagamentos[0].tPag).padStart(2, '0'),
+        lotesDaVenda,
+      });
+
+      // A reserva feita antes do envio vira consumo e ganha o número da nota.
+      if (reservaReceitaIds.length) {
+        require('./farmacia/receita').confirmarDispensacao(db, reservaReceitaIds, id);
+      }
+
+      // Fila do SNGPC. O dado de dispensação só existe agora — depois não dá
+      // para reconstruir prescritor, comprador e lote.
+      if (lotesDaVenda) {
+        require('./farmacia/sngpc-eventos').registrarVenda(db, {
+          nfceId: id, numero: nNF, dataEmissao, itens, lotesDaVenda,
+          receitaId: payload.receitaId || null,
+        });
+      }
+    } else if (reservaReceitaIds.length) {
+      // Nota rejeitada: o saldo prescrito volta para a receita.
+      require('./farmacia/receita').liberarDispensacao(db, reservaReceitaIds);
     }
   });
   tx();
 
-  return { id, cStat, xMotivo, chave, protocolo, nNF, serie, qrCodeUrl, urlChave };
+  return { id, cStat, xMotivo, chave, protocolo, nNF, serie, qrCodeUrl, urlChave,
+           natureza: { id: natureza.id, codigo: natureza.codigo, descricao: natureza.descricao } };
 }
 
 function registrarRotas(app, db) {
@@ -457,6 +649,25 @@ function registrarRotas(app, db) {
         FROM produtos WHERE ativo = 1 AND (codigoBarras = ? OR sku = ?) LIMIT 1`).get(q, q);
       if (exato) return res.json({ success: true, produtos: [exato], matchExato: true });
 
+      // Com o módulo Farmácia ligado, o balcão também busca por PRINCÍPIO ATIVO
+      // e o resultado vem com tarja, PMC e lista da 344 — sem isso o balconista
+      // não sabe o que exige receita antes de bipar. Sem o módulo, a consulta é
+      // exatamente a de sempre.
+      if (require('./farmacia/farmacia-routes').getFlag(db)) {
+        const produtos = db.prepare(`
+          SELECT p.id, p.sku, p.descricao, p.unidade, p.precoVenda, p.codigoBarras,
+                 p.ncm, p.cfopPadrao AS cfop, p.rastreiaLote,
+                 s.substancia, s.tarja, s.pmc, s.regimePreco, s.listaPortaria344,
+                 s.antimicrobiano, s.laboratorio, s.tipoProduto
+          FROM produtos p
+          LEFT JOIN farmacia_medicamento_specs s ON s.produtoId = p.id
+          WHERE p.ativo = 1 AND (LOWER(p.sku) LIKE ? OR LOWER(p.descricao) LIKE ?
+                                 OR p.codigoBarras LIKE ? OR LOWER(s.substancia) LIKE ?
+                                 OR s.ean LIKE ?)
+          ORDER BY p.descricao ASC LIMIT 20`).all(like, like, `%${q}%`, like, `%${q}%`);
+        return res.json({ success: true, produtos, farmacia: true });
+      }
+
       const produtos = db.prepare(`SELECT id, sku, descricao, unidade, precoVenda, codigoBarras, ncm, cfopPadrao AS cfop
         FROM produtos
         WHERE ativo = 1 AND (LOWER(sku) LIKE ? OR LOWER(descricao) LIKE ? OR codigoBarras LIKE ?)
@@ -478,31 +689,33 @@ function registrarRotas(app, db) {
     }
   });
 
-  // Avaliação do modelo fiscal (NFC-e 65 vs NFe 55) baseada no payload — sem emissão
-  app.post('/api/pdv/avaliar-modelo', (req, res) => {
-    try {
-      const avaliacao = avaliarModeloFiscal(db, req.body || {});
-      res.json({ success: true, ...avaliacao });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // Configurações de comportamento do PDV (lê/salva sobre nfce_config id=1)
+  // Configurações de comportamento do PDV (lê/salva sobre nfce_config id=1).
+  // Devolve natureza e política já resolvidas: a tela precisa dos meios da
+  // política para montar os botões de pagamento, e do que a natureza dispara.
   app.get('/api/pdv/config', (req, res) => {
     try {
-      const c = db.prepare(`SELECT limiteNFCe, pdvModeloPadrao, pdvFormaPagamentoPadrao,
-        pdvExigirCpfSempre, pdvExigirClienteCadastrado, pdvModoImpressao FROM nfce_config WHERE id = 1`).get() || {};
+      const c = db.prepare(`SELECT pdvTipoOperacaoId, pdvPoliticaPrazoId,
+        pdvExigirCpfSempre, pdvModoImpressao FROM nfce_config WHERE id = 1`).get() || {};
+      const natureza = naturezaDoPdv(db);
+      const politica = politicaDoPdv(db);
       res.json({
         success: true,
         config: {
-          limiteNFCe: Number(c.limiteNFCe) || 10000,
-          pdvModeloPadrao: c.pdvModeloPadrao || '',
-          pdvFormaPagamentoPadrao: c.pdvFormaPagamentoPadrao || '01',
+          pdvTipoOperacaoId: c.pdvTipoOperacaoId || null,
+          pdvPoliticaPrazoId: c.pdvPoliticaPrazoId || null,
           pdvExigirCpfSempre: c.pdvExigirCpfSempre ? 1 : 0,
-          pdvExigirClienteCadastrado: c.pdvExigirClienteCadastrado ? 1 : 0,
           pdvModoImpressao: c.pdvModoImpressao || 'nenhum',
-        }
+        },
+        natureza: natureza && {
+          id: natureza.id, codigo: natureza.codigo, descricao: natureza.descricao,
+          emiteNFe: natureza.emiteNFe, geraFinanceiro: natureza.geraFinanceiro,
+          movimentaEstoque: natureza.movimentaEstoque, cfopInterno: natureza.cfopInterno,
+        },
+        politica: politica && {
+          id: politica.id, nome: politica.nome, tipo: politica.tipo,
+          prazoDias: politica.prazoDias,
+          meiosPermitidos: politica.meiosPermitidos ? JSON.parse(politica.meiosPermitidos) : null,
+        },
       });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -512,29 +725,44 @@ function registrarRotas(app, db) {
   app.post('/api/pdv/config', (req, res) => {
     try {
       const b = req.body || {};
-      const modelo = String(b.pdvModeloPadrao || '').trim();
-      const modeloValido = modelo === '' || modelo === '65' || modelo === '55';
-      if (!modeloValido) return res.status(400).json({ success: false, error: 'Modelo inválido (use vazio, 65 ou 55)' });
+
+      // Natureza é obrigatória: é dela que saem CFOP, conta a receber e estoque.
+      const tipoOperacaoId = Number(b.pdvTipoOperacaoId) || null;
+      if (!tipoOperacaoId) {
+        return res.status(400).json({ success: false, error: 'Escolha a natureza de operação do PDV' });
+      }
+      const tipo = db.prepare('SELECT * FROM tipos_operacao WHERE id = ? AND ativo = 1').get(tipoOperacaoId);
+      if (!tipo) return res.status(400).json({ success: false, error: 'Natureza de operação inválida ou inativa' });
+      if (!Number(tipo.emiteNFe)) {
+        return res.status(400).json({ success: false,
+          error: `A natureza "${tipo.descricao}" não emite documento fiscal — o PDV só emite NFC-e` });
+      }
+
+      const politicaId = Number(b.pdvPoliticaPrazoId) || null;
+      if (politicaId) {
+        const pol = db.prepare('SELECT id, aplicaPdv FROM politicas_prazo WHERE id = ? AND ativo = 1').get(politicaId);
+        if (!pol) return res.status(400).json({ success: false, error: 'Política de prazo inválida ou inativa' });
+        if (!Number(pol.aplicaPdv)) {
+          return res.status(400).json({ success: false,
+            error: 'Essa política não está marcada para o PDV (aplicaPdv) — ajuste em Financeiro › Políticas de prazo' });
+        }
+      }
 
       const modosImpressao = new Set(['nenhum', 'termico-58', 'termico-80', 'a4', 'email']);
       const modoImp = String(b.pdvModoImpressao || 'nenhum');
       const modoImpValido = modosImpressao.has(modoImp) ? modoImp : 'nenhum';
 
       db.prepare(`UPDATE nfce_config SET
-        limiteNFCe = ?,
-        pdvModeloPadrao = ?,
-        pdvFormaPagamentoPadrao = ?,
+        pdvTipoOperacaoId = ?,
+        pdvPoliticaPrazoId = ?,
         pdvExigirCpfSempre = ?,
-        pdvExigirClienteCadastrado = ?,
         pdvModoImpressao = ?,
         dataAtualizacao = CURRENT_TIMESTAMP
         WHERE id = 1`)
       .run(
-        Math.max(0, Number(b.limiteNFCe) || 10000),
-        modelo,
-        String(b.pdvFormaPagamentoPadrao || '01').trim() || '01',
+        tipoOperacaoId,
+        politicaId,
         b.pdvExigirCpfSempre ? 1 : 0,
-        b.pdvExigirClienteCadastrado ? 1 : 0,
         modoImpValido,
       );
       res.json({ success: true });
@@ -543,116 +771,18 @@ function registrarRotas(app, db) {
     }
   });
 
-  // Finalizador unificado do PDV — decide NFC-e ou NFe e dispara o fluxo correto
+  // Fechamento da venda de balcão. O PDV emite só NFC-e (modelo 65): o ramo
+  // NFe 55 — que criava pedido + fatura e transmitia mod 55 quando a venda
+  // fugia do perfil de varejo — saiu em 2026-08-26. Venda que não cabe em NFC-e
+  // (PJ, interestadual, alto valor) passa a ser feita pela NF avulsa em Fiscal.
   app.post('/api/pdv/finalizar', async (req, res) => {
     try {
       const payload = req.body || {};
       // Multi-loja: carimba o estabelecimento ativo da sessão no PDV (NULL = matriz).
       const _e = getEstabelecimentoAtivo(db, req);
       if (_e && !_e.matriz) payload.estabelecimentoId = _e.id;
-      const modeloForcado = String(payload.modeloForcado || '').trim(); // '65' | '55' | '' (auto)
-
-      const avaliacao = avaliarModeloFiscal(db, payload);
-      const modelo = modeloForcado === '65' || modeloForcado === '55'
-        ? modeloForcado
-        : avaliacao.modelo;
-
-      if (modelo === '65') {
-        // Fluxo NFC-e tradicional
-        const r = await emitirNFCe(db, payload);
-        return res.json({ success: true, modelo: '65', avaliacao, ...r });
-      }
-
-      // Fluxo NFe — cria/obtém pessoa, cria pedido PDV, fatura e emite NFe 55
-      const cpfDigits = String(payload.consumidorCpfCnpj || '').replace(/\D/g, '');
-      if (!cpfDigits) throw new Error('NFe exige CPF/CNPJ do consumidor');
-
-      // 1. Obter/criar pessoa (respeita pdvExigirClienteCadastrado)
-      let pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfDigits);
-      if (!pessoa) {
-        const cfg = db.prepare('SELECT pdvExigirClienteCadastrado FROM nfce_config WHERE id = 1').get() || {};
-        if (cfg.pdvExigirClienteCadastrado) {
-          throw new Error(`Cliente CPF/CNPJ ${cpfDigits} não encontrado. Cadastre em /pessoas antes de emitir NFe.`);
-        }
-        const tipo = cpfDigits.length === 14 ? 'PJ' : 'PF';
-        const nome = String(payload.consumidorNome || '').trim() || `Cliente ${cpfDigits}`;
-        db.prepare(`INSERT INTO pessoas (cpfCnpj, tipo, razaoSocial) VALUES (?, ?, ?)`).run(cpfDigits, tipo, nome);
-        pessoa = db.prepare('SELECT * FROM pessoas WHERE cpfCnpj = ?').get(cpfDigits);
-      }
-
-      // 2. Criar pedido PDV já em status=entregue (baixa estoque) para permitir faturar
-      const forn = db.prepare('SELECT uf FROM fornecedor WHERE id = 1').get() || {};
-      const ufEmit = String(forn.uf || '').toUpperCase();
-      const ufDest = String(pessoa.uf || '').toUpperCase();
-      const indestinatario = ufDest && ufDest !== ufEmit ? 'interestadual' : 'interna';
-
-      const itens = Array.isArray(payload.itens) ? payload.itens : [];
-      if (!itens.length) throw new Error('Venda sem itens');
-      const valorBruto = itens.reduce((s, it) => s + Number(it.valorTotal || 0), 0);
-      const valorDesc = Number(payload.valorDesconto || 0);
-      const valorTotal = Number((valorBruto - valorDesc).toFixed(2));
-      const meioPrincipal = (Array.isArray(payload.pagamentos) && payload.pagamentos[0]?.tPag) || null;
-
-      // Ramo NFe não passa por emitirNFCe — a whitelist do cliente é checada aqui.
-      for (const p of (payload.pagamentos || [])) {
-        const erroMeio = erroMeioPermitido(db, pessoa.id, p.tPag, '', 'pdv');
-        if (erroMeio) throw new Error(erroMeio);
-      }
-
-      const ultimo = db.prepare("SELECT numero FROM pedidos ORDER BY id DESC LIMIT 1").get();
-      let numPed = 1;
-      if (ultimo) { const m = String(ultimo.numero).match(/(\d+)/); if (m) numPed = parseInt(m[1],10) + 1; }
-      const numeroPedido = String(numPed).padStart(6, '0');
-      const dataHoje = new Date().toISOString().slice(0,10);
-
-      const trx = db.transaction(() => {
-        const r = db.prepare(`
-          INSERT INTO pedidos (numero, tipo, clienteId, status, dataPedido, valorTotal, meioPagamento, observacao)
-          VALUES (?, 'pdv', ?, 'entregue', ?, ?, ?, ?)
-        `).run(numeroPedido, pessoa.id, dataHoje, valorTotal, meioPrincipal,
-          `PDV — venda direta ${indestinatario}. Motivos NFe: ${avaliacao.motivos.join(', ') || 'forçado manual'}`);
-        const pedidoId = r.lastInsertRowid;
-        const stmtItem = db.prepare(`
-          INSERT INTO pedido_itens (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        for (const it of itens) {
-          stmtItem.run(pedidoId, it.produtoId || null, it.descricao,
-            Number(it.quantidade) || 1, Number(it.precoUnitario) || 0, Number(it.valorTotal) || 0);
-        }
-        return pedidoId;
-      });
-      const pedidoId = trx();
-
-      // 3. Faturar — reusa a rota HTTP via chamada interna seria complexo; chama diretamente o stmt
-      // que é quase o mesmo do faturas-routes. Para manter comportamento idêntico, faço POST
-      // interno na própria app via função auxiliar.
-      const axios = require('axios');
-      const port = process.env.PORT || 3000;
-      const faturaResp = await axios.post(`http://127.0.0.1:${port}/api/pedidos/${pedidoId}/faturar`, {
-        valorDesconto: valorDesc,
-        observacao: `Originado do PDV`,
-      }, {
-        headers: { Cookie: req.headers.cookie || '' },
-        validateStatus: () => true,
-      });
-      if (!faturaResp.data?.success) {
-        throw new Error('Falha ao criar fatura: ' + (faturaResp.data?.error || `HTTP ${faturaResp.status}`));
-      }
-      const faturaId = faturaResp.data.fatura?.id;
-
-      // 4. Emitir NFe SEFAZ
-      const { emitirNFe } = require('./nfe-emit-routes');
-      const emissao = await emitirNFe(db, faturaId);
-
-      res.json({
-        success: true,
-        modelo: '55',
-        avaliacao,
-        pedidoId,
-        faturaId,
-        sefaz: emissao,
-      });
+      const r = await emitirNFCe(db, payload);
+      res.json({ success: true, modelo: '65', ...r });
     } catch (err) {
       console.error('[pdv/finalizar]', err);
       res.status(400).json({ success: false, error: String(err.message || err) });
@@ -727,4 +857,13 @@ function registrarRotas(app, db) {
   console.log('[nfce] Rotas registradas');
 }
 
-module.exports = { registrarRotasNFCe: registrarRotas };
+module.exports = {
+  registrarRotasNFCe: registrarRotas,
+  // A emissão em si, para quem monta o payload fora daqui. O restaurante usa
+  // no fechamento de comanda: a conversa com a SEFAZ é deste módulo, e quem
+  // chama entrega só o payload. Devolve o mesmo objeto de /api/nfce/emitir,
+  // em que o id da nota é `id`.
+  emitirNFCe,
+  // Expostos para teste: são a parte da emissão que não depende de SEFAZ.
+  naturezaDoPdv, politicaDoPdv, parcelasDaPolitica, aplicarEfeitosDaNatureza,
+};

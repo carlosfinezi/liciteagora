@@ -518,7 +518,26 @@ async function emitirNFe(db, faturaId) {
   });
 
   // Destinatário — ORDEM DE CAMPOS SEGUE XSD: CNPJ/CPF primeiro, depois xNome, etc.
-  const destCpfCnpj = (fatura.clienteCpfCnpj || '').replace(/\D/g,'');
+  //
+  // O documento passa por `documentoFiscalDe` desde 2026-09-11 (relatório 15).
+  // Antes era `(fatura.clienteCpfCnpj || '').replace(/\D/g,'')` direto — e essa
+  // limpeza apaga letras: um identificador interno como 'SD-<uuid>' ou um
+  // legado 'UASG-12345678901' podia sobrar com 11 ou 14 dígitos e virar
+  // `destTag.CPF`/`CNPJ` **inventado** dentro da nota. A função devolve null
+  // para cadastro sem documento, e aí a tag simplesmente não é emitida — que é
+  // o tratamento correto de consumidor não identificado (indIEDest=9, logo
+  // abaixo).
+  const { documentoFiscalDe } = require('./pessoa-sem-documento');
+  //
+  // `semDocumento` NÃO é lido aqui de propósito: a coluna só existe em tenant
+  // que recebeu a migration da Fase 1, e um `COALESCE(p.semDocumento,0)` no
+  // SELECT quebraria a emissão nos demais ("no such column" — verificado). Não
+  // faz falta: o cadastro sem documento sempre tem o prefixo 'SD-' em cpfCnpj,
+  // e `documentoFiscalDe` recusa por prefixo e por qualquer letra.
+  const destCpfCnpj = documentoFiscalDe({
+    cpfCnpj: fatura.clienteCpfCnpj,
+    razaoSocial: fatura.clienteNome,
+  }) || '';
   const destTag = {};
   if (destCpfCnpj.length === 14) destTag.CNPJ = destCpfCnpj;
   else if (destCpfCnpj.length === 11) destTag.CPF = destCpfCnpj;
@@ -965,7 +984,10 @@ async function enviarDocsNfeAoCliente(db, faturaId, toOverride) {
   if (!to) return { ok: false, motivo: 'Cliente sem e-mail cadastrado' };
   const cc = (!toOverride && adic.length) ? adic.join(',') : undefined;
 
-  const { DANFe } = await import('node-sped-pdf');
+  // Cópia local da lib (vendor/node-sped-pdf), com a separação entre produtos
+      // do relatório 40. A original não expõe opção de layout — ver o VERSAO.txt
+      // do vendor e o patch marcado no arquivo.
+      const { DANFe } = await import('./vendor/node-sped-pdf/index.js');
   const logo = db.prepare('SELECT logoBase64 FROM fornecedor WHERE id = 1').get()?.logoBase64 || undefined;
   const danfePdf = await DANFe({ xml: f.xmlAssinado, logo });
 
@@ -1058,7 +1080,10 @@ function registrarRotas(app, db) {
       if (!f) return res.status(404).json({ success: false, error: 'Fatura não encontrada' });
       if (f.statusSefaz !== 'autorizada') return res.status(400).json({ success: false, error: 'NF-e não autorizada' });
       const logo = db.prepare('SELECT logoBase64 FROM fornecedor WHERE id = 1').get()?.logoBase64 || undefined;
-      const { DANFe } = await import('node-sped-pdf');
+      // Cópia local da lib (vendor/node-sped-pdf), com a separação entre produtos
+      // do relatório 40. A original não expõe opção de layout — ver o VERSAO.txt
+      // do vendor e o patch marcado no arquivo.
+      const { DANFe } = await import('./vendor/node-sped-pdf/index.js');
       const buf = await DANFe({ xml: f.xmlAssinado, logo });
       const nomeArquivo = f.numeroNFe ? `DANFE-NFe-${f.numeroNFe}` : `DANFE-${f.numero}`;
       res.setHeader('Content-Type', 'application/pdf');
@@ -1100,7 +1125,10 @@ function registrarRotas(app, db) {
       if (!faturas.length) return res.status(404).json({ success: false, error: 'Nenhuma NF-e encontrada no filtro' });
 
       const zip = new AdmZip();
-      const { DANFe } = await import('node-sped-pdf');
+      // Cópia local da lib (vendor/node-sped-pdf), com a separação entre produtos
+      // do relatório 40. A original não expõe opção de layout — ver o VERSAO.txt
+      // do vendor e o patch marcado no arquivo.
+      const { DANFe } = await import('./vendor/node-sped-pdf/index.js');
       const logo = db.prepare('SELECT logoBase64 FROM fornecedor WHERE id = 1').get()?.logoBase64 || undefined;
 
       for (const f of faturas) {
