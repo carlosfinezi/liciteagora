@@ -430,6 +430,36 @@ que ficou de fora está listado no corpo de cada commit.
   garantia: basta uma aprovação nascer para o envio começar. Cada aprovação
   avisa uma vez só (`avisoExpiracaoEm`).
 
+### O que passa a valer no próximo restart
+
+Esta lista existe porque aqui a edição de um `.js` não entra em vigor sozinha:
+o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
+que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
+esvazie a parte do serviço que foi reiniciado.
+
+**`consulta-licitacoes.service`** (o `server.js`) — boot atual: 2026-09-16
+13:01. Pendente desde então:
+
+- **A NFC-e da comanda do restaurante passa a funcionar.** Hoje
+  `POST /api/restaurante/comandas/:id/emitir-nfce` responde 400 com
+  "emitirNFCe is not a function" em **toda** chamada, porque o `nfce-routes.js`
+  não exportava a função. Corrigido em `4d5a26b` (o export) e `bb7c981` (o
+  consumidor lia `r.nfceId` quando o retorno traz `r.id`). Depois do restart a
+  nota sai de verdade na SEFAZ, então o primeiro teste vale ser feito em
+  homologação, não numa comanda real.
+
+Os demais `.js` desta leva de commits — `boleto-orchestrator.js` (11/09),
+`tesouraria-routes.js` (25/08), `contas-receber-routes.js` (10/09) e os outros
+da frente financeira — têm mtime **anterior** ao boot das 13:01 e portanto já
+estão no ar. Commitá-los não mudou nada em produção; o histórico é que passou a
+registrá-los. Confira por `stat -c '%y' <arquivo>` contra o
+`ActiveEnterTimestamp` da unit antes de supor que algo está pendente.
+
+**`liciteagora.service`** (o `scheduler.js`): ver os dois itens acima nesta
+mesma seção, o `cicloAvisoAlcadas` e o watchdog do catálogo. Continuam
+pendentes e continuam sendo o caso que exige aviso antes, porque o primeiro
+ciclo dispara mensagem para destino externo.
+
 Como `rm` está negado por inteiro, rascunho e arquivo temporário vão para
 `/tmp`, não para a árvore.
 
