@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Posto · Pista · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Posto — Pista</h1>
+      <small>Turno do frentista, abastecimentos e aferições. O fechamento confere o encerrante lido contra o que foi lançado.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <!-- ===== TURNO ===== -->
+  <div class="card" id="cardTurno" style="margin-bottom:16px;">
+    <div id="turnoVazio" style="display:none;">
+      <div class="toolbar">
+        <input type="text" id="tFrentista" placeholder="Nome do frentista" style="flex:1;min-width:220px;">
+        <input type="number" id="tCaixa" placeholder="Caixa de abertura (R$)" step="0.01" style="width:200px;">
+        <button class="btn btn-primary btn-sm" onclick="abrirTurno()">Abrir turno</button>
+      </div>
+      <small class="muted">Abrir o turno congela o encerrante de cada bico ativo. Sem esse retrato o fechamento não tem contra o que comparar.</small>
+    </div>
+
+    <div id="turnoAberto" style="display:none;">
+      <div class="toolbar">
+        <div style="flex:1;">
+          <strong id="tNome"></strong>
+          <span class="muted"> · aberto em <span id="tAbertoEm"></span> · <span id="tAbast"></span> abastecimento(s)</span>
+        </div>
+        <input type="number" id="tEntregue" placeholder="Valor entregue (R$)" step="0.01" style="width:190px;">
+        <button class="btn btn-primary btn-sm" onclick="fecharTurno()">Fechar turno</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Bico</th><th>Bomba</th><th>Combustível</th>
+            <th style="text-align:right;">Encerrante abertura</th>
+            <th style="text-align:right;">Encerrante agora</th>
+            <th style="text-align:right;width:170px;">Leitura de fechamento</th>
+          </tr></thead>
+          <tbody id="tbTurnoBicos"></tbody>
+        </table>
+      </div>
+      <small class="muted">A leitura vem preenchida com o encerrante do sistema. Digite o que está no visor da bomba: a diferença entre os dois é o que interessa.</small>
+    </div>
+  </div>
+
+  <div class="toolbar" style="gap:6px;">
+    <button class="btn btn-sm" id="tabBtn-abastecer" onclick="mostrarAba('abastecer')">Abastecimentos</button>
+    <button class="btn btn-sm" id="tabBtn-afericao"  onclick="mostrarAba('afericao')">Aferições</button>
+    <button class="btn btn-sm" id="tabBtn-turnos"    onclick="mostrarAba('turnos')">Turnos anteriores</button>
+  </div>
+
+  <!-- ===== ABASTECIMENTOS ===== -->
+  <div class="aba" id="aba-abastecer">
+    <div class="toolbar">
+      <select id="aBico" style="min-width:230px;"></select>
+      <input type="number" id="aLitros" placeholder="Litros" step="0.001" style="width:120px;">
+      <span class="muted">ou</span>
+      <input type="number" id="aEncerrante" placeholder="Encerrante final" step="0.001" style="width:160px;">
+      <select id="aTipo" style="width:150px;">
+        <option value="venda">Venda</option>
+        <option value="interno">Consumo interno</option>
+      </select>
+      <input type="text" id="aPlaca" placeholder="Placa" style="width:110px;">
+      <button class="btn btn-primary btn-sm" onclick="addAbastecimento()">+ Lançar</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Data/hora</th><th>Bico</th><th>Combustível</th>
+          <th style="text-align:right;">Litros</th><th style="text-align:right;">R$/L</th><th style="text-align:right;">Total</th>
+          <th style="text-align:right;">Encerrante</th><th>Tipo</th><th style="width:70px;"></th>
+        </tr></thead>
+        <tbody id="tbAbastecimentos"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== AFERIÇÕES ===== -->
+  <div class="aba" id="aba-afericao" style="display:none;">
+    <div class="toolbar">
+      <select id="fBico" style="min-width:230px;"></select>
+      <input type="number" id="fMedido" placeholder="Volume medido (ml)" step="1" style="width:190px;">
+      <input type="text" id="fResponsavel" placeholder="Responsável" style="width:180px;">
+      <button class="btn btn-primary btn-sm" onclick="addAfericao()">+ Registrar aferição</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Data/hora</th><th>Bico</th><th>Combustível</th>
+          <th style="text-align:right;">Padrão</th><th style="text-align:right;">Medido</th><th style="text-align:right;">Desvio</th>
+          <th>Resultado</th><th>Voltou ao tanque</th>
+        </tr></thead>
+        <tbody id="tbAfericoes"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <small class="muted">Os 20 L da aferição saem pelo bico e voltam ao tanque. Se não forem registrados aqui, o LMC vai acusar falta de estoque que ninguém consegue explicar.</small>
+  </div>
+
+  <!-- ===== TURNOS ===== -->
+  <div class="aba" id="aba-turnos" style="display:none;">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Frentista</th><th>Aberto</th><th>Fechado</th>
+          <th style="text-align:right;">Abast.</th>
+          <th style="text-align:right;">Apurado</th><th style="text-align:right;">Entregue</th><th style="text-align:right;">Diferença</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody id="tbTurnos"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('posto-pista');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function nL(v, casas = 3) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas }); }
+function nR(v) { return v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+const ABAS = ['abastecer', 'afericao', 'turnos'];
+function mostrarAba(nome) {
+  for (const a of ABAS) {
+    document.getElementById('aba-' + a).style.display = (a === nome) ? '' : 'none';
+    const b = document.getElementById('tabBtn-' + a);
+    b.className = 'btn btn-sm ' + (a === nome ? 'btn-primary' : 'btn-secondary');
+  }
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+function post(url, corpo) {
+  return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+}
+
+let turnoAtual = null;
+
+async function carregarBicos() {
+  try {
+    const d = await api('/api/posto/bicos');
+    const opts = d.items.filter(b => b.ativo)
+      .map(b => `<option value="${b.id}">Bico ${esc(b.numero)} · ${esc(b.bombaCodigo)} · ${esc(b.combustivelNome)}</option>`).join('');
+    document.getElementById('aBico').innerHTML = '<option value="">— bico —</option>' + opts;
+    document.getElementById('fBico').innerHTML = '<option value="">— bico —</option>' + opts;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Turno =====
+async function carregarTurno() {
+  try {
+    const d = await api('/api/posto/turnos/aberto');
+    turnoAtual = d.turno;
+    if (!d.turno) {
+      document.getElementById('turnoVazio').style.display = '';
+      document.getElementById('turnoAberto').style.display = 'none';
+      return;
+    }
+    document.getElementById('turnoVazio').style.display = 'none';
+    document.getElementById('turnoAberto').style.display = '';
+    document.getElementById('tNome').textContent = d.turno.frentistaNome;
+    document.getElementById('tAbertoEm').textContent = d.turno.abertoEm;
+    document.getElementById('tAbast').textContent = d.turno.abastecimentos ?? 0;
+    document.getElementById('tbTurnoBicos').innerHTML = d.bicos.map(b => `<tr>
+      <td><strong>${esc(b.bicoNumero)}</strong></td>
+      <td>${esc(b.bombaCodigo)}</td>
+      <td>${esc(b.combustivelNome)}</td>
+      <td style="text-align:right;">${nL(b.encerranteInicio)}</td>
+      <td style="text-align:right;">${nL(b.encerranteAtual)}</td>
+      <td style="text-align:right;"><input type="number" step="0.001" id="fim-${b.bicoId}" value="${b.encerranteAtual}" style="width:150px;text-align:right;"></td>
+    </tr>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function abrirTurno() {
+  const frentistaNome = document.getElementById('tFrentista').value.trim();
+  if (!frentistaNome) return showAlert('Informe o nome do frentista', 'error');
+  try {
+    const d = await post('/api/posto/turnos', {
+      frentistaNome,
+      caixaAberturaValor: Number(document.getElementById('tCaixa').value) || 0,
+    });
+    showAlert(`Turno aberto com ${d.bicos} bico(s)`);
+    document.getElementById('tFrentista').value = '';
+    carregarTurno(); carregarTurnos();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function fecharTurno() {
+  if (!turnoAtual) return;
+  const bicos = [];
+  for (const el of document.querySelectorAll('#tbTurnoBicos input[id^="fim-"]')) {
+    // Campo em branco NÃO é zero. `Number('')` dá 0, e num bico que abriu em 0
+    // isso fechava o turno com 200 e zerava o totalizador — a leitura que
+    // faltou virava uma leitura falsa. Vazio vira null, que o backend recusa.
+    const bruto = el.value.trim();
+    bicos.push({
+      bicoId: Number(el.id.replace('fim-', '')),
+      encerranteFim: bruto === '' ? null : Number(bruto),
+    });
+  }
+  try {
+    const d = await post(`/api/posto/turnos/${turnoAtual.id}/fechar`, {
+      bicos, valorEntregue: Number(document.getElementById('tEntregue').value) || 0,
+    });
+    if (d.divergencias.length) {
+      showAlert(`Turno fechado. ${d.divergencias.length} bico(s) com divergência entre encerrante e lançamentos — confira antes de liberar o caixa.`, 'warning');
+    } else {
+      showAlert(`Turno fechado. Apurado ${nR(d.valorApurado)}, sem divergência de encerrante.`);
+    }
+    document.getElementById('tEntregue').value = '';
+    carregarTurno(); carregarTurnos(); carregarAbastecimentos();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function carregarTurnos() {
+  try {
+    const d = await api('/api/posto/turnos?limite=50');
+    document.getElementById('tbTurnos').innerHTML = d.items.length ? d.items.map(t => `<tr>
+      <td>#${t.id}</td>
+      <td><strong>${esc(t.frentistaNome)}</strong></td>
+      <td>${esc(t.abertoEm)}</td>
+      <td>${esc(t.fechadoEm || '—')}</td>
+      <td style="text-align:right;">${t.abastecimentos}</td>
+      <td style="text-align:right;">${nR(t.valorApurado)}</td>
+      <td style="text-align:right;">${nR(t.valorEntregue)}</td>
+      <td style="text-align:right;${Math.abs(t.diferencaCaixa || 0) > 0.001 ? 'color:#c0392b;font-weight:600;' : ''}">${nR(t.diferencaCaixa)}</td>
+      <td>${t.status === 'aberto' ? 'Aberto' : 'Fechado'}</td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhum turno registrado</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Abastecimentos =====
+async function carregarAbastecimentos() {
+  try {
+    const d = await api('/api/posto/abastecimentos?limite=100');
+    document.getElementById('tbAbastecimentos').innerHTML = d.items.length ? d.items.map(a => `<tr>
+      <td>${esc(a.dataHora)}</td>
+      <td>${esc(a.bicoNumero)} <span class="muted">(${esc(a.bombaCodigo)})</span></td>
+      <td>${esc(a.combustivelNome)}</td>
+      <td style="text-align:right;">${nL(a.litros)}</td>
+      <td style="text-align:right;">${nL(a.precoLitro)}</td>
+      <td style="text-align:right;">${nR(a.valorTotal)}</td>
+      <td style="text-align:right;" class="muted">${nL(a.encerranteInicio)} → ${nL(a.encerranteFim)}</td>
+      <td>${a.tipo === 'venda' ? 'Venda' : (a.tipo === 'interno' ? 'Interno' : 'Aferição')}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="delAbastecimento(${a.id})">Estornar</button></td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhum abastecimento lançado</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addAbastecimento() {
+  const bicoId = document.getElementById('aBico').value;
+  if (!bicoId) return showAlert('Escolha o bico', 'error');
+  const litros = document.getElementById('aLitros').value;
+  const encerranteFim = document.getElementById('aEncerrante').value;
+  if (!litros && !encerranteFim) return showAlert('Informe os litros ou o encerrante final', 'error');
+  try {
+    const d = await post('/api/posto/abastecimentos', {
+      bicoId: Number(bicoId),
+      litros: litros ? Number(litros) : undefined,
+      encerranteFim: encerranteFim ? Number(encerranteFim) : undefined,
+      tipo: document.getElementById('aTipo').value,
+      placa: document.getElementById('aPlaca').value.trim() || null,
+    });
+    showAlert(`${nL(d.litros)} L lançados — ${nR(d.valorTotal)}`);
+    document.getElementById('aLitros').value = ''; document.getElementById('aEncerrante').value = ''; document.getElementById('aPlaca').value = '';
+    carregarAbastecimentos(); carregarTurno();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delAbastecimento(id) {
+  try {
+    const d = await api('/api/posto/abastecimentos/' + id, { method: 'DELETE' });
+    showAlert(d.encerranteRevertido
+      ? 'Abastecimento estornado e encerrante devolvido'
+      : 'Abastecimento estornado. O encerrante NÃO voltou: há lançamentos posteriores no bico, e a diferença vai aparecer no fechamento do turno.', 'warning');
+    carregarAbastecimentos(); carregarTurno();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Aferições =====
+async function carregarAfericoes() {
+  try {
+    const d = await api('/api/posto/afericoes?limite=100');
+    document.getElementById('tbAfericoes').innerHTML = d.items.length ? d.items.map(a => `<tr>
+      <td>${esc(a.dataHora)}</td>
+      <td>${esc(a.bicoNumero)} <span class="muted">(${esc(a.bombaCodigo)})</span></td>
+      <td>${esc(a.combustivelNome)}</td>
+      <td style="text-align:right;">${nL(a.volumePadraoMl, 0)} ml</td>
+      <td style="text-align:right;">${nL(a.volumeMedidoMl, 0)} ml</td>
+      <td style="text-align:right;${a.aprovado ? '' : 'color:#c0392b;font-weight:600;'}">${a.desvioMl > 0 ? '+' : ''}${nL(a.desvioMl, 0)} ml</td>
+      <td>${a.aprovado ? '<span style="color:#27ae60;font-weight:600;">Aprovada</span>' : '<span style="color:#c0392b;font-weight:600;">Fora da tolerância</span>'}</td>
+      <td>${a.retornouAoTanque ? 'Sim' : 'Não — saiu do estoque'}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma aferição registrada</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addAfericao() {
+  const bicoId = document.getElementById('fBico').value;
+  const volumeMedidoMl = Number(document.getElementById('fMedido').value);
+  if (!bicoId || !volumeMedidoMl) return showAlert('Informe o bico e o volume medido', 'error');
+  try {
+    const d = await post('/api/posto/afericoes', {
+      bicoId: Number(bicoId), volumeMedidoMl,
+      responsavel: document.getElementById('fResponsavel').value.trim() || null,
+    });
+    showAlert(d.aprovado
+      ? `Aferição aprovada — desvio de ${d.desvioMl} ml (tolerância +${d.tolerancia.mais}/−${d.tolerancia.menos} ml)`
+      : `Aferição FORA da tolerância — desvio de ${d.desvioMl} ml (limite +${d.tolerancia.mais}/−${d.tolerancia.menos} ml). Bomba precisa de intervenção.`,
+      d.aprovado ? 'success' : 'error');
+    document.getElementById('fMedido').value = '';
+    carregarAfericoes(); carregarTurno();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+mostrarAba('abastecer');
+carregarBicos();
+carregarTurno();
+carregarAbastecimentos();
+carregarAfericoes();
+carregarTurnos();
+</script>
+</body></html>

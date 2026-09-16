@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Posto · Recebimento e tanques · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Posto — Recebimento e tanques</h1>
+      <small>Descarga do caminhão e medição dos tanques. As duas pontas que fecham o estoque físico contra o contábil.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <!-- ===== ESTOQUE ===== -->
+  <div class="tbl-wrap" style="margin-bottom:18px;">
+    <table>
+      <thead><tr>
+        <th>Tanque</th><th>Combustível</th>
+        <th style="text-align:right;">Última medição</th><th>Medido em</th>
+        <th style="text-align:right;">Entradas depois</th><th style="text-align:right;">Saídas depois</th>
+        <th style="text-align:right;">Estoque estimado</th><th style="text-align:right;">Ocupação</th>
+      </tr></thead>
+      <tbody id="tbEstoque"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+  <small class="muted">O estimado é a última medição mais o que entrou e menos o que saiu desde então — serve para acompanhar o dia, não substitui a medição.</small>
+
+  <div class="toolbar" style="gap:6px;margin-top:16px;">
+    <button class="btn btn-sm" id="tabBtn-descargas" onclick="mostrarAba('descargas')">Descargas</button>
+    <button class="btn btn-sm" id="tabBtn-medicoes"  onclick="mostrarAba('medicoes')">Medições</button>
+  </div>
+
+  <!-- ===== DESCARGAS ===== -->
+  <div class="aba" id="aba-descargas">
+    <div class="toolbar">
+      <select id="dTanque" style="min-width:200px;"></select>
+      <input type="text" id="dNota" placeholder="Nota fiscal" style="width:130px;">
+      <input type="number" id="dLitrosNota" placeholder="Litros da NF" step="0.001" style="width:140px;">
+      <input type="number" id="dAntes" placeholder="Medição antes (L)" step="0.001" style="width:170px;">
+      <input type="number" id="dDepois" placeholder="Medição depois (L)" step="0.001" style="width:175px;">
+      <input type="number" id="dTemp" placeholder="Temp. °C" step="0.1" style="width:110px;">
+    </div>
+    <div class="toolbar">
+      <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="dLacre"> Lacre conferido</label>
+      <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="dAmostra"> Amostra-testemunha coletada</label>
+      <input type="text" id="dResponsavel" placeholder="Responsável" style="width:170px;">
+      <button class="btn btn-primary btn-sm" onclick="addDescarga()">+ Registrar descarga</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Data/hora</th><th>Tanque</th><th>NF</th>
+          <th style="text-align:right;">Litros NF</th><th style="text-align:right;">Recebidos</th><th style="text-align:right;">Diferença</th>
+          <th>Lacre</th><th>Amostra</th>
+        </tr></thead>
+        <tbody id="tbDescargas"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <small class="muted">Sem medição antes e depois, o recebido é o que a nota diz — e a conferência não existe. A amostra-testemunha por compartimento é exigência da Resolução ANP 898/2022.</small>
+  </div>
+
+  <!-- ===== MEDIÇÕES ===== -->
+  <div class="aba" id="aba-medicoes" style="display:none;">
+    <div class="toolbar">
+      <select id="mTanque" style="min-width:200px;"></select>
+      <input type="number" id="mLitros" placeholder="Volume (L)" step="0.001" style="width:150px;">
+      <input type="number" id="mAltura" placeholder="Altura (cm)" step="0.1" style="width:130px;">
+      <input type="number" id="mAgua" placeholder="Água (cm)" step="0.1" style="width:130px;">
+      <select id="mTipo" style="width:150px;" title="Abertura conta como fechamento do dia anterior — quem só mede de manhã pode usá-la.">
+        <option value="fechamento">Fechamento</option>
+        <option value="abertura">Abertura</option>
+        <option value="avulsa">Avulsa</option>
+      </select>
+      <select id="mOrigem" style="width:130px;">
+        <option value="manual">Régua</option>
+        <option value="sonda">Sonda</option>
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="addMedicao()">+ Lançar medição</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Data/hora</th><th>Tanque</th><th>Combustível</th><th>Tipo</th>
+          <th style="text-align:right;">Volume</th><th style="text-align:right;">Altura</th><th style="text-align:right;">Água</th><th>Origem</th>
+        </tr></thead>
+        <tbody id="tbMedicoes"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <small class="muted">A NR-20 proíbe a medição com régua onde há viabilidade técnica de sonda desde 21/09/2023. Enquanto a sonda não chega, o registro manual é o que sustenta o LMC.</small>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('posto-recebimento');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function nL(v, casas = 2) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas }); }
+
+const ABAS = ['descargas', 'medicoes'];
+function mostrarAba(nome) {
+  for (const a of ABAS) {
+    document.getElementById('aba-' + a).style.display = (a === nome) ? '' : 'none';
+    const b = document.getElementById('tabBtn-' + a);
+    b.className = 'btn btn-sm ' + (a === nome ? 'btn-primary' : 'btn-secondary');
+  }
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+function post(url, corpo) {
+  return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+}
+
+async function carregarTanques() {
+  try {
+    const d = await api('/api/posto/tanques');
+    const opts = d.items.filter(t => t.ativo)
+      .map(t => `<option value="${t.id}">${esc(t.codigo)} — ${esc(t.combustivelNome)}</option>`).join('');
+    document.getElementById('dTanque').innerHTML = '<option value="">— tanque —</option>' + opts;
+    document.getElementById('mTanque').innerHTML = '<option value="">— tanque —</option>' + opts;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarEstoque() {
+  try {
+    const d = await api('/api/posto/estoque');
+    document.getElementById('tbEstoque').innerHTML = d.items.length ? d.items.map(t => `<tr${t.abaixoDoMinimo ? ' style="background:rgba(192,57,43,0.08);"' : ''}>
+      <td><strong>${esc(t.codigo)}</strong></td>
+      <td>${esc(t.combustivelNome)}</td>
+      <td style="text-align:right;">${t.ultimaMedicaoL != null ? nL(t.ultimaMedicaoL) + ' L' : '—'}</td>
+      <td class="muted">${esc(t.ultimaMedicaoEm || '—')}</td>
+      <td style="text-align:right;">${nL(t.entradasDesdeL)} L</td>
+      <td style="text-align:right;">${nL(t.saidasDesdeL)} L</td>
+      <td style="text-align:right;font-weight:600;${t.abaixoDoMinimo ? 'color:#c0392b;' : ''}">${nL(t.estoqueEstimadoL)} L</td>
+      <td style="text-align:right;">${t.ocupacaoPct != null ? nL(t.ocupacaoPct, 1) + '%' : '—'}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum tanque ativo</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Descargas =====
+async function carregarDescargas() {
+  try {
+    const d = await api('/api/posto/descargas?limite=100');
+    document.getElementById('tbDescargas').innerHTML = d.items.length ? d.items.map(x => `<tr>
+      <td>${esc(x.dataHora)}</td>
+      <td>${esc(x.tanqueCodigo)} <span class="muted">(${esc(x.combustivelNome)})</span></td>
+      <td>${esc(x.notaFiscal || '—')}</td>
+      <td style="text-align:right;">${nL(x.litrosNota)} L</td>
+      <td style="text-align:right;">${nL(x.litrosRecebidos)} L</td>
+      <td style="text-align:right;${x.diferencaLitros != null && Math.abs(x.diferencaLitros) > 0.001 ? 'color:#c0392b;font-weight:600;' : ''}">${x.diferencaLitros != null ? nL(x.diferencaLitros) + ' L' : '<span class="muted">não conferido</span>'}</td>
+      <td>${x.lacreConferido ? 'OK' : '<span style="color:#c0392b;">não</span>'}</td>
+      <td>${x.amostraTestemunha ? 'OK' : '<span style="color:#c0392b;">não</span>'}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma descarga registrada</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addDescarga() {
+  const tanqueId = document.getElementById('dTanque').value;
+  if (!tanqueId) return showAlert('Escolha o tanque', 'error');
+  try {
+    const d = await post('/api/posto/descargas', {
+      tanqueId: Number(tanqueId),
+      notaFiscal: document.getElementById('dNota').value.trim() || null,
+      litrosNota: Number(document.getElementById('dLitrosNota').value) || 0,
+      medicaoAntesLitros: document.getElementById('dAntes').value || undefined,
+      medicaoDepoisLitros: document.getElementById('dDepois').value || undefined,
+      temperaturaC: document.getElementById('dTemp').value || undefined,
+      lacreConferido: document.getElementById('dLacre').checked ? 1 : 0,
+      amostraTestemunha: document.getElementById('dAmostra').checked ? 1 : 0,
+      responsavel: document.getElementById('dResponsavel').value.trim() || null,
+    });
+    if (d.diferencaLitros != null && Math.abs(d.diferencaLitros) > 0.001) {
+      showAlert(`Descarga registrada: ${nL(d.litrosRecebidos)} L recebidos, ${nL(d.diferencaLitros)} L de diferença contra a nota.`, 'warning');
+    } else {
+      showAlert(`Descarga registrada: ${nL(d.litrosRecebidos)} L`);
+    }
+    for (const id of ['dNota', 'dLitrosNota', 'dAntes', 'dDepois', 'dTemp']) document.getElementById(id).value = '';
+    document.getElementById('dLacre').checked = false; document.getElementById('dAmostra').checked = false;
+    carregarDescargas(); carregarEstoque();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Medições =====
+async function carregarMedicoes() {
+  try {
+    const d = await api('/api/posto/medicoes?limite=100');
+    document.getElementById('tbMedicoes').innerHTML = d.items.length ? d.items.map(m => `<tr>
+      <td>${esc(m.dataHora)}</td>
+      <td><strong>${esc(m.tanqueCodigo)}</strong></td>
+      <td>${esc(m.combustivelNome)}</td>
+      <td>${esc(m.tipo)}</td>
+      <td style="text-align:right;">${nL(m.litrosFisico)} L</td>
+      <td style="text-align:right;">${m.alturaCm != null ? nL(m.alturaCm, 1) + ' cm' : '—'}</td>
+      <td style="text-align:right;${m.aguaCm > 2.5 ? 'color:#c0392b;font-weight:600;' : ''}">${m.aguaCm != null ? nL(m.aguaCm, 1) + ' cm' : '—'}</td>
+      <td>${m.origem === 'sonda' ? 'Sonda' : 'Régua'}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma medição registrada</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addMedicao() {
+  const tanqueId = document.getElementById('mTanque').value;
+  const litrosFisico = document.getElementById('mLitros').value;
+  if (!tanqueId || litrosFisico === '') return showAlert('Informe o tanque e o volume', 'error');
+  try {
+    const d = await post('/api/posto/medicoes', {
+      tanqueId: Number(tanqueId),
+      litrosFisico: Number(litrosFisico),
+      alturaCm: document.getElementById('mAltura').value || undefined,
+      aguaCm: document.getElementById('mAgua').value || undefined,
+      tipo: document.getElementById('mTipo').value,
+      origem: document.getElementById('mOrigem').value,
+    });
+    if (d.alertas && d.alertas.length) showAlert(d.alertas.join(' · '), 'warning');
+    else showAlert('Medição registrada');
+    for (const id of ['mLitros', 'mAltura', 'mAgua']) document.getElementById(id).value = '';
+    carregarMedicoes(); carregarEstoque();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+mostrarAba('descargas');
+carregarTanques();
+carregarEstoque();
+carregarDescargas();
+carregarMedicoes();
+</script>
+</body></html>
