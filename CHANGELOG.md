@@ -4,6 +4,119 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-16
+
+Fechamento **por frentes** das 422 entradas acumuladas desde 28/08. São 19 dias
+de trabalho que já roda em produção sem estar no histórico, e levar tudo num
+commit só produziria um diff que ninguém revisa. Cada frente abaixo vira um
+commit próprio, nesta ordem:
+
+1. **theme-boot**, a inserção de uma linha em 147 telas. Vai primeiro porque
+   sozinha responde por 57% dos arquivos modificados. Tirá-la do caminho é o
+   que torna as outras frentes legíveis.
+2. **Verticais novos** (`farmacia/`, `locacao/`, `posto/`, `restaurante/`),
+   cada um inteiro com o seu `public/`. O `route-registry.js` e o `db-schema.js`
+   da árvore já os registram, então eles precisam entrar antes do core.
+3. **Frentes de negócio**, uma a uma: fiscal, financeiro, pedidos, portais,
+   loja, OS, SSL, habilitação, governança, identidade visual.
+4. **Reorg de páginas**, com o `auth-bootstrap.js` no mesmo commit. As 26
+   deleções já estão no índice; sem a tabela `PAGINAS_MOVIDAS` junto, o HEAD
+   fica com as páginas apagadas e sem o 301 que as substitui.
+5. **Core/infra** por último, conferido contra o fecho de requires do HEAD e
+   não o da árvore.
+
+O mapa de frentes do CLAUDE.md não serve de guia para esta leva. Ele é de
+11/08 e foi consumido pelo commit 181c65f, de 24/08, que fechou aquelas 14
+frentes. O que está na árvore hoje é trabalho posterior.
+
+O que vem descrito abaixo é o trabalho desta sessão, e entra na frente de SSL.
+
+### Compra de certificado SSL na NicSRS: destravada
+
+A compra de OV/EV estava recusada havia dois dias, com mensagens que apontavam
+para o lado errado. Eram **duas causas**, a segunda escondida atrás da primeira.
+
+- **Contato do certificado SUBSTITUÍA o do tenant**, em vez de completá-lo. O
+  contato gravado tem a pessoa (nome, e-mail, cargo); o do tenant é o único com
+  organização e endereço. Em DV nunca apareceu — DV não valida organização — e
+  todo OV anterior tinha o campo de contato vazio. O primeiro certificado a
+  preenchê-lo foi o primeiro a falhar. Agora `mesclarContato` combina os dois,
+  campo a campo, e campo em branco não sobrescreve.
+- **`organizationInfo` é obrigatório em OV/EV e usa nomes PRÓPRIOS**:
+  `organizationName`, `organizationAddress`, `organizationCity`,
+  `organizationCountry`, `organizationPostCode`, `organizationMobile`. Nenhum
+  coincide com os dos contatos (`organation`, `city`, `state`), e a
+  documentação não os lista. **Como a lista foi obtida**: mandando um objeto
+  qualquer não-vazio (`{x:1}`), a API troca o "organizationInfo is required"
+  genérico por uma recusa que NOMEIA cada campo que falta; com `{}` ela trata
+  como ausente e não diz nada. O bloco agora é montado do cadastro do cliente.
+- Saiu junto o `Object.assign(params, org)`, que espalhava a organização na
+  RAIZ do payload: entrou em 181c65f (24/08) e **nunca funcionou**, porque de
+  lá até aqui nenhum certificado com cliente vinculado foi comprado.
+- **Guarda `erroDadosOv`**, nos TRÊS caminhos que chegam ao `/ssl/place`: num
+  OV/EV com contato ou organização incompletos, recusa antes de gastar a
+  chamada, dizendo o papel e o campo em português. DV passa livre — barrá-lo
+  bloquearia compra que a NicSRS aceita.
+
+Comprovado de ponta a ponta: o `place` devolveu `code: 1` e emitiu. Duas
+hipóteses foram testadas contra a API e **refutadas** — mandar
+`organizationInfo: {}` (bloco vazio é bloco ausente para ela) e preencher o
+telefone do cliente. Ficam registradas no cabeçalho de
+`scripts/test-ssl-contato-ov.js` para não serem tentadas de novo.
+
+**O `-2` do `/ssl/place` é saldo insuficiente.** Mesmo payload, mesmo refId:
+com saldo zero devolve `-2` sem detalhe; com US$ 1,86 devolve `code: 1`. A
+compra pela API depende de saldo pré-pago — pagar por PayPal/cartão sem saldo
+existe no console, não neste canal.
+
+### Modo de compra: três viraram um
+
+O seletor entre `api`, `console` e `painel` saiu da tela de Integração. Só a
+API de revenda funciona nesta conta: o `console` dependia de um refresh_token
+que expira em ~13 h e cuja renovação exige login humano com captcha (o guardado
+estava morto havia 15 dias), e o `painel` não comprava nada. `modoCompra()`
+passou a devolver `'api'` fixo; a chave `nicsrs_modo_compra` deixou de ser lida
+e continua inofensiva no banco. `comprarPeloConsole` e
+`registrarComprasNoPainel` seguem no módulo, hoje sem chamador.
+
+### Tela de certificados
+
+- **`editar()` trocava o produto do certificado, em silêncio.** O select ficava
+  no primeiro item do catálogo, então salvar qualquer edição gravava outro
+  produto — o #61 (`certum-ov-wildcard-ssl`, US$ 61,60) abria como
+  `certum-dv-multidomain-ssl`. Só apareceria na recusa da CA ou na fatura. O
+  custo gravado também é restaurado, porque a troca de produto repõe o preço de
+  tabela e numa edição vale o que foi pago.
+- **O botão Cancelar existia e era invisível**: a coluna de ações tinha 134px
+  para 170px de conteúdo e cortava tudo além do primeiro botão. Agora a célula
+  quebra em linhas.
+- **Filtros no catálogo** (marca, validação, tipo de domínio) — são 69 produtos
+  de 5 CAs numa lista só, e dois vizinhos da mesma marca podem ser um DV de
+  US$ 5 e um OV de US$ 25. Domínio curinga liga o filtro de curinga sozinho.
+- **O modal deixou de pedir o que a compra não usa**: `CSR *` virou opcional
+  explícito (sem ele a NicSRS gera o par — comprovado), e contatos/organização
+  ficam recolhidos, abrindo sozinhos em OV/EV.
+- **Relatório em .xlsx e .pdf** com os filtros da tela. Data vai como DATA no
+  Excel, não como o texto que a tela mostra: entregar um `Date` à lib `xlsx`
+  produzia serial fracionário (ela compensa fuso contra 30/12/1899, quando
+  America/Sao_Paulo ainda está em LMT) e o Excel truncava — toda data aparecia
+  um dia antes.
+
+### Contrato → pedido de compra
+
+O botão gerava um pedido a cada clique, sem olhar o que já existia; no tenant
+1bit um item chegou a ter três pedidos, dois cancelados à mão. Agora o servidor
+responde 409 com a lista do que já existe e a tela pergunta. **Não bloqueia**:
+item anual em contrato de vários anos precisa de uma compra por ciclo. Pedido
+`recebido` também dispara o aviso — a duplicata real nasceu um dia depois de o
+anterior já constar recebido.
+
+### Verify
+
+Três suítes novas: **20** (relatório SSL), **28** (pedido duplicado) e **29**
+(contato OV/EV). As massas são sintéticas, com datas relativas a hoje — teste
+que mede produção reprova no primeiro uso legítimo do sistema.
+
 ## 2026-08-28
 
 Nasceu um módulo de **Produção** (ordem de produção para manufatura discreta) e,

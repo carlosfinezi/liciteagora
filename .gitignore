@@ -107,6 +107,11 @@ mrb-downloads
 .govbr-chrome-profile/
 .govbr-clean-profile/
 .pocprofile/
+# Estes dois não começam com ponto e por isso escaparam dos padrões acima.
+# São perfis de Chrome completos (57 MB somados, root-owned), com cookies de
+# sessão do portal da CND federal.
+cndfed-perfil/
+cndfed-perfil-socks/
 # --- build artifacts Electron ---
 electron-standalone/dist*/
 # --- extensão NopeCHA: chave privada e pacote ---
