@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Farmácia · Medicamentos · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Medicamentos</h1>
+      <small>Cadastro farmacêutico do catálogo. O que vem da CMED é atualizado a cada importação; tarja da 344 e antimicrobiano são curadoria da farmácia e não são sobrescritos.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="q" placeholder="Buscar por descrição, princípio ativo, EAN ou registro" style="flex:1;min-width:280px;" onkeydown="if(event.key==='Enter')carregar()">
+    <select id="fTarja">
+      <option value="">Todas as tarjas</option>
+      <option value="livre">Livre</option>
+      <option value="vermelha">Vermelha</option>
+      <option value="vermelha_retencao">Vermelha sob retenção</option>
+      <option value="preta">Preta</option>
+    </select>
+    <label class="muted" style="display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="fControlados"> só controlados
+    </label>
+    <label class="muted" style="display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="fSemRegistro"> sem registro ANVISA
+    </label>
+    <button class="btn btn-primary btn-sm" onclick="carregar()">Buscar</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Produto</th><th>Princípio ativo</th><th>Registro</th><th>Tarja</th>
+        <th>344</th><th>Lista</th><th style="text-align:right;">PMC</th><th style="width:70px;"></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ===== Edição ===== -->
+  <div class="modal" id="mdEdit" style="display:none;">
+    <div class="modal-content">
+      <h3 id="edTitulo">Medicamento</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Registro ANVISA</label>
+          <input type="text" id="edRegistro">
+        </div>
+        <div class="form-group">
+          <label>Isento de registro</label>
+          <select id="edIsento" onchange="toggleIsento()">
+            <option value="0">Não</option>
+            <option value="1">Sim</option>
+          </select>
+        </div>
+        <div class="form-group" id="grpMotivo" style="display:none;">
+          <label>Motivo da isenção (nº da decisão)</label>
+          <input type="text" id="edMotivo">
+          <small class="muted">Obrigatório quando isento — a NF-e recusa "ISENTO" sem motivo.</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tarja</label>
+          <select id="edTarja">
+            <option value="livre">Livre</option>
+            <option value="vermelha">Vermelha</option>
+            <option value="vermelha_retencao">Vermelha sob retenção</option>
+            <option value="preta">Preta</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Lista da Portaria 344/98</label>
+          <select id="edLista344">
+            <option value="">— não controlado —</option>
+          </select>
+          <small class="muted">Curadoria da farmácia: a CMED não publica isto.</small>
+        </div>
+        <div class="form-group">
+          <label>Antimicrobiano (RDC 20/2011)</label>
+          <select id="edAnti">
+            <option value="0">Não</option>
+            <option value="1">Sim</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>PMC (teto de venda)</label>
+          <input type="number" id="edPmc" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>PF (teto de compra)</label>
+          <input type="number" id="edPf" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>Regime de preço</label>
+          <select id="edRegime">
+            <option value="regulado">Regulado</option>
+            <option value="liberado">Liberado</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="fecharEdit()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarEdit()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('farmacia-medicamentos');</script>
+<script>
+const LISTAS_344 = ['A1','A2','A3','B1','B2','C1','C2','C3','C4','C5','D1','D2'];
+const ROTULO_TARJA = { livre:'Livre', vermelha:'Vermelha', vermelha_retencao:'Vermelha · retenção', preta:'Preta' };
+
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+function fmt(v) { return (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success:false, error:'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+document.getElementById('edLista344').innerHTML =
+  '<option value="">— não controlado —</option>' + LISTAS_344.map(l => `<option value="${l}">${l}</option>`).join('');
+
+async function carregar() {
+  const p = new URLSearchParams();
+  const q = document.getElementById('q').value.trim();
+  if (q) p.set('q', q);
+  const tarja = document.getElementById('fTarja').value;
+  if (tarja) p.set('tarja', tarja);
+  if (document.getElementById('fControlados').checked) p.set('controlados', '1');
+  if (document.getElementById('fSemRegistro').checked) p.set('semRegistro', '1');
+  try {
+    const d = await api('/api/farmacia/medicamentos?' + p.toString());
+    document.getElementById('tb').innerHTML = d.items.length ? d.items.map(i => `<tr>
+      <td><strong>${esc(i.descricao)}</strong><br><small class="muted">${esc(i.sku)}${i.ean ? ' · ' + esc(i.ean) : ''}</small></td>
+      <td><small>${esc(i.substancia || '—')}</small></td>
+      <td><small>${i.isentoRegistro ? 'ISENTO' : esc(i.registroAnvisa || '—')}</small></td>
+      <td>${esc(ROTULO_TARJA[i.tarja] || i.tarja || '—')}</td>
+      <td>${esc(i.listaPortaria344 || (i.antimicrobiano ? 'antimicrob.' : '—'))}</td>
+      <td><small>${esc(i.listaCmed || '—')}</small></td>
+      <td style="text-align:right;">${fmt(i.pmc)}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="abrirEdit(${i.produtoId})">Editar</button></td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum medicamento cadastrado. Importe a lista CMED.</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+let editando = null;
+async function abrirEdit(produtoId) {
+  try {
+    const d = await api('/api/farmacia/medicamentos/' + produtoId);
+    const i = d.item; editando = produtoId;
+    document.getElementById('edTitulo').textContent = i.descricao;
+    document.getElementById('edRegistro').value = i.registroAnvisa || '';
+    document.getElementById('edIsento').value = String(i.isentoRegistro || 0);
+    document.getElementById('edMotivo').value = i.motivoIsencao || '';
+    document.getElementById('edTarja').value = i.tarja || 'livre';
+    document.getElementById('edLista344').value = i.listaPortaria344 || '';
+    document.getElementById('edAnti').value = String(i.antimicrobiano || 0);
+    document.getElementById('edPmc').value = i.pmc != null ? i.pmc : '';
+    document.getElementById('edPf').value = i.pf != null ? i.pf : '';
+    document.getElementById('edRegime').value = i.regimePreco || 'regulado';
+    toggleIsento();
+    document.getElementById('mdEdit').style.display = 'flex';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+function toggleIsento() {
+  document.getElementById('grpMotivo').style.display =
+    document.getElementById('edIsento').value === '1' ? '' : 'none';
+}
+function fecharEdit() { document.getElementById('mdEdit').style.display = 'none'; editando = null; }
+async function salvarEdit() {
+  try {
+    await api('/api/farmacia/medicamentos/' + editando, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        registroAnvisa: document.getElementById('edRegistro').value.trim(),
+        isentoRegistro: document.getElementById('edIsento').value,
+        motivoIsencao: document.getElementById('edMotivo').value.trim(),
+        tarja: document.getElementById('edTarja').value,
+        listaPortaria344: document.getElementById('edLista344').value,
+        antimicrobiano: document.getElementById('edAnti').value,
+        pmc: document.getElementById('edPmc').value || null,
+        pf: document.getElementById('edPf').value || null,
+        regimePreco: document.getElementById('edRegime').value,
+      }),
+    });
+    fecharEdit(); showAlert('Medicamento atualizado'); carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+carregar();
+</script>
+</body></html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Farmácia · Configuração · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Farmácia — Configuração</h1>
+      <small>Preço regulado, validade e escrituração. A coluna de PMC é a do estado da farmácia — é dela que sai o teto de venda.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card">
+    <h3>Preço regulado (CMED)</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>UF de referência</label>
+        <input type="text" id="cUf" maxlength="2" style="text-transform:uppercase;">
+        <small class="muted">Estado da farmácia. Define qual PMC vale.</small>
+      </div>
+      <div class="form-group">
+        <label>Coluna de PMC (alíquota de ICMS)</label>
+        <select id="cColunaPmc"></select>
+        <small class="muted">A CMED publica um PMC por alíquota. O Pará usa 19%.</small>
+      </div>
+      <div class="form-group">
+        <label>Travar venda acima do PMC</label>
+        <select id="cTravarPmc">
+          <option value="1">Sim — recusa a venda</option>
+          <option value="0">Não — apenas avisa</option>
+        </select>
+        <small class="muted">Só vale para medicamento de regime regulado.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Dispensação</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Bloquear saída de lote vencido</label>
+        <select id="cBloquearVencido">
+          <option value="1">Sim</option>
+          <option value="0">Não</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Exigir receita para controlado/antimicrobiano</label>
+        <select id="cExigirReceita">
+          <option value="1">Sim</option>
+          <option value="0">Não</option>
+        </select>
+        <small class="muted">Desligar não torna a venda legal — só tira a trava do sistema.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>SNGPC</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Ambiente</label>
+        <select id="cAmbiente">
+          <option value="homologacao">Homologação</option>
+          <option value="producao">Produção</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>CNPJ da farmácia no SNGPC</label>
+        <input type="text" id="cCnpj" placeholder="00.000.000/0000-00">
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-actions" style="justify-content:flex-start;">
+    <button class="btn btn-primary" onclick="salvarConfig()">Salvar configuração</button>
+  </div>
+
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('farmacia-config');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+async function carregarConfig() {
+  try {
+    const d = await api('/api/farmacia/config');
+    const sel = document.getElementById('cColunaPmc');
+    sel.innerHTML = (d.colunasPmc || []).map(c => `<option value="${esc(c)}">${esc(c)}%</option>`).join('');
+    document.getElementById('cUf').value = d.config.farmacia_uf || 'PA';
+    sel.value = d.config.farmacia_coluna_pmc || '19';
+    document.getElementById('cTravarPmc').value = d.config.farmacia_travar_pmc || '1';
+    document.getElementById('cBloquearVencido').value = d.config.farmacia_bloquear_vencido || '1';
+    document.getElementById('cExigirReceita').value = d.config.farmacia_exigir_receita || '1';
+    document.getElementById('cAmbiente').value = d.config.farmacia_sngpc_ambiente || 'homologacao';
+    document.getElementById('cCnpj').value = d.config.farmacia_sngpc_cnpj || '';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvarConfig() {
+  try {
+    await api('/api/farmacia/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        farmacia_uf: document.getElementById('cUf').value.trim().toUpperCase(),
+        farmacia_coluna_pmc: document.getElementById('cColunaPmc').value,
+        farmacia_travar_pmc: document.getElementById('cTravarPmc').value,
+        farmacia_bloquear_vencido: document.getElementById('cBloquearVencido').value,
+        farmacia_exigir_receita: document.getElementById('cExigirReceita').value,
+        farmacia_sngpc_ambiente: document.getElementById('cAmbiente').value,
+        farmacia_sngpc_cnpj: document.getElementById('cCnpj').value.trim(),
+      }),
+    });
+    showAlert('Configuração salva');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+carregarConfig();
+</script>
+</body></html>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Farmácia · Receitas · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Receitas</h1>
+      <small>Prescritor, paciente e comprador. Não é zelo de cadastro: são exatamente os campos que o SNGPC cobra em cada saída de controlado.</small>
+    </div>
+    <button class="btn btn-primary" onclick="abrirNova()">+ Nova receita</button>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="q" placeholder="Buscar por paciente, prescritor ou número" style="flex:1;min-width:260px;" onkeydown="if(event.key==='Enter')carregar()">
+    <select id="fTipo">
+      <option value="">Todos os tipos</option>
+      <option value="notificacao_a">Notificação A (amarela)</option>
+      <option value="notificacao_b">Notificação B (azul)</option>
+      <option value="controle_especial">Controle Especial (branca, 2 vias)</option>
+      <option value="antimicrobiano">Antimicrobiano</option>
+      <option value="comum">Comum</option>
+    </select>
+    <button class="btn btn-primary btn-sm" onclick="carregar()">Buscar</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Emissão</th><th>Tipo</th><th>Número</th><th>Paciente</th>
+        <th>Prescritor</th><th>Comprador</th><th style="text-align:right;">Itens</th><th style="width:70px;"></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ===== Nova receita ===== -->
+  <div class="modal" id="mdNova" style="display:none;">
+    <div class="modal-content" style="max-width:820px;">
+      <h3>Nova receita</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="nTipo" onchange="dicaValidade()">
+            <option value="controle_especial">Receituário de Controle Especial (2 vias)</option>
+            <option value="notificacao_b">Notificação de Receita B (azul)</option>
+            <option value="notificacao_a">Notificação de Receita A (amarela)</option>
+            <option value="antimicrobiano">Receita de antimicrobiano</option>
+            <option value="comum">Receita comum</option>
+          </select>
+          <small class="muted" id="dicaVal"></small>
+        </div>
+        <div class="form-group">
+          <label>Número / notificação</label>
+          <input type="text" id="nNumero">
+        </div>
+        <div class="form-group">
+          <label>Data de emissão</label>
+          <input type="date" id="nData">
+        </div>
+        <div class="form-group">
+          <label>UF de emissão</label>
+          <input type="text" id="nUf" maxlength="2" style="text-transform:uppercase;">
+        </div>
+      </div>
+
+      <h4>Prescritor</h4>
+      <div class="form-row">
+        <div class="form-group"><label>Nome</label><input type="text" id="nPresNome"></div>
+        <div class="form-group">
+          <label>Conselho</label>
+          <select id="nPresConselho">
+            <option>CRM</option><option>CRO</option><option>CRMV</option><option>COREN</option>
+          </select>
+        </div>
+        <div class="form-group"><label>UF do conselho</label><input type="text" id="nPresUf" maxlength="2" style="text-transform:uppercase;"></div>
+        <div class="form-group"><label>Número</label><input type="text" id="nPresNumero"></div>
+      </div>
+
+      <h4>Paciente</h4>
+      <div class="form-row">
+        <div class="form-group"><label>Nome</label><input type="text" id="nPacNome"></div>
+        <div class="form-group"><label>Documento</label><input type="text" id="nPacDoc"></div>
+      </div>
+
+      <h4>Comprador</h4>
+      <div class="form-row">
+        <div class="form-group"><label>Nome</label><input type="text" id="nCompNome"></div>
+        <div class="form-group"><label>Documento</label><input type="text" id="nCompDoc"></div>
+        <div class="form-group"><label>Endereço</label><input type="text" id="nCompEnd"></div>
+      </div>
+
+      <h4>Itens prescritos</h4>
+      <div class="toolbar">
+        <input type="text" id="iBusca" placeholder="Buscar medicamento" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')buscarProduto()">
+        <input type="number" id="iQtd" placeholder="Qtd" step="0.01" value="1" style="width:90px;">
+        <input type="text" id="iPosologia" placeholder="Posologia" style="width:180px;">
+        <button class="btn btn-primary btn-sm" onclick="buscarProduto()">Incluir</button>
+      </div>
+      <div id="sugestoes" class="muted" style="font-size:13px;"></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Medicamento</th><th style="text-align:right;">Qtd</th><th>Posologia</th><th style="width:50px;"></th></tr></thead>
+          <tbody id="tbItens"><tr><td colspan="4" class="empty">Nenhum item</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="fecharNova()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarNova()">Salvar receita</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Detalhe ===== -->
+  <div class="modal" id="mdDet" style="display:none;">
+    <div class="modal-content">
+      <h3 id="detTitulo">Receita</h3>
+      <div id="detCorpo"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="document.getElementById('mdDet').style.display='none'">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('farmacia-receitas');</script>
+<script>
+const ROTULO_TIPO = {
+  notificacao_a: 'Notificação A', notificacao_b: 'Notificação B',
+  controle_especial: 'Controle Especial', antimicrobiano: 'Antimicrobiano', comum: 'Comum',
+};
+const VALIDADE = {
+  notificacao_a: '30 dias', notificacao_b: '30 dias (só na UF de emissão)',
+  controle_especial: '30 dias', antimicrobiano: '10 dias', comum: 'sem prazo neste controle',
+};
+
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success:false, error:'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+function dicaValidade() {
+  document.getElementById('dicaVal').textContent = 'Validade: ' + (VALIDADE[document.getElementById('nTipo').value] || '');
+}
+
+async function carregar() {
+  const p = new URLSearchParams();
+  const q = document.getElementById('q').value.trim();
+  if (q) p.set('q', q);
+  const tipo = document.getElementById('fTipo').value;
+  if (tipo) p.set('tipo', tipo);
+  try {
+    const d = await api('/api/farmacia/receitas?' + p.toString());
+    document.getElementById('tb').innerHTML = d.items.length ? d.items.map(r => `<tr>
+      <td>${esc(r.dataEmissao)}</td>
+      <td>${esc(ROTULO_TIPO[r.tipo] || r.tipo)}</td>
+      <td>${esc(r.numero || '—')}</td>
+      <td>${esc(r.pacienteNome || '—')}</td>
+      <td><small>${esc(r.prescritorNome || '—')}${r.prescritorConselho ? ' · ' + esc(r.prescritorConselho) + '/' + esc(r.prescritorConselhoUf || '') + ' ' + esc(r.prescritorNumero || '') : ''}</small></td>
+      <td><small>${esc(r.compradorNome || '—')}</small></td>
+      <td style="text-align:right;">${r.qtdItens}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="verDetalhe(${r.id})">Ver</button></td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma receita registrada</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function verDetalhe(id) {
+  try {
+    const d = await api('/api/farmacia/receitas/' + id);
+    document.getElementById('detTitulo').textContent =
+      (ROTULO_TIPO[d.receita.tipo] || d.receita.tipo) + ' · ' + (d.receita.numero || '#' + d.receita.id);
+    document.getElementById('detCorpo').innerHTML = `
+      <p><strong>Emissão:</strong> ${esc(d.receita.dataEmissao)} · <strong>UF:</strong> ${esc(d.receita.uf || '—')}</p>
+      <p><strong>Prescritor:</strong> ${esc(d.receita.prescritorNome || '—')}
+         (${esc(d.receita.prescritorConselho || '')}/${esc(d.receita.prescritorConselhoUf || '')} ${esc(d.receita.prescritorNumero || '')})</p>
+      <p><strong>Paciente:</strong> ${esc(d.receita.pacienteNome || '—')}</p>
+      <p><strong>Comprador:</strong> ${esc(d.receita.compradorNome || '—')} · ${esc(d.receita.compradorDocumento || '—')}</p>
+      <table><thead><tr><th>Item</th><th style="text-align:right;">Prescrito</th><th style="text-align:right;">Dispensado</th><th style="text-align:right;">Saldo</th></tr></thead>
+      <tbody>${d.itens.map(i => `<tr>
+        <td>${esc(i.produtoDescricao || i.descricao || '—')}</td>
+        <td style="text-align:right;">${i.prescrito != null ? i.prescrito : i.quantidade}</td>
+        <td style="text-align:right;">${i.usado != null ? i.usado : 0}</td>
+        <td style="text-align:right;"><strong>${i.saldo != null ? i.saldo : '—'}</strong></td>
+      </tr>`).join('')}</tbody></table>`;
+    document.getElementById('mdDet').style.display = 'flex';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+let itensNova = [];
+function abrirNova() {
+  itensNova = [];
+  document.getElementById('nData').value = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
+  dicaValidade(); renderItens();
+  document.getElementById('mdNova').style.display = 'flex';
+}
+function fecharNova() { document.getElementById('mdNova').style.display = 'none'; }
+
+async function buscarProduto() {
+  const q = document.getElementById('iBusca').value.trim();
+  if (!q) return;
+  try {
+    const d = await api('/api/farmacia/medicamentos?q=' + encodeURIComponent(q));
+    if (!d.items.length) return showAlert('Nenhum medicamento encontrado', 'error');
+    document.getElementById('sugestoes').innerHTML = d.items.slice(0, 6).map(i =>
+      `<a href="#" onclick="incluirItem(${i.produtoId}, '${esc(i.descricao).replace(/'/g, '')}');return false;">${esc(i.descricao)}</a>`
+    ).join(' · ');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+function incluirItem(produtoId, descricao) {
+  itensNova.push({
+    produtoId, descricao,
+    quantidade: Number(document.getElementById('iQtd').value) || 1,
+    posologia: document.getElementById('iPosologia').value.trim(),
+  });
+  document.getElementById('sugestoes').innerHTML = '';
+  document.getElementById('iBusca').value = '';
+  document.getElementById('iPosologia').value = '';
+  renderItens();
+}
+function removerItem(i) { itensNova.splice(i, 1); renderItens(); }
+function renderItens() {
+  document.getElementById('tbItens').innerHTML = itensNova.length ? itensNova.map((i, ix) => `<tr>
+    <td>${esc(i.descricao)}</td>
+    <td style="text-align:right;">${i.quantidade}</td>
+    <td><small>${esc(i.posologia || '—')}</small></td>
+    <td><button class="btn btn-ghost btn-sm" onclick="removerItem(${ix})">×</button></td>
+  </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhum item</td></tr>';
+}
+
+async function salvarNova() {
+  try {
+    const d = await api('/api/farmacia/receitas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tipo: document.getElementById('nTipo').value,
+        numero: document.getElementById('nNumero').value.trim(),
+        dataEmissao: document.getElementById('nData').value,
+        uf: document.getElementById('nUf').value.trim().toUpperCase(),
+        prescritorNome: document.getElementById('nPresNome').value.trim(),
+        prescritorConselho: document.getElementById('nPresConselho').value,
+        prescritorConselhoUf: document.getElementById('nPresUf').value.trim().toUpperCase(),
+        prescritorNumero: document.getElementById('nPresNumero').value.trim(),
+        pacienteNome: document.getElementById('nPacNome').value.trim(),
+        pacienteDocumento: document.getElementById('nPacDoc').value.trim(),
+        compradorNome: document.getElementById('nCompNome').value.trim(),
+        compradorDocumento: document.getElementById('nCompDoc').value.trim(),
+        compradorEndereco: document.getElementById('nCompEnd').value.trim(),
+        itens: itensNova,
+      }),
+    });
+    fecharNova(); showAlert('Receita #' + d.id + ' registrada'); carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+carregar();
+</script>
+</body></html>
