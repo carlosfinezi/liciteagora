@@ -152,6 +152,9 @@ function movimentoConta(db, contaId, inicio, fim) {
 function registrarRotasContabilidade(app, db) {
   migrarContabilidadeDB(db);
 
+  // O gate de /api/contabilidade vive em feature-gate.js, registrado pelo
+  // route-registry antes de qualquer rota — junto dos demais módulos pagos.
+
   // ==================== PLANO DE CONTAS ====================
 
   app.get('/api/contabilidade/contas', (req, res) => {

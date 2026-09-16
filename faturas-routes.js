@@ -104,6 +104,20 @@ function migrarFaturas(db) {
   alterSafe(db, "ALTER TABLE faturas ADD COLUMN dataExclusao TEXT");
   alterSafe(db, "ALTER TABLE faturas ADD COLUMN motivoExclusao TEXT");
   alterSafe(db, "ALTER TABLE faturas ADD COLUMN observacaoInterna TEXT");
+
+  // NF-e de devolução (2026-04-23): faturas podem ser "virtuais" de devolução —
+  // vinculadas a `devolucoes`, com finNFe=4 e tpNF=0. `refNFeOriginal` guarda a
+  // chave da NF-e da venda original (44 chars) para o grupo NFref.
+  //
+  // Estas três MORAVAM em db-schema.js (2026-09-11, relatório 15). Lá o ALTER
+  // rodava ANTES de `faturas` existir — a tabela nasce aqui —, o `alterSafe`
+  // engolia o "no such table" e a coluna nunca era criada. Depois
+  // `tipos-operacao-routes.js:245` usava `isDevolucao` e lançava, abortando a
+  // cadeia de registro inteira. Mantê-las junto de quem cria a tabela é o que
+  // impede a ordem de importar.
+  alterSafe(db, 'ALTER TABLE faturas ADD COLUMN isDevolucao INTEGER DEFAULT 0');
+  alterSafe(db, 'ALTER TABLE faturas ADD COLUMN devolucaoId INTEGER');
+  alterSafe(db, 'ALTER TABLE faturas ADD COLUMN refNFeOriginal TEXT');
   alterSafe(db, "CREATE INDEX IF NOT EXISTS idx_faturas_excluida ON faturas(excluida)");
 }
 
@@ -173,9 +187,37 @@ function registrarRotasFaturas(app, db) {
       if (!itensPedido.length) return res.status(400).json({ success: false, error: 'Pedido sem itens' });
 
       const b = req.body || {};
-      const valorDesconto = Number(b.valorDesconto) || 0;
+
+      /**
+       * Desconto da fatura — herdado do pedido desde 2026-09-10 (Fase 1).
+       *
+       * Antes, `valorDesconto` só existia no corpo: o desconto combinado no
+       * pedido simplesmente NÃO chegava à fatura, e o cliente era faturado pelo
+       * valor cheio. Agora o do pedido é o padrão.
+       *
+       * O informado SUBSTITUI, nunca SOMA. Somar seria o pior dos mundos — quem
+       * digita o mesmo desconto de novo (o hábito de hoje) veria o abatimento
+       * dobrar em silêncio. Por isso a distinção é por PRESENÇA do campo, não
+       * por valor: mandar `valorDesconto: 0` é dizer "faturar sem desconto", e
+       * omitir é dizer "use o do pedido".
+       *
+       * `descontoDoPedido` é tolerante: em tenant que ainda não recebeu a
+       * migration da Fase 1 ele devolve 0 e o comportamento é exatamente o de
+       * antes. É o que permite este código conviver com rollout parcial.
+       */
+      const { descontoDoPedido } = require('./pedido-desconto');
+      const descontoInformado = b.valorDesconto !== undefined && b.valorDesconto !== null && b.valorDesconto !== '';
+      const descontoHerdado = descontoInformado ? 0 : descontoDoPedido(db, pedido.id);
+      const valorDesconto = descontoInformado ? (Number(b.valorDesconto) || 0) : descontoHerdado;
+      if (valorDesconto < 0) {
+        return res.status(400).json({ success: false, error: 'Desconto da fatura nao pode ser negativo' });
+      }
       const valorFrete = Number(pedido.valorFrete) || 0;
       const valorBruto = itensPedido.reduce((s, it) => s + Number(it.valorTotal), 0);
+      if (valorDesconto > valorBruto + valorFrete) {
+        return res.status(400).json({ success: false,
+          error: `Desconto (${valorDesconto.toFixed(2)}) maior que o valor da fatura (${(valorBruto + valorFrete).toFixed(2)})` });
+      }
       const valorTotal = valorBruto + valorFrete - valorDesconto;
       if (valorTotal <= 0) return res.status(400).json({ success: false, error: 'Valor total da fatura deve ser > 0' });
 
@@ -427,6 +469,32 @@ function registrarRotasFaturas(app, db) {
       const fatura = carregarFaturaCompleta(db, req.params.id);
       if (!fatura) return res.status(404).json({ success: false, error: 'Fatura nao encontrada' });
       res.json({ success: true, fatura });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * Lista de separação a partir da NOTA FISCAL.
+   *
+   * A fatura não tem itens de separação próprios — ela nasce de um pedido. Esta
+   * rota resolve o pedido de origem e delega, para que a lista seja EXATAMENTE
+   * a mesma vista pelo pedido. Duplicar o gerador aqui criaria duas listas que
+   * um dia divergiriam.
+   *
+   * Fatura sem pedido (avulsa, devolução, OS) não tem o que separar — responde
+   * 400 com o motivo, em vez de uma folha vazia.
+   */
+  app.get('/api/faturas/:id/separacao', (req, res) => {
+    try {
+      const f = db.prepare('SELECT id, pedidoId FROM faturas WHERE id = ?').get(req.params.id);
+      if (!f) return res.status(404).json({ success: false, error: 'Nota nao encontrada' });
+      if (!f.pedidoId) {
+        return res.status(400).json({ success: false,
+          error: 'Esta nota não veio de um pedido — não há lista de separação.' });
+      }
+      const q = String(req.query.download || '') === '1' ? '?download=1' : '';
+      res.redirect(302, `/api/pedidos/${f.pedidoId}/separacao${q}`);
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }

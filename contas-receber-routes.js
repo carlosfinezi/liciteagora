@@ -46,24 +46,54 @@ function dataBrasilia() {
  * Cria registro em contas_receber_pagamentos, lança movimentacao_financeira (tipo=entrada)
  * e atualiza status da CR.
  */
-// Reflete os recebimentos das CRs de uma fatura no pedido de origem
-// (pedidos.valorPago / statusPagamento). Agrega TODAS as parcelas da fatura —
-// não só a primeira — e é idempotente (recalcula do zero a cada chamada).
+/**
+ * Reflete os recebimentos das CRs no pedido de origem
+ * (`pedidos.valorPago` / `pedidos.statusPagamento`).
+ *
+ * Uma CR chega ao pedido por DOIS vínculos, e até 2026-09-10 só um deles era
+ * enxergado aqui:
+ *
+ *   1. `contas_a_receber.faturaId` → `faturas.pedidoId` — venda faturada.
+ *   2. `contas_a_receber.pedidoId` — vínculo direto, usado pela loja virtual
+ *      (`loja-routes.js:155`) e pelo faturamento de OS (`os-routes.js`).
+ *
+ * Só o (1) era tratado, e o `return` no `!cr.faturaId` abandonava o (2) na
+ * primeira linha. O efeito, medido nos bancos em 2026-09-10: no tenant
+ * `josecarloscostafilho`, 4 CRs pagas (R$ 2.500, 3.036, 1.500 e 3.000) com os
+ * pedidos correspondentes em `valorPago = 0` e `statusPagamento = 'pendente'`.
+ * O financeiro recebia certo; o pedido não sabia.
+ *
+ * A soma agrega TODAS as CRs do pedido, pelos dois vínculos, numa consulta só —
+ * um mesmo `cr.id` não é contado duas vezes por satisfazer as duas condições.
+ * É o caso real do tenant `raeldouglas`, pedido 3: R$ 120 pela fatura + R$ 160
+ * direto = R$ 280, que é o total do pedido.
+ *
+ * Recalcula do zero a cada chamada, então é idempotente: reprocessar a mesma
+ * baixa não soma duas vezes, e estorno/cancelamento/reabertura de CR caem no
+ * mesmo caminho (os chamadores já a invocam nesses pontos).
+ */
 function sincronizarPagamentoPedido(db, contaReceberId) {
   try {
-    const cr = db.prepare('SELECT faturaId FROM contas_a_receber WHERE id = ?').get(contaReceberId);
-    if (!cr || !cr.faturaId) return;
-    const fat = db.prepare('SELECT pedidoId FROM faturas WHERE id = ?').get(cr.faturaId);
-    if (!fat || !fat.pedidoId) return;
-    const ped = db.prepare('SELECT valorTotal, status FROM pedidos WHERE id = ?').get(fat.pedidoId);
+    const cr = db.prepare('SELECT pedidoId, faturaId FROM contas_a_receber WHERE id = ?').get(contaReceberId);
+    if (!cr) return;
+    let pedidoId = cr.pedidoId || null;
+    if (!pedidoId && cr.faturaId) {
+      const fat = db.prepare('SELECT pedidoId FROM faturas WHERE id = ?').get(cr.faturaId);
+      pedidoId = (fat && fat.pedidoId) || null;
+    }
+    if (!pedidoId) return;
+    const ped = db.prepare('SELECT valorTotal, status FROM pedidos WHERE id = ?').get(pedidoId);
     if (!ped || ped.status === 'cancelado') return;
     const pago = Number((db.prepare(`SELECT COALESCE(SUM(COALESCE(valorPago, 0)), 0) AS t
-      FROM contas_a_receber WHERE faturaId = ? AND status != 'cancelada'`).get(cr.faturaId).t).toFixed(2));
+      FROM contas_a_receber
+      WHERE status != 'cancelada'
+        AND (pedidoId = ? OR faturaId IN (SELECT id FROM faturas WHERE pedidoId = ?))`)
+      .get(pedidoId, pedidoId).t).toFixed(2));
     let statusPag = 'pendente';
     if ((ped.valorTotal || 0) > 0 && pago >= ped.valorTotal - 0.01) statusPag = 'pago';
     else if (pago > 0) statusPag = 'parcial';
     db.prepare(`UPDATE pedidos SET valorPago = ?, statusPagamento = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-      .run(pago, statusPag, fat.pedidoId);
+      .run(pago, statusPag, pedidoId);
   } catch (e) { console.warn('[CR→pedido] sync falhou:', e.message); }
 }
 

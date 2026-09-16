@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Regras de Conciliação · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -50,6 +51,15 @@
         <th>Status</th><th></th></tr></thead>
       <tbody id="tbRegras"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
     </table>
+  </div>
+
+  <div class="card card-info" style="margin-top:14px;max-width:720px;font-size:0.9em;">
+    Tarifa de pacote, cesta de serviços, manutenção de conta e IOF chegam pelo extrato e nunca
+    viram conta a pagar — só entram no DRE se uma regra as classificar. O botão cria esse conjunto
+    apontando para a conta de despesa financeira, com teto de R$ 500 para não pegar transferência.
+    <div class="toolbar" style="margin-top:10px;">
+      <button class="btn btn-secondary btn-sm" onclick="criarRegrasTarifa()">Criar regras de tarifas bancárias</button>
+    </div>
   </div>
 
   <div class="card card-info" style="margin-top:14px;max-width:720px;font-size:0.9em;">
@@ -177,6 +187,19 @@ async function addRegra(){
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
   document.getElementById('rPadrao').value=''; showAlert('Regra criada'); carregar();
+}
+
+async function criarRegrasTarifa(){
+  const d = await fetch('/api/conciliacao/regras/padroes-tarifa', { method:'POST' }).then(r=>r.json());
+  if(!d.success) return showAlert(d.error,'error');
+  // Diz o que NÃO fez também: padrão já existente é pulado de propósito, e sem
+  // isso o botão parece não ter feito nada na segunda vez.
+  const partes = [];
+  if (d.criadas.length) partes.push(`${d.criadas.length} criada(s): ${d.criadas.join(', ')}`);
+  if (d.adotadas.length) partes.push(`${d.adotadas.length} regra(s) sem conta do plano completada(s): ${d.adotadas.join(', ')}`);
+  if (d.puladas.length) partes.push(`${d.puladas.length} já existia(m): ${d.puladas.join(', ')}`);
+  showAlert(partes.join(' · ') || 'Nada a fazer', d.criadas.length||d.adotadas.length ? 'success' : 'info');
+  carregar();
 }
 
 async function toggle(id, ativo){

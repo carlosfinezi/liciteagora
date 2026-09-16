@@ -385,9 +385,24 @@ function registrarRotasFinanceiro(app, db) {
       }
 
       if (q) {
-        sql += ' AND (cpfCnpj LIKE ? OR razaoSocial LIKE ? OR nomeFantasia LIKE ?)';
+        // Telefone e celular entraram em 2026-09-10: no balcão, o cliente é
+        // achado pelo telefone antes de ser achado pelo nome. A busca por
+        // dígitos ignora a máscara do cadastro — '(11) 99999-8888' é
+        // encontrado digitando '11999998888'. O LIKE de texto continua valendo
+        // para quem digita com máscara.
         const like = `%${q}%`;
-        params.push(like, like, like);
+        const soDigitos = String(q).replace(/\D/g, '');
+        sql += ` AND (cpfCnpj LIKE ? OR razaoSocial LIKE ? OR nomeFantasia LIKE ?
+                      OR telefone LIKE ? OR celular LIKE ?`;
+        params.push(like, like, like, like, like);
+        if (soDigitos.length >= 4) {
+          const digitos = `%${soDigitos}%`;
+          sql += ` OR REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(telefone,''),'(',''),')',''),'-',''),' ','') LIKE ?
+                   OR REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(celular,''),'(',''),')',''),'-',''),' ','') LIKE ?
+                   OR REPLACE(REPLACE(REPLACE(COALESCE(cpfCnpj,''),'.',''),'-',''),'/','') LIKE ?`;
+          params.push(digitos, digitos, digitos);
+        }
+        sql += ')';
       }
 
       sql += ' ORDER BY razaoSocial ASC';

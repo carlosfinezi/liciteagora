@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cobranças - Licite Agora</title>
+    <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -324,7 +325,7 @@
                         </div>
                         <div style="color:#888;font-size:0.85em;">${escHtml(l.dataEnvio)} — ${escHtml(l.destinatario || '')}</div>
                         ${l.assunto ? '<div style="margin-top:5px;"><em>'+escHtml(l.assunto)+'</em></div>' : ''}
-                        ${l.mensagem ? '<pre style="margin-top:5px;background:#1e293b;padding:8px;border-radius:4px;white-space:pre-wrap;font-size:0.8em;">'+escHtml(l.mensagem)+'</pre>' : ''}
+                        ${l.mensagem ? '<pre style="margin-top:5px;background:var(--bg-3);color:var(--text-1);padding:8px;border-radius:4px;white-space:pre-wrap;font-size:0.8em;">'+escHtml(l.mensagem)+'</pre>' : ''}
                         ${l.erro ? '<div style="color:#ff6b6b;margin-top:5px;">Erro: '+escHtml(l.erro)+'</div>' : ''}
                     </div>
                 `).join('');

@@ -34,15 +34,6 @@ function alterSafe(db, sql) { try { db.exec(sql); } catch { /* idempotente */ } 
 
 function migrarDB(db) {
   alterSafe(db, 'ALTER TABLE pedidos ADD COLUMN vendedorId INTEGER');
-  // Plano de comissão de verdade tem gatilho e acelerador de meta; sem eles a
-  // regra é uma taxa fixa que ignora se o vendedor bateu o número.
-  alterSafe(db, 'ALTER TABLE comissoes_regras ADD COLUMN metaMinimaPercentual REAL');
-  alterSafe(db, 'ALTER TABLE comissoes_regras ADD COLUMN valorAcelerado REAL');
-  // Rastro do pagamento, para o estorno saber o que desfazer.
-  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN contaPagarId INTEGER');
-  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN movimentacaoId INTEGER');
-  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN motivoSemComissao TEXT');
-  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN baseApuracao TEXT');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS comissoes_regras (
@@ -89,6 +80,20 @@ function migrarDB(db) {
     CREATE INDEX IF NOT EXISTS idx_apur_status ON comissoes_apuracao(status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_apur_pedido_item ON comissoes_apuracao(periodo, pedidoItemId);
   `);
+
+  // Os ALTERs vinham ANTES do CREATE acima, na mesma função: em banco novo
+  // caíam em "no such table" e o alterSafe engolia, deixando o tenant sem as
+  // colunas (relatório 15). Coluna se adiciona depois que a tabela existe.
+  // Plano de comissão de verdade tem gatilho e acelerador de meta; sem eles a
+  // regra é uma taxa fixa que ignora se o vendedor bateu o número.
+  alterSafe(db, 'ALTER TABLE comissoes_regras ADD COLUMN metaMinimaPercentual REAL');
+  alterSafe(db, 'ALTER TABLE comissoes_regras ADD COLUMN valorAcelerado REAL');
+  // Rastro do pagamento, para o estorno saber o que desfazer.
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN contaPagarId INTEGER');
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN movimentacaoId INTEGER');
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN motivoSemComissao TEXT');
+  alterSafe(db, 'ALTER TABLE comissoes_apuracao ADD COLUMN baseApuracao TEXT');
+
 }
 
 // Escolha de regra, custo e cálculo migraram para comissoes-calculo.js — a

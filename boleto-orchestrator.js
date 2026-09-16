@@ -171,6 +171,12 @@ function migrarSchema(db) {
   alterSafe(db, `CREATE INDEX IF NOT EXISTS idx_boletos_provedor ON boletos(provedor)`);
   alterSafe(db, `CREATE INDEX IF NOT EXISTS idx_boletos_nosso_numero ON boletos(nossoNumero)`);
   alterSafe(db, 'ALTER TABLE contas_financeiras_boleto ADD COLUMN ehPadrao INTEGER DEFAULT 0');
+  // Tarifa que o banco/provedor cobra por boleto liquidado. Fica na conta e não
+  // no boleto porque é preço de contrato com o banco, não do título.
+  alterSafe(db, 'ALTER TABLE contas_financeiras_boleto ADD COLUMN tarifaBoleto REAL DEFAULT 0');
+  // Guarda a CP que lançou a tarifa: é o que torna o lançamento idempotente
+  // quando webhook e polling passam pelo mesmo boleto.
+  alterSafe(db, 'ALTER TABLE boletos ADD COLUMN contaPagarTarifaId INTEGER');
 }
 
 // Retorna a conta financeira marcada como padrão para emissão de boletos
@@ -261,6 +267,15 @@ async function emitirBoletoParaCR(db, contaReceberId) {
   aplicarSplitPlataforma(modulo, cfg, getTenantSlugFromDb(db));
   const nossoNumero = consumirProximoNossoNumero(db, contaFinanceiraId);
 
+  // O provedor de cobrança precisa de CPF/CNPJ de verdade. Mandar o
+  // identificador interno de um cadastro sem documento ('SD-…') — ou um legado
+  // como 'UASG-…' — só produziria rejeição na API, com mensagem do provedor que
+  // ninguém entende. Barrar aqui devolve o motivo real (relatório 15 §B3).
+  const { exigirDocumentoFiscal } = require('./pessoa-sem-documento');
+  const docPagador = exigirDocumentoFiscal(
+    { cpfCnpj: cr.pessoaDoc, razaoSocial: cr.pessoaNome }, 'boleto ou cobrança Pix');
+  if (docPagador.erro) throw new Error(docPagador.erro);
+
   const payload = {
     valor: Number(cr.valor),
     dataVencimento: cr.dataVencimento,
@@ -268,7 +283,7 @@ async function emitirBoletoParaCR(db, contaReceberId) {
     seuNumero: `CR-${cr.id}`,
     descricao: cr.descricao || `Cobrança CR #${cr.id}`,
     pagador: {
-      documento: cr.pessoaDoc || '',
+      documento: docPagador.documento,
       nome: cr.pessoaNome || '',
       email: cr.pessoaEmail || '',
       endereco: {
@@ -392,6 +407,85 @@ async function baixarBoleto(db, boletoId, motivo) {
   return await resolvido.modulo.baixarBoleto(db, resolvido.cfg, b.nossoNumero, motivo);
 }
 
+/**
+ * Custo de cobrança do boleto liquidado, no mesmo desenho da taxa de cartão
+ * (tesouraria-routes, agenda de recebíveis): a CR é baixada pelo BRUTO e a
+ * tarifa vira uma conta a pagar já quitada em despesa financeira, com saída
+ * na conta. Baixar a CR pelo líquido encolheria a receita e o custo de
+ * cobrança sumiria do DRE — que é exatamente o que acontecia até aqui.
+ *
+ * Só boleto: cobrança PIX não tem tarifa por emissão e passa direto.
+ * Idempotente por `boletos.contaPagarTarifaId`, porque webhook e polling
+ * podem chegar os dois ao mesmo boleto.
+ *
+ * Nunca derruba a baixa: a CR já foi quitada quando isto roda, e falhar aqui
+ * não pode desfazer o recebimento — o erro vai para o log.
+ */
+function lancarTarifaBoleto(db, boletoId, dataPagamento, usuario) {
+  try {
+    if (!boletoId) return null;
+    const b = db.prepare(`SELECT id, provedor, contaFinanceiraId, contaPagarTarifaId, nossoNumero,
+        COALESCE(tipoCobranca, 'boleto') AS tipoCobranca
+      FROM boletos WHERE id = ?`).get(boletoId);
+    if (!b || b.contaPagarTarifaId || b.tipoCobranca !== 'boleto' || !b.contaFinanceiraId) return null;
+
+    const cfg = db.prepare('SELECT tarifaBoleto FROM contas_financeiras_boleto WHERE contaFinanceiraId = ?')
+      .get(b.contaFinanceiraId);
+    const tarifa = Number((Number(cfg && cfg.tarifaBoleto) || 0).toFixed(2));
+    if (tarifa <= 0) return null;
+
+    // Lazy: quebra o ciclo de require entre orquestrador e tesouraria e evita
+    // carregar o módulo de rotas em quem só emite boleto.
+    const { contaPlanoTaxaCartao } = require('./tesouraria-routes');
+    const { garantirFornecedor } = require('./pessoas-fornecedor');
+    const { lancarMovimentacao } = require('./contas-financeiras-routes');
+
+    const planoId = contaPlanoTaxaCartao(db);
+    if (!planoId) {
+      console.warn(`[Tarifa boleto] sem conta de despesa financeira no plano — boleto #${b.id} não lançado`);
+      return null;
+    }
+    const label = provedores.get(b.provedor)?.label || b.provedor || 'boleto';
+    // Sem CNPJ do provedor aqui: marcador estável derivado do nome, para não
+    // colidir com fornecedor real nem inventar documento (igual ao `ADQ-` do cartão).
+    const fornId = garantirFornecedor(db, {
+      cpfCnpj: `TARIFA-${b.provedor || 'boleto'}`,
+      razaoSocial: `Tarifas ${label}`,
+      observacoes: 'Criado automaticamente para lancar a tarifa de boleto',
+    });
+    const dp = String(dataPagamento || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const desc = `Tarifa de boleto ${label} — boleto #${b.id}`;
+
+    const tx = db.transaction(() => {
+      const cpId = db.prepare(`INSERT INTO contas_a_pagar
+          (fornecedorId, descricao, valor, dataEmissao, dataVencimento, status, origem, planoContaId)
+        VALUES (?, ?, ?, ?, ?, 'aberta', 'tarifa_boleto', ?)`)
+        .run(fornId, desc, tarifa, dp, dp, planoId).lastInsertRowid;
+      db.prepare(`INSERT INTO contas_pagar_pagamentos
+          (contaPagarId, dataPagamento, valorPago, valorBase, juros, multa, desconto,
+           formaPagamento, contaFinanceiraId, origem, observacoes, usuario)
+        VALUES (?, ?, ?, ?, 0, 0, 0, 'debito_tarifa', ?, 'tarifa_boleto', ?, ?)`)
+        .run(cpId, dp, tarifa, tarifa, b.contaFinanceiraId,
+          'Debitada pelo banco na liquidação', usuario || 'boleto');
+      db.prepare(`UPDATE contas_a_pagar SET status = 'paga', valorPago = ?, dataPagamento = ?,
+          dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(tarifa, dp, cpId);
+      db.prepare('UPDATE boletos SET contaPagarTarifaId = ? WHERE id = ?').run(cpId, b.id);
+      lancarMovimentacao(db, {
+        contaId: b.contaFinanceiraId, tipo: 'saida', valor: tarifa, data: dp,
+        descricao: desc, origem: 'tarifa_boleto', origemId: b.id,
+        categoria: 'taxas', usuario: usuario || 'boleto',
+      });
+      return cpId;
+    });
+    const contaPagarId = tx();
+    console.log(`[Tarifa boleto] boleto #${b.id}: R$ ${tarifa.toFixed(2)} → CP #${contaPagarId}`);
+    return { contaPagarId, valor: tarifa };
+  } catch (e) {
+    console.error(`[Tarifa boleto] falha no boleto #${boletoId}:`, e.message);
+    return null;
+  }
+}
+
 async function processarWebhook(db, nomeProvedor, req) {
   const modulo = provedores.get(nomeProvedor);
   if (!modulo) throw new Error(`Provedor desconhecido: ${nomeProvedor}`);
@@ -431,6 +525,7 @@ async function processarWebhook(db, nomeProvedor, req) {
     if (evento.boletoId) {
       db.prepare(`UPDATE boletos SET status = 'pago', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
         .run(evento.boletoId);
+      lancarTarifaBoleto(db, evento.boletoId, evento.dataPagamento, `webhook_${nomeProvedor}`);
     }
   }
   return { aplicado: true, evento };
@@ -515,6 +610,7 @@ function agendarPollingBoletosAsaas(db) {
           });
         }
         db.prepare(`UPDATE boletos SET status = 'pago', dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(b.id);
+        lancarTarifaBoleto(db, b.id, r.dataPagamento, 'polling_asaas');
         baixados++;
         console.log(`${tag} ${b.tipoCobranca} #${b.id} (${b.nossoNumero}): registrado -> pago`);
       } catch (e) {
@@ -540,6 +636,7 @@ module.exports = {
   consultarBoleto,
   baixarBoleto,
   processarWebhook,
+  lancarTarifaBoleto,
   agendarPollingBoletosAsaas,
   getContaFinanceiraPadraoBoleto,
   _internal: { getProvedorConfig, parseConfigJson, consumirProximoNossoNumero, aplicarSplitPlataforma },

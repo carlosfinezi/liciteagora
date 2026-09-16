@@ -184,16 +184,40 @@ function gerar(stream, fatura, emitente) {
   if (fatura.observacao) infos.push(`Obs: ${fatura.observacao}`);
   y = box(doc, 40, y, pageW, 'INFORMAÇÕES ADICIONAIS', infos);
 
-  // Rodapé "SEM VALOR FISCAL"
-  const footerY = doc.page.height - 50;
-  doc.rect(40, footerY, pageW, 18).fill('#ffa94d').stroke();
-  // O texto em height-45 invade a margem inferior (40pt) e o pdfkit abriria uma página
-  // nova automática só para esta linha — zera a margem durante o rodapé.
-  const mbFooter = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  doc.fillColor('#000').font('Helvetica-Bold').fontSize(10)
-     .text('DOCUMENTO SEM VALOR FISCAL', 40, footerY + 5, { width: pageW, align: 'center' });
-  doc.page.margins.bottom = mbFooter;
+  y += 10;
+  y = comprovanteRecebimento(doc, y, pageW);
+
+  /* Rodapé DISCRETO, em todas as páginas.
+   *
+   * Duas mudanças, e as duas têm motivo:
+   *
+   * 1. A faixa laranja saiu. Ela ocupava a largura da folha com fundo de alerta
+   *    para dizer algo que é rotina — este documento NUNCA tem valor fiscal, e
+   *    gritar isso em toda emissão treina o leitor a ignorar o aviso. O texto
+   *    fica, em cinza e corpo 7: quem precisa da informação a encontra, e ela
+   *    deixa de disputar atenção com o conteúdo.
+   *
+   * 2. Passou a ser desenhado em TODAS as páginas, num laço sobre
+   *    `bufferedPageRange()`. Antes saía uma vez só, na página que estivesse
+   *    aberta no fim: numa fatura de três folhas, duas saíam sem aviso nenhum —
+   *    e é folha a folha que o documento é entregue. Mesmo padrão já usado em
+   *    `pedido-pdf.js`. */
+  const faixa = doc.bufferedPageRange();
+  for (let p = faixa.start; p < faixa.start + faixa.count; p++) {
+    doc.switchToPage(p);
+    const footerY = doc.page.height - 32;
+    // O texto tão perto da borda invade a margem inferior (40pt) e o pdfkit
+    // abriria uma página nova automática só para esta linha.
+    const mbFooter = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc.font('Helvetica').fontSize(7).fillColor('#8a8a8a')
+       .text('DOCUMENTO INTERNO — SEM VALOR FISCAL', 40, footerY, { width: pageW, align: 'center' });
+    if (faixa.count > 1) {
+      doc.font('Helvetica').fontSize(7).fillColor('#8a8a8a')
+         .text(`Página ${p - faixa.start + 1} de ${faixa.count}`, 40, footerY, { width: pageW, align: 'right' });
+    }
+    doc.page.margins.bottom = mbFooter;
+  }
 
   // Marca d'água diagonal em todas as páginas quando cancelada (comercial ou NF-e na SEFAZ)
   if (fatura.status === 'cancelada' || fatura.statusSefaz === 'cancelada_sefaz') {
@@ -210,6 +234,72 @@ function gerar(stream, fatura, emitente) {
   }
 
   doc.end();
+}
+
+/**
+ * Altura total do bloco de recebimento, em pontos.
+ *
+ * Constante declarada, e não medida depois de desenhar: a decisão de quebrar a
+ * página precisa ser tomada ANTES do primeiro traço. Medir durante o desenho já
+ * seria tarde — metade do bloco estaria na folha anterior.
+ */
+const ALTURA_RECEBIMENTO = 92;
+
+/**
+ * COMPROVANTE DE RECEBIMENTO — espaço para assinatura MANUAL, em papel.
+ *
+ * Existe porque a fatura comercial é usada em venda sem NF-e/NFC-e, e aí ela é o
+ * único papel que circula: sem um campo de aceite, não há como provar entrega.
+ *
+ * O que ele NÃO pede, por decisão: "Recebido por", CPF e RG. Coletar documento
+ * de quem recebe a mercadoria é dado pessoal que este documento não precisa
+ * guardar, e um campo impresso em toda via convida a preenchê-lo.
+ *
+ * Nada aqui é assinatura digital — é linha em branco para caneta.
+ */
+function comprovanteRecebimento(doc, y, pageW) {
+  /* Cabe no que sobrou da página? Se não, o bloco INTEIRO vai para a próxima.
+   *
+   * A folga extra (34pt) é o rodapé mais a margem: sem contá-la, o bloco
+   * "caberia" por cima do aviso de sem valor fiscal. Cortar um comprovante de
+   * entrega ao meio o torna inútil — é ele que alguém assina. */
+  if (y + ALTURA_RECEBIMENTO > doc.page.height - 34 - 40) {
+    doc.addPage();
+    y = 40;
+  }
+
+  doc.save();
+  doc.rect(40, y, pageW, 14).fill('#e8e8e8').stroke('#999');
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('#1971c2')
+     .text('COMPROVANTE DE RECEBIMENTO', 45, y + 3, { width: pageW - 10 });
+  doc.restore();
+  y += 14;
+
+  const corpoH = ALTURA_RECEBIMENTO - 14;
+  doc.rect(40, y, pageW, corpoH).stroke('#999');
+
+  doc.font('Helvetica').fontSize(9).fillColor('#000')
+     .text('Declaro que recebi os produtos relacionados neste documento em conformidade.',
+           45, y + 8, { width: pageW - 10 });
+
+  /* Data e hora como texto de UMA peça.
+   *
+   * `___/___/______` inteiro numa string, e não três campos concatenados com
+   * '/' no meio: montar por partes foi o que produziu as barras duplicadas
+   * (`___//___//______`) quando o separador já vinha no pedaço. Mesmo motivo
+   * para a hora e os dois-pontos. */
+  const linhaY = y + 34;
+  doc.font('Helvetica').fontSize(9).fillColor('#000');
+  doc.text('Data: ___/___/______', 45, linhaY, { width: 200, lineBreak: false });
+  doc.text('Hora: ___:___', 260, linhaY, { width: 150, lineBreak: false });
+
+  // Linha de assinatura: larga o bastante para uma firma de adulto.
+  const assY = y + 62;
+  doc.text('Assinatura:', 45, assY, { width: 70, lineBreak: false });
+  const x1 = 110, x2 = 40 + pageW - 10;
+  doc.moveTo(x1, assY + 10).lineTo(x2, assY + 10).lineWidth(0.7).stroke('#000');
+
+  return y + corpoH;
 }
 
 function box(doc, x, y, w, title, lines) {

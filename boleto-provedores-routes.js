@@ -47,6 +47,7 @@ function registrarRotasBoletoProvedores(app, db) {
           ativo: !!row.ativo,
           ehPadrao: !!row.ehPadrao,
           proximoNossoNumero: row.proximoNossoNumero,
+          tarifaBoleto: Number(row.tarifaBoleto) || 0,
           temCertificado: !!row.certificadoBase64,
           campos: masked,
         },
@@ -108,6 +109,13 @@ function registrarRotasBoletoProvedores(app, db) {
         certificadoSenhaCripto,
         contaFinanceiraId
       );
+
+      // Tarifa cobrada pelo banco por boleto liquidado. Fica fora do configJson
+      // porque não é credencial do provedor: quem a lê é a baixa, não a emissão.
+      if (b.tarifaBoleto != null) {
+        db.prepare('UPDATE contas_financeiras_boleto SET tarifaBoleto = ? WHERE contaFinanceiraId = ?')
+          .run(Math.max(0, Number(b.tarifaBoleto) || 0), contaFinanceiraId);
+      }
 
       // Permite editar proximoNossoNumero manualmente (migração de banco antigo)
       if (b.proximoNossoNumero != null) {

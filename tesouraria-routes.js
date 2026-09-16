@@ -338,7 +338,11 @@ function fornecedorDaAdquirente(db, adq) {
   });
 }
 
-/** Conta do plano onde a taxa de cartao entra: despesa financeira. */
+/**
+ * Conta do plano onde a taxa de cartao entra: despesa financeira.
+ * Nao e exclusiva do cartao — tarifa de boleto e tarifa bancaria caem na
+ * mesma conta (5.2), e o boleto-orchestrator reusa esta funcao.
+ */
 function contaPlanoTaxaCartao(db) {
   const porCodigo = db.prepare("SELECT id FROM plano_contas WHERE codigo = '5.2' AND ativo = 1").get();
   if (porCodigo) return porCodigo.id;
@@ -348,6 +352,24 @@ function contaPlanoTaxaCartao(db) {
     ORDER BY pc.codigo LIMIT 1`).get();
   return porTipo ? porTipo.id : null;
 }
+
+/**
+ * Tarifas que todo extrato traz e que ninguem lanca a mao: elas nao viram
+ * conta a pagar, entram como movimento avulso e so chegam ao DRE se uma regra
+ * as classificar. Montar regra por regra na mao era o que mantinha isso
+ * desligado na pratica.
+ *
+ * Todas saem como 'saida' + modo 'palavra' + teto de valor: "TARIFA" com
+ * `contem` casaria qualquer texto que a contenha, e sem teto a mesma palavra
+ * pegaria a transferencia de R$ 12.000 junto com a tarifa de R$ 12.
+ */
+const REGRAS_TARIFA_PADRAO = [
+  { padraoTexto: 'TARIFA', categoria: 'Tarifas bancárias' },
+  { padraoTexto: 'CESTA', categoria: 'Tarifas bancárias' },
+  { padraoTexto: 'MANUTENCAO', categoria: 'Tarifas bancárias' },
+  { padraoTexto: 'IOF', categoria: 'IOF' },
+];
+const TETO_REGRA_TARIFA = 500;
 
 function migrarRegrasConciliacao(db) {
   // A regra passa a apontar para o plano de contas. Antes ela só gravava um
@@ -1153,6 +1175,47 @@ function registrarRotasTesouraria(app, db) {
         b.valorMax != null && b.valorMax !== '' ? Number(b.valorMax) : null);
       logAction(db, req, 'criar', 'regra-conciliacao', r.lastInsertRowid, { padrao });
       res.json({ success: true, id: r.lastInsertRowid });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // Cria de uma vez o conjunto de REGRAS_TARIFA_PADRAO, ja apontando para a
+  // conta de despesa financeira. Idempotente: padrao que ja existe nao e
+  // duplicado, e regra que categoriza sem conta do plano (rodava para o nada)
+  // ganha a conta em vez de virar uma segunda regra concorrente.
+  app.post('/api/conciliacao/regras/padroes-tarifa', (req, res) => {
+    try {
+      const planoId = contaPlanoTaxaCartao(db);
+      if (!planoId) {
+        return res.status(400).json({ success: false,
+          error: 'Sem conta de despesa financeira no plano de contas — crie a conta 5.2 antes' });
+      }
+      const existentes = db.prepare('SELECT id, padraoTexto, acao, planoContaId FROM conciliacao_regras').all();
+      const criadas = [], adotadas = [], puladas = [];
+      const tx = db.transaction(() => {
+        const ins = db.prepare(`INSERT INTO conciliacao_regras
+            (padraoTexto, tipoLancamento, acao, categoria, planoContaId, modo, valorMax, ativo)
+          VALUES (?, 'saida', 'categorizar', ?, ?, 'palavra', ?, 1)`);
+        for (const p of REGRAS_TARIFA_PADRAO) {
+          const alvo = normalizar(p.padraoTexto);
+          if (existentes.some(e => normalizar(e.padraoTexto) === alvo)) { puladas.push(p.padraoTexto); continue; }
+          ins.run(p.padraoTexto, p.categoria, planoId, TETO_REGRA_TARIFA);
+          criadas.push(p.padraoTexto);
+        }
+        // "TARIFA BOLETO" cadastrada antes sem conta do plano e um exemplo: a
+        // regra existe, mas categorizar sem conta nao chega a relatorio nenhum.
+        // So preenche o que esta NULL — ativo e prioridade sao escolha de quem
+        // criou e ficam como estao.
+        const upd = db.prepare('UPDATE conciliacao_regras SET planoContaId = ? WHERE id = ?');
+        for (const e of existentes) {
+          if (e.planoContaId || e.acao !== 'categorizar') continue;
+          if (!REGRAS_TARIFA_PADRAO.some(p => normalizar(e.padraoTexto).includes(normalizar(p.padraoTexto)))) continue;
+          upd.run(planoId, e.id);
+          adotadas.push(e.padraoTexto);
+        }
+      });
+      tx();
+      logAction(db, req, 'criar', 'regras-tarifa-padrao', null, { criadas, adotadas });
+      res.json({ success: true, criadas, adotadas, puladas });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
