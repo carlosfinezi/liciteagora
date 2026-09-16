@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Caixa · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .turno-box { border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; background:var(--surface); }
+  .turno-linha { display:flex; flex-wrap:wrap; gap:18px; margin-top:8px; }
+  .turno-kpi { min-width:130px; }
+  .turno-kpi small { display:block; color:var(--text-3); }
+  .turno-kpi strong { font-size:1.2em; }
+  .parcela { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Caixa</h1><small>Turno, sangria e fechamento de conta</small></div>
+    <div class="actions"><button class="btn btn-secondary btn-sm" onclick="carregarTudo()">Atualizar</button></div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="turno-box" id="turnoBox">Carregando…</div>
+
+  <h2 style="font-size:1.1em;">Contas abertas</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Comanda</th><th>Origem</th><th style="text-align:right;">Itens</th>
+        <th style="text-align:right;">Serviço</th><th style="text-align:right;">Total</th>
+        <th style="text-align:right;">Pago</th><th style="text-align:right;">Saldo</th><th style="width:110px;"></th></tr></thead>
+      <tbody id="tbContas"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<!-- ===== Modal: fechamento de conta ===== -->
+<div class="modal-bg" id="modalConta">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <h3 id="fcTitulo" style="margin:0;">Fechar conta</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalConta')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div id="fcTotais" style="margin-bottom:10px;"></div>
+
+    <div class="toolbar">
+      <select id="fcModo" onchange="carregarDivisao()">
+        <option value="igual">Dividir igualmente</option>
+        <option value="item">Dividir por item</option>
+        <option value="valor">Valor livre</option>
+      </select>
+      <input type="number" id="fcPessoas" min="1" value="2" style="width:90px;" onchange="carregarDivisao()" title="Pessoas">
+    </div>
+    <div id="fcDivisao" style="max-height:26vh;overflow:auto;margin-bottom:10px;"></div>
+
+    <div class="toolbar">
+      <select id="fcMeio" style="min-width:170px;">
+        <option>Dinheiro</option><option>PIX</option>
+        <option>Cartão de Crédito</option><option>Cartão de Débito</option><option>Vale Refeição</option>
+      </select>
+      <input type="number" id="fcValor" step="0.01" placeholder="Valor" style="width:130px;">
+      <input type="text" id="fcPagador" placeholder="Nome (opcional)" style="width:160px;">
+      <button class="btn btn-primary btn-sm" onclick="registrarPagamento()">+ Pagamento</button>
+    </div>
+
+    <div id="fcPagamentos" style="margin:10px 0;"></div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-secondary btn-sm" onclick="verPayloadFiscal()">Conferir cupom</button>
+      <div>
+        <button class="btn btn-ghost" onclick="fechar('modalConta')">Sair</button>
+        <button class="btn btn-primary" onclick="fecharConta()">Fechar conta</button>
+      </div>
+    </div>
+    <div id="fcFiscal" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<!-- ===== Modal: turno ===== -->
+<div class="modal-bg" id="modalTurno">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <h3 id="mtTitulo" style="margin:0;">Turno</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalTurno')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row" id="mtCorpo"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalTurno')">Cancelar</button>
+      <button class="btn btn-primary" id="mtBtn">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-caixa');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v) { return (v == null || isNaN(v)) ? '0,00' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fechar(id) { document.getElementById(id).classList.remove('open'); }
+function abrir(id) { document.getElementById(id).classList.add('open'); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) { const e = new Error(d.error || 'falha'); e.dados = d; throw e; }
+  return d;
+}
+
+let turnoAtual = null, contaAtual = null;
+
+async function carregarTudo() { await carregarTurno(); await carregarContas(); }
+
+// ===== Turno =====
+async function carregarTurno() {
+  try {
+    const d = await api('/api/restaurante/turnos/atual');
+    turnoAtual = d.turno;
+    const box = document.getElementById('turnoBox');
+    if (!turnoAtual) {
+      box.innerHTML = `<strong>Caixa fechado</strong>
+        <div class="muted">Abra o turno para começar a receber.</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="abrirTurnoModal()">Abrir turno</button>`;
+      return;
+    }
+    const t = turnoAtual;
+    box.innerHTML = `<strong>Turno #${t.id} aberto</strong>
+      <span class="muted"> por ${esc(t.operadorNome || '—')} · ${esc(t.abertoEm)}</span>
+      <div class="turno-linha">
+        <div class="turno-kpi"><small>Fundo de troco</small><strong>R$ ${fmt(t.valorAbertura)}</strong></div>
+        <div class="turno-kpi"><small>Recebido</small><strong>R$ ${fmt(t.totalRecebido)}</strong></div>
+        <div class="turno-kpi"><small>Sangrias</small><strong>−R$ ${fmt(t.sangrias)}</strong></div>
+        <div class="turno-kpi"><small>Suprimentos</small><strong>+R$ ${fmt(t.suprimentos)}</strong></div>
+        <div class="turno-kpi"><small>Esperado em dinheiro</small><strong>R$ ${fmt(t.esperadoEmDinheiro)}</strong></div>
+        <div class="turno-kpi"><small>Contas fechadas</small><strong>${t.comandasFechadas}</strong></div>
+      </div>
+      ${t.porMeio.length ? `<div class="muted" style="margin-top:8px;">${t.porMeio.map(m =>
+        `${esc(m.meioPagamento)}: R$ ${fmt(m.total)} (${m.n})`).join(' · ')}</div>` : ''}
+      <div style="margin-top:10px;">
+        <button class="btn btn-secondary btn-sm" onclick="movimentoModal('sangria')">Sangria</button>
+        <button class="btn btn-secondary btn-sm" onclick="movimentoModal('suprimento')">Suprimento</button>
+        <button class="btn btn-primary btn-sm" onclick="fecharTurnoModal()">Fechar turno</button>
+      </div>`;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function abrirTurnoModal() {
+  document.getElementById('mtTitulo').textContent = 'Abrir turno';
+  document.getElementById('mtCorpo').innerHTML =
+    `<div class="form-group full-width"><label>Fundo de troco (R$)</label>
+      <input type="number" id="mtValor" step="0.01" value="0"></div>`;
+  document.getElementById('mtBtn').onclick = async () => {
+    try {
+      await api('/api/restaurante/turnos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valorAbertura: Number(document.getElementById('mtValor').value) || 0 }),
+      });
+      fechar('modalTurno'); carregarTudo();
+    } catch (e) { showAlert(e.message, 'error'); }
+  };
+  abrir('modalTurno');
+}
+
+function movimentoModal(tipo) {
+  document.getElementById('mtTitulo').textContent = tipo === 'sangria' ? 'Sangria (retirada)' : 'Suprimento (entrada)';
+  document.getElementById('mtCorpo').innerHTML =
+    `<div class="form-group"><label>Valor (R$)</label><input type="number" id="mtValor" step="0.01"></div>
+     <div class="form-group full-width"><label>Motivo${tipo === 'sangria' ? ' *' : ''}</label>
+       <input type="text" id="mtMotivo" placeholder="${tipo === 'sangria' ? 'depósito no cofre' : 'reforço de troco'}"></div>`;
+  document.getElementById('mtBtn').onclick = async () => {
+    try {
+      await api(`/api/restaurante/turnos/${turnoAtual.id}/movimentos`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo, valor: Number(document.getElementById('mtValor').value),
+          motivo: document.getElementById('mtMotivo').value.trim(),
+        }),
+      });
+      fechar('modalTurno'); carregarTudo();
+    } catch (e) { showAlert(e.message, 'error'); }
+  };
+  abrir('modalTurno');
+}
+
+function fecharTurnoModal() {
+  document.getElementById('mtTitulo').textContent = 'Fechar turno';
+  document.getElementById('mtCorpo').innerHTML =
+    `<div class="form-group full-width">
+       <label>Dinheiro contado na gaveta (R$)</label>
+       <input type="number" id="mtValor" step="0.01" placeholder="${fmt(turnoAtual.esperadoEmDinheiro)}">
+       <small class="muted">Esperado: R$ ${fmt(turnoAtual.esperadoEmDinheiro)} — só dinheiro; cartão e Pix não se contam à mão.</small>
+     </div>
+     <div class="form-group full-width"><label>Observação</label><input type="text" id="mtObs"></div>`;
+  document.getElementById('mtBtn').onclick = async () => {
+    try {
+      const d = await api(`/api/restaurante/turnos/${turnoAtual.id}/fechar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          valorInformado: Number(document.getElementById('mtValor').value),
+          observacao: document.getElementById('mtObs').value.trim() || null,
+        }),
+      });
+      fechar('modalTurno');
+      const dif = Number(d.diferenca || 0);
+      showAlert(dif === 0 ? 'Turno fechado, caixa bateu.'
+        : `Turno fechado com diferença de R$ ${fmt(dif)}`, dif === 0 ? 'success' : 'error');
+      carregarTudo();
+    } catch (e) { showAlert(e.message, 'error'); }
+  };
+  abrir('modalTurno');
+}
+
+// ===== Contas abertas =====
+async function carregarContas() {
+  try {
+    const d = await api('/api/restaurante/comandas?status=aberta');
+    document.getElementById('tbContas').innerHTML = d.items.length ? d.items.map(c => {
+      const saldo = Math.round((Number(c.totalGeral) - Number(c.totalPago)) * 100) / 100;
+      return `<tr>
+        <td><strong>#${c.id}</strong></td>
+        <td>${c.mesaNumero ? 'Mesa ' + esc(c.mesaNumero) : (c.senhaChamada ? 'Senha #' + esc(c.senhaChamada) : esc(c.codigo || c.tipo))}</td>
+        <td style="text-align:right;">R$ ${fmt(c.totalItens)}</td>
+        <td style="text-align:right;">R$ ${fmt(c.totalTaxaServico)}</td>
+        <td style="text-align:right;"><strong>R$ ${fmt(c.totalGeral)}</strong></td>
+        <td style="text-align:right;">R$ ${fmt(c.totalPago)}</td>
+        <td style="text-align:right;color:${saldo > 0 ? 'var(--warn)' : 'var(--success)'};">R$ ${fmt(saldo)}</td>
+        <td><button class="btn btn-primary btn-sm" onclick="abrirConta(${c.id})">Fechar</button></td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="8" class="empty">Nenhuma conta aberta</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Fechamento de conta =====
+async function abrirConta(id) {
+  contaAtual = id;
+  document.getElementById('fcFiscal').innerHTML = '';
+  abrir('modalConta');
+  await recarregarConta();
+}
+
+async function recarregarConta() {
+  try {
+    const d = await api(`/api/restaurante/comandas/${contaAtual}`);
+    const c = d.comanda;
+    const saldo = Math.round((Number(c.totalGeral) - Number(c.totalPago)) * 100) / 100;
+    document.getElementById('fcTitulo').textContent =
+      c.mesaNumero ? `Fechar mesa ${c.mesaNumero}` : `Fechar comanda #${c.id}`;
+    document.getElementById('fcTotais').innerHTML =
+      `Itens R$ ${fmt(c.totalItens)} · Serviço R$ ${fmt(c.totalTaxaServico)}
+       ${c.totalCouvert ? '· Couvert R$ ' + fmt(c.totalCouvert) : ''}
+       ${c.totalDesconto ? '· Desconto −R$ ' + fmt(c.totalDesconto) : ''}
+       <br><strong style="font-size:1.25em;">Total R$ ${fmt(c.totalGeral)}</strong>
+       · Pago R$ ${fmt(c.totalPago)}
+       · <strong style="color:${saldo > 0 ? 'var(--warn)' : 'var(--success)'};">Saldo R$ ${fmt(saldo)}</strong>`;
+
+    document.getElementById('fcPessoas').value = c.numeroPessoas || 2;
+    document.getElementById('fcValor').value = saldo > 0 ? saldo.toFixed(2) : '';
+
+    document.getElementById('fcPagamentos').innerHTML = (c.pagamentos || []).length
+      ? '<strong>Pagamentos</strong>' + c.pagamentos.map(p => `<div class="parcela">
+          <span>${esc(p.meioPagamento)}${p.nomePagador ? ' — ' + esc(p.nomePagador) : ''}</span>
+          <span>R$ ${fmt(p.valor)}
+            <button class="btn btn-ghost btn-sm" onclick="estornar(${p.id})">×</button></span></div>`).join('')
+      : '<div class="muted">Nenhum pagamento registrado</div>';
+
+    await carregarDivisao();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarDivisao() {
+  if (!contaAtual) return;
+  const modo = document.getElementById('fcModo').value;
+  const pessoas = document.getElementById('fcPessoas').value;
+  document.getElementById('fcPessoas').style.display = modo === 'igual' ? '' : 'none';
+  try {
+    const d = await api(`/api/restaurante/comandas/${contaAtual}/divisao?modo=${modo}`
+      + (modo === 'igual' ? `&pessoas=${pessoas}` : ''));
+    const box = document.getElementById('fcDivisao');
+    if (modo === 'igual') {
+      box.innerHTML = d.partes.map(p => `<div class="parcela">
+        <span>${esc(p.rotulo)}</span>
+        <span>R$ ${fmt(p.valor)}
+          <button class="btn btn-secondary btn-sm" onclick="usarValor(${p.valor})">usar</button></span></div>`).join('');
+    } else if (modo === 'item') {
+      box.innerHTML = d.itens.map(i => `<div class="parcela">
+        <span>${i.quantidade}× ${esc(i.descricao)}</span>
+        <span>R$ ${fmt(i.comTaxa)} <span class="muted">(item ${fmt(i.precoTotal)} + serviço ${fmt(i.taxaProporcional)})</span>
+          <button class="btn btn-secondary btn-sm" onclick="usarValor(${i.comTaxa})">usar</button></span></div>`).join('')
+        + `<div class="muted" style="margin-top:6px;">${esc(d.observacao)}</div>`;
+    } else {
+      box.innerHTML = `<div class="muted">Digite o valor recebido de cada pagador. Saldo aberto: R$ ${fmt(d.saldo)}</div>`;
+    }
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function usarValor(v) { document.getElementById('fcValor').value = Number(v).toFixed(2); }
+
+async function registrarPagamento() {
+  const valor = Number(document.getElementById('fcValor').value);
+  if (!valor) return showAlert('Informe o valor', 'error');
+  try {
+    const d = await api(`/api/restaurante/comandas/${contaAtual}/pagamentos`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        meioPagamento: document.getElementById('fcMeio').value,
+        valor, nomePagador: document.getElementById('fcPagador').value.trim() || null,
+      }),
+    });
+    document.getElementById('fcPagador').value = '';
+    if (d.troco > 0) showAlert(`Troco: R$ ${fmt(d.troco)}`);
+    await recarregarConta(); carregarTurno(); carregarContas();
+  } catch (e) {
+    // O backend recusa excesso e devolve o troco calculado: oferece confirmar.
+    if (e.dados && e.dados.troco != null
+        && window.confirm(`${e.message}\n\nTroco de R$ ${fmt(e.dados.troco)}. Confirmar assim mesmo?`)) {
+      try {
+        const d = await api(`/api/restaurante/comandas/${contaAtual}/pagamentos`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            meioPagamento: document.getElementById('fcMeio').value,
+            valor, permitirTroco: true,
+            nomePagador: document.getElementById('fcPagador').value.trim() || null,
+          }),
+        });
+        showAlert(`Troco: R$ ${fmt(d.troco)}`);
+        await recarregarConta(); carregarTurno(); carregarContas();
+      } catch (e2) { showAlert(e2.message, 'error'); }
+    } else { showAlert(e.message, 'error'); }
+  }
+}
+
+async function estornar(pagId) {
+  try {
+    await api(`/api/restaurante/comanda-pagamentos/${pagId}`, { method: 'DELETE' });
+    await recarregarConta(); carregarTurno(); carregarContas();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function verPayloadFiscal() {
+  try {
+    const d = await api(`/api/restaurante/comandas/${contaAtual}/nfce-payload`);
+    const c = d.conferencia;
+    document.getElementById('fcFiscal').innerHTML = `
+      <div class="alert ${c.bate ? 'success' : 'error'}" style="display:block;">
+        Cupom: ${d.payload.itens.length} item(ns) · soma R$ ${fmt(c.somaItens)}
+        · total da nota R$ ${fmt(c.totalNota)} · comanda R$ ${fmt(c.totalComanda)}
+        ${c.bate ? '— confere' : '— NÃO CONFERE, não transmita'}
+        ${c.taxaServicoSeparada ? '<br>Taxa de serviço sai como item separado (CFOP 5949 / CSOSN 103 / NCM 99), fora da base do ICMS.' : ''}
+        ${c.couvertSeparado ? '<br>Couvert sai como serviço (CFOP 5933).' : ''}
+      </div>`;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function fecharConta() {
+  try {
+    await api(`/api/restaurante/comandas/${contaAtual}/fechar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    fechar('modalConta'); carregarTudo();
+    showAlert('Conta fechada');
+  } catch (e) {
+    if (e.dados && e.dados.saldo != null) {
+      const motivo = window.prompt(`${e.message}\n\nPara fechar mesmo assim, informe o motivo:`);
+      if (!motivo) return;
+      try {
+        await api(`/api/restaurante/comandas/${contaAtual}/fechar`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ forcar: true, motivo }),
+        });
+        fechar('modalConta'); carregarTudo();
+        showAlert('Conta fechada com saldo em aberto');
+      } catch (e2) { showAlert(e2.message, 'error'); }
+    } else { showAlert(e.message, 'error'); }
+  }
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { fechar('modalConta'); fechar('modalTurno'); } });
+carregarTudo();
+</script>
+</body></html>

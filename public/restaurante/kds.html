@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Cozinha (KDS) · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .kds-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px; margin-top:12px; }
+  .kds-card { border:2px solid var(--border); border-radius:10px; padding:12px; background:var(--surface); }
+  .kds-card.pendente   { border-color:var(--text-3); }
+  .kds-card.em-preparo { border-color:var(--warn); }
+  .kds-card.pronto     { border-color:var(--success); }
+  .kds-card.atrasado   { border-color:var(--danger); box-shadow:0 0 0 2px rgba(220,38,38,.15); }
+  .kds-topo { display:flex; justify-content:space-between; align-items:baseline; }
+  .kds-mesa { font-weight:700; }
+  .kds-tempo { font-size:.85em; color:var(--text-3); }
+  .kds-tempo.atrasado { color:var(--danger); font-weight:600; }
+  .kds-item { font-size:1.15em; margin:8px 0 4px; }
+  .kds-obs { font-size:.85em; color:var(--warn); }
+  .kds-opc { font-size:.85em; color:var(--text-3); }
+  .kds-abas { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Cozinha</h1>
+      <small id="kdsResumo">Carregando…</small>
+    </div>
+    <div class="actions">
+      <label style="display:flex;align-items:center;gap:6px;font-size:.9em;">
+        <input type="checkbox" id="chkProntos" checked onchange="carregarFila()"> mostrar prontos
+      </label>
+      <button class="btn btn-secondary btn-sm" onclick="carregarFila()">Atualizar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kds-abas" id="kdsAbas"></div>
+  <div class="kds-grid" id="kdsFila"></div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-kds');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+let setorAtual = '';           // '' = todos os setores
+let versaoConhecida = null;
+
+// Próximo passo de cada estado, na ordem em que a cozinha trabalha.
+const PROXIMO = { pendente: 'em-preparo', 'em-preparo': 'pronto', pronto: 'entregue' };
+const ROTULO = { 'em-preparo': 'Iniciar', pronto: 'Pronto', entregue: 'Entregue' };
+
+async function carregarAbas(d) {
+  const abas = [{ codigo: '', nome: 'Todos' }].concat(d.setores.map(s => ({ codigo: s.codigo, nome: s.nome })));
+  document.getElementById('kdsAbas').innerHTML = abas.map(a => {
+    const n = a.codigo === '' ? Object.values(d.porSetor).reduce((x, y) => x + y, 0) : (d.porSetor[a.codigo] || 0);
+    return `<button class="btn btn-sm ${setorAtual === a.codigo ? 'btn-primary' : 'btn-secondary'}"
+      onclick="trocarSetor('${a.codigo}')">${esc(a.nome)}${n ? ` (${n})` : ''}</button>`;
+  }).join('');
+}
+
+function trocarSetor(codigo) { setorAtual = codigo; carregarFila(); }
+
+async function carregarFila() {
+  try {
+    const prontos = document.getElementById('chkProntos').checked ? '1' : '0';
+    const url = `/api/restaurante/kds?prontos=${prontos}` + (setorAtual ? `&setor=${encodeURIComponent(setorAtual)}` : '');
+    const d = await api(url);
+    await carregarAbas(d);
+
+    document.getElementById('kdsResumo').textContent =
+      `${d.resumo.pendentes} na fila · ${d.resumo.emPreparo} em preparo · ${d.resumo.prontos} pronto(s)`
+      + (d.resumo.atrasados ? ` · ${d.resumo.atrasados} ATRASADO(S)` : '');
+
+    document.getElementById('kdsFila').innerHTML = d.itens.length ? d.itens.map(i => {
+      const prox = PROXIMO[i.status];
+      const tempo = i.status === 'em-preparo' && i.minutosNoPreparo != null
+        ? `${i.minutosNoPreparo} min no preparo` : `${i.minutosEmFila} min em fila`;
+      return `<div class="kds-card ${i.status}${i.atrasado ? ' atrasado' : ''}">
+        <div class="kds-topo">
+          <span class="kds-mesa">${esc(i.identificacao)}</span>
+          <span class="kds-tempo ${i.atrasado ? 'atrasado' : ''}">${tempo}${i.atrasado ? ' ⚠' : ''}</span>
+        </div>
+        <div class="kds-item"><strong>${i.quantidade}×</strong> ${esc(i.descricao)}
+          ${i.pesoKg ? `<span class="kds-opc">(${i.pesoKg} kg)</span>` : ''}</div>
+        ${(i.opcoes || []).length ? `<div class="kds-opc">${i.opcoes.map(o => esc(o.nome)).join(' · ')}</div>` : ''}
+        ${i.observacao ? `<div class="kds-obs">⚠ ${esc(i.observacao)}</div>` : ''}
+        ${i.setorNome ? `<div class="kds-opc">${esc(i.setorNome)}</div>` : '<div class="kds-obs">sem setor definido</div>'}
+        ${prox ? `<button class="btn btn-primary btn-sm" style="width:100%;margin-top:8px;"
+            onclick="avancar(${i.id}, '${prox}')">${ROTULO[prox]}</button>` : ''}
+      </div>`;
+    }).join('') : '<div class="empty">Nada na fila</div>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function avancar(itemId, status) {
+  try {
+    await api(`/api/restaurante/comanda-itens/${itemId}/status`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    carregarFila();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+/**
+ * Sem WebSocket no servidor (decisão do projeto), o painel faz polling. Para
+ * não baixar a fila inteira a cada 3s, consulta primeiro /kds/versao — um
+ * COUNT+MAX barato — e só recarrega quando o número muda.
+ */
+async function verificarMudanca() {
+  try {
+    const d = await api('/api/restaurante/kds/versao');
+    if (versaoConhecida !== null && d.versao !== versaoConhecida) carregarFila();
+    versaoConhecida = d.versao;
+  } catch (_) { /* rede instável: tenta de novo no próximo ciclo */ }
+}
+
+carregarFila().then(verificarMudanca);
+setInterval(verificarMudanca, 3000);
+// Rede de segurança para o relógio: os cartões mostram minutos, que envelhecem
+// sozinhos mesmo quando a fila não muda.
+setInterval(carregarFila, 60000);
+</script>
+</body></html>

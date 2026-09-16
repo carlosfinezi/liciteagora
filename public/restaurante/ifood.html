@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · iFood · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Integração iFood</h1>
+      <small>Pedidos do iFood entram como comanda de delivery e passam pela cozinha normalmente.</small></div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="buscarAgora()">Buscar pedidos agora</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div id="statusBox" style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px;">
+    Carregando…
+  </div>
+
+  <h2 style="font-size:1.05em;">Credenciais</h2>
+  <div class="form-row">
+    <div class="form-group"><label>Merchant ID</label>
+      <input type="text" id="fMerchant" placeholder="separe por vírgula se tiver mais de uma loja"></div>
+    <div class="form-group"><label>Client ID</label><input type="text" id="fClientId"></div>
+    <div class="form-group"><label>Client Secret</label>
+      <input type="password" id="fSecret" placeholder="deixe em branco para manter o atual">
+      <small class="muted">Em branco = mantém o segredo já salvo.</small></div>
+    <div class="form-group"><label>Situação</label>
+      <select id="fAtivo"><option value="0">Desativado</option><option value="1">Ativo (recebendo pedidos)</option></select></div>
+  </div>
+  <div class="modal-actions" style="justify-content:flex-start;">
+    <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+  </div>
+
+  <h2 style="font-size:1.05em;margin-top:24px;">Últimos eventos</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Recebido</th><th>Tipo</th><th>Pedido iFood</th><th>Comanda</th><th>Processado</th><th>Erro</th></tr></thead>
+      <tbody id="tbEventos"><tr><td colspan="6" class="empty">Nenhum evento ainda</td></tr></tbody>
+    </table>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-ifood');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+async function carregar() {
+  try {
+    const d = await api('/api/ifood/config');
+    const box = document.getElementById('statusBox');
+    if (!d.config) {
+      box.innerHTML = '<strong>Não configurado</strong><div class="muted">Preencha as credenciais do portal do parceiro iFood.</div>';
+    } else {
+      const c = d.config;
+      document.getElementById('fMerchant').value = c.merchantId || '';
+      document.getElementById('fClientId').value = c.clientId || '';
+      document.getElementById('fAtivo').value = String(c.ativo || 0);
+      box.innerHTML = `
+        <strong style="color:${c.ativo ? 'var(--success)' : 'var(--text-3)'};">
+          ${c.ativo ? 'Ativo — recebendo pedidos' : 'Desativado'}</strong>
+        <div class="muted" style="margin-top:6px;">
+          Último polling: ${esc(c.ultimoPollingEm || 'nunca')}<br>
+          ${c.temSecret ? 'Segredo salvo.' : 'Segredo ainda não informado.'}
+        </div>
+        ${c.ultimoErro ? `<div class="alert error" style="display:block;margin-top:8px;">
+          Último erro: ${esc(c.ultimoErro)}</div>` : ''}
+        <div class="muted" style="margin-top:8px;">
+          Quando ativo, o servidor consulta o iFood a cada 30 segundos.
+          Espaçar mais faz a plataforma entender que a loja não responde e fechá-la.
+        </div>`;
+    }
+    await carregarEventos();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarEventos() {
+  try {
+    const d = await api('/api/ifood/eventos?limit=50');
+    document.getElementById('tbEventos').innerHTML = d.items.length ? d.items.map(e => `
+      <tr${e.erro ? ' style="background:rgba(220,38,38,.06);"' : ''}>
+        <td class="muted">${esc(e.recebidoEm)}</td>
+        <td><span class="badge">${esc(e.tipo || '—')}</span></td>
+        <td class="muted">${esc((e.pedidoExternoId || '—').slice(0, 18))}</td>
+        <td>${e.comandaId ? '#' + e.comandaId : '—'}</td>
+        <td class="muted">${esc(e.processadoEm || '—')}</td>
+        <td style="color:var(--danger);">${esc(e.erro || '')}</td>
+      </tr>`).join('') : '<tr><td colspan="6" class="empty">Nenhum evento ainda</td></tr>';
+    if (d.resumo.comErro) {
+      showAlert(`${d.resumo.comErro} evento(s) com erro — verifique a lista abaixo.`, 'error');
+    }
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvar() {
+  try {
+    const corpo = {
+      merchantId: document.getElementById('fMerchant').value.trim(),
+      clientId: document.getElementById('fClientId').value.trim(),
+      ativo: Number(document.getElementById('fAtivo').value),
+    };
+    const seg = document.getElementById('fSecret').value.trim();
+    if (seg) corpo.clientSecret = seg;
+    await api('/api/ifood/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    document.getElementById('fSecret').value = '';
+    showAlert('Configuração salva');
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function buscarAgora() {
+  try {
+    const d = await api('/api/ifood/polling', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    if (!d.ok) { showAlert(d.motivo || d.erro || 'não foi possível consultar', 'error'); }
+    else {
+      showAlert(`${d.recebidos} evento(s) recebido(s), ${d.novos} novo(s), `
+        + `${d.comandas.length} pedido(s) criado(s)`
+        + (d.duplicados ? `, ${d.duplicados} já conhecido(s)` : ''));
+    }
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+carregar();
+</script>
+</body></html>

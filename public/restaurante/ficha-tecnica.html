@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Ficha Técnica · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Ficha Técnica e CMV</h1>
+      <small>A quantidade que sai do estoque é a <strong>bruta</strong> — com casca, osso e aparas. É ela que custa.</small></div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="abrirProducao()">Produção em lote</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovaFicha()">+ Nova ficha</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Item</th><th style="text-align:right;">Insumos</th><th style="text-align:right;">Rendimento</th>
+        <th style="text-align:right;">Custo/porção</th><th style="text-align:right;">Preço</th>
+        <th style="text-align:right;">CMV%</th><th>Avisos</th><th style="width:90px;"></th></tr></thead>
+      <tbody id="tbFichas"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="detalheWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;">
+      <div><h2 id="fdTitulo" style="margin:0;"></h2><small id="fdSub" class="muted"></small></div>
+    </div>
+    <div id="fdAvisos"></div>
+
+    <div class="toolbar">
+      <select id="adInsumo" style="flex:1;min-width:240px;"></select>
+      <select id="adModo" style="width:150px;" title="Como você quer informar a quantidade">
+        <option value="liquida">Qtd. líquida</option>
+        <option value="bruta">Qtd. bruta</option>
+      </select>
+      <input type="number" id="adQtd" placeholder="Quantidade" step="0.0001" style="width:130px;">
+      <input type="number" id="adFC" placeholder="Fator corr." step="0.01" value="1" style="width:120px;"
+        title="Bruto ÷ líquido. Alface ≈ 1,4">
+      <button class="btn btn-primary btn-sm" onclick="addInsumo()">+ Incluir</button>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Insumo</th><th style="text-align:right;">Bruta</th><th style="text-align:right;">FC</th>
+          <th style="text-align:right;">Líquida</th><th style="text-align:right;">Custo unit.</th>
+          <th>Origem</th><th style="text-align:right;">Custo</th><th style="width:50px;"></th></tr></thead>
+        <tbody id="tbInsumos"></tbody>
+      </table>
+    </div>
+    <div id="fdTotais" style="text-align:right;margin-top:10px;font-size:1.05em;"></div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalFicha">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3 style="margin:0;">Nova ficha técnica</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalFicha')" style="font-size:1.2em;padding:4px 10px;">×</button></div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Item do cardápio *</label><select id="nfProduto"></select></div>
+      <div class="form-group"><label>Rendimento</label><input type="number" id="nfRend" value="1" step="0.001"
+        title="Quantas porções a receita produz"></div>
+      <div class="form-group"><label>Unidade</label><input type="text" id="nfUnid" value="UN"></div>
+      <div class="form-group full-width"><label>Modo de preparo</label><textarea id="nfModo" rows="3"></textarea></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalFicha')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarFicha()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalProd">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3 style="margin:0;">Produção em lote</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalProd')" style="font-size:1.2em;padding:4px 10px;">×</button></div>
+    <small class="muted">Consome os insumos da ficha e dá entrada no produzido.</small>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Item</label><select id="prProduto"></select></div>
+      <div class="form-group"><label>Quantidade</label><input type="number" id="prQtd" step="0.001"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalProd')">Cancelar</button>
+      <button class="btn btn-primary" onclick="produzir()">Produzir</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-ficha');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v, c = 2) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+function fechar(id) { document.getElementById(id).classList.remove('open'); }
+function abrir(id) { document.getElementById(id).classList.add('open'); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+let produtosCache = [], produtoAtual = null;
+
+// CMV de referência do setor: 28% a 35%.
+function corCmv(pct) {
+  if (pct == null) return 'var(--text-3)';
+  if (pct <= 35) return 'var(--success)';
+  if (pct <= 45) return 'var(--warn)';
+  return 'var(--danger)';
+}
+
+async function carregarProdutos() {
+  if (produtosCache.length) return;
+  const d = await api('/api/produtos');
+  produtosCache = d.produtos || [];
+  const opcoes = produtosCache.map(p => `<option value="${p.id}">${esc(p.sku)} · ${esc(p.descricao)}</option>`).join('');
+  document.getElementById('nfProduto').innerHTML = opcoes;
+  document.getElementById('adInsumo').innerHTML = '<option value="">— escolha o insumo —</option>' + opcoes;
+  document.getElementById('prProduto').innerHTML = opcoes;
+}
+
+async function carregar() {
+  try {
+    await carregarProdutos();
+    const d = await api('/api/restaurante/fichas');
+    document.getElementById('tbFichas').innerHTML = d.items.length ? d.items.map(f => `<tr>
+      <td><strong>${esc(f.descricao)}</strong> <span class="muted">${esc(f.sku)}</span></td>
+      <td style="text-align:right;">${f.totalInsumos}</td>
+      <td style="text-align:right;">${fmt(f.rendimento, 3)} ${esc(f.unidadeRendimento)}</td>
+      <td style="text-align:right;">R$ ${fmt(f.custoPorcao)}</td>
+      <td style="text-align:right;">R$ ${fmt(f.precoVenda)}</td>
+      <td style="text-align:right;color:${corCmv(f.cmvPct)};font-weight:600;">
+        ${f.cmvPct == null ? '—' : fmt(f.cmvPct, 1) + '%'}</td>
+      <td>${(f.avisos || []).length ? `<span style="color:var(--warn);">${f.avisos.length} aviso(s)</span>` : ''}</td>
+      <td><button class="btn btn-secondary btn-sm" onclick="abrirDetalhe(${f.produtoId})">Abrir</button></td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhuma ficha cadastrada</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function abrirNovaFicha() { abrir('modalFicha'); }
+async function salvarFicha() {
+  try {
+    const pid = document.getElementById('nfProduto').value;
+    await api('/api/restaurante/fichas/' + pid, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rendimento: Number(document.getElementById('nfRend').value) || 1,
+        unidadeRendimento: document.getElementById('nfUnid').value.trim() || 'UN',
+        modoPreparo: document.getElementById('nfModo').value.trim() || null,
+      }),
+    });
+    fechar('modalFicha');
+    await carregar();
+    abrirDetalhe(Number(pid));
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function abrirDetalhe(produtoId) {
+  produtoAtual = produtoId;
+  document.getElementById('detalheWrap').style.display = '';
+  await recarregarDetalhe();
+}
+
+async function recarregarDetalhe() {
+  try {
+    const d = await api('/api/restaurante/fichas/' + produtoAtual);
+    document.getElementById('fdTitulo').textContent = d.produto.descricao;
+    document.getElementById('fdSub').textContent =
+      `rende ${fmt(d.rendimento, 3)} ${esc(d.ficha ? d.ficha.unidadeRendimento : '')}`
+      + ` · preço R$ ${fmt(d.produto.precoVenda)}`;
+
+    document.getElementById('fdAvisos').innerHTML = (d.avisos || []).length
+      ? `<div class="alert error" style="display:block;">${d.avisos.map(esc).join('<br>')}</div>` : '';
+
+    document.getElementById('tbInsumos').innerHTML = d.itens.length ? d.itens.map(i => `<tr>
+      <td>${esc(i.descricao)}</td>
+      <td style="text-align:right;">${fmt(i.quantidadeBruta, 4)} ${esc(i.unidade)}</td>
+      <td style="text-align:right;">${fmt(i.fatorCorrecao, 2)}</td>
+      <td style="text-align:right;" class="muted">${fmt(i.quantidadeLiquida, 4)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.custoUnitario, 4)}</td>
+      <td>${i.origemCusto === 'sub-receita'
+        ? '<span class="badge">sub-receita</span>' : '<span class="muted">compra</span>'}</td>
+      <td style="text-align:right;">R$ ${fmt(i.custo)}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="delInsumo(${i.id ?? 0}, ${i.insumoProdutoId})">×</button></td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Nenhum insumo — a ficha ainda não custa nada</td></tr>';
+
+    document.getElementById('fdTotais').innerHTML =
+      `Custo da receita R$ ${fmt(d.custoTotal)} ·
+       <strong>Custo por porção R$ ${fmt(d.custoPorcao)}</strong> ·
+       Margem R$ ${fmt(d.margem)} ·
+       <strong style="color:${corCmv(d.cmvPct)};">CMV ${d.cmvPct == null ? '—' : fmt(d.cmvPct, 1) + '%'}</strong>
+       <span class="muted">(referência do setor: 28% a 35%)</span>`;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function addInsumo() {
+  const insumoId = document.getElementById('adInsumo').value;
+  if (!insumoId) return showAlert('Escolha o insumo', 'error');
+  const qtd = Number(document.getElementById('adQtd').value);
+  if (!qtd) return showAlert('Informe a quantidade', 'error');
+  const fc = Number(document.getElementById('adFC').value) || 1;
+  const corpo = { insumoProdutoId: Number(insumoId), fatorCorrecao: fc };
+  if (document.getElementById('adModo').value === 'liquida') corpo.quantidadeLiquida = qtd;
+  else corpo.quantidadeBruta = qtd;
+  try {
+    await api(`/api/restaurante/fichas/${produtoAtual}/itens`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    document.getElementById('adQtd').value = '';
+    await recarregarDetalhe(); carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function delInsumo(itemId) {
+  if (!itemId) return showAlert('Linha sem id — recarregue a página', 'error');
+  try {
+    await api('/api/restaurante/ficha-itens/' + itemId, { method: 'DELETE' });
+    await recarregarDetalhe(); carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function abrirProducao() { await carregarProdutos(); abrir('modalProd'); }
+async function produzir() {
+  try {
+    const d = await api('/api/restaurante/producoes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        produtoId: Number(document.getElementById('prProduto').value),
+        quantidade: Number(document.getElementById('prQtd').value),
+      }),
+    });
+    fechar('modalProd');
+    showAlert(`Produzido. Custo total R$ ${fmt(d.custoTotal)} (R$ ${fmt(d.custoUnitario, 4)} por unidade)`);
+    if ((d.avisos || []).length) showAlert(d.avisos.join(' · '), 'error');
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { fechar('modalFicha'); fechar('modalProd'); } });
+carregar();
+</script>
+</body></html>

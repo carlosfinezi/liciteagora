@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Gorjetas · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Gorjetas</h1>
+      <small>Lei 13.419/2017 — a taxa de serviço é dos empregados do atendimento, não receita da casa.</small></div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="date" id="gDe"><input type="date" id="gAte">
+    <button class="btn btn-secondary btn-sm" onclick="apurar()">Apurar período</button>
+  </div>
+
+  <div id="apuracao"></div>
+
+  <div id="rateioWrap" style="display:none;">
+    <h2 style="font-size:1.05em;margin-top:20px;">Rateio</h2>
+    <div class="form-row">
+      <div class="form-group"><label>Critério</label>
+        <select id="gCriterio" onchange="montarParticipantes()">
+          <option value="igual">Divisão igual</option>
+          <option value="proporcional-vendas">Proporcional às vendas</option>
+          <option value="pontos">Por pontos (convenção coletiva)</option>
+        </select>
+        <small class="muted">O critério vem da convenção do sindicato.</small>
+      </div>
+      <div class="form-group"><label>Retenção para encargos (%)</label>
+        <input type="number" id="gRetencao" step="0.01" min="0" value="0">
+        <small class="muted" id="gTetoAviso"></small>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Participante</th><th style="text-align:right;">Vendeu</th>
+          <th style="text-align:right;" id="thPeso">Pontos</th><th style="width:60px;"></th></tr></thead>
+        <tbody id="tbParticipantes"></tbody>
+      </table>
+    </div>
+
+    <div class="toolbar">
+      <input type="text" id="pNome" placeholder="Incluir participante (cumim, copeiro…)" style="flex:1;min-width:240px;">
+      <input type="number" id="pPeso" placeholder="Pontos" value="1" style="width:110px;">
+      <button class="btn btn-secondary btn-sm" onclick="addParticipante()">+ Incluir</button>
+    </div>
+
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-primary" onclick="ratear()">Calcular e gravar rateio</button>
+    </div>
+    <div id="previa"></div>
+  </div>
+
+  <h2 style="font-size:1.05em;margin-top:24px;">Rateios registrados</h2>
+  <div id="listaRateios"></div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-gorjetas');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 7000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) { const e = new Error(d.error || 'falha'); e.dados = d; throw e; }
+  return d;
+}
+
+let apurado = null, participantes = [];
+
+function periodo() {
+  return { de: document.getElementById('gDe').value, ate: document.getElementById('gAte').value };
+}
+
+async function apurar() {
+  const { de, ate } = periodo();
+  try {
+    const d = await api('/api/restaurante/gorjetas/apurar' + (de ? `?de=${de}&ate=${ate || de}` : ''));
+    apurado = d;
+    document.getElementById('gRetencao').value = d.retencaoPctConfigurada || 0;
+    document.getElementById('gCriterio').value = d.criterioPadrao || 'igual';
+    document.getElementById('gTetoAviso').textContent =
+      `Teto legal: ${d.tetoRetencaoPct}% (regime ${d.regime === 'simples' ? 'Simples Nacional' : 'normal'}). `
+      + 'Reter acima disso é infração.';
+
+    document.getElementById('apuracao').innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin:12px 0;">
+        <strong style="font-size:1.3em;">R$ ${fmt(d.totalGorjeta)}</strong> de gorjeta
+        <span class="muted">em ${d.contas} conta(s) fechada(s)</span>
+        <div class="muted" style="margin-top:6px;">${esc(d.observacao)}</div>
+      </div>`;
+
+    participantes = d.atendentes.map(a => ({
+      funcionarioId: a.funcionarioId, nome: a.nome, vendido: a.vendido, peso: 1, doSistema: true,
+    }));
+    montarParticipantes();
+    document.getElementById('rateioWrap').style.display = d.totalGorjeta > 0 ? '' : 'none';
+    if (d.totalGorjeta <= 0) showAlert('Nenhuma gorjeta no período', 'error');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function montarParticipantes() {
+  const criterio = document.getElementById('gCriterio').value;
+  document.getElementById('thPeso').textContent = criterio === 'pontos' ? 'Pontos' : '—';
+  document.getElementById('tbParticipantes').innerHTML = participantes.length ? participantes.map((p, i) => `
+    <tr>
+      <td>${esc(p.nome)}${p.doSistema ? '' : ' <span class="muted">(incluído à mão)</span>'}</td>
+      <td style="text-align:right;">R$ ${fmt(p.vendido)}</td>
+      <td style="text-align:right;">${criterio === 'pontos'
+        ? `<input type="number" value="${p.peso}" style="width:80px;text-align:right;"
+             onchange="participantes[${i}].peso = Number(this.value) || 0">`
+        : '<span class="muted">—</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="removerParticipante(${i})">×</button></td>
+    </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhum participante</td></tr>';
+}
+
+function addParticipante() {
+  const nome = document.getElementById('pNome').value.trim();
+  if (!nome) return showAlert('Informe o nome', 'error');
+  participantes.push({
+    funcionarioId: null, nome, vendido: 0,
+    peso: Number(document.getElementById('pPeso').value) || 1, doSistema: false,
+  });
+  document.getElementById('pNome').value = '';
+  montarParticipantes();
+}
+function removerParticipante(i) { participantes.splice(i, 1); montarParticipantes(); }
+
+async function ratear(refazer) {
+  const { de, ate } = periodo();
+  if (!de || !ate) return showAlert('Informe o período completo (data inicial e final)', 'error');
+  try {
+    const d = await api('/api/restaurante/gorjetas/ratear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        de, ate,
+        criterio: document.getElementById('gCriterio').value,
+        retencaoPct: Number(document.getElementById('gRetencao').value) || 0,
+        participantes: participantes.map(p => ({
+          funcionarioId: p.funcionarioId, nome: p.nome, peso: p.peso, vendido: p.vendido,
+        })),
+        refazer: !!refazer,
+      }),
+    });
+    document.getElementById('previa').innerHTML = `
+      <div class="alert ${d.confere ? 'success' : 'error'}" style="display:block;margin-top:12px;">
+        Bruto R$ ${fmt(d.bruto)} · Retenção R$ ${fmt(d.retencao)} (${d.retencaoPct}%)
+        · <strong>Líquido a repassar R$ ${fmt(d.liquido)}</strong>
+        ${d.confere ? '— soma das linhas confere' : '— ATENÇÃO: soma não confere'}
+        ${d.caiuParaIgual ? '<br>Sem pontos válidos: usou divisão igual.' : ''}
+      </div>`;
+    showAlert('Rateio gravado');
+    carregarRateios();
+  } catch (e) {
+    if (e.dados && /já existe/.test(e.message)
+        && window.confirm(`${e.message}\n\nRefazer o rateio deste período?`)) {
+      return ratear(true);
+    }
+    showAlert(e.message, 'error');
+  }
+}
+
+async function carregarRateios() {
+  try {
+    const d = await api('/api/restaurante/gorjetas');
+    document.getElementById('listaRateios').innerHTML = d.periodos.length ? d.periodos.map(p => `
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div>
+            <strong>${esc(p.periodoIni)} a ${esc(p.periodoFim)}</strong>
+            <span class="badge">${esc(p.criterio)}</span>
+            <span class="badge" style="background:${p.status === 'pago' ? 'var(--success)' : 'var(--warn)'};color:#fff;">
+              ${p.status === 'pago' ? 'repassado' : 'a repassar'}</span>
+            <div class="muted">Bruto R$ ${fmt(p.totalBruto)} · Retenção R$ ${fmt(p.totalRetencao)}
+              · Líquido R$ ${fmt(p.totalLiquido)}</div>
+          </div>
+          ${p.status !== 'pago'
+            ? `<button class="btn btn-primary btn-sm" onclick="pagar('${p.periodoIni}','${p.periodoFim}')">
+                 Registrar repasse</button>` : ''}
+        </div>
+        <div class="tbl-wrap" style="margin-top:10px;">
+          <table>
+            <thead><tr><th>Funcionário</th><th style="text-align:right;">Bruto</th>
+              <th style="text-align:right;">Retenção</th><th style="text-align:right;">Líquido</th></tr></thead>
+            <tbody>${p.linhas.map(l => `<tr>
+              <td>${esc(l.funcionarioNome)}</td>
+              <td style="text-align:right;">R$ ${fmt(l.valorBruto)}</td>
+              <td style="text-align:right;" class="muted">R$ ${fmt(l.retencaoEncargos)}</td>
+              <td style="text-align:right;"><strong>R$ ${fmt(l.valorLiquido)}</strong></td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>`).join('') : '<div class="empty">Nenhum rateio registrado</div>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function pagar(de, ate) {
+  try {
+    const d = await api('/api/restaurante/gorjetas/pagar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ de, ate }),
+    });
+    showAlert(`${d.pagas} repasse(s) registrado(s). O registro da data é a prova contra a multa por atraso.`);
+    carregarRateios();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+apurar();
+carregarRateios();
+</script>
+</body></html>

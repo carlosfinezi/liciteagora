@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Delivery · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .pedido-card { border:2px solid var(--warn); border-radius:10px; padding:12px; margin-bottom:10px; background:var(--surface); }
+  .entrega-linha { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Delivery</h1><small id="dvResumo">Carregando…</small></div>
+    <div class="actions"><button class="btn btn-secondary btn-sm" onclick="carregarTudo()">Atualizar</button></div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div id="aceiteWrap" style="display:none;">
+    <h2 style="font-size:1.1em;">Pedidos online aguardando aceite</h2>
+    <div id="listaAceite"></div>
+  </div>
+
+  <div class="toolbar" style="gap:6px;">
+    <button class="btn btn-sm" id="tb-entregas" onclick="mostrar('entregas')">Entregas</button>
+    <button class="btn btn-sm" id="tb-bairros"  onclick="mostrar('bairros')">Bairros e taxas</button>
+    <button class="btn btn-sm" id="tb-motos"    onclick="mostrar('motos')">Entregadores</button>
+    <button class="btn btn-sm" id="tb-acerto"   onclick="mostrar('acerto')">Acerto</button>
+  </div>
+
+  <div class="aba" id="aba-entregas">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Endereço</th><th>Bairro</th><th>Itens</th>
+          <th style="text-align:right;">Taxa</th><th style="text-align:right;">Total</th>
+          <th>Entregador</th><th>Status</th><th style="width:150px;"></th></tr></thead>
+        <tbody id="tbEntregas"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="aba" id="aba-bairros" style="display:none;">
+    <div class="toolbar">
+      <input type="text" id="bNome" placeholder="Bairro" style="flex:1;min-width:200px;">
+      <input type="number" id="bTaxa" placeholder="Taxa R$" step="0.01" style="width:120px;">
+      <input type="number" id="bTempo" placeholder="Min" style="width:100px;">
+      <button class="btn btn-primary btn-sm" onclick="addBairro()">+ Incluir</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Bairro</th><th style="text-align:right;">Taxa</th><th style="text-align:right;">Tempo</th>
+          <th>Status</th><th style="width:60px;"></th></tr></thead>
+        <tbody id="tbBairros"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="aba" id="aba-motos" style="display:none;">
+    <div class="toolbar">
+      <input type="text" id="eNome" placeholder="Nome do entregador" style="flex:1;min-width:200px;">
+      <input type="text" id="eTel" placeholder="Telefone" style="width:170px;">
+      <button class="btn btn-primary btn-sm" onclick="addEntregador()">+ Incluir</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Telefone</th><th style="text-align:right;">Em rota</th><th>Status</th><th style="width:90px;"></th></tr></thead>
+        <tbody id="tbMotos"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="aba" id="aba-acerto" style="display:none;">
+    <div class="toolbar">
+      <select id="acEntregador" style="min-width:200px;"></select>
+      <input type="date" id="acDe"><input type="date" id="acAte">
+      <button class="btn btn-primary btn-sm" onclick="carregarAcerto()">Apurar</button>
+    </div>
+    <div id="acResultado"></div>
+  </div>
+</main></div>
+
+<div class="modal-bg" id="modalRota">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Enviar para entrega</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalRota')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-group full-width"><label>Entregador</label><select id="rtEntregador"></select></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalRota')">Cancelar</button>
+      <button class="btn btn-primary" id="rtBtn">Confirmar saída</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-delivery');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fechar(id) { document.getElementById(id).classList.remove('open'); }
+function abrir(id) { document.getElementById(id).classList.add('open'); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+const ABAS = ['entregas', 'bairros', 'motos', 'acerto'];
+function mostrar(nome) {
+  for (const a of ABAS) {
+    document.getElementById('aba-' + a).style.display = a === nome ? '' : 'none';
+    document.getElementById('tb-' + a).className = 'btn btn-sm ' + (a === nome ? 'btn-primary' : 'btn-secondary');
+  }
+}
+
+let entregadoresCache = [];
+
+async function carregarTudo() {
+  await carregarAceite();
+  await carregarEntregadores();
+  await carregarEntregas();
+  await carregarBairros();
+}
+
+// ===== Pedidos aguardando aceite =====
+async function carregarAceite() {
+  try {
+    const d = await api('/api/restaurante/pedidos-online');
+    const wrap = document.getElementById('aceiteWrap');
+    if (!d.items.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    document.getElementById('listaAceite').innerHTML = d.items.map(c => `
+      <div class="pedido-card">
+        <div class="entrega-linha">
+          <div>
+            <strong>Pedido #${c.id}</strong> — R$ ${fmt(c.totalGeral)}
+            <div class="muted">${esc(c.observacao || '')}</div>
+            <div class="muted">${esc(c.endereco || '')} ${esc(c.numero || '')}
+              ${c.bairroNome ? '· ' + esc(c.bairroNome) : ''} · taxa R$ ${fmt(c.taxa)}</div>
+            <div style="margin-top:6px;">${c.itens.map(i =>
+              `${i.quantidade}× ${esc(i.descricao)}`).join('<br>')}</div>
+          </div>
+          <div style="white-space:nowrap;">
+            <button class="btn btn-primary btn-sm" onclick="aceitar(${c.id})">Aceitar</button>
+            <button class="btn btn-ghost btn-sm" onclick="recusar(${c.id})">Recusar</button>
+          </div>
+        </div>
+      </div>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function aceitar(id) {
+  try { await api(`/api/restaurante/pedidos-online/${id}/aceitar`, { method: 'POST' }); carregarTudo(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+async function recusar(id) {
+  const motivo = window.prompt('Motivo da recusa (obrigatório):');
+  if (!motivo) return;
+  try {
+    await api(`/api/restaurante/pedidos-online/${id}/recusar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }),
+    });
+    carregarTudo();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Entregas =====
+async function carregarEntregas() {
+  try {
+    const d = await api('/api/restaurante/entregas');
+    const abertas = d.items.filter(e => e.status === 'pendente' || e.status === 'em-rota');
+    document.getElementById('dvResumo').textContent =
+      `${d.items.filter(e => e.status === 'pendente').length} aguardando · `
+      + `${d.items.filter(e => e.status === 'em-rota').length} em rota`;
+
+    document.getElementById('tbEntregas').innerHTML = d.items.length ? d.items.map(e => `<tr>
+      <td>#${e.comandaId}</td>
+      <td>${esc(e.endereco || '')} ${esc(e.numero || '')}</td>
+      <td>${esc(e.bairroNome || '—')}</td>
+      <td class="muted">${e.itens.map(i => `${i.quantidade}× ${esc(i.descricao)}`).join(', ')}</td>
+      <td style="text-align:right;">R$ ${fmt(e.taxa)}</td>
+      <td style="text-align:right;">R$ ${fmt(e.totalGeral)}</td>
+      <td>${esc(e.entregadorNome || '—')}</td>
+      <td><span class="badge">${esc(e.status)}</span></td>
+      <td>
+        ${e.status === 'pendente' ? `<button class="btn btn-primary btn-sm" onclick="abrirRota(${e.id})">Enviar</button>` : ''}
+        ${e.status === 'em-rota' ? `<button class="btn btn-primary btn-sm" onclick="mudarStatus(${e.id}, 'entregue')">Entregue</button>` : ''}
+        ${e.status !== 'entregue' && e.status !== 'cancelada'
+          ? `<button class="btn btn-ghost btn-sm" onclick="mudarStatus(${e.id}, 'cancelada')">×</button>` : ''}
+      </td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty">Nenhuma entrega</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function abrirRota(entregaId) {
+  document.getElementById('rtEntregador').innerHTML = entregadoresCache.filter(e => e.ativo)
+    .map(e => `<option value="${e.id}">${esc(e.nome)}${e.emRota ? ` (${e.emRota} em rota)` : ''}</option>`).join('')
+    || '<option value="">nenhum entregador ativo</option>';
+  document.getElementById('rtBtn').onclick = async () => {
+    try {
+      await api(`/api/restaurante/entregas/${entregaId}/status`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'em-rota', entregadorId: Number(document.getElementById('rtEntregador').value) }),
+      });
+      fechar('modalRota'); carregarTudo();
+    } catch (e) { showAlert(e.message, 'error'); }
+  };
+  abrir('modalRota');
+}
+
+async function mudarStatus(id, status) {
+  try {
+    const body = { status };
+    if (status === 'cancelada') {
+      const motivo = window.prompt('Motivo do cancelamento:');
+      if (!motivo) return;
+      body.motivo = motivo;
+    }
+    await api(`/api/restaurante/entregas/${id}/status`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    carregarTudo();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Bairros =====
+async function carregarBairros() {
+  try {
+    const d = await api('/api/restaurante/bairros');
+    document.getElementById('tbBairros').innerHTML = d.items.length ? d.items.map(b => `
+      <tr${b.ativo ? '' : ' style="opacity:.55;"'}>
+        <td><strong>${esc(b.nome)}</strong></td>
+        <td style="text-align:right;">R$ ${fmt(b.taxa)}</td>
+        <td style="text-align:right;">${b.tempoEstimadoMin} min</td>
+        <td>${b.ativo ? 'Entregamos' : 'Suspenso'}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="toggleBairro(${b.id}, ${b.ativo ? 0 : 1})">
+          ${b.ativo ? 'Suspender' : 'Reativar'}</button></td>
+      </tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhum bairro cadastrado</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addBairro() {
+  try {
+    await api('/api/restaurante/bairros', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: document.getElementById('bNome').value.trim(),
+        taxa: Number(document.getElementById('bTaxa').value) || 0,
+        tempoEstimadoMin: Number(document.getElementById('bTempo').value) || 30,
+      }),
+    });
+    document.getElementById('bNome').value = ''; document.getElementById('bTaxa').value = '';
+    carregarBairros();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function toggleBairro(id, ativo) {
+  try {
+    await api('/api/restaurante/bairros/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativo }),
+    });
+    carregarBairros();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Entregadores =====
+async function carregarEntregadores() {
+  try {
+    const d = await api('/api/restaurante/entregadores');
+    entregadoresCache = d.items;
+    document.getElementById('tbMotos').innerHTML = d.items.length ? d.items.map(e => `
+      <tr${e.ativo ? '' : ' style="opacity:.55;"'}>
+        <td><strong>${esc(e.nome)}</strong></td>
+        <td>${esc(e.telefone || '—')}</td>
+        <td style="text-align:right;">${e.emRota || 0}</td>
+        <td>${e.ativo ? 'Ativo' : 'Inativo'}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="toggleEntregador(${e.id}, ${e.ativo ? 0 : 1})">
+          ${e.ativo ? 'Desativar' : 'Ativar'}</button></td>
+      </tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhum entregador</td></tr>';
+    document.getElementById('acEntregador').innerHTML =
+      d.items.map(e => `<option value="${e.id}">${esc(e.nome)}</option>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addEntregador() {
+  try {
+    await api('/api/restaurante/entregadores', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: document.getElementById('eNome').value.trim(),
+        telefone: document.getElementById('eTel').value.trim() || null,
+      }),
+    });
+    document.getElementById('eNome').value = ''; document.getElementById('eTel').value = '';
+    carregarEntregadores();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function toggleEntregador(id, ativo) {
+  try {
+    await api('/api/restaurante/entregadores/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativo }),
+    });
+    carregarEntregadores();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Acerto =====
+async function carregarAcerto() {
+  const id = document.getElementById('acEntregador').value;
+  if (!id) return showAlert('Escolha um entregador', 'error');
+  const de = document.getElementById('acDe').value, ate = document.getElementById('acAte').value;
+  try {
+    const d = await api(`/api/restaurante/entregadores/${id}/acerto`
+      + (de ? `?de=${de}&ate=${ate || de}` : ''));
+    document.getElementById('acResultado').innerHTML = `
+      <div class="turno-box" style="border:1px solid var(--border);border-radius:10px;padding:14px;margin:12px 0;">
+        <strong>${esc(d.entregador.nome)}</strong>
+        <div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:8px;">
+          <div><small class="muted">Entregas</small><br><strong>${d.resumo.quantidade}</strong></div>
+          <div><small class="muted">Taxas</small><br><strong>R$ ${fmt(d.resumo.totalTaxas)}</strong></div>
+          <div><small class="muted">Valor dos pedidos</small><br><strong>R$ ${fmt(d.resumo.totalPedidos)}</strong></div>
+          <div><small class="muted">Dinheiro a repassar</small><br>
+            <strong style="color:var(--warn);">R$ ${fmt(d.resumo.dinheiroARepassar)}</strong></div>
+        </div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>#</th><th>Bairro</th><th>Entregue em</th>
+          <th style="text-align:right;">Taxa</th><th style="text-align:right;">Pedido</th></tr></thead>
+        <tbody>${d.entregas.map(e => `<tr><td>#${e.comandaId}</td><td>${esc(e.bairroNome || '—')}</td>
+          <td>${esc(e.entregueEm || '')}</td><td style="text-align:right;">R$ ${fmt(e.taxa)}</td>
+          <td style="text-align:right;">R$ ${fmt(e.totalGeral)}</td></tr>`).join('')
+          || '<tr><td colspan="5" class="empty">Nenhuma entrega no período</td></tr>'}</tbody>
+      </table></div>`;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fechar('modalRota'); });
+mostrar('entregas');
+carregarTudo();
+setInterval(carregarAceite, 20000);
+</script>
+</body></html>

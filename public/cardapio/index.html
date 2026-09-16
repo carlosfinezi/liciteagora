@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cardápio</title>
+<style>
+  /* Tela do cliente: não carrega o CSS do sistema nem a sidebar — quem abre
+     isto é um visitante no celular, sem login e sem contexto do ERP. */
+  :root { --fg:#1a1a1a; --fg2:#666; --bd:#e2e2e2; --ac:#c2410c; --ok:#15803d; --bg:#fff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); padding-bottom:110px; }
+  header { padding:18px 16px; border-bottom:1px solid var(--bd); position:sticky; top:0; background:var(--bg); z-index:5; }
+  h1 { margin:0; font-size:1.35em; }
+  .sub { color:var(--fg2); font-size:.88em; margin-top:4px; }
+  .abas { display:flex; gap:8px; padding:12px 16px 0; }
+  .aba { padding:8px 14px; border:1px solid var(--bd); border-radius:20px; background:none; font-size:.95em; cursor:pointer; }
+  .aba.on { background:var(--ac); color:#fff; border-color:var(--ac); }
+  .cat { padding:18px 16px 4px; font-weight:700; font-size:1.05em; }
+  .item { display:flex; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--bd); }
+  .item h3 { margin:0 0 4px; font-size:1em; font-weight:600; }
+  .item .preco { white-space:nowrap; font-weight:700; }
+  .add { border:1px solid var(--ac); color:var(--ac); background:none; border-radius:8px;
+    padding:6px 12px; margin-top:8px; cursor:pointer; font-size:.9em; }
+  .barra { position:fixed; bottom:0; left:0; right:0; background:var(--ac); color:#fff;
+    padding:14px 16px; display:none; justify-content:space-between; align-items:center; }
+  .barra button { background:#fff; color:var(--ac); border:0; border-radius:8px; padding:10px 16px; font-weight:700; cursor:pointer; }
+  dialog { border:0; border-radius:14px; padding:0; width:min(94vw,460px); }
+  .dlg-corpo { padding:18px; }
+  .dlg-corpo h2 { margin:0 0 12px; font-size:1.15em; }
+  label.op { display:flex; align-items:center; gap:8px; padding:7px 0; }
+  input[type=text], input[type=tel], select, textarea {
+    width:100%; padding:10px; border:1px solid var(--bd); border-radius:8px; font-size:1em; font-family:inherit; }
+  .campo { margin-bottom:10px; }
+  .campo small { color:var(--fg2); }
+  .btn { width:100%; padding:13px; border:0; border-radius:10px; background:var(--ac); color:#fff;
+    font-size:1.02em; font-weight:700; cursor:pointer; margin-top:6px; }
+  .btn.sec { background:none; color:var(--fg2); border:1px solid var(--bd); font-weight:500; }
+  .aviso { padding:14px 16px; background:#fff7ed; border-left:4px solid var(--ac); margin:14px 16px; border-radius:6px; }
+  .ok { color:var(--ok); font-weight:700; }
+  .obrig { color:var(--ac); font-size:.82em; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="nomeCasa">Cardápio</h1>
+  <div class="sub" id="sub">Carregando…</div>
+</header>
+
+<div class="abas" id="abas" style="display:none;">
+  <button class="aba on" id="abaSalao" onclick="trocarCanal('salao')">Estou na mesa</button>
+  <button class="aba" id="abaDelivery" onclick="trocarCanal('delivery')">Delivery</button>
+</div>
+
+<div id="avisoFechado" class="aviso" style="display:none;"></div>
+<div id="lista"></div>
+
+<div class="barra" id="barra">
+  <span id="barraTxt"></span>
+  <button onclick="abrirCheckout()">Fechar pedido</button>
+</div>
+
+<!-- Item com opções -->
+<dialog id="dlgItem"><div class="dlg-corpo">
+  <h2 id="diNome"></h2>
+  <div id="diGrupos"></div>
+  <div class="campo"><label>Observação</label>
+    <input type="text" id="diObs" placeholder="sem cebola, bem passado…"></div>
+  <button class="btn" onclick="confirmarItem()">Adicionar</button>
+  <button class="btn sec" onclick="document.getElementById('dlgItem').close()">Cancelar</button>
+</div></dialog>
+
+<!-- Checkout -->
+<dialog id="dlgCheck"><div class="dlg-corpo">
+  <h2>Seus dados</h2>
+  <div id="ckResumo" style="margin-bottom:12px;"></div>
+  <div class="campo"><label>Nome *</label><input type="text" id="ckNome"></div>
+  <div class="campo"><label>Telefone *</label><input type="tel" id="ckTel" placeholder="(11) 99999-9999"></div>
+  <div class="campo"><label>Bairro</label><select id="ckBairro" onchange="atualizarResumo()"></select></div>
+  <div class="campo"><label>Endereço *</label><input type="text" id="ckEnd" placeholder="Rua, avenida…"></div>
+  <div class="campo"><label>Número</label><input type="text" id="ckNum"></div>
+  <div class="campo"><label>Complemento / referência</label><input type="text" id="ckComp"></div>
+  <div id="ckErro" style="color:var(--ac);margin:8px 0;"></div>
+  <button class="btn" id="ckBtn" onclick="enviarPedido()">Enviar pedido</button>
+  <button class="btn sec" onclick="document.getElementById('dlgCheck').close()">Voltar</button>
+</div></dialog>
+
+<!-- Chamar garçom / acompanhamento -->
+<dialog id="dlgMsg"><div class="dlg-corpo">
+  <h2 id="msgTitulo"></h2>
+  <div id="msgCorpo"></div>
+  <button class="btn sec" onclick="document.getElementById('dlgMsg').close()">Fechar</button>
+</div></dialog>
+
+<script>
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+// A mesa vem do QR Code: /cardapio/?mesa=12
+const params = new URLSearchParams(location.search);
+const MESA = params.get('mesa');
+
+let canal = MESA ? 'salao' : 'delivery';
+let carrinho = [], itemAberto = null, cfg = null, bairros = [];
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'falha de conexão' }));
+  if (!d.success) { const e = new Error(d.error || 'falha'); e.status = r.status; throw e; }
+  return d;
+}
+
+async function iniciar() {
+  try {
+    cfg = await api('/cardapio/api/config');
+    document.getElementById('nomeCasa').textContent = cfg.nome;
+    document.getElementById('abas').style.display = MESA ? 'flex' : 'none';
+    if (MESA) {
+      document.getElementById('sub').innerHTML =
+        `Mesa <strong>${esc(MESA)}</strong> · <a href="#" onclick="chamarGarcom();return false;">chamar garçom</a>`;
+    } else {
+      document.getElementById('sub').textContent = cfg.aceitaPedidoOnline
+        ? 'Peça pelo site e receba em casa' : 'Consulte nosso cardápio';
+    }
+    await carregar();
+  } catch (e) {
+    document.getElementById('sub').textContent = 'Cardápio indisponível no momento.';
+  }
+}
+
+function trocarCanal(c) {
+  canal = c;
+  document.getElementById('abaSalao').className = 'aba' + (c === 'salao' ? ' on' : '');
+  document.getElementById('abaDelivery').className = 'aba' + (c === 'delivery' ? ' on' : '');
+  carrinho = []; atualizarBarra();
+  carregar();
+}
+
+async function carregar() {
+  try {
+    const d = await api('/cardapio/api/itens?canal=' + canal);
+    const aviso = document.getElementById('avisoFechado');
+    if (d.fechado || !d.categorias.length) {
+      aviso.style.display = 'block';
+      aviso.textContent = canal === 'delivery'
+        ? 'Estamos fora do horário de entrega no momento.'
+        : 'Nenhum cardápio disponível neste horário.';
+      document.getElementById('lista').innerHTML = '';
+      return;
+    }
+    aviso.style.display = 'none';
+
+    // No salão o cliente consulta e chama o garçom; quem lança o item é o
+    // salão. Só o delivery monta carrinho.
+    const podePedir = canal === 'delivery' && cfg.aceitaPedidoOnline;
+
+    document.getElementById('lista').innerHTML = d.categorias.map(c => `
+      <div class="cat">${esc(c.nome)}</div>
+      ${c.itens.map(i => `<div class="item">
+        <div>
+          <h3>${esc(i.descricao)}</h3>
+          ${i.pesavel ? `<div class="sub">R$ ${fmt(i.precoPorKg)} / kg</div>` : ''}
+          ${i.tempoPreparoMin ? `<div class="sub">~${i.tempoPreparoMin} min</div>` : ''}
+          ${podePedir && !i.pesavel ? `<button class="add" onclick='abrirItem(${JSON.stringify(i).replace(/'/g, "&#39;")})'>Adicionar</button>` : ''}
+        </div>
+        <div class="preco">${i.pesavel ? '' : 'R$ ' + fmt(i.preco)}</div>
+      </div>`).join('')}`).join('');
+  } catch (e) {
+    document.getElementById('lista').innerHTML = `<div class="aviso">${esc(e.message)}</div>`;
+  }
+}
+
+async function chamarGarcom() {
+  try {
+    await api('/cardapio/api/chamar-garcom', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mesa: MESA }),
+    });
+    mostrarMsg('Garçom chamado', '<p class="ok">Já avisamos. Alguém vem até a sua mesa.</p>');
+  } catch (e) { mostrarMsg('Não foi possível chamar', `<p>${esc(e.message)}</p>`); }
+}
+
+function mostrarMsg(titulo, html) {
+  document.getElementById('msgTitulo').textContent = titulo;
+  document.getElementById('msgCorpo').innerHTML = html;
+  document.getElementById('dlgMsg').showModal();
+}
+
+function abrirItem(item) {
+  itemAberto = item;
+  document.getElementById('diNome').textContent = item.descricao;
+  document.getElementById('diObs').value = '';
+  document.getElementById('diGrupos').innerHTML = (item.grupos || []).map(g => `
+    <div style="margin-bottom:12px;">
+      <strong>${esc(g.nome)}</strong>
+      ${g.minEscolhas > 0 ? '<span class="obrig"> · obrigatório</span>' : ''}
+      <div class="sub">${g.minEscolhas === g.maxEscolhas ? 'escolha ' + g.minEscolhas
+        : `escolha de ${g.minEscolhas} a ${g.maxEscolhas}`}</div>
+      ${g.opcoes.map(o => `<label class="op">
+        <input type="${g.maxEscolhas === 1 ? 'radio' : 'checkbox'}" name="g${g.id}" class="opc" value="${o.id}"
+          data-grupo="${g.id}">
+        ${esc(o.nome)}${o.precoAdicional ? ` (+R$ ${fmt(o.precoAdicional)})` : ''}</label>`).join('')}
+    </div>`).join('');
+  document.getElementById('dlgItem').showModal();
+}
+
+function confirmarItem() {
+  const escolhidas = Array.from(document.querySelectorAll('.opc:checked'));
+  // Valida na tela para o cliente não descobrir o erro só no envio — o
+  // servidor revalida de qualquer forma.
+  for (const g of (itemAberto.grupos || [])) {
+    const n = escolhidas.filter(c => c.dataset.grupo === String(g.id)).length;
+    if (n < g.minEscolhas) return alert(`Escolha ao menos ${g.minEscolhas} em "${g.nome}"`);
+    if (n > g.maxEscolhas) return alert(`No máximo ${g.maxEscolhas} em "${g.nome}"`);
+  }
+  const opcoes = escolhidas.map(c => {
+    const g = itemAberto.grupos.find(x => String(x.id) === c.dataset.grupo);
+    return g.opcoes.find(o => String(o.id) === c.value);
+  });
+  carrinho.push({
+    produtoId: itemAberto.produtoId,
+    descricao: itemAberto.descricao,
+    quantidade: 1,
+    preco: itemAberto.preco,
+    adicional: opcoes.reduce((s, o) => s + Number(o.precoAdicional || 0), 0),
+    opcaoIds: opcoes.map(o => o.id),
+    opcoesNomes: opcoes.map(o => o.nome),
+    observacao: document.getElementById('diObs').value.trim() || null,
+  });
+  document.getElementById('dlgItem').close();
+  atualizarBarra();
+}
+
+function totalCarrinho() {
+  return carrinho.reduce((s, i) => s + (Number(i.preco) + Number(i.adicional)) * i.quantidade, 0);
+}
+
+function atualizarBarra() {
+  const b = document.getElementById('barra');
+  if (!carrinho.length) { b.style.display = 'none'; return; }
+  b.style.display = 'flex';
+  document.getElementById('barraTxt').textContent =
+    `${carrinho.length} item(ns) · R$ ${fmt(totalCarrinho())}`;
+}
+
+async function abrirCheckout() {
+  try {
+    if (!bairros.length) bairros = (await api('/cardapio/api/bairros')).items;
+    document.getElementById('ckBairro').innerHTML =
+      '<option value="">— retirar / sem taxa —</option>'
+      + bairros.map(b => `<option value="${b.id}" data-taxa="${b.taxa}">
+          ${esc(b.nome)} — R$ ${fmt(b.taxa)} (~${b.tempoEstimadoMin} min)</option>`).join('');
+  } catch (_) { /* segue sem bairros */ }
+  atualizarResumo();
+  document.getElementById('ckErro').textContent = '';
+  document.getElementById('dlgCheck').showModal();
+}
+
+function atualizarResumo() {
+  const sel = document.getElementById('ckBairro');
+  const taxa = Number(sel.selectedOptions[0]?.dataset.taxa || 0);
+  document.getElementById('ckResumo').innerHTML =
+    carrinho.map(i => `<div>${i.quantidade}× ${esc(i.descricao)}
+      ${i.opcoesNomes.length ? `<span class="sub">(${i.opcoesNomes.map(esc).join(', ')})</span>` : ''}
+      — R$ ${fmt((Number(i.preco) + Number(i.adicional)) * i.quantidade)}</div>`).join('')
+    + `<div style="margin-top:8px;">Entrega: R$ ${fmt(taxa)}</div>`
+    + `<div style="font-weight:700;font-size:1.1em;">Total: R$ ${fmt(totalCarrinho() + taxa)}</div>`;
+}
+
+async function enviarPedido() {
+  const btn = document.getElementById('ckBtn');
+  const erro = document.getElementById('ckErro');
+  erro.textContent = '';
+  btn.disabled = true;                       // evita pedido duplicado no duplo toque
+  try {
+    const d = await api('/cardapio/api/pedido', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: document.getElementById('ckNome').value.trim(),
+        telefone: document.getElementById('ckTel').value.trim(),
+        bairroId: document.getElementById('ckBairro').value || null,
+        endereco: document.getElementById('ckEnd').value.trim(),
+        numero: document.getElementById('ckNum').value.trim() || null,
+        complemento: document.getElementById('ckComp').value.trim() || null,
+        itens: carrinho.map(i => ({
+          produtoId: i.produtoId, quantidade: i.quantidade,
+          opcaoIds: i.opcaoIds, observacao: i.observacao,
+        })),
+      }),
+    });
+    document.getElementById('dlgCheck').close();
+    carrinho = []; atualizarBarra();
+    mostrarMsg('Pedido enviado', `<p class="ok">${esc(d.mensagem)}</p>
+      <p>Número do pedido: <strong>#${d.pedidoId}</strong><br>
+      Total: R$ ${fmt(d.total)}${d.tempoEstimadoMin ? `<br>Previsão: ~${d.tempoEstimadoMin} min` : ''}</p>
+      <p><a href="?pedido=${d.pedidoId}">Acompanhar pedido</a></p>`);
+  } catch (e) {
+    erro.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Acompanhamento: /cardapio/?pedido=123
+async function acompanhar(id) {
+  try {
+    const d = await api('/cardapio/api/pedido/' + id);
+    mostrarMsg(`Pedido #${d.pedido.id}`, `
+      <p>Situação: <strong class="ok">${esc(d.pedido.situacao)}</strong></p>
+      <p>${d.pedido.itens.map(i => `${i.quantidade}× ${esc(i.descricao)}`).join('<br>')}</p>
+      <p>Total: R$ ${fmt(d.pedido.total)}</p>`);
+  } catch (e) { mostrarMsg('Pedido não encontrado', `<p>${esc(e.message)}</p>`); }
+}
+
+iniciar().then(() => {
+  const pid = params.get('pedido');
+  if (pid) { acompanhar(pid); setInterval(() => acompanhar(pid), 30000); }
+});
+</script>
+</body></html>

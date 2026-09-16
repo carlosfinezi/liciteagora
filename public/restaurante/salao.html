@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Salão · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .mesas-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:12px; margin-top:12px; }
+  .mesa-card { border:2px solid var(--border); border-radius:10px; padding:12px; cursor:pointer;
+    background:var(--surface); transition:transform .08s, border-color .12s; text-align:center; }
+  .mesa-card:hover { transform:translateY(-2px); }
+  .mesa-card.ocupada { border-color:var(--warn); }
+  .mesa-card.livre   { border-color:var(--success); }
+  .mesa-num { font-size:1.5em; font-weight:700; }
+  .mesa-info { font-size:.8em; color:var(--text-3); margin-top:4px; }
+  .mesa-total { font-weight:600; margin-top:6px; }
+  .mesa-card.demorada { border-color:var(--danger); }
+  .area-titulo { margin:18px 0 4px; font-weight:600; color:var(--text-2); }
+  .item-linha { display:flex; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); }
+  .item-linha.cancelado { opacity:.45; text-decoration:line-through; }
+  .item-opc { font-size:.82em; color:var(--text-3); }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Salão</h1>
+      <small id="resumoSalao">Carregando…</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="carregarSalao()">Atualizar</button>
+      <button class="btn btn-secondary btn-sm" onclick="abrirModalAvulsa()">+ Balcão / Cartão</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div id="mapaMesas"></div>
+
+  <div id="semMesaWrap" style="display:none;">
+    <div class="area-titulo">Sem mesa (balcão, cartão, delivery)</div>
+    <div class="mesas-grid" id="semMesaGrid"></div>
+  </div>
+</main></div>
+
+<!-- ===== Modal: comanda ===== -->
+<div class="modal-bg" id="modalComanda">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <h3 id="mcTitulo" style="margin:0;">Comanda</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalComanda')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+
+    <div id="mcResumo" class="muted" style="margin-bottom:8px;"></div>
+
+    <div class="toolbar">
+      <select id="lanProduto" style="flex:1;min-width:220px;" onchange="montarOpcoes()"></select>
+      <input type="number" id="lanQtd" value="1" step="any" min="0.001" style="width:90px;" title="Quantidade">
+      <input type="number" id="lanPeso" step="0.001" placeholder="Peso kg" style="width:110px;display:none;" title="Peso para item por quilo">
+      <button class="btn btn-primary btn-sm" onclick="lancarItem()">+ Lançar</button>
+    </div>
+    <div id="lanOpcoes" style="margin:6px 0;"></div>
+    <input type="text" id="lanObs" placeholder="Observação (sem cebola, ponto da carne…)" style="width:100%;margin-bottom:10px;">
+
+    <div id="mcItens" style="max-height:34vh;overflow:auto;"></div>
+
+    <div class="form-row" style="margin-top:12px;">
+      <div class="form-group"><label>Pessoas</label><input type="number" id="mcPessoas" min="1"></div>
+      <div class="form-group"><label>Taxa serviço %</label><input type="number" id="mcTaxa" step="0.01"></div>
+      <div class="form-group"><label>Couvert R$</label><input type="number" id="mcCouvert" step="0.01"></div>
+      <div class="form-group"><label>Desconto R$</label><input type="number" id="mcDesconto" step="0.01"></div>
+    </div>
+
+    <div id="mcTotais" style="text-align:right;font-size:1.05em;margin:8px 0;"></div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <div>
+        <button class="btn btn-secondary btn-sm" onclick="abrirTransferir()">Transferir mesa</button>
+        <button class="btn btn-secondary btn-sm" onclick="abrirJuntar()">Juntar comanda</button>
+      </div>
+      <div>
+        <button class="btn btn-ghost" onclick="fechar('modalComanda')">Fechar</button>
+        <button class="btn btn-primary" onclick="salvarAjustes()">Salvar ajustes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: abrir comanda avulsa ===== -->
+<div class="modal-bg" id="modalAvulsa">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Nova comanda sem mesa</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalAvulsa')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Tipo</label>
+        <select id="avTipo" onchange="document.getElementById('avCodigoWrap').style.display = this.value==='individual' ? '' : 'none';">
+          <option value="balcao">Balcão (gera senha)</option>
+          <option value="individual">Cartão / chaveiro</option>
+          <option value="delivery">Delivery</option>
+        </select>
+      </div>
+      <div class="form-group full-width" id="avCodigoWrap" style="display:none;">
+        <label>Código do cartão</label><input type="text" id="avCodigo" placeholder="042">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalAvulsa')">Cancelar</button>
+      <button class="btn btn-primary" onclick="abrirComandaAvulsa()">Abrir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: transferir / juntar ===== -->
+<div class="modal-bg" id="modalMover">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <h3 id="mvTitulo" style="margin:0;">Transferir</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalMover')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-group full-width">
+      <label id="mvLabel">Mesa de destino</label>
+      <select id="mvAlvo"></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalMover')">Cancelar</button>
+      <button class="btn btn-primary" id="mvBtn" onclick="confirmarMover()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-salao');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v) { return (v == null || isNaN(v)) ? '0,00' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fechar(id) { document.getElementById(id).classList.remove('open'); }
+function abrir(id) { document.getElementById(id).classList.add('open'); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+let comandaAtual = null, cardapioCache = [], mesasCache = [], modoMover = 'transferir';
+
+// ===== Mapa do salão =====
+async function carregarSalao() {
+  try {
+    const d = await api('/api/restaurante/salao');
+    mesasCache = d.mesas;
+    document.getElementById('resumoSalao').textContent =
+      `${d.resumo.ocupadas} ocupada(s) · ${d.resumo.livres} livre(s) · ${d.resumo.comandasAbertas} comanda(s) aberta(s)`;
+
+    // Agrupa por área preservando a ordem que veio do servidor.
+    const porArea = [];
+    for (const m of d.mesas) {
+      const nome = m.areaNome || 'Sem área';
+      let g = porArea.find(x => x.nome === nome);
+      if (!g) { g = { nome, mesas: [] }; porArea.push(g); }
+      g.mesas.push(m);
+    }
+    document.getElementById('mapaMesas').innerHTML = porArea.length ? porArea.map(g => `
+      <div class="area-titulo">${esc(g.nome)}</div>
+      <div class="mesas-grid">${g.mesas.map(m => {
+        // Mesa passando de 90 min sem fechar é o sinal que o maître procura.
+        const demorada = m.ocupada && m.minutosOcupada != null && m.minutosOcupada > 90;
+        return `<div class="mesa-card ${m.ocupada ? 'ocupada' : 'livre'}${demorada ? ' demorada' : ''}"
+             onclick="clicarMesa(${m.id}, ${m.comandaId || 'null'})">
+          <div class="mesa-num">${esc(m.numero)}</div>
+          <div class="mesa-info">${m.ocupada
+            ? `${m.numeroPessoas} pess. · ${m.minutosOcupada != null ? m.minutosOcupada + ' min' : ''}`
+            : `${m.capacidade} lugares`}</div>
+          ${m.ocupada ? `<div class="mesa-total">R$ ${fmt(m.total)}</div>` : '<div class="mesa-info">livre</div>'}
+        </div>`;
+      }).join('')}</div>`).join('')
+      : '<div class="empty">Nenhuma mesa cadastrada. Vá em Restaurante › Configuração.</div>';
+
+    const wrap = document.getElementById('semMesaWrap');
+    if (d.semMesa.length) {
+      wrap.style.display = '';
+      document.getElementById('semMesaGrid').innerHTML = d.semMesa.map(c => `
+        <div class="mesa-card ocupada" onclick="abrirComanda(${c.id})">
+          <div class="mesa-num">${c.senhaChamada ? '#' + esc(c.senhaChamada) : esc(c.codigo || c.tipo)}</div>
+          <div class="mesa-info">${esc(c.tipo)}</div>
+          <div class="mesa-total">R$ ${fmt(c.totalGeral)}</div>
+        </div>`).join('');
+    } else { wrap.style.display = 'none'; }
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function clicarMesa(mesaId, comandaId) {
+  if (comandaId) return abrirComanda(comandaId);
+  try {
+    const d = await api('/api/restaurante/comandas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: 'mesa', mesaId, numeroPessoas: 2 }),
+    });
+    await carregarSalao();
+    abrirComanda(d.id);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function abrirModalAvulsa() { abrir('modalAvulsa'); }
+async function abrirComandaAvulsa() {
+  const tipo = document.getElementById('avTipo').value;
+  try {
+    const d = await api('/api/restaurante/comandas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo, codigo: document.getElementById('avCodigo').value.trim() || null }),
+    });
+    fechar('modalAvulsa');
+    await carregarSalao();
+    abrirComanda(d.id);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Comanda =====
+async function abrirComanda(id) {
+  comandaAtual = id;
+  abrir('modalComanda');
+  await recarregarComanda();
+}
+
+async function recarregarComanda() {
+  try {
+    const d = await api(`/api/restaurante/comandas/${comandaAtual}`);
+    const c = d.comanda;
+    document.getElementById('mcTitulo').textContent = c.mesaNumero
+      ? `Mesa ${c.mesaNumero}` : (c.senhaChamada ? `Senha #${c.senhaChamada}` : `${c.tipo} ${c.codigo || '#' + c.id}`);
+    document.getElementById('mcResumo').textContent =
+      `comanda #${c.id} · canal ${c.canal} · aberta em ${c.abertaEm}`;
+
+    document.getElementById('mcPessoas').value = c.numeroPessoas;
+    document.getElementById('mcTaxa').value = c.taxaServicoPct == null ? 0 : c.taxaServicoPct;
+    document.getElementById('mcCouvert').value = c.totalCouvert || 0;
+    document.getElementById('mcDesconto').value = c.totalDesconto || 0;
+
+    document.getElementById('mcItens').innerHTML = c.itens.length ? c.itens.map(i => `
+      <div class="item-linha ${i.status === 'cancelado' ? 'cancelado' : ''}">
+        <div>
+          <strong>${i.quantidade}× ${esc(i.descricao)}</strong>
+          ${i.setorNome ? `<span class="muted"> · ${esc(i.setorNome)}</span>` : ''}
+          <span class="badge">${esc(i.status)}</span>
+          ${(i.opcoes || []).length ? `<div class="item-opc">${i.opcoes.map(o => esc(o.nome) + (o.precoAdicional ? ` +R$ ${fmt(o.precoAdicional)}` : '')).join(' · ')}</div>` : ''}
+          ${i.observacao ? `<div class="item-opc">obs: ${esc(i.observacao)}</div>` : ''}
+          ${i.canceladoMotivo ? `<div class="item-opc">cancelado: ${esc(i.canceladoMotivo)}</div>` : ''}
+        </div>
+        <div style="text-align:right;white-space:nowrap;">
+          R$ ${fmt(i.precoTotal)}
+          ${i.status !== 'cancelado' ? `<button class="btn btn-ghost btn-sm" onclick="cancelarItem(${i.id})">×</button>` : ''}
+        </div>
+      </div>`).join('') : '<div class="empty">Nenhum item lançado</div>';
+
+    document.getElementById('mcTotais').innerHTML =
+      `Itens R$ ${fmt(c.totalItens)} · Serviço R$ ${fmt(c.totalTaxaServico)}
+       ${c.totalCouvert ? '· Couvert R$ ' + fmt(c.totalCouvert) : ''}
+       ${c.totalDesconto ? '· Desconto −R$ ' + fmt(c.totalDesconto) : ''}
+       <br><strong style="font-size:1.2em;">Total R$ ${fmt(c.totalGeral)}</strong>`;
+
+    await carregarCardapioDoCanal(c.canal);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarCardapioDoCanal(canal) {
+  try {
+    const d = await api('/api/restaurante/cardapio-vigente?canal=' + encodeURIComponent(canal));
+    cardapioCache = d.itens || [];
+    const sel = document.getElementById('lanProduto');
+    sel.innerHTML = cardapioCache.length
+      ? '<option value="">— escolha o item —</option>' + cardapioCache.map(i =>
+          `<option value="${i.produtoId}">${esc(i.descricao)} — R$ ${fmt(i.preco)}</option>`).join('')
+      : '<option value="">nenhum cardápio vigente para este canal agora</option>';
+    montarOpcoes();
+  } catch (e) { showAlert('Cardápio: ' + e.message, 'error'); }
+}
+
+function itemDoCardapio(produtoId) { return cardapioCache.find(i => String(i.produtoId) === String(produtoId)); }
+
+function montarOpcoes() {
+  const pid = document.getElementById('lanProduto').value;
+  const it = itemDoCardapio(pid);
+  document.getElementById('lanPeso').style.display = (it && it.pesavel) ? '' : 'none';
+  document.getElementById('lanQtd').style.display = (it && it.pesavel) ? 'none' : '';
+  const box = document.getElementById('lanOpcoes');
+  if (!it || !(it.grupos || []).length) { box.innerHTML = ''; return; }
+  box.innerHTML = it.grupos.map(g => `
+    <div style="margin:6px 0;">
+      <small><strong>${esc(g.nome)}</strong>
+        <span class="muted">(${g.minEscolhas === g.maxEscolhas ? 'escolha ' + g.minEscolhas
+          : g.minEscolhas + ' a ' + g.maxEscolhas})${g.minEscolhas > 0 ? ' · obrigatório' : ''}</span></small>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        ${g.opcoes.map(o => `<label style="display:flex;align-items:center;gap:4px;">
+          <input type="${g.maxEscolhas === 1 ? 'radio' : 'checkbox'}" name="grp-${g.id}" class="lan-opc" value="${o.id}">
+          ${esc(o.nome)}${o.precoAdicional ? ` +R$ ${fmt(o.precoAdicional)}` : ''}</label>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+async function lancarItem() {
+  const pid = document.getElementById('lanProduto').value;
+  if (!pid) return showAlert('Escolha um item', 'error');
+  const it = itemDoCardapio(pid);
+  const opcaoIds = Array.from(document.querySelectorAll('.lan-opc:checked')).map(c => Number(c.value));
+  const corpo = { produtoId: Number(pid), opcaoIds, observacao: document.getElementById('lanObs').value.trim() || null };
+  if (it && it.pesavel) corpo.pesoKg = Number(document.getElementById('lanPeso').value);
+  else corpo.quantidade = Number(document.getElementById('lanQtd').value) || 1;
+  try {
+    await api(`/api/restaurante/comandas/${comandaAtual}/itens`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    document.getElementById('lanObs').value = '';
+    document.getElementById('lanPeso').value = '';
+    document.querySelectorAll('.lan-opc:checked').forEach(c => { c.checked = false; });
+    await recarregarComanda();
+    carregarSalao();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function cancelarItem(itemId) {
+  // prompt() é modal do navegador, mas é o caminho mais curto para o motivo
+  // obrigatório; o backend recusa cancelamento sem justificativa.
+  const motivo = window.prompt('Motivo do cancelamento (obrigatório):');
+  if (motivo === null) return;
+  try {
+    await api(`/api/restaurante/comanda-itens/${itemId}/cancelar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo }),
+    });
+    await recarregarComanda();
+    carregarSalao();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvarAjustes() {
+  try {
+    await api(`/api/restaurante/comandas/${comandaAtual}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        numeroPessoas: Number(document.getElementById('mcPessoas').value) || 1,
+        taxaServicoPct: Number(document.getElementById('mcTaxa').value) || 0,
+        totalCouvert: Number(document.getElementById('mcCouvert').value) || 0,
+        totalDesconto: Number(document.getElementById('mcDesconto').value) || 0,
+      }),
+    });
+    await recarregarComanda();
+    carregarSalao();
+    showAlert('Ajustes salvos');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Transferir / juntar =====
+function abrirTransferir() {
+  modoMover = 'transferir';
+  document.getElementById('mvTitulo').textContent = 'Transferir para outra mesa';
+  document.getElementById('mvLabel').textContent = 'Mesa de destino (só as livres)';
+  document.getElementById('mvAlvo').innerHTML = mesasCache.filter(m => !m.ocupada)
+    .map(m => `<option value="${m.id}">Mesa ${esc(m.numero)}</option>`).join('')
+    || '<option value="">nenhuma mesa livre</option>';
+  abrir('modalMover');
+}
+async function abrirJuntar() {
+  modoMover = 'juntar';
+  document.getElementById('mvTitulo').textContent = 'Juntar outra comanda nesta';
+  document.getElementById('mvLabel').textContent = 'Comanda de origem (será encerrada)';
+  try {
+    const d = await api('/api/restaurante/comandas?status=aberta');
+    const outras = d.items.filter(c => c.id !== comandaAtual);
+    document.getElementById('mvAlvo').innerHTML = outras.length ? outras.map(c =>
+      `<option value="${c.id}">#${c.id} ${c.mesaNumero ? 'Mesa ' + esc(c.mesaNumero) : esc(c.tipo)} — R$ ${fmt(c.totalGeral)}</option>`).join('')
+      : '<option value="">nenhuma outra comanda aberta</option>';
+    abrir('modalMover');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function confirmarMover() {
+  const alvo = document.getElementById('mvAlvo').value;
+  if (!alvo) return showAlert('Nada a selecionar', 'error');
+  try {
+    if (modoMover === 'transferir') {
+      await api(`/api/restaurante/comandas/${comandaAtual}/transferir`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mesaId: Number(alvo) }),
+      });
+    } else {
+      await api(`/api/restaurante/comandas/${comandaAtual}/juntar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origemId: Number(alvo) }),
+      });
+    }
+    fechar('modalMover');
+    await recarregarComanda();
+    carregarSalao();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { fechar('modalComanda'); fechar('modalAvulsa'); fechar('modalMover'); }
+});
+carregarSalao();
+// Sem WebSocket no servidor: o salão se atualiza por polling. 15s é suficiente
+// para o mapa — o KDS, que é mais sensível, usa intervalo próprio e menor.
+setInterval(() => { if (!document.getElementById('modalComanda').classList.contains('open')) carregarSalao(); }, 15000);
+</script>
+</body></html>

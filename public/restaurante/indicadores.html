@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Indicadores · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .kpis { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; margin:14px 0; }
+  .kpi { border:1px solid var(--border); border-radius:10px; padding:14px; background:var(--surface); }
+  .kpi small { color:var(--text-3); display:block; }
+  .kpi strong { font-size:1.5em; }
+  .matriz { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+  .quad { border:2px solid var(--border); border-radius:10px; padding:12px; }
+  .quad h3 { margin:0 0 4px; font-size:1em; }
+  .quad small { color:var(--text-3); }
+  .quad.estrela { border-color:var(--success); }
+  .quad.cavalo { border-color:var(--warn); }
+  .quad.enigma { border-color:var(--info, #0284c7); }
+  .quad.peso-morto { border-color:var(--danger); }
+  .quad li { margin:3px 0; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Indicadores</h1><small id="inPeriodo">Carregando…</small></div>
+    <div class="actions">
+      <input type="date" id="inDe"><input type="date" id="inAte">
+      <button class="btn btn-primary btn-sm" onclick="carregarTudo()">Aplicar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="toolbar" style="gap:6px;">
+    <button class="btn btn-sm" id="tb-cardapio" onclick="mostrar('cardapio')">Engenharia de cardápio</button>
+    <button class="btn btn-sm" id="tb-cmv"      onclick="mostrar('cmv')">CMV</button>
+    <button class="btn btn-sm" id="tb-garcons"  onclick="mostrar('garcons')">Garçons</button>
+    <button class="btn btn-sm" id="tb-cancel"   onclick="mostrar('cancel')">Cancelamentos</button>
+  </div>
+
+  <div class="aba" id="aba-cardapio">
+    <div id="cardapioAviso"></div>
+    <div class="matriz" id="matriz"></div>
+    <h3 style="font-size:1em;margin-top:20px;">Curva ABC</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Classe</th><th>ABC</th><th style="text-align:right;">Qtd</th>
+          <th style="text-align:right;">Receita</th><th style="text-align:right;">Popularidade</th>
+          <th style="text-align:right;">Margem un.</th><th style="text-align:right;">Acum.</th></tr></thead>
+        <tbody id="tbCardapio"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="aba" id="aba-cmv" style="display:none;">
+    <div id="cmvResumo"></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Item</th><th style="text-align:right;">Qtd</th><th style="text-align:right;">Receita</th>
+          <th style="text-align:right;">Custo un.</th><th style="text-align:right;">Custo total</th>
+          <th style="text-align:right;">Margem</th><th style="text-align:right;">CMV%</th></tr></thead>
+        <tbody id="tbCmv"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="aba" id="aba-garcons" style="display:none;">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Garçom</th><th style="text-align:right;">Contas</th><th style="text-align:right;">Itens</th>
+          <th style="text-align:right;">Vendido</th><th style="text-align:right;">Ticket médio</th></tr></thead>
+        <tbody id="tbGarcons"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="aba" id="aba-cancel" style="display:none;">
+    <div id="cancelResumo"></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Quando</th><th>Item</th><th>Mesa</th><th>Garçom</th>
+          <th style="text-align:right;">Valor</th><th>Já preparado?</th><th>Motivo</th></tr></thead>
+        <tbody id="tbCancel"></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-indicadores');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v, c = 2) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); }
+
+async function api(url) {
+  const r = await fetch(url);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+const ABAS = ['cardapio', 'cmv', 'garcons', 'cancel'];
+function mostrar(nome) {
+  for (const a of ABAS) {
+    document.getElementById('aba-' + a).style.display = a === nome ? '' : 'none';
+    document.getElementById('tb-' + a).className = 'btn btn-sm ' + (a === nome ? 'btn-primary' : 'btn-secondary');
+  }
+}
+function periodo() {
+  const de = document.getElementById('inDe').value, ate = document.getElementById('inAte').value;
+  return de ? `?de=${de}&ate=${ate || de}` : '';
+}
+
+const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+// Como ler cada quadrante — sem isto a matriz é só um rótulo bonito.
+const EXPLICA = {
+  estrela: 'Vende bem e dá margem. Destaque no cardápio, não mexa no preço.',
+  cavalo: 'Vende bem e dá pouca margem. Atrai cliente — ajuste a ficha ou o preço, não corte.',
+  enigma: 'Dá margem e vende pouco. Promova, reposicione no cardápio ou sugira no salão.',
+  'peso-morto': 'Não vende e não dá margem. Candidato a sair do cardápio.',
+};
+
+async function carregarTudo() {
+  await carregarKpis();
+  await carregarCardapio();
+  await carregarCmv();
+  await carregarGarcons();
+  await carregarCancel();
+}
+
+async function carregarKpis() {
+  try {
+    const d = await api('/api/restaurante/indicadores' + periodo());
+    document.getElementById('inPeriodo').textContent =
+      d.periodo.de === '0000-01-01' ? 'todo o período' : `${d.periodo.de} a ${d.periodo.ate}`;
+    const canais = Object.entries(d.porCanal || {})
+      .map(([k, v]) => `${esc(k)}: R$ ${fmt(v.faturamento)}`).join(' · ') || '—';
+    const melhorDia = (d.porDiaSemana || []).slice().sort((a, b) => b.total - a.total)[0];
+    const pico = (d.porHora || []).slice().sort((a, b) => b.total - a.total)[0];
+
+    document.getElementById('kpis').innerHTML = `
+      <div class="kpi"><small>Faturamento</small><strong>R$ ${fmt(d.faturamento)}</strong></div>
+      <div class="kpi"><small>Contas fechadas</small><strong>${d.contasFechadas}</strong></div>
+      <div class="kpi"><small>Ticket médio</small><strong>R$ ${fmt(d.ticketMedio)}</strong>
+        <small>por pessoa: R$ ${fmt(d.ticketPorPessoa)}</small></div>
+      <div class="kpi"><small>Giro de mesa</small><strong>${d.giroDeMesa == null ? '—' : fmt(d.giroDeMesa, 2)}</strong>
+        <small>${d.mesasAtivas} mesa(s) ativa(s)</small></div>
+      <div class="kpi"><small>Permanência média</small>
+        <strong>${d.permanenciaMediaMin == null ? '—' : fmt(d.permanenciaMediaMin, 0) + ' min'}</strong></div>
+      <div class="kpi"><small>Pessoas atendidas</small><strong>${d.pessoasAtendidas}</strong></div>
+      <div class="kpi"><small>Por canal</small><strong style="font-size:.95em;">${canais}</strong></div>
+      <div class="kpi"><small>Melhor dia</small>
+        <strong style="font-size:1.1em;">${melhorDia ? DIAS[melhorDia.dia] : '—'}</strong>
+        <small>${melhorDia ? 'R$ ' + fmt(melhorDia.total) : ''}</small></div>
+      <div class="kpi"><small>Horário de pico</small>
+        <strong>${pico ? String(pico.hora).padStart(2, '0') + 'h' : '—'}</strong>
+        <small>${pico ? pico.contas + ' conta(s)' : ''}</small></div>`;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarCardapio() {
+  try {
+    const d = await api('/api/restaurante/indicadores/cardapio' + periodo());
+    if (!d.itens.length) {
+      document.getElementById('matriz').innerHTML = '<div class="empty">Sem vendas no período</div>';
+      document.getElementById('tbCardapio').innerHTML = '';
+      return;
+    }
+    document.getElementById('cardapioAviso').innerHTML = d.semFicha
+      ? `<div class="alert error" style="display:block;">${d.semFicha} item(ns) sem ficha técnica entram com custo
+         zero e aparecem como margem máxima — a matriz fica distorcida até você cadastrar a ficha deles.</div>`
+      : '';
+
+    const grupos = { estrela: [], cavalo: [], enigma: [], 'peso-morto': [] };
+    for (const i of d.itens) grupos[i.classificacao].push(i);
+    const titulos = { estrela: '⭐ Estrelas', cavalo: '🐴 Cavalos', enigma: '❓ Enigmas', 'peso-morto': '💀 Pesos mortos' };
+
+    document.getElementById('matriz').innerHTML = ['estrela', 'cavalo', 'enigma', 'peso-morto'].map(k => `
+      <div class="quad ${k}">
+        <h3>${titulos[k]} (${grupos[k].length})</h3>
+        <small>${EXPLICA[k]}</small>
+        <ul style="margin:8px 0 0;padding-left:18px;">
+          ${grupos[k].map(i => `<li>${esc(i.descricao)}
+            <span class="muted">— ${fmt(i.popularidadePct, 1)}% das vendas, margem R$ ${fmt(i.margemUnitaria)}</span></li>`)
+            .join('') || '<li class="muted">nenhum</li>'}
+        </ul>
+      </div>`).join('');
+
+    document.getElementById('tbCardapio').innerHTML = d.itens.map(i => `<tr>
+      <td>${esc(i.descricao)}${i.semFicha ? ' <span style="color:var(--warn);">(sem ficha)</span>' : ''}</td>
+      <td><span class="badge">${esc(i.classificacao)}</span></td>
+      <td><strong>${i.curvaABC}</strong></td>
+      <td style="text-align:right;">${fmt(i.quantidade, 0)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.receita)}</td>
+      <td style="text-align:right;">${fmt(i.popularidadePct, 1)}%</td>
+      <td style="text-align:right;">R$ ${fmt(i.margemUnitaria)}</td>
+      <td style="text-align:right;" class="muted">${fmt(i.acumuladoPct, 1)}%</td>
+    </tr>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarCmv() {
+  try {
+    const d = await api('/api/restaurante/cmv' + periodo());
+    const dentro = d.cmvTeoricoPct != null
+      && d.cmvTeoricoPct >= d.referencia.min && d.cmvTeoricoPct <= d.referencia.max;
+    document.getElementById('cmvResumo').innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><small>Receita</small><strong>R$ ${fmt(d.receitaTotal)}</strong></div>
+        <div class="kpi"><small>CMV teórico (fichas)</small><strong>R$ ${fmt(d.cmvTeorico)}</strong>
+          <small style="color:${dentro ? 'var(--success)' : 'var(--warn)'};">
+            ${d.cmvTeoricoPct == null ? '—' : fmt(d.cmvTeoricoPct, 1) + '%'}
+            (referência ${d.referencia.min}–${d.referencia.max}%)</small></div>
+        <div class="kpi"><small>CMV real (estoque)</small><strong>R$ ${fmt(d.cmvReal)}</strong>
+          <small>${d.cmvRealPct == null ? '—' : fmt(d.cmvRealPct, 1) + '%'}</small></div>
+        <div class="kpi"><small>Diferença (o furo)</small>
+          <strong style="color:${Math.abs(d.diferenca) > 0.01 ? 'var(--warn)' : 'var(--success)'};">
+            R$ ${fmt(d.diferenca)}</strong>
+          <small>real menos teórico — desperdício, porção fora do padrão ou desvio</small></div>
+      </div>`;
+    document.getElementById('tbCmv').innerHTML = d.itens.length ? d.itens.map(i => `<tr>
+      <td>${esc(i.descricao)}</td>
+      <td style="text-align:right;">${fmt(i.quantidade, 0)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.receita)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.custoUnitario, 4)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.custoTotal)}</td>
+      <td style="text-align:right;">R$ ${fmt(i.margem)}</td>
+      <td style="text-align:right;">${i.cmvPct == null ? '—' : fmt(i.cmvPct, 1) + '%'}</td>
+    </tr>`).join('') : '<tr><td colspan="7" class="empty">Sem vendas no período</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarGarcons() {
+  try {
+    const d = await api('/api/restaurante/indicadores/garcons' + periodo());
+    document.getElementById('tbGarcons').innerHTML = d.items.length ? d.items.map(g => `<tr>
+      <td>${esc(g.nome)}</td>
+      <td style="text-align:right;">${g.contas}</td>
+      <td style="text-align:right;">${fmt(g.itens, 0)}</td>
+      <td style="text-align:right;">R$ ${fmt(g.vendido)}</td>
+      <td style="text-align:right;">R$ ${fmt(g.ticketMedio)}</td>
+    </tr>`).join('') : '<tr><td colspan="5" class="empty">Sem dados no período</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarCancel() {
+  try {
+    const d = await api('/api/restaurante/indicadores/cancelamentos' + periodo());
+    document.getElementById('cancelResumo').innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><small>Itens cancelados</small><strong>${d.resumo.quantidade}</strong></div>
+        <div class="kpi"><small>Valor cancelado</small><strong>R$ ${fmt(d.resumo.valorTotal)}</strong></div>
+        <div class="kpi"><small>Já tinham ido à cozinha</small>
+          <strong style="color:var(--danger);">${d.resumo.depoisDeIrParaCozinha}</strong>
+          <small>comida produzida e perdida</small></div>
+        <div class="kpi"><small>Desperdício real</small>
+          <strong style="color:var(--danger);">R$ ${fmt(d.resumo.valorDepoisDaCozinha)}</strong></div>
+      </div>`;
+    document.getElementById('tbCancel').innerHTML = d.items.length ? d.items.map(i => `<tr>
+      <td class="muted">${esc(i.canceladoEm)}</td>
+      <td>${i.quantidade}× ${esc(i.descricao)}</td>
+      <td>${i.mesaNumero ? 'Mesa ' + esc(i.mesaNumero) : '—'}</td>
+      <td>${esc(i.garcom || '—')}</td>
+      <td style="text-align:right;">R$ ${fmt(i.precoTotal)}</td>
+      <td>${i.preparoEm ? '<span style="color:var(--danger);">SIM</span>' : 'não'}</td>
+      <td>${esc(i.canceladoMotivo || '')}</td>
+    </tr>`).join('') : '<tr><td colspan="7" class="empty">Nenhum cancelamento no período</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+mostrar('cardapio');
+carregarTudo();
+</script>
+</body></html>

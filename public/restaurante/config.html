@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Configuração · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Restaurante — Configuração</h1>
+      <small>Salão, mesas e setores de produção. O setor é o que separa as filas do painel de cozinha.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar" style="gap:6px;">
+    <button class="btn btn-sm" id="tabBtn-geral"   onclick="mostrarAba('geral')">Geral</button>
+    <button class="btn btn-sm" id="tabBtn-areas"   onclick="mostrarAba('areas')">Áreas</button>
+    <button class="btn btn-sm" id="tabBtn-mesas"   onclick="mostrarAba('mesas')">Mesas</button>
+    <button class="btn btn-sm" id="tabBtn-setores" onclick="mostrarAba('setores')">Setores</button>
+  </div>
+
+  <!-- ===== GERAL ===== -->
+  <div class="aba" id="aba-geral">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Modo de operação</label>
+        <select id="cModo">
+          <option value="alacarte">À la carte (salão)</option>
+          <option value="quilo">Self-service por quilo</option>
+          <option value="fastfood">Fast-food / balcão</option>
+          <option value="bar">Bar / pub</option>
+          <option value="delivery">Delivery / dark kitchen</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Taxa de serviço sugerida (%)</label>
+        <input type="number" id="cTaxaPct" step="0.01" min="0" max="100">
+        <small class="muted">Até 10% a gorjeta fica fora da base do ICMS, desde que saia como item separado no cupom.</small>
+      </div>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-primary" onclick="salvarConfig()">Salvar configuração</button>
+    </div>
+  </div>
+
+  <!-- ===== ÁREAS ===== -->
+  <div class="aba" id="aba-areas" style="display:none;">
+    <div class="toolbar">
+      <input type="text" id="aNome" placeholder="Nome da área (Salão, Varanda, Deck)" style="flex:1;min-width:240px;">
+      <input type="number" id="aOrdem" placeholder="Ordem" style="width:100px;">
+      <button class="btn btn-primary btn-sm" onclick="addArea()">+ Incluir</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Nome</th><th style="text-align:right;">Ordem</th><th>Status</th><th style="width:60px;"></th></tr></thead>
+        <tbody id="tbAreas"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== MESAS ===== -->
+  <div class="aba" id="aba-mesas" style="display:none;">
+    <div class="toolbar">
+      <input type="text" id="mNumero" placeholder="Número" style="width:110px;">
+      <select id="mArea" style="min-width:180px;"></select>
+      <input type="number" id="mCapacidade" placeholder="Lugares" value="4" style="width:110px;">
+      <button class="btn btn-primary btn-sm" onclick="addMesa()">+ Incluir</button>
+      <span style="flex:1;"></span>
+      <input type="number" id="mDe" placeholder="De" style="width:80px;">
+      <input type="number" id="mAte" placeholder="Até" style="width:80px;">
+      <button class="btn btn-secondary btn-sm" onclick="addMesasLote()">+ Criar faixa</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Mesa</th><th>Área</th><th style="text-align:right;">Lugares</th><th>Status</th><th style="width:60px;"></th></tr></thead>
+        <tbody id="tbMesas"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== SETORES ===== -->
+  <div class="aba" id="aba-setores" style="display:none;">
+    <div class="toolbar">
+      <input type="text" id="sNome" placeholder="Nome do setor (Chapa, Bar, Sushi)" style="flex:1;min-width:240px;">
+      <input type="number" id="sOrdem" placeholder="Ordem" style="width:100px;">
+      <button class="btn btn-primary btn-sm" onclick="addSetor()">+ Incluir</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Setor</th><th>Código</th><th style="text-align:right;">Ordem</th><th>Status</th><th style="width:60px;"></th></tr></thead>
+        <tbody id="tbSetores"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-config');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+const ABAS = ['geral', 'areas', 'mesas', 'setores'];
+function mostrarAba(nome) {
+  for (const a of ABAS) {
+    document.getElementById('aba-' + a).style.display = (a === nome) ? '' : 'none';
+    const b = document.getElementById('tabBtn-' + a);
+    b.className = 'btn btn-sm ' + (a === nome ? 'btn-primary' : 'btn-secondary');
+  }
+}
+
+let areasCache = [];
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+// ===== Geral =====
+async function carregarConfig() {
+  try {
+    const d = await api('/api/restaurante/config');
+    document.getElementById('cModo').value = d.config.restaurante_modo || 'alacarte';
+    document.getElementById('cTaxaPct').value = d.config.restaurante_taxa_servico_pct || '10';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function salvarConfig() {
+  try {
+    await api('/api/restaurante/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurante_modo: document.getElementById('cModo').value,
+        restaurante_taxa_servico_pct: document.getElementById('cTaxaPct').value,
+      }),
+    });
+    showAlert('Configuração salva');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Áreas =====
+async function carregarAreas() {
+  try {
+    const d = await api('/api/restaurante/areas');
+    areasCache = d.items;
+    document.getElementById('tbAreas').innerHTML = d.items.length ? d.items.map(a => `<tr${a.ativo ? '' : ' style="opacity:0.55;"'}>
+      <td><strong>${esc(a.nome)}</strong></td>
+      <td style="text-align:right;">${a.ordem}</td>
+      <td>${a.ativo ? 'Ativa' : 'Inativa'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="delArea(${a.id})">Excluir</button></td>
+    </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhuma área cadastrada</td></tr>';
+    const sel = document.getElementById('mArea');
+    sel.innerHTML = '<option value="">— sem área —</option>' + d.items.map(a => `<option value="${a.id}">${esc(a.nome)}</option>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addArea() {
+  const nome = document.getElementById('aNome').value.trim();
+  if (!nome) return showAlert('Informe o nome da área', 'error');
+  try {
+    await api('/api/restaurante/areas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, ordem: Number(document.getElementById('aOrdem').value) || 0 }),
+    });
+    document.getElementById('aNome').value = ''; document.getElementById('aOrdem').value = '';
+    carregarAreas();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delArea(id) {
+  try { await api('/api/restaurante/areas/' + id, { method: 'DELETE' }); carregarAreas(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Mesas =====
+async function carregarMesas() {
+  try {
+    const d = await api('/api/restaurante/mesas');
+    document.getElementById('tbMesas').innerHTML = d.items.length ? d.items.map(m => `<tr${m.ativo ? '' : ' style="opacity:0.55;"'}>
+      <td><strong>${esc(m.numero)}</strong></td>
+      <td>${esc(m.areaNome || '—')}</td>
+      <td style="text-align:right;">${m.capacidade}</td>
+      <td>${m.ativo ? 'Ativa' : 'Inativa'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="delMesa(${m.id})">Excluir</button></td>
+    </tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhuma mesa cadastrada</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addMesa() {
+  const numero = document.getElementById('mNumero').value.trim();
+  if (!numero) return showAlert('Informe o número da mesa', 'error');
+  try {
+    await api('/api/restaurante/mesas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        numero,
+        areaId: document.getElementById('mArea').value || null,
+        capacidade: Number(document.getElementById('mCapacidade').value) || 4,
+      }),
+    });
+    document.getElementById('mNumero').value = '';
+    carregarMesas();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addMesasLote() {
+  const de = Number(document.getElementById('mDe').value), ate = Number(document.getElementById('mAte').value);
+  if (!de || !ate) return showAlert('Informe a faixa de mesas', 'error');
+  try {
+    const d = await api('/api/restaurante/mesas/lote', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        de, ate,
+        areaId: document.getElementById('mArea').value || null,
+        capacidade: Number(document.getElementById('mCapacidade').value) || 4,
+      }),
+    });
+    showAlert(`${d.criadas} mesa(s) criada(s)` + (d.puladas ? `, ${d.puladas} já existiam` : ''));
+    carregarMesas();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delMesa(id) {
+  try { await api('/api/restaurante/mesas/' + id, { method: 'DELETE' }); carregarMesas(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Setores =====
+async function carregarSetores() {
+  try {
+    const d = await api('/api/restaurante/setores');
+    document.getElementById('tbSetores').innerHTML = d.items.length ? d.items.map(s => `<tr${s.ativo ? '' : ' style="opacity:0.55;"'}>
+      <td><strong>${esc(s.nome)}</strong></td>
+      <td class="muted">${esc(s.codigo)}</td>
+      <td style="text-align:right;">${s.ordem}</td>
+      <td>${s.ativo ? 'Ativo' : 'Inativo'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="delSetor(${s.id})">Excluir</button></td>
+    </tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhum setor cadastrado</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addSetor() {
+  const nome = document.getElementById('sNome').value.trim();
+  if (!nome) return showAlert('Informe o nome do setor', 'error');
+  try {
+    await api('/api/restaurante/setores', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, ordem: Number(document.getElementById('sOrdem').value) || 0 }),
+    });
+    document.getElementById('sNome').value = ''; document.getElementById('sOrdem').value = '';
+    carregarSetores();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delSetor(id) {
+  try { await api('/api/restaurante/setores/' + id, { method: 'DELETE' }); carregarSetores(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+
+mostrarAba('geral');
+carregarConfig();
+carregarAreas();
+carregarMesas();
+carregarSetores();
+</script>
+</body></html>

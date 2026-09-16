@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Painel de Retirada · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* Esta tela fica numa TV virada para o salão: tudo é grande de propósito. */
+  .painel { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:16px; }
+  .painel h2 { font-size:1.6em; margin:0 0 12px; }
+  .senhas { display:flex; flex-wrap:wrap; gap:14px; }
+  .senha { font-size:3.2em; font-weight:800; padding:10px 26px; border-radius:14px; line-height:1.1; }
+  .senha.pronta { background:var(--success); color:#fff; }
+  .senha.preparando { background:var(--surface); border:3px solid var(--border); color:var(--text-2); }
+  .coluna { border:1px solid var(--border); border-radius:12px; padding:18px; }
+  .vazio { color:var(--text-3); font-size:1.2em; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1>Painel de Retirada</h1><small id="pnAtualizado">Carregando…</small></div>
+  </div>
+  <div id="alertGlobal"></div>
+  <div class="painel">
+    <div class="coluna">
+      <h2>Pronto para retirar</h2>
+      <div class="senhas" id="pnProntas"></div>
+    </div>
+    <div class="coluna">
+      <h2>Em preparo</h2>
+      <div class="senhas" id="pnPreparando"></div>
+    </div>
+  </div>
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-painel-retirada');</script>
+<script>
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+let ultimasProntas = [];
+
+async function carregar() {
+  try {
+    const r = await fetch('/api/restaurante/painel-retirada');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+
+    document.getElementById('pnProntas').innerHTML = d.prontas.length
+      ? d.prontas.map(s => `<div class="senha pronta">${esc(s)}</div>`).join('')
+      : '<div class="vazio">Nenhum pedido pronto</div>';
+    document.getElementById('pnPreparando').innerHTML = d.preparando.length
+      ? d.preparando.map(s => `<div class="senha preparando">${esc(s)}</div>`).join('')
+      : '<div class="vazio">Nenhum pedido em preparo</div>';
+
+    // Só avisa quando uma senha ENTRA na lista de prontas — repetir o aviso a
+    // cada ciclo de 5s enquanto o cliente não vem buscar seria insuportável.
+    const novas = d.prontas.filter(s => !ultimasProntas.includes(s));
+    if (novas.length) avisar();
+    ultimasProntas = d.prontas;
+
+    document.getElementById('pnAtualizado').textContent =
+      `${d.prontas.length} pronto(s) · ${d.preparando.length} em preparo`;
+  } catch (e) {
+    document.getElementById('pnAtualizado').textContent = 'sem conexão — tentando de novo';
+  }
+}
+
+// Bipe curto via WebAudio: não depende de arquivo de áudio nem de permissão
+// de autoplay com mídia externa.
+function avisar() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.start(); osc.stop(ctx.currentTime + 0.5);
+  } catch (_) { /* sem áudio: o painel visual continua valendo */ }
+}
+
+carregar();
+setInterval(carregar, 5000);
+</script>
+</body></html>

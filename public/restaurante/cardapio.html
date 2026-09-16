@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurante · Cardápio · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Cardápio</h1>
+      <small>O preço mora no cardápio, não no produto — o mesmo prato custa diferente no salão e no delivery.</small>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary btn-sm" onclick="abrirGrupos()">Grupos de opção</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoCardapio()">+ Novo cardápio</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Cardápio</th><th>Canal</th><th>Horários</th><th style="text-align:right;">Itens</th><th>Status</th><th style="width:180px;"></th></tr></thead>
+      <tbody id="tbCardapios"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ===== Itens do cardápio selecionado ===== -->
+  <div id="itensWrap" style="display:none;">
+    <div class="page-header" style="margin-top:24px;">
+      <div><h2 id="itTitulo" style="margin:0;"></h2>
+        <small id="itSub" class="muted"></small></div>
+    </div>
+
+    <div class="toolbar">
+      <select id="addProduto" style="flex:1;min-width:280px;"></select>
+      <input type="text" id="addCategoria" placeholder="Categoria (Lanches, Bebidas)" style="width:200px;">
+      <input type="number" id="addPreco" placeholder="Preço (vazio = do cadastro)" step="0.01" style="width:200px;">
+      <button class="btn btn-primary btn-sm" onclick="addItem()">+ Incluir no cardápio</button>
+    </div>
+
+    <div class="toolbar" style="margin-top:0;">
+      <input type="text" id="hIni" placeholder="Início HH:MM" style="width:130px;">
+      <input type="text" id="hFim" placeholder="Fim HH:MM" style="width:130px;">
+      <select id="hDia" style="width:180px;">
+        <option value="">Todos os dias</option>
+        <option value="0">Domingo</option><option value="1">Segunda</option><option value="2">Terça</option>
+        <option value="3">Quarta</option><option value="4">Quinta</option><option value="5">Sexta</option>
+        <option value="6">Sábado</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="addHorario()">+ Faixa de horário</button>
+      <small class="muted" style="align-self:center;">Sem faixa = vale o dia inteiro. 18:00–02:00 atravessa a meia-noite.</small>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>SKU</th><th>Item</th><th>Categoria</th><th>Setor</th>
+          <th style="text-align:right;">Preço</th><th style="text-align:right;">Custo</th>
+          <th style="text-align:right;">Margem</th><th>Opções</th><th>Disponível</th><th style="width:60px;"></th></tr></thead>
+        <tbody id="tbItens"></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<!-- ===== Modal: novo cardápio ===== -->
+<div class="modal-bg" id="modalCard">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Novo cardápio</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalCard')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width"><label>Nome *</label><input type="text" id="ncNome" placeholder="Almoço, Jantar, Delivery"></div>
+      <div class="form-group"><label>Canal</label>
+        <select id="ncCanal">
+          <option value="salao">Salão</option><option value="balcao">Balcão</option>
+          <option value="delivery">Delivery</option><option value="quilo">Por quilo</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Ordem</label><input type="number" id="ncOrdem" value="0" title="Menor ordem vence quando dois cardápios cobrem o mesmo horário"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalCard')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCardapio()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: grupos de opção ===== -->
+<div class="modal-bg" id="modalGrupos">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Grupos de opção</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalGrupos')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <small class="muted">"Ponto da carne" mínimo 1 máximo 1 = escolha obrigatória. "Adicionais" 0..5 = opcional.</small>
+    <div class="toolbar">
+      <input type="text" id="gNome" placeholder="Nome do grupo" style="flex:1;min-width:200px;">
+      <input type="number" id="gMin" placeholder="Mín" value="0" style="width:90px;">
+      <input type="number" id="gMax" placeholder="Máx" value="1" style="width:90px;">
+      <button class="btn btn-primary btn-sm" onclick="addGrupo()">+ Grupo</button>
+    </div>
+    <div id="listaGrupos" style="max-height:52vh;overflow:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalGrupos')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: config do item (setor, tempo, grupos) ===== -->
+<div class="modal-bg" id="modalItem">
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-header">
+      <h3 id="miTitulo" style="margin:0;">Item</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fechar('modalItem')" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Setor de produção</label><select id="miSetor"></select></div>
+      <div class="form-group"><label>Tempo de preparo (min)</label><input type="number" id="miTempo" value="0"></div>
+      <div class="form-group"><label>Tipo</label>
+        <select id="miTipo">
+          <option value="preparado">Preparado na casa</option>
+          <option value="revenda">Revenda (bebida industrializada)</option>
+          <option value="servico">Serviço</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Preço por kg (item pesável)</label><input type="number" id="miPrecoKg" step="0.01" placeholder="vazio = não pesável"></div>
+    </div>
+    <div class="form-group full-width">
+      <label>Grupos de opção deste item</label>
+      <div id="miGrupos" style="display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fechar('modalItem')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarItemConfig()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('restaurante-cardapio');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmt(v) { return (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fechar(id) { document.getElementById(id).classList.remove('open'); }
+function abrir(id) { document.getElementById(id).classList.add('open'); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+let cardapioAtual = null, produtosCache = [], setoresCache = [], gruposCache = [], itemEditando = null;
+
+// ===== Cardápios =====
+async function carregarCardapios() {
+  try {
+    const d = await api('/api/restaurante/cardapios');
+    document.getElementById('tbCardapios').innerHTML = d.items.length ? d.items.map(c => {
+      const hor = (c.horarios || []).length
+        ? c.horarios.map(h => `${h.diaSemana != null ? DIAS[h.diaSemana] + ' ' : ''}${h.horaIni}–${h.horaFim}`).join(', ')
+        : '<span class="muted">dia inteiro</span>';
+      return `<tr${c.ativo ? '' : ' style="opacity:0.55;"'}>
+        <td><strong>${esc(c.nome)}</strong></td>
+        <td>${esc(c.canal)}</td>
+        <td>${hor}</td>
+        <td style="text-align:right;">${c.totalItens}</td>
+        <td>${c.ativo ? 'Ativo' : 'Inativo'}</td>
+        <td>
+          <button class="btn btn-secondary btn-sm" onclick="abrirItens(${c.id})">Itens</button>
+          <button class="btn btn-ghost btn-sm" onclick="delCardapio(${c.id})">Excluir</button>
+        </td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="6" class="empty">Nenhum cardápio. Crie um por canal.</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+function abrirNovoCardapio() { document.getElementById('ncNome').value = ''; abrir('modalCard'); }
+async function salvarCardapio() {
+  try {
+    await api('/api/restaurante/cardapios', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: document.getElementById('ncNome').value.trim(),
+        canal: document.getElementById('ncCanal').value,
+        ordem: Number(document.getElementById('ncOrdem').value) || 0,
+      }),
+    });
+    fechar('modalCard'); carregarCardapios();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delCardapio(id) {
+  try { await api('/api/restaurante/cardapios/' + id, { method: 'DELETE' });
+    if (cardapioAtual === id) { cardapioAtual = null; document.getElementById('itensWrap').style.display = 'none'; }
+    carregarCardapios();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Itens =====
+async function abrirItens(id) {
+  cardapioAtual = id;
+  document.getElementById('itensWrap').style.display = '';
+  await carregarProdutos();
+  await carregarItens();
+}
+async function carregarProdutos() {
+  if (produtosCache.length) return;
+  try {
+    const d = await api('/api/produtos');
+    produtosCache = d.produtos || [];
+    document.getElementById('addProduto').innerHTML = '<option value="">— escolha o produto —</option>'
+      + produtosCache.map(p => `<option value="${p.id}">${esc(p.sku)} · ${esc(p.descricao)}</option>`).join('');
+  } catch (e) { showAlert('Produtos: ' + e.message, 'error'); }
+}
+async function carregarItens() {
+  try {
+    const d = await api(`/api/restaurante/cardapios/${cardapioAtual}/itens`);
+    document.getElementById('itTitulo').textContent = d.cardapio.nome;
+    document.getElementById('itSub').textContent = `canal ${d.cardapio.canal} · ${d.items.length} item(ns)`;
+    document.getElementById('tbItens').innerHTML = d.items.length ? d.items.map(i => {
+      const margem = i.preco > 0 && i.precoCusto > 0 ? ((i.preco - i.precoCusto) / i.preco * 100) : null;
+      const corM = margem == null ? 'var(--text-3)' : (margem < 50 ? 'var(--warn)' : 'var(--success)');
+      const nGrupos = (i.grupos || []).length;
+      return `<tr${i.disponivel ? '' : ' style="opacity:0.5;"'}>
+        <td class="muted">${esc(i.sku)}</td>
+        <td><strong>${esc(i.descricao)}</strong></td>
+        <td>${esc(i.categoria || '—')}</td>
+        <td>${i.setorNome ? esc(i.setorNome) : '<span class="muted">sem setor</span>'}</td>
+        <td style="text-align:right;">R$ ${fmt(i.preco)}</td>
+        <td style="text-align:right;" class="muted">${i.precoCusto > 0 ? 'R$ ' + fmt(i.precoCusto) : '—'}</td>
+        <td style="text-align:right;color:${corM};">${margem == null ? '—' : margem.toFixed(1) + '%'}</td>
+        <td>${nGrupos ? nGrupos + ' grupo(s)' : '<span class="muted">—</span>'}</td>
+        <td><button class="btn btn-sm ${i.disponivel ? 'btn-secondary' : 'btn-ghost'}"
+             onclick="toggleDisp(${i.id}, ${i.disponivel ? 0 : 1})">${i.disponivel ? 'Disponível' : 'Acabou'}</button></td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="abrirItemConfig(${i.produtoId}, '${esc(i.descricao).replace(/'/g, "\\'")}')">⚙</button>
+          <button class="btn btn-ghost btn-sm" onclick="delItem(${i.id})">×</button>
+        </td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="10" class="empty">Nenhum item neste cardápio</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addItem() {
+  const produtoId = document.getElementById('addProduto').value;
+  if (!produtoId) return showAlert('Escolha um produto', 'error');
+  const precoRaw = document.getElementById('addPreco').value;
+  try {
+    await api(`/api/restaurante/cardapios/${cardapioAtual}/itens`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        produtoId: Number(produtoId),
+        categoria: document.getElementById('addCategoria').value.trim() || null,
+        preco: precoRaw === '' ? undefined : Number(precoRaw),
+      }),
+    });
+    document.getElementById('addPreco').value = '';
+    carregarItens(); carregarCardapios();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delItem(id) {
+  try { await api('/api/restaurante/cardapio-itens/' + id, { method: 'DELETE' }); carregarItens(); carregarCardapios(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+async function toggleDisp(id, disponivel) {
+  try {
+    await api(`/api/restaurante/cardapio-itens/${id}/disponibilidade`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disponivel: !!disponivel }),
+    });
+    carregarItens();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addHorario() {
+  const dia = document.getElementById('hDia').value;
+  try {
+    await api(`/api/restaurante/cardapios/${cardapioAtual}/horarios`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        horaIni: document.getElementById('hIni').value.trim(),
+        horaFim: document.getElementById('hFim').value.trim(),
+        diaSemana: dia === '' ? null : Number(dia),
+      }),
+    });
+    document.getElementById('hIni').value = ''; document.getElementById('hFim').value = '';
+    carregarCardapios();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Grupos de opção =====
+async function abrirGrupos() { abrir('modalGrupos'); await carregarGrupos(); }
+async function carregarGrupos() {
+  try {
+    const d = await api('/api/restaurante/grupos-opcao');
+    gruposCache = d.items;
+    document.getElementById('listaGrupos').innerHTML = d.items.length ? d.items.map(g => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin:8px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong>${esc(g.nome)}</strong>
+          <span class="muted">escolhe ${g.minEscolhas} a ${g.maxEscolhas}
+            <button class="btn btn-ghost btn-sm" onclick="delGrupo(${g.id})">×</button></span>
+        </div>
+        <div style="margin-top:6px;">
+          ${(g.opcoes || []).map(o => `<span class="badge" style="margin-right:6px;">${esc(o.nome)}${o.precoAdicional ? ' +R$ ' + fmt(o.precoAdicional) : ''}
+            <a href="#" onclick="delOpcao(${o.id});return false;" style="margin-left:4px;">×</a></span>`).join('') || '<span class="muted">sem opções</span>'}
+        </div>
+        <div class="toolbar" style="margin-top:8px;">
+          <input type="text" id="op-nome-${g.id}" placeholder="Nova opção" style="flex:1;">
+          <input type="number" id="op-preco-${g.id}" placeholder="+R$" step="0.01" style="width:100px;">
+          <button class="btn btn-secondary btn-sm" onclick="addOpcao(${g.id})">+</button>
+        </div>
+      </div>`).join('') : '<div class="empty">Nenhum grupo criado</div>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function addGrupo() {
+  try {
+    await api('/api/restaurante/grupos-opcao', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: document.getElementById('gNome').value.trim(),
+        minEscolhas: Number(document.getElementById('gMin').value) || 0,
+        maxEscolhas: Number(document.getElementById('gMax').value) || 1,
+      }),
+    });
+    document.getElementById('gNome').value = '';
+    carregarGrupos();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delGrupo(id) {
+  try { await api('/api/restaurante/grupos-opcao/' + id, { method: 'DELETE' }); carregarGrupos(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+async function addOpcao(grupoId) {
+  try {
+    await api(`/api/restaurante/grupos-opcao/${grupoId}/opcoes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: document.getElementById('op-nome-' + grupoId).value.trim(),
+        precoAdicional: Number(document.getElementById('op-preco-' + grupoId).value) || 0,
+      }),
+    });
+    carregarGrupos();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function delOpcao(id) {
+  try { await api('/api/restaurante/opcoes/' + id, { method: 'DELETE' }); carregarGrupos(); }
+  catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ===== Config do item =====
+async function abrirItemConfig(produtoId, nome) {
+  itemEditando = produtoId;
+  document.getElementById('miTitulo').textContent = nome;
+  try {
+    if (!setoresCache.length) setoresCache = (await api('/api/restaurante/setores')).items;
+    if (!gruposCache.length) gruposCache = (await api('/api/restaurante/grupos-opcao')).items;
+    const d = await api(`/api/restaurante/produtos/${produtoId}/config`);
+    const c = d.config || {};
+    document.getElementById('miSetor').innerHTML = '<option value="">— sem setor —</option>'
+      + setoresCache.map(s => `<option value="${s.id}"${c.setorId === s.id ? ' selected' : ''}>${esc(s.nome)}</option>`).join('');
+    document.getElementById('miTempo').value = c.tempoPreparoMin || 0;
+    document.getElementById('miTipo').value = c.tipoItem || 'preparado';
+    document.getElementById('miPrecoKg').value = c.precoPorKg == null ? '' : c.precoPorKg;
+    const vinculados = new Set((d.grupos || []).map(g => g.id));
+    document.getElementById('miGrupos').innerHTML = gruposCache.length ? gruposCache.map(g =>
+      `<label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" class="mi-grupo" value="${g.id}"${vinculados.has(g.id) ? ' checked' : ''}>
+        ${esc(g.nome)} <span class="muted">(${g.minEscolhas}–${g.maxEscolhas})</span></label>`).join('')
+      : '<span class="muted">Nenhum grupo criado ainda</span>';
+    abrir('modalItem');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+async function salvarItemConfig() {
+  const precoKg = document.getElementById('miPrecoKg').value;
+  try {
+    await api(`/api/restaurante/produtos/${itemEditando}/config`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        setorId: document.getElementById('miSetor').value || null,
+        tempoPreparoMin: Number(document.getElementById('miTempo').value) || 0,
+        tipoItem: document.getElementById('miTipo').value,
+        pesavel: precoKg !== '' ? 1 : 0,
+        precoPorKg: precoKg !== '' ? Number(precoKg) : null,
+      }),
+    });
+    const ids = Array.from(document.querySelectorAll('.mi-grupo:checked')).map(c => Number(c.value));
+    await api(`/api/restaurante/produtos/${itemEditando}/grupos`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grupoIds: ids }),
+    });
+    fechar('modalItem'); carregarItens();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { fechar('modalCard'); fechar('modalGrupos'); fechar('modalItem'); }
+});
+carregarCardapios();
+</script>
+</body></html>
