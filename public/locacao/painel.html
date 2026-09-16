@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locação · Ocupação &amp; Receita · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .barra { background: #e9ecef; border-radius: 3px; height: 14px; position: relative; min-width: 90px; }
+  .barra span { display: block; height: 100%; border-radius: 3px; background: #4dabf7; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Ocupação &amp; Receita</h1>
+      <small>A taxa divide os dias-unidade alugados pela frota inteira: três betoneiras com uma alugada o mês todo dão 33%, não 100%. É esse número que diz se vale comprar a quarta.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <label class="muted">De <input type="date" id="de"></label>
+    <label class="muted">Até <input type="date" id="ate"></label>
+    <input type="text" id="fCategoria" placeholder="Categoria" style="width:150px;">
+    <button class="btn btn-primary btn-sm" onclick="carregar()">Calcular</button>
+  </div>
+
+  <div id="resumo" class="form-row"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Ativo</th><th style="text-align:right;">Unidades</th>
+        <th style="text-align:right;">Dias-unidade alugados</th>
+        <th style="text-align:right;">Capacidade</th>
+        <th style="min-width:140px;">Ocupação</th>
+        <th style="text-align:right;">Receita</th>
+        <th style="text-align:right;">Receita / dia-unidade</th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="7" class="empty">Escolha o período.</td></tr></tbody>
+    </table>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('locacao-painel');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function moeda(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+async function api(url) {
+  const r = await fetch(url);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+const hoje = new Date();
+document.getElementById('de').value = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
+document.getElementById('ate').value = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10);
+
+async function carregar() {
+  try {
+    const p = new URLSearchParams({
+      de: document.getElementById('de').value,
+      ate: document.getElementById('ate').value,
+    });
+    const cat = document.getElementById('fCategoria').value.trim();
+    if (cat) p.set('categoria', cat);
+    const d = await api('/api/locacao/painel/ocupacao?' + p);
+
+    document.getElementById('resumo').innerHTML = `
+      <div class="form-group"><label>Ativos</label><h2>${d.resumo.ativos}</h2></div>
+      <div class="form-group"><label>Ocupação média</label><h2>${d.resumo.taxaMedia}%</h2></div>
+      <div class="form-group"><label>Receita no período</label><h2>R$ ${moeda(d.resumo.receitaTotal)}</h2></div>
+      <div class="form-group"><label>Sem nenhuma locação</label><h2>${d.resumo.ociosos}</h2></div>`;
+
+    const tb = document.getElementById('tb');
+    if (!d.linhas.length) {
+      tb.innerHTML = '<tr><td colspan="7" class="empty">Nenhum item alugável.</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.linhas.map(l => `
+      <tr>
+        <td>${esc(l.descricao)}${l.categoria ? ' <span class="muted">(' + esc(l.categoria) + ')</span>' : ''}</td>
+        <td style="text-align:right;">${l.unidades}</td>
+        <td style="text-align:right;">${l.diasOcupados}</td>
+        <td style="text-align:right;">${l.capacidadeDiasUnidade}</td>
+        <td>
+          <div class="barra"><span style="width:${Math.min(100, l.taxaOcupacao)}%"></span></div>
+          <small class="muted">${l.taxaOcupacao}%</small>
+        </td>
+        <td style="text-align:right;">${moeda(l.receita)}</td>
+        <td style="text-align:right;">${moeda(l.receitaPorDiaUnidade)}</td>
+      </tr>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+carregar();
+</script>
+</body></html>

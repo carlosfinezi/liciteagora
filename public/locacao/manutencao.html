@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locação · Manutenção · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Manutenção</h1>
+      <small>O plano vence por uso acumulado, não por calendário. Executar a manutenção abre a OS e bloqueia o ativo — ele some da disponibilidade enquanto estiver na oficina.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Ativo</th><th>Plano</th><th>Tipo</th><th style="text-align:right;">Intervalo</th>
+        <th style="text-align:right;">Desde a última</th><th style="text-align:right;">Restante</th>
+        <th>Situação</th><th style="width:170px;"></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Novo plano</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Ativo</label>
+        <select id="pProduto"></select>
+      </div>
+      <div class="form-group">
+        <label>Descrição</label>
+        <input type="text" id="pDescricao" placeholder="Troca de óleo, revisão de 250h…">
+      </div>
+      <div class="form-group">
+        <label>Medido por</label>
+        <select id="pTipo">
+          <option value="horimetro">Horímetro</option>
+          <option value="km">Quilometragem</option>
+          <option value="dias">Dias</option>
+        </select>
+        <small class="muted">Horímetro/km exigem medidor configurado no item.</small>
+      </div>
+      <div class="form-group">
+        <label>A cada</label>
+        <input type="number" id="pIntervalo" min="1" step="1">
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;">
+        <button class="btn btn-primary" onclick="criarPlano()">Criar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Registrar leitura de medidor</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Ativo</label>
+        <select id="lProduto"></select>
+      </div>
+      <div class="form-group">
+        <label>Leitura atual</label>
+        <input type="number" id="lValor" step="0.1" min="0">
+        <small class="muted">O medidor não retrocede: leitura menor que a anterior é recusada.</small>
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="lTipo"><option value="horimetro">Horímetro</option><option value="km">Km</option></select>
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;">
+        <button class="btn btn-primary" onclick="registrarLeitura()">Registrar</button>
+      </div>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('locacao-manutencao');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+async function carregar() {
+  try {
+    const d = await api('/api/locacao/manutencao/planos');
+    const tb = document.getElementById('tb');
+    if (!d.planos.length) {
+      tb.innerHTML = '<tr><td colspan="8" class="empty">Nenhum plano de manutenção.</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.planos.map(p => {
+      const s = p.situacao || {};
+      const sit = s.vencido
+        ? '<strong style="color:#c92a2a;">Vencido</strong>'
+        : (s.motivo ? `<span class="muted">${esc(s.motivo)}</span>` : `${s.percentual || 0}%`);
+      return `<tr>
+        <td>${esc(p.produto)}${p.serie ? ' <span class="muted">(' + esc(p.serie) + ')</span>' : ''}</td>
+        <td>${esc(p.descricao)}</td>
+        <td>${esc(p.tipo)}</td>
+        <td style="text-align:right;">${p.intervalo}</td>
+        <td style="text-align:right;">${s.desdeUltima != null ? s.desdeUltima : (s.atual != null ? s.atual : '—')}</td>
+        <td style="text-align:right;">${s.restante != null ? s.restante : '—'}</td>
+        <td>${sit}</td>
+        <td>
+          <button class="btn btn-sm" onclick="executar(${p.id})">Executar</button>
+          <button class="btn btn-sm" onclick="desativar(${p.id})">Desativar</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarItens() {
+  try {
+    const d = await api('/api/locacao/itens');
+    const html = d.itens.map(i => `<option value="${i.produtoId}">${esc(i.descricao)}</option>`).join('');
+    document.getElementById('pProduto').innerHTML = html;
+    document.getElementById('lProduto').innerHTML = html;
+  } catch (_) { /* segue */ }
+}
+
+async function criarPlano() {
+  try {
+    await api('/api/locacao/manutencao/planos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        produtoId: document.getElementById('pProduto').value,
+        descricao: document.getElementById('pDescricao').value.trim(),
+        tipo: document.getElementById('pTipo').value,
+        intervalo: document.getElementById('pIntervalo').value,
+      }),
+    });
+    showAlert('Plano criado');
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function desativar(id) {
+  try {
+    await api('/api/locacao/manutencao/planos/' + id, { method: 'DELETE' });
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function registrarLeitura() {
+  try {
+    const d = await api('/api/locacao/manutencao/leitura', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        produtoId: document.getElementById('lProduto').value,
+        valor: document.getElementById('lValor').value,
+        tipo: document.getElementById('lTipo').value,
+      }),
+    });
+    showAlert('Leitura registrada. Acumulado: ' + d.atual);
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function executar(planoId) {
+  const fim = prompt('Até quando o ativo fica indisponível? (AAAA-MM-DD HH:MM)');
+  if (!fim) return;
+  const clienteId = prompt('ID da pessoa que representa a empresa (a OS exige uma contraparte):');
+  if (!clienteId) return;
+  try {
+    const d = await api(`/api/locacao/manutencao/planos/${planoId}/executar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fim, clienteId }),
+    });
+    showAlert(`OS ${d.os.numero} aberta e ativo bloqueado até ${fim}.`);
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+carregarItens();
+carregar();
+</script>
+</body></html>

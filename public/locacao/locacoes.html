@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locação · Locações · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Locações</h1>
+      <small>O caminho de cada locação: orçamento → reservado → com o cliente → devolvido → encerrado. Depois que o bem sai do pátio não existe cancelar — existe devolver.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="q" placeholder="Número da locação ou nome do cliente" style="flex:1;min-width:240px;"
+           onkeydown="if(event.key==='Enter')carregar()">
+    <select id="fStatus" onchange="carregar()">
+      <option value="">Todas as situações</option>
+      <option value="orcamento">Orçamento</option>
+      <option value="reservado">Reservado (agendado)</option>
+      <option value="emAndamento">Com o cliente</option>
+      <option value="devolvido">Devolvido (a faturar)</option>
+      <option value="encerrado">Encerrado</option>
+      <option value="cancelado">Cancelado</option>
+    </select>
+    <select id="fTipo" onchange="carregar()">
+      <option value="">Fechada e mensal</option>
+      <option value="avulsa">Só período fechado</option>
+      <option value="aberta">Só mensal até devolver</option>
+    </select>
+    <label class="muted" style="display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="fAtrasadas" onchange="carregar()"> só devoluções atrasadas
+    </label>
+    <button class="btn btn-primary btn-sm" onclick="carregar()">Buscar</button>
+    <button class="btn btn-sm" onclick="abrirNova()">+ Nova locação</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Número</th><th>Cliente</th>
+        <th title="Período fechado fatura uma vez; mensal fatura a cada mês até devolver">Cobrança</th>
+        <th>Saída</th><th>Retorno previsto</th>
+        <th style="text-align:center;">Itens</th><th style="text-align:right;">Total</th>
+        <th>Situação</th><th style="width:80px;"></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="editorNova" class="card" style="display:none;margin-top:16px;">
+    <h3>Nova locação</h3>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Cliente</label>
+        <div id="clienteEscolhido" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <strong id="clienteNome"></strong>
+            <button type="button" class="btn btn-sm" onclick="trocarCliente()">Trocar</button>
+          </div>
+        </div>
+        <div id="clienteBusca">
+          <input type="text" id="qCliente" placeholder="Nome, razão social ou CNPJ/CPF" autocomplete="off">
+          <small class="muted">Digite para procurar — a lista não vem pronta.</small>
+          <div id="resultadosCliente"></div>
+        </div>
+      </div>
+      <div class="form-group" style="flex:2;">
+        <label>Como esta locação será cobrada?</label>
+        <select id="nTipo" onchange="ajustarTipo()">
+          <option value="avulsa">Período fechado — sai e volta em datas definidas, fatura uma vez</option>
+          <option value="aberta">Sem data para voltar — fatura todo mês até o cliente devolver</option>
+        </select>
+        <small class="muted" id="hintTipo"></small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Saída prevista</label>
+        <input type="datetime-local" id="nSaida">
+      </div>
+      <div class="form-group">
+        <label>Retorno previsto</label>
+        <input type="datetime-local" id="nRetorno">
+        <small class="muted" id="hintRetorno"></small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Caução (R$)</label>
+        <input type="number" id="nCaucao" step="0.01" min="0" value="0">
+      </div>
+      <div class="form-group" style="flex:2;">
+        <label>Endereço da obra / entrega</label>
+        <input type="text" id="nEndereco">
+      </div>
+      <div class="form-group">
+        <label>Quem recebe na obra</label>
+        <input type="text" id="nContatoObra" placeholder="nome de quem confere">
+      </div>
+      <div class="form-group">
+        <label>Telefone na obra</label>
+        <input type="text" id="nTelefoneObra">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Endereço de cobrança</label>
+        <input type="text" id="nEnderecoCobranca" placeholder="vazio = usa o da obra">
+      </div>
+      <div class="form-group">
+        <label>Tipo de frete</label>
+        <input type="text" id="nTipoFrete" placeholder="SEM FRETE, CIF, FOB…">
+      </div>
+      <div class="form-group">
+        <label>Documento auxiliar / OC do cliente</label>
+        <input type="text" id="nDocAuxiliar">
+      </div>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn btn-primary" onclick="criar()">Criar</button>
+      <button class="btn" onclick="document.getElementById('editorNova').style.display='none'">Cancelar</button>
+    </div>
+  </div>
+
+  <div id="detalhe" style="margin-top:16px;"></div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('locacao-locacoes');</script>
+<script>
+// 'Com o cliente' diz mais que 'Em andamento': numa locadora o que importa é
+// se o bem está no pátio ou na rua.
+const ROTULO_STATUS = {
+  orcamento: 'Orçamento', reservado: 'Reservado (agendado)', emAndamento: 'Com o cliente',
+  devolvido: 'Devolvido (a faturar)', encerrado: 'Encerrado', cancelado: 'Cancelado',
+};
+
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function moeda(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function dt(v) { return v ? String(v).slice(0, 16).replace('T', ' ') : '—'; }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+function ajustarTipo() {
+  const aberta = document.getElementById('nTipo').value === 'aberta';
+  document.getElementById('hintTipo').textContent = aberta
+    ? 'Use quando o cliente não sabe até quando vai precisar. A cada mês você gera uma cobrança, até ele devolver.'
+    : 'Use quando a data de devolução já está combinada. Uma cobrança só, no fim.';
+  document.getElementById('hintRetorno').textContent = aberta
+    ? 'Opcional — nesta modalidade não há data de fim.'
+    : 'Obrigatório: é ele que define o preço e reserva o item na agenda.';
+  document.getElementById('nRetorno').required = !aberta;
+}
+
+async function carregar() {
+  try {
+    const p = new URLSearchParams();
+    const q = document.getElementById('q').value.trim();
+    const st = document.getElementById('fStatus').value;
+    if (q) p.set('busca', q);
+    if (st) p.set('status', st);
+    const tp = document.getElementById('fTipo').value;
+    if (tp) p.set('tipo', tp);
+    if (document.getElementById('fAtrasadas').checked) p.set('atrasadas', '1');
+    const d = await api('/api/locacao/locacoes?' + p);
+    const tb = document.getElementById('tb');
+    if (!d.locacoes.length) {
+      tb.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma locação.</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.locacoes.map(l => `
+      <tr>
+        <td>${esc(l.numero)}</td>
+        <td>${esc(l.clienteNome || '—')}</td>
+        <td>${l.tipo === 'aberta' ? 'Mensal' : 'Período fechado'}</td>
+        <td>${dt(l.dataSaidaPrevista)}</td>
+        <td>${dt(l.dataRetornoPrevisto)}</td>
+        <td style="text-align:center;">${l.qtdItens}</td>
+        <td style="text-align:right;">${moeda(l.valorTotal)}</td>
+        <td>${esc(ROTULO_STATUS[l.status] || l.status)}</td>
+        <td><button class="btn btn-sm" onclick="abrir(${l.id})">Abrir</button></td>
+      </tr>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ─── Busca de cliente ───────────────────────────────────────────────────────
+// Mesma razão da busca de produto: um <select> com a base de clientes inteira
+// é impraticável (só o 1bit tem 173 pessoas). A busca é do servidor —
+// /api/pessoas?q= já filtra por razão social, nome fantasia e CPF/CNPJ.
+let clienteSelecionado = null;
+let timerCliente = null;
+
+function trocarCliente() {
+  clienteSelecionado = null;
+  document.getElementById('clienteEscolhido').style.display = 'none';
+  document.getElementById('clienteBusca').style.display = '';
+  document.getElementById('qCliente').value = '';
+  document.getElementById('qCliente').focus();
+  document.getElementById('resultadosCliente').innerHTML = '';
+}
+
+function escolherCliente(p) {
+  clienteSelecionado = p;
+  document.getElementById('clienteNome').innerHTML =
+    esc(p.razaoSocial || p.nomeFantasia || p.cpfCnpj)
+    + (p.cpfCnpj ? ' <span class="muted">— ' + esc(p.cpfCnpj) + '</span>' : '');
+  document.getElementById('clienteEscolhido').style.display = '';
+  document.getElementById('clienteBusca').style.display = 'none';
+  document.getElementById('resultadosCliente').innerHTML = '';
+}
+
+async function buscarCliente() {
+  const q = document.getElementById('qCliente').value.trim();
+  const box = document.getElementById('resultadosCliente');
+  if (q.length < 2) { box.innerHTML = '<small class="muted">Digite ao menos 2 caracteres.</small>'; return; }
+  try {
+    const r = await fetch('/api/pessoas?ativo=1&q=' + encodeURIComponent(q));
+    const d = await r.json().catch(() => ({}));
+    const lista = (d.pessoas || []).slice(0, 20);
+    if (!lista.length) {
+      box.innerHTML = '<small class="muted">Nenhum cliente encontrado. '
+        + 'Cadastre em Comercial → Clientes &amp; Fornecedores.</small>';
+      return;
+    }
+    box.innerHTML = `<div class="tbl-wrap" style="max-height:220px;overflow:auto;margin-top:6px;">
+      <table><tbody>${lista.map(p => `
+        <tr style="cursor:pointer;" onclick='escolherCliente(${JSON.stringify(p).replace(/'/g, "&#39;")})'>
+          <td>${esc(p.razaoSocial || p.nomeFantasia || '')}</td>
+          <td class="muted">${esc(p.cpfCnpj || '')}</td>
+          <td class="muted">${esc(p.cidade || '')}</td>
+        </tr>`).join('')}</tbody></table></div>
+      ${(d.pessoas || []).length > 20 ? '<small class="muted">Mostrando 20 — refine a busca.</small>' : ''}`;
+  } catch (e) { box.innerHTML = `<small class="alert error">${esc(e.message)}</small>`; }
+}
+
+document.getElementById('qCliente').addEventListener('input', () => {
+  clearTimeout(timerCliente);
+  timerCliente = setTimeout(buscarCliente, 250);
+});
+
+function abrirNova() {
+  document.getElementById('editorNova').style.display = '';
+  trocarCliente();
+  ajustarTipo();
+}
+
+async function criar() {
+  try {
+    if (!clienteSelecionado) throw new Error('escolha o cliente na busca');
+    const d = await api('/api/locacao/locacoes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clienteId: clienteSelecionado && clienteSelecionado.id,
+        tipo: document.getElementById('nTipo').value,
+        dataSaidaPrevista: document.getElementById('nSaida').value,
+        dataRetornoPrevisto: document.getElementById('nRetorno').value || null,
+        caucaoValor: document.getElementById('nCaucao').value,
+        enderecoEntrega: document.getElementById('nEndereco').value.trim() || null,
+        contatoObra: document.getElementById('nContatoObra').value.trim() || null,
+        telefoneObra: document.getElementById('nTelefoneObra').value.trim() || null,
+        enderecoCobranca: document.getElementById('nEnderecoCobranca').value.trim() || null,
+        tipoFrete: document.getElementById('nTipoFrete').value.trim() || null,
+        documentoAuxiliar: document.getElementById('nDocAuxiliar').value.trim() || null,
+      }),
+    });
+    document.getElementById('editorNova').style.display = 'none';
+    showAlert('Locação ' + d.contrato.numero + ' criada');
+    carregar();
+    abrir(d.contrato.id);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function abrir(id) {
+  try {
+    const d = await api('/api/locacao/locacoes/' + id);
+    const c = d.contrato;
+    const itens = d.itens.map(i => `
+      <tr>
+        <td>${esc(i.descricao)}${i.serie ? ' <span class="muted">(' + esc(i.serie) + ')</span>' : ''}</td>
+        <td>${i.natureza === 'servico' ? 'Serviço' : 'Locação'}</td>
+        <td style="text-align:right;">${i.quantidade}</td>
+        <td>${dt(i.dataInicio)} → ${dt(i.dataFim)}</td>
+        <td>${esc(i.tarifaFaixa || '—')}</td>
+        <td style="text-align:right;">${moeda(i.valorTotal)}</td>
+        <td>${c.status === 'orcamento' ? `<button class="btn btn-sm" onclick="removerItem(${c.id},${i.id})">×</button>` : ''}</td>
+      </tr>`).join('');
+
+    const acertos = d.acertos.length ? `
+      <h4>Acertos</h4>
+      <table><thead><tr><th>Tipo</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr></thead>
+      <tbody>${d.acertos.map(a => `<tr><td>${esc(a.tipo)}</td><td>${esc(a.descricao)}</td>
+        <td style="text-align:right;">${moeda(a.valorTotal)}</td></tr>`).join('')}</tbody></table>` : '';
+
+    const eventos = d.eventos.slice(0, 12).map(e =>
+      `<li><span class="muted">${dt(e.data)}</span> — ${esc(e.tipo)}${e.descricao ? ': ' + esc(e.descricao) : ''}</li>`).join('');
+
+    document.getElementById('detalhe').innerHTML = `
+      <div class="card">
+        <h3>${esc(c.numero)} — ${esc(c.clienteNome || '')}
+          <span class="muted">(${esc(ROTULO_STATUS[c.status] || c.status)})</span></h3>
+        <p class="muted">
+          Saída ${dt(c.dataSaidaPrevista)}${c.dataSaidaReal ? ' (real: ' + dt(c.dataSaidaReal) + ')' : ''} ·
+          Retorno ${dt(c.dataRetornoPrevisto)}${c.dataRetornoReal ? ' (real: ' + dt(c.dataRetornoReal) + ')' : ''} ·
+          Caução ${moeda(c.caucaoValor)} (${esc(c.caucaoStatus)})
+        </p>
+
+        <table>
+          <thead><tr><th>Item</th><th>Natureza</th><th style="text-align:right;">Qtd</th>
+            <th>Período</th><th>Faixa</th><th style="text-align:right;">Valor</th><th></th></tr></thead>
+          <tbody>${itens || '<tr><td colspan="7" class="empty">Sem itens.</td></tr>'}</tbody>
+        </table>
+
+        <p style="text-align:right;">
+          Locação ${moeda(c.valorLocacao)}
+          ${d.minimo && d.minimo.aplicado
+            ? `<span class="muted" title="Os itens somam ${moeda(d.minimo.somaItens)}, abaixo do mínimo do contrato">
+                 (itens ${moeda(d.minimo.somaItens)} → mínimo do contrato ${moeda(d.minimo.valor)})</span>`
+            : ''}
+          · Serviços ${moeda(c.valorServicos)} ·
+          Extras ${moeda(c.valorExtras)} · <strong>Total ${moeda(c.valorTotal)}</strong>
+        </p>
+
+        ${d.caucaoSugerida > 0 && c.status === 'orcamento' && Number(c.caucaoValor) !== d.caucaoSugerida ? `
+        <div class="alert success" style="display:block;">
+          Caução sugerida pelos itens: <strong>R$ ${moeda(d.caucaoSugerida)}</strong>
+          <small class="muted">(${d.caucaoDetalhe.map(x =>
+            x.modo === 'percentual'
+              ? `${esc(x.descricao)}: ${x.percentual}% ${x.base === 'bem' ? 'do bem' : 'do aluguel'}`
+              : `${esc(x.descricao)}: fixo`).join(' · ')})</small>
+          <button class="btn btn-sm" style="margin-left:8px;"
+                  onclick="aplicarCaucao(${c.id}, ${d.caucaoSugerida})">Aplicar</button>
+        </div>` : ''}
+        ${(d.caucaoDetalhe || []).some(x => x.aviso) ? `
+        <div class="alert error" style="display:block;">
+          ${d.caucaoDetalhe.filter(x => x.aviso).map(x => `${esc(x.descricao)}: ${esc(x.aviso)}`).join('<br>')}
+        </div>` : ''}
+
+        ${c.status === 'orcamento' ? `
+        <div class="form-row" style="align-items:flex-end;">
+          <div class="form-group">
+            <label>Acrescentar item</label>
+            <select id="iProduto"></select>
+          </div>
+          <div class="form-group" style="max-width:110px;">
+            <label>Qtd</label>
+            <input type="number" id="iQtd" value="1" min="1" step="1">
+          </div>
+          <div class="form-group">
+            <button class="btn btn-primary" onclick="addItem(${c.id})">Acrescentar</button>
+          </div>
+        </div>` : ''}
+
+        ${acertos}
+
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <a class="btn" href="/api/locacao/locacoes/${c.id}/pdf" target="_blank">Imprimir contrato</a>
+          ${c.status === 'orcamento' ? `<button class="btn btn-primary" onclick="acao(${c.id},'confirmar')">Confirmar (reservar)</button>` : ''}
+          ${c.status === 'reservado' ? `<button class="btn btn-primary" onclick="acao(${c.id},'entregar',{abrirVistoria:true})">Entregar</button>` : ''}
+          ${c.status === 'reservado' ? `<button class="btn" onclick="acao(${c.id},'reabrir')">Reabrir</button>` : ''}
+          ${c.status === 'emAndamento' ? `<button class="btn btn-primary" onclick="devolver(${c.id})">Devolver</button>` : ''}
+          ${c.status === 'devolvido' && !d.faturamentos.some(f => f.status !== 'cancelado')
+            ? `<button class="btn btn-primary" onclick="acao(${c.id},'faturar')">Faturar</button>`
+            : (c.status === 'devolvido'
+                ? `<span class="muted">Faturada (${d.faturamentos.filter(f => f.status !== 'cancelado').length}× · R$ ${moeda(d.faturamentos.filter(f => f.status !== 'cancelado').reduce((s, f) => s + Number(f.valorTotal || 0), 0))})</span>`
+                : '')}
+          ${c.status === 'devolvido' ? `<button class="btn" onclick="acao(${c.id},'encerrar')">Encerrar</button>` : ''}
+          ${['orcamento', 'reservado'].includes(c.status) ? `<button class="btn" onclick="acao(${c.id},'cancelar')">Cancelar</button>` : ''}
+          ${Number(c.caucaoValor) > 0 && c.caucaoStatus === 'pendente' ? `<button class="btn" onclick="acao(${c.id},'caucao/receber')">Receber caução</button>` : ''}
+          ${c.caucaoStatus === 'retido' ? `<button class="btn" onclick="acao(${c.id},'caucao/destinar',{destino:'devolvido'})">Devolver caução</button>` : ''}
+          ${c.caucaoStatus === 'retido' ? `<button class="btn" onclick="acao(${c.id},'caucao/destinar',{destino:'abatido'})">Abater caução</button>` : ''}
+        </div>
+
+        <div class="form-row" style="margin-top:14px;align-items:flex-end;">
+          <div class="form-group">
+            <label>Nota promissória</label>
+            ${c.promissoriaEmitir
+              ? `<div>R$ <strong>${moeda(c.promissoriaValor)}</strong>
+                   <span class="muted">vence ${dt(c.promissoriaVencimento)}</span>
+                   <button class="btn btn-sm" onclick="acao(${c.id},'promissoria',{},'DELETE')">Remover</button></div>`
+              : `<button class="btn btn-sm" onclick="acao(${c.id},'promissoria')">Gerar promissória</button>
+                 <small class="muted">Calculada sobre a base configurada — por padrão, a reposição dos equipamentos.</small>`}
+          </div>
+          <div class="form-group" style="flex:2;">
+            <label>Avalistas</label>
+            <div>${(d.avalistas || []).map(a => `
+              ${esc(a.nome || '')} ${a.cpfCnpj ? '<span class="muted">(' + esc(a.cpfCnpj) + ')</span>' : ''}
+              <button class="btn btn-sm" onclick="removerAvalista(${c.id},${a.id})">×</button>`).join('<br>')
+              || '<span class="muted">nenhum</span>'}</div>
+            <div style="display:flex;gap:6px;margin-top:6px;">
+              <input type="text" id="avNome" placeholder="Nome do avalista" style="flex:1;">
+              <input type="text" id="avCpf" placeholder="CPF/CNPJ" style="width:150px;">
+              <input type="text" id="avEnd" placeholder="Endereço" style="flex:1;">
+              <button class="btn btn-sm" onclick="addAvalista(${c.id})">Incluir</button>
+            </div>
+          </div>
+        </div>
+
+        <details style="margin-top:12px;"><summary class="muted">Histórico</summary><ul>${eventos}</ul></details>
+      </div>`;
+
+    if (c.status === 'orcamento') {
+      const it = await api('/api/locacao/itens?alugavel=1');
+      document.getElementById('iProduto').innerHTML = it.itens.map(i =>
+        `<option value="${i.produtoId}">${esc(i.descricao)}</option>`).join('');
+    }
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function addItem(id) {
+  try {
+    await api(`/api/locacao/locacoes/${id}/itens`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        produtoId: document.getElementById('iProduto').value,
+        quantidade: document.getElementById('iQtd').value,
+      }),
+    });
+    abrir(id); carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function removerItem(id, itemId) {
+  try {
+    await api(`/api/locacao/locacoes/${id}/itens/${itemId}`, { method: 'DELETE' });
+    abrir(id); carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// A sugestão nunca sobrescreve sozinha o que o operador digitou: aplicar é
+// um clique explícito.
+async function aplicarCaucao(id, valor) {
+  try {
+    await api('/api/locacao/locacoes/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caucaoValor: valor }),
+    });
+    showAlert('Caução definida em R$ ' + moeda(valor));
+    abrir(id); carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// A limpeza percentual só é cobrada se quem recebe marcar que precisa —
+// não é automática, é constatação da vistoria.
+async function devolver(id) {
+  const precisa = confirm('O equipamento voltou sujo e precisa de limpeza?\n\n'
+    + 'OK = cobrar a taxa de limpeza · Cancelar = sem taxa');
+  await acao(id, 'devolver', { abrirVistoria: true, exigiuLimpeza: precisa });
+}
+
+async function addAvalista(id) {
+  try {
+    await api(`/api/locacao/locacoes/${id}/avalistas`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: document.getElementById('avNome').value.trim(),
+        cpfCnpj: document.getElementById('avCpf').value.trim(),
+        endereco: document.getElementById('avEnd').value.trim(),
+      }),
+    });
+    abrir(id);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function removerAvalista(id, avalistaId) {
+  try {
+    await api(`/api/locacao/locacoes/${id}/avalistas/${avalistaId}`, { method: 'DELETE' });
+    abrir(id);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function acao(id, caminho, body, metodo) {
+  try {
+    const d = await api(`/api/locacao/locacoes/${id}/${caminho}`, {
+      method: metodo || 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    showAlert('Feito.');
+    abrir(id); carregar();
+    return d;
+  } catch (e) {
+    showAlert(e.message, 'error');
+    abrir(id);
+  }
+}
+
+carregar();
+</script>
+</body></html>

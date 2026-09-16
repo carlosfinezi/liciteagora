@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locação · Itens Alugáveis · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Itens Alugáveis</h1>
+      <small>Define quais produtos do catálogo podem ser alugados e sob que regras: garantia, perda e cobrança por uso. O preço fica em Preços; entrega, limpeza e hora extra ficam em Configuração.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <input type="text" id="q" placeholder="Buscar por descrição ou SKU" style="flex:1;min-width:260px;"
+           onkeydown="if(event.key==='Enter')carregar()">
+    <select id="fCategoria" style="width:200px;" onchange="carregar()">
+      <option value="">Todas as categorias</option>
+    </select>
+    <button class="btn btn-primary btn-sm" onclick="carregar()">Buscar</button>
+    <button class="btn btn-sm" onclick="abrirNovo()">+ Liberar produto para locação</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Produto</th><th>SKU</th><th>Categoria</th>
+        <th title="Se cada unidade é identificada por número de série">Nº de série</th>
+        <th style="text-align:right;" title="Garantia exigida do cliente">Caução</th>
+        <th style="text-align:right;" title="Cobrado se o item não voltar">Se não voltar</th>
+        <th style="text-align:right;" title="Tempo indisponível entre uma locação e a seguinte">Preparo</th>
+        <th title="Contador de uso: horímetro ou odômetro">Contador</th>
+        <th style="text-align:center;" title="Quantos períodos de preço estão cadastrados">Preços</th>
+        <th style="width:120px;"></th>
+      </tr></thead>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="editor" class="card" style="display:none;margin-top:16px;">
+    <h3 id="editorTitulo">Item alugável</h3>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;">
+        <label>Produto</label>
+        <div id="produtoEscolhido" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <strong id="produtoNome"></strong>
+            <button type="button" class="btn btn-sm" onclick="trocarProduto()">Trocar</button>
+          </div>
+        </div>
+        <div id="produtoBusca">
+          <div style="display:flex;gap:8px;">
+            <select id="fCatBusca" style="width:210px;" onchange="buscarProduto()">
+              <option value="">Todas as categorias</option>
+            </select>
+            <input type="text" id="qProduto" style="flex:1;"
+                   placeholder="Descrição, SKU ou código de barras" autocomplete="off">
+          </div>
+          <small class="muted">Escolha a categoria para listar os produtos dela, ou digite para buscar no catálogo inteiro.</small>
+          <div id="resultadosProduto"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Pode ser alugado?</label>
+        <select id="eAlugavel"><option value="1">Sim</option><option value="0">Não — desativado</option></select>
+        <small class="muted">"Não" tira das novas locações sem apagar o histórico.</small>
+      </div>
+    </div>
+
+    <h4 style="margin:18px 0 4px;">Controle das unidades</h4>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Precisa saber qual unidade saiu?</label>
+        <select id="eExigeSerie">
+          <option value="0">Não — as unidades são iguais entre si</option>
+          <option value="1">Sim — cada unidade tem número de série</option>
+        </select>
+        <small class="muted">
+          Máquina: sim (você precisa saber se saiu a nº 3 ou a nº 7).
+          Cadeira de festa: não.
+        </small>
+      </div>
+      <div class="form-group">
+        <label>Tempo de preparo entre uma locação e a seguinte</label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="number" id="ePreparo" step="0.5" min="0" max="720" style="width:100px;">
+          <span class="muted">horas</span>
+        </div>
+        <small class="muted">
+          Limpeza, revisão, recarga. Nesse intervalo o item não aparece como
+          disponível — evita prometer para as 10h o que voltou às 10h.
+        </small>
+      </div>
+    </div>
+
+    <h4 style="margin:18px 0 4px;">Garantia exigida do cliente (caução)</h4>
+    <p class="muted" style="margin:0 0 8px;">
+      Valor que o cliente deposita e recebe de volta na devolução. Preencha
+      <strong>um dos dois</strong>: se puser percentual, ele manda.
+    </p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Valor fixo (R$)</label>
+        <input type="number" id="eCaucao" step="0.01" min="0" onchange="atualizarPrevia()">
+        <small class="muted">O mesmo valor sempre, independente do aluguel.</small>
+      </div>
+      <div class="form-group">
+        <label>Ou percentual (%)</label>
+        <input type="number" id="eCaucaoPct" step="0.01" min="0" max="1000"
+               placeholder="deixe vazio para usar o valor fixo" onchange="atualizarPrevia()">
+      </div>
+      <div class="form-group">
+        <label>O percentual incide sobre</label>
+        <select id="eCaucaoBase" onchange="atualizarPrevia()">
+          <option value="locacao">o valor do aluguel (ex.: 30% do contrato)</option>
+          <option value="bem">o valor do equipamento (ex.: 10% de R$ 10.000)</option>
+        </select>
+      </div>
+    </div>
+
+    <h4 style="margin:18px 0 4px;">Se o item não voltar (perda, roubo, quebra total)</h4>
+    <p class="muted" style="margin:0 0 8px;">
+      Quanto cobrar do cliente pelo item que não foi devolvido. Também aceita
+      valor fixo <strong>ou</strong> percentual.
+    </p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Valor fixo (R$)</label>
+        <input type="number" id="eReposicao" step="0.01" min="0" onchange="atualizarPrevia()">
+      </div>
+      <div class="form-group">
+        <label>Ou percentual (%) do valor do equipamento</label>
+        <input type="number" id="eReposicaoPct" step="0.01" min="0" max="1000"
+               placeholder="deixe vazio para usar o valor fixo" onchange="atualizarPrevia()">
+        <small class="muted">Ex.: 120% para cobrir a reposição com margem.</small>
+      </div>
+      <div class="form-group">
+        <label>Valor do equipamento</label>
+        <input type="text" id="eValorBem" disabled>
+        <small class="muted">Vem do cadastro do produto (preço de venda; na falta dele, o de custo).</small>
+      </div>
+    </div>
+
+    <h4 style="margin:18px 0 4px;">Cobrança por uso além do tempo</h4>
+    <p class="muted" style="margin:0 0 8px;">
+      Só para máquina e veículo. Serve para cobrar a mais quando o cliente
+      <strong>usa muito</strong> dentro do mesmo prazo — duas escavadeiras
+      alugadas 5 dias, uma trabalhou 20 horas e a outra 60.
+      Também é o que permite programar revisão por horas rodadas.
+    </p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>O equipamento tem contador de uso?</label>
+        <select id="eMedidor" onchange="ajustarMedidor()">
+          <option value="nenhum">Não tem — cobra só pelo tempo</option>
+          <option value="horimetro">Sim, horímetro (conta horas de trabalho)</option>
+          <option value="km">Sim, odômetro (conta quilômetros)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label id="labelFranquia">Uso incluído por diária</label>
+        <input type="number" id="eFranquia" step="0.1" min="0"
+               placeholder="ex.: 8" onchange="atualizarPrevia()">
+        <small class="muted" id="hintFranquia">
+          Escolha o contador ao lado para liberar este campo.
+        </small>
+      </div>
+    </div>
+    <div id="avisoMedidor"></div>
+
+    <div id="previa"></div>
+
+    <div style="margin-top:12px;">
+      <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+      <button class="btn" onclick="fechar()">Cancelar</button>
+    </div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('locacao-itens');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function moeda(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+// O percentual vence o fixo quando preenchido — a listagem mostra o que
+// realmente vai valer, não os dois números soltos.
+function valorOuPct(fixo, pct, base) {
+  if (Number(pct) > 0) {
+    const sobre = base === 'bem' ? 'do bem' : (base ? 'do aluguel' : '');
+    return `${Number(pct)}% <span class="muted">${esc(sobre)}</span>`;
+  }
+  return Number(fixo) > 0 ? moeda(fixo) : '<span class="muted">—</span>';
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+let produtoEditando = null;
+
+async function carregar() {
+  try {
+    const p = new URLSearchParams();
+    const q = document.getElementById('q').value.trim();
+    const cat = document.getElementById('fCategoria').value.trim();
+    if (q) p.set('busca', q);
+    if (cat) p.set('categoria', cat);
+    const d = await api('/api/locacao/itens?' + p);
+    const tb = document.getElementById('tb');
+    if (!d.itens.length) {
+      tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhum item alugável cadastrado.</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.itens.map(i => `
+      <tr>
+        <td>${esc(i.descricao)}</td>
+        <td class="muted">${esc(i.sku || '')}</td>
+        <td>${esc(i.categoria || '—')}</td>
+        <td>${i.exigeSerie ? 'Sim' : '—'}</td>
+        <td style="text-align:right;">${valorOuPct(i.caucaoPadrao, i.caucaoPercentual, i.caucaoPercentualBase)}</td>
+        <td style="text-align:right;">${valorOuPct(i.valorReposicao, i.reposicaoPercentual)}</td>
+        <td style="text-align:right;">${i.horasPreparo || 0}h</td>
+        <td>${esc(i.medidorTipo === 'horimetro' ? 'Horímetro'
+                    : (i.medidorTipo === 'km' ? 'Odômetro' : '—'))}</td>
+        <td style="text-align:center;">${i.tarifas > 0 ? i.tarifas
+                    : '<span class="muted" title="Sem preço cadastrado este item não pode ser alugado">sem preço</span>'}</td>
+        <td>
+          <button class="btn btn-sm" onclick="editar(${i.produtoId})">Editar</button>
+          <a class="btn btn-sm" href="/locacao/tarifas.html?produtoId=${i.produtoId}">Preços</a>
+        </td>
+      </tr>`).join('');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// Categorias do CADASTRO DO PRODUTO. O filtro só oferece as que têm item
+// alugável — categoria que não devolve nada é ruído no seletor.
+async function carregarCategorias() {
+  // Dois seletores, dois recortes diferentes:
+  //  - filtro da LISTA: só categorias que já têm item alugável (oferecer
+  //    outras devolveria lista vazia);
+  //  - filtro da BUSCA de produto: catálogo INTEIRO, porque ali se procura
+  //    justamente o que ainda não é alugável.
+  try {
+    const d = await api('/api/locacao/categorias?apenasAlugaveis=1');
+    const sel = document.getElementById('fCategoria');
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todas as categorias</option>'
+      + d.categorias.map(c => `<option value="${esc(c.categoria)}">${esc(c.categoria)} (${c.n})</option>`).join('');
+    sel.value = atual;
+  } catch (_) { /* o filtro fica só com "todas" */ }
+
+  try {
+    const d = await api('/api/locacao/categorias');
+    const sel = document.getElementById('fCatBusca');
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todas as categorias</option>'
+      + d.categorias.map(c => `<option value="${esc(c.categoria)}">${esc(c.categoria)} (${c.n})</option>`).join('');
+    sel.value = atual;
+  } catch (_) { /* a busca fica só por texto */ }
+}
+
+// ─── Busca de produto ───────────────────────────────────────────────────────
+// O <select> com o catálogo inteiro era impraticável: com centenas de itens
+// ninguém acha nada rolando a lista. A busca é feita no SERVIDOR (LIKE em
+// descrição/SKU/código de barras), com teto de 30 e aviso quando há mais.
+let produtoSelecionado = null;
+let timerBusca = null;
+
+function trocarProduto() {
+  produtoSelecionado = null;
+  produtoEditando = null;
+  document.getElementById('produtoEscolhido').style.display = 'none';
+  document.getElementById('produtoBusca').style.display = '';
+  document.getElementById('qProduto').value = '';
+  document.getElementById('fCatBusca').value = '';
+  document.getElementById('qProduto').focus();
+  document.getElementById('resultadosProduto').innerHTML = '';
+}
+
+function mostrarProdutoEscolhido(p) {
+  produtoSelecionado = p;
+  // A categoria acompanha o nome do produto: é informação de conferência, não
+  // um campo de formulário — quem edita categoria é o cadastro do produto.
+  document.getElementById('produtoNome').innerHTML =
+    esc(p.descricao) + (p.sku ? ' <span class="muted">— ' + esc(p.sku) + '</span>' : '')
+    + (p.categoria ? ' <span class="muted">· ' + esc(p.categoria) + '</span>' : '');
+  document.getElementById('produtoEscolhido').style.display = '';
+  document.getElementById('produtoBusca').style.display = 'none';
+  document.getElementById('resultadosProduto').innerHTML = '';
+  atualizarPrevia();
+}
+
+async function buscarProduto() {
+  const q = document.getElementById('qProduto').value.trim();
+  const cat = document.getElementById('fCatBusca').value;
+  const box = document.getElementById('resultadosProduto');
+
+  // Com categoria escolhida, a lista dela já é um recorte pequeno — não faz
+  // sentido exigir que se digite alguma coisa por cima. Sem categoria, o
+  // mínimo de 2 letras evita varrer o catálogo inteiro a cada tecla.
+  if (!cat && q.length < 2) {
+    box.innerHTML = '<small class="muted">Escolha uma categoria ou digite ao menos 2 caracteres.</small>';
+    return;
+  }
+  try {
+    // somenteNovos: quem já é alugável se edita pela lista, não se recadastra.
+    const p = new URLSearchParams({ somenteNovos: '1' });
+    if (q) p.set('q', q);
+    if (cat) p.set('categoria', cat);
+    const d = await api('/api/locacao/produtos-busca?' + p);
+    if (!d.produtos.length) {
+      box.innerHTML = '<small class="muted">Nenhum produto novo'
+        + (cat ? ' nesta categoria' : '') + '. Se ele já é alugável, edite pela lista acima.</small>';
+      return;
+    }
+    box.innerHTML = `<div class="tbl-wrap" style="max-height:240px;overflow:auto;margin-top:6px;">
+      <table><tbody>${d.produtos.map(p => `
+        <tr style="cursor:pointer;" onclick='mostrarProdutoEscolhido(${JSON.stringify(p).replace(/'/g, "&#39;")})'>
+          <td>${esc(p.descricao)}</td>
+          <td class="muted">${esc(p.sku || '')}</td>
+          <td class="muted">${esc(p.categoria || '—')}</td>
+          <td style="text-align:right;">${p.precoVenda > 0 ? 'R$ ' + moeda(p.precoVenda)
+            : (p.precoCusto > 0 ? '<span class="muted">custo R$ ' + moeda(p.precoCusto) + '</span>' : '')}</td>
+        </tr>`).join('')}</tbody></table></div>
+      ${d.truncado ? `<small class="muted">Mostrando 30 de ${d.total} — refine a busca.</small>` : ''}`;
+  } catch (e) { box.innerHTML = `<small class="alert error">${esc(e.message)}</small>`; }
+}
+
+document.getElementById('qProduto').addEventListener('input', () => {
+  clearTimeout(timerBusca);
+  timerBusca = setTimeout(buscarProduto, 250);
+});
+
+function abrirNovo() {
+  produtoEditando = null;
+  document.getElementById('editorTitulo').textContent = 'Tornar produto alugável';
+  trocarProduto();
+  document.getElementById('eAlugavel').value = '1';
+  document.getElementById('eExigeSerie').value = '0';
+  document.getElementById('eCaucao').value = '0';
+  document.getElementById('eCaucaoPct').value = '';
+  document.getElementById('eCaucaoBase').value = 'locacao';
+  document.getElementById('ePreparo').value = '0';
+  document.getElementById('eMedidor').value = 'nenhum';
+  document.getElementById('eFranquia').value = '';
+  document.getElementById('eReposicao').value = '';
+  document.getElementById('eReposicaoPct').value = '';
+  document.getElementById('eValorBem').value = '';
+  document.getElementById('previa').innerHTML = '';
+  document.getElementById('editor').style.display = '';
+  ajustarMedidor();
+}
+
+async function editar(produtoId) {
+  try {
+    const d = await api('/api/locacao/itens/' + produtoId);
+    produtoEditando = produtoId;
+    document.getElementById('editorTitulo').textContent = 'Item alugável — ' + (d.item.descricao || '');
+    // Produto já definido: mostra escolhido, sem busca (trocar o produto de um
+    // item alugável seria criar outro item, não editar este).
+    produtoSelecionado = d.item;
+    document.getElementById('produtoNome').innerHTML =
+      esc(d.item.descricao || '') + (d.item.sku ? ' <span class="muted">— ' + esc(d.item.sku) + '</span>' : '')
+      + (d.item.categoria ? ' <span class="muted">· ' + esc(d.item.categoria) + '</span>' : '');
+    document.getElementById('produtoEscolhido').style.display = '';
+    document.getElementById('produtoBusca').style.display = 'none';
+    document.getElementById('eAlugavel').value = String(d.item.alugavel == null ? 1 : d.item.alugavel);
+    document.getElementById('eExigeSerie').value = String(d.item.exigeSerie || 0);
+    document.getElementById('eCaucao').value = d.item.caucaoPadrao || 0;
+    document.getElementById('eCaucaoPct').value = d.item.caucaoPercentual == null ? '' : d.item.caucaoPercentual;
+    document.getElementById('eCaucaoBase').value = d.item.caucaoPercentualBase || 'locacao';
+    document.getElementById('ePreparo').value = d.item.horasPreparo || 0;
+    document.getElementById('eMedidor').value = d.item.medidorTipo || 'nenhum';
+    document.getElementById('eFranquia').value = d.item.franquiaPorDia == null ? '' : d.item.franquiaPorDia;
+    document.getElementById('eReposicao').value = d.item.valorReposicao == null ? '' : d.item.valorReposicao;
+    document.getElementById('eReposicaoPct').value = d.item.reposicaoPercentual == null ? '' : d.item.reposicaoPercentual;
+    document.getElementById('editor').style.display = '';
+    ajustarMedidor();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function fechar() { document.getElementById('editor').style.display = 'none'; }
+
+async function salvar() {
+  try {
+    const produtoId = produtoEditando || (produtoSelecionado && produtoSelecionado.id);
+    if (!produtoId) throw new Error('escolha o produto na busca');
+    await api('/api/locacao/itens/' + produtoId, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        alugavel: Number(document.getElementById('eAlugavel').value),
+        exigeSerie: Number(document.getElementById('eExigeSerie').value),
+        caucaoPadrao: document.getElementById('eCaucao').value,
+        caucaoPercentual: document.getElementById('eCaucaoPct').value,
+        caucaoPercentualBase: document.getElementById('eCaucaoBase').value,
+        horasPreparo: document.getElementById('ePreparo').value,
+        medidorTipo: document.getElementById('eMedidor').value,
+        franquiaPorDia: document.getElementById('eFranquia').value,
+        valorReposicao: document.getElementById('eReposicao').value,
+        reposicaoPercentual: document.getElementById('eReposicaoPct').value,
+      }),
+    });
+    showAlert('Item salvo');
+    fechar();
+    carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// Mostra o que os percentuais dão HOJE, com o preço real do produto. Sem
+// isto, "10%" no cadastro é um número que ninguém confere até a hora de
+// cobrar — e aí já é tarde.
+// Os três campos de uso só funcionam JUNTOS: contador + franquia + tarifa de
+// excedente. Preencher um sem o outro é o tipo de configuração que parece
+// pronta e não cobra nada — a tela passa a dizer isso em vez de deixar
+// descobrir na devolução.
+async function ajustarMedidor() {
+  const tipo = document.getElementById('eMedidor').value;
+  const campo = document.getElementById('eFranquia');
+  const label = document.getElementById('labelFranquia');
+  const hint = document.getElementById('hintFranquia');
+  const aviso = document.getElementById('avisoMedidor');
+
+  if (tipo === 'nenhum') {
+    campo.value = '';
+    campo.disabled = true;
+    label.textContent = 'Uso incluído por diária';
+    hint.textContent = 'Escolha o contador ao lado para liberar este campo.';
+    aviso.innerHTML = '';
+    atualizarPrevia();
+    return;
+  }
+
+  campo.disabled = false;
+  const unidade = tipo === 'km' ? 'quilômetros' : 'horas';
+  label.textContent = `${unidade[0].toUpperCase()}${unidade.slice(1)} incluídas por diária`;
+  hint.innerHTML = `Ex.: <strong>8</strong> = numa locação de 5 dias o cliente tem `
+    + `40 ${unidade} inclusas. O que passar disso é cobrado à parte. `
+    + `Deixe vazio para não cobrar excedente.`;
+
+  await conferirTarifaExcedente(tipo);
+  atualizarPrevia();
+}
+
+// A franquia sozinha não cobra nada: quem dá preço à hora/km extra é o
+// tarifário do item. Sem essa linha, o excedente é calculado e vale zero.
+async function conferirTarifaExcedente(tipo) {
+  const aviso = document.getElementById('avisoMedidor');
+  const produtoId = produtoEditando || (produtoSelecionado && produtoSelecionado.id);
+  const franquia = Number(document.getElementById('eFranquia').value) || 0;
+  if (!produtoId || franquia <= 0) { aviso.innerHTML = ''; return; }
+
+  const tipoExtra = tipo === 'km' ? 'km_extra' : 'hora_extra';
+  const rotulo = tipo === 'km' ? 'quilômetro extra' : 'hora extra';
+  try {
+    const d = await api('/api/locacao/extras?produtoId=' + produtoId);
+    const tem = (d.extras || []).some(x => x.tipo === tipoExtra && x.ativo !== 0 && Number(x.valor) > 0);
+    aviso.innerHTML = tem ? '' : `
+      <div class="alert error" style="display:block;">
+        Falta o preço do <strong>${rotulo}</strong>. Do jeito que está, o uso
+        acima da franquia é apurado mas cobrado como R$&nbsp;0,00.
+        Cadastre em <a href="/locacao/config.html">Configuração → Cobranças avulsas</a>.
+      </div>`;
+  } catch (_) { aviso.innerHTML = ''; }
+}
+
+document.getElementById('eFranquia').addEventListener('change', () => {
+  const tipo = document.getElementById('eMedidor').value;
+  if (tipo !== 'nenhum') conferirTarifaExcedente(tipo);
+});
+
+async function atualizarPrevia() {
+  const el = document.getElementById('previa');
+  const produtoId = produtoEditando || (produtoSelecionado && produtoSelecionado.id);
+  if (!produtoId) { el.innerHTML = ''; return; }
+
+  // O preço vem do produto já carregado (busca ou edição) — sem uma segunda
+  // ida ao servidor a cada tecla digitada nos campos de percentual.
+  const p = produtoSelecionado || {};
+  const bem = Number(p.precoVenda) > 0 ? Number(p.precoVenda) : (Number(p.precoCusto) || 0);
+
+  document.getElementById('eValorBem').value = bem > 0 ? 'R$ ' + moeda(bem) : 'sem preço cadastrado';
+
+  const cFixo = Number(document.getElementById('eCaucao').value) || 0;
+  const cPct = Number(document.getElementById('eCaucaoPct').value) || 0;
+  const cBase = document.getElementById('eCaucaoBase').value;
+  const rFixo = Number(document.getElementById('eReposicao').value) || 0;
+  const rPct = Number(document.getElementById('eReposicaoPct').value) || 0;
+
+  const linhas = [];
+
+  if (cPct > 0) {
+    if (cBase === 'bem') {
+      linhas.push(bem > 0
+        ? `Caução: <strong>${cPct}% de R$ ${moeda(bem)} = R$ ${moeda(bem * cPct / 100)}</strong> por unidade`
+        : `Caução: ${cPct}% do bem, mas o produto <strong>não tem preço</strong> — cairá no valor fixo (R$ ${moeda(cFixo)})`);
+    } else {
+      linhas.push(`Caução: <strong>${cPct}% do valor do aluguel</strong>, calculado quando o item entrar num contrato`);
+    }
+  } else if (cFixo > 0) {
+    linhas.push(`Caução: R$ ${moeda(cFixo)} por unidade (valor fixo)`);
+  }
+
+  if (rPct > 0) {
+    linhas.push(bem > 0
+      ? `Reposição: <strong>${rPct}% de R$ ${moeda(bem)} = R$ ${moeda(bem * rPct / 100)}</strong> por unidade`
+      : `Reposição: ${rPct}% do bem, mas o produto <strong>não tem preço</strong> — cairá no valor fixo (R$ ${moeda(rFixo)})`);
+  } else if (rFixo > 0) {
+    linhas.push(`Reposição: R$ ${moeda(rFixo)} por unidade (valor fixo)`);
+  }
+
+  const semBase = (cPct > 0 && cBase === 'bem' && bem <= 0) || (rPct > 0 && bem <= 0);
+  el.innerHTML = linhas.length
+    ? `<div class="alert ${semBase ? 'error' : 'success'}" style="display:block;">${linhas.join('<br>')}</div>`
+    : '';
+}
+
+carregarCategorias();
+carregar();
+</script>
+</body></html>

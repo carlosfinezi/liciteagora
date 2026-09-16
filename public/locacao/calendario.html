@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locação · Disponibilidade · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  .grade { border-collapse: collapse; width: 100%; }
+  .grade th, .grade td { border: 1px solid var(--border, #e9ecef); padding: 4px; font-size: 12px; }
+  .grade th.dia { writing-mode: vertical-rl; text-align: left; height: 70px; white-space: nowrap; }
+  .cel { text-align: center; min-width: 26px; }
+  .cel.livre { background: #ebfbee; }
+  .cel.ocupado { background: #ffc9c9; }
+  .cel.manut { background: #ffe8cc; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Disponibilidade</h1>
+      <small>Vermelho é locação; laranja é manutenção. O cálculo desconta também o que está reservado para venda — a agenda e o estoque são a mesma frota.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="toolbar">
+    <label class="muted">De <input type="date" id="de"></label>
+    <label class="muted">Até <input type="date" id="ate"></label>
+    <input type="text" id="fCategoria" placeholder="Categoria" style="width:150px;">
+    <button class="btn btn-primary btn-sm" onclick="carregar()">Ver grade</button>
+  </div>
+
+  <div class="tbl-wrap" id="wrap"><p class="empty">Escolha o período.</p></div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3>Consultar um item</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Item</label>
+        <select id="cItem"></select>
+      </div>
+      <div class="form-group">
+        <label>Saída</label>
+        <input type="datetime-local" id="cInicio">
+      </div>
+      <div class="form-group">
+        <label>Retorno</label>
+        <input type="datetime-local" id="cFim">
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;">
+        <button class="btn btn-primary" onclick="consultar()">Consultar</button>
+      </div>
+    </div>
+    <div id="resConsulta"></div>
+  </div>
+
+</main></div>
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('locacao-calendario');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+const hoje = new Date();
+document.getElementById('de').value = hoje.toISOString().slice(0, 10);
+document.getElementById('ate').value = new Date(hoje.getTime() + 29 * 86400000).toISOString().slice(0, 10);
+
+async function carregar() {
+  try {
+    const p = new URLSearchParams({
+      de: document.getElementById('de').value,
+      ate: document.getElementById('ate').value,
+    });
+    const cat = document.getElementById('fCategoria').value.trim();
+    if (cat) p.set('categoria', cat);
+    const d = await api('/api/locacao/calendario?' + p);
+    if (!d.linhas.length) {
+      document.getElementById('wrap').innerHTML = '<p class="empty">Nenhum item alugável.</p>';
+      return;
+    }
+    const cab = d.dias.map(x => `<th class="dia">${x.slice(8, 10)}/${x.slice(5, 7)}</th>`).join('');
+    const corpo = d.linhas.map(l => {
+      const cels = l.dias.map(c => {
+        const cls = c.bloqueado > 0 ? 'manut' : (c.ocupado > 0 ? 'ocupado' : 'livre');
+        const livre = (l.saldoFisico || 0) - c.ocupado - c.bloqueado;
+        return `<td class="cel ${cls}" title="${esc(c.dia)} — livres: ${livre}">${livre}</td>`;
+      }).join('');
+      return `<tr><td>${esc(l.descricao)} <span class="muted">(${l.saldoFisico})</span></td>${cels}</tr>`;
+    }).join('');
+    document.getElementById('wrap').innerHTML =
+      `<table class="grade"><thead><tr><th style="min-width:200px;">Item (estoque)</th>${cab}</tr></thead><tbody>${corpo}</tbody></table>`;
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregarItens() {
+  try {
+    const d = await api('/api/locacao/itens');
+    document.getElementById('cItem').innerHTML = d.itens.map(i =>
+      `<option value="${i.produtoId}">${esc(i.descricao)}</option>`).join('');
+  } catch (_) { /* a grade continua funcionando */ }
+}
+
+async function consultar() {
+  try {
+    const p = new URLSearchParams({
+      produtoId: document.getElementById('cItem').value,
+      inicio: document.getElementById('cInicio').value,
+      fim: document.getElementById('cFim').value,
+    });
+    const d = await api('/api/locacao/disponibilidade?' + p);
+    const x = d.disponibilidade;
+    const conflitos = (d.conflitos || []).map(c =>
+      `<li>${esc(c.numero || 'reserva #' + c.reservaId)} — ${esc(c.dataInicio)} → ${esc(c.dataFim)}${c.cliente ? ' (' + esc(c.cliente) + ')' : ''}</li>`).join('');
+    document.getElementById('resConsulta').innerHTML = `
+      <div class="alert ${x.disponivel > 0 ? 'success' : 'error'}" style="display:block;">
+        <strong>${x.disponivel} disponível(is)</strong> no período.<br>
+        Estoque ${x.saldoFisico} − venda ${x.reservadoVenda} − locação ${x.ocupadoLocacao} − manutenção ${x.bloqueado}
+        ${x.horasPreparo ? `<br><span class="muted">Preparo de ${x.horasPreparo}h considerado até ${esc(x.fimComPreparo)}.</span>` : ''}
+        ${conflitos ? `<br>Ocupado por:<ul>${conflitos}</ul>` : ''}
+      </div>`;
+  } catch (e) {
+    document.getElementById('resConsulta').innerHTML =
+      `<div class="alert error" style="display:block;">${esc(e.message)}</div>`;
+  }
+}
+
+carregarItens();
+carregar();
+</script>
+</body></html>

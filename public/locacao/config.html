@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locação · Configuração · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Locação — Configuração</h1>
+      <small>As regras que valem quando o bem sai e quando volta. A carência e a multa decidem o acerto de todo retorno atrasado.</small>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="card">
+    <h3>Documento</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Prefixo do número</label>
+        <input type="text" id="cPrefixo" maxlength="10" style="text-transform:uppercase;">
+        <small class="muted">Vira LOC-2026-0001. Só letras, números e hífen.</small>
+      </div>
+      <div class="form-group">
+        <label>Dia de vencimento padrão</label>
+        <input type="number" id="cDiaVenc" min="1" max="28">
+        <small class="muted">Usado no contrato aberto. Máximo 28, para existir em fevereiro.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Devolução em atraso</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Carência (horas)</label>
+        <input type="number" id="cCarencia" min="0" max="72" step="0.5">
+        <small class="muted">Atraso menor que isso não gera multa.</small>
+      </div>
+      <div class="form-group">
+        <label>Multa por dia de atraso (% da diária)</label>
+        <input type="number" id="cMulta" min="0" max="1000" step="1">
+        <small class="muted">100% = cada dia atrasado custa uma diária.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Travas operacionais</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Exigir caução definida na saída</label>
+        <select id="cExigirCaucao">
+          <option value="1">Sim — não deixa sair sem</option>
+          <option value="0">Não</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Exigir vistoria (OS) na entrega e devolução</label>
+        <select id="cExigirVistoria">
+          <option value="1">Sim</option>
+          <option value="0">Não</option>
+        </select>
+        <small class="muted">A OS é o que guarda foto, checklist e assinatura. Desligar tira a prova em caso de avaria.</small>
+      </div>
+      <div class="form-group">
+        <label>Permitir reservar acima do disponível</label>
+        <select id="cOverbooking">
+          <option value="0">Não — recusa o conflito</option>
+          <option value="1">Sim — apenas avisa</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Regras do contrato impresso</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>A diária termina em que horário?</label>
+        <input type="text" id="cHoraCorte" placeholder="17:30 — vazio = 24h corridas" maxlength="5">
+        <small class="muted">
+          Com 17:30, quem retira 9h e devolve 18h paga <strong>2 diárias</strong>:
+          a primeira morreu no horário de corte. Vazio, a diária dura 24h a partir da retirada.
+        </small>
+      </div>
+      <div class="form-group">
+        <label>Limpeza (% do valor da locação)</label>
+        <input type="number" id="cLimpezaPct" step="0.01" min="0" max="1000" placeholder="ex.: 40">
+        <small class="muted">Cobrado quando a devolução for marcada como "precisa de limpeza".</small>
+      </div>
+      <div class="form-group">
+        <label>Valor mínimo de locação (R$)</label>
+        <input type="number" id="cValorMinimo" step="0.01" min="0" placeholder="ex.: 80">
+        <small class="muted">
+          Piso <strong>do contrato inteiro</strong>, não de cada item: 12 andaimes
+          a R$ 20 somam R$ 240 e ficam em R$ 240. Só age quando o contrato todo
+          fica abaixo do valor.
+        </small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Nota promissória</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Valor da promissória é calculado sobre</label>
+        <select id="cPromBase">
+          <option value="reposicao">o valor de reposição dos equipamentos (garante a frota)</option>
+          <option value="locacao">o valor do aluguel</option>
+          <option value="total">o total do contrato (aluguel + extras)</option>
+        </select>
+        <small class="muted">
+          O padrão do mercado é garantir a <strong>frota</strong>: se 12 andaimes valem
+          R$ 199,02 cada, a promissória sai por R$ 2.388,24 mesmo que o aluguel seja R$ 230,00.
+        </small>
+      </div>
+      <div class="form-group">
+        <label>Vencimento (dias após o retorno previsto)</label>
+        <input type="number" id="cPromDias" min="0" max="3650" step="1">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Cobranças avulsas</h3>
+    <p class="muted" style="margin:0 0 10px;">
+      O que se cobra além do tempo de uso. Estes são os valores <strong>padrão
+      da locadora</strong> — valem para todos os itens.
+    </p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Cobrança</th><th style="text-align:right;width:160px;">Valor padrão (R$)</th>
+        </tr></thead>
+        <tbody id="tbPadroes"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-primary btn-sm" onclick="salvarPadroes()">Salvar valores padrão</button>
+      <small class="muted">Deixe em branco o que a locadora não cobra.</small>
+    </div>
+
+    <h4 style="margin:20px 0 6px;">Exceções por item</h4>
+    <p class="muted" style="margin:0 0 8px;">
+      A hora extra de uma escavadeira não custa o mesmo que a de um compressor.
+      Aqui você sobrescreve o padrão só para um item — o resto continua no valor acima.
+    </p>
+    <div class="form-row" style="align-items:flex-end;">
+      <div class="form-group" style="flex:2;">
+        <label>Item</label>
+        <div id="exItemEscolhido" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <strong id="exItemNome"></strong>
+            <button type="button" class="btn btn-sm" onclick="trocarItemExcecao()">Trocar</button>
+          </div>
+        </div>
+        <div id="exItemBusca">
+          <input type="text" id="qItemExcecao" placeholder="Buscar item alugável" autocomplete="off">
+          <div id="resItemExcecao"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Cobrança</label>
+        <select id="exTipo"></select>
+      </div>
+      <div class="form-group">
+        <label>Valor (R$)</label>
+        <input type="number" id="exValor" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <button class="btn btn-primary" onclick="salvarExcecao()">Incluir exceção</button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Cobrança</th>
+          <th style="text-align:right;">Valor</th><th style="width:80px;"></th></tr></thead>
+        <tbody id="tbExcecoes"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Cláusulas e condições</h3>
+    <p class="muted" style="margin:0 0 8px;">
+      Este texto é <strong>copiado</strong> para cada nova locação. Alterar aqui
+      não muda contrato já criado — o que foi assinado continua dizendo o que dizia.
+      Em cada locação dá para ajustar o texto daquele contrato.
+    </p>
+    <textarea id="cClausulas" rows="12" style="width:100%;font-family:monospace;font-size:12px;"></textarea>
+    <div style="margin-top:8px;">
+      <button class="btn btn-sm" onclick="usarModeloPadrao()">Preencher com o modelo de locadora</button>
+      <small class="muted">Substitui o texto atual pelas cláusulas usuais do setor. Revise antes de salvar.</small>
+    </div>
+  </div>
+
+  <div style="margin:16px 0;">
+    <button class="btn btn-primary" onclick="salvarConfig()">Salvar</button>
+  </div>
+
+</main></div>
+
+<div id="toasts"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('locacao-config');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const d = await r.json().catch(() => ({ success: false, error: 'resposta inválida' }));
+  if (!d.success) throw new Error(d.error || 'falha');
+  return d;
+}
+
+// Cláusulas usuais de locadora de bens móveis, na redação do contrato que
+// serviu de referência. É ponto de partida — cada locadora revisa as suas.
+const MODELO_CLAUSULAS = [
+  'Item 1.º - A contagem do período de locação tem por início na retirada do equipamento e finalização às 17:30 do mesmo dia; a contagem do período de locação será contínua, não havendo interrupção nos domingos e feriados;',
+  'Item 2.º - Não ocorrendo a devolução dos equipamentos e respectivos acessórios ao final do prazo inicialmente determinado, continuará incidindo o aluguel proporcionalmente aos dias de atraso na devolução, independentemente dos bens locados estarem sendo utilizados ou não pelo cliente; o valor a ser cobrado será em função das quantidades de diárias, somadas de acordo com a tabela de diárias emitida no contrato;',
+  'Item 3.º - Quaisquer danos que venham a ser causados a terceiros, direta ou indiretamente, pelo uso, manuseio, montagem regular ou irregular dos produtos locados serão de responsabilidade do cliente;',
+  'Item 4.º - O cliente estará obrigado a indenizar a LOCADORA por todas as despesas com conserto ou reposição de peças e partes, assim como material faltante, avariado ou danificado;',
+  'Item 5.º - O contrato será renovado automaticamente enquanto o locatário não tiver devolvido o(s) bem(ns) móvel(is) na sede da LOCADORA ou protocolado a solicitação de retirada;',
+  'Item 6.º - Será cobrada uma taxa sobre o valor total da locação em caso de necessidade de limpeza do(s) objeto(s) de locação;',
+  'Item 7.º - O cliente (locatário) deverá protocolar a solicitação de retirada do equipamento, via e-mail, telefone ou pessoalmente, para fim de término do período de locação;',
+  'Item 8.º - Na ocorrência de furto, perda, roubo ou extravio do(s) bem(ns) móvel(is) locado(s), será cobrado 100% do valor expresso na tabela de custo de extravio do(s) produto(s);',
+  'Item 9.º - O horário de funcionamento da locadora é de segunda a sexta-feira e aos sábados, conforme informado ao cliente, não havendo expediente nos domingos e feriados;',
+  'Item 10.º - Não ocorrendo o pagamento do aluguel, a LOCADORA poderá retirar o(s) bem(ns) móvel(is) da posse do LOCATÁRIO;',
+  'Item 11.º - Caso o cliente não informe meio preferencial de pagamento do aluguel, será considerado como método padrão a modalidade de BOLETO BANCÁRIO, aplicável para cada renovação que for realizada;',
+  'Item 12.º - Não cobramos manutenção dos equipamentos locados. Contudo, caso haja necessidade de troca de peças, troca de equipamento ou realocação, e seja necessário o deslocamento de um funcionário até o local solicitado, será cobrado adicional de deslocamento ao valor da locação.',
+].join('\n\n');
+
+function usarModeloPadrao() {
+  document.getElementById('cClausulas').value = MODELO_CLAUSULAS;
+  showAlert('Modelo carregado — revise e salve.');
+}
+
+async function carregarConfig() {
+  try {
+    const d = await api('/api/locacao/config');
+    const c = d.config || {};
+    document.getElementById('cPrefixo').value = c.locacao_prefixo_numero || 'LOC';
+    document.getElementById('cDiaVenc').value = c.locacao_dia_vencimento_padrao || '10';
+    document.getElementById('cCarencia').value = c.locacao_carencia_atraso_horas || '3';
+    document.getElementById('cMulta').value = c.locacao_multa_atraso_percentual || '100';
+    document.getElementById('cExigirCaucao').value = c.locacao_exigir_caucao || '0';
+    document.getElementById('cExigirVistoria').value = c.locacao_exigir_vistoria || '1';
+    document.getElementById('cOverbooking').value = c.locacao_permitir_overbooking || '0';
+    document.getElementById('cHoraCorte').value = c.locacao_hora_corte || '';
+    document.getElementById('cLimpezaPct').value = c.locacao_limpeza_percentual || '';
+    document.getElementById('cValorMinimo').value = c.locacao_valor_minimo || '';
+    document.getElementById('cPromBase').value = c.locacao_promissoria_base || 'reposicao';
+    document.getElementById('cPromDias').value = c.locacao_promissoria_dias || '30';
+    document.getElementById('cClausulas').value = c.locacao_clausulas_padrao || '';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvarConfig() {
+  try {
+    await api('/api/locacao/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        locacao_prefixo_numero: document.getElementById('cPrefixo').value.trim().toUpperCase(),
+        locacao_dia_vencimento_padrao: document.getElementById('cDiaVenc').value,
+        locacao_carencia_atraso_horas: document.getElementById('cCarencia').value,
+        locacao_multa_atraso_percentual: document.getElementById('cMulta').value,
+        locacao_exigir_caucao: document.getElementById('cExigirCaucao').value,
+        locacao_exigir_vistoria: document.getElementById('cExigirVistoria').value,
+        locacao_permitir_overbooking: document.getElementById('cOverbooking').value,
+        locacao_hora_corte: document.getElementById('cHoraCorte').value.trim(),
+        locacao_limpeza_percentual: document.getElementById('cLimpezaPct').value,
+        locacao_valor_minimo: document.getElementById('cValorMinimo').value,
+        locacao_promissoria_base: document.getElementById('cPromBase').value,
+        locacao_promissoria_dias: document.getElementById('cPromDias').value,
+        locacao_clausulas_padrao: document.getElementById('cClausulas').value,
+      }),
+    });
+    showAlert('Configuração salva');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+carregarConfig();
+
+// ─── Cobranças avulsas ──────────────────────────────────────────────────────
+// Vieram da tela de Preços: entrega, limpeza e afins são regra da locadora,
+// não preço de um item. A exceção por item continua existindo — a hora extra
+// de uma escavadeira não custa o mesmo que a de um compressor — mas agora é
+// gerida aqui, no mesmo lugar dos padrões.
+const ROTULO_EXTRA = {
+  hora_extra: 'Hora extra (uso além do incluído)',
+  km_extra: 'Quilômetro extra (uso além do incluído)',
+  entrega: 'Entrega no cliente',
+  retirada: 'Retirada no cliente',
+  limpeza: 'Limpeza',
+  reposicao: 'Reposição de peça/acessório',
+};
+function rotuloExtra(t) { return ROTULO_EXTRA[t] || t; }
+function moeda(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+let tiposExtra = [];
+let itemExcecao = null;
+let timerItemEx = null;
+
+async function carregarExtras() {
+  try {
+    const d = await api('/api/locacao/extras');
+    tiposExtra = d.tipos || [];
+    const porTipo = Object.fromEntries((d.padroes || []).map(e => [e.tipo, e]));
+    document.getElementById('tbPadroes').innerHTML = tiposExtra.map(t => `
+      <tr>
+        <td>${esc(rotuloExtra(t))}</td>
+        <td style="text-align:right;">
+          <input type="number" step="0.01" min="0" style="width:130px;text-align:right;"
+                 id="pad_${t}" value="${porTipo[t] ? porTipo[t].valor : ''}">
+        </td>
+      </tr>`).join('');
+
+    document.getElementById('exTipo').innerHTML =
+      tiposExtra.map(t => `<option value="${t}">${esc(rotuloExtra(t))}</option>`).join('');
+
+    const exc = d.excecoes || [];
+    document.getElementById('tbExcecoes').innerHTML = exc.length
+      ? exc.map(e => `
+        <tr>
+          <td>${esc(e.produto || ('produto #' + e.produtoId))}
+              ${e.sku ? '<span class="muted">— ' + esc(e.sku) + '</span>' : ''}</td>
+          <td>${esc(rotuloExtra(e.tipo))}</td>
+          <td style="text-align:right;">${moeda(e.valor)}</td>
+          <td><button class="btn btn-sm" onclick="removerExtra(${e.id})">Remover</button></td>
+        </tr>`).join('')
+      : '<tr><td colspan="4" class="empty">Nenhuma exceção — todos os itens usam os valores padrão.</td></tr>';
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvarPadroes() {
+  try {
+    for (const t of tiposExtra) {
+      const v = document.getElementById('pad_' + t).value;
+      if (v === '') continue;   // em branco = a locadora não cobra isto
+      await api('/api/locacao/extras', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: t, valor: v, produtoId: null }),
+      });
+    }
+    showAlert('Valores padrão salvos');
+    carregarExtras();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function trocarItemExcecao() {
+  itemExcecao = null;
+  document.getElementById('exItemEscolhido').style.display = 'none';
+  document.getElementById('exItemBusca').style.display = '';
+  document.getElementById('qItemExcecao').value = '';
+  document.getElementById('resItemExcecao').innerHTML = '';
+}
+
+function escolherItemExcecao(i) {
+  itemExcecao = i;
+  document.getElementById('exItemNome').textContent =
+    i.descricao + (i.sku ? ' — ' + i.sku : '');
+  document.getElementById('exItemEscolhido').style.display = '';
+  document.getElementById('exItemBusca').style.display = 'none';
+  document.getElementById('resItemExcecao').innerHTML = '';
+}
+
+async function buscarItemExcecao() {
+  const q = document.getElementById('qItemExcecao').value.trim();
+  const box = document.getElementById('resItemExcecao');
+  if (q.length < 2) { box.innerHTML = '<small class="muted">Digite ao menos 2 caracteres.</small>'; return; }
+  try {
+    const d = await api('/api/locacao/itens?alugavel=1&busca=' + encodeURIComponent(q));
+    box.innerHTML = d.itens.length
+      ? `<div class="tbl-wrap" style="max-height:180px;overflow:auto;margin-top:6px;"><table><tbody>
+          ${d.itens.slice(0, 20).map(i => `
+            <tr style="cursor:pointer;" onclick='escolherItemExcecao(${JSON.stringify(i).replace(/'/g, "&#39;")})'>
+              <td>${esc(i.descricao)}</td><td class="muted">${esc(i.sku || '')}</td>
+            </tr>`).join('')}</tbody></table></div>`
+      : '<small class="muted">Nenhum item alugável com esse termo.</small>';
+  } catch (e) { box.innerHTML = `<small class="alert error">${esc(e.message)}</small>`; }
+}
+
+async function salvarExcecao() {
+  try {
+    if (!itemExcecao) throw new Error('escolha o item da exceção');
+    await api('/api/locacao/extras', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tipo: document.getElementById('exTipo').value,
+        valor: document.getElementById('exValor').value,
+        produtoId: itemExcecao.produtoId,
+      }),
+    });
+    showAlert('Exceção gravada');
+    trocarItemExcecao();
+    document.getElementById('exValor').value = '';
+    carregarExtras();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function removerExtra(id) {
+  try {
+    await api('/api/locacao/extras/' + id, { method: 'DELETE' });
+    carregarExtras();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+document.getElementById('qItemExcecao').addEventListener('input', () => {
+  clearTimeout(timerItemEx);
+  timerItemEx = setTimeout(buscarItemExcecao, 250);
+});
+
+carregarExtras();
+</script>
+</body></html>
