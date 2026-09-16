@@ -53,13 +53,37 @@ falso — no Postgres esse mesmo sync consta `concluido` desde 2026-05-29.
 npm run verify
 ```
 
-`node --check` em massa nos .js da raiz e de `scripts/` — valida sintaxe sem
-executar nada. Linha de base 2026-07-28: 100% OK; qualquer FAIL é regressão
-nova. Rode após qualquer edição de .js.
+**Leva cerca de 35 minutos, e isso é o normal.** Medido em 2.070s no
+fechamento de 2026-09-16. O número está escrito aqui porque quem espera
+segundos conclui que travou e mata o processo, e aí o passo deixa de ser
+rodado. Rode após qualquer edição de .js, e conte com o tempo.
 
-`node --check` valida só sintaxe, não comportamento — passar no verify
-significa que o código parseia, não que funciona. Teste de runtime continua
-sendo manual.
+Ele deixou de ser o `node --check` em massa que esta seção descrevia até
+2026-09-16. Hoje são **29 etapas** em sequência:
+
+- **1 a 3, sintaxe**: `vm.Script` em todo .js da raiz, de `scripts/` e de
+  `public/`, mais o JavaScript embutido nas telas. Levam segundos. Essa
+  cobertura de `public/` é resposta a 2026-09-11, quando uma crase dentro de um
+  comentário quebrou o `public/js/sidebar.js`, o verify antigo passou verde e o
+  ERP inteiro subiu com a tela em branco.
+- **4 a 29, suítes funcionais**: shell, tema e contraste, PWA, RBAC, isolamento
+  multi-tenant, catálogo, pedidos, faturamento e SSL. São elas que consomem os
+  35 minutos, porque montam bancos descartáveis e sobem Chrome headless.
+
+Passar no verify hoje diz bem mais que "o código parseia". Ainda assim não é
+prova de que a sua mudança funciona: nenhuma das 29 etapas conhece o que você
+acabou de editar, e o teste de runtime do caminho tocado continua manual.
+
+A saída termina em `FALHOU: N problema(s) em Ns`, com cada falha nomeada.
+Linha de base 2026-09-16: **1 falha conhecida**, a etapa 21
+(`test-catalogo-online-ux`), porque `public/catalogo/catalogo-online.html` usa
+`title=` no arrastar-para-reordenar e a base proíbe desde a Fase 3.2.1. É
+anterior à leva de commits de 16/09 e segue sem correção. Qualquer falha além
+dessa é regressão nova.
+
+`npm run verify:legado` continua existindo e é o `node --check` antigo, em
+torno de 40 segundos. Serve para conferir sintaxe depressa, e não substitui o
+verify.
 
 ## Rotinas
 
@@ -114,12 +138,29 @@ rodando, e declara o que ainda não entrou em vigor.
    - `liciteagora.service`: não tem HTTP — `systemctl is-active` mais as últimas
      linhas de `server.log` sem stack de boot
 
+8. grafo: `~/graphify/liciteagora/atualizar-grafo.sh fechamento --esperar`
+
+   **Por que ele ESPERA, em vez de disparar e sair.** Um fechamento são vários
+   commits em sequência, e cada um já dispara o gancho `post-commit`. Essas
+   rodadas se atropelam: o graphify toma um flock por repositório e, na
+   reconstrução COMPLETA — que é a nossa —, **quem chega com o lock tomado é
+   DESCARTADO, não enfileirado**. Das N rodadas de uma leva sobrevive a
+   primeira, que retrata o disco do COMEÇO do fechamento. Disparar mais uma
+   aqui cairia na mesma armadilha. Com `--esperar`, o passo aguarda a rodada
+   em curso terminar e então refaz uma vez, sobre o disco final.
+
+   É também o passo que fecha a conta do **debounce**: o gancho de commit
+   passa por uma janela de 30 min, justamente para que uma rajada de commits
+   não marrete uma rodada inteira a cada um. O pedido de cada commit fica
+   registrado, e é aqui que ele é cobrado.
+
 Antes de commitar, confirme que a working tree é exatamente o que foi testado —
 nada pode ter mudado depois do "ficou bom". Ao concluir, informe o resultado do
 push (branch, hash, sincronização com origin) e o dos restarts.
 
 **"fechamento 0"** (mesmo fluxo, a ÚNICA diferença é o restart): igual ao
-"fechamento" — incluindo o push automático — mas SEM o passo 7. Não reinicia
+"fechamento" — incluindo o push automático e o passo 8 do grafo — mas SEM o
+passo 7. Não reinicia
 nada, nem os serviços comuns. No lugar do restart, entrega o **relatório de
 pendência**: quais `.js` alterados são carregados por processo vivo e, portanto,
 qual serviço só passa a rodar o código novo quando você reiniciar. Ao final,
@@ -157,6 +198,55 @@ Restaurar backup nunca é rotina: só a pedido explícito.
 1. `systemctl is-active` dos serviços da tabela de intocáveis
 2. `git status` resumido
 3. `npm run verify`
+
+## O grafo do graphify: ele mora FORA do repositório
+
+Existe um grafo de conhecimento deste repositório desde 16/09/2026, e ele
+**não fica na árvore**: mora em `~/graphify/liciteagora/`, junto do
+coalescedor que o reconstrói. Nada de `graphify-out/` aqui dentro, nada de
+`.graphifyignore`, nada de `.gitattributes` — este working tree é a produção
+e já carrega 420 arquivos sujos; não é lugar para artefato de ferramenta.
+
+- **O gancho** é o `.git/hooks/post-commit`, escrito à mão e **não** pelo
+  `graphify hook install`. O instalador escreveria na árvore, reinstalaria o
+  corpo incremental (que perde as arestas de saída dos arquivos tocados) e
+  dependeria de marcadores que este grafo não tem. Reinstalar com ele desfaz
+  tudo isso. Para pular uma vez: `GRAFO_PULAR=1 git commit …`.
+- **O coalescedor** é `~/graphify/liciteagora/atualizar-grafo.sh`, com três
+  modos: `commit` (o gancho), `fechamento --esperar` (o passo 8) e `manual`.
+  Ele tem trava, debounce e arquivo de `estado`, e **nunca reprova quem
+  chamou** — falha vira `ESTADO=PARADO`, não erro no commit.
+- **O corte do corpus** está em `graphify-out/.graphify_build.json`, também
+  fora da árvore: ficam de fora `.specify/`, `.claude/`, `electron-standalone/`,
+  `nopecha-ext/` e os dois `cndfed-perfil*`. Sem ele a varredura cospe 59
+  avisos de permissão e o grafo passa a se descrever a si mesmo.
+- **O custo**, medido em 16/09/2026: **1min10 e ~0,72 GB de pico**, em toda
+  rodada. Não existe rodada barata — o cache AST do graphify ignora `.js` por
+  construção, então 717 arquivos são re-extraídos mesmo com o disco intocado.
+- **O que ele NÃO faz**: ignora DOCUMENTO por construção. `CLAUDE.md` e
+  `CHANGELOG.md` ficam de fora, e é neles que moram os nós de conceito. Esse
+  lado envelhece calado; o momento de rodá-lo é no fechamento, com
+  `/graphify .` à mão.
+
+### O primeiro grafo retrata um estado que ninguém aprovou
+
+Isto vale até o próximo commit, e quem ler o grafo antes dele precisa saber:
+**o repositório está há 19 dias sem commit** — o último é de 28/08/2026 —,
+com **259 arquivos modificados** (+15.154 / −2.529 linhas) e **134 nunca
+rastreados**. O grafo foi construído sobre esse disco.
+
+Ou seja, ele retrata a produção como ela está rodando, e não um estado
+revisado: código a meio caminho, módulos inteiros que nunca entraram no
+histórico (`farmacia/`, `locacao/`, `posto/`, `restaurante/`), e a
+reorganização de páginas que está montada no índice sem ter sido commitada.
+Nada disso passou por revisão de ninguém.
+
+Isso não é defeito do grafo — aqui a árvore É a produção, e retratá-la é
+justamente o que ele deve fazer. Mas é diferente de um grafo construído sobre
+histórico revisado, e a diferença muda o quanto se pode confiar nele para
+responder "como este sistema está organizado". Ver "Frentes pendentes de
+commit", cujo mapa é de 2026-08-11 e já conta 271 entradas contra as 420 de
+hoje.
 
 ## Convenções
 
