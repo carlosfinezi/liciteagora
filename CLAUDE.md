@@ -75,11 +75,18 @@ prova de que a sua mudança funciona: nenhuma das 29 etapas conhece o que você
 acabou de editar, e o teste de runtime do caminho tocado continua manual.
 
 A saída termina em `FALHOU: N problema(s) em Ns`, com cada falha nomeada.
-Linha de base 2026-09-16: **1 falha conhecida**, a etapa 21
-(`test-catalogo-online-ux`), porque `public/catalogo/catalogo-online.html` usa
-`title=` no arrastar-para-reordenar e a base proíbe desde a Fase 3.2.1. É
-anterior à leva de commits de 16/09 e segue sem correção. Qualquer falha além
-dessa é regressão nova.
+
+Linha de base **2026-09-17: nenhuma falha conhecida**. A única que havia, a
+etapa 21 (`test-catalogo-online-ux`), era `title=` no arrastar-para-reordenar
+do `public/catalogo/catalogo-online.html`, proibido nesta base desde a Fase
+3.2.1 porque o balão nativo do navegador aparece por cima do nosso, branco e
+atrasado. Foi corrigida em 17/09 de madrugada, trocando os três `title=` pelo
+`data-dica` que já estava na mesma tag; a suíte volta a passar com 23 ok.
+Qualquer falha agora é regressão nova.
+
+Uma ressalva sobre esta linha de base: ela vale para a etapa 21, conferida
+rodando a suíte sozinha. O verify inteiro não foi refeito depois disso, e
+refazê-lo custa os 35 minutos.
 
 `npm run verify:legado` continua existindo e é o `node --check` antigo, em
 torno de 40 segundos. Serve para conferir sintaxe depressa, e não substitui o
