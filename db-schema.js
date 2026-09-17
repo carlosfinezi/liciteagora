@@ -500,6 +500,32 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_analise_falha_proxima ON analise_ia_falha(proximaTentativaEm);
 
+  -- Histórico de chamadas aos providers de IA (2026-09-01).
+  -- Uma linha por chamada, com o erro literal que o provider devolveu.
+  --
+  -- Existe porque a falha de 31/08 ficou dias invisível: os 4 primeiros
+  -- providers da cadeia quebraram (modelo arquivado, saldo zerado, modelo
+  -- removido), a tela seguia mostrando "Análise IA ativa" — ela só sabia dizer
+  -- se HAVIA chave — e o motivo real morria no console.log do serviço. A
+  -- telemetria em memória de analise-ia.js responde "como está agora"; esta
+  -- tabela é o que sobrevive ao restart e responde "quando quebrou".
+  --
+  -- estado: 'ok' | 'erro' | 'cooldown'. origem: 'analise' (chamada de produção)
+  -- ou 'teste' (botão Testar agora) — separados porque um teste manual não é
+  -- evidência de que a produção está saudável.
+  CREATE TABLE IF NOT EXISTS ia_provider_evento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    estado TEXT NOT NULL,
+    httpStatus INTEGER,
+    erro TEXT,
+    latenciaMs INTEGER,
+    origem TEXT DEFAULT 'analise',
+    em TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_ia_evento_em ON ia_provider_evento(em);
+  CREATE INDEX IF NOT EXISTS idx_ia_evento_provider ON ia_provider_evento(provider, em);
+
   -- Tabela de configuração do Jornal de Licitações
   CREATE TABLE IF NOT EXISTS jornal_config (
     id INTEGER PRIMARY KEY DEFAULT 1,
@@ -825,6 +851,27 @@ try {
   }
 } catch {}
 
+// Natureza de operação e política de prazo do PDV (2026-08-26). Espelho de
+// nfce-routes.migrar pelo mesmo motivo dos blocos acima. A natureza é quem
+// decide o CFOP da NFC-e, a conta a receber e a baixa de estoque do balcão;
+// sem ela configurada a emissão para com erro, e é isso que se quer — venda
+// que não sabe o que movimenta é pior do que venda que não sai.
+alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN pdvTipoOperacaoId INTEGER');
+alterSafe(db, 'ALTER TABLE nfce_config ADD COLUMN pdvPoliticaPrazoId INTEGER');
+alterSafe(db, 'ALTER TABLE nfce ADD COLUMN tipoOperacaoId INTEGER');
+alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN nfceId INTEGER');
+// Padrão do balcão: venda normal. Só preenche quem está NULL — quem já escolheu
+// outra natureza em PDV · Config não é revisitado nos boots seguintes.
+try {
+  db.exec(`UPDATE nfce_config
+              SET pdvTipoOperacaoId = (
+                    SELECT id FROM tipos_operacao
+                     WHERE ativo = 1 AND emiteNFe = 1 AND categoriaOperacao = 'venda'
+                     ORDER BY CASE WHEN codigo = 'VDA-NORMAL' THEN 0 ELSE 1 END, id
+                     LIMIT 1)
+            WHERE pdvTipoOperacaoId IS NULL`);
+} catch {}
+
 // Série/numeração NF-e/NFC-e por estabelecimento (espelho de nfe-emit-routes.migrar).
 // Escrita pela emissão e, desde a tela Fiscal > Configuração de Emissão, também
 // pelas rotas GET/PUT /api/estabelecimentos/:id/emissao.
@@ -868,6 +915,28 @@ for (const t of ['contas_receber_pagamentos', 'contas_pagar_pagamentos']) {
 // de boot; este arquivo é que alcança todo tenant já existente. Sem a coluna,
 // o UPDATE da decisão falharia com "no such column".
 alterSafe(db, 'ALTER TABLE aprovacoes ADD COLUMN autoAprovada INTEGER DEFAULT 0');
+
+// nfe_distribuicao_cursor.ultimoCStat (2026-08-26): guarda o cStat da última
+// consulta à DistDFe para segurar a próxima pela janela de 1h da SEFAZ (137 =
+// sem documento novo, 656 = bloqueio por consumo indevido). Sem a coluna, o
+// UPDATE do fim da sincronização falha com "no such column". Repetido no
+// migrar de nfe-entrada-routes pelo mesmo motivo dos blocos acima: lá vale
+// para tenant novo, aqui para os que já existem.
+alterSafe(db, 'ALTER TABLE nfe_distribuicao_cursor ADD COLUMN ultimoCStat TEXT');
+
+// nfe_entrada_itens (2026-08-26): cfopOriginal/cfopPendenteMapeamento vêm do
+// migrar de cfops-entrada-map-routes e origemFiscal/cest do de nfe-entrada —
+// os dois são no-op em multi-tenant, então tenant antigo ficou sem. Sem as
+// duas primeiras, TODA importação de NF-e morre em "no such column"
+// (era o caso do pccontabilidade); sem as duas últimas, o produto criado a
+// partir do item nasce sem origem fiscal nem CEST.
+alterSafe(db, 'ALTER TABLE nfe_entrada_itens ADD COLUMN cfopOriginal TEXT');
+alterSafe(db, 'ALTER TABLE nfe_entrada_itens ADD COLUMN cfopPendenteMapeamento INTEGER DEFAULT 0');
+alterSafe(db, 'ALTER TABLE nfe_entrada_itens ADD COLUMN origemFiscal TEXT');
+alterSafe(db, 'ALTER TABLE nfe_entrada_itens ADD COLUMN cest TEXT');
+// avisoPrazoEm: carimbo do aviso de prazo de manifestação já enviado, para o
+// ciclo de 65min não repetir o mesmo alerta ~22x por dia.
+alterSafe(db, 'ALTER TABLE nfe_entrada_inbox ADD COLUMN avisoPrazoEm TEXT');
 
 // sniper_historico: estado do item no instante em que o lance foi calculado
 // (2026-08-21). Um 422 de "intervalo mínimo" só é explicável sabendo qual era o
@@ -954,32 +1023,6 @@ db.exec(`
   );
 `);
 
-for (const col of [
-  'transportadoraId INTEGER',
-  'tipoFrete TEXT',
-  'valorFrete REAL',
-  'dataValidade TEXT',
-  'dataFaturamentoPrevista TEXT',
-  'codigoPedidoCliente TEXT',
-  'meioPagamento TEXT',
-  'observacoesInterna TEXT',
-  'enderecoEntrega TEXT',
-  'numeroEntrega TEXT',
-  'complementoEntrega TEXT',
-  'bairroEntrega TEXT',
-  'cidadeEntrega TEXT',
-  'ufEntrega TEXT',
-  'cepEntrega TEXT',
-  'codigoMunicipioEntrega TEXT',
-  'contatoEntrega TEXT',
-  'telefoneEntrega TEXT',
-  "modoDocumento TEXT NOT NULL DEFAULT 'pedido'",
-  'naoEmitirNFe INTEGER NOT NULL DEFAULT 0',
-  'tabelaPrecoId INTEGER',
-  // Condição de pagamento escolhida (politicas_prazo): define prazo das
-  // parcelas e meios aceitos. Antes o pedido guardava só o meio solto.
-  'politicaPrazoId INTEGER'
-]) alterSafe(db, `ALTER TABLE pedidos ADD COLUMN ${col}`);
 
 alterSafe(db, 'ALTER TABLE contas_a_receber ADD COLUMN adquirenteCartaoId INTEGER');
 
@@ -1192,6 +1235,80 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_lookup_tipo ON produto_lookup(tipo, ativo);
 `);
+
+// As colunas abaixo são ALTER e não parte do CREATE acima porque nasceram
+// depois, em tenants que já existiam. A ORDEM importa: até 2026-09-11 este
+// bloco vinha ANTES do `CREATE TABLE pedidos`, e num banco novo todo ALTER
+// caía em "no such table" — o alterSafe engolia, e o tenant nascia com 20
+// colunas em vez de 43, sem endereço de entrega, frete nem meio de pagamento
+// (relatório 15). Em tenant que já existe, mover isto é no-op: as colunas já
+// estão lá e o alterSafe continua idempotente.
+for (const col of [
+  'transportadoraId INTEGER',
+  'tipoFrete TEXT',
+  'valorFrete REAL',
+  'dataValidade TEXT',
+  'dataFaturamentoPrevista TEXT',
+  'codigoPedidoCliente TEXT',
+  'meioPagamento TEXT',
+  'observacoesInterna TEXT',
+  'enderecoEntrega TEXT',
+  'numeroEntrega TEXT',
+  'complementoEntrega TEXT',
+  'bairroEntrega TEXT',
+  'cidadeEntrega TEXT',
+  'ufEntrega TEXT',
+  'cepEntrega TEXT',
+  'codigoMunicipioEntrega TEXT',
+  'contatoEntrega TEXT',
+  'telefoneEntrega TEXT',
+  "modoDocumento TEXT NOT NULL DEFAULT 'pedido'",
+  'naoEmitirNFe INTEGER NOT NULL DEFAULT 0',
+  'tabelaPrecoId INTEGER',
+  // Condição de pagamento escolhida (politicas_prazo): define prazo das
+  // parcelas e meios aceitos. Antes o pedido guardava só o meio solto.
+  'politicaPrazoId INTEGER',
+  // De qual depósito a mercadoria sai. Nasceu em
+  // scripts/migrate-deposito-documentos.js, um script avulso que NUNCA roda no
+  // provisionamento — então nenhum tenant novo a tinha, e `pedidos-routes.js`
+  // a escreve no INSERT (relatório 15). O script continua servindo aos tenants
+  // antigos; aqui ela passa a nascer junto das demais.
+  'depositoId INTEGER',
+  /**
+   * Fase 1 (2026-09-11) — desconto comercial e tipo de atendimento.
+   *
+   * Mesma história do `depositoId` acima, e é por isso que estão aqui: nasceram
+   * em `scripts/migrate-fase1-pedido.js`, aplicado nos 19 tenants existentes
+   * (relatório 18), mas um script avulso não alcança tenant NOVO. Sem esta
+   * entrada, o primeiro pedido de um tenant recém-provisionado estouraria com
+   * "no such column: tipoAtendimento" — o INSERT de `pedidos-routes.js` a grava.
+   *
+   * NULL em `tipoAtendimento` é valor legítimo: "pedido que não declara
+   * atendimento", que é o caso do ERP tradicional inteiro.
+   */
+  'descontoTipo TEXT',
+  'descontoValor REAL DEFAULT 0',
+  'descontoAplicado REAL DEFAULT 0',
+  'descontoMotivo TEXT',
+  'tipoAtendimento TEXT',
+  /*
+   * Compartilhamento público do orçamento (2026-09-12).
+   *
+   * `tokenPublico` é um hex de 64 caracteres (`crypto.randomBytes(32)`) —
+   * mesmo desenho que a OS já usa em `/api/orcamento/:token`, em produção
+   * desde antes. NÃO é o id: o id é sequencial e adivinhar o do vizinho seria
+   * trivial.
+   *
+   * NULL é o estado normal: só quem clica em "Compartilhar" ganha um token. E
+   * revogar é escrever NULL de volta — o link antigo passa a responder 404 na
+   * hora, sem precisar apagar nada.
+   */
+  'tokenPublico TEXT',
+  'tokenPublicoEm TEXT'
+]) alterSafe(db, `ALTER TABLE pedidos ADD COLUMN ${col}`);
+// Índice do token: a busca pública entra por ele, e sem índice seria varredura
+// da tabela inteira a cada abertura de link.
+alterSafe(db, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_token_publico ON pedidos(tokenPublico) WHERE tokenPublico IS NOT NULL');
 // A tabela `fornecedores` deixou de existir em 2026-08-20: fornecedor virou
 // pessoa com a categoria "fornecedor" (ver migracao-fornecedores-pessoas.js).
 // O CREATE saiu daqui de propósito — é a ausência da tabela que diz à
@@ -1207,8 +1324,84 @@ for (const col of [
   'tipoProduto TEXT', 'pesoBruto REAL', 'pesoLiquido REAL',
   'codigoCatmat TEXT', 'codigoCatser TEXT', 'codigoPDM TEXT',
   'cstIBS TEXT', 'cstCBS TEXT', 'cClassTrib TEXT',
-  'altura REAL', 'largura REAL', 'profundidade REAL'
+  'altura REAL', 'largura REAL', 'profundidade REAL',
+  /* Vitrine (loja / Catálogo Online).
+   *
+   * Estas duas moram AQUI, e não só em `migrarLojaDB`, porque é este arquivo
+   * que alcança tenant que já existe: `initSchema` roda por tenant no boot
+   * (tenant-bootstrap.js), enquanto o `migrar()` dos *-routes.js é no-op em
+   * multi-tenant — no registro das rotas o `db` ainda é o proxy sem contexto.
+   *
+   * Foi exatamente esse o defeito da Fase 46: `destaqueNaLoja` foi criada só em
+   * `migrarLojaDB`, não existia em NENHUM dos 19 tenants, e o SELECT da central
+   * quebrava em "no such column". `publicadoNaLoja` entra junto pelo mesmo
+   * motivo — ela chegou aos tenants por um script manual de 2026-08, e o
+   * `crsolucoes` ficou sem ela até aqui. */
+  'publicadoNaLoja INTEGER DEFAULT 0', 'destaqueNaLoja INTEGER DEFAULT 0',
+  /* Ordem do produto DENTRO da categoria, só na vitrine.
+   *
+   * Coluna, e não tabela, por coerência: `publicadoNaLoja` e `destaqueNaLoja`
+   * já são atributos de vitrine morando aqui. Uma tabela de ligação para o
+   * terceiro criaria dois lugares para a mesma coisa.
+   *
+   * Ela NÃO vaza para o resto do ERP porque ninguém mais a lê — a ordenação da
+   * tela de Produtos, da Venda rápida e dos relatórios continua a que sempre
+   * foi. `0` é o valor de quem nunca foi ordenado, e o desempate é alfabético. */
+  'ordemVitrine INTEGER DEFAULT 0'
 ]) alterSafe(db, `ALTER TABLE produtos ADD COLUMN ${col}`);
+
+/* Ordem das CATEGORIAS na vitrine — tabela própria, e a razão importa.
+ *
+ * Categoria não é entidade com id: é texto em `produtos.categoria`, com
+ * `produto_lookup` servindo de catálogo de valores. Pôr `ordem` em
+ * `produto_lookup` faria a ordenação da vitrine vazar para o datalist do
+ * cadastro de produto e para a tela CATÁLOGO → Categorias, que são do ERP e não
+ * da loja — exatamente o que o pedido da Fase 48 proíbe.
+ *
+ * Aqui a ordem é da LOJA, casada por nome. Categoria sem linha nesta tabela
+ * ainda não foi ordenada: vai para o fim, em ordem alfabética, e ordenar uma
+ * nova não embaralha as já postas. */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS loja_categoria_ordem (
+    categoria TEXT PRIMARY KEY,
+    ordem INTEGER NOT NULL DEFAULT 0,
+    dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+/* Banner do cabeçalho da vitrine — a imagem larga atrás do nome da loja.
+ *
+ * Separada de `logoPath` de propósito: são duas imagens com proporções e
+ * papéis diferentes, e o lojista troca uma sem querer trocar a outra.
+ *
+ * Este ALTER precisa do par em `migrarLojaDB`, e a razão é o `alterSafe` daqui,
+ * que engole "no such table" calado. `loja_config` NÃO nasce neste arquivo — ela
+ * nasce em `migrarLojaDB` — e hoje falta no tenant `crsolucoes`. Só aqui, a
+ * coluna nunca chegaria lá; só lá, nunca chegaria aos 18 que já têm a tabela.
+ * Nos dois, cada tenant é alcançado por um dos caminhos. */
+alterSafe(db, 'ALTER TABLE loja_config ADD COLUMN bannerPath TEXT');
+
+/* Redes sociais do catálogo público (Fase 50).
+ *
+ * Moram em `loja_config`, junto de whatsapp/email/telefone, porque são a mesma
+ * coisa: canal de contato da VITRINE. `fornecedor.site` continua sendo o do
+ * emitente fiscal e não se confunde com isto.
+ *
+ * Só o identificador é guardado (`@loja` ou `loja`), não a URL inteira: quem
+ * digita o endereço completo erra o domínio, e montar o link no servidor é o que
+ * garante que ele aponte para o lugar certo. */
+for (const col of ['instagram TEXT', 'facebook TEXT']) {
+  alterSafe(db, `ALTER TABLE loja_config ADD COLUMN ${col}`);
+}
+
+/* Endereço e horário de atendimento do catálogo (Fase 51).
+ *
+ * A lista vem de `loja-routes.js` para não existir em duas versões: este
+ * caminho alcança o tenant que já existe, o `migrarLojaDB` alcança o novo, e
+ * ambos precisam aplicar exatamente as mesmas colunas. */
+for (const col of require('./loja-routes').COLUNAS_INFO_LOJA) {
+  alterSafe(db, `ALTER TABLE loja_config ADD COLUMN ${col}`);
+}
+
 
 // sniper-lance-routes.js + monitor-v2.js: ALTERs em participacoes_comprasnet
 for (const col of [
@@ -1660,6 +1853,10 @@ for (const col of [
   'servicoValorHoraPadrao REAL',
   'permiteAlterarCalculoServico INTEGER DEFAULT 1',
   "faturarPara TEXT DEFAULT 'cliente'",
+  // Fase 5 — o tipo abre a possibilidade de agregar peça/serviço ao
+  // equipamento (trator que recebe peito de aço). Desligado: o marcador por
+  // item nem aparece, porque OS de bancada não compõe máquina.
+  'permiteAgregacao INTEGER DEFAULT 0',
 ]) alterSafe(db, `ALTER TABLE os_tipos ADD COLUMN ${col}`);
 
 // Tempo padrão do serviço de catálogo: base do modo 'tempo-padrao'.
@@ -1785,6 +1982,60 @@ alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_cp_os ON contas_a_pagar(osId)');
   }
 }
 
+// ==================== 2026-09-01: equipamento como bem composto ====================
+// Máquina que ainda é da empresa (trator em estoque) recebe OS, agrega peça e
+// serviço, e só depois vira do cliente. Cinco peças de schema:
+
+// 1) De quem é o equipamento. Antes, clienteId NULL queria dizer duas coisas
+//    diferentes — "é minha" e "ainda não sei de quem é".
+alterSafe(db, "ALTER TABLE equipamentos ADD COLUMN proprietario TEXT DEFAULT 'cliente'");
+
+// 2) Custo agregado por UNIDADE. O custo do estoque é médio por produto: subir
+//    ali espalharia a agregação de um trator pelas outras unidades do mesmo
+//    produto, que não receberam nada.
+alterSafe(db, 'ALTER TABLE serial_numbers ADD COLUMN custoAgregado REAL DEFAULT 0');
+
+// 3) Reserva da própria máquina enquanto a OS corre — impede vender o trator
+//    que está na oficina. Diferente da reserva de peça, esta não vira saída.
+for (const col of ['equipamentoId INTEGER', 'serialNumberId INTEGER']) {
+  alterSafe(db, `ALTER TABLE reservas_estoque ADD COLUMN ${col}`);
+}
+alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_reservas_equip ON reservas_estoque(equipamentoId, status)');
+
+// 4) Marcador por item: o tipo abre a possibilidade, o item decide. Trocar um
+//    filtro não é agregar valor à máquina.
+for (const tab of ['os_itens_pecas', 'os_itens_servicos']) {
+  alterSafe(db, `ALTER TABLE ${tab} ADD COLUMN agregaEquipamento INTEGER DEFAULT 0`);
+}
+
+// 5) Composição do equipamento. Remoção é data, não DELETE: componente
+//    retirado é história da máquina, não erro de digitação.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS equipamento_componentes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipamentoId INTEGER NOT NULL,
+    produtoId INTEGER,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL DEFAULT 1,
+    valorCusto REAL DEFAULT 0,
+    valorVenda REAL DEFAULT 0,
+    origemTipo TEXT NOT NULL DEFAULT 'manual',
+    osId INTEGER,
+    osItemId INTEGER,
+    serialIds TEXT,
+    dataInstalacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    dataRemocao TEXT,
+    motivoRemocao TEXT,
+    usuario TEXT,
+    FOREIGN KEY (equipamentoId) REFERENCES equipamentos(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_equip_comp ON equipamento_componentes(equipamentoId, dataRemocao);
+`);
+// Um item de OS agrega uma vez só: refaturar não pode duplicar o componente.
+alterSafe(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_equip_comp_item
+               ON equipamento_componentes(osId, osItemId, origemTipo)
+               WHERE osId IS NOT NULL AND osItemId IS NOT NULL`);
+
 // 2026-06-02: relaxa NOT NULL de contas_receber_pagamentos.contaFinanceiraId
 // para permitir bonificação (recebimento com desconto total → vPago=0, sem
 // conta financeira e sem movimentação no caixa). SQLite exige rebuild.
@@ -1863,6 +2114,58 @@ alterSafe(db, 'ALTER TABLE crm_etapas ADD COLUMN geraAgendamento INTEGER NOT NUL
 alterSafe(db, 'ALTER TABLE reservas_estoque ADD COLUMN osId INTEGER');
 alterSafe(db, 'ALTER TABLE reservas_estoque ADD COLUMN osItemPecaId INTEGER');
 alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_reservas_os ON reservas_estoque(osId) WHERE osId IS NOT NULL');
+
+// 6) reservas_estoque.pedidoId era NOT NULL, mas criarReservasOS() insere sem
+//    pedido — a reserva de OS estourava a constraint e derrubava o "iniciar"
+//    inteiro. A reserva do equipamento tem o mesmo formato. SQLite não afrouxa
+//    NOT NULL por ALTER: recria, no mesmo padrão de os_itens_pecas acima.
+{
+  const cols = db.prepare("PRAGMA table_info('reservas_estoque')").all();
+  const ped = cols.find((c) => c.name === 'pedidoId');
+  if (ped && ped.notnull === 1) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`
+      CREATE TABLE reservas_estoque_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        produtoId INTEGER NOT NULL,
+        loteId INTEGER,
+        quantidade REAL NOT NULL,
+        pedidoId INTEGER,
+        pedidoItemId INTEGER,
+        status TEXT NOT NULL DEFAULT 'ativa',
+        dataCriacao TEXT DEFAULT CURRENT_TIMESTAMP,
+        dataConsumo TEXT,
+        movimentacaoConsumoId INTEGER,
+        observacoes TEXT,
+        depositoId INTEGER,
+        osId INTEGER,
+        osItemPecaId INTEGER,
+        equipamentoId INTEGER,
+        serialNumberId INTEGER,
+        FOREIGN KEY (produtoId) REFERENCES produtos(id)
+      );
+    `);
+    // Copia só o que a tabela ANTIGA tem de fato. Listar as colunas à mão
+    // acopla esta migração à ordem em que as outras rodaram: `depositoId` vem
+    // do estoque-routes e `osId` de mais abaixo neste arquivo, então um SELECT
+    // fixo estoura com "no such column" em tenant que ainda não passou por
+    // elas — e o initSchema inteiro morre junto, a cada boot.
+    const nomesAntigos = db.prepare("PRAGMA table_info('reservas_estoque')").all().map((c) => c.name);
+    const nomesNovos = db.prepare("PRAGMA table_info('reservas_estoque_new')").all().map((c) => c.name);
+    const comuns = nomesNovos.filter((n) => nomesAntigos.includes(n));
+    db.exec(`
+      INSERT INTO reservas_estoque_new (${comuns.join(', ')})
+      SELECT ${comuns.join(', ')} FROM reservas_estoque;
+      DROP TABLE reservas_estoque;
+      ALTER TABLE reservas_estoque_new RENAME TO reservas_estoque;
+      CREATE INDEX IF NOT EXISTS idx_reservas_produto_status ON reservas_estoque(produtoId, status);
+      CREATE INDEX IF NOT EXISTS idx_reservas_pedido ON reservas_estoque(pedidoId);
+      CREATE INDEX IF NOT EXISTS idx_reservas_equip ON reservas_estoque(equipamentoId, status);
+    `);
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
 alterSafe(db, 'ALTER TABLE contratos ADD COLUMN osPadraoTipoId INTEGER');
 alterSafe(db, 'ALTER TABLE contratos ADD COLUMN osPeriodicidadeDias INTEGER');
 alterSafe(db, 'ALTER TABLE contratos ADD COLUMN osUltimaGeracao TEXT');
@@ -2029,6 +2332,17 @@ for (const col of [
   // Administrativo
   'dataInativacao TEXT',
   'motivoInativacao TEXT',
+  /**
+   * Fase 1 (2026-09-11) — cliente cadastrado sem CPF/CNPJ, de forma explícita.
+   *
+   * `cpfCnpj` é NOT NULL com UNIQUE e recebe um identificador interno
+   * (`SD-<uuid>`); esta coluna é o que torna o estado consultável em vez de
+   * adivinhado pelo prefixo. Ver `pessoa-sem-documento.js`.
+   *
+   * Entra aqui pelo mesmo motivo das colunas de desconto em `pedidos`: a
+   * migration da Fase 1 é script avulso e não alcança tenant novo.
+   */
+  'semDocumento INTEGER DEFAULT 0',
 ]) {
   alterSafe(db, `ALTER TABLE pessoas ADD COLUMN ${col}`);
 }
@@ -2210,14 +2524,19 @@ db.exec(`
 // A regra de herança (federal → matriz para filial da mesma PJ; estadual/municipal
 // → CNPJ próprio) vive em habilitacao-cnpj.js.
 alterSafe(db, 'ALTER TABLE habilitacao_documentos ADD COLUMN estabelecimentoId INTEGER');
+// Rastro da renovação automática (2026-09-02): até aqui a falha do robô só existia
+// no habilitacao-renovar.log — a Municipal de Marabá falhou 6 dias seguidos sem que
+// a tela mostrasse nada. Guarda o erro da última tentativa; o sucesso limpa.
+alterSafe(db, 'ALTER TABLE habilitacao_documentos ADD COLUMN ultimoErroAuto TEXT');
+alterSafe(db, 'ALTER TABLE habilitacao_documentos ADD COLUMN ultimoErroAutoEm TEXT');
 
-// NF-e de devolução (2026-04-23): faturas podem ser "virtuais" de
-// devolução — vinculadas a devolucoes, com finNFe=4 e tpNF=0. A
-// coluna refNFeOriginal armazena a chave da NF-e da venda original
-// (44 chars) para inclusão no grupo NFref.
-alterSafe(db, 'ALTER TABLE faturas ADD COLUMN isDevolucao INTEGER DEFAULT 0');
-alterSafe(db, 'ALTER TABLE faturas ADD COLUMN devolucaoId INTEGER');
-alterSafe(db, 'ALTER TABLE faturas ADD COLUMN refNFeOriginal TEXT');
+// NF-e de devolução (2026-04-23): as colunas `isDevolucao`, `devolucaoId` e
+// `refNFeOriginal` de `faturas` MUDARAM DAQUI para faturas-routes.js em
+// 2026-09-11 (relatório 15). Motivo: `faturas` é criada por faturas-routes, que
+// roda DEPOIS deste arquivo. O ALTER aqui sempre caía em "no such table", o
+// alterSafe engolia, e a coluna não nascia em tenant novo — o que fazia
+// tipos-operacao-routes.js:245 lançar e abortar a cadeia de provisionamento.
+// Coluna de tabela mora junto de quem cria a tabela.
 
 // Auditoria de tokens (2026-05-27): /api/auth/token também grava em
 // bearer_history quando o token é REJEITADO (validação Comprasnet falha).
@@ -2272,6 +2591,80 @@ require('./boleto-orchestrator').migrarSchema(db);
 // vira nulável em TODOS os tenants — antes o rebuild só rodava dentro da rota de
 // devolução de compra, e só o `1bit` o tinha recebido.
 require('./fiscal-trib-schema').initFiscalTribSchema(db);
+
+// Módulo Restaurante (2026-08-26): salão/comanda, KDS, ficha técnica/CMV,
+// delivery e canais externos. Mesmo caso dos blocos acima — o migrarDB() do
+// módulo roda contra o BOOT_STUB e não alcança tenant nenhum; aqui roda contra
+// o DB real. O schema das 25 tabelas nasce em todos os tenants de propósito:
+// tabela vazia não custa nada e evita divergência entre tenants. Quem decide
+// se o módulo aparece é a feature `restaurante` + o slug no plano.
+require('./restaurante/restaurante-schema').initRestauranteSchema(db);
+
+/* Personalizações do produto no catálogo público — REUTILIZANDO o que existe.
+ *
+ * `rest_grupos_opcao`, `rest_opcoes` e `rest_produto_grupos` já existem nos 19
+ * tenants (initRestauranteSchema, chamado logo abaixo neste mesmo arquivo) e já
+ * expressam quase tudo o que a vitrine precisa: escolha única (maxEscolhas = 1),
+ * múltipla (> 1), obrigatória (minEscolhas >= 1), teto de escolhas e adicional
+ * em reais (`precoAdicional`).
+ *
+ * E — o ponto que decidiu a reutilização — elas NÃO conhecem `rest_comandas`.
+ * O vínculo com comanda vive em `rest_comanda_item_opcoes`, que é consumo, não
+ * definição. Usar as três aqui não amarra o catálogo comercial ao restaurante;
+ * criar um segundo par de tabelas para dizer a mesma coisa, sim, amarraria o
+ * lojista a manter duas listas de opções para o mesmo produto.
+ *
+ * Faltavam duas coisas, e as duas entram aditivas, com default que preserva o
+ * comportamento atual do módulo Restaurante:
+ *
+ *   `tipo`      — 'escolha' (o que sempre foi) ou 'texto', para o campo livre
+ *                 do tipo "escreva o recadinho". Sem isto não há como pedir
+ *                 texto ao comprador sem inventar uma tabela nova.
+ *   `descricao` — a pergunta que aparece acima das opções ("Deseja incluir um
+ *                 recadinho?"). Hoje só existe `nome`, que é rótulo curto. */
+for (const col of ["tipo TEXT NOT NULL DEFAULT 'escolha'", 'descricao TEXT']) {
+  alterSafe(db, `ALTER TABLE rest_grupos_opcao ADD COLUMN ${col}`);
+}
+
+// Módulo Farmácia / drogaria (2026-08-26): cadastro farmacêutico + lista CMED,
+// lote na venda, receita/Portaria 344 e SNGPC. Mesmo caso do bloco acima — o
+// migrarDB() do módulo roda contra o BOOT_STUB e não alcança tenant nenhum.
+// Aqui também mora a única alteração em tabela core do módulo
+// (`nfce_itens.loteId`), que o grupo <rastro> da NFC-e precisa reconstruir.
+require('./farmacia/farmacia-schema').initFarmaciaSchema(db);
+
+// Módulo Posto de combustível (2026-08-26), fase 1: tanques/bombas/bicos,
+// turno de frentista, descarga, aferição INMETRO e o LMC da Resolução ANP
+// 884/2022. Mesmo caso dos blocos acima — o initPostoSchema() chamado dentro
+// do registro de rotas roda contra o BOOT_STUB e não alcança tenant nenhum.
+// Não toca em nenhuma tabela core: o estoque de combustível é medido, não
+// contado, e não caberia em `estoque_saldos`.
+require('./posto/posto-schema').initPostoSchema(db);
+
+// Módulo Locação (2026-08-27): locadora de bens móveis — tarifário por faixa de
+// tempo, disponibilidade por período, saída/retorno com vistoria via OS, caução
+// e acerto de atraso/avaria. Mesmo caso dos blocos acima — o initLocacaoSchema()
+// chamado dentro do registro de rotas roda contra o BOOT_STUB e não alcança
+// tenant nenhum. Não toca em nenhuma tabela core: a reserva com janela de datas
+// mora em `locacao_reservas` porque `reservas_estoque` reserva quantidade sem
+// intervalo, e dar data a ela quebraria pedidos e OS (ver o topo do schema).
+require('./locacao/locacao-schema').initLocacaoSchema(db);
+
+// Módulo Pré-moldados (2026-08-27): fábrica de peças de concreto — ficha
+// técnica com perda, ordem de produção, apontamento por equipe, controle
+// tecnológico (corpo de prova / liberação de protensão), pátio, romaneio e
+// medição de obra. Mesmo caso dos blocos acima: o initProducaoSchema()
+// chamado dentro do registro de rotas roda contra o BOOT_STUB e não alcança
+// tenant nenhum. Não toca em tabela core — a ficha mora em `prod_ficha_itens`
+// porque `produto_kit_itens` é composição de VENDA, não tem perda e proíbe o
+// mesmo insumo duas vezes (ver o topo do schema).
+require('./producao/prod-schema').initProducaoSchema(db);
+// As etapas de produção são cadastro, não constante — e um módulo sem nenhuma
+// etapa abre com a tela de apontamento morta. O seed do perfil (genérico por
+// padrão) roda aqui junto do schema porque é este ponto que alcança tenant
+// existente; deixá-lo só no hook das rotas adiaria a semeadura para o primeiro
+// acesso e tornaria o estado do tenant imprevisível. É idempotente.
+require('./producao/perfis').garantirSeed(db);
 
 // Unificação do cadastro de fornecedores dentro de `pessoas` (2026-08-20).
 // Fica por ÚLTIMO porque depende de `pessoas` e das tabelas de compras já

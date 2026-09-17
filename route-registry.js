@@ -115,6 +115,11 @@ const { registrarRotasFiscalClassificacao } = require('./fiscal-classificacao-ro
 const { registrarRotasTiposOperacao } = require('./tipos-operacao-routes');
 const { registrarRotasServicos } = require('./servicos-routes');
 const { registrarRotasOptica } = require('./optica/optica-routes');
+const { registrarRotasRestaurante } = require('./restaurante/restaurante-routes');
+const { registrarRotasFarmacia } = require('./farmacia/farmacia-routes');
+const { registrarRotasPosto } = require('./posto/posto-routes');
+const { registrarRotasLocacao } = require('./locacao/locacao-routes');
+const { registrarRotasProducao } = require('./producao/producao-routes');
 const { registrarRotasFeatures } = require('./features-routes');
 const { registrarRotasCfopsEntradaMap } = require('./cfops-entrada-map-routes');
 const { registrarRotasCobrancas } = require('./cobrancas-routes');
@@ -168,6 +173,39 @@ function registerProtectedRoutes(app, deps) {
     getConfigValue, setConfigValue, getIAKeys,
   } = deps;
 
+  /**
+   * Isolamento de falha por módulo — LIGADO SÓ NO PROVISIONAMENTO.
+   *
+   * Cada `registrarRotasX` também executa as migrations do seu módulo (os
+   * `db.exec`/`alterSafe` que vivem no escopo de registro). Até 2026-09-11 uma
+   * exceção em qualquer um deles abortava a cadeia inteira: os módulos
+   * seguintes nunca registravam e, portanto, nunca preparavam o schema. Num
+   * tenant recém-provisionado isso deixava ~277 tabelas em vez de ~374, sem
+   * `pedidos.vendedorId`, sem comissões, metas nem CRM — e `POST /api/pedidos`
+   * respondia 500. Medido no relatório 14.
+   *
+   * No BOOT do servidor o comportamento continua o de sempre: sem
+   * `isolarFalhasDeMigracao`, a exceção sobe e o processo morre. Isso é
+   * desejado — subir pela metade, escondendo um módulo quebrado, é pior do que
+   * não subir.
+   *
+   * No PROVISIONAMENTO (tenant-provision.js) o isolamento é ligado: um módulo
+   * com problema não pode impedir os outros 123 de criar as tabelas deles. As
+   * falhas não são engolidas — voltam em `falhasDeMigracao` para quem chamou
+   * decidir, e são logadas com o nome do módulo.
+   */
+  const isolar = !!(deps && deps.isolarFalhasDeMigracao);
+  const falhasDeMigracao = [];
+  const R = (nome, fn) => {
+    if (!isolar) return fn();
+    try { return fn(); }
+    catch (err) {
+      falhasDeMigracao.push({ modulo: nome, erro: err.message });
+      console.warn(`[route-registry] módulo "${nome}" falhou na migração: ${err.message}`);
+      return undefined;
+    }
+  };
+
   // NFSE-M06 onda 5C / 6.30: wrappers finos sobre telegram-client.js. Eram
   // globais em server.js; aqui moram no closure do registry. Apenas as
   // chamadas abaixo (e o wiring do monitor-mensagens) os consomem.
@@ -185,192 +223,190 @@ function registerProtectedRoutes(app, deps) {
 
   // ==================== CATÁLOGO PNCP ====================
   // onda 6.29: 5 rotas /api/licitacoes, /api/orgaos, detalhes, itens e sync-itens.
-  registrarRotasLicitacoes(app, db, { pncpSync, salvarItens, PNCP_API_BASE, PNCP_API_ITENS });
-
+  R('Licitacoes', () => registrarRotasLicitacoes(app, db, { pncpSync, salvarItens, PNCP_API_BASE, PNCP_API_ITENS }));
   // ==================== NOTIFICAÇÕES (canais de alerta) ====================
-  registrarRotasNotificacoes(app, db);
-
+  R('Notificacoes', () => registrarRotasNotificacoes(app, db));
   // ==================== SNIPER DE LANCES ====================
-  registrarRotasSniper(app, db);
-
+  R('Sniper', () => registrarRotasSniper(app, db));
   // ==================== NFSE NACIONAL ====================
-  registrarRotasNfse(app, db);
-
+  R('Nfse', () => registrarRotasNfse(app, db));
   // ==================== FINANCEIRO (Pessoas, Contas a Receber, Boletos, MercadoPago) ====================
   // FINANCEIRO precisa vir ANTES de cobrancas e contas-receber-routes
   // porque cria as tabelas pessoas e contas_a_receber, usadas por eles
   // em boot-time migrations (ALTER TABLE pessoas ADD cobrancaAtiva, etc.).
-  registrarRotasFinanceiro(app, db);
-
+  R('Financeiro', () => registrarRotasFinanceiro(app, db));
   // ==================== BOLETO PROVEDORES (registry multi-banco) ====================
-  registrarRotasBoletoProvedores(app, db);
-
+  R('BoletoProvedores', () => registrarRotasBoletoProvedores(app, db));
   // ==================== COBRANÇAS + WHATSAPP ====================
-  registrarRotasCobrancas(app, db);
-  registrarRotasWhatsApp(app, db);
-  registrarRotasWaCampanhas(app, db);
-
+  R('Cobrancas', () => registrarRotasCobrancas(app, db));
+  R('WhatsApp', () => registrarRotasWhatsApp(app, db));
+  R('WaCampanhas', () => registrarRotasWaCampanhas(app, db));
   // ==================== RECORRÊNCIAS NFSE ====================
-  registrarRotasRecorrencia(app, db);
-
+  R('Recorrencia', () => registrarRotasRecorrencia(app, db));
   // ==================== SUPRIMENTOS (Produtos, Estoque, Pedidos) ====================
   // contas-financeiras subido pra ANTES de pedidos — pedidos-routes cria
   // adquirentes_cartao com FK para contas_financeiras; ordem errada
   // só quebra no provision de tenant novo (FK recém-validada no ON).
-  registrarRotasContasFinanceiras(app, db);
+  R('ContasFinanceiras', () => registrarRotasContasFinanceiras(app, db));
   // produto-lookup precisa vir ANTES de produtos-routes — produtos-routes
   // importa registrarLookup do módulo lookup. A ordem de require não exige,
   // mas a migração única (popular lookup a partir de produtos existentes)
   // depende de a tabela produto_lookup já estar criada por db-schema.js.
-  registrarRotasProdutoLookup(app, db);
-  registrarRotasProdutoMatch(app, db);
-  registrarRotasFornecedores(app, db);
-  registrarRotasProdutos(app, db);
-  registrarRotasEstoque(app, db);
-  registrarRotasDepositos(app, db);
-  registrarRotasEtiquetas(app, db);
-  registrarRotasLotes(app, db);
-  registrarRotasSerial(app, db);
-  registrarRotasReservas(app, db);
-  registrarRotasInventario(app, db);
-  registrarRotasCompras(app, db);
-  registrarRotasPedidos(app, db);
-  registrarRotasFaturas(app, db);
-  registrarRotasNfeEmit(app, db);
+  R('ProdutoLookup', () => registrarRotasProdutoLookup(app, db));
+  R('ProdutoMatch', () => registrarRotasProdutoMatch(app, db));
+  R('Fornecedores', () => registrarRotasFornecedores(app, db));
+  R('Produtos', () => registrarRotasProdutos(app, db));
+  R('Estoque', () => registrarRotasEstoque(app, db));
+  R('Depositos', () => registrarRotasDepositos(app, db));
+  R('Etiquetas', () => registrarRotasEtiquetas(app, db));
+  R('Lotes', () => registrarRotasLotes(app, db));
+  R('Serial', () => registrarRotasSerial(app, db));
+  R('Reservas', () => registrarRotasReservas(app, db));
+  R('Inventario', () => registrarRotasInventario(app, db));
+  R('Compras', () => registrarRotasCompras(app, db));
+  R('Pedidos', () => registrarRotasPedidos(app, db));
+  R('Faturas', () => registrarRotasFaturas(app, db));
+  R('NfeEmit', () => registrarRotasNfeEmit(app, db));
   // Depois do NfeEmit: a NF avulsa chama o emitirNFe dele, e o migrar() daqui
   // precisa de `faturas` já criada por registrarRotasFaturas, acima.
-  registrarRotasNfAvulsa(app, db);
+  R('NfAvulsa', () => registrarRotasNfAvulsa(app, db));
   // Depois da NF avulsa: o migrar() dela é que garante a tabela fiscal_regras_trib.
-  registrarRotasFiscalRegras(app, db);
-  registrarRotasFiscalDiagnostico(app, db);
-  registrarRotasFiscalApuracaoIcms(app, db);
-  registrarRotasFiscalApuracaoPisCofins(app, db);
-  registrarRotasFiscalApuracaoIpi(app, db);
-  registrarRotasNfeEntrada(app, db);
-  registrarRotasContasPagar(app, db);
-  registrarRotasContasReceber(app, db);
-  registrarRotasFinanceiroAvancado(app, db);
-  registrarRotasCotacoes(app, db);
+  R('FiscalRegras', () => registrarRotasFiscalRegras(app, db));
+  R('FiscalDiagnostico', () => registrarRotasFiscalDiagnostico(app, db));
+  R('FiscalApuracaoIcms', () => registrarRotasFiscalApuracaoIcms(app, db));
+  R('FiscalApuracaoPisCofins', () => registrarRotasFiscalApuracaoPisCofins(app, db));
+  R('FiscalApuracaoIpi', () => registrarRotasFiscalApuracaoIpi(app, db));
+  R('NfeEntrada', () => registrarRotasNfeEntrada(app, db));
+  R('ContasPagar', () => registrarRotasContasPagar(app, db));
+  R('ContasReceber', () => registrarRotasContasReceber(app, db));
+  R('FinanceiroAvancado', () => registrarRotasFinanceiroAvancado(app, db));
+  R('Cotacoes', () => registrarRotasCotacoes(app, db));
   // Depende das migrações de compras, pedidos e cotações já terem rodado —
   // as colunas de origem que ele grava nascem lá.
-  registrarRotasNecessidadesCompra(app, db);
-  registrarRotasContabilidade(app, db);
-  registrarRotasRequisicoes(app, db);
-  registrarRotasPrecos(app, db);
-  registrarRotasPoliticasPrazo(app, db);
-  registrarRotasFiscalOps(app, db);
-  registrarRotasGovernanca(app, db);
-  registrarRotasFluxoCaixa(app, db);
-  registrarRotasFiscalSN(app, db);
-  registrarRotasLivroCaixa(app, db);
-  registrarRotasFiscalArquivamento(app, db);
-  registrarRotasRetencoes(app, db);
-  registrarRotasDefis(app, db);
-  registrarRotasNFCe(app, db);
-  registrarRotasImportacao(app, db);
-  registrarRotasCFOPs(app, db);
-  registrarRotasFiscalClassificacao(app, db);
-  registrarRotasTiposOperacao(app, db);
-  registrarRotasCfopsEntradaMap(app, db);
-
+  R('NecessidadesCompra', () => registrarRotasNecessidadesCompra(app, db));
+  R('Contabilidade', () => registrarRotasContabilidade(app, db));
+  R('Requisicoes', () => registrarRotasRequisicoes(app, db));
+  R('Precos', () => registrarRotasPrecos(app, db));
+  R('PoliticasPrazo', () => registrarRotasPoliticasPrazo(app, db));
+  R('FiscalOps', () => registrarRotasFiscalOps(app, db));
+  R('Governanca', () => registrarRotasGovernanca(app, db));
+  R('FluxoCaixa', () => registrarRotasFluxoCaixa(app, db));
+  R('FiscalSN', () => registrarRotasFiscalSN(app, db));
+  R('LivroCaixa', () => registrarRotasLivroCaixa(app, db));
+  R('FiscalArquivamento', () => registrarRotasFiscalArquivamento(app, db));
+  R('Retencoes', () => registrarRotasRetencoes(app, db));
+  R('Defis', () => registrarRotasDefis(app, db));
+  R('NFCe', () => registrarRotasNFCe(app, db));
+  R('Importacao', () => registrarRotasImportacao(app, db));
+  R('CFOPs', () => registrarRotasCFOPs(app, db));
+  R('FiscalClassificacao', () => registrarRotasFiscalClassificacao(app, db));
+  R('TiposOperacao', () => registrarRotasTiposOperacao(app, db));
+  R('CfopsEntradaMap', () => registrarRotasCfopsEntradaMap(app, db));
   // ==================== ÓTICA (módulo opcional) ====================
-  registrarRotasOptica(app, db);
-
+  R('Optica', () => registrarRotasOptica(app, db));
+  // ==================== RESTAURANTE (módulo opcional) ====================
+  R('Restaurante', () => registrarRotasRestaurante(app, db));
+  // ==================== FARMÁCIA (módulo opcional) ====================
+  R('Farmacia', () => registrarRotasFarmacia(app, db));
+  // ==================== LOCAÇÃO (módulo opcional) ====================
+  R('Locacao', () => registrarRotasLocacao(app, db));
+  // ==================== POSTO DE COMBUSTÍVEL (módulo opcional) ====================
+  R('Posto', () => registrarRotasPosto(app, db));
+  // ==================== PRÉ-MOLDADOS (módulo opcional) ====================
+  R('Producao', () => registrarRotasProducao(app, db));
   // ==================== FEATURE FLAGS (sidebar usa) ====================
-  registrarRotasFeatures(app, db);
-
+  R('Features', () => registrarRotasFeatures(app, db));
   // ==================== ADMIN / RH / AUDITORIA ====================
-  registrarRotasUsuarios(app, db);
+  R('Usuarios', () => registrarRotasUsuarios(app, db));
   // Perfis de acesso (RBAC por página) — o gate em si vive no auth-bootstrap,
   // aqui é o CRUD e o /meu-acesso que a sidebar consulta.
   require('./perfis-acesso').registrarRotasPerfis(app, db);
-  registrarRotasAuditoria(app, db);
-  registrarRotasDevolucoes(app, db);
+  R('Auditoria', () => registrarRotasAuditoria(app, db));
+  R('Devolucoes', () => registrarRotasDevolucoes(app, db));
   require('./devolucao-compra').registrar(app, db); // devolução ao fornecedor (espelho da entrada)
   require('./devolucao-venda').registrar(app, db);  // devolução do cliente (espelho da saída)
-  registrarRotasCrm(app, db);
-  registrarRotasGerencial(app, db);
-  registrarRotasConciliacao(app, db);
-  registrarRotasTesouraria(app, db);
-  registrarRotasPlanejamento(app, db);
-  registrarRotasContabilizacao(app, db);
-  registrarRotasIbsCbs(app, db);
-  registrarRotasComissoes(app, db);
-  registrarRotasContratos(app, db);
-  registrarRotasSslCertificados(app, db);
-  registrarRotasFornecedorIntegracoes(app, db);
-  registrarRotasHabilitacao(app, db);
-  registrarRotasComprasnetAnexos(app, db);
-  registrarRotasResultadoItem(app, db);
-  registrarRotasComprasnetMensagem(app, db);
-  registrarRotasPortalAdmin(app, db);
-  registrarRotasServicos(app, db);
-  registrarRotasOS(app, db);
-  registrarRotasComm(app, db);
-  registrarRotasMDFe(app, db);
-  registrarRotasRH(app, db);
-  registrarRotasPatrimonio(app, db);
-  registrarRotasRoteirizacao(app, db);
-  registrarRotasCTe(app, db);
-  registrarRotasMarketplaces(app, db);
+  R('Crm', () => registrarRotasCrm(app, db));
+  R('Gerencial', () => registrarRotasGerencial(app, db));
+  R('Conciliacao', () => registrarRotasConciliacao(app, db));
+  R('Tesouraria', () => registrarRotasTesouraria(app, db));
+  R('Planejamento', () => registrarRotasPlanejamento(app, db));
+  R('Contabilizacao', () => registrarRotasContabilizacao(app, db));
+  R('IbsCbs', () => registrarRotasIbsCbs(app, db));
+  R('Comissoes', () => registrarRotasComissoes(app, db));
+  R('Contratos', () => registrarRotasContratos(app, db));
+  R('SslCertificados', () => registrarRotasSslCertificados(app, db));
+  R('FornecedorIntegracoes', () => registrarRotasFornecedorIntegracoes(app, db));
+  R('Habilitacao', () => registrarRotasHabilitacao(app, db));
+  R('ComprasnetAnexos', () => registrarRotasComprasnetAnexos(app, db));
+  R('ResultadoItem', () => registrarRotasResultadoItem(app, db));
+  R('ComprasnetMensagem', () => registrarRotasComprasnetMensagem(app, db));
+  R('PortalAdmin', () => registrarRotasPortalAdmin(app, db));
+  R('Servicos', () => registrarRotasServicos(app, db));
+  R('OS', () => registrarRotasOS(app, db));
+  R('Comm', () => registrarRotasComm(app, db));
+  R('MDFe', () => registrarRotasMDFe(app, db));
+  R('RH', () => registrarRotasRH(app, db));
+  R('Patrimonio', () => registrarRotasPatrimonio(app, db));
+  R('Roteirizacao', () => registrarRotasRoteirizacao(app, db));
+  R('CTe', () => registrarRotasCTe(app, db));
+  R('Marketplaces', () => registrarRotasMarketplaces(app, db));
   require('./marketplaces-ml').registrarRotasTenant(app, db); // ML Fase 0: /connect + /status (per-tenant)
   require('./loja-routes').registrarRotasLojaAdmin(app, db);      // Vitrine: painel do lojista (a parte pública é pré-auth)
   require('./conversas-routes').registrarRotasConversas(app, db); // Central de conversas: inbox + base da IA
-  registrarRotasTEF(app, db);
-
+  R('TEF', () => registrarRotasTEF(app, db));
   // ==================== BI / IA / JORNAL / BACKUP / CERTIFICADO / PROXY / FORNECEDOR ====================
-  registrarRotasBi(app, db);
-  registrarRotasPropostasParticipacoes(app, db);
-  registrarRotasPropostasMatch(app, db);
-  registrarRotasGruposPalavras(app, db);
-  registrarRotasBackup(app, db, { dbPath, PORT });
-  registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys });
-  registrarRotasChatIa(app, db, { getIAKeys });
-  registrarRotasCertificado(app, db);
-  registrarRotasProxy(app, db);
-  registrarRotasFornecedor(app, db);
+  R('Bi', () => registrarRotasBi(app, db));
+  R('PropostasParticipacoes', () => registrarRotasPropostasParticipacoes(app, db));
+  R('PropostasMatch', () => registrarRotasPropostasMatch(app, db));
+  R('GruposPalavras', () => registrarRotasGruposPalavras(app, db));
+  R('Backup', () => registrarRotasBackup(app, db, { dbPath, PORT }));
+  R('AnaliseIa', () => registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getIAKeys }));
+  R('ChatIa', () => registrarRotasChatIa(app, db, { getIAKeys }));
+  R('Certificado', () => registrarRotasCertificado(app, db));
+  R('Proxy', () => registrarRotasProxy(app, db));
+  R('Fornecedor', () => registrarRotasFornecedor(app, db));
   // Multi-loja: cadastro de estabelecimentos (matriz + filiais). Fase 1.
-  registrarRotasEstabelecimentos(app, db);
-
+  R('Estabelecimentos', () => registrarRotasEstabelecimentos(app, db));
   // ==================== TELEGRAM / LANCES / CREDENCIAIS / ROBÔ / TRACKING / PROPOSTA ====================
-  registrarRotasTelegram(app, db, { enviarTelegram });
-  registrarRotasLances(app, db, { enviarTelegram });
-  registrarRotasCredenciais(app, db);
+  R('Telegram', () => registrarRotasTelegram(app, db, { enviarTelegram }));
+  R('Lances', () => registrarRotasLances(app, db, { enviarTelegram }));
+  R('Credenciais', () => registrarRotasCredenciais(app, db));
   // Portais externos genéricos (BNC, BLL, etc.) — só usuário+senha em config.
-  registrarRotasPortaisIntegracao(app, db);
+  R('PortaisIntegracao', () => registrarRotasPortaisIntegracao(app, db));
   // BNC: cadastro de salas de disputa (processId, lotes) — alimenta scheduler.
-  registrarRotasBNCSalas(app, db);
+  R('BNCSalas', () => registrarRotasBNCSalas(app, db));
   // BNC: sessão + envio de proposta server-side (espelha o BLL).
-  registrarRotasBNC(app, db);
+  R('BNC', () => registrarRotasBNC(app, db));
   // BLL: sessão + envio de proposta (Fase 1/2). Lance (SignalR) vem na Fase 3.
-  registrarRotasBLL(app, db);
+  R('BLL', () => registrarRotasBLL(app, db));
   // BLL: cadastro de salas de disputa + auto-lance (Fase 3) — alimenta scheduler.
-  registrarRotasBLLSalas(app, db);
+  R('BLLSalas', () => registrarRotasBLLSalas(app, db));
   // Config individual do monitor de chat por portal (palavras-chave + Telegram).
   require('./chat-monitor-routes').registrarRotasChatMonitor(app, db);
   // Portal de Compras Públicas — sessão autenticada + listagem de Seus Pregões / Sessões Públicas.
-  registrarRotasPcp(app, db);
+  R('Pcp', () => registrarRotasPcp(app, db));
   // Robô SC (cotacao.licitacao.sc.gov.br) — credenciais, sessão, sync (participações/disputa/chat).
-  registrarRotasSC(app, db, { enviarTelegram });
-  registrarRotasRobo(app, db);
-  registrarRotasTracking(app, db);
-  registrarRotasProposta(app, db);
-
+  R('SC', () => registrarRotasSC(app, db, { enviarTelegram }));
+  R('Robo', () => registrarRotasRobo(app, db));
+  R('Tracking', () => registrarRotasTracking(app, db));
+  R('Proposta', () => registrarRotasProposta(app, db));
   // ==================== SYNC / PDF / ADMIN / CHAT LEITURA ====================
-  registrarRotasSync(app, db, { pncpSync });
-  registrarRotasPdf(app, db);
-  registrarRotasAdmin(app, db, { getConfigValue, setConfigValue });
-  registrarRotasChatLeitura(app, db);
-
+  R('Sync', () => registrarRotasSync(app, db, { pncpSync }));
+  R('Pdf', () => registrarRotasPdf(app, db));
+  R('Admin', () => registrarRotasAdmin(app, db, { getConfigValue, setConfigValue }));
+  R('ChatLeitura', () => registrarRotasChatLeitura(app, db));
   // ==================== CREDENCIAIS GOV.BR + CHAT (leitura) ====================
   // Monitoramento server-side via Puppeteer foi removido em 2026-04-22:
   // captura de mensagens agora é 100% feita pelo Electron standalone
   // (envia via /api/sync/mensagens-global). Estas rotas apenas leem/editam
   // o estado já persistido e a config gov.br do tenant.
-  registrarRotasGovBr(app, { getConfigValue, setConfigValue });
-  registrarRotasChatMonitoramento(app, db);
-  registrarRotasChatMensagens(app, db);
-  registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram });
+  R('GovBr', () => registrarRotasGovBr(app, { getConfigValue, setConfigValue }));
+  R('ChatMonitoramento', () => registrarRotasChatMonitoramento(app, db));
+  R('ChatMensagens', () => registrarRotasChatMensagens(app, db));
+  R('ParticipacaoMonitoramento', () => registrarRotasParticipacaoMonitoramento(app, db, { enviarTelegram }));
+
+  // Devolve o que falhou, para o provisionamento decidir o que fazer.
+  return { falhasDeMigracao };
 }
 
 module.exports = { registerProtectedRoutes };

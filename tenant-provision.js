@@ -65,27 +65,79 @@ function applyRouteMigrations(tenantDb, tenantMeta = {}) {
     try { attachCatalog(tenantDb); } catch (_) { /* best-effort */ }
   }
 
-  // Faz DUAS passadas — a ordem em route-registry.js tem dependências
-  // implícitas (cobrancas-routes tenta ALTER em pessoas criada por
-  // financeiro-routes que vem depois). Na 1ª passada, erros são
-  // silenciados. Na 2ª, todas as tabelas já existem e os ALTERs
-  // pendentes rodam.
-  for (const pass of [1, 2]) {
+  /**
+   * Três passadas, com isolamento por módulo (2026-09-11).
+   *
+   * ANTES: duas passadas, e um único try/catch em volta de
+   * `registerProtectedRoutes`. A primeira exceção abortava a cadeia e todos os
+   * módulos seguintes ficavam sem criar as tabelas deles — o tenant nascia com
+   * ~277 tabelas em vez de ~374 e `POST /api/pedidos` respondia 500
+   * (relatório 14 §1.5).
+   *
+   * AGORA: `isolarFalhasDeMigracao` faz o registry embrulhar cada módulo no
+   * seu próprio try/catch e devolver a lista do que falhou. Um módulo quebrado
+   * não impede os outros 123.
+   *
+   * Por que TRÊS passadas e não duas: as dependências de ordem são
+   * encadeadas — o módulo A cria a tabela que o B altera, e o B cria a que o C
+   * usa. Com duas, a terceira camada da cadeia ainda ficava para trás. A
+   * passada extra custa segundos, só no provisionamento, e o critério de
+   * parada é objetivo: se uma passada não deixa nenhuma falha nova, as
+   * seguintes não teriam o que fazer.
+   */
+  let falhas = [];
+  for (const pass of [1, 2, 3]) {
     const app = express();
+    falhas = [];
     try {
       tenantStorage.run(
         { kind: 'tenant', tenant: tenantMeta, db: tenantDb },
         () => {
           try {
-            registerProtectedRoutes(app, deps);
+            const r = registerProtectedRoutes(app, { ...deps, isolarFalhasDeMigracao: true });
+            falhas = (r && r.falhasDeMigracao) || [];
           } catch (err) {
-            console.warn(`[tenant-provision pass${pass}] ${err.message}`);
+            // Com isolamento ligado isto não deveria acontecer — se acontecer,
+            // é falha fora dos módulos (o próprio registry), e precisa aparecer.
+            console.error(`[tenant-provision pass${pass}] falha FORA dos módulos: ${err.message}`);
           }
         }
       );
     } catch (err) {
       console.warn(`[tenant-provision pass${pass} storage] ${err.message}`);
     }
+    if (!falhas.length) break;   // nada mais a resolver nas próximas passadas
+  }
+
+  /**
+   * A terceira camada de migrations: a do BOOT LOOP do server.js.
+   *
+   * Alguns módulos não migram no registro — o comentário deles diz o motivo
+   * ("contra o proxy seria no-op"). Em vez disso, `server.js:140-149` itera os
+   * tenants no boot e chama `migrarSchema(tdb)` de cada um. O provisionamento
+   * **não fazia isso**, e por isso um tenant novo nascia sem
+   * `faturas.faturaOrigemId`, `fatura_itens.valorDesconto` e o schema do
+   * espelho de devolução (relatório 15).
+   *
+   * A lista é a mesma do boot, e é curta de propósito: se um módulo novo passar
+   * a migrar por lá, precisa entrar aqui também. Enquanto a duplicação existir,
+   * os dois pontos têm de ser lidos juntos.
+   */
+  for (const [modulo, metodo] of [
+    ['./boleto-orchestrator', 'migrarSchema'],
+    ['./devolucao-compra', 'migrarSchema'],
+    ['./devolucao-venda', 'migrarSchema'],
+    ['./marketplaces-ml', 'migrarSchemaTenant'],
+  ]) {
+    try { require(modulo)[metodo](tenantDb); }
+    catch (err) { console.warn(`[tenant-provision] ${modulo}.${metodo}: ${err.message}`); }
+  }
+
+  // As falhas que sobreviveram às três passadas são reais: dependência que não
+  // se resolve por ordem. Ficam visíveis em vez de silenciosas.
+  if (falhas.length) {
+    console.warn(`[tenant-provision] ${falhas.length} módulo(s) com falha de migração:`);
+    for (const f of falhas) console.warn(`  - ${f.modulo}: ${f.erro}`);
   }
 
   // criarUsuarioInicial: cria users/audit_log/sessions + admin user +
@@ -93,7 +145,42 @@ function applyRouteMigrations(tenantDb, tenantMeta = {}) {
   try { criarUsuarioInicial(tenantDb); }
   catch (err) { console.warn('[tenant-provision] criarUsuarioInicial falhou:', err.message); }
 
+  /**
+   * Segunda passada do db-schema — DEPOIS que os módulos E o criarUsuarioInicial
+   * criaram as tabelas deles (2026-09-11, relatório 15).
+   *
+   * `db-schema.js` acumula dezenas de migrations de compatibilidade escritas
+   * para tenants que JÁ EXISTIAM: `ALTER TABLE contas_a_receber ADD COLUMN
+   * parcelaNumero`, `fatura_itens ADD COLUMN valorDesconto`, e assim por
+   * diante. Só que `contas_a_receber` nasce em financeiro-routes e
+   * `fatura_itens` em faturas-routes — os dois rodam DEPOIS. No provisionamento
+   * de um tenant novo a ordem é o inverso da histórica: **212 ALTERs caíam em
+   * "no such table"** e eram engolidos pelo `alterSafe`. As colunas nunca
+   * nasciam, e `initSchema` roda uma vez só — as passadas de rota não o
+   * repetem.
+   *
+   * Roda por ÚLTIMO de propósito: `users` só nasce em `criarUsuarioInicial`
+   * (auth.js), e os ALTERs de `users` do db-schema precisam dela no lugar.
+   *
+   * Rodar `initSchema` de novo, agora com as tabelas no lugar, resolve a classe
+   * inteira de uma vez — em vez de mover 212 ALTERs, um a um, para 40 módulos
+   * diferentes.
+   *
+   * É seguro porque `initSchema` é idempotente por construção (`CREATE TABLE IF
+   * NOT EXISTS`, `alterSafe`, seeds com guarda). Verificado em execução:
+   * rodando duas vezes num banco limpo, **nenhuma das 199 tabelas muda de
+   * contagem de linhas**.
+   */
+  try {
+    const { initSchema } = require('./db-schema');
+    initSchema(tenantDb);
+  } catch (err) {
+    console.warn('[tenant-provision] 2ª passada do db-schema falhou:', err.message);
+  }
+
+
   tenantDb.pragma('foreign_keys = ON');
+  return { falhasDeMigracao: falhas };
 }
 
 module.exports = { applyRouteMigrations };

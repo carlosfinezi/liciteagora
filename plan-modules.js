@@ -32,6 +32,11 @@ const MODULE_SLUGS = [
   'patrimonio',                  // Ativo imobilizado: bens, depreciacao, baixas
   'comunicacao',                 // Envio para clientes/fornecedores, log de e-mails, auditoria
   'otica',                       // Vertical: armacoes, lentes, receitas, ordens de montagem
+  'restaurante',                 // Vertical: salao/comanda, KDS, ficha tecnica/CMV, delivery, iFood
+  'farmacia',                    // Vertical: drogaria — cadastro CMED, lote/FEFO, receita/344, SNGPC
+  'posto',                       // Vertical: posto de combustivel — tanques/bombas/bicos, turno, LMC (ANP 884/2022)
+  'locacao',                     // Vertical: locadora de bens moveis — tarifario, disponibilidade por periodo, vistoria, caucao
+  'producao',                 // Vertical: fabrica de pre-moldados — ficha tecnica, ordem de producao, apontamento por equipe, controle tecnologico, patio/romaneio, medicao de obra
   'api_rest_externa',            // API REST para integracoes externas
   'sso',                         // SSO via LDAP/SAML
   'ssl_nicsrs',                  // Add-on: compra e ciclo de vida de SSL na NicSRS. Fora de todo tier — so por override (hoje: 1bit).
@@ -142,6 +147,11 @@ const PLAN_MATRIX = {
       'patrimonio',
       'comunicacao',
       'otica',                   // vertical disponivel sob consulta
+      'restaurante',             // vertical disponivel sob consulta
+      'farmacia',                // vertical disponivel sob consulta (depende de varejo + fiscal_nfe_completo + produtos_estoque_completo)
+      'posto',                   // vertical disponivel sob consulta (fase 1: gestao + LMC; fiscal e automacao de bomba vem depois)
+      'locacao',                 // vertical disponivel sob consulta (depende de produtos_estoque_completo + contratos_os)
+      'producao',             // vertical disponivel sob consulta (depende de produtos_estoque_completo + rh para o homem-hora do ponto)
       'api_rest_externa',
       'sso',
       'governanca',

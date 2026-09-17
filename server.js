@@ -53,6 +53,46 @@ if (MULTI_TENANT) {
   // no ramo `allowWithoutTenant` via checagem de req.tenantCtx.kind.
   app.use(ctx.middleware);
 
+  /* ========================================================================
+     IDENTIFICAÇÃO DO TENANT ABERTO
+     ========================================================================
+     Auditoria de 2026-09-12: o isolamento entre tenants está correto — cada um
+     tem banco, usuários e sessões próprios, resolvidos pelo subdomínio, e uma
+     sessão de um tenant é recusada em qualquer outro (provado em
+     `test-isolamento-tenant.js`).
+
+     O que faltava era VISIBILIDADE: nada na tela dizia de qual empresa era a
+     sessão aberta. Quem tem acesso a mais de um tenant não tinha como conferir
+     onde estava, e um relato de "o login abriu sempre a mesma empresa" não
+     tinha como ser verificado por quem usa.
+
+     ⚠️ A resposta sai do CONTEXTO DO SERVIDOR (`req.tenant`, populado pelo
+     middleware a partir do Host), e NUNCA de parâmetro, corpo ou cabeçalho
+     enviado pelo navegador. Não há como pedir a identidade de outro tenant:
+     a rota não aceita argumento nenhum.
+
+     Pública de propósito — a tela de login precisa dela ANTES de autenticar,
+     que é justamente onde confirmar a empresa tem mais valor. Devolve só slug
+     e nome; o slug já está visível no endereço.
+     ===================================================================== */
+  app.get('/api/tenant-atual', (req, res) => {
+    const ctxTenant = req.tenantCtx || {};
+    if (ctxTenant.kind === 'apex' || ctxTenant.kind === 'admin') {
+      return res.json({ success: true, tenant: null, contexto: ctxTenant.kind });
+    }
+    if (!req.tenant) {
+      return res.status(404).json({ success: false, error: 'Empresa não identificada neste endereço.' });
+    }
+    res.json({
+      success: true,
+      tenant: {
+        slug: req.tenant.slug,
+        nome: req.tenant.name || req.tenant.slug,
+        status: req.tenant.status || null,
+      },
+    });
+  });
+
   // Feature-gate por modulo (Fase 2B) — DESATIVADO em 2026-05-21 apos 2
   // tentativas causarem travamento prolongado. Causa raiz nao identificada
   // (talvez interacao com sync PNCP pesado). Tabelas plan_modules e

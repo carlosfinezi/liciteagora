@@ -26,7 +26,7 @@ const { agendarCobrancas } = require('./cobranca-scheduler');
 const { agendarPollingBoletos } = require('./financeiro-routes');
 const { agendarPollingBoletosAsaas } = require('./boleto-orchestrator');
 const { iniciarReconciliadorS6 } = require('./nfse-routes');
-const { sincronizarInboxNfe } = require('./nfe-entrada-routes');
+const { sincronizarInboxNfe, notasComPrazoCritico, marcarAvisoPrazo, PRAZO_MANIFESTACAO_DIAS } = require('./nfe-entrada-routes');
 const { sendTelegram } = require('./telegram-client');
 // Mesmo dispatcher usado pela API: o sweep de SLA precisa notificar pelas
 // regras configuradas, não só gravar o evento e mandar Telegram fixo.
@@ -200,6 +200,50 @@ function ligarJobsPorTenant() {
       try { agendarAlertasDisputa(db, t); } catch (err) { console.error(`[master][${t.slug}] vigia-disputa:`, err.message); }
     });
   }
+}
+
+// ==================== iFOOD: POLLING DE PEDIDOS (módulo Restaurante) ====================
+//
+// A recomendação do iFood é chamar events:polling a cada 30s. Espaçar mais faz
+// a plataforma entender que o merchant não responde e FECHAR a loja dele.
+//
+// Só toca tenant que tem o canal `ifood` ATIVO em rest_canais_integracao —
+// quem não usa o módulo não paga nada por este job. O ciclo inteiro é
+// tolerante a falha: erro de um tenant não derruba os outros nem o scheduler.
+const IFOOD_POLLING_INTERVAL_MS = 30 * 1000;
+
+async function cicloPollingIfood() {
+  const tenants = _listTenantsSafe();
+  for (const t of tenants) {
+    let db;
+    try { db = mgr.getDb(t.slug); }
+    catch (_) { continue; }
+    try {
+      // Consulta barata que evita carregar o módulo para quem não usa.
+      const canal = db.prepare(
+        "SELECT ativo FROM rest_canais_integracao WHERE canal = 'ifood'"
+      ).get();
+      if (!canal || !canal.ativo) continue;
+    } catch (_) { continue; }   // tenant sem a tabela: módulo nunca ativado
+
+    try {
+      const { cicloPolling } = require('./restaurante/ifood-routes');
+      const r = await cicloPolling(db);
+      if (r && r.novos) {
+        console.log(`[master][${t.slug}] iFood: ${r.novos} evento(s), ${r.comandas.length} pedido(s) novo(s)`);
+      }
+      if (r && r.erro) console.error(`[master][${t.slug}] iFood:`, r.erro);
+    } catch (err) {
+      console.error(`[master][${t.slug}] iFood polling:`, err.message);
+    }
+  }
+}
+
+function ligarPollingIfood() {
+  setInterval(() => {
+    cicloPollingIfood().catch(e => console.error('[master] ifood-polling:', e.message));
+  }, IFOOD_POLLING_INTERVAL_MS);
+  console.log(`[master] iFood: polling a cada ${IFOOD_POLLING_INTERVAL_MS / 1000}s (só tenants com o canal ativo)`);
 }
 
 // ==================== SYNC DIÁRIO: Participações → Funil CRM ====================
@@ -830,13 +874,48 @@ function ligarExpiracaoTenants() {
 // ==================== DISTRIBUIÇÃO DFe NF-e (2026-04-23) ====================
 //
 // Baixa XMLs de NF-e destinadas ao CNPJ do tenant via `NFeDistribuicaoDFe`
-// (SEFAZ). Roda a cada 6h em cada tenant ACTIVE/TRIAL que tenha certificado
+// (SEFAZ). Roda a cada 65min em cada tenant ACTIVE/TRIAL que tenha certificado
 // A1 válido. Só popula o inbox — **não manifesta ciência automaticamente**
 // (a manifestação segue manual por tela, preservando a decisão do usuário
 // de aceitar/desconhecer a operação). Objetivo: não perder a janela de
 // 10 dias da SEFAZ sem XMLs baixados.
 
-const DFE_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h
+// 65min, não 60: a SEFAZ exige 1h entre consultas que voltam 137, e o
+// sincronizarInboxNfe segura essa janela. Marcar exatamente 60min deixaria
+// todo ciclo na borda, sendo pulado pela guarda. Os 5min de folga fazem o
+// ciclo cair sempre depois da liberação.
+const DFE_INTERVAL_MS = 65 * 60 * 1000;
+
+// Janela de aviso do prazo de manifestação: avisa faltando ESTE tanto de dias
+// ou menos. 3 dias dá folga para achar o XML, conferir a nota e decidir —
+// avisar no último dia é avisar tarde.
+const PRAZO_AVISO_DIAS = 3;
+
+// Aviso de NF-e prestes a perder o prazo de manifestação. Roda junto do ciclo
+// de download, no mesmo tenant que acabou de sincronizar. Cada nota avisa uma
+// vez (avisoPrazoEm), então o custo é zero quando não há novidade.
+async function avisarPrazoManifestacao(t, db) {
+  let notas;
+  try { notas = notasComPrazoCritico(db, PRAZO_AVISO_DIAS); }
+  catch (_) { return; }
+  if (!notas || !notas.length) return;
+
+  const total = notas.reduce((s, n) => s + (Number(n.valorTotal) || 0), 0);
+  const linhas = notas.map(n =>
+    `• NF-e ${n.numeroNF}/${n.serie} — ${n.emitenteRazaoSocial || 'emitente'} — R$ ${(Number(n.valorTotal) || 0).toFixed(2)} — ${n.diasParaManifestar === 0 ? 'VENCE HOJE' : `faltam ${n.diasParaManifestar} dia(s)`}`
+  ).join('\n');
+  const body = `${notas.length} NF-e aguardando manifestação, prazo de ${PRAZO_MANIFESTACAO_DIAS} dias acabando (total R$ ${total.toFixed(2)}):\n\n${linhas}\n\nManifestador: /fiscal/manifestador.html`;
+
+  try {
+    const { enviarAlerta } = require('./notificacoes-dispatcher');
+    await tenantStorage.run({ kind: 'tenant', tenant: t, db }, () =>
+      enviarAlerta(db, { subject: 'NF-e prestes a perder o prazo de manifestação', body, logTag: 'PrazoNFe' }));
+    marcarAvisoPrazo(db, notas.map(n => n.chaveAcesso));
+    console.log(`[master][${t.slug}] Prazo NF-e: avisou ${notas.length} nota(s)`);
+  } catch (err) {
+    console.error(`[master][${t.slug}] Prazo NF-e:`, err.message);
+  }
+}
 
 async function cicloDistDFe() {
   const tenants = _listTenantsSafe();
@@ -846,13 +925,21 @@ async function cicloDistDFe() {
     catch (_) { continue; }
 
     try {
-      const cert = db.prepare(`SELECT valor FROM config WHERE chave = 'nfe_certificado_arquivo'`).get();
+      // O A1 vive em certificado_digital (é de lá que o nfe-emit carrega o pfx).
+      // A chave config.nfe_certificado_arquivo que este guard checava antes não
+      // existe em tenant nenhum — o ciclo pulava todos e nunca baixou uma nota.
+      const cert = db.prepare(`SELECT 1 FROM certificado_digital WHERE certificadoBase64 IS NOT NULL LIMIT 1`).get();
       if (!cert) continue;
     } catch (_) { continue; }
 
     try {
       const r = await tenantStorage.run({ kind: 'tenant', tenant: t, db }, () => sincronizarInboxNfe(db));
-      if (r.novos > 0) {
+      await avisarPrazoManifestacao(t, db);
+      if (r.aguardando) {
+        if (r.cStat === '656') {
+          console.warn(`[master][${t.slug}] DistDFe: bloqueado por consumo indevido, libera em ${Math.ceil(r.esperarSegundos/60)}min`);
+        }
+      } else if (r.novos > 0) {
         console.log(`[master][${t.slug}] DistDFe: +${r.novos} novo(s) XML(s) no inbox (ultNSU=${r.ultNSU})`);
       }
     } catch (err) {
@@ -866,7 +953,7 @@ function ligarDistDFeInbox() {
   // 1ª execução 2min após boot, depois a cada 6h
   setTimeout(() => { cicloDistDFe().catch(e => console.error('[master] DistDFe inicial:', e.message)); }, 2 * 60 * 1000);
   setInterval(() => { cicloDistDFe().catch(e => console.error('[master] DistDFe:', e.message)); }, DFE_INTERVAL_MS);
-  console.log(`[master] DistDFe NF-e: download automático a cada ${DFE_INTERVAL_MS/3600000}h (ciência NÃO é automática)`);
+  console.log(`[master] DistDFe NF-e: download automático a cada ${DFE_INTERVAL_MS/60000}min (ciência NÃO é automática)`);
 }
 
 // ==================== SHUTDOWN ====================
@@ -1103,6 +1190,7 @@ try {
   ligarDistDFeInbox();
   ligarRetryParticipacoes();
   ligarSincronizacaoFunil();
+  ligarPollingIfood();
   ligarExpiracaoTenants();
   ligarReconciliarInteresse();
   ligarResolverCompraIds();
