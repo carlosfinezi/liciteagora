@@ -11,7 +11,9 @@
 #
 # O --catalogo-full NUNCA entra na rotina — é chamada manual, sob demanda.
 #
-# Nada aqui apaga: nem banco, nem backup antigo. Restaurar não é rotina.
+# Não apaga banco. Dos backups, mantém só os $RETENCAO conjuntos mais recentes:
+# sem isso a pasta ia a 24 GB em 15 dias e derrubava o backup do Hestia por falta
+# de espaço (26/08/2026). Restaurar não é rotina.
 # Roda como root (os DBs são do carlosfinezi; o catálogo sai via `sudo -u postgres`).
 
 set -euo pipefail
@@ -19,6 +21,7 @@ set -euo pipefail
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$RAIZ/backups/db/$(date +%Y-%m-%d-%H%M)"
 DONO="carlosfinezi:carlosfinezi"
+RETENCAO=10
 CATALOGO_FULL=0
 [ "${1:-}" = "--catalogo-full" ] && CATALOGO_FULL=1
 
@@ -80,7 +83,19 @@ fi
 
 chown -R "$DONO" "$DEST"
 
+# --- Retenção: no máximo os RETENCAO conjuntos mais recentes -----------------
+# O conjunto desta rodada acabou de ser criado, então entra na contagem.
+
+echo "[retenção] mantendo os $RETENCAO conjuntos mais recentes"
+mapfile -t VELHOS < <(ls -1t "$RAIZ/backups/db" | tail -n +$((RETENCAO + 1)))
+for velho in "${VELHOS[@]}"; do
+  [ -n "$velho" ] && [ -d "$RAIZ/backups/db/$velho" ] || continue
+  rm -rf -- "${RAIZ:?}/backups/db/${velho:?}"
+  echo "  removido $velho"
+done
+echo
+
 echo "total desta rodada: $(du -sh "$DEST" | cut -f1)"
-echo "conjuntos em backups/db (nada é apagado automaticamente):"
+echo "conjuntos em backups/db:"
 du -sh "$RAIZ"/backups/db/*/ 2>/dev/null | sort -k2
 echo "livre em disco: $(df -h "$RAIZ" | awk 'NR==2 {print $4}')"
