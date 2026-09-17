@@ -373,6 +373,24 @@ function lerOsAutomatica(db, contrato) {
   };
 }
 
+// Notas avulsas emitidas para este contrato (nfse.contratoId).
+//
+// É 1:N de propósito, ao contrário do vínculo de recorrência: contrato anual
+// com vigência trienal fatura três vezes, e cada faturamento é uma nota nova.
+// Nada aqui substitui a recorrência — um contrato pode ter as duas coisas.
+function notasDoContrato(db, contratoId) {
+  try {
+    return db.prepare(`
+      SELECT id, nNFSe, nDPS, serie, chaveAcesso, tomadorRazaoSocial, descricaoServico,
+             valorServico, dataCompetencia, status, dataCriacao
+      FROM nfse WHERE contratoId = ? ORDER BY id DESC
+    `).all(contratoId);
+  } catch (_) {
+    // Tenant sem o módulo de NFSe, ou base anterior à coluna contratoId.
+    return null;
+  }
+}
+
 function registrarRotasContratos(app, db) {
   migrarDB(db);
 
@@ -451,6 +469,7 @@ function registrarRotasContratos(app, db) {
       }
       const itens = itensComEmissoes(db, c);
       res.json({ success: true, contrato: c, eventos, recorrencia, itens,
+                 notasAvulsas: notasDoContrato(db, c.id),
                  osAutomatica: lerOsAutomatica(db, c), mesesVigencia: mesesDeVigencia(c) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -930,6 +949,116 @@ function registrarRotasContratos(app, db) {
 
       logAction(db, req, 'desvincular', 'contrato', c.id, { recorrenciaNfseId: anterior });
       res.json({ success: true, recorrenciaNfseId: anterior });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  // ==================== NOTAS AVULSAS DO CONTRATO ====================
+  //
+  // A recorrência acima só sabe faturar mês a mês: o scheduler roda dia 1 e a
+  // competência é YYYY-MM. Contrato anual não cabe nela, e hoje são 5 dos 6
+  // contratos do 1bit. Aqui o faturamento é a NFSe avulsa de /fiscal/nfse.html,
+  // emitida quando chega a data, ligada ao contrato que a originou.
+  //
+  // Sem evento no histórico do contrato, pelo mesmo motivo da OS automática:
+  // vincular não é fato comercial novo, é rastro. O log de auditoria guarda
+  // quem fez, e a lista de notas é o próprio histórico de faturamento.
+
+  /** Notas já emitidas para o cliente deste contrato e ainda sem contrato. */
+  app.get('/api/contratos/:id/nfse-disponiveis', (req, res) => {
+    try {
+      const c = db.prepare(`
+        SELECT c.*, p.cpfCnpj AS clienteCpfCnpj, p.razaoSocial AS clienteNome
+        FROM contratos c JOIN pessoas p ON p.id = c.clienteId WHERE c.id = ?
+      `).get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Contrato não encontrado' });
+
+      const doc = String(c.clienteCpfCnpj || '').replace(/\D/g, '');
+      let notas = [];
+      try {
+        // Só o mesmo CNPJ. Nota de outro tomador não pertence a este contrato,
+        // e oferecê-la na lista convidaria ao erro de vincular a nota errada.
+        notas = db.prepare(`
+          SELECT id, nNFSe, nDPS, serie, tomadorRazaoSocial, descricaoServico,
+                 valorServico, dataCompetencia, status, dataCriacao
+          FROM nfse
+          WHERE contratoId IS NULL
+            AND REPLACE(REPLACE(REPLACE(REPLACE(tomadorCpfCnpj,'.',''),'/',''),'-',''),' ','') = ?
+          ORDER BY id DESC LIMIT 100
+        `).all(doc);
+      } catch (_) { /* tenant sem o módulo de NFSe */ }
+
+      res.json({
+        success: true,
+        contrato: { id: c.id, numero: c.numero, clienteNome: c.clienteNome,
+                    clienteCpfCnpj: doc, valorMensal: c.valorMensal, periodicidade: c.periodicidade },
+        notas,
+      });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/contratos/:id/vincular-nfse', (req, res) => {
+    try {
+      const c = db.prepare(`
+        SELECT c.*, p.cpfCnpj AS clienteCpfCnpj, p.razaoSocial AS clienteNome
+        FROM contratos c JOIN pessoas p ON p.id = c.clienteId WHERE c.id = ?
+      `).get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Contrato não encontrado' });
+
+      const nfseId = Number(req.body?.nfseId);
+      if (!nfseId) return res.status(400).json({ success: false, error: 'nfseId obrigatório' });
+
+      let nota;
+      try {
+        nota = db.prepare('SELECT id, nNFSe, nDPS, contratoId, tomadorCpfCnpj, tomadorRazaoSocial, valorServico FROM nfse WHERE id = ?').get(nfseId);
+      } catch (_) {
+        return res.status(400).json({ success: false, error: 'Módulo de NFSe não disponível neste tenant' });
+      }
+      if (!nota) return res.status(404).json({ success: false, error: 'NFSe não encontrada' });
+
+      if (nota.contratoId && nota.contratoId !== c.id) {
+        const outro = db.prepare('SELECT numero FROM contratos WHERE id = ?').get(nota.contratoId);
+        return res.status(409).json({ success: false,
+          error: `Essa nota já pertence ao contrato ${outro ? outro.numero : '#' + nota.contratoId}. Desvincule lá antes.` });
+      }
+
+      // CNPJ diferente é recusa sem escape: a nota saiu no nome de outro
+      // tomador, e pendurá-la aqui faria o contrato exibir um faturamento que
+      // não é dele.
+      const docNota = String(nota.tomadorCpfCnpj || '').replace(/\D/g, '');
+      const docCliente = String(c.clienteCpfCnpj || '').replace(/\D/g, '');
+      if (docNota !== docCliente) {
+        return res.status(409).json({ success: false,
+          error: `A nota foi emitida para "${nota.tomadorRazaoSocial}" e o contrato é de "${c.clienteNome}".` });
+      }
+
+      db.prepare('UPDATE nfse SET contratoId = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(c.id, nfseId);
+      logAction(db, req, 'vincular-nfse', 'contrato', c.id, { nfseId, nNFSe: nota.nNFSe || null });
+      res.json({ success: true, nfseId });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.delete('/api/contratos/:id/vincular-nfse/:nfseId', (req, res) => {
+    try {
+      const c = db.prepare('SELECT id FROM contratos WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Contrato não encontrado' });
+
+      const nfseId = Number(req.params.nfseId);
+      let nota;
+      try {
+        nota = db.prepare('SELECT id, contratoId, nNFSe FROM nfse WHERE id = ?').get(nfseId);
+      } catch (_) {
+        return res.status(400).json({ success: false, error: 'Módulo de NFSe não disponível neste tenant' });
+      }
+      if (!nota) return res.status(404).json({ success: false, error: 'NFSe não encontrada' });
+      if (nota.contratoId !== c.id) {
+        return res.status(400).json({ success: false, error: 'Essa nota não está vinculada a este contrato' });
+      }
+
+      // Só solta o vínculo. A nota segue emitida e a conta a receber dela
+      // segue de pé — mexer nisso seria cancelar faturamento por engano.
+      db.prepare('UPDATE nfse SET contratoId = NULL, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(nfseId);
+      logAction(db, req, 'desvincular-nfse', 'contrato', c.id, { nfseId, nNFSe: nota.nNFSe || null });
+      res.json({ success: true, nfseId });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 

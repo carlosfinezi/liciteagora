@@ -1632,6 +1632,14 @@ _seedNfse.run('proximo_numero', '1');
 alterSafe(db, 'ALTER TABLE nfse ADD COLUMN cNBS TEXT');
 alterSafe(db, 'ALTER TABLE nfse ADD COLUMN xNBS TEXT');
 
+// Contrato de origem da nota avulsa. Espelha o nfse.osId: a nota nasce
+// carimbada quando emitida a partir do contrato, e é 1:N porque contrato
+// trienal com faturamento anual rende três notas ao longo da vigência.
+// Não substitui a recorrência (contratos.recorrenciaNfseId) — os dois modos
+// convivem, e um contrato mensal pode ter uma nota extra pontual.
+alterSafe(db, 'ALTER TABLE nfse ADD COLUMN contratoId INTEGER');
+alterSafe(db, 'CREATE INDEX IF NOT EXISTS idx_nfse_contrato ON nfse(contratoId)');
+
 // Migração: adicionar coluna 'tipo' na tabela grupos_palavras se não existir
 try {
   // Verificar se coluna existe

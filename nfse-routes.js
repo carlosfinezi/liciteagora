@@ -442,7 +442,7 @@ function limparCacheMunicipio(db, codMunicipio) {
  * @returns {object} { success, nfse: { id, idDps, nDPS, serie, chaveAcesso, nNFSe, status, resposta }, conta, boleto, error }
  */
 async function emitirNfseInterno(db, params) {
-  const { tomador, servico, competencia, incluirIM, opSimpNac, regEspTrib, pTotTribSN, gerarBoleto, dataVencimentoBoleto, osId, contaFinanceiraId } = params;
+  const { tomador, servico, competencia, incluirIM, opSimpNac, regEspTrib, pTotTribSN, gerarBoleto, dataVencimentoBoleto, osId, contratoId, contaFinanceiraId } = params;
 
   // Validacoes
   if (!tomador || !tomador.cpfCnpj || !tomador.razaoSocial) {
@@ -581,6 +581,14 @@ async function emitirNfseInterno(db, params) {
   // Phase 2: quando emitido a partir de uma OS, liga a nota à OS
   if (osId) {
     try { db.prepare('UPDATE nfse SET osId = ? WHERE id = ?').run(osId, nfseId); }
+    catch (_) {}
+  }
+
+  // Emissão nascida da tela do contrato: carimba a origem para o bloco
+  // "Notas deste contrato" achar a nota depois. O vínculo é só rastro — a
+  // conta a receber segue o fluxo normal de nota avulsa.
+  if (contratoId) {
+    try { db.prepare('UPDATE nfse SET contratoId = ? WHERE id = ?').run(contratoId, nfseId); }
     catch (_) {}
   }
 
@@ -907,8 +915,26 @@ function registrarRotasNfse(app, db) {
   app.post('/api/nfse/emitir', async (req, res) => {
     try {
       const _e = getEstabelecimentoAtivo(db, req);
+
+      // Origem "tela do contrato": o id chega pela query da URL, então é dado
+      // de fora. Contrato inexistente vira erro aqui, e não uma nota emitida
+      // com vínculo pendurado em nada.
+      let contratoId = null;
+      if (req.body.contratoId) {
+        contratoId = Number(req.body.contratoId);
+        let existe = null;
+        // Tenant sem o módulo de contratos: a tabela não existe, e o SELECT
+        // estouraria como erro 500 sem dizer o que houve.
+        try { existe = db.prepare('SELECT id FROM contratos WHERE id = ?').get(contratoId); }
+        catch (_) { return res.status(400).json({ success: false, error: 'Módulo de contratos não disponível neste tenant' }); }
+        if (!existe) {
+          return res.status(404).json({ success: false, error: `Contrato #${req.body.contratoId} não encontrado` });
+        }
+      }
+
       const resultado = await emitirNfseInterno(db, {
         estabelecimentoId: (_e && !_e.matriz) ? _e.id : null,
+        contratoId,
         tomador: req.body.tomador,
         servico: req.body.servico,
         competencia: req.body.competencia,

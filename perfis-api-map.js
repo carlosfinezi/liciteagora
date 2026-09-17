@@ -74,7 +74,10 @@ const MAPA = {
   '/api/contas-a-pagar':         ['aprovacoes', 'contas-a-pagar', 'fin-adiantamentos', 'fin-lotes-pagamento', 'fin-renegociacoes'],
   '/api/contas-a-receber':       ['contas-a-receber', 'contratos', 'crm-funil', 'equipamentos', 'fin-adiantamentos', 'fin-renegociacoes', 'ordens-servico', 'os-relatorios', 'pedidos-compra'],
   '/api/contas-financeiras':     ['adquirentes-cartao', 'aprovacoes', 'comissoes', 'conciliacao-bancaria', 'contas-a-pagar', 'contas-a-receber', 'contas-financeiras', 'contratos', 'cp-recorrencias', 'crm-funil', 'equipamentos', 'fin-adiantamentos', 'fin-conciliacao-regras', 'fin-lotes-pagamento', 'fluxo-caixa', 'ordens-servico', 'os-relatorios', 'pedidos-compra'],
-  '/api/contratos':              ['aprovacoes', 'comercial-vendas-perdidas', 'compras-necessidades', 'compras-sugestao', 'contratos', 'estoque-reservas', 'loja', 'pedidos', 'pedidos-compra', 'ssl-certificados'],
+  // 'nfse' entrou em 2026-09-17: a tela de emissão passou a ler o contrato de
+  // origem quando chamada com ?contratoId=N. Sem esta linha, quem tem perfil
+  // restrito à emissão recebe 403 e a nota sai sem o vínculo.
+  '/api/contratos':              ['aprovacoes', 'comercial-vendas-perdidas', 'compras-necessidades', 'compras-sugestao', 'contratos', 'estoque-reservas', 'loja', 'nfse', 'pedidos', 'pedidos-compra', 'ssl-certificados'],
   '/api/conversas':              ['conversas'],
   '/api/cotacao-publica':        ['compras-cotacoes'],
   '/api/cotacoes':               ['compras-cotacoes'],

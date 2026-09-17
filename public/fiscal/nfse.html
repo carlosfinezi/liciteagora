@@ -37,6 +37,12 @@
 
             <div id="alertBox" class="alert"></div>
 
+            <!-- Emissão chamada pela tela do contrato (?contratoId=N): a nota
+                 sai carimbada com ele, e quem está emitindo precisa saber
+                 disso antes de clicar. -->
+            <div id="avisoContrato" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:6px;
+                 background:var(--bg-1);border:1px solid var(--border);font-size:13px;"></div>
+
             <!-- Formulário de emissão -->
             <div class="page-section">
                 <!-- Tomador -->
@@ -224,13 +230,64 @@
         // ==================== STATE ====================
         let configAtual = {};
         let prestadorAtual = null;
+        let contratoOrigem = null;
 
         // ==================== INIT ====================
         document.addEventListener('DOMContentLoaded', () => {
             carregarConfig();
             // Data competencia default = hoje
             document.getElementById('servCompetencia').value = new Date().toISOString().slice(0, 10);
+            carregarContratoOrigem();
         });
+
+        // ==================== ORIGEM: CONTRATO ====================
+        //
+        // A tela do contrato manda para cá com ?contratoId=N. Aqui só se
+        // preenche o formulario: quem confere o codigo de tributacao e a
+        // competencia continua sendo quem emite. O vinculo viaja no payload e
+        // e' gravado pelo backend no momento da emissao.
+        async function carregarContratoOrigem() {
+            const cid = new URLSearchParams(location.search).get('contratoId');
+            if (!cid) return;
+            try {
+                const resp = await fetch('/api/contratos/' + encodeURIComponent(cid));
+                const data = await resp.json();
+                if (!data.success) {
+                    mostrarAlerta('Contrato #' + cid + ': ' + data.error, 'error');
+                    return;
+                }
+                contratoOrigem = data.contrato;
+
+                // Endereco e e-mail do tomador vem do cadastro da pessoa; o
+                // detalhe do contrato so traz nome e CNPJ.
+                let preencheu = false;
+                try {
+                    const rp = await fetch('/api/pessoas/' + contratoOrigem.clienteId);
+                    const dp = await rp.json();
+                    if (dp.success) { preencherTomador(dp.pessoa); preencheu = true; }
+                } catch (_) { /* cai no preenchimento minimo abaixo */ }
+                if (!preencheu) {
+                    document.getElementById('tomaCpfCnpj').value = contratoOrigem.clienteCpfCnpj || '';
+                    document.getElementById('tomaRazaoSocial').value = contratoOrigem.clienteNome || '';
+                }
+
+                // Em contrato anual, `valorMensal` guarda o valor do ANO — e o
+                // que se fatura de uma vez e' justamente o valor do periodo.
+                document.getElementById('servDescricao').value = contratoOrigem.descricao || '';
+                document.getElementById('servValor').value = Number(contratoOrigem.valorMensal || 0).toFixed(2);
+
+                const periodo = contratoOrigem.periodicidade === 'anual' ? 'valor anual' : 'valor mensal';
+                const el = document.getElementById('avisoContrato');
+                el.innerHTML = 'Esta nota sera vinculada ao contrato <strong>' + escHtml(contratoOrigem.numero) + '</strong> ('
+                    + escHtml(contratoOrigem.clienteNome || '') + ', ' + periodo + ' R$ '
+                    + Number(contratoOrigem.valorMensal || 0).toFixed(2) + '). '
+                    + 'Valor e descricao vieram dele e podem ser ajustados antes de emitir. '
+                    + '<a href="/comercial/contrato.html?id=' + encodeURIComponent(cid) + '">Voltar ao contrato</a>';
+                el.style.display = '';
+            } catch (error) {
+                mostrarAlerta('Erro ao carregar o contrato: ' + error.message, 'error');
+            }
+        }
 
         // ==================== CONFIG ====================
         async function carregarConfig() {
@@ -374,7 +431,8 @@
 
             const ambiente = configAtual.ambiente;
             const ambLabel = (ambiente === '1' || ambiente === 1) ? 'PRODUCAO' : 'HOMOLOGACAO';
-            if (!confirm('Emitir NFSe em ' + ambLabel + '?\n\nTomador: ' + razaoSocial + '\nValor: R$ ' + valor.toFixed(2))) return;
+            const linhaContrato = contratoOrigem ? '\nContrato: ' + contratoOrigem.numero : '';
+            if (!confirm('Emitir NFSe em ' + ambLabel + '?\n\nTomador: ' + razaoSocial + '\nValor: R$ ' + valor.toFixed(2) + linhaContrato)) return;
 
             btn.disabled = true;
             btn.textContent = 'Emitindo...';
@@ -413,6 +471,7 @@
                 competencia: document.getElementById('servCompetencia').value || undefined,
                 gerarBoleto: document.getElementById('gerarBoleto').checked,
                 dataVencimentoBoleto: document.getElementById('dataVencimentoBoleto').value || undefined,
+                contratoId: contratoOrigem ? contratoOrigem.id : undefined,
             };
 
             try {

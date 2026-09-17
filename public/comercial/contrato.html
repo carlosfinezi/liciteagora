@@ -54,6 +54,13 @@
       <h3 style="margin-top:18px;">Faturamento (NFSe Recorrente)</h3>
       <div id="faturamento" class="muted">Carregando…</div>
 
+      <!-- Notas avulsas: o caminho do contrato anual, que não cabe na
+           recorrência mensal acima. Some em tenant sem o módulo de NFSe. -->
+      <div id="secNotas" style="display:none;">
+        <h3 style="margin-top:18px;">Notas avulsas deste contrato</h3>
+        <div id="notasAvulsas" class="muted">Carregando…</div>
+      </div>
+
       <!-- Só aparece em tenant com o módulo de OS: o backend devolve
            osAutomatica = null quando não há os_tipos. -->
       <div id="secOsAuto" style="display:none;">
@@ -100,6 +107,25 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharVincular()">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarVincular()">Vincular</button>
+    </div>
+  </div>
+</div>
+
+<!-- Vincular NFSe avulsa já emitida -->
+<div class="modal-bg" id="modalVincularNfse">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">Vincular nota já emitida</h3>
+      <button class="btn btn-ghost btn-sm" onclick="fecharVincularNfse()" style="font-size:1.2em;padding:4px 10px;">×</button>
+    </div>
+    <p class="muted" style="font-size:13px;margin-bottom:10px;" id="vincNfseResumo"></p>
+    <div id="vincNfseLista" style="max-height:340px;overflow:auto;"></div>
+    <p class="muted" style="font-size:12px;margin-top:12px;">
+      Só aparecem notas do CNPJ deste cliente que ainda não pertencem a contrato nenhum.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharVincularNfse()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarVincularNfse()">Vincular</button>
     </div>
   </div>
 </div>
@@ -334,6 +360,7 @@ async function carregar(){
   renderItens(d.itens || [], d.mesesVigencia || 12);
   carregarAnexos();
   renderFaturamento(d.recorrencia);
+  renderNotasAvulsas(d.notasAvulsas);
   renderOsAutomatica(d.osAutomatica);
   renderEventos(d.eventos);
   // toggle suspender/reativar
@@ -1008,6 +1035,123 @@ async function desvincular(){
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
   showAlert('Recorrência desvinculada');
+  carregar();
+}
+
+// ==================== NOTAS AVULSAS DO CONTRATO ====================
+//
+// A recorrência acima fatura mês a mês. Contrato anual fatura por nota avulsa,
+// uma por período, e contrato trienal com faturamento anual rende três. Por
+// isso aqui é lista, e não um vínculo único.
+
+function badgeStatusNfse(st){
+  const cls = st === 'autorizada' ? 'entrada'
+            : (st === 'cancelada' || st === 'rejeitada') ? 'inativo' : 'pendente';
+  return `<span class="badge ${cls}">${escapeHtml(st||'—')}</span>`;
+}
+
+function renderNotasAvulsas(notas){
+  const sec = document.getElementById('secNotas');
+  const el = document.getElementById('notasAvulsas');
+  if (!sec || !el) return;
+  // null = tenant sem o módulo de NFSe.
+  if (!notas) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+
+  const botoes = `
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+      <a class="btn btn-primary btn-sm" href="/fiscal/nfse.html?contratoId=${id}">Emitir NFS-e deste contrato →</a>
+      <button class="btn btn-secondary btn-sm" onclick="abrirVincularNfse()">Vincular nota já emitida</button>
+    </div>`;
+
+  if (!notas.length){
+    el.innerHTML = `
+      <div class="muted" style="font-size:13px;padding:12px;border:1px dashed #2a3a5c;border-radius:6px;">
+        Nenhuma nota vinculada a este contrato.
+        ${botoes}
+      </div>`;
+    return;
+  }
+
+  const total = notas.reduce((s, n) => s + (Number(n.valorServico) || 0), 0);
+  el.innerHTML = `
+    <table style="width:100%;font-size:13px;">
+      <tr><th style="text-align:left;">Nota</th><th style="text-align:left;">Competência</th>
+          <th style="text-align:right;">Valor</th><th></th><th></th></tr>
+      ${notas.map(n => {
+        const num = n.nNFSe ? `nº ${escapeHtml(n.nNFSe)}` : `DPS ${escapeHtml(String(n.nDPS||'—'))}`;
+        // A tela fiscal não abre nota por id — o que ela aceita é o filtro.
+        const link = n.nNFSe
+          ? `<a href="/fiscal/notas-fiscais.html?tipo=nfse&busca=${encodeURIComponent(n.nNFSe)}">abrir</a>`
+          : '';
+        return `<tr>
+          <td>${num}<br><small class="muted">${escapeHtml(n.descricaoServico||'')}</small></td>
+          <td>${escapeHtml(n.dataCompetencia||'—')}</td>
+          <td style="text-align:right;">${fmtBRL(n.valorServico)}</td>
+          <td>${badgeStatusNfse(n.status)}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            ${link}
+            <button class="btn btn-ghost btn-sm" onclick="desvincularNfse(${n.id})">Desvincular</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      <tr><td colspan="2" class="muted">Total vinculado</td>
+          <td style="text-align:right;"><strong>${fmtBRL(total)}</strong></td><td></td><td></td></tr>
+    </table>
+    ${botoes}`;
+}
+
+let notasDisp = [];
+
+async function abrirVincularNfse(){
+  const r = await fetch(`/api/contratos/${id}/nfse-disponiveis`);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  notasDisp = d.notas || [];
+  if (!notasDisp.length){
+    return showAlert('Nenhuma nota livre emitida para este cliente. Emita a nota primeiro.','error');
+  }
+  document.getElementById('vincNfseResumo').textContent =
+    `${notasDisp.length} nota(s) emitida(s) para ${d.contrato.clienteNome} e ainda sem contrato.`;
+  document.getElementById('vincNfseLista').innerHTML = notasDisp.map(n => {
+    const num = n.nNFSe ? `nº ${escapeHtml(n.nNFSe)}` : `DPS ${escapeHtml(String(n.nDPS||'—'))}`;
+    return `<label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid #2a3a5c;
+                 border-radius:6px;margin-bottom:8px;cursor:pointer;">
+      <input type="radio" name="vincNfse" value="${n.id}" style="margin-top:3px;">
+      <span style="flex:1;">
+        <strong>${num} · ${fmtBRL(n.valorServico)}</strong>
+        <span style="display:block;font-size:12px;color:#888;margin-top:2px;">
+          ${escapeHtml(n.descricaoServico||'sem descrição')} · competência ${escapeHtml(n.dataCompetencia||'—')}
+        </span>
+        <span style="display:block;margin-top:4px;">${badgeStatusNfse(n.status)}</span>
+      </span>
+    </label>`;
+  }).join('');
+  document.getElementById('modalVincularNfse').classList.add('open');
+}
+
+function fecharVincularNfse(){ document.getElementById('modalVincularNfse').classList.remove('open'); }
+
+async function confirmarVincularNfse(){
+  const sel = document.querySelector('input[name="vincNfse"]:checked');
+  if (!sel) return showAlert('Selecione uma nota','error');
+  const r = await fetch(`/api/contratos/${id}/vincular-nfse`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ nfseId: Number(sel.value) })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  fecharVincularNfse();
+  showAlert('Nota vinculada ao contrato');
+  carregar();
+}
+
+async function desvincularNfse(nfseId){
+  if (!confirm('Soltar esta nota do contrato?\n\nA nota segue emitida e a cobrança dela continua de pé — sai apenas a ligação com este contrato.')) return;
+  const r = await fetch(`/api/contratos/${id}/vincular-nfse/${nfseId}`, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Nota desvinculada');
   carregar();
 }
 

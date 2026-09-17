@@ -429,9 +429,16 @@ function onBusca(){
 // O menu e o redirect de /fiscal/nfse-emitidas.html chegam com ?tipo=nfse.
 // Sem isso o usuário cairia em "Todas" e acharia que o filtro não funcionou.
 function aplicarTipoDaUrl(){
-  const t = new URLSearchParams(location.search).get('tipo');
+  const p = new URLSearchParams(location.search);
+  const t = p.get('tipo');
   const sel = document.getElementById('fTipo');
   if (t && sel && [...sel.options].some(o => o.value === t)) sel.value = t;
+  // A lista de notas do contrato aponta para cá pelo número da nota: sem levar
+  // a busca junto, o link cairia na lista inteira e a nota teria de ser
+  // procurada à mão.
+  const b = p.get('busca');
+  const busca = document.getElementById('fBusca');
+  if (b && busca) busca.value = b;
 }
 
 async function carregarTiposOperacao(){

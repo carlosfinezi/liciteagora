@@ -4,6 +4,66 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-17 (tarde)
+
+**O contrato passa a faturar por nota avulsa.** Até aqui o bloco "Faturamento"
+da tela do contrato só sabia vincular recorrência NFSe, e a recorrência é
+mensal por construção: o `recorrencia-scheduler` roda dia 1 e a competência é
+`YYYY-MM`. Contrato anual não cabe nela, e são **5 dos 6 contratos do 1bit**.
+Na prática aquele bloco era uma porta fechada para quase todos.
+
+Agora o contrato tem, abaixo da recorrência, a lista das notas avulsas ligadas
+a ele, com duas portas: emitir uma nota nova a partir do contrato, e vincular
+uma nota que já foi emitida.
+
+- **Emitir** abre a tela de sempre, `/fiscal/nfse.html?contratoId=N`, já
+  preenchida: tomador do cadastro da pessoa (com endereço e e-mail), descrição
+  e valor do contrato. Código de tributação e competência continuam sendo
+  conferidos por quem emite, e o número do contrato aparece na confirmação. A
+  nota nasce carimbada com `nfse.contratoId`, espelhando o `nfse.osId` que a OS
+  já usava. **Não existe botão que emita direto na SEFAZ** a partir do
+  contrato: emissão não volta atrás, o cancelamento tem prazo e motivo, e o
+  contrato não guarda código de tributação nem município de prestação.
+- **Vincular** lista as notas do mesmo CNPJ ainda sem contrato. Nota de outro
+  tomador é recusada, e nota que já pertence a outro contrato é recusada
+  citando o número dele.
+
+O vínculo é **1:N**, ao contrário do 1:1 da recorrência: contrato trienal com
+faturamento anual rende três notas ao longo da vigência. Recorrência e notas
+avulsas **convivem** no mesmo contrato, sem bloqueio — um contrato mensal pode
+ter uma nota extra pontual.
+
+Desvincular só solta a ligação. A nota segue emitida e a conta a receber dela
+segue de pé.
+
+### Duas suítes novas, e por que a de tela existe
+
+`test-contrato-nfse-avulsa.js` (16 casos) prende as rotas: o 1:N, as duas
+recusas, o CNPJ com máscara que precisa casar mesmo assim, e que desvincular
+não toca na nota. `test-contrato-nfse-ui.js` (7 casos) sobe Chrome headless e
+mede altura e visibilidade — existir no DOM não prova que aparece. A segunda
+foi sabotada de propósito, em memória, para confirmar que reprova quando o
+bloco quebra. Entram como etapas 107 e 108.
+
+O `perfis-api-map.js` ganhou o perfil `nfse` em `/api/contratos`: o mapa é
+fail-closed, e sem essa linha quem tem perfil restrito à emissão tomaria 403 ao
+abrir a tela com `?contratoId=`.
+
+### Verify
+
+**109 etapas, zero falhas, 2.210,5s** (36min50) — é o primeiro número real da
+rodada de 106 etapas, que estava só estimado em ~32 min. A rodada anterior
+morreu na etapa 27 junto com a sessão que a disparou, sem falha nenhuma até
+ali; esta foi relançada desacoplada, com `setsid`.
+
+### O que ficou de fora deste commit
+
+A árvore tinha, ao mesmo tempo, trabalho de outra sessão em voo (conversas,
+WhatsApp, horário de atendimento, tema) e a frente de SSL ainda pendente. Nada
+disso entrou aqui — este commit é só o faturamento do contrato por nota avulsa.
+O `CLAUDE.md` também ficou de fora pelo mesmo motivo: a versão em disco mistura
+a nota desta frente com a da outra.
+
 ## 2026-09-17
 
 O fechamento por frentes aberto em 16/09 chegou ao fim. São **31 commits** que
