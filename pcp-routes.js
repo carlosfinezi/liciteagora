@@ -39,6 +39,15 @@ function marcarKanbanEnviada(tdb, pncp) {
   } catch (e) { console.error('[PCP] marcarKanbanEnviada:', e.message); }
 }
 
+// Editais por LOTE não trazem `itens.result` (vem null) — os itens ficam em
+// lotes.result[].itens. Achatar mantém a mesma ordem da tela do portal.
+function itensDaPaginaApi(j) {
+  if (!j) return [];
+  if (j.itens && Array.isArray(j.itens.result)) return j.itens.result;
+  if (j.lotes && Array.isArray(j.lotes.result)) return j.lotes.result.reduce((a, l) => a.concat(l.itens || []), []);
+  return [];
+}
+
 // Itens via API PÚBLICA do PCP (sem auth) — dá descrição/qtd/unidade e, quando o
 // edital publica, o valorReferencia (o PNCP às vezes traz 0). Paginado (12/página).
 async function fetchPcpApiItens(chave) {
@@ -49,7 +58,8 @@ async function fetchPcpApiItens(chave) {
     });
     if (!r.ok) break;
     const j = await r.json().catch(() => null);
-    const arr = (j && j.itens && j.itens.result) || [];
+    const arr = itensDaPaginaApi(j);
+    if (!arr.length) break;
     out.push(...arr);
     if (arr.length < 12) break;
   }
@@ -138,6 +148,57 @@ function registrarRotasPcp(app, db) {
     }
   });
 
+  // ─── PREGÕES MONITORADOS / SILÊNCIO DO TELEGRAM ──────────────────────────
+  // Silenciar suprime só o alerta Telegram daquele pregão; a captura das
+  // mensagens continua. Mesmo contrato do /api/chat/pregoes/:id/silenciar
+  // do Comprasnet. Chave = chave_id (ttCD_CHAVE).
+
+  // Pregões que o monitor conhece, com o estado de silêncio de cada um.
+  app.get('/api/pcp/pregoes', (req, res) => {
+    try {
+      const tdb = req.tenantDb || db;
+      const rows = tdb.prepare(
+        `SELECT p.chave_id, p.numero, p.unidade, p.objeto, p.situacao, p.ativo,
+                p.atualizado_em,
+                (s.chave_id IS NOT NULL) AS silenciado,
+                (SELECT COUNT(*) FROM pcp_mensagens m WHERE m.chave_id = p.chave_id) AS mensagens
+         FROM pcp_pregoes p
+         LEFT JOIN pcp_pregoes_silenciados s ON s.chave_id = p.chave_id
+         ORDER BY p.ativo DESC, p.atualizado_em DESC`
+      ).all();
+      res.json({ success: true, pregoes: rows });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // Silenciar / reativar o alerta Telegram de um pregão
+  app.post('/api/pcp/pregoes/:chaveId/silenciar', (req, res) => {
+    try {
+      const chave = String(req.params.chaveId || '').trim();
+      if (!/^\d+$/.test(chave)) return res.status(400).json({ success: false, error: 'chave inválida' });
+      (req.tenantDb || db)
+        .prepare('INSERT OR IGNORE INTO pcp_pregoes_silenciados (chave_id) VALUES (?)')
+        .run(chave);
+      res.json({ success: true, silenciado: true });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.delete('/api/pcp/pregoes/:chaveId/silenciar', (req, res) => {
+    try {
+      const chave = String(req.params.chaveId || '').trim();
+      if (!/^\d+$/.test(chave)) return res.status(400).json({ success: false, error: 'chave inválida' });
+      (req.tenantDb || db)
+        .prepare('DELETE FROM pcp_pregoes_silenciados WHERE chave_id = ?')
+        .run(chave);
+      res.json({ success: true, silenciado: false });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   // Forçar 1 ciclo de sync agora (debug / primeira coleta antes do scheduler)
   app.post('/api/pcp/sync', async (req, res) => {
     try {
@@ -203,7 +264,7 @@ function registrarRotasPcp(app, db) {
       const chave = chaveDoLink(row.linkSistemaOrigem);
       if (!chave) return res.json({ success: true, portalPcp: true, chave: null, linkOrigem: row.linkSistemaOrigem, ...base, error: 'não foi possível derivar a chave do link de origem' });
       const datas = await compararDatas(row);
-      res.json({ success: true, portalPcp: true, chave, ...base, ...(datas ? { datas } : {}) });
+      res.json({ success: true, portalPcp: true, chave, urlProcesso: pcpProposta.dpUrl(chave), ...base, ...(datas ? { datas } : {}) });
     } catch (e) { erroProposta(res, e, 'resolver'); }
   });
 
@@ -227,7 +288,7 @@ function registrarRotasPcp(app, db) {
           fabricante: it.fabricante && it.fabricante !== 'N/C' ? it.fabricante : '',
           detalhe: it.detalhe || '', gravado: it.gravado,
         }));
-        return res.json({ success: true, declaracoesSalvas: true, chave: dados.chave, contexto: dados.contexto, itens, ...prefsDeclaracao(tdb) });
+        return res.json({ success: true, declaracoesSalvas: true, chave: dados.chave, contexto: dados.contexto, urlProcesso: dados.urlProcesso, itens, ...prefsDeclaracao(tdb) });
       }
 
       // Prévia (proposta ainda não iniciada no PCP): itens vêm da API PÚBLICA do PCP
@@ -262,12 +323,26 @@ function registrarRotasPcp(app, db) {
       const semRef = itens.length && itens.every((x) => x.valorReferencia == null);
       res.json({
         success: true, declaracoesSalvas: false, chave: dados.chave, contexto: dados.contexto, itens,
+        editalPendente: !!dados.editalPendente, urlProcesso: dados.urlProcesso,
         avisoPreview: !itens.length
           ? 'A proposta ainda não foi iniciada no PCP — os itens serão carregados ao enviar (após salvar as declarações).'
           : (semRef ? 'Itens carregados. Este edital não publica o valor de referência (orçamento sigiloso) — informe os valores manualmente.' : null),
         ...prefsDeclaracao(tdb),
       });
     } catch (e) { erroProposta(res, e, 'itens'); }
+  });
+
+  // Registra o download do aviso/edital (pré-requisito do PCP p/ proposta).
+  // Abre Chrome + NopeCHA e leva ~1 min — por isso é rota própria, chamada pelo
+  // aviso da tela; o envio também tenta sozinho quando encontra o bloqueio.
+  app.post('/api/pcp/proposta/baixar-edital', async (req, res) => {
+    try {
+      const tdb = req.tenantDb || db;
+      const chave = String((req.body || {}).chave || '').trim();
+      if (!/^\d+$/.test(chave)) return res.status(400).json({ success: false, error: 'chave inválida' });
+      const r = await pcpProposta.registrarDownloadEdital(tdb, chave);
+      res.json({ success: !!r.ok, ...r, error: r.ok ? undefined : r.erro });
+    } catch (e) { erroProposta(res, e, 'baixar-edital'); }
   });
 
   app.post('/api/pcp/proposta/preview', async (req, res) => {

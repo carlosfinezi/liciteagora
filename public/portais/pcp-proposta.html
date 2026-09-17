@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Proposta PCP · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -14,12 +15,16 @@
       <small>Carrega a proposta do PCP pela sessão do servidor, revisa valores/marca/descrição e envia. O envio salva as declarações e cada item; o envio real exige confirmação.</small>
     </div>
     <div class="actions">
+      <button class="btn btn-ghost btn-sm" id="btnTrocarEdital" style="display:none;" onclick="abrirEscolha()">Trocar licitação</button>
       <span id="sessaoBadge" class="badge">sessão: —</span>
     </div>
   </div>
 
+  <div id="ctxEdital"></div>
+
   <div id="alertGlobal"></div>
   <div id="avisoDatas"></div>
+  <div id="avisoEdital"></div>
 
   <div class="panel" id="painelEditais">
     <h2>Escolha a licitação</h2>
@@ -40,7 +45,6 @@
 
   <div class="panel" id="painelItens" style="display:none;">
     <h2>Itens &amp; valores</h2>
-    <div id="ctxEdital" style="font-size:0.9em; color:var(--text-2); margin-bottom:10px;"></div>
     <div id="declInfo" style="margin-bottom:10px; font-size:0.85em; color:var(--text-2);"></div>
     <div id="statusEnvio"></div>
     <div class="tbl-wrap">
@@ -116,6 +120,63 @@ function atualizarStatusEnvio(jaEnviada, gravados, total) {
   }
 }
 
+// Identificação do edital: quem resolve o pncp sabe órgão/objeto, e a tela do
+// portal sabe número/modalidade/situação — as duas metades vivem aqui para que
+// nenhuma sobrescreva a outra, e a chave + link permitem achar o processo no PCP.
+let currentEdital = { orgao: '', objeto: '', chave: '', urlProcesso: '' };
+function renderCtx(portalCtx) {
+  const e = currentEdital;
+  const el = document.getElementById('ctxEdital');
+  if (!e.orgao && !e.chave && !portalCtx) { el.innerHTML = ''; return; }
+  const chips = [];
+  if (portalCtx) for (const [k, v] of Object.entries(portalCtx)) chips.push('<strong>' + escapeHtml(k) + ':</strong> ' + escapeHtml(v));
+  if (e.chave) chips.push('<strong>chave PCP:</strong> ' + escapeHtml(e.chave));
+  el.innerHTML =
+    '<div class="panel" style="padding:12px 14px; margin-bottom:10px;">' +
+    (e.orgao ? '<div style="font-weight:600;">📄 ' + escapeHtml(e.orgao) + '</div>' : '') +
+    (e.objeto ? '<div style="font-size:0.85em; color:var(--text-2); margin-top:3px;">' + escapeHtml(e.objeto.slice(0, 220)) + (e.objeto.length > 220 ? '…' : '') + '</div>' : '') +
+    (chips.length ? '<div style="font-size:0.85em; color:var(--text-2); margin-top:6px;">' + chips.join(' · ') + '</div>' : '') +
+    (e.urlProcesso ? '<div style="margin-top:8px;"><a class="btn btn-ghost btn-sm" href="' + escapeHtml(e.urlProcesso) + '" target="_blank" rel="noopener">Abrir este processo no PCP</a></div>' : '') +
+    '</div>';
+}
+
+// O PCP só aceita proposta depois que a empresa registra o download do
+// aviso/edital (com captcha, na página do processo). Sem isso a tela de
+// proposta vem vazia — o aviso abaixo diz onde destravar.
+function avisoEditalPendente(url) {
+  const el = document.getElementById('avisoEdital');
+  if (!url) { el.innerHTML = ''; return; }
+  el.innerHTML =
+    '<div style="padding:12px 14px; border-radius:var(--r-sm); background:rgba(245,158,11,0.14); border-left:4px solid #b45309; color:#b45309; margin-bottom:10px;">' +
+    '<strong>⚠️ O portal ainda não registrou o download do edital desta licitação.</strong>' +
+    '<div style="margin-top:6px; font-weight:400;">O PCP exige o download do aviso/edital antes de aceitar proposta, esclarecimento ou impugnação — e esse download pede captcha.</div>' +
+    '<div style="margin-top:8px;">' +
+    '<button class="btn btn-primary btn-sm" id="btnBaixarEdital" onclick="baixarEdital()">Registrar o download agora</button>' +
+    '<a class="btn btn-ghost btn-sm" style="margin-left:8px;" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">Abrir o processo no PCP</a>' +
+    '<button class="btn btn-ghost btn-sm" style="margin-left:8px;" onclick="carregarItens()">Já baixei — recarregar</button>' +
+    '</div></div>';
+}
+
+// O download é feito no servidor (Chrome + resolvedor de captcha) e leva ~1 min.
+async function baixarEdital() {
+  const btn = document.getElementById('btnBaixarEdital');
+  if (btn) { btn.disabled = true; btn.textContent = 'Registrando (leva ~1 min)…'; }
+  try {
+    const r = await fetch(API + '/api/pcp/proposta/baixar-edital', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chave: urlInput() }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao registrar o download');
+    avisoEditalPendente(null);
+    alerta('Download do edital registrado no PCP. Carregando os itens…', 'ok');
+    await carregarItens();
+  } catch (e) {
+    alerta('Não consegui registrar o download: ' + escapeHtml(e.message) + ' — use o botão "Abrir o processo no PCP" e baixe o aviso à mão.', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = 'Registrar o download agora'; }
+  }
+}
+
 function fmtBR(n) { return (Number(n) || 0).toFixed(2).replace('.', ','); }
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function toggleManual() { const p = document.getElementById('painelManual'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
@@ -162,7 +223,17 @@ async function carregarSessao() {
   } catch (e) { document.getElementById('sessaoBadge').textContent = 'sessão: erro'; }
 }
 
+// Chegando com a licitação já definida na URL, o painel de escolha só empurra
+// os itens para baixo — fica escondido atrás do botão "Trocar licitação".
+let editaisCarregados = false;
+function abrirEscolha() {
+  document.getElementById('painelEditais').style.display = '';
+  document.getElementById('btnTrocarEdital').style.display = 'none';
+  if (!editaisCarregados) carregarEditais();
+}
+
 async function carregarEditais() {
+  editaisCarregados = true;
   const cont = document.getElementById('listaEditais');
   cont.textContent = 'Carregando…';
   try {
@@ -188,7 +259,8 @@ async function carregarEditais() {
       b.onclick = () => {
         document.getElementById('inpUrl').value = b.getAttribute('data-chave');
         currentPncp = b.getAttribute('data-pncp') || null;
-        document.getElementById('ctxEdital').innerHTML = '📄 <strong>' + escapeHtml(b.getAttribute('data-org')) + '</strong>';
+        currentEdital = { orgao: b.getAttribute('data-org') || '', objeto: '', chave: b.getAttribute('data-chave') || '', urlProcesso: '' };
+        renderCtx(null);
         // Com o pncp, passa pelo resolver p/ também conferir as datas PNCP × PCP.
         if (currentPncp) resolverPorPncp(currentPncp); else carregarItens();
       };
@@ -209,11 +281,12 @@ async function carregarItens() {
     itensCarregados = d.itens || [];
     currentChave = d.chave || currentChave;
     currentPrefs = { epp: !!d.epp, validade: d.validade || 60 };
+    avisoEditalPendente(d.editalPendente ? d.urlProcesso : null);
 
     const ctx = d.contexto || {};
-    if (Object.keys(ctx).length) {
-      document.getElementById('ctxEdital').innerHTML = Object.entries(ctx).map(([k, v]) => '<strong>' + escapeHtml(k) + ':</strong> ' + escapeHtml(v)).join(' · ');
-    }
+    currentEdital.chave = d.chave || currentEdital.chave;
+    currentEdital.urlProcesso = d.urlProcesso || currentEdital.urlProcesso;
+    renderCtx(Object.keys(ctx).length ? ctx : null);
     const declTxt = (d.declaracoesSalvas
       ? '✅ Declarações já salvas no PCP. '
       : '📝 A proposta ainda <strong>não foi iniciada</strong> no PCP — ao enviar, as declarações serão salvas primeiro. ');
@@ -302,6 +375,7 @@ async function enviar() {
       await carregarItens(); // recarrega → banner verde "já enviada" + linhas gravadas
       return;
     }
+    if (d.code === 'PCP_EDITAL_NAO_BAIXADO') avisoEditalPendente((d.detalhe && d.detalhe.urlProcesso) || null);
     mostrarResultado('err', '⚠️ <strong>Não confirmou o envio.</strong><br>' + escapeHtml(d.error || d.mensagem || 'veja os detalhes técnicos'), d);
   } catch (e) { mostrarResultado('err', '⚠️ <strong>Erro de rede.</strong><br>' + escapeHtml(e.message), {}); }
   finally { if (!sucesso) { btn.disabled = false; btn.textContent = '⚠️ Enviar proposta ao PCP'; } }
@@ -336,13 +410,22 @@ async function resolverPorPncp(pncp) {
     const r = await fetch(API + '/api/pcp/proposta/resolver?pncp=' + encodeURIComponent(pncp));
     const d = await r.json();
     if (!d.success) throw new Error(d.error || 'falha');
-    if (!d.portalPcp) { ctx.innerHTML = '⚠ ' + (d.error || 'não é PCP') + (d.portalOrigem ? ' (origem: ' + d.portalOrigem + ')' : ''); return; }
-    if (!d.chave) { ctx.innerHTML = '⚠ ' + (d.error || 'sem chave derivável'); return; }
+    if (!d.portalPcp) { falhaResolver((d.error || 'não é PCP') + (d.portalOrigem ? ' (origem: ' + d.portalOrigem + ')' : '')); return; }
+    if (!d.chave) { falhaResolver(d.error || 'sem chave derivável'); return; }
     document.getElementById('inpUrl').value = d.chave;
-    ctx.innerHTML = '📄 <strong>' + escapeHtml(d.orgao || '') + '</strong> — ' + escapeHtml((d.objeto || '').slice(0, 160)) + '…';
+    currentEdital = { orgao: d.orgao || '', objeto: d.objeto || '', chave: d.chave, urlProcesso: d.urlProcesso || '' };
+    renderCtx(null);
     mostrarAvisoDatas(d.datas);
     await carregarItens();
-  } catch (e) { ctx.innerHTML = '⚠ auto-resolução falhou: ' + escapeHtml(e.message) + '. Informe a chave manualmente.'; }
+  } catch (e) { falhaResolver('auto-resolução falhou: ' + e.message); }
+}
+
+// Sem edital resolvido não há o que preencher: reabre a escolha (que está
+// escondida quando se chega pela URL) e mostra o motivo onde dá para ver.
+function falhaResolver(msg) {
+  document.getElementById('ctxEdital').innerHTML = '⚠ ' + escapeHtml(msg);
+  alerta('⚠ ' + escapeHtml(msg) + ' — escolha a licitação na lista ou informe a chave manualmente.', 'warn');
+  abrirEscolha();
 }
 
 // Editar a chave/URL manualmente desassocia o edital (perde o pncp p/ referência).
@@ -353,9 +436,12 @@ document.querySelector('#tblItens tbody').addEventListener('input', salvarRascun
 
 (function () {
   const q = new URLSearchParams(location.search);
-  carregarEditais();
-  if (q.get('pncp')) resolverPorPncp(q.get('pncp'));
-  else if (q.get('chave')) { document.getElementById('inpUrl').value = q.get('chave'); carregarItens(); }
+  if (q.get('pncp') || q.get('chave')) {
+    document.getElementById('painelEditais').style.display = 'none';
+    document.getElementById('btnTrocarEdital').style.display = '';
+    if (q.get('pncp')) resolverPorPncp(q.get('pncp'));
+    else { document.getElementById('inpUrl').value = q.get('chave'); carregarItens(); }
+  } else carregarEditais();
 })();
 carregarSessao();
 </script>

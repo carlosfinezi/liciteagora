@@ -310,6 +310,11 @@ async function sincronizarPcp(db, opts = {}) {
     `UPDATE pcp_pregoes SET ultimo_chat_id = ?, atualizado_em = ? WHERE chave_id = ?`
   );
 
+  // Silenciados pelo usuário: captura segue, só o Telegram é suprimido.
+  const silenciados = new Set(
+    db.prepare('SELECT chave_id FROM pcp_pregoes_silenciados').all().map((r) => r.chave_id)
+  );
+
   for (const preg of ativos) {
     try {
       const url = `${APIPCP_BASE}/fornecedor/processo/${preg.chave_id}/chat?ultimaMsg=${preg.ultimo_chat_id}`;
@@ -333,6 +338,7 @@ async function sincronizarPcp(db, opts = {}) {
         .sort((a, b) => a.idNum - b.idNum);
 
       const ehBootstrap = bootstrapBitmap.has(preg.chave_id);
+      const mudo = silenciados.has(preg.chave_id);
       let maxId = preg.ultimo_chat_id;
 
       for (const m of novas) {
@@ -349,7 +355,7 @@ async function sincronizarPcp(db, opts = {}) {
         // Mensagens "Sistema" SÃO enviadas — no PCP os avisos acionáveis do
         // pregoeiro (proposta readequada, inabilitação, arrematante, recurso,
         // sessão finalizada) chegam todos com remetente "Sistema".
-        if (enviarTelegram && !ehBootstrap) {
+        if (enviarTelegram && !ehBootstrap && !mudo) {
           const texto =
             `📢 <b>PCP — ${htmlEscape(preg.numero)}</b>\n` +
             `${htmlEscape((preg.unidade || '').slice(0, 80))}\n` +

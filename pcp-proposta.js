@@ -19,11 +19,13 @@
 
 const { fetchPcpHtml, postPcpForm } = require('./pcp-client');
 const { migratePcpSchema } = require('./pcp-schema');
+const { registrarDownloadEdital } = require('./pcp-edital-download');
 
 const OPERACAO_BASE = 'https://operacao.portaldecompraspublicas.com.br';
 const RP_PATH = '/4/Pregoes/RegistroProposta/';
 const RI_PATH = '/4/Pregoes/RegistroProposta/RegistroItem/';
 const CD_PATH = '/4/Pregoes/RegistroProposta/CriteriosDesempate/';
+const DP_PATH = '/4/Pregoes/DadosPregao/';
 
 // ─── parsing de HTML (regex, como pcp-client/bnc-proposta) ──────────────────
 
@@ -78,6 +80,19 @@ function chaveDeUrl(urlOuChave) {
 
 function rpUrl(chave) {
   return `${OPERACAO_BASE}${RP_PATH}?ttCD_CHAVE=${encodeURIComponent(chave)}`;
+}
+
+function dpUrl(chave) {
+  return `${OPERACAO_BASE}${DP_PATH}?ttCD_CHAVE=${encodeURIComponent(chave)}`;
+}
+
+// O PCP exige o download REGISTRADO do edital/aviso antes de qualquer
+// manifestação do fornecedor (proposta, esclarecimento, impugnação). Enquanto
+// isso não acontece, /RegistroProposta/ devolve uma página sem form e sem
+// itens — que por fora parece "declarações não liberaram os itens".
+function bloqueadoPorEdital(html) {
+  return /baixar o edital e realizar o registro de propostas/i.test(html)
+    || /Retornar a p[áa]gina de dados do processo/i.test(html);
 }
 
 // Declarações da página (PASSO 1): nomes dos checkboxes + participação + moeda.
@@ -293,6 +308,8 @@ async function carregarItens(db, chaveOuUrl) {
     criterios,
     itens,
     contexto: ctx,
+    editalPendente: bloqueadoPorEdital(html),
+    urlProcesso: dpUrl(chave),
     finalUrl: resp.finalUrl,
   };
 }
@@ -396,6 +413,22 @@ async function enviarProposta(db, opts = {}) {
   }
 
   // ── envio real ──
+  // Pré-requisito do portal: sem o download do aviso/edital registrado, a tela
+  // de proposta nem existe. Tenta registrar sozinho; se não der, o erro diz o
+  // que fazer (antes isso vinha como "declarações não liberaram os itens").
+  if (pagina.editalPendente) {
+    const dl = await registrarDownloadEdital(db, chave).catch((e) => ({ ok: false, erro: e.message }));
+    if (dl.ok) pagina = await carregarItens(db, chave);
+    if (pagina.editalPendente) {
+      const e = new Error('O PCP exige o download do aviso/edital antes de aceitar proposta. '
+        + 'Abra o processo no portal, clique em "Baixar Aviso" (resolvendo o captcha) e envie de novo.'
+        + (dl.ok === false && dl.erro ? ` [tentativa automática: ${dl.erro}]` : ''));
+      e.code = 'PCP_EDITAL_NAO_BAIXADO';
+      e.detalhe = { urlProcesso: pagina.urlProcesso, tentativaAutomatica: dl };
+      throw e;
+    }
+  }
+
   // Avança os passos do wizard até os itens aparecerem. A ordem varia por edital:
   //   declarações (PASSO 1) → [critérios de desempate, em alguns editais] → itens.
   // Cada passo é postado só uma vez; o loop relê a página e segue pro próximo.
@@ -480,6 +513,8 @@ async function enviarProposta(db, opts = {}) {
 module.exports = {
   carregarItens,
   enviarProposta,
+  registrarDownloadEdital,
+  dpUrl, // página do processo no portal (p/ a tela linkar)
   // expostos p/ teste/diagnóstico
   chaveDeUrl,
   formatValorBR,

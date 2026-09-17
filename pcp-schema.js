@@ -38,6 +38,15 @@ function migratePcpSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pcp_mensagens_chave ON pcp_mensagens(chave_id, criado_em DESC);
     CREATE INDEX IF NOT EXISTS idx_pcp_pregoes_ativo ON pcp_pregoes(ativo);
 
+    -- Pregões silenciados pelo usuário: suprime o alerta Telegram dessas
+    -- chaves (a captura de mensagens continua normal). Tabela à parte, e não
+    -- coluna em pcp_pregoes, porque o sync reescreve a linha do pregão a cada
+    -- ciclo — mesmo motivo de chat_pregoes_silenciados no Comprasnet.
+    CREATE TABLE IF NOT EXISTS pcp_pregoes_silenciados (
+      chave_id  TEXT PRIMARY KEY,
+      criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS pcp_propostas (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       chave_id        TEXT NOT NULL UNIQUE,   -- ttCD_CHAVE do processo

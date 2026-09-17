@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Monitor PCP · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -26,22 +27,78 @@
   </div>
 
   <div class="aviso">
-    <h3>⏳ Captura de chat do PCP: pendente de mapeamento</h3>
-    <p>A configuração abaixo (palavras-chave + Telegram) já está ativa e será usada assim que a captura das mensagens do PCP for implementada. O PCP roda em plataforma diferente (Angular/Keycloak), então o protocolo do chat precisa ser mapeado ao vivo numa sala com chat aberto — diferente da via usada em Comprasnet/BLL/BNC.</p>
-    <p>Deixe aqui as palavras-chave e o Telegram deste portal preparados; nada se perde.</p>
+    <h3>Alertas do PCP usam o Telegram global</h3>
+    <p>O monitor lê o chat de cada pregão ativo e avisa no Telegram a cada mensagem nova. O canal usado é o <strong>Telegram global do tenant</strong> (Configurações → Notificações), não um bot próprio deste portal — o painel de configuração no fim da página não controla o que o PCP envia.</p>
+    <p>Para calar um pregão específico sem parar a captura das mensagens, use <strong>Silenciar</strong> na lista abaixo.</p>
   </div>
 
-  <details open style="margin-bottom:14px;">
-    <summary style="cursor:pointer;font-size:.9em;color:var(--accent);padding:6px 0;">⚙️ Configuração deste monitor (palavras-chave + Telegram próprios)</summary>
+  <div class="panel">
+    <h2 style="margin-bottom:10px;">Pregões monitorados</h2>
+    <div id="listaPregoes" style="font-size:0.88em;">carregando…</div>
+  </div>
+
+  <details style="margin-bottom:14px;">
+    <summary style="cursor:pointer;font-size:.9em;color:var(--accent);padding:6px 0;">⚙️ Configuração deste monitor (palavras-chave + Telegram próprios) — não usada pelo PCP</summary>
     <div id="cfgPanel" style="margin-top:10px;"></div>
   </details>
 
 </main></div>
+<script>
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function btnSilenciar(p) {
+  const on = !!p.silenciado;
+  return '<button class="btn btn-sm ' + (on ? 'btn-danger' : 'btn-ghost') + '"' +
+    ' onclick="toggleSilenciar(\'' + escapeHtml(p.chave_id) + '\', this)"' +
+    ' title="' + (on ? 'Silenciado — clique para voltar a receber no Telegram' : 'Recebendo no Telegram — clique para silenciar') + '">' +
+    (on ? icon('x-circle', 'ic-sm') + ' Silenciado' : icon('megaphone', 'ic-sm') + ' Silenciar') +
+    '</button>';
+}
+
+async function carregarPregoes() {
+  const el = document.getElementById('listaPregoes');
+  try {
+    const r = await fetch('/api/pcp/pregoes');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    if (!d.pregoes.length) { el.innerHTML = '<span style="color:var(--text-3)">Nenhum pregão capturado ainda.</span>'; return; }
+    el.innerHTML =
+      '<table><thead><tr><th>Pregão</th><th>Órgão / objeto</th><th>Situação</th><th style="width:90px;">Msgs</th><th style="width:150px;">Telegram</th></tr></thead><tbody>' +
+      d.pregoes.map((p) =>
+        '<tr' + (p.ativo ? '' : ' style="opacity:.55"') + '>' +
+          '<td><a href="https://operacao.portaldecompraspublicas.com.br/4/SessaoPublica/?ttCD_CHAVE=' + encodeURIComponent(p.chave_id) + '" target="_blank" rel="noopener">' + escapeHtml(p.numero || p.chave_id) + ' ↗</a></td>' +
+          '<td>' + escapeHtml((p.unidade || '').slice(0, 70)) + '<br><span style="color:var(--text-3)">' + escapeHtml((p.objeto || '').slice(0, 90)) + '</span></td>' +
+          '<td>' + escapeHtml(p.situacao || '—') + '</td>' +
+          '<td>' + p.mensagens + '</td>' +
+          '<td>' + btnSilenciar(p) + '</td>' +
+        '</tr>'
+      ).join('') + '</tbody></table>';
+  } catch (e) {
+    el.innerHTML = '<span style="color:#c0392b">Erro ao carregar: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+async function toggleSilenciar(chaveId, btn) {
+  const querSilenciar = !/Silenciado/.test(btn.textContent);
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/pcp/pregoes/' + encodeURIComponent(chaveId) + '/silenciar', {
+      method: querSilenciar ? 'POST' : 'DELETE',
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    btn.outerHTML = btnSilenciar({ chave_id: chaveId, silenciado: d.silenciado });
+  } catch (e) {
+    btn.disabled = false;
+    alert('Não deu para mudar: ' + e.message);
+  }
+}
+</script>
 <script src="/js/chat-monitor-config-panel.js"></script>
 <script>renderChatConfigPanel('cfgPanel','pcp');</script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script src="/js/icons.js"></script>
-<script>initSidebar('pcp-monitor');</script>
+<script>initSidebar('pcp-monitor'); carregarPregoes();</script>
 </body>
 </html>

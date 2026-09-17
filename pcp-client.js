@@ -50,6 +50,11 @@ function invalidate(db) {
   cache.delete(dbKey(db));
 }
 
+// Cookies da sessão viva — p/ injetar num Chrome real (pcp-edital-download).
+function getJars(db) {
+  return ensureSession(db);
+}
+
 // ----- HTTP fetcher autenticado, com decode iso-8859-1 e retry-on-expiry -----
 
 async function fetchPcpHtml(db, url, { retryOnExpiry = true } = {}) {
@@ -300,6 +305,7 @@ module.exports = {
   fetchPcpHtml,
   postPcpForm,
   getPcpSessionInfo,
+  getJars,
   invalidate,
   // exposto pra testes
   parsePregaoTable,
