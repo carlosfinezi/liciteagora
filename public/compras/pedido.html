@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pedido de Compra · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -78,6 +79,36 @@
 </main></div>
 
 <!-- Modal Receber -->
+<!-- Vínculo manual de compra da NicSRS. Existe porque comprar no painel e
+     importar antes do ciclo de reconciliação deixa a compra sem dono para
+     sempre: a reconciliação ignora orderNum que já esteja em ssl_certificados,
+     e a importação preenche justamente esse campo. -->
+<div class="modal-bg" id="modalVincNicsrs">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Vincular compra da NicSRS</h3>
+        <small class="muted" id="vnSub"></small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="fecharVincNicsrs()">×</button>
+    </div>
+    <div id="vnAviso" class="muted" style="margin-bottom:10px;"></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Domínio</th><th>Produto</th><th>Ordem</th>
+          <th style="text-align:right;">US$</th><th>Compra</th><th></th>
+        </tr></thead>
+        <tbody id="vnTbody"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <small class="muted">Só aparecem compras que ainda não pertencem a nenhum pedido. O produto precisa ser o mesmo que o pedido registrou.</small>
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="fecharVincNicsrs()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="modalReceber">
   <div class="modal" style="max-width:720px;">
     <div class="modal-header">
@@ -183,6 +214,17 @@ function render(){
   } else if (['enviado','enviado_parcial','recebido_parcial'].includes(pedido.status)) {
     btns += ` <button class="btn btn-primary" onclick="abrirReceber()">Receber</button>`;
     btns += ` <button class="btn btn-danger" onclick="cancelar()">Cancelar</button>`;
+  }
+  // Pedido de certificado: o outro lado da história está na tela de SSL, e sem
+  // este atalho achar o certificado exige lembrar o número do pedido e ir
+  // buscar à mão. A busca de lá aceita o número do PC, então o link é só isso.
+  if ((INTEGRACAO || {}).canal === 'nicsrs') {
+    btns += ` <a class="btn btn-ghost" href="/ssl/certificados.html?q=${encodeURIComponent(pedido.numero)}"`
+      + ` title="Ver o(s) certificado(s) que este pedido paga">Certificados SSL</a>`;
+    if (pedido.status !== 'cancelado' && pedido.status !== 'rascunho') {
+      btns += ` <button class="btn btn-ghost" onclick="abrirVincNicsrs()"`
+        + ` title="Comprou no painel da NicSRS? Aponte aqui qual compra é deste pedido">Vincular compra</button>`;
+    }
   }
   acoes.innerHTML = btns;
 
@@ -330,8 +372,95 @@ async function enviar(){
     }
     return showAlert(d.error, 'error');
   }
+  // Nada transmitido volta como erro HTTP, mas com `integracao` junto: as
+  // falhas trazem a saída (pedir o domínio), que é mais útil que o texto.
+  if (!d.success && d.integracao && (d.integracao.falhas || []).length) {
+    return mostrarFalhasNicsrs(d.integracao);
+  }
   if (!d.success) return showAlert(d.error,'error');
+
+  // Modo 'painel' da NicSRS: não houve compra: o que voltou é a lista do que
+  // comprar lá, com o produto já escolhido. Abrir sozinho em várias abas seria
+  // barrado pelo bloqueador de pop-up, então os links ficam na tela.
+  const integResp = d.integracao;
+
+  // Modo 'console': o pedido JÁ foi criado na NicSRS. O que falta é pagar, e o
+  // link vai direto para a tela de pagamento daquela ordem.
+  if (integResp && integResp.modo === 'console' && (integResp.criadas || []).length) {
+    const alvo = document.getElementById('alertGlobal');
+    if (alvo) {
+      const linhas = integResp.criadas.map(c =>
+        `<div style="margin-top:6px;">Ordem <strong>${c.orderNo}</strong> — ${(c.productName || c.productCode)}`
+        + ` <small class="muted">(${c.anos} ano${c.anos === 1 ? '' : 's'})</small><br>`
+        + `<a href="${c.urlPagamento}" target="_blank" rel="noopener">Pagar na NicSRS →</a></div>`).join('');
+      const errs = (integResp.falhas || []).length
+        ? `<div style="margin-top:8px;color:var(--danger,#b91c1c);">${integResp.falhas.length} falha(s): `
+          + integResp.falhas.map(f => (f.erro || '').replace(/</g, '&lt;')).join('; ') + '</div>'
+        : '';
+      alvo.className = 'alert ' + ((integResp.falhas || []).length ? 'warning' : 'success');
+      alvo.innerHTML = `<strong>${integResp.resumo}</strong>` + linhas + errs
+        + '<div style="margin-top:8px;"><small class="muted">O pedido já existe na NicSRS e está aguardando pagamento. '
+        + 'Depois de pago, o sistema acompanha sozinho até a emissão.</small></div>';
+      alvo.style.display = 'block';
+    }
+    return carregar();
+  }
+
+  if (integResp && integResp.modo === 'api' && (integResp.falhas || []).length) {
+    return mostrarFalhasNicsrs(integResp);
+  }
+
+  if (integResp && integResp.modo === 'painel' && (integResp.pendentes || []).length) {
+    const alvo = document.getElementById('alertGlobal');
+    if (alvo) {
+      const linhas = integResp.pendentes.map((p, i) =>
+        `<div style="margin-top:6px;">${i + 1}. <a href="${p.url}" target="_blank" rel="noopener">`
+        + `Comprar “${(p.productName || p.productCode)}” no painel NicSRS</a>`
+        + ` <small class="muted">(${p.anos} ano${p.anos === 1 ? '' : 's'} · ref ${p.refId})</small></div>`).join('');
+      alvo.className = 'alert warning';
+      alvo.innerHTML = `<strong>${integResp.resumo}</strong>`
+        + linhas
+        + '<div style="margin-top:8px;"><small class="muted">Pague no painel por PayPal/cartão. '
+        + 'Assim que a NicSRS confirmar, o sistema reconhece a compra sozinho pelo número da ordem '
+        + 'e atualiza este pedido — não é preciso anotar nada.</small></div>';
+      alvo.style.display = 'block';
+    }
+    return carregar();
+  }
   showAlert('Enviado'); carregar();
+}
+
+/**
+ * Falhas do modo 'api' da NicSRS.
+ *
+ * Quando a falha é falta de cadastro, o que resolve é criar o certificado —
+ * e isso é feito em Certificados SSL, que tem a ficha inteira. O alerta leva
+ * para lá com o item já amarrado, em vez de pedir os campos pela metade aqui.
+ */
+function mostrarFalhasNicsrs(integResp){
+  const alvo = document.getElementById('alertGlobal');
+  if (!alvo) return carregar();
+  const linhas = (integResp.falhas || []).map(f => {
+    const msg = String(f.erro || '').replace(/</g, '&lt;');
+    if (!f.cadastrarParaItem) {
+      return `<div style="margin-top:6px;"><small class="muted">${f.refId}</small><br>${msg}</div>`;
+    }
+    const it = f.cadastrarParaItem;
+    // O cadastro acontece em Certificados SSL, não aqui: lá estão CSR, SAN,
+    // servidor, método de DCV e contatos. Repetir meia dúzia desses campos no
+    // pedido só dividiria a configuração em dois lugares.
+    return `<div style="margin-top:10px;"><small class="muted">${f.refId}</small><br>${msg}
+      <div style="margin-top:8px;">
+        <a class="btn btn-primary" href="/ssl/certificados.html?novoParaItem=${it}">Cadastrar certificado →</a>
+      </div>
+      <small class="muted">Abre o cadastro já amarrado a este item do contrato, com contrato,
+      cliente e produto preenchidos. Depois de salvar, volte aqui e clique em Comprar.</small>
+    </div>`;
+  }).join('');
+  alvo.className = 'alert ' + ((integResp.compradas || []).length ? 'warning' : 'error');
+  alvo.innerHTML = `<strong>${integResp.resumo}</strong>` + linhas;
+  alvo.style.display = 'block';
+  return carregar();
 }
 
 async function cancelar(){
@@ -378,6 +507,60 @@ function abrirReceber(){
   document.getElementById('modalReceber').classList.add('open');
 }
 function fecharReceber(){ document.getElementById('modalReceber').classList.remove('open'); }
+
+// ==================== vínculo manual de compra NicSRS ====================
+
+function fecharVincNicsrs(){ document.getElementById('modalVincNicsrs').classList.remove('open'); }
+
+// Esta tela não tinha helper de escape: os textos vêm de domínio, produto e
+// número de ordem da NicSRS, que entram na base por importação e não são
+// digitados aqui.
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function abrirVincNicsrs(){
+  document.getElementById('vnSub').textContent = `Pedido ${pedido.numero}`;
+  document.getElementById('vnAviso').textContent = '';
+  document.getElementById('vnTbody').innerHTML = '<tr><td colspan="6" class="empty">Carregando…</td></tr>';
+  document.getElementById('modalVincNicsrs').classList.add('open');
+  try {
+    const r = await fetch('/api/ssl/compras-sem-vinculo');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha ao listar');
+    const tb = document.getElementById('vnTbody');
+    if (!d.compras.length) {
+      tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma compra sem vínculo na conta NicSRS</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.compras.map(c => `<tr>
+      <td>${esc(c.commonName)}</td>
+      <td><small>${esc(c.productName || c.productCode)}</small></td>
+      <td class="mono"><small>${esc(c.orderNum)}</small></td>
+      <td style="text-align:right;">${c.custoUsd != null ? Number(c.custoUsd).toFixed(2) : '—'}</td>
+      <td>${esc(c.dataCompra || '—')}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="vincularCompra(${c.id})">Vincular</button></td>
+    </tr>`).join('');
+  } catch (err) {
+    document.getElementById('vnAviso').textContent = `Falha: ${err.message}`;
+  }
+}
+
+async function vincularCompra(certId){
+  const r = await fetch(`/api/ssl/certificados/${certId}/vincular-pedido-compra`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ pedidoCompraId: PED_ID })
+  });
+  const d = await r.json();
+  if (!d.success) {
+    // O erro mais provável é produto diferente do que o pedido registrou —
+    // vale ficar na tela para a pessoa escolher outra linha.
+    document.getElementById('vnAviso').innerHTML =
+      `<span style="color:var(--danger,#b91c1c);">${esc(d.error)}</span>`;
+    return;
+  }
+  fecharVincNicsrs();
+  showAlert(`Compra vinculada ao pedido ${d.pedido} (${d.via})`);
+  carregar();
+}
 
 async function criarLote(itemId, produtoId){
   const numero = prompt('Número do novo lote:');

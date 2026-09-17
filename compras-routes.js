@@ -491,10 +491,17 @@ function registrarRotasCompras(app, db) {
   app.get('/api/pedidos-compra', (req, res) => {
     try {
       const { status, fornecedorId } = req.query;
+      // O contrato vem por contratoItemId: pedido nascido de um item de
+      // contrato (o caso dos certificados SSL) precisa dizer de qual, senão a
+      // tela lista pedidos idênticos sem como distingui-los.
       let sql = `SELECT pc.*, f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
+                        ct.id AS contratoId, ct.numero AS contratoNumero,
+                        ci.descricao AS contratoItemDescricao,
                         (SELECT COUNT(*) FROM pedido_compra_itens WHERE pedidoCompraId = pc.id) AS qtdItens
                  FROM pedidos_compra pc
                  LEFT JOIN pessoas f ON f.id = pc.fornecedorId
+                 LEFT JOIN contratos_itens ci ON ci.id = pc.contratoItemId
+                 LEFT JOIN contratos ct ON ct.id = ci.contratoId
                  WHERE 1=1`;
       const params = [];
       if (status) { sql += ' AND pc.status = ?'; params.push(status); }
@@ -511,9 +518,13 @@ function registrarRotasCompras(app, db) {
     try {
       const pedido = db.prepare(`
         SELECT pc.*, f.razaoSocial AS fornecedorNome, f.cpfCnpj AS fornecedorCnpj,
-               f.telefone AS fornecedorTelefone, f.email AS fornecedorEmail
+               f.telefone AS fornecedorTelefone, f.email AS fornecedorEmail,
+               ct.id AS contratoId, ct.numero AS contratoNumero,
+               ci.descricao AS contratoItemDescricao
         FROM pedidos_compra pc
         LEFT JOIN pessoas f ON f.id = pc.fornecedorId
+        LEFT JOIN contratos_itens ci ON ci.id = pc.contratoItemId
+        LEFT JOIN contratos ct ON ct.id = ci.contratoId
         WHERE pc.id = ?
       `).get(req.params.id);
       if (!pedido) return res.status(404).json({ success: false, error: 'Pedido de compra nao encontrado' });
@@ -790,8 +801,12 @@ function registrarRotasCompras(app, db) {
         .run(status, req.params.id);
 
       if (resultado && resultado.nenhuma) {
+        // Vai `integracao` junto: as falhas carregam o que a tela precisa para
+        // oferecer a saída (ex.: o item de contrato a cadastrar), e sem isso
+        // sobra só a mensagem concatenada.
         return res.status(400).json({ success: false,
-          error: `Nada foi transmitido — o pedido segue em rascunho. ${(resultado.falhas || []).map(f => f.erro).join('; ')}` });
+          error: `Nada foi transmitido — o pedido segue em rascunho. ${(resultado.falhas || []).map(f => f.erro).join('; ')}`,
+          integracao: resultado });
       }
       res.json({ success: true, status, ...(resultado ? { integracao: resultado } : {}) });
     } catch (err) {

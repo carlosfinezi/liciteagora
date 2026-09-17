@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pedidos de Compra · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -41,13 +42,14 @@
         <th>Número</th>
         <th>Emissão</th>
         <th>Fornecedor</th>
+        <th>Contrato</th>
         <th>Status</th>
         <th style="text-align:right;">Itens</th>
         <th style="text-align:right;">Valor total</th>
         <th>Previsão entrega</th>
         <th></th>
       </tr></thead>
-      <tbody id="tb"><tr><td colspan="9" class="empty">Carregando…</td></tr></tbody>
+      <tbody id="tb"><tr><td colspan="10" class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
 </main></div>
@@ -90,13 +92,16 @@ async function carregar(){
       <td class="mono"><a href="/compras/pedido.html?id=${p.id}"><strong>${p.numero}</strong></a></td>
       <td>${fmtData(p.dataEmissao)}</td>
       <td>${p.fornecedorNome||'<span class="muted">—</span>'}</td>
+      <td>${p.contratoNumero
+            ? `<a href="/comercial/contrato.html?id=${p.contratoId}" title="${p.contratoItemDescricao||''}">${p.contratoNumero}</a>`
+            : '<span class="muted">—</span>'}</td>
       <td><span class="badge ${statusClass}">${p.status.replace('_',' ')}</span></td>
       <td style="text-align:right;">${p.qtdItens||0}</td>
       <td style="text-align:right;font-weight:600;">R$ ${fmt(p.valorTotal)}</td>
       <td>${fmtData(p.dataPrevistaEntrega)}</td>
       <td></td>
     </tr>`;
-  }).join('') : '<tr><td colspan="9" class="empty">Nenhum pedido de compra</td></tr>';
+  }).join('') : '<tr><td colspan="10" class="empty">Nenhum pedido de compra</td></tr>';
 }
 
 carregar();

@@ -83,6 +83,31 @@ function registrarRotasPoliticasPrazo(app, db) {
     }
   });
 
+  // Condições de pagamento oferecíveis numa venda/OS/PDV.
+  // Antes as telas montavam a lista de meios com um array fixo de tPag no HTML
+  // e as políticas cadastradas só apareciam se a pessoa tivesse vínculo — o que
+  // deixava o cadastro praticamente ocioso. Aqui elas viram a fonte.
+  // `obrigatoria` = política vinculada à pessoa: quando existe, é a única aceita.
+  app.get('/api/politicas-prazo/aplicaveis', (req, res) => {
+    try {
+      const onde = ['vendas', 'compras', 'pdv'].includes(req.query.onde) ? req.query.onde : 'vendas';
+      const coluna = onde === 'compras' ? 'aplicaCompras' : onde === 'pdv' ? 'aplicaPdv' : 'aplicaVendas';
+      const politicas = db.prepare(
+        `SELECT * FROM politicas_prazo WHERE ativo = 1 AND ${coluna} = 1 ORDER BY nome`
+      ).all();
+
+      let obrigatoria = null;
+      if (req.query.pessoaId) {
+        const { politicaDaPessoa, valePara } = require('./politicas-prazo');
+        const pol = politicaDaPessoa(db, Number(req.query.pessoaId));
+        if (pol && valePara(pol, onde)) obrigatoria = pol.id;
+      }
+      res.json({ success: true, politicas, obrigatoria, meios: MEIOS });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/politicas-prazo/:id', (req, res) => {
     try {
       const pol = db.prepare('SELECT * FROM politicas_prazo WHERE id = ?').get(req.params.id);
