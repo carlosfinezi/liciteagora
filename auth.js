@@ -146,7 +146,11 @@ function criarUsuarioInicial(db) {
     // um id = usuário restrito àquela loja (escopo forçado em getEstabelecimentoAtivo).
     "estabelecimentoId INTEGER",
     // Tema visual escolhido pelo usuário (padrao/grafite/meianoite/claro) — /api/user/prefs
-    "tema TEXT"
+    "tema TEXT",
+    // Lido pelo requireAuth em todo request (SQL_GET_USER). Nos tenants ela já
+    // vem de db-schema.js:1889; aqui é para o modo single-tenant/dev, que não
+    // roda initSchema e ficaria com o SELECT quebrado.
+    "ehVendedor INTEGER DEFAULT 0"
   ]) {
     alterSafe(db, `ALTER TABLE users ADD COLUMN ${col}`);
   }
@@ -254,7 +258,10 @@ function getApiKey(db) {
  */
 function requireAuth(apiKey, db) {
   const stmt = createStmtCache();
-  const SQL_GET_USER = 'SELECT id, username, nome, email, role, ativo, estabelecimentoId FROM users WHERE id = ?';
+  // ehVendedor entra aqui porque o recorte "só os meus pedidos" e a recusa de
+  // assumir venda alheia dependem dele a cada request — sem isso o backend não
+  // sabe, na hora de decidir, se quem chamou é vendedor.
+  const SQL_GET_USER = 'SELECT id, username, nome, email, role, ativo, estabelecimentoId, ehVendedor FROM users WHERE id = ?';
   const SQL_GET_API_KEY = "SELECT valor FROM config WHERE chave = 'api_key'";
 
   return (req, res, next) => {
@@ -293,6 +300,26 @@ function requireAuth(apiKey, db) {
     // na URL (ver os-routes.js GET/POST /api/orcamento/:token/*).
     // Token é 64 chars hex aleatório; rate-limit interno no handler.
     if (req.path.startsWith('/api/orcamento/')) return next();
+
+    // Bypass: orçamento COMERCIAL público (pedidos com modoDocumento='orcamento').
+    // Mesmo desenho do de cima, e pelo mesmo motivo: o cliente que recebe o link
+    // por WhatsApp não tem conta no sistema, e não deve ter.
+    //
+    // O token é hex de 64 caracteres (`crypto.randomBytes(32)`), conferido por
+    // regex ANTES de ir ao banco. Ele identifica UM orçamento e não dá acesso a
+    // mais nada: não há listagem nem busca por trás dele.
+    //
+    // ⚠️ O prefixo é `/api/orcamento-publico/`, distinto do de OS. A rota
+    // interna `/api/pedidos/*` continua exigindo sessão — nada do painel foi
+    // aberto aqui.
+    if (req.path.startsWith('/api/orcamento-publico/')) return next();
+
+    // Identificação da empresa deste endereço. Pública porque a tela de LOGIN
+    // precisa dela antes de autenticar — é ali que confirmar a empresa importa
+    // mais. Devolve só slug e nome, ambos derivados do Host que o visitante já
+    // digitou; nenhum dado de negócio.
+    if (req.path === '/api/tenant-atual') return next();
+
 
     // Bypass X-Api-Key — valida contra o api_key do tenant atual.
     const headerKey = req.headers['x-api-key'];

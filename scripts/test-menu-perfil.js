@@ -18,12 +18,27 @@ const PUB = path.join(__dirname, '..', 'public');
 const { menuConfig } = require(path.join(PUB, 'js/menu-config.js'));
 const { FEATURE_KEYS } = require(path.join(__dirname, '..', 'features-routes.js'));
 
+/**
+ * `TODAS` = páginas que o menu DESENHA. Não é o mesmo que "páginas
+ * registradas".
+ *
+ * Desde 2026-09-12 um item pode ter `oculto: true`: continua registrado para o
+ * RBAC (e é isso que faz `podeVerPath` exigir a permissão pelo nome), mas não
+ * aparece na barra. Este arquivo mede a relação perfil → ITENS DESENHADOS, então
+ * a lista de referência tem de seguir o desenho — senão todo caso de borda
+ * ("perfil irrestrito", "sem cache") acusaria falha por cobrar um item que a
+ * barra não deve mais mostrar.
+ *
+ * Quem cobre a outra metade — a página oculta continuar protegida — é
+ * `test-menu-oculto-rbac.js`.
+ */
 const TODAS = [];
+const OCULTAS = [];
 const FEATURES_DO_MENU = new Set();
 for (const s of menuConfig.secoes) {
   if (s.feature) FEATURES_DO_MENU.add(s.feature);
   for (const i of s.itens) {
-    TODAS.push(i.page);
+    if (i.oculto) OCULTAS.push(i.page); else TODAS.push(i.page);
     if (i.feature) FEATURES_DO_MENU.add(i.feature);
   }
 }
@@ -111,6 +126,16 @@ conferir('perfil de 8 páginas', menuPara({ irrestrito: false, paginas: PERFIL }
 
 // Página que não existe no menu não inventa item.
 conferir('perfil com página inexistente', menuPara({ irrestrito: false, paginas: ['nao-existe'] }).itens, []);
+
+// ---------- 2b. página `oculto: true` não é desenhada nem com permissão ----------
+// O outro lado da moeda (ela continuar BLOQUEADA para quem não tem a permissão)
+// é medido em `test-menu-oculto-rbac.js`, com o `podeVerPath` de verdade.
+for (const page of OCULTAS) {
+  conferir(`oculta "${page}" nao aparece nem tendo a permissao`,
+    menuPara({ irrestrito: false, paginas: [page] }).itens, []);
+  conferir(`oculta "${page}" nao aparece nem para o irrestrito`,
+    menuPara({ irrestrito: true, paginas: [...TODAS, page] }).itens, TODAS);
+}
 
 // ---------- 3. seção sem nenhum item permitido some inteira ----------
 const secaoVarejo = menuConfig.secoes.find((s) => s.titulo === 'Varejo');

@@ -20,6 +20,11 @@ const { getPlanModules, PLAN_TIERS } = require('./plan-modules');
 // nao tirar acesso de quem ja usava.
 const LEGACY_FEATURE_TO_MODULES = {
   optica:      ['otica'],
+  restaurante: ['restaurante'],
+  farmacia:    ['farmacia'],
+  posto:       ['posto'],
+  locacao:     ['locacao'],
+  producao:    ['producao'],
   licitacoes:  ['licitacoes'],
   operacional: ['operacional_basico', 'sniper', 'monitor_chat'],
   comercial:   ['comercial'],
@@ -30,6 +35,10 @@ const LEGACY_FEATURE_TO_MODULES = {
   varejo:      ['varejo'],
   fiscal:      ['fiscal_nfse_basico', 'fiscal_nfe_completo', 'fiscal_apuracao'],
   financeiro:  ['financeiro_basico', 'financeiro_conciliacao', 'cobranca_automatica'],
+  // Fora da família `financeiro` de propósito: a escrituração é módulo próprio
+  // na matriz de planos (só Avançado/Enterprise), e a flag do tenant passou a
+  // ser `contabilidade_enabled`.
+  contabilidade: ['contabilidade'],
 };
 
 function ensureOverridesSchema(db) {
@@ -155,6 +164,24 @@ const ROUTE_MODULE_MAP = [
   { prefix: '/api/pdv/',                   module: 'varejo' },
   { prefix: '/api/tef/',                   module: 'varejo' },
   { prefix: '/api/marketplaces/',          module: 'varejo' },
+
+  // restaurante (vertical: salao/comanda, KDS, ficha tecnica, delivery, iFood)
+  // O cardapio publico do QR Code NAO entra aqui: e rota pre-auth (/cardapio/*),
+  // fora do /api/ e antes deste middleware.
+  { prefix: '/api/restaurante/',           module: 'restaurante' },
+  { prefix: '/api/ifood/',                 module: 'restaurante' },
+
+  // farmacia (vertical drogaria: cadastro CMED, lote/FEFO, receita/344, SNGPC)
+  { prefix: '/api/farmacia/',              module: 'farmacia' },
+
+  // posto (vertical posto de combustivel: tanque/bomba/bico, turno, LMC)
+  { prefix: '/api/posto/',                 module: 'posto' },
+
+  // locacao (vertical locadora: tarifario, disponibilidade por periodo, vistoria)
+  { prefix: '/api/locacao/',               module: 'locacao' },
+
+  // premoldados (vertical fabrica de concreto: ficha, OP, apontamento, ensaio, patio)
+  { prefix: '/api/producao/',           module: 'producao' },
 
   // fiscal_nfe_completo (NF-e, MDF-e, CT-e — NAO inclui NFS-e nem NFC-e)
   { prefix: '/api/nfe/',                   module: 'fiscal_nfe_completo' },

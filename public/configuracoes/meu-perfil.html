@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Meu Perfil · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -50,6 +51,21 @@
     </div>
     <div style="display:flex;justify-content:flex-end;">
       <button class="btn btn-primary" onclick="salvarDados()">Salvar dados</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Menu lateral</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Como desenhar o menu</label>
+        <select id="fMenuModo" onchange="salvarMenuModo()">
+          <option value="herdar">Usar o padrão da empresa</option>
+          <option value="unico">Único — todas as seções numa lista</option>
+          <option value="modulos">Por módulo — um módulo por vez, com seletor</option>
+        </select>
+        <small class="muted" id="menuModoHint" style="font-size:11px;"></small>
+      </div>
     </div>
   </div>
 
@@ -133,6 +149,32 @@ async function trocarSenha(){
   avaliarSenha();
 }
 
+// Menu: preferência do usuário. 'herdar' = seguir o padrão do tenant.
+async function carregarMenuModo(){
+  try {
+    const [prefs, status] = await Promise.all([
+      fetch('/api/user/prefs').then(r=>r.json()),
+      fetch('/api/features/status').then(r=>r.json())
+    ]);
+    const doTenant = status && status.menuModo === 'modulos' ? 'Por módulo' : 'Único';
+    document.getElementById('menuModoHint').textContent = `Padrão da empresa hoje: ${doTenant}.`;
+    document.getElementById('fMenuModo').value = (prefs && prefs.menuModo) || 'herdar';
+  } catch(e){ /* deixa no padrão; o menu funciona igual */ }
+}
+
+async function salvarMenuModo(){
+  const menuModo = document.getElementById('fMenuModo').value;
+  const r = await fetch('/api/user/prefs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ menuModo }) });
+  const d = await r.json();
+  if(!d.success) return showAlert(d.error||'Não foi possível salvar','error');
+  // O menu vive no shell (app.html), não nesta página: quem redesenha é ele.
+  // Sem o aviso, a mudança só apareceria no próximo carregamento.
+  try { localStorage.setItem('menuModoUsuario', d.menuModo || ''); } catch(_){}
+  try { if (window.parent && window.parent !== window && window.parent.aplicarTrocaDeModo) window.parent.aplicarTrocaDeModo(); } catch(_){}
+  showAlert('Preferência de menu salva');
+}
+
 carregar();
+carregarMenuModo();
 </script>
 </body></html>

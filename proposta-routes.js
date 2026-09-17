@@ -115,7 +115,13 @@ function registrarRotasProposta(app, db) {
           SELECT
             i.id, i.cnpj, i.ano, i.sequencial, i.numeroItem, i.dataCriacao, i.grupoId,
             g.nome as grupoNome,
-            k.status as kanbanStatus, k.dataAtualizacao as kanbanDataAtualizacao
+            k.status as kanbanStatus, k.dataAtualizacao as kanbanDataAtualizacao,
+            -- Ver o comentário na variante SQLite: EXISTS não duplica a linha.
+            EXISTS (
+              SELECT 1 FROM licitacao_analise an
+               WHERE an.cnpj = i.cnpj AND an.ano = i.ano AND an.sequencial = i.sequencial
+                 AND an.resumo != 'ignorada'
+            ) as temAnalise
           FROM interesse i
           LEFT JOIN grupos_palavras g ON g.id = i.grupoId
           LEFT JOIN kanban_status k ON k.cnpj = i.cnpj AND k.ano = i.ano AND k.sequencial = i.sequencial
@@ -195,7 +201,16 @@ function registrarRotasProposta(app, db) {
           it.valorUnitarioEstimado,
           it.valorTotal,
           k.status as kanbanStatus,
-          k.dataAtualizacao as kanbanDataAtualizacao
+          k.dataAtualizacao as kanbanDataAtualizacao,
+          -- EXISTS, e não LEFT JOIN: duas análises da mesma licitação
+          -- duplicariam a linha do interesse e a tela repetiria o item. Hoje não
+          -- há duplicata em tenant nenhum, mas isso é estado de dado, não
+          -- garantia de schema.
+          EXISTS (
+            SELECT 1 FROM licitacao_analise an
+             WHERE an.cnpj = i.cnpj AND an.ano = i.ano AND an.sequencial = i.sequencial
+               AND an.resumo != 'ignorada'
+          ) as temAnalise
         FROM interesse i
         LEFT JOIN grupos_palavras g ON g.id = i.grupoId
         LEFT JOIN licitacoes l ON i.cnpj = l.cnpj AND i.ano = l.anoCompra AND i.sequencial = l.sequencialCompra

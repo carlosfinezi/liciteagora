@@ -48,9 +48,23 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
+/**
+ * IP do cliente para o rate limit.
+ *
+ * A versão anterior lia `X-Forwarded-For` cru e pegava o PRIMEIRO elemento.
+ * O nginx monta esse header com `$proxy_add_x_forwarded_for`, que ANEXA o IP
+ * real ao que o cliente enviou — então o primeiro elemento é justamente o
+ * pedaço que o cliente controla. Bastava mandar um `X-Forwarded-For` diferente
+ * a cada tentativa para o contador nunca somar, e o teto de 5 falhas/15 min
+ * virava enfeite.
+ *
+ * `req.ip` respeita o `app.set('trust proxy', 1)` de server.js:8: o Express
+ * descarta um salto confiável a partir da direita e devolve o endereço que o
+ * nginx acrescentou — o real. Como o nginx sempre acrescenta, o cliente não
+ * consegue empurrar esse valor.
+ */
 function _loginClientIp(req) {
-  const fwd = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return fwd || req.ip || req.socket?.remoteAddress || 'unknown';
+  return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
 /**
@@ -147,17 +161,38 @@ function registrarRotasAuthProtegidas(app, db, opts = {}) {
   // tema desconhecido cai no padrão lá — assim cor nova não exige restart aqui.
   // 'custom:#rrggbb:#rrggbb' = tema personalizado (fundo+destaque do usuário).
   const TEMA_SLUG_RE = /^([a-z][a-z0-9-]{0,29}|custom:#[0-9a-fA-F]{6}:#[0-9a-fA-F]{6})$/;
+  // menuModo: 'unico' | 'modulos' | null. null = herda o padrão do tenant
+  // (config.menu_modo). 'herdar' no POST é o que volta a gravar null.
+  const MENU_MODOS_USER = ['unico', 'modulos'];
   app.get('/api/user/prefs', (req, res) => {
     if (!req.session || !req.session.userId) return res.status(401).json({ success: false });
-    const row = db.prepare('SELECT tema FROM users WHERE id = ?').get(req.session.userId);
-    res.json({ success: true, tema: (row && row.tema) || 'padrao' });
+    const row = db.prepare('SELECT tema, menuModo FROM users WHERE id = ?').get(req.session.userId);
+    res.json({
+      success: true,
+      tema: (row && row.tema) || 'padrao',
+      menuModo: (row && MENU_MODOS_USER.includes(row.menuModo)) ? row.menuModo : null,
+    });
   });
   app.post('/api/user/prefs', (req, res) => {
     if (!req.session || !req.session.userId) return res.status(401).json({ success: false });
-    const { tema } = req.body || {};
-    if (typeof tema !== 'string' || !TEMA_SLUG_RE.test(tema)) return res.status(400).json({ success: false, error: 'tema inválido' });
-    db.prepare('UPDATE users SET tema = ? WHERE id = ?').run(tema, req.session.userId);
-    res.json({ success: true, tema });
+    const { tema, menuModo } = req.body || {};
+    if (tema !== undefined) {
+      if (typeof tema !== 'string' || !TEMA_SLUG_RE.test(tema)) return res.status(400).json({ success: false, error: 'tema inválido' });
+      db.prepare('UPDATE users SET tema = ? WHERE id = ?').run(tema, req.session.userId);
+    }
+    if (menuModo !== undefined) {
+      if (menuModo !== 'herdar' && !MENU_MODOS_USER.includes(menuModo)) {
+        return res.status(400).json({ success: false, error: 'menuModo inválido' });
+      }
+      db.prepare('UPDATE users SET menuModo = ? WHERE id = ?')
+        .run(menuModo === 'herdar' ? null : menuModo, req.session.userId);
+    }
+    const row = db.prepare('SELECT tema, menuModo FROM users WHERE id = ?').get(req.session.userId);
+    res.json({
+      success: true,
+      tema: (row && row.tema) || 'padrao',
+      menuModo: (row && MENU_MODOS_USER.includes(row.menuModo)) ? row.menuModo : null,
+    });
   });
 
   // API key para extensão (protegido)

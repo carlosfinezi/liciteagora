@@ -19,6 +19,30 @@ const avisos = require('./governanca-avisos');
 
 const TIPOS_EVENTO = new Set(alc.TIPOS_EVENTO);
 
+/**
+ * Papéis que podem ser aprovador de uma faixa: os nativos MAIS os perfis
+ * cadastrados no tenant.
+ *
+ * Até 2026-09-11 aqui ia só `ROLES` — os cinco nativos fixos. Consequência
+ * medida: nenhum perfil CUSTOMIZADO podia ser aprovador de alçada, e
+ * `validarRegra` devolvia "Papel ... não existe". O `gerente-comercial` dos
+ * sandboxes é justamente um perfil customizado, e as faixas de desconto de lá
+ * tiveram de ser inseridas direto no banco porque a API as recusava.
+ *
+ * Não é regra nova nem permissão nova: `perfisDisponiveis` é a MESMA função que
+ * o cadastro de usuários já usa para preencher o campo de papel. O que havia era
+ * uma segunda noção de "papel que existe", mais pobre que a primeira.
+ */
+function papeisAprovadores(db) {
+  try {
+    const { perfisDisponiveis } = require('./perfis-acesso');
+    const lista = perfisDisponiveis(db).map((p) => p.slug);
+    return lista.length ? [...new Set(lista)] : [...ROLES];
+  } catch {
+    return [...ROLES];                 // tenant sem a tabela de perfis
+  }
+}
+
 // Erro bloqueia; aviso vai junto na resposta.
 function separar(problemas) {
   return {
@@ -86,14 +110,23 @@ function registrarRotasGovernanca(app, db) {
   // ===== regras =====
   app.get('/api/alcadas/regras', (req, res) => {
     try {
-      res.json({ success: true, regras: db.prepare('SELECT * FROM regras_alcada ORDER BY tipoEvento, limiteValor').all() });
+      res.json({
+        success: true,
+        regras: db.prepare('SELECT * FROM regras_alcada ORDER BY tipoEvento, limiteValor').all(),
+        // Catálogo junto da listagem para a TELA NÃO DUPLICAR NENHUMA LISTA.
+        // Era a causa do defeito que motivou esta rodada: os eventos e os papéis
+        // estavam escritos à mão no HTML, então `desconto_venda` entrou no
+        // backend e a tela não soube dele — a faixa não podia ser cadastrada.
+        eventos: alc.catalogoEventos(),
+        papeis: papeisAprovadores(db),
+      });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
   app.post('/api/alcadas/regras', (req, res) => {
     try {
       const { tipoEvento, limiteValor, papelAprovador, validadeDias, descricao } = req.body || {};
-      const { erros, avisos } = separar(alc.validarRegra(db, req.body, { roles: ROLES }));
+      const { erros, avisos } = separar(alc.validarRegra(db, req.body, { roles: papeisAprovadores(db) }));
       if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
 
       const r = db.prepare(`INSERT INTO regras_alcada
@@ -117,7 +150,7 @@ function registrarRotasGovernanca(app, db) {
       // Valida o estado final: mudar só o papel ainda tem que resultar numa
       // faixa que alguém consiga aprovar.
       const final = { ...atual, ...req.body };
-      const { erros, avisos } = separar(alc.validarRegra(db, final, { roles: ROLES, id }));
+      const { erros, avisos } = separar(alc.validarRegra(db, final, { roles: papeisAprovadores(db), id }));
       if (erros.length) return res.status(400).json({ success: false, error: erros[0].mensagem, problemas: erros });
 
       // descricao usa CASE, não COALESCE: com COALESCE, mandar '' virava NULL

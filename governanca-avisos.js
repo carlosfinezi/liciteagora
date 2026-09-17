@@ -33,12 +33,33 @@ function migrarAvisosDB(db) {
   }
 }
 
-const EVENTO_TXT = {
-  pagamento_cp: 'Pagamento de conta a pagar',
-  pedido_compra: 'Envio de pedido de compra',
-};
+const alc = require('./governanca-alcadas');
+
+/**
+ * Rótulo do evento. A fonte é `governanca-alcadas`, não um mapa próprio — o mapa
+ * local que existia aqui não conhecia `desconto_venda` e o aviso sairia com o
+ * slug cru.
+ */
+const rotuloEvento = (tipo) => (alc.EVENTOS[tipo] || {}).rotulo || tipo;
 
 const moeda = (v) => `R$ ${(Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * O valor da aprovação escrito na unidade do evento.
+ *
+ * ⚠️ Este módulo está INERTE desde 2026-08-21 (ver scheduler.js, "ALÇADAS:
+ * AVISOS REMOVIDOS") — nada o chama em produção. A correção entra mesmo assim
+ * porque o comentário de lá convida a religá-lo, e `desconto_venda` tem limite
+ * PERCENTUAL: com `moeda()` fixo, um desconto de 6% viraria "R$ 6,00" na
+ * mensagem enviada ao aprovador. Defeito conhecido custa menos agora do que
+ * quando alguém religar o ciclo sem lembrar disto.
+ */
+const valorDoEvento = (tipoEvento, v) => {
+  if (alc.unidadeDoEvento(tipoEvento) !== 'percentual') return moeda(v);
+  const n = Number(v) || 0;
+  return (Number.isInteger(n) ? String(n)
+    : n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })) + '%';
+};
 const dataBR = (d) => {
   const s = String(d || '').slice(0, 10);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -81,8 +102,8 @@ function mensagemDeAprovacao(db, a, { tipo = 'criada' } = {}) {
     : '🛡️ <b>Aprovação pendente</b>';
   const linhas = [
     cab,
-    EVENTO_TXT[a.tipoEvento] || a.tipoEvento,
-    `${ref} — <b>${moeda(a.valorReferencia)}</b>`,
+    rotuloEvento(a.tipoEvento),
+    `${ref} — <b>${valorDoEvento(a.tipoEvento, a.valorReferencia)}</b>`,
     `Solicitado por: ${a.solicitante || '—'}`,
     `Quem decide: <b>${a.papelExigido || 'admin'}</b>`,
   ];
@@ -97,7 +118,7 @@ function mensagemDeAprovacao(db, a, { tipo = 'criada' } = {}) {
 
 const assuntoDeAprovacao = (a, tipo) =>
   `[LiciteAgora] ${tipo === 'expirando' ? '⏳ Aprovação vence' : '🛡️ Aprovação pendente'}`
-  + ` — ${EVENTO_TXT[a.tipoEvento] || a.tipoEvento} ${moeda(a.valorReferencia)}`;
+  + ` — ${rotuloEvento(a.tipoEvento)} ${valorDoEvento(a.tipoEvento, a.valorReferencia)}`;
 
 /**
  * Aprovações pendentes que vencem dentro de `diasAntes` e ainda não foram

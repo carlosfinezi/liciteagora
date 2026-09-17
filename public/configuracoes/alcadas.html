@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Alçadas e Aprovações · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -36,10 +37,7 @@
 
   <h2 style="margin:14px 0 8px;">Simular</h2>
   <div class="toolbar">
-    <select id="simTipo">
-      <option value="pagamento_cp">Pagamento de conta a pagar</option>
-      <option value="pedido_compra">Envio de pedido de compra</option>
-    </select>
+    <select id="simTipo" onchange="aplicarUnidade()"></select>
     <input type="number" id="simValor" placeholder="Valor (R$)" step="0.01" style="width:160px;" oninput="debounceSim()">
     <button class="btn btn-ghost btn-sm" onclick="simular()">Ver o que aconteceria</button>
   </div>
@@ -47,25 +45,16 @@
 
   <h2 style="margin:24px 0 8px;">Regras de alçada</h2>
   <div class="toolbar">
-    <select id="rTipo">
-      <option value="pagamento_cp">Pagamento de conta a pagar</option>
-      <option value="pedido_compra">Envio de pedido de compra</option>
-    </select>
-    <input type="number" id="rLimite" placeholder="Limite (R$)" step="0.01" style="width:140px;">
-    <select id="rPapel" style="width:170px;">
-      <option value="admin">admin</option>
-      <option value="financeiro">financeiro</option>
-      <option value="comercial">comercial</option>
-      <option value="operacional">operacional</option>
-      <option value="licitacoes">licitacoes</option>
-    </select>
+    <select id="rTipo" onchange="aplicarUnidade()"></select>
+    <input type="number" id="rLimite" placeholder="Limite (R$)" step="0.01" min="0" style="width:140px;">
+    <select id="rPapel" style="width:170px;"></select>
     <input type="number" id="rValidade" placeholder="Validade (dias)" min="1" max="365" value="7" style="width:140px;"
            title="Depois disso a aprovação vence e precisa ser pedida de novo">
     <button class="btn btn-primary btn-sm" onclick="addRegra()">+ Faixa</button>
   </div>
   <div class="tbl-wrap" data-grid="alcadas">
     <table>
-      <thead><tr><th>Evento</th><th style="text-align:right;">Acima de (R$)</th><th>Aprovador</th>
+      <thead><tr><th>Evento</th><th style="text-align:right;">Acima de</th><th>Aprovador</th>
         <th>Validade</th><th>Status</th><th></th></tr></thead>
       <tbody id="tbRegras"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
     </table>
@@ -78,18 +67,12 @@
     <h2>Editar faixa</h2>
     <div class="resumo-pag" id="eRegraResumo" style="background:var(--bg-1);padding:10px 12px;border-radius:var(--r-sm);margin-bottom:14px;color:var(--text-1);font-size:0.88em;"></div>
     <div class="row-2">
-      <div class="row"><label>Acima de (R$)</label><input type="number" step="0.01" id="eLimite"></div>
+      <div class="row"><label id="eLimiteLabel">Acima de</label><input type="number" step="0.01" min="0" id="eLimite"></div>
       <div class="row"><label>Validade da aprovação (dias)</label><input type="number" min="1" max="365" id="eValidade"></div>
     </div>
     <div class="row">
       <label>Papel do aprovador</label>
-      <select id="ePapel">
-        <option value="admin">admin</option>
-        <option value="financeiro">financeiro</option>
-        <option value="comercial">comercial</option>
-        <option value="operacional">operacional</option>
-        <option value="licitacoes">licitacoes</option>
-      </select>
+      <select id="ePapel"></select>
     </div>
     <div class="row"><label>Descrição (opcional)</label><input type="text" id="eDescricao" placeholder="ex.: pagamentos acima do teto da diretoria"></div>
     <div class="modal-actions">
@@ -109,7 +92,88 @@
 <script>
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
 function fmt(v){ return (v==null||isNaN(v))?'-':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-const EVENTO_TXT = { pagamento_cp: '📤 Pagamento CP', pedido_compra: '🛒 Pedido de compra' };
+
+// ==================== UNIDADE DO EVENTO ====================
+// O catálogo vem do backend (`GET /api/alcadas/regras`). Nada de evento nem de
+// papel é escrito à mão aqui: era exatamente essa duplicação que fazia a tela
+// ficar defasada — `desconto_venda` existia no backend e a tela não o oferecia,
+// então a faixa de desconto não podia ser cadastrada por ninguém.
+/**
+ * Fallback para o instante em que esta página (estática, já no ar ao salvar) for
+ * servida por um processo que AINDA não tem a rota nova — entre editar o arquivo
+ * e reiniciar o serviço. Sem ele os selects ficariam vazios e a tela pararia de
+ * funcionar nesse intervalo.
+ *
+ * Contém só os dois eventos monetários e os papéis nativos: é o comportamento
+ * anterior, exatamente. `desconto_venda` NÃO entra aqui de propósito — cadastrar
+ * a faixa antes de o backend a reconhecer daria erro de validação.
+ */
+let EVENTOS = [
+  { valor:'pagamento_cp',  rotulo:'Pagamento de conta a pagar', curto:'📤 Pagamento CP',    unidade:'moeda', maximo:null },
+  { valor:'pedido_compra', rotulo:'Envio de pedido de compra',  curto:'🛒 Pedido de compra', unidade:'moeda', maximo:null },
+];
+let PAPEIS = ['admin','financeiro','comercial','operacional','licitacoes'];
+
+const evtDe = (tipo) => EVENTOS.find(e => e.valor === tipo) || null;
+const unidadeDe = (tipo) => (evtDe(tipo) || {}).unidade || 'moeda';
+const EVENTO_TXT_DE = (tipo) => (evtDe(tipo) || {}).curto || tipo;
+
+/**
+ * O limite escrito na unidade do evento.
+ *   moeda      → "R$ 5.000,00"
+ *   percentual → "5%"  (sem casas quando inteiro; até 2 casas quando tem)
+ *
+ * Um limite percentual mostrado como "R$ 5,00" diz o contrário do que a regra
+ * faz, e é o defeito que esta rodada veio corrigir.
+ */
+function fmtLimite(v, tipo){
+  if (v == null || isNaN(v)) return '-';
+  const n = Number(v);
+  if (unidadeDe(tipo) === 'percentual') {
+    const txt = Number.isInteger(n) ? String(n)
+      : n.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:2});
+    return txt + '%';
+  }
+  return 'R$ ' + fmt(n);
+}
+
+/** Rótulos e limites dos campos seguem o evento escolhido em cada bloco. */
+function aplicarUnidade(){
+  const rTipo = document.getElementById('rTipo');
+  const simTipo = document.getElementById('simTipo');
+  if (rTipo && rTipo.value) {
+    const e = evtDe(rTipo.value) || {};
+    const pct = e.unidade === 'percentual';
+    const lim = document.getElementById('rLimite');
+    lim.placeholder = pct ? 'Limite (%)' : 'Limite (R$)';
+    lim.title = pct ? `Acima deste percentual o desconto exige aprovação (0 a ${e.maximo}%)`
+                    : 'Acima deste valor o evento exige aprovação';
+    if (pct && e.maximo != null) lim.max = e.maximo; else lim.removeAttribute('max');
+  }
+  if (simTipo && simTipo.value) {
+    const pct = unidadeDe(simTipo.value) === 'percentual';
+    const sv = document.getElementById('simValor');
+    sv.placeholder = pct ? 'Percentual (%)' : 'Valor (R$)';
+    if (sv.value !== '') simular();
+  }
+}
+
+function montarSelects(){
+  const opts = EVENTOS.map(e=>`<option value="${e.valor}">${escG(e.rotulo)}</option>`).join('');
+  for (const id of ['rTipo','simTipo']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const antes = el.value;
+    el.innerHTML = opts;
+    if (antes && EVENTOS.some(e=>e.valor===antes)) el.value = antes;
+  }
+  const pOpts = PAPEIS.map(p=>`<option value="${escG(p)}">${escG(p)}</option>`).join('');
+  for (const id of ['rPapel','ePapel']) {
+    const el = document.getElementById(id);
+    if (el) { const antes = el.value; el.innerHTML = pOpts; if (antes && PAPEIS.includes(antes)) el.value = antes; }
+  }
+  aplicarUnidade();
+}
 const ST_BADGE = { pendente:'<span class="badge saida">PENDENTE</span>', aprovada:'<span class="badge entrada">APROVADA</span>', reprovada:'<span class="badge cancelado">REPROVADA</span>' };
 
 // A fila de aprovações saiu daqui em 2026-08-02 para /aprovacoes/aprovacoes.html.
@@ -123,9 +187,13 @@ async function carregarRegras(){
   const r = await fetch('/api/alcadas/regras'); const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
   REGRAS = d.regras;
+  // Catálogo antes da tabela: `fmtLimite` depende de saber a unidade do evento.
+  if (Array.isArray(d.eventos) && d.eventos.length) EVENTOS = d.eventos;
+  if (Array.isArray(d.papeis) && d.papeis.length) PAPEIS = d.papeis;
+  montarSelects();
   document.getElementById('tbRegras').innerHTML = d.regras.length ? d.regras.map(x=>`<tr${x.ativo?'':' style="opacity:0.55;"'}>
-    <td>${EVENTO_TXT[x.tipoEvento]||x.tipoEvento}${x.descricao?`<br><small class="muted">${escG(x.descricao)}</small>`:''}</td>
-    <td style="text-align:right;">R$ ${fmt(x.limiteValor)}</td>
+    <td>${EVENTO_TXT_DE(x.tipoEvento)}${x.descricao?`<br><small class="muted">${escG(x.descricao)}</small>`:''}</td>
+    <td style="text-align:right;">${fmtLimite(x.limiteValor, x.tipoEvento)}</td>
     <td>${x.papelAprovador}</td>
     <td>${x.validadeDias||7} dia(s)</td>
     <td>${x.ativo?'ativa':'inativa'}</td>
@@ -145,9 +213,19 @@ function abrirRegra(id){
   const x = REGRAS.find(r => r.id === id);
   if (!x) return;
   REGRA_ID = id;
+  const pct = unidadeDe(x.tipoEvento) === 'percentual';
+  const e = evtDe(x.tipoEvento) || {};
   document.getElementById('eRegraResumo').innerHTML =
-    `Faixa #${x.id} · ${EVENTO_TXT[x.tipoEvento]||x.tipoEvento} · ${x.ativo?'ativa':'inativa'}`;
-  document.getElementById('eLimite').value = Number(x.limiteValor).toFixed(2);
+    `Faixa #${x.id} · ${EVENTO_TXT_DE(x.tipoEvento)} · ${x.ativo?'ativa':'inativa'}`
+    + `<br><span class="muted">Acima de ${fmtLimite(x.limiteValor, x.tipoEvento)} exige `
+    + `aprovação de <strong>${escG(x.papelAprovador||'admin')}</strong>. `
+    + `Até ${fmtLimite(x.limiteValor, x.tipoEvento)}, segue sem aprovação.</span>`;
+  document.getElementById('eLimiteLabel').textContent = pct ? 'Acima de (%)' : 'Acima de (R$)';
+  const eLim = document.getElementById('eLimite');
+  // Sem `toFixed(2)`: numa faixa percentual ele transformaria 5 em "5.00", que
+  // se lê como moeda. O valor volta ao campo como o backend o guarda.
+  eLim.value = pct ? String(Number(x.limiteValor)) : Number(x.limiteValor).toFixed(2);
+  if (pct && e.maximo != null) eLim.max = e.maximo; else eLim.removeAttribute('max');
   document.getElementById('eValidade').value = x.validadeDias || 7;
   document.getElementById('ePapel').value = x.papelAprovador || 'admin';
   document.getElementById('eDescricao').value = x.descricao || '';
@@ -181,7 +259,13 @@ async function addRegra(){
     papelAprovador: document.getElementById('rPapel').value || 'admin',
     validadeDias: Number(document.getElementById('rValidade').value) || 7
   };
-  if (!(body.limiteValor >= 0)) return showAlert('Informe o limite','error');
+  // Ajuda de tela; quem decide é o backend (`validarRegra`), que repete as duas
+  // checagens. O campo é `type=number`, então texto inválido já chega como NaN.
+  if (!Number.isFinite(body.limiteValor) || body.limiteValor < 0) return showAlert('Informe o limite','error');
+  const ev = evtDe(body.tipoEvento) || {};
+  if (ev.maximo != null && body.limiteValor > ev.maximo) {
+    return showAlert(`O limite de ${ev.rotulo} vai de 0 a ${ev.maximo}%`,'error');
+  }
   const r = await fetch('/api/alcadas/regras', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
   if(!d.success) return showAlert(d.error,'error');
@@ -227,7 +311,9 @@ carregarRegras();
 // quê. Estes dois painéis existem para o erro aparecer antes de travar alguém.
 
 function escG(t){ const d=document.createElement('div'); d.textContent=String(t==null?'':t); return d.innerHTML; }
-function fmtG(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+// `fmtG` (moeda fixa) saiu daqui em 2026-09-11: os dois pontos que a usavam —
+// simulador e painel de faixas — passaram a `fmtLimite`, que respeita a unidade
+// do evento. Mantê-la seria manter o caminho que escreve "R$" num percentual.
 
 let _simTimer;
 function debounceSim(){ clearTimeout(_simTimer); _simTimer = setTimeout(simular, 400); }
@@ -242,8 +328,14 @@ async function simular(){
     if (!d.success) { alvo.innerHTML = ''; return; }
     const s = d.simulacao;
     const cor = !s.exigeAprovacao ? 'success' : (s.podemAprovar && !s.podemAprovar.length ? 'danger' : 'warn');
+    // A explicação vem do backend com o limite cru ("acima de 5.00"); na unidade
+    // percentual, reescrevê-la aqui evita que a tela contradiga a própria coluna.
+    const explicacao = s.exigeAprovacao && unidadeDe(tipo) === 'percentual'
+      ? `Cai na faixa acima de ${fmtLimite(s.acimaDe, tipo)}: exige aprovação de "${s.papel}"`
+        + (s.podemAprovar ? (s.podemAprovar.length ? ` (${s.podemAprovar.join(', ')})` : ' — e não há ninguém com esse papel') : '')
+      : s.explicacao;
     alvo.innerHTML = `<div class="panel" style="border-left:4px solid var(--${cor});font-size:0.9em;">
-      <strong>${fmtG(s.valor)}</strong> — ${escG(s.explicacao)}
+      <strong>${fmtLimite(s.valor, tipo)}</strong> — ${escG(explicacao)}
       ${s.exigeAprovacao ? `<div class="muted" style="font-size:0.85em;margin-top:6px;">
         Aprovação vale por ${s.validadeDias} dia(s) e libera uma execução até esse valor.</div>` : ''}
     </div>`;
@@ -285,8 +377,8 @@ async function carregarDiagnostico(){
   }
 
   const faixas = g.faixasPorEvento.filter(x => x.faixas.length).map(x =>
-    `<div><strong>${escG(x.tipoEvento)}</strong>: ` + x.faixas.map(fx =>
-      `acima de ${fmtG(fx.acimaDe)} → ${escG(fx.papel)} (${fx.validadeDias}d)`).join(' · ') + '</div>');
+    `<div><strong>${escG(EVENTO_TXT_DE(x.tipoEvento))}</strong>: ` + x.faixas.map(fx =>
+      `acima de ${fmtLimite(fx.acimaDe, x.tipoEvento)} → ${escG(fx.papel)} (${fx.validadeDias}d)`).join(' · ') + '</div>');
   if (faixas.length) {
     blocos.push(`<div class="panel" style="margin-bottom:10px;font-size:0.88em;">
       <h3 style="margin:0 0 8px;font-size:0.95em;">Faixas configuradas</h3>

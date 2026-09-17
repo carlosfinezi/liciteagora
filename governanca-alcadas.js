@@ -24,8 +24,70 @@
  * aprovador não depender de uma consulta que pode mudar depois.
  */
 
-const TIPOS_EVENTO = ['pagamento_cp', 'pedido_compra'];
+/**
+ * Eventos que têm alçada.
+ *
+ * `desconto_venda` entrou em 2026-09-11 (Fase 1) e é o primeiro cujo
+ * `limiteValor` **não é em reais, e sim em PERCENTUAL**. A alçada comercial se
+ * enuncia assim ("vendedor até 5%"), e um limite em reais mudaria de significado
+ * conforme o tamanho do pedido: R$ 50 é 50% de um pedido de R$ 100 e 0,5% de um
+ * de R$ 10.000.
+ *
+ * O motor não precisou mudar para isso — `regraAplicavel` só compara números, e
+ * a unidade é contrato de quem chama. O que muda é a leitura: quem exibe uma
+ * faixa de `desconto_venda` deve escrever "%", não "R$". Ver `pedido-desconto.js`.
+ */
+const TIPOS_EVENTO = ['pagamento_cp', 'pedido_compra', 'desconto_venda'];
 const VALIDADE_PADRAO_DIAS = 7;
+
+/** Eventos cujo limite é percentual, para a tela não escrever "R$" no lugar de "%". */
+const EVENTOS_PERCENTUAIS = new Set(['desconto_venda']);
+
+/**
+ * Teto de uma faixa percentual.
+ *
+ * Uma faixa "acima de 150%" jamais seria alcançada: `calcularDesconto` já recusa
+ * desconto acima de 100%. Cadastrá-la não daria erro nenhum — ela simplesmente
+ * nunca valeria, e quem a criou acharia que configurou alguma coisa.
+ */
+const LIMITE_PERCENTUAL_MAXIMO = 100;
+
+/**
+ * Rótulo e unidade de cada evento, em UM lugar só.
+ *
+ * Antes isto vivia duplicado no HTML da tela de alçadas — a lista de eventos
+ * estava escrita à mão em dois `<select>` e num mapa de rótulos em JavaScript.
+ * O resultado previsível: `desconto_venda` entrou no backend em 2026-09-11 e a
+ * tela não soube dele, então a faixa não podia ser criada por lá.
+ *
+ * `unidade` é o que decide se a tela escreve "R$ 5,00" ou "5%". O limite de um
+ * evento percentual em reais não significa nada — e o inverso também não.
+ */
+const EVENTOS = {
+  pagamento_cp: { rotulo: 'Pagamento de conta a pagar', curto: '📤 Pagamento CP', unidade: 'moeda' },
+  pedido_compra: { rotulo: 'Envio de pedido de compra', curto: '🛒 Pedido de compra', unidade: 'moeda' },
+  desconto_venda: { rotulo: 'Desconto em venda', curto: '🏷️ Desconto em venda', unidade: 'percentual' },
+};
+
+/** 'percentual' ou 'moeda'. Desconhecido cai em moeda, que é o comportamento antigo. */
+function unidadeDoEvento(tipoEvento) {
+  return EVENTOS_PERCENTUAIS.has(tipoEvento) ? 'percentual' : 'moeda';
+}
+
+/**
+ * Metadados para a tela montar os campos sem duplicar nenhuma lista.
+ * É esta função que impede a tela de voltar a ficar defasada do backend.
+ */
+function catalogoEventos() {
+  return TIPOS_EVENTO.map((v) => ({
+    valor: v,
+    rotulo: (EVENTOS[v] && EVENTOS[v].rotulo) || v,
+    curto: (EVENTOS[v] && EVENTOS[v].curto) || v,
+    unidade: unidadeDoEvento(v),
+    // Teto do campo: desconto não passa de 100%; valor em reais não tem teto.
+    maximo: unidadeDoEvento(v) === 'percentual' ? LIMITE_PERCENTUAL_MAXIMO : null,
+  }));
+}
 
 const erro = (codigo, mensagem, extra = {}) => ({ nivel: 'erro', codigo, mensagem, ...extra });
 const aviso = (codigo, mensagem, extra = {}) => ({ nivel: 'aviso', codigo, mensagem, ...extra });
@@ -215,9 +277,23 @@ function validarRegra(db, dados, opts = {}) {
   if (!TIPOS_EVENTO.includes(dados.tipoEvento)) {
     p.push(erro('tipo_invalido', `tipoEvento deve ser: ${TIPOS_EVENTO.join(' ou ')}`));
   }
-  const limite = Number(dados.limiteValor);
+  // `null`, `undefined` e `''` são AUSÊNCIA de limite, não zero — e
+  // `Number(null)` é 0, que passaria como faixa válida "acima de 0". Uma faixa
+  // de 0 exige aprovação para tudo, inclusive para o que ninguém quis restringir:
+  // basta o campo chegar vazio para o tenant inteiro travar sem ninguém entender
+  // por quê. Reproduzido em 2026-09-11 com `limiteValor: null`.
+  const ausente = dados.limiteValor === null || dados.limiteValor === undefined || dados.limiteValor === '';
+  const limite = ausente ? NaN : Number(dados.limiteValor);
   if (!Number.isFinite(limite) || limite < 0) {
+    // `Number.isFinite` já barra string não numérica, NaN e Infinity — que é o
+    // que chega quando a tela manda um campo com máscara ("R$ 5,00").
     p.push(erro('limite_invalido', 'Limite deve ser um valor não negativo'));
+  } else if (EVENTOS_PERCENTUAIS.has(dados.tipoEvento) && limite > LIMITE_PERCENTUAL_MAXIMO) {
+    // Faixa percentual acima de 100% nunca seria alcançada: o desconto já é
+    // recusado antes disso. Deixar cadastrar produziria uma regra que parece
+    // existir e não vale para nada.
+    p.push(erro('limite_percentual_invalido',
+      `Limite de ${limite}% não faz sentido: o desconto máximo é ${LIMITE_PERCENTUAL_MAXIMO}%`));
   }
   if (dados.papelAprovador && !roles.includes(dados.papelAprovador)) {
     // Papel inexistente é trava eterna: nada nunca vai ser aprovado.
@@ -377,7 +453,8 @@ function simular(db, tipoEvento, valor) {
 }
 
 module.exports = {
-  TIPOS_EVENTO, VALIDADE_PADRAO_DIAS,
+  TIPOS_EVENTO, VALIDADE_PADRAO_DIAS, EVENTOS_PERCENTUAIS,
+  EVENTOS, LIMITE_PERCENTUAL_MAXIMO, unidadeDoEvento, catalogoEventos,
   migrarDB,
   regraAplicavel, faixas,
   verificarAlcada, podeDecidir,

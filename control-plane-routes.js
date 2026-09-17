@@ -73,6 +73,16 @@ const ADMIN_HOST = 'admin.liciteagora.app';
 const FEATURES = [
   { key: 'optica', label: 'Módulo Ótica',
     desc: 'Catálogo de armações/lentes, receitas oftalmológicas e ordens de montagem.' },
+  { key: 'farmacia', label: 'Módulo Farmácia (drogaria)',
+    desc: 'Cadastro farmacêutico pela lista CMED, lote/FEFO na venda, grupos med/rastro na NFC-e, receita e Portaria 344, SNGPC. Exige Varejo (PDV/NFC-e) e Estoque completo.' },
+  { key: 'locacao', label: 'Módulo Locação (locadora)',
+    desc: 'Catálogo alugável com tarifário por faixa de tempo (hora/dia/semana/mês), disponibilidade por período, contrato avulso ou aberto, saída e devolução com vistoria via OS, caução e acerto de atraso/avaria. Exige Estoque completo (número de série) e Ordens de Serviço.' },
+  { key: 'restaurante', label: 'Módulo Restaurante',
+    desc: 'Salão (mesa/comanda), comanda do garçom, painel de cozinha (KDS), ficha técnica e CMV, caixa com divisão de conta, cardápio por QR Code, delivery próprio, iFood e rateio de gorjeta (Lei 13.419). Exige Varejo (PDV/NFC-e) e Estoque completo.' },
+  { key: 'posto', label: 'Módulo Posto de Combustível',
+    desc: 'Tanques, bombas, bicos e lacres; turno do frentista com conferência de encerrante; descarga do caminhão com medição antes/depois; aferição INMETRO de 20 L; medição de tanque (régua ou sonda) e o LMC — Livro de Movimentação de Combustíveis da Resolução ANP 884/2022, com apuração diária de perda/sobra sobre a tolerância de 0,6%. Fase 1: não emite documento fiscal de combustível nem fala com concentrador de bomba.' },
+  { key: 'producao', label: 'Módulo Produção (ordem de produção)',
+    desc: 'PCP para manufatura discreta, neutro de segmento: ficha técnica com perda e sub-ficha (BOM multinível), agenda do recurso que satura (forma, molde, máquina, forno), ordem de produção com ficha congelada na liberação, baixa de insumo e custo orçado × realizado, apontamento por equipe com refugo obrigando motivo, etapas configuráveis por cadastro, ensaio que TRAVA a saída do recurso até a medição atingir o limite, unidade identificada uma a uma quando a rastreabilidade exige, estoque de acabados, romaneio com peso e sequência de descarga, projeto com medição separando fornecimento (NF-e) de serviço (NFS-e), e painel de produtividade por homem-hora tirado do ponto. Traz perfis de indústria que semeiam etapas, ensaios e vocabulário — o perfil "Pré-moldados de concreto" entrega armação/forma/concretagem/desforma e a liberação da protensão por fck prontos. Exige Estoque completo; o RH é opcional, mas sem ele o homem-hora sai do apontamento e ignora o tempo de espera.' },
   { key: 'licitacoes', label: 'Módulo Licitações',
     desc: 'Buscar, marcar interesse, agenda e descarte de licitações públicas (Comprasnet/PNCP).' },
   { key: 'operacional', label: 'Módulo Operacional (Licitações)',
@@ -101,6 +111,8 @@ const FEATURES = [
     desc: 'Classificação de NCM/CEST (busca + IA) e impostos por NCM: IPI, II, ICMS interno por UF, PIS/COFINS por regime, ICMS-ST/MVA e benefícios fiscais (ex.: cesta básica/Convênio 52/91 do PA). Add-on vendido separadamente.' },
   { key: 'financeiro', label: 'Módulo Financeiro',
     desc: 'Contas a receber/pagar, contas financeiras, plano de contas, centros de custo, fluxo de caixa, livro caixa, conciliação bancária, faturas, cobranças, adquirentes e recorrências.' },
+  { key: 'contabilidade', label: 'Módulo Contabilidade',
+    desc: 'Escrituração por partida dobrada: plano contábil, lançamentos (diário), balancete e contabilização automática. Vendido à parte do Financeiro — na matriz de planos é módulo próprio, dos tiers Avançado e Enterprise.' },
   { key: 'ssl', label: 'Módulo Certificados SSL (NicSRS)',
     desc: 'Compra e ciclo de vida de certificados SSL na NicSRS amarrados a contratos de cliente: fila de aprovação de compra, reemissão automática dentro da assinatura (o arquivo vale ~200 dias, o contrato vale 12+ meses), alerta de vencimento e entrega ao cliente. Add-on por tenant.' },
 ];
@@ -115,6 +127,18 @@ function lerFeaturesDoTenant(tenantDb) {
     } catch { out[f.key] = false; }
   }
   return out;
+}
+
+// Modo do menu lateral do tenant (padrão para todos os usuários dele).
+// Espelha features-routes.lerMenuModo — replicado pelo mesmo motivo do
+// catálogo FEATURES: não acoplar o control plane às rotas do tenant.
+const MENU_MODOS = ['unico', 'modulos'];
+function lerMenuModoDoTenant(tenantDb) {
+  if (!tenantDb) return 'unico';
+  try {
+    const row = tenantDb.prepare("SELECT valor FROM config WHERE chave = 'menu_modo'").get();
+    return MENU_MODOS.includes(row && row.valor) ? row.valor : 'unico';
+  } catch { return 'unico'; }
 }
 
 function hostOk(req) {
@@ -335,9 +359,11 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
     try {
       const tenant = manager.getTenantBySlug(req.params.slug);
       if (!tenant) return res.status(404).json({ error: 'tenant não existe' });
-      const features = lerFeaturesDoTenant(manager.getDb(req.params.slug));
+      const tenantDb = manager.getDb(req.params.slug);
+      const features = lerFeaturesDoTenant(tenantDb);
       res.json({
         features: FEATURES.map(f => ({ ...f, enabled: !!features[f.key] })),
+        menuModo: lerMenuModoDoTenant(tenantDb),
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -370,6 +396,30 @@ function registerControlPlaneRoutes(app, { controlDb, manager }) {
         payload: { key, enabled: !!enabled },
       });
       res.json({ success: true, key, enabled: !!enabled });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Modo do menu lateral: padrão do tenant. O usuário pode sobrescrever no
+  // próprio perfil (users.menuModo), e o admin do tenant também troca isto
+  // por dentro do app — aqui é o mesmo dado, alcançável pelo super-admin.
+  app.patch('/api/admin/tenants/:slug/menu-modo', protect, (req, res) => {
+    try {
+      const { modo } = req.body || {};
+      if (!MENU_MODOS.includes(modo)) {
+        return res.status(400).json({ error: `modo inválido (use: ${MENU_MODOS.join(', ')})` });
+      }
+      const tenant = manager.getTenantBySlug(req.params.slug);
+      if (!tenant) return res.status(404).json({ error: 'tenant não existe' });
+      manager.getDb(req.params.slug).prepare(
+        'INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)'
+      ).run('menu_modo', modo);
+      manager.audit({
+        tenantId: tenant.id, action: 'SET_MENU_MODO', actor: req.superAdmin.email,
+        payload: { modo },
+      });
+      res.json({ success: true, menuModo: modo });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

@@ -470,6 +470,10 @@ const ADAPTADORES = {
     // Add-on por tenant: este tipo só existe onde o módulo SSL foi contratado.
     // Sem isto ele apareceria no catálogo de tipos dos 11 tenants.
     requerFeature: 'ssl',
+    // Rótulo e confirmação eram condicionais ao modo de compra. Desde
+    // 16/09/2026 há um modo só (API de revenda), então o texto é direto — e a
+    // confirmação diz a consequência real do clique: o dinheiro sai na hora, do
+    // saldo pré-pago. Ver modoCompra() em ssl-certificados-routes.js.
     rotulo: (p) => (p && p.rotuloBotao) || 'Comprar na NicSRS',
     confirmacao: (p) => (p && p.confirmacao)
       || 'Isto debita o saldo da conta NicSRS e não se desfaz sem cancelamento. Confirmar a compra?',
@@ -498,6 +502,12 @@ const ADAPTADORES = {
 
     async executar(db, { pedido, itens, usuario, parametros }) {
       const ssl = require('./ssl-certificados-routes');
+      // Caminho único desde 16/09/2026: a API de revenda. Ela debita o saldo
+      // pré-pago da conta NicSRS — sem saldo o /ssl/place devolve -2, sem
+      // detalhe nenhum, e é a causa mais provável de uma compra recusada aqui.
+      // Os desvios para `comprarPeloConsole` e `registrarComprasNoPainel` saíram
+      // junto com o seletor de modo; as duas funções seguem no módulo, hoje sem
+      // chamador.
       return ssl.comprarAssinaturasDoPedido(db, pedido, itens, usuario, {
         apiToken: parametros && parametros.apiToken,
       });
@@ -596,8 +606,11 @@ function descreverParaPedido(db, pedido, itens) {
   }
   return {
     canal: integracao.canal,
-    rotulo: adaptador.rotulo ? adaptador.rotulo(parametros) : 'Enviar ao fornecedor',
-    confirmacao: adaptador.confirmacao ? adaptador.confirmacao(parametros) : null,
+    // `db` vai junto porque o rótulo pode depender de config do tenant — o
+    // adaptador NicSRS muda o texto conforme o modo de compra, já que num deles
+    // o clique gasta dinheiro e no outro não.
+    rotulo: adaptador.rotulo ? adaptador.rotulo(parametros, db) : 'Enviar ao fornecedor',
+    confirmacao: adaptador.confirmacao ? adaptador.confirmacao(parametros, db) : null,
     ...validacao,
   };
 }

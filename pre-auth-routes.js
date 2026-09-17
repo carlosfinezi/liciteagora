@@ -63,6 +63,19 @@ function registerPreAuthRoutes(app, db, { apiKey }) {
   app.use('/loja', express.static(path.join(__dirname, 'public', 'loja')));
   require('./loja-routes').registrarRotasLojaPublica(app, db);
 
+  // ==================== CARDÁPIO DO RESTAURANTE (antes do auth) ====================
+  // Cardápio por QR Code na mesa e pedido de delivery. Mesmo desenho da loja
+  // virtual: estático em /cardapio + rotas em /cardapio/api/*, fora do /api/
+  // que é a área protegida. As rotas só respondem se o tenant tiver o módulo
+  // ligado E tiver publicado o cardápio (config restaurante_cardapio_publico);
+  // caso contrário devolvem 404, sem revelar que o tenant existe.
+  app.use('/cardapio', express.static(path.join(__dirname, 'public', 'cardapio')));
+  {
+    const { registrarRotasCardapioPublico } = require('./restaurante/cardapio-publico-routes');
+    const { cardapioVigente, itensDoCardapio } = require('./restaurante/restaurante-cardapio');
+    registrarRotasCardapioPublico(app, db, { cardapioVigente, itensDoCardapio });
+  }
+
   // ==================== DOWNLOAD PÚBLICO (antes do auth) ====================
   app.get('/download/:file', (req, res) => {
     const allowed = ['LiciteAgora-Browser-win.zip'];

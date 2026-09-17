@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IA - Licite Agora</title>
+    <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
@@ -32,6 +33,115 @@
             </div>
 
             <div id="alertBox" class="alert"></div>
+
+            <!-- Painel de saúde: fica ANTES das chaves de propósito. O que
+                 quebrou em 31/08 não foi chave ausente — foram 4 chaves
+                 presentes e inúteis ao mesmo tempo. -->
+            <div class="panel">
+                <h3>
+                    <span>🩺</span> Saúde das integrações
+                    <button type="button" class="btn btn-ghost btn-sm" id="btnTestar"
+                            style="margin-left:auto;" onclick="testarProviders()">⚡ Testar agora</button>
+                </h3>
+                <p class="hint">
+                    Cadeia de fallback: <strong>Cerebras › Gemini › DeepSeek › Groq › Claude</strong>.
+                    A análise só falha quando <em>todos</em> falham — mas um provider caído empurra
+                    carga para o seguinte, então convém não deixar quebrado.
+                    O quadro abaixo mostra o resultado da última chamada real de cada um;
+                    <strong>Testar agora</strong> força uma chamada nova (consome cota mínima).
+                </p>
+                <div style="overflow-x:auto;">
+                    <table id="tabelaSaude">
+                        <thead>
+                            <tr>
+                                <th>Provider</th><th>Chave</th><th>Estado</th>
+                                <th>Última chamada</th><th>Detalhe / erro do provider</th>
+                            </tr>
+                        </thead>
+                        <tbody><tr><td colspan="5" class="muted">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+                <p class="hint" id="avisoMemoria" style="margin-top:10px;">
+                    A coluna <strong>Estado</strong> vem da memória do processo web e zera a cada
+                    restart do serviço — o histórico abaixo é que sobrevive.
+                </p>
+            </div>
+
+            <div class="panel">
+                <h3><span>📉</span> Disponibilidade por provider (7 dias)</h3>
+                <p class="hint">
+                    Uma linha por chamada, guardada em banco: é aqui que se responde
+                    <em>quando</em> um provider quebrou, não só que está quebrado agora.
+                    <span id="historicoDesde"></span>
+                </p>
+                <div style="overflow-x:auto;">
+                    <table id="tabelaDisponibilidade">
+                        <thead>
+                            <tr><th>Provider</th><th>Sucesso</th><th>Chamadas</th><th>Erros</th>
+                                <th>Cooldowns</th><th>Último sucesso</th><th>Última falha</th></tr>
+                        </thead>
+                        <tbody><tr><td colspan="7" class="muted">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3><span>🧾</span> Últimas falhas registradas</h3>
+                <p class="hint">
+                    A mensagem crua do provedor, com data. <span class="badge inativo">teste</span>
+                    marca o que veio do botão acima — teste manual não prova que a produção está de pé.
+                </p>
+                <div style="overflow-x:auto;">
+                    <table id="tabelaEventos">
+                        <thead><tr><th>Quando</th><th>Provider</th><th>HTTP</th><th>Erro</th><th>Origem</th></tr></thead>
+                        <tbody><tr><td colspan="5" class="muted">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3><span>🔁</span> Falhas recorrentes</h3>
+                <p class="hint">
+                    Licitações cuja análise falhou e estão em backoff, agrupadas pela mensagem.
+                    Muitas ocorrências com o <em>mesmo</em> texto = um problema só, não vários.
+                </p>
+                <div style="overflow-x:auto;">
+                    <table id="tabelaFalhas">
+                        <thead>
+                            <tr><th>Erro</th><th>Licitações</th><th>Máx. tentativas</th><th>Última</th></tr>
+                        </thead>
+                        <tbody><tr><td colspan="4" class="muted">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3><span>📡</span> Últimos scans por grupo</h3>
+                <p class="hint">
+                    Um scan com <strong>0 analisadas e N erros</strong> quase sempre é provider caído,
+                    não licitação ruim. Status <em>em_andamento</em> parado costuma ser scan
+                    interrompido por restart — o próximo ciclo corrige sozinho.
+                </p>
+                <div style="overflow-x:auto;">
+                    <table id="tabelaScans">
+                        <thead>
+                            <tr><th>Grupo</th><th>Quando</th><th>Candidatas</th><th>Analisadas</th><th>Erros</th><th>Status</th></tr>
+                        </thead>
+                        <tbody><tr><td colspan="6" class="muted">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3><span>📈</span> Análises concluídas por dia</h3>
+                <p class="hint">Últimos 14 dias. Dia sem linha é dia sem nenhuma análise salva.</p>
+                <div style="overflow-x:auto;">
+                    <table id="tabelaProducao">
+                        <thead><tr><th>Dia</th><th>Análises</th></tr></thead>
+                        <tbody><tr><td colspan="2" class="muted">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
 
             <form id="formIA">
                 <div class="panel">
@@ -170,7 +280,177 @@
             anthropic: { input: 'anthropicKey', status: 'statusAnthropic', nome: 'Claude' },
         };
 
-        document.addEventListener('DOMContentLoaded', verificarChaveIA);
+        document.addEventListener('DOMContentLoaded', () => {
+            verificarChaveIA();
+            carregarSaude();
+        });
+
+        const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+        // Duas origens, dois formatos: o banco devolve 'YYYY-MM-DD HH:MM:SS' em
+        // UTC e SEM marcador de fuso — o JS leria isso como hora local e
+        // mostraria tudo 3h atrasado. A telemetria em memória já vem em ISO
+        // com Z. O teste do espaço distingue uma da outra.
+        const dataHora = (v) => {
+            if (!v) return '—';
+            const iso = /^\d{4}-\d{2}-\d{2} /.test(v) ? v.replace(' ', 'T') + 'Z' : v;
+            return new Date(iso).toLocaleString('pt-BR');
+        };
+
+        // Estado do provider → como aparece. 'sem_dados' não é bom nem ruim:
+        // significa que este processo web ainda não chamou o provider (é o
+        // normal logo depois de um restart).
+        const ESTADOS = {
+            ok:        { badge: 'sucesso',     texto: 'Operando' },
+            erro:      { badge: 'erro',        texto: 'Falhando' },
+            cooldown:  { badge: 'processando', texto: 'Em cooldown' },
+            sem_chave: { badge: 'inativo',     texto: 'Sem chave' },
+            sem_dados: { badge: 'pendente',    texto: 'Sem dados' },
+        };
+
+        function pintarSaude(providers) {
+            const corpo = document.querySelector('#tabelaSaude tbody');
+            corpo.innerHTML = providers.map(p => {
+                let estado;
+                if (!p.temChave) estado = 'sem_chave';
+                else if (p.emCooldown) estado = 'cooldown';
+                else if (!p.ultimo) estado = 'sem_dados';
+                else estado = p.ultimo.estado === 'ok' ? 'ok' : 'erro';
+
+                const cfg = ESTADOS[estado];
+                const nome = PROVIDERS[p.provider] ? PROVIDERS[p.provider].nome : p.provider;
+                let detalhe = '';
+                if (estado === 'erro' && p.ultimo) {
+                    detalhe = `<code style="font-size:.8em;">${esc(p.ultimo.erro)}</code>`;
+                } else if (estado === 'cooldown') {
+                    detalhe = `Liberado às ${dataHora(p.cooldownAte)} — rate limit (429)`;
+                } else if (estado === 'ok') {
+                    detalhe = '<span class="text-success">respondeu normalmente</span>';
+                } else if (estado === 'sem_chave') {
+                    detalhe = '<span class="muted">não participa da cadeia</span>';
+                } else {
+                    detalhe = '<span class="muted">nenhuma chamada neste processo ainda</span>';
+                }
+
+                return `<tr>
+                    <td><strong>${esc(nome)}</strong></td>
+                    <td>${p.temChave ? '✓' : '—'}</td>
+                    <td><span class="badge ${cfg.badge}">${cfg.texto}</span></td>
+                    <td>${dataHora(p.ultimo ? p.ultimo.em : p.ultimaChamadaEm)}</td>
+                    <td>${detalhe}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function carregarSaude() {
+            try {
+                const r = await fetch('/api/config/ia-saude');
+                const j = await r.json();
+                if (!j.success) throw new Error(j.error || 'falha');
+
+                pintarSaude(j.providers);
+
+                const tbFalhas = document.querySelector('#tabelaFalhas tbody');
+                tbFalhas.innerHTML = j.falhas.length
+                    ? j.falhas.map(f => `<tr>
+                        <td><code style="font-size:.8em;">${esc(f.erro)}</code></td>
+                        <td>${f.ocorrencias}</td>
+                        <td>${f.maxTentativas}</td>
+                        <td>${dataHora(f.ultimaEm)}</td>
+                      </tr>`).join('')
+                    : '<tr><td colspan="4" class="text-success">Nenhuma falha em backoff.</td></tr>';
+
+                const tbScans = document.querySelector('#tabelaScans tbody');
+                tbScans.innerHTML = j.scans.length
+                    ? j.scans.map(s => {
+                        const badge = s.status === 'sucesso' ? 'sucesso'
+                                    : s.status === 'parcial' ? 'processando'
+                                    : s.status === 'erro' ? 'erro' : 'pendente';
+                        return `<tr>
+                            <td>${esc(s.grupo || ('grupo ' + s.grupoId))}${s.ativo ? '' : ' <span class="badge inativo">pausado</span>'}</td>
+                            <td>${dataHora(s.em)}</td>
+                            <td>${s.total ?? 0}</td>
+                            <td>${s.analisadas ?? 0}</td>
+                            <td>${s.erros ? `<span class="text-danger">${s.erros}</span>` : '0'}</td>
+                            <td><span class="badge ${badge}">${esc(s.status || '—')}</span>
+                                ${s.mensagem ? `<br><small class="muted">${esc(s.mensagem)}</small>` : ''}</td>
+                        </tr>`;
+                      }).join('')
+                    : '<tr><td colspan="6" class="muted">Nenhum grupo com agendamento.</td></tr>';
+
+                const tbDisp = document.querySelector('#tabelaDisponibilidade tbody');
+                tbDisp.innerHTML = j.disponibilidade && j.disponibilidade.length
+                    ? j.disponibilidade.map(d => {
+                        const pct = d.total ? Math.round((d.ok / d.total) * 100) : 0;
+                        const classe = pct >= 90 ? 'text-success' : pct > 0 ? 'text-warn' : 'text-danger';
+                        const nome = PROVIDERS[d.provider] ? PROVIDERS[d.provider].nome : d.provider;
+                        return `<tr>
+                            <td><strong>${esc(nome)}</strong></td>
+                            <td class="${classe}"><strong>${pct}%</strong></td>
+                            <td>${d.total}</td>
+                            <td>${d.erro ? `<span class="text-danger">${d.erro}</span>` : '0'}</td>
+                            <td>${d.cooldown || 0}</td>
+                            <td>${dataHora(d.ultimoOkEm)}</td>
+                            <td>${dataHora(d.ultimoErroEm)}</td>
+                        </tr>`;
+                      }).join('')
+                    : '<tr><td colspan="7" class="muted">Sem histórico ainda — ele começa na próxima chamada de análise ou no primeiro “Testar agora”.</td></tr>';
+
+                const desde = document.getElementById('historicoDesde');
+                desde.textContent = j.historicoDesde
+                    ? `Registrando desde ${dataHora(j.historicoDesde)}.`
+                    : '';
+
+                const tbEventos = document.querySelector('#tabelaEventos tbody');
+                tbEventos.innerHTML = j.ultimosErros && j.ultimosErros.length
+                    ? j.ultimosErros.map(e => `<tr>
+                        <td>${dataHora(e.em)}</td>
+                        <td>${esc(PROVIDERS[e.provider] ? PROVIDERS[e.provider].nome : e.provider)}</td>
+                        <td>${e.httpStatus || '—'}</td>
+                        <td><code style="font-size:.8em;">${esc(e.erro)}</code></td>
+                        <td><span class="badge ${e.origem === 'teste' ? 'inativo' : 'pendente'}">${esc(e.origem || 'analise')}</span></td>
+                      </tr>`).join('')
+                    : '<tr><td colspan="5" class="text-success">Nenhuma falha registrada.</td></tr>';
+
+                const tbProd = document.querySelector('#tabelaProducao tbody');
+                tbProd.innerHTML = j.porDia.length
+                    ? j.porDia.map(d => `<tr>
+                        <td>${new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
+                        <td>${d.analises}</td>
+                      </tr>`).join('')
+                    : '<tr><td colspan="2" class="text-warn">Nenhuma análise nos últimos 14 dias.</td></tr>';
+            } catch (e) {
+                document.querySelector('#tabelaSaude tbody').innerHTML =
+                    `<tr><td colspan="5" class="text-danger">Erro ao carregar: ${esc(e.message)}</td></tr>`;
+            }
+        }
+
+        async function testarProviders() {
+            const btn = document.getElementById('btnTestar');
+            btn.disabled = true;
+            btn.textContent = 'Testando...';
+            try {
+                const r = await fetch('/api/config/ia-saude/testar', { method: 'POST' });
+                const j = await r.json();
+                if (!j.success) throw new Error(j.error || 'falha');
+
+                const ok = Object.entries(j.resultados).filter(([, v]) => v.estado === 'ok');
+                const ruins = Object.entries(j.resultados).filter(([, v]) => v.estado === 'erro');
+                if (ok.length) {
+                    mostrarAlerta(`${ok.length} provider(es) respondendo: ` +
+                        ok.map(([p, v]) => `${PROVIDERS[p] ? PROVIDERS[p].nome : p} (${v.latenciaMs}ms)`).join(', ') +
+                        (ruins.length ? ` — ${ruins.length} com erro, veja o quadro.` : ''),
+                        ruins.length ? 'warn' : 'success');
+                } else {
+                    mostrarAlerta('Nenhum provider respondeu — a análise IA está parada. Veja o erro de cada um no quadro.', 'error');
+                }
+                await carregarSaude();
+            } catch (e) {
+                mostrarAlerta('Erro ao testar: ' + e.message, 'error');
+            }
+            btn.disabled = false;
+            btn.textContent = '⚡ Testar agora';
+        }
 
         document.getElementById('formIA').addEventListener('submit', async (e) => {
             e.preventDefault();

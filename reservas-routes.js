@@ -202,6 +202,47 @@ function criarReservasPedido(db, pedidoId) {
 }
 
 /**
+ * Disponibilidade de uma lista de produtos: saldo físico − reservas ativas.
+ *
+ * Vive fora do handler porque tem DOIS consumidores com privilégios diferentes:
+ * `/api/estoque/verificar-disponibilidade` (perfil de estoque) e
+ * `/api/produtos/disponibilidade` (perfil de vendas — o que o app usa). Uma
+ * função só evita que as duas respostas divirjam, que é o erro clássico de
+ * expor a mesma pergunta em dois lugares.
+ *
+ * É a MESMA conta que criarReservasPedido faz ao confirmar
+ * (reservas-routes.js:172-179) — logo, o que o app mostra e o que a confirmação
+ * decide não se contradizem.
+ */
+function disponibilidadeDeItens(db, itens) {
+  const resultado = (Array.isArray(itens) ? itens : []).map((it) => {
+    const produto = db.prepare('SELECT * FROM produtos WHERE id = ?').get(it.produtoId);
+    if (!produto) return { ...it, erro: 'produto nao encontrado' };
+    const qtd = Number(it.quantidade) || 0;
+    const saldo = db.prepare(`
+      SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
+                               WHEN tipo='saida' THEN -quantidade
+                               ELSE quantidade END),0) AS s
+      FROM movimentacoes_estoque WHERE produtoId = ?
+    `).get(it.produtoId).s;
+    const reservado = saldoReservado(db, it.produtoId);
+    const disponivel = saldo - reservado;
+    return {
+      produtoId: it.produtoId,
+      sku: produto.sku,
+      descricao: produto.descricao,
+      unidade: produto.unidade,
+      quantidadePedida: qtd,
+      saldo, reservado, disponivel,
+      suficiente: disponivel >= qtd,
+      faltando: Math.max(0, qtd - disponivel),
+    };
+  });
+  const insuficientes = resultado.filter((r) => !r.suficiente);
+  return { tudoDisponivel: insuficientes.length === 0, itens: resultado, insuficientes };
+}
+
+/**
  * Saldo físico global do produto (mesma conta que criarReservasPedido usa —
  * soma das movimentações, sem recorte de depósito).
  */
@@ -485,11 +526,15 @@ function cancelarReservasOS(db, osId, motivo = null) {
 
 function consumirReservasOS(db, osId, dataConsumo) {
   const { calcularContextoMovimento, resolverDeposito } = require('./estoque-routes');
+  // equipamentoId IS NULL: a reserva da própria máquina (trator na oficina)
+  // NÃO vira saída. Ela só segura a unidade contra venda enquanto a OS corre;
+  // a baixa daquele trator acontece na venda dele, não no fim do serviço.
+  // Sem esse recorte, concluir a OS daria baixa no equipamento do cliente.
   const reservas = db.prepare(`
     SELECT r.*, o.numero AS osNumero
     FROM reservas_estoque r
     JOIN os_ordens o ON o.id = r.osId
-    WHERE r.osId = ? AND r.status = 'ativa'
+    WHERE r.osId = ? AND r.status = 'ativa' AND r.equipamentoId IS NULL
   `).all(osId);
 
   const movIds = [];
@@ -526,6 +571,40 @@ function consumirReservasOS(db, osId, dataConsumo) {
     }
   }
   return movIds;
+}
+
+/**
+ * Reserva a própria máquina enquanto a OS corre.
+ *
+ * Só vale para equipamento que ainda é da empresa e que aponta para uma
+ * unidade do estoque: o trator que está na oficina não pode ser vendido no
+ * balcão ao mesmo tempo. Diferente da reserva de peça, esta nunca é consumida
+ * (ver o recorte em consumirReservasOS) — ela só se libera.
+ */
+function reservarEquipamentoOS(db, osId) {
+  const os = db.prepare('SELECT * FROM os_ordens WHERE id = ?').get(osId);
+  if (!os || !os.equipamentoId) return null;
+  const eq = db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(os.equipamentoId);
+  if (!eq || eq.proprietario !== 'empresa' || !eq.produtoId) return null;
+
+  const jaTem = db.prepare(`SELECT id FROM reservas_estoque
+    WHERE osId = ? AND equipamentoId = ? AND status = 'ativa'`).get(osId, eq.id);
+  if (jaTem) return jaTem.id;
+
+  const { resolverDeposito } = require('./estoque-routes');
+  const r = db.prepare(`INSERT INTO reservas_estoque
+    (produtoId, quantidade, status, osId, equipamentoId, serialNumberId, depositoId, observacoes)
+    VALUES (?, 1, 'ativa', ?, ?, ?, ?, ?)`)
+    .run(eq.produtoId, osId, eq.id, eq.serialNumberId || null,
+         resolverDeposito(db, { depositoId: os.depositoId, osId, produtoId: eq.produtoId }),
+         `Equipamento em OS ${os.numero}`);
+  return r.lastInsertRowid;
+}
+
+function liberarReservaEquipamentoOS(db, osId, motivo = null) {
+  return db.prepare(`UPDATE reservas_estoque
+    SET status = 'cancelada', observacoes = COALESCE(?, observacoes)
+    WHERE osId = ? AND equipamentoId IS NOT NULL AND status = 'ativa'`).run(motivo, osId).changes;
 }
 
 function registrarRotasReservas(app, db) {
@@ -642,36 +721,7 @@ function registrarRotasReservas(app, db) {
     try {
       const { itens } = req.body;
       if (!Array.isArray(itens)) return res.status(400).json({ success: false, error: 'itens (array) obrigatorio' });
-
-      const resultado = itens.map(it => {
-        const produto = db.prepare('SELECT * FROM produtos WHERE id = ?').get(it.produtoId);
-        if (!produto) return { ...it, erro: 'produto nao encontrado' };
-        const saldo = db.prepare(`
-          SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN quantidade
-                                   WHEN tipo='saida' THEN -quantidade
-                                   ELSE quantidade END),0) AS s
-          FROM movimentacoes_estoque WHERE produtoId = ?
-        `).get(it.produtoId).s;
-        const reservado = saldoReservado(db, it.produtoId);
-        const disponivel = saldo - reservado;
-        return {
-          produtoId: it.produtoId,
-          sku: produto.sku,
-          descricao: produto.descricao,
-          quantidadePedida: it.quantidade,
-          saldo, reservado, disponivel,
-          suficiente: disponivel >= it.quantidade,
-          faltando: Math.max(0, it.quantidade - disponivel)
-        };
-      });
-
-      const insuficientes = resultado.filter(r => !r.suficiente);
-      res.json({
-        success: true,
-        tudoDisponivel: insuficientes.length === 0,
-        itens: resultado,
-        insuficientes
-      });
+      res.json({ success: true, ...disponibilidadeDeItens(db, itens) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -684,6 +734,17 @@ function registrarRotasReservas(app, db) {
       const reserva = db.prepare('SELECT * FROM reservas_estoque WHERE id = ?').get(req.params.id);
       if (!reserva) return res.status(404).json({ success: false, error: 'Reserva nao encontrada' });
       if (reserva.status !== 'ativa') return res.status(400).json({ success: false, error: 'Reserva nao esta ativa' });
+      // A reserva da própria máquina só se desfaz junto com a OS: nada a
+      // recria depois. Cancelada à mão, o equipamento que está na oficina
+      // voltaria a ser vendável no balcão sem ninguém perceber.
+      if (reserva.equipamentoId) {
+        const os = reserva.osId
+          ? db.prepare('SELECT numero, status FROM os_ordens WHERE id = ?').get(reserva.osId) : null;
+        if (!os || !['faturada', 'cancelada', 'concluida'].includes(os.status)) {
+          return res.status(400).json({ success: false,
+            error: `Reserva do equipamento na OS ${os ? os.numero : '—'}: ela se libera ao concluir ou cancelar a OS.` });
+        }
+      }
       db.prepare(`
         UPDATE reservas_estoque SET status='cancelada', observacoes=? WHERE id=?
       `).run(req.body?.motivo || 'cancelamento manual', req.params.id);
@@ -699,6 +760,7 @@ module.exports = {
   migrarReservasDB,
   saldoReservado,
   alocarLotesFIFO,
+  disponibilidadeDeItens,
   criarReservasPedido,
   cancelarReservasPedido,
   consumirReservasPedido,
@@ -711,4 +773,6 @@ module.exports = {
   criarReservasOS,
   cancelarReservasOS,
   consumirReservasOS,
+  reservarEquipamentoOS,
+  liberarReservaEquipamentoOS,
 };

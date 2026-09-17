@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Minha Empresa - Licite Agora</title>
+    <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
@@ -63,6 +64,7 @@
                     <div class="tab" onclick="trocarTab('responsaveis')">Representante e Banco</div>
                     <div class="tab" onclick="trocarTab('credenciais')">Credenciais <span class="count" id="avisoCredenciais" style="display:none;">!</span></div>
                     <div class="tab" onclick="trocarTab('propostas')">Propostas</div>
+                    <div class="tab" onclick="trocarTab('preferencias')">Preferências</div>
                 </div>
 
                 <div class="tab-pane active" id="tab-cadastro">
@@ -377,6 +379,24 @@
                 </div>
                 </div>
 
+                <div class="tab-pane" id="tab-preferencias">
+                <div class="panel">
+                    <h3><span>📐</span> Menu lateral</h3>
+                    <p class="hint">
+                        Padrão da empresa. Cada usuário pode escolher outro modo em Meu Perfil —
+                        a escolha dele vence este padrão.
+                    </p>
+                    <div class="form-group">
+                        <label for="menuModoTenant">Como desenhar o menu</label>
+                        <select id="menuModoTenant" onchange="salvarMenuModoTenant()">
+                            <option value="unico">Único — todas as seções numa lista rolável</option>
+                            <option value="modulos">Por módulo — um módulo por vez, com seletor</option>
+                        </select>
+                        <small class="muted" id="menuModoTenantHint" style="font-size:11px;"></small>
+                    </div>
+                </div>
+                </div>
+
                 <!-- Configurações que saíram desta tela -->
                 <div class="panel">
                     <h3><span>🔗</span> Configurações relacionadas</h3>
@@ -406,6 +426,7 @@
             configurarUploadLogo();
             verificarCertificado();
             carregarGovBr();
+            carregarMenuModoTenant();
         });
 
         function trocarTab(t) {
@@ -808,6 +829,40 @@
             btnSalvar.disabled = false;
             btnSalvar.innerHTML = '💾 Salvar';
         });
+
+        // ===== Preferências: modo do menu (padrão do tenant) =====
+        async function carregarMenuModoTenant() {
+            try {
+                const d = await fetch('/api/features/status').then(r => r.json());
+                document.getElementById('menuModoTenant').value = d.menuModo === 'modulos' ? 'modulos' : 'unico';
+            } catch (e) { /* fica no padrão; o menu funciona igual */ }
+        }
+
+        async function salvarMenuModoTenant() {
+            const sel = document.getElementById('menuModoTenant');
+            const hint = document.getElementById('menuModoTenantHint');
+            try {
+                const r = await fetch('/api/features/menu-modo', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ modo: sel.value })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    hint.textContent = d.error === 'apenas administrador'
+                        ? 'Só um administrador altera o padrão da empresa.' : (d.error || 'Não foi possível salvar.');
+                    hint.style.color = 'var(--danger)';
+                    return carregarMenuModoTenant();
+                }
+                hint.textContent = 'Padrão da empresa salvo.';
+                hint.style.color = 'var(--success)';
+                // O menu vive no shell (app.html): quem redesenha é ele.
+                try { localStorage.setItem('menuModoTenant', d.menuModo); } catch (_) {}
+                try { if (window.parent && window.parent !== window && window.parent.aplicarTrocaDeModo) window.parent.aplicarTrocaDeModo(); } catch (_) {}
+            } catch (e) {
+                hint.textContent = 'Erro: ' + e.message;
+                hint.style.color = 'var(--danger)';
+            }
+        }
 
         function mostrarAlerta(mensagem, tipo) {
             const alertBox = document.getElementById('alertBox');
