@@ -23,7 +23,7 @@ const DB = '/tmp/vp-dev-venda.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
 // sqlite_sequence é criada pelo próprio SQLite — vem no dump e não pode ser recriada.
-db.exec(fs.readFileSync('/tmp/vp-devvenda-schema.sql', 'utf8')
+db.exec(require('./schema-de-tenant').lerSchema('/tmp/vp-devvenda-schema.sql')
   .split('\n').filter(l => !/sqlite_sequence/.test(l)).join('\n'));
 
 // Fila em vez de execução imediata: metade dos testes é async (chamam handlers de rota) e

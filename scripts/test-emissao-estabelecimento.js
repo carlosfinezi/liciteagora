@@ -17,7 +17,7 @@ const nfseRoutes = require('../nfse-routes');
 const DB = '/tmp/vp-emissao.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-const schema = fs.readFileSync('/tmp/vp-serie-schema.sql', 'utf8');
+const schema = require('./schema-de-tenant').lerSchema('/tmp/vp-serie-schema.sql');
 db.exec(schema);
 
 let ok = 0, fail = 0;

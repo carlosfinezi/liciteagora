@@ -11,7 +11,7 @@ const { registrarRotasPlanejamento } = require('../planejamento-routes');
 const DB = '/tmp/vp-metas.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-db.exec(fs.readFileSync('/tmp/vp-metas-schema.sql', 'utf8'));
+db.exec(require('./schema-de-tenant').lerSchema('/tmp/vp-metas-schema.sql'));
 db.exec(`CREATE TABLE IF NOT EXISTS participacoes_comprasnet (id INTEGER PRIMARY KEY AUTOINCREMENT);`);
 
 const app = express();

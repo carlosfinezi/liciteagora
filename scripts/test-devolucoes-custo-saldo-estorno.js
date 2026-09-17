@@ -13,7 +13,7 @@ const { calcularCustoMedio, calcularSaldo } = require('../estoque-routes');
 const DB = '/tmp/vp-devfix.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-const schema = fs.readFileSync('/tmp/vp-devfix-schema.sql', 'utf8');
+const schema = require('./schema-de-tenant').lerSchema('/tmp/vp-devfix-schema.sql');
 db.exec(schema);
 db.exec(`CREATE TABLE IF NOT EXISTS tipos_operacao (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo TEXT, descricao TEXT);`);
 // O dump traz só as tabelas do fluxo, mas elas têm FK para outras. Com

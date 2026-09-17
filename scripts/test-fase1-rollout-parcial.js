@@ -40,7 +40,7 @@ try { fs.unlinkSync(DB); } catch {}
  */
 const COLUNAS_FASE1 = ['descontoTipo', 'descontoValor', 'descontoAplicado',
   'descontoMotivo', 'tipoAtendimento', 'semDocumento'];
-const schemaAntigo = fs.readFileSync('/tmp/app-backend-schema.sql', 'utf8')
+const schemaAntigo = require('./schema-de-tenant').lerSchema('/tmp/app-backend-schema.sql')
   .replace(new RegExp(`,\\s*"?(${COLUNAS_FASE1.join('|')})"?\\s+[A-Za-z]+[^,)]*`, 'g'), '');
 
 const db = new Database(DB);

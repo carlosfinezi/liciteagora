@@ -12,7 +12,7 @@ const DB = '/tmp/vp-teste.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
 db.pragma('foreign_keys = ON');
-db.exec(fs.readFileSync('/tmp/vp-schema.sql', 'utf8'));
+db.exec(require('./schema-de-tenant').lerSchema('/tmp/vp-schema.sql'));
 // pedidos.participacaoId aponta pra cá; com foreign_keys=ON a tabela
 // precisa existir mesmo sem uso no teste.
 db.exec('CREATE TABLE IF NOT EXISTS participacoes_comprasnet (id INTEGER PRIMARY KEY AUTOINCREMENT)');

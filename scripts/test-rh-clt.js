@@ -16,7 +16,7 @@ const clt = require('../rh-clt');
 const DB = '/tmp/vp-rh.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-db.exec(fs.readFileSync('/tmp/vp-rh-schema.sql', 'utf8'));
+db.exec(require('./schema-de-tenant').lerSchema('/tmp/vp-rh-schema.sql'));
 
 let ok = 0, fail = 0;
 const t = (nome, fn) => {

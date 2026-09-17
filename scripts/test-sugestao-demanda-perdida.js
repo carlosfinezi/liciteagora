@@ -11,7 +11,7 @@ const { registrarRotasCompras } = require('../compras-routes');
 const DB = '/tmp/vp-sugestao.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-db.exec(fs.readFileSync('/tmp/vp-schema2.sql', 'utf8'));
+db.exec(require('./schema-de-tenant').lerSchema('/tmp/vp-schema2.sql'));
 // Tabelas referenciadas por FK que o teste não usa.
 db.exec(`CREATE TABLE IF NOT EXISTS pedidos (id INTEGER PRIMARY KEY AUTOINCREMENT, numero TEXT);
          CREATE TABLE IF NOT EXISTS pedido_itens (id INTEGER PRIMARY KEY AUTOINCREMENT, pedidoId INTEGER);

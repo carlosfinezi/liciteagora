@@ -12,7 +12,7 @@ const RAIZ = '/tmp/vp-prodimg-public';
 try { fs.unlinkSync(DB); } catch {}
 try { fs.rmSync(RAIZ, { recursive: true, force: true }); } catch {}
 const db = new Database(DB);
-const schema = fs.readFileSync('/tmp/vp-prodimg-schema.sql', 'utf8');
+const schema = require('./schema-de-tenant').lerSchema('/tmp/vp-prodimg-schema.sql');
 db.exec(schema);
 for (const m of schema.matchAll(/REFERENCES\s+(\w+)\s*\(/gi)) {
   db.exec(`CREATE TABLE IF NOT EXISTS ${m[1]} (id INTEGER PRIMARY KEY AUTOINCREMENT)`);

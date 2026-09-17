@@ -17,7 +17,7 @@ const { registrarRotasGerencial } = require('../gerencial-routes');
 const DB = '/tmp/vp-dre.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-const schema = fs.readFileSync('/tmp/vp-dre-schema.sql', 'utf8');
+const schema = require('./schema-de-tenant').lerSchema('/tmp/vp-dre-schema.sql');
 db.exec(schema);
 for (const m of schema.matchAll(/REFERENCES\s+(\w+)\s*\(/gi)) {
   // Stub das tabelas referenciadas, com a linha 1 semeada: as FKs de pessoa e

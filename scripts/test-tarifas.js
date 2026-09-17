@@ -12,15 +12,13 @@ const Database = require('better-sqlite3');
 const T = require('../tesouraria-routes');
 const orchestrator = require('../boleto-orchestrator');
 
+// O schema sai do tenant na hora, em modo somente leitura. Antes era um dump
+// em /tmp gerado à mão, que sumia no reboot e levava a suíte junto.
 const SCHEMA = '/tmp/tarifa-schema.sql';
-if (!fs.existsSync(SCHEMA)) {
-  console.error(`schema ausente: ${SCHEMA}\n  sqlite3 data/tenants/1bit/pncp.db .schema > ${SCHEMA}`);
-  process.exit(2);
-}
 const DB = '/tmp/tarifa-teste.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-db.exec(fs.readFileSync(SCHEMA, 'utf8'));
+db.exec(require('./schema-de-tenant').lerSchema(SCHEMA));
 
 // Os ALTERs novos (tarifaBoleto / contaPagarTarifaId) entram por aqui — o dump
 // é de um banco que ainda não os tem, então isto também testa a migração.

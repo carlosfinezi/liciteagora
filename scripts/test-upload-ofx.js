@@ -15,7 +15,7 @@ const { tenantStorage, createDbProxy, reentrarContextoTenant } = require('../ten
 const DB = '/tmp/vp-ofx.db';
 try { fs.unlinkSync(DB); } catch {}
 const real = new Database(DB);
-const schema = fs.readFileSync('/tmp/vp-ofx-schema.sql', 'utf8');
+const schema = require('./schema-de-tenant').lerSchema('/tmp/vp-ofx-schema.sql');
 real.exec(schema);
 for (const m of schema.matchAll(/REFERENCES\s+(\w+)\s*\(/gi)) {
   real.exec(`CREATE TABLE IF NOT EXISTS ${m[1]} (id INTEGER PRIMARY KEY AUTOINCREMENT)`);

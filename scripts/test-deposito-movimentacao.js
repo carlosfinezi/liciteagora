@@ -11,7 +11,7 @@ const { criarReservasPedido, consumirReservasPedido } = require('../reservas-rou
 const DB = '/tmp/vp-deposito.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-const schema = fs.readFileSync('/tmp/vp-deposito-schema.sql', 'utf8');
+const schema = require('./schema-de-tenant').lerSchema('/tmp/vp-deposito-schema.sql');
 db.exec(schema);
 for (const m of schema.matchAll(/REFERENCES\s+(\w+)\s*\(/gi)) {
   db.exec(`CREATE TABLE IF NOT EXISTS ${m[1]} (id INTEGER PRIMARY KEY AUTOINCREMENT)`);

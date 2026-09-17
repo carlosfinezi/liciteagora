@@ -11,7 +11,7 @@ const { registrarRotasContratos } = require('../contratos-routes');
 const DB = '/tmp/vp-vincrec.db';
 try { fs.unlinkSync(DB); } catch {}
 const db = new Database(DB);
-db.exec(fs.readFileSync('/tmp/vp-vincrec-schema.sql', 'utf8'));
+db.exec(require('./schema-de-tenant').lerSchema('/tmp/vp-vincrec-schema.sql'));
 
 const app = express();
 registrarRotasContratos(app, db);
@@ -164,7 +164,7 @@ t('sem a tabela de log a recorrência ainda aparece (sem agregados)', () => {
   const P2 = '/tmp/vp-vincrec2.db';
   try { fs.unlinkSync(P2); } catch {}
   const db2 = new Database(P2);
-  db2.exec(fs.readFileSync('/tmp/vp-vincrec-schema.sql', 'utf8'));
+  db2.exec(require('./schema-de-tenant').lerSchema('/tmp/vp-vincrec-schema.sql'));
   db2.exec('DROP TABLE nfse_recorrencias_log');
   db2.prepare("INSERT INTO pessoas (id, cpfCnpj, razaoSocial, tipo, ativo) VALUES (1,'00000000000191','C','cliente',1)").run();
   db2.prepare(`INSERT INTO nfse_recorrencias (id, pessoaId, ativo, codigoTributacaoNacional, descricao, valorServico)

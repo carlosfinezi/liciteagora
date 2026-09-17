@@ -285,11 +285,129 @@ const suites = [
   // cliente SOBRE o do tenant, não no lugar dele) e a guarda que barra antes
   // de gastar a ida à NicSRS, nos TRÊS caminhos que chegam ao /ssl/place.
   ['29. contato OV/EV da NicSRS (test-ssl-contato-ov)', 'test-ssl-contato-ov.js'],
+  // Ciclo de reemissão SSL. Entra aqui porque o que ele guarda só falha DEPOIS
+  // de a conta estar paga: o arquivo vale menos que a assinatura, e quem cobre
+  // a diferença é o reissue automático. A janela acompanha a validade — é o que
+  // mantém a regra correta quando o teto das CAs cair de 200 para 47 dias, sem
+  // ninguém reconfigurar nada. E DCV por e-mail ganha o dobro dela, porque
+  // depende de um clique do cliente: sem o clique, o certificado expira.
+  ['30. reemissao e DCV manual (test-ssl-reissue-dcv)', 'test-ssl-reissue-dcv.js'],
   // Entrou em 17/09 por ter pego, sozinha, o defeito que ninguém viu: a tela
   // cancelava certificado SEM confirmação e com motivo fixo, para uma ação
   // irreversível que não devolve o valor pago. A suíte existia desde 31/08 e
   // estava certa; o que faltava era alguém executá-la. Custo: ~40s.
   ['30. cancelar certificado pede confirmação (test-ssl-cancelar-ui)', 'test-ssl-cancelar-ui.js'],
+
+  // ── Fiscal: tributação, apuração e emissão ──
+  ['31. fiscal-tributacao (0s)', 'test-fiscal-tributacao.js'],
+  ['32. fiscal-regras (1s)', 'test-fiscal-regras.js'],
+  ['33. fiscal-diagnostico (4s)', 'test-fiscal-diagnostico.js'],
+  ['34. camada3-fiscal (1s)', 'test-camada3-fiscal.js'],
+  ['35. regras-tributarias-ui (3s)', 'test-regras-tributarias-ui.js'],
+  ['36. nfe-tributacao-integracao (0s)', 'test-nfe-tributacao-integracao.js'],
+  ['38. nf-avulsa (0s)', 'test-nf-avulsa.js'],
+  ['39. nova-nota-ui (4s)', 'test-nova-nota-ui.js'],
+  ['40. espelho-fiscal (0s)', 'test-espelho-fiscal.js'],
+  ['41. documento-fiscal (1s)', 'test-documento-fiscal.js'],
+  ['42. emissao-estabelecimento (9s)', 'test-emissao-estabelecimento.js'],
+  ['43. apuracao-icms (3s)', 'test-apuracao-icms.js'],
+  ['44. apuracao-ipi (3s)', 'test-apuracao-ipi.js'],
+  ['45. apuracao-piscofins (3s)', 'test-apuracao-piscofins.js'],
+
+  // ── Devolução de venda ──
+  ['46. devolucao-venda-espelho (10s)', 'test-devolucao-venda-espelho.js'],
+  ['47. devolucoes-credito-metas-comissao (2s)', 'test-devolucoes-credito-metas-comissao.js'],
+  ['48. devolucoes-custo-saldo-estorno (1s)', 'test-devolucoes-custo-saldo-estorno.js'],
+
+  // ── Estoque e catálogo de atributos ──
+  ['49. analises-estoque (16s)', 'test-analises-estoque.js'],
+  ['50. deposito-movimentacao (20s)', 'test-deposito-movimentacao.js'],
+  ['51. multideposito-lab (1s)', 'test-multideposito-lab.js'],
+  ['52. etiquetas (1s)', 'test-etiquetas.js'],
+  ['53. sync-marcadores (1s)', 'test-sync-marcadores.js'],
+
+  // ── Farmácia ──
+  ['54. farmacia-f0 (0s)', 'test-farmacia-f0.js'],
+  ['55. farmacia-f1 (21s)', 'test-farmacia-f1.js'],
+  ['56. farmacia-f2 (1s)', 'test-farmacia-f2.js'],
+  ['57. farmacia-f3 (0s)', 'test-farmacia-f3.js'],
+  ['58. farmacia-f4 (1s)', 'test-farmacia-f4.js'],
+  ['59. farmacia-f5 (0s)', 'test-farmacia-f5.js'],
+  ['60. farmacia-f6 (1s)', 'test-farmacia-f6.js'],
+
+  // ── Locação ──
+  ['61. locacao-f0 (1s)', 'test-locacao-f0.js'],
+  ['62. locacao-f1 (0s)', 'test-locacao-f1.js'],
+  ['63. locacao-f2 (1s)', 'test-locacao-f2.js'],
+  ['64. locacao-f3 (0s)', 'test-locacao-f3.js'],
+  ['65. locacao-f4 (1s)', 'test-locacao-f4.js'],
+  ['66. locacao-f5 (0s)', 'test-locacao-f5.js'],
+  ['67. locacao-f6 (1s)', 'test-locacao-f6.js'],
+  ['68. locacao-f7 (1s)', 'test-locacao-f7.js'],
+
+  // ── Produção ──
+  ['69. producao-f0 (0s)', 'test-producao-f0.js'],
+  ['70. producao-f2 (13s)', 'test-producao-f2.js'],
+  ['71. producao-sem-rh (11s)', 'test-producao-sem-rh.js'],
+  ['72. producao-telas (25s)', 'test-producao-telas.js'],
+
+  // ── PDV e varejo ──
+  ['73. pdv-fluxo (19s)', 'test-pdv-fluxo.js'],
+  ['74. pdv-natureza (1s)', 'test-pdv-natureza.js'],
+  ['75. pdv-rbac (0s)', 'test-pdv-rbac.js'],
+  ['76. pdv-visual (0s)', 'test-pdv-visual.js'],
+
+  // ── Pedido: desconto, pagamento e rollout ──
+  ['77. fase1-funcional (13s)', 'test-fase1-funcional.js'],
+  ['78. fase1-desconto-origem (12s)', 'test-fase1-desconto-origem.js'],
+  ['79. fase1-rollout-parcial (10s)', 'test-fase1-rollout-parcial.js'],
+  ['80. fase0-pagamento-pedido (10s)', 'test-fase0-pagamento-pedido.js'],
+  ['81. rollout-fase1 (1s)', 'test-rollout-fase1.js'],
+  ['82. reservas-pedido (7s)', 'test-reservas-pedido.js'],
+  ['83. venda-perdida-pedido (6s)', 'test-venda-perdida-pedido.js'],
+  ['84. status-negocio (0s)', 'test-status-negocio.js'],
+
+  // ── Governança e notificações ──
+  ['85. alcadas (11s)', 'test-alcadas.js'],
+  ['86. governanca-percentual (9s)', 'test-governanca-percentual.js'],
+  ['87. notificacoes-canais (0s)', 'test-notificacoes-canais.js'],
+
+  // ── Licitações ──
+  ['88. interesse-analise (18s)', 'test-interesse-analise.js'],
+  ['89. interesse-relatorio (3s)', 'test-interesse-relatorio.js'],
+
+  // ── Financeiro ──
+  ['90. tarifas (6s)', 'test-tarifas.js'],
+  ['91. metas-bi (6s)', 'test-metas-bi.js'],
+
+  // ── Core e provisionamento ──
+  ['92. app-backend (27s)', 'test-app-backend.js'],
+  ['93. provisionamento-tenant-novo (1s)', 'test-provisionamento-tenant-novo.js'],
+
+  // ── Interface ──
+  ['94. fase321-ux (0s)', 'test-fase321-ux.js'],
+  ['95. sidebar-botoes (0s)', 'test-sidebar-botoes.js'],
+
+  // ── Lotes de laboratório (regressão acumulada) ──
+  ['96. item12-lab (0s)', 'test-item12-lab.js'],
+  ['97. item13-lab (1s)', 'test-item13-lab.js'],
+  ['98. item21-lab (0s)', 'test-item21-lab.js'],
+  ['99. lote22-23-lab (0s)', 'test-lote22-23-lab.js'],
+  ['100. lote25-26-lab (0s)', 'test-lote25-26-lab.js'],
+  ['101. onda3-lab (0s)', 'test-onda3-lab.js'],
+  // ── Recuperadas do dump em /tmp (ver scripts/schema-de-tenant.js) ──
+  ['101. comunicacao (11s)', 'test-comunicacao.js'],
+  ['102. contrato-recorrencia (8s)', 'test-contrato-recorrencia.js'],
+  ['103. produto-imagens (8s)', 'test-produto-imagens.js'],
+  ['104. recorrencias-crud (9s)', 'test-recorrencias-crud.js'],
+  ['105. rh-clt (12s)', 'test-rh-clt.js'],
+  ['106. upload-ofx (9s)', 'test-upload-ofx.js'],
+  // Faturamento do contrato por nota avulsa. Entra aqui porque o modo de falha
+  // é silencioso: vincular a nota errada, ou perder o vínculo de outro
+  // contrato, não quebra tela nenhuma — o contrato só passa a exibir um
+  // faturamento que não é dele.
+  ['107. contrato-nfse-avulsa (25s)', 'test-contrato-nfse-avulsa.js'],
+  ['108. contrato-nfse-ui (22s)', 'test-contrato-nfse-ui.js'],
 ];
 for (const [rotulo, arq] of suites) {
   passo(rotulo);

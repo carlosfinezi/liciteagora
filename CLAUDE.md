@@ -59,16 +59,37 @@ segundos conclui que travou e mata o processo, e aí o passo deixa de ser
 rodado. Rode após qualquer edição de .js, e conte com o tempo.
 
 Ele deixou de ser o `node --check` em massa que esta seção descrevia até
-2026-09-16. Hoje são **29 etapas** em sequência:
+2026-09-16. Em 17/09 passou de 30 para **106 etapas**: entraram 71 suítes que
+já existiam, passavam e não rodavam em lugar nenhum, mais 6 recuperadas do
+dump em `/tmp` (ver `docs/suites-fora-do-verify-2026-09-17.md`). Módulos
+inteiros — farmácia, locação, produção, apuração fiscal, devolução — não
+tinham uma única etapa até então.
+
+As 71 somam 325s medidos, cerca de 23% a mais. O tempo total da rodada de 106
+etapas **não foi medido**: a tentativa esbarrou em outra sessão usando a
+máquina, com load average em 7 e Chrome headless disputado. A estimativa é
+~32 min, e o primeiro que rodar com a máquina livre deve anotar o número real
+aqui.
+
+A estrutura segue a mesma: as três primeiras etapas são sintaxe, o resto são
+suítes funcionais.
 
 - **1 a 3, sintaxe**: `vm.Script` em todo .js da raiz, de `scripts/` e de
   `public/`, mais o JavaScript embutido nas telas. Levam segundos. Essa
   cobertura de `public/` é resposta a 2026-09-11, quando uma crase dentro de um
   comentário quebrou o `public/js/sidebar.js`, o verify antigo passou verde e o
   ERP inteiro subiu com a tela em branco.
-- **4 a 29, suítes funcionais**: shell, tema e contraste, PWA, RBAC, isolamento
-  multi-tenant, catálogo, pedidos, faturamento e SSL. São elas que consomem os
-  35 minutos, porque montam bancos descartáveis e sobem Chrome headless.
+- **4 a 106, suítes funcionais**: shell, tema e contraste, PWA, RBAC,
+  isolamento multi-tenant, catálogo, pedidos, faturamento, SSL, farmácia,
+  locação, produção, PDV, apuração fiscal e devolução. São elas que consomem o
+  tempo, porque montam bancos descartáveis e sobem Chrome headless.
+
+  **O banco de teste sai do schema do tenant, extraído na hora** por
+  `scripts/schema-de-tenant.js`, em modo somente leitura. Antes, 27 suítes liam
+  um dump gerado à mão em `/tmp`, que sumia no reboot. Pior: aquele dump era de
+  antes de 2026-08-20 e não tinha a remoção da tabela `fornecedores`, então 12
+  suítes passavam contra um schema congelado havia um mês. Nunca volte a ler
+  schema de arquivo local — o verde seria falso.
 
 Passar no verify hoje diz bem mais que "o código parseia". Ainda assim não é
 prova de que a sua mudança funciona: nenhuma das 29 etapas conhece o que você
@@ -445,7 +466,21 @@ que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
 **`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-17
-10:16**, reiniciado no passo 7 do fechamento. **Nada pendente.**
+10:16**, reiniciado no passo 7 do fechamento.
+
+**Pendente: o faturamento do contrato por nota avulsa** (17/09, tarde).
+Quatro arquivos da raiz mudaram e nenhum está em vigor: `db-schema.js`
+(coluna `nfse.contratoId` mais o índice — a migration roda no boot, e até lá
+nenhum tenant tem a coluna), `contratos-routes.js` (`notasAvulsas` no detalhe
+e as rotas `nfse-disponiveis` / `vincular-nfse`), `nfse-routes.js`
+(`emitirNfseInterno` carimba o contrato de origem) e `perfis-api-map.js`
+(perfil `nfse` ganhou acesso a `/api/contratos`).
+
+As telas, por serem estáticas, **já estão no ar** e convivem com o servidor
+antigo sem quebrar: o bloco "Notas avulsas deste contrato" fica escondido
+enquanto o detalhe não devolver `notasAvulsas`. O que não funciona até o
+restart é emitir pela tela do contrato com o vínculo: o `POST /api/nfse/emitir`
+em memória ignora o `contratoId` e a nota sairia solta.
 
 O que entrou em vigor nesse restart, e que vale saber porque muda
 comportamento: **a NFC-e da comanda do restaurante passou a funcionar.** Antes
