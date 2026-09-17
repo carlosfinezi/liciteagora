@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Certificados SSL · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -15,7 +16,7 @@
     </div>
     <div class="actions">
       <button class="btn btn-ghost" onclick="importar()">Importar da NicSRS</button>
-      <button class="btn btn-ghost" onclick="abrirConfig()">Integração NicSRS</button>
+      <a class="btn btn-ghost" href="/ssl/integracao.html">Integração NicSRS</a>
       <button class="btn btn-primary" onclick="abrirNovo()">+ Novo certificado</button>
     </div>
   </div>
@@ -39,6 +40,10 @@
       <option value="expirado">Expirado</option>
       <option value="cancelado">Cancelado</option>
     </select>
+    <button class="btn btn-ghost btn-sm" onclick="exportarExcel()"
+            title="Baixa a carteira filtrada em .xlsx — todas as colunas, inclusive as ocultas aqui"><svg class="ic-sm"><use href="#i-download"/></svg> Excel</button>
+    <button class="btn btn-ghost btn-sm" onclick="exportarPdf()"
+            title="Abre o relatório em PDF, pronto para imprimir"><svg class="ic-sm"><use href="#i-file-text"/></svg> PDF</button>
     <div style="position:relative;">
       <button class="btn btn-ghost btn-sm" onclick="toggleColunasMenu(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
       <div id="colunasMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-1);border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px;z-index:50;min-width:220px;box-shadow:0 8px 20px rgba(0,0,0,0.4);"></div>
@@ -64,16 +69,22 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
     </div>
 
+    <!-- O CONTRATO vem primeiro, e o cliente sai dele.
+         Antes eram dois campos independentes, e dava para gravar um certificado
+         com cliente de um contrato e contrato de outro. Escolhido o contrato, o
+         cliente é preenchido e fica só de leitura; sem contrato, ele volta a ser
+         buscável, que é o caso do certificado avulso (domínio da própria casa,
+         por exemplo). -->
     <div class="form-row">
+      <div class="form-group" style="flex:1;">
+        <label>Contrato</label>
+        <select id="fContratoId" onchange="aoTrocarContrato()"><option value="">— sem contrato —</option></select>
+      </div>
       <div class="form-group" style="flex:1;position:relative;">
-        <label>Cliente</label>
+        <label>Cliente <small class="muted" style="font-weight:normal;" id="fCliOrigem"></small></label>
         <input type="text" id="fCliBusca" placeholder="Razão social…" oninput="acCli()" autocomplete="off">
         <input type="hidden" id="fClienteId">
         <div id="acCliList" class="ac-list"></div>
-      </div>
-      <div class="form-group">
-        <label>Contrato</label>
-        <select id="fContratoId"><option value="">— sem contrato —</option></select>
       </div>
     </div>
 
@@ -84,9 +95,38 @@
       <input type="hidden" id="fContratoItemId">
     </div>
 
+    <!-- Filtros do catálogo. São 69 produtos de 5 CAs numa lista só, e dois
+         vizinhos da mesma marca podem ser um DV de US$ 5 e um OV de US$ 25 —
+         escolher errado só aparece quando a CA recusa a validação, com a
+         assinatura já paga. Mesmos eixos do próprio painel da NicSRS. -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>Marca</label>
+        <select id="fFiltroMarca" onchange="renderProdutos()"><option value="">Todas as marcas</option></select>
+      </div>
+      <div class="form-group">
+        <label>Validação</label>
+        <select id="fFiltroValidacao" onchange="renderProdutos()">
+          <option value="">Todas</option>
+          <option value="dv">DV — só o domínio</option>
+          <option value="ov">OV — valida a organização</option>
+          <option value="ev">EV — validação estendida</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Tipo de domínio</label>
+        <select id="fFiltroDominio" onchange="renderProdutos()">
+          <option value="">Todos</option>
+          <option value="single">Simples</option>
+          <option value="wildcard">Curinga (*.dominio)</option>
+          <option value="multi">Multidomínio (SAN)</option>
+        </select>
+      </div>
+    </div>
+
     <div class="form-row">
       <div class="form-group full-width">
-        <label>Produto NicSRS *</label>
+        <label>Produto NicSRS * <small class="muted" id="fFiltroContagem"></small></label>
         <select id="fProductCode" onchange="aoTrocarProduto()"><option value="">Sincronize o catálogo em "Integração NicSRS"</option></select>
       </div>
     </div>
@@ -94,10 +134,18 @@
     <!-- Antes dos campos de domínio: é o CSR que os preenche. -->
     <div class="form-row">
       <div class="form-group full-width">
-        <label>CSR *</label>
-        <textarea id="fCsr" rows="6" placeholder="-----BEGIN CERTIFICATE REQUEST----- …"
+        <label>CSR <small class="muted" style="font-weight:normal;">— opcional</small></label>
+        <textarea id="fCsr" rows="4" placeholder="deixe vazio para a NicSRS gerar o par de chaves"
                   oninput="debounceCsr()" onchange="lerCsr()" style="font-family:monospace;font-size:0.85em;"></textarea>
-        <small class="muted">Cole o CSR e o domínio é lido dele. O mesmo CSR é reaproveitado nas reemissões automáticas.</small>
+        <!-- Deixou de ser obrigatório na prática em 2026-09-01, mas o rótulo
+             seguia com asterisco. Comprado sem CSR e emitido: #60
+             (secom.df.gov.br) e #64 (homolog.1bit.net.br). Com CSR próprio a
+             chave privada nunca sai daqui; sem ele, a NicSRS gera o par e a
+             chave vem pelo collect. -->
+        <small class="muted">
+          Em branco, a NicSRS gera a chave e o CSR. Colando o seu, o domínio é lido dele e a
+          chave privada não sai da sua infraestrutura — o mesmo CSR é reaproveitado nas reemissões.
+        </small>
         <div id="csrInfo" style="margin-top:6px;font-size:12px;"></div>
       </div>
     </div>
@@ -105,7 +153,7 @@
     <div class="form-row">
       <div class="form-group">
         <label>Domínio principal (CN) *</label>
-        <input type="text" id="fCN" placeholder="preenchido pelo CSR" onchange="carregarEmailsDcv()">
+        <input type="text" id="fCN" placeholder="preenchido pelo CSR" onchange="aoMudarDominio()">
       </div>
       <div class="form-group">
         <label>Anos de assinatura</label>
@@ -124,16 +172,25 @@
       <div class="form-group">
         <label>Validação de domínio (DCV) *</label>
         <select id="fDcv" onchange="toggleDcvEmail()">
-          <option value="CNAME_CSR_HASH">DNS CNAME</option>
-          <option value="EMAIL">E-mail de aprovação</option>
-          <option value="HTTP_CSR_HASH">Arquivo HTTP</option>
-          <option value="HTTPS_CSR_HASH">Arquivo HTTPS</option>
+          <option value="CNAME_CSR_HASH">DNS CNAME — recomendado (reemissão automática)</option>
+          <option value="HTTP_CSR_HASH">Arquivo HTTP (reemissão automática)</option>
+          <option value="HTTPS_CSR_HASH">Arquivo HTTPS (reemissão automática)</option>
+          <option value="EMAIL">E-mail de aprovação — exige clique do cliente a cada reemissão</option>
         </select>
       </div>
       <div class="form-group" id="grpDcvEmail" style="display:none;">
         <label>E-mail aprovador *</label>
         <select id="fDcvEmail"><option value="">— informe o domínio primeiro —</option></select>
         <small class="muted">Só estes endereços são aceitos pela CA, montados a partir do domínio.</small>
+        <!-- O arquivo vale ~200 dias e a assinatura 1 ano+, então TODO certificado
+             é reemitido pelo menos uma vez dentro do que já foi pago. Com DCV por
+             e-mail cada reemissão para numa pessoa: se ninguém clicar, o
+             certificado do cliente expira. Os métodos automáticos não têm isso. -->
+        <small class="muted" style="display:block;margin-top:6px;color:var(--warn,#b45309);">
+          ⚠ Cada reemissão vai parar num clique do cliente. Hoje isso acontece ~1×/ano;
+          quando a validade máxima cair para 47 dias, passa a ~11×/ano por certificado.
+          Prefira DNS CNAME sempre que você controlar o DNS do domínio.
+        </small>
       </div>
     </div>
 
@@ -157,13 +214,24 @@
       </div>
     </div>
 
-    <h4 style="margin:18px 0 4px;color:var(--text-2);font-size:0.95em;">Contatos exigidos pela CA</h4>
-    <p class="muted" style="font-size:12px;margin:0 0 10px;">
-      A organização validada é a do <strong>cliente do contrato</strong> e vem do cadastro dele.
-      Estes três contatos a CA pede separadamente — preencha o administrativo e use
-      <em>Copiar do administrativo</em> se os outros forem a mesma pessoa.
-    </p>
-    <div id="boxContatos"></div>
+    <!-- Contatos e organização ficam RECOLHIDOS.
+         A compra em si não os pede: no painel da NicSRS, comprar é escolher
+         produto, quantidade e validade. Aqui eles existem porque o /ssl/place
+         da API de revenda junta compra e emissão no mesmo ato — mas, em branco,
+         valem os do tenant (config nicsrs_administrator) e os do cliente, que é
+         como as compras que deram certo foram feitas. Num OV/EV o bloco abre
+         sozinho, porque aí a CA valida a organização de verdade. -->
+    <details id="detDadosCA" style="margin-top:16px;">
+      <summary style="cursor:pointer;color:var(--text-2);font-size:0.95em;font-weight:600;">
+        Contatos e organização <small class="muted" style="font-weight:normal;" id="resumoDadosCA"></small>
+      </summary>
+      <p class="muted" style="font-size:12px;margin:8px 0 10px;">
+        Em branco, usa o contato administrativo cadastrado em <em>Integração NicSRS</em> e a
+        organização do cadastro do cliente. Só preencha para sobrescrever.
+      </p>
+      <div id="boxContatos"></div>
+      <div id="boxOrganizacao"></div>
+    </details>
 
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
@@ -207,69 +275,6 @@
   </div>
 </div>
 
-<!-- Modal Config -->
-<div class="modal-bg" id="modalCfg">
-  <div class="modal" style="max-width:620px;">
-    <div class="modal-header">
-      <div>
-        <h3 style="margin:0;">Integração NicSRS</h3>
-        <small class="muted">Token da API, contato administrativo e regra de reemissão</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharConfig()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-
-    <div id="cfgStatus" class="muted" style="margin-bottom:12px;"></div>
-
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>API token</label>
-        <!-- new-password (e não "off") é o que realmente impede o Chrome de
-             oferecer a credencial salva do site aqui. Com um type=password na
-             página, ele tratava a tela inteira como formulário de login e
-             preenchia o usuário salvo no campo de busca. -->
-        <input type="password" id="cToken" name="nicsrs-api-token"
-               placeholder="deixe vazio para manter o atual" autocomplete="new-password">
-        <small class="muted">Access Secret de console.nicsrs.com/interface (ou o token entregue pelo suporte).</small>
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label>Cotação USD → BRL</label>
-        <div id="cCotacao" style="padding:8px 0;font-weight:600;">—</div>
-        <small class="muted">PTAX de venda do Banco Central, buscada no dia da compra.</small>
-      </div>
-      <div class="form-group">
-        <label>Reemitir com antecedência de</label>
-        <input type="number" id="cAntecedencia" min="1" max="60" placeholder="15">
-        <small class="muted">dias antes de o arquivo expirar</small>
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label><input type="checkbox" id="cReissueAuto"> Reemitir automaticamente dentro da assinatura</label>
-        <small class="muted">Reissue é gratuito. Desligue só se quiser controlar cada reemissão à mão.</small>
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Contato administrativo (JSON)</label>
-        <textarea id="cAdmin" rows="7" style="font-family:monospace;font-size:0.82em;" placeholder='{"firstName":"...","lastName":"...","email":"...","mobile":"...","job":"...","organization":"...","address":"...","city":"...","state":"...","postCode":"...","country":"BR"}'></textarea>
-        <small class="muted">Vai em todo pedido como contato do requerente.</small>
-      </div>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="testar()">Testar token</button>
-      <button class="btn btn-ghost" onclick="sincronizarCatalogo()">Sincronizar catálogo</button>
-      <button class="btn btn-ghost" onclick="atualizarPrecos()">Atualizar preços dos produtos</button>
-      <button class="btn btn-primary" onclick="salvarConfig()">Salvar</button>
-    </div>
-  </div>
-</div>
-
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script src="/js/icons.js"></script>
@@ -285,6 +290,13 @@ const BADGE = {
   'emitido':'ativo', 'reemitindo':'pendente', 'substituido':'inativo',
   'expirado':'inativo', 'cancelado':'inativo'
 };
+
+// Estados de onde não se volta: cancelar de novo não faria nada aqui e seria
+// recusado lá. 'substituido' é o certificado velho de um reissue — quem manda
+// nele é o novo.
+const ESTADOS_FINAIS = ['cancelado', 'expirado', 'substituido'];
+
+let ULTIMA_LISTA = [];
 
 function diasAte(iso){
   if (!iso) return null;
@@ -320,14 +332,28 @@ const COLUNAS = [
   { key:'custoUsd',     label:'Custo US$',        default:false, num:true },
   { key:'custoBrl',     label:'Custo R$',         default:false, num:true },
   { key:'dataCompra',   label:'Compra',           default:false },
-  { key:'orderNum',     label:'Pedido NicSRS',    default:false },
-  { key:'certId',       label:'certId',           default:false },
+  // Os dois identificadores que ligam uma linha daqui à mesma compra no painel
+  // da NicSRS. Ficavam ocultos, e sem eles a conferência com o console virava
+  // adivinhação por domínio e data. `certId` é o que o console imprime como
+  // "Application ID" — o rótulo segue o nome de lá, não o nosso, porque quem
+  // usa a coluna está com as duas telas abertas.
+  { key:'orderNum',     label:'Pedido NicSRS',    default:true  },
+  { key:'certId',       label:'Application ID',   default:true  },
+  // O nosso lado da correlação: qual pedido de compra pagou este certificado.
+  // Vem do backend por dois caminhos (direto e via assinatura), já resolvido
+  // em pedidoCompraNumero.
+  { key:'pedidoCompra', label:'Pedido de compra', default:true  },
 ];
 
-let colunasVisiveis = JSON.parse(localStorage.getItem('ssl_colunas') || 'null')
+// A chave é versionada porque mudar `default` não alcança quem já usou a tela:
+// a escolha salva vence, e as colunas novas nunca apareceriam justamente para
+// quem mais usa o módulo. Trocar o nome da chave descarta a preferência antiga
+// uma vez — o custo é remarcar colunas, e só para quem tinha personalizado.
+const CHAVE_COLUNAS = 'ssl_colunas_v2';
+let colunasVisiveis = JSON.parse(localStorage.getItem(CHAVE_COLUNAS) || 'null')
   || COLUNAS.filter(c => c.default).map(c => c.key);
 
-function salvarColunas(){ localStorage.setItem('ssl_colunas', JSON.stringify(colunasVisiveis)); }
+function salvarColunas(){ localStorage.setItem(CHAVE_COLUNAS, JSON.stringify(colunasVisiveis)); }
 
 function toggleColunasMenu(ev){
   ev.stopPropagation();
@@ -389,17 +415,45 @@ function celulaColuna(c, col){
     case 'custoBrl':    return c.custoBrl != null ? 'R$ ' + Number(c.custoBrl).toFixed(2) : '—';
     case 'certId':      return c.certId ? `<span class="mono" style="font-size:0.8em;">${esc(c.certId)}</span>` : '—';
     case 'orderNum':    return c.orderNum ? `<span class="mono" style="font-size:0.8em;">${esc(c.orderNum)}</span>` : '—';
+    case 'pedidoCompra':
+      if (!c.pedidoCompraNumero) return '—';
+      // Link direto para o pedido: a pergunta "qual pedido é este?" vem quase
+      // sempre com a outra tela aberta do lado.
+      return `<a href="/compras/pedido.html?id=${c.pedidoCompraIdEfetivo}"`
+        + ` onclick="event.stopPropagation();" title="Pedido ${esc(c.pedidoCompraStatus||'')}">`
+        + `${esc(c.pedidoCompraNumero)}</a>`;
     default:            return esc(c[col.key] != null && c[col.key] !== '' ? c[col.key] : '—');
   }
 }
 
-async function carregar(){
+/** Os filtros da barra, do jeito que a API os espera. Um só lugar: o relatório
+ *  precisa sair exatamente sobre o que está na tela de quem o pediu. */
+function paramsFiltros(){
   const p = new URLSearchParams();
   const q = document.getElementById('fQ').value.trim(); if (q) p.set('q', q);
   const s = document.getElementById('fStatus').value;   if (s) p.set('status', s);
+  return p;
+}
+
+// O .xlsx vem com Content-Disposition: attachment, então o navegador baixa em
+// vez de navegar — é o que permite usar location.href mesmo com a tela dentro
+// do iframe do shell. O .pdf sai inline e abre em aba nova, pronto para
+// imprimir. Mesmo par de /financeiro/contas-a-receber.html.
+function exportarExcel(){
+  window.location.href = '/api/ssl/relatorio/certificados.xlsx?' + paramsFiltros().toString();
+}
+function exportarPdf(){
+  window.open('/api/ssl/relatorio/certificados.pdf?' + paramsFiltros().toString(), '_blank');
+}
+
+async function carregar(){
+  const p = paramsFiltros();
   const r = await fetch('/api/ssl/certificados?'+p);
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
+  // A confirmação de cancelamento precisa do domínio e do certId para dizer o
+  // que exatamente vai ser cancelado, e o botão só carrega o id.
+  ULTIMA_LISTA = d.certificados;
 
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="label">Total</div><div class="value">${d.kpis.total||0}</div></div>
@@ -421,22 +475,43 @@ async function carregar(){
   const tb = document.getElementById('tb');
   tb.innerHTML = d.certificados.length ? d.certificados.map(c=>{
     const acoes = [];
-    if (c.status === 'aguardando-aprovacao') {
-      acoes.push(c.pedidoCompraId
-        ? `<a class="btn btn-ghost btn-sm" href="/compras/pedidos.html" title="Pedido de compra #${c.pedidoCompraId} — envie-o para efetivar a compra">Pedido #${c.pedidoCompraId}</a>`
-        : `<button class="btn btn-primary btn-sm" onclick="gerarPedido(${c.id})" title="Cria o pedido de compra; a compra ocorre ao enviá-lo">Gerar pedido</button>`);
+    // A compra da NicSRS vive AQUI, e só aqui. Rascunho entra junto porque o
+    // CSR virou opcional — sem ele a NicSRS gera o par.
+    if (c.status === 'rascunho' || c.status === 'aguardando-aprovacao') {
+      acoes.push(`<button class="btn btn-primary btn-sm" onclick="aprovar(${c.id}, '${String(c.commonName || '').replace(/'/g, "\\'")}')"`
+        + ` title="Compra a assinatura na NicSRS — debita o saldo da conta">Comprar na NicSRS</button>`);
+    }
+    if (c.status === 'aguardando-aprovacao' && c.pedidoCompraId) {
+      acoes.push(`<a class="btn btn-ghost btn-sm" href="/compras/pedidos.html" title="Pedido de compra #${c.pedidoCompraId}">Pedido #${c.pedidoCompraId}</a>`);
     }
     if (c.certId) acoes.push(`<button class="btn btn-ghost btn-sm" onclick="sincronizar(${c.id})">Sincronizar</button>`);
     if (c.status === 'emitido') acoes.push(`<button class="btn btn-ghost btn-sm" onclick="reemitir(${c.id})">Reemitir</button>`);
     if (c.certificado) acoes.push(`<a class="btn btn-ghost btn-sm" href="/api/ssl/certificados/${c.id}/download">Baixar</a>`);
     if (c.certificado) acoes.push(`<button class="btn btn-ghost btn-sm" onclick="enviar(${c.id})">Enviar</button>`);
+    // Cancelar só faz sentido enquanto há o que cancelar: os três estados
+    // abaixo já são finais, e a NicSRS recusaria a chamada. Sem certId a
+    // assinatura nunca existiu lá — o cancelamento é só local, e por isso o
+    // botão avisa que não vai à NicSRS.
+    if (!ESTADOS_FINAIS.includes(c.status)) {
+      acoes.push(`<button class="btn btn-ghost btn-sm" onclick="cancelar(${c.id})"`
+        + ` title="${c.certId ? 'Cancela na NicSRS (estorna dentro do prazo)' : 'Marca como cancelado — nada foi comprado na NicSRS'}"`
+        + `>Cancelar</button>`);
+    }
     const tds = cols.map(col => `<td${col.num?' class="num"':''}>${celulaColuna(c, col)}</td>`).join('');
+    // A célula de ações quebra em várias linhas de propósito: em linha única a
+    // coluna cortava tudo além do primeiro botão. Um certificado emitido tem
+    // cinco ações (Sincronizar, Reemitir, Baixar, Enviar, Cancelar) e havia
+    // 134px para 170px de conteúdo — "Cancelar" existia no DOM e ficava
+    // invisível, o que fazia parecer que o botão não existia. O min-width
+    // reserva espaço para dois botões por linha.
     return `<tr style="cursor:pointer;" onclick="editar(${c.id})">
       <td onclick="event.stopPropagation();"><input type="checkbox" class="selCert" value="${c.id}" onchange="atualizarSelecao()"></td>
       <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Editar certificado"
         onclick="event.stopPropagation(); editar(${c.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
       ${tds}
-      <td onclick="event.stopPropagation();">${acoes.join(' ')}</td>
+      <td onclick="event.stopPropagation();" style="min-width:190px;">
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">${acoes.join('')}</div>
+      </td>
     </tr>`;
   }).join('') : `<tr><td colspan="${cols.length+3}" class="empty">Nenhum certificado</td></tr>`;
 
@@ -543,6 +618,13 @@ async function abrirNovo(){
   if (btn) btn.textContent = 'Cadastrar';
   toggleDcvEmail();
   renderContatos();
+  renderOrganizacao();
+  // Filtros não sobrevivem ao fechamento do modal: herdar o recorte da vez
+  // anterior faria um produto "sumir" do catálogo sem explicação.
+  for (const f of ['fFiltroMarca','fFiltroValidacao','fFiltroDominio']) {
+    const el = document.getElementById(f);
+    if (el) el.value = '';
+  }
   document.getElementById('modal').classList.add('open');
   await carregarProdutos();
   await carregarContratos();
@@ -570,14 +652,21 @@ async function abrirNovoParaItem(itemId){
       document.getElementById('fClienteId').value = it.clienteId;
       document.getElementById('fCliBusca').value = it.clienteNome || '';
     }
-    // O contrato vem do item e não deve ser trocado aqui.
+    // O contrato vem do item e não deve ser trocado aqui. O cliente viaja no
+    // option pelo mesmo motivo do carregarContratos: é dele que o campo de
+    // cliente se preenche, e sem os data-* aoTrocarContrato não teria de onde.
     const selC = document.getElementById('fContratoId');
-    selC.innerHTML = `<option value="${it.contratoId}">${esc(it.contratoNumero)}</option>`;
+    selC.innerHTML = `<option value="${it.contratoId}" data-cliente-id="${it.clienteId||''}"`
+      + ` data-cliente-nome="${esc(it.clienteNome||'')}">${esc(it.contratoNumero)}</option>`;
     selC.value = it.contratoId;
     selC.disabled = true;
+    aoTrocarContrato();
 
     if (it.productCode) {
       const selP = document.getElementById('fProductCode');
+      // O produto vem do item do contrato e não é escolha de quem está aqui —
+      // se um filtro o escondesse, o `value` cairia em branco sem avisar.
+      garantirProdutoVisivel(it.productCode);
       selP.value = it.productCode;
       aoTrocarProduto();
       selP.disabled = true;
@@ -620,25 +709,119 @@ async function carregarEmailsDcv(){
   }
 }
 
+// Catálogo inteiro, como veio da API. O <select> mostra um recorte dele.
+let PRODUTOS = [];
+
 async function carregarProdutos(){
   const r = await fetch('/api/ssl/produtos');
   const d = await r.json();
   const sel = document.getElementById('fProductCode');
   if (!d.success || !d.produtos.length){
+    PRODUTOS = [];
     sel.innerHTML = '<option value="">Catálogo vazio — sincronize em "Integração NicSRS"</option>';
     return;
   }
+  PRODUTOS = d.produtos;
+  // As marcas saem do próprio catálogo: fixá-las aqui deixaria de fora a CA
+  // que a NicSRS adicionar depois, e o único sintoma seria um produto que
+  // existe e não aparece.
+  const marcas = [...new Set(PRODUTOS.map(p => p.vendor).filter(Boolean))].sort();
+  const selMarca = document.getElementById('fFiltroMarca');
+  selMarca.innerHTML = '<option value="">Todas as marcas</option>'
+    + marcas.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  renderProdutos();
+}
+
+/**
+ * Monta o <select> com o recorte atual.
+ *
+ * São 69 produtos numa lista só, e escolher errado custa caro: dois Sectigo
+ * vizinhos são "EssentialSSL DV — US$ 5" e "InstantSSL Premium(OV) — US$ 25".
+ * Comprar o DV achando que era o OV só aparece quando a CA não valida a
+ * organização, com a assinatura já paga.
+ *
+ * O filtro por curinga não é preferência, é compatibilidade: produto que não
+ * emite wildcard para um domínio `*.x.br` seria recusado — hoje isso só é dito
+ * depois, por erroDominioProduto.
+ */
+function renderProdutos(){
+  const sel = document.getElementById('fProductCode');
+  const anterior = sel.value;
+  const marca = document.getElementById('fFiltroMarca').value;
+  const validacao = document.getElementById('fFiltroValidacao').value;
+  const dominio = document.getElementById('fFiltroDominio').value;
+
+  const lista = PRODUTOS.filter(p => {
+    if (marca && p.vendor !== marca) return false;
+    if (validacao && String(p.validationType || '').toLowerCase() !== validacao) return false;
+    if (dominio === 'wildcard' && p.supportWildcard === 'N') return false;
+    if (dominio === 'single'   && p.supportStandard === 'N') return false;
+    if (dominio === 'multi'    && p.supportSan === 'N') return false;
+    return true;
+  });
+
+  document.getElementById('fFiltroContagem').textContent =
+    lista.length === PRODUTOS.length
+      ? `${PRODUTOS.length} produtos`
+      : `${lista.length} de ${PRODUTOS.length} produtos`;
+
+  if (!lista.length){
+    sel.innerHTML = '<option value="">Nenhum produto com esses filtros</option>';
+    return;
+  }
+
   // Preço e maxYear vêm no option: o custo alimenta o lançamento em contas a
   // pagar, e redigitar à mão um valor que o catálogo já tem só gera erro.
-  sel.innerHTML = d.produtos.map(p=>{
+  sel.innerHTML = lista.map(p=>{
     const precos = p.basePrice || {};
     const p12 = precos.price012;
+    const marcas = [p.supportWildcard === 'Y' ? 'curinga' : '', p.supportSan === 'Y' ? 'multi' : '']
+      .filter(Boolean).join(', ');
     return `<option value="${esc(p.code)}" data-nome="${esc(p.productName||p.code)}" data-vendor="${esc(p.vendor||'')}"`
-      + ` data-precos='${esc(JSON.stringify(precos))}' data-maxyear="${p.maxYear||1}">`
+      + ` data-precos='${esc(JSON.stringify(precos))}' data-maxyear="${p.maxYear||1}"`
+      + ` data-validation="${esc(p.validationType||'')}">`
       + `${esc(p.vendor||'')} · ${esc(p.productName||p.code)} (${esc(p.validationType||'')})`
-      + `${p12!=null?` — US$ ${p12}/ano`:''}</option>`;
+      + `${p12!=null?` — US$ ${p12}/ano`:''}${marcas?` · ${marcas}`:''}</option>`;
   }).join('');
+
+  // Mantém o que já estava escolhido, se o recorte ainda o contém.
+  if (anterior && lista.some(p => p.code === anterior)) sel.value = anterior;
   aoTrocarProduto();
+}
+
+/**
+ * Limpa os filtros se eles estiverem escondendo o produto exigido.
+ *
+ * Existe para o caso em que o produto NÃO é escolha de quem está na tela — ele
+ * vem do item do contrato. Um filtro herdado da abertura anterior deixaria o
+ * <select> sem a opção, e `selP.value = code` falha em silêncio: o campo fica
+ * vazio e o cadastro sai sem produto.
+ */
+function garantirProdutoVisivel(code){
+  if (!code) return;
+  const sel = document.getElementById('fProductCode');
+  if ([...sel.options].some(o => o.value === code)) return;
+  document.getElementById('fFiltroMarca').value = '';
+  document.getElementById('fFiltroValidacao').value = '';
+  document.getElementById('fFiltroDominio').value = '';
+  renderProdutos();
+}
+
+/**
+ * Domínio curinga liga o filtro de curinga sozinho.
+ *
+ * Chamado quando o CN muda: é o momento em que dá para saber que metade do
+ * catálogo não serve, e esconder o que seria recusado é melhor que explicar a
+ * recusa depois. Só LIGA — nunca desliga o que a pessoa marcou à mão.
+ */
+function aoMudarDominio(){
+  const cn = (document.getElementById('fCN').value || '').trim();
+  const f = document.getElementById('fFiltroDominio');
+  if (cn.startsWith('*.') && f.value !== 'wildcard'){
+    f.value = 'wildcard';
+    renderProdutos();
+  }
+  carregarEmailsDcv();
 }
 
 // Preço da NicSRS é por período: price012 = 12 meses, price024 = 24, etc.
@@ -650,6 +833,40 @@ function aoTrocarProduto(){
   campoAnos.max = maxYear;
   if (Number(campoAnos.value) > maxYear) campoAnos.value = maxYear;
   atualizarCusto();
+  // Trocar de DV para OV muda o que a CA exige — o bloco da organização
+  // redesenha para avisar disso ANTES da compra, não depois da recusa.
+  if (document.getElementById('boxOrganizacao')) redesenharOrganizacao();
+  ajustarDadosCA();
+}
+
+/**
+ * Abre o bloco de contatos/organização quando ele passa a importar.
+ *
+ * Num DV a CA não valida organização nenhuma e a compra vai com o contato do
+ * tenant — deixar dez campos abertos ali só faz parecer que são exigidos. Num
+ * OV/EV a organização é validada de verdade, então o bloco abre e o resumo diz
+ * de onde os dados virão.
+ */
+function ajustarDadosCA(){
+  const det = document.getElementById('detDadosCA');
+  if (!det) return;
+  const ov = produtoEhOv();
+  const resumo = document.getElementById('resumoDadosCA');
+  if (resumo) {
+    // Nem em DV isto é dispensável: a organização é pedida na emissão dos dois.
+    // O que muda é QUANDO a NicSRS cobra — na compra (OV/EV) ou depois (DV).
+    resumo.textContent = ov
+      ? '— exigidos já na compra deste produto'
+      : '— exigidos na emissão';
+  }
+  // Só ABRE; nunca fecha o que o usuário abriu para mexer.
+  if (ov) det.open = true;
+}
+
+/** Redesenha o bloco preservando o que já foi digitado. */
+function redesenharOrganizacao(){
+  const atual = colherOrganizacao();
+  renderOrganizacao(Object.keys(atual).length ? { contatoAdmin: atual } : null);
 }
 
 function atualizarCusto(){
@@ -668,15 +885,57 @@ async function carregarContratos(){
   const d = await r.json();
   const sel = document.getElementById('fContratoId');
   const lista = (d.success && d.contratos) ? d.contratos : [];
+  // O cliente viaja no próprio option: é o que permite preenchê-lo sem uma
+  // segunda ida ao servidor a cada troca de contrato.
   sel.innerHTML = '<option value="">— sem contrato —</option>' + lista.map(c=>
-    `<option value="${c.id}">${esc(c.numero)} · ${esc(c.clienteNome)}</option>`
+    `<option value="${c.id}" data-cliente-id="${c.clienteId||''}" data-cliente-nome="${esc(c.clienteNome||'')}">`
+    + `${esc(c.numero)} · ${esc(c.clienteNome)}</option>`
   ).join('');
+  aoTrocarContrato();
+}
+
+/**
+ * Cliente derivado do contrato.
+ *
+ * Com contrato escolhido, o cliente é o dele e o campo fica só de leitura —
+ * antes dava para gravar cliente de um contrato e contrato de outro, e nada
+ * apontava a divergência. Sem contrato, o campo volta a ser buscável: é o caso
+ * do certificado avulso, como o `1bit.net.br` da própria casa.
+ */
+function aoTrocarContrato(){
+  const opt = document.getElementById('fContratoId').selectedOptions[0];
+  const busca = document.getElementById('fCliBusca');
+  const hidden = document.getElementById('fClienteId');
+  const origem = document.getElementById('fCliOrigem');
+  const lista = document.getElementById('acCliList');
+  if (!opt || !opt.value) {
+    busca.readOnly = false;
+    busca.placeholder = 'Razão social…';
+    if (origem) origem.textContent = '';
+    return;
+  }
+  busca.value  = opt.dataset.clienteNome || '';
+  hidden.value = opt.dataset.clienteId || '';
+  busca.readOnly = true;
+  if (lista) lista.innerHTML = '';
+  if (origem) origem.textContent = '— do contrato';
+
+  // Escolhido o contrato, a organização do cliente entra sozinha: ela é
+  // exigida na emissão mesmo num DV, e deixar para preencher depois é o que
+  // fazia o pedido sair com os dados do tenant no lugar dos do cliente.
+  // `silencioso` porque aqui é efeito de outra ação — o alerta só aparece
+  // quando a pessoa clica no botão de propósito.
+  if (hidden.value) preencherOrgDoCliente({ silencioso: true });
 }
 
 let acTimer;
 function acCli(){
   clearTimeout(acTimer);
-  const q = document.getElementById('fCliBusca').value.trim();
+  const campo = document.getElementById('fCliBusca');
+  // Com contrato escolhido o cliente é o dele: buscar outro aqui produziria a
+  // divergência que a leitura-apenas existe para impedir.
+  if (campo.readOnly) { document.getElementById('acCliList').innerHTML = ''; return; }
+  const q = campo.value.trim();
   if (q.length<2){ document.getElementById('acCliList').innerHTML=''; return; }
   acTimer = setTimeout(async()=>{
     const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
@@ -750,11 +1009,109 @@ const CAMPOS_CONTATO = [
   { chave:'job',       rotulo:'Cargo' },
 ];
 
+// ==================== organização (OV/EV) ====================
+//
+// Num produto OV ou EV a CA valida a ORGANIZAÇÃO, e a NicSRS exige estes seis
+// campos em CADA um dos três contatos. Um bloco só, aplicado aos três na hora
+// de salvar: repetir 6 campos × 3 papéis seriam 18 caixas para digitar o mesmo
+// endereço, e endereço digitado três vezes diverge nas três.
+//
+// Deixar em branco não trava nada: o backend mescla o contato do tenant por
+// baixo, e é de lá que vinham esses dados em toda compra OV até 15/09/2026.
+const CAMPOS_ORG = [
+  { chave:'organation', rotulo:'Organização', dica:'razão social como consta no registro' },
+  { chave:'address',    rotulo:'Endereço' },
+  { chave:'city',       rotulo:'Cidade' },
+  { chave:'state',      rotulo:'Estado/UF' },
+  { chave:'postCode',   rotulo:'CEP' },
+  { chave:'country',    rotulo:'País', dica:'sigla de 2 letras, ex.: BR' },
+];
+
+/** O produto escolhido valida organização? */
+function produtoEhOv(){
+  const opt = document.getElementById('fProductCode').selectedOptions[0];
+  const v = (opt && opt.dataset.validation || '').toLowerCase();
+  return v === 'ov' || v === 'ev';
+}
+
+function renderOrganizacao(valores){
+  const v = (valores && valores.contatoAdmin) || {};
+  const ov = produtoEhOv();
+  document.getElementById('boxOrganizacao').innerHTML = `
+    <fieldset style="border:1px solid ${ov?'var(--warn,#b45309)':'var(--bg-2)'};border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+      <!-- Não é "só para OV/EV": a NicSRS pede a organização também na emissão
+           de um DV (o bloco "Personal information" do /ssl/apply aparece nos
+           dois). A diferença é onde ela é EXIGIDA: em OV/EV a compra é recusada
+           sem ela; em DV a compra passa e a cobrança vem na emissão. Por isso
+           aqui o bloco é sempre preenchido, e só a guarda do backend distingue
+           os dois casos. -->
+      <legend style="font-size:0.85em;color:var(--text-2);padding:0 6px;">
+        Dados da organização ${ov?'— <strong>exigidos na compra deste produto</strong>':'— exigidos na emissão'}
+        <button type="button" class="btn btn-ghost btn-sm" onclick="preencherOrgDoCliente()">Preencher com os dados do cliente</button>
+      </legend>
+      <div class="form-row">
+        ${CAMPOS_ORG.map(c => `
+          <div class="form-group">
+            <label>${c.rotulo}</label>
+            <input type="text" id="org_${c.chave}" value="${(v[c.chave]||'').replace(/"/g,'&quot;')}">
+            ${c.dica ? `<small class="muted">${c.dica}</small>` : ''}
+          </div>`).join('')}
+      </div>
+      <small class="muted" style="display:block;margin-top:4px;">
+        Em branco, vale o contato administrativo cadastrado em "Integração NicSRS".
+      </small>
+    </fieldset>`;
+}
+
+/**
+ * Puxa a organização do cadastro do cliente selecionado.
+ *
+ * `silencioso` é usado quando isto roda como efeito de outra ação (escolher o
+ * contrato): o campo é preenchido, mas sem alerta — avisar sobre um cadastro
+ * incompleto no meio de outra tarefa atrapalha mais do que ajuda. Clicando no
+ * botão, o retorno é sempre visível.
+ */
+async function preencherOrgDoCliente(opcoes){
+  const silencioso = !!(opcoes && opcoes.silencioso);
+  const clienteId = document.getElementById('fClienteId').value;
+  if (!clienteId) {
+    if (!silencioso) showAlert('Selecione o cliente primeiro.','error');
+    return;
+  }
+  const r = await fetch(`/api/ssl/organizacao-cliente/${clienteId}`);
+  const d = await r.json();
+  if (!d.success) { if (!silencioso) showAlert(d.error,'error'); return; }
+  for (const c of CAMPOS_ORG) {
+    const el = document.getElementById('org_' + c.chave);
+    if (el && d.organizacao[c.chave]) el.value = d.organizacao[c.chave];
+  }
+  if (silencioso) return;
+  const faltando = CAMPOS_ORG.filter(c => !document.getElementById('org_'+c.chave).value.trim());
+  showAlert(faltando.length
+    ? `Preenchido. Falta no cadastro do cliente: ${faltando.map(c=>c.rotulo).join(', ')}.`
+    : 'Preenchido com os dados do cliente.', faltando.length ? 'error' : 'success');
+}
+
+/** Os campos da organização, ou {} se nenhum foi preenchido. */
+function colherOrganizacao(){
+  const obj = {};
+  for (const c of CAMPOS_ORG) {
+    const el = document.getElementById('org_' + c.chave);
+    const v = el ? el.value.trim() : '';
+    if (v) obj[c.chave] = v;
+  }
+  return obj;
+}
+
 function renderContatos(valores){
   valores = valores || {};
   document.getElementById('boxContatos').innerHTML = PAPEIS_CONTATO.map(p => {
     const v = valores[p.chave] || {};
-    const copiar = p.chave === 'contatoAdmin' ? ''
+    // No administrativo, o botão puxa do cadastro do cliente; nos outros, copia
+    // do administrativo. Sem nenhum deles preenchido, vale o contato do tenant
+    // (config nicsrs_administrator) — que é o que vai no pedido por omissão.
+    const copiar = p.chave === 'contatoAdmin'
+      ? `<button type="button" class="btn btn-ghost btn-sm" onclick="preencherContatoDoCliente()">Preencher com os dados do cliente</button>`
       : `<button type="button" class="btn btn-ghost btn-sm" onclick="copiarDoAdmin('${p.chave}')">Copiar do administrativo</button>`;
     return `<fieldset style="border:1px solid var(--bg-2);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
       <legend style="font-size:0.85em;color:var(--text-2);padding:0 6px;">${p.rotulo} ${copiar}</legend>
@@ -770,6 +1127,35 @@ function renderContatos(valores){
   }).join('');
 }
 
+/**
+ * Puxa o contato do cadastro do cliente para o papel administrativo.
+ *
+ * A CA exige nome, sobrenome e e-mail da PESSOA — e esses dados vivem em
+ * `pessoas_contatos`, que hoje está vazia em todos os clientes. Por isso o
+ * aviso diz de onde os dados vieram e o que ficou faltando: sem isso, um
+ * preenchimento parcial passaria por completo e a recusa só apareceria na
+ * compra. Campo em branco não sobrescreve o que já está na tela.
+ */
+async function preencherContatoDoCliente(){
+  const clienteId = document.getElementById('fClienteId').value;
+  if (!clienteId) return showAlert('Selecione o cliente primeiro.','error');
+  const r = await fetch(`/api/ssl/contato-cliente/${clienteId}`);
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  let preenchidos = 0;
+  for (const c of CAMPOS_CONTATO) {
+    const el = document.getElementById('ct_contatoAdmin_' + c.chave);
+    if (el && d.contato[c.chave]) { el.value = d.contato[c.chave]; preenchidos++; }
+  }
+  if (!preenchidos) {
+    return showAlert('O cadastro deste cliente não tem dados de contato. Cadastre um contato nele ou preencha à mão.','error');
+  }
+  const faltam = (d.faltando || []).map(k => (CAMPOS_CONTATO.find(c => c.chave === k) || {}).rotulo || k);
+  showAlert(faltam.length
+    ? `Preenchido de "${d.origem}". A CA ainda exige: ${faltam.join(', ')}.`
+    : `Preenchido de "${d.origem}".`, faltam.length ? 'error' : 'success');
+}
+
 function copiarDoAdmin(papel){
   for (const c of CAMPOS_CONTATO) {
     const origem = document.getElementById('ct_contatoAdmin_' + c.chave);
@@ -778,7 +1164,14 @@ function copiarDoAdmin(papel){
   }
 }
 
-/** Devolve o contato do papel, ou null se estiver vazio. */
+/**
+ * Devolve o contato do papel, ou null se estiver vazio.
+ *
+ * Os campos da organização entram nos TRÊS papéis, porque é assim que a NicSRS
+ * os cobra — uma vez por contato, e não num bloco próprio. Só acompanham um
+ * contato que exista: organização sem pessoa não é contato nenhum, e mandá-la
+ * sozinha faria a CA reclamar de nome e e-mail em vez de endereço.
+ */
 function colherContato(papel){
   const obj = {};
   let algum = false;
@@ -787,7 +1180,8 @@ function colherContato(papel){
     const v = el ? (el.value||'').trim() : '';
     if (v) { obj[c.chave] = v; algum = true; }
   }
-  return algum ? obj : null;
+  if (!algum) return null;
+  return { ...obj, ...colherOrganizacao() };
 }
 
 
@@ -820,8 +1214,53 @@ async function editar(id){
   document.getElementById('fServidor').value = (c.servidor||'nginx').toLowerCase();
   document.getElementById('fDcv').value = c.dcvMethod || 'CNAME_CSR_HASH';
   document.getElementById('fCustoUsd').value = c.custoUsd != null ? c.custoUsd : '';
+
+  // O PRODUTO tem de voltar ao select, e isso faltava.
+  //
+  // Sem esta linha o campo ficava no primeiro item da lista, e salvar uma
+  // edição qualquer — corrigir uma observação, trocar o DCV — gravava o produto
+  // errado sem avisar. Flagrado em 16/09/2026 ao abrir o #61
+  // (certum-ov-wildcard-ssl, US$ 61,60): o modal exibia
+  // `certum-dv-multidomain-ssl`, de outra marca e outro preço. O defeito só
+  // apareceria na recusa da CA ou na fatura.
+  //
+  // `garantirProdutoVisivel` primeiro porque os filtros do catálogo podem estar
+  // escondendo justamente este produto — e aí `select.value = code` falha em
+  // silêncio, que é a mesma armadilha por outro caminho.
+  if (c.productCode) {
+    garantirProdutoVisivel(c.productCode);
+    const selProd = document.getElementById('fProductCode');
+    selProd.value = c.productCode;
+    if (selProd.value !== c.productCode) {
+      // Produto fora do catálogo (sincronização desatualizada, produto
+      // descontinuado): avisa em vez de deixar o campo apontando para outro.
+      showAlert(`Produto "${esc(c.productCode)}" não está no catálogo — sincronize em "Integração NicSRS" antes de salvar.`, 'error');
+    }
+    // `aoTrocarProduto` reajusta o teto de anos, mas também repõe o custo pelo
+    // preço de TABELA — e numa edição vale o que foi pago, que pode ter sido
+    // negociado ou ter mudado de preço desde a compra. Por isso o custo gravado
+    // é restaurado depois.
+    aoTrocarProduto();
+    document.getElementById('fCustoUsd').value = c.custoUsd != null ? c.custoUsd : '';
+  }
+  // O cliente tem dois campos: o id (oculto) e a busca (visível). `abrirNovo`
+  // limpa os dois, então repreencher só o id deixava o campo em branco na tela
+  // — parecia certificado sem cliente, com o vínculo intacto por baixo.
   if (c.clienteId) document.getElementById('fClienteId').value = c.clienteId;
-  if (c.contratoId) document.getElementById('fContratoId').value = c.contratoId;
+  document.getElementById('fCliBusca').value = c.clienteNome || '';
+  if (c.contratoId) {
+    // A lista traz só contratos ATIVOS. Sem injetar a opção, certificado de
+    // contrato encerrado cairia em "— sem contrato —" e o vínculo pareceria
+    // perdido.
+    const selC = document.getElementById('fContratoId');
+    if (![...selC.options].some(o => o.value === String(c.contratoId))) {
+      selC.add(new Option(`${c.contratoNumero || 'contrato #' + c.contratoId}${c.clienteNome ? ' · ' + c.clienteNome : ''}`, c.contratoId));
+    }
+    selC.value = c.contratoId;
+  }
+  // Mesma história do item de contrato: some da tela, mas continua gravado —
+  // `salvarEdicao` não o envia, então o vínculo sobrevive à edição.
+  if (c.contratoItemId) document.getElementById('fContratoItemId').value = c.contratoItemId;
   toggleDcvEmail();
   if (c.dcvEmail) {
     const sel = document.getElementById('fDcvEmail');
@@ -834,6 +1273,7 @@ async function editar(id){
     try { contatos[p] = c[p] ? JSON.parse(c[p]) : null; } catch { contatos[p] = null; }
   }
   renderContatos(contatos);
+  renderOrganizacao(contatos);
 
   // O que já foi para a CA não se altera daqui.
   // DCV continua editável depois da submissão: a NicSRS aceita trocá-lo pelo
@@ -922,23 +1362,17 @@ async function salvar(){
   const r = await fetch('/api/ssl/certificados', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
-  showAlert(d.status === 'rascunho' ? 'Cadastrado como rascunho (falta o CSR)' : 'Cadastrado — aguardando sua aprovação para comprar');
+  // Sem CSR o registro nasce 'rascunho', mas isso NÃO é pendência: ele já pode
+  // ser comprado, e a NicSRS gera o par (#60 e #64 foram assim). Dizer "falta o
+  // CSR" fazia parecer bloqueio onde havia escolha.
+  showAlert(d.status === 'rascunho'
+    ? 'Cadastrado — pronto para comprar (a NicSRS vai gerar a chave e o CSR)'
+    : 'Cadastrado — aguardando sua aprovação para comprar');
   fecharModal();
   carregar();
 }
 
 // ==================== ações ====================
-
-// A compra passa pelo módulo de Compras: aqui só nasce o pedido. Quem dispara
-// a compra na NicSRS é o "enviar" do pedido, depois da alçada.
-async function gerarPedido(id){
-  if (!confirm('Gerar o pedido de compra deste certificado?\n\nNada é comprado agora: a compra na NicSRS acontece quando você ENVIAR o pedido em Compras.')) return;
-  const r = await fetch(`/api/ssl/certificados/${id}/pedido-compra`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-  const d = await r.json();
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert(`Pedido ${d.numero} criado (R$ ${Number(d.custoBrl).toFixed(2)}) — envie-o em Compras para efetivar`);
-  carregar();
-}
 
 async function aprovar(id, cn){
   if (!confirm(`Comprar o certificado de ${cn} na NicSRS?\n\nIsto debita o saldo da conta NicSRS e não pode ser desfeito sem cancelamento.`)) return;
@@ -954,6 +1388,48 @@ async function sincronizar(id){
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
   showAlert(`Status na NicSRS: ${d.statusNicsrs||'—'}`);
+  carregar();
+}
+
+/**
+ * Cancela a assinatura na NicSRS (e marca o registro local).
+ *
+ * O motivo é obrigatório na rota e vai junto para a NicSRS — é o que explica,
+ * meses depois, por que uma assinatura paga foi descartada. Por isso o prompt
+ * não aceita vazio em vez de mandar um texto genérico.
+ */
+/**
+ * Cancela o certificado, sem diálogo nativo.
+ *
+ * Eram dois pop-ups em sequência — um `confirm` e um `prompt` para o motivo — e
+ * saíram a pedido em 16/09/2026. O motivo continua obrigatório na rota
+ * (`reason`), então passa a ser preenchido aqui: quem cancelou e quando já
+ * ficam no evento do certificado e no audit log, que é onde a pergunta "por que
+ * isso foi cancelado" é respondida de verdade.
+ */
+async function cancelar(id){
+  const cert = (ULTIMA_LISTA || []).find(c => c.id === id) || {};
+  const cn = cert.commonName || `certificado #${id}`;
+
+  // Cancelar é definitivo e a NicSRS não devolve o valor pago, então a ação
+  // pede confirmação e um motivo escrito. Até 17/09/2026 não pedia nem uma
+  // coisa nem outra: o clique ia direto para a API com um motivo fixo, e o
+  // botão tinha acabado de deixar de ser invisível na tela.
+  if (!confirm(`Cancelar o certificado ${cn}?\n\nO cancelamento é definitivo e o valor pago não é devolvido.`)) return;
+
+  const motivo = prompt('Motivo do cancelamento. Ele vai para a NicSRS e fica no histórico do certificado.');
+  // Fechar o prompt é desistir, e desistir não merece alerta nenhum.
+  if (motivo === null) return;
+  const reason = String(motivo).trim();
+  if (!reason) return showAlert('O motivo é obrigatório para cancelar.', 'error');
+
+  const r = await fetch(`/api/ssl/certificados/${id}/cancelar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ reason })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`${cn} cancelado`);
   carregar();
 }
 
@@ -979,86 +1455,30 @@ async function enviar(id){
   carregar();
 }
 
-// ==================== config ====================
-
-// Abre o modal ANTES de buscar: se a chamada falhar, o usuário vê o erro em
-// vez de um botão que não faz nada.
-async function abrirConfig(){
-  document.getElementById('cToken').value = '';
-  document.getElementById('cfgStatus').textContent = 'Carregando…';
-  document.getElementById('modalCfg').classList.add('open');
+/**
+ * Puxa da NicSRS o que mudou, sozinho, ao abrir a tela.
+ *
+ * Roda DEPOIS da primeira carga e sem travá-la: a lista aparece na hora, vinda
+ * do banco, e a sincronização chega por cima se tiver trazido algo. O servidor
+ * é quem decide se vale chamar a NicSRS (janela de 5 min) — aqui não há
+ * controle nenhum, porque cada aba teria o seu e o combinado se perderia.
+ *
+ * Silencioso por escolha: a tela já funciona sem isto. Falha vira aviso só no
+ * console, nunca alerta vermelho para quem só queria ver a lista.
+ */
+async function sincronizarAoAbrir(){
   try {
-    const r = await fetch('/api/ssl/config');
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const r = await fetch('/api/ssl/certificados/sincronizar-auto', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+    });
     const d = await r.json();
-    if (!d.success) throw new Error(d.error || 'resposta sem sucesso');
-    const c = d.config;
-    const cat = d.catalogo || {};
-    const vendores = (cat.porVendor || []).map(v=>`${esc(v.vendor)} ${v.total}`).join(' · ');
-    document.getElementById('cfgStatus').innerHTML = [
-      c.tokenConfigurado
-        ? `Token configurado (final <strong>${esc(c.tokenSufixo)}</strong>).`
-        : '<strong>Nenhum token configurado</strong> — a integração está inerte.',
-      cat.total
-        ? `Catálogo: <strong>${cat.total}</strong> produtos (${vendores}) — sincronizado em ${esc(String(cat.ultimaSincronizacao||'').slice(0,16))}.`
-        : 'Catálogo vazio — use "Sincronizar catálogo".',
-      c.administradorConfigurado ? '' : '<strong>Contato administrativo não preenchido</strong> — sem ele a compra é recusada.',
-    ].filter(Boolean).join('<br>');
-    document.getElementById('cAntecedencia').value = c.reissueAntecedenciaDias || 15;
-    document.getElementById('cReissueAuto').checked = !!c.reissueAutomatico;
-    // Sem isto o textarea nasce vazio mesmo com o contato gravado, e quem
-    // abrir a tela conclui que não há nada configurado.
-    if (c.administrator) {
-      try { document.getElementById('cAdmin').value = JSON.stringify(JSON.parse(c.administrator), null, 1); }
-      catch { document.getElementById('cAdmin').value = c.administrator; }
-    }
-    mostrarCotacao();
+    if (d.pulou) return;
+    if (!d.success) return console.warn('[ssl] sync automática falhou:', d.error);
+    if (d.criados > 0) showAlert(`${d.criados} compra(s) nova(s) da NicSRS apareceram aqui`);
+    await carregar();
   } catch (err) {
-    document.getElementById('cfgStatus').textContent = `Falha ao ler a configuração: ${err.message}`;
-    showAlert(`Falha ao ler a configuração: ${err.message}`,'error');
+    console.warn('[ssl] sync automática falhou:', err.message);
   }
-}
-
-async function mostrarCotacao(){
-  const el = document.getElementById('cCotacao');
-  el.textContent = 'consultando PTAX…';
-  try {
-    const r = await fetch('/api/ssl/cotacao');
-    const d = await r.json();
-    const c = d.cotacao || {};
-    el.textContent = c.valor
-      ? `R$ ${Number(c.valor).toFixed(4)} — ${c.fonte} de ${c.data}`
-      : `indisponível (${c.erro || 'sem resposta do BCB'})`;
-  } catch (err) {
-    el.textContent = `falha ao consultar: ${err.message}`;
-  }
-}
-function fecharConfig(){ document.getElementById('modalCfg').classList.remove('open'); }
-
-async function salvarConfig(){
-  const body = {
-    reissueAntecedenciaDias: Number(document.getElementById('cAntecedencia').value) || 15,
-    reissueAutomatico: document.getElementById('cReissueAuto').checked,
-  };
-  const token = document.getElementById('cToken').value.trim();
-  if (token) body.apiToken = token;
-  const admin = document.getElementById('cAdmin').value.trim();
-  if (admin) {
-    try { JSON.parse(admin); } catch { return showAlert('Contato administrativo não é um JSON válido','error'); }
-    body.administrator = admin;
-  }
-  const r = await fetch('/api/ssl/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const d = await r.json();
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert('Configuração salva');
-  fecharConfig();
-}
-
-async function testar(){
-  const r = await fetch('/api/ssl/config/testar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-  const d = await r.json();
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert(`Token válido — ${d.produtos} produto(s) em ${d.vendor}`);
 }
 
 // Puxa o que já existe na conta NicSRS. Só lê — nenhuma compra acontece aqui.
@@ -1077,50 +1497,19 @@ async function importar(){
   }
 }
 
-// Leva o preço da NicSRS (US$) para o catálogo de produtos (R$), pela PTAX.
-async function atualizarPrecos(){
-  if (!confirm('Atualizar o custo dos produtos SSL com o preço atual da NicSRS convertido pela PTAX do dia?\n\nOnde houver markup cadastrado, o preço de VENDA é recalculado junto — senão o produto ficaria com custo novo e venda antiga.')) return;
-  showAlert('Atualizando preços…');
-  try {
-    // Cria no catálogo o que a API oferece e o tenant não tem: sem o produto
-    // cadastrado não há o que vincular a um item de contrato.
-    const criar = confirm('Criar também os produtos que existem na NicSRS e ainda não estão no seu catálogo?\n\nOK = cria (SKU SSL-NICSRS-NNN, markup 100%). Cancelar = só atualiza preços dos já cadastrados.');
-    const r = await fetch('/api/ssl/produtos/atualizar-precos', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ criarFaltantes: criar })
-    });
-    const d = await r.json();
-    if (!d.success) return showAlert(d.error,'error');
-    const orfaos = d.semCorrespondenteNaApi ? d.semCorrespondenteNaApi.length : 0;
-    const novos = d.criados ? d.criados.length : 0;
-    showAlert(`${d.atualizados} produto(s) atualizados pela PTAX de ${d.cotacaoData} (R$ ${d.cotacao})`
-      + `, ${d.vendaRecalculada} com venda recalculada`
-      + (novos ? `, ${novos} produto(s) criados` : '')
-      + (orfaos ? ` — ${orfaos} produto(s) locais não existem mais na API e ficaram como estão` : ''),
-      orfaos ? 'warn' : 'success');
-  } catch (err) {
-    showAlert(`Falha ao atualizar preços: ${err.message}`,'error');
-  }
-}
-
-async function sincronizarCatalogo(){
-  showAlert('Sincronizando catálogo NicSRS…');
-  const r = await fetch('/api/ssl/produtos/sincronizar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-  const d = await r.json();
-  if (!d.success) return showAlert(d.error,'error');
-  const ok = d.resultado.filter(x=>!x.erro).reduce((s,x)=>s+x.produtos,0);
-  const falhas = d.resultado.filter(x=>x.erro).map(x=>x.vendor).join(', ');
-  showAlert(`${ok} produto(s) sincronizados` + (falhas ? ` — falhou em: ${falhas}` : ''), falhas ? 'warn' : 'success');
-}
-
 // O Chrome autopreenche o campo de busca (vimos "admin" vindo do gerenciador
 // de senhas, apesar do autocomplete="off"). Sem limpar antes da primeira
 // carga, a lista nasceria filtrada por um texto que ninguém digitou.
 document.getElementById('fQ').value = '';
-carregar();
+carregar().then(sincronizarAoAbrir);
 
 // Chegou pelo botão "Emitir" de um item de contrato.
 const _itemParaEmitir = new URLSearchParams(location.search).get('novoParaItem');
 if (_itemParaEmitir) abrirNovoParaItem(Number(_itemParaEmitir));
+
+// Busca vinda de fora (a Agenda linka o domínio para cá). Preenche o campo e
+// recarrega já filtrado — sem isto o link cairia na lista inteira.
+const _q = new URLSearchParams(location.search).get('q');
+if (_q) { document.getElementById('fQ').value = _q; carregar(); }
 </script>
 </body></html>

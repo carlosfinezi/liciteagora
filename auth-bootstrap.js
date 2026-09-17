@@ -116,6 +116,48 @@ const PAGINAS_MOVIDAS = {
   '/comunicacao/comunicacao.html': '/comunicacao/conversas.html',
   '/comunicacao/whatsapp.html': '/comunicacao/conversas.html',
   '/comunicacao/wa-simular.html': '/comunicacao/conversas.html',
+  // Certificados SSL é add-on por tenant e virou módulo próprio no menu; o
+  // arquivo saiu de /comercial/ para que o RBAC de diretório (perfis-acesso.js)
+  // pare de dar as telas de detalhe do Comercial a quem só tem SSL.
+  '/comercial/ssl-certificados.html': '/ssl/certificados.html',
+  // O antigo /produtos/ virou Catálogo + Estoque + Compras. Estas 20 rotas
+  // eram stubs HTML com location.replace dentro de public/produtos/, e por
+  // isso só redirecionavam para quem passa pelo gate: /produtos/ não tem
+  // nenhuma página no menu, então podeVerPath negava e quem tinha perfil
+  // cadastrado recebia 403 no lugar do redirecionamento. Aqui em cima o 301
+  // é resolvido antes do gate e vale para todo mundo.
+  '/produtos/produtos.html': '/catalogo/produtos.html',
+  '/produtos/produto.html': '/catalogo/produto.html',
+  '/produtos/cadastro-marcas.html': '/catalogo/marcas.html',
+  '/produtos/cadastro-modelos.html': '/catalogo/modelos.html',
+  // O stub antigo levava à tela 3-em-1, aposentada logo abaixo; o destino é a
+  // primeira das três que a substituíram.
+  '/produtos/cadastro-marcas-modelos.html': '/catalogo/marcas.html',
+  '/produtos/cadastro-cores.html': '/catalogo/cores.html',
+  '/produtos/cadastro-materiais.html': '/catalogo/materiais.html',
+  '/produtos/cadastro-generos.html': '/catalogo/generos.html',
+  '/produtos/estoque.html': '/estoque/estoque.html',
+  '/produtos/estoque-movimentacoes.html': '/estoque/movimentacoes.html',
+  '/produtos/estoque-movimentacao-nova.html': '/estoque/movimentacao-nova.html',
+  '/produtos/estoque-inventario.html': '/estoque/inventario.html',
+  '/produtos/estoque-inventario-contagem.html': '/estoque/inventario-contagem.html',
+  '/produtos/estoque-lotes.html': '/estoque/lotes.html',
+  '/produtos/estoque-serial.html': '/estoque/serial.html',
+  '/produtos/estoque-reservas.html': '/estoque/reservas.html',
+  '/produtos/estoque-analises.html': '/estoque/analises.html',
+  '/produtos/estoque-sugestao-compra.html': '/compras/sugestao.html',
+  '/produtos/pedidos-compra.html': '/compras/pedidos.html',
+  '/produtos/pedido-compra.html': '/compras/pedido.html',
+  // Marcas/Modelos/Cores numa tela só de abas: virou uma tela por atributo em
+  // Catálogo (e Materiais e Gêneros, que a 3-em-1 nunca cobriu). Mesma API
+  // (/api/produto-lookup), mesmos dados.
+  '/catalogo/marcas-modelos.html': '/catalogo/marcas.html',
+  // O monitor do app Electron lê /api/sniper/electron/*, cujo RBAC pertence às
+  // páginas do Operacional (lances, tokens, health-comprasnet). Enquanto o
+  // arquivo morou em /configuracoes/, a tela ficou inutilizável para quem tem
+  // perfil: quem abria a página não podia chamar a API, e quem podia chamar a
+  // API não abria a página. Segue fora do menu, alcançada por URL.
+  '/configuracoes/electron-monitor.html': '/operacional/electron-monitor.html',
 };
 
 function installProtectedStatic(app, db) {

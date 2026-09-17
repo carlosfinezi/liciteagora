@@ -93,12 +93,79 @@ const menuConfig = {
                 { page: 'pessoas', icone: '👥', texto: 'Clientes & Fornecedores', link: '/comercial/pessoas.html' },
 { page: 'crm-funil', icone: '🎯', texto: 'CRM · Funil', link: '/comercial/crm-funil.html' },
                 { page: 'pedidos', icone: '🧾', texto: 'Pedidos', link: '/comercial/pedidos.html' },
+                // Venda de balcão (Fase 2.1). NÃO substitui 'pedidos', que segue
+                // sendo a gestão administrativa completa: esta é a mesma entidade
+                // `pedidos`, por uma interface de operação rápida.
+                //
+                // Rótulo "Venda rápida" desde 2026-09-12 (auditoria 34, opção B).
+                // A CHAVE `pedidos-pdv` NÃO muda: ela é a permissão de RBAC, está
+                // gravada em `perfis_acesso.paginas` nos tenants e citada em
+                // `perfis-api-map.js`. Renomear a chave exigiria migrar dados de
+                // perfil — e esta fase é de navegação, não de banco.
+                //
+                // ⚠️ `oculto: true` — REGISTRADA, mas fora da barra (2026-09-12).
+                //
+                // Estas são duas perguntas diferentes, e o item precisa de
+                // respostas opostas para cada uma:
+                //
+                //   "esta página existe para o controle de acesso?"  → SIM
+                //   "esta página aparece na barra lateral?"          → NÃO
+                //
+                // Continuar AQUI é o que mantém a proteção: `perfis-acesso.js`
+                // indexa `secoes[].itens[]` sem olhar `oculto`, então a página
+                // segue em `POR_LINK` e `podeVerPath` exige a permissão pelo
+                // nome. Apagar a linha faria a tela cair no fallback por
+                // diretório — qualquer perfil com uma página de /comercial/
+                // abriria o balcão. É o que o `test-pdv-rbac.js` B3 barra, com
+                // esse nome: "FAIL-OPEN por diretorio".
+                //
+                // Quem some com ela da barra é `montarMenu`, o único a pedir
+                // `secoesVisiveisDoMenu({ paraDesenho: true })`. A busca de
+                // rotina e o deep link continuam enxergando — ver a nota lá.
+                //
+                // O caminho normal é COMERCIAL → Pedidos → [⚡ Venda rápida],
+                // botão que também só aparece para quem tem a permissão.
+                { page: 'pedidos-pdv', icone: '🛒', texto: 'Venda rápida', oculto: true, link: '/comercial/pedidos-pdv.html' },
                 { page: 'comercial-tabelas-preco', icone: '💲', texto: 'Tabelas de Preço', link: '/comercial/tabelas-preco.html' },
                 { page: 'comercial-vendas-perdidas', icone: '📉', texto: 'Vendas Perdidas', link: '/comercial/vendas-perdidas.html' },
                 { page: 'comercial-metas', icone: '🏁', texto: 'Metas de Vendas', link: '/comercial/metas.html' },
                 { page: 'contratos', icone: '📄', texto: 'Contratos', link: '/comercial/contratos.html' },
-                { page: 'ssl-certificados', icone: '🛡️', texto: 'Certificados SSL', link: '/comercial/ssl-certificados.html', feature: 'ssl' },
                 { page: 'devolucoes', icone: '↩️', texto: 'Devoluções', link: '/comercial/devolucoes.html' }
+            ]
+        },
+        {
+            // Saiu de dentro do Comercial em 2026-08-28: `ssl` é add-on por
+            // tenant (add-on fora de todo tier, ver plan-modules.js), e como
+            // seção própria a feature vira a chave do módulo — quem contrata
+            // ganha um módulo no seletor em vez de um item solto no meio das
+            // rotinas de venda. O item não repete mais `feature: 'ssl'`: a
+            // seção já é gated pela mesma chave.
+            //
+            // O arquivo saiu junto, de /comercial/ para /ssl/, porque em
+            // perfis-acesso.js o primeiro segmento do path é o que libera as
+            // páginas de detalhe: enquanto morasse em /comercial/, um perfil
+            // que só tem 'ssl-certificados' abriria contrato.html, pedido.html
+            // e crm-oportunidade.html de tabela. Endereço antigo redirecionado
+            // em PAGINAS_MOVIDAS (auth-bootstrap.js).
+            titulo: 'Certificados SSL',
+            icone: '🛡️',
+            colapsavel: true,
+            feature: 'ssl',
+            itens: [
+                { page: 'ssl-certificados', icone: '🛡️', texto: 'Certificados SSL', link: '/ssl/certificados.html' },
+                // Reemissão é o trabalho recorrente do módulo, não um detalhe da
+                // lista: o arquivo vale menos que a assinatura paga, então todo
+                // certificado é reemitido dentro do contrato. Com o teto das CAs
+                // caindo para 47 dias isso passa de ~1x para ~10x ao ano por
+                // certificado — e o que vem pela frente merece tela própria.
+                { page: 'ssl-agenda', icone: '📅', texto: 'Agenda de Reemissão', link: '/ssl/agenda.html' },
+                // Saiu do modal da tela de certificados: são duas APIs da
+                // NicSRS (revenda + painel), três modos de compra e o catálogo
+                // de produtos — configuração de módulo, não detalhe de uma
+                // lista. Como tela própria também entra no catálogo de perfis
+                // (perfis-acesso.js deriva as páginas daqui), o que o modal
+                // nunca permitiu.
+                { page: 'ssl-integracao', icone: '🔌', texto: 'Integração NicSRS', link: '/ssl/integracao.html' }
             ]
         },
         {
@@ -122,6 +189,33 @@ const menuConfig = {
             feature: 'produtos',
             itens: [
                 { page: 'produtos', icone: '📦', texto: 'Produtos', link: '/catalogo/produtos.html' },
+                // Logo depois de Produtos: é de lá que se vem, e categoria é
+                // configuração de uso frequente. As irmãs (Marcas, Modelos,
+                // Cores…) já estão neste mesmo nível.
+                { page: 'cadastro-categorias', icone: '🗂️', texto: 'Categorias', link: '/catalogo/categorias.html' },
+                /* Catálogo Online veio de VAREJO → "Loja virtual" (Fase 46).
+                   A CHAVE continua `loja`: ela é a permissão de RBAC e pode
+                   estar gravada em `perfis_acesso.paginas` — renomeá-la tiraria
+                   o acesso de quem já o tem. Mudou o lugar e o rótulo, não a
+                   identidade. */
+                { page: 'loja', icone: '🌐', texto: 'Catálogo Online', link: '/catalogo/catalogo-online.html' },
+                /* A tela antiga continua viva (upload de logo, publicação em
+                   massa, tema completo) e alcançável pela central. Registrada e
+                   OCULTA para manter a proteção nominal: sem item no menu, o
+                   RBAC cairia na herança do diretório `/varejo/` e quem tem PDV
+                   passaria a abrir a loja. */
+                { page: 'loja-config', icone: '⚙️', texto: 'Catálogo · Configurações',
+                  link: '/varejo/loja.html', oculto: true },
+                /* Informações da empresa do catálogo. Oculta como a irmã acima:
+                   chega-se por CATÁLOGO → Catálogo Online → ⚙️ Configurações, e
+                   duplicá-la no menu lateral criaria dois caminhos para a mesma
+                   tela. A chave `loja` mantém o RBAC de quem já vê o catálogo. */
+                { page: 'loja', icone: '🏪', texto: 'Catálogo · Informações',
+                  link: '/catalogo/loja-informacoes.html', oculto: true },
+                /* Entrega e cobertura. Oculta pelo mesmo motivo da irmã: o
+                   caminho é CATÁLOGO → Catálogo Online → ⚙️ Configurações. */
+                { page: 'loja', icone: '🛵', texto: 'Catálogo · Entrega',
+                  link: '/catalogo/loja-entrega.html', oculto: true },
                 { page: 'catalogo-etiquetas', icone: '🏷️', texto: 'Etiquetas', link: '/catalogo/etiquetas.html' },
                 { page: 'cadastro-marcas', icone: '🏷️', texto: 'Marcas', link: '/catalogo/marcas.html' },
                 { page: 'cadastro-modelos', icone: '🔖', texto: 'Modelos', link: '/catalogo/modelos.html' },
@@ -164,6 +258,27 @@ const menuConfig = {
                 // Cadastro unificado (2026-08-20): fornecedor é pessoa com a
                 // categoria "fornecedor". O item continua em Compras porque é
                 // onde se procura por ele, mas leva à tela única.
+                //
+                // Duas consequências levantadas na auditoria de 2026-08-28 e
+                // mantidas de propósito, para quem for mexer aqui não refazer
+                // o mesmo levantamento:
+                //
+                // 1. É a única `page` repetida no menu. Em perfis-acesso.js o
+                //    POR_PAGINA é indexado por page, então a segunda ocorrência
+                //    sobrescreve a primeira — inofensivo porque as duas apontam
+                //    para /comercial/, mas na tela de Perfis o item aparece nas
+                //    duas seções e marcar um marca o outro.
+                // 2. Pelo RBAC de diretório, um perfil só-Compras alcança as
+                //    telas de detalhe de /comercial/. Medido: contrato.html e
+                //    pedido.html já têm TODAS as APIs liberadas para pages de
+                //    Compras (/api/contratos e /api/pedidos incluem
+                //    'pedidos-compra', 'compras-necessidades' e
+                //    'compras-sugestao'), crm-oportunidade.html abre vazia
+                //    (/api/crm barrada) e proposta-template.html não chama API.
+                //    Ou seja: mover a tela para um diretório neutro não fecharia
+                //    nada — quem quiser fechar de verdade mexe no
+                //    perfis-api-map.js, que é fail-closed e onde errar tranca
+                //    quem já usa o sistema.
                 { page: 'pessoas', icone: '🏢', texto: 'Fornecedores', link: '/comercial/pessoas.html?categoria=fornecedor' }
             ]
         },
@@ -177,7 +292,8 @@ const menuConfig = {
                 { page: 'pdv-config', icone: '⚙️', texto: 'PDV · Config', link: '/varejo/pdv-config.html' },
                 { page: 'tef', icone: '💳', texto: 'TEF', link: '/varejo/tef.html' },
                 { page: 'marketplaces', icone: '🛍️', texto: 'Marketplaces', link: '/varejo/marketplaces.html' },
-                { page: 'loja', icone: '🛍️', texto: 'Loja virtual', link: '/varejo/loja.html' },
+                // "Loja virtual" saiu daqui na Fase 46 — virou CATÁLOGO →
+                // Catálogo Online, junto dos produtos que ela publica.
                 { page: 'romaneios', icone: '🚚', texto: 'Romaneios', link: '/varejo/romaneios.html' }
             ]
         },
@@ -317,6 +433,83 @@ const menuConfig = {
             feature: 'patrimonio',
             itens: [
                 { page: 'patrimonio-bens', icone: '🏛️', texto: 'Bens', link: '/patrimonio/bens.html' }
+            ]
+        },
+        {
+            titulo: 'Restaurante',
+            icone: '🍽️',
+            colapsavel: true,
+            feature: 'restaurante',
+            itens: [
+                { page: 'restaurante-salao', icone: '🍽️', texto: 'Salão', link: '/restaurante/salao.html' },
+                { page: 'restaurante-kds', icone: '👨‍🍳', texto: 'Cozinha (KDS)', link: '/restaurante/kds.html' },
+                { page: 'restaurante-caixa', icone: '💵', texto: 'Caixa', link: '/restaurante/caixa.html' },
+                { page: 'restaurante-delivery', icone: '🛵', texto: 'Delivery', link: '/restaurante/delivery.html' },
+                { page: 'restaurante-ifood', icone: '🔌', texto: 'iFood', link: '/restaurante/ifood.html' },
+                { page: 'restaurante-painel-retirada', icone: '📺', texto: 'Painel de Retirada', link: '/restaurante/painel-retirada.html' },
+                { page: 'restaurante-cardapio', icone: '📋', texto: 'Cardápio', link: '/restaurante/cardapio.html' },
+                { page: 'restaurante-ficha', icone: '🧾', texto: 'Ficha Técnica / CMV', link: '/restaurante/ficha-tecnica.html' },
+                { page: 'restaurante-indicadores', icone: '📊', texto: 'Indicadores', link: '/restaurante/indicadores.html' },
+                { page: 'restaurante-gorjetas', icone: '💰', texto: 'Gorjetas', link: '/restaurante/gorjetas.html' },
+                { page: 'restaurante-config', icone: '⚙️', texto: 'Configuração', link: '/restaurante/config.html' }
+            ]
+        },
+        {
+            titulo: 'Farmácia',
+            icone: '💊',
+            colapsavel: true,
+            feature: 'farmacia',
+            itens: [
+                { page: 'farmacia-medicamentos', icone: '💊', texto: 'Medicamentos', link: '/farmacia/medicamentos.html' },
+                { page: 'farmacia-cmed', icone: '⬇️', texto: 'Lista CMED', link: '/farmacia/cmed.html' },
+                { page: 'farmacia-receitas', icone: '📝', texto: 'Receitas', link: '/farmacia/receitas.html' },
+                { page: 'farmacia-sngpc', icone: '📡', texto: 'SNGPC', link: '/farmacia/sngpc.html' },
+                { page: 'farmacia-config', icone: '⚙️', texto: 'Configuração', link: '/farmacia/config.html' }
+            ]
+        },
+        {
+            titulo: 'Locação',
+            icone: '🔑',
+            colapsavel: true,
+            feature: 'locacao',
+            itens: [
+                { page: 'locacao-locacoes', icone: '📋', texto: 'Locações', link: '/locacao/locacoes.html' },
+                { page: 'locacao-calendario', icone: '📅', texto: 'Disponibilidade', link: '/locacao/calendario.html' },
+                { page: 'locacao-itens', icone: '📦', texto: 'Itens Alugáveis', link: '/locacao/itens.html' },
+                { page: 'locacao-tarifas', icone: '💲', texto: 'Preços', link: '/locacao/tarifas.html' },
+                { page: 'locacao-manutencao', icone: '🔧', texto: 'Manutenção', link: '/locacao/manutencao.html' },
+                { page: 'locacao-painel', icone: '📉', texto: 'Ocupação & Receita', link: '/locacao/painel.html' },
+                { page: 'locacao-config', icone: '⚙️', texto: 'Configuração', link: '/locacao/config.html' }
+            ]
+        },
+        {
+            titulo: 'Produção',
+            icone: '🏭',
+            colapsavel: true,
+            feature: 'producao',
+            itens: [
+                { page: 'producao-painel', icone: '📊', texto: 'Produtividade', link: '/producao/painel.html' },
+                { page: 'producao-ordens', icone: '📋', texto: 'Ordens de Produção', link: '/producao/ordens.html' },
+                { page: 'producao-apontamento', icone: '👷', texto: 'Apontamento', link: '/producao/apontamento.html' },
+                { page: 'producao-fichas', icone: '🧱', texto: 'Fichas Técnicas', link: '/producao/fichas.html' },
+                { page: 'producao-recursos', icone: '🏭', texto: 'Recursos Produtivos', link: '/producao/recursos.html' },
+                { page: 'producao-qualidade', icone: '🧪', texto: 'Qualidade e Ensaios', link: '/producao/qualidade.html' },
+                { page: 'producao-projetos', icone: '🏢', texto: 'Projetos', link: '/producao/projetos.html' },
+                { page: 'producao-patio', icone: '📦', texto: 'Estoque de Acabados', link: '/producao/patio.html' },
+                { page: 'producao-expedicao', icone: '🚚', texto: 'Expedição', link: '/producao/expedicao.html' },
+                { page: 'producao-config', icone: '⚙️', texto: 'Configuração', link: '/producao/config.html' }
+            ]
+        },
+        {
+            titulo: 'Posto',
+            icone: '⛽',
+            colapsavel: true,
+            feature: 'posto',
+            itens: [
+                { page: 'posto-pista', icone: '⛽', texto: 'Pista e turno', link: '/posto/pista.html' },
+                { page: 'posto-recebimento', icone: '🚚', texto: 'Recebimento e tanques', link: '/posto/recebimento.html' },
+                { page: 'posto-lmc', icone: '📒', texto: 'LMC e conciliação', link: '/posto/lmc.html' },
+                { page: 'posto-estrutura', icone: '🔧', texto: 'Estrutura', link: '/posto/estrutura.html' }
             ]
         },
         {
