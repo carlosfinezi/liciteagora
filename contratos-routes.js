@@ -307,6 +307,72 @@ function itensComEmissoes(db, contrato) {
   });
 }
 
+/**
+ * Estado da geração automática de OS deste contrato.
+ *
+ * O motor já existia e rodava sem ninguém poder ligá-lo pela tela: quem lê
+ * `osPadraoTipoId` + `osPeriodicidadeDias` é o `cicloPreventivas` do
+ * scheduler.js, diariamente às 07:00, e ele só olha contratos com
+ * `status = 'ativo'`. Até 2026-09-01 os três campos só podiam ser preenchidos
+ * direto no banco.
+ *
+ * O cálculo de `proximaGeracao` repete o `_calcularProximaPreventiva` do
+ * scheduler de propósito: são duas linhas, e importar o scheduler daqui
+ * arrastaria todo o processo master para dentro do worker HTTP.
+ */
+function lerOsAutomatica(db, contrato) {
+  // OS é módulo opcional: tenant sem as tabelas não deve ver o bloco.
+  let tipos;
+  try {
+    tipos = db.prepare('SELECT id, nome, slaDiasPadrao FROM os_tipos WHERE ativo = 1 ORDER BY nome').all();
+  } catch (_) {
+    return null;
+  }
+
+  let geradas = [];
+  try {
+    geradas = db.prepare(`
+      SELECT id, numero, status, titulo, dataAbertura
+      FROM os_ordens WHERE contratoId = ? ORDER BY id DESC LIMIT 10
+    `).all(contrato.id);
+  } catch (_) { /* base antiga sem os_ordens.contratoId */ }
+
+  const tipoId = contrato.osPadraoTipoId;
+  const dias = Number(contrato.osPeriodicidadeDias) || null;
+  const ligada = !!(tipoId && dias);
+
+  // Sem geração anterior o scheduler trata como vencida e abre a primeira OS
+  // já na próxima passagem — a tela precisa dizer isso antes de o usuário
+  // salvar, não depois de a OS aparecer.
+  let proximaGeracao = null;
+  if (ligada) {
+    if (!contrato.osUltimaGeracao) {
+      proximaGeracao = 'proxima-execucao';
+    } else {
+      const d = new Date(contrato.osUltimaGeracao + 'T00:00:00');
+      d.setDate(d.getDate() + dias);
+      proximaGeracao = d.toISOString().slice(0, 10);
+    }
+  }
+
+  return {
+    ligada,
+    tipoId: tipoId || null,
+    // Tipo desativado depois de configurado: o scheduler pula calado
+    // (`WHERE ativo = 1`), então a tela tem de mostrar que está pulando.
+    tipoNome: tipoId ? (db.prepare('SELECT nome FROM os_tipos WHERE id = ?').get(tipoId)?.nome || null) : null,
+    tipoAtivo: tipoId ? tipos.some(t => t.id === tipoId) : null,
+    periodicidadeDias: dias,
+    ultimaGeracao: contrato.osUltimaGeracao || null,
+    proximaGeracao,
+    // O ciclo só varre contratos ativos — ligar num contrato suspenso não
+    // gera nada, e é melhor dizer isso do que deixar o usuário esperando.
+    contratoElegivel: contrato.status === 'ativo',
+    tipos,
+    geradas,
+  };
+}
+
 function registrarRotasContratos(app, db) {
   migrarDB(db);
 
@@ -384,7 +450,8 @@ function registrarRotasContratos(app, db) {
         }
       }
       const itens = itensComEmissoes(db, c);
-      res.json({ success: true, contrato: c, eventos, recorrencia, itens, mesesVigencia: mesesDeVigencia(c) });
+      res.json({ success: true, contrato: c, eventos, recorrencia, itens,
+                 osAutomatica: lerOsAutomatica(db, c), mesesVigencia: mesesDeVigencia(c) });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -461,6 +528,37 @@ function registrarRotasContratos(app, db) {
         return res.status(400).json({ success: false, error: 'Produto sem fornecedor cadastrado' });
       }
 
+      // Item que já tem pedido de compra.
+      //
+      // Gerar outro é LEGÍTIMO com frequência: item anual num contrato de três
+      // anos pede uma compra por ciclo, e é isso que `ciclosNaVigencia` conta
+      // logo acima. Bloquear seria errado. Mas o clique repetido cai no mesmo
+      // lugar, e foi assim que o item 3 deste tenant acabou com três pedidos —
+      // dois cancelados à mão depois.
+      //
+      // Então nem proíbe nem deixa passar calado: devolve o que já existe e a
+      // decisão volta para quem clicou. `confirmar: true` é o escape explícito.
+      //
+      // `cancelado` fica de fora porque pedido estornado não é compra. Os
+      // demais entram, INCLUSIVE `recebido`: a duplicata real do PC-2026-0002
+      // nasceu um dia depois de o anterior já constar como recebido, e uma
+      // guarda que só olhasse pedido em aberto não teria pego justamente ela.
+      if (!req.body.confirmar) {
+        const existentes = db.prepare(`
+          SELECT numero, status, dataEmissao FROM pedidos_compra
+          WHERE contratoItemId = ? AND status <> 'cancelado'
+          ORDER BY id DESC
+        `).all(item.id);
+        if (existentes.length) {
+          return res.status(409).json({
+            success: false,
+            precisaDecisao: true,
+            pedidos: existentes,
+            error: `Este item já tem ${existentes.length} pedido(s) de compra não cancelado(s).`,
+          });
+        }
+      }
+
       const quantidade = Number(req.body.quantidade) || 1;
       const custoUnitario = req.body.custoUnitario != null
         ? Number(req.body.custoUnitario)
@@ -493,8 +591,11 @@ function registrarRotasContratos(app, db) {
                `Contrato ${item.contratoNumero} — ${item.descricao}`);
       })();
 
+      // `duplicataConfirmada` separa, no histórico, a renovação de ciclo feita
+      // de propósito do clique repetido — sem isso as duas ficam idênticas no
+      // log e ninguém consegue auditar depois qual foi qual.
       logAction(db, req, 'gerar-pedido-compra', 'contrato', Number(req.params.id),
-        { itemId: item.id, pedidoCompraId: pedidoId, numero });
+        { itemId: item.id, pedidoCompraId: pedidoId, numero, duplicataConfirmada: !!req.body.confirmar });
       res.json({ success: true, pedidoCompraId: pedidoId, numero, quantidade, custoUnitario });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -833,6 +934,62 @@ function registrarRotasContratos(app, db) {
   });
 
   // Editar dados básicos (não muda valor — use reajuste)
+  // ==================== OS AUTOMÁTICA (PREVENTIVA) ====================
+  //
+  // Fica fora do PUT genérico pelo mesmo motivo do vínculo de recorrência: são
+  // dois campos que ligam um motor que age sozinho todo dia, e as validações
+  // (tipo existe, tipo ativo, período em dias) não cabem numa whitelist.
+  // Também não vira evento de contrato — não é fato comercial, é configuração
+  // operacional; o rastro fica no log de auditoria.
+
+  app.put('/api/contratos/:id/os-automatica', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM contratos WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Contrato não encontrado' });
+
+      const tipoId = Number(req.body?.osPadraoTipoId);
+      const dias = Number(req.body?.osPeriodicidadeDias);
+      if (!tipoId) return res.status(400).json({ success: false, error: 'Escolha o tipo de OS' });
+      if (!(dias >= 1 && dias <= 3650)) {
+        return res.status(400).json({ success: false, error: 'Periodicidade deve ficar entre 1 e 3650 dias' });
+      }
+
+      let tipo;
+      try {
+        tipo = db.prepare('SELECT id, nome, ativo FROM os_tipos WHERE id = ?').get(tipoId);
+      } catch (_) {
+        return res.status(400).json({ success: false, error: 'Módulo de OS não disponível neste tenant' });
+      }
+      if (!tipo) return res.status(404).json({ success: false, error: 'Tipo de OS não encontrado' });
+      // Tipo inativo é pulado pelo scheduler sem dizer nada — recusar aqui é o
+      // que impede o contrato de ficar "ligado" e nunca gerar OS nenhuma.
+      if (!tipo.ativo) return res.status(400).json({ success: false, error: `Tipo "${tipo.nome}" está inativo` });
+
+      db.prepare(`UPDATE contratos SET osPadraoTipoId = ?, osPeriodicidadeDias = ?,
+                  dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(tipoId, dias, c.id);
+
+      logAction(db, req, 'os-automatica-ligar', 'contrato', c.id, { osPadraoTipoId: tipoId, osPeriodicidadeDias: dias });
+      res.json({ success: true, tipoNome: tipo.nome, primeiraGeracaoImediata: !c.osUltimaGeracao });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.delete('/api/contratos/:id/os-automatica', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM contratos WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Contrato não encontrado' });
+
+      // `osUltimaGeracao` fica onde está: é o registro de que uma OS nasceu
+      // deste contrato naquele dia. Apagá-la faria a próxima religação abrir
+      // uma OS imediatamente, como se nunca tivesse gerado nada.
+      db.prepare(`UPDATE contratos SET osPadraoTipoId = NULL, osPeriodicidadeDias = NULL,
+                  dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(c.id);
+
+      logAction(db, req, 'os-automatica-desligar', 'contrato', c.id,
+        { osPadraoTipoId: c.osPadraoTipoId, osPeriodicidadeDias: c.osPeriodicidadeDias });
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
   app.put('/api/contratos/:id', (req, res) => {
     try {
       const c = db.prepare('SELECT * FROM contratos WHERE id = ?').get(req.params.id);

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Contrato · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -52,6 +53,13 @@
 
       <h3 style="margin-top:18px;">Faturamento (NFSe Recorrente)</h3>
       <div id="faturamento" class="muted">Carregando…</div>
+
+      <!-- Só aparece em tenant com o módulo de OS: o backend devolve
+           osAutomatica = null quando não há os_tipos. -->
+      <div id="secOsAuto" style="display:none;">
+        <h3 style="margin-top:18px;">OS automática (preventiva)</h3>
+        <div id="osAuto" class="muted">Carregando…</div>
+      </div>
 
       <h3 style="margin-top:18px;">Histórico</h3>
       <div id="eventos">Carregando…</div>
@@ -326,6 +334,7 @@ async function carregar(){
   renderItens(d.itens || [], d.mesesVigencia || 12);
   carregarAnexos();
   renderFaturamento(d.recorrencia);
+  renderOsAutomatica(d.osAutomatica);
   renderEventos(d.eventos);
   // toggle suspender/reativar
   document.getElementById('btnSuspender').style.display = contrato.status === 'ativo' ? '' : 'none';
@@ -623,20 +632,33 @@ async function removerAnexo(anexoId){
 // de alguém lembrar de vincular depois.
 // A compra nasce aqui, no LiciteAgora: gera o pedido e leva para Compras, onde
 // ele segue o fluxo normal (rascunho -> enviar, com alçada).
-async function gerarPedidoCompra(itemId){
-  // Sem confirmação: o pedido nasce em rascunho e não compra nada — a decisão
-  // com consequência é o "enviar", lá em Compras.
+async function gerarPedidoCompra(itemId, confirmar){
+  // Sem confirmação no caso comum: o pedido nasce em rascunho e não compra nada
+  // — a decisão com consequência é o "enviar", lá em Compras.
+  //
+  // A exceção é o item que JÁ tem pedido. Aí o servidor responde 409 em vez de
+  // criar, porque o segundo pedido tanto pode ser a renovação do ciclo (item
+  // anual em contrato de vários anos) quanto o mesmo clique duas vezes — e só
+  // quem está na tela sabe qual dos dois é. A lista do que já existe vai junto
+  // para a decisão ser informada, não um "tem certeza?" no vazio.
   const r = await fetch(`/api/contratos/${id}/itens/${itemId}/pedido-compra`, {
-    method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(confirmar ? { confirmar:true } : {})
   });
   const d = await r.json();
+  if (r.status === 409 && d.precisaDecisao) {
+    const lista = (d.pedidos||[]).map(p =>
+      `  • ${p.numero} — ${p.status}${p.dataEmissao ? ' em ' + fmtData(p.dataEmissao) : ''}`).join('\n');
+    if (!confirm(`Este item já tem pedido de compra:\n\n${lista}\n\nGerar outro assim mesmo?`)) return;
+    return gerarPedidoCompra(itemId, true);
+  }
   if (!d.success) return showAlert(d.error,'error');
   showAlert(`Pedido ${d.numero} criado — abrindo Compras…`);
   setTimeout(()=>{ location.href = '/compras/pedidos.html'; }, 900);
 }
 
 function emitirCertificado(itemId){
-  location.href = `/comercial/ssl-certificados.html?novoParaItem=${itemId}`;
+  location.href = `/ssl/certificados.html?novoParaItem=${itemId}`;
 }
 
 function abrirItem(){
@@ -744,6 +766,162 @@ function renderFaturamento(rec) {
       <button class="btn btn-ghost btn-sm" onclick="desvincular()">Desvincular</button>
     </div>
   `;
+}
+
+// ==================== OS AUTOMÁTICA (PREVENTIVA) ====================
+//
+// Só configura. Quem gera a OS é o cicloPreventivas do scheduler, que roda
+// diariamente às 07:00 e varre os contratos ativos com os dois campos
+// preenchidos — nada nasce no momento em que se clica em Salvar.
+
+let osAutoEditando = false;
+
+function renderOsAutomatica(oa){
+  const sec = document.getElementById('secOsAuto');
+  const el = document.getElementById('osAuto');
+  if (!sec || !el) return;
+  // Tenant sem o módulo de OS: o bloco inteiro não existe.
+  if (!oa) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+
+  if (!oa.tipos.length){
+    el.innerHTML = `
+      <div class="muted" style="font-size:13px;padding:12px;border:1px dashed #2a3a5c;border-radius:6px;">
+        Nenhum tipo de OS ativo — é ele que define o checklist, o SLA e a regra fiscal da OS gerada.
+        <div style="margin-top:10px;">
+          <a class="btn btn-secondary btn-sm" href="/os/cadastro-os-tipos.html">Cadastrar tipo de OS →</a>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (osAutoEditando) { el.innerHTML = formOsAuto(oa); return; }
+
+  if (!oa.ligada){
+    el.innerHTML = `
+      <div class="muted" style="font-size:13px;padding:12px;border:1px dashed #2a3a5c;border-radius:6px;">
+        Este contrato não abre OS sozinho. Ligando, o sistema passa a criar uma ordem de serviço
+        a cada N dias — e o faturamento dessa OS gera o pedido de venda e a NFS-e.
+        <div style="margin-top:10px;">
+          <button class="btn btn-primary btn-sm" onclick="editarOsAuto()">Configurar geração automática</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Ligada, mas o scheduler vai pular: são os dois casos em que a OS
+  // simplesmente não nasce e nada no sistema avisa.
+  const avisos = [];
+  if (!oa.contratoElegivel) {
+    avisos.push(`O contrato está <strong>${escapeHtml(contrato.status)}</strong> — o gerador só varre contratos ativos. Nada será criado até reativá-lo.`);
+  }
+  if (oa.tipoAtivo === false) {
+    avisos.push(`O tipo <strong>${escapeHtml(oa.tipoNome||'—')}</strong> foi desativado. Enquanto estiver assim, nenhuma OS é gerada.`);
+  }
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span class="badge entrada">LIGADA</span>
+      <strong style="color:#69db7c;">a cada ${oa.periodicidadeDias} dia${oa.periodicidadeDias>1?'s':''}
+        <small style="color:#888;font-size:11px;">${cadenciaTexto(oa.periodicidadeDias)}</small></strong>
+    </div>
+    <table style="width:100%;font-size:13px;">
+      <tr><td class="muted">Tipo de OS</td><td>${escapeHtml(oa.tipoNome||'—')}</td></tr>
+      <tr><td class="muted">Periodicidade</td><td>${oa.periodicidadeDias} dias</td></tr>
+      <tr><td class="muted">Última geração</td><td>${oa.ultimaGeracao ? fmtData(oa.ultimaGeracao) : '— (nunca gerou)'}</td></tr>
+      <tr><td class="muted">Próxima</td><td>${
+        oa.proximaGeracao === 'proxima-execucao'
+          ? '<strong style="color:#ffd43b;">na próxima passagem (07:00)</strong>'
+          : fmtData(oa.proximaGeracao)
+      }</td></tr>
+      <tr><td class="muted">OS geradas</td><td>${oa.geradas.length}${oa.geradas.length>=10?'+':''}</td></tr>
+    </table>
+    ${avisos.map(a=>`<div class="alert warn" style="display:block;margin-top:10px;font-size:12px;">${a}</div>`).join('')}
+    ${oa.geradas.length ? `
+      <div style="margin-top:10px;max-height:180px;overflow:auto;">
+        <table style="width:100%;font-size:12px;">
+          ${oa.geradas.map(o=>`
+            <tr>
+              <td><a href="/os/ordem-servico.html?id=${o.id}">${escapeHtml(o.numero||('#'+o.id))}</a></td>
+              <td class="muted">${escapeHtml(o.status||'')}</td>
+              <td class="muted">${o.dataAbertura ? fmtData(String(o.dataAbertura).slice(0,10)) : ''}</td>
+            </tr>`).join('')}
+        </table>
+      </div>` : ''}
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-ghost btn-sm" onclick="editarOsAuto()">Alterar</button>
+      <button class="btn btn-ghost btn-sm" onclick="desligarOsAuto()">Desligar</button>
+    </div>
+  `;
+}
+
+// 30 dias não é "mensal" no calendário, mas é como o gerador conta — a
+// tradução existe para ninguém esperar todo dia 10.
+function cadenciaTexto(dias){
+  const d = Number(dias);
+  if (d === 30) return '≈ mensal';
+  if (d === 90) return '≈ trimestral';
+  if (d === 180) return '≈ semestral';
+  if (d === 365) return '≈ anual';
+  return '';
+}
+
+function formOsAuto(oa){
+  const opts = oa.tipos.map(t =>
+    `<option value="${t.id}"${t.id === oa.tipoId ? ' selected' : ''}>${escapeHtml(t.nome)}${t.slaDiasPadrao ? ` — SLA ${t.slaDiasPadrao}d` : ''}</option>`
+  ).join('');
+  return `
+    <div style="padding:12px;border:1px solid #2a3a5c;border-radius:6px;">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo de OS a abrir</label>
+          <select id="osAutoTipo">${opts}</select>
+        </div>
+        <div class="form-group">
+          <label>A cada (dias)</label>
+          <input type="number" id="osAutoDias" min="1" max="3650" value="${oa.periodicidadeDias || 30}">
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0;">
+        30 = mensal · 90 = trimestral · 180 = semestral · 365 = anual.
+        ${oa.ultimaGeracao
+          ? `A contagem parte da última geração (${fmtData(oa.ultimaGeracao)}).`
+          : '<strong style="color:#ffd43b;">Como este contrato nunca gerou OS, a primeira sai já na próxima passagem das 07:00.</strong>'}
+      </p>
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button class="btn btn-primary btn-sm" onclick="salvarOsAuto()">Salvar</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelarOsAuto()">Cancelar</button>
+      </div>
+    </div>`;
+}
+
+function editarOsAuto(){ osAutoEditando = true; carregar(); }
+function cancelarOsAuto(){ osAutoEditando = false; carregar(); }
+
+async function salvarOsAuto(){
+  const tipoId = Number(document.getElementById('osAutoTipo').value);
+  const dias = Number(document.getElementById('osAutoDias').value);
+  const r = await fetch(`/api/contratos/${id}/os-automatica`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ osPadraoTipoId: tipoId, osPeriodicidadeDias: dias })
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  osAutoEditando = false;
+  showAlert(d.primeiraGeracaoImediata
+    ? `Geração automática ligada (${d.tipoNome}). A primeira OS sai na próxima passagem das 07:00.`
+    : `Geração automática atualizada (${d.tipoNome})`);
+  carregar();
+}
+
+async function desligarOsAuto(){
+  if (!confirm('Desligar a geração automática de OS deste contrato?\n\nAs OS já criadas continuam como estão — só param de nascer novas.')) return;
+  const r = await fetch(`/api/contratos/${id}/os-automatica`, { method:'DELETE' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  osAutoEditando = false;
+  showAlert('Geração automática desligada');
+  carregar();
 }
 
 // ==================== VÍNCULO COM RECORRÊNCIA ====================
