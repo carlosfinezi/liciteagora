@@ -33,6 +33,21 @@ const EXT_ID = 'ogomknllijkjboianknlncoagialpnlm';
 const EXT_SERVE_DIR = path.join(__dirname, 'nopecha-serve');
 const URL = 'https://servicos.receitafederal.gov.br/servico/certidoes/#/home/cnpj';
 const DL_DIR = path.join(__dirname, 'cndfed-downloads', String(process.pid));
+
+// PERFIL PERSISTENTE — a variável decisiva, medida em 03/09/2026.
+// `puppeteer.launch()` sem `userDataDir` cria perfil TEMPORÁRIO a cada execução,
+// e o hCaptcha desta página pontua reputação de perfil: perfil frio devolve 106
+// (o hCaptcha nem carrega) ou 023 (token recusado). Com perfil persistente e
+// aquecido, o MESMO Chrome dirigido por CDP emitiu 4 de 8 CNPJs (os outros 4
+// pararam em validação de negócio, não em antibot) — 8/8 passaram o antibot.
+// NÃO trocar por diretório temporário: é o que fazia o robô falhar em 100%.
+const USER_DATA_DIR = process.env.USER_DATA_DIR || path.join(__dirname, 'cndfed-perfil');
+// O caminho do arquivo de cookies MUDA entre versões do Chrome: no Chrome do
+// servidor é Default/Cookies; em versões novas é Default/Network/Cookies.
+// Checar só um dos dois fazia o perfil ser sempre lido como novo e o warmup
+// rodar em toda execução.
+const PERFIL_NOVO = !['Default/Cookies', 'Default/Network/Cookies']
+  .some((r) => fs.existsSync(path.join(USER_DATA_DIR, ...r.split('/'))));
 const SHOTS = path.join(__dirname, 'cndfed-shots');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -80,8 +95,10 @@ async function main() {
 
   const args = ['--no-sandbox', '--disable-setuid-sandbox', '--no-first-run', '--no-default-browser-check', '--disable-dev-shm-usage', '--window-size=1366,900', '--disable-blink-features=AutomationControlled', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'];
   if (PROXY) args.push('--proxy-server=' + PROXY);
+  fs.mkdirSync(USER_DATA_DIR, { recursive: true });
+  log(`  perfil: ${USER_DATA_DIR} ${PERFIL_NOVO ? '(novo — vai aquecer)' : '(aquecido)'}`);
   const browser = await puppeteer.launch({
-    executablePath: CHROME, headless: false, args,
+    executablePath: CHROME, headless: false, args, userDataDir: USER_DATA_DIR,
     ignoreDefaultArgs: ['--disable-extensions', '--enable-automation', '--disable-background-networking', '--disable-component-update', '--disable-default-apps'],
     ignoreHTTPSErrors: true, defaultViewport: { width: 1366, height: 900 },
   });
@@ -91,6 +108,18 @@ async function main() {
     await page.setUserAgent((await browser.userAgent()).replace(/HeadlessChrome/g, 'Chrome'));
     const cli = await page.target().createCDPSession();
     await cli.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: DL_DIR });
+
+    // Aquecimento, só quando o perfil é novo: navegar por sites comuns antes do
+    // primeiro pedido. Mesma ideia de portals/comprasnet/utils.js — "hCaptcha é
+    // menos agressivo com perfis vivenciados". Em perfil já aquecido é tempo à toa.
+    if (PERFIL_NOVO) {
+      result.step = 'warmup';
+      for (const s of ['https://www.google.com.br', 'https://www.gov.br']) {
+        log(`  warmup: ${s}`);
+        await page.goto(s, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+        await sleep(4000);
+      }
+    }
 
     result.step = 'goto';
     await page.goto(URL, { waitUntil: 'networkidle2', timeout: 45000 });
@@ -117,10 +146,23 @@ async function main() {
     for (let i = 0; i < 45; i++) { const t = await page.evaluate(() => Array.from(document.querySelectorAll('[name="h-captcha-response"]')).some((x) => x.value && x.value.length > 20)).catch(() => false); if (t) break; await sleep(2000); }
     await sleep(4000);
 
-    // Resultado: erro (023/pendência) | PDF | aba nova
+    // Resultado: erro (023/106) | PDF | aba nova.
+    // Medido em 02/09/2026 lendo a resposta da API, nenhum dos dois é pendência fiscal:
+    //   023 → POST /api/Emissao/verificar devolve {"statusValidacao":"CaptchaFalhaValidacao"}.
+    //         O token hCaptcha É gerado e vai no header x-captcha-token; quem o recusa é a
+    //         validação server-side. Ocorreu em 100% das tentativas, com e sem proxy.
+    //   106 → o hCaptcha nem carrega (ERR_ABORTED nos assets) e o app sequer chama a API.
+    //         Só apareceu saindo por proxy — sinal de rede ruim, não de bloqueio da Receita.
     result.step = 'resultado';
     const erro = await page.evaluate(() => { const t = (document.body ? document.body.innerText : ''); const m = t.match(/N[ãa]o foi poss[íi]vel concluir a a[çc][ãa]o[^.]*\.\s*[^.]*\.\s*(\d{3})?[^\n]{0,30}/i); return m ? m[0].replace(/\s+/g, ' ').trim() : null; }).catch(() => null);
-    if (erro) { await shot(page, 'erro'); throw new Error('Receita recusou: "' + erro + '". Este código NÃO indica pendência fiscal — foi medido em 03/08/2026 emitindo normalmente pelo navegador com certidão válida vigente. Causa provável: hCaptcha invisível reprovando o cliente automatizado.'); }
+    if (erro) {
+      await shot(page, 'erro');
+      const cod = (erro.match(/(\d{3})\s*-\s*\d{2}\//) || [])[1];
+      const causa = cod === '106'
+        ? 'hCaptcha não carregou (falha de rede nos assets) — não usar proxy neste robô.'
+        : 'hCaptcha reprovado na validação server-side (CaptchaFalhaValidacao). Não é pendência fiscal.';
+      throw new Error('Receita recusou: "' + erro + '". ' + causa);
+    }
 
     // procura PDF (download ou nova aba)
     let pdfBuf = null;

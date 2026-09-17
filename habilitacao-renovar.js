@@ -62,6 +62,22 @@ async function alertarAdmin(msg) {
   return false;
 }
 
+// Rastro da tentativa no próprio documento. Sem isto a falha só existe no
+// habilitacao-renovar.log e a tela mostra apenas a certidão vencendo — foi o que
+// escondeu 6 dias de falha da Municipal de Marabá. Sucesso (erro=null) limpa.
+function registrarTentativa(dbPath, docId, erro) {
+  const msg = erro ? String(erro).slice(0, 400) : null;
+  try {
+    const db = new Database(dbPath);
+    try {
+      db.prepare(`UPDATE habilitacao_documentos
+             SET ultimaBuscaAuto = CURRENT_TIMESTAMP, ultimoErroAuto = ?,
+                 ultimoErroAutoEm = CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END
+           WHERE id = ?`).run(msg, msg, docId);
+    } finally { db.close(); }
+  } catch { /* não-fatal: o log já registrou o resultado */ }
+}
+
 // Alerta no canal do próprio tenant (usa a config de telegram dele).
 async function alertarTenant(dbPath, msg) {
   try {
@@ -107,8 +123,10 @@ async function main() {
         try {
           const r = await provider.buscar(d, { tenantSlug: t.slug, cnpjCtx: d._cnpjCtx });
           ok++; log(`[${t.slug}] doc ${d.id} ✓ ${r.mensagem}`);
+          registrarTentativa(t.db_path, d.id, null);
         } catch (e) {
           fail++; log(`[${t.slug}] doc ${d.id} ✗ ${e.message}`);
+          registrarTentativa(t.db_path, d.id, e.message);
           await alertarTenant(t.db_path, `⚠️ <b>Renovação ${tipo}</b> falhou\nTenant: ${t.slug} · doc ${d.id} · ${d.dataValidade ? 'vence ' + d.dataValidade : 'nunca capturado'}\n${e.message}`);
         }
       }

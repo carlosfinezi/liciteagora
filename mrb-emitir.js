@@ -5,8 +5,8 @@
  * Portal NotaControl (SPA Angular) — `maraba.notacontrol.com.br`. SEM captcha,
  * SEM login, SEM proxy (datacenter funciona). Validade municipal = 60 dias.
  *
- * Fluxo: home → menu "Certidão Nada Consta" → "Emissão de Certidão" → tipo
- * CPF/CNPJ + CNPJ → AVANÇAR → seleciona o cadastro (ícone de ação na linha do
+ * Fluxo: home → menu "Certidão Nada Consta" → "Emissão de Certidão" → Inscrição
+ * + CPF/CNPJ → AVANÇAR → seleciona o cadastro (ícone de ação na linha do
  * cadastro Econômico / inscrição municipal) → GERA DOCUMENTO → modal
  * (Finalidade=Licitação, Pessoa Autorizada) → CONFIRMAR → abre Report.aspx
  * (relatoriosv2) → baixa o PDF ORIGINAL via Node https (cookies do browser).
@@ -108,13 +108,19 @@ async function main() {
     await sleep(2500);
     await page.evaluate(() => { const el = Array.from(document.querySelectorAll('a,button,li,span')).find((e) => /emiss[ãa]o de certid/i.test((e.textContent || '').trim().slice(0, 40)) && !/nada consta/i.test((e.textContent || '').trim())); if (el) (el.closest('a,button') || el).click(); });
     await sleep(6000);
-    await page.waitForSelector('#opRg', { timeout: 20000 });
+    await page.waitForSelector('#nuCpfcnpj', { timeout: 20000 });
 
-    // 2) tipo=CPF/CNPJ, valorBusca=CNPJ, AVANÇAR
+    // 2) Inscrição + CPF/CNPJ, AVANÇAR. O portal trocou o formulário em 29/08/2026:
+    // era um select de tipo de busca (#opRg) + um campo único (#valorBusca); agora
+    // são dois campos e AMBOS são obrigatórios — sem a inscrição o AVANÇAR não submete.
     result.step = 'buscar';
-    await page.evaluate(() => { const s = document.getElementById('opRg'); const o = Array.from(s.options).find((x) => /cnpj/i.test(x.textContent || '')); if (o) { const set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; set.call(s, o.value); s.dispatchEvent(new Event('change', { bubbles: true })); } });
+    if (!im) throw new Error('inscrição municipal não cadastrada — o portal passou a exigi-la junto do CNPJ');
+    await page.click('#filtro');
+    await page.type('#filtro', im, { delay: 60 });
+    await page.click('#nuCpfcnpj');
+    await page.type('#nuCpfcnpj', cnpj, { delay: 60 });
+    await page.evaluate(() => { const el = document.getElementById('nuCpfcnpj'); if (el) el.blur(); });
     await sleep(1500);
-    await page.evaluate((c) => { const el = document.getElementById('valorBusca'); el.focus(); const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; set.call(el, c); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('blur', { bubbles: true })); }, cnpj);
     await page.evaluate(() => { const b = Array.from(document.querySelectorAll('button,a')).find((e) => /^avan[çc]ar$/i.test((e.textContent || '').trim())); if (b) b.click(); });
     await sleep(7000);
     await shot(page, '01-cadastros');

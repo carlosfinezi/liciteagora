@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Certidões & Habilitação · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -184,7 +185,9 @@ async function carregar(){
     <td class="mono">${esc(x.numero)||'—'}</td>
     <td>${fmtData(x.dataEmissao)}</td>
     <td>${fmtData(x.dataValidade)}</td>
-    <td><span class="badge ${ST_BADGE[x.status]||''}">${ST_LABEL[x.status]||x.status}</span></td>
+    <td><span class="badge ${ST_BADGE[x.status]||''}">${ST_LABEL[x.status]||x.status}</span>${x.ultimoErroAuto
+      ? `<br><small class="muted" style="cursor:help;" title="${esc(x.ultimoErroAuto)}">⚠ busca auto falhou ${fmtData((x.ultimoErroAutoEm||'').slice(0,10))}</small>`
+      : ''}</td>
     <td>${x.temArquivo
       ? `<a class="btn btn-ghost btn-sm" href="/api/habilitacao/${x.id}/arquivo" target="_blank" style="text-decoration:none;">Ver</a>
          <button class="btn btn-ghost btn-sm" onclick="uploadPara(${x.id})" title="Substituir">↻</button>`

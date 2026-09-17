@@ -300,11 +300,22 @@ function registrarRotasHabilitacao(app, db) {
     'Certidão Negativa Municipal': require('./habilitacao-provedores/mrb'),
   };
 
+  // Guarda o resultado da tentativa no documento (mesmo rastro que a renovação
+  // diária grava) — sucesso limpa o erro anterior.
+  const registrarTentativa = (id, erro) => {
+    const msg = erro ? String(erro).slice(0, 400) : null;
+    try {
+      db.prepare(`UPDATE habilitacao_documentos
+             SET ultimaBuscaAuto = CURRENT_TIMESTAMP, ultimoErroAuto = ?,
+                 ultimoErroAutoEm = CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END
+           WHERE id = ?`).run(msg, msg, id);
+    } catch { /* não-fatal */ }
+  };
+
   app.post('/api/habilitacao/:id/buscar', async (req, res) => {
     try {
       const d = db.prepare('SELECT * FROM habilitacao_documentos WHERE id = ? AND ativo = 1').get(req.params.id);
       if (!d) return res.status(404).json({ success: false, error: 'Documento não encontrado' });
-      db.prepare('UPDATE habilitacao_documentos SET ultimaBuscaAuto = CURRENT_TIMESTAMP WHERE id = ?').run(req.params.id);
       const provedor = PROVEDORES[d.tipo];
       if (!provedor) {
         return res.status(501).json({
@@ -316,10 +327,14 @@ function registrarRotasHabilitacao(app, db) {
       // Multi-loja: CNPJ/IE do estabelecimento do documento (herança matriz↔filial).
       const cnpjCtx = cnpjIeParaCertidao(db, d.estabelecimentoId, d.esfera);
       const resultado = await provedor.buscar(d, { db, tenantSlug, cnpjCtx });
+      registrarTentativa(req.params.id, null);
       // o robô grava direto no tenant DB; relê o documento atualizado
       const atualizado = db.prepare('SELECT * FROM habilitacao_documentos WHERE id = ?').get(req.params.id);
       res.json({ success: true, ...resultado, documento: atualizado ? decorar(atualizado) : null });
-    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+    } catch (err) {
+      registrarTentativa(req.params.id, err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 }
 
