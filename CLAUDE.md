@@ -444,23 +444,20 @@ o processo vivo segue com a versão que leu no boot. Antes de reiniciar, leia o
 que muda. **Mantenha a lista atualizada a cada edição de `.js` da raiz**, e
 esvazie a parte do serviço que foi reiniciado.
 
-**`consulta-licitacoes.service`** (o `server.js`) — boot atual: 2026-09-16
-13:01. Pendente desde então:
+**`consulta-licitacoes.service`** (o `server.js`) — boot atual: **2026-09-17
+10:16**, reiniciado no passo 7 do fechamento. **Nada pendente.**
 
-- **A NFC-e da comanda do restaurante passa a funcionar.** Hoje
-  `POST /api/restaurante/comandas/:id/emitir-nfce` responde 400 com
-  "emitirNFCe is not a function" em **toda** chamada, porque o `nfce-routes.js`
-  não exportava a função. Corrigido em `4d5a26b` (o export) e `bb7c981` (o
-  consumidor lia `r.nfceId` quando o retorno traz `r.id`). Depois do restart a
-  nota sai de verdade na SEFAZ, então o primeiro teste vale ser feito em
-  homologação, não numa comanda real.
+O que entrou em vigor nesse restart, e que vale saber porque muda
+comportamento: **a NFC-e da comanda do restaurante passou a funcionar.** Antes
+dele, `POST /api/restaurante/comandas/:id/emitir-nfce` respondia 400 com
+"emitirNFCe is not a function" em toda chamada. Agora a nota **sai de verdade
+na SEFAZ**, então o primeiro teste vale ser feito em homologação e não numa
+comanda real.
 
-Os demais `.js` desta leva de commits — `boleto-orchestrator.js` (11/09),
-`tesouraria-routes.js` (25/08), `contas-receber-routes.js` (10/09) e os outros
-da frente financeira — têm mtime **anterior** ao boot das 13:01 e portanto já
-estão no ar. Commitá-los não mudou nada em produção; o histórico é que passou a
-registrá-los. Confira por `stat -c '%y' <arquivo>` contra o
-`ActiveEnterTimestamp` da unit antes de supor que algo está pendente.
+Como decidir o que está pendente, da próxima vez: `stat -c '%y' <arquivo>`
+contra o `ActiveEnterTimestamp` da unit. Arquivo mais antigo que o boot já está
+carregado, e commitá-lo não muda nada em produção. Foi assim que se descobriu
+que quase toda a leva de 16/09 já estava no ar e só o `nfce-routes.js` faltava.
 
 **`liciteagora.service`** (o `scheduler.js`) — **nada pendente**, e o medo
 antigo não se aplica mais.
