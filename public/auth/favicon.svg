@@ -1,11 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#60a5fa"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="12" fill="#0b1120"/>
-  <rect x="3" y="3" width="58" height="58" rx="10" fill="url(#g)"/>
-  <text x="32" y="45" font-family="'Segoe UI', system-ui, -apple-system, sans-serif" font-size="34" font-weight="800" text-anchor="middle" fill="#ffffff" letter-spacing="-1">LA</text>
+<!--
+  Licite Agora — FAVICON
+  ============================================================================
+  Versão do monograma para tamanho MUITO pequeno. Não é o mesmo desenho dos
+  outros arquivos, e a diferença é proposital — cada escolha aqui foi testada
+  renderizando a 16px no Chrome:
+
+  - **Fundo azul sólido, símbolo branco.** A versão "símbolo colorido sobre
+    fundo claro" do manual desaparece numa aba escura, e a versão navy com
+    símbolo azul testou com contraste baixo demais: em 16px virava um borrão
+    escuro. Branco sobre #2563EB é o par de maior contraste possível.
+  - **Sem gradiente.** Em 16px um gradiente de azul para azul não é percebido;
+    só suja o antialiasing. Aqui o #2563EB entra chapado.
+  - **Traço e vão mais grossos** que no monograma (14 e 11, contra 13 e 9). O
+    que é fino demais some quando o desenho cai para 16 pixels de lado.
+  - **Verde mais claro (#4ADE80).** O #22C55E da marca escurece contra o azul
+    nesse tamanho; o tom mais claro mantém a seta visível.
+
+  O quadrado arredondado vem do favicon anterior — é o que o navegador espera
+  de um ícone de aba, e mantém a silhueta reconhecível na lista de favoritos.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Licite Agora">
+  <rect width="64" height="64" rx="13" fill="#2563EB"/>
+  <g transform="translate(6.5 9) scale(0.61)">
+    <clipPath id="favCorte"><rect x="0" y="7" width="84" height="42.5"/></clipPath>
+    <mask id="favVao">
+      <rect width="84" height="54" fill="#fff"/>
+      <path d="M43 46 L55.5 31.5" stroke="#000" stroke-width="11" stroke-linecap="round" fill="none"/>
+      <path d="M64 20.5 L48.5 27 L60.5 38.5 Z" fill="#000" stroke="#000" stroke-width="8" stroke-linejoin="round"/>
+    </mask>
+    <g clip-path="url(#favCorte)">
+      <path d="M23 0 L10.5 36 Q9.5 43 17 43 L29 43 L53 7 L76 54"
+            fill="none" stroke="#fff" stroke-width="14"
+            stroke-linecap="butt" stroke-linejoin="round" mask="url(#favVao)"/>
+    </g>
+    <path d="M43 46 L55.5 31.5" stroke="#4ADE80" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <path d="M64 20.5 L48.5 27 L60.5 38.5 Z" fill="#4ADE80" stroke="#4ADE80" stroke-width="2.5" stroke-linejoin="round"/>
+  </g>
 </svg>

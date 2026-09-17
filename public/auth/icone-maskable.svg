@@ -1,0 +1,37 @@
+<!--
+  Licite Agora — ÍCONE MASKABLE (PWA)
+  ============================================================================
+  Variante do favicon para o `purpose: "maskable"` do manifest. O Android não
+  usa o ícone como ele é: recorta na forma do lançador do aparelho — círculo,
+  "squircle", losango. Só um círculo central de 80% do lado é garantido; o resto
+  pode sumir.
+
+  Duas diferenças em relação a `favicon.svg`, e as duas existem por causa disso:
+
+  1. **Fundo quadrado cheio, sem `rx`.** O favicon tem cantos arredondados, que
+     aqui virariam "orelhas" brancas nos cantos depois do recorte — o sistema já
+     arredonda por conta própria.
+  2. **Símbolo menor (≈56% do lado).** No favicon ele ocupa quase tudo; num
+     recorte circular as pontas do "L" e do "A" seriam cortadas. Aqui o desenho
+     inteiro cabe dentro da zona segura.
+
+  Mesmo desenho, mesmas cores — ver a nota em `marca-monograma.svg`.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Licite Agora">
+  <rect width="512" height="512" fill="#2563EB"/>
+  <g transform="translate(89 145) scale(3.9)">
+    <clipPath id="mskCorte"><rect x="0" y="7" width="84" height="42.5"/></clipPath>
+    <mask id="mskVao">
+      <rect width="84" height="54" fill="#fff"/>
+      <path d="M43 46 L55.5 31.5" stroke="#000" stroke-width="11" stroke-linecap="round" fill="none"/>
+      <path d="M64 20.5 L48.5 27 L60.5 38.5 Z" fill="#000" stroke="#000" stroke-width="8" stroke-linejoin="round"/>
+    </mask>
+    <g clip-path="url(#mskCorte)">
+      <path d="M23 0 L10.5 36 Q9.5 43 17 43 L29 43 L53 7 L76 54"
+            fill="none" stroke="#fff" stroke-width="14"
+            stroke-linecap="butt" stroke-linejoin="round" mask="url(#mskVao)"/>
+    </g>
+    <path d="M43 46 L55.5 31.5" stroke="#4ADE80" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <path d="M64 20.5 L48.5 27 L60.5 38.5 Z" fill="#4ADE80" stroke="#4ADE80" stroke-width="2.5" stroke-linejoin="round"/>
+  </g>
+</svg>

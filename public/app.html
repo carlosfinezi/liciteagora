@@ -2,20 +2,47 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- `viewport-fit=cover` permite ao CSS usar `env(safe-area-inset-*)`. Sem ele,
+     no iPhone com notch o conteúdo pararia antes da área segura e sobraria uma
+     faixa. O shell é o documento de fora no app instalado — é aqui que isto
+     precisa estar. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Licite Agora</title>
+<!-- PWA: o mesmo manifest e o mesmo registro do login. Ver `pwa.js`. -->
+<link rel="manifest" href="/manifest.webmanifest">
+<script src="/pwa.js" defer></script>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
+  /* `100dvh` com `100%` de reserva.
+     No navegador do celular a barra de endereço aparece e some ao rolar, e a
+     altura do viewport muda junto. Com `height: 100%` o shell fica alto demais
+     enquanto a barra está visível, e o rodapé do conteúdo cai para fora da
+     tela. `dvh` é a unidade que acompanha essa variação.
+     A primeira linha fica como fallback: navegador sem `dvh` ignora a segunda
+     e mantém o comportamento de hoje.
+     No app INSTALADO não há barra de endereço e as duas dão no mesmo — isto é
+     para quem usa pelo navegador, que é como todo mundo começa. */
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg-0); }
+  html, body { height: 100dvh; }
+  /* A largura vem de `--sidebar-w` (sidebar.css), a mesma variável que a
+     sidebar e o `.main-content` usam. Antes eram três valores 250px escritos à
+     mão que precisavam concordar; com o modo compacto do PDV, o iframe passou a
+     precisar acompanhar a barra. */
+  /* `top`/`height` vêm de `--topbar-h` (Fase 3.3). É AQUI que a topbar deixa
+     de cobrir o conteúdo: em vez de flutuar sobre o iframe, ela empurra o
+     começo dele. Nenhuma das 213 telas precisou reservar espaço — quem reserva
+     é o shell, uma vez. */
   #conteudo {
     position: fixed;
-    top: 0;
-    left: 250px;
-    width: calc(100% - 250px);
-    height: 100%;
+    top: var(--topbar-h);
+    left: var(--sidebar-w);
+    width: calc(100% - var(--sidebar-w));
+    height: calc(100% - var(--topbar-h));
     border: 0;
     background: var(--bg-0);
+    transition: left .18s ease, width .18s ease;
   }
   @media (max-width: 768px) {
     #conteudo { left: 0; width: 100%; }

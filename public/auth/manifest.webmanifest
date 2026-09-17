@@ -1,0 +1,29 @@
+{
+  "id": "/",
+  "name": "Licite Agora ERP",
+  "short_name": "Licite Agora",
+  "description": "Licitações, compras e gestão em um só lugar.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#2563EB",
+  "background_color": "#0b1120",
+  "icons": [
+    { "src": "/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icone-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Venda rápida",
+      "short_name": "Venda rápida",
+      "description": "Criar pedido no balcão, celular ou tablet",
+      "url": "/comercial/pedidos-pdv.html",
+      "icons": [{ "src": "/icone-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

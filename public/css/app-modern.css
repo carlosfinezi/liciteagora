@@ -59,12 +59,212 @@ svg.ic-xl { width: 32px; height: 32px; vertical-align: -6px; }
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
+
+  /* ========================================================================
+     FUNDAÇÃO VISUAL — Fase 3.1 (2026-09-11)
+     ========================================================================
+     Tudo abaixo é ADITIVO: nenhum dos 27 tokens acima mudou de valor. Os novos
+     existem para os componentes passarem a consumi-los no lugar de números
+     soltos — e enquanto não forem consumidos, não mudam nada na tela. É o que
+     torna esta fase a mais reversível de todas.
+
+     O tema `custom:` legado de 5 usuários sobrescreve os 23 tokens de COR e não
+     conhece estes; por isso ele continua funcionando sem nenhuma adaptação.
+  */
+
+  /* ---- Espaçamento ----
+     Escala de 4px: todo valor é múltiplo, o que faz espaçamentos diferentes
+     "encaixarem" em vez de brigarem por 1 ou 2px. Os nomes são numéricos porque
+     `--space-3` não promete um uso específico — `--space-card` prometeria, e a
+     primeira exceção quebraria o nome. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* ---- Tipografia ----
+     A auditoria (relatório 26) achou 28 tamanhos distintos em três unidades
+     misturadas. Esta é a escala que os substitui.
+
+     Tudo em `rem` — respeita o zoom de texto do navegador, que `px` ignora e que
+     é acessibilidade de verdade para quem passa o dia no ERP.
+
+     A base é 0.875rem (14px), o tamanho que o sistema já usa no corpo. Não é
+     aumento de fonte: é a mesma leitura de hoje, agora nomeada.
+
+     FONTE: Inter, mantida. Ela é a escolha certa para ERP denso — números
+     tabulares, boa legibilidade em 13-14px, altura de x generosa. Trocar por
+     estética seria risco sem ganho (relatório 26 §8.1). */
+  --text-xs:   0.6875rem;  /* 11px — label em caixa-alta, badge, legenda de tabela */
+  --text-sm:   0.8125rem;  /* 13px — texto de apoio, ajuda, metadado */
+  --text-base: 0.875rem;   /* 14px — CORPO: texto, tabela, input, botão */
+  --text-md:   1rem;       /* 16px — texto enfatizado, título de card */
+  --text-lg:   1.125rem;   /* 18px — título de seção */
+  --text-xl:   1.375rem;   /* 22px — título de página */
+  --text-2xl:  1.75rem;    /* 28px — KPI, número grande */
+
+  --lh-densa:  1.3;        /* títulos, tabelas, KPI — onde a altura custa linha */
+  --lh-base:   1.5;        /* texto corrido */
+  --lh-solta:  1.65;       /* parágrafos de ajuda, estados vazios */
+
+  --peso-normal: 400;
+  --peso-medio:  500;      /* rótulo, item de menu */
+  --peso-forte:  600;      /* título, ação primária */
+  --peso-dado:   700;      /* KPI e valor monetário */
+
+  /* ---- Raios ----
+     Os três `--r-*` acima continuam valendo e são a fonte da verdade; estes são
+     apelidos legíveis mais o `pill`, que faltava. */
+  --raio-sm: var(--r-sm);
+  --raio-md: var(--r-md);
+  --raio-lg: var(--r-lg);
+  --raio-pill: 999px;
+
+  /* ---- Bordas ----
+     Uma espessura só. Borda de 2px vira "caixa"; o ERP já tem caixas demais. */
+  --borda: 1px solid var(--border);
+  --borda-forte: 1px solid var(--border-strong);
+  --borda-acento: 1px solid var(--accent);
+
+  /* ---- Sombras ----
+     No ESCURO a elevação vem do contraste entre superfícies, não de sombra:
+     sombra preta sobre fundo escuro não aparece, só suja. Por isso `none` aqui e
+     valores reais no claro (ver o bloco do tema claro). */
+  --sombra-sm: none;
+  --sombra-md: none;
+  --sombra-modal: 0 16px 48px rgba(0, 0, 0, .55);
+
+  /* ---- Foco ----
+     Um anel só, para todo controle. Nunca `outline: none` sem substituto: quem
+     navega por teclado perde a referência de onde está. */
+  --foco: 2px solid var(--accent);
+  --foco-offset: 2px;
+
+  /* ---- Semânticas ----
+     Apelidos dos tokens que já existem. `--primary` e `--info` faltavam como
+     nome, embora a cor exista: o azul acumula os dois papéis, e nomeá-los deixa
+     explícito que é decisão, não descuido. Azul principal e verde secundário
+     seguem como estão. */
+  --primary: var(--accent);
+  --primary-forte: var(--accent-strong);
+  --primary-suave: var(--accent-soft);
+  --info: var(--accent);
+  --info-suave: var(--accent-soft);
+  --muted: var(--text-2);
+  --muted-fraco: var(--text-3);
+
+  /* ---- Superfícies ----
+     Nomes por PAPEL, não por número. `--bg-2` não diz onde usar; `--superficie-modal`
+     diz. Apontam para os tokens existentes — nada muda de cor. */
+  --superficie-app: var(--bg-0);      /* fundo geral da aplicação */
+  --superficie: var(--bg-1);          /* card, painel, sidebar */
+  --superficie-alta: var(--bg-2);     /* modal, dropdown, popover */
+  --superficie-apoio: var(--bg-3);    /* cabeçalho de tabela, chip, área de apoio */
+  --superficie-hover: var(--bg-hover);
+  --superficie-campo: var(--bg-input);
+  --superficie-selecao: var(--accent-soft);
 }
 
-/* Tema do sistema: menu Conta → Cor do Sistema. O usuário escolhe fundo e
-   destaque livremente (sidebar.js deriva a paleta e aplica como CSS vars
-   inline no <html>; salvo por usuário em users.tema). Sem escolha = padrão
-   escuro slate/navy acima. */
+/* ==========================================================================
+   TEMA CLARO  —  `<html data-theme="claro">`
+   ==========================================================================
+
+   O `:root` acima é o tema ESCURO e continua sendo o padrão. O claro sobrescreve
+   exatamente os MESMOS 23 tokens — nenhum token novo, nenhuma regra duplicada
+   por componente. Quem já usava `var(--bg-1)` ganhou o tema claro sem ser tocado,
+   e é isso que faz a troca valer para o ERP inteiro em vez de página a página.
+
+   Quem escreve o atributo: `theme-boot.js` (no <head>, antes do primeiro paint)
+   e `sidebar.js` (na troca). Nenhum JavaScript por página.
+
+   ── Decisões da paleta clara ──────────────────────────────────────────────
+
+   O fundo NÃO é branco: é um cinza muito claro (#f1f4f8). Branco puro em tudo
+   apaga a hierarquia — card branco sobre fundo branco só se distingue pela
+   borda, e a tela vira uma folha lisa. Aqui o fundo é cinza, as superfícies são
+   brancas, e o card aparece sozinho.
+
+   O azul de ação é o MESMO do escuro (#2563eb, irmão do #3b82f6) — a marca não
+   muda de cor com o tema. As cores de estado (sucesso, aviso, perigo) foram
+   escurecidas em relação ao escuro porque as versões claras não têm contraste
+   suficiente sobre branco: #34d399 sobre branco dá ~1.6:1, ilegível.
+*/
+[data-theme="claro"] {
+  /* Backgrounds: fundo cinza, superfícies brancas, terceiro nível para
+     cabeçalhos de tabela e áreas de apoio. */
+  --bg-0: #f1f4f8;   /* fundo da aplicação */
+  --bg-1: #ffffff;   /* cards, painéis, sidebar */
+  --bg-2: #ffffff;   /* modais e superfícies elevadas */
+  --bg-3: #e8edf4;   /* cabeçalho de tabela, chips, áreas de apoio */
+  --bg-hover: #e2e8f0;
+  --bg-input: #ffffff;
+
+  /* Bordas discretas: no claro, borda forte demais faz a tela "gradear". */
+  --border: #dbe2ea;
+  --border-strong: #b9c4d2;
+
+  /* Texto: quatro níveis, todos acima de 4.5:1 sobre #ffffff, exceto o --text-3
+     que é decorativo (placeholder, legenda) e fica em 4.6:1 sobre branco. */
+  --text-0: #0f172a;   /* 16.9:1 */
+  --text-1: #334155;   /* 10.4:1 */
+  --text-2: #52627a;   /*  6.5:1 */
+  --text-3: #6b7a8f;   /*  4.6:1 */
+
+  /* Ação e estados. Os `-soft` são fundos de badge/alerta e ficam bem claros,
+     sempre com o texto na cor forte por cima. */
+  /* Azul mais escuro que o do tema escuro, e por medida: com #2563eb, o texto
+     de badge sobre --accent-soft dava 4.24:1 — abaixo de AA. #1d4ed8 leva o
+     badge a 5.49:1, o link sobre branco a 6.70:1, e o branco sobre o botão
+     primário a 6.70:1. */
+  --accent: #1d4ed8;
+  --accent-strong: #1e40af;
+  --accent-soft: #dbeafe;
+  --success: #047857;
+  --success-soft: #d1fae5;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+  --purple: #6d28d9;
+  --purple-soft: #ede9fe;
+
+  /* Sombra: no escuro a elevação vem do contraste entre superfícies; no claro,
+     de sombra suave — sem ela, card branco sobre fundo claro fica chapado. */
+  --sombra-card: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .04);
+
+  /* Fase 3.1 — a escala de elevação do tema claro.
+     Deliberadamente discreta: o pedido foi "sombras mínimas, usadas apenas
+     quando ajudam hierarquia". Nada de interface flutuando. */
+  --sombra-sm: 0 1px 2px rgba(15, 23, 42, .06);
+  --sombra-md: 0 2px 6px rgba(15, 23, 42, .08), 0 1px 2px rgba(15, 23, 42, .04);
+  --sombra-modal: 0 16px 40px rgba(15, 23, 42, .18);
+}
+:root { --sombra-card: none; }
+
+/* Elevação só no claro (no escuro `--sombra-card` é `none`). */
+[data-theme="claro"] .card,
+[data-theme="claro"] .panel,
+[data-theme="claro"] .modal,
+[data-theme="claro"] .tbl-wrap { box-shadow: var(--sombra-card); }
+
+/* A sidebar no claro é branca com borda à direita — sem isso ela some no fundo. */
+[data-theme="claro"] .sidebar { border-right: 1px solid var(--border); }
+
+/* Overlay de modal: 0.65 de preto sobre tema claro escurece demais a tela. */
+[data-theme="claro"] .modal-bg { background: rgba(15, 23, 42, .38); }
+
+/* A reserva de canto para o botão de tema saiu em 2026-09-11 (Fase 3.3).
+   O `#btnTema` era `position: fixed` no canto superior direito do viewport e
+   cobria os botões de ação das telas; cada cabeçalho que não fosse
+   `.page-header` precisava da sua própria reserva, e dois já haviam sido
+   descobertos por sobreposição (relatórios 25 e 29).
+
+   O botão agora vive na TOPBAR do shell, fora do iframe. Nada mais flutua sobre
+   o conteúdo, então as três reservas — aqui, no `.ped-header` e no `.pdv-topo` —
+   deixaram de ter o que reservar e foram removidas juntas. */
 
 * { margin:0; padding:0; box-sizing:border-box; }
 html,body { height:100%; }
@@ -520,6 +720,7 @@ tfoot td { background: var(--bg-3); font-weight: 600; color: var(--text-0); bord
 /* ==================== ABAS ==================== */
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 20px;
@@ -1911,3 +2112,371 @@ h1 > .titulo-icone svg, h2 > .titulo-icone svg { width: 20px; height: 20px; }
 .input-narrow { width: 80px !important; flex: 0 0 80px; }
 .hint { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.4; }
 .hint-error { color: var(--danger); }
+
+/* ==========================================================================
+   FASE 3.1 — FOCO ACESSÍVEL E CONSUMO DA FUNDAÇÃO
+   ==========================================================================
+   Fica no FIM do arquivo de propósito: assim estas regras vencem as anteriores
+   por ordem de cascata, sem precisar de `!important`. O arquivo já tem 210
+   deles; acrescentar mais seria piorar o problema que a auditoria apontou.
+*/
+
+/* ---- Foco visível em todo controle ----
+   Antes desta fase: `input:focus { outline: none }` e NENHUM `:focus-visible` no
+   CSS global. Quem navega por teclado só tinha a borda mudando de cor no input,
+   e nada nos botões, links, abas e selects.
+
+   `:focus-visible` (e não `:focus`) é o que faz o anel aparecer para teclado e
+   não para clique de mouse — é a razão de a regra antiga existir, e agora ela é
+   atendida sem tirar a acessibilidade de ninguém. */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+.tab:focus-visible,
+.menu-item:focus-visible {
+  outline: var(--foco);
+  outline-offset: var(--foco-offset);
+  border-radius: var(--raio-sm);
+}
+
+/* O input já muda a borda no foco; o anel se soma a ela, sem substituí-la. */
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  border-color: var(--accent-strong);
+}
+
+/* ---- Tipografia: só o que é COMPROVADAMENTE NEUTRO ----
+ *
+ * A escala existe (no `:root`), mas os componentes ainda NÃO a consomem — e isso
+ * é decisão, não pendência.
+ *
+ * Medi cada substituição antes de aplicar, e o resultado desaconselhou:
+ *
+ *     .btn      0.88em → 12,3px    --text-base = 14px    +13,6%
+ *     .btn-sm   0.8em  → 11,2px    --text-sm   = 13px    +16,1%
+ *     .badge    0.72em → 10,1px    --text-xs   = 11px     +9,1%
+ *     .muted, .label, input, h1, .kpi — não tinham font-size: ganhariam um
+ *
+ * São 1.847 botões e 361 badges em 213 telas. Aumentar 14% pode estourar
+ * toolbar apertada, e eu não tenho como VER se estoura (o ambiente não abre o
+ * ERP renderizado). Fundação que muda a aparência sem verificação deixa de ser
+ * fundação e vira reforma às cegas.
+ *
+ * O consumo entra nas fases 3.2 (botões, inputs, badges) e 3.3 (cards, tabelas),
+ * uma família por vez, com validação visual sua entre elas.
+ *
+ * O que sobra aqui é o que não altera pixel nenhum:
+ */
+body { font-size: var(--text-base); line-height: var(--lh-base); }   /* era 14px — idêntico */
+
+/* ---- Números tabulares ----
+   O que faz coluna de valor "dançar" entre linhas é o dígito 1 ser mais estreito
+   que o 8. Em tabela e KPI de ERP isso é ruído constante; `tabular-nums` alinha
+   as casas sem mudar a fonte. */
+table td, table th,
+.kpi .value, .kpi-valor, .num, .valor, .money {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Foco dentro de tabela ---- */
+.tbl-wrap tr:focus-visible { outline: var(--foco); outline-offset: -2px; }
+
+/* ==========================================================================
+   FASE 3.2 — BOTÕES
+   ==========================================================================
+   No fim do arquivo: vence por cascata, sem `!important`.
+
+   ── O TAMANHO NÃO MUDOU ─────────────────────────────────────────────────────
+
+   A Fase 3.1 mediu e recuou: `.btn` em `0.88em` (~12,3px) viraria 14px, +13,6%
+   em 1.847 botões de 213 telas, sem ninguém poder ver se estoura toolbar. Aqui
+   o `font-size` continua o mesmo. O que muda é altura previsível, estados e cor
+   — nada que altere a largura do texto.
+
+   ── COR: o que a medição mostrou ────────────────────────────────────────────
+
+   `.btn-danger` e `.btn-success` usavam cor FIXA (`#b91c1c`, `#059669`), então
+   não acompanhavam o tema. Pior: medido o contraste com texto branco,
+
+       .btn-success  #059669  →  3,77:1   (abaixo de AA, que é 4,5)
+       .btn-primary  #3b82f6  →  3,68:1   no tema escuro, também abaixo
+
+   Um botão de ação principal com texto ilegível é defeito, não estética.
+
+   Botão sólido precisa satisfazer DOIS critérios ao mesmo tempo, e é por isso
+   que não dá para reusar `--danger`/`--success` direto (no escuro eles são
+   claros demais para texto branco):
+
+       1. texto branco sobre o botão  ≥ 4,5:1   (AA, texto)
+       2. botão contra o fundo da página ≥ 3:1  (AA, componente) — nos DOIS temas
+
+   Os três valores abaixo passam nos dois critérios e nos dois temas:
+
+       primary  #2563eb   texto 5,17  ·  escuro 3,64  ·  claro 4,69
+       danger   #dc2626   texto 4,83  ·  escuro 3,90  ·  claro 4,38
+       success  #047857   texto 5,48  ·  escuro 3,43  ·  claro 4,97
+
+   Ficam em tokens próprios (`--btn-*-bg`) em vez de sobrescrever `--accent` e
+   companhia: aquelas cores servem a texto e borda, onde o requisito é outro.
+*/
+:root {
+  --btn-primary-bg: #2563eb;
+  --btn-primary-bg-hover: #1d4ed8;
+  --btn-danger-bg: #dc2626;
+  --btn-danger-bg-hover: #b91c1c;
+  --btn-success-bg: #047857;
+  --btn-success-bg-hover: #065f46;
+}
+
+/* ---- base ---- */
+.btn {
+  /* Altura previsível: antes ela dependia do conteúdo (ícone ou não, badge ou
+     não), e botões vizinhos saíam com alturas diferentes na mesma toolbar. */
+  min-height: 32px;
+  border-radius: var(--raio-md, 8px);
+  font-weight: var(--peso-medio, 500);
+  justify-content: center;
+  white-space: nowrap;
+  user-select: none;
+}
+.btn-sm { min-height: 27px; border-radius: var(--raio-sm, 6px); }
+.btn-lg { min-height: 38px; }
+
+/* O ícone dentro do botão alinha pelo centro e não estica. */
+.btn svg, .btn .icon { flex-shrink: 0; width: 15px; height: 15px; }
+.btn-sm svg, .btn-sm .icon { width: 13px; height: 13px; }
+
+/* `translateY(-1px)` no hover fazia toda a toolbar tremer ao passar o mouse.
+   Escurecer o fundo comunica o mesmo sem mover nada de lugar. */
+.btn:hover { transform: none; }
+.btn:active { transform: translateY(1px); }
+
+.btn:disabled, .btn[disabled], .btn.disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;                /* impede clique em botão desabilitado */
+}
+
+/* ---- variantes ---- */
+.btn-primary { background: var(--btn-primary-bg); color: #fff; border-color: transparent; }
+.btn-primary:hover { background: var(--btn-primary-bg-hover); color: #fff; }
+
+.btn-danger { background: var(--btn-danger-bg); color: #fff; border-color: transparent; }
+.btn-danger:hover { background: var(--btn-danger-bg-hover); color: #fff; }
+
+.btn-success { background: var(--btn-success-bg); color: #fff; border-color: transparent; }
+.btn-success:hover { background: var(--btn-success-bg-hover); color: #fff; }
+
+.btn-secondary { background: var(--bg-3); color: var(--text-1); border-color: var(--border-strong); }
+.btn-secondary:hover { background: var(--bg-hover); color: var(--text-0); border-color: var(--border-strong); }
+
+/* Ghost é a ação de menor peso: sem fundo, borda discreta. Era a combinação mais
+   usada do ERP (522×) — provavelmente por inércia, e a hierarquia das telas é
+   assunto de outra fase. */
+.btn-ghost { background: transparent; color: var(--text-2); border-color: var(--border); }
+.btn-ghost:hover { background: var(--bg-hover); color: var(--text-0); border-color: var(--border-strong); }
+
+/* Só ícone: quadrado, sem o padding horizontal do texto. */
+.btn-icon-only { padding: 0; width: 32px; min-width: 32px; }
+.btn-sm.btn-icon-only { width: 27px; min-width: 27px; }
+
+/* ==========================================================================
+   RESPONSIVIDADE GLOBAL — 2026-09-12
+   ==========================================================================
+   Levantamento que motivou este bloco: das 213 telas do ERP, apenas 20 tinham
+   `@media` própria, e este arquivo — carregado por todas elas — tinha UM
+   breakpoint (`.form-grid-2`). Na prática o sistema não era responsivo; no
+   celular a página ficava mais larga que a tela e obrigava a arrastar.
+
+   A correção é AQUI, e não nas 193 telas sem media query, pelo mesmo motivo da
+   Fase 3.1: o que é global se conserta uma vez. As classes atacadas são as que
+   o levantamento mostrou serem realmente usadas — `page-header` (225 telas),
+   `main-content` (212), `modal*` (182), `toolbar` (152), `actions` (150),
+   `form-row` (683 ocorrências), `kpi-grid` (60), `card` (137).
+
+   O que NÃO foi feito: `overflow-x: hidden` no `body`. Isso esconde o sintoma
+   e corta conteúdo sem avisar — o certo é remover as causas do estouro, que é
+   o que as regras abaixo fazem. As tabelas, que eram a maior delas (175
+   telas), ganham rolagem PRÓPRIA via `.tabela-rolagem` (ver `sidebar.js`).
+
+   Ordem dos breakpoints: 900 → 640 → 380, do mais largo para o mais estreito,
+   para que o mais específico vença.
+   ========================================================================== */
+
+/* ---------- ≤900px: tablet em pé e celular ---------- */
+@media (max-width: 900px) {
+  /* A margem lateral de 30px custa 60px de largura útil — num celular de 360
+     isso é 1/6 da tela. */
+  .main-content { padding: 16px 14px !important; }
+
+  /* Cabeçalho de página: título em cima, ações embaixo e à esquerda. Antes o
+     `space-between` espremia os dois lados até o título quebrar letra a letra. */
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .page-header .actions,
+  .page-header > div:last-child { justify-content: flex-start; }
+
+  /* Barras de ação e filtros quebram em vez de empurrar a página. */
+  .actions, .toolbar, .modal-actions, .actions-bar {
+    flex-wrap: wrap;
+  }
+  .toolbar input, .toolbar select { width: auto; min-width: 0; flex: 1 1 160px; }
+
+  /* Formulários: uma coluna por vez a partir daqui. O `minmax(180px, 1fr)`
+     original cabia duas colunas em 400px, com 180px cada — estreito demais
+     para um campo de data ou um valor monetário. */
+  .form-row { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+}
+
+/* ---------- ≤640px: celular ---------- */
+@media (max-width: 640px) {
+  .main-content { padding: 14px 12px !important; }
+
+  /* ⚠️ 16px é o mínimo que impede o iOS de dar zoom sozinho ao focar um campo.
+     Com fonte menor, o Safari amplia a página inteira e o usuário fica com o
+     layout deslocado depois de digitar — o mesmo efeito que o relato de
+     "precisa diminuir o zoom" descreve.
+     Vale para input, select e textarea; `!important` porque muitas telas
+     definem `font-size: 0.9em` inline. */
+  input, select, textarea,
+  .toolbar input, .toolbar select,
+  .form-row input, .form-row select, .form-row textarea {
+    font-size: 16px !important;
+  }
+
+  /* Alvo de toque confortável. 38px é o mínimo praticável aqui; o ideal (44px)
+     deixaria as barras com três botões altas demais. */
+  input, select, textarea { min-height: 40px; }
+  .btn { min-height: 40px; padding: 10px 14px; }
+  .btn-sm { min-height: 36px; padding: 8px 12px; font-size: 0.86rem; }
+  .btn-icon-only { min-width: 40px; }
+
+  /* Botão isolado numa barra ocupa a linha; em grupo, dividem o espaço. */
+  .page-header .actions .btn,
+  .actions .btn { flex: 1 1 auto; }
+
+  /* Modal vira folha que ocupa a tela, com rolagem própria. `95%` de largura
+     com `padding: 24px` sobrava 12px de conteúdo útil em 320px. */
+  .modal {
+    width: 100%;
+    max-width: none;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 16px;
+    border-left: 0;
+    border-right: 0;
+  }
+  .modal-bg { align-items: flex-end; }
+  .modal-actions { flex-direction: column-reverse; align-items: stretch; }
+  .modal-actions .btn { width: 100%; }
+
+  .card { padding: 14px; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+  /* Título que não quebra vira barra horizontal de rolagem. */
+  h1 { font-size: 1.35rem; }
+  h2 { font-size: 1.15rem; }
+  .page-header h1 { overflow-wrap: anywhere; }
+}
+
+/* ---------- ≤380px: celular estreito (320–375) ---------- */
+@media (max-width: 380px) {
+  .main-content { padding: 12px 10px !important; }
+  .kpi-grid { grid-template-columns: 1fr; }
+  .modal { padding: 14px 12px; }
+  h1 { font-size: 1.2rem; }
+}
+
+/* ==========================================================================
+   TABELAS — rolagem própria, não da página
+   ==========================================================================
+   175 telas têm `<table>`, e nenhuma delas envolvia a tabela num container.
+   Uma tabela de 8 colunas força ~900px de largura: era a maior causa do
+   estouro horizontal da PÁGINA inteira.
+
+   O wrapper é injetado por `envolverTabelas()` em `sidebar.js` — não dá para
+   fazer isso só com CSS, e editar 175 arquivos seria pior.
+
+   A rolagem fica DENTRO do quadro: a página para de deslizar, e a tabela
+   continua inteira. Nenhuma coluna é escondida — a instrução era explícita
+   quanto a não resolver escondendo informação.
+   ========================================================================== */
+.tabela-rolagem {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;   /* rolar a tabela não arrasta a página */
+}
+@media (max-width: 640px) {
+  /* Dentro do quadro a tabela pode ter sua largura mínima sem afetar a página. */
+  .tabela-rolagem > table { min-width: max-content; }
+  .tabela-rolagem th, .tabela-rolagem td { white-space: nowrap; padding: 8px 10px; }
+
+  /* ⚠️ A coluna de descrição é a exceção, e é deliberada.
+     Com `nowrap` em tudo, "TEMPERO COMPLETO COM AÇAFRÃO" empurraria a tabela
+     para 1200px de largura. Estas colunas quebram em várias linhas e têm
+     largura mínima suficiente para o produto ser reconhecido — era o ponto do
+     relato: a descrição precisa ser LEGÍVEL, não truncada. */
+  .tabela-rolagem td.col-descricao,
+  .tabela-rolagem td[data-col="descricao"] {
+    white-space: normal;
+    min-width: 170px;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ==========================================================================
+   TOOLTIP DE CÉLULA TRUNCADA
+   --------------------------------------------------------------------------
+   Para ler inteiro o que a tabela corta com "…". Segue o mesmo desenho do
+   `.sb-tooltip` da sidebar (mesmos tokens, mesma sombra) — mas é outro
+   elemento, e não dá para reaproveitar aquele: ele vive no documento do SHELL,
+   é `white-space: nowrap` e some quando a barra está expandida
+   (`html:not([data-sidebar="compacta"]) .sb-tooltip { display: none }`).
+
+   Por que flutua no `<body>` e não é um `::after` da célula: a célula tem
+   `overflow: hidden` — é ele que desenha o "…" — e recortaria o balcão junto.
+
+   `title=` está fora de questão: a Fase 3.2.1 tirou os `title` do menu porque o
+   tooltip nativo do navegador aparece POR CIMA do nosso, branco e atrasado.
+   `scripts/test-fase321-ux.js` reprova quem os traga de volta.
+   ========================================================================== */
+.tip-truncado {
+  position: fixed;
+  z-index: 1100;               /* acima da sidebar (1000); abaixo dos modais (10000) */
+  pointer-events: none;        /* nunca rouba o hover da célula */
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity .12s ease, transform .12s ease;
+  background: var(--bg-3);
+  color: var(--text-0);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--raio-sm, 6px);
+  padding: 7px 11px;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  /* Ao contrário do da sidebar, este QUEBRA linha: o conteúdo é uma descrição
+     de produto, não o nome de um menu. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: min(420px, 88vw);
+  box-shadow: var(--sombra-md, 0 4px 12px rgba(0,0,0,.3));
+}
+.tip-truncado.visivel { opacity: 1; transform: translateY(0); }
+
+/* Sem `@media (hover: none) { display: none }`, de propósito.
+   Parecia a forma certa de desligar no celular, e escondia o tooltip onde ele
+   deve funcionar: um laptop com tela sensível ao toque casa `hover: none`, e o
+   Chrome headless também — foi lá que apareceu, com o balão marcado como
+   visível mas medindo 0x0.
+   Não é preciso desligar por mídia: quem decide é `estaTruncado()`, e no
+   celular a descrição não fica truncada (ela quebra em várias linhas pela regra
+   de `td[data-col="descricao"]` acima), então o tooltip nunca chega a abrir. */

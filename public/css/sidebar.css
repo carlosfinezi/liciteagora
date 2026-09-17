@@ -7,9 +7,26 @@
     min-height: 100vh;
 }
 
+/* ==========================================================================
+   Largura da sidebar — uma variável, três consumidores.
+   ==========================================================================
+   Até 2026-09-11 o valor 250px estava escrito à mão em três lugares que
+   precisam concordar: `.sidebar`, o `margin-left` do `.main-content` e o
+   `left`/`width` do `#conteudo` no shell. Mudar um sem os outros descola o
+   conteúdo da barra.
+
+   Agora sai daqui. O modo COMPACTO (só ícones) é o que o Pedidos PDV pede ao
+   entrar: naquela tela cada pixel de largura é área de venda, e o menu textual
+   custa 186px que ninguém lê enquanto atende no balcão.
+
+   `data-sidebar="compacta"` vive no <html>, para o shell e as páginas standalone
+   reagirem com a mesma regra. */
+:root { --sidebar-w: 250px; }
+[data-sidebar="compacta"] { --sidebar-w: 64px; }
+
 /* Sidebar */
 .sidebar {
-    width: 250px;
+    width: var(--sidebar-w);
     background: var(--bg-1);
     color: var(--text-1);
     display: flex;
@@ -69,6 +86,46 @@
     max-height: 40px;
     max-width: 100%;
 }
+
+/* ==========================================================================
+   MARCA — horizontal na barra aberta, monograma na recolhida
+   ==========================================================================
+   Isto é o que resolve a dívida marcada no slot de identidade da Fase 3.3: a
+   barra recolhida usava a MESMA imagem horizontal, espremida em 46px de
+   largura. Sendo ela 4:1, desenhava com ~11px de altura — um borrão.
+
+   Agora são dois desenhos, e a troca é só `display`. Nenhum dos dois é
+   redimensionado fora da sua proporção: cada SVG tem o próprio viewBox e
+   `height: auto` deixa a largura seguir dele. Distorcer é impossível por
+   construção, não por ajuste de medida.
+
+   A troca é CSS puro, sem JavaScript: os dois já estão no DOM, e recolher a
+   barra não dispara requisição nem recalcula nada além da regra abaixo.
+
+   `color` herda para o `currentColor` de "Licite" e "ERP" — é daqui que a
+   marca se adapta ao tema claro e ao escuro sem um segundo arquivo. */
+.sidebar-logo { color: var(--text-0); }
+.sidebar-logo:hover { color: var(--text-0); }   /* a marca não muda de cor no hover */
+
+.marca { display: block; height: auto; }
+
+/* 176px → 190px (+8%) no ajuste final da Fase 3.4.
+   A largura NÃO é escolhida por gosto: é o que cabe. Medido no Chrome, a faixa
+   útil do cabeçalho era 184px — 250 da barra, menos 28 de padding, 28 do botão
+   de recolher e 10 de gap. Com 176 sobravam 8px, e 190 não caberia.
+   O espaço veio de onde não custa alinhamento (ver a nota do `.sidebar-header`
+   mais abaixo): a faixa passou a 194px, e a marca ocupa 190 com 4px de folga do
+   botão. Só `max-width` muda — a altura continua vindo do viewBox. */
+.marca-horizontal { width: 100%; max-width: 190px; }
+
+/* O monograma NÃO acompanhou o aumento, de propósito: a barra recolhida tem
+   64px e ele já usa 38 deles. Crescer aqui apertaria a caixa sem ganhar
+   legibilidade. */
+.marca-monograma  { display: none; width: 38px; }
+
+/* Recolhida: some a horizontal, entra o monograma. */
+[data-sidebar="compacta"] .marca-horizontal { display: none; }
+[data-sidebar="compacta"] .marca-monograma  { display: block; }
 
 /* Menu */
 .sidebar-menu {
@@ -192,8 +249,9 @@
 /* Conteudo Principal */
 .main-content {
     flex: 1;
-    margin-left: 250px;
+    margin-left: var(--sidebar-w);
     min-height: 100vh;
+    transition: margin-left .18s ease;
 }
 
 /* Página embutida no shell (app.html): a sidebar é do shell, não reserva espaço */
@@ -266,3 +324,677 @@ body.embedded .menu-toggle {
         display: none !important;
     }
 }
+
+/* ===== Busca de rotina ===== */
+.menu-busca {
+    position: relative;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.menu-busca input {
+    width: 100%;
+    padding: 7px 10px;
+    background: var(--bg-input, var(--bg-0));
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm, 6px);
+    color: var(--text-0);
+    font: inherit;
+    font-size: 13px;
+}
+
+.menu-busca input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.menu-busca input::placeholder { color: var(--text-3); }
+
+/* Sobreposta ao menu: empurrar a lista para baixo faria o menu inteiro pular
+   a cada tecla digitada. */
+.menu-busca-lista {
+    display: none;
+    position: absolute;
+    top: calc(100% - 4px);
+    left: 8px;
+    right: 8px;
+    z-index: 1200;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 4px;
+    background: var(--bg-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md, 8px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.menu-busca-lista.open { display: block; }
+
+.menu-busca-item { align-items: flex-start; }
+
+/* !important aqui não é preguiça: a regra legacy de app-modern.css casa
+   qualquer classe com "-item" e crava background e box-shadow:none com
+   !important. Sem empatar a força, a navegação por seta fica sem realce. */
+.menu-busca-lista .menu-busca-item.sel {
+    background: var(--accent-soft) !important;
+    color: var(--text-0) !important;
+    border-color: var(--accent) !important;
+}
+
+.menu-busca-txt {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+    min-width: 0;
+}
+
+.menu-busca-nome { color: inherit; }
+
+/* O caminho é o que faz a busca substituir a navegação pelo menu: sem ele o
+   resultado não diz de que módulo veio. */
+.menu-busca-caminho {
+    font-size: 11px;
+    color: var(--text-3);
+}
+
+.menu-busca-vazio {
+    padding: 10px 12px;
+    color: var(--text-3);
+    font-size: 12px;
+}
+
+/* ===== Seletor de módulos (menu no modo 'modulos') ===== */
+.modulo-switcher {
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+}
+
+.modulo-atual {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px;
+    background: none;
+    border: none;
+    color: var(--text-0);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.modulo-atual:hover { background: var(--bg-hover); }
+.modulo-atual .modulo-atual-nome { flex: 1; }
+.modulo-atual .menu-section-icon svg { color: var(--accent); }
+
+/* Grade de módulos. Fecha em display:none para não roubar clique do menu. */
+.modulo-pop {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 8px;
+    right: 8px;
+    z-index: 1200;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    padding: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: var(--bg-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md, 8px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.modulo-pop.open { display: grid; }
+
+.modulo-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px 6px;
+    min-height: 76px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm, 6px);
+    color: var(--text-1);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.modulo-tile:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+    color: var(--text-0);
+}
+
+.modulo-tile.ativo {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text-0);
+}
+
+.modulo-tile-icon { font-size: 1.25em; line-height: 1; }
+.modulo-tile-icon svg {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.6;
+    color: var(--accent);
+}
+.modulo-tile-nome { word-break: break-word; }
+
+/* ==========================================================================
+   TOPBAR GLOBAL — Fase 3.3
+   ==========================================================================
+   Uma barra, no shell (`app.html`), acima do iframe. Substitui o botão de tema
+   que flutuava sobre o conteúdo desde a Fase 2.3.
+
+   ── Por que ela começa DEPOIS da sidebar ────────────────────────────────────
+
+   `left: var(--sidebar-w)`, e não `left: 0`. A sidebar continua ocupando a
+   altura inteira, com a marca no topo dela. Se a topbar atravessasse a tela,
+   teríamos de escolher entre repetir a logo (duas marcas na mesma tela) ou
+   deixar o canto superior esquerdo vazio, e ainda assim mexer no `top` da
+   sidebar. Deste jeito a única medida que muda é o `top` do iframe.
+
+   ── Por que ela não flutua ──────────────────────────────────────────────────
+
+   O botão de tema era `position: fixed` sobre o conteúdo, e por isso cobria os
+   botões de ação de quem não usasse `.page-header` — aconteceu no Pedidos PDV
+   (relatório 25) e de novo no Pedido (relatório 29), cada um exigindo uma
+   reserva de `padding-right` própria. A topbar OCUPA espaço em vez de flutuar:
+   o iframe começa abaixo dela. Não há como cobrir nada, e as três reservas
+   saíram junto.
+*/
+:root { --topbar-h: 52px; }
+
+.topbar {
+    position: fixed;
+    top: 0;
+    left: var(--sidebar-w);
+    right: 0;
+    height: var(--topbar-h);
+    z-index: 1000;           /* mesmo plano da sidebar; abaixo de tooltip (1100) */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
+    box-sizing: border-box;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    transition: left .18s ease;   /* acompanha a sidebar ao recolher */
+}
+
+/* Nome da empresa. `min-width: 0` + `truncate` para que uma razão social longa
+   encolha em vez de empurrar a área da conta para fora da tela. */
+.tb-esq {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-sm);
+    font-weight: var(--peso-medio);
+    color: var(--text-1);
+}
+
+/* `margin-left: auto`, e não só o `space-between` do pai: no mobile o
+   `.tb-esq` fica `display: none`, sobra um filho só, e `space-between` o
+   jogaria para a ESQUERDA — em cima do botão hambúrguer. */
+.tb-dir { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; margin-left: auto; }
+
+.tb-btn {
+    height: 34px;
+    min-width: 34px;
+    padding: 0 var(--space-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    line-height: 1;
+    cursor: pointer;
+    border-radius: var(--raio-md);
+    border: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--text-1);
+    transition: background .14s, border-color .14s;
+}
+.tb-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.tb-btn:focus-visible { outline: var(--foco); outline-offset: 2px; }
+
+/* O de tema continua redondo e só com o ícone — é o mesmo controle de antes,
+   agora ancorado na barra em vez de flutuando. */
+#btnTema { width: 34px; padding: 0; border-radius: 50%; font-size: var(--text-base); }
+
+.tb-conta { position: relative; }
+.tb-conta-btn { max-width: 220px; }
+
+.tb-avatar {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    /* `--btn-primary-bg`, e NÃO `--accent`. No tema escuro `--accent` é
+       `#60a5fa`, e branco sobre ele dá 2,54:1 — reprova em AA para texto
+       pequeno, e a inicial é exatamente isso. O token do botão primário é o
+       par já verificado na Fase 3.2 (5,17:1) e vale nos dois temas. */
+    background: var(--btn-primary-bg);
+    color: #fff;
+    font-size: var(--text-xs);
+    font-weight: var(--peso-forte);
+    line-height: 1;
+}
+
+.tb-usuario { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-chevron { font-size: var(--text-xs); color: var(--text-3); flex-shrink: 0; }
+
+.tb-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 188px;
+    padding: var(--space-1);
+    border-radius: var(--raio-md);
+    /* Borda forte + sombra de elemento flutuante: no tema escuro `--sombra-md`
+       é `none` de propósito, e um menu sobreposto ao conteúdo precisa de aresta
+       própria. Mesmo peso visual do `.modulo-pop`, que já resolve isto. */
+    border: 1px solid var(--border-strong);
+    background: var(--bg-2);
+    box-shadow: var(--sombra-modal);
+}
+.tb-menu.aberto { display: block; }
+
+.tb-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-radius: var(--raio-sm);
+    background: none;
+    color: var(--text-1);
+    font-size: var(--text-sm);
+    text-align: left;
+    cursor: pointer;
+}
+.tb-menu-item:hover { background: var(--bg-hover); }
+.tb-menu-item:focus-visible { outline: var(--foco); outline-offset: -2px; }
+.tb-menu-item .ic { display: inline-flex; color: var(--text-2); }
+.tb-menu-item .ic svg { width: 15px; height: 15px; }
+
+/* Mobile: a sidebar vira gaveta e some do fluxo, então a topbar toma a largura
+   inteira. O canto esquerdo continua sendo do botão hambúrguer (`.menu-toggle`,
+   `fixed` a 14px e z-index 1001, portanto POR CIMA da barra): o `padding-left`
+   é o espaço dele, medido — 14px de margem mais ~46px de botão.
+
+   O nome da empresa e o do usuário cedem o lugar; sobra o que precisa de toque,
+   tema e conta, mais o avatar, que já identifica quem está logado. */
+@media (max-width: 768px) {
+    .topbar { left: 0; padding-left: 64px; }
+    .tb-esq { display: none; }
+    .tb-usuario { display: none; }
+    .tb-conta-btn { max-width: none; }
+}
+
+/* Impressão: a barra é de tela, não de papel. */
+@media print { .topbar { display: none; } }
+
+/* ==========================================================================
+   Sidebar compacta — só os ícones.
+   ==========================================================================
+   Ligada por `data-sidebar="compacta"` no <html>. Some o texto, ficam os ícones
+   centralizados; o nome reaparece como `title` nativo ao passar o mouse.
+
+   O que NÃO muda no modo compacto, de propósito: a sidebar continua sendo a
+   mesma, com os mesmos itens e o mesmo RBAC. Não há segunda navegação, nem
+   menu alternativo — só a largura. */
+
+.sidebar-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; flex-shrink: 0;
+    margin-left: auto;
+    border: 1px solid var(--border); border-radius: var(--r-sm);
+    background: var(--bg-1); color: var(--text-2);
+    cursor: pointer; font-size: 13px; line-height: 1; font-family: inherit;
+    transition: background .12s, color .12s, border-color .12s;
+}
+.sidebar-toggle:hover { background: var(--bg-hover); color: var(--text-0); border-color: var(--border-strong); }
+.sidebar-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* O header ganha o botão ao lado da logo. */
+/* gap 10 → 6px: os outros 4px que a marca ganhou (ver `.marca-horizontal`).
+   Continua sendo separação suficiente entre a marca e o botão de recolher. */
+.sidebar-header { display: flex; align-items: center; gap: 6px; }
+.sidebar-header .sidebar-logo { flex: 1; min-width: 0; }
+
+/* No compacto a MARCA CONTINUA VISÍVEL, só menor e centralizada. Escondê-la
+   deixaria o topo da barra vazio — e a identidade do sistema é justamente o que
+   não deve sumir quando a largura diminui. */
+[data-sidebar="compacta"] .sidebar-header { padding: 10px 6px; flex-direction: column; gap: 6px; }
+[data-sidebar="compacta"] .sidebar-logo { justify-content: center; gap: 0; flex: none; }
+/* O SLOT DE IDENTIDADE que estava marcado aqui foi PREENCHIDO em 2026-09-11.
+   A lacuna era esta: a barra recolhida reaproveitava a imagem horizontal 4:1,
+   espremida em 46px, e ela desenhava com ~11px de altura. Agora existe um
+   monograma de verdade, e a troca está no bloco `.marca-*` lá em cima.
+
+   A regra abaixo continua por causa da logo CUSTOM do tenant
+   (`.sidebar-logo-img`, enviada em Configurações → Importação), que não é a
+   marca do produto e segue sendo uma imagem única sem versão compacta. */
+[data-sidebar="compacta"] .sidebar-logo-img { max-height: 26px; max-width: 46px; object-fit: contain; }
+[data-sidebar="compacta"] .sidebar-logo span:not(.sidebar-logo-icon) { display: none; }
+[data-sidebar="compacta"] .sidebar-toggle { margin: 0; }
+
+/* Busca, títulos de seção, chevrons e textos dos itens somem. */
+[data-sidebar="compacta"] .menu-busca,
+[data-sidebar="compacta"] .menu-section-title,
+[data-sidebar="compacta"] .menu-chevron,
+[data-sidebar="compacta"] #estabSwitcher { display: none; }
+
+[data-sidebar="compacta"] .menu-section { padding: 6px 0; justify-content: center; }
+[data-sidebar="compacta"] .menu-section-icon { margin: 0; }
+
+[data-sidebar="compacta"] .menu-item {
+    justify-content: center; padding: 10px 0; gap: 0;
+    /* `font-size: 0` esconde o texto sem mexer no HTML — o ícone é um filho com
+       tamanho próprio e continua visível. */
+    font-size: 0;
+}
+/* No menu normal os ícones dos ITENS ficam ocultos (`.menu-item .icon
+   { display:none }`) — quem identifica é o texto. No compacto é o contrário:
+   sem revelar o ícone aqui, o item ficaria completamente vazio e o menu viraria
+   uma coluna de faixas clicáveis sem rótulo nenhum. */
+[data-sidebar="compacta"] .menu-item .icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin: 0; font-size: 15px; width: 20px; height: 20px;
+}
+[data-sidebar="compacta"] .menu-item .icon svg { width: 17px; height: 17px; stroke-width: 1.75; }
+[data-sidebar="compacta"] .menu-item .badge {
+    position: absolute; top: 4px; right: 8px; font-size: 9px; padding: 1px 4px; min-width: 0;
+}
+[data-sidebar="compacta"] .menu-item { position: relative; }
+
+/* Os grupos colapsáveis ficam sempre abertos no compacto: sem o título, não há
+   como abri-los, e esconder ícone atrás de um chevron invisível prenderia a
+   navegação. */
+[data-sidebar="compacta"] .menu-group { display: block !important; }
+
+/* No mobile a sidebar já é gaveta (transform), e o compacto não se aplica:
+   lá a largura cheia é o certo quando ela está aberta. */
+@media (max-width: 768px) {
+    [data-sidebar="compacta"] { --sidebar-w: 250px; }
+    .sidebar-toggle { display: none; }
+}
+
+/* ==========================================================================
+   FASE 3.2 — SIDEBAR MODERNA
+   ==========================================================================
+   No fim do arquivo de propósito: vence por ordem de cascata, sem `!important`.
+
+   A direção é "menos botões empilhados, mais lista contínua". O que mudou e por
+   quê, item a item:
+
+   - o ITEM ATIVO era marcado por `border-left: 2px` — uma barra em cada item
+     desenha uma grade vertical e faz cada linha parecer um botão. Agora é fundo
+     suave com faixa fina, que destaca sem recortar;
+   - os ÍCONES DOS ITENS estavam `display: none`. Mostrá-los dá o "equilíbrio
+     entre texto e ícone" pedido, e é o mesmo ícone que a sidebar recolhida já
+     usa — nenhum ícone novo foi inventado, e nada some quando ela recolhe;
+   - o RESPIRO subiu de 5px para 7px na vertical: numa lista de 190 itens, 2px
+     por linha é a diferença entre lista e amontoado;
+   - as SEÇÕES ganharam distância do grupo anterior, que é o que separa visualmente
+     sem precisar de linha divisória.
+
+   Densidade preservada: o item continua em uma linha, e a altura total cresceu
+   pouco — o ERP tem 26 seções e 190 itens, e transformar isso num menu arejado
+   demais obrigaria a rolar o dobro.
+*/
+
+/* ---- itens ---- */
+.sidebar .menu-item {
+    padding: 7px 12px 7px 14px;
+    gap: 10px;
+    border-left: 0;                      /* a barra vertical saiu */
+    border-radius: var(--raio-sm, 6px);
+    margin: 1px 8px;
+    font-size: 0.86em;                   /* mantido: Fase 3.1 mediu o delta e não mexeu */
+    font-weight: 500;
+    color: var(--text-1);
+}
+
+/* O ícone do item passa a aparecer também na sidebar expandida. */
+.sidebar .menu-item .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1;
+    opacity: .78;
+}
+.sidebar .menu-item .icon svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 1.75;
+}
+
+.sidebar .menu-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-0);
+    border-left-color: transparent;
+}
+.sidebar .menu-item:hover .icon { opacity: 1; }
+
+/* Ativo: fundo de acento e faixa fina à esquerda, dentro do próprio raio. */
+.sidebar .menu-item.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+    border-left-color: transparent;
+    position: relative;
+}
+.sidebar .menu-item.active .icon { opacity: 1; }
+.sidebar .menu-item.active::before {
+    content: '';
+    position: absolute;
+    left: -4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 60%;
+    border-radius: 0 2px 2px 0;
+    background: var(--accent);
+}
+
+/* ---- seções ---- */
+.sidebar .menu-section {
+    padding: 14px 16px 5px;
+    font-size: 0.66em;
+    letter-spacing: 0.09em;
+    color: var(--text-3);
+    font-weight: 700;
+}
+/* A primeira seção não precisa do respiro de cima. */
+.sidebar .sidebar-menu > .menu-section:first-child { padding-top: 8px; }
+
+.sidebar .menu-section-toggle { border-radius: var(--raio-sm, 6px); margin: 0 8px; padding: 12px 8px 5px; }
+.sidebar .menu-section-toggle:hover { color: var(--text-1); }
+.sidebar .menu-section-icon { opacity: .8; }
+.sidebar .menu-chevron { font-size: 1.4em; opacity: .6; }
+
+/* ---- cabeçalho ---- */
+/* Sem fundo próprio: o bloco escuro no topo era mais uma "caixa". A separação
+   fica na borda inferior, que basta. */
+/* O `padding-left` de 14px é a GRADE da barra: a marca, o campo de busca e o
+   texto dos itens começam todos nele. Medido — marca em x=14, input em x=14.
+   Mexer nele desalinharia a marca de tudo o que vem abaixo.
+
+   O `padding-right` não alinha com nada: à direita do cabeçalho só existe o
+   botão de recolher, e ele não tem par nas linhas de baixo (a busca vai até
+   236, os itens até 230). Por isso foi dele que saiu o espaço para a marca
+   crescer 8% sem a barra ficar mais larga: 14 → 8px. */
+.sidebar .sidebar-header {
+    background: transparent;
+    padding: 14px 8px 12px 14px;
+}
+
+/* O padding do modo compacto (linha ~688) EMPATAVA em especificidade com a
+   regra acima — as duas valem (0,2,0) — e perdia por vir antes no arquivo. Ou
+   seja: nunca valeu, e a barra recolhida usava o padding da expandida.
+   Passava despercebido porque 14/14 é simétrico e o monograma ficava quase
+   centrado. Com o padding-right em 8px o desencontro apareceu: 2,5px à direita.
+   Este seletor tem (0,3,0) e vence, devolvendo ao compacto o padding que a
+   Fase 3.2 já pretendia dar. */
+[data-sidebar="compacta"] .sidebar .sidebar-header { padding: 10px 6px; }
+/* Logo CUSTOM do tenant (Configurações → Importação) — não é a marca do
+   produto, que agora é SVG e vive no bloco `.marca-*`. Dimensionada por
+   contenção porque o arquivo vem de fora e pode ter qualquer proporção. */
+.sidebar .sidebar-logo-img {
+    max-height: 34px;
+    max-width: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+/* ---- busca ---- */
+.sidebar .menu-busca { padding: 4px 14px 12px; border-bottom: 1px solid var(--border); }
+.sidebar .menu-busca input { padding: 8px 11px; border-radius: var(--raio-sm, 6px); }
+
+/* ---- rolagem discreta ---- */
+.sidebar .sidebar-menu { padding: 4px 0 16px; }
+.sidebar .sidebar-menu::-webkit-scrollbar-thumb { background: var(--border); }
+.sidebar .sidebar-menu:hover::-webkit-scrollbar-thumb { background: var(--border-strong); }
+
+/* ==========================================================================
+   FASE 3.2 — TOOLTIP E FLYOUT DA SIDEBAR RECOLHIDA
+   ==========================================================================
+   Ambos vivem no <body>, não dentro da sidebar: `.sidebar-menu` tem
+   `overflow-y: auto` e cortaria qualquer coisa desenhada na borda dela.
+
+   z-index 1100 — acima da sidebar (1000) e do overlay mobile (999); abaixo dos
+   modais (10000), que devem cobri-los.
+*/
+
+.sb-tooltip {
+    position: fixed;
+    z-index: 1100;
+    pointer-events: none;                /* nunca rouba o hover do ícone */
+    opacity: 0;
+    transform: translateX(-4px);
+    transition: opacity .12s ease, transform .12s ease;
+    background: var(--bg-3);
+    color: var(--text-0);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--raio-sm, 6px);
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: var(--sombra-md, 0 4px 12px rgba(0,0,0,.3));
+}
+.sb-tooltip.visivel { opacity: 1; transform: translateX(0); }
+
+/* Some junto com a barra expandida: lá o nome já está escrito ao lado. */
+html:not([data-sidebar="compacta"]) .sb-tooltip { display: none; }
+
+/* ---- flyout ---- */
+.sb-flyout {
+    position: fixed;
+    z-index: 1100;
+    display: none;
+    min-width: 210px;
+    max-width: 280px;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 6px;
+    background: var(--superficie-alta, var(--bg-2));
+    border: 1px solid var(--border-strong);
+    border-radius: var(--raio-md, 8px);
+    box-shadow: var(--sombra-modal, 0 12px 32px rgba(0,0,0,.4));
+}
+.sb-flyout.visivel { display: block; }
+
+.sb-flyout-tit {
+    padding: 6px 10px 8px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+}
+
+.sb-flyout-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--raio-sm, 6px);
+    color: var(--text-1);
+    text-decoration: none;
+    font-size: 0.86rem;
+    line-height: 1.3;
+}
+.sb-flyout-item:hover { background: var(--bg-hover); color: var(--text-0); }
+.sb-flyout-item.ativo { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.sb-flyout-item:focus-visible { outline: var(--foco, 2px solid var(--accent)); outline-offset: -2px; }
+.sb-flyout-item .icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; flex-shrink: 0; opacity: .8;
+}
+.sb-flyout-item .icon svg { width: 16px; height: 16px; stroke-width: 1.75; }
+.sb-flyout-item .badge { margin-left: auto; }
+
+/* ==========================================================================
+   Ajuste do modo compacto para o rótulo agora envolvido em <span class="rotulo">
+   ==========================================================================
+   Antes o texto do item era nó solto e a única forma de escondê-lo era
+   `font-size: 0` no <a> — que zerava também o que estivesse dentro. Com o rótulo
+   num span próprio, basta escondê-lo; o ícone e o badge não precisam recuperar
+   tamanho nenhum.
+*/
+[data-sidebar="compacta"] .sidebar .menu-item {
+    justify-content: center;
+    padding: 10px 0;
+    margin: 2px 8px;
+    gap: 0;
+    font-size: 0.86em;                   /* deixa de ser 0: o span cuida disso */
+}
+[data-sidebar="compacta"] .sidebar .menu-item .rotulo { display: none; }
+[data-sidebar="compacta"] .sidebar .menu-item .icon { opacity: .9; }
+[data-sidebar="compacta"] .sidebar .menu-item.active::before { display: none; }
+
+/* Cabeçalho de grupo vira alvo do flyout: ganha cursor e destaque de "abrível". */
+[data-sidebar="compacta"] .sidebar .menu-section-toggle {
+    justify-content: center;
+    padding: 10px 0;
+    margin: 2px 8px;
+    border-radius: var(--raio-sm, 6px);
+}
+[data-sidebar="compacta"] .sidebar .menu-section-toggle:hover { background: var(--bg-hover); }
+[data-sidebar="compacta"] .sidebar .menu-section-toggle[aria-expanded="true"] {
+    background: var(--accent-soft);
+}
+[data-sidebar="compacta"] .sidebar .menu-section-toggle[aria-expanded="true"] .menu-section-icon svg { color: var(--accent); }

@@ -2,26 +2,82 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Login - Licite Agora</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <!-- PWA. O manifest e o registro ficam AQUI, e não só no shell, porque o
+         navegador só oferece "instalar" depois de ver os dois — e quem não tem
+         sessão vê esta tela antes de qualquer outra. -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <script src="/pwa.js" defer></script>
+    <!-- Inter: a mesma do ERP e do manual da marca. Externo de propósito — o
+         CSS do sistema não é alcançável daqui (ver a nota dos tokens abaixo).
+         Se o Google estiver fora, a pilha de fallback assume e o login funciona
+         igual; só a marca desenha com outra fonte. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap">
     <script>
         // Sessão expirada dentro do shell (app.html): sai do iframe e loga a aba inteira
         if (window.top !== window.self) { try { window.top.location = window.location; } catch (_) {} }
     </script>
     <style>
+        /* ====================================================================
+           TOKENS — espelhados, não importados
+           ====================================================================
+           Esta tela é PÚBLICA: roda antes da barreira de autenticação, servida
+           por `base-middleware.js` direto de `public/auth/`. E `/css/app-modern.css`
+           responde 302 para quem não tem sessão — ou seja, o login não consegue
+           carregar o CSS do ERP. Verificado, não suposto.
+
+           Então os valores abaixo são CÓPIA do tema escuro do design system, e
+           não um `@import`. A duplicação é o preço de a tela vir antes do auth.
+           Mudou o tema lá, mude aqui — são 11 valores, todos com o mesmo nome
+           que têm no original, justamente para o confronto ser direto.
+
+           O que isto substitui: sete cores escritas à mão (#1a1a2e, #16213e,
+           #4dabf7, #0f1a30, #2a3a5c, #888, #aaa) que não existiam em lugar
+           nenhum do sistema.
+
+           Tema fixo escuro, e não claro/escuro: quem escolhe o tema é o usuário
+           logado (`users.tema`), e aqui ainda não há usuário. */
+        :root {
+            --bg-0: #0b1120;
+            --bg-1: #0f172a;
+            --bg-2: #111827;
+            --border: #1e293b;
+            --border-strong: #334155;
+            --text-0: #f1f5f9;
+            --text-1: #cbd5e1;
+            --text-2: #94a3b8;
+            --accent: #60a5fa;
+            --danger: #f87171;
+            --btn-primary-bg: #2563eb;        /* o azul da marca; 5,17:1 com branco */
+            --btn-primary-bg-hover: #1d4ed8;
+            --raio-md: 8px;
+            --raio-lg: 12px;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-0);
+            color: var(--text-1);
             display: flex;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
+            /* `100dvh` e não `100vh`: com o teclado virtual aberto o viewport
+               encolhe, e `vh` (que ignora isso) empurrava o card para fora da
+               tela — o usuário digitava sem ver o campo. `min-height: 100%` fica
+               de reserva para navegador sem `dvh`. */
+            min-height: 100%;
+            min-height: 100dvh;
+            padding: 20px;
         }
         .login-container {
-            background: #16213e;
-            border-radius: 12px;
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+            border-radius: var(--raio-lg);
             padding: 40px;
             width: 100%;
             max-width: 400px;
@@ -29,57 +85,115 @@
         }
         .login-header {
             text-align: center;
-            margin-bottom: 32px;
+            margin-bottom: 34px;    /* 32 → 34: acompanha a marca maior */
         }
-        .login-header h1 {
-            font-size: 24px;
-            color: #4dabf7;
-            margin-bottom: 8px;
+        /* A marca entra como SVG inline, e não como <img>, pelo mesmo motivo da
+           sidebar: "Licite" e "ERP" são `currentColor` e precisam herdar a cor
+           do texto — dentro de um <img> não existe cor herdada. */
+        /* 232px → 265px (+14%) no ajuste final da Fase 3.4. Aqui o espaço não
+           era o limite: o card tem 400px com 40 de padding, ou seja 320 úteis —
+           sobram 55px. O que decidiu foi a presença da marca na tela de entrada.
+           `max-width` sozinho; a altura continua vindo do viewBox (50,8 → 58px). */
+        .login-marca {
+            display: block;
+            width: 100%;
+            max-width: 265px;
+            height: auto;
+            margin: 0 auto 14px;    /* 10 → 14: respiro entre a marca e o subtítulo */
+            color: var(--text-0);
+        }
+        .empresa-tenant {
+            margin-top: 12px;
+            padding: 9px 12px;
+            border: 1px solid var(--border-strong);
+            border-radius: var(--raio-md);
+            background: var(--bg-1);
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-0);
+            line-height: 1.35;
+        }
+        .empresa-tenant small {
+            display: block;
+            font-size: 11px;
+            font-weight: 400;
+            color: var(--text-2);
+            letter-spacing: .03em;
+            text-transform: uppercase;
+            margin-bottom: 2px;
         }
         .login-header p {
-            color: #888;
-            font-size: 14px;
+            color: var(--text-2);
+            font-size: 15px;
         }
         .form-group {
             margin-bottom: 20px;
         }
         .form-group label {
             display: block;
-            margin-bottom: 6px;
-            font-size: 14px;
-            color: #aaa;
+            margin-bottom: 7px;
+            font-size: 15px;
+            color: var(--text-1);
         }
         .form-group input {
             width: 100%;
             padding: 12px 16px;
-            border: 1px solid #2a3a5c;
-            border-radius: 8px;
-            background: #0f1a30;
-            color: #e0e0e0;
-            font-size: 15px;
+            border: 1px solid var(--border-strong);
+            border-radius: var(--raio-md);
+            background: var(--bg-1);
+            color: var(--text-0);
+            font-family: inherit;
+            /* ⚠️ 16px é o mínimo que impede o iOS de dar zoom sozinho ao focar
+               o campo. Com 15px o Safari ampliava a página e o layout ficava
+               deslocado depois de digitar. No Android não há zoom, mas 15px
+               era pequeno demais para leitura confortável. */
+            font-size: 16px;
+            min-height: 48px;
             outline: none;
             transition: border-color 0.2s;
         }
         .form-group input:focus {
-            border-color: #4dabf7;
+            border-color: var(--accent);
+        }
+        .form-group input:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
         }
         .btn-login {
             width: 100%;
-            padding: 12px;
-            background: #4dabf7;
+            padding: 14px;
+            min-height: 50px;
+            background: var(--btn-primary-bg);
             color: #fff;
             border: none;
-            border-radius: 8px;
+            border-radius: var(--raio-md);
+            font-family: inherit;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: background 0.2s;
         }
-        .btn-login:hover { background: #339af0; }
-        .btn-login:disabled { background: #555; cursor: not-allowed; }
+        .btn-login:hover { background: var(--btn-primary-bg-hover); }
+        .btn-login:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .btn-login:disabled { background: var(--border-strong); cursor: not-allowed; }
+        /* ---------- celular ----------
+           O card tinha 40px de padding fixo: num aparelho de 360px sobravam
+           280px de conteúdo, e a marca (265px) quase encostava nas bordas.
+           Abaixo de 420px o padding cede, e abaixo de 360 a marca acompanha. */
+        @media (max-width: 420px) {
+            body { padding: 14px; align-items: flex-start; padding-top: 8vh; }
+            .login-container { padding: 26px 20px; border-radius: 14px; }
+            .login-header { margin-bottom: 28px; }
+        }
+        @media (max-width: 360px) {
+            body { padding: 10px; padding-top: 5vh; }
+            .login-container { padding: 22px 16px; }
+            .login-marca { max-width: 215px; }
+        }
         .error-msg {
-            background: rgba(255,70,70,0.15);
-            color: #ff6b6b;
+            background: rgba(248,113,113,0.14);
+            border: 1px solid rgba(248,113,113,0.3);
+            color: var(--danger);
             padding: 10px 14px;
             border-radius: 6px;
             font-size: 14px;
@@ -91,8 +205,37 @@
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>Licite Agora</h1>
-            <p>Acesse o sistema</p>
+            <!-- Mesmo desenho de /img/marca-horizontal.svg. Ver a nota em
+                 sidebar.js sobre por que a marca é embutida e não referenciada. -->
+            <svg class="login-marca" viewBox="0 0 320 70" role="img" aria-label="Licite Agora ERP" focusable="false">
+              <defs>
+                <linearGradient id="lolAz" x1="0" y1="0" x2="0.8" y2="1">
+                  <stop offset="0%" stop-color="#3B82F6"/><stop offset="50%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/>
+                </linearGradient>
+                <clipPath id="lolCorte"><rect x="0" y="7" width="84" height="42.5"/></clipPath>
+                <mask id="lolVao"><rect width="84" height="54" fill="#fff"/>
+                  <path d="M43 46 L55.5 31.5" stroke="#000" stroke-width="9" stroke-linecap="round" fill="none"/>
+                  <path d="M64 20.5 L48.5 27 L60.5 38.5 Z" fill="#000" stroke="#000" stroke-width="5.5" stroke-linejoin="round"/>
+                </mask>
+              </defs>
+              <g transform="translate(0 6) scale(0.815)">
+                <g clip-path="url(#lolCorte)"><path d="M23 0 L10.5 36 Q9.5 43 17 43 L29 43 L53 7 L76 54"
+                   fill="none" stroke="url(#lolAz)" stroke-width="13" stroke-linecap="butt" stroke-linejoin="round" mask="url(#lolVao)"/></g>
+                <path d="M43 46 L55.5 31.5" stroke="#22C55E" stroke-width="5" stroke-linecap="round" fill="none"/>
+                <path d="M64 20.5 L48.5 27 L60.5 38.5 Z" fill="#22C55E" stroke="#22C55E" stroke-width="2" stroke-linejoin="round"/>
+              </g>
+              <text x="84" y="40" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="34" font-weight="800" letter-spacing="-1.2">
+                <tspan fill="currentColor">Licite</tspan><tspan fill="#2563EB"> Agora</tspan>
+              </text>
+              <line x1="84" y1="55" x2="146" y2="55" stroke="#22C55E" stroke-width="2.2" stroke-linecap="round"/>
+              <text x="196.5" y="60" text-anchor="middle" fill="currentColor" opacity="0.85" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600" letter-spacing="7">ERP</text>
+              <line x1="240" y1="55" x2="302" y2="55" stroke="#22C55E" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+            <p id="subtitulo">Acesse o sistema</p>
+            <!-- Empresa deste endereço. Preenchida por /api/tenant-atual, que
+                 deriva do Host — confirmar ANTES de digitar a senha é o ponto:
+                 quem atende mais de uma empresa vê em qual está entrando. -->
+            <div id="empresaTenant" class="empresa-tenant" hidden></div>
         </div>
         <div class="error-msg" id="errorMsg"></div>
         <form id="loginForm">
@@ -108,6 +251,27 @@
         </form>
     </div>
     <script>
+        /**
+         * Mostra de qual empresa é este endereço, antes do login.
+         *
+         * O tenant vem do subdomínio e é resolvido no SERVIDOR; esta chamada só
+         * pergunta "qual empresa é esta?". Falhar aqui não impede de entrar —
+         * o bloco fica oculto e o login segue igual.
+         */
+        (async function identificarEmpresa(){
+          try {
+            const r = await fetch('/api/tenant-atual');
+            if (!r.ok) return;
+            const d = await r.json();
+            if (!d || !d.success || !d.tenant) return;
+            const el = document.getElementById('empresaTenant');
+            el.innerHTML = '<small>Você está entrando em</small>' +
+              String(d.tenant.nome).replace(/[&<>"']/g, c =>
+                ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            el.hidden = false;
+          } catch (_) { /* sem identificação: o login funciona igual */ }
+        })();
+
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('btnLogin');

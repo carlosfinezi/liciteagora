@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Orçamento · Licite Agora</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* ============================================================================
+   Orçamento — VISUALIZAÇÃO PÚBLICA
+   ============================================================================
+   Quem abre esta tela é o CLIENTE, pelo link que recebeu por WhatsApp. Ele não
+   tem conta no sistema e não deve precisar de uma — era esse o defeito: o link
+   antigo caía na tela de login.
+
+   Tokens espelhados, como no login: esta página é servida de `public/auth/`,
+   antes da barreira de autenticação, e `/css/app-modern.css` responde 302 para
+   quem não tem sessão. Os valores são cópia do tema CLARO do design system —
+   claro, e não escuro, porque este documento é feito para ser lido e impresso.
+
+   Nada aqui pede login, e nada aqui leva ao painel.
+   ========================================================================== */
+:root {
+  --bg-0: #f1f5f9; --bg-1: #ffffff; --bg-2: #f8fafc;
+  --border: #e2e8f0; --border-strong: #cbd5e1;
+  --text-0: #0f172a; --text-1: #334155; --text-2: #64748b;
+  --azul: #2563eb; --verde: #22c55e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-0); color: var(--text-1);
+  padding: 20px; min-height: 100%; min-height: 100dvh;
+  -webkit-text-size-adjust: 100%;
+}
+.folha {
+  max-width: 820px; margin: 0 auto; background: var(--bg-1);
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+}
+.topo { padding: 24px; border-bottom: 3px solid var(--azul); }
+.topo-linha { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.emit-nome { font-size: 1.15rem; font-weight: 700; color: var(--text-0); }
+.emit-dados { font-size: 0.86rem; color: var(--text-2); margin-top: 4px; line-height: 1.5; }
+.doc-tipo { font-size: 0.72rem; font-weight: 700; letter-spacing: .1em; color: var(--azul); text-transform: uppercase; }
+.doc-num { font-size: 1.4rem; font-weight: 700; color: var(--text-0); font-variant-numeric: tabular-nums; }
+.doc-data { font-size: 0.82rem; color: var(--text-2); margin-top: 2px; }
+.secao { padding: 18px 24px; border-bottom: 1px solid var(--border); }
+.secao-tit { font-size: 0.7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px; }
+
+/* Itens: TABELA no desktop, CARDS no celular.
+   Não é a tabela encolhida — abaixo de 680px cada item vira um bloco com
+   rótulo em cada valor. Era o ponto do pedido: a descrição precisa ser lida
+   inteira, e uma tabela de 6 colunas em 360px não permite isso. */
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+thead th {
+  background: var(--bg-2); color: var(--text-2); font-size: 0.7rem; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; text-align: left;
+  padding: 9px 10px; border-bottom: 1px solid var(--border-strong);
+}
+tbody td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text-1); }
+td.desc { color: var(--text-0); font-weight: 500; overflow-wrap: anywhere; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sku { font-size: 0.76rem; color: var(--text-2); display: block; margin-top: 2px; }
+
+.totais { padding: 18px 24px; background: var(--bg-2); }
+.tot-linha { display: flex; justify-content: space-between; padding: 5px 0; font-size: 0.9rem; }
+.tot-geral { border-top: 2px solid var(--border-strong); margin-top: 8px; padding-top: 12px; font-size: 1.15rem; font-weight: 700; color: var(--text-0); }
+.acoes { padding: 20px 24px; display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  flex: 1 1 auto; min-height: 48px; padding: 13px 20px; border-radius: 8px; border: 1px solid var(--border-strong);
+  background: var(--bg-1); color: var(--text-0); font-family: inherit; font-size: 16px; font-weight: 600;
+  cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-azul { background: var(--azul); border-color: var(--azul); color: #fff; }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+.rodape { padding: 14px 24px; background: #fff7ed; border-top: 1px solid #fed7aa; text-align: center; font-size: 0.8rem; font-weight: 600; color: #9a3412; }
+.aviso { max-width: 820px; margin: 40px auto; padding: 28px; background: var(--bg-1); border: 1px solid var(--border); border-radius: 12px; text-align: center; }
+.aviso h2 { color: var(--text-0); font-size: 1.15rem; margin-bottom: 8px; }
+.aviso p { color: var(--text-2); font-size: 0.92rem; }
+.carregando { text-align: center; padding: 60px 20px; color: var(--text-2); }
+
+@media (max-width: 680px) {
+  body { padding: 10px; }
+  .folha { border-radius: 10px; }
+  .topo, .secao, .totais, .acoes { padding-left: 16px; padding-right: 16px; }
+  .doc-num { font-size: 1.2rem; }
+
+  /* Linha vira card. `data-rot` guarda o rótulo da coluna. */
+  thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  tbody tr { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  tbody td { border: 0; padding: 3px 0; display: flex; justify-content: space-between; gap: 12px; }
+  tbody td.desc { display: block; font-size: 0.95rem; margin-bottom: 6px; }
+  tbody td:not(.desc)::before {
+    content: attr(data-rot); color: var(--text-2); font-size: 0.8rem; font-weight: 600;
+  }
+  td.num { text-align: right; }
+  .btn { flex: 1 1 100%; }
+}
+@media print {
+  body { background: #fff; padding: 0; }
+  .folha { border: 0; max-width: none; }
+  .acoes { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="alvo"><div class="carregando">Carregando orçamento…</div></div>
+
+<script>
+/* O token vem da query string. Não há id sequencial na URL — ver a nota em
+   `pedidos-routes.js`, seção de compartilhamento público. */
+var TOKEN = new URLSearchParams(location.search).get('token') || '';
+
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+  return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+function moeda(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function qtd(v){ return (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:3}); }
+function data(s){ if(!s) return ''; var d=String(s).substring(0,10).split('-'); return d.length===3? d[2]+'/'+d[1]+'/'+d[0] : s; }
+
+function aviso(titulo, texto){
+  document.getElementById('alvo').innerHTML =
+    '<div class="aviso"><h2>' + esc(titulo) + '</h2><p>' + esc(texto) + '</p></div>';
+}
+
+function pintar(d){
+  var o = d.orcamento, e = d.emitente || {};
+  var linhas = (o.itens||[]).map(function(i){
+    return '<tr>'
+      + '<td class="desc">' + esc(i.descricao) + (i.sku ? '<span class="sku">' + esc(i.sku) + '</span>' : '') + '</td>'
+      + '<td class="num" data-rot="Qtd">' + qtd(i.quantidade) + (i.unidade ? ' ' + esc(i.unidade) : '') + '</td>'
+      + '<td class="num" data-rot="Valor unit.">' + moeda(i.precoUnitario) + '</td>'
+      + '<td class="num" data-rot="Total">' + moeda(i.valorTotal) + '</td>'
+      + '</tr>';
+  }).join('');
+
+  var subtotal = (o.itens||[]).reduce(function(s,i){ return s + (Number(i.valorTotal)||0); }, 0);
+  var extras = '';
+  if (o.desconto > 0) extras += '<div class="tot-linha"><span>Desconto</span><span>− ' + moeda(o.desconto) + '</span></div>';
+  if (o.frete > 0)    extras += '<div class="tot-linha"><span>Frete</span><span>' + moeda(o.frete) + '</span></div>';
+
+  document.getElementById('alvo').innerHTML =
+    '<div class="folha">'
+    + '<div class="topo"><div class="topo-linha">'
+    +   '<div><div class="emit-nome">' + esc(e.razaoSocial || 'Orçamento') + '</div>'
+    +   '<div class="emit-dados">'
+    +     (e.cnpj ? 'CNPJ: ' + esc(e.cnpj) + '<br>' : '')
+    +     (e.telefone ? esc(e.telefone) + ' · ' : '') + (e.email ? esc(e.email) : '')
+    +   '</div></div>'
+    +   '<div style="text-align:right"><div class="doc-tipo">Orçamento</div>'
+    +   '<div class="doc-num">' + esc(o.numero) + '</div>'
+    +   '<div class="doc-data">' + esc(data(o.data))
+    +     (o.validade ? ' · válido até ' + esc(data(o.validade)) : '') + '</div></div>'
+    + '</div></div>'
+    + (o.cliente ? '<div class="secao"><div class="secao-tit">Cliente</div><div>' + esc(o.cliente) + '</div></div>' : '')
+    + '<div class="secao" style="padding-left:0;padding-right:0;padding-bottom:0">'
+    +   '<div class="secao-tit" style="padding:0 24px">Itens</div>'
+    +   '<table><thead><tr><th>Descrição</th><th class="num">Qtd</th><th class="num">Valor unit.</th><th class="num">Total</th></tr></thead>'
+    +   '<tbody>' + linhas + '</tbody></table>'
+    + '</div>'
+    + '<div class="totais">'
+    +   '<div class="tot-linha"><span>Subtotal</span><span>' + moeda(subtotal) + '</span></div>'
+    +   extras
+    +   '<div class="tot-linha tot-geral"><span>Total</span><span>' + moeda(o.valorTotal) + '</span></div>'
+    + '</div>'
+    + (o.observacao ? '<div class="secao"><div class="secao-tit">Observações</div><div>' + esc(o.observacao) + '</div></div>' : '')
+    + '<div class="acoes">'
+    +   '<button class="btn btn-azul" id="btnPdf" onclick="baixarPdf(this)">Baixar PDF</button>'
+    +   '<button class="btn" onclick="window.print()">Imprimir</button>'
+    + '</div>'
+    + '<div class="rodape">ORÇAMENTO — SEM VALOR FISCAL</div>'
+    + '</div>';
+  document.title = 'Orçamento ' + o.numero + ' · ' + (e.razaoSocial || 'Licite Agora');
+}
+
+/* Download por Blob, e não `window.open`: no iPhone o pop-up costuma ser
+   bloqueado, e um PDF aberto no visualizador não tem opção clara de salvar. */
+async function baixarPdf(btn){
+  var rot = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando…';
+  try {
+    var r = await fetch('/api/orcamento-publico/' + encodeURIComponent(TOKEN) + '/pdf?download=1');
+    if (!r.ok) throw new Error(r.status === 404
+      ? 'Este orçamento não está mais disponível.'
+      : 'O servidor não conseguiu gerar o PDF agora.');
+    var blob = await r.blob();
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = (document.querySelector('.doc-num')?.textContent || 'orcamento').trim() + '.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+  } catch (e) {
+    alert(/load failed|failed to fetch/i.test(String(e.message))
+      ? 'Não foi possível falar com o servidor. Verifique sua conexão e tente de novo.'
+      : e.message);
+  } finally { btn.disabled = false; btn.textContent = rot; }
+}
+
+(async function carregar(){
+  if (!/^[a-f0-9]{64}$/.test(TOKEN)) {
+    return aviso('Link inválido', 'Confira se o endereço foi copiado por inteiro.');
+  }
+  try {
+    var r = await fetch('/api/orcamento-publico/' + encodeURIComponent(TOKEN));
+    if (r.status === 404) return aviso('Orçamento não encontrado',
+      'Este link pode ter sido revogado por quem o enviou. Peça um novo.');
+    if (r.status === 410) return aviso('Orçamento cancelado',
+      'Este orçamento foi cancelado e não está mais válido.');
+    if (!r.ok) throw new Error('http ' + r.status);
+    var d = await r.json();
+    if (!d.success) throw new Error(d.error || 'falha');
+    pintar(d);
+  } catch (e) {
+    console.warn('[orcamento] falha técnica:', e && e.message);
+    aviso('Não foi possível carregar',
+      'Verifique sua conexão e tente de novo. Se continuar, peça um novo link a quem enviou.');
+  }
+})();
+</script>
+</body>
+</html>

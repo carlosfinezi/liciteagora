@@ -147,6 +147,13 @@
       box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6);
       overflow: hidden;
     }
+    /* Em 5 dos 6 modais o <form> fica entre .modal e header/body/footer.
+       Sem repassar o flex para ele, o body não rola e o footer com o botão
+       de OK sai pelo overflow:hidden do .modal — só visível reduzindo o zoom. */
+    .modal > form {
+      display: flex; flex-direction: column;
+      min-height: 0; overflow: hidden;
+    }
     .modal-header {
       padding: 18px 24px;
       border-bottom: 1px solid #1e293b;
@@ -158,6 +165,7 @@
       padding: 18px 24px;
       overflow-y: auto;
       flex: 1 1 auto;
+      min-height: 0; /* sem isto o item flex não encolhe abaixo do conteúdo */
     }
     .modal-body label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #94a3b8; margin-bottom: 6px; }
     .modal-body input, .modal-body select {
@@ -1012,12 +1020,26 @@
       document.getElementById('featuresBody').innerHTML = '<div class="features-loading">Carregando…</div>';
       document.getElementById('featuresModal').classList.add('open');
       try {
-        const { features } = await api('GET', `/api/admin/tenants/${encodeURIComponent(slug)}/features`);
+        const { features, menuModo } = await api('GET', `/api/admin/tenants/${encodeURIComponent(slug)}/features`);
         if (!features.length) {
           document.getElementById('featuresBody').innerHTML = '<div class="empty">Nenhum módulo disponível no catálogo.</div>';
           return;
         }
-        document.getElementById('featuresBody').innerHTML = features.map(f => `
+        // Como o menu apresenta esses módulos ao tenant. É o padrão dele —
+        // cada usuário pode sobrescrever no próprio perfil, dentro do app.
+        const modo = menuModo === 'modulos' ? 'modulos' : 'unico';
+        document.getElementById('featuresBody').innerHTML = `
+          <div class="feature-item">
+            <div class="info">
+              <div class="label-name">Menu lateral</div>
+              <div class="desc">Único = todas as seções numa lista. Por módulo = um módulo por vez, com seletor. Padrão do tenant; o usuário pode trocar no perfil dele.</div>
+            </div>
+            <select data-anterior="${modo}" onchange="setMenuModo(this.value, this)" style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 8px;font-size:13px;">
+              <option value="unico" ${modo === 'unico' ? 'selected' : ''}>Único</option>
+              <option value="modulos" ${modo === 'modulos' ? 'selected' : ''}>Por módulo</option>
+            </select>
+          </div>
+        ` + features.map(f => `
           <div class="feature-item ${f.enabled ? 'active' : ''}">
             <div class="info">
               <div class="label-name">${escapeHtml(f.label)}</div>
@@ -1055,6 +1077,21 @@
         alert('Erro: ' + err.message);
       } finally {
         input.disabled = false;
+      }
+    }
+
+    async function setMenuModo(modo, select) {
+      if (!_featuresSlug) return;
+      const anterior = select.dataset.anterior || 'unico';
+      select.disabled = true;
+      try {
+        await api('PATCH', `/api/admin/tenants/${encodeURIComponent(_featuresSlug)}/menu-modo`, { modo });
+        select.dataset.anterior = modo;
+      } catch (err) {
+        select.value = anterior;
+        alert('Erro: ' + err.message);
+      } finally {
+        select.disabled = false;
       }
     }
 
