@@ -8,7 +8,9 @@
  *   registrarRotasPedidos(app, db);
  */
 
+const crypto = require('crypto');
 const pedidoPdf = require('./pedido-pdf');
+const separacaoPdf = require('./separacao-pdf');
 const { logAction } = require('./audit-log');
 const axios = require('axios');
 const { criarReservasPedido, cancelarReservasPedido, consumirReservasPedido } = require('./reservas-routes');
@@ -20,6 +22,15 @@ const { resolverDeposito } = require('./estoque-routes');
 // (precos-routes nao requer pedidos-routes, entao nao ha ciclo).
 const { registrarPerdasDePedido, estornarPerdasDePedido } = require('./precos-routes');
 const { erroMeioPermitido, assertMeioPermitido } = require('./meios-pagamento');
+// Quem manda no preço e de quem é o pedido — decisões que dependem do ator, e
+// que antes viviam implícitas no frontend (ver pedido-politicas.js).
+const politicas = require('./pedido-politicas');
+// Desconto comercial com alçada, e como o cliente recebe a mercadoria (Fase 1).
+// O desconto tem um único ponto de escrita — `aplicarDescontoNoPedido` — e as
+// colunas dele NÃO entram em CAMPOS_PEDIDO de propósito: um segundo caminho de
+// gravação seria um desconto sem alçada.
+const descontos = require('./pedido-desconto');
+const atendimento = require('./pedido-atendimento');
 // Fase 3e (2026-05-23): orgaos_lookup no PG
 const catalogPg = require('./catalog-pg');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
@@ -28,6 +39,35 @@ const UASG_LOOKUP_URL = 'https://dadosabertos.compras.gov.br/modulo-uasg/1_consu
 
 const STATUS_VALIDOS = ['rascunho', 'confirmado', 'em_separacao', 'entregue', 'faturado', 'cancelado'];
 const STATUS_PAGAMENTO = ['pendente', 'parcial', 'pago'];
+
+/**
+ * Condição de pagamento válida para o pedido. A política vinculada ao cliente
+ * é obrigatória: se existe, é ela e nenhuma outra. Espelha resolverPolitica()
+ * de os-routes — as duas telas seguem a mesma regra.
+ */
+function resolverPoliticaPedido(db, clienteId, politicaPrazoId) {
+  const { politicaDaPessoa, valePara } = require('./politicas-prazo');
+  const daPessoa = clienteId ? politicaDaPessoa(db, clienteId) : null;
+  const obrigatoria = daPessoa && valePara(daPessoa, 'vendas') ? daPessoa : null;
+  if (!politicaPrazoId) return { politica: obrigatoria, erro: null };
+
+  const escolhida = db.prepare('SELECT * FROM politicas_prazo WHERE id = ? AND ativo = 1').get(Number(politicaPrazoId));
+  if (!escolhida) return { politica: null, erro: 'Condição de pagamento inválida ou inativa' };
+  if (!escolhida.aplicaVendas) return { politica: null, erro: `Condição "${escolhida.nome}" não se aplica a vendas` };
+  if (obrigatoria && obrigatoria.id !== escolhida.id) {
+    return { politica: null, erro: `Cliente tem condição obrigatória "${obrigatoria.nome}" — não é possível usar outra` };
+  }
+  return { politica: escolhida, erro: null };
+}
+
+/** Meios aceitos por uma política; null = sem restrição. */
+function meiosDaPoliticaPedido(politica) {
+  if (!politica || !politica.meiosPermitidos) return null;
+  try {
+    const l = JSON.parse(politica.meiosPermitidos);
+    return Array.isArray(l) && l.length ? l : null;
+  } catch { return null; }
+}
 
 // Campos do cabeçalho do pedido que podem ser atualizados via PUT
 const CAMPOS_PEDIDO = [
@@ -40,10 +80,17 @@ const CAMPOS_PEDIDO = [
   // De qual depósito a mercadoria sai. Sem isto toda venda debitava o padrão.
   'depositoId',
   'tipoOperacaoId', 'naoEmitirNFe', 'tabelaPrecoId',
+  // Condição de pagamento (politicas_prazo) — define prazo e meios aceitos.
+  'politicaPrazoId',
   // Endereço de entrega (override do cadastro do cliente)
   'enderecoEntrega', 'numeroEntrega', 'complementoEntrega', 'bairroEntrega',
   'cidadeEntrega', 'ufEntrega', 'cepEntrega', 'codigoMunicipioEntrega',
-  'contatoEntrega', 'telefoneEntrega'
+  'contatoEntrega', 'telefoneEntrega',
+  // Como o cliente recebe (Fase 1). O vocabulário é conferido ANTES, no PUT;
+  // aqui o campo só é gravado. As colunas de desconto NÃO entram nesta lista de
+  // propósito — elas têm porta própria, com alçada (`aplicarDesconto`), e
+  // deixá-las passar por aqui seria um desconto sem aprovação.
+  'tipoAtendimento'
 ];
 
 const MODOS_DOCUMENTO = ['pedido', 'orcamento'];
@@ -69,11 +116,187 @@ function gerarNumero(db, modo = 'pedido') {
   return `${prefixo}${String(seq).padStart(5, '0')}`;
 }
 
+/**
+ * Frete nunca é negativo.
+ *
+ * `valorFrete` compõe o total (recalcularTotal, logo abaixo) e é gravável pelo
+ * PUT do pedido. Negativo, ele vira desconto sem alçada e sem registro — o
+ * bypass que sobrou depois que a política de preço fechou o `precoUnitario`
+ * para o vendedor restrito (2026-09-10).
+ *
+ * A invariável vale para TODO ator, não só para o restrito: em 2026-09-10
+ * contei `valorFrete < 0` nos 13 tenants e o resultado foi zero em todos —
+ * nenhum fluxo legítimo depende disso. Benefício comercial é desconto, e
+ * desconto ainda não existe no pedido (ver 06-fase-0-frete-pagamento.md).
+ *
+ * @returns {string|null} mensagem de erro, ou null quando o valor é aceitável.
+ */
+function erroValorFrete(valor) {
+  if (valor === undefined || valor === null || valor === '') return null;
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return 'valorFrete invalido';
+  if (n < 0) return 'valorFrete nao pode ser negativo — frete nao e desconto';
+  return null;
+}
+
+/**
+ * Teto de quantidade por item.
+ *
+ * Escolhido a partir do dado real, não de gosto (auditoria de 2026-09-10,
+ * relatório 08):
+ *   - a maior quantidade em `pedido_itens` nos 13 tenants é 240;
+ *   - o catálogo de licitações do PNCP — o domínio central deste ERP — tem
+ *     itens de até 129.157.600 unidades numa amostra de 0,5%, e ~151 acima de
+ *     1 milhão nessa mesma amostra. Um teto de 1e6 recusaria venda legítima;
+ *   - com o maior preço cadastrado hoje (R$ 43.500), 1e9 × preço = 4,35e13,
+ *     que ainda cabe na faixa de centavos exatos do double (~9,0e13).
+ *
+ * 1e9 é ~7,7× a maior quantidade observada no domínio e continua muito longe
+ * de `Number.MAX_SAFE_INTEGER`. Barra o 1e308 que passava, sem estorvar
+ * atacado, peso ou volume: 1e9 kg é um milhão de toneladas.
+ */
+const QUANTIDADE_MAXIMA = 1e9;
+
+/**
+ * Casas decimais aceitas na quantidade.
+ *
+ * Não é número novo: é o que a emissão fiscal já pratica. `qCom` e `qTrib`
+ * saem com `toFixed(4)` na NF-e (`nfe-emit-routes.js:623`) e na NFC-e
+ * (`nfce-routes.js:428`) — o padrão SEFAZ. Aceitar mais casas no pedido faria
+ * a nota arredondar em silêncio e divergir do documento que a originou.
+ */
+const QUANTIDADE_CASAS_DECIMAIS = 4;
+
+/**
+ * Unidades que não admitem fração.
+ *
+ * O ERP **não tem** flag de fracionável: `produtos.unidade` é TEXT livre e não
+ * existe tabela de unidades (auditado em 2026-09-10). Então a regra é por
+ * código, e o desenho é deliberadamente **conservador**: só recusa fração para
+ * unidade que está NESTA lista. Unidade desconhecida, vazia ou ambígua
+ * **aceita** decimal.
+ *
+ * O inverso — exigir que a unidade esteja numa lista de fracionáveis — quebraria
+ * venda legítima por causa de cadastro sujo, e há cadastro sujo: entre as
+ * unidades em produção aparecem 'MES' (12 produtos) e valores numéricos soltos
+ * ('2', '6', '8'…), restos de importação com coluna trocada.
+ *
+ * A lista sai das unidades realmente usadas (UN 220, PC 8, CX 1, KIT 1) mais as
+ * variantes ortográficas e as universalmente discretas. Fora dela de propósito:
+ * 'MES' (pro-rata de meio mês existe), 'RL'/'FD' (menos óbvias) e KG/G/L/ML/
+ * M/M2/M3, que são fracionáveis por natureza.
+ *
+ * Comparação normalizada: maiúsculas, sem acento e sem pontuação — 'pç', 'PÇ'
+ * e 'pc.' caem todas em 'PC'.
+ */
+const UNIDADES_INTEIRAS = new Set([
+  'UN', 'UND', 'UNID', 'UNIDADE', 'UNIDADES',
+  'PC', 'PCS', 'PECA', 'PECAS',
+  'CX', 'CAIXA', 'CAIXAS',
+  'KIT', 'KITS',
+  'PCT', 'PACOTE',
+  'PAR', 'PARES',
+  'DZ', 'DUZIA',
+  'JG', 'JOGO',
+  'RESMA',
+]);
+
+function unidadeAceitaFracao(unidade) {
+  if (unidade == null) return true;
+  const u = String(unidade).trim().toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')   // PÇ -> PC
+    .replace(/[^A-Z0-9]/g, '');
+  if (!u) return true;                                   // vazia: não restringe
+  return !UNIDADES_INTEIRAS.has(u);
+}
+
+/**
+ * Quantidade de item de pedido é sempre um número finito MAIOR que zero.
+ *
+ * A validação anterior era `if (!descricao || !quantidade)`, e `-1` é truthy:
+ * passava. Reproduzido em 2026-09-10 com um vendedor restrito — 2 × R$ 100
+ * mais um item de −1 × R$ 100 deixava o pedido em R$ 100. O preço unitário era
+ * o oficial, resolvido pelo servidor, então a trava de preço não alcançava:
+ * o que estava adulterado era a quantidade.
+ *
+ * O estrago passava do total. `criarReservasPedido` ignora quantidade não
+ * positiva (`reservas-routes.js:154`), então o item negativo não gera reserva —
+ * e é justamente por isso que ele caía no fallback da entrega
+ * (`/api/pedidos/:id/entregar`), que grava movimentação de saída com a
+ * quantidade crua. Saída de −1 conta como −(−1) no saldo: estoque inflado.
+ *
+ * Recusa, não conserta: nada de `Math.abs`, nada de virar 1. Não existe
+ * quantidade não positiva legítima — contei em 2026-09-10 nos 13 tenants,
+ * 0 de 542 itens. Devolução tem fluxo próprio (`devolucoes-routes.js`) e não
+ * grava em `pedido_itens`.
+ *
+ * Quatro recusas, nesta ordem — da mais grosseira para a mais específica:
+ *   1. ausente / não numérica / não finita;
+ *   2. zero ou negativa;
+ *   3. acima de QUANTIDADE_MAXIMA (1e308 passava por ser finito);
+ *   4. mais casas decimais do que a nota fiscal comporta;
+ *   5. fracionada em unidade que não admite fração — só quando a unidade do
+ *      produto é conhecida E está em UNIDADES_INTEIRAS.
+ *
+ * Nada é truncado nem arredondado: o valor fora da regra é recusado, e quem
+ * enviou fica sabendo o porquê.
+ *
+ * `unidade` é opcional. Item avulso (sem `produtoId`) não tem unidade a
+ * consultar e por isso não sofre a regra 5 — as outras quatro valem para ele
+ * igual. Ver relatório 08.
+ *
+ * @param {*} valor    quantidade enviada
+ * @param {string} [unidade]  `produtos.unidade` do item, quando há produto
+ * @returns {string|null} mensagem de erro, ou null quando a quantidade serve.
+ */
+function erroQuantidade(valor, unidade) {
+  if (valor === undefined || valor === null || valor === '') {
+    return 'quantidade obrigatoria';
+  }
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return 'quantidade invalida';
+  if (n <= 0) return 'quantidade deve ser maior que zero';
+  if (n > QUANTIDADE_MAXIMA) {
+    return `quantidade acima do maximo permitido (${QUANTIDADE_MAXIMA.toLocaleString('pt-BR')})`;
+  }
+  // Comparar com o próprio arredondamento pega também a notação exponencial
+  // (1e-7 vira "1e-7", e contar casas por split('.') diria zero).
+  if (Number(n.toFixed(QUANTIDADE_CASAS_DECIMAIS)) !== n) {
+    return `quantidade com mais de ${QUANTIDADE_CASAS_DECIMAIS} casas decimais`;
+  }
+  if (!Number.isInteger(n) && !unidadeAceitaFracao(unidade)) {
+    return `unidade "${String(unidade).trim()}" nao aceita quantidade fracionada`;
+  }
+  return null;
+}
+
+/**
+ * Total do pedido, com a fórmula em UM lugar só:
+ *
+ *     subtotal dos itens − desconto + frete
+ *
+ * A conta mora em `pedido-desconto.totalDoPedido`, compartilhada com quem mais
+ * precisar dela; aqui ficam apenas as leituras. Antes da Fase 1 o desconto não
+ * existia e a fórmula era itens + frete — com `descontoAplicado = 0`, que é o
+ * estado de todo pedido histórico, o resultado é idêntico ao de antes.
+ *
+ * Duas guardas que não são decoração:
+ *   - o frete entra com piso zero. A recusa acontece na entrada (`erroValorFrete`
+ *     no PUT), mas se um negativo chegar ao banco por um caminho que ainda não
+ *     existe, ele não pode reduzir o total por baixo do pano;
+ *   - o desconto percentual é reprecificado antes de somar. Sem isso, "10% de
+ *     R$ 1.000" continuaria valendo R$ 100 depois de o pedido encolher para
+ *     R$ 200 — metade do pedido, sem passar por alçada.
+ */
 function recalcularTotal(db, pedidoId) {
   const row = db.prepare('SELECT COALESCE(SUM(valorTotal), 0) AS total FROM pedido_itens WHERE pedidoId = ?').get(pedidoId);
-  // Total do pedido = itens + frete (mesma composição da fatura: valorBruto + valorFrete).
   const ped = db.prepare('SELECT valorFrete FROM pedidos WHERE id = ?').get(pedidoId);
-  const total = row.total + (Number(ped && ped.valorFrete) || 0);
+  const desconto = descontos.reprecificarDesconto(db, pedidoId, row.total);
+  const total = descontos.totalDoPedido({
+    subtotalItens: row.total,
+    desconto,
+    frete: Number(ped && ped.valorFrete) || 0,
+  });
   db.prepare('UPDATE pedidos SET valorTotal = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(total, pedidoId);
   return total;
 }
@@ -87,7 +310,18 @@ function atualizarStatusPagamento(db, pedidoId) {
   db.prepare('UPDATE pedidos SET statusPagamento = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?').run(status, pedidoId);
 }
 
-function carregarPedidoCompleto(db, pedidoId) {
+/**
+ * Carrega o pedido inteiro, por id OU por token público.
+ *
+ * O `opts.token` existe para a leitura pública (`/api/orcamento-publico/:token`)
+ * poder usar EXATAMENTE a mesma consulta — mesmos joins, mesmos itens, mesma
+ * ordem. Duplicar a query para o caminho público seria criar dois lugares onde
+ * o orçamento é montado, e mais cedo ou mais tarde eles divergiriam.
+ *
+ * Quem decide o que o cliente enxerga é o CHAMADOR, que monta o recorte. Esta
+ * função continua devolvendo tudo.
+ */
+function carregarPedidoCompleto(db, pedidoId, opts) {
   const pedido = db.prepare(`
     SELECT p.*,
       pe.razaoSocial AS clienteNome, pe.cpfCnpj AS clienteCpfCnpj, pe.tipo AS clienteTipo,
@@ -103,13 +337,14 @@ function carregarPedidoCompleto(db, pedidoId) {
     LEFT JOIN participacoes_comprasnet pc ON pc.id = p.participacaoId
     LEFT JOIN transportadoras t ON t.id = p.transportadoraId
     LEFT JOIN users u ON u.id = p.vendedorId
-    WHERE p.id = ?`).get(pedidoId);
+    WHERE ${opts && opts.token ? 'p.tokenPublico = ?' : 'p.id = ?'}`)
+    .get(opts && opts.token ? opts.token : pedidoId);
   if (!pedido) return null;
   const itens = db.prepare(`
     SELECT pi.*, pr.sku, pr.unidade
     FROM pedido_itens pi
     LEFT JOIN produtos pr ON pr.id = pi.produtoId
-    WHERE pi.pedidoId = ? ORDER BY pi.id ASC`).all(pedidoId);
+    WHERE pi.pedidoId = ? ORDER BY pi.id ASC`).all(pedido.id);
   return { ...pedido, itens };
 }
 
@@ -121,6 +356,97 @@ function registrarRotasPedidos(app, db) {
       motivo || null, usuario || null,
       dadosExtras ? JSON.stringify(dadosExtras) : null
     );
+  }
+
+  /**
+   * CFOP de um item, pelo motor de tipo de operação. Único ponto fiscal do
+   * módulo: os dois caminhos que criam item (POST /api/pedidos com itens[] e
+   * POST /api/pedidos/:id/itens) passam por aqui, para não existirem duas
+   * regras fiscais que divergem com o tempo. Falha de sugestão não derruba o
+   * item — vira cfop NULL, como já era antes.
+   */
+  function cfopDoItem(pedido, produtoId) {
+    try {
+      const sug = sugerirCFOP(db, {
+        tipoOperacaoId: pedido ? pedido.tipoOperacaoId : null,
+        clienteId: (pedido && pedido.clienteId) || null,
+        produtoId: produtoId || null,
+        ufEntrega: (pedido && pedido.ufEntrega) || null,
+      });
+      return (sug && sug.cfop) || null;
+    } catch (e) {
+      console.warn('[pedidos] sugestão CFOP falhou:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * Venda abaixo do preço sugerido deixa rastro. Não bloqueia (a política
+   * padrão é 'auditar'), mas deixa de ser silenciosa — que era o problema.
+   */
+  // Unidade de medida do produto, para a regra de quantidade fracionada.
+  // Devolve null para item avulso (sem produto) e para produto inexistente —
+  // e `erroQuantidade` trata null como "não restringe".
+  function unidadeDoProduto(produtoId) {
+    if (!produtoId) return null;
+    try {
+      const p = db.prepare('SELECT unidade FROM produtos WHERE id = ?').get(Number(produtoId));
+      return (p && p.unidade) || null;
+    } catch { return null; }
+  }
+
+  function registrarDesconto(req, pedidoId, produtoId, p) {
+    if (!p) return;
+    // Preço mandado por quem não decide preço. Não é erro nem recusa — o
+    // servidor usou o oficial e o corpo virou rastro de que houve tentativa.
+    if (p.precoIgnorado != null) {
+      logAction(db, req, 'preco-manual-ignorado', 'pedido', pedidoId, {
+        produtoId, enviado: p.precoIgnorado, aplicado: p.preco, fonte: p.fonte, piso: p.piso,
+      });
+    }
+    if (!p.desconto) return;
+    logAction(db, req, 'preco-abaixo-do-sugerido', 'pedido', pedidoId, {
+      produtoId, aplicado: p.preco, sugerido: p.sugerido, piso: p.piso,
+      fonte: p.fonte, abaixoDoPiso: !!p.abaixoDoPiso,
+    });
+  }
+
+  /**
+   * Desconto do pedido — porta única, usada pelo POST e pelo PUT.
+   *
+   * A regra inteira vive em `pedido-desconto.aplicarDescontoNoPedido`; aqui só
+   * ficam a chamada e o rastro em audit_log. Ter os dois chamadores passando
+   * pela MESMA função é o que impede o desconto de nascer com uma regra na
+   * criação e outra na edição.
+   */
+  function aplicarDesconto(req, pedidoId) {
+    const r = descontos.aplicarDescontoNoPedido(db, { pedidoId, body: req.body, req });
+    if (!r.ok) {
+      logAction(db, req, 'desconto-recusado', 'pedido', Number(pedidoId),
+        { erro: r.erro, alcada: r.alcada ? r.alcada.status : null });
+      return r;
+    }
+    if (r.gravou) {
+      logAction(db, req, 'desconto-aplicado', 'pedido', Number(pedidoId), {
+        tipo: r.tipo, valor: r.valor, percentual: r.percentual, aplicado: r.aplicado,
+        motivo: r.motivo || null,
+        autoridade: r.alcada && r.alcada.autoridade ? r.alcada.autoridade : null,
+        aprovacao: r.alcada && r.alcada.status === 'pendente' ? r.alcada.aprovacaoId : null,
+      });
+    }
+    return r;
+  }
+
+  /** O que a resposta conta sobre o desconto, sem vazar detalhe interno. */
+  function resumoDesconto(r) {
+    const a = r.alcada || {};
+    return {
+      tipo: r.tipo, valor: r.valor, percentual: r.percentual, aplicado: r.aplicado,
+      autoridade: a.autoridade || null,
+      aguardandoAprovacao: a.status === 'pendente',
+      aprovacaoId: a.status === 'pendente' ? a.aprovacaoId : undefined,
+      papelExigido: a.regra ? a.regra.papelAprovador : undefined,
+    };
   }
 
   // Estorna movimentações de saída do pedido (cria entradas compensatórias)
@@ -192,9 +518,34 @@ function registrarRotasPedidos(app, db) {
         const like = `%${busca}%`;
         params.push(like, like, like);
       }
+
+      // Recorte por vendedor. `meus=1` pede o próprio; vendedor restrito recebe
+      // o próprio queira ou não. O `vendedorId` da query nunca AMPLIA acesso —
+      // só é honrado para quem já enxergava todos.
+      const escopo = politicas.escopoVendedor(db, req, req.query);
+      sql += escopo.sql;
+      params.push(...escopo.params);
+
       sql += ' ORDER BY p.dataPedido DESC, p.id DESC';
+
+      // Paginação opcional: sem `page`/`limit` a resposta continua sendo a lista
+      // inteira, como sempre foi — a tela de pedidos e a de metas dependem disso.
+      const limitBruto = req.query.limit != null ? Number(req.query.limit) : null;
+      const paginado = Number.isFinite(limitBruto) && limitBruto > 0;
+      let total = null;
+      if (paginado) {
+        const limit = Math.min(limitBruto, 200);
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const offset = req.query.offset != null ? Math.max(0, Number(req.query.offset) || 0) : (page - 1) * limit;
+        total = db.prepare(`SELECT COUNT(*) AS n FROM (${sql})`).get(...params).n;
+        sql += ' LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+        const pedidos = db.prepare(sql).all(...params);
+        return res.json({ success: true, pedidos, total, page, limit, escopo: escopo.escopo });
+      }
+
       const pedidos = db.prepare(sql).all(...params);
-      res.json({ success: true, pedidos });
+      res.json({ success: true, pedidos, escopo: escopo.escopo });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -204,6 +555,10 @@ function registrarRotasPedidos(app, db) {
     try {
       const modo = req.query.modoDocumento;
       const whereModo = modo ? `WHERE modoDocumento = '${modo.replace(/'/g,"''")}'` : '';
+      // Mesmo recorte da listagem: sem isto o vendedor restrito veria, no
+      // resumo, o faturamento da empresa inteira que a lista lhe esconde.
+      const esc = politicas.escopoVendedor(db, req, req.query);
+      const whereVend = esc.sql ? (whereModo ? esc.sql.replace(' AND p.', ' AND ') : esc.sql.replace(' AND p.', ' WHERE ')) : '';
       const resumo = db.prepare(`
         SELECT
           COUNT(*) AS total,
@@ -217,8 +572,8 @@ function registrarRotasPedidos(app, db) {
           COALESCE(SUM(CASE WHEN statusPagamento IN ('pendente','parcial') AND status NOT IN ('cancelado')
                             THEN (valorTotal - COALESCE(valorPago,0)) END), 0) AS valorAReceber
         FROM pedidos
-        ${whereModo}
-      `).get();
+        ${whereModo}${whereVend}
+      `).get(...esc.params);
       res.json({ success: true, resumo });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -229,7 +584,17 @@ function registrarRotasPedidos(app, db) {
     try {
       const pedido = carregarPedidoCompleto(db, req.params.id);
       if (!pedido) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
-      res.json({ success: true, pedido });
+      /* Teto de desconto do operador, para a tela exibir ao lado do campo.
+       *
+       * Vai FORA de `pedido`: não é coluna, é uma resposta sobre quem está
+       * pedindo — o mesmo pedido lido por outro usuário traz outro limite.
+       *
+       * Puramente informativo. A autoridade continua sendo a alçada no PUT, e o
+       * bloco D dos testes prova que adulterar o request não a burla. */
+      let descontoLimite = null;
+      try { descontoLimite = descontos.limiteDescontoDisponivel(db, { pedidoId: pedido.id, req }); }
+      catch (_) { /* informativo: nunca derruba a leitura do pedido */ }
+      res.json({ success: true, pedido, descontoLimite });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -266,6 +631,13 @@ function registrarRotasPedidos(app, db) {
       if (acao === 'vendedor' && !vendedorId) {
         return res.status(400).json({ success: false, error: 'Selecione o vendedor' });
       }
+      // Reatribuir venda em massa é o caminho mais barato de mexer em comissão
+      // alheia — aqui a recusa é explícita (e não silenciosa como no PUT),
+      // porque a ação SÓ existe para delegar: ignorar o campo a esvaziaria.
+      if (acao === 'vendedor' && !politicas.podeDelegarVendedor(db, req)) {
+        return res.status(403).json({ success: false,
+          error: 'Seu perfil não pode atribuir pedidos a outro vendedor' });
+      }
       const usuario = req.session?.username || null;
 
       const okIds = [];
@@ -282,7 +654,9 @@ function registrarRotasPedidos(app, db) {
             const r = cancelarPedidoInterno(id, { motivo, usuario });
             if (r.ok) okIds.push(id); else falhas.push({ id, numero: ped.numero, erro: r.error });
           } else if (acao === 'confirmar') {
-            const r = confirmarPedidoInterno(id, { forcar: req.body?.forcar === true });
+            // `req` vai junto: sem ele a alçada do desconto não sabe QUEM está
+            // confirmando, e a ação em massa viraria o caminho sem autoridade.
+            const r = confirmarPedidoInterno(id, { forcar: req.body?.forcar === true, req });
             if (r.ok) okIds.push(id); else falhas.push({ id, numero: ped.numero, erro: r.error });
           } else if (acao === 'excluir-rascunho') {
             const r = excluirPedidoInterno(id);
@@ -314,26 +688,81 @@ function registrarRotasPedidos(app, db) {
 
       // Vendedor default = quem está criando. Sem isso o campo depende de
       // alguém lembrar de preencher, e metas/comissões voltam a ficar zeradas.
-      const vendedor = vendedorId != null ? (Number(vendedorId) || null) : (req.session?.userId || null);
+      // Quem não pode delegar não assume pedido de outro: o campo é ignorado.
+      const vend = politicas.resolverVendedor(db, req, vendedorId);
+
+      // Canal de entrada. Só 'manual' e 'app' vêm do cliente — 'licitacao',
+      // 'os' e 'marketplace' são gravados pelos caminhos internos que os
+      // produzem, e aceitá-los aqui deixaria forjar a procedência do pedido.
+      const origem = politicas.ORIGENS_CLIENTE.includes(req.body?.origem) ? req.body.origem : 'manual';
+
+      // Vocabulário conferido na entrada; a OBRIGATORIEDADE (pdv/catalogo) é
+      // cobrada na confirmação — o rascunho pode nascer sem saber ainda como o
+      // cliente vai receber.
+      const erroAtend = atendimento.erroTipoAtendimento(req.body?.tipoAtendimento);
+      if (erroAtend) return res.status(422).json({ success: false, error: erroAtend });
 
       const numero = gerarNumero(db, modo);
       const pedidoId = db.prepare(`
         INSERT INTO pedidos (numero, tipo, modoDocumento, clienteId, status, dataPedido, dataEntregaPrevista, observacao, vendedorId, depositoId)
-        VALUES (?, 'manual', ?, ?, 'rascunho', ?, ?, ?, ?, ?)`
-      ).run(numero, modo, clienteId || null, dataBrasilia(), dataEntregaPrevista || null, observacao || null, vendedor,
+        VALUES (?, ?, ?, ?, 'rascunho', ?, ?, ?, ?, ?)`
+      ).run(numero, origem, modo, clienteId || null, dataBrasilia(), dataEntregaPrevista || null, observacao || null, vend.vendedorId,
             depositoId ? Number(depositoId) : resolverDeposito(db, {})).lastInsertRowid;
 
+      // Fora do INSERT de propósito: o campo é opcional e a coluna pode não
+      // existir num banco provisionado antes da Fase 1. Incluí-lo na lista de
+      // colunas faria a criação de QUALQUER pedido estourar nesses bancos —
+      // derrubar o principal por causa do acessório.
+      if (req.body?.tipoAtendimento && atendimento.temColuna(db)) {
+        db.prepare('UPDATE pedidos SET tipoAtendimento = ? WHERE id = ?')
+          .run(req.body.tipoAtendimento, pedidoId);
+      }
+
+      // Itens na criação passam a receber o MESMO tratamento do POST /itens:
+      // preço pela política e CFOP pelo motor de tipo de operação. Antes iam
+      // com o preço cru do corpo e cfop NULL, e a diferença só aparecia na
+      // emissão da NF-e.
+      const pedidoCtx = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId);
+      const avisos = [];
       if (Array.isArray(itens)) {
         for (const it of itens) {
-          if (!it.descricao || !it.quantidade || it.precoUnitario == null) continue;
-          const qtd = Number(it.quantidade), pu = Number(it.precoUnitario);
-          db.prepare(`INSERT INTO pedido_itens (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal)
-                      VALUES (?, ?, ?, ?, ?, ?)`)
-            .run(pedidoId, it.produtoId || null, it.descricao, qtd, pu, qtd * pu);
+          if (!it.descricao) continue;
+          // Quantidade inválida vira aviso, não silêncio: antes o `continue`
+          // engolia o item e o cliente recebia um pedido a menos sem saber por
+          // quê. O item não entra nos dois casos — a diferença é o cliente
+          // ficar sabendo. Mesmo tratamento que o erro de política já recebe.
+          const erroQtd = erroQuantidade(it.quantidade, unidadeDoProduto(it.produtoId));
+          if (erroQtd) { avisos.push({ descricao: it.descricao, erro: erroQtd }); continue; }
+          const qtd = Number(it.quantidade);
+          const p = politicas.precoDeItem(db, {
+            pedido: pedidoCtx, produtoId: it.produtoId || null, quantidade: qtd,
+            precoInformado: it.precoUnitario, req,
+          });
+          if (!p.ok) { avisos.push({ descricao: it.descricao, erro: p.erro }); continue; }
+          const pu = Number(p.preco);
+          db.prepare(`INSERT INTO pedido_itens (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal, cfop)
+                      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+            .run(pedidoId, it.produtoId || null, it.descricao, qtd, pu, qtd * pu,
+                 cfopDoItem(pedidoCtx, it.produtoId || null));
+          registrarDesconto(req, pedidoId, it.produtoId || null, p);
         }
       }
       recalcularTotal(db, pedidoId);
-      res.json({ success: true, pedido: carregarPedidoCompleto(db, pedidoId) });
+
+      // Desconto só depois dos itens: a base de cálculo é o subtotal, e antes
+      // dos itens ele seria zero. Recusa vira aviso em vez de 422 — o pedido já
+      // foi criado, e devolver erro faria o cliente pensar que nada aconteceu.
+      const desc = aplicarDesconto(req, pedidoId);
+      if (!desc.ok) avisos.push({ campo: 'desconto', erro: desc.erro });
+      else if (desc.gravou) recalcularTotal(db, pedidoId);
+
+      if (vend.ignorado) {
+        logAction(db, req, 'vendedor-ignorado', 'pedido', pedidoId,
+          { enviado: Number(vendedorId), aplicado: vend.vendedorId });
+      }
+      res.json({ success: true, pedido: carregarPedidoCompleto(db, pedidoId),
+        desconto: desc.ok && desc.gravou ? resumoDesconto(desc) : undefined,
+        avisos: avisos.length ? avisos : undefined });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -467,8 +896,7 @@ function registrarRotasPedidos(app, db) {
 
       const numero = gerarNumero(db, modo);
       const referencia = participacao.numero || participacao.compraId || '';
-      const vendedor = req.body?.vendedorId != null
-        ? (Number(req.body.vendedorId) || null) : (req.session?.userId || null);
+      const vendedor = politicas.resolverVendedor(db, req, req.body?.vendedorId).vendedorId;
       const pedidoId = db.prepare(`
         INSERT INTO pedidos (numero, tipo, modoDocumento, clienteId, participacaoId, compraId, status, dataPedido, dataEntregaPrevista, observacao, vendedorId)
         VALUES (?, 'licitacao', ?, ?, ?, ?, 'rascunho', ?, ?, ?, ?)`
@@ -505,20 +933,55 @@ function registrarRotasPedidos(app, db) {
       }
       const b = req.body;
 
+      // Frete negativo é recusado, não zerado: transformar em zero em silêncio
+      // esconde de quem enviou que o valor não foi aplicado. Este é o único
+      // caminho que grava `valorFrete` (nenhum INSERT em `pedidos` o preenche).
+      const erroFrete = erroValorFrete(b.valorFrete);
+      if (erroFrete) return res.status(422).json({ success: false, error: erroFrete });
+
+      // Vocabulário do atendimento na entrada; a obrigatoriedade é da confirmação.
+      const erroAtend = atendimento.erroTipoAtendimento(b.tipoAtendimento);
+      if (erroAtend) return res.status(422).json({ success: false, error: erroAtend });
+
       // Meio de recebimento tem de caber na whitelist do cliente. Vale para o
       // par resultante: trocar o cliente de um pedido que já tem meio definido
       // também passa por aqui.
-      if (b.meioPagamento !== undefined || b.clienteId !== undefined) {
+      if (b.meioPagamento !== undefined || b.clienteId !== undefined || b.politicaPrazoId !== undefined) {
         const clienteFinal = b.clienteId !== undefined ? (b.clienteId || null) : ped.clienteId;
         const meioFinal = b.meioPagamento !== undefined ? b.meioPagamento : ped.meioPagamento;
+
+        // Condição de pagamento: a política vinculada ao cliente é obrigatória
+        // quando existe — nenhuma outra é aceita. Mesma regra da OS.
+        const politicaFinal = b.politicaPrazoId !== undefined ? b.politicaPrazoId : ped.politicaPrazoId;
+        const { politica, erro } = resolverPoliticaPedido(db, clienteFinal, politicaFinal);
+        if (erro) return res.status(400).json({ success: false, error: erro });
+        const meiosOk = meiosDaPoliticaPedido(politica);
+        if (meioFinal && meiosOk && !meiosOk.includes(String(meioFinal))) {
+          return res.status(400).json({ success: false,
+            error: `Condição "${politica.nome}" não aceita esse meio de recebimento` });
+        }
+
         const erroMeio = erroMeioPermitido(db, clienteFinal, meioFinal);
         if (erroMeio) return res.status(400).json({ success: false, error: erroMeio });
+      }
+
+      // vendedorId não é campo comum: quem não pode delegar não reatribui a
+      // venda. Ignorar (e não recusar) é deliberado — a tela web SEMPRE envia
+      // este campo no PUT, mesmo quando é o próprio usuário, e um 403 quebraria
+      // a tela para todo perfil restrito no instante em que isto subisse.
+      let vendIgnorado = null;
+      if (b.vendedorId !== undefined) {
+        const vend = politicas.resolverVendedor(db, req, b.vendedorId, ped.vendedorId);
+        if (vend.ignorado) { vendIgnorado = b.vendedorId; b.vendedorId = vend.vendedorId; }
       }
 
       const sets = [];
       const vals = [];
       for (const c of CAMPOS_PEDIDO) {
         if (b[c] === undefined) continue;
+        // Banco sem a coluna (provisionado antes da Fase 1): o campo é ignorado
+        // em vez de derrubar o PUT inteiro com "no such column".
+        if (c === 'tipoAtendimento' && !atendimento.temColuna(db)) continue;
         sets.push(`${c} = ?`);
         vals.push(b[c] === '' ? null : b[c]);
       }
@@ -527,9 +990,24 @@ function registrarRotasPedidos(app, db) {
         vals.push(req.params.id);
         db.prepare(`UPDATE pedidos SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
       }
-      // O frete compõe o total do pedido — recalcular quando ele mudar.
-      if (b.valorFrete !== undefined) recalcularTotal(db, req.params.id);
-      res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id) });
+      // Desconto NÃO passa por CAMPOS_PEDIDO: tem porta própria, com alçada.
+      // Recusa aqui é 422 de verdade — diferente do POST, o pedido já existe e
+      // nada mais foi prometido ao cliente nesta chamada.
+      const desc = aplicarDesconto(req, Number(req.params.id));
+      if (!desc.ok) {
+        return res.status(desc.status || 422).json({ success: false, error: desc.erro,
+          alcada: desc.alcada ? { status: desc.alcada.status,
+            papelExigido: desc.alcada.regra ? desc.alcada.regra.papelAprovador : null } : undefined });
+      }
+
+      // O frete e o desconto compõem o total — recalcular quando qualquer um mudar.
+      if (b.valorFrete !== undefined || desc.gravou) recalcularTotal(db, req.params.id);
+      if (vendIgnorado != null) {
+        logAction(db, req, 'vendedor-ignorado', 'pedido', Number(req.params.id),
+          { enviado: Number(vendIgnorado), aplicado: b.vendedorId });
+      }
+      res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id),
+        desconto: desc.gravou ? resumoDesconto(desc) : undefined });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -655,31 +1133,38 @@ function registrarRotasPedidos(app, db) {
         return res.status(400).json({ success: false, error: 'Pedido nao permite novos itens neste status' });
       }
       const { produtoId, descricao, quantidade, precoUnitario, cfop: cfopManual, entregaPorFabricante } = req.body;
-      if (!descricao || !quantidade || precoUnitario == null) {
-        return res.status(400).json({ success: false, error: 'descricao, quantidade, precoUnitario obrigatorios' });
+      // precoUnitario deixou de ser obrigatório: sem ele o servidor resolve.
+      // É esse o caminho do app — quem não manda preço não tem como adulterá-lo.
+      if (!descricao) {
+        return res.status(400).json({ success: false, error: 'descricao e quantidade obrigatorios' });
       }
-      const qtd = Number(quantidade), pu = Number(precoUnitario);
+      // 400 continua para a descrição (contrato antigo); a quantidade inválida
+      // é 422, como os demais valores que o servidor recusa por regra.
+      const erroQtd = erroQuantidade(quantidade, unidadeDoProduto(produtoId));
+      if (erroQtd) return res.status(422).json({ success: false, error: erroQtd });
+      const qtd = Number(quantidade);
 
-      // Determina CFOP a partir do Tipo de Operação do pedido + cliente + UF.
-      // O usuário não edita CFOP manualmente — tipo de operação manda.
-      let cfopFinal = null;
-      try {
-        const sug = sugerirCFOP(db, {
-          tipoOperacaoId: ped.tipoOperacaoId,
-          clienteId: ped.clienteId || null,
-          produtoId: produtoId || null,
-          ufEntrega: ped.ufEntrega || null
-        });
-        cfopFinal = sug.cfop || null;
-      } catch (e) { console.warn('[pedidos] sugestão CFOP falhou:', e.message); }
+      const p = politicas.precoDeItem(db, {
+        pedido: ped, produtoId: produtoId || null, quantidade: qtd,
+        precoInformado: precoUnitario, req,
+      });
+      if (!p.ok) return res.status(422).json({ success: false, error: p.erro,
+        precoSugerido: p.sugerido, precoMinimo: p.piso, fonte: p.fonte });
+      const pu = Number(p.preco);
+
+      // CFOP pelo Tipo de Operação do pedido + cliente + UF (helper único do
+      // módulo). O usuário não edita CFOP manualmente — tipo de operação manda.
+      const cfopFinal = cfopDoItem(ped, produtoId || null);
 
       const result = db.prepare(`INSERT INTO pedido_itens (pedidoId, produtoId, descricao, quantidade, precoUnitario, valorTotal, cfop)
                                  VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run(req.params.id, produtoId || null, descricao, qtd, pu, qtd * pu, cfopFinal);
+      registrarDesconto(req, Number(req.params.id), produtoId || null, p);
       recalcularTotal(db, req.params.id);
       atualizarStatusPagamento(db, req.params.id);
       const item = db.prepare('SELECT * FROM pedido_itens WHERE id = ?').get(result.lastInsertRowid);
-      res.json({ success: true, item, pedido: carregarPedidoCompleto(db, req.params.id) });
+      res.json({ success: true, item, precoFonte: p.fonte, precoSugerido: p.sugerido,
+        pedido: carregarPedidoCompleto(db, req.params.id) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -695,12 +1180,36 @@ function registrarRotasPedidos(app, db) {
       const item = db.prepare('SELECT * FROM pedido_itens WHERE id = ? AND pedidoId = ?').get(req.params.itemId, req.params.id);
       if (!item) return res.status(404).json({ success: false, error: 'Item nao encontrado' });
       const b = req.body;
+      // Valida a quantidade RESULTANTE, não a enviada: é ela que vai para o
+      // banco e para `qtd * pu`. Editar só a descrição de um item que já tenha
+      // quantidade inválida passa a exigir corrigi-la — não há nenhum item
+      // assim hoje (0 de 542 nos 13 tenants), e propagar o inválido seria pior.
+      const erroQtd = erroQuantidade(b.quantidade ?? item.quantidade,
+        unidadeDoProduto(b.produtoId ?? item.produtoId));
+      if (erroQtd) return res.status(422).json({ success: false, error: erroQtd });
       const qtd = Number(b.quantidade ?? item.quantidade);
-      const pu = Number(b.precoUnitario ?? item.precoUnitario);
+      const produtoFinal = b.produtoId ?? item.produtoId;
+
+      // Só passa pela política quando o preço vem no corpo. Editar apenas a
+      // quantidade preserva o preço já gravado — inclusive um desconto que foi
+      // concedido antes desta regra existir.
+      let pu = Number(item.precoUnitario);
+      let pol = null;
+      if (b.precoUnitario !== undefined) {
+        pol = politicas.precoDeItem(db, {
+          pedido: ped, produtoId: produtoFinal || null, quantidade: qtd,
+          precoInformado: b.precoUnitario, req,
+        });
+        if (!pol.ok) return res.status(422).json({ success: false, error: pol.erro,
+          precoSugerido: pol.sugerido, precoMinimo: pol.piso, fonte: pol.fonte });
+        pu = Number(pol.preco);
+      }
+
       const cfopNovo = b.cfop !== undefined ? (b.cfop || null) : item.cfop;
       db.prepare(`UPDATE pedido_itens SET produtoId = ?, descricao = ?, quantidade = ?, precoUnitario = ?, valorTotal = ?, cfop = ?
                   WHERE id = ?`)
-        .run(b.produtoId ?? item.produtoId, b.descricao ?? item.descricao, qtd, pu, qtd * pu, cfopNovo, req.params.itemId);
+        .run(produtoFinal, b.descricao ?? item.descricao, qtd, pu, qtd * pu, cfopNovo, req.params.itemId);
+      if (pol) registrarDesconto(req, Number(req.params.id), produtoFinal || null, pol);
       recalcularTotal(db, req.params.id);
       atualizarStatusPagamento(db, req.params.id);
       res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id) });
@@ -767,6 +1276,20 @@ function registrarRotasPedidos(app, db) {
     const nItens = db.prepare('SELECT COUNT(*) AS n FROM pedido_itens WHERE pedidoId = ?').get(pedId).n;
     if (!nItens) return { ok: false, status: 400, error: 'Pedido sem itens' };
 
+    // Como o cliente recebe: obrigatório para as origens que nasceram com o
+    // conceito (pdv/catalogo), e `entrega` exige endereço. O ERP tradicional
+    // segue confirmando sem declarar nada, como sempre fez.
+    const erroAtend = atendimento.erroAtendimentoParaConfirmar(db, ped);
+    if (erroAtend) return { ok: false, status: 422, error: erroAtend };
+
+    // Desconto acima da alçada não vira venda enquanto ninguém aprovar. O pedido
+    // permanece em rascunho — não há status novo (ver `bloqueioDeConfirmacao`).
+    const bloqueio = descontos.bloqueioDeConfirmacao(db, pedId, opts && opts.req);
+    if (bloqueio.bloqueado) {
+      return { ok: false, status: 409, error: bloqueio.motivo,
+        aprovacao: { id: bloqueio.aprovacaoId, status: bloqueio.status } };
+    }
+
     const forcar = opts && opts.forcar === true;
     let insuficiencias = [];
     const tx = db.transaction(() => {
@@ -789,9 +1312,10 @@ function registrarRotasPedidos(app, db) {
 
   app.post('/api/pedidos/:id/confirmar', (req, res) => {
     try {
-      const r = confirmarPedidoInterno(req.params.id, { forcar: req.body?.forcar === true });
+      const r = confirmarPedidoInterno(req.params.id, { forcar: req.body?.forcar === true, req });
       if (!r.ok) {
-        return res.status(r.status).json({ success: false, error: r.error, insuficiencias: r.insuficiencias });
+        return res.status(r.status).json({ success: false, error: r.error,
+          insuficiencias: r.insuficiencias, aprovacao: r.aprovacao });
       }
       res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id), insuficiencias: r.insuficiencias });
     } catch (err) {
@@ -1054,6 +1578,180 @@ function registrarRotasPedidos(app, db) {
     }
   });
 
+  /* ==========================================================================
+     COMPARTILHAMENTO PÚBLICO DO ORÇAMENTO
+     ==========================================================================
+     O problema que isto resolve: o link enviado por WhatsApp levava o cliente
+     para a tela de LOGIN. Ele não tem conta — e não deve ter.
+
+     O desenho copia o que a OS já faz em `/api/orcamento/:token`, em produção
+     há tempos: token opaco na URL, rota liberada antes do auth, e uma tela
+     pública que mostra só o necessário.
+
+     O que NÃO foi feito, e é o ponto principal: a rota interna continua
+     protegida. `/api/pedidos/:id` exige sessão como sempre. O que nasce público
+     é um caminho NOVO, `/api/orcamento-publico/:token`, que devolve um recorte
+     do orçamento — sem custo, sem margem, sem dado de outro cliente.
+     ========================================================================== */
+
+  /**
+   * Gera (ou devolve) o link público. Protegida — exige sessão.
+   *
+   * Idempotente: chamar duas vezes devolve o mesmo token, para o link que o
+   * vendedor já mandou não deixar de funcionar por ele ter clicado de novo.
+   */
+  app.post('/api/pedidos/:id/link-publico', (req, res) => {
+    try {
+      const pedido = db.prepare('SELECT id, numero, tokenPublico FROM pedidos WHERE id = ?').get(req.params.id);
+      if (!pedido) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
+
+      let token = pedido.tokenPublico;
+      if (!token || String(req.body?.regerar) === 'true') {
+        // 32 bytes = 64 hex. Espaço grande demais para tentativa e erro, e o
+        // índice único garante que não colide.
+        token = crypto.randomBytes(32).toString('hex');
+        db.prepare("UPDATE pedidos SET tokenPublico = ?, tokenPublicoEm = datetime('now','-3 hours') WHERE id = ?")
+          .run(token, pedido.id);
+        try { logAction(db, req, 'pedido.link_publico', { pedidoId: pedido.id, regerado: !!pedido.tokenPublico }); } catch (_) {}
+      }
+      // A razão social vai junto porque a mensagem do WhatsApp precisa dizer de
+      // que empresa é o orçamento. Sem isto ela saía sem identificação nenhuma:
+      // a tela lia `window.EMITENTE_NOME`, que ninguém preenchia.
+      let emitenteNome = null;
+      try {
+        const e = db.prepare('SELECT razaoSocial FROM fornecedor ORDER BY id DESC LIMIT 1').get();
+        emitenteNome = (e && e.razaoSocial) || null;
+      } catch (_) { /* instalação sem emitente cadastrado */ }
+
+      res.json({ success: true, token, emitente: emitenteNome,
+                 url: '/orcamento-comercial.html?token=' + token });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /** Revoga o link. O endereço antigo passa a responder 404 imediatamente. */
+  app.delete('/api/pedidos/:id/link-publico', (req, res) => {
+    try {
+      const r = db.prepare('UPDATE pedidos SET tokenPublico = NULL, tokenPublicoEm = NULL WHERE id = ?').run(req.params.id);
+      if (!r.changes) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
+      try { logAction(db, req, 'pedido.link_publico_revogado', { pedidoId: Number(req.params.id) }); } catch (_) {}
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * Leitura PÚBLICA por token. Sem sessão — é o link que o cliente recebe.
+   *
+   * ⚠️ O recorte é deliberado. Vai o que o cliente precisa para decidir:
+   * número, data, validade, emitente, itens, valores e o total. NÃO vai nada
+   * que seja da operação interna — custo, margem, depósito, vendedor, status
+   * do pedido, observação interna, histórico.
+   *
+   * O token identifica UM orçamento. Não há listagem, não há busca, e um token
+   * não dá acesso a nenhum outro registro.
+   */
+  app.get('/api/orcamento-publico/:token', (req, res) => {
+    try {
+      const tk = String(req.params.token || '');
+      // Formato conferido antes de ir ao banco: 64 hex, nada além disso.
+      if (!/^[a-f0-9]{64}$/.test(tk)) {
+        return res.status(404).json({ success: false, error: 'Orçamento não encontrado' });
+      }
+      const pedido = carregarPedidoCompleto(db, null, { token: tk });
+      if (!pedido) return res.status(404).json({ success: false, error: 'Orçamento não encontrado' });
+      if (pedido.status === 'cancelado') {
+        return res.status(410).json({ success: false, error: 'Este orçamento foi cancelado.' });
+      }
+      const emitente = db.prepare('SELECT * FROM fornecedor ORDER BY id DESC LIMIT 1').get() || {};
+      res.json({
+        success: true,
+        orcamento: {
+          numero: pedido.numero,
+          data: pedido.dataPedido,
+          validade: pedido.dataValidade || null,
+          cliente: pedido.clienteNome || null,
+          itens: (pedido.itens || []).map((i) => ({
+            sku: i.sku || null,
+            descricao: i.descricao,
+            unidade: i.unidade || null,
+            quantidade: i.quantidade,
+            precoUnitario: i.precoUnitario,
+            valorTotal: i.valorTotal,
+          })),
+          desconto: pedido.descontoAplicado || 0,
+          frete: pedido.valorFrete || 0,
+          valorTotal: pedido.valorTotal,
+          observacao: pedido.observacao || null,
+        },
+        emitente: {
+          razaoSocial: emitente.razaoSocial || null,
+          cnpj: emitente.cnpj || null,
+          telefone: emitente.telefone || null,
+          email: emitente.email || null,
+          logoBase64: emitente.logoBase64 || null,
+        },
+      });
+    } catch (err) {
+      console.error('[orcamento-publico]', err);
+      res.status(500).json({ success: false, error: 'Não foi possível carregar o orçamento.' });
+    }
+  });
+
+  /** PDF pelo link público — mesmo gerador, mesma proteção por token. */
+  app.get('/api/orcamento-publico/:token/pdf', (req, res) => {
+    try {
+      const tk = String(req.params.token || '');
+      if (!/^[a-f0-9]{64}$/.test(tk)) return res.status(404).send('Não encontrado');
+      const pedido = carregarPedidoCompleto(db, null, { token: tk });
+      if (!pedido || pedido.status === 'cancelado') return res.status(404).send('Não encontrado');
+      const emitente = db.prepare('SELECT * FROM fornecedor ORDER BY id DESC LIMIT 1').get() || {};
+      const nomeArq = String(pedido.numero || 'orcamento').replace(/[^\w.-]+/g, '-');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition',
+        `${String(req.query.download || '') === '1' ? 'attachment' : 'inline'}; filename="${nomeArq}.pdf"`);
+      pedidoPdf.gerar(res, pedido, emitente);
+    } catch (err) {
+      console.error('[orcamento-publico/pdf]', err);
+      res.status(500).send('Não foi possível gerar o PDF.');
+    }
+  });
+
+  /**
+   * Lista de separação — documento INTERNO de conferência.
+   *
+   * Mesma fonte de dados do PDF do pedido; o que muda é o recorte: sem imposto,
+   * sem NCM/CFOP, sem preço. Ver o cabeçalho de `separacao-pdf.js`.
+   *
+   * `?download=1` força o salvamento; sem ele abre no visualizador, que é o que
+   * "Visualizar" e "Imprimir" precisam.
+   */
+  app.get('/api/pedidos/:id/separacao', (req, res) => {
+    try {
+      const pedido = carregarPedidoCompleto(db, req.params.id);
+      if (!pedido) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
+      // Número da nota, quando já emitida — é o que o conferente cruza com a
+      // mercadoria que vai sair.
+      if (pedido.faturaId) {
+        try {
+          const f = db.prepare('SELECT numero, numeroNFe FROM faturas WHERE id = ?').get(pedido.faturaId);
+          if (f) pedido.notaNumero = f.numeroNFe || f.numero;
+        } catch (_) { /* instalação sem faturas */ }
+      }
+      const emitente = db.prepare('SELECT * FROM fornecedor ORDER BY id DESC LIMIT 1').get() || {};
+      const nomeArq = 'SEPARACAO-' + String(pedido.numero || 'pedido').replace(/[^\w.-]+/g, '-');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition',
+        `${String(req.query.download || '') === '1' ? 'attachment' : 'inline'}; filename="${nomeArq}.pdf"`);
+      separacaoPdf.gerar(res, pedido, emitente);
+    } catch (err) {
+      console.error('[separacao]', err);
+      res.status(500).json({ success: false, error: 'Não foi possível gerar a lista de separação.' });
+    }
+  });
+
   app.get('/api/pedidos/:id/pdf', (req, res) => {
     try {
       const pedido = carregarPedidoCompleto(db, req.params.id);
@@ -1064,7 +1762,19 @@ function registrarRotasPedidos(app, db) {
       }
       const emitente = db.prepare('SELECT * FROM fornecedor ORDER BY id DESC LIMIT 1').get() || {};
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${pedido.numero}.pdf"`);
+      // `?download=1` força o salvamento em vez de abrir no visualizador.
+      //
+      // O padrão continua `inline` — quem só quer conferir na tela não deve
+      // ganhar um arquivo na pasta de downloads. Mas o botão "Baixar PDF" pede
+      // o contrário, e no celular isso importa: no iOS, um PDF aberto `inline`
+      // dentro de aba nova costuma cair no visualizador sem opção clara de
+      // salvar, e o bloqueador de pop-up às vezes nem deixa abrir.
+      //
+      // O nome do arquivo é o número do documento (ORC-2026-00003.pdf), com os
+      // caracteres que atrapalham sistema de arquivos trocados por "-".
+      const nomeArq = String(pedido.numero || 'documento').replace(/[^\w.-]+/g, '-');
+      const modo = String(req.query.download || '') === '1' ? 'attachment' : 'inline';
+      res.setHeader('Content-Disposition', `${modo}; filename="${nomeArq}.pdf"`);
       pedidoPdf.gerar(res, pedido, emitente);
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -1172,22 +1882,47 @@ function registrarRotasPedidos(app, db) {
     }
   });
 
+  /**
+   * DESCONTINUADO em 2026-09-10 — responde 410 Gone e não grava nada.
+   *
+   * O que fazia: `pedidos.valorPago += valor`, direto. Sem criar
+   * `contas_a_receber`, sem `contas_receber_pagamentos`, sem lançar
+   * `movimentacoes_financeiras` e sem `audit_log`. O pedido dizia "pago" e o
+   * financeiro não tinha o recebimento — nenhum relatório enxergava o dinheiro.
+   *
+   * E não era idempotente: `valorPago + valor` a cada chamada, sem chave e sem
+   * vínculo com um evento de pagamento. Dois toques, dobro. Pior: assim que
+   * qualquer CR daquele pedido sofresse baixa, `sincronizarPagamentoPedido`
+   * recalculava do zero a partir das contas e apagava o lançamento manual.
+   *
+   * Auditoria de 2026-09-10 (relatório 07 §6, confirmada no 08 §1): NENHUM
+   * consumidor no repositório — nenhuma tela, nenhum script, nenhuma integração
+   * — e nenhum dos pedidos com `valorPago > 0` na base veio daqui.
+   *
+   * O caminho correto já existe e é o do financeiro: `contas_a_receber` com
+   * `pedidoId` + `registrarBaixaCR`, que cria o pagamento, lança no caixa, tem
+   * estorno, é idempotente e — desde 2026-09-10 — reflete em
+   * `pedidos.valorPago` sozinho.
+   *
+   * 410 e não 404: o endereço existiu, a recusa é deliberada e permanente. Um
+   * cliente esquecido descobre pela resposta, em vez de achar que digitou
+   * errado. Nada de redirecionar em silêncio para o fluxo novo — as semânticas
+   * são diferentes e o chamador precisa decidir.
+   */
   app.post('/api/pedidos/:id/registrar-pagamento', (req, res) => {
+    // Registra a tentativa reusando o logAction que o módulo já usa; ele exige
+    // req.user, então chamada por X-Api-Key não gera linha — e é por isso que
+    // o console.warn fica junto, para o caso do cliente sem sessão.
+    console.warn('[pedidos] tentativa em endpoint descontinuado: registrar-pagamento, pedido', req.params.id);
     try {
-      const ped = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
-      if (!ped) return res.status(404).json({ success: false, error: 'Pedido nao encontrado' });
-      if (ped.status === 'cancelado') return res.status(400).json({ success: false, error: 'Pedido cancelado' });
-      const valor = Number(req.body?.valor);
-      if (!(valor > 0)) return res.status(400).json({ success: false, error: 'valor > 0 obrigatorio' });
-
-      const novoPago = (ped.valorPago || 0) + valor;
-      db.prepare(`UPDATE pedidos SET valorPago = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`)
-        .run(novoPago, req.params.id);
-      atualizarStatusPagamento(db, req.params.id);
-      res.json({ success: true, pedido: carregarPedidoCompleto(db, req.params.id) });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
+      logAction(db, req, 'endpoint-descontinuado', 'pedido', Number(req.params.id) || null,
+        { endpoint: 'POST /api/pedidos/:id/registrar-pagamento', valorEnviado: req.body?.valor ?? null });
+    } catch { /* auditoria não pode impedir a resposta */ }
+    res.status(410).json({
+      success: false,
+      error: 'Endpoint descontinuado. Utilize o fluxo financeiro de contas a receber.',
+      alternativa: 'Crie a conta a receber com pedidoId e dê baixa por /api/contas-a-receber/:id/baixar',
+    });
   });
 
   // ==================== LOOKUP: participações vencidas (para o modal de import) ====================
@@ -1425,4 +2160,4 @@ function registrarRotasPedidos(app, db) {
 // gerarNumero e recalcularTotal saem daqui para a loja virtual criar pedido
 // pelo mesmo caminho. Duplicar a numeração noutro módulo produziria número
 // repetido assim que dois pedidos nascessem juntos.
-module.exports = { registrarRotasPedidos, gerarNumero, recalcularTotal };
+module.exports = { registrarRotasPedidos, gerarNumero, recalcularTotal, erroValorFrete, erroQuantidade };

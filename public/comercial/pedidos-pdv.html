@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>Venda rápida · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* ==========================================================================
+   Pedidos PDV — venda de balcão.
+   ==========================================================================
+
+   A tela é a MESMA entidade `pedidos` do ERP, por uma interface de operação.
+   Nada aqui é catálogo, tabela ou banco paralelo: todo dado vem das APIs que a
+   tela de Pedidos já usa.
+
+   Por que o CSS mora nesta página e não em app-modern.css: é layout de uma tela
+   só (três painéis com rolagem independente) e mexer no CSS global para isso
+   afetaria as outras ~140 telas. Os tokens (--bg-*, --accent, --r-*) são os do
+   sistema — a identidade não muda.
+
+   Três larguras, e a do celular NÃO é a do desktop encolhida:
+     ≥1100px  categorias | produtos | pedido   (três colunas)
+     640-1099 categorias em faixa horizontal; pedido vira gaveta
+     <640px   produtos ocupam a tela; barra fixa embaixo abre o pedido
+*/
+
+/* O PDV precisa da área toda: a rolagem é de cada painel, não da página. */
+.pdv-main { padding: 0 !important; max-width: none !important; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/**
+ * A reserva à direita (58px / 50px) saiu na Fase 3.3.
+ *
+ * Ela existia porque o botão de tema era `position: fixed` no canto superior
+ * direito e caía sobre o "+ Novo pedido" (relatório 25). O botão foi para a
+ * topbar do shell, fora do iframe: nada mais flutua sobre esta tela.
+ */
+.pdv-topo {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 18px; border-bottom: 1px solid var(--border);
+  background: var(--bg-1); flex-shrink: 0;
+}
+.pdv-topo h1 { margin: 0; font-size: 1.15rem; font-weight: 650; letter-spacing: -0.01em; }
+.pdv-topo .spacer { flex: 1; }
+
+/* Retorno para Pedidos.
+   Uma seta, e não um botão "Voltar" com texto: no balcão o cabeçalho disputa
+   espaço com os modos de atendimento, e em 640px eles já quebram linha. O alvo
+   tem 36px — o mínimo de toque que o resto da tela usa. */
+.pdv-voltar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; flex-shrink: 0; margin-left: -4px;
+  border-radius: var(--r-md); border: 1px solid transparent;
+  color: var(--text-2); text-decoration: none; font-size: 1.1rem; line-height: 1;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.pdv-voltar:hover { background: var(--bg-hover); color: var(--text-0); border-color: var(--border); }
+.pdv-voltar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.pdv-titulo { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pdv-titulo small { display: none; font-size: 0.74rem; color: var(--text-3); line-height: 1.2; }
+@media (min-width: 1100px) { .pdv-titulo small { display: block; } }
+
+/* Modos de atendimento — segmented control. */
+.modos { display: inline-flex; background: var(--bg-2); border-radius: var(--r-md); padding: 3px; gap: 2px; }
+.modos button {
+  border: 0; background: transparent; color: var(--text-2); cursor: pointer;
+  padding: 7px 14px; border-radius: calc(var(--r-md) - 3px); font-size: 0.86rem; font-weight: 550;
+  white-space: nowrap; transition: background .12s, color .12s;
+}
+.modos button:hover { color: var(--text-0); }
+.modos button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+.pdv-corpo { flex: 1; display: grid; grid-template-columns: 208px 1fr 372px; min-height: 0; }
+
+.pdv-col { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pdv-cats { border-right: 1px solid var(--border); background: var(--bg-1); }
+.pdv-prods { background: var(--bg-0); }
+.pdv-pedido { border-left: 1px solid var(--border); background: var(--bg-1); }
+
+/* ---- categorias ---- */
+/* Navegação de categorias — não é uma lista administrativa.
+   A selecionada ganha faixa de destaque à esquerda e fundo de acento; a contagem
+   é discreta, num badge que não compete com o nome. */
+.cats-titulo {
+  padding: 14px 14px 8px; font-size: 0.68rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.cats-lista { overflow-y: auto; padding: 0 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.cat-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 10px 9px 12px; border-radius: var(--r-sm); cursor: pointer; width: 100%;
+  border: 0; border-left: 3px solid transparent;
+  background: transparent; color: var(--text-1); font-size: 0.86rem; text-align: left;
+  font-family: inherit; line-height: 1.3; transition: background .12s, color .12s, border-color .12s;
+}
+.cat-item .rot { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-item:hover { background: var(--bg-hover); color: var(--text-0); }
+.cat-item[aria-pressed="true"] {
+  background: var(--accent-soft); color: var(--accent);
+  font-weight: 650; border-left-color: var(--accent);
+}
+.cat-item .n {
+  font-size: 0.7rem; font-variant-numeric: tabular-nums; flex-shrink: 0;
+  background: var(--bg-3); color: var(--text-3); padding: 1px 7px; border-radius: 999px;
+}
+.cat-item[aria-pressed="true"] .n { background: var(--accent); color: #fff; }
+
+/* ---- busca + grade de produtos ---- */
+.busca-wrap { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+.busca-wrap input {
+  flex: 1; padding: 11px 14px; border-radius: var(--r-md); border: 1px solid var(--border);
+  background: var(--bg-input); color: var(--text-0); font-size: 0.95rem; font-family: inherit;
+}
+.busca-wrap input:focus { outline: none; border-color: var(--accent); }
+
+/* `grid-auto-rows: max-content` não é enfeite — é o que faz os cards existirem.
+ *
+ * A altura do card vem da `.foto`, que usa `aspect-ratio: 1/1` sem altura
+ * própria. Ao medir a altura INTRÍNSECA da linha, o navegador ainda não tem a
+ * largura final da coluna `1fr` e resolve a proporção contra zero: a linha
+ * nascia com 13,5px, o `overflow: hidden` do card cortava o resto, e os 76
+ * produtos viravam tiras cinza de 15px — indistinguíveis dos esqueletos de
+ * carregamento, que são do mesmo cinza e do mesmo tamanho.
+ *
+ * Era o defeito relatado como "skeleton infinito": os cards estavam lá, no DOM,
+ * apenas achatados. Medido em 13/09 — card 15px contra `.info` de 95px dentro
+ * dele. Com `max-content` a linha passa a valer o conteúdo: card 286px, foto
+ * 189px, e a grade volta a rolar (scrollHeight 8105px em vez de 761px).
+ */
+.grade { overflow-y: auto; padding: 16px; display: grid; gap: 14px; align-content: start;
+  grid-auto-rows: max-content;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+
+/* ---- card de produto ----
+   A hierarquia é deliberada: imagem > preço > nome > saldo. Quem vende de balcão
+   reconhece o produto pela foto e confere o preço; o nome serve de confirmação e
+   o saldo é informação de apoio, não protagonista. */
+.card-prod {
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-1);
+  overflow: hidden; cursor: pointer; display: flex; flex-direction: column; text-align: left;
+  padding: 0; font-family: inherit; color: inherit; position: relative;
+  transition: border-color .14s, box-shadow .14s, transform .08s;
+}
+.card-prod:hover { border-color: var(--accent); box-shadow: 0 2px 10px rgba(0,0,0,.10); }
+.card-prod:active { transform: scale(.985); }
+.card-prod:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card-prod[disabled] { cursor: not-allowed; opacity: .72; }
+.card-prod[disabled]:hover { border-color: var(--border); box-shadow: none; }
+
+.card-prod .foto {
+  aspect-ratio: 1/1; background: var(--bg-3); display: flex; align-items: center;
+  justify-content: center; overflow: hidden; position: relative;
+}
+.card-prod .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Placeholder de produto sem foto.
+   O emoji 📦 saiu: repetido em dezenas de cards ele vira o elemento mais
+   chamativo da tela, e passa a impressão de catálogo quebrado. No lugar, um
+   monograma — as duas primeiras letras do produto sobre um fundo neutro. Lê-se
+   como ausência de foto, não como erro. */
+.card-prod .foto.sem-img {
+  background: linear-gradient(160deg, var(--bg-3), var(--bg-2));
+  color: var(--text-3); font-size: 1.5rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+/* Etiqueta de indisponível, sobre a imagem. */
+.card-prod .tag-esgotado {
+  position: absolute; inset: auto 0 0 0; padding: 4px 8px;
+  background: var(--danger-soft); color: var(--danger);
+  font-size: 0.66rem; font-weight: 700; text-align: center; letter-spacing: .04em;
+}
+
+.card-prod .info { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.card-prod .preco {
+  font-size: 1.06rem; font-weight: 700; color: var(--text-0);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.15;
+}
+.card-prod .nome {
+  font-size: 0.8rem; line-height: 1.3; font-weight: 500; color: var(--text-1);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-prod .saldo {
+  font-size: 0.68rem; color: var(--text-3); font-variant-numeric: tabular-nums; margin-top: auto;
+}
+.card-prod .saldo.zero { color: var(--danger); font-weight: 600; }
+
+/* ---- estados da área central ---- */
+
+/* Esqueleto: cards da mesma forma dos reais, para a tela não "saltar" quando os
+   dados chegam. São SEIS, não uma parede — o suficiente para dizer "carregando"
+   sem encher a tela de linhas cinzas. */
+.skel { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--bg-1); }
+.skel .bloco { aspect-ratio: 1/1; background: var(--bg-3); }
+.skel .linha { height: 10px; margin: 10px 11px 0; border-radius: 4px; background: var(--bg-3); }
+.skel .linha.curta { width: 45%; margin-bottom: 12px; }
+.skel .bloco, .skel .linha { animation: pulsar 1.25s ease-in-out infinite; }
+@keyframes pulsar { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .skel .bloco, .skel .linha { animation: none; } }
+
+/* Estado vazio: centralizado na área, com ícone discreto e uma ação clara.
+   Ocupa o espaço todo mas NÃO o preenche de conteúdo falso. */
+.estado {
+  grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; padding: 48px 24px; text-align: center; color: var(--text-2);
+}
+.estado .ic { font-size: 1.9rem; opacity: .5; line-height: 1; }
+.estado .tit { font-size: 0.98rem; font-weight: 600; color: var(--text-1); }
+.estado .sub { font-size: 0.85rem; color: var(--text-3); max-width: 340px; line-height: 1.55; }
+
+/* ---- painel do pedido ---- */
+.ped-topo { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.ped-cliente { display: flex; align-items: center; gap: 10px; }
+.ped-cliente .nome { font-weight: 600; font-size: 0.92rem; color: var(--text-0); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 600; background: var(--bg-2); color: var(--text-2); }
+.chip.accent { background: var(--accent-soft); color: var(--accent); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+
+.itens { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.item {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center;
+  padding: 9px 10px; border-radius: var(--r-sm); background: var(--bg-2);
+}
+.item .d { font-size: 0.84rem; color: var(--text-0); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.item .tot { font-size: 0.88rem; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.item .ctrl { display: flex; align-items: center; gap: 6px; grid-column: 1 / -1; }
+.item .ctrl .un { font-size: 0.72rem; color: var(--text-3); margin-left: auto; font-variant-numeric: tabular-nums; }
+.qbtn {
+  width: 30px; height: 30px; border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--bg-1); color: var(--text-1); cursor: pointer; font-size: 1rem; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; font-family: inherit;
+}
+.qbtn:hover { border-color: var(--accent); color: var(--accent); }
+.qtd { min-width: 30px; text-align: center; font-size: 0.9rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.resumo { border-top: 1px solid var(--border); padding: 12px 16px; display: flex; flex-direction: column; gap: 7px; }
+.linha { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-2); }
+.linha b { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.linha.desc b { color: var(--success); }
+.linha.total { font-size: 1.5rem; font-weight: 800; color: var(--text-0); padding-top: 9px;
+  border-top: 1px solid var(--border); margin-top: 4px; letter-spacing: -0.02em; align-items: baseline; }
+.linha.total span { font-size: 0.8rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-2); }
+.linha.total b { font-size: 1.5rem; color: var(--text-0); font-weight: 800; }
+.acoes-resumo { display: flex; gap: 8px; }
+.acoes-resumo .btn { flex: 1; }
+/* A ação principal é a maior e a única preenchida do painel. */
+#btnSalvar { padding: 12px; font-size: 0.95rem; font-weight: 650; }
+
+.vazio { padding: 40px 20px; text-align: center; color: var(--text-3); font-size: 0.88rem; line-height: 1.6; }
+
+/* Estado vazio do painel do pedido: não é só um texto — é o convite à ação. */
+.ped-vazio {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 32px 22px; text-align: center;
+}
+.ped-vazio .ic { font-size: 2.1rem; opacity: .45; line-height: 1; }
+.ped-vazio .tit { font-size: 0.95rem; font-weight: 600; color: var(--text-1); }
+.ped-vazio .sub { font-size: 0.83rem; color: var(--text-3); line-height: 1.55; max-width: 240px; }
+
+/* Linha de pedido pendente: cliente em destaque, o resto como apoio. */
+.pend-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-2); color: var(--text-1); cursor: pointer; font-family: inherit;
+  transition: border-color .12s, background .12s;
+}
+.pend-item:hover { border-color: var(--accent); background: var(--bg-hover); }
+.pend-item .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pend-item .cli { font-weight: 600; font-size: 0.9rem; color: var(--text-0);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pend-item .meta { font-size: 0.75rem; color: var(--text-3); display: flex; gap: 8px; flex-wrap: wrap; }
+.pend-item .vlr { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--text-0); white-space: nowrap; }
+
+/* ---- barra de carrinho (mobile) ---- */
+.barra-mob { display: none; }
+
+/* ---- gaveta ---- */
+/* Acima do botão global de tema (z-index 900) e abaixo dos modais (10000).
+   Com os valores antigos (60/61) o botão flutuava por cima da gaveta do pedido
+   no celular, bem em cima do cabeçalho dela. */
+.gaveta-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 949; opacity: 0;
+  pointer-events: none; transition: opacity .18s; }
+.gaveta-bg.open { opacity: 1; pointer-events: auto; }
+
+@media (max-width: 1099px) {
+  .pdv-corpo { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .pdv-cats { border-right: 0; border-bottom: 1px solid var(--border); }
+  .cats-lista { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 10px 14px; gap: 7px; }
+  .cat-item { width: auto; white-space: nowrap; background: var(--bg-2); flex-shrink: 0; }
+  .pdv-pedido {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 92vw); z-index: 950;
+    transform: translateX(100%); transition: transform .2s ease; box-shadow: -8px 0 32px rgba(0,0,0,.3);
+  }
+  .pdv-pedido.open { transform: translateX(0); }
+  .barra-mob {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border); background: var(--bg-1); flex-shrink: 0;
+  }
+  .barra-mob .resumo-txt { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .barra-mob .n { font-size: 0.76rem; color: var(--text-2); }
+  .barra-mob .v { font-size: 1.16rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+  .fechar-gaveta { display: inline-flex !important; }
+}
+@media (max-width: 639px) {
+  .grade { grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); gap: 11px; padding: 12px; }
+  .pdv-topo { padding: 10px 14px; gap: 8px; }
+  .pdv-topo h1 { font-size: 1.02rem; }
+  .modos { width: 100%; order: 3; }
+  .modos button { flex: 1; padding: 9px 6px; }
+  /* Ações mais compactas para caberem na primeira linha ao lado do título.
+     Se ainda não couberem, o `flex-wrap` do cabeçalho quebra a linha — nunca
+     sobrepõe. */
+  .pdv-topo .btn { padding: 7px 10px; font-size: 0.82rem; }
+}
+.fechar-gaveta { display: none; }
+
+/* Toque confortável sem afetar as telas de mouse. */
+@media (pointer: coarse) {
+  .qbtn { width: 38px; height: 38px; }
+  .cat-item { padding: 12px 14px; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<main class="main-content pdv-main">
+
+  <header class="pdv-topo">
+    <!-- "Venda rápida", e não "Pedidos PDV" (auditoria 34, opção B): esta tela
+         não é um módulo à parte, é a segunda porta do MESMO pedido comercial.
+         O nome técnico do arquivo e da página (`pedidos-pdv`) continua como
+         está de propósito — renomear arquivo, rota e chave de RBAC seria risco
+         sem ganho nesta fase. Aqui muda só o que o usuário lê. -->
+    <a class="pdv-voltar" href="/comercial/pedidos.html" title="Voltar para Pedidos"
+       aria-label="Voltar para Pedidos">&#8592;</a>
+    <div class="pdv-titulo">
+      <h1>Venda rápida</h1>
+      <!-- O subtítulo só aparece a partir de 1100px. Abaixo disso o cabeçalho
+           já divide a linha com os três modos de atendimento e dois botões, e
+           uma segunda linha de texto empurraria a grade de produtos para baixo
+           — justamente onde a tela é usada em pé, no balcão. -->
+      <small>Crie pedidos de forma simples e rápida no balcão, celular ou tablet.</small>
+    </div>
+    <div class="modos" role="group" aria-label="Tipo de atendimento">
+      <button type="button" data-modo="no_local" aria-pressed="false" onclick="trocarModo('no_local')">No local</button>
+      <button type="button" data-modo="retirada" aria-pressed="false" onclick="trocarModo('retirada')">Retirada</button>
+      <button type="button" data-modo="entrega"  aria-pressed="false" onclick="trocarModo('entrega')">Entrega</button>
+    </div>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost btn-sm" onclick="abrirPendentes()" id="btnPend">Pendentes</button>
+    <button class="btn btn-primary" onclick="abrirNovoPedido()">+ Novo pedido</button>
+  </header>
+
+  <div class="pdv-corpo">
+    <aside class="pdv-col pdv-cats">
+      <div class="cats-titulo">Categorias</div>
+      <div class="cats-lista" id="cats"></div>
+    </aside>
+
+    <section class="pdv-col pdv-prods">
+      <div class="busca-wrap">
+        <input id="busca" type="search" placeholder="Buscar produto, código ou código de barras…"
+               autocomplete="off" oninput="debBusca()">
+      </div>
+      <div class="grade" id="grade"><div class="vazio">Carregando produtos…</div></div>
+    </section>
+
+    <aside class="pdv-col pdv-pedido" id="painelPedido">
+      <div class="ped-topo">
+        <div class="ped-cliente">
+          <span class="nome" id="pedCliente">Nenhum pedido aberto</span>
+          <button class="btn btn-ghost btn-sm fechar-gaveta" onclick="fecharGaveta()" aria-label="Fechar">✕</button>
+        </div>
+        <div id="pedChips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="itens" id="itens">
+        <div class="ped-vazio">
+          <span class="ic">🧾</span>
+          <span class="tit">Nenhum pedido aberto</span>
+          <span class="sub">Comece um pedido para escolher o cliente e lançar produtos.</span>
+          <button class="btn btn-primary" onclick="abrirNovoPedido()">+ Novo pedido</button>
+        </div>
+      </div>
+      <div class="resumo" id="resumo" style="display:none;">
+        <div class="linha"><span>Subtotal</span><b id="rSub">R$ 0,00</b></div>
+        <div class="linha desc" id="lnDesc" style="display:none;"><span id="rDescLbl">Desconto</span><b id="rDesc">− R$ 0,00</b></div>
+        <div class="linha" id="lnFrete" style="display:none;"><span>Frete</span><b id="rFrete">R$ 0,00</b></div>
+        <div class="linha total"><span>TOTAL</span><b id="rTotal">R$ 0,00</b></div>
+        <div class="acoes-resumo">
+          <button class="btn btn-secondary btn-sm" onclick="abrirDesconto()">Desconto (R$)</button>
+          <button class="btn btn-secondary btn-sm" id="btnEntrega" style="display:none;" onclick="abrirEntrega()">Entrega</button>
+        </div>
+        <!-- "Salvar pedido", e não "Continuar"/"Ir para pagamento": o que o
+             botão faz HOJE é confirmar que o pedido está gravado — cada item,
+             desconto e frete já persiste no servidor na hora. Prometer pagamento
+             num botão que não paga seria mentir sobre a etapa. -->
+        <button class="btn btn-primary" onclick="salvarPedido()" id="btnSalvar">Salvar pedido</button>
+      </div>
+    </aside>
+  </div>
+
+  <div class="barra-mob" id="barraMob" style="display:none;">
+    <div class="resumo-txt">
+      <span class="n" id="mobN">0 itens</span>
+      <span class="v" id="mobV">R$ 0,00</span>
+    </div>
+    <button class="btn btn-primary" onclick="abrirGaveta()">Ver pedido</button>
+  </div>
+</main>
+</div>
+
+<div class="gaveta-bg" id="gavetaBg" onclick="fecharGaveta()"></div>
+
+<!-- ===== Novo pedido: atendimento + cliente ===== -->
+<div class="modal-bg" id="mNovo">
+  <div class="modal" style="max-width:520px;">
+    <h2>Novo pedido</h2>
+
+    <div class="row">
+      <label>1 · Tipo de atendimento</label>
+      <div class="modos" style="width:100%;" role="group">
+        <button type="button" data-novo-modo="no_local" onclick="selModo('no_local')" aria-pressed="true" style="flex:1;">No local</button>
+        <button type="button" data-novo-modo="retirada" onclick="selModo('retirada')" aria-pressed="false" style="flex:1;">Retirada</button>
+        <button type="button" data-novo-modo="entrega"  onclick="selModo('entrega')"  aria-pressed="false" style="flex:1;">Entrega</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>2 · Cliente <span class="muted" style="font-weight:400;">— todo pedido precisa de um cliente</span></label>
+      <input id="buscaCli" type="search" placeholder="Nome, CPF/CNPJ ou telefone…" autocomplete="off" oninput="debCli()">
+      <div id="listaCli" style="max-height:200px;overflow-y:auto;margin-top:8px;display:flex;flex-direction:column;gap:4px;"></div>
+    </div>
+
+    <div id="cliSel" style="display:none;margin-bottom:14px;padding:10px 12px;background:var(--accent-soft);border-radius:var(--r-sm);">
+      <strong id="cliSelNome" style="color:var(--accent);"></strong>
+      <div class="muted" style="font-size:0.8em;" id="cliSelDoc"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="abrirNovoCliente()">+ Novo cliente</button>
+      <span style="flex:1;"></span>
+      <button class="btn btn-secondary" onclick="fechar('mNovo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="criarPedido()" id="btnCriar" disabled>Iniciar pedido</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Cadastro rápido de cliente ===== -->
+<div class="modal-bg" id="mCli">
+  <div class="modal" style="max-width:440px;">
+    <h2>Novo cliente</h2>
+    <div class="row"><label>Nome / Razão Social *</label><input id="ncNome" placeholder="Como o cliente é chamado"></div>
+    <div class="row"><label>CPF / CNPJ *</label><input id="ncDoc" placeholder="Somente números" inputmode="numeric"></div>
+    <div class="row"><label>Telefone / WhatsApp</label><input id="ncTel" placeholder="(00) 00000-0000" inputmode="tel"></div>
+    <p class="muted" style="font-size:0.8em;margin:0 0 12px;">
+      Cadastro rápido: os demais dados podem ser completados depois em Clientes &amp; Fornecedores.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fechar('mCli')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCliente()">Salvar e usar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Desconto ===== -->
+<div class="modal-bg" id="mDesc">
+  <div class="modal" style="max-width:440px;">
+    <h2>Desconto</h2>
+    <div class="linha" style="margin-bottom:12px;"><span>Subtotal dos itens</span><b id="dSub">R$ 0,00</b></div>
+    <div class="row">
+      <label>Desconto (R$)</label>
+      <!-- `inputmode="decimal"` abre o teclado numérico do celular com vírgula;
+           `type="number"` sozinho abre o teclado de telefone em parte dos
+           aparelhos. A fonte de 16px é o que impede o iOS de dar zoom ao focar. -->
+      <input id="dVal" type="number" min="0" step="0.01" inputmode="decimal"
+             placeholder="0,00" style="font-size:16px;" oninput="previewDesc()">
+    </div>
+    <div class="linha" style="margin:-6px 0 4px;"><span>Equivale a</span><b id="dPctCalc">0%</b></div>
+    <!-- Informativo. Quem decide é a alçada no servidor. -->
+    <div class="linha" id="lnLimite" style="margin:0 0 14px;display:none;">
+      <span class="muted">Limite disponível</span><b id="dLimite" class="muted">—</b>
+    </div>
+    <div class="row">
+      <label>Motivo <span class="muted" style="font-weight:400;">— obrigatório acima da sua alçada</span></label>
+      <input id="dMot" placeholder="ex.: cliente fecha volume, negociação de fechamento">
+    </div>
+    <div id="dAviso" style="display:none;margin-bottom:12px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fechar('mDesc')">Cancelar</button>
+      <button class="btn btn-primary" onclick="aplicarDesconto()">Aplicar desconto</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Entrega ===== -->
+<div class="modal-bg" id="mEnt">
+  <div class="modal" style="max-width:520px;">
+    <h2>Entrega</h2>
+    <p class="muted" style="font-size:0.84em;margin:0 0 12px;">
+      Em branco, vale o endereço do cadastro do cliente.
+    </p>
+    <div class="row"><label>Endereço</label><input id="eEnd" placeholder="Rua, avenida…"></div>
+    <div class="row-2">
+      <div class="row"><label>Número</label><input id="eNum"></div>
+      <div class="row"><label>Bairro</label><input id="eBai"></div>
+    </div>
+    <div class="row-2">
+      <div class="row"><label>Cidade</label><input id="eCid"></div>
+      <div class="row"><label>UF</label><input id="eUf" maxlength="2" style="text-transform:uppercase;"></div>
+    </div>
+    <div class="row"><label>Frete (R$)</label><input id="eFrete" type="number" min="0" step="0.01" placeholder="0,00"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fechar('mEnt')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarEntrega()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Pedidos pendentes ===== -->
+<div class="modal-bg" id="mPend">
+  <div class="modal" style="max-width:560px;">
+    <h2>Pedidos pendentes</h2>
+    <p class="muted" style="font-size:0.84em;margin:0 0 12px;">
+      Rascunhos de balcão. Não reservam estoque — a reserva acontece ao confirmar.
+    </p>
+    <div id="listaPend" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="fechar('mPend')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<div id="alertGlobal" class="alert" style="display:none;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:200;max-width:90vw;"></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('pedidos-pdv');</script>
+<script>
+/* ==========================================================================
+   Estado e regras da tela.
+
+   Princípio que vale para tudo abaixo: **o servidor é a autoridade**. A tela
+   não calcula preço, não decide alçada e não soma o total por conta própria —
+   ela envia a intenção e REDESENHA a partir do pedido que a API devolve. É por
+   isso que `aplicarItem` e `aplicarDesconto` terminam sempre em `pintar(...)`
+   com o objeto vindo do backend, e nunca com um número montado aqui.
+   ========================================================================== */
+
+const $ = (id) => document.getElementById(id);
+const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = (t) => { const d = document.createElement('div'); d.textContent = String(t == null ? '' : t); return d.innerHTML; };
+
+/**
+ * Data/hora curta para a lista de pendentes.
+ *
+ * O banco grava em UTC (ver CLAUDE.md); o `-3h` traz para o horário de Brasília,
+ * que é o que o operador compara com o relógio da parede. Hoje mostra só a hora;
+ * outro dia, a data — num balcão, "14:32" é mais útil que a data de hoje repetida
+ * em toda linha.
+ */
+function dataHora(v) {
+  if (!v) return '—';
+  const s = String(v).replace(' ', 'T');
+  const d = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z');
+  if (isNaN(d)) return String(v).slice(0, 16);
+  const local = new Date(d.getTime() - 3 * 3600000);
+  const hoje = new Date(Date.now() - 3 * 3600000);
+  const mesmoDia = local.toISOString().slice(0, 10) === hoje.toISOString().slice(0, 10);
+  const hh = local.toISOString().slice(11, 16);
+  return mesmoDia ? hh : `${local.toISOString().slice(8, 10)}/${local.toISOString().slice(5, 7)} ${hh}`;
+}
+
+/** Sentinela dos produtos sem categoria: uma string que nenhum cadastro
+    produz, para agrupa-los sem confundir com categoria de verdade. */
+const SEM_CATEGORIA = '\u0000';
+
+let PRODUTOS = [];        // catálogo carregado uma vez
+let CATEGORIA = null;     // null = "Todos"
+let PEDIDO = null;        // pedido aberto (o que a API devolveu)
+let ITENS = [];           // itens do pedido aberto
+let MODO = 'no_local';    // tipoAtendimento do PDV
+let CLI = null;           // cliente escolhido no modal
+
+function aviso(msg, tipo = 'success') {
+  const e = $('alertGlobal');
+  e.className = 'alert ' + tipo; e.textContent = msg; e.style.display = 'block';
+  clearTimeout(aviso._t); aviso._t = setTimeout(() => { e.style.display = 'none'; }, 5000);
+}
+const fechar = (id) => $(id).classList.remove('open');
+const abrir = (id) => $(id).classList.add('open');
+
+async function api(url, opt) {
+  let r;
+  try {
+    r = await fetch(url, opt);
+  } catch (e) {
+    // Falha de REDE (offline, DNS, TLS, timeout). O Safari devolve
+    // `Load failed` aqui — sem esta tradução, é isso que o usuário lê.
+    const erro = new Error(typeof mensagemDeRede === 'function'
+      ? mensagemDeRede(e)
+      : 'Não foi possível falar com o servidor. Verifique sua conexão.');
+    erro.rede = true;
+    // Cancelamento por tempo esgotado precisa continuar reconhecível: quem
+    // chamou definiu o prazo e sabe dar uma mensagem melhor que "falha de
+    // rede". Sem isto o `name` se perdia na tradução.
+    if (e && e.name === 'AbortError') erro.name = 'AbortError';
+    throw erro;
+  }
+  if (r.status === 401 || r.status === 403) {
+    const e = new Error('Sua sessão expirou. Entre novamente para continuar.');
+    e.status = r.status;
+    throw e;
+  }
+  let d = null;
+  try { d = await r.json(); } catch { /* resposta não-JSON (302 de login, 403) */ }
+  if (!r.ok || !d || d.success === false) {
+    const e = new Error((d && d.error) || `HTTP ${r.status}`);
+    e.status = r.status; e.corpo = d;
+    throw e;
+  }
+  return d;
+}
+
+/* ====================== PRODUTOS E CATEGORIAS ====================== */
+
+/**
+ * As categorias são DERIVADAS de `produtos.categoria`, que é TEXT livre.
+ *
+ * O ERP não tem tabela de categorias de produto (auditado nesta fase), e
+ * inventar uma modelagem aqui seria resolver um problema que não é desta etapa.
+ * O campo já é usado de verdade em produção — 1bit tem "Certificado SSL",
+ * "Hospedagem VPS", "Material de Escritório"; produtosbomgosto tem a sua. A
+ * limitação (texto livre, sem hierarquia, sem ordenação própria) está no
+ * relatório 22.
+ */
+/** Seis esqueletos no formato do card real — o bastante para dizer "carregando"
+    sem cobrir a tela de linhas cinzas. */
+function pintarSkeleton() {
+  $('grade').innerHTML = Array.from({ length: 6 }, () =>
+    '<div class="skel"><div class="bloco"></div><div class="linha"></div><div class="linha curta"></div></div>').join('');
+}
+
+/** Estado de erro da grade, com caminho de volta. */
+function pintarErroProdutos(msg) {
+  $('grade').innerHTML = `<div class="estado">
+    <span class="ic">⚠️</span>
+    <span class="tit">Não foi possível carregar os produtos</span>
+    <span class="sub">${esc(msg || 'Tente novamente em alguns instantes.')}</span>
+    <button class="btn btn-secondary btn-sm" onclick="carregarProdutos()">Tentar novamente</button>
+  </div>`;
+}
+
+/**
+ * Quanto esperar pela lista de produtos antes de desistir.
+ *
+ * Sem um limite, uma requisição que nunca responde deixa o esqueleto na tela
+ * PARA SEMPRE — sem erro no console, sem mensagem, sem botão. É o que acontece
+ * quando o servidor é reiniciado com uma requisição em voo, quando o celular
+ * troca de wi-fi para dados, ou quando um proxy segura a conexão aberta: o
+ * `fetch` não tem prazo próprio e a promessa simplesmente nunca assenta.
+ *
+ * 12s é folgado para uma consulta que leva 30ms em produção — o limite existe
+ * para o caso patológico, não para o lento.
+ */
+const TIMEOUT_PRODUTOS = 12000;
+
+async function carregarProdutos() {
+  pintarSkeleton();
+  let terminou = false;   // qualquer saída legítima marca aqui
+  try {
+    const ctrl = new AbortController();
+    const relogio = setTimeout(() => ctrl.abort(), TIMEOUT_PRODUTOS);
+    let d;
+    try {
+      d = await api('/api/produtos', { signal: ctrl.signal });
+    } finally {
+      clearTimeout(relogio);
+    }
+
+    PRODUTOS = (d.produtos || []).filter((p) => p && p.ativo);
+    if (!PRODUTOS.length) {
+      $('cats').innerHTML = '';
+      $('grade').innerHTML = `<div class="estado">
+        <span class="ic">📭</span>
+        <span class="tit">Nenhum produto cadastrado</span>
+        <span class="sub">Cadastre produtos em <b>Catálogo → Produtos</b> para vendê-los aqui.</span>
+      </div>`;
+      terminou = true;
+      return;
+    }
+    pintarCategorias();
+    pintarProdutos();
+    terminou = true;
+  } catch (e) {
+    console.error('[venda-rápida] falha ao carregar produtos:', e);
+    // `AbortError` é o nosso relógio, não um erro do servidor: dizer "verifique
+    // sua conexão" seria mais honesto do que "erro interno", e é o que a pessoa
+    // pode de fato conferir.
+    const msg = (e && e.name === 'AbortError')
+      ? 'O servidor demorou para responder. Verifique sua conexão e tente novamente.'
+      : (e && e.message);
+    pintarErroProdutos(msg);
+    terminou = true;
+  } finally {
+    // ── A trava final ────────────────────────────────────────────────────
+    // Se nenhum caminho acima assumiu a grade, ela ainda está com o esqueleto.
+    // Isso só acontece se algo imprevisto escapou — inclusive uma falha DENTRO
+    // do próprio `catch`, que era o único jeito de o esqueleto sobreviver às
+    // versões anteriores desta função. Melhor uma mensagem com botão do que
+    // cinza para sempre.
+    if (!terminou || $('grade').querySelector('.skel')) {
+      console.error('[venda-rápida] o carregamento terminou sem pintar a grade');
+      try { pintarErroProdutos('Algo deu errado ao montar a lista.'); }
+      catch (_) { $('grade').textContent = 'Não foi possível carregar os produtos. Recarregue a página.'; }
+    }
+  }
+}
+
+/**
+ * A categoria de um produto, sempre como texto.
+ *
+ * `(p.categoria || '').trim()` parecia seguro e não era: a coluna é TEXT, mas o
+ * SQLite guarda o que lhe derem, e um produto importado com categoria numérica
+ * faz `.trim` deixar de existir. O `TypeError` derrubava a montagem inteira —
+ * 76 produtos sumiam por causa de um. `String()` antes do `.trim()` custa nada
+ * e tira a lista da mão do dado.
+ */
+function catDe(p) {
+  const c = p && p.categoria != null ? String(p.categoria).trim() : '';
+  return c || SEM_CATEGORIA;
+}
+
+/**
+ * As categorias da barra lateral, na ordem em que aparecem.
+ *
+ * O botão guarda o ÍNDICE nesta lista, não o nome. Ver `pintarCategorias`.
+ */
+let CATEGORIAS = [];
+
+function pintarCategorias() {
+  const mapa = new Map();
+  for (const p of PRODUTOS) {
+    const c = catDe(p);   // sentinela dos que nao tem categoria
+    mapa.set(c, (mapa.get(c) || 0) + 1);
+  }
+  const lista = [...mapa.entries()]
+    .sort((a, b) => (a[0] === SEM_CATEGORIA ? 1 : b[0] === SEM_CATEGORIA ? -1 : a[0].localeCompare(b[0], 'pt-BR')));
+  CATEGORIAS = lista.map(([c]) => c);
+
+  // ── Por que `data-idx` e não o nome da categoria no `onclick` ────────────
+  //
+  // Era `onclick="filtrarCat(${JSON.stringify(c)})"`. O `JSON.stringify` de uma
+  // string devolve aspas DUPLAS, e o atributo também é delimitado por aspas
+  // duplas — então o HTML saía partido:
+  //
+  //     onclick="filtrarCat(" produtos="" bom="" gosto")"=""
+  //
+  // O atributo terminava em `filtrarCat(` e clicar lançava
+  // `SyntaxError: Unexpected end of input`. Só "Todos" funcionava, porque é
+  // `filtrarCat(null)` — sem aspas.
+  //
+  // O índice é um número: não tem aspas, acento, espaço nem o sentinela `\u0000` que
+  // marca "sem categoria". Nenhum nome de categoria pode voltar a quebrar o
+  // HTML, venha ele de onde vier.
+  $('cats').innerHTML =
+    `<button type="button" class="cat-item" data-idx="-1" aria-pressed="${CATEGORIA === null}" title="Todos os produtos">
+       <span class="rot">Todos</span><span class="n">${PRODUTOS.length}</span></button>`
+    + lista.map(([c, n], i) => {
+      const rot = c === SEM_CATEGORIA ? 'Sem categoria' : c;
+      return `<button type="button" class="cat-item" data-idx="${i}" aria-pressed="${CATEGORIA === c}"
+                title="${esc(rot)}">
+                <span class="rot">${esc(rot)}</span><span class="n">${n}</span></button>`;
+    }).join('');
+}
+
+/**
+ * Um ouvinte no CONTÊINER, não em cada botão.
+ *
+ * `pintarCategorias` reescreve o `innerHTML` a cada troca de categoria, o que
+ * destrói os botões e qualquer ouvinte preso a eles. Preso ao contêiner, que
+ * nunca é substituído, ele sobrevive a todos os redesenhos.
+ */
+$('cats').addEventListener('click', (e) => {
+  const botao = e.target.closest('.cat-item');
+  if (!botao || !$('cats').contains(botao)) return;
+  const i = Number(botao.dataset.idx);
+  filtrarCat(i < 0 ? null : CATEGORIAS[i]);
+});
+
+function filtrarCat(c) {
+  // `undefined` (índice fora da lista) viraria um filtro que não casa com nada
+  // e deixaria a grade vazia sem explicação. Cai em "Todos", que é o seguro.
+  CATEGORIA = (c === undefined) ? null : c;
+  pintarCategorias();
+  pintarProdutos();   // a busca digitada continua valendo: ela é lida aqui dentro
+}
+
+let _tb;
+function debBusca() { clearTimeout(_tb); _tb = setTimeout(pintarProdutos, 180); }
+
+function pintarProdutos() {
+  const termo = $('busca').value.trim().toLowerCase();
+  const lista = PRODUTOS.filter((p) => {
+    if (CATEGORIA !== null && catDe(p) !== CATEGORIA) return false;
+    if (!termo) return true;
+    // Mesmos campos que a API usa no `q`, para a busca local não divergir dela.
+    return [p.descricao, p.sku, p.codigoBarras].some((v) => String(v || '').toLowerCase().includes(termo));
+  });
+
+  if (!lista.length) {
+    const comBusca = !!termo, comCat = CATEGORIA !== null;
+    $('grade').innerHTML = `<div class="estado">
+      <span class="ic">🔍</span>
+      <span class="tit">Nenhum produto encontrado</span>
+      <span class="sub">${comBusca
+        ? `Nada corresponde a <b>${esc($('busca').value.trim())}</b>${comCat ? ' nesta categoria' : ''}. Revise os termos ou veja <b>Todos</b>.`
+        : 'Esta categoria está vazia. Escolha <b>Todos</b> para ver o catálogo completo.'}</span>
+      ${comCat ? '<button class="btn btn-secondary btn-sm" onclick="filtrarCat(null)">Ver todos os produtos</button>' : ''}
+    </div>`;
+    return;
+  }
+
+  /** Monograma para produto sem foto — ver `.card-prod .foto.sem-img` no CSS. */
+  const sigla = (t) => esc(String(t || '?').trim().slice(0, 2));
+
+  /** Monta UM card. Separada para poder falhar sozinha — ver abaixo. */
+  const card = (p) => {
+    const semEstoque = p.controlaEstoque !== 0 && Number(p.saldo) <= 0;
+    // `onerror` cai no monograma: imagem quebrada não pode virar um ícone de
+    // erro do navegador no meio do catálogo.
+    const tag = semEstoque ? '<span class="tag-esgotado">Sem estoque</span>' : '';
+    const foto = p.imagemPath
+      ? `<div class="foto"><img src="${esc(p.imagemPath)}" alt="" loading="lazy"
+           onerror="this.parentNode.className='foto sem-img';this.parentNode.textContent='${sigla(p.descricao)}'">${tag}</div>`
+      : `<div class="foto sem-img">${sigla(p.descricao)}${tag}</div>`;
+    const nome = String(p.descricao == null ? '' : p.descricao) || '(sem descrição)';
+    return `<button class="card-prod" onclick="addItem(${Number(p.id)})" ${PEDIDO ? '' : 'disabled'}
+              title="${esc(nome)}${PEDIDO ? '' : ' — comece um pedido para lançar produtos'}">
+        ${foto}
+        <div class="info">
+          <span class="preco">${brl(p.precoVenda)}</span>
+          <span class="nome">${esc(nome)}</span>
+          <span class="saldo ${semEstoque ? 'zero' : ''}">${Number(p.saldo || 0).toLocaleString('pt-BR')} em estoque</span>
+        </div>
+      </button>`;
+  };
+
+  // ── Um produto ruim não leva os outros ──────────────────────────────────
+  //
+  // Antes era um `.map()` só: qualquer exceção na montagem de UM item abortava
+  // a expressão inteira, `innerHTML` nunca era atribuído, e o catálogo todo
+  // desaparecia por causa de um registro. Isolando item a item, o defeituoso é
+  // o único que falta — e fica registrado no console com o id, que é o que
+  // permite ir corrigir o cadastro na origem.
+  const html = [];
+  const ruins = [];
+  for (const p of lista) {
+    try { html.push(card(p)); }
+    catch (e) { ruins.push(p && p.id); console.error('[venda-rápida] produto ilegível:', p && p.id, e); }
+  }
+  if (ruins.length) {
+    html.push(`<div class="estado">
+      <span class="ic">⚠️</span>
+      <span class="tit">${ruins.length} produto(s) não puderam ser exibidos</span>
+      <span class="sub">Os demais estão na lista. Revise o cadastro de: <b>${esc(ruins.join(', '))}</b>.</span>
+    </div>`);
+  }
+  $('grade').innerHTML = html.join('');
+}
+
+/* ====================== CLIENTE ====================== */
+
+let _tc;
+function debCli() { clearTimeout(_tc); _tc = setTimeout(buscarCli, 250); }
+
+async function buscarCli() {
+  const q = $('buscaCli').value.trim();
+  if (q.length < 2) { $('listaCli').innerHTML = ''; return; }
+  try {
+    // A API já procura por razão social, CPF/CNPJ e telefone (com e sem máscara).
+    const d = await api('/api/pessoas?q=' + encodeURIComponent(q));
+    const lista = (d.pessoas || []).slice(0, 12);
+    $('listaCli').innerHTML = lista.length ? lista.map((p) => `
+      <button class="cat-item" style="background:var(--bg-2);" onclick='escolherCli(${JSON.stringify(p).replace(/'/g, "&#39;")})'>
+        <span>${esc(p.razaoSocial)}<br><small class="muted">${esc(p.cpfCnpj || '')} ${esc(p.telefone || p.celular || '')}</small></span>
+      </button>`).join('')
+      : '<div class="muted" style="padding:8px;font-size:0.85em;">Nenhum cliente encontrado. Use <b>+ Novo cliente</b>.</div>';
+  } catch (e) { $('listaCli').innerHTML = `<div class="muted" style="padding:8px;">${esc(e.message)}</div>`; }
+}
+
+function escolherCli(p) {
+  CLI = p;
+  $('cliSel').style.display = 'block';
+  $('cliSelNome').textContent = p.razaoSocial;
+  $('cliSelDoc').textContent = [p.cpfCnpj, p.telefone || p.celular].filter(Boolean).join(' · ');
+  $('listaCli').innerHTML = ''; $('buscaCli').value = '';
+  $('btnCriar').disabled = false;
+}
+
+function abrirNovoCliente() {
+  $('ncNome').value = $('buscaCli').value.trim();
+  $('ncDoc').value = ''; $('ncTel').value = '';
+  abrir('mCli');
+}
+
+async function salvarCliente() {
+  const nome = $('ncNome').value.trim();
+  const doc = $('ncDoc').value.replace(/\D/g, '');
+  if (!nome) return aviso('Informe o nome do cliente', 'error');
+  // CPF/CNPJ obrigatório: é a regra atual do ERP (`POST /api/pessoas`). A
+  // identificação sem documento é do Catálogo Online e não entra nesta fase.
+  if (!doc) return aviso('Informe o CPF/CNPJ', 'error');
+  try {
+    const d = await api('/api/pessoas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ razaoSocial: nome, cpfCnpj: doc, telefone: $('ncTel').value.trim() || null, ativo: 1 }),
+    });
+    const p = d.pessoa || { id: d.id, razaoSocial: nome, cpfCnpj: doc, telefone: $('ncTel').value.trim() };
+    fechar('mCli'); escolherCli(p); aviso('Cliente cadastrado');
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+/* ====================== NOVO PEDIDO ====================== */
+
+function selModo(m) {
+  MODO = m;
+  document.querySelectorAll('[data-novo-modo]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.novoModo === m)));
+}
+
+function abrirNovoPedido() {
+  CLI = null;
+  $('cliSel').style.display = 'none'; $('listaCli').innerHTML = '';
+  $('buscaCli').value = ''; $('btnCriar').disabled = true;
+  selModo(MODO);
+  abrir('mNovo');
+  setTimeout(() => $('buscaCli').focus(), 60);
+}
+
+/**
+ * Cria o pedido de balcão.
+ *
+ * `origem: 'pdv'` é aceito do corpo porque o PDV é área interna autenticada
+ * (`ORIGENS_CLIENTE` em pedido-politicas.js). `tipoAtendimento` vai junto e é
+ * validado pelo servidor — valor fora do vocabulário volta 422 antes do INSERT.
+ */
+async function criarPedido() {
+  if (!CLI) return aviso('Escolha um cliente', 'error');
+  try {
+    const d = await api('/api/pedidos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clienteId: CLI.id, origem: 'pdv', tipoAtendimento: MODO }),
+    });
+    fechar('mNovo');
+    pintar(d.pedido, []);
+    sincModoTopo();
+    pintarProdutos();                 // libera os cards
+    aviso('Pedido ' + d.pedido.numero + ' iniciado');
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+/* ====================== ITENS ====================== */
+
+async function recarregarPedido() {
+  if (!PEDIDO) return;
+  const d = await api('/api/pedidos/' + PEDIDO.id);
+  // O limite viaja fora de `pedido` porque nao e coluna: e resposta sobre QUEM
+  // esta pedindo. Guardado no objeto so para a tela conseguir le-lo depois.
+  if (d.pedido) d.pedido.__limiteDesconto = d.descontoLimite || null;
+  pintar(d.pedido, d.pedido.itens || d.itens || []);
+}
+
+async function addItem(produtoId) {
+  if (!PEDIDO) return aviso('Comece um pedido antes de adicionar produtos', 'error');
+  const prod = PRODUTOS.find((p) => p.id === produtoId);
+  const existente = ITENS.find((i) => i.produtoId === produtoId);
+  try {
+    if (existente) {
+      await api(`/api/pedidos/${PEDIDO.id}/itens/${existente.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantidade: Number(existente.quantidade) + 1 }),
+      });
+    } else {
+      // `precoUnitario` NÃO é enviado: quem resolve o preço é o servidor
+      // (pedido-politicas.precoDeItem). Mandar daqui seria abrir a porta que a
+      // política de preço fechou.
+      await api(`/api/pedidos/${PEDIDO.id}/itens`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ produtoId, descricao: prod.descricao, quantidade: 1 }),
+      });
+    }
+    await recarregarPedido();
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+async function mudarQtd(itemId, delta) {
+  const it = ITENS.find((i) => i.id === itemId);
+  if (!it) return;
+  const nova = Number(it.quantidade) + delta;
+  if (nova <= 0) return removerItem(itemId);
+  try {
+    await api(`/api/pedidos/${PEDIDO.id}/itens/${itemId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quantidade: nova }),
+    });
+    await recarregarPedido();
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+async function removerItem(itemId) {
+  try {
+    await api(`/api/pedidos/${PEDIDO.id}/itens/${itemId}`, { method: 'DELETE' });
+    await recarregarPedido();
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+/* ====================== DESENHO DO PEDIDO ====================== */
+
+const ROTULO_MODO = { no_local: 'No local', retirada: 'Retirada', entrega: 'Entrega' };
+
+/** Redesenha tudo a partir do pedido que o SERVIDOR devolveu. */
+function pintar(pedido, itens) {
+  PEDIDO = pedido;
+  ITENS = itens || [];
+  if (pedido.tipoAtendimento) MODO = pedido.tipoAtendimento;
+
+  $('pedCliente').textContent = pedido.clienteNome || 'Cliente';
+  const chips = [`<span class="chip accent">${esc(pedido.numero)}</span>`,
+                 `<span class="chip">${esc(ROTULO_MODO[MODO] || MODO)}</span>`];
+  if (pedido.aguardandoAprovacao) chips.push('<span class="chip warn">Aguardando aprovação</span>');
+  $('pedChips').innerHTML = chips.join('');
+
+  $('itens').innerHTML = ITENS.length ? ITENS.map((i) => `
+    <div class="item">
+      <span class="d">${esc(i.descricao)}</span>
+      <span class="tot">${brl(i.valorTotal)}</span>
+      <div class="ctrl">
+        <button class="qbtn" onclick="mudarQtd(${i.id},-1)" aria-label="Menos">−</button>
+        <span class="qtd">${Number(i.quantidade).toLocaleString('pt-BR')}</span>
+        <button class="qbtn" onclick="mudarQtd(${i.id},1)" aria-label="Mais">+</button>
+        <button class="qbtn" onclick="removerItem(${i.id})" aria-label="Remover" title="Remover">🗑</button>
+        <span class="un">${brl(i.precoUnitario)} un</span>
+      </div>
+    </div>`).join('')
+    : '<div class="vazio">Toque num produto para adicionar.</div>';
+
+  // Todos os números vêm do pedido gravado — nada é somado aqui.
+  const sub = ITENS.reduce((s, i) => s + Number(i.valorTotal || 0), 0);
+  const desc = Number(pedido.descontoAplicado || 0);
+  const frete = Number(pedido.valorFrete || 0);
+
+  $('resumo').style.display = 'flex';
+  $('rSub').textContent = brl(sub);
+  $('lnDesc').style.display = desc > 0 ? 'flex' : 'none';
+  $('rDesc').textContent = '− ' + brl(desc);
+  $('rDescLbl').textContent = pedido.descontoTipo === 'percentual' && pedido.descontoValor
+    ? `Desconto (${Number(pedido.descontoValor).toLocaleString('pt-BR')}%)` : 'Desconto';
+  $('lnFrete').style.display = frete > 0 ? 'flex' : 'none';
+  $('rFrete').textContent = brl(frete);
+  $('rTotal').textContent = brl(pedido.valorTotal);
+
+  $('btnEntrega').style.display = MODO === 'entrega' ? 'block' : 'none';
+  $('barraMob').style.display = '';
+  $('mobN').textContent = `${ITENS.length} ${ITENS.length === 1 ? 'item' : 'itens'}`;
+  $('mobV').textContent = brl(pedido.valorTotal);
+}
+
+function sincModoTopo() {
+  document.querySelectorAll('[data-modo]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.modo === MODO)));
+}
+
+/** Trocar o modo no topo altera o pedido aberto; sem pedido, só pré-seleciona. */
+async function trocarModo(m) {
+  MODO = m; sincModoTopo(); selModo(m);
+  if (!PEDIDO) return;
+  try {
+    await api('/api/pedidos/' + PEDIDO.id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipoAtendimento: m }),
+    });
+    await recarregarPedido();
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+/* ====================== DESCONTO ====================== */
+
+function abrirDesconto() {
+  if (!PEDIDO) return;
+  const sub = subtotalItens();
+  $('dSub').textContent = brl(sub);
+  /* O campo é em REAIS, e `descontoAplicado` já é o valor em reais — seja o
+     desconto de tipo 'valor' ou 'percentual'. Reaproveitá-lo faz um desconto
+     antigo, gravado em percentual, abrir aqui pelo valor equivalente, em vez de
+     vir vazio e sumir no primeiro salvamento. */
+  const aplicado = Number(PEDIDO.descontoAplicado || 0);
+  $('dVal').value = aplicado > 0 ? aplicado.toFixed(2) : '';
+  $('dMot').value = PEDIDO.descontoMotivo || '';
+  $('dAviso').style.display = 'none';
+  pintarLimite();
+  previewDesc();
+  abrir('mDesc');
+}
+
+const subtotalItens = () => ITENS.reduce((s, i) => s + Number(i.valorTotal || 0), 0);
+
+/**
+ * "Limite disponível", vindo do SERVIDOR.
+ *
+ * A tela não calcula alçada nenhuma: ela não conhece as faixas nem o papel do
+ * operador. O número chega pronto no GET do pedido e aqui só é escrito na tela.
+ * Se não vier, o rótulo some — melhor nenhum número que um número inventado.
+ */
+function pintarLimite() {
+  const lim = PEDIDO && PEDIDO.__limiteDesconto;
+  const ln = $('lnLimite');
+  if (!lim || lim.ilimitado) { ln.style.display = 'none'; return; }
+  ln.style.display = '';
+  $('dLimite').textContent = brl(lim.valor || 0)
+    + (lim.percentual != null ? ` (${Number(lim.percentual).toLocaleString('pt-BR')}%)` : '');
+}
+
+/** Prévia local: mostra o percentual que o valor digitado representa. */
+function previewDesc() {
+  const sub = subtotalItens();
+  const val = Number($('dVal').value) || 0;
+  const pct = sub > 0 ? (val * 100 / sub) : 0;
+  $('dPctCalc').textContent = pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '%';
+}
+
+/**
+ * Envia o percentual e mostra o que o BACKEND respondeu.
+ *
+ * Nenhuma regra de alçada existe nesta tela: ela não sabe quais são as faixas
+ * nem qual o papel do operador. Duplicar essa decisão no frontend criaria duas
+ * respostas possíveis para a mesma pergunta — e a do navegador é a que se
+ * altera com o DevTools aberto.
+ */
+async function aplicarDesconto() {
+  const val = $('dVal').value === '' ? 0 : Number($('dVal').value);
+  try {
+    /* Envia REAIS (`descontoValor` + `descontoTipo: 'valor'`), que é o que o
+       vendedor digitou. Quem converte para percentual e confronta com a alçada é
+       o servidor — `calcularDesconto` já devolve o percentual equivalente, e é
+       ele que `verificarAlcadaDesconto` recebe.
+
+       Os dois campos nunca vão juntos: `lerDescontoDoCorpo` RECUSA
+       `descontoPercentual` + `descontoValor` contraditórios, e mandar ambos só
+       criaria a chance de divergirem por arredondamento. */
+    const d = await api('/api/pedidos/' + PEDIDO.id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ descontoValor: val, descontoTipo: 'valor',
+                             descontoMotivo: $('dMot').value.trim() || undefined }),
+    });
+    const info = d.desconto || {};
+    await recarregarPedido();
+    if (info.aguardandoAprovacao) {
+      PEDIDO.aguardandoAprovacao = true;
+      pintar(PEDIDO, ITENS);
+      $('dAviso').style.display = 'block';
+      $('dAviso').className = 'alert warning';
+      $('dAviso').textContent = `Desconto registrado, aguardando aprovação de "${info.papelExigido || 'aprovador'}". `
+        + 'O pedido não pode ser finalizado até a liberação.';
+      aviso('Desconto acima da sua alçada — aguardando aprovação', 'warning');
+    } else {
+      fechar('mDesc');
+      aviso(val > 0 ? 'Desconto aplicado' : 'Desconto removido');
+    }
+  } catch (e) {
+    $('dAviso').style.display = 'block';
+    $('dAviso').className = 'alert error';
+    $('dAviso').textContent = e.message;
+  }
+}
+
+/* ====================== ENTREGA ====================== */
+
+function abrirEntrega() {
+  if (!PEDIDO) return;
+  $('eEnd').value = PEDIDO.enderecoEntrega || '';
+  $('eNum').value = PEDIDO.numeroEntrega || '';
+  $('eBai').value = PEDIDO.bairroEntrega || '';
+  $('eCid').value = PEDIDO.cidadeEntrega || '';
+  $('eUf').value = PEDIDO.ufEntrega || '';
+  $('eFrete').value = Number(PEDIDO.valorFrete) || '';
+  abrir('mEnt');
+}
+
+async function salvarEntrega() {
+  const frete = $('eFrete').value === '' ? 0 : Number($('eFrete').value);
+  if (frete < 0) return aviso('Frete não pode ser negativo', 'error');   // o backend também recusa
+  try {
+    await api('/api/pedidos/' + PEDIDO.id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enderecoEntrega: $('eEnd').value.trim(), numeroEntrega: $('eNum').value.trim(),
+        bairroEntrega: $('eBai').value.trim(), cidadeEntrega: $('eCid').value.trim(),
+        ufEntrega: $('eUf').value.trim().toUpperCase(), valorFrete: frete,
+      }),
+    });
+    fechar('mEnt'); await recarregarPedido(); aviso('Entrega atualizada');
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+/* ====================== PENDENTES ====================== */
+
+/**
+ * Rascunhos de balcão. **Não reservam estoque** — `criarReservasPedido` só é
+ * chamado na confirmação (auditado nesta fase), então deixar um pedido aberto
+ * não prende mercadoria de ninguém.
+ */
+async function abrirPendentes() {
+  abrir('mPend');
+  $('listaPend').innerHTML = '<div class="muted" style="padding:8px;">Carregando…</div>';
+  try {
+    // Os dois filtros são do servidor (`status` e `tipo` em GET /api/pedidos):
+    // trazer a lista inteira para filtrar aqui desperdiçaria banda e mostraria,
+    // por um instante, pedidos que não são de balcão.
+    const d = await api('/api/pedidos?status=rascunho&tipo=pdv');
+    const lista = d.pedidos || [];
+    $('listaPend').innerHTML = lista.length ? lista.map((p) => `
+      <button class="pend-item" onclick="retomar(${p.id})" title="Retomar ${esc(p.numero)}">
+        <span class="col">
+          <span class="cli">${esc(p.clienteNome || 'Sem cliente')}</span>
+          <span class="meta">
+            <span>${esc(p.numero)}</span>
+            <span>${esc(ROTULO_MODO[p.tipoAtendimento] || 'sem atendimento')}</span>
+            <span>${dataHora(p.dataCriacao || p.dataPedido)}</span>
+          </span>
+        </span>
+        <span class="vlr">${brl(p.valorTotal)}</span>
+      </button>`).join('')
+      : `<div class="estado" style="padding:28px 12px;">
+           <span class="ic">☕</span>
+           <span class="tit">Nenhum pedido pendente</span>
+           <span class="sub">Pedidos de balcão em aberto aparecem aqui para você retomar.</span>
+         </div>`;
+  } catch (e) { $('listaPend').innerHTML = `<div class="muted" style="padding:8px;">${esc(e.message)}</div>`; }
+}
+
+async function retomar(id) {
+  try {
+    const d = await api('/api/pedidos/' + id);
+    fechar('mPend');
+    if (d.pedido) d.pedido.__limiteDesconto = d.descontoLimite || null;
+    pintar(d.pedido, d.pedido.itens || d.itens || []);
+    sincModoTopo(); pintarProdutos();
+    aviso('Pedido ' + d.pedido.numero + ' retomado');
+  } catch (e) { aviso(e.message, 'error'); }
+}
+
+/* ====================== CONTINUAR (Fase 2.2) ====================== */
+
+/**
+ * "Salvar pedido" — e o nome diz o que acontece de verdade.
+ *
+ * O pedido JÁ está gravado: cada item, cada mudança de quantidade, o desconto, o
+ * frete e o tipo de atendimento vão ao servidor no instante em que acontecem.
+ * Este botão não envia nada de novo — ele CONFIRMA o estado e diz onde o pedido
+ * ficou, que é a pergunta real de quem está no balcão ("posso sair desta tela?").
+ *
+ * Foi chamado de "Continuar" até 2026-09-11, o que sugeria uma próxima etapa que
+ * não existe ainda. Pagamento é a fase seguinte; um botão que promete pagamento e
+ * mostra um aviso é pior do que um botão honesto.
+ */
+function salvarPedido() {
+  if (!PEDIDO) return aviso('Comece um pedido antes', 'error');
+  if (!ITENS.length) return aviso('Adicione ao menos um produto', 'error');
+  aviso(`Pedido ${PEDIDO.numero} salvo — ${ITENS.length} ${ITENS.length === 1 ? 'item' : 'itens'}, `
+      + `${brl(PEDIDO.valorTotal)}. Está em Pendentes; o pagamento entra na próxima etapa.`);
+}
+
+/* ====================== GAVETA (mobile) ====================== */
+function abrirGaveta() { $('painelPedido').classList.add('open'); $('gavetaBg').classList.add('open'); }
+function fecharGaveta() { $('painelPedido').classList.remove('open'); $('gavetaBg').classList.remove('open'); }
+
+/* ====================== INÍCIO ====================== */
+sincModoTopo();
+carregarProdutos();
+</script>
+</body></html>

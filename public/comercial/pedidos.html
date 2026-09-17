@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pedidos · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -15,6 +16,10 @@
   .tbl-wrap th .sort-arrow { opacity: 0.5; font-size: 10px; margin-left: 4px; }
   .tbl-wrap th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
   .col-spacer { width: auto; padding: 0; }
+  .col-acoes { width: 40px; text-align: center; }
+  .col-acoes .btn { font-size: 1.1em; line-height: 1; min-width: 32px; }
+  #acoesLinhaBody { display: flex; flex-direction: column; gap: 8px; }
+  #acoesLinhaBody .btn { width: 100%; justify-content: center; min-height: 44px; }
 </style>
 </head>
 <body>
@@ -29,6 +34,22 @@
     <div class="actions">
       <button class="btn btn-secondary" onclick="abrirModalImport()">Importar de licitação</button>
       <button class="btn btn-secondary" onclick="criarOrcamentoVazio()">+ Novo orçamento</button>
+      <!-- As duas portas do MESMO pedido (auditoria 34, opção B).
+           "Venda rápida" é a interface de balcão/celular; "Novo pedido" é a
+           tela completa, com parcelamento, transportadora e faturamento. Não
+           são fluxos diferentes: as duas gravam em `pedidos` pelos mesmos
+           endpoints, e um pedido criado numa abre na outra pelo mesmo id.
+           Por isso a Venda rápida é um link, e não um segundo botão de criar:
+           quem cria o pedido lá é a própria tela, com o cliente já escolhido.
+
+           ⚠️ NASCE OCULTO. `pedidos-pdv` é página registrada no menu, e o RBAC
+           dela é NOMINAL: quem não a tem no perfil recebe bloqueio ao abrir
+           (`podeVerPath`). Medido em 2026-09-12: os três perfis cadastrados nos
+           tenants têm 'pedidos' e NÃO têm 'pedidos-pdv'. Mostrar o botão a eles
+           seria oferecer uma porta trancada. Quem decide é `mostrarVendaRapida`,
+           logo abaixo, pelo mesmo cache que a sidebar usa para filtrar o menu. -->
+      <a class="btn btn-secondary" id="btnVendaRapida" hidden href="/comercial/pedidos-pdv.html"
+         title="Balcão, celular ou tablet — cliente, produtos e pronto">⚡ Venda rápida</a>
       <button class="btn btn-primary" onclick="criarPedidoVazio()">+ Novo pedido</button>
     </div>
   </div>
@@ -89,6 +110,14 @@
 </div>
 
 <div id="toasts"></div>
+
+<!-- Ações de uma linha: PDF e envio sem abrir o documento -->
+<div class="modal-bg" id="modalAcoesLinha" onclick="if(event.target===this)fecharAcoesLinha()">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><h3 id="acoesLinhaTitulo">Ações</h3></div>
+    <div id="acoesLinhaBody"></div>
+  </div>
+</div>
 
 <!-- Modal Importar Licitação -->
 <div class="modal-bg" id="modalImport">
@@ -384,7 +413,7 @@ function render(){
   // Header: ordena no clique, arrasta na divisória da direita
   const arrow = (key) => key === sortKey ? (sortDir > 0 ? '▲' : '▼') : '↕';
   th.innerHTML = '<th class="col-sel"><input type="checkbox" id="selTodos" onchange="marcarTodos(this.checked)" style="width:auto;" title="Marcar os que estão na tela"></th>'
-    + '<th class="col-editar"></th>' + cols.map(c => `
+    + '<th class="col-editar"></th><th class="col-acoes"></th>' + cols.map(c => `
     <th class="sortable ${c.key === sortKey ? 'sorted' : ''}" data-key="${c.key}">
       ${c.label} <span class="sort-arrow">${arrow(c.key)}</span>
     </th>`).join('') + '<th class="col-spacer"></th>';
@@ -398,7 +427,7 @@ function render(){
   });
 
   if (!cache.length) {
-    tb.innerHTML = `<tr><td colspan="${cols.length+3}" style="text-align:center;color:var(--text-3);padding:40px;">Nenhum pedido</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="${cols.length+4}" style="text-align:center;color:var(--text-3);padding:40px;">Nenhum pedido</td></tr>`;
     atualizarBarraMassa();
     return;
   }
@@ -416,13 +445,154 @@ function render(){
       ${SELECIONADOS.has(p.id) ? 'checked' : ''} onchange="alternarPedido(${p.id}, this.checked)" style="width:auto;"></td>`;
     const editar = `<td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir pedido"
       onclick="event.stopPropagation(); abrirPedido(${p.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>`;
+    // Ações da linha: chegar ao PDF sem precisar abrir o documento. No balcão o
+    // caso mais comum é reenviar um orçamento já feito, e para isso abrir a tela
+    // inteira e procurar o menu eram quatro toques.
+    const acoes = `<td class="col-acoes" onclick="event.stopPropagation();"><button type="button"
+      class="btn btn-ghost btn-sm btn-icon-only" title="PDF e envio"
+      onclick="abrirAcoesLinha(${p.id})">⋯</button></td>`;
     const tds = cols.map(c => `<td>${renderCell(p, c)}</td>`).join('');
-    return `<tr style="cursor:pointer;" onclick="abrirPedido(${p.id})">${sel}${editar}${tds}<td class="col-spacer"></td></tr>`;
+    return `<tr style="cursor:pointer;" onclick="abrirPedido(${p.id})">${sel}${editar}${acoes}${tds}<td class="col-spacer"></td></tr>`;
   }).join('');
   atualizarBarraMassa();
 }
 
 function abrirPedido(id){ location.href = '/comercial/pedido.html?id=' + id; }
+
+/* ===================== AÇÕES DE UMA LINHA =====================
+ *
+ * Folha inferior em vez de menu suspenso: um dropdown ancorado dentro de uma
+ * tabela que rola nas duas direções sai da tela no celular, e o alvo de toque
+ * fica do tamanho da letra.
+ */
+function abrirAcoesLinha(id){
+  const p = cache.find(x => x.id === id);
+  if (!p) return;
+  const ehOrc = p.modoDocumento === 'orcamento';
+  const doc = ehOrc ? 'orçamento' : 'pedido';
+  document.getElementById('acoesLinhaTitulo').textContent = `${ehOrc ? 'Orçamento' : 'Pedido'} ${p.numero}`;
+  document.getElementById('acoesLinhaBody').innerHTML = [
+    `<button type="button" class="btn btn-primary"   onclick="baixarPdfLinha(${id}, this)">Baixar PDF do ${doc}</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="whatsappLinha(${id}, this)">Enviar via WhatsApp</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="abrirPedido(${id})">Abrir ${doc}</button>`,
+    `<button type="button" class="btn btn-ghost"     onclick="fecharAcoesLinha()">Fechar</button>`,
+  ].join('');
+  document.getElementById('modalAcoesLinha').classList.add('open');
+}
+function fecharAcoesLinha(){ document.getElementById('modalAcoesLinha').classList.remove('open'); }
+
+async function baixarPdfLinha(id, btn){
+  const p = cache.find(x => x.id === id);
+  const rotulo = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Gerando…'; }
+  try {
+    const resp = await fetch('/api/pedidos/' + id + '/pdf?download=1', { credentials: 'same-origin' });
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) throw new Error('Sua sessão expirou. Entre novamente.');
+      if (resp.status === 404) throw new Error('Este documento não foi encontrado.');
+      throw new Error('O servidor respondeu ' + resp.status + '.');
+    }
+    const blob = await resp.blob();
+    const nome = String((p && p.numero) || 'documento').replace(/[^\w.-]+/g, '-') + '.pdf';
+    // Mesma escolha da tela do documento: onde o aparelho sabe compartilhar
+    // arquivo (iPhone), a folha nativa dá salvar/imprimir/enviar.
+    try {
+      const f = new File([blob], nome, { type: 'application/pdf' });
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        await navigator.share({ files: [f], title: nome });
+        fecharAcoesLinha();
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') { fecharAcoesLinha(); return; }
+      console.warn('[pdf] compartilhamento nativo recusado:', e);
+    }
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u; a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 30000);
+    fecharAcoesLinha();
+  } catch (e) {
+    showAlert(mensagemDeRede(e, 'baixar o PDF'), 'erro');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = rotulo; }
+  }
+}
+
+/**
+ * A janela que se pode navegar para fora do sistema.
+ *
+ * Esta tela roda dentro do `<iframe id="conteudo">` de `app.html`, então aqui
+ * `location` é a do IFRAME. Navegá-la para `https://wa.me/…` faz o navegador
+ * recusar (o wa.me responde `x-frame-options: DENY`) e a área fica em branco
+ * sob a topbar — foi o defeito visto no iPhone.
+ */
+function janelaDeNavegacao(){
+  try {
+    if (window.top && window.top !== window && window.top.location.origin === location.origin) {
+      return window.top;
+    }
+  } catch (_) { /* enquadrada por outra origem */ }
+  return window;
+}
+
+async function whatsappLinha(id, btn){
+  const p = cache.find(x => x.id === id);
+  if (!p) return;
+
+  const rotulo = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Preparando…'; }
+  let link, empresa = '';
+  try {
+    const r = await fetch('/api/pedidos/' + id + '/link-publico', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || !d.success) throw new Error((d && d.error) || 'Não foi possível gerar o link.');
+    link = location.origin + d.url;
+    empresa = d.emitente || '';
+  } catch (e) {
+    showAlert(mensagemDeRede(e, 'preparar o envio pelo WhatsApp'), 'erro');
+    return;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = rotulo; }
+  }
+
+  const doc = p.modoDocumento === 'orcamento' ? 'orçamento' : 'pedido';
+  const total = Number(p.valorTotal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  const msg = `Olá! Segue o ${doc} *${p.numero}*${empresa ? ` da ${empresa}` : ''}.\n\n`
+            + `Valor total: *R$ ${total}*\n\n`
+            + `Você pode visualizar e baixar o ${doc} pelo link:\n${link}`;
+
+  // Folha nativa primeiro — no iPhone é o caminho que não navega nada.
+  if (navigator.share) {
+    try { await navigator.share({ text: msg }); fecharAcoesLinha(); return; }
+    catch (e) {
+      if (e && e.name === 'AbortError') { fecharAcoesLinha(); return; }
+      console.warn('[compartilhar] folha nativa recusada:', e);
+    }
+  }
+
+  const limpar = t => String(t || '').replace(/\D/g, '');
+  let tel = limpar(p.telefoneEntrega);
+  if (!tel) {
+    tel = limpar(prompt('Telefone do cliente (DDD + número):') || '');
+    if (!tel) return;
+  }
+  if (tel.length === 10 || tel.length === 11) tel = '55' + tel;
+
+  // Aba nova a partir da janela de TOPO. Nunca navegar esta janela: ela é o
+  // iframe, e o wa.me recusa ser enquadrado.
+  const url = `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+  fecharAcoesLinha();
+  try {
+    const w = janelaDeNavegacao().open(url, '_blank', 'noopener');
+    if (w && !w.closed) return;
+  } catch (e) { console.warn('[whatsapp] aba nova recusada:', e); }
+  showAlert('Não foi possível abrir o WhatsApp. Abra o orçamento e use Ações → Enviar via WhatsApp.', 'erro');
+}
 
 // ==================== NOVO PEDIDO / ORÇAMENTO ====================
 async function criarPedidoVazio(){ return criarVazio('pedido'); }
@@ -524,6 +694,36 @@ async function importarPart(pid, btn){
   if (m === 'pedido' || m === 'orcamento') document.getElementById('filtModo').value = m;
   aplicarModoVisual();
 })();
+
+/**
+ * Mostra "⚡ Venda rápida" só para quem consegue abri-la.
+ *
+ * `pedidos-pdv` está registrada no menu, e por isso o `podeVerPath` do RBAC faz
+ * checagem NOMINAL dela: não basta ter outra página de /comercial/. Botão
+ * sempre visível levaria metade dos perfis a um bloqueio.
+ *
+ * Usa o MESMO cache que a sidebar usa para filtrar o menu (`acessoCache`,
+ * alimentado por `/api/perfis/meu-acesso`) — nenhuma requisição nova, e as duas
+ * decisões não podem divergir por construção. Quando o cache ainda não existe
+ * (primeiro acesso neste navegador), o botão fica oculto e aparece na próxima
+ * carga: esconder demais é preferível a oferecer uma porta trancada.
+ *
+ * Isto NÃO é o controle de acesso — é só a apresentação dele. Quem barra de
+ * verdade é `perfis-acesso.js`, no servidor, e continua barrando se alguém
+ * digitar a URL à mão.
+ */
+(function mostrarVendaRapida(){
+  const btn = document.getElementById('btnVendaRapida');
+  if (!btn) return;
+  try {
+    const acesso = typeof getAcessoCache === 'function' ? getAcessoCache() : null;
+    if (!acesso) return;                                    // sem cache: mantém oculto
+    if (acesso.irrestrito || (acesso.paginas || []).includes('pedidos-pdv')) {
+      btn.hidden = false;
+    }
+  } catch (_) { /* a listagem não pode quebrar por causa de um botão */ }
+})();
+
 carregar();
 carregarResumo();
 </script>

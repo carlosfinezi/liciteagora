@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pedido · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -13,7 +14,12 @@
   .main-content { display: flex !important; flex-direction: column !important; height: 100vh !important; overflow: hidden !important; padding: 0 !important; min-height: 0 !important; }
 
   /* Header do pedido */
+  /* A reserva à direita (58px / 50px) saiu na Fase 3.3. Ela existia porque o
+     botão de tema era `position: fixed` e caía sobre "Salvar" e "Ações"
+     (relatório 29). O botão foi para a topbar do shell, fora do iframe — não há
+     mais nada flutuando sobre esta tela, e os 28px de sempre voltaram. */
   .ped-header { padding: 18px 28px; border-bottom: 1px solid var(--border); background: var(--bg-1); flex-shrink: 0; }
+  @media (max-width: 768px) { .ped-header { padding: 14px 16px; } }
   .ped-header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
   .ped-header-left { min-width: 0; }
   .ped-header-left h1 { font-size: 1.25rem; margin-bottom: 4px; }
@@ -24,7 +30,31 @@
   .back-link:hover { color: var(--accent); }
 
   /* Tabs do pedido (variante com count) */
-  .ped-tabs { display: flex; gap: 2px; background: var(--bg-1); border-bottom: 1px solid var(--border); padding: 0 28px; overflow-x: auto; flex-shrink: 0; }
+  /* A faixa de abas rola na horizontal desde sempre; o que faltava era DIZER
+     isso. No iPhone as abas depois de "Frete" ficavam fora da tela e nada
+     indicava que havia mais — a barra de rolagem do iOS só aparece durante o
+     gesto, então quem não arrastasse por acaso não descobria.
+
+     O `mask-image` apaga os últimos pixels da faixa quando há conteúdo à
+     direita, e o texto cortado no desvanecido é o que sinaliza continuidade.
+     `--tabs-fade-*` são trocados pelo JS conforme a posição da rolagem. */
+  .ped-tabs {
+    display: flex; gap: 2px; background: var(--bg-1);
+    border-bottom: 1px solid var(--border); padding: 0 28px;
+    overflow-x: auto; flex-shrink: 0;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    --tabs-fade-esq: 0px;
+    --tabs-fade-dir: 0px;
+    -webkit-mask-image: linear-gradient(to right,
+      transparent 0, #000 var(--tabs-fade-esq),
+      #000 calc(100% - var(--tabs-fade-dir)), transparent 100%);
+    mask-image: linear-gradient(to right,
+      transparent 0, #000 var(--tabs-fade-esq),
+      #000 calc(100% - var(--tabs-fade-dir)), transparent 100%);
+  }
+  .ped-tabs::-webkit-scrollbar { height: 0; }
   .ped-tab { padding: 11px 16px; cursor: pointer; color: var(--text-2); border: none; background: none; border-bottom: 2px solid transparent; font-weight: 500; font-size: 0.88em; font-family: inherit; white-space: nowrap; }
   .ped-tab:hover { color: var(--text-0); }
   .ped-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -50,6 +80,99 @@
   .drawer-body .btn { width: 100%; justify-content: flex-start; padding: 11px 14px; font-size: 0.9em; }
   .drawer-body .divider { height: 1px; background: var(--border); margin: 10px 0; }
   .drawer-body .group-label { font-size: 0.72em; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; padding: 4px 0 2px; }
+
+  /* Descrição do item: cresce com o texto em vez de cortar o nome do produto. */
+  textarea.auto-altura {
+    width: 100%; resize: none; overflow: hidden; min-height: 38px;
+    font-family: inherit; line-height: 1.35;
+    background: var(--bg-input); color: var(--text-0);
+    border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 10px;
+  }
+
+  .link-publico-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .link-publico-acoes .btn { flex: 1 1 auto; min-height: 44px; }
+
+  @media (max-width: 640px) {
+    .ped-tabs { padding: 0 12px; }
+    /* Alvo de toque confortável sem espremer as abas na largura da tela: elas
+       continuam do tamanho do texto e a faixa rola. */
+    .ped-tab { padding: 12px 14px; font-size: 0.92em; min-height: 44px; }
+
+    /* Salvar / PDF / WhatsApp / Ações em grade de dois: cabem em 320px sem
+       estourar a largura e sem virar alvos minúsculos. */
+    .ped-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+    .ped-actions .btn { width: 100%; min-height: 44px; justify-content: center; }
+
+    /* 16px é o limiar abaixo do qual o Safari do iOS dá zoom ao focar o campo,
+       jogando o formulário para fora da tela. */
+    textarea.auto-altura { font-size: 16px; }
+    .link-publico-acoes .btn { flex: 1 1 45%; }
+
+    /* ── Itens: a tabela vira CARDS ────────────────────────────────────────
+       Nove colunas não cabem em 320px de jeito nenhum. Rolando na horizontal,
+       a descrição ficava espremida num campo de 170px e saía
+       "MEIO TEMPERO COMPLET…" — o produto deixava de ser reconhecível, que era
+       justamente o ponto de ter a descrição ali.
+
+       Cada linha vira um bloco com rótulo em cima do valor (`data-rot`), e a
+       descrição ganha a largura toda. No computador nada disso vale: a tabela
+       continua tabela. */
+    .tabela-itens, .tabela-itens tbody, .tabela-itens tr, .tabela-itens td { display: block; width: 100%; }
+    .tabela-itens thead { display: none; }
+    .tabela-itens > tbody > tr {
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 12px; background: var(--bg-1);
+      position: relative;
+    }
+    .tabela-itens td {
+      border: none !important; padding: 5px 0 !important;
+      display: flex; align-items: center; gap: 10px;
+      white-space: normal !important;
+    }
+    .tabela-itens td::before {
+      content: attr(data-rot);
+      flex: 0 0 78px; color: var(--text-3);
+      font-size: .78em; text-transform: uppercase; letter-spacing: .05em;
+    }
+    /* Produto e descrição ocupam o bloco inteiro, um sobre o outro — é o que
+       se lê primeiro para saber de que item se trata. */
+    .tabela-itens td.col-descricao { display: block; }
+    .tabela-itens td.col-descricao::before { display: block; margin-bottom: 4px; }
+    .tabela-itens td.col-descricao textarea {
+      width: 100%; font-size: 16px; min-height: 44px;
+    }
+    /* O índice vira etiqueta no canto: numerar um card não precisa de linha. */
+    .tabela-itens td.col-indice {
+      position: absolute; top: 10px; right: 12px; padding: 0 !important;
+      font-size: .76em; opacity: .65;
+    }
+    .tabela-itens td.col-indice::before { content: '#'; flex: none; }
+    .tabela-itens td.col-remover { justify-content: flex-end; padding-top: 10px !important; }
+    .tabela-itens td.col-remover::before { content: ''; flex: none; }
+    .tabela-itens td.col-remover .btn { min-height: 44px; }
+    .rot-remover { display: inline; }
+
+    /* CFOP sai do CARD, não do documento.
+       No celular quem mexe no pedido está conferindo produto, quantidade e
+       valor; o código fiscal ocupa uma linha inteira do card sem servir a esse
+       trabalho, e é definido automaticamente pelo tipo de operação.
+
+       `display: none` e não remoção do HTML, de propósito: o <select> continua
+       no DOM com o valor do item, então nada muda no que é enviado, salvo ou
+       faturado — some da vista, não dos dados. No computador a coluna continua
+       exatamente como está, que é onde o CFOP é de fato ajustado. */
+    .tabela-itens td.col-cfop { display: none; }
+
+    /* Célula vazia (Disp. sem produto, remover em documento travado) some. */
+    .tabela-itens td:empty { display: none; }
+    .tabela-itens tfoot td { display: table-cell; }
+    .tabela-itens td input[type="number"] { font-size: 16px !important; }
+    .tabela-itens td select { font-size: 16px; max-width: 100%; }
+  }
+
+  /* O rótulo do botão de remover só existe no celular: na tabela ele
+     empurraria a última coluna e roubaria espaço da descrição. */
+  .rot-remover { display: none; }
 </style>
 </head>
 <body>
@@ -59,7 +182,7 @@
   <div class="ped-header">
     <div class="ped-header-top">
       <div class="ped-header-left">
-        <button class="back-link" onclick="voltar()">← Voltar aos pedidos</button>
+        <button type="button" class="back-link" id="lnkVoltar" onclick="voltar()">← Voltar aos pedidos</button>
         <h1 id="hNumero">Carregando…</h1>
         <div class="ped-header-meta" id="hMeta"></div>
       </div>
@@ -132,7 +255,7 @@
   </div>
 
   <div class="ped-painel" data-aba="itens">
-    <h3>Itens do pedido</h3>
+    <h3 id="tituloItens">Itens do documento</h3>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       <label style="color:var(--text-2);font-size:.9em;white-space:nowrap;">Tabela de preço</label>
       <select id="pedTabelaPreco" onchange="salvarTabelaPedido()" style="min-width:240px;">
@@ -142,7 +265,7 @@
     </div>
     <div id="avisoFalta" style="display:none;"></div>
     <div class="tbl-wrap">
-      <table>
+      <table class="tabela-itens">
         <thead><tr><th>#</th><th>Produto</th><th>Descrição</th><th>Qtd</th><th title="Disponível = saldo físico menos as reservas de OUTROS pedidos">Disp.</th><th>V.Unit</th><th>CFOP</th><th>Total</th><th></th></tr></thead>
         <tbody id="tbItens"></tbody>
         <tfoot id="tfItens"></tfoot>
@@ -157,7 +280,14 @@
           <input type="hidden" id="itProdId">
           <div id="itProdList" class="ac-list"></div>
         </div>
-        <div class="form-group"><label>Descrição *</label><input type="text" id="itDesc"></div>
+        <!-- Textarea, não input: descrição de produto passa dos 40 caracteres com
+             frequência ("MEIO TEMPERO COMPLETO COM AÇAFRÃO - FD 24 UN 400G") e num
+             input de uma linha o celular mostrava "MEIO TEMPERO COMPLETO COM AÇ…".
+             Quem confere o item não conseguia ver o que estava adicionando.
+             `ajustarAltura` cresce conforme o texto; o valor salvo é o mesmo. -->
+        <div class="form-group"><label>Descrição *</label>
+          <textarea id="itDesc" rows="1" class="auto-altura" oninput="ajustarAltura(this)"
+                    spellcheck="false"></textarea></div>
         <div class="form-group"><label>Qtd *</label><input type="number" id="itQtd" step="0.01" onchange="resolverPrecoItem()"></div>
         <div class="form-group"><label>V.Unit *</label><input type="number" id="itPu" step="0.01">
           <span id="itPrecoFonte" class="muted" style="font-size:.8em;"></span>
@@ -194,7 +324,7 @@
     <div class="panel">
       <div class="form-row">
         <div class="form-group"><label>Entrega prevista</label><input type="date" id="dataEntregaPrevista"></div>
-        <div class="form-group"><label>Validade do pedido</label><input type="date" id="dataValidade"></div>
+        <div class="form-group"><label id="lblValidade">Validade do pedido</label><input type="date" id="dataValidade"></div>
         <div class="form-group"><label>Faturamento previsto</label><input type="date" id="dataFaturamentoPrevista"></div>
       </div>
       <div class="form-row">
@@ -209,9 +339,9 @@
           <small>De onde a mercadoria sai na entrega</small>
         </div>
         <div class="form-group" style="grid-column: span 2;">
-          <label>Código do pedido no cliente</label>
+          <label id="lblCodCliente">Código do pedido no cliente</label>
           <input type="text" id="codigoPedidoCliente">
-          <small>Nº do pedido no ERP do cliente (referência externa)</small>
+          <small id="lblCodClienteAjuda">Nº do pedido no ERP do cliente (referência externa)</small>
         </div>
       </div>
       <div id="dataEntregaRealBox" class="card card-info" style="display:none;"></div>
@@ -225,6 +355,17 @@
          parcelas e valor mínimo. Fica no topo da aba porque explica por que os
          seletores abaixo aparecem restritos. -->
     <div id="pgtoPolitica" style="margin-bottom:12px;display:none;"></div>
+
+    <div class="panel" style="margin-bottom:10px;">
+      <div class="form-row">
+        <div class="form-group" style="grid-column: span 2;">
+          <label>Condição de pagamento
+            <a href="/financeiro/politicas-prazo.html" target="_blank" style="font-size:11px;font-weight:normal;margin-left:6px;">⚙ gerenciar</a></label>
+          <select id="politicaPrazo" onchange="aoTrocarPolitica()"></select>
+          <small id="politicaPrazoInfo" class="muted" style="display:block;margin-top:4px;"></small>
+        </div>
+      </div>
+    </div>
 
     <!-- Modo pagamento único (padrão) -->
     <div class="panel" id="pgtoModoUnico">
@@ -327,11 +468,52 @@
 <div class="drawer-overlay" id="drawerAcoes" onclick="if(event.target===this)fecharDrawer()">
   <aside class="drawer-right">
     <div class="drawer-header">
-      <h3>Ações do pedido</h3>
+      <h3 id="drawerTitulo">Ações do documento</h3>
       <button class="close" onclick="fecharDrawer()" type="button" aria-label="Fechar">×</button>
     </div>
     <div class="drawer-body" id="drawerBody"></div>
   </aside>
+</div>
+
+<!-- Envio pelo WhatsApp não concluído: a mensagem fica aqui, para copiar -->
+<div class="modal-bg" id="modalMsgWhats" onclick="if(event.target===this)fecharMsgWhats()">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3>Enviar pelo WhatsApp</h3></div>
+    <p class="muted" style="margin:0 0 12px;font-size:.9em;">
+      Não foi possível abrir o WhatsApp automaticamente. A mensagem está pronta —
+      copie e cole na conversa, ou tente abrir de novo.
+    </p>
+    <textarea id="msgWhatsTexto" readonly rows="7" onclick="this.select()"
+              style="width:100%;font-size:16px;padding:10px;border-radius:6px;
+                     border:1px solid var(--border-strong);background:var(--bg-input);
+                     color:var(--text-0);margin-bottom:14px;resize:vertical;"></textarea>
+    <div class="link-publico-acoes">
+      <button type="button" class="btn btn-primary"   onclick="copiarMsgWhats(this)">Copiar mensagem</button>
+      <button type="button" class="btn btn-secondary" id="msgWhatsAbrir">Abrir WhatsApp</button>
+      <button type="button" class="btn btn-ghost"     onclick="fecharMsgWhats()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Link público: copiar / gerar outro / revogar -->
+<div class="modal-bg" id="modalLinkPublico" onclick="if(event.target===this)fecharPainelLink()">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3 id="linkPublicoTitulo">Link público</h3></div>
+    <p class="muted" style="margin:0 0 12px;font-size:.9em;">
+      Quem receber este endereço abre o documento <strong>sem precisar de login</strong> e
+      consegue baixar o PDF. Ele não dá acesso a nenhuma outra tela do sistema.
+    </p>
+    <input type="text" id="linkPublicoUrl" readonly onclick="this.select()"
+           style="width:100%;font-size:16px;padding:10px;border-radius:6px;
+                  border:1px solid var(--border-strong);background:var(--bg-input);
+                  color:var(--text-0);margin-bottom:14px;">
+    <div class="link-publico-acoes">
+      <button type="button" class="btn btn-primary"   onclick="copiarLinkPublico(this)">Copiar link</button>
+      <button type="button" class="btn btn-secondary" onclick="regerarLinkPublico(this)">Gerar link novo</button>
+      <button type="button" class="btn btn-danger"    onclick="revogarLinkPublico(this)">Revogar</button>
+      <button type="button" class="btn btn-ghost"     onclick="fecharPainelLink()">Fechar</button>
+    </div>
+  </div>
 </div>
 
 <div id="toasts"></div>
@@ -529,9 +711,80 @@ let PRAZO_CLIENTE = null;
 let POLITICA_CLIENTE = null;
 let ROTULOS_MEIO = null;
 
+// ==================== CONDIÇÃO DE PAGAMENTO ====================
+// As opções vêm de Financeiro › Políticas de prazo. Quando o cliente tem
+// política vinculada ela é a única aceita — o servidor recusa outra.
+let POLITICAS = [];
+let POLITICA_OBRIGATORIA = null;
+
+async function carregarPoliticas(clienteId){
+  const qs = new URLSearchParams({ onde: 'vendas' });
+  if (clienteId) qs.set('pessoaId', clienteId);
+  const d = await fetch('/api/politicas-prazo/aplicaveis?' + qs).then(r => r.json()).catch(() => ({}));
+  POLITICAS = d.politicas || [];
+  POLITICA_OBRIGATORIA = d.obrigatoria || null;
+}
+
+function meiosDaPol(p){
+  if (!p || !p.meiosPermitidos) return null;
+  try { const l = JSON.parse(p.meiosPermitidos); return (Array.isArray(l) && l.length) ? l : null; }
+  catch { return null; }
+}
+
+function politicaSelecionada(){
+  const sel = document.getElementById('politicaPrazo');
+  return sel ? (POLITICAS.find(p => String(p.id) === sel.value) || null) : null;
+}
+
+function popularPoliticas(selecionada){
+  const sel = document.getElementById('politicaPrazo');
+  if (!sel) return;
+  const lista = POLITICA_OBRIGATORIA ? POLITICAS.filter(p => p.id === POLITICA_OBRIGATORIA) : POLITICAS;
+  const atual = selecionada || POLITICA_OBRIGATORIA || '';
+  sel.innerHTML = (POLITICA_OBRIGATORIA ? '' : '<option value="">— não definida —</option>')
+    + lista.map(p => `<option value="${p.id}" ${String(atual) === String(p.id) ? 'selected' : ''}>${p.nome}</option>`).join('');
+  aoTrocarPolitica();
+}
+
+function resumoPolitica(p){
+  if (!p) return 'Sem condição definida — meios livres e vencimento manual.';
+  const partes = [];
+  if (p.tipo === 'vista') partes.push('à vista (vence na emissão)');
+  else {
+    const dias = String(p.prazoDias || '').split('/').filter(Boolean);
+    if (dias.length) partes.push(dias.length > 1 ? `${dias.length} parcelas: ${dias.join('/')} dias` : `${dias[0]} dias`);
+  }
+  const meios = meiosDaPol(p);
+  const nome = (c) => (ROTULOS_MEIO && ROTULOS_MEIO[c]) || c;
+  // Um meio só: a condição já resolve, e o seletor de meio some da tela.
+  if (meios) partes.push(meios.length === 1
+    ? `recebimento em ${nome(meios[0])}`
+    : 'meios: ' + meios.map(nome).join(', '));
+  if (p.valorMinimoParcela > 0) partes.push(`parcela mín. R$ ${fmt(p.valorMinimoParcela)}`);
+  if (POLITICA_OBRIGATORIA) partes.push('condição obrigatória deste cliente');
+  return partes.join(' · ');
+}
+
+function aoTrocarPolitica(){
+  const p = politicaSelecionada();
+  const info = document.getElementById('politicaPrazoInfo');
+  if (info) info.textContent = resumoPolitica(p);
+  // A escolha reflete nos meios e semeia o gerador de parcelas.
+  aplicarMeiosPermitidos();
+  if (p) {
+    const dias = p.tipo === 'vista' ? [0]
+      : String(p.prazoDias || '').split('/').map(Number).filter(n => !isNaN(n));
+    if (dias.length) semearGerador(dias);
+  }
+}
+
+// Meios oferecidos = interseção entre o que a condição aceita e o que o
+// cadastro do cliente permite. O servidor revalida os dois.
 function meiosDisponiveis(){
-  if (!MEIOS_PERMITIDOS) return MEIOS_PAGAMENTO;
-  return MEIOS_PAGAMENTO.filter(([v]) => !v || MEIOS_PERMITIDOS.includes(v));
+  const daPolitica = meiosDaPol(politicaSelecionada());
+  const ok = (v) => (!daPolitica || daPolitica.includes(v)) && (!MEIOS_PERMITIDOS || MEIOS_PERMITIDOS.includes(v));
+  if (!daPolitica && !MEIOS_PERMITIDOS) return MEIOS_PAGAMENTO;
+  return MEIOS_PAGAMENTO.filter(([v]) => !v || ok(v));
 }
 
 // Default que não nasce inválido: se o preferido não couber na whitelist, cai
@@ -557,21 +810,23 @@ async function carregarMeiosPermitidos(clienteId){
 
 // Semeia o gerador de parcelas com o que a política diz, para o operador não
 // ter de reproduzir à mão a regra que já está cadastrada.
-function semearGeradorPelaPolitica(){
-  if (!PRAZO_CLIENTE || !PRAZO_CLIENTE.length) return;
+function semearGerador(dias){
+  if (!dias || !dias.length) return;
   const qtd = document.getElementById('parcQtd');
   const venc = document.getElementById('parcVencIni');
   const intv = document.getElementById('parcIntervalo');
-  if (qtd) qtd.value = PRAZO_CLIENTE.length;
+  if (qtd) qtd.value = dias.length;
   if (venc) {
     const d = new Date();
-    d.setDate(d.getDate() + PRAZO_CLIENTE[0]);
+    d.setDate(d.getDate() + dias[0]);
     venc.value = d.toISOString().slice(0, 10);
   }
   // Prazo irregular (30/45/90) não vira intervalo único: o gerador é linear,
   // então fica o passo entre as duas primeiras e o operador ajusta o resto.
-  if (intv && PRAZO_CLIENTE.length > 1) intv.value = PRAZO_CLIENTE[1] - PRAZO_CLIENTE[0];
+  if (intv && dias.length > 1) intv.value = dias[1] - dias[0];
 }
+
+function semearGeradorPelaPolitica(){ semearGerador(PRAZO_CLIENTE); }
 
 /** Mensagem quando alguma parcela fura o mínimo da política; '' se está tudo certo. */
 function erroValorMinimoParcela(parcelas){
@@ -589,9 +844,15 @@ function aplicarMeiosPermitidos(){
   const sel = document.getElementById('meioPagamento');
   if (sel) {
     const atual = sel.value;
-    const fixo = MEIOS_PERMITIDOS && MEIOS_PERMITIDOS.length === 1 ? MEIOS_PERMITIDOS[0] : null;
-    const escolhido = disp.some(([v]) => v === atual) ? atual : (fixo || '');
-    sel.innerHTML = disp.map(([v,l]) => `<option value="${v}" ${escolhido===v?'selected':''}>${l}</option>`).join('');
+    const reais = disp.filter(([v]) => v);
+    // Condição que fixa um único meio não deixa nada para escolher: o campo
+    // repetiria o que a condição já diz. Aplica sozinho e some da tela.
+    const unico = reais.length === 1 ? reais[0][0] : null;
+    const escolhido = unico || (disp.some(([v]) => v === atual) ? atual : '');
+    sel.innerHTML = (unico ? reais : disp)
+      .map(([v,l]) => `<option value="${v}" ${escolhido===v?'selected':''}>${l}</option>`).join('');
+    const grupo = sel.closest('.form-group');
+    if (grupo) grupo.style.display = unico ? 'none' : '';
     atualizarHintMeio();
   }
   const selDef = document.getElementById('parcMeioDefault');
@@ -776,7 +1037,9 @@ function renderParcelas(){
     vencIniEl.value = new Date().toISOString().slice(0,10);
   }
 
-  const opts = MEIOS_PAGAMENTO.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  // Antes usava MEIOS_PAGAMENTO cru: cada parcela oferecia meio que o cliente
+  // ou a condição não aceitam, e o servidor recusava só no faturar.
+  const opts = meiosDisponiveis().map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
   const box = document.getElementById('parcelasList');
   box.innerHTML = PARCELAS.map((p, i) => {
     const ehCartao = p.meioPagamento === '03' || p.meioPagamento === '04';
@@ -1034,7 +1297,11 @@ function renderResumoTipoOp(){
 
 async function onTrocarTipoOp(){
   renderResumoTipoOp();
-  setDirty();
+  // Era `setDirty()` e `recarregar()`, que nunca existiram — os nomes reais
+  // sempre foram `marcarDirty` e `carregar`. Mesmo defeito do `PEDIDO`, achado
+  // pelo teste A1 do test-orcamento-pwa: trocar o tipo de operação lançava
+  // ReferenceError e parava aqui, sem marcar a alteração como pendente.
+  marcarDirty();
   // Se já tem itens, oferece re-sugerir CFOPs
   if (pedidoAtual?.itens?.length) {
     if (confirm('Re-sugerir CFOP de todos os itens com base no novo tipo de operação?')) {
@@ -1044,7 +1311,7 @@ async function onTrocarTipoOp(){
       for (const it of pedidoAtual.itens) {
         await fetch(`/api/pedidos/${PEDIDO_ID}/itens/${it.id}/recalcular-cfop`, { method: 'POST' });
       }
-      await recarregar();
+      await carregar();
     }
   }
 }
@@ -1068,19 +1335,61 @@ function renderHeader(){
     ${!ehOrcamento && p.valorPago?`<span>· Pago <strong class="text-success">R$ ${fmt(p.valorPago)}</strong></span>`:''}
   `;
   renderAcoes();
+  aplicarNomenclatura(ehOrcamento);
 }
 
+/**
+ * Os textos visíveis chamam o documento pelo que ele é.
+ *
+ * Um orçamento com "Itens do pedido" e "Validade do pedido" na tela diz à
+ * pessoa que ela já está numa venda fechada — e "validade" é justamente o
+ * conceito que só existe no orçamento.
+ *
+ * Isto é APRESENTAÇÃO. Nenhuma tabela, coluna, rota ou variável muda de nome:
+ * o documento continua sendo um `pedido` com `modoDocumento = 'orcamento'`, que
+ * é o que permite converter um no outro sem migrar nada.
+ */
+function aplicarNomenclatura(ehOrcamento){
+  const D = ehOrcamento ? 'orçamento' : 'pedido';
+  const Dm = ehOrcamento ? 'Orçamento' : 'Pedido';
+  const textos = {
+    tituloItens:       `Itens do ${D}`,
+    lnkVoltar:         `← Voltar aos ${D}s`,
+    lblValidade:       `Validade do ${D}`,
+    lblCodCliente:     `Código do ${D} no cliente`,
+    lblCodClienteAjuda: `Nº do ${D} no ERP do cliente (referência externa)`,
+  };
+  for (const [id, txt] of Object.entries(textos)) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  }
+  void Dm;
+}
+
+/**
+ * Botões do cabeçalho: Salvar e Ações, e mais nada.
+ *
+ * PDF e WhatsApp chegaram a subir para cá na rodada anterior, com o argumento
+ * de poupar toques. O teste real desmentiu: eles duplicavam o que já estava em
+ * "Ações" e poluíam um cabeçalho que no celular já disputa espaço com número,
+ * etiquetas, cliente, data e total. Voltaram para o menu, onde estão junto das
+ * ações irmãs — imprimir, link público, converter.
+ */
 function renderAcoes(){
   const p = pedidoAtual;
   const editavel = !['entregue','faturado','cancelado'].includes(p.status);
   const btns = [];
-  if (editavel) btns.push(`<button class="btn btn-primary" onclick="salvarHeader()">Salvar</button>`);
-  btns.push(`<button class="btn btn-secondary" onclick="abrirDrawer()">Ações</button>`);
+  if (editavel) btns.push(`<button type="button" class="btn btn-primary" onclick="salvarHeader()">Salvar</button>`);
+  btns.push(`<button type="button" class="btn btn-secondary" onclick="abrirDrawer()">Ações</button>`);
   document.getElementById('hActions').innerHTML = btns.join('');
 }
 
 function abrirDrawer(){
   renderDrawerBody();
+  // "Ações do pedido" num orçamento dizia à pessoa que ela já estava numa venda
+  // fechada. O título segue o documento.
+  document.getElementById('drawerTitulo').textContent =
+    pedidoAtual && pedidoAtual.modoDocumento === 'orcamento' ? 'Ações do orçamento' : 'Ações do pedido';
   document.getElementById('drawerAcoes').classList.add('open');
 }
 function fecharDrawer(){ document.getElementById('drawerAcoes').classList.remove('open'); }
@@ -1101,9 +1410,32 @@ function renderDrawerBody(){
     if (p.status === 'cancelado') statusItems.push(`<button class="btn btn-secondary" onclick="fecharDrawer(); abrirModalMotivo('reabrir')">Reabrir</button>`);
   }
 
+  const doc = ehOrcamento ? 'orçamento' : 'pedido';
   const docsItems = [
-    `<button class="btn btn-secondary" onclick="imprimirPdf()">Imprimir PDF</button>`,
-    `<button class="btn btn-secondary" onclick="enviarWhatsApp()">Enviar via WhatsApp</button>`,
+    `<button type="button" class="btn btn-primary"   onclick="baixarPdf(this)">Baixar PDF do ${doc}</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="verPdf(this)">Visualizar PDF</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="imprimirPdf(this)">Imprimir PDF</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="enviarWhatsApp(this)">Enviar ${doc} via WhatsApp</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="gerenciarLinkPublico(this)">Link público · copiar/revogar</button>`,
+  ];
+
+  // Lista de separação — documento de EXPEDIÇÃO, e por isso só existe depois
+  // que o documento vira pedido.
+  //
+  // Num orçamento ela induzia a erro: uma folha intitulada "LISTA DE SEPARAÇÃO",
+  // com quantidades e caixas de conferência, chegando ao estoque antes de o
+  // cliente ter aprovado a proposta. Quem a recebe não tem como saber que a
+  // venda ainda não existe, e separa mercadoria que talvez não saia.
+  //
+  // A rota `/separacao` continua exposta e não foi restringida: ela é somente
+  // leitura, não toca estoque, e um pedido convertido precisa dela. O que muda
+  // é o menu deixar de oferecê-la enquanto for orçamento.
+  const separacaoItems = ehOrcamento ? [] : [
+    // Três gestos diferentes no balcão: conferir na tela, guardar o arquivo, e
+    // mandar direto para a impressora do estoque.
+    `<button type="button" class="btn btn-secondary" onclick="verSeparacao(this)">Visualizar lista de separação</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="baixarSeparacao(this)">Baixar lista de separação</button>`,
+    `<button type="button" class="btn btn-secondary" onclick="imprimirSeparacao(this)">Imprimir lista de separação</button>`,
   ];
 
   // Venda perdida: só faz sentido enquanto a venda não se concretizou —
@@ -1134,6 +1466,7 @@ function renderDrawerBody(){
   if (statusItems.length) sections.push(`<div class="group-label">Fluxo</div>` + statusItems.join(''));
   if (estoqueItems.length) sections.push(`<div class="group-label">Estoque</div>` + estoqueItems.join(''));
   sections.push(`<div class="group-label">Documentos</div>` + docsItems.join(''));
+  if (separacaoItems.length) sections.push(`<div class="group-label">Expedição</div>` + separacaoItems.join(''));
   sections.push(`<div class="group-label">Venda perdida</div>` + perdaItems.join(''));
   if (dangerItems.length) sections.push(`<div class="group-label">Zona de perigo</div>` + dangerItems.join(''));
 
@@ -1160,27 +1493,415 @@ async function converterModo(destino){
   } catch(e) { showAlert('Erro: '+e.message, 'error'); }
 }
 
-function imprimirPdf(){
-  window.open('/api/pedidos/'+PEDIDO_ID+'/pdf', '_blank');
+/* ===================== ENTREGA DE PDF ==========================
+ *
+ * Um caminho só para os três gestos — baixar, visualizar e imprimir — porque
+ * no iPhone os três terminam no MESMO lugar: a folha de compartilhamento do
+ * iOS, que é quem oferece "Salvar em Arquivos", "Imprimir" e "WhatsApp".
+ *
+ * ── Por que não `<a download>` sozinho ─────────────────────────────────────
+ *
+ * O Safari do iOS ignora o atributo `download` em boa parte dos casos, e em
+ * PWA instalado (standalone) não há barra do navegador: o PDF toma a tela
+ * inteira e o usuário fica sem caminho de volta. Foi o que aconteceu no teste
+ * real do dia 12/09.
+ *
+ * ── Por que não `window.open` ──────────────────────────────────────────────
+ *
+ * Depois de um `await`, o navegador já não considera a chamada como resposta
+ * ao toque do usuário e o bloqueador de pop-up a descarta EM SILÊNCIO. Era
+ * exatamente o defeito do botão do WhatsApp.
+ *
+ * ── O que fazemos ──────────────────────────────────────────────────────────
+ *
+ * Onde existe `navigator.share` com arquivo (iOS 15+, Android moderno), o PDF
+ * vai para a folha nativa. Onde não existe (desktop), `<a download>` funciona
+ * como sempre funcionou. A janela de ativação do WebKit é de ~5s, e o PDF
+ * chega em bem menos que isso — mas se ainda assim o share for recusado, a
+ * função cai para o download em vez de deixar o usuário sem nada.
+ */
+
+/** O aparelho sabe compartilhar um ARQUIVO (não só um texto)? */
+function podeCompartilharArquivo(){
+  try {
+    if (!navigator.share || !navigator.canShare) return false;
+    const teste = new File([new Blob([''], { type: 'application/pdf' })], 't.pdf', { type: 'application/pdf' });
+    return navigator.canShare({ files: [teste] });
+  } catch (_) { return false; }
 }
 
-function enviarWhatsApp(){
+/** Está rodando como aplicativo instalado, sem a barra do navegador? */
+function ehAppInstalado(){
+  return !!(window.navigator.standalone
+    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+}
+
+/** Busca o PDF já traduzindo os erros para português. */
+async function buscarPdf(url){
+  const resp = await fetch(url, { credentials: 'same-origin' });
+  if (!resp.ok) {
+    let detalhe = '';
+    try { const j = await resp.json(); detalhe = j.error || ''; } catch (_) {}
+    if (resp.status === 401 || resp.status === 403) throw new Error('Sua sessão expirou. Entre novamente.');
+    if (resp.status === 404) throw new Error('Este documento não foi encontrado.');
+    throw new Error(detalhe || ('O servidor respondeu ' + resp.status + '.'));
+  }
+  return resp.blob();
+}
+
+/**
+ * Entrega o PDF pelo melhor caminho que o aparelho oferece.
+ *
+ * @param {HTMLElement|null} btn   botão que disparou (vira "Gerando…")
+ * @param {string} url             rota do PDF
+ * @param {string} nomeBase        nome do arquivo, sem extensão
+ * @param {'baixar'|'ver'|'imprimir'} acao
+ */
+async function entregarPdf(btn, url, nomeBase, acao){
+  // O PDF é montado no servidor: alteração ainda não salva não apareceria nele,
+  // e a pessoa mandaria ao cliente um documento diferente do que está vendo.
+  // Salvar o cabeçalho NÃO converte nem fatura nada — é o mesmo auto-save que
+  // já acontece ao trocar de aba.
+  if (isDirty && !(await salvarHeaderSilencioso())) return;
+
+  const rotulo = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Gerando…'; }
+  const nome = String(nomeBase || 'documento').replace(/[^\w.-]+/g, '-') + '.pdf';
+  try {
+    const blob = await buscarPdf(url);
+
+    // 1. Folha nativa — o caminho do iPhone. Dá salvar, imprimir e enviar.
+    if (podeCompartilharArquivo()) {
+      try {
+        await navigator.share({ files: [new File([blob], nome, { type: 'application/pdf' })], title: nome });
+        fecharDrawer();
+        return;
+      } catch (e) {
+        // Cancelar não é falha: o usuário fechou a folha de propósito.
+        if (e && e.name === 'AbortError') { fecharDrawer(); return; }
+        console.warn('[pdf] compartilhamento nativo recusado, usando download:', e);
+      }
+    }
+
+    const objUrl = URL.createObjectURL(blob);
+
+    // 2. Imprimir no computador: iframe escondido, que abre o diálogo sem
+    //    tirar o usuário da página.
+    if (acao === 'imprimir') {
+      const f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+      f.src = objUrl;
+      f.onload = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (_) {} };
+      document.body.appendChild(f);
+      // O diálogo precisa do documento vivo enquanto estiver aberto.
+      setTimeout(() => { try { f.remove(); URL.revokeObjectURL(objUrl); } catch (_) {} }, 120000);
+      fecharDrawer();
+      return;
+    }
+
+    // 3. Baixar / visualizar.
+    const a = document.createElement('a');
+    a.href = objUrl;
+    if (acao === 'baixar') a.download = nome; else a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    // Revogar na hora cancelaria o download no Safari.
+    setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
+    fecharDrawer();
+  } catch (e) {
+    showAlert(mensagemDeRede(e, acao === 'imprimir' ? 'imprimir' : 'baixar o PDF'), 'erro');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = rotulo; }
+  }
+}
+
+function baixarPdf(btn){
+  return entregarPdf(btn, '/api/pedidos/' + PEDIDO_ID + '/pdf?download=1', nomeDoDocumento(), 'baixar');
+}
+function verPdf(btn){
+  return entregarPdf(btn, '/api/pedidos/' + PEDIDO_ID + '/pdf', nomeDoDocumento(), 'ver');
+}
+function imprimirPdf(btn){
+  return entregarPdf(btn, '/api/pedidos/' + PEDIDO_ID + '/pdf', nomeDoDocumento(), 'imprimir');
+}
+
+/**
+ * Nome do arquivo: o número do documento (ORC-2026-00003).
+ *
+ * Era aqui o `Can't find variable: PEDIDO` — o objeto do documento sempre se
+ * chamou `pedidoAtual`; `PEDIDO` nunca existiu. Centralizar em uma função só
+ * evita que a confusão volte por outro caminho.
+ */
+function nomeDoDocumento(){
+  return (pedidoAtual && pedidoAtual.numero) ? String(pedidoAtual.numero) : 'documento';
+}
+
+/* ===================== LISTA DE SEPARAÇÃO ===================== */
+
+const URL_SEPARACAO = () => '/api/pedidos/' + PEDIDO_ID + '/separacao';
+const NOME_SEPARACAO = () => 'SEPARACAO-' + nomeDoDocumento();
+
+function verSeparacao(btn){    return entregarPdf(btn, URL_SEPARACAO(), NOME_SEPARACAO(), 'ver'); }
+function baixarSeparacao(btn){ return entregarPdf(btn, URL_SEPARACAO() + '?download=1', NOME_SEPARACAO(), 'baixar'); }
+function imprimirSeparacao(btn){ return entregarPdf(btn, URL_SEPARACAO(), NOME_SEPARACAO(), 'imprimir'); }
+
+// `mensagemDeRede` vive em /js/sidebar.js, carregado por esta tela. Havia uma
+// cópia aqui, e as duas começaram a divergir — a daqui ganhava tratamento que a
+// global não tinha. Uma só, no lugar onde todas as telas a alcançam.
+
+/**
+ * Gera (ou reaproveita) o link PÚBLICO do orçamento.
+ *
+ * Devolve a URL absoluta. O token vem do servidor — 64 hex aleatórios, sem
+ * relação com o id. Chamar de novo devolve o mesmo link, para não invalidar o
+ * que já foi enviado a alguém.
+ */
+async function obterLinkPublico(regerar) {
+  const r = await fetch('/api/pedidos/' + PEDIDO_ID + '/link-publico', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(regerar ? { regerar: 'true' } : {}),
+  });
+  const d = await r.json().catch(() => null);
+  if (!r.ok || !d || !d.success) throw new Error((d && d.error) || 'Não foi possível gerar o link.');
+  // O emitente vem junto: a mensagem do WhatsApp precisa dizer de que empresa
+  // é o orçamento, e sem isto ela saía sem identificação nenhuma.
+  if (d.emitente) window.EMITENTE_NOME = d.emitente;
+  return location.origin + d.url;
+}
+
+/**
+ * Envia por WhatsApp com um link que o CLIENTE consegue abrir.
+ *
+ * O defeito que isto corrige: a mensagem levava
+ * `/api/pedidos/<id>/pdf`, que é rota autenticada — quem recebia caía na tela
+ * de login, sem ter conta. Agora vai o link público, que abre sem sessão e
+ * permite baixar o PDF.
+ */
+async function enviarWhatsApp(btn){
+  // Mesma razão do PDF: o cliente abre o link e vê o que está no banco.
+  if (isDirty && !(await salvarHeaderSilencioso())) return;
   const p = pedidoAtual;
+  const rotulo = p.modoDocumento === 'orcamento' ? 'orçamento' : 'pedido';
+
+  const rotuloBtn = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Preparando…'; }
+  let link;
+  try {
+    link = await obterLinkPublico(false);
+  } catch (e) {
+    showAlert(mensagemDeRede(e, 'preparar o envio pelo WhatsApp'), 'erro');
+    return;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = rotuloBtn; }
+  }
+  const empresa = (window.EMITENTE_NOME || '').trim();
+  const msg = `Olá! Segue o ${rotulo} *${p.numero}*${empresa ? ` da ${empresa}` : ''}.\n\n`
+            + `Valor total: *R$ ${fmt(p.valorTotal)}*\n\n`
+            + `Você pode visualizar e baixar o ${rotulo} pelo link:\n${link}`;
+
+  // 1º — folha nativa de compartilhamento.
+  //
+  // É o caminho do iPhone, e não é hipótese: `entregarPdf` já usa
+  // `navigator.share` deste MESMO iframe, e o "Baixar PDF" foi validado no
+  // aparelho real. A folha não navega nada, então o ERP fica exatamente onde
+  // está — o usuário escolhe WhatsApp e volta para o orçamento.
+  const r = await compartilharTexto(msg);
+  if (r === 'enviado' || r === 'cancelado') { fecharDrawer(); return; }
+
+  // 2º — sem folha nativa (desktop, navegador antigo): conversa direta.
   const limparTel = t => (t||'').replace(/\D/g,'');
   let tel = limparTel(p.telefoneEntrega) || limparTel(p.clienteTelefone);
   if (!tel) {
-    tel = prompt('Telefone não cadastrado. Digite o número (DDD + telefone):');
+    tel = limparTel(prompt('Telefone não cadastrado. Digite o número (DDD + telefone):') || '');
     if (!tel) return;
-    tel = limparTel(tel);
   }
   // Se tem 10 ou 11 dígitos, prefixa 55 (Brasil). Se já tem 12-13, usa como está.
   if (tel.length === 10 || tel.length === 11) tel = '55' + tel;
-  const rotulo = p.modoDocumento === 'orcamento' ? 'orçamento' : 'pedido';
-  const msg = `Olá! Segue o ${rotulo} *${p.numero}*${p.clienteNome?` — ${p.clienteNome}`:''}.\n` +
-              `Total: *R$ ${fmt(p.valorTotal)}*\n\n` +
-              `PDF do ${rotulo}: ${location.origin}/api/pedidos/${p.id}/pdf`;
-  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+  abrirWhatsApp(tel, msg);
+}
+
+/**
+ * Oferece a mensagem à folha de compartilhamento do sistema.
+ *
+ * @returns {'enviado'|'cancelado'|'indisponivel'}  'indisponivel' quando o
+ *          aparelho não tem a folha, e o chamador precisa de outro caminho.
+ */
+async function compartilharTexto(texto){
+  if (!navigator.share) return 'indisponivel';
+  try {
+    await navigator.share({ text: texto });
+    return 'enviado';
+  } catch (e) {
+    // Fechar a folha é decisão do usuário, não falha: insistir com outro
+    // caminho depois disso seria abrir o WhatsApp contra a vontade dele.
+    if (e && e.name === 'AbortError') return 'cancelado';
+    console.warn('[compartilhar] folha nativa recusada:', e);
+    return 'indisponivel';
+  }
+}
+
+/**
+ * A janela que se pode navegar para fora do sistema.
+ *
+ * ── Esta tela quase nunca é a janela ───────────────────────────────────────
+ *
+ * `shellRedirect()` (em /js/sidebar.js) manda toda página top-level do ERP para
+ * dentro de `/app.html`, onde ela vive num `<iframe id="conteudo">`. Então aqui
+ * dentro `window` é o IFRAME, e `location` é a dele — não a do navegador.
+ *
+ * ── O defeito que isto corrige, provado no aparelho ────────────────────────
+ *
+ * A correção anterior trocou `window.open` por `location.href`, e no iPhone o
+ * resultado foi pior: o WhatsApp não abria e a tela ficava vazia com a topbar
+ * do LiciteAgora por cima. A razão é que `location.href` navegava o IFRAME para
+ * `https://wa.me/…`, e o wa.me responde
+ *
+ *     x-frame-options: DENY
+ *
+ * O navegador recusa exibi-lo enquadrado e o iframe fica em branco. A topbar
+ * sobrevive porque é do `app.html`, que não foi navegado. Era exatamente a
+ * imagem relatada: cabeçalho intacto, tudo abaixo vazio.
+ *
+ * `window.top` é o documento do shell, da MESMA origem — acessá-lo é legítimo e
+ * não esbarra em política de origem cruzada. O `try` existe porque um dia esta
+ * tela pode ser embutida por outro documento, e aí o acesso lança.
+ */
+function janelaDeNavegacao(){
+  try {
+    if (window.top && window.top !== window && window.top.location.origin === location.origin) {
+      return window.top;
+    }
+  } catch (_) { /* enquadrada por origem diferente: só resta a própria janela */ }
+  return window;
+}
+
+/**
+ * Abre a conversa do WhatsApp — fora do iframe, e sem deixar tela vazia.
+ *
+ * Só chega aqui quem NÃO tem folha de compartilhamento nativa (na prática,
+ * computador). Por isso a aba nova é o caminho preferido: no computador ela
+ * mantém o ERP visível ao lado.
+ */
+function abrirWhatsApp(tel, msg){
+  const url = `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+  const alvo = janelaDeNavegacao();
   fecharDrawer();
+  try {
+    const w = alvo.open(url, '_blank', 'noopener');
+    if (w && !w.closed) return;
+  } catch (e) {
+    console.warn('[whatsapp] não foi possível abrir aba nova:', e);
+  }
+  // Pop-up barrado. Navegar o SHELL (nunca o iframe) sai do ERP inteiro, o que
+  // é aceitável no computador — mas antes disso vale oferecer a mensagem para
+  // copiar, que resolve sem tirar ninguém do lugar.
+  mostrarMensagemParaCopiar(msg, url, alvo);
+}
+
+/**
+ * Último recurso: o envio não aconteceu, e o ERP continua onde estava.
+ *
+ * O que não pode acontecer é o que aconteceu no teste real — a ação falhar e a
+ * pessoa ficar olhando uma tela vazia sem saber o que houve nem o que fazer.
+ */
+function mostrarMensagemParaCopiar(msg, url, alvo){
+  document.getElementById('msgWhatsTexto').value = msg;
+  document.getElementById('msgWhatsAbrir').onclick = () => {
+    // Navegação no shell, não no iframe: é o que evita o enquadramento negado.
+    try { (alvo || janelaDeNavegacao()).location.href = url; }
+    catch (_) { window.top.location.href = url; }
+  };
+  document.getElementById('modalMsgWhats').classList.add('open');
+}
+function fecharMsgWhats(){ document.getElementById('modalMsgWhats').classList.remove('open'); }
+
+async function copiarMsgWhats(btn){
+  const campo = document.getElementById('msgWhatsTexto');
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(campo.value);
+    else { campo.select(); campo.setSelectionRange(0, 99999); document.execCommand('copy'); }
+    if (btn) { const r = btn.innerHTML; btn.innerHTML = 'Copiado!'; setTimeout(() => { btn.innerHTML = r; }, 1800); }
+  } catch (_) {
+    campo.select();
+    showAlert('Não foi possível copiar sozinho. A mensagem está selecionada — use copiar do aparelho.', 'erro');
+  }
+}
+
+/**
+ * Painel do link público: copiar, gerar outro, revogar.
+ *
+ * Era um `prompt()` em que o usuário tinha de DIGITAR "NOVO" ou "REVOGAR". No
+ * celular isso é ruim de três formas: o teclado cobre o texto, o link não dá
+ * para selecionar, e digitar errado não faz nada sem dizer por quê.
+ */
+async function gerenciarLinkPublico(btn){
+  const rotuloBtn = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Abrindo…'; }
+  try {
+    const link = await obterLinkPublico(false);
+    fecharDrawer();
+    mostrarPainelLink(link);
+  } catch (e) {
+    showAlert(mensagemDeRede(e, 'gerar o link público'), 'erro');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = rotuloBtn; }
+  }
+}
+
+function mostrarPainelLink(link){
+  document.getElementById('linkPublicoUrl').value = link;
+  document.getElementById('modalLinkPublico').classList.add('open');
+}
+function fecharPainelLink(){
+  document.getElementById('modalLinkPublico').classList.remove('open');
+}
+
+async function copiarLinkPublico(btn){
+  const campo = document.getElementById('linkPublicoUrl');
+  try {
+    // `clipboard` exige HTTPS e nem todo WebView o expõe; `select()` +
+    // `execCommand` continua funcionando onde ele falta.
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(campo.value);
+    else { campo.select(); campo.setSelectionRange(0, 99999); document.execCommand('copy'); }
+    if (btn) { const r = btn.innerHTML; btn.innerHTML = 'Copiado!'; setTimeout(() => { btn.innerHTML = r; }, 1800); }
+  } catch (e) {
+    // Sem área de transferência, o campo fica selecionado para copiar à mão.
+    campo.select();
+    showAlert('Não foi possível copiar sozinho. O link está selecionado — use copiar do aparelho.', 'erro');
+  }
+}
+
+async function regerarLinkPublico(btn){
+  if (!confirm('Gerar um link novo?\n\nO link atual para de funcionar na hora, inclusive para quem já o recebeu.')) return;
+  const rotulo = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Gerando…'; }
+  try {
+    const novo = await obterLinkPublico(true);
+    document.getElementById('linkPublicoUrl').value = novo;
+    showAlert('Link novo gerado. O anterior deixou de funcionar.', 'sucesso');
+  } catch (e) {
+    showAlert(mensagemDeRede(e, 'gerar o link novo'), 'erro');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = rotulo; }
+  }
+}
+
+async function revogarLinkPublico(btn){
+  if (!confirm('Revogar o link público?\n\nQuem já recebeu o endereço deixa de conseguir abrir o documento. Você pode gerar outro depois.')) return;
+  const rotulo = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Revogando…'; }
+  try {
+    const r = await fetch('/api/pedidos/' + PEDIDO_ID + '/link-publico',
+      { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) throw new Error('O servidor recusou a revogação.');
+    fecharPainelLink();
+    showAlert('Link revogado. Quem tinha o endereço não consegue mais abrir.', 'sucesso');
+  } catch (e) {
+    showAlert(mensagemDeRede(e, 'revogar o link'), 'erro');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = rotulo; }
+  }
 }
 
 // ESC fecha drawer
@@ -1201,9 +1922,47 @@ function renderAbas(){
     ['historico', 'Histórico', null],
   ];
   if (p.faturaId) abas.push(['fatura', 'Fatura', null]);
-  document.getElementById('pedTabs').innerHTML = abas.map(([id,lbl,cnt]) =>
-    `<button class="ped-tab" data-aba="${id}" onclick="ativarAba('${id}')">${lbl}${cnt!=null?` <span class="count">${cnt}</span>`:''}</button>`
+  const faixa = document.getElementById('pedTabs');
+  faixa.innerHTML = abas.map(([id,lbl,cnt]) =>
+    `<button type="button" class="ped-tab" data-aba="${id}" onclick="ativarAba('${id}')">${lbl}${cnt!=null?` <span class="count">${cnt}</span>`:''}</button>`
   ).join('');
+  if (!faixa.dataset.ligado) {
+    faixa.addEventListener('scroll', () => atualizarFadeAbas(), { passive: true });
+    window.addEventListener('resize', () => atualizarFadeAbas());
+    faixa.dataset.ligado = '1';
+  }
+  atualizarFadeAbas();
+}
+
+/**
+ * Acende o desvanecido nas pontas da faixa de abas conforme sobra conteúdo.
+ *
+ * Sem ele a faixa termina numa borda dura e parece que acabou ali — foi o que
+ * aconteceu no iPhone, onde "Pagamento", "Observações" e "Histórico" existiam
+ * mas nada indicava que existissem.
+ */
+function atualizarFadeAbas(){
+  const f = document.getElementById('pedTabs');
+  if (!f) return;
+  const sobraDir = f.scrollWidth - f.clientWidth - f.scrollLeft;
+  f.style.setProperty('--tabs-fade-esq', (f.scrollLeft > 4 ? 24 : 0) + 'px');
+  f.style.setProperty('--tabs-fade-dir', (sobraDir > 4 ? 28 : 0) + 'px');
+}
+
+/** Traz a aba ativa para dentro da área visível. */
+function revelarAbaAtiva(){
+  const alvo = document.querySelector('.ped-tab.active');
+  if (!alvo || !alvo.scrollIntoView) return;
+  try { alvo.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }
+  catch (_) { alvo.scrollIntoView(); }   // navegador sem suporte às opções
+  setTimeout(atualizarFadeAbas, 400);
+}
+
+/** Cresce o textarea até caber o texto, sem barra de rolagem interna. */
+function ajustarAltura(el){
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 }
 
 async function ativarAba(aba){
@@ -1214,6 +1973,13 @@ async function ativarAba(aba){
   }
   document.querySelectorAll('.ped-tab').forEach(t => t.classList.toggle('active', t.dataset.aba === aba));
   document.querySelectorAll('.ped-painel').forEach(p => p.classList.toggle('active', p.dataset.aba === aba));
+  revelarAbaAtiva();
+  // Um textarea dentro de painel oculto mede `scrollHeight` 0, então a altura
+  // calculada na montagem sai errada e o texto nasce cortado. Só dá para medir
+  // depois que o painel aparece.
+  if (aba === 'itens') {
+    document.querySelectorAll('#tbItens textarea.desc-item').forEach(ajustarAltura);
+  }
   const u = new URL(location.href);
   u.searchParams.set('aba', aba);
   history.replaceState(null, '', u);
@@ -1317,32 +2083,38 @@ function preencher(){
     tb.innerHTML = '<tr><td colspan="9" class="muted" style="text-align:center;padding:30px;">Sem itens</td></tr>';
   } else {
     tb.innerHTML = p.itens.map((it,i) => {
+      // `data-rot` é o rótulo que aparece antes do valor quando a linha vira
+      // card no celular. No computador ele é ignorado — a tabela continua igual.
       if (!editavel) {
         return `<tr>
-          <td class="muted">${i+1}</td>
-          <td class="mono">${it.sku||'<span class="muted">livre</span>'}</td>
-          <td>${it.descricao}</td>
-          <td>${fmt(it.quantidade)} <span class="muted">${it.unidade||''}</span></td>
-          <td data-disp="${it.produtoId||''}" class="muted">—</td>
-          <td>R$ ${fmt(it.precoUnitario)}</td>
-          <td><span class="mono">${it.cfop || '—'}</span></td>
-          <td><strong>R$ ${fmt(it.valorTotal)}</strong></td>
-          <td></td>
+          <td class="muted col-indice" data-rot="Item">${i+1}</td>
+          <td class="mono" data-rot="Produto">${it.sku||'<span class="muted">livre</span>'}</td>
+          <td class="col-descricao" data-rot="Descrição">${it.descricao}</td>
+          <td data-rot="Qtd">${fmt(it.quantidade)} <span class="muted">${it.unidade||''}</span></td>
+          <td data-disp="${it.produtoId||''}" class="muted" data-rot="Disp.">—</td>
+          <td data-rot="V.Unit">R$ ${fmt(it.precoUnitario)}</td>
+          <td class="col-cfop" data-rot="CFOP"><span class="mono">${it.cfop || '—'}</span></td>
+          <td data-rot="Total"><strong>R$ ${fmt(it.valorTotal)}</strong></td>
+          <td class="col-remover"></td>
         </tr>`;
       }
       return `<tr data-item="${it.id}">
-        <td class="muted">${i+1}</td>
-        <td class="mono">${it.sku||'<span class="muted">livre</span>'}</td>
-        <td><input type="text" value="${esc(it.descricao||'')}" onchange="salvarItemCampo(${it.id},'descricao',this.value)" style="width:100%;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;"></td>
-        <td><input type="number" step="0.01" min="0" value="${Number(it.quantidade)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'quantidade',this.value)" style="width:80px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="qtd"> <span class="muted">${it.unidade||''}</span></td>
-        <td data-disp="${it.produtoId||''}" class="muted">—</td>
-        <td><input type="number" step="0.01" min="0" value="${Number(it.precoUnitario)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'precoUnitario',this.value)" style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="pu"></td>
-        <td>${cfopSelectHtml(it.id, it.cfop)}</td>
-        <td><strong data-campo="total">R$ ${fmt(it.valorTotal)}</strong></td>
-        <td><button class="btn btn-ghost btn-sm" onclick="removerItem(${it.id})" title="Remover">✕</button></td>
+        <td class="muted col-indice" data-rot="Item">${i+1}</td>
+        <td class="mono" data-rot="Produto">${it.sku||'<span class="muted">livre</span>'}</td>
+        <td class="col-descricao" data-rot="Descrição"><textarea rows="1" class="auto-altura desc-item" oninput="ajustarAltura(this)" onchange="salvarItemCampo(${it.id},'descricao',this.value)" title="${esc(it.descricao||'')}">${esc(it.descricao||'')}</textarea></td>
+        <td data-rot="Qtd"><input type="number" step="0.01" min="0" value="${Number(it.quantidade)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'quantidade',this.value)" style="width:80px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="qtd"> <span class="muted">${it.unidade||''}</span></td>
+        <td data-disp="${it.produtoId||''}" class="muted" data-rot="Disp.">—</td>
+        <td data-rot="V.Unit"><input type="number" step="0.01" min="0" value="${Number(it.precoUnitario)||0}" oninput="recalcularLinha(${it.id})" onchange="salvarItemCampo(${it.id},'precoUnitario',this.value)" style="width:100px;background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:0.88em;" data-campo="pu"></td>
+        <td class="col-cfop" data-rot="CFOP">${cfopSelectHtml(it.id, it.cfop)}</td>
+        <td data-rot="Total"><strong data-campo="total">R$ ${fmt(it.valorTotal)}</strong></td>
+        <td class="col-remover"><button type="button" class="btn btn-ghost btn-sm" onclick="removerItem(${it.id})" title="Remover">✕ <span class="rot-remover">Remover item</span></button></td>
       </tr>`;
     }).join('');
   }
+  // Os textareas nascem com `rows="1"`: sem isto a descrição longa entraria
+  // com barra de rolagem interna, que é o mesmo corte de antes com outra cara.
+  tb.querySelectorAll('textarea.desc-item').forEach(ajustarAltura);
+
   const fretePed = Number(p.valorFrete) || 0;
   const subItens = (Number(p.valorTotal) || 0) - fretePed;
   document.getElementById('tfItens').innerHTML = `
@@ -1378,11 +2150,12 @@ function preencher(){
   } else dreBox.style.display = 'none';
 
   // PAGAMENTO
-  document.getElementById('meioPagamento').innerHTML = MEIOS_PAGAMENTO.map(([v,l]) =>
-    `<option value="${v}" ${p.meioPagamento===v?'selected':''}>${l}</option>`).join('');
   document.getElementById('meioPagamento').addEventListener('change', atualizarHintMeio);
-  // A whitelist do cliente chega por fetch e recorta os seletores em seguida.
-  carregarMeiosPermitidos(p.clienteId).then(aplicarMeiosPermitidos);
+  // Condição e whitelist do cliente chegam por fetch; só então os seletores
+  // são montados — evita oferecer meio que será recusado no faturamento.
+  carregarMeiosPermitidos(p.clienteId)
+    .then(() => carregarPoliticas(p.clienteId))
+    .then(() => { popularPoliticas(p.politicaPrazoId); aplicarMeiosPermitidos(); });
   document.getElementById('resValorTotal').value = 'R$ ' + fmt(p.valorTotal);
   atualizarHintMeio();
   renderPgtoFatura();
@@ -1423,6 +2196,7 @@ function coletarBody(){
     codigoPedidoCliente: val('codigoPedidoCliente') || null,
     vendedorId: val('vendedorId') ? Number(val('vendedorId')) : null,
     depositoId: val('depositoId') ? Number(val('depositoId')) : null,
+    politicaPrazoId: val('politicaPrazo') ? Number(val('politicaPrazo')) : null,
     meioPagamento: val('meioPagamento') || null,
     observacao: val('observacao') || null,
     observacoesInterna: val('observacoesInterna') || null,
@@ -1545,9 +2319,53 @@ document.addEventListener('click', ev => {
 
 // ==================== ITENS ====================
 let acTimer;
+/**
+ * O que `selItemProd` preencheu sozinho, para saber o que pode ser desfeito.
+ *
+ * Sem isto, apagar o produto do campo de busca deixava DESCRIÇÃO e V.UNIT
+ * preenchidos com os dados do produto que não está mais selecionado — e o item
+ * seguia como avulso sem ninguém perceber.
+ *
+ * Guardar o VALOR (e não só um "veio do produto: sim/não") é o que permite
+ * distinguir o que ainda é auto-preenchimento do que a pessoa editou depois.
+ */
+let _itemAuto = { busca: '', desc: '', pu: '' };
+
+/**
+ * Desfaz o vínculo com o produto e limpa SÓ o que continua sendo dele.
+ *
+ * A regra: um campo é limpo quando seu valor atual ainda é exatamente o que o
+ * auto-preenchimento escreveu. Se a pessoa alterou a descrição depois de
+ * escolher o produto, aquele texto é trabalho dela e fica — o item passa a ser
+ * avulso, caminho que o backend aceita (`addItem` manda `produtoId: null`).
+ * Apagar o que foi digitado à mão seria pior que o defeito original.
+ *
+ * A QUANTIDADE nunca é tocada: ela não vem do produto, é sempre do usuário.
+ */
+function desvincularProduto(){
+  const prodId = document.getElementById('itProdId');
+  if (!prodId.value) return;                  // nada vinculado, nada a desfazer
+  prodId.value = '';
+
+  const desc = document.getElementById('itDesc');
+  const pu = document.getElementById('itPu');
+  if (_itemAuto.desc && desc.value === _itemAuto.desc) desc.value = '';
+  if (_itemAuto.pu !== '' && pu.value === String(_itemAuto.pu)) pu.value = '';
+
+  const fonte = document.getElementById('itPrecoFonte');
+  if (fonte) fonte.textContent = '';
+  _itemAuto = { busca: '', desc: '', pu: '' };
+}
+
 async function acItemProd(){
   clearTimeout(acTimer);
   const q = val('itBusca').trim();
+  // O vínculo vale enquanto o campo mostrar exatamente o que a seleção escreveu
+  // ("SKU — descrição"). Apagar tudo OU editar o texto desfaz o vínculo: nos dois
+  // casos o produto deixou de estar selecionado.
+  if (document.getElementById('itProdId').value && val('itBusca') !== _itemAuto.busca) {
+    desvincularProduto();
+  }
   if (!q) { document.getElementById('itProdList').innerHTML=''; return; }
   acTimer = setTimeout(async () => {
     try {
@@ -1562,10 +2380,24 @@ async function acItemProd(){
 }
 async function selItemProd(id, sku, desc, pv){
   document.getElementById('itProdId').value = id;
-  document.getElementById('itBusca').value = sku + ' — ' + desc;
+  const textoBusca = sku + ' — ' + desc;
+  document.getElementById('itBusca').value = textoBusca;
   document.getElementById('itProdList').innerHTML = '';
-  if (!val('itDesc')) document.getElementById('itDesc').value = desc;
+  // `if (!val('itDesc'))` mantido: descrição já digitada não é sobrescrita.
+  const preencheuDesc = !val('itDesc');
+  if (preencheuDesc) {
+    const campo = document.getElementById('itDesc');
+    campo.value = desc;
+    ajustarAltura(campo);   // sem isto o nome longo entra e fica escondido
+  }
   await resolverPrecoItem(pv);
+  // Registra o que ESTA seleção colocou nos campos. Só o que está aqui pode ser
+  // desfeito depois (ver `desvincularProduto`); o resto é do usuário.
+  _itemAuto = {
+    busca: textoBusca,
+    desc: preencheuDesc ? desc : '',
+    pu: val('itPu'),
+  };
 }
 
 // Resolve o preço do item pela cadeia: tabela forçada do pedido → tabela do cliente → tabela vigente → cadastro.
@@ -1604,7 +2436,9 @@ async function salvarTabelaPedido(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     pedidoAtual = d.pedido;
-    showAlert(tabelaPrecoId ? 'Tabela do pedido definida. Novos itens usarão esse preço.' : 'Tabela do pedido removida (volta ao automático).');
+    const doc = pedidoAtual && pedidoAtual.modoDocumento === 'orcamento' ? 'orçamento' : 'pedido';
+    showAlert(tabelaPrecoId ? `Tabela do ${doc} definida. Novos itens usarão esse preço.`
+                            : `Tabela do ${doc} removida (volta ao automático).`);
   } catch(e){ showAlert('Erro ao salvar tabela: ' + e.message, 'error'); }
 }
 async function addItem(){
@@ -1621,8 +2455,21 @@ async function addItem(){
     if (!d.success) throw new Error(d.error);
     pedidoAtual = d.pedido;
     ['itBusca','itProdId','itDesc','itQtd','itPu'].forEach(id=>document.getElementById(id).value='');
+    ajustarAltura(document.getElementById('itDesc'));  // volta a uma linha
+    _itemAuto = { busca: '', desc: '', pu: '' };
+    const fonteEl2 = document.getElementById('itPrecoFonte');
+    if (fonteEl2) fonteEl2.textContent = '';
     renderHeader(); renderAbas(); preencher(); carregarFalta();
     showAlert('Item adicionado');
+    // Foco de volta na busca: quem lança pedido digita um produto atrás do
+    // outro, e sem isto é preciso pegar o mouse a cada item.
+    //
+    // Só AQUI, e não ao carregar a página: o card "Adicionar item" fica abaixo
+    // do cabeçalho e das abas, e focá-lo no load rolaria a tela para baixo
+    // sozinha, escondendo o cabeçalho do pedido recém-aberto. `preventScroll`
+    // protege o mesmo princípio neste ponto — o foco vai, a tela não salta.
+    const buscaEl = document.getElementById('itBusca');
+    if (buscaEl) { try { buscaEl.focus({ preventScroll: true }); } catch { buscaEl.focus(); } }
   } catch(e){ showAlert('Erro: '+e.message, 'error'); }
 }
 async function removerItem(itemId){

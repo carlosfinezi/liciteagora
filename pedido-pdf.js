@@ -76,7 +76,7 @@ function logoBuffer(logoStr) {
 
 function gerar(stream, pedido, emitente) {
   emitente = emitente || {};
-  const doc = new PDFDocument({ size: 'A4', margin: 40 });
+  const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
   doc.pipe(stream);
 
   const pageW = doc.page.width - 80;
@@ -165,22 +165,59 @@ function gerar(stream, pedido, emitente) {
   const tableW = cols.reduce((s, c) => s + c.w, 0);
   const x0 = 40;
 
-  doc.rect(x0, y, tableW, 16).fill('#0f3460').stroke();
-  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8);
-  let cx = x0;
-  for (const c of cols) {
-    doc.text(c.label, cx + 3, y + 5, { width: c.w - 6, align: c.align });
-    cx += c.w;
+  /**
+   * Desenha o cabeçalho da tabela e devolve o novo `y`.
+   *
+   * Virou função porque ele precisa ser REDESENHADO a cada página nova. Antes,
+   * `addPage()` só reposicionava o `y`: da segunda página em diante as linhas
+   * apareciam sem cabeçalho, e quem recebia o orçamento não sabia qual coluna
+   * era qual.
+   */
+  function desenharCabecalho(yTopo) {
+    doc.rect(x0, yTopo, tableW, 16).fill('#0f3460').stroke();
+    doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8);
+    let hx = x0;
+    for (const c of cols) {
+      doc.text(c.label, hx + 3, yTopo + 5, { width: c.w - 6, align: c.align });
+      hx += c.w;
+    }
+    doc.fillColor('#000').font('Helvetica').fontSize(8);
+    return yTopo + 16;
   }
-  y += 16;
+
+  y = desenharCabecalho(y);
 
   doc.fillColor('#000').font('Helvetica').fontSize(8);
   const itens = pedido.itens || [];
+  const colDesc = cols.find((c) => c.label === 'Descrição');
+
   itens.forEach((it, i) => {
-    const linhas = Math.max(1, Math.ceil((it.descricao || '').length / 50));
-    const rowH = Math.max(14, linhas * 10);
+    /**
+     * ⚠️ ALTURA MEDIDA, NÃO ESTIMADA.
+     *
+     * Antes era `Math.ceil(descricao.length / 50) * 10` — um chute de 50
+     * caracteres por linha. Mas quem quebra a linha é o PDFKit, e ele quebra
+     * por LARGURA em pontos, não por contagem de caracteres: "TEMPERO COMPLETO
+     * COM AÇAFRÃO" em Helvetica 8 não ocupa o mesmo espaço que 28 caracteres
+     * estreitos. Quando o texto real precisava de mais linhas do que o chute
+     * previa, ele transbordava a altura reservada e escrevia POR CIMA da linha
+     * seguinte — ou da primeira linha da página seguinte, que foi o relato do
+     * item 30.
+     *
+     * `heightOfString` pergunta ao próprio PDFKit, com a mesma fonte, o mesmo
+     * tamanho e a mesma largura de coluna que serão usados no desenho.
+     */
+    const alturaDesc = doc.heightOfString(String(it.descricao || ''), {
+      width: colDesc.w - 6,
+      align: colDesc.align,
+    });
+    const rowH = Math.max(14, Math.ceil(alturaDesc) + 6);
+
     // Reserva ~80pt para totais + rodapé. Quebra página só quando realmente não cabe.
-    if (y + rowH > doc.page.height - 80) { doc.addPage(); y = 40; }
+    if (y + rowH > doc.page.height - 80) {
+      doc.addPage();
+      y = desenharCabecalho(40);
+    }
 
     if (i % 2 === 1) doc.rect(x0, y, tableW, rowH).fill('#f4f6fb').stroke('#ccc');
     doc.fillColor('#000');
@@ -195,7 +232,13 @@ function gerar(stream, pedido, emitente) {
       formatMoney(it.valorTotal),
     ];
     cols.forEach((c, idx) => {
-      doc.text(vals[idx], cx + 3, y + 3, { width: c.w - 6, align: c.align });
+      // `height` + `ellipsis`: trava o texto DENTRO da célula. Sem isso, uma
+      // descrição que meça mais do que o previsto voltaria a escrever por cima
+      // da linha de baixo — o defeito que `heightOfString` já evita, mas que
+      // não custa nada tornar impossível.
+      doc.text(vals[idx], cx + 3, y + 3, {
+        width: c.w - 6, align: c.align, height: rowH - 4, ellipsis: true,
+      });
       cx += c.w;
     });
     doc.rect(x0, y, tableW, rowH).stroke('#ccc');
@@ -253,16 +296,34 @@ function gerar(stream, pedido, emitente) {
     y = box(doc, 40, y, pageW, 'INFORMAÇÕES', infos);
   }
 
-  // Rodapé
-  const footerY = doc.page.height - 50;
-  doc.rect(40, footerY, pageW, 18).fill('#ffa94d').stroke();
-  // O texto em height-45 invade a margem inferior (40pt) e o pdfkit abriria uma página
-  // nova automática só para esta linha — zera a margem durante o rodapé.
-  const mbFooter = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  doc.fillColor('#000').font('Helvetica-Bold').fontSize(10)
-     .text(`${tituloDoc} — SEM VALOR FISCAL`, 40, footerY + 5, { width: pageW, align: 'center' });
-  doc.page.margins.bottom = mbFooter;
+  /**
+   * Rodapé em TODAS as páginas, com numeração.
+   *
+   * Antes era desenhado uma vez, na página que estivesse aberta no fim — num
+   * orçamento de duas páginas, a primeira ficava sem o aviso. Quem imprime e
+   * entrega folha por folha precisa que "SEM VALOR FISCAL" esteja em cada uma.
+   *
+   * `bufferPages: true` no construtor é o que permite voltar às páginas já
+   * escritas; `switchToPage` percorre todas no fim.
+   */
+  const faixa = doc.bufferedPageRange();
+  for (let p = faixa.start; p < faixa.start + faixa.count; p++) {
+    doc.switchToPage(p);
+    const footerY = doc.page.height - 50;
+    doc.rect(40, footerY, pageW, 18).fill('#ffa94d').stroke();
+    // O texto em height-45 invade a margem inferior (40pt) e o pdfkit abriria uma
+    // página nova automática só para esta linha — zera a margem durante o rodapé.
+    const mbFooter = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc.fillColor('#000').font('Helvetica-Bold').fontSize(10)
+       .text(`${tituloDoc} — SEM VALOR FISCAL`, 40, footerY + 5, { width: pageW, align: 'center' });
+    if (faixa.count > 1) {
+      doc.font('Helvetica').fontSize(7).fillColor('#555')
+         .text(`Página ${p - faixa.start + 1} de ${faixa.count}`, 40, footerY - 10,
+               { width: pageW, align: 'right' });
+    }
+    doc.page.margins.bottom = mbFooter;
+  }
 
   doc.end();
 }
