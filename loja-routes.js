@@ -17,12 +17,14 @@
  */
 
 const path = require('path');
+const crypto = require('crypto');
 const multer = require('multer');
 const imgs = require('./produto-imagens');
 const { requirePortalAuth } = require('./portal-routes');
 const { resolverPreco } = require('./precos-routes');
 const { gerarNumero, recalcularTotal } = require('./pedidos-routes');
 const { resolverDeposito } = require('./estoque-routes');
+const { reentrarContextoTenant } = require('./tenant-middleware');
 const { criarReservasPedido } = require('./reservas-routes');
 
 const RAIZ_PUBLICA = path.join(__dirname, 'public');
@@ -49,9 +51,113 @@ const alterSafe = (db, sql) => {
   catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
 };
 
+/**
+ * Nome de arquivo de imagem da loja, carimbado com o tenant.
+ *
+ * `uploads/loja` é pasta ÚNICA para todos os tenants — é o padrão de todas as
+ * pastas de upload deste projeto, e mudar isso agora quebraria os `logoPath` já
+ * gravados. O que dá para garantir sem migrar nada é que dois tenants nunca
+ * disputem o mesmo nome: só `Date.now()` colide se dois uploads caírem no mesmo
+ * milissegundo, e aí um tenant sobrescreve a imagem do outro.
+ *
+ * Slug + tempo + 6 bytes aleatórios tornam isso impossível na prática, e o nome
+ * passa a dizer de quem é o arquivo — o que importa na hora de auditar a pasta.
+ */
+function nomeImagemLoja(req, prefixo, ext) {
+  const slug = String(req.tenant?.slug || 'sem-tenant').replace(/[^a-z0-9-]/gi, '').slice(0, 40);
+  return `${prefixo}-${slug}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+}
+
 // Modos de cobrança. 'nenhum' mantém o comportamento B2B: o pedido vai para
 // conferência e a cobrança sai pela régua do financeiro, como sempre.
 const MODOS_PAGAMENTO = ['nenhum', 'pix', 'boleto', 'pix-ou-boleto'];
+
+/**
+ * Colunas de "Informações da empresa" no catálogo.
+ *
+ * Declaradas num lugar só porque precisam ser aplicadas em DOIS caminhos — o
+ * `db-schema.js` (tenant que já existe) e o `migrarLojaDB` (tenant novo, onde
+ * `loja_config` acaba de nascer). Duas listas divergiriam no primeiro descuido.
+ *
+ * `endereco` é TEXTO LIVRE e OPCIONAL: o endereço fiscal já vive em
+ * `fornecedor`, e é dele que a vitrine se serve quando este está vazio. A
+ * coluna existe para o caso em que o ponto de atendimento não é o endereço do
+ * CNPJ — loja de rua com matriz em outro lugar.
+ *
+ * `mostrarEndereco` nasce 0: endereço de quem vende em casa não vai ao ar sem
+ * alguém dizer que pode.
+ *
+ * `horarios` é JSON, e não tabela, porque são no máximo 7 linhas lidas sempre
+ * juntas e nunca consultadas por SQL. O formato guarda uma LISTA de faixas por
+ * dia — `{"1":[["08:00","12:00"],["14:00","18:00"]]}` —, então o segundo período
+ * que a fase seguinte pode pedir já cabe aqui sem migration nova.
+ */
+const COLUNAS_INFO_LOJA = [
+  'endereco TEXT',
+  'mostrarEndereco INTEGER NOT NULL DEFAULT 0',
+  'horarios TEXT',
+
+  /* ── Entrega e cobertura (Fase 52) ──────────────────────────────────────
+   *
+   * `servicoRetirada` nasce LIGADO e `servicoDelivery` DESLIGADO: retirada é o
+   * que toda loja consegue fazer no dia em que publica o catálogo; entrega
+   * pressupõe alguém para entregar. Ligar delivery por padrão prometeria ao
+   * consumidor um serviço que ninguém combinou.
+   *
+   * `freteModo` tem três valores e só três: 'gratis', 'fixo', 'bairro'. Cálculo
+   * por quilômetro, polígono e faixa de distância ficaram de fora por decisão —
+   * exigem mapa, e o combinado é uma solução simples antes de uma cara.
+   *
+   * `freteValor` só é lido quando o modo é 'fixo'. No modo 'bairro' o valor vem
+   * de `rest_bairros_taxa`, linha a linha. */
+  "servicoRetirada INTEGER NOT NULL DEFAULT 1",
+  "servicoDelivery INTEGER NOT NULL DEFAULT 0",
+  "freteModo TEXT NOT NULL DEFAULT 'gratis'",
+  'freteValor REAL NOT NULL DEFAULT 0',
+  'aceitaForaCobertura INTEGER NOT NULL DEFAULT 0',
+
+  /* ── Enquadramento das imagens (Fase 52) ────────────────────────────────
+   *
+   * Guarda o AJUSTE, não a imagem recortada. JSON `{"x":50,"y":30,"zoom":1.4}`,
+   * com x/y em porcentagem do quadro e zoom >= 1.
+   *
+   * Recortar e salvar o recorte seria mais simples e está errado por dois
+   * motivos: a imagem seria re-encodada a cada reajuste, degradando um pouco
+   * mais toda vez, e o original se perderia — reenquadrar depois partiria de
+   * uma imagem já cortada. Guardando só o ajuste, o arquivo enviado fica
+   * intocado e a exibição o aplica por CSS (`object-position` + `scale`). */
+  'logoFoco TEXT',
+  'bannerFoco TEXT',
+];
+
+/**
+ * Enquadramento salvo, saneado para virar CSS.
+ *
+ * Entrada não confiável como qualquer outra: x/y presos a 0–100 e zoom a 1–4.
+ * Fora disso a imagem sairia do quadro ou ficaria ilegível de tão ampliada.
+ */
+function lerFoco(bruto) {
+  let o;
+  try { o = typeof bruto === 'string' ? JSON.parse(bruto || 'null') : bruto; }
+  catch { return null; }
+  if (!o || typeof o !== 'object') return null;
+  const preso = (v, min, max, padrao) => {
+    /* `null` e `''` precisam cair no PADRÃO, não em zero: `Number(null)` é 0 e
+       passa por `isFinite`, o que fazia `{y: null}` virar y=0 — a imagem
+       encostada no topo em vez de centrada. */
+    if (v == null || v === '') return padrao;
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : padrao;
+  };
+  return {
+    x: preso(o.x, 0, 100, 50),
+    y: preso(o.y, 0, 100, 50),
+    zoom: Math.round(preso(o.zoom, 1, 4, 1) * 100) / 100,
+  };
+}
+
+/** Os três modos de frete desta fase. Fora disto, o servidor recusa. */
+const MODOS_FRETE = ['gratis', 'fixo', 'bairro'];
 
 function migrarLojaDB(db) {
   db.exec(`
@@ -74,12 +180,34 @@ function migrarLojaDB(db) {
   // conferir antes de cobrar; em venda avulsa, cobrar na hora é o que fecha.
   alterSafe(db, "ALTER TABLE loja_config ADD COLUMN pagamentoModo TEXT DEFAULT 'nenhum'");
   alterSafe(db, 'ALTER TABLE loja_config ADD COLUMN pagamentoVencimentoDias INTEGER DEFAULT 3');
+  // Banner do cabeçalho da vitrine. O par deste ALTER está em db-schema.js, que
+  // é quem alcança tenant já existente; este aqui cobre o tenant novo.
+  alterSafe(db, 'ALTER TABLE loja_config ADD COLUMN bannerPath TEXT');
+  // Redes sociais do catálogo público. Mesmo par de ALTERs do bannerPath, e pelo
+  // mesmo motivo: o db-schema.js alcança tenant existente, este aqui alcança o
+  // tenant novo, onde `loja_config` só passa a existir na linha acima.
+  alterSafe(db, 'ALTER TABLE loja_config ADD COLUMN instagram TEXT');
+  alterSafe(db, 'ALTER TABLE loja_config ADD COLUMN facebook TEXT');
+  // Endereço e horários do catálogo (Fase 51). Mesmo par de ALTERs: aqui alcança
+  // o tenant novo, no db-schema.js alcança quem já existe.
+  for (const c of COLUNAS_INFO_LOJA) alterSafe(db, `ALTER TABLE loja_config ADD COLUMN ${c}`);
   db.prepare('INSERT OR IGNORE INTO loja_config (id, tema) VALUES (1, ?)')
     .run(JSON.stringify(TEMA_PADRAO));
   // Publicar é opt-in: catálogo inteiro no ar por engano é vazamento de
   // preço e de linha de produto.
   try { db.exec('ALTER TABLE produtos ADD COLUMN publicadoNaLoja INTEGER DEFAULT 0'); }
   catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+
+  /* Destaque da vitrine.
+   *
+   * Uma COLUNA, e não uma categoria chamada "Destaques": destaque é ortogonal
+   * à categoria. Um produto continua em "Cestas de café da manhã" E aparece em
+   * Destaques — se fosse categoria, ou ele saía da sua, ou teria de existir
+   * duas vezes. Nenhuma das duas serve.
+   *
+   * Aditiva, com default 0: nenhuma linha é reescrita e todo produto nasce
+   * fora dos destaques. */
+  alterSafe(db, 'ALTER TABLE produtos ADD COLUMN destaqueNaLoja INTEGER DEFAULT 0');
 
   // Carrinho no servidor, não no navegador: o comprador monta no celular e
   // fecha no computador, e o lojista consegue ver carrinho abandonado.
@@ -105,6 +233,368 @@ const jsonOu = (t, padrao) => { try { return t ? JSON.parse(t) : padrao; } catch
 function lerConfig(db) {
   const c = db.prepare('SELECT * FROM loja_config WHERE id = 1').get() || {};
   return { ...c, tema: { ...TEMA_PADRAO, ...jsonOu(c.tema, {}) } };
+}
+
+const r2c = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/**
+ * Identificador de rede social, saneado para virar URL.
+ *
+ * Guarda-se o USUÁRIO, não a URL — e é aqui que isso se faz valer. Aceitar
+ * endereço completo abriria a porta para `javascript:alert(1)` e para
+ * `instagram.com.evil.io/loja`: o primeiro executa script na página do lojista,
+ * o segundo manda o cliente dele para outro domínio.
+ *
+ * A regra é de lista branca, não de lista negra: sobra só o que casa com
+ * `[A-Za-z0-9._-]`. Se o lojista colar a URL inteira, o prefixo conhecido é
+ * removido e o resto aproveitado — colar o link é o que as pessoas fazem, e
+ * recusar por isso seria pedantismo.
+ */
+function usuarioRede(valor, dominio) {
+  let v = String(valor == null ? '' : valor).trim();
+  if (!v) return null;
+  /* Protocolo perigoso some antes de qualquer outra coisa.
+   *
+   * REDUNDANTE de propósito, e vale dizer por quê: a lista branca lá embaixo já
+   * barra `javascript:alert(1)` sozinha — `:` e `(` não estão nos caracteres
+   * aceitos. A sabotagem de 14/09 confirmou isso: remover esta linha não abriu
+   * buraco nenhum.
+   *
+   * Ela fica porque a lista branca é o tipo de regra que alguém afrouxa no
+   * futuro para aceitar um caractere novo, e nesse dia esta linha é a que
+   * continua de pé. Uma linha é barato demais para trocar por essa aposta. */
+  if (/^\s*(javascript|data|vbscript|file):/i.test(v)) return null;
+  v = v.replace(/^https?:\/\//i, '')
+       .replace(new RegExp('^(www\\.)?' + dominio.replace('.', '\\.') + '/', 'i'), '')
+       .replace(/^@/, '')
+       .split(/[/?#]/)[0]
+       .trim();
+  if (!v) return null;
+  // Lista branca: nome de usuário é isto, e nada mais.
+  if (!/^[A-Za-z0-9._-]{1,60}$/.test(v)) return null;
+  /* Ainda parece domínio depois de tirar o prefixo? Então era outro domínio.
+   *
+   * `instagram.com.evil.io/loja` sobrevive à lista branca — ponto e hífen são
+   * legítimos num nome de usuário. O link montado continuaria seguro, porque o
+   * domínio é fixo aqui e o path foi cortado; o problema é outro: isso é erro
+   * de digitação, e publicá-lo como perfil manda o cliente do lojista para uma
+   * página que não existe. */
+  if (/\.(com|net|org|io|br|co|me|app|link|bio)\b/i.test(v)) return null;
+  return v;
+}
+
+/** Só dígitos: é o que o wa.me aceita. Máscara e sinais viram link quebrado. */
+function whatsappNormalizado(valor) {
+  const d = String(valor == null ? '' : valor).replace(/\D/g, '');
+  if (d.length < 10 || d.length > 15) return null;
+  // Número brasileiro sem DDI ganha o 55 — senão o wa.me abre uma conversa vazia.
+  return d.length <= 11 ? '55' + d : d;
+}
+
+/**
+ * O cadastro geral da empresa, do jeito que a vitrine precisa.
+ *
+ * É a FONTE DE FALLBACK — nunca a fonte preferida. A regra, em uma linha: o que
+ * o lojista configurou no Catálogo Online vence; faltando, usa-se o que o
+ * emitente já tem. É o que evita duplicar nome, logo, telefone e endereço em
+ * dois lugares e depois ter de mantê-los iguais.
+ *
+ * Só campos PÚBLICOS saem daqui: nada de CNPJ, inscrição, dados bancários ou
+ * representante legal — o emitente guarda muita coisa que não é assunto de quem
+ * está comprando.
+ */
+function empresaDe(db) {
+  try {
+    const f = db.prepare(`SELECT razaoSocial, nomeFantasia, logoBase64, telefone, celular,
+        endereco, numero, bairro, cidade, uf, cep FROM fornecedor ORDER BY id DESC LIMIT 1`).get();
+    if (!f) return {};
+    const linha = [
+      [f.endereco, f.numero].filter(Boolean).join(', '),
+      f.bairro,
+      [f.cidade, f.uf].filter(Boolean).join('/'),
+    ].filter(Boolean).join(' · ');
+    return {
+      nome: (f.nomeFantasia || '').trim() || (f.razaoSocial || '').trim() || null,
+      logo: f.logoBase64 || null,
+      telefone: (f.telefone || '').trim() || (f.celular || '').trim() || null,
+      endereco: linha || null,
+    };
+  } catch { return {}; }
+}
+
+/**
+ * Cobertura de entrega: os bairros atendidos e suas taxas.
+ *
+ * Lê `rest_bairros_taxa`, que NASCEU no módulo Restaurante mas é tabela de
+ * DEFINIÇÃO pura — `id, nome, taxa, tempoEstimadoMin, ativo`, sem chave
+ * estrangeira para `rest_comandas`. A partir da Fase 52 ela é **configuração
+ * compartilhada de cobertura**, usada também pelo Catálogo Online.
+ *
+ * O que continua separado, e precisa continuar: o PEDIDO. `rest_entregas` é que
+ * amarra a comanda, e o catálogo comercial não a toca — o pedido do catálogo
+ * termina em `pedidos`, como sempre.
+ *
+ * `somenteAtivos` existe porque o público só pode ver o que está no ar, e a
+ * tela administrativa precisa ver tudo para poder reativar.
+ */
+function bairrosCobertura(db, { somenteAtivos = true } = {}) {
+  try {
+    const sql = `SELECT id, nome, taxa, tempoEstimadoMin, ativo FROM rest_bairros_taxa
+      ${somenteAtivos ? 'WHERE ativo = 1' : ''} ORDER BY nome COLLATE NOCASE`;
+    return db.prepare(sql).all().map((b) => ({
+      id: b.id, nome: b.nome, taxa: r2c(b.taxa),
+      tempoEstimadoMin: Number(b.tempoEstimadoMin) || 0, ativo: !!b.ativo,
+    }));
+  } catch { return []; }
+}
+
+/**
+ * Configuração de entrega como o PÚBLICO pode vê-la.
+ *
+ * Só o que o consumidor precisa para decidir: quais serviços existem, quanto
+ * custa entregar e onde se entrega. Nada de modo interno de cálculo além do
+ * necessário para exibir o valor.
+ *
+ * Quando `servicoDelivery` está desligado, a cobertura inteira some do payload:
+ * publicar bairros de um serviço que não é oferecido só gera pergunta.
+ */
+function entregaPublica(db, cfg) {
+  const delivery = !!cfg.servicoDelivery;
+  const modo = MODOS_FRETE.includes(cfg.freteModo) ? cfg.freteModo : 'gratis';
+  const fora = {
+    retirada: !!cfg.servicoRetirada,
+    delivery,
+    // Sem delivery não há frete a anunciar.
+    freteModo: delivery ? modo : null,
+    freteValor: delivery && modo === 'fixo' ? r2c(cfg.freteValor) : null,
+    aceitaForaCobertura: delivery ? !!cfg.aceitaForaCobertura : false,
+    bairros: [],
+  };
+  if (delivery && modo === 'bairro') {
+    fora.bairros = bairrosCobertura(db).map((b) => ({ nome: b.nome, taxa: b.taxa }));
+  }
+  return fora;
+}
+
+const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const HORA_OK = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * Horários: JSON `{ "<0-6>": [["08:00","12:00"], ...] }`, domingo = 0.
+ *
+ * Saneado na LEITURA porque o que está no banco pode ter vindo de uma versão
+ * anterior da tela, ou de um dia em que alguém editou à mão. Faixa malformada é
+ * descartada, não corrigida: adivinhar "18:0" como "18:00" acabaria publicando
+ * um horário que ninguém escolheu.
+ */
+function lerHorarios(bruto) {
+  let o;
+  try { o = typeof bruto === 'string' ? JSON.parse(bruto || '{}') : (bruto || {}); }
+  catch { return {}; }
+  if (!o || typeof o !== 'object') return {};
+  const fora = {};
+  for (let d = 0; d <= 6; d++) {
+    const faixas = Array.isArray(o[d]) ? o[d] : (Array.isArray(o[String(d)]) ? o[String(d)] : []);
+    const boas = [];
+    for (const f of faixas) {
+      if (!Array.isArray(f) || f.length !== 2) continue;
+      const [i, fim] = [String(f[0] || '').trim(), String(f[1] || '').trim()];
+      if (!HORA_OK.test(i) || !HORA_OK.test(fim)) continue;
+      if (i >= fim) continue;                  // faixa que não fecha é faixa que não vale
+      boas.push([i, fim]);
+    }
+    if (boas.length) fora[d] = boas.sort((a, b) => a[0].localeCompare(b[0]));
+  }
+  return fora;
+}
+
+/** Agora em Brasília. Mesmo critério de `dataBrasilia()` do resto do ERP. */
+function agoraBrasilia() {
+  const b = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  return { diaSemana: b.getUTCDay(),
+           hhmm: String(b.getUTCHours()).padStart(2, '0') + ':' + String(b.getUTCMinutes()).padStart(2, '0') };
+}
+
+/**
+ * Está aberto agora? E, se não, quando abre?
+ *
+ * **Informativo, e só.** Nesta fase nada bloqueia carrinho ou pedido por causa
+ * do horário — a tela conta o que está acontecendo, não impede nada.
+ *
+ * Sem horário configurado devolve `null`: um catálogo que nunca declarou
+ * expediente não deve aparecer como "Fechado", que seria afirmar algo que o
+ * lojista não disse.
+ *
+ * O fuso é o de Brasília para todos, porque é assim que o ERP inteiro trata
+ * data (`dataBrasilia()`), e não existe timezone por tenant. Inventar um aqui
+ * criaria a primeira noção divergente de "hoje" no sistema.
+ */
+function statusAtendimento(horarios, agora = agoraBrasilia()) {
+  const h = lerHorarios(horarios);
+  if (!Object.keys(h).length) return null;
+
+  const { diaSemana, hhmm } = agora;
+  for (const [ini, fim] of (h[diaSemana] || [])) {
+    if (hhmm >= ini && hhmm < fim) {
+      return { aberto: true, fecha: fim, rotulo: `Aberto · fecha às ${fim}` };
+    }
+  }
+  // Ainda vai abrir hoje?
+  const maisTarde = (h[diaSemana] || []).find(([ini]) => hhmm < ini);
+  if (maisTarde) {
+    return { aberto: false, abre: maisTarde[0], quando: 'hoje',
+             rotulo: `Fechado · abre hoje às ${maisTarde[0]}` };
+  }
+  // Procura o próximo dia com expediente, olhando a semana inteira.
+  for (let salto = 1; salto <= 7; salto++) {
+    const d = (diaSemana + salto) % 7;
+    if (!h[d] || !h[d].length) continue;
+    const quando = salto === 1 ? 'amanhã' : DIAS[d];
+    return { aberto: false, abre: h[d][0][0], quando,
+             rotulo: `Fechado · abre ${quando} às ${h[d][0][0]}` };
+  }
+  return { aberto: false, rotulo: 'Fechado' };
+}
+
+/**
+ * Marca que NÃO deve aparecer na vitrine.
+ *
+ * `(todas)` está em 49 dos 64 produtos do `produtosbomgosto` — é lixo de
+ * importação, e impresso em cada card faz a loja parecer mal cadastrada. O
+ * filtro é SÓ de exibição pública: o cadastro continua intacto, e corrigir os
+ * dados em massa é decisão do lojista, não efeito colateral de uma tela.
+ */
+const MARCAS_LIXO = new Set(['(todas)', '(todos)', 'todas', 'todos', 'n/a', 'na', '-', '--', 'sem marca']);
+function marcaVisivel(marca) {
+  const m = String(marca == null ? '' : marca).trim();
+  if (!m) return null;
+  return MARCAS_LIXO.has(m.toLowerCase()) ? null : m;
+}
+
+/**
+ * Preço "de", riscado, quando o produto está mais barato do que o de tabela.
+ *
+ * Não existe campo de promoção neste ERP, e inventar um seria criar uma segunda
+ * verdade sobre preço. O que existe é `tabelas_preco` com vigência, que o
+ * `resolverPreco` já aplica — então promoção aqui é exatamente isto: o preço
+ * resolvido veio ABAIXO do `precoVenda` cadastrado.
+ *
+ * Devolve null quando não há diferença, e a tela não desenha nada.
+ */
+function precoAnterior(cfg, produto, precoResolvido) {
+  if (!cfg.mostrarPreco || precoResolvido == null) return null;
+  const cheio = r2c(produto.precoVenda);
+  if (!(cheio > 0) || !(precoResolvido < cheio)) return null;
+  return cheio;
+}
+
+/**
+ * Grupos de personalização de um produto, para o catálogo público.
+ *
+ * Lê as tabelas do módulo Restaurante (ver a nota no db-schema.js): elas já
+ * expressam escolha única/múltipla, obrigatoriedade, faixa de quantidade e
+ * adicional em reais, e não têm vínculo nenhum com `rest_comandas`.
+ *
+ * Tolerante à ausência das tabelas: tenant sem o schema do restaurante
+ * simplesmente não tem personalização, em vez de derrubar o catálogo.
+ */
+function personalizacoesDe(db, produtoId) {
+  try {
+    const grupos = db.prepare(`SELECT g.id, g.nome, g.descricao, g.minEscolhas, g.maxEscolhas,
+        COALESCE(g.tipo, 'escolha') AS tipo, pg.ordem
+      FROM rest_produto_grupos pg
+      JOIN rest_grupos_opcao g ON g.id = pg.grupoId
+      WHERE pg.produtoId = ? AND g.ativo = 1
+      ORDER BY pg.ordem, g.ordem, g.id`).all(produtoId);
+
+    const opcoes = db.prepare(`SELECT id, grupoId, nome, precoAdicional
+      FROM rest_opcoes WHERE ativo = 1 ORDER BY ordem, id`).all();
+
+    return grupos.map((g) => ({
+      id: g.id, nome: g.nome, descricao: g.descricao || null, tipo: g.tipo,
+      minEscolhas: Number(g.minEscolhas) || 0,
+      maxEscolhas: Number(g.maxEscolhas) || 1,
+      obrigatorio: (Number(g.minEscolhas) || 0) > 0,
+      opcoes: g.tipo === 'texto' ? [] : opcoes
+        .filter((o) => o.grupoId === g.id)
+        .map((o) => ({ id: o.id, nome: o.nome, precoAdicional: r2c(o.precoAdicional) })),
+    }));
+  } catch { return []; }
+}
+
+/**
+ * Confere as escolhas do comprador contra os grupos REAIS do produto.
+ *
+ * A validação é por pertencimento, não por existência: não basta a opção
+ * existir, ela precisa pertencer a um grupo DAQUELE produto. Sem isso, mandar o
+ * id de uma opção de outro item passaria — e é o primeiro lugar onde alguém
+ * tentaria mexer.
+ */
+function validarEscolhas(grupos, idsEscolhidos, textos) {
+  const escolhidas = [...new Set(idsEscolhidos.filter((n) => Number.isFinite(n) && n > 0))];
+  const validas = [];
+  const textosOk = {};
+  const permitidas = new Set();
+  for (const g of grupos) for (const o of g.opcoes) permitidas.add(o.id);
+
+  for (const id of escolhidas) {
+    if (!permitidas.has(id)) {
+      return { erro: 'Opção inválida para este produto' };
+    }
+  }
+
+  for (const g of grupos) {
+    if (g.tipo === 'texto') {
+      const t = String(textos[g.id] ?? textos[String(g.id)] ?? '').trim().slice(0, 300);
+      if (g.obrigatorio && !t) return { erro: `"${g.nome}" é obrigatório` };
+      if (t) textosOk[g.id] = t;
+      continue;
+    }
+    const doGrupo = g.opcoes.filter((o) => escolhidas.includes(o.id));
+    if (doGrupo.length < g.minEscolhas) {
+      return { erro: `"${g.nome}" exige ao menos ${g.minEscolhas} opção(ões)` };
+    }
+    if (doGrupo.length > g.maxEscolhas) {
+      return { erro: `"${g.nome}" aceita no máximo ${g.maxEscolhas} opção(ões)` };
+    }
+    for (const o of doGrupo) {
+      validas.push({ id: o.id, grupoId: g.id, nome: o.nome, precoAdicional: r2c(o.precoAdicional) });
+    }
+  }
+  return { opcoes: validas, textos: textosOk };
+}
+
+/**
+ * Ordem das categorias na vitrine, como Map nome→posição.
+ *
+ * Um só lugar porque a central e a vitrine pública precisam ordenar igual: se
+ * cada uma lesse por conta própria, o lojista arrastaria na central e veria
+ * outra ordem no ar — e levaria tempo até desconfiar de qual das duas mente.
+ *
+ * Ausente do Map = nunca ordenada. Quem chama trata isso como "vai depois das
+ * ordenadas", nunca como posição 0.
+ */
+function ordemCategorias(db) {
+  const m = new Map();
+  try {
+    for (const r of db.prepare('SELECT categoria, ordem FROM loja_categoria_ordem').all()) {
+      m.set(String(r.categoria).trim(), Number(r.ordem) || 0);
+    }
+  } catch (_) { /* base ainda sem a tabela de ordem */ }
+  return m;
+}
+
+/** Comparador de categorias da vitrine: ordenadas primeiro, resto alfabético. */
+function compararCategorias(ordem) {
+  return (a, b) => {
+    const oa = ordem.get(a) || 0, ob = ordem.get(b) || 0;
+    if (oa !== ob) {
+      if (!oa) return 1;
+      if (!ob) return -1;
+      return oa - ob;
+    }
+    return a.localeCompare(b, 'pt-BR');
+  };
 }
 
 /**
@@ -210,10 +700,36 @@ function registrarRotasLojaPublica(app, db) {
     try {
       const c = lerConfig(db);
       if (!c.ativa) return res.status(404).json({ success: false, error: 'Loja não publicada' });
+      /* Identidade pública, com FALLBACK para o cadastro da empresa.
+         A regra é a mesma em toda linha: o que o lojista configurou no Catálogo
+         Online vence; faltando, usa-se o dado geral do emitente. Nada é
+         duplicado — `loja_config` só guarda o que DIVERGE do cadastro. */
+      const emp = empresaDe(db);
+
       // Só o que a página precisa: nada de e-mail interno ou flags de gestão.
       res.json({ success: true, loja: {
-        nome: c.nome || 'Catálogo', descricao: c.descricao || null, logo: c.logoPath || null,
-        whatsapp: c.whatsapp || null, email: c.email || null, telefone: c.telefone || null,
+        nome: c.nome || emp.nome || 'Catálogo',
+        descricao: c.descricao || null,
+        logo: c.logoPath || emp.logo || null,
+        banner: c.bannerPath || null,
+        // Saneado na saída: o que vai para o `href` de um link público não pode
+        // carregar `javascript:` nem apontar para outro domínio.
+        instagram: usuarioRede(c.instagram, 'instagram.com'),
+        facebook: usuarioRede(c.facebook, 'facebook.com'),
+        // Normalizado no BACKEND, como pedido: o navegador recebe pronto.
+        whatsapp: whatsappNormalizado(c.whatsapp || emp.telefone),
+        email: c.email || null,
+        telefone: c.telefone || emp.telefone || null,
+        // Endereço só vai ao ar se o lojista marcou que pode.
+        endereco: c.mostrarEndereco ? (c.endereco || emp.endereco || null) : null,
+        // Informativo nesta fase: não bloqueia carrinho nem pedido.
+        atendimento: statusAtendimento(c.horarios),
+        horarios: lerHorarios(c.horarios),
+        // Serviços, frete e cobertura — o que o painel Informações precisa.
+        entrega: entregaPublica(db, c),
+        // Enquadramento escolhido pelo lojista; a imagem em si é a original.
+        logoFoco: lerFoco(c.logoFoco),
+        bannerFoco: lerFoco(c.bannerFoco),
         mostrarPreco: !!c.mostrarPreco, mostrarEstoque: !!c.mostrarEstoque, tema: c.tema,
         pagamento: c.pagamentoModo || 'nenhum',
       } });
@@ -227,13 +743,18 @@ function registrarRotasLojaPublica(app, db) {
 
       const q = String(req.query.q || '').trim().toLowerCase();
       const categoria = String(req.query.categoria || '').trim();
-      // Lista de colunas explícita: SELECT * aqui publicaria precoCusto e
-      // markup para a internet inteira.
-      let sql = `SELECT id, sku, descricao, marca, modelo, categoria, unidade, precoVenda, imagemPath
+      /* Lista de colunas explícita: SELECT * aqui publicaria precoCusto e markup
+         para a internet inteira. `destaqueNaLoja` entra porque é atributo de
+         VITRINE — a mesma estrela que o lojista marca no Catálogo Online. */
+      let sql = `SELECT id, sku, descricao, marca, modelo, categoria, unidade, precoVenda, imagemPath,
+          COALESCE(destaqueNaLoja, 0) AS destaque
         FROM produtos WHERE ativo = 1 AND publicadoNaLoja = 1`;
       const args = [];
       if (categoria) { sql += ' AND categoria = ?'; args.push(categoria); }
-      sql += ' ORDER BY descricao';
+      // A ordem escolhida na central vale AQUI — é esta a vitrine. Mesma regra
+      // do lado administrativo: posicionado à mão primeiro, resto alfabético.
+      sql += ` ORDER BY CASE WHEN COALESCE(ordemVitrine, 0) > 0 THEN 0 ELSE 1 END,
+                        COALESCE(ordemVitrine, 0), descricao`;
       let linhas = db.prepare(sql).all(...args);
       if (q) {
         linhas = linhas.filter(p => ['descricao', 'sku', 'marca', 'modelo']
@@ -245,16 +766,25 @@ function registrarRotasLojaPublica(app, db) {
       const pessoaId = pessoaLogada(req);
       const produtos = linhas.map(p => {
         const disp = disponivelDe(db, p.id);
+        const preco = precoVisivel(c, p, pessoaId);
         return {
-          id: p.id, sku: p.sku, descricao: p.descricao, marca: p.marca, modelo: p.modelo,
+          id: p.id, sku: p.sku, descricao: p.descricao, modelo: p.modelo,
           categoria: p.categoria, unidade: p.unidade,
-          preco: precoVisivel(c, p, pessoaId),
+          destaque: !!p.destaque,
+          // `marca` passa pelo filtro de lixo de importação — "(todas)" não vai
+          // ao ar. O cadastro continua como está.
+          marca: marcaVisivel(p.marca),
+          preco,
+          precoAnterior: precoAnterior(c, p, preco),
+          // Com personalização obrigatória o "+" não pode adicionar direto: a
+          // tela precisa abrir o produto antes.
+          temPersonalizacao: personalizacoesDe(db, p.id).length > 0,
           estoque: c.mostrarEstoque ? rotuloEstoque(disp) : null,
           fotos: fotosDe(p.id, p.imagemPath),
         };
       });
       const categorias = [...new Set(linhas.map(p => (p.categoria || '').trim()).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+        .sort(compararCategorias(ordemCategorias(db)));
       res.json({ success: true, total: produtos.length, categorias, produtos });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
@@ -337,6 +867,10 @@ function registrarRotasLojaPublica(app, db) {
       const observacao = ['[Loja virtual]', String(req.body?.observacao || '').trim()].filter(Boolean).join(' ');
       const pedidoId = db.transaction(() => {
         const numero = gerarNumero(db, 'pedido');
+        // tipo='catalogo' desde 2026-09-10: a origem do pedido passa a ser
+        // legível em `pedidos.tipo`, que nenhum filtro ou relatório consome
+        // (auditado no relatório 12). `origemLoja` continua como está — é o que
+        // as consultas desta loja usam, e mexer nele quebraria as telas dela.
         const id = db.prepare(`INSERT INTO pedidos
             (numero, tipo, modoDocumento, clienteId, status, dataPedido, observacao, depositoId, origemLoja)
           VALUES (?, 'manual', 'pedido', ?, 'rascunho', date('now','-3 hours'), ?, ?, 1)`)
@@ -422,12 +956,134 @@ function registrarRotasLojaPublica(app, db) {
         FROM produtos WHERE id = ? AND ativo = 1 AND publicadoNaLoja = 1`).get(req.params.id);
       if (!p) return res.status(404).json({ success: false, error: 'Produto não encontrado' });
       const disp = disponivelDe(db, p.id);
+      const preco = precoVisivel(c, p, pessoaLogada(req));
       res.json({ success: true, produto: {
         ...p, precoVenda: undefined,
-        preco: precoVisivel(c, p, pessoaLogada(req)),
+        marca: marcaVisivel(p.marca),
+        preco,
+        precoAnterior: precoAnterior(c, p, preco),
         estoque: c.mostrarEstoque ? rotuloEstoque(disp) : null,
+        disponivel: c.mostrarEstoque ? disp : null,
         fotos: fotosDe(p.id, p.imagemPath),
+        personalizacoes: personalizacoesDe(db, p.id),
       } });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * POST /loja/api/carrinho/calcular — o SERVIDOR é a autoridade do preço.
+   *
+   * O carrinho do visitante anônimo mora no navegador, e é por isso que esta
+   * rota existe: o que o localStorage guarda são REFERÊNCIAS (produto,
+   * quantidade, ids de opção, comentário), nunca dinheiro. Todo valor mostrado
+   * na sacola volta daqui, recalculado a partir do banco.
+   *
+   * O que ela recusa, e por quê:
+   *   - produto que não está publicado ou não é deste tenant → o item some;
+   *   - opção que NÃO pertence a um grupo daquele produto → 422. É o vetor mais
+   *     óbvio de fraude: mandar o id de uma opção barata de outro produto, ou o
+   *     de um grupo que ninguém ofereceu;
+   *   - grupo obrigatório sem escolha, ou fora do mínimo/máximo → 422.
+   *
+   * `precoAdicional` NUNCA vem do corpo — é lido de `rest_opcoes` pelo id. Um
+   * adicional adulterado no navegador não muda um centavo.
+   */
+  app.post('/loja/api/carrinho/calcular', (req, res) => {
+    try {
+      const c = lerConfig(db);
+      if (!c.ativa) return res.status(404).json({ success: false, error: 'Loja não publicada' });
+
+      const bruto = Array.isArray(req.body?.itens) ? req.body.itens : [];
+      if (bruto.length > 200) {
+        return res.status(422).json({ success: false, error: 'Carrinho grande demais' });
+      }
+
+      const pessoaId = pessoaLogada(req);
+      const itens = [];
+      for (const [i, entrada] of bruto.entries()) {
+        const produtoId = Number(entrada && entrada.produtoId);
+        const quantidade = Math.floor(Number(entrada && entrada.quantidade) || 0);
+        if (!Number.isFinite(produtoId) || produtoId <= 0 || quantidade <= 0) continue;
+
+        const p = db.prepare(`SELECT id, sku, descricao, marca, unidade, precoVenda, imagemPath
+          FROM produtos WHERE id = ? AND ativo = 1 AND publicadoNaLoja = 1`).get(produtoId);
+        if (!p) continue;                       // despublicado entre visitas: some da sacola
+
+        const grupos = personalizacoesDe(db, p.id);
+        const escolhidas = Array.isArray(entrada.opcoes) ? entrada.opcoes.map(Number) : [];
+        const textos = (entrada.textos && typeof entrada.textos === 'object') ? entrada.textos : {};
+
+        const validado = validarEscolhas(grupos, escolhidas, textos);
+        if (validado.erro) {
+          return res.status(422).json({ success: false, error: validado.erro, item: i, produtoId });
+        }
+
+        const precoBase = precoVisivel(c, p, pessoaId);
+        const adicional = validado.opcoes.reduce((s, o) => s + o.precoAdicional, 0);
+        const unitario = precoBase == null ? null : r2c(precoBase + adicional);
+
+        itens.push({
+          produtoId: p.id, sku: p.sku, descricao: p.descricao,
+          marca: marcaVisivel(p.marca), unidade: p.unidade,
+          foto: (fotosDe(p.id, p.imagemPath)[0] || null),
+          quantidade,
+          precoBase, adicional: r2c(adicional), precoUnitario: unitario,
+          total: unitario == null ? null : r2c(unitario * quantidade),
+          opcoes: validado.opcoes.map((o) => ({ id: o.id, grupoId: o.grupoId, nome: o.nome,
+                                                precoAdicional: o.precoAdicional })),
+          textos: validado.textos,
+          comentario: entrada.comentario == null ? null : String(entrada.comentario).trim().slice(0, 300) || null,
+        });
+      }
+
+      const semPreco = itens.some((i) => i.total == null);
+      const total = r2c(itens.reduce((s, i) => s + (i.total || 0), 0));
+      res.json({ success: true, itens, total, semPreco,
+                 quantidadeItens: itens.reduce((s, i) => s + i.quantidade, 0) });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * GET /loja/api/sugestoes — o "Complete seu pedido".
+   *
+   * Regra simples e declarada, como pedido: destaques primeiro, depois quem
+   * divide categoria com o que já está na sacola, depois o resto. Nada de
+   * algoritmo de recomendação — o que existe aqui é ordem de preferência, não
+   * inteligência, e vale mais ser previsível do que esperto.
+   *
+   * Nunca sugere o que já está no carrinho: repetir o que a pessoa acabou de
+   * escolher é o jeito mais rápido de a seção parecer quebrada.
+   */
+  app.get('/loja/api/sugestoes', (req, res) => {
+    try {
+      const c = lerConfig(db);
+      if (!c.ativa) return res.status(404).json({ success: false, error: 'Loja não publicada' });
+
+      const noCarrinho = String(req.query.excluir || '')
+        .split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0);
+      const cats = String(req.query.categorias || '').split('|').map((s) => s.trim()).filter(Boolean);
+      const limite = Math.min(12, Math.max(1, Number(req.query.limite) || 8));
+
+      const linhas = db.prepare(`SELECT id, sku, descricao, marca, categoria, unidade, precoVenda, imagemPath,
+          COALESCE(destaqueNaLoja, 0) AS destaque
+        FROM produtos WHERE ativo = 1 AND publicadoNaLoja = 1`).all();
+
+      const pessoaId = pessoaLogada(req);
+      const candidatos = linhas
+        .filter((p) => !noCarrinho.includes(p.id))
+        .map((p) => ({ p, peso: p.destaque ? 0 : (cats.includes(String(p.categoria || '')) ? 1 : 2) }))
+        .sort((a, b) => a.peso - b.peso
+          || String(a.p.descricao).localeCompare(String(b.p.descricao), 'pt-BR'))
+        .slice(0, limite);
+
+      res.json({ success: true, produtos: candidatos.map(({ p }) => {
+        const preco = precoVisivel(c, p, pessoaId);
+        return { id: p.id, sku: p.sku, descricao: p.descricao, marca: marcaVisivel(p.marca),
+                 categoria: p.categoria, unidade: p.unidade, destaque: !!p.destaque,
+                 preco, precoAnterior: precoAnterior(c, p, preco),
+                 temPersonalizacao: personalizacoesDe(db, p.id).length > 0,
+                 fotos: fotosDe(p.id, p.imagemPath) };
+      }) });
     } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 }
@@ -487,7 +1143,17 @@ function registrarRotasLojaAdmin(app, db) {
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
-  app.post('/api/loja/logo', uploadLogo.single('logo'), (req, res) => {
+  /* `reentrarContextoTenant` é OBRIGATÓRIO depois do multer.
+   *
+   * O AsyncLocalStorage do tenant não atravessa os callbacks de stream: o
+   * busboy lê o corpo no contexto de quando o socket nasceu, que é ANTES do
+   * `tenantStorage.run()`. Quando o handler roda, o store já não existe, e o
+   * primeiro `db.prepare` estoura "currentDb() chamado fora de contexto de
+   * tenant" — devolvido como 400, sem dizer o que aconteceu.
+   *
+   * Reproduzido no tenant `produtosbomgosto` em 14/09 antes desta linha existir.
+   * Mesmo padrão de contas-receber, contratos, financeiro, OS e importação. */
+  app.post('/api/loja/logo', uploadLogo.single('logo'), reentrarContextoTenant, (req, res) => {
     try {
       if (!req.file?.buffer) return res.status(400).json({ success: false, error: 'Envie o arquivo do logotipo' });
       // Assinatura do arquivo, não o content-type declarado — mesma regra da
@@ -497,11 +1163,35 @@ function registrarRotasLojaAdmin(app, db) {
       const fs = require('fs');
       const dir = path.join(RAIZ_PUBLICA, SUBDIR_LOJA);
       fs.mkdirSync(dir, { recursive: true });
-      const nome = 'logo-' + Date.now() + ext;
+      const nome = nomeImagemLoja(req, 'logo', ext);
       fs.writeFileSync(path.join(dir, nome), req.file.buffer);
       const caminho = '/' + SUBDIR_LOJA + '/' + nome;
-      db.prepare('UPDATE loja_config SET logoPath=?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run(caminho);
+      // Imagem nova, enquadramento zerado: o ajuste pertencia à imagem antiga
+      // e aplicá-lo à nova recortaria um pedaço que ninguém escolheu.
+      db.prepare('UPDATE loja_config SET logoPath=?, logoFoco=NULL, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1')
+        .run(caminho);
       res.json({ success: true, logo: caminho });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * PUT /api/loja/enquadramento — só o ajuste, nunca a imagem.
+   *
+   * Separado do upload de propósito: reenquadrar não reenvia arquivo, e não
+   * deve mesmo. É o que garante que o original nunca seja re-encodado.
+   */
+  app.put('/api/loja/enquadramento', (req, res) => {
+    try {
+      const qual = String(req.body?.qual || '');
+      if (!['logo', 'banner'].includes(qual)) {
+        return res.status(422).json({ success: false, error: 'qual: logo ou banner' });
+      }
+      const foco = lerFoco(req.body?.foco);
+      if (!foco) return res.status(422).json({ success: false, error: 'Enquadramento inválido' });
+      const coluna = qual === 'logo' ? 'logoFoco' : 'bannerFoco';
+      db.prepare(`UPDATE loja_config SET ${coluna} = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = 1`)
+        .run(JSON.stringify(foco));
+      res.json({ success: true, foco });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
@@ -509,6 +1199,281 @@ function registrarRotasLojaAdmin(app, db) {
     try {
       db.prepare('UPDATE loja_config SET logoPath=NULL, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run();
       res.json({ success: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /* Banner do cabeçalho — espelha o logo, inclusive na validação.
+   *
+   * `imgs.tipoReal()` de novo, e não o content-type: quem sobe banner sobe
+   * arquivo grande vindo de qualquer lugar, e a extensão mente. */
+  // Mesmo motivo da rota de logo acima: sem isto, o upload morre no primeiro
+  // acesso ao db com "currentDb() chamado fora de contexto de tenant".
+  app.post('/api/loja/banner', uploadLogo.single('banner'), reentrarContextoTenant, (req, res) => {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ success: false, error: 'Envie o arquivo do banner' });
+      const ext = imgs.tipoReal(req.file.buffer);
+      if (!ext) return res.status(400).json({ success: false, error: 'O arquivo não é uma imagem JPEG, PNG, WEBP ou GIF' });
+      const fs = require('fs');
+      const dir = path.join(RAIZ_PUBLICA, SUBDIR_LOJA);
+      fs.mkdirSync(dir, { recursive: true });
+      const nome = nomeImagemLoja(req, 'banner', ext);
+      fs.writeFileSync(path.join(dir, nome), req.file.buffer);
+      const caminho = '/' + SUBDIR_LOJA + '/' + nome;
+      // Imagem nova, enquadramento zerado: o ajuste pertencia à imagem antiga
+      // e aplicá-lo à nova recortaria um pedaço que ninguém escolheu.
+      db.prepare('UPDATE loja_config SET bannerPath=?, bannerFoco=NULL, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1')
+        .run(caminho);
+      res.json({ success: true, banner: caminho });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  app.delete('/api/loja/banner', (req, res) => {
+    try {
+      db.prepare('UPDATE loja_config SET bannerPath=NULL, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run();
+      res.json({ success: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /* Nome da loja, isolado do PUT /api/loja/config.
+   *
+   * O PUT grava a configuração INTEIRA de uma vez: mandar só o nome por ele
+   * apagaria whatsapp, e-mail, descrição e os dois "mostrar". O cabeçalho edita
+   * um campo só, então precisa de uma rota que escreva um campo só.
+   *
+   * Nome vazio não vira string vazia, vira NULL — é o que devolve o recuo para
+   * a razão social do emitente em vez de deixar o cabeçalho em branco. */
+  app.put('/api/loja/nome', (req, res) => {
+    try {
+      const nome = String(req.body?.nome ?? '').trim().slice(0, 80) || null;
+      db.prepare('UPDATE loja_config SET nome=?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run(nome);
+      res.json({ success: true, nome });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /* Publicar / despublicar a loja — mesmo motivo do de cima: escreve `ativa` e
+   * mais nada. É o interruptor do cabeçalho, e ele não pode ter efeito colateral
+   * sobre o resto da configuração. */
+  app.post('/api/loja/publicar', (req, res) => {
+    try {
+      const ativa = req.body?.ativa ? 1 : 0;
+      db.prepare('UPDATE loja_config SET ativa=?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1').run(ativa);
+      res.json({ success: true, ativa: !!ativa });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * GET/PUT /api/loja/informacoes — a tela "Informações da empresa".
+   *
+   * O GET devolve o que está gravado E o que a empresa oferece como fallback,
+   * separados: é isso que permite a tela mostrar "usando o nome da empresa" em
+   * vez de um campo vazio que parece defeito.
+   *
+   * O PUT grava SÓ estes campos. Não usa o `PUT /api/loja/config`, que reescreve
+   * a configuração inteira — mandar por lá apagaria tema e pagamento, que esta
+   * tela nem exibe.
+   */
+  app.get('/api/loja/informacoes', (req, res) => {
+    try {
+      const c = lerConfig(db);
+      const emp = empresaDe(db);
+      res.json({ success: true,
+        informacoes: {
+          nome: c.nome || null, descricao: c.descricao || null,
+          whatsapp: c.whatsapp || null, email: c.email || null, telefone: c.telefone || null,
+          instagram: c.instagram || null, facebook: c.facebook || null,
+          endereco: c.endereco || null, mostrarEndereco: !!c.mostrarEndereco,
+          horarios: lerHorarios(c.horarios),
+        },
+        // O que a vitrine usaria se o campo acima ficasse vazio.
+        empresa: { nome: emp.nome || null, telefone: emp.telefone || null,
+                   endereco: emp.endereco || null, temLogo: !!emp.logo },
+        atendimento: statusAtendimento(c.horarios),
+      });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.put('/api/loja/informacoes', (req, res) => {
+    try {
+      const b = req.body || {};
+      const txt = (v, max) => (v == null ? null : String(v).trim().slice(0, max) || null);
+
+      /* Rede social é validada na ENTRADA e de novo na saída pública.
+         Duas vezes de propósito: gravar lixo e filtrar depois deixaria o lixo no
+         banco para o próximo consumidor descobrir. Valor inválido é recusado
+         com o motivo, não silenciosamente ignorado. */
+      for (const [campo, dominio] of [['instagram', 'instagram.com'], ['facebook', 'facebook.com']]) {
+        const bruto = b[campo];
+        if (bruto != null && String(bruto).trim() && !usuarioRede(bruto, dominio)) {
+          return res.status(422).json({ success: false,
+            error: `${campo}: informe o nome de usuário (letras, números, ponto, hífen), não um endereço completo` });
+        }
+      }
+
+      const horarios = lerHorarios(b.horarios);
+
+      db.prepare(`UPDATE loja_config SET nome=?, descricao=?, whatsapp=?, email=?, telefone=?,
+          instagram=?, facebook=?, endereco=?, mostrarEndereco=?, horarios=?,
+          dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1`)
+        .run(txt(b.nome, 80), txt(b.descricao, 300),
+             b.whatsapp != null ? String(b.whatsapp).replace(/\D/g, '').slice(0, 15) || null : null,
+             txt(b.email, 120), txt(b.telefone, 40),
+             usuarioRede(b.instagram, 'instagram.com'), usuarioRede(b.facebook, 'facebook.com'),
+             txt(b.endereco, 200), b.mostrarEndereco ? 1 : 0,
+             Object.keys(horarios).length ? JSON.stringify(horarios) : null);
+
+      const c = lerConfig(db);
+      res.json({ success: true, atendimento: statusAtendimento(c.horarios),
+                 horarios: lerHorarios(c.horarios) });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * GET/PUT /api/loja/entrega — serviços, frete e cobertura.
+   *
+   * Separado de `/api/loja/informacoes` porque são duas telas e dois assuntos:
+   * misturar faria um salvar apagar o outro, que foi o motivo de `/config` ter
+   * sido evitado nas duas.
+   */
+  app.get('/api/loja/entrega', (req, res) => {
+    try {
+      const c = lerConfig(db);
+      res.json({ success: true,
+        entrega: {
+          retirada: !!c.servicoRetirada,
+          delivery: !!c.servicoDelivery,
+          freteModo: MODOS_FRETE.includes(c.freteModo) ? c.freteModo : 'gratis',
+          freteValor: r2c(c.freteValor),
+          aceitaForaCobertura: !!c.aceitaForaCobertura,
+        },
+        // A tela precisa ver os inativos para poder reativá-los.
+        bairros: bairrosCobertura(db, { somenteAtivos: false }) });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  app.put('/api/loja/entrega', (req, res) => {
+    try {
+      const b = req.body || {};
+      const modo = MODOS_FRETE.includes(b.freteModo) ? b.freteModo : 'gratis';
+
+      /* Pelo menos um serviço tem de ficar de pé.
+       *
+       * Um catálogo publicado sem retirada E sem entrega aceita pedido que
+       * ninguém sabe como cumprir. A recusa é explícita para o lojista saber o
+       * que fazer; desligar o catálogo é outra ação, na tela do cabeçalho. */
+      const retirada = !!b.retirada, delivery = !!b.delivery;
+      if (!retirada && !delivery) {
+        return res.status(422).json({ success: false,
+          error: 'Deixe ao menos um serviço habilitado: retirada ou delivery. '
+               + 'Para tirar o catálogo do ar, use "Não publicado" no cabeçalho.' });
+      }
+
+      // Frete negativo é dinheiro voltando para o cliente — nunca foi pedido.
+      const valor = r2c(b.freteValor);
+      if (!(valor >= 0)) {
+        return res.status(422).json({ success: false, error: 'A taxa fixa não pode ser negativa' });
+      }
+
+      db.prepare(`UPDATE loja_config SET servicoRetirada=?, servicoDelivery=?, freteModo=?,
+          freteValor=?, aceitaForaCobertura=?, dataAtualizacao=CURRENT_TIMESTAMP WHERE id=1`)
+        .run(retirada ? 1 : 0, delivery ? 1 : 0, modo, modo === 'fixo' ? valor : 0,
+             b.aceitaForaCobertura ? 1 : 0);
+
+      res.json({ success: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Bairros de cobertura — CRUD sobre `rest_bairros_taxa`.
+   *
+   * A tabela é compartilhada com o módulo Restaurante (ver `bairrosCobertura`).
+   * Isso é deliberado: são os mesmos bairros e as mesmas taxas do mesmo negócio,
+   * e manter duas listas faria o lojista atualizar uma e esquecer a outra.
+   */
+  app.post('/api/loja/bairros', (req, res) => {
+    try {
+      const nome = String(req.body?.nome || '').trim().slice(0, 80);
+      const taxa = r2c(req.body?.taxa);
+      if (!nome) return res.status(422).json({ success: false, error: 'Informe o nome do bairro' });
+      if (!(taxa >= 0)) return res.status(422).json({ success: false, error: 'A taxa não pode ser negativa' });
+
+      const jaTem = db.prepare('SELECT id FROM rest_bairros_taxa WHERE nome = ? COLLATE NOCASE').get(nome);
+      if (jaTem) return res.status(422).json({ success: false, error: `"${nome}" já está cadastrado` });
+
+      const id = db.prepare(`INSERT INTO rest_bairros_taxa (nome, taxa, tempoEstimadoMin, ativo)
+        VALUES (?,?,?,1)`).run(nome, taxa, Math.max(0, Number(req.body?.tempoEstimadoMin) || 30)).lastInsertRowid;
+      res.json({ success: true, id });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  app.put('/api/loja/bairros/:id', (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const atual = db.prepare('SELECT * FROM rest_bairros_taxa WHERE id = ?').get(id);
+      if (!atual) return res.status(404).json({ success: false, error: 'Bairro não encontrado' });
+
+      const nome = req.body?.nome != null ? String(req.body.nome).trim().slice(0, 80) : atual.nome;
+      const taxa = req.body?.taxa != null ? r2c(req.body.taxa) : r2c(atual.taxa);
+      if (!nome) return res.status(422).json({ success: false, error: 'Informe o nome do bairro' });
+      if (!(taxa >= 0)) return res.status(422).json({ success: false, error: 'A taxa não pode ser negativa' });
+
+      db.prepare(`UPDATE rest_bairros_taxa SET nome=?, taxa=?, tempoEstimadoMin=?, ativo=? WHERE id=?`)
+        .run(nome, taxa,
+             req.body?.tempoEstimadoMin != null
+               ? Math.max(0, Number(req.body.tempoEstimadoMin) || 0) : atual.tempoEstimadoMin,
+             req.body?.ativo === undefined ? atual.ativo : (req.body.ativo ? 1 : 0), id);
+      res.json({ success: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  app.delete('/api/loja/bairros/:id', (req, res) => {
+    try {
+      const r = db.prepare('DELETE FROM rest_bairros_taxa WHERE id = ?').run(Number(req.params.id));
+      if (!r.changes) return res.status(404).json({ success: false, error: 'Bairro não encontrado' });
+      res.json({ success: true });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /* Ordem das categorias na vitrine.
+   *
+   * Recebe a lista inteira na ordem desejada e regrava, em transação. Regravar
+   * tudo em vez de mandar "subiu uma posição" é o que mantém a tela e o banco
+   * contando a mesma coisa: com deltas, um clique perdido deixa a numeração
+   * furada para sempre, e nada avisa.
+   *
+   * A posição começa em 1 porque `0` é o valor de quem nunca foi ordenado.
+   * "Sem categoria" (null) não entra: ela é agrupamento, não categoria, e fica
+   * sempre por último. */
+  app.put('/api/loja/ordem-categorias', (req, res) => {
+    try {
+      const lista = Array.isArray(req.body?.categorias) ? req.body.categorias : null;
+      if (!lista) return res.status(400).json({ success: false, error: 'Envie a lista de categorias na ordem desejada' });
+      const nomes = lista
+        .map((c) => (c == null ? '' : String(c).trim()))
+        .filter(Boolean);
+      if (!nomes.length) return res.status(400).json({ success: false, error: 'Nenhuma categoria válida na lista' });
+
+      const stmt = db.prepare(`INSERT INTO loja_categoria_ordem (categoria, ordem, dataAtualizacao)
+                               VALUES (?, ?, CURRENT_TIMESTAMP)
+                               ON CONFLICT(categoria) DO UPDATE
+                                 SET ordem = excluded.ordem, dataAtualizacao = CURRENT_TIMESTAMP`);
+      db.transaction((ns) => { ns.forEach((n, i) => stmt.run(n, i + 1)); })(nomes);
+      res.json({ success: true, ordenadas: nomes.length });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /* Ordem dos produtos DENTRO de uma categoria. Mesma regra da de cima: lista
+   * inteira, transação, posição a partir de 1.
+   *
+   * Grava por id e não por categoria — um produto que mudou de categoria entre
+   * a tela abrir e o arrastar terminar recebe a posição mesmo assim, e reaparece
+   * ordenado no grupo novo. Errar aqui é reordenar o grupo errado. */
+  app.put('/api/loja/ordem-produtos', (req, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+      if (!ids.length) return res.status(400).json({ success: false, error: 'Envie os ids dos produtos na ordem desejada' });
+      const stmt = db.prepare('UPDATE produtos SET ordemVitrine = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?');
+      db.transaction((lista) => { lista.forEach((id, i) => stmt.run(i + 1, id)); })(ids);
+      res.json({ success: true, ordenados: ids.length });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 
@@ -544,9 +1509,158 @@ function registrarRotasLojaAdmin(app, db) {
       res.json({ success: true, alterados: ids.length, publicado: !!publicado });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
+
+  /**
+   * Destacar — espelha `publicar`, sobre a coluna `destaqueNaLoja`.
+   *
+   * Destaque nao e categoria: o produto continua na dele e tambem aparece na
+   * faixa de destaques. Ver o comentario da migration em `migrarLojaDB`.
+   */
+  app.post('/api/loja/produtos/destacar', (req, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+      if (!ids.length) return res.status(400).json({ success: false, error: 'Selecione os produtos' });
+      const destaque = req.body?.destaque ? 1 : 0;
+      const stmt = db.prepare('UPDATE produtos SET destaqueNaLoja = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?');
+      db.transaction((lista) => { for (const id of lista) stmt.run(destaque, id); })(ids);
+      res.json({ success: true, alterados: ids.length, destaque: !!destaque });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * A central do Catalogo Online, numa resposta so.
+   *
+   * Identidade + contadores + produtos AGRUPADOS por categoria. Agrupar aqui e
+   * nao no navegador e o que permite a tela abrir ja organizada, e e a mesma
+   * consulta que alimenta os contadores — se fossem duas, elas divergiriam no
+   * dia em que alguem mudasse o filtro de uma delas.
+   *
+   * As categorias vem do `produto_lookup` (a gestao formal, Fase 44) UNIDAS as
+   * que estao em uso nos produtos. As duas coisas, porque nenhuma sozinha
+   * basta: o lookup tem categorias ainda sem produto (que precisam aparecer
+   * vazias, para receber o primeiro), e os produtos podem ter categoria que
+   * saiu do lookup — e um produto que sumisse da tela por isso seria um
+   * produto invisivel para quem administra.
+   */
+  app.get('/api/loja/catalogo', (req, res) => {
+    try {
+      const cfg = lerConfig(db);
+      const produtos = db.prepare(`
+        SELECT p.id, p.sku, p.descricao, p.categoria, p.unidade, p.precoVenda, p.imagemPath,
+               COALESCE(p.publicadoNaLoja, 0) AS publicado,
+               COALESCE(p.destaqueNaLoja, 0)  AS destaque,
+               COALESCE(p.ordemVitrine, 0)    AS ordemVitrine,
+               (SELECT COUNT(*) FROM produto_imagens i WHERE i.produtoId = p.id) AS nFotos
+          FROM produtos p WHERE p.ativo = 1
+         /* Ordem da VITRINE: quem foi posicionado a mao vem primeiro, na
+            posicao escolhida; o resto segue alfabetico, como sempre foi. O
+            CASE existe porque ordemVitrine = 0 significa "nunca ordenado",
+            e sem ele esses produtos subiriam todos para o topo. */
+         ORDER BY CASE WHEN COALESCE(p.ordemVitrine, 0) > 0 THEN 0 ELSE 1 END,
+                  COALESCE(p.ordemVitrine, 0),
+                  p.descricao COLLATE NOCASE`).all();
+
+      const SEM = '\u0000';   // mesma sentinela da Venda rapida
+      const catDe = (p) => (p.categoria != null ? String(p.categoria).trim() : '') || SEM;
+
+      const grupos = new Map();
+      const registrar = (nome) => {
+        if (!grupos.has(nome)) grupos.set(nome, { categoria: nome === SEM ? null : nome, produtos: [] });
+        return grupos.get(nome);
+      };
+      // Categorias cadastradas entram mesmo sem produto: e assim que se
+      // enxerga a categoria recem-criada, ainda vazia.
+      try {
+        for (const c of db.prepare("SELECT valor FROM produto_lookup WHERE tipo='categoria' AND ativo=1").all()) {
+          registrar(String(c.valor).trim());
+        }
+      } catch (_) { /* instalacao sem produto_lookup */ }
+
+      for (const p of produtos) {
+        registrar(catDe(p)).produtos.push({
+          id: p.id, sku: p.sku, descricao: p.descricao, unidade: p.unidade,
+          preco: Number(p.precoVenda) || 0,
+          foto: p.imagemPath || null, nFotos: p.nFotos,
+          publicado: !!p.publicado, destaque: !!p.destaque,
+          ordemVitrine: p.ordemVitrine,
+          disponivel: disponivelDe(db, p.id),
+        });
+      }
+
+      /* Ordem das categorias, casada por NOME — categoria é texto, não entidade
+         com id. Mesmo comparador da vitrine pública, de propósito. */
+      const ordemCat = ordemCategorias(db);
+      const cmp = compararCategorias(ordemCat);
+
+      const categorias = [...grupos.values()]
+        .map((g) => ({ ...g, ordem: g.categoria === null ? 0 : (ordemCat.get(g.categoria) || 0) }))
+        .sort((a, b) => {
+          if (a.categoria === null) return 1;      // "Sem categoria" por ultimo
+          if (b.categoria === null) return -1;
+          return cmp(a.categoria, b.categoria);
+        })
+        .map((g) => ({ ...g, total: g.produtos.length,
+                       publicados: g.produtos.filter((p) => p.publicado).length }));
+
+      /* Identidade com recuo para a EMPRESA.
+       *
+       * `loja_config` nasce vazia — o tenant só a preenche quando decide
+       * publicar. Sem recuo, a central abre com "Catálogo" e um traço no lugar
+       * do logo, e parece que não carregou (foi o relato de 13/09). O emitente
+       * já tem razão social e logo, e é a mesma empresa.
+       *
+       * `nomeProprio` diz à tela o que é escolha do lojista e o que é recuo —
+       * é o que permite convidar a configurar sem apagar o que já existe. */
+      let emp = {};
+      try { emp = db.prepare('SELECT razaoSocial, logoBase64 FROM fornecedor ORDER BY id DESC LIMIT 1').get() || {}; }
+      catch (_) { /* instalação sem emitente cadastrado */ }
+
+      res.json({ success: true,
+        loja: {
+          ativa: !!cfg.ativa,
+          nome: cfg.nome || emp.razaoSocial || null,
+          nomeProprio: !!cfg.nome,
+          descricao: cfg.descricao || null,
+          logo: cfg.logoPath || emp.logoBase64 || null,
+          logoProprio: !!cfg.logoPath,
+          logoFoco: lerFoco(cfg.logoFoco),
+          bannerFoco: lerFoco(cfg.bannerFoco),
+          /* Banner NÃO recua para nada: sem imagem escolhida, o cabeçalho usa a
+             faixa de cor do tema. Inventar um banner a partir do logo daria uma
+             imagem esticada que ninguém pediu. */
+          banner: cfg.bannerPath || null,
+          whatsapp: cfg.whatsapp || null,
+          tema: cfg.tema, mostrarPreco: !!cfg.mostrarPreco, mostrarEstoque: !!cfg.mostrarEstoque,
+          pagamento: cfg.pagamentoModo || 'nenhum',
+          url: `${req.protocol}://${req.get('host')}/loja/`,
+        },
+        resumo: {
+          total: produtos.length,
+          publicados: produtos.filter((p) => p.publicado).length,
+          ocultos: produtos.filter((p) => !p.publicado).length,
+          destaques: produtos.filter((p) => p.destaque).length,
+          semFoto: produtos.filter((p) => !p.imagemPath && !p.nFotos).length,
+          categorias: categorias.filter((c) => c.categoria !== null).length,
+        },
+        /* Destaque usa a MESMA linha das categorias, então precisa dos mesmos
+           campos — sem `sku` e `unidade` ele aparecia como "sem SKU". Aditivo:
+           nenhum consumidor perde nada. */
+        destaques: produtos.filter((p) => p.destaque)
+          .map((p) => ({ id: p.id, sku: p.sku, descricao: p.descricao, unidade: p.unidade,
+                         preco: Number(p.precoVenda) || 0,
+                         foto: p.imagemPath || null, nFotos: p.nFotos,
+                         publicado: !!p.publicado, destaque: true,
+                         disponivel: disponivelDe(db, p.id) })),
+        categorias,
+      });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
 }
 
 module.exports = {
   migrarLojaDB, registrarRotasLojaPublica, registrarRotasLojaAdmin,
   disponivelDe, rotuloEstoque, TEMA_PADRAO, PRESETS, SUBDIR_LOJA,
+  ordemCategorias, compararCategorias,
+  marcaVisivel, precoAnterior, personalizacoesDe, validarEscolhas,
+  COLUNAS_INFO_LOJA, MODOS_FRETE, lerFoco, usuarioRede, bairrosCobertura, entregaPublica, whatsappNormalizado, lerHorarios, statusAtendimento, empresaDe,
 };

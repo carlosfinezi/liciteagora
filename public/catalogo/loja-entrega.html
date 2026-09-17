@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrega e cobertura — Catálogo Online</title>
+<!-- `theme-boot` ANTES do CSS: ele fixa o tema no <html> antes da primeira
+     pintura; depois da folha, a tela pisca no tema errado por um quadro. -->
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/app-modern.css">
+<link rel="stylesheet" href="/css/sidebar.css">
+<style>
+.linha-check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 6px 0; }
+.linha-check input { width: 20px; height: 20px; accent-color: var(--primary); margin-top: 11px; flex-shrink: 0; }
+.linha-check label { padding-top: 10px; }
+.linha-check .dica { display: block; font-size: .8em; color: var(--text-3); font-weight: 400; }
+
+.modos { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.modo { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 13px 15px;
+  cursor: pointer; display: flex; gap: 10px; align-items: flex-start; background: var(--bg-1); }
+.modo:hover { border-color: var(--accent); }
+.modo.on { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.modo input { width: 19px; height: 19px; accent-color: var(--primary); margin-top: 2px; flex-shrink: 0; }
+.modo strong { display: block; font-size: .93em; }
+.modo span { font-size: .8em; color: var(--text-3); }
+
+.campo-valor { display: flex; flex-direction: column; gap: 5px; max-width: 220px; margin-top: 14px; }
+.campo-valor label { font-size: .84em; font-weight: 600; color: var(--text-2); }
+.campo-valor input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); color: var(--text-1); font-family: inherit;
+  /* 16px: abaixo disto o iOS dá zoom ao focar. */
+  font-size: 16px; min-height: 44px; }
+
+table.bairros { width: 100%; border-collapse: collapse; font-size: .9em; }
+table.bairros th { text-align: left; font-size: .78em; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--text-3); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+table.bairros td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+table.bairros input[type="text"], table.bairros input[type="number"] {
+  width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--bg-0); color: var(--text-1); font-family: inherit; font-size: 16px; min-height: 44px; }
+table.bairros td.acoes { text-align: right; white-space: nowrap; }
+.bt-icone { background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+  color: var(--text-3); font-size: .9em; min-height: 44px; min-width: 44px; font-family: inherit; }
+.bt-icone:hover { background: var(--bg-2); color: var(--text-1); border-color: var(--border); }
+.bt-icone.perigo:hover { color: var(--danger, #B3261E); }
+.chip-estado { font-size: .78em; padding: 3px 9px; border-radius: 999px; }
+.chip-estado.on { background: #E7F3EC; color: #1F6B41; }
+.chip-estado.off { background: var(--bg-2); color: var(--text-3); }
+@media (max-width: 720px) {
+  table.bairros thead { display: none; }
+  table.bairros tr { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border); }
+  table.bairros td { border: 0; padding: 0; }
+  table.bairros td.acoes { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+}
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Entrega e cobertura</h1>
+      <small>Como o catálogo entrega — e para onde</small>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-secondary" onclick="location.href='/catalogo/catalogo-online.html'">
+        ← Catálogo Online</button>
+      <button type="button" class="btn btn-primary" id="btSalvar" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <section class="card" style="margin-bottom:16px;">
+    <h2 style="margin:0 0 4px;font-size:1.02em;">Tipos de serviço</h2>
+    <p class="muted" style="margin:0 0 10px;font-size:.86em;">
+      O catálogo público mostra só o que estiver marcado aqui.</p>
+    <div class="linha-check">
+      <input type="checkbox" id="retirada">
+      <label for="retirada">Retirada no local
+        <span class="dica">O cliente busca o pedido no endereço da loja.</span></label>
+    </div>
+    <div class="linha-check">
+      <input type="checkbox" id="delivery" onchange="pintarModos()">
+      <label for="delivery">Delivery
+        <span class="dica">Entrega no endereço do cliente.</span></label>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:16px;" id="secFrete">
+    <h2 style="margin:0 0 4px;font-size:1.02em;">Como cobrar a entrega</h2>
+    <p class="muted" style="margin:0 0 12px;font-size:.86em;">
+      Cálculo por distância e área no mapa ficam para depois — primeiro o que resolve hoje.</p>
+    <div class="modos">
+      <label class="modo" id="modoGratis">
+        <input type="radio" name="freteModo" value="gratis" onchange="pintarModos()">
+        <span><strong>Frete grátis</strong><span>Sem taxa, em qualquer endereço.</span></span>
+      </label>
+      <label class="modo" id="modoFixo">
+        <input type="radio" name="freteModo" value="fixo" onchange="pintarModos()">
+        <span><strong>Preço fixo</strong><span>Mesma taxa para todos.</span></span>
+      </label>
+      <label class="modo" id="modoBairro">
+        <input type="radio" name="freteModo" value="bairro" onchange="pintarModos()">
+        <span><strong>Por bairro</strong><span>Uma taxa para cada bairro atendido.</span></span>
+      </label>
+    </div>
+    <div class="campo-valor" id="campoFixo" hidden>
+      <label for="freteValor">Taxa fixa (R$)</label>
+      <input id="freteValor" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0,00">
+    </div>
+    <div class="linha-check" style="margin-top:14px;">
+      <input type="checkbox" id="aceitaFora">
+      <label for="aceitaFora">Aceitar pedidos fora da área de cobertura
+        <span class="dica">Aparece no painel Informações. A regra passa a valer no checkout, na próxima fase.</span></label>
+    </div>
+  </section>
+
+  <section class="card" id="secBairros" hidden>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px;">
+      <h2 style="margin:0;font-size:1.02em;">Bairros atendidos</h2>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="novoBairro()">+ Adicionar bairro</button>
+    </div>
+    <p class="muted" style="margin:0 0 12px;font-size:.86em;">
+      Bairro desativado continua cadastrado, mas some do catálogo público.</p>
+    <div id="listaBairros"></div>
+  </section>
+
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('loja');</script>
+<script>
+/* Entrega e cobertura do Catálogo Online.
+ *
+ * Os bairros vivem em `rest_bairros_taxa`, tabela que nasceu no módulo
+ * Restaurante mas é definição pura — sem vínculo com comanda. A partir da Fase
+ * 52 ela é configuração COMPARTILHADA de cobertura: são os mesmos bairros e as
+ * mesmas taxas do mesmo negócio, e duas listas divergiriam no primeiro mês.
+ *
+ * O PEDIDO do catálogo continua sem relação com o Restaurante.
+ */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => { const d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+let BAIRROS = [];
+
+function showAlert(m, t = 'success') {
+  const e = $('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  if (r.status === 401) { window.location.href = '/login.html'; throw new Error('sessão'); }
+  const d = await r.json().catch(() => null);
+  if (!r.ok || !d || !d.success) throw new Error((d && d.error) || 'Não foi possível concluir a operação.');
+  return d;
+}
+
+const modoAtual = () => (document.querySelector('input[name="freteModo"]:checked') || {}).value || 'gratis';
+
+/** Mostra só o que o modo escolhido usa — campo sem uso confunde. */
+function pintarModos() {
+  const temDelivery = $('delivery').checked;
+  const modo = modoAtual();
+  $('secFrete').style.opacity = temDelivery ? '' : '.5';
+  $('secFrete').style.pointerEvents = temDelivery ? '' : 'none';
+  for (const [id, v] of [['modoGratis', 'gratis'], ['modoFixo', 'fixo'], ['modoBairro', 'bairro']]) {
+    $(id).classList.toggle('on', modo === v);
+  }
+  $('campoFixo').hidden = modo !== 'fixo';
+  $('secBairros').hidden = !(temDelivery && modo === 'bairro');
+}
+
+function pintarBairros() {
+  if (!BAIRROS.length) {
+    $('listaBairros').innerHTML =
+      '<p class="muted" style="font-size:.88em;">Nenhum bairro cadastrado ainda.</p>';
+    return;
+  }
+  $('listaBairros').innerHTML = `
+    <table class="bairros">
+      <thead><tr><th>Bairro</th><th style="width:130px;">Taxa (R$)</th>
+        <th style="width:90px;">Situação</th><th style="width:120px;"></th></tr></thead>
+      <tbody>${BAIRROS.map((b) => `<tr data-id="${b.id}">
+        <td><input type="text" value="${esc(b.nome)}" data-campo="nome" aria-label="Nome do bairro"></td>
+        <td><input type="number" min="0" step="0.01" inputmode="decimal" value="${Number(b.taxa).toFixed(2)}"
+              data-campo="taxa" aria-label="Taxa do bairro"></td>
+        <td><span class="chip-estado ${b.ativo ? 'on' : 'off'}">${b.ativo ? 'Ativo' : 'Inativo'}</span></td>
+        <td class="acoes">
+          <button type="button" class="bt-icone" data-salvar="${b.id}" title="Salvar alterações">Salvar</button>
+          <button type="button" class="bt-icone" data-alternar="${b.id}"
+            title="${b.ativo ? 'Desativar' : 'Ativar'}">${b.ativo ? 'Desativar' : 'Ativar'}</button>
+          <button type="button" class="bt-icone perigo" data-excluir="${b.id}" title="Excluir">✕</button>
+        </td></tr>`).join('')}</tbody>
+    </table>`;
+}
+
+const linhaDe = (id) => document.querySelector(`tr[data-id="${id}"]`);
+const valorDe = (id, campo) => linhaDe(id).querySelector(`[data-campo="${campo}"]`).value;
+
+$('listaBairros').addEventListener('click', async (e) => {
+  const bt = e.target.closest('[data-salvar],[data-alternar],[data-excluir]');
+  if (!bt) return;
+  try {
+    if (bt.dataset.salvar) {
+      const id = Number(bt.dataset.salvar);
+      await api('/api/loja/bairros/' + id, { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: valorDe(id, 'nome'), taxa: Number(valorDe(id, 'taxa')) }) });
+      showAlert('Bairro atualizado.');
+    } else if (bt.dataset.alternar) {
+      const id = Number(bt.dataset.alternar);
+      const atual = BAIRROS.find((x) => x.id === id);
+      await api('/api/loja/bairros/' + id, { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ativo: !atual.ativo }) });
+    } else {
+      const id = Number(bt.dataset.excluir);
+      const nome = (BAIRROS.find((x) => x.id === id) || {}).nome || '';
+      // Exclusão é irreversível: pergunta antes, com o nome na frente.
+      if (!window.confirm(`Excluir o bairro "${nome}"? Isso não pode ser desfeito.`)) return;
+      await api('/api/loja/bairros/' + id, { method: 'DELETE' });
+      showAlert('Bairro excluído.');
+    }
+    await carregar();
+  } catch (err) { showAlert(err.message, 'error'); }
+});
+
+async function novoBairro() {
+  const nome = window.prompt('Nome do bairro:');
+  if (nome == null || !nome.trim()) return;
+  const taxa = window.prompt(`Taxa de entrega para "${nome.trim()}" (R$):`, '0');
+  if (taxa == null) return;
+  try {
+    await api('/api/loja/bairros', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: nome.trim(), taxa: Number(String(taxa).replace(',', '.')) }) });
+    await carregar();
+    showAlert('Bairro adicionado.');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function carregar() {
+  try {
+    const d = await api('/api/loja/entrega');
+    const e = d.entrega;
+    $('retirada').checked = !!e.retirada;
+    $('delivery').checked = !!e.delivery;
+    const radio = document.querySelector(`input[name="freteModo"][value="${e.freteModo}"]`);
+    if (radio) radio.checked = true;
+    $('freteValor').value = Number(e.freteValor || 0).toFixed(2);
+    $('aceitaFora').checked = !!e.aceitaForaCobertura;
+    BAIRROS = d.bairros || [];
+    pintarModos();
+    pintarBairros();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function salvar() {
+  const bt = $('btSalvar');
+  bt.disabled = true;
+  try {
+    await api('/api/loja/entrega', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        retirada: $('retirada').checked, delivery: $('delivery').checked,
+        freteModo: modoAtual(), freteValor: Number($('freteValor').value || 0),
+        aceitaForaCobertura: $('aceitaFora').checked,
+      }) });
+    showAlert('Configuração de entrega salva. O catálogo público já reflete.');
+  } catch (e) { showAlert(e.message, 'error'); }
+  finally { bt.disabled = false; }
+}
+
+carregar();
+</script>
+</body>
+</html>

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Categorias · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Categorias</h1>
+      <small>Categorias de produto — usadas em <a href="/catalogo/produtos.html">Produtos</a>, na Venda rápida e na Loja virtual</small>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" onclick="abrirNovo()">+ Nova categoria</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <input type="text" id="filtBusca" placeholder="Buscar…" oninput="render()" style="flex:1;min-width:240px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+        <input type="checkbox" id="verInativas" onchange="render()" style="width:auto;"> Mostrar inativas
+      </label>
+    </div>
+
+    <!-- Produtos sem categoria: informação, não uma categoria cadastrada. -->
+    <div id="semCategoria" class="card card-info" style="display:none;margin-bottom:12px;font-size:.9em;"></div>
+    <div id="avisoDuplicatas" class="alert warning" style="display:none;margin-bottom:12px;"></div>
+
+    <div class="tbl-wrap">
+      <table class="tabela-categorias">
+        <thead><tr>
+          <th>Categoria</th><th style="width:110px;">Produtos</th>
+          <th style="width:110px;">Status</th><th style="width:230px;"></th>
+        </tr></thead>
+        <tbody id="tb"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<!-- Criar / renomear -->
+<div class="modal-bg" id="modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;" id="modalTitulo">Nova categoria</h3>
+        <small class="muted" id="modalSub">Cadastra uma nova categoria de produto</small>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div id="avisoRenome" class="card card-info" style="display:none;margin-bottom:12px;font-size:.88em;"></div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label>Nome *</label>
+        <input type="text" id="fValor" placeholder="ex.: TEMPEROS" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="btnSalvar" onclick="salvar()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Excluir: o que fazer com os produtos -->
+<div class="modal-bg" id="modalExcluir">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Excluir categoria</h3>
+        <small class="muted" id="exclSub"></small>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="fecharExcluir()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+    <div id="exclCorpo"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="fecharExcluir()">Cancelar</button>
+      <button type="button" class="btn btn-danger" id="btnExcluirConfirma" onclick="confirmarExclusao()">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('cadastro-categorias');</script>
+<script>
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+function escTxt(s) { const d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; }
+
+let cache = [];          // categorias do lookup, com contagem
+let semCategoria = 0;    // produtos sem categoria — NÃO é uma categoria
+let editando = null;     // valor sendo renomeado, ou null quando é criação
+let excluindo = null;
+
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  if (r.status === 401) { window.location.href = '/login.html'; throw new Error('sessão'); }
+  const d = await r.json().catch(() => null);
+  if (!r.ok || !d || !d.success) {
+    const e = new Error((d && d.error) || 'Não foi possível concluir a operação.');
+    e.corpo = d; e.status = r.status;
+    throw e;
+  }
+  return d;
+}
+
+async function carregar() {
+  const tb = document.getElementById('tb');
+  tb.innerHTML = '<tr><td colspan="4" class="empty">Carregando…</td></tr>';
+  try {
+    // `todos` traz as inativas; `contagem` traz quantos produtos usam cada uma.
+    const d = await api('/api/produto-lookup/categoria?todos=1&contagem=1');
+    cache = d.itens || [];
+    await contarSemCategoria();
+    render();
+  } catch (e) {
+    tb.innerHTML = '<tr><td colspan="4" class="empty">Erro: ' + escTxt(e.message) + '</td></tr>';
+  }
+}
+
+/**
+ * Quantos produtos estão sem categoria.
+ *
+ * Deliberadamente NÃO vira uma linha da tabela nem um registro no lookup:
+ * "Sem categoria" não é uma categoria, é a ausência de uma. Gravá-la criaria
+ * um valor que a Venda rápida trataria como categoria de verdade.
+ */
+async function contarSemCategoria() {
+  try {
+    const d = await api('/api/produtos?ativo=');
+    const lista = d.produtos || [];
+    semCategoria = lista.filter((p) => !p.categoria || !String(p.categoria).trim()).length;
+  } catch (_) { semCategoria = 0; }
+}
+
+function render() {
+  const q = (document.getElementById('filtBusca').value || '').toLowerCase().trim();
+  const verInativas = document.getElementById('verInativas').checked;
+  const lista = cache
+    .filter((i) => verInativas || i.ativo)
+    .filter((i) => !q || (i.valor || '').toLowerCase().includes(q));
+
+  const box = document.getElementById('semCategoria');
+  if (semCategoria > 0) {
+    box.style.display = 'block';
+    box.innerHTML = `<strong>${semCategoria} produto(s) sem categoria.</strong> `
+      + 'Isso não é uma categoria cadastrada — é o campo em branco no produto. '
+      + 'Para classificá-los, edite cada produto em <a href="/catalogo/produtos.html">Produtos</a>.';
+  } else { box.style.display = 'none'; }
+
+  avisarDuplicatas();
+
+  const tb = document.getElementById('tb');
+  if (!lista.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="empty">Nenhuma categoria</td></tr>';
+    return;
+  }
+  tb.innerHTML = lista.map((i) => {
+    const nome = escTxt(i.valor);
+    const status = i.ativo
+      ? '<span class="badge success">ativa</span>'
+      : '<span class="badge">inativa</span>';
+    const qtd = i.produtos > 0
+      ? `<strong>${i.produtos}</strong>` + (i.produtosAtivos !== i.produtos
+          ? ` <span class="muted" style="font-size:.85em;">(${i.produtosAtivos} ativos)</span>` : '')
+      : '<span class="muted">—</span>';
+
+    if (i.reservada) {
+      // Sem botões: a explicação é mais útil que um botão que vai recusar.
+      return `<tr><td>${nome} <span class="badge">reservada</span></td><td>${qtd}</td><td>${status}</td>
+        <td><span class="muted" style="font-size:.85em;">Usada internamente pela Ótica — não pode ser renomeada nem excluída.</span></td></tr>`;
+    }
+    const acoes = [
+      `<button type="button" class="btn btn-ghost btn-sm" data-acao="renomear" data-valor="${nome}">Renomear</button>`,
+      i.ativo
+        ? `<button type="button" class="btn btn-ghost btn-sm" data-acao="inativar" data-valor="${nome}">Inativar</button>`
+        : `<button type="button" class="btn btn-ghost btn-sm" data-acao="reativar" data-valor="${nome}">Reativar</button>`,
+      `<button type="button" class="btn btn-ghost btn-sm" data-acao="excluir" data-valor="${nome}" style="color:var(--danger);">Excluir</button>`,
+    ].join(' ');
+    return `<tr><td>${nome}</td><td>${qtd}</td><td>${status}</td><td>${acoes}</td></tr>`;
+  }).join('');
+}
+
+/** Aponta as que diferem só por maiúsculas — sem mexer em nada. */
+function avisarDuplicatas() {
+  const grupos = new Map();
+  for (const i of cache) {
+    const k = (i.valor || '').toLocaleUpperCase('pt-BR').trim();
+    grupos.set(k, (grupos.get(k) || []).concat(i.valor));
+  }
+  const dups = [...grupos.values()].filter((v) => v.length > 1);
+  const el = document.getElementById('avisoDuplicatas');
+  if (!dups.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<strong>Categorias que diferem só por maiúsculas:</strong> '
+    + dups.map((v) => v.map((x) => '<code>' + escTxt(x) + '</code>').join(' e ')).join('; ')
+    + '. O sistema as trata como <em>diferentes</em>. Novas duplicatas já não são aceitas; '
+    + 'para unificar estas, use <b>Excluir → mover os produtos</b> para a que você quiser manter.';
+}
+
+/* Delegação: a tabela é reescrita a cada operação, e ouvintes presos aos
+   botões morreriam junto. `data-valor` em vez do nome dentro do onclick —
+   nome de categoria pode ter aspas. */
+document.getElementById('tb').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-acao]');
+  if (!b) return;
+  const valor = b.dataset.valor;
+  ({ renomear: abrirRenomear, inativar: inativar, reativar: reativar, excluir: abrirExcluir })[b.dataset.acao](valor);
+});
+
+// ==================== CRIAR / RENOMEAR ====================
+
+function abrirNovo() {
+  editando = null;
+  document.getElementById('modalTitulo').textContent = 'Nova categoria';
+  document.getElementById('modalSub').textContent = 'Cadastra uma nova categoria de produto';
+  document.getElementById('avisoRenome').style.display = 'none';
+  document.getElementById('fValor').value = '';
+  document.getElementById('modal').classList.add('open');
+  setTimeout(() => document.getElementById('fValor').focus(), 50);
+}
+
+function abrirRenomear(valor) {
+  const item = cache.find((i) => i.valor === valor);
+  editando = valor;
+  document.getElementById('modalTitulo').textContent = 'Renomear categoria';
+  document.getElementById('modalSub').textContent = valor;
+  const aviso = document.getElementById('avisoRenome');
+  const n = item ? item.produtos : 0;
+  aviso.style.display = 'block';
+  aviso.innerHTML = n > 0
+    ? `<strong>${n} produto(s)</strong> serão atualizados junto, e também as regras de comissão que usam esta categoria. Tudo numa operação só.`
+    : 'Nenhum produto usa esta categoria — o nome muda apenas na lista.';
+  document.getElementById('fValor').value = valor;
+  document.getElementById('modal').classList.add('open');
+  setTimeout(() => { const c = document.getElementById('fValor'); c.focus(); c.select(); }, 50);
+}
+
+function fecharModal() { document.getElementById('modal').classList.remove('open'); }
+
+async function salvar() {
+  const valor = document.getElementById('fValor').value.trim();
+  if (!valor) return showAlert('Informe um nome.', 'error');
+  const btn = document.getElementById('btnSalvar');
+  btn.disabled = true;
+  try {
+    if (editando) {
+      const d = await api('/api/produto-lookup/categoria/' + encodeURIComponent(editando), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ novo: valor }),
+      });
+      showAlert(d.semMudanca ? 'Nada mudou.'
+        : `Renomeada para "${d.valor}"` + (d.produtos ? ` — ${d.produtos} produto(s) atualizados.` : '.'));
+    } else {
+      await api('/api/produto-lookup/categoria', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valor }),
+      });
+      showAlert('Categoria criada.');
+    }
+    fecharModal();
+    await carregar();
+  } catch (e) {
+    showAlert(e.message, 'error');
+  } finally { btn.disabled = false; }
+}
+
+// ==================== ATIVAR / INATIVAR ====================
+
+async function inativar(valor) {
+  if (!confirm(`Inativar "${valor}"?\n\nOs produtos que já a usam continuam como estão. Ela deixa de ser sugerida em novos cadastros.`)) return;
+  try {
+    await api('/api/produto-lookup/categoria/' + encodeURIComponent(valor), { method: 'DELETE' });
+    showAlert('Categoria inativada.');
+    await carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function reativar(valor) {
+  try {
+    await api('/api/produto-lookup/categoria', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valor }),
+    });
+    showAlert('Categoria reativada.');
+    await carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ==================== EXCLUIR ====================
+
+function abrirExcluir(valor) {
+  const item = cache.find((i) => i.valor === valor);
+  excluindo = valor;
+  const n = item ? item.produtos : 0;
+  document.getElementById('exclSub').textContent = valor;
+  const corpo = document.getElementById('exclCorpo');
+
+  if (!n) {
+    corpo.innerHTML = '<p class="muted" style="margin:0;">Nenhum produto usa esta categoria. '
+      + 'Ela será removida da lista.</p>';
+  } else {
+    const destinos = cache
+      .filter((i) => i.valor !== valor && !i.reservada)
+      .map((i) => `<option value="${escTxt(i.valor)}">${escTxt(i.valor)}</option>`).join('');
+    corpo.innerHTML = `
+      <p style="margin-top:0;"><strong>${n} produto(s)</strong> usam esta categoria.
+      Escolha o que fazer com eles:</p>
+      <div class="form-row"><div class="form-group full-width">
+        <label style="text-transform:none;font-weight:normal;display:block;margin-bottom:8px;">
+          <input type="radio" name="exclAcao" value="mover" checked style="width:auto;margin-right:6px;"
+                 onchange="document.getElementById('exclDestino').disabled=false;">
+          Mover os produtos para outra categoria
+        </label>
+        <select id="exclDestino" style="margin-bottom:12px;">${destinos || '<option value="">— não há outra categoria —</option>'}</select>
+        <label style="text-transform:none;font-weight:normal;display:block;">
+          <input type="radio" name="exclAcao" value="limpar" style="width:auto;margin-right:6px;"
+                 onchange="document.getElementById('exclDestino').disabled=true;">
+          Deixar os produtos sem categoria
+        </label>
+      </div></div>
+      <p class="muted" style="font-size:.85em;margin-bottom:0;">
+        As regras de comissão que usam esta categoria acompanham a mesma decisão.</p>`;
+  }
+  document.getElementById('modalExcluir').classList.add('open');
+}
+
+function fecharExcluir() { document.getElementById('modalExcluir').classList.remove('open'); }
+
+async function confirmarExclusao() {
+  const item = cache.find((i) => i.valor === excluindo);
+  const n = item ? item.produtos : 0;
+  const corpo = { };
+  if (n > 0) {
+    const escolha = document.querySelector('input[name="exclAcao"]:checked');
+    corpo.acao = escolha ? escolha.value : 'limpar';
+    if (corpo.acao === 'mover') {
+      corpo.destino = document.getElementById('exclDestino').value;
+      if (!corpo.destino) return showAlert('Escolha a categoria de destino.', 'error');
+    }
+  }
+  const btn = document.getElementById('btnExcluirConfirma');
+  btn.disabled = true;
+  try {
+    const d = await api('/api/produto-lookup/categoria/' + encodeURIComponent(excluindo) + '/excluir', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+    showAlert(`Categoria excluída.` + (d.produtosMovidos
+      ? ` ${d.produtosMovidos} produto(s) ${d.destino ? 'movidos para "' + d.destino + '"' : 'ficaram sem categoria'}.` : ''));
+    fecharExcluir();
+    await carregar();
+  } catch (e) {
+    showAlert(e.message, 'error');
+  } finally { btn.disabled = false; }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('modal').classList.contains('open')) fecharModal();
+  if (document.getElementById('modalExcluir').classList.contains('open')) fecharExcluir();
+});
+
+carregar();
+</script>
+</body>
+</html>

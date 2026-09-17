@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo Online · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* ════════════════════════════════════════════════════════════════════════
+   CAPA DA LOJA
+   A identidade fica presente enquanto se administra — é o que separa uma
+   central de catálogo de mais uma tela de cadastro. O banner tem presença
+   de capa; quando não houver imagem própria, a faixa usa a cor do tema.
+   ════════════════════════════════════════════════════════════════════════ */
+.cap { border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--border);
+  background: var(--bg-1); margin-bottom: 14px; }
+.cap-banner { height: 132px; position: relative;
+  background: linear-gradient(135deg, var(--cap-cor, #0E6B63) 0%, color-mix(in srgb, var(--cap-cor, #0E6B63) 35%, var(--bg-2)) 100%); }
+.cap-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Só a LOGO invade a capa.
+ *
+ * O `margin-top: -40px` ficava aqui, na linha inteira — e subia junto o nome e a
+ * descrição, que terminavam sobrepostos ao banner (relatado em 15/09). Agora o
+ * deslocamento é do logo, e só dele: o texto tem área própria abaixo da capa,
+ * qualquer que seja o tamanho do nome. */
+.cap-corpo { display: flex; gap: 14px; align-items: flex-start; padding: 0 20px 14px; }
+.cap-corpo .cap-logo-bt { margin-top: -40px; }
+/* Logo em container CIRCULAR e 1:1.
+   `object-fit: cover` com `object-position` vinda do enquadramento salvo: a
+   imagem preenche o círculo sem deformar, e o pedaço visível é o que o lojista
+   escolheu — não o centro geométrico por acaso. */
+.cap-logo { width: 80px; height: 80px; border-radius: 50%; aspect-ratio: 1;
+  object-fit: cover; flex-shrink: 0;
+  background: var(--bg-0); border: 3px solid var(--bg-1); box-shadow: 0 4px 14px rgba(0,0,0,.28); }
+.cap-logo.sem { display: flex; align-items: center; justify-content: center;
+  font-size: 1.7rem; font-weight: 700; color: var(--text-3); text-transform: uppercase; }
+.cap-txt { flex: 1; min-width: 0; padding: 10px 0 4px; }
+/* Nome longo quebra dentro da própria área, em vez de esticar a linha. */
+.cap-txt h2 { overflow-wrap: anywhere; }
+.cap-txt h2 { margin: 0; font-size: 1.22rem; line-height: 1.18; }
+.cap-txt .sub { color: var(--text-2); font-size: .84em; margin-top: 3px; }
+.cap-acoes { display: flex; gap: 8px; align-items: center; padding-top: 12px; flex-wrap: wrap; }
+.cap-rodape { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 9px 20px; border-top: 1px solid var(--border); background: var(--bg-2); }
+.cap-rodape code { flex: 1; min-width: 160px; font-size: .8em; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Resumo: uma linha discreta. Os cinco cards grandes viraram dashboard e
+   roubavam a tela de quem veio montar o catálogo. */
+.cap-resumo { font-size: .82em; color: var(--text-3); padding: 0 20px 12px; }
+
+/* ---- cabeçalho editável (Fase 48) ----
+   Os controles ficam SOBRE o banner, em pílula escura translúcida: o banner é
+   imagem do lojista e pode ser clara ou escura, então contraste fixo com o tema
+   não serve — o véu próprio é o que garante o texto legível sobre qualquer foto. */
+.cap-link, .cap-banner-acoes { position: absolute; display: flex; gap: 6px; align-items: center;
+  background: rgba(0,0,0,.46); backdrop-filter: blur(3px); border-radius: 999px; padding: 5px 8px; }
+.cap-link { left: 12px; top: 12px; max-width: calc(100% - 150px); }
+.cap-banner-acoes { right: 12px; top: 12px; }
+.cap-link code { color: #fff; font-size: .78em; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.cl-bt { background: rgba(255,255,255,.16); color: #fff; border: 0; cursor: pointer;
+  border-radius: 999px; padding: 4px 10px; font-size: .76em; font-weight: 600;
+  white-space: nowrap; min-height: 26px; }
+.cl-bt:hover { background: rgba(255,255,255,.3); }
+
+.cap-logo-bt { position: relative; padding: 0; border: 0; background: none; cursor: pointer;
+  flex-shrink: 0; line-height: 0; border-radius: 50%; }
+.cap-logo-lapis { position: absolute; right: -2px; bottom: -2px; width: 24px; height: 24px;
+  border-radius: 50%; background: var(--bg-1); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center; font-size: .72rem;
+  color: var(--text-2); line-height: 1; }
+
+/* O nome só parece campo quando se chega perto dele: uma caixa de input
+   permanente no meio da capa faria o cabeçalho parecer um formulário. */
+#capNome { border: 1px solid transparent; border-radius: 7px; padding: 1px 6px; margin-left: -6px;
+  outline: none; min-width: 40px; }
+#capNome:hover { border-color: var(--border); }
+#capNome:focus { border-color: var(--primary); background: var(--bg-0); }
+
+.bt-badge { cursor: pointer; border: 1px solid var(--border); font: inherit; font-size: .76em;
+  min-height: 30px; padding: 4px 12px; }
+
+/* ---- menu de configurações ---- */
+.menu-cfg { position: relative; }
+.menu-cfg-lista { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40;
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: 6px; min-width: 232px; }
+.menu-cfg-lista button { display: block; width: 100%; text-align: left; background: none;
+  border: 0; cursor: pointer; padding: 9px 11px; border-radius: 7px; color: var(--text-1);
+  font: inherit; font-size: .87em; min-height: 40px; }
+.menu-cfg-lista button:hover { background: var(--bg-2); }
+.mc-sep { height: 1px; background: var(--border); margin: 5px 4px; }
+
+/* ---- editor de enquadramento ---- */
+.enq-palco { position: relative; width: 100%; aspect-ratio: 1; background: var(--bg-3);
+  overflow: hidden; border-radius: var(--r-md); cursor: grab; touch-action: none;
+  user-select: none; -webkit-user-select: none; }
+.enq-palco.banner { aspect-ratio: 16 / 6; }
+.enq-palco img { position: absolute; left: 50%; top: 50%; max-width: none;
+  transform-origin: center; pointer-events: none; }
+.enq-palco.arrastando { cursor: grabbing; }
+/* Máscara circular: mostra exatamente o que o container redondo vai exibir. */
+.enq-mascara { position: absolute; inset: 0; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.42); border-radius: 50%; }
+.enq-palco.banner .enq-mascara { border-radius: var(--r-md); box-shadow: none;
+  outline: 2px dashed rgba(255,255,255,.5); outline-offset: -2px; }
+.enq-zoom { display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; }
+.enq-zoom label { font-size: .85em; color: var(--text-2); }
+.enq-zoom input { flex: 1; accent-color: var(--primary); min-height: 44px; }
+
+/* ---- arrastar para ordenar ---- */
+.puxador { cursor: grab; touch-action: none; color: var(--text-3); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; min-height: 44px; font-size: .95rem; line-height: 1;
+  user-select: none; -webkit-user-select: none; }
+.puxador:hover { color: var(--text-1); }
+.puxador:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 5px; }
+.arrastando { cursor: grabbing; opacity: .92;
+  box-shadow: 0 8px 24px rgba(0,0,0,.28); border-radius: 8px; }
+.arrasto-fantasma { border: 2px dashed var(--accent); border-radius: 8px; margin: 2px 0;
+  background: color-mix(in srgb, var(--accent) 8%, transparent); }
+/* Enquanto arrasta, nada de seleção de texto acidental pela tela toda. */
+body.arrastando-lista { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+
+/* ---- setas de ordenação ---- */
+.ord { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+.ord button { background: none; border: 1px solid transparent; border-radius: 5px; cursor: pointer;
+  color: var(--text-3); font-size: .62rem; line-height: 1; padding: 2px 5px; min-height: 18px; }
+.ord button:hover:not(:disabled) { background: var(--bg-2); color: var(--text-1); border-color: var(--border); }
+.ord button:disabled { opacity: .25; cursor: default; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   BARRA HORIZONTAL DE CATEGORIAS
+   ════════════════════════════════════════════════════════════════════════ */
+.nav-cats { display: flex; gap: 7px; align-items: center; margin-bottom: 14px;
+  overflow-x: auto; scroll-behavior: smooth; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; padding-bottom: 2px;
+  --fade-dir: 0px;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade-dir)), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade-dir)), transparent 100%); }
+.nav-cats::-webkit-scrollbar { height: 0; }
+.nav-cats button { flex-shrink: 0; border: 1px solid var(--border-strong); background: var(--bg-1);
+  color: var(--text-1); border-radius: 999px; padding: 8px 15px; font-size: .86em;
+  font-family: inherit; cursor: pointer; white-space: nowrap; min-height: 40px; }
+.nav-cats button:hover { border-color: var(--accent); }
+.nav-cats button.ativo { background: var(--btn-primary-bg); color: var(--btn-primary-fg);
+  border-color: transparent; font-weight: 600; }
+.nav-cats button.principal { background: var(--bg-3); font-weight: 600; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   BLOCO DE CATEGORIA
+   ════════════════════════════════════════════════════════════════════════ */
+.bloco-cat { border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-1); margin-bottom: 10px; overflow: hidden; scroll-margin-top: 12px; }
+.bc-cab { display: flex; align-items: center; gap: 6px; padding: 12px 15px; }
+/* O puxador da CATEGORIA vem antes da seta: `⠿ ▶ CONFEITOS`. */
+.puxador-cat { margin-left: -4px; }
+.bc-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
+  background: none; border: none; font-family: inherit; color: inherit; text-align: left;
+  cursor: pointer; padding: 0; min-height: 44px; }
+.bc-seta { color: var(--text-3); font-size: .78em; transition: transform .15s; flex-shrink: 0; }
+.bloco-cat.aberta .bc-seta { transform: rotate(90deg); }
+.bc-nome { font-weight: 600; font-size: .98em; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.bc-qtd { font-size: .78em; color: var(--text-3); white-space: nowrap; }
+.bc-corpo { display: none; border-top: 1px solid var(--border); }
+.bloco-cat.aberta .bc-corpo { display: block; }
+.bloco-cat.destaques .bc-nome { color: var(--warn); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   LINHA DO PRODUTO — compacta e visual
+   Sem custo, CFOP, NCM ou fiscal: isso é de CATÁLOGO → Produtos. Aqui só o
+   que ajuda a montar a vitrine.
+   ════════════════════════════════════════════════════════════════════════ */
+.lp { display: grid; grid-template-columns: 48px 1fr auto auto auto;
+  gap: 12px; align-items: center; padding: 9px 15px; border-bottom: 1px solid var(--border); }
+/* Com setas a grade ganha UMA coluna à esquerda. Precisa ser declarado: a
+   `.lp` tem 5 colunas fixas, e um sexto filho cairia numa segunda linha. */
+.lp.com-ord { grid-template-columns: auto 48px 1fr auto auto auto; gap: 9px; }
+.lp:last-child { border-bottom: none; }
+.lp:hover { background: var(--bg-2); }
+.lp-abrir { display: contents; background: none; border: none; font-family: inherit;
+  color: inherit; cursor: pointer; text-align: left; padding: 0; }
+.lp-foto { width: 48px; height: 48px; border-radius: 9px; object-fit: cover;
+  background: var(--bg-3); }
+.lp-foto.sem { display: flex; align-items: center; justify-content: center;
+  font-size: .76rem; font-weight: 700; color: var(--text-3); text-transform: uppercase; }
+.lp-info { min-width: 0; }
+.lp-nome { font-size: .93em; line-height: 1.32; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lp-meta { font-size: .75em; color: var(--text-3); margin-top: 2px; }
+.lp-preco { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .96em; }
+
+/* Controles: alvo generoso e estado visual claro. */
+.ic-btn { border: none; background: none; cursor: pointer; padding: 8px;
+  border-radius: 8px; line-height: 1; color: var(--text-3);
+  min-width: 40px; min-height: 40px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 1.05em; }
+.ic-btn:hover { background: var(--bg-3); color: var(--text-1); }
+.ic-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ic-btn.estrela.on { color: var(--warn); }
+.ic-btn.olho.on { color: var(--success); }
+
+/* Tooltip próprio — `title=` está proibido nesta base (Fase 3.2.1): o balão
+   nativo do navegador aparece por cima do nosso, branco e atrasado. */
+.dica { position: fixed; z-index: 1100; pointer-events: none; opacity: 0;
+  transition: opacity .12s; background: var(--bg-3); color: var(--text-0);
+  border: 1px solid var(--border-strong); border-radius: 6px; padding: 5px 9px;
+  font-size: .78rem; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+.dica.on { opacity: 1; }
+
+.vazio { padding: 18px 15px; color: var(--text-3); font-size: .87em; text-align: center; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   PAINÉIS LATERAIS
+   ════════════════════════════════════════════════════════════════════════ */
+.pn-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(2px);
+  z-index: 2000; display: none; }
+.pn-bg.open { display: flex; }
+.pn-bg.dir { justify-content: flex-end; }
+.pn-bg.esq { justify-content: flex-start; }
+.pn { width: 470px; max-width: 100%; height: 100vh; background: var(--bg-1);
+  display: flex; flex-direction: column; }
+.pn-bg.dir .pn { border-left: 1px solid var(--border); animation: deDir .2s ease-out; }
+.pn-bg.esq .pn { border-right: 1px solid var(--border); width: 330px; animation: deEsq .2s ease-out; }
+@keyframes deDir { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes deEsq { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+.pn-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 14px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.pn-corpo { flex: 1; overflow-y: auto; padding: 16px 18px; }
+.pn-pe { padding: 12px 18px; border-top: 1px solid var(--border); display: flex;
+  gap: 8px; justify-content: flex-end; flex-shrink: 0; background: var(--bg-1); }
+
+/* Topo do painel: foto grande à esquerda, nome e descrição à direita. */
+.pp-topo { display: flex; gap: 14px; margin-bottom: 6px; }
+.pp-foto { width: 116px; height: 116px; border-radius: 12px; object-fit: cover;
+  background: var(--bg-3); flex-shrink: 0; }
+.pp-foto.sem { display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 4px; color: var(--text-3); font-size: .74em; text-align: center; }
+.pp-topo .campos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.pp-topo input, .pp-topo textarea { width: 100%; }
+.pp-topo textarea { min-height: 62px; resize: vertical; line-height: 1.4; }
+
+/* Blocos do painel */
+.pp-sec { margin-top: 20px; }
+.pp-sec > h4 { font-size: .73em; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--text-3); font-weight: 600; margin: 0 0 9px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border); }
+.pp-sec .form-group { margin-bottom: 10px; }
+.pp-nota { font-size: .8em; color: var(--text-3); margin: 4px 0 0; }
+.pp-futuro { border: 1px dashed var(--border-strong); border-radius: 9px;
+  padding: 11px 13px; color: var(--text-3); font-size: .82em; display: flex;
+  align-items: center; gap: 10px; }
+.pp-futuro .badge { flex-shrink: 0; }
+.pp-saldo { display: flex; align-items: baseline; gap: 8px; }
+.pp-saldo .v { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Painel de categorias (esquerda) */
+.pc-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 12px;
+  background: none; border: none; border-radius: 8px; font-family: inherit; color: inherit;
+  cursor: pointer; text-align: left; min-height: 44px; }
+.pc-item:hover { background: var(--bg-2); }
+.pc-item .n { margin-left: auto; font-size: .78em; color: var(--text-3); }
+/* As setas ficam FORA do botão de navegar — botão dentro de botão é HTML
+   inválido, e o clique na seta acabaria rolando a tela até a categoria. */
+.pc-linha { display: flex; align-items: center; gap: 2px; background: var(--bg-1); }
+.pc-dica { font-size: .78em; color: var(--text-3); margin: 8px 2px 4px; }
+.pc-linha .pc-item { flex: 1; min-width: 0; }
+.pc-tot { font-size: .8em; color: var(--text-3); padding: 10px 12px;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 10px 0; }
+
+@media (max-width: 640px) {
+  .cap-banner { height: 96px; }
+  .cap-corpo { flex-wrap: wrap; padding: 0 14px 12px; }
+  .cap-corpo .cap-logo-bt { margin-top: -32px; }
+  .cap-logo { width: 64px; height: 64px; }
+  .cap-acoes { width: 100%; }
+  .cap-acoes .btn { flex: 1; min-height: 44px; }
+  .cap-rodape { padding: 9px 14px; }
+  .cap-rodape .btn { min-height: 44px; }
+  .cap-resumo { padding: 0 14px 12px; }
+  /* Linha: foto + texto em cima, preço e controles embaixo. */
+  .lp { grid-template-columns: 48px 1fr; row-gap: 8px; padding: 11px 13px; }
+  .lp-preco { grid-column: 2; justify-self: start; }
+  .lp-acoes { grid-column: 2; display: flex; gap: 6px; }
+  .pn, .pn-bg.esq .pn { width: 100%; }
+  /* 16px: abaixo disso o Safari do iOS dá zoom ao focar e o painel sai da tela. */
+  .pn-corpo input, .pn-corpo textarea, .pn-corpo select { font-size: 16px; }
+  .pp-foto { width: 92px; height: 92px; }
+}
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+
+  <div class="page-header">
+    <div>
+      <h1>Catálogo Online</h1>
+      <small>Monte a vitrine — os mesmos produtos, preços e estoque do ERP</small>
+    </div>
+    <div class="actions">
+      <!-- Um menu, e não seis botões na barra: as opções daqui são de ajuste
+           ocasional, e ocupando a barra empurravam para baixo o que se usa
+           todo dia, que é a lista de produtos. -->
+      <div class="menu-cfg">
+        <button type="button" class="btn btn-secondary" id="btCfg" onclick="alternarMenuCfg()"
+                aria-haspopup="true" aria-expanded="false">⚙️ Configurações</button>
+        <div class="menu-cfg-lista" id="menuCfg" role="menu" hidden>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/loja-informacoes.html';">Informações da empresa</button>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/loja-entrega.html';">Entrega e cobertura</button>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); abrirAparencia();">Aparência do catálogo</button>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/catalogo/categorias.html';">Gerenciar categorias</button>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); location.href='/varejo/loja.html';">Contato, preço e pagamento</button>
+          <div class="mc-sep"></div>
+          <button type="button" role="menuitem" onclick="fecharMenuCfg(); abrirPublico();">Ver a vitrine publicada</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="cap">
+    <div class="cap-banner" id="capBanner">
+      <!-- O link fica SOBRE o banner porque é o que o lojista mais procura aqui:
+           é o endereço que ele manda para o cliente. No rodapé, passava batido. -->
+      <div class="cap-link">
+        <code id="capUrl">—</code>
+        <button type="button" class="cl-bt" id="btCopiar" onclick="copiarLink(this)">Copiar</button>
+        <button type="button" class="cl-bt" onclick="abrirPublico()">Abrir</button>
+      </div>
+      <div class="cap-banner-acoes">
+        <button type="button" class="cl-bt" onclick="escolherBanner()">Trocar capa</button>
+        <button type="button" class="cl-bt" id="btAjustarCapa" onclick="abrirEnq('banner')" hidden>Ajustar</button>
+        <button type="button" class="cl-bt" id="btBannerRem" onclick="removerBanner()" hidden>Remover</button>
+      </div>
+    </div>
+    <div class="cap-corpo">
+      <button type="button" class="cap-logo-bt" onclick="escolherLogo()"
+              data-dica="Trocar o logotipo do catálogo" aria-label="Trocar o logotipo do catálogo">
+        <img id="capLogo" class="cap-logo" alt="" hidden>
+        <div id="capLogoSem" class="cap-logo sem">—</div>
+        <span class="cap-logo-lapis" aria-hidden="true">✎</span>
+      </button>
+      <button type="button" class="btn btn-ghost btn-sm" id="btAjustarLogo"
+              onclick="abrirEnq('logo')" hidden style="align-self:center;">Ajustar logo</button>
+      <div class="cap-txt">
+        <!-- Editar no lugar, e não num modal: o nome é UM campo, e mandar o
+             lojista a um formulário inteiro para trocar uma palavra é o que fez
+             ninguém trocar. `blur` salva; Esc desiste. -->
+        <h2 id="capNome" contenteditable="plaintext-only" spellcheck="false"
+            role="textbox" aria-label="Nome do catálogo"
+            onfocus="focoNome(event)" onblur="salvarNome()" onkeydown="teclaNome(event)">Catálogo</h2>
+        <div class="sub" id="capSub">—</div>
+      </div>
+      <div class="cap-acoes">
+        <button type="button" class="badge bt-badge" id="capStatus" onclick="alternarPublicacao()">—</button>
+      </div>
+    </div>
+    <div class="cap-resumo" id="capResumo">—</div>
+  </div>
+
+  <!-- Fora da capa: o input reescrito junto com ela perderia o arquivo escolhido. -->
+  <input type="file" id="arqBanner" accept="image/*" hidden onchange="enviarImagem(this, 'banner')">
+  <input type="file" id="arqLogo" accept="image/*" hidden onchange="enviarImagem(this, 'logo')">
+
+  <nav class="nav-cats" id="navCats" aria-label="Categorias do catálogo"></nav>
+
+  <div class="toolbar" style="margin-bottom:12px;">
+    <input type="text" id="busca" placeholder="Buscar produto…" oninput="render()" style="flex:1;min-width:180px;">
+  </div>
+
+  <div id="lista"><div class="vazio">Carregando…</div></div>
+</main></div>
+
+<!-- painel: categorias -->
+<div class="pn-bg esq" id="pnCats" onclick="if(event.target===this)fecharCats()">
+  <aside class="pn" role="dialog" aria-label="Categorias">
+    <div class="pn-cab">
+      <strong>Categorias</strong>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="fecharCats()" aria-label="Fechar"
+              style="font-size:1.3em;line-height:1;padding:2px 10px;">×</button>
+    </div>
+    <div class="pn-corpo" id="pnCatsCorpo"></div>
+  </aside>
+</div>
+
+<!-- painel: editar produto -->
+<div class="pn-bg dir" id="pnProd" onclick="if(event.target===this)fecharProduto()">
+  <aside class="pn" role="dialog" aria-label="Editar produto">
+    <div class="pn-cab">
+      <strong>Editar produto</strong>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="fecharProduto()" aria-label="Fechar"
+              style="font-size:1.3em;line-height:1;padding:2px 10px;">×</button>
+    </div>
+    <div class="pn-corpo" id="pnProdCorpo"></div>
+    <div class="pn-pe">
+      <button type="button" class="btn btn-ghost" onclick="fecharProduto()">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="btSalvar" onclick="salvarProduto()">Salvar</button>
+    </div>
+  </aside>
+</div>
+
+<!-- editor de enquadramento -->
+<div class="modal-bg" id="modalEnq" onclick="if(event.target===this)fecharEnq()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header"><h3 style="margin:0;" id="enqTitulo">Ajustar imagem</h3></div>
+    <p class="muted" style="margin:0 0 12px;font-size:.85em;">
+      Arraste a imagem para escolher o que aparece. A original não é alterada.</p>
+    <div class="enq-palco" id="enqPalco">
+      <img id="enqImg" alt="">
+      <div class="enq-mascara" id="enqMascara"></div>
+    </div>
+    <div class="enq-zoom">
+      <label for="enqZoom">Zoom</label>
+      <input type="range" id="enqZoom" min="1" max="4" step="0.05" value="1" oninput="pintarEnq()">
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="fecharEnq()">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="salvarEnq()">Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- aparência -->
+<div class="modal-bg" id="modalAp" onclick="if(event.target===this)fecharAparencia()">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><h3 style="margin:0;">Aparência do catálogo</h3></div>
+    <div id="apCorpo"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="fecharAparencia()">Cancelar</button>
+      <button type="button" class="btn btn-primary" onclick="salvarAparencia()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="dica" id="dica" role="tooltip"></div>
+
+<script src="/js/arrastar-ordenar.js"></script>
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('loja');</script>
+<script>
+/* Catálogo Online — central de montagem da vitrine.
+ *
+ * Um princípio governa a tela: NÃO existe produto do catálogo. Existe o produto
+ * do ERP, e esta tela edita esse mesmo registro pelo `PUT /api/produtos/:id`,
+ * com a mesma whitelist e a mesma validação de preço do servidor. Exclusivo da
+ * vitrine são duas colunas de apresentação: `publicadoNaLoja` e `destaqueNaLoja`.
+ */
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => { e.style.display = 'none'; }, 6000);
+}
+const esc = (s) => { const d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; };
+const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = (v) => (Number(v) || 0).toLocaleString('pt-BR');
+const sigla = (t) => String(t || '?').trim().slice(0, 2);
+
+/* Saldo acima disto veio de importação, não de operação.
+ *
+ * Auditado em 14/09: os 8 produtos com saldo bilionário do produtosbomgosto têm
+ * UMA movimentação de ENTRADA de 9.999.999.974 com a observação "Importação
+ * inicial do export Bling/Tiny". NÃO é sentinela do sistema — não há
+ * `controlaEstoque` em `produtos` e nenhum ponto do código trata esse valor
+ * como especial. Por isso o número não é escondido nem substituído: ele é
+ * mostrado no painel, marcado como suspeito, para ser corrigido na origem. */
+const SALDO_SUSPEITO = 1e6;
+
+let DADOS = null;
+let abertas = new Set();
+let editando = null;
+let focoCat = null;
+
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  if (r.status === 401) { window.location.href = '/login.html'; throw new Error('sessão'); }
+  const d = await r.json().catch(() => null);
+  if (!r.ok || !d || !d.success) throw new Error((d && d.error) || 'Não foi possível concluir a operação.');
+  return d;
+}
+
+async function carregar() {
+  try {
+    DADOS = await api('/api/loja/catalogo');
+    pintarCapa(); pintarNav(); render();
+  } catch (e) {
+    document.getElementById('lista').innerHTML =
+      `<div class="vazio">Não foi possível carregar o catálogo. ${esc(e.message)}
+       <br><button type="button" class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="carregar()">Tentar novamente</button></div>`;
+  }
+}
+
+/* ===================== CAPA ===================== */
+
+function pintarCapa() {
+  const l = DADOS.loja;
+  const banner = document.getElementById('capBanner');
+  banner.style.setProperty('--cap-cor', (l.tema && l.tema.corPrimaria) || '#0E6B63');
+  /* A imagem entra ANTES dos controles, e por `insertAdjacentHTML` em vez de
+     reescrever o `innerHTML`: os botões de link e de troca são filhos do banner,
+     e reescrevê-lo apagaria os dois a cada recarga. */
+  const antiga = banner.querySelector('img');
+  if (antiga) antiga.remove();
+  if (l.banner) banner.insertAdjacentHTML('afterbegin', `<img src="${esc(l.banner)}" alt="">`);
+  document.getElementById('btBannerRem').hidden = !l.banner;
+
+  // Enquadramento salvo vira `object-position` + zoom — o mesmo par que o
+  // editor manipula. Sem foco, o padrão é o centro.
+  const aplicarFoco = (el, foco) => {
+    const f = foco || { x: 50, y: 50, zoom: 1 };
+    el.style.objectPosition = `${f.x}% ${f.y}%`;
+    el.style.transform = f.zoom > 1 ? `scale(${f.zoom})` : '';
+  };
+  const bimg = banner.querySelector('img');
+  if (bimg) aplicarFoco(bimg, l.bannerFoco);
+  document.getElementById('btAjustarCapa').hidden = !l.banner;
+  document.getElementById('btAjustarLogo').hidden = !l.logoProprio;
+
+  const img = document.getElementById('capLogo'), sem = document.getElementById('capLogoSem');
+  if (l.logo) { img.src = l.logo; img.hidden = false; sem.style.display = 'none'; aplicarFoco(img, l.logoFoco); }
+  else { img.hidden = true; sem.style.display = 'flex'; sem.textContent = sigla(l.nome || 'C'); }
+
+  /* Não reescreve o nome enquanto ele está sendo digitado: `carregar()` roda
+     depois de qualquer ação da tela, e sobrescrever aqui apagaria o que o
+     lojista acabou de escrever, no meio da frase. */
+  const h = document.getElementById('capNome');
+  if (document.activeElement !== h) h.textContent = l.nome || 'Catálogo';
+
+  document.getElementById('capSub').textContent = l.descricao
+    || (l.nome && !l.nomeProprio
+        ? 'Usando o nome da empresa — clique no título para dar um nome ao catálogo'
+        : 'Sem apresentação definida');
+
+  const st = document.getElementById('capStatus');
+  st.textContent = l.ativa ? 'Publicado' : 'Não publicado';
+  st.className = 'badge bt-badge ' + (l.ativa ? 'success' : '');
+  st.title = l.ativa ? 'Clique para tirar do ar' : 'Clique para publicar';
+
+  const r = DADOS.resumo;
+  document.getElementById('capResumo').textContent =
+    `${r.total} produto(s) · ${r.categorias} categoria(s) · ${r.publicados} publicado(s)`
+    + (r.destaques ? ` · ${r.destaques} em destaque` : '')
+    + (r.semFoto ? ` · ${r.semFoto} sem foto` : '');
+  document.getElementById('capUrl').textContent = l.url;
+}
+
+/* ===================== CABEÇALHO EDITÁVEL ===================== */
+
+function escolherBanner() { document.getElementById('arqBanner').click(); }
+function escolherLogo()   { document.getElementById('arqLogo').click(); }
+
+/* Envia banner ou logo. Um só caminho para os dois porque as rotas são
+   espelhadas — o que muda é o nome do campo e o da rota. */
+async function enviarImagem(input, tipo) {
+  const arq = input.files && input.files[0];
+  // Limpa SEMPRE: sem isso, escolher o mesmo arquivo de novo não dispara
+  // `change`, e o lojista clica achando que a tela travou.
+  input.value = '';
+  if (!arq) return;
+  if (arq.size > 4 * 1024 * 1024) {
+    return showAlert('A imagem tem mais de 4 MB. Reduza o arquivo e tente de novo.', 'error');
+  }
+  const fd = new FormData();
+  fd.append(tipo, arq);
+  try {
+    await api('/api/loja/' + tipo, { method: 'POST', body: fd });
+    await carregar();
+    showAlert(tipo === 'banner' ? 'Capa atualizada.' : 'Logotipo atualizado.');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function removerBanner() {
+  try {
+    await api('/api/loja/banner', { method: 'DELETE' });
+    await carregar();
+    showAlert('Capa removida — o cabeçalho volta à cor do tema.');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+/* O que estava escrito quando o campo ganhou o foco.
+ *
+ * A comparação precisa ser com o TEXTO EXIBIDO, e não com `loja.nome`: quando o
+ * nome é recuo da razão social, `nomeProprio` é falso e o campo mostra o nome da
+ * empresa. Comparando com o valor do banco, clicar no título e sair — ou apertar
+ * Esc — gravaria a razão social como nome próprio do catálogo, sem que ninguém
+ * tivesse digitado nada. */
+let nomeAoFocar = null;
+function focoNome(ev) { nomeAoFocar = (ev.target.textContent || '').trim(); }
+
+async function salvarNome() {
+  const h = document.getElementById('capNome');
+  const novo = (h.textContent || '').trim();
+  if (nomeAoFocar !== null && novo === nomeAoFocar) return;   // saiu sem editar
+  try {
+    await api('/api/loja/nome', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: novo }) });
+    await carregar();
+    showAlert(novo ? 'Nome do catálogo atualizado.' : 'Nome limpo — voltou a usar o da empresa.');
+  } catch (e) {
+    showAlert(e.message, 'error');
+    h.textContent = nomeAoFocar != null ? nomeAoFocar : (DADOS.loja.nome || 'Catálogo');
+  }
+}
+
+function teclaNome(ev) {
+  if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); }
+  if (ev.key === 'Escape') {
+    // Repõe o valor ANTES de soltar o foco: `blur` dispara o salvamento, e sem
+    // repor aqui o Esc gravaria justamente o texto que se quis descartar.
+    ev.target.textContent = nomeAoFocar != null ? nomeAoFocar : (DADOS.loja.nome || 'Catálogo');
+    ev.target.blur();
+  }
+}
+
+async function alternarPublicacao() {
+  const indo = !DADOS.loja.ativa;
+  try {
+    await api('/api/loja/publicar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ativa: indo }) });
+    await carregar();
+    showAlert(indo ? 'Catálogo publicado — o link já responde.' : 'Catálogo fora do ar. O link deixa de responder.');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+function alternarMenuCfg() {
+  const m = document.getElementById('menuCfg');
+  const abrindo = m.hidden;
+  m.hidden = !abrindo;
+  document.getElementById('btCfg').setAttribute('aria-expanded', String(abrindo));
+}
+function fecharMenuCfg() {
+  document.getElementById('menuCfg').hidden = true;
+  document.getElementById('btCfg').setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.menu-cfg')) fecharMenuCfg();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharMenuCfg(); });
+
+/* Alternativa por TECLADO ao arrasto.
+ *
+ * Arrastar não é alcançável por quem navega com teclado ou leitor de tela, e o
+ * combinado foi tirar as setas da listagem — não tirar o acesso. O puxador é
+ * focável e responde a ↑ ↓, reaproveitando exatamente as funções que as setas
+ * chamavam. */
+
+/**
+ * Devolve o foco ao puxador depois que a gravação repinta a lista.
+ *
+ * Sem isto o recurso serve para mover UMA posição: o nó que tinha o foco
+ * deixa de existir no repinte, o foco cai no <body> e a seta seguinte não
+ * encontra mais `[data-mover-cat]` — quem usa teclado teria de voltar com Tab
+ * a cada passo. Duas tentativas porque `carregar()` é assíncrono e a lista
+ * pode ser reescrita mais de uma vez na mesma rodada (medido em 16/09).
+ */
+function refocarPuxador(seletor) {
+  const achar = () => { const el = document.querySelector(seletor); if (el) el.focus(); };
+  achar();
+  setTimeout(achar, 400);
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+  const alvo = e.target.closest('[data-mover-cat],[data-mover-prod]');
+  if (!alvo) return;
+  e.preventDefault();
+  const passo = e.key === 'ArrowUp' ? -1 : 1;
+  if (alvo.dataset.moverCat) return moverCategoria(alvo.dataset.moverCat, passo);
+  return moverProduto(alvo.dataset.cat, Number(alvo.dataset.moverProd), passo);
+});
+
+/* ===================== EDITOR DE ENQUADRAMENTO ===================== */
+
+/**
+ * Ajusta o que aparece da imagem — sem tocar no arquivo.
+ *
+ * O estado é `{x, y, zoom}`: x/y em porcentagem (o mesmo par que vira
+ * `object-position` na exibição) e zoom >= 1. A imagem original fica intacta no
+ * servidor; o que se grava é este trio.
+ *
+ * É por isso que reenquadrar quantas vezes se quiser não degrada nada: não há
+ * re-encodação em lugar nenhum do caminho.
+ */
+let ENQ = { qual: 'logo', x: 50, y: 50, zoom: 1, arrastando: null };
+
+function abrirEnq(qual) {
+  const l = DADOS.loja;
+  const src = qual === 'logo' ? l.logo : l.banner;
+  if (!src) return showAlert(`Envie ${qual === 'logo' ? 'um logotipo' : 'uma capa'} antes de ajustar.`, 'error');
+  const foco = (qual === 'logo' ? l.logoFoco : l.bannerFoco) || { x: 50, y: 50, zoom: 1 };
+  ENQ = { qual, x: foco.x, y: foco.y, zoom: foco.zoom, arrastando: null };
+
+  document.getElementById('enqTitulo').textContent = qual === 'logo' ? 'Ajustar logotipo' : 'Ajustar capa';
+  document.getElementById('enqPalco').classList.toggle('banner', qual === 'banner');
+  document.getElementById('enqImg').src = src;
+  document.getElementById('enqZoom').value = ENQ.zoom;
+  document.getElementById('enqImg').onload = pintarEnq;
+  document.getElementById('modalEnq').classList.add('open');
+  pintarEnq();
+}
+
+function fecharEnq() { document.getElementById('modalEnq').classList.remove('open'); }
+
+/** Desenha a prévia com o mesmo cálculo que a exibição final usa. */
+function pintarEnq() {
+  const palco = document.getElementById('enqPalco'), img = document.getElementById('enqImg');
+  if (!palco || !img) return;
+  ENQ.zoom = Number(document.getElementById('enqZoom').value) || 1;
+  const r = palco.getBoundingClientRect();
+  const nat = { w: img.naturalWidth || 1, h: img.naturalHeight || 1 };
+  /* `cover`: a menor escala que ainda cobre o palco inteiro. Abaixo disso
+     sobraria buraco, e buraco no logo é o que "não deformar" quer evitar. */
+  const base = Math.max(r.width / nat.w, r.height / nat.h);
+  const escala = base * ENQ.zoom;
+  const larg = nat.w * escala, alt = nat.h * escala;
+  // x/y em % dizem QUE PARTE da imagem fica no centro do quadro.
+  const dx = (larg - r.width) * (ENQ.x / 100 - 0.5);
+  const dy = (alt - r.height) * (ENQ.y / 100 - 0.5);
+  img.style.width = larg + 'px';
+  img.style.height = alt + 'px';
+  img.style.transform = `translate(calc(-50% - ${dx}px), calc(-50% - ${dy}px))`;
+}
+
+(function ligarArrastoEnq() {
+  const palco = document.getElementById('enqPalco');
+  if (!palco) return;
+  palco.addEventListener('pointerdown', (e) => {
+    ENQ.arrastando = { x: e.clientX, y: e.clientY, ox: ENQ.x, oy: ENQ.y };
+    palco.classList.add('arrastando');
+    palco.setPointerCapture(e.pointerId);
+  });
+  palco.addEventListener('pointermove', (e) => {
+    if (!ENQ.arrastando) return;
+    e.preventDefault();
+    const r = palco.getBoundingClientRect();
+    /* Arrastar para a DIREITA revela o que está à esquerda — daí o sinal
+       invertido. Sem isso a imagem "foge" do dedo e o ajuste fica intragável. */
+    ENQ.x = Math.min(100, Math.max(0, ENQ.arrastando.ox - (e.clientX - ENQ.arrastando.x) / r.width * 100));
+    ENQ.y = Math.min(100, Math.max(0, ENQ.arrastando.oy - (e.clientY - ENQ.arrastando.y) / r.height * 100));
+    pintarEnq();
+  });
+  const soltar = (e) => {
+    ENQ.arrastando = null;
+    palco.classList.remove('arrastando');
+    try { palco.releasePointerCapture(e.pointerId); } catch (_) {}
+  };
+  palco.addEventListener('pointerup', soltar);
+  palco.addEventListener('pointercancel', soltar);
+})();
+
+async function salvarEnq() {
+  try {
+    await api('/api/loja/enquadramento', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ qual: ENQ.qual, foco: { x: ENQ.x, y: ENQ.y, zoom: ENQ.zoom } }),
+    });
+    fecharEnq();
+    await carregar();
+    showAlert('Enquadramento salvo. A imagem original não foi alterada.');
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+/* ===================== ORDEM DA VITRINE ===================== */
+
+/* Move um item uma posição e grava a LISTA INTEIRA.
+ *
+ * Mandar a lista toda, e não "este subiu", é o que impede a numeração de furar:
+ * a tela e o banco passam a contar a mesma coisa a cada gravação, mesmo que uma
+ * requisição anterior tenha se perdido.
+ *
+ * Aqui só se reordena o que a categoria contém de verdade — a busca filtra a
+ * lista exibida, e reordenar sobre o resultado filtrado gravaria posições que o
+ * lojista não viu. Por isso a origem é sempre `DADOS`, nunca o DOM. */
+function movido(lista, de, passo) {
+  const para = de + passo;
+  if (de < 0 || para < 0 || para >= lista.length) return null;
+  const copia = lista.slice();
+  const [item] = copia.splice(de, 1);
+  copia.splice(para, 0, item);
+  return copia;
+}
+
+async function moverCategoria(nome, passo) {
+  // "Sem categoria" não é categoria: é o grupo de quem não tem uma, e fica
+  // sempre por último. Ordenáveis são só as nomeadas.
+  const nomes = DADOS.categorias.filter((c) => c.categoria !== null).map((c) => c.categoria);
+  const nova = movido(nomes, nomes.indexOf(nome), passo);
+  if (!nova) return;
+  try {
+    await api('/api/loja/ordem-categorias', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categorias: nova }) });
+    await carregar();
+    abrirCats();                                  // repinta o painel já reordenado
+    refocarPuxador(`[data-mover-cat="${CSS.escape(nome)}"]`);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function moverProduto(chave, id, passo) {
+  const cat = DADOS.categorias.find((c) => chaveDe(c.categoria) === chave);
+  if (!cat) return;
+  const ids = cat.produtos.map((p) => p.id);
+  const nova = movido(ids, ids.indexOf(id), passo);
+  if (!nova) return;
+  try {
+    await api('/api/loja/ordem-produtos', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: nova }) });
+    await carregar();
+    refocarPuxador(`[data-mover-prod="${CSS.escape(String(id))}"]`);
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+/* ===================== BARRA DE CATEGORIAS ===================== */
+
+const chaveDe = (c) => 'c:' + (c === null ? '\\u0000' : c);
+const rotuloDe = (c) => (c === null ? 'Sem categoria' : c);
+
+function pintarNav() {
+  const nav = document.getElementById('navCats');
+  const geral = !focoCat || focoCat === 'todas';
+  /* "☰ Categorias" abre o painel lateral (onde se REORDENA); "Todas" limpa o
+     filtro. São duas ações diferentes e por isso são dois botões — juntá-las
+     num só obrigaria a adivinhar qual delas o clique queria. */
+  const itens = [`<button type="button" class="principal" data-abrircats="1"
+      aria-label="Abrir painel de categorias">☰ Categorias</button>`,
+    `<button type="button" data-ir="todas" ${geral ? 'class="ativo"' : ''}>Todas</button>`];
+  if (DADOS.destaques.length) {
+    itens.push(`<button type="button" data-ir="destaques" ${focoCat === 'destaques' ? 'class="ativo"' : ''}>★ Destaques</button>`);
+  }
+  // A ordem das abas é a MESMA de `DADOS.categorias`, que já vem ordenada pelo
+  // servidor — então arrastar no painel reordena as abas também, sem código
+  // extra aqui.
+  for (const c of DADOS.categorias) {
+    const k = chaveDe(c.categoria);
+    itens.push(`<button type="button" data-ir="${esc(k)}" ${focoCat === k ? 'class="ativo"' : ''}>${esc(rotuloDe(c.categoria))}</button>`);
+  }
+  nav.innerHTML = itens.join('');
+  atualizarFade();
+}
+
+/* O desvanecido à direita é o que diz que a faixa continua — a barra de
+   rolagem do iOS só aparece durante o gesto. */
+function atualizarFade() {
+  const n = document.getElementById('navCats');
+  const sobra = n.scrollWidth - n.clientWidth - n.scrollLeft;
+  n.style.setProperty('--fade-dir', (sobra > 4 ? 26 : 0) + 'px');
+}
+document.getElementById('navCats').addEventListener('scroll', atualizarFade, { passive: true });
+window.addEventListener('resize', atualizarFade);
+
+document.getElementById('navCats').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.abrircats) return abrirCats();
+  irPara(b.dataset.ir);
+});
+
+/**
+ * Seleciona a categoria — e agora isso FILTRA a lista.
+ *
+ * Antes tentava rolar até o bloco. Não funcionava: a tela vive num iframe de
+ * altura fixa e, com seis blocos fechados, não havia rolagem suficiente para
+ * levar o alvo ao topo. O resultado era a aba acesa em CONFEITOS e a lista
+ * mostrando A GRANEL — aba e conteúdo divergindo, que é o pior dos mundos.
+ *
+ * Filtrar torna a divergência impossível por construção: o que a aba diz é
+ * exatamente o que `render()` desenha. Sem `scrollIntoView` no caminho.
+ */
+function irPara(chave) {
+  // Clicar de novo na mesma aba volta para a visão geral — é o que se espera
+  // de um filtro, e evita ter de procurar o botão "Todas".
+  focoCat = (focoCat === chave) ? 'todas' : chave;
+  if (focoCat !== 'todas') abertas.add(focoCat);
+  render(); pintarNav();
+  // Rola só a BARRA, para a aba escolhida ficar à vista. A lista não se mexe.
+  const btn = document.querySelector(`#navCats [data-ir="${CSS.escape(focoCat)}"]`);
+  if (btn) btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+}
+
+/* ===================== LISTA ===================== */
+
+function render() {
+  const q = (document.getElementById('busca').value || '').toLowerCase().trim();
+  const casa = (p) => !q || [p.descricao, p.sku].some((v) => String(v || '').toLowerCase().includes(q));
+  const blocos = [];
+
+  const geral = !focoCat || focoCat === 'todas';
+  if (DADOS.destaques.length && (geral || focoCat === 'destaques')) {
+    const d = DADOS.destaques.filter(casa);
+    if (!q || d.length) {
+      blocos.push(blocoHtml('destaques', '★ Destaques', d, DADOS.destaques.length, null, true));
+    }
+  }
+  for (const c of DADOS.categorias) {
+    // FILTRO, não rolagem: a aba escolhida mostra só a sua categoria. Antes a
+    // aba ficava ativa e o conteúdo continuava no topo, porque `scrollIntoView`
+    // não tinha para onde rolar em tela curta — e aba e conteúdo divergiam.
+    if (focoCat && focoCat !== 'todas' && chaveDe(c.categoria) !== focoCat) continue;
+    const lista = c.produtos.filter(casa);
+    if (q && !lista.length) continue;
+    /* Com busca ativa as setas somem: a lista na tela é um recorte, e subir
+       "uma posição" dentro dele moveria o produto para um lugar que o lojista
+       não está vendo. Ordenar exige ver a categoria inteira. */
+    blocos.push(blocoHtml(chaveDe(c.categoria), rotuloDe(c.categoria), lista, c.total, c.publicados, false, !q, c.categoria));
+  }
+  document.getElementById('lista').innerHTML = blocos.join('')
+    || `<div class="vazio">Nenhum produto encontrado${q ? ' para esta busca' : ' nesta categoria'}.</div>`;
+  ligarArrastoProdutos();
+  ligarArrastoBlocosCategoria();
+}
+
+/**
+ * Arrasto das CATEGORIAS na lista principal.
+ *
+ * O mesmo `PUT /api/loja/ordem-categorias` do painel lateral — uma fonte de
+ * verdade, dois lugares de onde chamá-la. Só vale na visão geral: com filtro
+ * ativo existe um bloco só na tela.
+ */
+function ligarArrastoBlocosCategoria() {
+  const lista = document.getElementById('lista');
+  if (!lista || !window.ativarArrasto) return;
+  if (!lista.querySelector('.bloco-cat[data-id]')) return;
+  ativarArrasto(lista, {
+    item: '.bloco-cat[data-id]',
+    handle: '.puxador-cat',
+    aoSoltar: async (nomes) => {
+      try {
+        await api('/api/loja/ordem-categorias', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categorias: nomes }),
+        });
+        await carregar();
+      } catch (e) { showAlert(e.message, 'error'); await carregar(); }
+    },
+  });
+}
+
+/**
+ * Arrasto dos PRODUTOS, dentro de cada bloco de categoria.
+ *
+ * Um arrasto por bloco, e de propósito: nesta fase o produto só se reordena
+ * DENTRO da própria categoria. Arrastar de uma categoria para outra mudaria
+ * `produtos.categoria`, que é classificação estrutural do ERP — comissão e
+ * relatórios leem esse campo — e isso não é assunto de uma tela de vitrine.
+ *
+ * Chamado a cada `render()` porque a lista é reescrita inteira; os ouvintes
+ * antigos morrem junto com os nós que os tinham.
+ */
+function ligarArrastoProdutos() {
+  if (!window.ativarArrasto) return;
+  for (const corpo of document.querySelectorAll('#lista .bloco-cat:not(.destaques) .bc-corpo')) {
+    if (!corpo.querySelector('.lp[data-id]')) continue;
+    ativarArrasto(corpo, {
+      item: '.lp[data-id]',
+      handle: '.puxador',
+      aoSoltar: async (ids) => {
+        try {
+          await api('/api/loja/ordem-produtos', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: ids.map(Number) }),
+          });
+          await carregar();
+        } catch (e) { showAlert(e.message, 'error'); await carregar(); }
+      },
+    });
+  }
+}
+
+function blocoHtml(chave, titulo, produtos, total, publicados, ehDestaque, ordenavel, cat = null) {
+  const aberta = abertas.has(chave);
+  const qtd = publicados == null
+    ? `${total} produto(s)`
+    : `${total} produto(s)${publicados ? ` · ${publicados} publicado(s)` : ''}`;
+  const corpo = produtos.length
+    ? produtos.map((p, i) => linhaHtml(p, ordenavel && produtos.length > 1
+        ? { chave, primeiro: i === 0, ultimo: i === produtos.length - 1 } : null)).join('')
+    : `<div class="vazio">${ehDestaque
+        ? 'Use a estrela na linha do produto para destacá-lo.'
+        : 'Nenhum produto nesta categoria.'}</div>`;
+  /* Puxador ao lado da seta, na PRÓPRIA lista: `⠿ ▶ CONFEITOS`.
+     O painel lateral também reordena, mas exige abrir um painel para uma ação
+     que se quer fazer olhando a lista. Só na visão geral: com um filtro ativo
+     existe um bloco só, e não há para onde arrastar. */
+  const podeArrastar = !ehDestaque && cat !== null && (!focoCat || focoCat === 'todas');
+  return `<section class="bloco-cat ${aberta ? 'aberta' : ''} ${ehDestaque ? 'destaques' : ''}"
+      data-bloco="${esc(chave)}" ${podeArrastar ? `data-id="${esc(cat)}"` : ''}>
+    <div class="bc-cab">
+      ${podeArrastar ? `<span class="puxador puxador-cat" role="button" tabindex="0"
+          data-mover-cat="${esc(cat)}" data-dica="Arraste para reordenar a categoria"
+          aria-label="Reordenar ${esc(cat)}: arraste, ou use as setas do teclado">⠿</span>` : ''}
+      <button type="button" class="bc-toggle" data-toggle="${esc(chave)}"
+              aria-expanded="${aberta}" aria-label="${aberta ? 'Recolher' : 'Expandir'} ${esc(titulo)}">
+        <span class="bc-seta" aria-hidden="true">▶</span>
+        <span class="bc-nome">${esc(titulo)}</span>
+        <span class="bc-qtd">${qtd}</span>
+      </button>
+      ${ehDestaque ? '' : `<button type="button" class="btn btn-ghost btn-sm" data-novo="1">+ Produto</button>`}
+    </div>
+    <div class="bc-corpo">${corpo}</div>
+  </section>`;
+}
+
+function linhaHtml(p, ord) {
+  const foto = p.foto
+    ? `<img class="lp-foto" src="${esc(p.foto)}" alt="" loading="lazy">`
+    : `<div class="lp-foto sem" aria-hidden="true">${esc(sigla(p.descricao))}</div>`;
+  /* A chave da categoria vai em `data-` e nunca num onclick: nome de categoria
+     com aspas quebraria o atributo (lição da Fase 43). */
+  /* Puxador no lugar das setas ▲▼.
+     As setas funcionavam, mas exigiam um clique por posição — mover um produto
+     seis lugares eram seis cliques e seis idas ao servidor. O arrasto resolve em
+     um gesto, e funciona no toque (ver `arrastar-ordenar.js`).
+     `data-id` é o que o módulo de arrasto lê para montar a ordem nova. */
+  const puxador = ord ? `<span class="puxador" role="button" tabindex="0"
+      data-mover-prod="${p.id}" data-cat="${esc(ord.chave)}"
+      data-dica="Arraste para reordenar (ou use ↑ ↓ com o teclado)"
+      aria-label="Reordenar ${esc(p.descricao)}: arraste, ou use as setas do teclado">⠿</span>` : '';
+  return `<div class="lp${ord ? ' com-ord' : ''}" ${ord ? `data-id="${p.id}"` : ''}>
+    ${puxador}
+    <button type="button" class="lp-abrir" data-abrir="${p.id}" aria-label="Editar ${esc(p.descricao)}">
+      ${foto}
+      <span class="lp-info">
+        <span class="lp-nome">${esc(p.descricao)}</span>
+        <span class="lp-meta">${esc(p.sku || 'sem SKU')}${p.unidade ? ' · ' + esc(p.unidade) : ''}</span>
+      </span>
+      <span class="lp-preco">${brl(p.preco)}</span>
+    </button>
+    <span class="lp-acoes" style="display:contents;">
+      <button type="button" class="ic-btn estrela ${p.destaque ? 'on' : ''}" data-destaque="${p.id}"
+              data-dica="${p.destaque ? 'Tirar dos destaques' : 'Pôr em destaque'}"
+              aria-label="${p.destaque ? 'Tirar dos destaques' : 'Pôr em destaque'}"
+              aria-pressed="${!!p.destaque}">${p.destaque ? '★' : '☆'}</button>
+      <button type="button" class="ic-btn olho ${p.publicado ? 'on' : ''}" data-vis="${p.id}"
+              data-dica="${p.publicado ? 'Ocultar do catálogo' : 'Mostrar no catálogo'}"
+              aria-label="${p.publicado ? 'Ocultar do catálogo' : 'Mostrar no catálogo'}"
+              aria-pressed="${!!p.publicado}">${p.publicado ? '👁' : '🚫'}</button>
+    </span>
+  </div>`;
+}
+
+/* Delegação: a lista é reescrita a cada ação. Nome de categoria nunca entra
+   em onclick — ele quebraria o atributo (lição da Fase 43). */
+document.getElementById('lista').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-toggle],[data-vis],[data-destaque],[data-abrir],[data-novo]');
+  if (!t) return;
+  if (t.dataset.toggle !== undefined) {
+    const c = t.dataset.toggle;
+    abertas.has(c) ? abertas.delete(c) : abertas.add(c);
+    return render();
+  }
+  if (t.dataset.novo) return (location.href = '/catalogo/produto.html');
+  if (t.dataset.vis) return alternarVis(Number(t.dataset.vis));
+  if (t.dataset.destaque) return alternarDestaque(Number(t.dataset.destaque));
+  if (t.dataset.abrir) return abrirProduto(Number(t.dataset.abrir));
+});
+
+/* Tooltip próprio nos ícones. */
+const dica = document.getElementById('dica');
+document.addEventListener('mouseover', (e) => {
+  const b = e.target.closest('[data-dica]');
+  if (!b) return dica.classList.remove('on');
+  dica.textContent = b.dataset.dica;
+  dica.classList.add('on');
+  const r = b.getBoundingClientRect(), d = dica.getBoundingClientRect();
+  dica.style.left = Math.max(6, Math.min(r.left + r.width / 2 - d.width / 2, window.innerWidth - d.width - 6)) + 'px';
+  dica.style.top = (r.top - d.height - 7 < 6 ? r.bottom + 7 : r.top - d.height - 7) + 'px';
+});
+document.addEventListener('mouseout', (e) => {
+  if (e.target.closest('[data-dica]')) dica.classList.remove('on');
+});
+window.addEventListener('scroll', () => dica.classList.remove('on'), true);
+
+const acharProduto = (id) => {
+  for (const c of DADOS.categorias) { const p = c.produtos.find((x) => x.id === id); if (p) return p; }
+  return null;
+};
+
+async function alternarVis(id) {
+  const p = acharProduto(id); if (!p) return;
+  try {
+    await api('/api/loja/produtos/publicar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [id], publicado: !p.publicado }) });
+    await carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+async function alternarDestaque(id) {
+  const p = acharProduto(id); if (!p) return;
+  try {
+    await api('/api/loja/produtos/destacar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [id], destaque: !p.destaque }) });
+    await carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+/* ===================== PAINEL DE CATEGORIAS ===================== */
+
+function abrirCats() {
+  const r = DADOS.resumo;
+  const itens = [];
+  if (DADOS.destaques.length) {
+    itens.push(`<button type="button" class="pc-item" data-ir="destaques">
+      <span style="color:var(--warn);">★</span> Destaques <span class="n">${DADOS.destaques.length}</span></button>`);
+  }
+  /* Só as categorias NOMEADAS são ordenáveis — "Sem categoria" é o grupo de
+     quem não tem uma, e o servidor a mantém no fim de qualquer jeito. */
+  const nomeadas = DADOS.categorias.filter((c) => c.categoria !== null);
+  for (const c of DADOS.categorias) {
+    const ordenavel = c.categoria !== null && nomeadas.length > 1;
+    /* Puxador no lugar das setas ▲▼: um gesto move para qualquer posição, em
+       vez de um clique por casa. "Sem categoria" não recebe puxador — ela não é
+       categoria, e o servidor a mantém no fim de qualquer jeito. */
+    const puxador = ordenavel
+      ? `<span class="puxador" role="button" tabindex="0" data-mover-cat="${esc(c.categoria)}"
+          data-dica="Arraste para reordenar (ou use ↑ ↓ com o teclado)"
+          aria-label="Reordenar ${esc(c.categoria)}: arraste, ou use as setas do teclado">⠿</span>`
+      : '<span class="puxador" style="visibility:hidden;">⠿</span>';
+    itens.push(`<div class="pc-linha" ${ordenavel ? `data-id="${esc(c.categoria)}"` : ''}>
+      ${puxador}<button type="button" class="pc-item" data-ir="${esc(chaveDe(c.categoria))}">
+        ${esc(rotuloDe(c.categoria))} <span class="n">${c.total}</span></button></div>`);
+  }
+  document.getElementById('pnCatsCorpo').innerHTML = `
+    <button type="button" class="btn btn-primary" style="width:100%;margin-bottom:10px;min-height:44px;"
+            onclick="location.href='/catalogo/categorias.html'">+ Adicionar categoria</button>
+    <button type="button" class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:6px;min-height:44px;"
+            data-todas="1">Abrir todas as categorias</button>
+    <button type="button" class="btn btn-secondary btn-sm" style="width:100%;min-height:44px;"
+            data-todas="0">Fechar todas as categorias</button>
+    <div class="pc-tot">${r.categorias} categoria(s) · ${r.total} produto(s)</div>
+    <p class="pc-dica">Arraste pelo ⠿ para mudar a ordem no catálogo.</p>
+    <div id="pcLista">${itens.join('')}</div>`;
+  document.getElementById('pnCats').classList.add('open');
+  ligarArrastoCategorias();
+}
+
+/**
+ * Arrasto das CATEGORIAS, no painel lateral.
+ *
+ * A lista enviada é sempre a inteira, na ordem nova — mesmo contrato do
+ * `PUT /api/loja/ordem-categorias` que as setas já usavam. Nada de delta: com
+ * a lista completa, tela e banco contam a mesma coisa a cada gravação.
+ */
+function ligarArrastoCategorias() {
+  const lista = document.getElementById('pcLista');
+  if (!lista || !window.ativarArrasto) return;
+  ativarArrasto(lista, {
+    item: '.pc-linha[data-id]',
+    handle: '.puxador',
+    aoSoltar: async (nomes) => {
+      try {
+        await api('/api/loja/ordem-categorias', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categorias: nomes }),
+        });
+        await carregar();     // repinta abas e blocos já na ordem nova
+        abrirCats();
+      } catch (e) { showAlert(e.message, 'error'); abrirCats(); }
+    },
+  });
+}
+function fecharCats() { document.getElementById('pnCats').classList.remove('open'); }
+
+document.getElementById('pnCatsCorpo').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ir],[data-todas]');
+  if (!b) return;
+  if (b.dataset.todas !== undefined) {
+    abertas = new Set();
+    if (b.dataset.todas === '1') {
+      if (DADOS.destaques.length) abertas.add('destaques');
+      for (const c of DADOS.categorias) abertas.add(chaveDe(c.categoria));
+    }
+    return render();
+  }
+  fecharCats();
+  irPara(b.dataset.ir);
+});
+
+/* ===================== PAINEL: EDITAR PRODUTO ===================== */
+
+async function abrirProduto(id) {
+  if (!acharProduto(id)) return;
+  editando = id;
+  document.getElementById('pnProdCorpo').innerHTML = '<div class="vazio">Carregando…</div>';
+  document.getElementById('pnProd').classList.add('open');
+  try {
+    // Busca o produto REAL: a lista traz um recorte, e editar sobre o recorte
+    // apagaria o que não veio nele.
+    const d = await api('/api/produtos/' + id);
+    pintarProduto(d.produto || d.item || d, acharProduto(id));
+  } catch (e) {
+    document.getElementById('pnProdCorpo').innerHTML = `<div class="vazio">${esc(e.message)}</div>`;
+  }
+}
+function fecharProduto() { document.getElementById('pnProd').classList.remove('open'); editando = null; }
+
+function pintarProduto(p, resumo) {
+  const foto = p.imagemPath
+    ? `<img class="pp-foto" src="${esc(p.imagemPath)}" alt="">`
+    : `<div class="pp-foto sem"><span style="font-size:1.5em;">🖼</span><span>sem foto</span></div>`;
+
+  const saldo = resumo ? resumo.disponivel : null;
+  const saldoHtml = saldo == null ? '<span class="muted">—</span>'
+    : saldo >= SALDO_SUSPEITO
+      ? `<span class="v">${num(saldo)}</span>
+         <span class="badge" style="background:var(--warn-soft);color:var(--warn);">valor de importação</span>`
+      : `<span class="v">${num(saldo)}</span> <span class="muted">${esc(p.unidade || '')}</span>`;
+
+  document.getElementById('pnProdCorpo').innerHTML = `
+    <div class="pp-topo">
+      ${foto}
+      <div class="campos">
+        <input type="text" id="fDescricao" value="${esc(p.descricao || '')}" aria-label="Nome do produto">
+        <textarea id="fObservacoes" placeholder="Descrição para a vitrine…"
+                  aria-label="Descrição">${esc(p.observacoes || '')}</textarea>
+      </div>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" style="min-height:40px;"
+            onclick="location.href='/catalogo/produto.html?id=${p.id}#imagens'">Gerenciar fotos</button>
+
+    <div class="pp-sec">
+      <h4>Preço</h4>
+      <div class="form-group"><label>Preço de venda *</label>
+        <input type="number" step="0.01" min="0" id="fPrecoVenda" value="${Number(p.precoVenda) || 0}"></div>
+      <p class="pp-nota">Promoção por vigência já existe no ERP, em Tabelas de preço.
+        A interface aqui vem numa próxima fase.</p>
+    </div>
+
+    <div class="pp-sec">
+      <h4>Estoque</h4>
+      <div class="pp-saldo" style="margin-bottom:10px;">${saldoHtml}</div>
+      ${saldo >= SALDO_SUSPEITO ? `<p class="pp-nota">Este saldo veio de uma importação
+        (movimentação única de entrada). Corrija em <a href="/estoque/movimentacoes.html">Estoque</a>
+        se não corresponder ao real.</p>` : ''}
+      <div class="form-group"><label>Estoque mínimo</label>
+        <input type="number" step="0.01" id="fEstoqueMinimo" value="${Number(p.estoqueMinimo) || 0}"></div>
+      <p class="pp-nota">O saldo vem das movimentações e não se edita aqui.</p>
+    </div>
+
+    <div class="pp-sec">
+      <h4>Identificação</h4>
+      <div class="form-row">
+        <div class="form-group"><label>SKU</label>
+          <input type="text" id="fSku" value="${esc(p.sku || '')}"></div>
+        <div class="form-group"><label>Unidade</label>
+          <input type="text" id="fUnidade" value="${esc(p.unidade || '')}"></div>
+      </div>
+      <div class="form-group"><label>Código de barras</label>
+        <input type="text" id="fCodigoBarras" value="${esc(p.codigoBarras || '')}"></div>
+      <div class="form-group"><label>Categoria</label>
+        <input type="text" id="fCategoria" list="catList" value="${esc(p.categoria || '')}" autocomplete="off">
+        <datalist id="catList">${(DADOS.categorias || [])
+          .filter((c) => c.categoria).map((c) => `<option value="${esc(c.categoria)}">`).join('')}</datalist></div>
+    </div>
+
+    <div class="pp-sec">
+      <h4>Vitrine</h4>
+      <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;margin-bottom:8px;">
+        <input type="checkbox" id="fPublicado" style="width:auto;" ${p.publicadoNaLoja ? 'checked' : ''}>
+        Publicado no catálogo online</label>
+      <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;">
+        <input type="checkbox" id="fDestaque" style="width:auto;" ${p.destaqueNaLoja ? 'checked' : ''}>
+        Aparece nos destaques</label>
+    </div>
+
+    <div class="pp-sec">
+      <h4>Personalizações</h4>
+      <div class="pp-futuro">
+        <span class="badge">em preparação</span>
+        <span>Modificadores (tamanho, sabor, complementos) entram aqui na próxima fase.</span>
+      </div>
+    </div>`;
+}
+
+async function salvarProduto() {
+  if (!editando) return;
+  const v = (id) => document.getElementById(id).value;
+  const btn = document.getElementById('btSalvar');
+  btn.disabled = true;
+  try {
+    // Campos do PRODUTO, pelo endpoint do produto: a whitelist e a validação
+    // de preço mínimo do servidor valem igual, venha a edição de onde vier.
+    await api('/api/produtos/' + editando, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        descricao: v('fDescricao').trim(), observacoes: v('fObservacoes').trim(),
+        precoVenda: Number(v('fPrecoVenda')) || 0, unidade: v('fUnidade').trim(),
+        sku: v('fSku').trim(), codigoBarras: v('fCodigoBarras').trim(),
+        categoria: v('fCategoria').trim() || null,
+        estoqueMinimo: Number(v('fEstoqueMinimo')) || 0,
+      }),
+    });
+    await api('/api/loja/produtos/publicar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [editando], publicado: document.getElementById('fPublicado').checked }) });
+    await api('/api/loja/produtos/destacar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [editando], destaque: document.getElementById('fDestaque').checked }) });
+    showAlert('Produto atualizado.');
+    fecharProduto();
+    await carregar();
+  } catch (e) {
+    showAlert(e.message, 'error');
+  } finally { btn.disabled = false; }
+}
+
+/* ===================== LINK PÚBLICO ===================== */
+
+function janelaDeTopo() {
+  try {
+    if (window.top && window.top !== window && window.top.location.origin === location.origin) return window.top;
+  } catch (_) { /* enquadrada por outra origem */ }
+  return window;
+}
+function abrirPublico() { janelaDeTopo().open(DADOS.loja.url, '_blank', 'noopener'); }
+
+async function copiarLink(btn) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(DADOS.loja.url);
+    else {
+      const t = document.createElement('textarea');
+      t.value = DADOS.loja.url; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+    }
+    const r = btn.innerHTML; btn.innerHTML = 'Copiado!'; setTimeout(() => { btn.innerHTML = r; }, 1800);
+  } catch (_) { showAlert('Não foi possível copiar. O link está no campo ao lado.', 'error'); }
+}
+
+/* ===================== APARÊNCIA ===================== */
+
+function abrirAparencia() {
+  const l = DADOS.loja;
+  document.getElementById('apCorpo').innerHTML = `
+    <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;margin-bottom:14px;">
+      <input type="checkbox" id="apAtiva" style="width:auto;" ${l.ativa ? 'checked' : ''}>
+      Catálogo publicado (visível para quem tiver o link)</label>
+    <div class="form-row"><div class="form-group full-width"><label>Nome público</label>
+      <input type="text" id="apNome" value="${esc(l.nomeProprio ? l.nome : '')}"
+             placeholder="${esc(l.nome || '')}"></div></div>
+    <div class="form-row"><div class="form-group full-width"><label>Apresentação</label>
+      <input type="text" id="apDescricao" value="${esc(l.descricao || '')}"></div></div>
+    <div class="form-row">
+      <div class="form-group"><label>WhatsApp</label>
+        <input type="text" id="apWhatsapp" value="${esc(l.whatsapp || '')}"></div>
+      <div class="form-group"><label>Cor principal</label>
+        <input type="color" id="apCor" value="${esc((l.tema && l.tema.corPrimaria) || '#0E6B63')}"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;margin-bottom:6px;">
+      <input type="checkbox" id="apPreco" style="width:auto;" ${l.mostrarPreco ? 'checked' : ''}> Mostrar preço para visitantes</label>
+    <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:normal;">
+      <input type="checkbox" id="apEstoque" style="width:auto;" ${l.mostrarEstoque ? 'checked' : ''}> Mostrar disponibilidade</label>
+    <p class="muted" style="font-size:.82em;margin-top:14px;margin-bottom:0;">
+      Banner, Instagram, Facebook e endereço público ainda não têm campo em
+      <code>loja_config</code>. Para logo e tema completo, use
+      <a href="/varejo/loja.html">Catálogo · Configurações</a>.</p>`;
+  document.getElementById('modalAp').classList.add('open');
+}
+function fecharAparencia() { document.getElementById('modalAp').classList.remove('open'); }
+
+async function salvarAparencia() {
+  const v = (id) => document.getElementById(id).value;
+  try {
+    await api('/api/loja/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ativa: document.getElementById('apAtiva').checked ? 1 : 0,
+        nome: v('apNome').trim(), descricao: v('apDescricao').trim(),
+        whatsapp: v('apWhatsapp').trim(),
+        mostrarPreco: document.getElementById('apPreco').checked ? 1 : 0,
+        mostrarEstoque: document.getElementById('apEstoque').checked ? 1 : 0,
+        tema: { ...(DADOS.loja.tema || {}), corPrimaria: v('apCor') },
+      }),
+    });
+    showAlert('Aparência salva.');
+    fecharAparencia();
+    await carregar();
+  } catch (e) { showAlert(e.message, 'error'); }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('pnProd').classList.contains('open')) return fecharProduto();
+  if (document.getElementById('pnCats').classList.contains('open')) return fecharCats();
+  if (document.getElementById('modalEnq').classList.contains('open')) return fecharEnq();
+  if (document.getElementById('modalAp').classList.contains('open')) fecharAparencia();
+});
+
+carregar();
+</script>
+</body>
+</html>
