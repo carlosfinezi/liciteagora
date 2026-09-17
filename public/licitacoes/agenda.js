@@ -310,7 +310,7 @@ function abrirModal(evento) {
 
     // Botão "Enviar proposta" direciona pra tela do portal de origem (quando temos
     // integração: BNC/BLL/PCP têm tela própria; Comprasnet federal usa Propostas via API).
-    const alvo = portalProposta(evento);
+    const alvo = resolverPortalProposta(evento);
     const btnProp = document.getElementById('btnEnviarProposta');
     if (alvo) {
         btnProp.style.display = '';
@@ -322,22 +322,9 @@ function abrirModal(evento) {
     document.getElementById('eventModal').classList.add('open');
 }
 
-// Resolve pra qual tela de proposta um evento deve ir, conforme o portal de origem.
-// BNC/BLL/PCP → tela própria (deep-link por pncp). Comprasnet federal → Propostas via API.
-// Outros portais (sem integração) → null (botão não aparece).
-function portalProposta(evento) {
-    const link = evento.linkSistemaOrigem || '';
-    const pncp = `${evento.cnpj}-${evento.ano}-${evento.sequencial}`;
-    if (/bnccompras\.com/i.test(link)) return { label: 'BNC', url: `/portais/bnc-proposta.html?pncp=${pncp}` };
-    if (/bllcompras\.com/i.test(link)) return { label: 'BLL', url: `/portais/bll-proposta.html?pncp=${pncp}` };
-    if (/portaldecompraspublicas\.com\.br/i.test(link)) return { label: 'PCP', url: `/portais/pcp-proposta.html?pncp=${pncp}` };
-    if (/comprasnet\.gov\.br|compras\.gov\.br|gov\.br\/compras|cnetmobile/i.test(link)) return { label: 'Comprasnet', url: '/operacional/propostas-api.html' };
-    return null;
-}
-
 function enviarProposta() {
     if (!eventoSelecionado) return;
-    const alvo = portalProposta(eventoSelecionado);
+    const alvo = resolverPortalProposta(eventoSelecionado);
     if (!alvo) return;
     window.location.href = alvo.url;
 }

@@ -16,6 +16,11 @@ const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 const grupoMembership = require('./bi-grupo-membership');
 const { currentTenant } = require('./tenant-middleware');
 
+// Teto próprio da etapa de itens da pesquisa por grupo. Fica bem abaixo do
+// query_timeout de 30s do pool (catalog-pg.js): grupo cuja membership é grande
+// demais degrada para o resultado de objetoCompra em vez de derrubar a busca.
+const ETAPA_ITENS_TIMEOUT_MS = 10000;
+
 // Normaliza lista de UFs pra JSON (ex.: ["MG","SP"]) ou null quando vazia/inválida.
 function _ufsToJson(ufs) {
   if (!Array.isArray(ufs)) return null;
@@ -398,21 +403,30 @@ function registrarRotasGruposPalavras(app, db) {
       if (USE_PG) {
         // Placeholders geográficos vêm depois dos das palavras ($1=data, $2..=palavras)
         let geoIdx = palavras.length + 2;
-        let geoCond = '', geoCondAlias = '';
+        let geoCond = '';
         const geoParams = [];
         if (ufsGrupo.length) {
           geoCond += ` AND "ufSigla" = ANY($${geoIdx})`;
-          geoCondAlias += ` AND l."ufSigla" = ANY($${geoIdx})`;
           geoParams.push(ufsGrupo); geoIdx++;
         }
         if (munsGrupo.length) {
           geoCond += ` AND "municipioNome" ILIKE ANY($${geoIdx})`;
-          geoCondAlias += ` AND l."municipioNome" ILIKE ANY($${geoIdx})`;
           geoParams.push(munsGrupo); geoIdx++;
         }
         const ufCondPg = geoCond;
-        const ufCondPgAlias = geoCondAlias;
         const ufParamsPg = geoParams;
+
+        // A etapa 2 tem placeholders próprios ($1=data, $2=tenant, $3=grupo),
+        // então a condição geográfica dela começa em $4 — mesma ordem de
+        // geoParams, só a numeração muda.
+        let geoIdxItens = 4;
+        let ufCondPgAlias = '';
+        if (ufsGrupo.length) {
+          ufCondPgAlias += ` AND l."ufSigla" = ANY($${geoIdxItens})`; geoIdxItens++;
+        }
+        if (munsGrupo.length) {
+          ufCondPgAlias += ` AND l."municipioNome" ILIKE ANY($${geoIdxItens})`; geoIdxItens++;
+        }
 
         const condObj = palavras.map((_, j) => `"objetoCompra" ILIKE $${j + 2}`).join(' OR ');
         licitacoesObjeto = await catalogPg.query(`
@@ -422,17 +436,38 @@ function registrarRotasGruposPalavras(app, db) {
            LIMIT 100
         `, [dataLimiteStr, ...palavras.map(p => `%${p}%`), ...ufParamsPg]);
 
-        const condItens = palavras.map((_, j) => `i."descricao" ILIKE $${j + 2}`).join(' OR ');
-        licitacoesItens = await catalogPg.query(`
-          SELECT DISTINCT l.*, COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta" FROM licitacoes l
-           WHERE l."id" IN (
-             SELECT DISTINCT i."licitacaoId" FROM itens i
-              WHERE i."licitacaoId" IN (SELECT "id" FROM licitacoes WHERE "dataPublicacaoPncp" >= $1)
-                AND (${condItens})
-              LIMIT 100
-           )${ufCondPgAlias}
-        ORDER BY l."dataPublicacaoPncp" DESC
-        `, [dataLimiteStr, ...palavras.map(p => `%${p}%`), ...ufParamsPg]);
+        // Etapa 2: itens. Casar as palavras contra `itens.descricao` ao vivo
+        // significa varrer o texto dos ~1,08M itens publicados na janela de 30
+        // dias — barato com poucos termos, mas estoura o timeout do pool quando
+        // o grupo tem dezenas deles. Aqui usamos a membership pré-computada
+        // `bi_grupo_item`, o mesmo caminho de /api/bi/pesquisar.
+        // O filtro de data entra DENTRO do subselect de propósito: fora dele o
+        // planner materializa a membership inteira antes de cortar a janela
+        // (7,9s vs 94ms num grupo de 51 palavras).
+        const tenantSlug = (currentTenant() || {}).slug;
+        licitacoesItens = [];
+        if (tenantSlug) {
+          try {
+            licitacoesItens = await catalogPg.withTx(async (client) => {
+              await client.query(`SET LOCAL statement_timeout = ${ETAPA_ITENS_TIMEOUT_MS}`);
+              const r = await client.query(`
+                SELECT l.*, COALESCE(l."dataEncerramentoPortal", l."dataEncerramentoProposta") AS "dataEncerramentoProposta" FROM licitacoes l
+                 WHERE l."id" IN (
+                   SELECT DISTINCT i."licitacaoId" FROM bi_grupo_item g
+                     JOIN itens i ON i."id" = g."itemId"
+                     JOIN licitacoes l2 ON l2."id" = i."licitacaoId" AND l2."dataPublicacaoPncp" >= $1
+                    WHERE g."tenant" = $2 AND g."grupoId" = $3
+                 )${ufCondPgAlias}
+              ORDER BY l."dataPublicacaoPncp" DESC
+                 LIMIT 100
+              `, [dataLimiteStr, tenantSlug, Number(id), ...ufParamsPg]);
+              return r.rows;
+            });
+          } catch (e) {
+            // Degradar, não falhar: o resultado de objetoCompra já está pronto.
+            console.warn(`[Grupos] Pesquisa do grupo ${id}: etapa de itens abortada (${e.message}) — seguindo só com objetoCompra`);
+          }
+        }
       } else {
         const munsLower = munsGrupo.map(m => m.toLowerCase());
         let ufCondLite = ufsGrupo.length ? ` AND ufSigla IN (${ufsGrupo.map(() => '?').join(',')})` : '';
@@ -454,16 +489,23 @@ function registrarRotasGruposPalavras(app, db) {
 
         const conditionsItens = palavras.map(() => `i.descricao LIKE ?`).join(' OR ');
         const paramsItens = palavras.map(p => `%${p}%`);
-        licitacoesItens = db.prepare(`
-          SELECT DISTINCT l.* FROM licitacoes l
-          WHERE l.id IN (
-            SELECT DISTINCT i.licitacaoId FROM itens i
-            WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE dataPublicacaoPncp >= ?)
-              AND (${conditionsItens})
-            LIMIT 100
-          )${ufCondLiteAlias}
-          ORDER BY l.dataPublicacaoPncp DESC
-        `).all(dataLimiteStr, ...paramsItens, ...geoParamsLite);
+        // Sem membership no backend SQLite legado; ao menos degrada em vez de
+        // derrubar a busca inteira quando a varredura de itens não termina.
+        licitacoesItens = [];
+        try {
+          licitacoesItens = db.prepare(`
+            SELECT DISTINCT l.* FROM licitacoes l
+            WHERE l.id IN (
+              SELECT DISTINCT i.licitacaoId FROM itens i
+              WHERE i.licitacaoId IN (SELECT id FROM licitacoes WHERE dataPublicacaoPncp >= ?)
+                AND (${conditionsItens})
+              LIMIT 100
+            )${ufCondLiteAlias}
+            ORDER BY l.dataPublicacaoPncp DESC
+          `).all(dataLimiteStr, ...paramsItens, ...geoParamsLite);
+        } catch (e) {
+          console.warn(`[Grupos] Pesquisa do grupo ${id}: etapa de itens abortada (${e.message}) — seguindo só com objetoCompra`);
+        }
       }
 
       // Combinar resultados únicos

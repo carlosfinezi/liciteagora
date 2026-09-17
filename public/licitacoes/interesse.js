@@ -1,5 +1,6 @@
 // Dados globais para filtro
 let todasLicitacoes = [];
+let licitacoesFiltradas = [];  // recorte atual do filtro — é sobre ele que o relatório sai
 let idsVisiveis = [];          // item ids atualmente filtrados/visíveis
 let selectedIds = new Set();   // item ids marcados (podem ficar fora dos visíveis se o filtro mudou)
 
@@ -11,9 +12,12 @@ async function carregarInteresses() {
     const filtroBar = document.getElementById('filtroBar');
 
     try {
-        const response = await fetch('/api/interesse');
+        // A permissão de análise IA vai junto: o botão dela é desenhado no card,
+        // e resolvê-la depois obrigaria a re-renderizar a lista inteira.
+        const [response] = await Promise.all([fetch('/api/interesse'), iaCarregarPermissao()]);
         const result = await response.json();
         const interesses = result.data || [];
+        iaAplicarPermissaoNaBarra();
 
         loadingContainer.style.display = 'none';
 
@@ -42,6 +46,10 @@ async function carregarInteresses() {
                     grupoNome: item.grupoNome || '',
                     kanbanStatus: item.kanbanStatus || null,
                     kanbanDataAtualizacao: item.kanbanDataAtualizacao || null,
+                    // Cru de propósito: 0/1 do servidor, undefined enquanto o
+                    // processo não recarregar a rota. Quem decide o que fazer
+                    // com cada um desses três casos é o botoAnaliseIaHtml.
+                    temAnalise: item.temAnalise,
                     itens: []
                 });
             }
@@ -251,6 +259,7 @@ function aplicarFiltro() {
     });
 
     idsVisiveis = filtradas.flatMap(l => l.itens.map(i => i.id));
+    licitacoesFiltradas = filtradas;
     renderizarLicitacoes(filtradas);
     updateSelectionUI();
 
@@ -342,6 +351,11 @@ function renderizarLicitacoes(licitacoes) {
             : '';
         const licKey = `${licitacao.cnpj}-${licitacao.ano}-${licitacao.sequencial}`;
 
+        // Botão de proposta só faz sentido com prazo em aberto e portal integrado.
+        const dEnc = dataStr(licitacao.dataEncerramentoProposta);
+        const prazoAberto = !dEnc || dEnc >= hojeStr();
+        const alvoProposta = prazoAberto ? resolverPortalProposta(licitacao) : null;
+
         const card = document.createElement('div');
         card.className = 'card';
         card.id = 'lic-' + licKey;
@@ -356,7 +370,8 @@ function renderizarLicitacoes(licitacoes) {
                   </div>
                 </div>
                 <div style="display:flex;gap:8px;flex:none;">
-                  <a href="/operacional/analises-ia.html?pncp=${licitacao.cnpj}-${licitacao.ano}-${licitacao.sequencial}" class="btn btn-ghost btn-sm" style="text-decoration:none;white-space:nowrap;" title="Ver análise IA desta licitação">Análise IA</a>
+                  ${alvoProposta ? `<a href="${alvoProposta.url}" class="btn btn-success btn-sm" style="text-decoration:none;white-space:nowrap;" title="Enviar proposta pelo portal ${alvoProposta.label}">📝 Enviar proposta ${alvoProposta.label}</a>` : ''}
+                  ${botaoAnaliseIaHtml(licitacao)}
                   <a href="${linkPncp}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none;white-space:nowrap;" title="Abrir o edital no Portal Nacional de Contratações Públicas">Abrir no PNCP</a>
                   ${linkOrigem ? `<a href="${linkOrigem}" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none;white-space:nowrap;" title="Link de origem informado pelo órgão (pode ser genérico)">Site de origem</a>` : ''}
                 </div>

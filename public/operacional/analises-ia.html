@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Análises IA - LiciteAgora</title>
+    <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
@@ -118,13 +119,6 @@
       <strong>Filtrando por uma licitação específica.</strong>
       <span id="deepLinkPncp" style="color:var(--text-2);margin-left:6px;"></span>
       <a href="/operacional/analises-ia.html" class="btn btn-ghost btn-sm" style="margin-left:12px;">Limpar filtro</a>
-    </div>
-
-    <div class="kpi-grid" id="statsRow">
-        <div class="kpi"><div class="label">Total analisadas</div><div class="value" id="statTotal">—</div></div>
-        <div class="kpi success"><div class="label">Score alto (70+)</div><div class="value" id="statAlta">—</div></div>
-        <div class="kpi warn"><div class="label">Score médio (40–69)</div><div class="value" id="statMedia">—</div></div>
-        <div class="kpi danger"><div class="label">Score baixo (&lt;40)</div><div class="value" id="statBaixa">—</div></div>
     </div>
 
     <div class="panel" style="padding:16px;">
@@ -277,7 +271,6 @@
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error);
 
-                renderStats(data);
                 renderGrupos(data.grupos);
                 renderUfs(data.ufs);
                 renderCards(data.analises);
@@ -286,22 +279,6 @@
             } catch (err) {
                 document.getElementById('resultsArea').innerHTML = `<div class="empty-state"><div class="emoji">⚠️</div><p>Erro: ${err.message}</p></div>`;
             }
-        }
-
-        function renderStats(data) {
-            document.getElementById('statTotal').textContent = data.total;
-            // Count by score range from visible data (approximate from total)
-            const analises = data.analises || [];
-            // We'll update these from a separate stats call
-            fetch('/api/analise/lista?limite=9999&scoreMin=70').then(r => r.json()).then(d => {
-                if (d.success) document.getElementById('statAlta').textContent = d.total;
-            });
-            fetch('/api/analise/lista?limite=1&scoreMin=40&scoreMax=69').then(r => r.json()).then(d => {
-                if (d.success) document.getElementById('statMedia').textContent = d.total;
-            });
-            fetch('/api/analise/lista?limite=1&scoreMax=39').then(r => r.json()).then(d => {
-                if (d.success) document.getElementById('statBaixa').textContent = d.total;
-            });
         }
 
         let gruposCarregados = false;

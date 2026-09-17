@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inteligência de Negócio - LiciteAgora</title>
+    <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
@@ -260,14 +261,24 @@
             <!-- Tabs -->
             <div class="tabs-bar">
                 <button type="button" class="tab-btn active" data-tab="resultados" onclick="mostrarTab('resultados')">📋 Resultados</button>
+                <!-- 2026-08-24: abas analíticas e "Análise IA" ocultadas a pedido —
+                     não fazem sentido com a cobertura de marca atual.
+                     SÓ OS BOTÕES saíram. Os panes e renderAgregadosServidor()
+                     continuam de propósito: a mesma função preenche os KPIs da
+                     aba Resultados, e apagar os elementos a faria estourar em
+                     getElementById(...).style, derrubando os KPIs junto.
+                     Para reverter, basta descomentar.
                 <button type="button" class="tab-btn" data-tab="fornecedores" onclick="mostrarTab('fornecedores')">🏆 Top Fornecedores</button>
                 <button type="button" class="tab-btn" data-tab="precos" onclick="mostrarTab('precos')">💰 Preços</button>
                 <button type="button" class="tab-btn" data-tab="marcas" onclick="mostrarTab('marcas')">🏭 Marcas</button>
                 <button type="button" class="tab-btn" data-tab="ufs" onclick="mostrarTab('ufs')">📍 Por UF</button>
+                -->
                 <div style="flex:1;"></div>
+                <!-- Análise IA (DeepSeek) — ocultada junto, mesma data e motivo.
                 <button type="button" class="btn btn-secondary btn-sm" id="btnAnaliseIA" onclick="abrirAnaliseIA()" title="Análise de preços via DeepSeek sobre o filtro atual" style="margin:6px 12px;align-self:center;">
                     🧠 Análise IA
                 </button>
+                -->
             </div>
 
             <!-- Pane: Resultados -->

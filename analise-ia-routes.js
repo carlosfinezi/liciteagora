@@ -24,7 +24,7 @@
 // require()d aqui diretamente — mesma fonte usada por server.js e
 // pncp-sync-scheduler.js.
 
-const { analisarLicitacao, processarFilaAnalise } = require('./analise-ia');
+const { analisarLicitacao, processarFilaAnalise, statusProviders, testarProviders } = require('./analise-ia');
 // Fase 3g (2026-05-23): SELECTs simples de licitacoes vão pra PG
 const catalogPg = require('./catalog-pg');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
@@ -188,6 +188,121 @@ function registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getI
         anthropic: { configurada: !!anthropic, preview: anthropic ? anthropic.substring(0, 10) + '...' : null },
         alguma_configurada: !!(cerebras || gemini || deepseek || groq || anthropic)
       });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Painel de saúde das integrações de IA (2026-09-01).
+  //
+  // Nasceu de uma falha que ficou dias invisível: /api/config/ia-keys responde
+  // "configurada: true" olhando só se há string no banco, e a tela concluía
+  // "Análise IA ativa". Em 31/08 os 4 primeiros providers da cadeia estavam
+  // quebrados ao mesmo tempo e a tela seguia verde — o motivo real (modelo
+  // arquivado, saldo zerado) só existia no console.log do serviço.
+  //
+  // Leitura pura e barata: não chama provider nenhum. O ping real é o POST
+  // /api/config/ia-saude/testar, que é explícito porque consome cota.
+  app.get('/api/config/ia-saude', (req, res) => {
+    try {
+      const keys = getIAKeys() || {};
+      const runtime = statusProviders();
+      const PROVIDERS = ['cerebras', 'gemini', 'deepseek', 'groq', 'anthropic'];
+
+      const providers = PROVIDERS.map(p => ({
+        provider: p,
+        temChave: !!keys[p],
+        ...runtime[p],
+      }));
+
+      // Falhas persistidas: é a tabela que denuncia o erro repetido. Agrupada
+      // por mensagem porque 72 linhas com o mesmo texto são UM problema, não 72.
+      let falhas = [];
+      let falhasTotal = 0;
+      try {
+        falhas = db.prepare(`
+          SELECT ultimoErro AS erro, COUNT(*) AS ocorrencias,
+                 MAX(tentativas) AS maxTentativas, MAX(ultimaFalhaEm) AS ultimaEm
+            FROM analise_ia_falha
+           GROUP BY ultimoErro
+           ORDER BY ocorrencias DESC
+           LIMIT 10
+        `).all();
+        falhasTotal = db.prepare('SELECT COUNT(*) AS c FROM analise_ia_falha').get().c;
+      } catch (_) { /* tenant sem a tabela ainda: painel segue útil sem esta seção */ }
+
+      // Último scan de cada grupo agendado — onde o usuário vê "0 de 34, erro".
+      let scans = [];
+      try {
+        scans = db.prepare(`
+          SELECT a.grupoId, g.nome AS grupo, a.ativo, a.ultimo_scan_em AS em,
+                 a.ultimo_scan_total AS total, a.ultimo_scan_analisadas AS analisadas,
+                 a.ultimo_scan_erros AS erros, a.ultimo_scan_status AS status,
+                 a.ultimo_scan_mensagem AS mensagem
+            FROM analise_ia_agendamento a
+            LEFT JOIN grupos_palavras g ON g.id = a.grupoId
+           ORDER BY a.ultimo_scan_em DESC
+        `).all();
+      } catch (_) { /* idem */ }
+
+      // Produção diária: prova que a cadeia está entregando, não só "sem erro".
+      let porDia = [];
+      try {
+        porDia = db.prepare(`
+          SELECT date(dataAnalise) AS dia, COUNT(*) AS analises
+            FROM licitacao_analise
+           WHERE dataAnalise >= date('now', '-14 days')
+           GROUP BY date(dataAnalise)
+           ORDER BY dia DESC
+        `).all();
+      } catch (_) { /* idem */ }
+
+      // Histórico persistido: o que sobrevive ao restart. Janela de 7 dias
+      // porque é o que responde "quebrou quando?" sem virar relatório.
+      let disponibilidade = [];
+      let ultimosErros = [];
+      let historicoDesde = null;
+      try {
+        disponibilidade = db.prepare(`
+          SELECT provider,
+                 COUNT(*)                                        AS total,
+                 SUM(CASE WHEN estado = 'ok' THEN 1 ELSE 0 END)  AS ok,
+                 SUM(CASE WHEN estado = 'erro' THEN 1 ELSE 0 END) AS erro,
+                 SUM(CASE WHEN estado = 'cooldown' THEN 1 ELSE 0 END) AS cooldown,
+                 MAX(CASE WHEN estado = 'ok' THEN em END)        AS ultimoOkEm,
+                 MAX(CASE WHEN estado <> 'ok' THEN em END)       AS ultimoErroEm
+            FROM ia_provider_evento
+           WHERE em >= datetime('now', '-7 days')
+           GROUP BY provider
+        `).all();
+
+        ultimosErros = db.prepare(`
+          SELECT provider, estado, httpStatus, erro, origem, em
+            FROM ia_provider_evento
+           WHERE estado <> 'ok'
+           ORDER BY em DESC
+           LIMIT 15
+        `).all();
+
+        const primeiro = db.prepare('SELECT MIN(em) AS em FROM ia_provider_evento').get();
+        historicoDesde = primeiro ? primeiro.em : null;
+      } catch (_) { /* tabela criada no boot: tenant ainda não reiniciado */ }
+
+      res.json({ success: true, providers, falhas, falhasTotal, scans, porDia,
+                 disponibilidade, ultimosErros, historicoDesde });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Ping real em cada provider com chave. Consome cota (prompt mínimo, poucos
+  // tokens) — por isso é POST e só roda quando alguém clica.
+  app.post('/api/config/ia-saude/testar', async (req, res) => {
+    try {
+      const keys = getIAKeys();
+      if (!keys) return res.json({ success: true, resultados: {}, aviso: 'Nenhuma chave configurada.' });
+      const resultados = await testarProviders(keys, db);
+      res.json({ success: true, resultados });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }

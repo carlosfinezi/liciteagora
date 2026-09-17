@@ -303,6 +303,15 @@ async function analisarLicitacao(db, cnpj, ano, sequencial, keys, opts = {}) {
     if (analise) provider = 'claude';
   }
 
+  // Só o provider vencedor precisa de registro aqui — os que falharam antes
+  // dele na cadeia já gravaram o próprio erro no catch.
+  if (analise) _registrarProvider(provider, 'ok');
+
+  // Ponto de drenagem do buffer: aqui a cadeia inteira já correu e este escopo
+  // tem o db do tenant. Vale para os dois desfechos — inclusive (e sobretudo)
+  // o de todos falharem, logo abaixo.
+  persistirEventos(db);
+
   if (!analise) {
     console.log(`[IA] Nenhum provider retornou análise para ${pncp}`);
     return null;
@@ -388,7 +397,9 @@ async function analisarLicitacao(db, cnpj, ano, sequencial, keys, opts = {}) {
 // - cerebras: 128k context, free ~1M tok/dia → folga total
 // - gemini: 1M context, free 250k tok/dia → mesma folga
 // - deepseek: 64k context window apertado → cortar mais
-// - groq: 128k context mas TPM 6000 free → prompt enxuto
+// - groq: 128k context; o TPM medido na conta em 2026-09-01 é 250k (não os 6k
+//   que motivaram este corte), então os 8000 abaixo dão pra subir se a análise
+//   curta incomodar — mantido conservador por ora
 // - claude: 200k context, pago → sem aperto
 const LIMITE_DOCS_POR_PROVIDER = {
   cerebras: 60000,
@@ -405,7 +416,10 @@ const PROVIDER_MIN_GAP_MS = {
   cerebras: 35000,   // TPM ~30k, prompt ~16k tokens → 2 req/min seguros
   gemini: 5000,      // 15 RPM free = 1 req/4s
   deepseek: 1000,    // pago, sem aperto
-  groq: 30000,       // TPM 6000 + TPD 100k apertados
+  // 2026-09-01: era 30000, calibrado pra um "TPM 6000" que a conta não tem
+  // mais (medido: 250k TPM / 500k req). Com 30s de gap o Groq travava o scan
+  // em 2 análises/min justo quando virou o fallback vivo da cadeia.
+  groq: 3000,
   anthropic: 1000,   // pago, sem aperto
 };
 
@@ -423,7 +437,149 @@ function _emCooldown(provider) {
 }
 function _cooldown429(provider, msg) {
   _cooldownAte[provider] = Date.now() + COOLDOWN_429_MS;
+  _registrarProvider(provider, 'cooldown', msg, 429);
   console.log(`[IA] ${provider} → cooldown ${COOLDOWN_429_MS / 60000}min (429): ${String(msg || '').substring(0, 90)}`);
+}
+
+// ---- Telemetria por provider (2026-09-01) ----
+// Existe porque /configuracoes/ia.html só sabia responder "chave configurada",
+// e chave configurada não é chave que funciona: em 31/08 os 4 primeiros
+// providers da cadeia estavam quebrados ao mesmo tempo (modelo arquivado na
+// Cerebras, conta sem saldo no DeepSeek, modelo removido no Groq) e a tela
+// seguia anunciando "Análise IA ativa" com os quatro listados. O erro literal
+// do provider só existia no console.
+//
+// Escopo deliberado: memória do processo. Zera no restart e não é compartilhada
+// entre worker (rotas HTTP) e master. Serve pra responder "como está AGORA",
+// não "quando quebrou" — histórico que sobrevive a restart exigiria tabela.
+const _ultimoResultado = {};
+
+// Fila de eventos à espera de um banco onde gravar.
+//
+// As chamarX() recebem (apiKey, prompt) e nada mais — quem tem o db do tenant é
+// analisarLicitacao(), lá em cima na pilha. Em vez de arrastar db por dentro de
+// cinco funções de provider, o evento fica aqui até alguém com banco chamar
+// persistirEventos(). O cap existe pra que um caminho que nunca drena não vire
+// vazamento de memória: acima dele o evento mais novo é descartado, o que é
+// aceitável porque a tabela é diagnóstico, não contabilidade.
+const _eventosPendentes = [];
+const MAX_EVENTOS_BUFFER = 500;
+
+function _registrarProvider(provider, estado, msg, httpStatus, extra) {
+  const erro = estado === 'ok' ? null : String(msg || '').substring(0, 300);
+  _ultimoResultado[provider] = {
+    estado,                                       // 'ok' | 'erro' | 'cooldown'
+    em: new Date().toISOString(),
+    erro,
+    httpStatus: httpStatus || null,
+  };
+  if (_eventosPendentes.length < MAX_EVENTOS_BUFFER) {
+    _eventosPendentes.push({
+      provider, estado, erro,
+      httpStatus: httpStatus || null,
+      latenciaMs: extra && extra.latenciaMs != null ? extra.latenciaMs : null,
+      origem: (extra && extra.origem) || 'analise',
+    });
+  }
+}
+
+// Poda: a tabela cresce ~5 linhas por licitação analisada. 90 dias cobrem
+// qualquer investigação de "quando isso quebrou" com folga; sem poda, a mesma
+// tabela viraria peso morto no backup do tenant.
+let _flushes = 0;
+const PODA_A_CADA_FLUSHES = 200;
+const RETENCAO_DIAS = 90;
+
+/**
+ * Grava os eventos acumulados. Chamada por quem tem db em mãos.
+ * Nunca lança: telemetria que derruba a análise seria pior que a cegueira que
+ * ela veio resolver.
+ */
+function persistirEventos(db, opts = {}) {
+  if (!db || !_eventosPendentes.length) return 0;
+  const eventos = _eventosPendentes.splice(0, _eventosPendentes.length);
+  try {
+    const ins = db.prepare(`
+      INSERT INTO ia_provider_evento (provider, estado, httpStatus, erro, latenciaMs, origem)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const gravarTodos = db.transaction((lista) => {
+      for (const e of lista) {
+        ins.run(e.provider, e.estado, e.httpStatus, e.erro, e.latenciaMs, opts.origem || e.origem);
+      }
+    });
+    gravarTodos(eventos);
+
+    if (++_flushes % PODA_A_CADA_FLUSHES === 0) {
+      db.prepare(`DELETE FROM ia_provider_evento WHERE em < datetime('now', ?)`)
+        .run(`-${RETENCAO_DIAS} days`);
+    }
+    return eventos.length;
+  } catch (e) {
+    console.error('[IA] Falha ao persistir telemetria de provider:', e.message);
+    return 0;
+  }
+}
+
+/**
+ * Fotografia do estado dos providers neste processo. Não faz chamada de rede —
+ * é só o que as últimas chamadas reais deixaram registrado.
+ */
+function statusProviders() {
+  const out = {};
+  for (const p of ['cerebras', 'gemini', 'deepseek', 'groq', 'anthropic']) {
+    const ate = _cooldownAte[p] || 0;
+    out[p] = {
+      ultimo: _ultimoResultado[p] || null,
+      emCooldown: Date.now() < ate,
+      cooldownAte: ate ? new Date(ate).toISOString() : null,
+      ultimaChamadaEm: _ultimaChamada[p] ? new Date(_ultimaChamada[p]).toISOString() : null,
+    };
+  }
+  return out;
+}
+
+// Prompt de ping: barato de propósito (poucos tokens), só prova que a chave
+// autentica e que o ID de modelo ainda existe na conta — que foram exatamente
+// as duas coisas que quebraram calado.
+const PROMPT_PING = 'Responda apenas com o JSON {"ok":true}';
+
+/**
+ * Testa de verdade cada provider com chave configurada, em paralelo.
+ * Devolve o erro literal do provider (é o que diz "Insufficient Balance" ou
+ * "model archived" — a mensagem que resolve o problema).
+ */
+async function testarProviders(keys, db) {
+  const fns = { cerebras: chamarCerebras, gemini: chamarGemini, deepseek: chamarDeepSeek,
+                groq: chamarGroq, anthropic: chamarClaude };
+  const resultados = {};
+  await Promise.all(Object.entries(fns).map(async ([provider, fn]) => {
+    if (!keys || !keys[provider]) {
+      resultados[provider] = { estado: 'sem_chave', latenciaMs: null, erro: null };
+      return;
+    }
+    if (_emCooldown(provider)) {
+      resultados[provider] = { estado: 'cooldown', latenciaMs: null,
+        erro: `em cooldown até ${new Date(_cooldownAte[provider]).toLocaleTimeString('pt-BR')}` };
+      return;
+    }
+    const t0 = Date.now();
+    const r = await fn(keys[provider], PROMPT_PING);
+    const latenciaMs = Date.now() - t0;
+    if (r) {
+      _registrarProvider(provider, 'ok', null, null, { latenciaMs, origem: 'teste' });
+      resultados[provider] = { estado: 'ok', latenciaMs, erro: null };
+    } else {
+      // O catch da chamarX já registrou o erro literal em _ultimoResultado.
+      const reg = _ultimoResultado[provider];
+      resultados[provider] = { estado: 'erro', latenciaMs, erro: reg ? reg.erro : 'sem resposta',
+                               httpStatus: reg ? reg.httpStatus : null };
+    }
+  }));
+  // origem 'teste' pra todos: o erro do catch da chamarX entrou no buffer
+  // marcado como 'analise', mas veio deste botão, não de produção.
+  persistirEventos(db, { origem: 'teste' });
+  return resultados;
 }
 
 async function aguardarGapProvider(provider) {
@@ -557,9 +713,13 @@ async function chamarCerebras(apiKey, prompt, tentativa) {
       },
       body: JSON.stringify({
         // 2026-06-08: qwen-3-235b-a22b-instruct-2507 foi descontinuado pela Cerebras
-        // (404 em todas as chaves). zai-glm-4.7 é o modelo disponível, não-reasoning
-        // (gasta menos token que gpt-oss-120b → a cota diária dura mais) e retorna JSON.
-        model: 'zai-glm-4.7',
+        // (404 em todas as chaves). zai-glm-4.7 o substituiu e teve o mesmo fim.
+        // 2026-09-01: zai-glm-4.7 arquivado; /v1/models da conta lista só
+        // gpt-oss-120b e gemma-4-31b. ATENÇÃO: hoje a conta responde 402
+        // payment_required em QUALQUER modelo — este provider só volta a
+        // funcionar quando o billing for regularizado; o ID abaixo já está
+        // certo pra quando isso acontecer.
+        model: 'gpt-oss-120b',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 8000,
         temperature: 0.2,
@@ -591,6 +751,7 @@ async function chamarCerebras(apiKey, prompt, tentativa) {
     }
   } catch (e) {
     if (e.status === 429) { _cooldown429('cerebras', e.message); return null; }
+    _registrarProvider('cerebras', 'erro', e.message, e.status);
     console.error('[IA] Erro ao chamar Cerebras:', (e.message || '').substring(0, 200));
     return null;
   }
@@ -641,6 +802,7 @@ async function chamarDeepSeek(apiKey, prompt, tentativa, opts) {
       await new Promise(r => setTimeout(r, wait));
       return chamarDeepSeek(apiKey, prompt, tentativa + 1, opts);
     }
+    _registrarProvider('deepseek', 'erro', e.message, e.status);
     console.error('[IA] Erro ao chamar DeepSeek:', (e.message || '').substring(0, 200));
     return null;
   }
@@ -661,9 +823,16 @@ async function chamarGroq(apiKey, prompt, tentativa) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        // 2026-09-01: llama-3.3-70b-versatile saiu do catálogo da conta (404).
+        // openai/gpt-oss-120b é o substituto disponível e devolve JSON limpo em
+        // `content` (o rascunho vai em `message.reasoning`, campo à parte).
+        model: 'openai/gpt-oss-120b',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 3000,
+        // 8000 (era 3000): medido em 2026-09-01, um edital de 10 itens gasta
+        // ~2500 tokens só na resposta — 3000 truncava o JSON (finish_reason
+        // 'length') e o parse devolvia null. O TPM real da conta é 250k, não os
+        // 6k que o limite antigo pressupunha.
+        max_tokens: 8000,
         temperature: 0.2,
         response_format: { type: 'json_object' },
       }),
@@ -687,6 +856,7 @@ async function chamarGroq(apiKey, prompt, tentativa) {
   } catch (e) {
     const msg = e.message || '';
     if (e.status === 429) { _cooldown429('groq', msg); return null; }
+    _registrarProvider('groq', 'erro', msg, e.status);
     console.error('[IA] Erro ao chamar Groq:', msg.substring(0, 200));
     return null;
   }
@@ -739,6 +909,7 @@ async function chamarGemini(apiKey, prompt, tentativa) {
       }
       return null;
     }
+    _registrarProvider('gemini', 'erro', msg, msg.includes('503') ? 503 : null);
     console.error('[IA] Erro ao chamar Gemini:', msg.substring(0, 200));
     return null;
   }
@@ -767,6 +938,7 @@ async function chamarClaude(apiKey, prompt) {
     console.log('[IA] Claude não retornou JSON válido');
     return null;
   } catch (e) {
+    _registrarProvider('anthropic', 'erro', e.message, e.status);
     console.error('[IA] Erro ao chamar Claude:', e.message);
     return null;
   }
@@ -890,4 +1062,5 @@ function httpGetBuffer(url) {
 // trazem cooldown de 429 e rate-limit. Exportados para outros módulos usarem
 // a MESMA cadeia, em vez de cada um reimplementar a sua.
 module.exports = { analisarLicitacao, processarFilaAnalise,
-  chamarCerebras, chamarGemini, chamarDeepSeek, chamarGroq, chamarClaude };
+  chamarCerebras, chamarGemini, chamarDeepSeek, chamarGroq, chamarClaude,
+  statusProviders, testarProviders, persistirEventos };

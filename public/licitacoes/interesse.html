@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interesses · Licite Agora</title>
+    <script src="/js/theme-boot.js"></script>
     <link rel="stylesheet" href="/css/sidebar.css">
     <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -17,6 +18,8 @@
         <small>Licitações e itens marcados para participar</small>
       </div>
       <div class="actions">
+        <button class="btn btn-ghost btn-sm" id="btnAnalisarLote" onclick="analisarIaLote()" style="display:none;" title="Rodar a análise de IA nas licitações selecionadas — ou, sem seleção, nas que estão no filtro">🤖 Analisar IA em lote</button>
+        <button class="btn btn-ghost btn-sm" onclick="relAbrirModal()" title="Gerar relatório do que está filtrado na tela">Relatório</button>
         <button class="btn btn-ghost btn-sm" onclick="verStatus()">Status sync</button>
         <button class="btn btn-secondary btn-sm" onclick="sincronizarAgora()">Sincronizar</button>
         <button class="btn btn-danger btn-sm" id="btnExcluirTodos" onclick="excluirTodosInteresses()" style="display:none;">Excluir todos</button>
@@ -82,6 +85,68 @@
   </main>
 </div>
 
+<div class="modal-bg" id="modalRelatorio">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 style="margin:0;">Gerar relatório</h3>
+        <small class="muted">Sai exatamente o recorte que está na tela — mesmos filtros, mesma ordem</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="relFecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
+    </div>
+
+    <!-- Sem .form-row/.form-group de propósito: aquele CSS põe width:100% no
+         input (o rádio comeria a linha inteira e empurraria o texto para fora
+         do modal) e text-transform:uppercase em todo <label> filho. -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:0.82em;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-2);font-weight:500;margin-bottom:10px;">Nível de detalhe</div>
+
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:12px;">
+        <input type="radio" name="relNivel" value="resumo" checked onchange="relAtualizarEscopo()" style="width:16px;height:16px;flex:none;margin-top:3px;">
+        <span style="flex:1;">
+          <span style="color:var(--text-0);font-weight:600;">Resumo por licitação</span><br>
+          <span style="color:var(--text-2);font-size:0.88em;">Uma linha por licitação: órgão, UASG, número, objeto, grupo, prazos, quantidade de itens e valor total.</span>
+        </span>
+      </label>
+
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+        <input type="radio" name="relNivel" value="detalhado" onchange="relAtualizarEscopo()" style="width:16px;height:16px;flex:none;margin-top:3px;">
+        <span style="flex:1;">
+          <span style="color:var(--text-0);font-weight:600;">Detalhado por item</span><br>
+          <span style="color:var(--text-2);font-size:0.88em;">Uma linha por item de interesse, com quantidade, valor unitário e total — repetindo os dados da licitação.</span>
+        </span>
+      </label>
+    </div>
+
+    <div style="margin-bottom:16px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="font-size:0.82em;text-transform:uppercase;letter-spacing:0.02em;color:var(--text-2);font-weight:500;margin-bottom:10px;">Idioma do documento</div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="radio" name="relIdioma" value="pt" checked style="width:16px;height:16px;flex:none;">
+          <span style="color:var(--text-0);">Português</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="radio" name="relIdioma" value="en" style="width:16px;height:16px;flex:none;">
+          <span style="color:var(--text-0);">English</span>
+        </label>
+      </div>
+      <div style="color:var(--text-2);font-size:0.85em;margin-top:8px;">
+        Em inglês mudam os rótulos, os números (1,234.56) e as datas (2026-09-15).
+        Órgão, objeto e descrição continuam em português: são o texto oficial do PNCP.
+      </div>
+    </div>
+
+    <div id="relEscopoInfo" style="color:var(--text-2);font-size:0.88em;"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="relFecharModal()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="relBaixarCSV()" title="Planilha para abrir no Excel">Baixar CSV</button>
+      <button class="btn btn-secondary" onclick="relImprimir()" title="Abre a folha formatada e chama a impressão do navegador">Imprimir</button>
+      <button class="btn btn-primary" onclick="relGerarPDF()" title="Baixa o arquivo PDF pronto para enviar">Gerar PDF</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <div id="selectionBar" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--bg-1);border:1px solid var(--border);border-radius:8px;padding:10px 18px;box-shadow:0 4px 16px rgba(0,0,0,0.18);z-index:1000;display:none;align-items:center;gap:14px;">
@@ -90,7 +155,12 @@
   <button class="btn btn-danger btn-sm" onclick="excluirSelecionados()">Excluir selecionados</button>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="/js/portal-proposta.js"></script>
 <script src="interesse.js"></script>
+<script src="interesse-relatorio.js"></script>
+<script src="interesse-analise.js"></script>
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script>initSidebar('interesse');</script>
