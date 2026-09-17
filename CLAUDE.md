@@ -462,10 +462,19 @@ estão no ar. Commitá-los não mudou nada em produção; o histórico é que pa
 registrá-los. Confira por `stat -c '%y' <arquivo>` contra o
 `ActiveEnterTimestamp` da unit antes de supor que algo está pendente.
 
-**`liciteagora.service`** (o `scheduler.js`): ver os dois itens acima nesta
-mesma seção, o `cicloAvisoAlcadas` e o watchdog do catálogo. Continuam
-pendentes e continuam sendo o caso que exige aviso antes, porque o primeiro
-ciclo dispara mensagem para destino externo.
+**`liciteagora.service`** (o `scheduler.js`) — **nada pendente**, e o medo
+antigo não se aplica mais.
+
+O item do `cicloAvisoAlcadas` mais acima nesta seção **está obsoleto**: esse
+ciclo foi REMOVIDO em 2026-08-21, a pedido, junto do aviso de criação, porque
+mandava mensagem no Telegram e no e-mail do tenant a cada solicitação de
+alçada. Há um comentário no `scheduler.js:462` registrando a remoção e como
+religar. Verificado em 17/09: o símbolo não existe nem na árvore nem no HEAD.
+Ou seja, reiniciar este serviço **não dispara mensagem nenhuma para destino
+externo** — era essa a única razão documentada para temer o restart.
+
+O watchdog do catálogo já está no HEAD e o `scheduler.js` da árvore é de 26/08,
+anterior ao boot de 11/09, então o processo vivo já roda esta versão.
 
 Como `rm` está negado por inteiro, rascunho e arquivo temporário vão para
 `/tmp`, não para a árvore.

@@ -4,6 +4,55 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-17
+
+O fechamento por frentes aberto em 16/09 chegou ao fim. São **31 commits** que
+levaram ao histórico **564 arquivos** e +107.372 / −3.700 linhas, tudo o que
+rodava em produção sem estar no git desde 28/08. A árvore ficou limpa pela
+primeira vez desde então.
+
+A ordem foi a do bloco de 16/09, e a primeira frente pagou pelas outras: o
+theme-boot era uma linha repetida em 147 telas, 57% dos arquivos modificados.
+Depois dele, cada frente ficou legível. As estimativas caíram junto — a frente
+fiscal, prevista em 36 entradas, teve 10; a financeira, prevista em 38, teve 12.
+
+### Quatro defeitos que apareceram por causa do fechamento
+
+Nenhum deles foi procurado. Todos apareceram ao verificar uma frente antes de
+commitá-la, e é a razão de o trabalho ter valido mais que o histórico.
+
+- **`emitirNFCe` nunca foi exportado.** A rota
+  `POST /api/restaurante/comandas/:id/emitir-nfce` respondia 400 em TODA
+  chamada. Ao corrigir, apareceu o segundo defeito atrás dele: o consumidor
+  lia `r.nfceId` e o retorno traz `r.id`, então a nota sairia na SEFAZ e a
+  comanda ficaria sem vínculo nenhum, em silêncio e com `success: true`.
+- **Cancelar certificado SSL não pedia confirmação.** A função disparava o POST
+  direto, com motivo fixo, para uma ação irreversível que não devolve o valor
+  pago — e o botão tinha acabado de deixar de ser invisível. A suíte que prova
+  isso existia desde 31/08, estava correta, e ninguém a executava porque ela
+  não estava no verify. Hoje é a etapa 30.
+- **`title=` no arrastar do catálogo**, resíduo de uma migração que não removeu
+  o atributo antigo. Corrigido em 17/09.
+
+### O que o fechamento corrigiu no próprio CLAUDE.md
+
+Três descrições estavam obsoletas e a última era perigosa:
+
+- O verify não era mais `node --check`: são 30 etapas e ~30 minutos. Quem
+  esperasse segundos concluiria que travou.
+- O mapa de "frentes pendentes" era de 11/08 e já fora consumido pelo commit
+  181c65f, de 24/08.
+- **O `cicloAvisoAlcadas` não existe desde 21/08**, quando foi removido a
+  pedido por mandar mensagem a cada solicitação de alçada. Ele era a única
+  razão documentada para temer o restart do `liciteagora.service`, e a página
+  dizia o contrário havia quase um mês.
+
+### Verify
+
+Trinta etapas, **zero falhas, 1.528s**. A etapa 30 é nova. Das 130 suítes em
+`scripts/`, 104 seguem fora: parte delas depende de artefatos em `/tmp` que
+somem no reboot e entraria já quebrada.
+
 ## 2026-09-16
 
 Fechamento **por frentes** das 422 entradas acumuladas desde 28/08. São 19 dias
