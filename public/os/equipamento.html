@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Equipamento · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -49,6 +50,23 @@
       </div>
 
       <div class="panel" style="margin-top:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <h3 style="margin:0;">Composição</h3>
+          <button class="btn btn-secondary btn-sm" onclick="abrirComponente()">+ Agregar componente</button>
+        </div>
+        <small class="muted">O que foi montado nesta máquina. A OS agrega sozinha o item marcado; aqui é o caminho manual.</small>
+        <div class="tbl-wrap" style="margin-top:10px;">
+          <table>
+            <thead><tr>
+              <th>Componente</th><th>Origem</th><th class="num">Qtd</th>
+              <th class="num">Custo</th><th class="num">Venda</th><th></th>
+            </tr></thead>
+            <tbody id="tbComp"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:18px;">
         <h3 style="margin-top:0;">Linha do tempo</h3>
         <div id="eventos"></div>
       </div>
@@ -65,7 +83,15 @@
         <div class="form-group"><label>Nº de série</label><input type="text" id="eSerie"></div>
         <div class="form-group"><label>Patrimônio</label><input type="text" id="ePatrimonio"></div>
       </div>
-      <div class="form-row"><div class="form-group full-width"><label>Cliente</label><select id="eCliente"></select></div></div>
+      <div class="form-row"><div class="form-group full-width">
+        <label>De quem é</label>
+        <select id="eProprietario" onchange="trocarProprietario()">
+          <option value="cliente">Do cliente</option>
+          <option value="empresa">Da empresa (máquina nossa)</option>
+        </select>
+        <small class="muted" id="eVinculo"></small>
+      </div></div>
+      <div class="form-row" id="rowCliente"><div class="form-group full-width"><label>Cliente</label><select id="eCliente"></select></div></div>
       <div class="form-row" id="rowMotivo" style="display:none;">
         <div class="form-group full-width"><label>Motivo da troca de dono</label>
           <input type="text" id="eMotivoTroca" placeholder="Ex.: venda entre empresas">
@@ -119,6 +145,9 @@ async function carregar(){
     <div class="kpi ${rs.retornosRapidos>0?'danger':''}"><div class="label">Retornos em 90 dias</div>
       <div class="value">${rs.retornosRapidos}</div>
       <small class="muted">${rs.menorIntervaloDias!=null?`menor intervalo: ${rs.menorIntervaloDias} dia(s)`:'—'}</small></div>
+    ${rs.componentesInstalados?`<div class="kpi"><div class="label">Custo agregado</div>
+      <div class="value">${fmtBRL(rs.custoAgregado)}</div>
+      <small class="muted">${rs.componentesInstalados} componente(s) · venda ${fmtBRL(rs.valorAgregado)}</small></div>`:''}
     <div class="kpi ${d.garantiaVigente?'success':''}"><div class="label">Garantia</div>
       <div class="value">${d.garantiaVigente?d.garantiaVigente.diasRestantes+'d':'—'}</div>
       <small class="muted">${d.garantiaVigente?`até ${d.garantiaVigente.ate} (OS ${d.garantiaVigente.numero})`:'sem garantia vigente'}</small></div>`;
@@ -128,8 +157,11 @@ async function carregar(){
     <strong>Equipamento reincidente:</strong> ${rs.retornosRapidos} retorno(s) em até 90 dias da conclusão anterior
     ${rs.menorIntervaloDias!=null?`— o menor intervalo foi de ${rs.menorIntervaloDias} dia(s)`:''}.
     Vale revisar o diagnóstico das OS abaixo antes de abrir outra.</div>`);
-  if(!e.clienteId) avisos.push(`<div class="alert" style="display:block;">
+  if(!e.clienteId && e.proprietario!=='empresa') avisos.push(`<div class="alert" style="display:block;">
     Equipamento sem cliente definido — ele não aparece na base instalada de ninguém.</div>`);
+  if(e.proprietario==='empresa') avisos.push(`<div class="alert" style="display:block;">
+    <strong>Máquina da empresa.</strong> ${e.produtoSku?`Ligada ao produto <span class="mono">${esc(e.produtoSku)}</span>`:'Sem produto vinculado'}${e.serialNumero?` · série <span class="mono">${esc(e.serialNumero)}</span>`:''}.
+    Abrir OS reserva a unidade contra venda; a baixa acontece na venda.</div>`);
   document.getElementById('avisos').innerHTML=avisos.join('');
 
   document.getElementById('tbOS').innerHTML=d.ordens.length?d.ordens.map(o=>`<tr>
@@ -142,9 +174,11 @@ async function carregar(){
     <td class="num">${o.status==='faturada'?fmtBRL(o.valorTotal):'—'}</td>
   </tr>`).join(''):'<tr><td colspan="6" class="empty">Nenhuma OS para este equipamento ainda</td></tr>';
 
+  renderComponentes(d.componentes||[]);
+
   document.getElementById('eventos').innerHTML=d.eventos.length?d.eventos.map(ev=>`
     <div class="evt-item ${esc(ev.tipo)}">
-      <strong>${esc({cadastro:'Cadastro',troca_dono:'Troca de dono'}[ev.tipo]||ev.tipo)}</strong>
+      <strong>${esc({cadastro:'Cadastro',troca_dono:'Troca de dono',venda:'Venda',baixa:'Saída de estoque'}[ev.tipo]||ev.tipo)}</strong>
       ${ev.descricao?` — ${esc(ev.descricao)}`:''}
       ${ev.tipo==='troca_dono'?`<div class="sub">${esc(ev.clienteAnteriorNome||'sem dono')} → ${esc(ev.clienteNovoNome||'sem dono')}</div>`:''}
       <div class="evt-meta">${(ev.data||'').slice(0,16).replace('T',' ')}${ev.usuario?' · '+esc(ev.usuario):''}</div>
@@ -161,6 +195,56 @@ async function carregar(){
   document.getElementById('eObs').value=e.observacoes||'';
   document.getElementById('eAtivo').checked=!!e.ativo;
   document.getElementById('eCliente').value=e.clienteId||'';
+  document.getElementById('eProprietario').value=e.proprietario==='empresa'?'empresa':'cliente';
+  document.getElementById('eVinculo').textContent = e.proprietario==='empresa'
+    ? [e.produtoSku?`produto ${e.produtoSku}`:null, e.serialNumero?`série ${e.serialNumero}`:null,
+       e.custoAgregado?`custo agregado ${fmtBRL(e.custoAgregado)}`:null].filter(Boolean).join(' · ')
+    : '';
+  trocarProprietario();
+}
+
+function trocarProprietario(){
+  const empresa=val('eProprietario')==='empresa';
+  document.getElementById('rowCliente').style.display=empresa?'none':'';
+}
+
+const ROTULO_ORIGEM={'os-peca':'Peça de OS','os-servico':'Serviço de OS',manual:'Lançado à mão'};
+function renderComponentes(lista){
+  document.getElementById('tbComp').innerHTML=lista.length?lista.map(c=>`
+    <tr${c.dataRemocao?' style="opacity:.55;"':''}>
+      <td><strong>${esc(c.descricao)}</strong>${c.produtoSku?` <span class="sub mono">${esc(c.produtoSku)}</span>`:''}
+        ${c.dataRemocao?`<span class="sub">removido em ${(c.dataRemocao||'').slice(0,10)}${c.motivoRemocao?' — '+esc(c.motivoRemocao):''}</span>`:''}</td>
+      <td>${esc(ROTULO_ORIGEM[c.origemTipo]||c.origemTipo)}${c.osNumero?` <a href="/os/ordem-servico.html?id=${c.osId}">${esc(c.osNumero)}</a>`:''}</td>
+      <td class="num">${c.quantidade}</td>
+      <td class="num">${fmtBRL(c.valorCusto)}</td>
+      <td class="num">${fmtBRL(c.valorVenda)}</td>
+      <td class="num">${c.dataRemocao?'':`<button class="btn btn-ghost btn-sm" onclick="removerComponente(${c.id})">retirar</button>`}</td>
+    </tr>`).join(''):'<tr><td colspan="6" class="empty">Nada agregado a esta máquina ainda</td></tr>';
+}
+
+async function abrirComponente(){
+  const descricao=prompt('O que foi agregado? (descrição)');
+  if(!descricao) return;
+  const custo=prompt('Custo (R$)','0');
+  if(custo===null) return;
+  const venda=prompt('Valor de venda (R$)', custo||'0');
+  if(venda===null) return;
+  const r=await fetch(`/api/equipamentos/${id}/componentes`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({descricao,valorCusto:Number(String(custo).replace(',','.'))||0,
+      valorVenda:Number(String(venda).replace(',','.'))||0})});
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Componente agregado'); carregar();
+}
+
+// Retirar não apaga: a peça que saiu continua sendo história da máquina.
+async function removerComponente(compId){
+  const motivo=prompt('Motivo da retirada (opcional)')||null;
+  const r=await fetch(`/api/equipamentos/${id}/componentes/${compId}/remover`,{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({motivo})});
+  const d=await r.json();
+  if(!d.success) return showAlert(d.error,'error');
+  showAlert('Componente retirado'); carregar();
 }
 
 // Trocar o cliente pede motivo: a troca vira evento na linha do tempo.
@@ -179,6 +263,7 @@ async function salvar(){
     observacoes:val('eObs').trim()||null,
     ativo:document.getElementById('eAtivo').checked?1:0,
     clienteId:Number(val('eCliente'))||null,
+    proprietario:val('eProprietario'),
   };
   if(String(body.clienteId||'')!==String(clienteOriginal||'')) body.motivoTroca=val('eMotivoTroca').trim()||null;
   const r=await fetch('/api/equipamentos/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});

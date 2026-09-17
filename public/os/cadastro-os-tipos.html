@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tipos de OS · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -255,7 +256,16 @@
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
             <input type="checkbox" id="fBloqueiaFat"> Não fatura
           </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+            <input type="checkbox" id="fPermiteAgregacao"> Permite agregar ao equipamento
+          </label>
         </div>
+        <small class="muted" style="font-size:11px;">
+          Agregar é para OS que monta a máquina (implemento, blindagem, acessório):
+          o item marcado passa a fazer parte do equipamento e soma ao custo dele.
+          Ligado aqui, o marcador aparece item a item na OS — desligado por padrão,
+          porque trocar um filtro não é agregar valor.
+        </small>
       </div>
 
       <!-- SUB-ABA: ENCERRAMENTO -->
@@ -522,6 +532,7 @@ function limparForm(){
   document.getElementById('fAssinatura').checked = false;
   document.getElementById('fDataPrevista').checked = false;
   document.getElementById('fBloqueiaFat').checked = false;
+  document.getElementById('fPermiteAgregacao').checked = false;
   document.getElementById('fNatureza').value = 'cliente';
   document.getElementById('fLocalPrestacao').value = 'indefinido';
   document.getElementById('fDeslocModo').value = 'manual';
@@ -565,6 +576,7 @@ function editar(id){
   document.getElementById('fAssinatura').checked = !!t.exigeAssinaturaCliente;
   document.getElementById('fDataPrevista').checked = !!t.obrigarDataPrevista;
   document.getElementById('fBloqueiaFat').checked = !!t.bloqueiaFaturamento;
+  document.getElementById('fPermiteAgregacao').checked = !!t.permiteAgregacao;
   document.getElementById('fNatureza').value = t.natureza || 'cliente';
   document.getElementById('fLocalPrestacao').value = t.localPrestacao || 'indefinido';
   document.getElementById('fDeslocModo').value = t.deslocamentoModo || 'manual';
@@ -599,6 +611,7 @@ async function salvar(){
     exigeAssinaturaCliente: document.getElementById('fAssinatura').checked,
     obrigarDataPrevista: document.getElementById('fDataPrevista').checked,
     bloqueiaFaturamento: document.getElementById('fBloqueiaFat').checked,
+    permiteAgregacao: document.getElementById('fPermiteAgregacao').checked,
     natureza: document.getElementById('fNatureza').value,
     localPrestacao: document.getElementById('fLocalPrestacao').value,
     deslocamentoModo: document.getElementById('fDeslocModo').value,

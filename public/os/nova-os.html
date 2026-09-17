@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova OS · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+  /* page-local: a abertura tem formulário à esquerda e contexto à direita.
+     O contexto é o que o modal antigo não conseguia mostrar — exigências do
+     tipo, histórico do equipamento e prazo — por falta de espaço. */
+  .abertura { display:grid; grid-template-columns: minmax(0,2fr) minmax(260px,1fr); gap:16px; align-items:start; }
+  @media (max-width: 1100px) { .abertura { grid-template-columns: 1fr; } }
+  .etapa { border-left:2px solid var(--border); padding-left:14px; margin-bottom:18px; }
+  .etapa > h3 { margin:0 0 10px; font-size:0.95em; display:flex; align-items:center; gap:8px; }
+  .etapa-num {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:50%; background:var(--bg-2);
+    border:1px solid var(--border-strong); font-size:0.72em; color:var(--text-2);
+  }
+  .etapa.ok { border-left-color: var(--success); }
+  .etapa.ok .etapa-num { background:var(--success); border-color:var(--success); color:#fff; }
+  .exig { display:flex; align-items:flex-start; gap:8px; padding:5px 0; font-size:0.84em; }
+  .exig .marca { flex:none; width:16px; text-align:center; }
+  .ctx-bloco { margin-bottom:14px; }
+  .ctx-bloco h4 { margin:0 0 6px; font-size:0.7em; text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); }
+  .chk-preview { font-size:0.84em; color:var(--text-2); }
+  .chk-preview div { padding:3px 0; }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Nova ordem de serviço</h1>
+      <small>O tipo de OS define prazo, checklist, exigências e tratamento fiscal</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/os/ordens-servico.html">← Ordens de Serviço</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+
+  <div class="abertura">
+    <div class="panel">
+
+      <!-- 1. TIPO -->
+      <div class="etapa" id="et1">
+        <h3><span class="etapa-num">1</span> Tipo de OS
+          <a href="/os/cadastro-os-tipos.html" target="_blank" style="font-size:11px;font-weight:normal;">⚙ gerenciar</a></h3>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;">
+            <label>Tipo *</label>
+            <select id="fTipo" onchange="aoTrocarTipo()"><option value="">— carregando —</option></select>
+          </div>
+          <div class="form-group">
+            <label>Prazo SLA (dias)</label>
+            <input type="number" id="fSLA" min="0" placeholder="padrão do tipo" oninput="calcPromessa()">
+          </div>
+          <div class="form-group">
+            <label>Entrega prevista</label>
+            <input type="text" id="fPromessa" readonly style="background:var(--bg-1);color:var(--text-2);">
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. CLIENTE -->
+      <div class="etapa" id="et2">
+        <h3><span class="etapa-num">2</span> Cliente</h3>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;position:relative;">
+            <label>Cliente *</label>
+            <input type="text" id="fCliBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCli()" autocomplete="off">
+            <input type="hidden" id="fClienteId">
+            <div id="acCliList" class="ac-list"></div>
+          </div>
+          <div class="form-group">
+            <label>Técnico responsável</label>
+            <select id="fTecnico"><option value="">— atribuir depois —</option></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. EQUIPAMENTO -->
+      <div class="etapa" id="et3">
+        <h3><span class="etapa-num">3</span> Equipamento
+          <a href="/os/equipamentos.html" target="_blank" style="font-size:11px;font-weight:normal;">⚙ cadastro completo</a>
+          <a id="linkFichaEquip" href="#" target="_blank" style="font-size:11px;font-weight:normal;display:none;">🔎 abrir ficha</a></h3>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Base instalada do cliente <small class="muted">+ máquinas da empresa</small></label>
+            <select id="fEquipId" onchange="aplicarEquipamento()">
+              <option value="">— novo equipamento / preencher abaixo —</option>
+            </select>
+            <small class="muted" id="fEquipHint">Escolha um para herdar histórico e garantia; ou preencha abaixo e o cadastro nasce sozinho.</small>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;"><label>Descrição</label><input type="text" id="fEq" placeholder="Ex.: Notebook"></div>
+          <div class="form-group"><label>Marca</label><input type="text" id="fMarca" onblur="verificarGarantia()"></div>
+          <div class="form-group"><label>Modelo</label><input type="text" id="fModelo" onblur="verificarGarantia()"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2;"><label>Nº de série</label><input type="text" id="fSerieEq" oninput="verificarGarantia()"></div>
+          <div class="form-group"><label>Depósito</label><select id="fDeposito"></select></div>
+          <div class="form-group"><label>Garantia (dias)</label><input type="number" id="fGarantia" min="0" value="0"></div>
+        </div>
+        <input type="hidden" id="fOsPaiId">
+        <input type="hidden" id="fEmGarantia">
+      </div>
+
+      <!-- 4. O QUE FAZER -->
+      <div class="etapa" id="et4">
+        <h3><span class="etapa-num">4</span> Serviço</h3>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Título *</label>
+            <input type="text" id="fTit" placeholder="Ex.: Troca de fonte do notebook" oninput="marcarEtapas()">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Defeito relatado <small class="muted">(pelo cliente)</small></label>
+            <textarea id="fDefeito" rows="2"></textarea>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group full-width">
+            <label>Observações internas</label>
+            <textarea id="fObs" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. EXECUÇÃO -->
+      <div class="etapa" id="et5">
+        <h3><span class="etapa-num">5</span> Execução</h3>
+        <div id="enderecoExecRow" style="display:none;">
+          <div class="form-row">
+            <div class="form-group full-width">
+              <label>Onde será executado</label>
+              <select id="fLocalEnd" onchange="trocarLocalEnd()"><option value="outro">Outro endereço (digitar)</option></select>
+              <small class="muted" id="fLocalEndHint">Escolha o cliente para herdar o endereço do cadastro.</small>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:3;">
+              <label>Logradouro *</label>
+              <input type="text" id="fEndExec" placeholder="Rua, avenida…" oninput="aoEditarEndereco()">
+            </div>
+            <div class="form-group"><label>Número</label><input type="text" id="fNumExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group"><label>Complemento</label><input type="text" id="fCompExec" oninput="aoEditarEndereco()"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;"><label>Bairro</label><input type="text" id="fBairroExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group" style="flex:2;"><label>Cidade</label><input type="text" id="fMunExec" oninput="aoEditarEndereco()"></div>
+            <div class="form-group"><label>UF</label><input type="text" id="fUfExec" maxlength="2" oninput="aoEditarEndereco()"></div>
+            <div class="form-group"><label>CEP</label><input type="text" id="fCepExec" oninput="aoEditarEndereco()"></div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Km percorrido</label><input type="number" id="fKm" step="0.1" min="0" placeholder="0"></div>
+          <div class="form-group"><label>Valor do deslocamento (R$)</label><input type="number" id="fVlrDesloc" step="0.01" min="0" placeholder="0,00"></div>
+        </div>
+        <small class="muted">Registro do trajeto — não entra no total. Para cobrar, lance o deslocamento como serviço na OS.</small>
+      </div>
+
+      <div class="actions-bar" style="margin-top:18px;">
+        <button class="btn btn-primary" onclick="salvar(true)">Criar OS e abrir</button>
+        <button class="btn btn-secondary" onclick="salvar(false)">Criar e abrir outra</button>
+        <a class="btn btn-ghost" href="/os/ordens-servico.html">Cancelar</a>
+      </div>
+    </div>
+
+    <!-- CONTEXTO -->
+    <div class="panel">
+      <div class="ctx-bloco">
+        <h4>O que este tipo exige</h4>
+        <div id="ctxExigencias" class="muted" style="font-size:0.85em;">Escolha o tipo de OS.</div>
+      </div>
+
+      <div class="ctx-bloco" id="ctxChecklistBloco" style="display:none;">
+        <h4>Checklist que será criado</h4>
+        <div id="ctxChecklist" class="chk-preview"></div>
+      </div>
+
+      <div class="ctx-bloco" id="ctxGarantiaBloco" style="display:none;">
+        <h4>Garantia</h4>
+        <div id="ctxGarantia" style="font-size:0.85em;"></div>
+      </div>
+
+      <div class="ctx-bloco" id="ctxHistBloco" style="display:none;">
+        <h4>Histórico do equipamento</h4>
+        <div id="ctxHist" style="font-size:0.85em;"></div>
+      </div>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script src="/js/icons.js"></script>
+<script>initSidebar('ordens-servico');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+const el = (i) => document.getElementById(i);
+
+let tiposOS = [];
+let tipoAtual = null;
+
+// Serviço prestado fora não tem onde acontecer sem endereço — o `localPrestacao`
+// externo obriga tanto quanto o checkbox. É a mesma regra do backend
+// (os-routes.js, POST /api/os) e do cadastro de tipos.
+function exigeEndereco(t){ return !!(t && (t.exigeEnderecoExec || t.localPrestacao === 'externo')); }
+
+// ==================== CARGA ====================
+async function carregarTipos(){
+  const d = await fetch('/api/os-tipos').then(r=>r.json()).catch(()=>({}));
+  tiposOS = (d.tipos || []).filter(t => t.ativo);
+  el('fTipo').innerHTML = '<option value="">— selecione —</option>'
+    + tiposOS.map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join('');
+}
+
+async function carregarTecnicos(){
+  const d = await fetch('/api/usuarios').then(r=>r.json()).catch(()=>({}));
+  if (!d.success) return;
+  el('fTecnico').innerHTML = '<option value="">— atribuir depois —</option>'
+    + d.usuarios.map(u=>`<option value="${u.id}">${esc(u.nome||u.username)}</option>`).join('');
+}
+
+async function carregarDepositos(){
+  const d = await fetch('/api/depositos').then(r=>r.json()).catch(()=>({}));
+  const lista = d.depositos || d.data || [];
+  el('fDeposito').innerHTML = '<option value="">—</option>'
+    + lista.map(x=>`<option value="${x.id}">${esc(x.nome)}</option>`).join('');
+  // Some quando só há um: não faz sentido pedir escolha sem alternativa.
+  if (lista.length === 1) { el('fDeposito').value = lista[0].id; el('fDeposito').closest('.form-group').style.display = 'none'; }
+}
+
+// ==================== TIPO ====================
+function aoTrocarTipo(){
+  tipoAtual = tiposOS.find(t => String(t.id) === el('fTipo').value) || null;
+  const box = el('ctxExigencias');
+
+  if (!tipoAtual) {
+    box.innerHTML = 'Escolha o tipo de OS.';
+    el('enderecoExecRow').style.display = 'none';
+    el('ctxChecklistBloco').style.display = 'none';
+    marcarEtapas(); return;
+  }
+
+  const linha = (on, txt) => `<div class="exig"><span class="marca">${on ? '●' : '○'}</span>
+    <span style="color:${on ? 'var(--text-1)' : 'var(--text-3)'}">${txt}</span></div>`;
+  box.innerHTML =
+    linha(!!tipoAtual.slaDiasPadrao, tipoAtual.slaDiasPadrao ? `Prazo padrão de ${tipoAtual.slaDiasPadrao} dia(s)` : 'Sem prazo padrão')
+    + linha(exigeEndereco(tipoAtual), tipoAtual.localPrestacao === 'externo'
+        ? 'Prestação externa — endereço de execução obrigatório'
+        : 'Endereço de execução obrigatório')
+    + linha(!!tipoAtual.exigeOrcamentoAprovado, 'Exige orçamento aprovado pelo cliente antes de executar')
+    + linha(!!tipoAtual.exigeAssinaturaCliente, 'Exige assinatura do cliente na conclusão')
+    + `<div class="exig"><span class="marca">▸</span><span>Fiscal: <strong>${esc(tipoAtual.modoFiscal||'—')}</strong></span></div>`;
+
+  // Endereço só aparece quando o tipo exige — era o comportamento do modal,
+  // mas aqui a exigência fica anunciada antes de o campo surgir.
+  el('enderecoExecRow').style.display = exigeEndereco(tipoAtual) ? '' : 'none';
+
+  if (!el('fSLA').value && tipoAtual.slaDiasPadrao) el('fSLA').value = tipoAtual.slaDiasPadrao;
+  calcPromessa();
+
+  // Pré-visualização do checklist: no modal antigo os itens só apareciam
+  // depois de a OS existir.
+  let itens = [];
+  try { itens = JSON.parse(tipoAtual.checklistPadrao || '[]'); } catch { itens = []; }
+  if (itens.length) {
+    el('ctxChecklistBloco').style.display = '';
+    el('ctxChecklist').innerHTML = itens.map(i => {
+      const txt = typeof i === 'string' ? i : (i.descricao || i.texto || '');
+      const obrig = typeof i === 'object' && (i.obrigatorio === 1 || i.obrigatorio === true);
+      return `<div>☐ ${esc(txt)}${obrig ? ' <small style="color:var(--warn)">obrigatório</small>' : ''}</div>`;
+    }).join('');
+  } else {
+    el('ctxChecklistBloco').style.display = 'none';
+  }
+  marcarEtapas();
+}
+
+function calcPromessa(){
+  const dias = Number(el('fSLA').value);
+  if (!dias) { el('fPromessa').value = ''; return; }
+  const d = new Date();
+  d.setDate(d.getDate() + dias);
+  el('fPromessa').value = d.toLocaleDateString('pt-BR');
+}
+
+// ==================== CLIENTE ====================
+let acTimer;
+let acPessoas = [];
+let clienteAtual = null;
+function acCli(){
+  clearTimeout(acTimer);
+  const q = el('fCliBusca').value.trim();
+  if (!q) { el('fClienteId').value=''; clienteAtual=null; el('acCliList').innerHTML=''; marcarEtapas(); return; }
+  if (q.length < 2) { el('acCliList').innerHTML=''; return; }
+  acTimer = setTimeout(async () => {
+    const d = await fetch('/api/pessoas?q='+encodeURIComponent(q)).then(r=>r.json()).catch(()=>({}));
+    acPessoas = (d.pessoas || d.data || []).slice(0,10);
+    el('acCliList').innerHTML = acPessoas.map((p,i) =>
+      `<div onclick="selCli(${i})">${esc(p.razaoSocial)} <small class="muted">${esc(p.cpfCnpj||'')}</small></div>`
+    ).join('');
+  }, 200);
+}
+// A pessoa inteira fica guardada: o endereço do cadastro já vem junto na
+// busca, e é dele que a etapa 5 herda o local de execução.
+function selCli(i){
+  const p = acPessoas[i];
+  if (!p) return;
+  clienteAtual = p;
+  el('fClienteId').value = p.id;
+  el('fCliBusca').value = p.razaoSocial;
+  el('acCliList').innerHTML = '';
+  carregarEquipamentos();
+  carregarEnderecosCliente();
+  marcarEtapas();
+}
+
+// ==================== LOCAL DE EXECUÇÃO ====================
+// Endereço do cadastro do cliente + os adicionais (obra, filial, entrega).
+// Digitar à mão um endereço que o sistema já tem era o que fazia a etapa 5
+// ignorar o cliente escolhido na etapa 2.
+const CAMPOS_END = ['fEndExec','fNumExec','fCompExec','fBairroExec','fMunExec','fUfExec','fCepExec'];
+let opcoesEnd = [];
+let enderecoHerdado = null;   // o que a última herança automática escreveu
+
+function lerEndereco(){ return CAMPOS_END.map(i => el(i).value.trim()).join('|'); }
+
+// "Digitado à mão" é o que não veio da herança. Campo vazio não conta: aí não
+// há nada a preservar.
+function enderecoEditadoAMao(){
+  const atual = lerEndereco();
+  if (!atual.replace(/\|/g,'')) return false;
+  return atual !== enderecoHerdado;
+}
+
+function aplicarEndereco(e){
+  el('fEndExec').value = e.endereco || '';
+  el('fNumExec').value = e.numero || '';
+  el('fCompExec').value = e.complemento || '';
+  el('fBairroExec').value = e.bairro || '';
+  el('fMunExec').value = e.cidade || '';
+  el('fUfExec').value = e.uf || '';
+  el('fCepExec').value = e.cep || '';
+  enderecoHerdado = lerEndereco();
+  marcarEtapas();
+}
+
+async function carregarEnderecosCliente(){
+  const sel = el('fLocalEnd');
+  const hint = el('fLocalEndHint');
+  opcoesEnd = [];
+  if (clienteAtual) {
+    if (clienteAtual.endereco || clienteAtual.cidade) {
+      opcoesEnd.push({ rotulo: 'Endereço do cliente (cadastro)', dados: clienteAtual, padrao: 0 });
+    }
+    const d = await fetch(`/api/pessoas/${clienteAtual.id}/enderecos`).then(r=>r.json()).catch(()=>({}));
+    for (const e of (d.enderecos || [])) {
+      const onde = [e.endereco, e.numero].filter(Boolean).join(', ');
+      opcoesEnd.push({
+        rotulo: [e.apelido || e.tipo, onde].filter(Boolean).join(' — ') || 'Endereço adicional',
+        dados: e, padrao: e.padrao,
+      });
+    }
+  }
+  sel.innerHTML = opcoesEnd.map((o,i) => `<option value="${i}">${esc(o.rotulo)}</option>`).join('')
+    + '<option value="outro">Outro endereço (digitar)</option>';
+
+  if (!opcoesEnd.length) {
+    sel.value = 'outro';
+    // O que está na tela veio do cliente anterior: deixar ali faria a OS
+    // nascer no endereço de outro cliente sem ninguém perceber.
+    if (!enderecoEditadoAMao()) {
+      CAMPOS_END.forEach(i => el(i).value = '');
+      enderecoHerdado = null;
+      marcarEtapas();
+    }
+    hint.textContent = clienteAtual
+      ? 'Cliente sem endereço no cadastro — digite o local da prestação.'
+      : 'Escolha o cliente para herdar o endereço do cadastro.';
+    return;
+  }
+  // Já digitado à mão: trocar de cliente não apaga o que o atendente escreveu.
+  if (enderecoEditadoAMao()) {
+    sel.value = 'outro';
+    hint.textContent = 'Mantivemos o endereço digitado. Escolha acima para usar um do cadastro do cliente.';
+    return;
+  }
+  const iPadrao = opcoesEnd.findIndex(o => o.padrao);
+  const idx = iPadrao >= 0 ? iPadrao : 0;
+  sel.value = String(idx);
+  aplicarEndereco(opcoesEnd[idx].dados);
+  hint.textContent = 'Herdado do cadastro do cliente — pode ajustar abaixo.';
+}
+
+function trocarLocalEnd(){
+  const v = el('fLocalEnd').value;
+  if (v === 'outro') {
+    // Escolha explícita de outro local: limpa para digitar, a menos que já
+    // haja algo escrito à mão que seria perdido.
+    if (!enderecoEditadoAMao()) {
+      CAMPOS_END.forEach(i => el(i).value = '');
+      enderecoHerdado = null;
+    }
+    el('fLocalEndHint').textContent = 'Endereço digitado só para esta OS — não altera o cadastro do cliente.';
+    marcarEtapas();
+    return;
+  }
+  const o = opcoesEnd[Number(v)];
+  if (o) {
+    aplicarEndereco(o.dados);
+    el('fLocalEndHint').textContent = 'Herdado do cadastro do cliente — pode ajustar abaixo.';
+  }
+}
+
+// Mexer num campo desfaz a herança: o select passa a dizer "outro", que é a
+// verdade do que está na tela.
+function aoEditarEndereco(){
+  if (el('fLocalEnd').value !== 'outro' && enderecoEditadoAMao()) el('fLocalEnd').value = 'outro';
+  marcarEtapas();
+}
+
+// ==================== EQUIPAMENTO ====================
+async function carregarEquipamentos(){
+  const cli = el('fClienteId').value;
+  const sel = el('fEquipId');
+  sel.innerHTML = '<option value="">— novo equipamento / preencher abaixo —</option>';
+  el('ctxHistBloco').style.display = 'none';
+  if (!cli) return;
+  // incluirEmpresa: a máquina que ainda é nossa (trator em estoque) também
+  // pode entrar em OS — antes ela não aparecia em lugar nenhum da abertura.
+  const d = await fetch('/api/equipamentos?incluirEmpresa=1&clienteId='+encodeURIComponent(cli)).then(r=>r.json()).catch(()=>({}));
+  const lista = d.equipamentos || d.data || [];
+  sel.innerHTML += lista.map(e =>
+    `<option value="${e.id}">${e.proprietario === 'empresa' ? '[empresa] ' : ''}${esc([e.descricao,e.marca,e.modelo].filter(Boolean).join(' '))}${e.numeroSerie?' · '+esc(e.numeroSerie):''}</option>`
+  ).join('');
+  const daEmpresa = lista.filter(e => e.proprietario === 'empresa').length;
+  el('fEquipHint').textContent = lista.length
+    ? `${lista.length - daEmpresa} do cliente${daEmpresa ? ` + ${daEmpresa} da empresa` : ''} na base.`
+    : 'Cliente ainda sem equipamento cadastrado — preencha abaixo e o cadastro nasce sozinho.';
+}
+
+async function aplicarEquipamento(){
+  const eid = el('fEquipId').value;
+  const link = el('linkFichaEquip');
+  link.style.display = eid ? '' : 'none';
+  if (eid) link.href = '/os/equipamento.html?id=' + eid;
+  if (!eid) { el('ctxHistBloco').style.display='none'; verificarGarantia(); return; }
+  const d = await fetch('/api/equipamentos/'+eid).then(r=>r.json()).catch(()=>({}));
+  const e = d.equipamento || d.ficha?.equipamento;
+  if (e) {
+    el('fEq').value = e.descricao || '';
+    el('fMarca').value = e.marca || '';
+    el('fModelo').value = e.modelo || '';
+    el('fSerieEq').value = e.numeroSerie || '';
+  }
+  // Histórico: o que o modal não mostrava na abertura.
+  const ordens = d.ficha?.ordens || d.ordens || [];
+  if (ordens.length) {
+    el('ctxHistBloco').style.display = '';
+    el('ctxHist').innerHTML = ordens.slice(0,5).map(o =>
+      `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+         <a href="/os/ordem-servico.html?id=${o.id}" target="_blank">${esc(o.numero)}</a>
+         <small class="muted"> · ${esc((o.dataAbertura||'').slice(0,10))} · ${esc(o.status||'')}</small>
+         ${o.titulo ? `<br><small>${esc(o.titulo)}</small>` : ''}
+       </div>`).join('')
+      + (ordens.length > 5 ? `<small class="muted">+${ordens.length-5} anterior(es)</small>` : '');
+  } else {
+    el('ctxHistBloco').style.display = 'none';
+  }
+  verificarGarantia();
+}
+
+// Garantia vigente: se o equipamento tem OS anterior ainda em garantia, esta
+// OS pode nascer como retorno — sem cobrar e sem emitir nota.
+let garantiaTimer;
+function verificarGarantia(){
+  clearTimeout(garantiaTimer);
+  garantiaTimer = setTimeout(async () => {
+    const p = new URLSearchParams();
+    const cli = el('fClienteId').value;
+    const eq = el('fEquipId').value;
+    if (eq) p.set('equipamentoId', eq);
+    else {
+      if (!cli) return;
+      p.set('clienteId', cli);
+      if (el('fSerieEq').value.trim()) p.set('numeroSerie', el('fSerieEq').value.trim());
+      if (el('fMarca').value.trim()) p.set('marca', el('fMarca').value.trim());
+      if (el('fModelo').value.trim()) p.set('modelo', el('fModelo').value.trim());
+    }
+    const d = await fetch('/api/os/garantia-sugestoes?'+p).then(r=>r.json()).catch(()=>({}));
+    const sug = (d && d.sugestoes) || [];
+    if (!sug.length) {
+      el('ctxGarantiaBloco').style.display = 'none';
+      el('fOsPaiId').value = ''; el('fEmGarantia').value = '';
+      return;
+    }
+    el('ctxGarantiaBloco').style.display = '';
+    el('ctxGarantia').innerHTML = sug.slice(0,3).map(s => `
+      <div style="padding:6px 0;border-bottom:1px solid var(--border);">
+        <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-weight:400;">
+          <input type="radio" name="garantiaSel" value="${s.osId}" onchange="selGarantia(${s.osId})" style="width:auto;margin-top:3px;">
+          <span>OS <strong>${esc(s.numero||s.osId)}</strong>
+            <br><small class="muted">garantia até ${esc(s.garantiaAte||s.vigenteAte||'—')}</small></span>
+        </label>
+      </div>`).join('')
+      + `<label style="display:flex;gap:8px;align-items:center;cursor:pointer;font-weight:400;padding-top:6px;">
+           <input type="radio" name="garantiaSel" value="" checked onchange="selGarantia('')" style="width:auto;">
+           <span><small>Não é retorno de garantia</small></span>
+         </label>`;
+  }, 350);
+}
+function selGarantia(osPaiId){
+  el('fOsPaiId').value = osPaiId || '';
+  el('fEmGarantia').value = osPaiId ? '1' : '';
+}
+
+// ==================== PROGRESSO ====================
+// Marca visualmente as etapas resolvidas. Substitui o "descobrir no submit"
+// que o modal fazia: lá o erro só aparecia depois de clicar em Criar.
+function marcarEtapas(){
+  const set = (idEt, ok) => el(idEt).classList.toggle('ok', !!ok);
+  set('et1', !!el('fTipo').value);
+  set('et2', !!el('fClienteId').value);
+  set('et3', !!(el('fEquipId').value || el('fEq').value.trim() || el('fMarca').value.trim()));
+  set('et4', !!el('fTit').value.trim());
+  set('et5', !exigeEndereco(tipoAtual) || !!el('fEndExec').value.trim());
+}
+
+// ==================== SALVAR ====================
+async function salvar(abrir){
+  if (!el('fTipo').value) return showAlert('Escolha o tipo de OS','error');
+  if (!el('fClienteId').value) return showAlert('Escolha o cliente','error');
+  if (!el('fTit').value.trim()) return showAlert('Informe o título','error');
+  if (exigeEndereco(tipoAtual) && !el('fEndExec').value.trim()) {
+    return showAlert(`Tipo "${tipoAtual.nome}" exige endereço de execução`,'error');
+  }
+
+  const num = (i) => el(i).value !== '' ? Number(el(i).value) : null;
+  const txt = (i) => el(i).value.trim() || null;
+  const body = {
+    tipoId: Number(el('fTipo').value),
+    clienteId: Number(el('fClienteId').value),
+    tecnicoId: el('fTecnico').value ? Number(el('fTecnico').value) : null,
+    titulo: el('fTit').value.trim(),
+    equipamentoId: el('fEquipId').value ? Number(el('fEquipId').value) : null,
+    equipamento: txt('fEq'), marca: txt('fMarca'), modelo: txt('fModelo'),
+    numeroSerieEquipamento: txt('fSerieEq'),
+    depositoId: el('fDeposito').value ? Number(el('fDeposito').value) : null,
+    garantiaDias: num('fGarantia') || 0,
+    defeitoRelatado: txt('fDefeito'),
+    observacoes: txt('fObs'),
+    prazoSLADias: num('fSLA'),
+    enderecoExecucao: txt('fEndExec'),
+    numeroExecucao: txt('fNumExec'),
+    complementoExecucao: txt('fCompExec'),
+    bairroExecucao: txt('fBairroExec'),
+    municipioExecucao: txt('fMunExec'),
+    ufExecucao: txt('fUfExec'),
+    cepExecucao: txt('fCepExec'),
+    kmPercorrido: num('fKm'),
+    valorDeslocamento: num('fVlrDesloc'),
+    osPaiId: el('fOsPaiId').value ? Number(el('fOsPaiId').value) : null,
+  };
+
+  const r = await fetch('/api/os', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+
+  if (abrir) { window.location.href = '/os/ordem-servico.html?id=' + d.os.id; return; }
+  showAlert(`OS ${d.os.numero} criada.`);
+  // "Criar e abrir outra": mantém tipo e cliente, que costumam se repetir em
+  // lote de abertura, e limpa o resto.
+  ['fTit','fDefeito','fObs','fEq','fMarca','fModelo','fSerieEq','fKm','fVlrDesloc','fOsPaiId','fEmGarantia']
+    .forEach(i => { const e = el(i); if (e) e.value=''; });
+  el('fEquipId').value = '';
+  el('ctxGarantiaBloco').style.display = 'none';
+  el('ctxHistBloco').style.display = 'none';
+  marcarEtapas();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#acCliList') && !e.target.closest('#fCliBusca')) el('acCliList').innerHTML = '';
+});
+
+carregarTipos().then(marcarEtapas);
+carregarTecnicos();
+carregarDepositos();
+</script>
+</body>
+</html>

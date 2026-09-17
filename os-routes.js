@@ -22,7 +22,8 @@ const { comTratamentoDeErro, nomeOriginalUtf8 } = require('./upload-anexos');
 const { logAction } = require('./audit-log');
 const { emitirNfseInterno } = require('./nfse-routes');
 const { emitirNFe } = require('./nfe-emit-routes');
-const { criarReservasOS, consumirReservasOS, cancelarReservasOS } = require('./reservas-routes');
+const { criarReservasOS, consumirReservasOS, cancelarReservasOS,
+        reservarEquipamentoOS, liberarReservaEquipamentoOS } = require('./reservas-routes');
 const { erroMeioPermitido } = require('./meios-pagamento');
 const { prazoDaPessoa } = require('./prazo-pagamento');
 // Custo médio vigente para gravar na baixa da peça (custo histórico da OS).
@@ -304,6 +305,7 @@ function migrarDB(db) {
     'servicoValorHoraPadrao REAL',
     'permiteAlterarCalculoServico INTEGER DEFAULT 1',
     "faturarPara TEXT DEFAULT 'cliente'",
+    'permiteAgregacao INTEGER DEFAULT 0',
   ]) alterSafe(`ALTER TABLE os_tipos ADD COLUMN ${col}`);
   alterSafe(`ALTER TABLE os_itens_servicos ADD COLUMN origem TEXT`);
   alterSafe(`ALTER TABLE servicos ADD COLUMN tempoPadraoHoras REAL`);
@@ -383,6 +385,39 @@ function migrarDB(db) {
   alterSafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_equip_serie_unica
              ON equipamentos(clienteId, numeroSerie)
              WHERE numeroSerie IS NOT NULL AND numeroSerie <> ''`);
+
+  // Equipamento como bem composto (espelha db-schema.js — aqui vale para
+  // tenant novo). Máquina da empresa que recebe OS e agrega peça/serviço.
+  alterSafe(`ALTER TABLE equipamentos ADD COLUMN proprietario TEXT DEFAULT 'cliente'`);
+  alterSafe(`ALTER TABLE serial_numbers ADD COLUMN custoAgregado REAL DEFAULT 0`);
+  for (const col of ['equipamentoId INTEGER', 'serialNumberId INTEGER']) {
+    alterSafe(`ALTER TABLE reservas_estoque ADD COLUMN ${col}`);
+  }
+  for (const tab of ['os_itens_pecas', 'os_itens_servicos']) {
+    alterSafe(`ALTER TABLE ${tab} ADD COLUMN agregaEquipamento INTEGER DEFAULT 0`);
+  }
+  alterSafe(`CREATE TABLE IF NOT EXISTS equipamento_componentes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipamentoId INTEGER NOT NULL,
+    produtoId INTEGER,
+    descricao TEXT NOT NULL,
+    quantidade REAL NOT NULL DEFAULT 1,
+    valorCusto REAL DEFAULT 0,
+    valorVenda REAL DEFAULT 0,
+    origemTipo TEXT NOT NULL DEFAULT 'manual',
+    osId INTEGER,
+    osItemId INTEGER,
+    serialIds TEXT,
+    dataInstalacao TEXT DEFAULT CURRENT_TIMESTAMP,
+    dataRemocao TEXT,
+    motivoRemocao TEXT,
+    usuario TEXT,
+    FOREIGN KEY (equipamentoId) REFERENCES equipamentos(id) ON DELETE CASCADE
+  )`);
+  alterSafe(`CREATE INDEX IF NOT EXISTS idx_equip_comp ON equipamento_componentes(equipamentoId, dataRemocao)`);
+  alterSafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_equip_comp_item
+             ON equipamento_componentes(osId, osItemId, origemTipo)
+             WHERE osId IS NOT NULL AND osItemId IS NOT NULL`);
 
   // Log de envio das notificações: sem ele, canal fora do ar era
   // indistinguível de "nenhuma regra configurada".
@@ -921,6 +956,11 @@ function registrarRotasOS(app, db) {
       const achado = candidatos.find(e => normSerie(e.numeroSerie) === alvo
         && (e.clienteId === clienteId || e.clienteId == null));
       if (achado) {
+        // Máquina da empresa não ganha dono por aqui: virar do cliente é
+        // venda, com evento e baixa de estoque. Sem esta guarda o cadastro
+        // ficaria com clienteId preenchido E proprietario='empresa' — o
+        // estado híbrido que o PUT toma o cuidado de impedir.
+        if (achado.proprietario === 'empresa') return { id: achado.id, criado: false };
         // Equipamento sem dono ainda, ou que mudou de mãos.
         if (achado.clienteId == null && clienteId) {
           db.prepare('UPDATE equipamentos SET clienteId = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
@@ -930,6 +970,7 @@ function registrarRotasOS(app, db) {
       }
       // Série existe em OUTRO cliente: é troca de dono, não duplicidade.
       const deOutro = candidatos.find(e => normSerie(e.numeroSerie) === alvo);
+      if (deOutro && deOutro.proprietario === 'empresa') return { id: deOutro.id, criado: false };
       if (deOutro && clienteId) {
         db.prepare('UPDATE equipamentos SET clienteId = ?, dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?')
           .run(clienteId, deOutro.id);
@@ -1006,9 +1047,21 @@ function registrarRotasOS(app, db) {
       LEFT JOIN pessoas pn ON pn.id = ev.clienteNovoId
       WHERE ev.equipamentoId = ? ORDER BY ev.data DESC, ev.id DESC`).all(equipamentoId);
 
+    // Composição: o que foi agregado à máquina e ainda está nela. O removido
+    // continua vindo, com dataRemocao, porque é história do equipamento.
+    const componentes = db.prepare(`SELECT c.*, p.sku AS produtoSku, o.numero AS osNumero
+      FROM equipamento_componentes c
+      LEFT JOIN produtos p ON p.id = c.produtoId
+      LEFT JOIN os_ordens o ON o.id = c.osId
+      WHERE c.equipamentoId = ? ORDER BY c.dataInstalacao DESC, c.id DESC`).all(equipamentoId);
+    const instalados = componentes.filter(c => !c.dataRemocao);
+
     return {
-      equipamento: eq, ordens, eventos, garantias, garantiaVigente,
+      equipamento: eq, ordens, eventos, garantias, garantiaVigente, componentes,
       resumo: {
+        custoAgregado: Number(instalados.reduce((s, c) => s + (c.valorCusto || 0), 0).toFixed(2)),
+        valorAgregado: Number(instalados.reduce((s, c) => s + (c.valorVenda || 0), 0).toFixed(2)),
+        componentesInstalados: instalados.length,
         totalOS: ordens.length,
         abertas: ordens.filter(o => !['faturada', 'cancelada', 'concluida'].includes(o.status)).length,
         valorAcumulado: Number(ordens.filter(o => o.status === 'faturada')
@@ -1020,15 +1073,103 @@ function registrarRotasOS(app, db) {
     };
   }
 
+  // Soma dos componentes instalados vai para a série: é lá que o custo
+  // pertence à UNIDADE. O custo médio do estoque é por produto e espalharia a
+  // agregação de um trator pelas outras unidades do mesmo produto.
+  function sincronizarCustoAgregado(db, equipamentoId) {
+    const eq = db.prepare('SELECT serialNumberId FROM equipamentos WHERE id = ?').get(equipamentoId);
+    if (!eq || !eq.serialNumberId) return;
+    const s = db.prepare(`SELECT COALESCE(SUM(valorCusto), 0) AS total
+      FROM equipamento_componentes WHERE equipamentoId = ? AND dataRemocao IS NULL`).get(equipamentoId);
+    db.prepare('UPDATE serial_numbers SET custoAgregado = ? WHERE id = ?')
+      .run(Number(s.total.toFixed(2)), eq.serialNumberId);
+  }
+
+  /**
+   * Itens marcados viram componentes do equipamento.
+   *
+   * Roda na CONCLUSÃO, não no faturamento: é aí que a peça saiu do estoque e o
+   * custo ficou conhecido, e é o único momento por onde toda OS passa —
+   * consumo interno e garantia concluem sem nunca faturar, e a máquina que
+   * recebeu o peito de aço não pode depender disso para registrar o que ganhou.
+   *
+   * INSERT OR IGNORE + índice único (osId, osItemId, origemTipo): reabrir e
+   * concluir de novo não duplica o componente.
+   */
+  function agregarItensAoEquipamento(db, os, usuario) {
+    if (!os.equipamentoId) return 0;
+    const tipo = os.tipoId ? db.prepare('SELECT permiteAgregacao FROM os_tipos WHERE id = ?').get(os.tipoId) : null;
+    if (!tipo || !tipo.permiteAgregacao) return 0;
+
+    const ins = db.prepare(`INSERT OR IGNORE INTO equipamento_componentes
+      (equipamentoId, produtoId, descricao, quantidade, valorCusto, valorVenda,
+       origemTipo, osId, osItemId, serialIds, usuario)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    let n = 0;
+
+    const pecas = db.prepare(`SELECT * FROM os_itens_pecas
+      WHERE osId = ? AND agregaEquipamento = 1 AND IFNULL(situacao,'confirmado') = 'confirmado'`).all(os.id);
+    for (const it of pecas) {
+      // Custo real do que entrou na máquina, em três fontes porque nenhuma
+      // sozinha cobre todos os caminhos:
+      //  - custoUnitario, gravado na baixa direta (OS concluída sem reservas);
+      //  - o custo do próprio movimento de saída, porque consumirReservasOS
+      //    grava só o movSaidaId — no fluxo que passa por /iniciar, que é o
+      //    normal, custoUnitario fica NULL e o componente nasceria com custo 0;
+      //  - custo médio de hoje, para peça confirmada sem baixa registrada.
+      // Peça de terceiro não passa pelo estoque e traz o próprio custo.
+      let unit = it.custoUnitario != null ? Number(it.custoUnitario) : null;
+      if (unit == null && it.compradoTerceiro) unit = Number(it.custoTerceiro || 0);
+      if (unit == null && it.movSaidaId) {
+        const mov = db.prepare(`SELECT custoMedioAnterior, custoUnitario
+          FROM movimentacoes_estoque WHERE id = ?`).get(it.movSaidaId);
+        if (mov) unit = mov.custoMedioAnterior != null ? Number(mov.custoMedioAnterior)
+          : (mov.custoUnitario != null ? Number(mov.custoUnitario) : null);
+      }
+      if (unit == null && it.produtoId) unit = Number(calcularCustoMedio(db, it.produtoId) || 0);
+      if (unit == null) unit = 0;
+      const r = ins.run(os.equipamentoId, it.produtoId || null, it.descricao || 'Peça',
+        Number(it.quantidade) || 1, Number((unit * (Number(it.quantidade) || 1)).toFixed(2)),
+        Number(it.valorTotal) || 0, 'os-peca', os.id, it.id, it.serialIds || null, usuario || null);
+      n += r.changes;
+    }
+
+    const servicos = db.prepare(`SELECT * FROM os_itens_servicos
+      WHERE osId = ? AND agregaEquipamento = 1 AND IFNULL(situacao,'confirmado') = 'confirmado'`).all(os.id);
+    for (const it of servicos) {
+      // Serviço não tem custo separado do que foi lançado: a mão de obra de
+      // montar entra pelo valor da linha, que é o que a máquina custou a mais.
+      const valor = Number(it.valorTotal) || 0;
+      const r = ins.run(os.equipamentoId, null, it.descricao || 'Serviço',
+        1, valor, valor, 'os-servico', os.id, it.id, null, usuario || null);
+      n += r.changes;
+    }
+
+    if (n) sincronizarCustoAgregado(db, os.equipamentoId);
+    return n;
+  }
+
   app.get('/api/equipamentos', (req, res) => {
     try {
-      const { clienteId, q, ativo, limit } = req.query;
+      const { clienteId, q, ativo, limit, proprietario, incluirEmpresa } = req.query;
       let sql = `SELECT e.*, p.razaoSocial AS clienteNome,
+        pr.sku AS produtoSku, pr.descricao AS produtoDescricao,
+        sn.numero AS serialNumero, sn.status AS serialStatus, sn.custoAgregado,
         (SELECT COUNT(*) FROM os_ordens o WHERE o.equipamentoId = e.id) AS totalOS,
         (SELECT MAX(o.dataAbertura) FROM os_ordens o WHERE o.equipamentoId = e.id) AS ultimaOS
-        FROM equipamentos e LEFT JOIN pessoas p ON p.id = e.clienteId WHERE 1=1`;
+        FROM equipamentos e
+        LEFT JOIN pessoas p ON p.id = e.clienteId
+        LEFT JOIN produtos pr ON pr.id = e.produtoId
+        LEFT JOIN serial_numbers sn ON sn.id = e.serialNumberId
+        WHERE 1=1`;
       const params = [];
-      if (clienteId) { sql += ' AND e.clienteId = ?'; params.push(Number(clienteId)); }
+      // incluirEmpresa: a abertura de OS precisa oferecer, além da base
+      // instalada do cliente, as máquinas que ainda são nossas.
+      if (clienteId && incluirEmpresa === '1') {
+        sql += ` AND (e.clienteId = ? OR e.proprietario = 'empresa')`;
+        params.push(Number(clienteId));
+      } else if (clienteId) { sql += ' AND e.clienteId = ?'; params.push(Number(clienteId)); }
+      if (proprietario) { sql += ' AND IFNULL(e.proprietario, \'cliente\') = ?'; params.push(proprietario); }
       if (ativo !== undefined) { sql += ' AND e.ativo = ?'; params.push(Number(ativo)); }
       if (q) {
         sql += ` AND (e.descricao LIKE ? OR e.marca LIKE ? OR e.modelo LIKE ?
@@ -1056,12 +1197,23 @@ function registrarRotasOS(app, db) {
       if (!b.descricao && !b.marca && !b.modelo) {
         return res.status(400).json({ success: false, error: 'Informe ao menos descrição, marca ou modelo' });
       }
+      // Máquina da empresa não tem dono-pessoa: a identidade dela é o produto
+      // e a série do estoque. Aceitar clienteId aqui criaria equipamento que
+      // é da empresa e de um cliente ao mesmo tempo.
+      const proprietario = b.proprietario === 'empresa' ? 'empresa' : 'cliente';
       const out = acharOuCriarEquipamento(db, {
-        clienteId: b.clienteId ? Number(b.clienteId) : null,
+        clienteId: proprietario === 'empresa' ? null : (b.clienteId ? Number(b.clienteId) : null),
         descricao: b.descricao, marca: b.marca, modelo: b.modelo,
         numeroSerie: b.numeroSerie, produtoId: b.produtoId ? Number(b.produtoId) : null,
         usuario: req.user?.username || req.session?.username || null,
       });
+      // Só na criação, ou quando o pedido disse explicitamente de quem é.
+      // Reaproveitar um cadastro existente (mesma série) NÃO pode reclassificar
+      // a máquina: um POST comum, sem o campo, virava a máquina da empresa em
+      // "do cliente" sem venda, sem baixa de estoque e sem evento nenhum.
+      if (out.criado || b.proprietario !== undefined) {
+        db.prepare('UPDATE equipamentos SET proprietario = ? WHERE id = ?').run(proprietario, out.id);
+      }
       // Campos que só o cadastro tem — acharOuCriar cuida da identidade.
       const extras = ['patrimonio', 'dataAquisicao', 'garantiaFabricanteAte', 'observacoes', 'serialNumberId'];
       const sets = extras.filter(k => b[k] !== undefined);
@@ -1080,7 +1232,16 @@ function registrarRotasOS(app, db) {
       const eq = db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(req.params.id);
       if (!eq) return res.status(404).json({ success: false, error: 'Equipamento não encontrado' });
       const campos = ['descricao', 'marca', 'modelo', 'numeroSerie', 'patrimonio', 'produtoId',
-                      'serialNumberId', 'dataAquisicao', 'garantiaFabricanteAte', 'observacoes', 'ativo', 'clienteId'];
+                      'serialNumberId', 'dataAquisicao', 'garantiaFabricanteAte', 'observacoes', 'ativo', 'clienteId',
+                      'proprietario'];
+      // Passar a ser da empresa larga o dono anterior — senão a máquina fica
+      // nossa e do cliente ao mesmo tempo, e a base instalada dele mente.
+      // Só quando havia dono: injetar null no que já é null faria o bloco de
+      // troca de dono abaixo registrar um evento a cada gravação.
+      if (req.body.proprietario === 'empresa' && eq.clienteId != null) req.body.clienteId = null;
+      // E ganhar dono devolve o equipamento para o mundo 'cliente'.
+      if (req.body.clienteId && req.body.proprietario === undefined
+          && eq.proprietario === 'empresa') req.body.proprietario = 'cliente';
       const sets = campos.filter(k => req.body[k] !== undefined);
       if (!sets.length) return res.json({ success: true, equipamento: eq });
 
@@ -1097,6 +1258,90 @@ function registrarRotasOS(app, db) {
         .run(...sets.map(k => req.body[k] === '' ? null : req.body[k]), eq.id);
       logAction(db, req, 'editar', 'equipamento', eq.id, req.body);
       res.json({ success: true, equipamento: db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(eq.id) });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // Alterna o marcador de agregação de um item já lançado. Fica aqui, e não
+  // no PUT do item, porque a decisão costuma vir depois — o técnico lança a
+  // peça e só ao fechar sabe que ela ficou na máquina.
+  // Express 5 (path-to-regexp v8) não aceita grupo no parâmetro
+  // (`:especie(pecas|servicos)`) — o registro estoura no boot. A escolha
+  // válida é conferida aqui dentro.
+  app.post('/api/os/:id/:especie/:itemId/agregar', (req, res) => {
+    try {
+      if (!['pecas', 'servicos'].includes(req.params.especie)) {
+        return res.status(404).json({ success: false, error: 'Espécie inválida' });
+      }
+      const tabela = req.params.especie === 'pecas' ? 'os_itens_pecas' : 'os_itens_servicos';
+      const os = db.prepare('SELECT * FROM os_ordens WHERE id = ?').get(req.params.id);
+      if (!os) return res.status(404).json({ success: false, error: 'Não encontrada' });
+      if (['faturada','cancelada'].includes(os.status)) {
+        return res.status(400).json({ success: false, error: 'OS não permite alteração' });
+      }
+      if (!os.equipamentoId) {
+        return res.status(400).json({ success: false, error: 'OS sem equipamento — não há a que agregar' });
+      }
+      const tipo = os.tipoId ? db.prepare('SELECT nome, permiteAgregacao FROM os_tipos WHERE id = ?').get(os.tipoId) : null;
+      if (!tipo || !tipo.permiteAgregacao) {
+        return res.status(400).json({ success: false,
+          error: `Tipo "${tipo ? tipo.nome : '—'}" não agrega ao equipamento` });
+      }
+      const item = db.prepare(`SELECT * FROM ${tabela} WHERE id = ? AND osId = ?`).get(req.params.itemId, os.id);
+      if (!item) return res.status(404).json({ success: false, error: 'Item não encontrado' });
+      const valor = req.body?.agrega ? 1 : 0;
+      db.prepare(`UPDATE ${tabela} SET agregaEquipamento = ? WHERE id = ?`).run(valor, item.id);
+      logAction(db, req, 'agregar-item', 'os', os.id, { tabela, itemId: item.id, agrega: valor });
+      res.json({ success: true, agregaEquipamento: valor });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // ==================== COMPOSIÇÃO DO EQUIPAMENTO ====================
+  // Trator que recebe peito de aço: o componente passa a fazer parte da
+  // máquina. A OS agrega automaticamente (item marcado); aqui é o caminho
+  // manual, para o que foi montado fora de uma OS.
+
+  app.get('/api/equipamentos/:id/componentes', (req, res) => {
+    try {
+      const linhas = db.prepare(`SELECT c.*, p.sku AS produtoSku, o.numero AS osNumero
+        FROM equipamento_componentes c
+        LEFT JOIN produtos p ON p.id = c.produtoId
+        LEFT JOIN os_ordens o ON o.id = c.osId
+        WHERE c.equipamentoId = ? ORDER BY c.dataInstalacao DESC, c.id DESC`).all(req.params.id);
+      res.json({ success: true, componentes: linhas });
+    } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  });
+
+  app.post('/api/equipamentos/:id/componentes', (req, res) => {
+    try {
+      const eq = db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(req.params.id);
+      if (!eq) return res.status(404).json({ success: false, error: 'Equipamento não encontrado' });
+      const b = req.body || {};
+      if (!b.descricao) return res.status(400).json({ success: false, error: 'descricao obrigatória' });
+      const r = db.prepare(`INSERT INTO equipamento_componentes
+        (equipamentoId, produtoId, descricao, quantidade, valorCusto, valorVenda, origemTipo, usuario)
+        VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`)
+        .run(eq.id, b.produtoId ? Number(b.produtoId) : null, b.descricao,
+             Number(b.quantidade) || 1, Number(b.valorCusto) || 0, Number(b.valorVenda) || 0,
+             req.user?.username || null);
+      sincronizarCustoAgregado(db, eq.id);
+      logAction(db, req, 'criar', 'equipamento_componente', r.lastInsertRowid, b);
+      res.json({ success: true, id: r.lastInsertRowid });
+    } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+  });
+
+  // Remoção é data, não DELETE: peça retirada continua sendo história da
+  // máquina, e some do custo agregado a partir de agora.
+  app.post('/api/equipamentos/:id/componentes/:compId/remover', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM equipamento_componentes WHERE id = ? AND equipamentoId = ?')
+        .get(req.params.compId, req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Componente não encontrado' });
+      if (c.dataRemocao) return res.status(400).json({ success: false, error: 'Componente já removido' });
+      db.prepare(`UPDATE equipamento_componentes SET dataRemocao = CURRENT_TIMESTAMP, motivoRemocao = ?
+        WHERE id = ?`).run(req.body?.motivo || null, c.id);
+      sincronizarCustoAgregado(db, Number(req.params.id));
+      logAction(db, req, 'remover', 'equipamento_componente', c.id, req.body);
+      res.json({ success: true });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
@@ -1268,6 +1513,7 @@ function registrarRotasOS(app, db) {
                e.marca AS equipamentoMarca, e.modelo AS equipamentoModelo,
                ot.nome AS tipoNome, ot.deslocamentoModo, ot.deslocamentoValorKm,
                ot.deslocamentoValorFixo, ot.faturarPara,
+               ot.exigeEnderecoExec, ot.localPrestacao, ot.permiteAgregacao,
                ot.servicoCalculoModo, ot.servicoValorHoraPadrao, ot.permiteAlterarCalculoServico,
                pg.razaoSocial AS pagadorNome, pg.cpfCnpj AS pagadorCpfCnpj
         FROM os_ordens o
@@ -1538,6 +1784,11 @@ function registrarRotasOS(app, db) {
         sincronizarDeslocamento(db, id);
         recalcTotais(db, id);
 
+        // Máquina nossa que entra em OS sai da vitrine: a reserva impede
+        // vendê-la enquanto está na oficina. Não vale para equipamento de
+        // cliente, que nunca esteve no nosso estoque.
+        reservarEquipamentoOS(db, id);
+
         registrarEvento(db, id, 'abertura', `OS ${numero} aberta${tipo ? ` (tipo: ${tipo.nome})` : ''}`, req.user?.username, {
           clienteId, tipoId: tipoId || null, status: statusInicial, emGarantia,
         });
@@ -1561,7 +1812,18 @@ function registrarRotasOS(app, db) {
       const camposValidos = ['tecnicoId','titulo','equipamento','marca','modelo','numeroSerieEquipamento',
                              'defeitoRelatado','diagnostico','solucao','garantiaDias','observacoes',
                              'formaPagamento','dataVencimento','numeroParcelas','naoEmitirNFe','tipoOperacaoId',
-                             'kmPercorrido','valorDeslocamento','valorDesconto','politicaPrazoId','pagadorId'];
+                             'kmPercorrido','valorDeslocamento','valorDesconto','politicaPrazoId','pagadorId',
+                             'enderecoExecucao','numeroExecucao','complementoExecucao','bairroExecucao',
+                             'municipioExecucao','ufExecucao','cepExecucao'];
+      // Endereço de execução: o mesmo que a abertura exige, a edição não pode
+      // desfazer. Vale só quando o campo vem no body — OS antiga sem endereço
+      // continua editável no resto.
+      if (req.body.enderecoExecucao !== undefined && !String(req.body.enderecoExecucao || '').trim()) {
+        const tipo = os.tipoId ? db.prepare('SELECT nome, exigeEnderecoExec, localPrestacao FROM os_tipos WHERE id = ?').get(os.tipoId) : null;
+        if (tipo && (tipo.exigeEnderecoExec || tipo.localPrestacao === 'externo')) {
+          return res.status(400).json({ success: false, error: `Tipo "${tipo.nome}" exige endereço de execução` });
+        }
+      }
       // Condição de pagamento: mesma regra do faturamento — a política do
       // cliente, quando existe, é obrigatória e nenhuma outra é aceita.
       if (req.body.politicaPrazoId !== undefined || req.body.formaPagamento !== undefined) {
@@ -1751,14 +2013,19 @@ function registrarRotasOS(app, db) {
 
       const dataHoje = new Date().toISOString().slice(0, 10);
 
-      // Verifica se há reservas ativas para esta OS — se sim, consome via helper.
+      // Verifica se há reservas ativas DE PEÇA para esta OS — se sim, consome
+      // via helper. A reserva da própria máquina (equipamentoId) não conta:
+      // ela nunca é consumida, e contá-la aqui mandava a conclusão pelo
+      // caminho das reservas sem ter o que consumir — a peça ficava sem baixa.
       const temReservas = db.prepare(
-        `SELECT COUNT(*) c FROM reservas_estoque WHERE osId = ? AND status = 'ativa'`
+        `SELECT COUNT(*) c FROM reservas_estoque
+          WHERE osId = ? AND status = 'ativa' AND equipamentoId IS NULL`
       ).get(os.id).c > 0;
 
       // Peças próprias (com estoque) — terceiros têm fluxo separado mais abaixo.
       const pecasProprias = pecas.filter(p => !p.compradoTerceiro);
       let perdasRegistradas = 0;
+      let componentesAgregados = 0;
       const trx = db.transaction(() => {
         if (baixar && pecasProprias.length) {
           if (temReservas) {
@@ -1812,14 +2079,23 @@ function registrarRotasOS(app, db) {
         // Na mesma transação da conclusão: ou a OS fecha com as perdas
         // registradas, ou nada acontece.
         perdasRegistradas = registrarPerdasDaOS(db, os, paraPerder, req.user?.username);
+
+        // Itens marcados passam a fazer parte do equipamento. Depois da baixa,
+        // porque é ela que grava o custoUnitario que o componente carrega.
+        componentesAgregados = agregarItensAoEquipamento(db, os, req.user?.username);
+
+        // A máquina sai da oficina: a reserva que a segurava contra venda
+        // deixa de existir. Ver liberarReservaEquipamentoOS.
+        liberarReservaEquipamentoOS(db, os.id, 'OS concluída');
       });
       trx();
 
       registrarEvento(db, os.id, 'conclusao', solucao || 'OS concluída', req.user?.username, {
         pecas: pecas.length, viaReservas: temReservas, baixouEstoque: baixar, perdasRegistradas,
+        componentesAgregados,
       });
-      logAction(db, req, 'concluir', 'os', os.id, { baixouEstoque: baixar, pecas: pecas.length, viaReservas: temReservas, perdasRegistradas });
-      res.json({ success: true, viaReservas: temReservas, vendasPerdidas: perdasRegistradas });
+      logAction(db, req, 'concluir', 'os', os.id, { baixouEstoque: baixar, pecas: pecas.length, viaReservas: temReservas, perdasRegistradas, componentesAgregados });
+      res.json({ success: true, viaReservas: temReservas, vendasPerdidas: perdasRegistradas, componentesAgregados });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
   });
 
@@ -1834,6 +2110,9 @@ function registrarRotasOS(app, db) {
       const trx = db.transaction(() => {
         // Fase 9.1: libera reservas ativas
         cancelarReservasOS(db, os.id, `Cancelamento OS: ${motivo}`);
+        // A da máquina também: cancelarReservasOS pega todas por osId, mas
+        // deixar explícito evita que um recorte futuro esqueça o equipamento.
+        liberarReservaEquipamentoOS(db, os.id, `Cancelamento OS: ${motivo}`);
 
         // Se já houve baixa de estoque (concluída antes de cancelar), gera estornos
         const itensBaixados = db.prepare(`
@@ -2414,6 +2693,11 @@ function registrarRotasOS(app, db) {
         return id;
       })();
       recalcTotais(db, os.id);
+      // Agregar é decisão do item, não do lançamento: o UPDATE separado deixa
+      // o INSERT acima intocado e vale igual para peça própria e de terceiro.
+      if (req.body.agregaEquipamento) {
+        db.prepare('UPDATE os_itens_pecas SET agregaEquipamento = 1 WHERE id = ?').run(newId);
+      }
       logAction(db, req, 'add-peca', 'os', os.id, { produtoId: produtoId || null, quantidade: qtd, terceiro });
       res.json({ success: true, peca: db.prepare('SELECT * FROM os_itens_pecas WHERE id = ?').get(newId) });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
@@ -2652,6 +2936,9 @@ function registrarRotasOS(app, db) {
       })();
 
       recalcTotais(db, os.id);
+      if (req.body.agregaEquipamento) {
+        db.prepare('UPDATE os_itens_servicos SET agregaEquipamento = 1 WHERE id = ?').run(newId);
+      }
       logAction(db, req, 'add-servico', 'os', os.id, { descricao, total, servicoId: catalogo?.id || null, terceiro });
       res.json({ success: true, servico: db.prepare('SELECT * FROM os_itens_servicos WHERE id = ?').get(newId) });
     } catch (err) { res.status(400).json({ success: false, error: err.message }); }
@@ -2887,8 +3174,9 @@ function registrarRotasOS(app, db) {
          deslocamentoModo, deslocamentoValorKm, deslocamentoValorFixo,
          encerraPecaPendente, encerraServicoPendente, encerraTerceiroPendente,
          encerraKmPendente, encerraApontamentoAberto,
-         servicoCalculoModo, servicoValorHoraPadrao, permiteAlterarCalculoServico, faturarPara)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+         servicoCalculoModo, servicoValorHoraPadrao, permiteAlterarCalculoServico, faturarPara,
+         permiteAgregacao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         b.nome.trim(), slug, b.descricao || null,
         b.modoFiscal || 'sefaz',
         b.slaDiasPadrao != null && b.slaDiasPadrao !== '' ? Number(b.slaDiasPadrao) : null,
@@ -2909,7 +3197,8 @@ function registrarRotasOS(app, db) {
         f4.calculo,
         numOuNull(b.servicoValorHoraPadrao),
         b.permiteAlterarCalculoServico === false ? 0 : 1,
-        f4.faturar
+        f4.faturar,
+        b.permiteAgregacao ? 1 : 0
       );
       logAction(db, req, 'criar', 'os-tipo', r.lastInsertRowid, { nome: b.nome, slug });
       res.json({ success: true, tipo: db.prepare(SQL_OS_TIPOS_BASE + ' WHERE t.id = ?').get(r.lastInsertRowid) });
@@ -2953,7 +3242,8 @@ function registrarRotasOS(app, db) {
         encerraPecaPendente = ?, encerraServicoPendente = ?, encerraTerceiroPendente = ?,
         encerraKmPendente = ?, encerraApontamentoAberto = ?,
         servicoCalculoModo = ?, servicoValorHoraPadrao = ?,
-        permiteAlterarCalculoServico = ?, faturarPara = ?
+        permiteAlterarCalculoServico = ?, faturarPara = ?,
+        permiteAgregacao = ?
         WHERE id = ?`).run(
         b.nome != null ? String(b.nome).trim() : atual.nome,
         slug,
@@ -2985,6 +3275,7 @@ function registrarRotasOS(app, db) {
           ? (b.permiteAlterarCalculoServico ? 1 : 0)
           : (atual.permiteAlterarCalculoServico == null ? 1 : atual.permiteAlterarCalculoServico),
         f4.faturar,
+        b.permiteAgregacao != null ? (b.permiteAgregacao ? 1 : 0) : (atual.permiteAgregacao || 0),
         req.params.id
       );
       logAction(db, req, 'editar', 'os-tipo', Number(req.params.id), { nome: b.nome, slug });

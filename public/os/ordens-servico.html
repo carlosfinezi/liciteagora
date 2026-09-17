@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ordens de Serviço · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -32,7 +33,7 @@
       <small>Assistência, manutenção e instalação</small>
     </div>
     <div class="actions">
-      <button class="btn btn-primary" onclick="abrirNova()">+ Nova OS</button>
+      <a class="btn btn-primary" href="/os/nova-os.html">+ Nova OS</a>
     </div>
   </div>
 
@@ -40,7 +41,7 @@
   <div class="kpi-grid" id="kpis"></div>
 
   <div class="toolbar">
-    <input type="text" id="fQ" placeholder="Buscar nº, título, equipamento ou cliente…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
+    <input type="text" id="fQ" placeholder="Buscar nº, título ou equipamento…" oninput="debounce(carregar)" style="flex:1;min-width:240px;">
     <select id="fStatus" onchange="carregar()">
       <option value="">Todos status</option>
       <option value="aberta">Aberta</option>
@@ -57,10 +58,27 @@
       <option value="risco">⚠ Em risco</option>
       <option value="no-prazo">✓ No prazo</option>
     </select>
+    <select id="fTipoFiltro" onchange="carregar()" style="min-width:150px;">
+      <option value="">Todos os tipos</option>
+    </select>
     <div id="ddColunas">
       <button class="btn btn-ghost btn-sm" onclick="toggleColunasMenu(event)"><svg class="ic-sm"><use href="#i-settings"/></svg> Colunas</button>
       <div id="colunasMenu"></div>
     </div>
+  </div>
+
+  <div class="toolbar" style="margin-top:-4px;">
+    <div style="position:relative;min-width:230px;flex:1;">
+      <input type="text" id="fCliFiltro" placeholder="Filtrar por cliente…" oninput="acCliFiltro()" autocomplete="off">
+      <input type="hidden" id="fClienteIdFiltro">
+      <div id="acCliFiltroList" class="ac-list"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;color:var(--text-2);">Aberta de
+      <input type="date" id="fDataIni" onchange="carregar()"></label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;color:var(--text-2);">até
+      <input type="date" id="fDataFim" onchange="carregar()"></label>
+    <button class="btn btn-ghost btn-sm" onclick="limparFiltros()">Limpar</button>
+    <button class="btn btn-secondary btn-sm" onclick="exportarCSV()"><svg class="ic-sm"><use href="#i-download"/></svg> Exportar CSV</button>
   </div>
 
   <div class="tbl-wrap" data-grid="ordens-servico">
@@ -69,129 +87,9 @@
       <tbody id="tb"><tr><td class="empty">Carregando…</td></tr></tbody>
     </table>
   </div>
-</main></div>
 
-<!-- Modal Nova OS -->
-<div class="modal-bg" id="modalOs">
-  <div class="modal" style="max-width:680px;">
-    <div class="modal-header">
-      <div>
-        <h3 style="margin:0;">Nova ordem de serviço</h3>
-        <small class="muted">Cadastre cliente, equipamento e defeito relatado</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="fecharModal()" title="Fechar" style="font-size:1.2em;line-height:1;padding:4px 10px;">×</button>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2;">
-        <label>Tipo de OS * <a href="/os/cadastro-os-tipos.html" target="_blank" style="font-size:11px;font-weight:normal;margin-left:8px;">⚙ gerenciar</a></label>
-        <select id="fTipoSel" onchange="mostrarInfoTipo()">
-          <option value="">— carregando —</option>
-        </select>
-        <small id="fTipoInfo" class="muted" style="font-size:11px;display:block;margin-top:4px;"></small>
-      </div>
-      <div class="form-group">
-        <label>SLA (dias)</label>
-        <input type="number" id="fSLA" min="0" placeholder="Padrão do tipo">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:1;position:relative;">
-        <label>Cliente *</label>
-        <input type="text" id="fCliBusca" placeholder="Razão social, CPF/CNPJ…" oninput="acCli()" autocomplete="off">
-        <input type="hidden" id="fClienteId">
-        <div id="acCliList" class="ac-list"></div>
-      </div>
-      <div class="form-group">
-        <label>Técnico</label>
-        <select id="fTecnicoSel"><option value="">— atribuir depois —</option></select>
-      </div>
-    </div>
-    <div id="enderecoExecRow" style="display:none;">
-      <div class="form-row">
-        <div class="form-group full-width">
-          <label>Endereço de execução (obrigatório para OS de campo)</label>
-          <input type="text" id="fEndExec" placeholder="Rua, número">
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Cidade</label>
-          <input type="text" id="fMunExec">
-        </div>
-        <div class="form-group">
-          <label>UF</label>
-          <input type="text" id="fUfExec" maxlength="2">
-        </div>
-        <div class="form-group">
-          <label>CEP</label>
-          <input type="text" id="fCepExec">
-        </div>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Título *</label>
-        <input type="text" id="fTit" placeholder="Ex.: Troca de fonte do notebook">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Equipamento já cadastrado</label>
-        <select id="fEquipId" onchange="aplicarEquipamento()">
-          <option value="">— novo / preencher abaixo —</option>
-        </select>
-        <small class="muted" id="fEquipHint">Escolha um para herdar o histórico; ou preencha os campos abaixo e o cadastro é criado sozinho.</small>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2;">
-        <label>Equipamento</label>
-        <input type="text" id="fEq" placeholder="Ex.: Notebook">
-      </div>
-      <div class="form-group">
-        <label>Marca</label>
-        <input type="text" id="fMarca" onblur="verificarGarantia()">
-      </div>
-      <div class="form-group">
-        <label>Modelo</label>
-        <input type="text" id="fModelo" onblur="verificarGarantia()">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2;">
-        <label>Nº de série do equipamento</label>
-        <input type="text" id="fSerieEq" oninput="verificarGarantia()" onblur="verificarGarantia()">
-      </div>
-      <div class="form-group">
-        <label>Depósito</label>
-        <select id="fDeposito"></select>
-      </div>
-      <div class="form-group">
-        <label>Garantia (dias)</label>
-        <input type="number" id="fGarantia" min="0" value="0">
-      </div>
-    </div>
-    <div id="garantiaAviso" style="display:none;margin:0 0 10px 0;padding:10px 14px;background:#dcfce7;border:1px solid #86efac;color:#166534;border-radius:8px;font-size:13px;"></div>
-    <input type="hidden" id="fOsPaiId">
-    <input type="hidden" id="fEmGarantia">
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Defeito relatado</label>
-        <textarea id="fDefeito" rows="2"></textarea>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Observações</label>
-        <textarea id="fObs" rows="2"></textarea>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvar()">Criar OS</button>
-    </div>
-  </div>
-</div>
+  <div id="paginacao" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:10px;font-size:0.85em;color:var(--text-2);"></div>
+</main></div>
 
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
@@ -210,15 +108,49 @@ async function carregarTecnicos(){
   if (!d.success) return;
   const opts = d.usuarios.map(u=>`<option value="${u.id}">${u.nome||u.username}</option>`).join('');
   document.getElementById('fTecnico').innerHTML = '<option value="">Todos técnicos</option>' + opts;
-  document.getElementById('fTecnicoSel').innerHTML = '<option value="">— atribuir depois —</option>' + opts;
 }
 
-async function carregar(){
+// Filtros que, quando mudam, invalidam a página atual: continuar na página 7
+// depois de estreitar o resultado para 2 páginas devolveria lista vazia.
+function montarFiltros(){
   const p = new URLSearchParams();
-  const q = document.getElementById('fQ').value.trim();   if (q) p.set('q', q);
-  const s = document.getElementById('fStatus').value;     if (s) p.set('status', s);
-  const t = document.getElementById('fTecnico').value;    if (t) p.set('tecnicoId', t);
-  const sla = document.getElementById('fSla').value;      if (sla) p.set('sla', sla);
+  const q = document.getElementById('fQ').value.trim();     if (q) p.set('q', q);
+  const s = document.getElementById('fStatus').value;       if (s) p.set('status', s);
+  const t = document.getElementById('fTecnico').value;      if (t) p.set('tecnicoId', t);
+  const sla = document.getElementById('fSla').value;        if (sla) p.set('sla', sla);
+  const tipo = document.getElementById('fTipoFiltro').value; if (tipo) p.set('tipoId', tipo);
+  const cli = document.getElementById('fClienteIdFiltro').value; if (cli) p.set('clienteId', cli);
+  const di = document.getElementById('fDataIni').value;     if (di) p.set('dataIni', di);
+  const df = document.getElementById('fDataFim').value;     if (df) p.set('dataFim', df);
+  if (ordemAtual) { p.set('ordem', ordemAtual); p.set('dir', dirAtual); }
+  return p;
+}
+
+let paginaAtual = 1;
+let ordemAtual = '';   // vazio = ordem natural do backend (o.id DESC)
+let dirAtual = 'desc';
+
+function irParaPagina(n){ paginaAtual = n; carregar(true); }
+
+// Ordenação server-side: com paginação, ordenar só a página na tela daria uma
+// ordem que muda de página para página.
+function ordenarPor(chave){
+  if (ordemAtual === chave) dirAtual = (dirAtual === 'asc' ? 'desc' : 'asc');
+  else { ordemAtual = chave; dirAtual = 'asc'; }
+  carregar();
+}
+
+function limparFiltros(){
+  ['fQ','fStatus','fTecnico','fSla','fTipoFiltro','fCliFiltro','fClienteIdFiltro','fDataIni','fDataFim']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('acCliFiltroList').innerHTML = '';
+  carregar();
+}
+
+async function carregar(manterPagina){
+  if (!manterPagina) paginaAtual = 1;
+  const p = montarFiltros();
+  p.set('pagina', paginaAtual);
   const r = await fetch('/api/os?'+p);
   const d = await r.json();
   if (!d.success) return showAlert(d.error,'error');
@@ -235,28 +167,53 @@ async function carregar(){
   `;
   ordensCache = d.ordens;
   render();
+  renderPaginacao(d);
+}
+
+// Sem isto a lista mostrava as N primeiras e omitia o resto em silêncio.
+function renderPaginacao(d){
+  const el = document.getElementById('paginacao');
+  const total = d.total || 0;
+  if (!total) { el.innerHTML = ''; return; }
+  const ini = (d.pagina - 1) * d.porPagina + 1;
+  const fim = Math.min(total, ini + d.ordens.length - 1);
+  const btn = (rot, alvo, ativo) =>
+    `<button class="btn btn-sm ${ativo?'btn-primary':'btn-ghost'}" ${alvo?`onclick="irParaPagina(${alvo})"`:'disabled'}>${rot}</button>`;
+  el.innerHTML =
+    `<span>${ini}–${fim} de ${total}</span>` +
+    btn('‹ anterior', d.pagina > 1 ? d.pagina - 1 : 0) +
+    `<span>página ${d.pagina} de ${d.paginas}</span>` +
+    btn('próxima ›', d.pagina < d.paginas ? d.pagina + 1 : 0);
 }
 
 // ==================== COLUNAS ====================
 // A coluna do lápis é fixa (é o acesso à OS) e fica fora da lista.
+// `ord` = chave aceita pelo backend (whitelist em os-routes). Coluna sem `ord`
+// não é ordenável — SLA e Equipamento são derivados, não têm coluna no banco.
 const COLUNAS = [
-  { key:'numero',      label:'Número',      default:true,  cel: o=>`<td class="mono"><strong>${o.numero}</strong></td>` },
-  { key:'cliente',     label:'Cliente',     default:true,  cel: o=>`<td>${o.clienteNome}</td>` },
-  { key:'titulo',      label:'Título',      default:true,  cel: o=>`<td>${o.titulo}</td>` },
+  { key:'numero',      label:'Número',      default:true,  ord:'numero',  cel: o=>`<td class="mono"><strong>${o.numero}</strong></td>` },
+  { key:'cliente',     label:'Cliente',     default:true,  ord:'cliente', cel: o=>`<td>${o.clienteNome}</td>` },
+  { key:'titulo',      label:'Título',      default:true,  ord:'titulo',  cel: o=>`<td>${o.titulo}</td>` },
+  { key:'tipo',        label:'Tipo de OS',  default:true,  ord:'tipo',    cel: o=>o.tipoNome
+      ? `<td><span class="badge" style="background:${o.tipoCor||'#4dabf7'}22;color:${o.tipoCor||'#4dabf7'};border:1px solid ${o.tipoCor||'#4dabf7'}55;">${o.tipoNome}</span></td>`
+      : '<td><small class="muted">—</small></td>' },
   { key:'equipamento', label:'Equipamento', default:false, cel: o=>`<td><small>${o.equipamento||''} ${o.marca||''} ${o.modelo||''}</small></td>` },
-  { key:'tecnico',     label:'Técnico',     default:true,  cel: o=>`<td>${o.tecnicoNomeExibicao||o.tecnicoNome||'<small class="muted">—</small>'}</td>` },
-  { key:'status',      label:'Status',      default:true,  cel: o=>`<td><span class="badge ${badgeClass(o.status)}">${o.status}</span>${o.statusFiscal?`<br><small class="muted" style="font-size:10px;">${o.statusFiscal}</small>`:''}</td>` },
+  { key:'tecnico',     label:'Técnico',     default:true,  ord:'tecnico', cel: o=>`<td>${o.tecnicoNomeExibicao||o.tecnicoNome||'<small class="muted">—</small>'}</td>` },
+  { key:'status',      label:'Status',      default:true,  ord:'status',  cel: o=>`<td><span class="badge ${badgeClass(o.status)}">${o.status}</span>${o.statusFiscal?`<br><small class="muted" style="font-size:10px;">${o.statusFiscal}</small>`:''}</td>` },
   { key:'sla',         label:'SLA',         default:true,  cel: o=>`<td>${slaBadge(o.slaStatus)}</td>` },
-  { key:'prazo',       label:'Prazo',       default:false, cel: o=>`<td>${o.dataPromessa ? `<small>${o.dataPromessa}</small>` : '<small class="muted">—</small>'}</td>` },
-  { key:'aberta',      label:'Aberta',      default:false, cel: o=>`<td>${(o.dataAbertura||'').slice(0,10)}</td>` },
-  { key:'total',       label:'Total',       default:true,  num:true, cel: o=>`<td class="num">${fmtBRL(o.valorTotal)}</td>` },
+  { key:'prazo',       label:'Prazo',       default:false, ord:'prazo',   cel: o=>`<td>${o.dataPromessa ? `<small>${o.dataPromessa}</small>` : '<small class="muted">—</small>'}</td>` },
+  { key:'aberta',      label:'Aberta',      default:false, ord:'aberta',  cel: o=>`<td>${(o.dataAbertura||'').slice(0,10)}</td>` },
+  { key:'total',       label:'Total',       default:true,  num:true, ord:'total', cel: o=>`<td class="num">${fmtBRL(o.valorTotal)}</td>` },
 ];
 
 let ordensCache = [];
-let colunasVisiveis = JSON.parse(localStorage.getItem('os_colunas') || 'null')
+// Chave versionada: a escolha salva é uma lista fechada, então coluna nova
+// (Tipo de OS) ficaria invisível para quem já tinha preferência gravada.
+// O bump reseta para o default uma vez; a partir daí a escolha volta a valer.
+let colunasVisiveis = JSON.parse(localStorage.getItem('os_colunas_v2') || 'null')
   || COLUNAS.filter(c=>c.default).map(c=>c.key);
 
-function salvarColunas(){ localStorage.setItem('os_colunas', JSON.stringify(colunasVisiveis)); }
+function salvarColunas(){ localStorage.setItem('os_colunas_v2', JSON.stringify(colunasVisiveis)); }
 
 function toggleColunasMenu(ev){
   ev.stopPropagation();
@@ -283,11 +240,19 @@ function render(){
   // está ligado, e marcar de novo empurraria a coluna para o fim da lista.
   const cols = COLUNAS.filter(c => colunasVisiveis.includes(c.key));
   document.getElementById('th').innerHTML = '<th class="col-editar"></th>'
-    + cols.map(c=>`<th${c.num?' class="num"':''}>${c.label}</th>`).join('');
+    + cols.map(c => {
+        if (!c.ord) return `<th${c.num?' class="num"':''}>${c.label}</th>`;
+        const ativa = ordemAtual === c.ord;
+        const seta = ativa ? (dirAtual === 'asc' ? ' ▲' : ' ▼') : '';
+        return `<th${c.num?' class="num"':''} style="cursor:pointer;user-select:none;${ativa?'color:var(--accent);':''}"
+                 onclick="ordenarPor('${c.ord}')" title="Ordenar por ${c.label}">${c.label}${seta}</th>`;
+      }).join('');
   const tb = document.getElementById('tb');
   const span = cols.length + 1;
   tb.innerHTML = ordensCache.length ? ordensCache.map(o=>`<tr>
-    <td class="col-editar"><a class="btn btn-ghost btn-sm btn-icon-only" title="Abrir OS" href="/os/ordem-servico.html?id=${o.id}"><svg class="ic-sm"><use href="#i-edit"/></svg></a></td>
+    <td class="col-editar" style="white-space:nowrap;">
+      <a class="btn btn-ghost btn-sm btn-icon-only" title="Abrir OS" href="/os/ordem-servico.html?id=${o.id}"><svg class="ic-sm"><use href="#i-edit"/></svg></a>
+    </td>
     ${cols.map(c=>c.cel(o)).join('')}
   </tr>`).join('') : `<tr><td colspan="${span}" class="empty">Nenhuma OS</td></tr>`;
 }
@@ -321,202 +286,94 @@ async function carregarTipos(){
     const r = await fetch('/api/os-tipos');
     const d = await r.json();
     tiposOS = d.tipos || [];
-    const sel = document.getElementById('fTipoSel');
-    sel.innerHTML = '<option value="">— selecione —</option>' + tiposOS.map(t =>
-      `<option value="${t.id}" data-sla="${t.slaDiasPadrao||''}" data-endereco="${t.exigeEnderecoExec}" data-orc="${t.exigeOrcamentoAprovado}" data-sign="${t.exigeAssinaturaCliente}" data-fiscal="${t.modoFiscal}">${t.nome}</option>`
-    ).join('');
+    document.getElementById('fTipoFiltro').innerHTML = '<option value="">Todos os tipos</option>'
+      + tiposOS.map(t => `<option value="${t.id}">${t.nome}</option>`).join('');
   } catch (e) {
     console.error('[tipos]', e);
   }
 }
 
-
-function mostrarInfoTipo(){
-  const sel = document.getElementById('fTipoSel');
-  const opt = sel.options[sel.selectedIndex];
-  if (!opt || !opt.value) {
-    document.getElementById('fTipoInfo').textContent = '';
-    document.getElementById('enderecoExecRow').style.display = 'none';
+// ==================== FILTRO DE CLIENTE ====================
+let acFiltroTimer;
+function acCliFiltro(){
+  clearTimeout(acFiltroTimer);
+  const cx = document.getElementById('fCliFiltro');
+  const lista = document.getElementById('acCliFiltroList');
+  // Apagar o texto tem de soltar o filtro, senão o clienteId fica preso.
+  if (!cx.value.trim()) {
+    lista.innerHTML = '';
+    if (document.getElementById('fClienteIdFiltro').value) {
+      document.getElementById('fClienteIdFiltro').value = '';
+      carregar();
+    }
     return;
   }
-  const sla = opt.dataset.sla;
-  const end = opt.dataset.endereco === '1';
-  const orc = opt.dataset.orc === '1';
-  const sign = opt.dataset.sign === '1';
-  const fiscal = opt.dataset.fiscal;
-  const flags = [];
-  if (sla) flags.push(`SLA padrão ${sla} dias`);
-  if (orc) flags.push('exige orçamento aprovado');
-  if (sign) flags.push('exige assinatura do cliente');
-  if (end) flags.push('exige endereço de execução');
-  flags.push(`fiscal: ${fiscal}`);
-  document.getElementById('fTipoInfo').textContent = flags.join(' · ');
-  document.getElementById('enderecoExecRow').style.display = end ? '' : 'none';
-  if (sla && !document.getElementById('fSLA').value) document.getElementById('fSLA').value = sla;
-}
-
-function abrirNova(){
-  ['fCliBusca','fClienteId','fTit','fEq','fMarca','fModelo','fSerieEq','fDefeito','fObs',
-   'fSLA','fEndExec','fMunExec','fUfExec','fCepExec','fOsPaiId','fEmGarantia'].forEach(id=>{
-    const el = document.getElementById(id); if (el) el.value='';
-  });
-  document.getElementById('fGarantia').value='0';
-  document.getElementById('fTecnicoSel').value='';
-  document.getElementById('fTipoSel').value='';
-  document.getElementById('fTipoInfo').textContent = '';
-  document.getElementById('enderecoExecRow').style.display = 'none';
-  document.getElementById('garantiaAviso').style.display = 'none';
-  // Zera a base instalada — ela só faz sentido depois de escolher o cliente.
-  carregarEquipamentosDoCliente();
-  preencherDepositos('fDeposito');
-  document.getElementById('modalOs').classList.add('open');
-}
-function fecharModal(){ document.getElementById('modalOs').classList.remove('open'); }
-
-let acTimer;
-function acCli(){
-  clearTimeout(acTimer);
-  const q = document.getElementById('fCliBusca').value.trim();
-  if (q.length<2){ document.getElementById('acCliList').innerHTML=''; return; }
-  acTimer = setTimeout(async()=>{
-    const r=await fetch('/api/pessoas?q='+encodeURIComponent(q));
-    const d=await r.json();
-    const lista = d.pessoas || d.data || [];
-    document.getElementById('acCliList').innerHTML = lista.slice(0,10).map(p=>
-      `<div onclick='selCli(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${p.razaoSocial} <small class="muted">${p.cpfCnpj||""}</small></div>`
+  if (cx.value.trim().length < 2) { lista.innerHTML = ''; return; }
+  acFiltroTimer = setTimeout(async () => {
+    const r = await fetch('/api/pessoas?q=' + encodeURIComponent(cx.value.trim()));
+    const d = await r.json();
+    lista.innerHTML = (d.pessoas || d.data || []).slice(0,10).map(p =>
+      `<div onclick='selCliFiltro(${p.id}, ${JSON.stringify(p.razaoSocial)})'>${p.razaoSocial} <small class="muted">${p.cpfCnpj||""}</small></div>`
     ).join('');
-  },200);
+  }, 200);
 }
-function selCli(id,nome){ document.getElementById('fClienteId').value=id; document.getElementById('fCliBusca').value=nome; document.getElementById('acCliList').innerHTML=''; carregarEquipamentosDoCliente(); verificarGarantia(); }
-
-
-// Depósitos para o seletor. Some quando só há um — não faz sentido pedir
-// escolha se não existe alternativa.
-async function preencherDepositos(selectId, selecionado){
-  const sel = document.getElementById(selectId);
-  if (!sel) return;
-  try {
-    const d = await fetch('/api/depositos').then(r=>r.json());
-    const lista = (d.depositos||[]).filter(x=>x.ativo);
-    sel.innerHTML = lista.map(x=>`<option value="${x.id}">${x.nome}${x.padrao?' (padrão)':''}</option>`).join('');
-    if (selecionado) sel.value = selecionado;
-    const linha = sel.closest('.form-group');
-    if (linha) linha.style.display = lista.length > 1 ? '' : 'none';
-  } catch { /* sem multi-depósito */ }
+function selCliFiltro(id, nome){
+  document.getElementById('fClienteIdFiltro').value = id;
+  document.getElementById('fCliFiltro').value = nome;
+  document.getElementById('acCliFiltroList').innerHTML = '';
+  carregar();
 }
 
-// Base instalada do cliente escolhido. Reaproveitar um cadastro é mais
-// seguro que redigitar: a série entra exatamente igual e o histórico
-// segue no mesmo aparelho.
-let EQUIPS = [];
-async function carregarEquipamentosDoCliente(){
-  const clienteId = document.getElementById('fClienteId').value;
-  const sel = document.getElementById('fEquipId');
-  const hint = document.getElementById('fEquipHint');
-  sel.innerHTML = '<option value="">— novo / preencher abaixo —</option>';
-  EQUIPS = [];
-  if (!clienteId) { hint.textContent = 'Escolha o cliente primeiro para ver os equipamentos dele.'; return; }
-  try {
-    const d = await fetch('/api/equipamentos?ativo=1&clienteId=' + clienteId).then(r => r.json());
-    EQUIPS = d.equipamentos || [];
-  } catch { /* segue no modo digitação */ }
-  sel.innerHTML = '<option value="">— novo / preencher abaixo —</option>' +
-    EQUIPS.map(e => `<option value="${e.id}">${[e.descricao, e.marca, e.modelo].filter(Boolean).join(' ')}`
-      + `${e.numeroSerie ? ' · ' + e.numeroSerie : ''}${e.totalOS ? ` (${e.totalOS} OS)` : ''}</option>`).join('');
-  hint.textContent = EQUIPS.length
-    ? `${EQUIPS.length} equipamento(s) deste cliente. Escolher um herda o histórico.`
-    : 'Cliente ainda sem equipamento cadastrado — preencha abaixo que o cadastro é criado sozinho.';
-}
+// ==================== CSV ====================
+// Exporta o resultado inteiro do filtro, não só a página na tela — senão o
+// arquivo herda o recorte da paginação sem avisar.
+async function exportarCSV(){
+  const p = montarFiltros();
+  p.set('limit', '500');
+  let linhas = [], pagina = 1, paginas = 1;
+  do {
+    p.set('pagina', pagina);
+    const d = await fetch('/api/os?'+p).then(r=>r.json());
+    if (!d.success) return showAlert(d.error,'error');
+    linhas = linhas.concat(d.ordens);
+    paginas = d.paginas || 1;
+    pagina++;
+  } while (pagina <= paginas);
 
-function aplicarEquipamento(){
-  const eq = EQUIPS.find(e => String(e.id) === document.getElementById('fEquipId').value);
-  if (!eq) return;
-  document.getElementById('fEq').value = eq.descricao || '';
-  document.getElementById('fMarca').value = eq.marca || '';
-  document.getElementById('fModelo').value = eq.modelo || '';
-  document.getElementById('fSerieEq').value = eq.numeroSerie || '';
-  verificarGarantia();
-}
+  if (!linhas.length) return showAlert('Nada para exportar','error');
 
-// Fase 9.6: verifica se equipamento está em garantia (OS anterior do mesmo
-// cliente + serial, ou marca+modelo, faturada e dentro do prazo).
-let _garTimer;
-async function verificarGarantia(){
-  clearTimeout(_garTimer);
-  _garTimer = setTimeout(async () => {
-    const clienteId = document.getElementById('fClienteId').value;
-    const serial = document.getElementById('fSerieEq').value.trim();
-    const marca = document.getElementById('fMarca').value.trim();
-    const modelo = document.getElementById('fModelo').value.trim();
-    const aviso = document.getElementById('garantiaAviso');
-    if (!clienteId || (!serial && !(marca || modelo))) {
-      aviso.style.display = 'none';
-      document.getElementById('fOsPaiId').value = '';
-      document.getElementById('fEmGarantia').value = '';
-      return;
-    }
-    const q = new URLSearchParams({ clienteId });
-    // Com o equipamento escolhido, a garantia vem do histórico dele em vez
-    // de depender de a série ter sido digitada igual da última vez.
-    const equipId = document.getElementById('fEquipId').value;
-    if (equipId) q.set('equipamentoId', equipId);
-    if (serial) q.set('numeroSerie', serial);
-    if (marca)  q.set('marca', marca);
-    if (modelo) q.set('modelo', modelo);
-    try {
-      const d = await fetch('/api/os/garantia-sugestoes?' + q).then(r => r.json());
-      if (!d.success || !d.sugestoes.length) {
-        aviso.style.display = 'none';
-        document.getElementById('fOsPaiId').value = '';
-        document.getElementById('fEmGarantia').value = '';
-        return;
-      }
-      const s = d.sugestoes[0];
-      document.getElementById('fOsPaiId').value = s.id;
-      document.getElementById('fEmGarantia').value = '1';
-      aviso.innerHTML = `⚠️ <strong>Equipamento em garantia!</strong> OS <a href="/os/ordem-servico.html?id=${s.id}" target="_blank">${s.numero}</a> faturada em ${s.dataFaturamento?.slice(0,10)} com ${s.garantiaDias} dias de garantia — <strong>${s.diasRestantes} dia(s) restante(s)</strong>. Esta OS será criada como <strong>em garantia</strong> (sem cobrança).`;
-      aviso.style.display = 'block';
-    } catch (_) { aviso.style.display = 'none'; }
-  }, 300);
-}
-
-async function salvar(){
-  const tipoId = document.getElementById('fTipoSel').value ? Number(document.getElementById('fTipoSel').value) : null;
-  // tipoOperacaoId não é mais enviado pelo front: o backend deriva via
-  // os_tipos.tipoOperacaoPadraoId (configurado em cadastro-os-tipos.html)
-  // → flags da OS (emGarantia/ambienteFiscal) → fallback OS-NORMAL.
-  const body = {
-    clienteId: Number(document.getElementById('fClienteId').value),
-    tecnicoId: document.getElementById('fTecnicoSel').value ? Number(document.getElementById('fTecnicoSel').value) : null,
-    titulo: document.getElementById('fTit').value.trim(),
-    equipamentoId: Number(document.getElementById('fEquipId').value) || null,
-    depositoId: Number(document.getElementById('fDeposito').value) || null,
-    equipamento: document.getElementById('fEq').value || null,
-    marca: document.getElementById('fMarca').value || null,
-    modelo: document.getElementById('fModelo').value || null,
-    numeroSerieEquipamento: document.getElementById('fSerieEq').value || null,
-    defeitoRelatado: document.getElementById('fDefeito').value || null,
-    garantiaDias: Number(document.getElementById('fGarantia').value)||0,
-    observacoes: document.getElementById('fObs').value || null,
-    // Fase 9.1: tipo + SLA + endereço de execução
-    tipoId,
-    prazoSLADias: document.getElementById('fSLA').value ? Number(document.getElementById('fSLA').value) : null,
-    enderecoExecucao: document.getElementById('fEndExec')?.value || null,
-    municipioExecucao: document.getElementById('fMunExec')?.value || null,
-    ufExecucao: document.getElementById('fUfExec')?.value || null,
-    cepExecucao: document.getElementById('fCepExec')?.value || null,
-    // Fase 9.6: sugestão de garantia (osPaiId faz backend aplicar emGarantia + ambienteFiscal=interno)
-    osPaiId: document.getElementById('fOsPaiId').value ? Number(document.getElementById('fOsPaiId').value) : null,
+  const cols = [
+    ['Número','numero'], ['Cliente','clienteNome'], ['Título','titulo'],
+    ['Tipo de OS','tipoNome'], ['Equipamento','equipamento'], ['Marca','marca'],
+    ['Modelo','modelo'], ['Série','numeroSerieEquipamento'],
+    ['Técnico', o=>o.tecnicoNomeExibicao||o.tecnicoNome||''],
+    ['Status','status'], ['SLA','slaStatus'],
+    ['Abertura', o=>(o.dataAbertura||'').slice(0,10)],
+    ['Prazo','dataPromessa'], ['Conclusão', o=>(o.dataConclusao||'').slice(0,10)],
+    ['Peças','valorPecas'], ['Serviços','valorServicos'], ['Total','valorTotal'],
+    ['Defeito relatado','defeitoRelatado'], ['Diagnóstico','diagnostico'], ['Solução','solucao'],
+  ];
+  const escapaCSV = v => {
+    const s = v == null ? '' : String(v);
+    return /[";\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
   };
-  if (!body.clienteId || !body.titulo) return showAlert('Cliente e título obrigatórios','error');
-  if (!tipoId) return showAlert('Escolha um tipo de OS','error');
-  const r = await fetch('/api/os', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const d = await r.json();
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert('OS criada: '+d.os.numero);
-  fecharModal();
-  setTimeout(()=>window.location.href='/os/ordem-servico.html?id='+d.os.id, 600);
+  // ; como separador e BOM: é o que o Excel em pt-BR abre sem jogar tudo
+  // numa coluna só. Mesmo formato de os-relatorios.html.
+  const csv = '﻿' + [
+    cols.map(c=>c[0]).join(';'),
+    ...linhas.map(o => cols.map(c =>
+      escapaCSV(typeof c[1] === 'function' ? c[1](o) : o[c[1]])).join(';')),
+  ].join('\n');
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8;' }));
+  a.download = `ordens-servico-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showAlert(`${linhas.length} OS exportada(s)`);
 }
+
+
 
 // Renderiza a tabela/KPIs o mais rápido possível (é o que o usuário vê).
 // Os dropdowns de filtro de técnico e tipos de OS são populados em paralelo,

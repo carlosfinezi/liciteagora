@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Equipamentos · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -31,6 +32,11 @@
     <select id="fCliente" onchange="carregar()" style="min-width:200px;">
       <option value="">Todos os clientes</option>
     </select>
+    <select id="fProprietario" onchange="carregar()">
+      <option value="">Do cliente e da empresa</option>
+      <option value="cliente">Só do cliente</option>
+      <option value="empresa">Só da empresa</option>
+    </select>
     <select id="fAtivo" onchange="carregar()">
       <option value="">Ativos e inativos</option>
       <option value="1" selected>Só ativos</option>
@@ -41,7 +47,7 @@
   <div class="tbl-wrap" data-grid="equipamentos">
     <table>
       <thead><tr>
-        <th class="col-editar"></th><th>Equipamento</th><th>Cliente</th><th>Nº de série</th><th>Patrimônio</th>
+        <th class="col-editar"></th><th>Equipamento</th><th>De quem é</th><th>Nº de série</th><th>Patrimônio</th>
         <th class="num">OS</th><th>Última OS</th><th></th>
       </tr></thead>
       <tbody id="tb"><tr><td colspan="8" class="empty">Carregando…</td></tr></tbody>
@@ -56,7 +62,31 @@
       <button class="btn btn-ghost btn-sm" onclick="fecharNovo()" style="font-size:1.2em;padding:4px 10px;">×</button>
     </div>
     <div class="form-row">
+      <div class="form-group full-width">
+        <label>De quem é</label>
+        <select id="nProprietario" onchange="trocarProprietario()">
+          <option value="cliente">Do cliente</option>
+          <option value="empresa">Da empresa (máquina nossa, ainda em estoque)</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="linhaCliente">
       <div class="form-group full-width"><label>Cliente</label><select id="nCliente"><option value="">— sem dono definido —</option></select></div>
+    </div>
+    <div id="linhaEstoque" style="display:none;">
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Produto do estoque</label>
+          <select id="nProduto" onchange="carregarSeries()"><option value="">— selecione —</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full-width">
+          <label>Unidade (nº de série)</label>
+          <select id="nSerial" onchange="aplicarSerie()"><option value="">— escolha o produto —</option></select>
+          <small class="muted">Vincular não movimenta estoque: a baixa é na venda.</small>
+        </div>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group full-width"><label>Descrição *</label><input type="text" id="nDesc" placeholder="Ex.: Notebook, Compressor, Servidor"></div>
@@ -101,19 +131,25 @@ async function carregar(){
   if(val('fQ')) p.set('q',val('fQ'));
   if(val('fCliente')) p.set('clienteId',val('fCliente'));
   if(val('fAtivo')!=='') p.set('ativo',val('fAtivo'));
+  if(val('fProprietario')) p.set('proprietario',val('fProprietario'));
   const r=await fetch('/api/equipamentos?'+p); const d=await r.json();
   if(!d.success) return showAlert(d.error,'error');
   LISTA=d.equipamentos||[];
 
   const comSerie=LISTA.filter(e=>e.numeroSerie).length;
   const comOS=LISTA.filter(e=>e.totalOS>0).length;
-  const semDono=LISTA.filter(e=>!e.clienteId).length;
+  const daEmpresa=LISTA.filter(e=>e.proprietario==='empresa').length;
+  // "Sem cliente" agora é só o que não tem dono NEM é declaradamente nosso —
+  // antes o NULL misturava as duas coisas.
+  const semDono=LISTA.filter(e=>!e.clienteId && e.proprietario!=='empresa').length;
   document.getElementById('kpis').innerHTML=`
     <div class="kpi"><div class="label">Equipamentos</div><div class="value">${LISTA.length}</div></div>
     <div class="kpi"><div class="label">Com nº de série</div><div class="value">${comSerie}</div>
       <small class="muted">identidade forte</small></div>
     <div class="kpi"><div class="label">Já atendidos</div><div class="value">${comOS}</div>
       <small class="muted">têm histórico de OS</small></div>
+    ${daEmpresa?`<div class="kpi"><div class="label">Da empresa</div><div class="value">${daEmpresa}</div>
+      <small class="muted">máquinas nossas</small></div>`:''}
     ${semDono?`<div class="kpi warn"><div class="label">Sem cliente</div><div class="value">${semDono}</div>
       <small class="muted">defina o dono</small></div>`:''}`;
 
@@ -121,7 +157,9 @@ async function carregar(){
     <td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir equipamento" onclick="event.stopPropagation();abrir(${e.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>
     <td><strong>${esc(e.descricao)}</strong>${e.ativo?'':' <span class="badge inativo">inativo</span>'}
       <span class="sub">${esc([e.marca,e.modelo].filter(Boolean).join(' ')||'—')}</span></td>
-    <td>${esc(e.clienteNome||'—')}</td>
+    <td>${e.proprietario==='empresa'
+      ? `<span class="badge">empresa</span>${e.produtoSku?` <span class="sub mono">${esc(e.produtoSku)}</span>`:''}`
+      : esc(e.clienteNome||'—')}</td>
     <td class="mono">${esc(e.numeroSerie||'—')}</td>
     <td class="mono">${esc(e.patrimonio||'—')}</td>
     <td class="num">${e.totalOS||0}</td>
@@ -135,13 +173,61 @@ function abrir(id){ location.href='/os/equipamento.html?id='+id; }
 function abrirNovo(){
   ['nDesc','nMarca','nModelo','nSerie','nPatrimonio','nAquisicao','nGarantiaFab','nObs'].forEach(i=>document.getElementById(i).value='');
   document.getElementById('nCliente').value=val('fCliente')||'';
+  document.getElementById('nProprietario').value=val('fProprietario')==='empresa'?'empresa':'cliente';
+  trocarProprietario();
   document.getElementById('modalNovo').classList.add('open');
+}
+
+// Máquina da empresa não tem dono-pessoa: a identidade dela é o produto e a
+// unidade do estoque. Mostrar os dois campos ao mesmo tempo convidaria a
+// cadastrar um equipamento que é nosso e do cliente ao mesmo tempo.
+function trocarProprietario(){
+  const empresa = val('nProprietario')==='empresa';
+  document.getElementById('linhaCliente').style.display = empresa ? 'none' : '';
+  document.getElementById('linhaEstoque').style.display = empresa ? '' : 'none';
+  if (empresa && !PRODUTOS_CARREGADOS) carregarProdutos();
+}
+
+let PRODUTOS_CARREGADOS=false;
+async function carregarProdutos(){
+  try{
+    const d=await (await fetch('/api/produtos?ativo=1')).json();
+    const lista=d.produtos||d.data||[];
+    document.getElementById('nProduto').innerHTML='<option value="">— selecione —</option>'
+      +lista.map(p=>`<option value="${p.id}">${esc(p.sku||'')} · ${esc(p.descricao||'')}</option>`).join('');
+    PRODUTOS_CARREGADOS=true;
+  }catch{}
+}
+
+// Só unidades disponíveis: série já vendida ou baixada não vira máquina nossa.
+async function carregarSeries(){
+  const pid=val('nProduto');
+  const sel=document.getElementById('nSerial');
+  sel.innerHTML='<option value="">— sem série / não rastreado —</option>';
+  if(!pid) return;
+  try{
+    const d=await (await fetch('/api/serial?produtoId='+encodeURIComponent(pid)+'&status=disponivel')).json();
+    const lista=d.serial||[];
+    sel.innerHTML+=lista.map(x=>`<option value="${x.id}" data-numero="${esc(x.numero||'')}">${esc(x.numero||('#'+x.id))}</option>`).join('');
+    const prod=(document.getElementById('nProduto').selectedOptions[0]||{}).textContent||'';
+    if(!val('nDesc')) document.getElementById('nDesc').value=prod.split('·').slice(1).join('·').trim()||prod.trim();
+  }catch{}
+}
+
+function aplicarSerie(){
+  const opt=document.getElementById('nSerial').selectedOptions[0];
+  const num=opt&&opt.dataset?opt.dataset.numero:'';
+  if(num) document.getElementById('nSerie').value=num;
 }
 function fecharNovo(){ document.getElementById('modalNovo').classList.remove('open'); }
 
 async function salvarNovo(){
+  const empresa = val('nProprietario')==='empresa';
   const body={
-    clienteId:Number(val('nCliente'))||null,
+    proprietario: empresa?'empresa':'cliente',
+    clienteId: empresa?null:(Number(val('nCliente'))||null),
+    produtoId: empresa?(Number(val('nProduto'))||null):null,
+    serialNumberId: empresa?(Number(val('nSerial'))||null):null,
     descricao:val('nDesc').trim(), marca:val('nMarca').trim()||null, modelo:val('nModelo').trim()||null,
     numeroSerie:val('nSerie').trim()||null, patrimonio:val('nPatrimonio').trim()||null,
     dataAquisicao:val('nAquisicao')||null, garantiaFabricanteAte:val('nGarantiaFab')||null,

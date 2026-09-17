@@ -3,12 +3,15 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OS · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
 /* page-local: .tabs/.tab vêm de app-modern.css */
 .tab-pane { display:none; } .tab-pane.active { display:block; }
-.cards-grid { display:grid; grid-template-columns:1fr 320px; gap:14px; }
+/* minmax(0,…): sem isso a coluna esquerda não encolhe abaixo do seu conteúdo
+   e empurra o card de Resumo/Ações para fora da tela em monitor menor. */
+.cards-grid { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:14px; }
 @media (max-width:980px) { .cards-grid { grid-template-columns:1fr; } }
 /* sub-abas (próprias / terceiros): mesma linguagem das .tab, em escala menor */
 .subtabs { display:flex; gap:6px; margin-bottom:14px; }
@@ -64,6 +67,29 @@
 
       <div class="tab-pane active" id="tab-info">
         <div id="info">Carregando…</div>
+
+        <!-- Escondido só na OS de bancada sem endereço: lá seria pergunta sem sentido. -->
+        <div id="blocoLocalExec" style="display:none;">
+          <div class="bloco-titulo">Local de execução</div>
+          <div class="form-row">
+            <div class="form-group" style="flex:3;">
+              <label>Logradouro <span id="lblEndObrig" style="display:none;">*</span></label>
+              <input type="text" id="fEndExec" placeholder="Rua, avenida…">
+            </div>
+            <div class="form-group"><label>Número</label><input type="text" id="fNumExec"></div>
+            <div class="form-group"><label>Complemento</label><input type="text" id="fCompExec"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;"><label>Bairro</label><input type="text" id="fBairroExec"></div>
+            <div class="form-group" style="flex:2;"><label>Cidade</label><input type="text" id="fMunExec"></div>
+            <div class="form-group"><label>UF</label><input type="text" id="fUfExec" maxlength="2"></div>
+            <div class="form-group"><label>CEP</label><input type="text" id="fCepExec"></div>
+            <div class="form-group" style="display:flex;align-items:flex-end;">
+              <button class="btn btn-primary btn-sm" onclick="salvarLocalExec()">Salvar local</button>
+            </div>
+          </div>
+          <small class="muted" id="avisoLocalExec"></small>
+        </div>
 
         <div class="bloco-titulo">Deslocamento</div>
         <div class="form-row">
@@ -833,7 +859,47 @@ function renderInfo(){
           + 'lance-o como um serviço na aba Serviços, que aí ele vai para a nota e para a cobrança.';
   }
   document.getElementById('avisoDesloc').innerHTML = aviso;
+  renderLocalExec(o);
   renderPagador(o);
+}
+
+// O endereço era pedido na abertura e sumia: nenhuma tela mostrava, nenhuma
+// deixava corrigir. Quem vai a campo precisa vê-lo aqui.
+const CAMPOS_END_OS = {
+  fEndExec:'enderecoExecucao', fNumExec:'numeroExecucao', fCompExec:'complementoExecucao',
+  fBairroExec:'bairroExecucao', fMunExec:'municipioExecucao', fUfExec:'ufExecucao', fCepExec:'cepExecucao',
+};
+
+function renderLocalExec(o){
+  const exige = !!(o.exigeEnderecoExec || o.localPrestacao === 'externo');
+  const temEndereco = !!(o.enderecoExecucao || o.municipioExecucao);
+  const bloco = document.getElementById('blocoLocalExec');
+  if (!exige && !temEndereco && o.localPrestacao === 'interno') { bloco.style.display = 'none'; return; }
+  bloco.style.display = '';
+  for (const [campo, prop] of Object.entries(CAMPOS_END_OS)) {
+    document.getElementById(campo).value = o[prop] || '';
+  }
+  document.getElementById('lblEndObrig').style.display = exige ? '' : 'none';
+  document.getElementById('avisoLocalExec').innerHTML = exige
+    ? (o.localPrestacao === 'externo'
+        ? `Tipo "${escapeHtml(o.tipoNome||'')}" é de <strong>prestação externa</strong> — o logradouro é obrigatório.`
+        : `Tipo "${escapeHtml(o.tipoNome||'')}" <strong>exige endereço de execução</strong>.`)
+    : 'Onde o serviço é prestado. Não altera o cadastro do cliente.';
+}
+
+async function salvarLocalExec(){
+  const body = {};
+  for (const [campo, prop] of Object.entries(CAMPOS_END_OS)) {
+    const v = document.getElementById(campo).value.trim();
+    body[prop] = v || null;
+  }
+  const r = await fetch('/api/os/'+id, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error, 'error');
+  showAlert('Local de execução salvo');
+  carregar();
 }
 
 const ROTULO_FATURAR = { fabrica:'a fábrica', seguradora:'a seguradora', outro:'um terceiro' };
@@ -910,6 +976,34 @@ function badgeSituacao(especie, it){
     onclick="mudarSituacao('${especie}', ${it.id}, 'confirmado')">◷ orçado</button>`;
 }
 
+/**
+ * Marcador de agregação ao equipamento.
+ *
+ * Só aparece quando o Tipo de OS permite E a OS tem equipamento — fora disso
+ * seria um botão que não pode dar em nada. Desligado por padrão: trocar um
+ * filtro não é agregar valor à máquina.
+ */
+function botaoAgregar(especie, it){
+  const o = osData.os;
+  if (!o.permiteAgregacao || !o.equipamentoId) return '';
+  const on = !!it.agregaEquipamento;
+  return `<button class="btn btn-sm" style="font-size:11px;${on
+      ? 'background:var(--success);color:#fff;border-color:var(--success);'
+      : 'background:none;color:var(--text-3);'}"
+    title="${on ? 'Este item passa a fazer parte do equipamento ao concluir a OS' : 'Marcar como parte do equipamento'}"
+    onclick="alternarAgregar('${especie}', ${it.id}, ${on ? 'false' : 'true'})">${on ? '⚙ agrega' : '⚙ agregar'}</button>`;
+}
+
+async function alternarAgregar(especie, itemId, agrega){
+  const r = await fetch(`/api/os/${id}/${especie}/${itemId}/agregar`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ agrega }),
+  });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  carregar();
+}
+
 async function mudarSituacao(especie, itemId, situacao){
   const r = await fetch(`/api/os/itens/${especie}/${itemId}/situacao`, {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -939,7 +1033,7 @@ function renderPecas(pecas){
     <td class="num">${fmtBRL(p.valorUnitario)}</td>
     <td class="num">${fmtBRL(p.valorTotal)}${Number(p.desconto) ? `<br><small style="color:var(--danger);">− ${fmtBRL(p.desconto)}</small>` : ''}</td>
     <td>${p.loteNumero||'—'}</td>
-    <td style="white-space:nowrap;">${badgeSituacao('pecas', p)}
+    <td style="white-space:nowrap;">${badgeSituacao('pecas', p)} ${botaoAgregar('pecas', p)}
       ${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
   </tr>`).join('') : '<tr><td colspan="7" class="empty">Sem peças</td></tr>';
 
@@ -955,7 +1049,8 @@ function renderPecas(pecas){
       <td>${escapeHtml(p.terceiroFornecedorNome||'—')}</td>
       <td>${escapeHtml(p.notaFiscalTerceiro||'—')}</td>
       <td><span class="badge ${apCls}">${apSt}</span></td>
-      <td>${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
+      <td style="white-space:nowrap;">${botaoAgregar('pecas', p)}
+        ${p.movSaidaId ? '<small class="muted">baixada</small>' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remPeca(${p.id})">🗑</button>`}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="9" class="empty">Sem peças de terceiro</td></tr>';
 
@@ -1026,7 +1121,7 @@ function renderServicos(servicos){
       <td class="num">${s.horas||'—'}</td>
       <td class="num">${s.valorHora?fmtBRL(s.valorHora):'—'}</td>
       <td class="num">${fmtBRL(s.valorTotal)}${Number(s.desconto) ? `<br><small style="color:var(--danger);">− ${fmtBRL(s.desconto)}</small>` : ''}</td>
-      <td style="white-space:nowrap;">${badgeSituacao('servicos', s)}
+      <td style="white-space:nowrap;">${badgeSituacao('servicos', s)} ${botaoAgregar('servicos', s)}
         ${auto ? '' : `<button class="btn btn-ghost btn-sm" title="Remover" onclick="remServico(${s.id})">🗑</button>`}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="6" class="empty">Sem serviços próprios</td></tr>';
@@ -1041,7 +1136,8 @@ function renderServicos(servicos){
       <td>${escapeHtml(s.terceiroFornecedorNome||'—')}</td>
       <td>${escapeHtml(s.notaFiscalTerceiro||'—')}</td>
       <td><span class="badge ${apCls}">${apSt}</span></td>
-      <td><button class="btn btn-ghost btn-sm" title="Remover" onclick="remServico(${s.id})">🗑</button></td>
+      <td style="white-space:nowrap;">${botaoAgregar('servicos', s)}
+        <button class="btn btn-ghost btn-sm" title="Remover" onclick="remServico(${s.id})">🗑</button></td>
     </tr>`;
   }).join('') : '<tr><td colspan="7" class="empty">Sem serviços de terceiro</td></tr>';
 
