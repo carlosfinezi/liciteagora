@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integração NicSRS · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Integração NicSRS</h1>
+      <small>Credenciais, modo de compra e catálogo — o que faz o módulo SSL funcionar</small>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost" href="/ssl/certificados.html">Certificados</a>
+      <button class="btn btn-primary" onclick="salvarConfig()">Salvar</button>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <!-- São DUAS APIs da NicSRS, com papéis diferentes, e é por isso que esta
+       tela tem dois campos de credencial em vez de um:
+
+         portal.nicsrs.com  (API token)     — ciclo de vida: collect, reissue,
+                                              list, cancel. Roda de 12 em 12h
+                                              no scheduler. Sem ele o módulo
+                                              inteiro fica inerte.
+         facevg.nicsrs.com  (sessão painel) — cria a ordem de compra. Só é
+                                              usada no modo 'console'.
+
+       O token é obrigatório sempre; a sessão do painel só no modo que a usa.
+       Ver nicsrs-client.js e nicsrs-console-client.js. -->
+  <div class="panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <strong>Conexão com a API de revenda</strong>
+      <span class="muted">portal.nicsrs.com — ciclo de vida dos certificados</span>
+    </div>
+    <div class="form-row" style="margin-top:12px;">
+      <div class="form-group full-width">
+        <label>API token</label>
+        <!-- new-password (e não "off") é o que realmente impede o Chrome de
+             oferecer a credencial salva do site aqui. Com um type=password na
+             página, ele tratava a tela inteira como formulário de login. -->
+        <input type="password" id="cToken" name="nicsrs-api-token"
+               placeholder="deixe vazio para manter o atual" autocomplete="new-password">
+        <small class="muted">Access Secret de console.nicsrs.com/interface (ou o token entregue pelo suporte).</small>
+      </div>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-ghost" onclick="testar()">Testar token</button>
+    </div>
+  </div>
+
+  <!-- O bloco "Compra" foi removido em 2026-09-16.
+       Ele deixava escolher entre três caminhos, e só um funciona nesta conta:
+       a API de revenda (/ssl/place). Comprovado no mesmo dia — o certificado
+       #64 (homolog.1bit.net.br) foi comprado por ela, com `code: 1`. Os outros
+       dois viraram fonte de erro em vez de opção: o modo `console` depende de
+       um refresh_token que expira em ~13 h e cuja renovação exige login humano
+       com captcha, e o `painel` não compra nada, só devolve links.
+       A compra pela API debita saldo pré-pago — o pagamento por PayPal/cartão
+       sem saldo existe no console, não neste canal. Ver modoCompra(). -->
+
+  <div class="panel" style="margin-top:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <strong>Reemissão</strong>
+      <span class="muted">o arquivo vale menos que a assinatura paga — o reissue cobre a diferença, de graça</span>
+    </div>
+    <div class="form-row" style="margin-top:12px;">
+      <div class="form-group">
+        <label>Reemitir com antecedência de</label>
+        <input type="number" id="cAntecedencia" min="1" max="60" placeholder="15">
+        <small class="muted">dias antes de o arquivo expirar</small>
+      </div>
+      <div class="form-group">
+        <label>Cotação USD → BRL</label>
+        <div id="cCotacao" style="padding:8px 0;font-weight:600;">—</div>
+        <small class="muted">PTAX de venda do Banco Central, buscada no dia da compra.</small>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label><input type="checkbox" id="cReissueAuto"> Reemitir automaticamente dentro da assinatura</label>
+        <small class="muted">Reissue é gratuito. Desligue só se quiser controlar cada reemissão à mão.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <strong>Contato administrativo</strong>
+      <span class="muted">vai em todo pedido como contato do requerente</span>
+    </div>
+    <div class="form-row" style="margin-top:12px;">
+      <div class="form-group full-width">
+        <textarea id="cAdmin" rows="8" style="font-family:monospace;font-size:0.82em;" placeholder='{"firstName":"...","lastName":"...","email":"...","mobile":"...","job":"...","organization":"...","address":"...","city":"...","state":"...","postCode":"...","country":"BR"}'></textarea>
+        <small class="muted">JSON. Sem ele a compra é recusada pela NicSRS.</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <strong>Catálogo de produtos</strong>
+      <span class="muted" id="catResumo">—</span>
+    </div>
+    <div class="tbl-wrap" style="margin-top:12px;">
+      <table>
+        <thead><tr><th>Autoridade</th><th style="text-align:right;">Produtos</th></tr></thead>
+        <tbody id="tbVendors"><tr><td colspan="2" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-ghost" onclick="sincronizarCatalogo()">Sincronizar catálogo</button>
+      <button class="btn btn-ghost" onclick="atualizarPrecos()">Atualizar preços dos produtos</button>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ssl-integracao');</script>
+
+<script>
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',6000); }
+
+async function carregar(){
+  try {
+    const r = await fetch('/api/ssl/config');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'resposta sem sucesso');
+    const c = d.config;
+    const cat = d.catalogo || {};
+
+    // O KPI diz, de relance, se o módulo está de pé: token ausente é o que
+    // deixa o scheduler inerte, e contato ausente é o que faz a compra ser
+    // recusada só na hora de comprar.
+    document.getElementById('kpis').innerHTML = `
+      <div class="kpi ${c.tokenConfigurado?'':'warn'}"><div class="label">API de revenda</div><div class="value">${c.tokenConfigurado?'ativa':'inerte'}</div><small class="muted">${c.tokenConfigurado?`token final ${esc(c.tokenSufixo)}`:'sem token — nada sincroniza'}</small></div>
+      <div class="kpi"><div class="label">Compra</div><div class="value">API de revenda</div><small class="muted">debita o saldo pré-pago da conta NicSRS</small></div>
+      <div class="kpi ${c.administradorConfigurado?'':'warn'}"><div class="label">Contato administrativo</div><div class="value">${c.administradorConfigurado?'ok':'falta'}</div><small class="muted">${c.administradorConfigurado?'vai em todo pedido':'sem ele a compra é recusada'}</small></div>
+      <div class="kpi ${cat.total?'':'warn'}"><div class="label">Catálogo</div><div class="value">${cat.total||0}</div><small class="muted">produtos sincronizados</small></div>
+    `;
+
+    document.getElementById('catResumo').textContent = cat.total
+      ? `última sincronização em ${String(cat.ultimaSincronizacao||'').slice(0,16)}`
+      : 'vazio — use "Sincronizar catálogo"';
+    const tb = document.getElementById('tbVendors');
+    tb.innerHTML = (cat.porVendor||[]).length
+      ? cat.porVendor.map(v=>`<tr><td>${esc(v.vendor)}</td><td style="text-align:right;">${v.total}</td></tr>`).join('')
+      : '<tr><td colspan="2" class="empty">Nenhum produto — sincronize o catálogo</td></tr>';
+
+    document.getElementById('cAntecedencia').value = c.reissueAntecedenciaDias || 15;
+    document.getElementById('cReissueAuto').checked = !!c.reissueAutomatico;
+
+  } catch (err) {
+    showAlert(`Falha ao ler a configuração: ${err.message}`,'error');
+  }
+}
+
+async function mostrarCotacao(){
+  const el = document.getElementById('cCotacao');
+  el.textContent = 'consultando PTAX…';
+  try {
+    const r = await fetch('/api/ssl/cotacao');
+    const d = await r.json();
+    const c = d.cotacao || {};
+    el.textContent = c.valor
+      ? `R$ ${Number(c.valor).toFixed(4)} — ${c.fonte} de ${c.data}`
+      : `indisponível (${c.erro || 'sem resposta do BCB'})`;
+  } catch (err) {
+    el.textContent = `falha ao consultar: ${err.message}`;
+  }
+}
+
+async function salvarConfig(){
+  const body = {
+    reissueAntecedenciaDias: Number(document.getElementById('cAntecedencia').value) || 15,
+    reissueAutomatico: document.getElementById('cReissueAuto').checked,
+  };
+  const token = document.getElementById('cToken').value.trim();
+  if (token) body.apiToken = token;
+  const admin = document.getElementById('cAdmin').value.trim();
+  if (admin) {
+    try { JSON.parse(admin); } catch { return showAlert('Contato administrativo não é um JSON válido','error'); }
+    body.administrator = admin;
+  }
+  const r = await fetch('/api/ssl/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert('Configuração salva');
+  // Os campos de credencial nascem vazios de propósito ("manter o atual"):
+  // sem limpar, um segundo Salvar reenviaria o que já foi gravado.
+  document.getElementById('cToken').value = '';
+  carregar();
+}
+
+async function testar(){
+  const r = await fetch('/api/ssl/config/testar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(`Token válido — ${d.produtos} produto(s) em ${d.vendor}`);
+}
+
+// Leva o preço da NicSRS (US$) para o catálogo de produtos (R$), pela PTAX.
+async function atualizarPrecos(){
+  if (!confirm('Atualizar o custo dos produtos SSL com o preço atual da NicSRS convertido pela PTAX do dia?\n\nOnde houver markup cadastrado, o preço de VENDA é recalculado junto — senão o produto ficaria com custo novo e venda antiga.')) return;
+  showAlert('Atualizando preços…');
+  try {
+    // Cria no catálogo o que a API oferece e o tenant não tem: sem o produto
+    // cadastrado não há o que vincular a um item de contrato.
+    const criar = confirm('Criar também os produtos que existem na NicSRS e ainda não estão no seu catálogo?\n\nOK = cria (SKU SSL-NICSRS-NNN, markup 100%). Cancelar = só atualiza preços dos já cadastrados.');
+    const r = await fetch('/api/ssl/produtos/atualizar-precos', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ criarFaltantes: criar })
+    });
+    const d = await r.json();
+    if (!d.success) return showAlert(d.error,'error');
+    const orfaos = d.semCorrespondenteNaApi ? d.semCorrespondenteNaApi.length : 0;
+    const novos = d.criados ? d.criados.length : 0;
+    showAlert(`${d.atualizados} produto(s) atualizados pela PTAX de ${d.cotacaoData} (R$ ${d.cotacao})`
+      + `, ${d.vendaRecalculada} com venda recalculada`
+      + (novos ? `, ${novos} produto(s) criados` : '')
+      + (orfaos ? ` — ${orfaos} produto(s) locais não existem mais na API e ficaram como estão` : ''),
+      orfaos ? 'warn' : 'success');
+  } catch (err) {
+    showAlert(`Falha ao atualizar preços: ${err.message}`,'error');
+  }
+}
+
+async function sincronizarCatalogo(){
+  showAlert('Sincronizando catálogo NicSRS…');
+  const r = await fetch('/api/ssl/produtos/sincronizar', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (!d.success) return showAlert(d.error,'error');
+  const ok = d.resultado.filter(x=>!x.erro).reduce((s,x)=>s+x.produtos,0);
+  const falhas = d.resultado.filter(x=>x.erro).map(x=>x.vendor).join(', ');
+  showAlert(`${ok} produto(s) sincronizados` + (falhas ? ` — falhou em: ${falhas}` : ''), falhas ? 'warn' : 'success');
+  carregar();
+}
+
+carregar();
+</script>
+</body></html>

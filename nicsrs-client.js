@@ -109,7 +109,14 @@ async function productList(apiToken, vendor) {
  * Devolve data.certId.
  */
 async function place(apiToken, { productCode, years, refId, params }) {
-  return chamar('ssl/place', apiToken, { productCode, years, refId, params });
+  // `params` vai como STRING JSON, não como objeto. Comprovado em 2026-09-01
+  // comprando de verdade: payload idêntico com objeto devolve -1 (falha de
+  // validação de parâmetro) e com string é aceito. Combina com o que o
+  // /ssl/collect devolve — lá o `applyParams` também volta serializado.
+  return chamar('ssl/place', apiToken, {
+    productCode, years, refId,
+    params: typeof params === 'string' ? params : JSON.stringify(params),
+  });
 }
 
 /** Status + material do certificado. status: PENDING | COMPLETE | CANCELLED. */
@@ -128,7 +135,13 @@ async function reissue(apiToken, { certId, reason, uniqueValue, refId }) {
 
 /** Renova a assinatura. Só liberado quando o certificado expira em <= 90 dias. */
 async function renew(apiToken, { renewId, years, refId, params }) {
-  return chamar('ssl/renew', apiToken, { renewId, years, refId, params });
+  // Mesma serialização do /ssl/place — ver o comentário de lá. Aqui não foi
+  // comprovado contra a API: renovar exige assinatura a <= 90 dias do
+  // vencimento, e não havia nenhuma nessa janela em 2026-09-01.
+  return chamar('ssl/renew', apiToken, {
+    renewId, years, refId,
+    params: typeof params === 'string' ? params : JSON.stringify(params),
+  });
 }
 
 /** Troca o método de validação de domínio de um pedido em andamento. */

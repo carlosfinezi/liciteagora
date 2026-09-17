@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agenda SSL · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/sidebar.css">
+<link rel="stylesheet" href="/css/app-modern.css">
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div>
+      <h1>Agenda de reemissão</h1>
+      <small>O que a NicSRS vai reemitir sozinha, e o que depende de alguém aprovar</small>
+    </div>
+    <div class="actions">
+      <select id="fJanela" onchange="carregar()" style="font-size:0.9em;">
+        <option value="30">Próximos 30 dias</option>
+        <option value="60" selected>Próximos 60 dias</option>
+        <option value="90">Próximos 90 dias</option>
+        <option value="180">Próximos 6 meses</option>
+        <option value="365">Próximo ano</option>
+      </select>
+      <a class="btn btn-ghost" href="/ssl/certificados.html">Certificados</a>
+    </div>
+  </div>
+
+  <div id="alertGlobal"></div>
+  <div class="kpi-grid" id="kpis"></div>
+
+  <!-- Por que esta tela existe: o ARQUIVO do certificado vale bem menos que a
+       ASSINATURA paga (hoje ~200 dias contra 1 ano), então todo certificado é
+       reemitido pelo menos uma vez dentro do que o cliente já pagou. Enquanto
+       isso acontecia 1x/ano dava para não planejar. O teto das CAs vem caindo
+       — 398 -> 200 -> 47 dias — e a 47 dias cada certificado passa a ser
+       reemitido ~10x/ano. Aí o que vem pela frente deixa de ser detalhe. -->
+  <div class="panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <strong>Reemissões previstas</strong>
+      <span class="muted" id="resumoReissue"></span>
+    </div>
+    <div class="tbl-wrap" style="margin-top:10px;">
+      <table>
+        <thead><tr>
+          <th>Data prevista</th>
+          <th>Quando</th>
+          <th>Domínio</th>
+          <th>Validação</th>
+          <th>Arquivo vence</th>
+          <th>Assinatura cobre até</th>
+        </tr></thead>
+        <tbody id="tbReissue"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Renovação é outro assunto: reemissão é grátis e automática, RECOMPRA
+       gasta saldo e por decisão de projeto nunca é automática. Por isso as duas
+       listas ficam separadas, e não numa só ordenada por data. -->
+  <div class="panel" style="margin-top:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <strong>Assinaturas a renovar (90 dias)</strong>
+      <span class="muted">Recompra é manual — gasta saldo da conta NicSRS</span>
+    </div>
+    <div class="tbl-wrap" style="margin-top:10px;">
+      <table>
+        <thead><tr>
+          <th>Cobertura termina</th>
+          <th>Quando</th>
+          <th>Domínio</th>
+          <th>Contrato</th>
+        </tr></thead>
+        <tbody id="tbRenovacao"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('ssl-agenda');</script>
+<script>
+function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function diasAte(iso){ if(!iso) return null; return Math.round((new Date(iso+'T12:00:00Z') - new Date()) / 86400000); }
+
+// "em 35 dias" lê melhor que uma data solta quando a pergunta é "o que vem aí".
+// Atrasado aparece em vermelho: o robô já devia ter reemitido e não conseguiu.
+function quando(dias, atrasado){
+  if (atrasado || dias == null || dias < 0) return '<strong style="color:var(--danger,#b91c1c);">atrasado</strong>';
+  if (dias === 0) return '<strong>hoje</strong>';
+  return `em ${dias} dia${dias===1?'':'s'}`;
+}
+
+// EMAIL é o único método que não passa sozinho: a CA manda um link e alguém do
+// lado do cliente precisa clicar. Com reemissão anual isso é um incômodo; a 47
+// dias de validade vira ~10 pedidos por ano, por certificado.
+function selo(metodo, email){
+  const manual = metodo === 'EMAIL';
+  const titulo = manual
+    ? 'Validação por e-mail: ' + (email || 'destinatário não informado') + ' precisa aprovar o link da CA'
+    : 'Validação automática (' + (metodo || '—') + ') — não depende de ninguém';
+  return `<span class="badge ${manual?'pendente':'entregue'}" title="${esc(titulo)}">${manual?'e-mail do cliente':'automático'}</span>`;
+}
+
+async function carregar(){
+  const dias = document.getElementById('fJanela').value;
+  let d;
+  try {
+    const r = await fetch('/api/ssl/agenda?dias=' + encodeURIComponent(dias));
+    d = await r.json();
+  } catch (err) { return showAlert('Falha ao carregar a agenda: ' + err.message, 'error'); }
+  if (!d.success) return showAlert(d.error || 'Falha ao carregar a agenda', 'error');
+
+  const atrasados = d.reissuePendente || [];
+  const futuros   = d.reissueFuturo || [];
+  const renov     = d.renovacaoPendente || [];
+  const comClique = d.reissueComCliqueDoCliente || 0;
+
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi ${atrasados.length?'warn':''}"><div class="label">Atrasadas</div><div class="value">${atrasados.length}</div><small class="muted">o robô ainda não conseguiu</small></div>
+    <div class="kpi"><div class="label">Previstas na janela</div><div class="value">${futuros.length}</div><small class="muted">próximos ${d.janelaDias||dias} dias</small></div>
+    <div class="kpi ${comClique?'warn':'success'}"><div class="label">Dependem do cliente</div><div class="value">${comClique}</div><small class="muted">validação por e-mail</small></div>
+    <div class="kpi ${renov.length?'warn':''}"><div class="label">A renovar (90d)</div><div class="value">${renov.length}</div><small class="muted">recompra manual</small></div>
+  `;
+
+  document.getElementById('resumoReissue').textContent =
+    `${atrasados.length + futuros.length} na janela de ${d.janelaDias||dias} dias`
+    + (comClique ? ` · ${comClique} depende${comClique===1?'':'m'} de clique do cliente` : ' · todas automáticas');
+
+  const linha = (c, atrasado) => `<tr>
+    <td class="mono">${esc(c.proximoReissueEm)}</td>
+    <td>${quando(c.emDias != null ? c.emDias : diasAte(c.proximoReissueEm), atrasado)}</td>
+    <td><a href="/ssl/certificados.html?q=${encodeURIComponent(c.commonName||'')}">${esc(c.commonName)}</a></td>
+    <td>${selo(c.dcvMethod, c.dcvEmail)}</td>
+    <td class="mono">${esc(c.endDate||'—')}</td>
+    <td class="mono">${esc(c.cobertoAte||'—')}</td>
+  </tr>`;
+
+  const corpo = atrasados.map(c => linha(c, true)).concat(futuros.map(c => linha(c, false))).join('');
+  document.getElementById('tbReissue').innerHTML = corpo
+    || `<tr><td colspan="6" class="empty">Nada previsto para os próximos ${d.janelaDias||dias} dias</td></tr>`;
+
+  document.getElementById('tbRenovacao').innerHTML = renov.length ? renov.map(c => {
+    const dd = diasAte(c.cobertoAte);
+    return `<tr>
+      <td class="mono">${esc(c.cobertoAte)}</td>
+      <td>${quando(dd, dd != null && dd < 0)}</td>
+      <td><a href="/ssl/certificados.html?q=${encodeURIComponent(c.commonName||'')}">${esc(c.commonName)}</a></td>
+      <td>${c.contratoNumero ? esc(c.contratoNumero) : '<span class="muted">—</span>'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="4" class="empty">Nenhuma assinatura vence nos próximos 90 dias</td></tr>';
+}
+
+carregar();
+</script>
+</body>
+</html>
