@@ -115,6 +115,41 @@ function registrarRotasProdutos(app, db) {
     }
   });
 
+  /**
+   * Disponibilidade para montar pedido — o mínimo que um vendedor precisa.
+   *
+   * Mora sob /api/produtos, e não sob /api/estoque, por causa do RBAC: o gate
+   * casa por PREFIXO (perfis-acesso.js:152), e `/api/estoque` exige páginas de
+   * estoque que um perfil comercial não tem. Liberar aquele prefixo para o
+   * vendedor traria junto extrato, valorização, ABC, CMV e a criação de
+   * movimentação — privilégio muito além da pergunta "posso vender N disto?".
+   * Aqui ele ganha exatamente essa pergunta e nada mais.
+   *
+   * A conta é a mesma de /api/estoque/verificar-disponibilidade: as duas rotas
+   * chamam disponibilidadeDeItens (reservas-routes.js), sem lógica duplicada.
+   *
+   * Ver docs/auditoria-app-mobile-2026-08-26/03-arquitetura-mvp-e-roadmap.md §12.
+   */
+  app.post('/api/produtos/disponibilidade', (req, res) => {
+    try {
+      const { disponibilidadeDeItens } = require('./reservas-routes');
+      const itens = Array.isArray(req.body?.itens) ? req.body.itens : null;
+      if (!itens) return res.status(400).json({ success: false, error: 'itens (array) obrigatorio' });
+      if (itens.length > 200) return res.status(400).json({ success: false, error: 'No máximo 200 itens por consulta' });
+
+      const r = disponibilidadeDeItens(db, itens);
+      // Resposta enxuta: sem custo médio, sem valorização, sem movimentação.
+      const enxuto = r.itens.map((i) => (i.erro ? { produtoId: i.produtoId, erro: i.erro } : {
+        produtoId: i.produtoId, sku: i.sku, descricao: i.descricao, unidade: i.unidade,
+        saldo: i.saldo, reservado: i.reservado, disponivel: i.disponivel,
+        suficiente: i.suficiente, faltando: i.faltando,
+      }));
+      res.json({ success: true, tudoDisponivel: r.tudoDisponivel, itens: enxuto });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/produtos/:id', (req, res) => {
     try {
       const p = db.prepare('SELECT * FROM produtos WHERE id = ?').get(req.params.id);

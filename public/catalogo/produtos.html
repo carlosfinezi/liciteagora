@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Produtos · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -504,7 +505,11 @@ function render(){
   });
 
   tb.innerHTML = dados.map(p => {
-    const tds = cols.map(c => `<td>${renderCell(p, c)}</td>`).join('');
+    // `data-col` identifica a coluna na célula. Serve a duas coisas que já
+    // existem no CSS global: a descrição quebrar em várias linhas no celular
+    // (`.tabela-rolagem td[data-col="descricao"]`) e o tooltip saber de onde
+    // tirar o texto inteiro no computador.
+    const tds = cols.map(c => `<td data-col="${c.key}">${renderCell(p, c)}</td>`).join('');
     const nomeAttr = esc(p.descricao || '');
     const editar = `<td class="col-editar"><button class="btn btn-ghost btn-sm btn-icon-only" title="Abrir produto"
       onclick="event.stopPropagation(); abrirProduto(${p.id})"><svg class="ic-sm"><use href="#i-edit"/></svg></button></td>`;
@@ -513,6 +518,82 @@ function render(){
     </td></tr>`;
   }).join('');
 }
+
+/* ===================== TOOLTIP DA DESCRIÇÃO TRUNCADA =====================
+ *
+ * A coluna corta com "…" para a tabela caber (`.grid-on td` em /js/grid.js, que
+ * é compartilhado por várias telas e por isso não foi tocado). O texto inteiro
+ * continua no DOM — o corte é visual — e é ele que o balcão mostra.
+ *
+ * O tooltip é UM elemento no `<body>`, posicionado no hover, e não um `::after`
+ * da célula: a célula tem `overflow: hidden` (é o que desenha o "…") e
+ * recortaria o balcão junto.
+ *
+ * Nada de `title=`: o tooltip nativo do navegador aparece por cima do nosso,
+ * branco e com atraso — foi por isso que a Fase 3.2.1 os removeu do menu.
+ */
+let _tipDesc = null;
+
+function elTipDesc() {
+  if (_tipDesc && document.body.contains(_tipDesc)) return _tipDesc;
+  _tipDesc = document.createElement('div');
+  _tipDesc.className = 'tip-truncado';
+  _tipDesc.setAttribute('role', 'tooltip');
+  document.body.appendChild(_tipDesc);
+  return _tipDesc;
+}
+
+/** O texto está sendo cortado nesta célula? */
+function estaTruncado(td) {
+  // 1px de folga: subpixel de fonte faz `scrollWidth` passar do `clientWidth`
+  // por frações mesmo quando tudo cabe, e sem isso apareceria tooltip em
+  // descrição curta — que é justamente o que não se quer.
+  return td.scrollWidth > td.clientWidth + 1;
+}
+
+function mostrarTipDesc(td) {
+  const texto = (td.textContent || '').trim();
+  if (!texto || texto === '—') return;
+  const t = elTipDesc();
+  t.textContent = texto;
+  t.classList.add('visivel');
+
+  // Medir depois de preencher: a altura depende de quantas linhas o texto usa.
+  const r = td.getBoundingClientRect();
+  const lt = t.getBoundingClientRect();
+  let x = r.left;
+  let y = r.bottom + 8;                                  // abaixo da célula
+  if (y + lt.height > window.innerHeight - 8) y = r.top - lt.height - 8;  // não couber, acima
+  x = Math.max(8, Math.min(x, window.innerWidth - lt.width - 8));         // não vazar na direita
+  t.style.left = Math.round(x) + 'px';
+  t.style.top = Math.round(Math.max(8, y)) + 'px';
+}
+
+function esconderTipDesc() {
+  if (_tipDesc) _tipDesc.classList.remove('visivel');
+}
+
+/* Delegação no corpo da tabela: ele é reescrito a cada busca, ordenação ou
+   troca de colunas, e ouvintes presos às células morreriam a cada render. */
+(function ligarTooltipDescricao() {
+  const tb = document.getElementById('tb');
+  if (!tb) return;
+  tb.addEventListener('mouseover', (e) => {
+    const td = e.target.closest('td[data-col="descricao"]');
+    if (!td || !tb.contains(td)) return esconderTipDesc();
+    if (estaTruncado(td)) mostrarTipDesc(td); else esconderTipDesc();
+  });
+  tb.addEventListener('mouseout', (e) => {
+    // Sair para um filho da mesma célula não é sair da célula.
+    const td = e.target.closest('td[data-col="descricao"]');
+    if (td && e.relatedTarget && td.contains(e.relatedTarget)) return;
+    esconderTipDesc();
+  });
+  // Rolar a tabela move a célula e deixaria o balcão apontando para o nada.
+  tb.addEventListener('scroll', esconderTipDesc, true);
+  window.addEventListener('scroll', esconderTipDesc, true);
+  window.addEventListener('resize', esconderTipDesc);
+})();
 
 function novoProduto(){ location.href = '/catalogo/produto.html'; }
 function abrirProduto(id){ location.href = '/catalogo/produto.html?id=' + id; }

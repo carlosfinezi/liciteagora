@@ -343,6 +343,90 @@ function calcularCustoMedio(db, produtoId) {
 }
 
 /**
+ * Saída de unidade que é (ou foi) um equipamento composto.
+ *
+ * Faz duas coisas que só se sabem no momento da baixa:
+ *
+ * 1. CUSTO — o custo do estoque é médio POR PRODUTO. Um trator que recebeu
+ *    peito de aço custa mais que o trator irmão parado no pátio, e subir o
+ *    custo médio do produto encareceria os dois. O acréscimo vive na série
+ *    (serial_numbers.custoAgregado) e entra no custo DESTA saída: os
+ *    relatórios de CMV leem `COALESCE(custoMedioAnterior, custoUnitario, ...)`,
+ *    então é o custoMedioAnterior deste movimento que precisa carregar o
+ *    agregado. O custo médio do produto (custoMedioPosterior) fica intacto —
+ *    saída não altera média, e as unidades irmãs seguem pelo custo delas.
+ *
+ * 2. DONO — máquina nossa que sai por venda passa a ser do comprador. O
+ *    cliente vem da origem do movimento, porque é ela que sabe para quem foi.
+ */
+function saidaDeSerieComEquipamento(db, movId, serialIds, { origem, origemId, usuario }) {
+  const mov = db.prepare('SELECT * FROM movimentacoes_estoque WHERE id = ?').get(movId);
+  if (!mov) return;
+
+  let agregado = 0;
+  for (const sid of serialIds) {
+    const s = db.prepare('SELECT custoAgregado FROM serial_numbers WHERE id = ?').get(sid);
+    agregado += Number((s && s.custoAgregado) || 0);
+  }
+  if (agregado > 0) {
+    const qtd = Number(mov.quantidade) || serialIds.length || 1;
+    const base = mov.custoMedioAnterior != null ? Number(mov.custoMedioAnterior)
+      : (mov.custoUnitario != null ? Number(mov.custoUnitario) : 0);
+    const unit = Number((base + agregado / qtd).toFixed(4));
+    // SÓ custoMedioAnterior. Gravar também custoUnitario contaminaria o custo
+    // médio do produto pela porta do estorno: estornar esta saída cria a
+    // entrada de contrapartida com `mov.custoUnitario` (estoque-routes, rota
+    // /movimentacoes/:id/estornar), e uma entrada COM custo recalcula a média
+    // ponderada — as unidades irmãs, que não receberam nada, encareceriam.
+    // Deixá-lo NULL mantém o estorno no comportamento que sempre teve.
+    db.prepare(`UPDATE movimentacoes_estoque
+      SET custoMedioAnterior = ?,
+          observacao = COALESCE(observacao, '') || ?
+      WHERE id = ?`)
+      .run(unit, ` [inclui R$ ${agregado.toFixed(2)} agregados à unidade]`, movId);
+  }
+
+  // Para quem foi. Sem origem que diga o cliente, a máquina só perde a
+  // reserva — nada de adivinhar dono.
+  let clienteId = null;
+  try {
+    if (origem === 'pedido' && origemId) {
+      clienteId = (db.prepare('SELECT clienteId FROM pedidos WHERE id = ?').get(origemId) || {}).clienteId || null;
+    } else if (origem === 'os' && origemId) {
+      clienteId = (db.prepare('SELECT clienteId FROM os_ordens WHERE id = ?').get(origemId) || {}).clienteId || null;
+    }
+  } catch { /* tenant sem a tabela de origem */ }
+
+  // Sem cliente na origem (baixa avulsa, por exemplo) não se inventa dono —
+  // mas a máquina deixou o estoque, e isso precisa aparecer na linha do tempo
+  // dela. Sem este registro a saída some, e a ficha continua dizendo que a
+  // unidade está no pátio.
+  if (!clienteId) {
+    for (const sid of serialIds) {
+      const eq = db.prepare(`SELECT id FROM equipamentos
+        WHERE serialNumberId = ? AND IFNULL(proprietario, 'cliente') = 'empresa'`).get(sid);
+      if (!eq) continue;
+      db.prepare(`INSERT INTO equipamento_eventos (equipamentoId, tipo, descricao, usuario)
+        VALUES (?, 'baixa', ?, ?)`)
+        .run(eq.id, `Saída de estoque #${movId} — sem cliente na origem, dono inalterado`, usuario || null);
+    }
+    return;
+  }
+
+  for (const sid of serialIds) {
+    const eq = db.prepare(`SELECT * FROM equipamentos
+      WHERE serialNumberId = ? AND IFNULL(proprietario, 'cliente') = 'empresa'`).get(sid);
+    if (!eq) continue;
+    db.prepare(`UPDATE equipamentos SET clienteId = ?, proprietario = 'cliente',
+      dataAtualizacao = CURRENT_TIMESTAMP WHERE id = ?`).run(clienteId, eq.id);
+    db.prepare(`INSERT INTO equipamento_eventos
+      (equipamentoId, tipo, descricao, clienteAnteriorId, clienteNovoId, usuario)
+      VALUES (?, 'venda', ?, NULL, ?, ?)`)
+      .run(eq.id, `Vendido — saída de estoque #${movId}`, clienteId, usuario || null);
+  }
+}
+
+/**
  * Aplica lógica de custo médio + saldo retroativamente a partir dos valores atuais.
  * Retorna { saldoPosterior, custoMedioAnterior, custoMedioPosterior }.
  */
@@ -393,6 +477,20 @@ function registrarRotasEstoque(app, db) {
   app.get('/api/estoque/:produtoId/saldo-lojas', (req, res) => {
     try {
       res.json({ success: true, ...saldoPorEstabelecimento(db, Number(req.params.produtoId)) });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Saldo de um produto. Com depositoId, só daquele depósito; sem ele, o total
+  // do tenant. A tela de nova movimentação lê daqui para mostrar o saldo atual
+  // e o posterior, e para converter o ajuste (saldo final digitado) em delta.
+  app.get('/api/estoque/:produtoId/saldo', (req, res) => {
+    try {
+      const produtoId = Number(req.params.produtoId);
+      if (!produtoId) return res.status(400).json({ success: false, error: 'produtoId invalido' });
+      const depositoId = req.query.depositoId ? Number(req.query.depositoId) : null;
+      res.json({ success: true, produtoId, depositoId, saldo: calcularSaldo(db, produtoId, depositoId) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -928,6 +1026,43 @@ function registrarRotasEstoque(app, db) {
             db.prepare(`UPDATE serial_numbers SET status = ?, ${campo} = ?, loteId = COALESCE(?, loteId) WHERE id = ?`)
               .run(novoStatus, movId, loteId || null, sid);
           }
+          if (tipo === 'saida') {
+            saidaDeSerieComEquipamento(db, movId, serialIds, {
+              origem: origem || null, origemId: origemId || null,
+              usuario: req.user?.username || null,
+            });
+          }
+        }
+
+        // SNGPC (módulo Farmácia): entrada e baixa de controlado/antimicrobiano
+        // precisam ser escrituradas na ANVISA. É aqui que elas acontecem com o
+        // lote em mãos — sem lote a ANVISA não aceita a movimentação. Só roda
+        // com o módulo ligado; sem ele, nada muda.
+        try {
+          const farmacia = require('./farmacia/farmacia-routes');
+          if (farmacia.getFlag(db)) {
+            const sngpc = require('./farmacia/sngpc-eventos');
+            const dataMov = data || dataBrasilia();
+            if (tipo === 'entrada') {
+              sngpc.registrarEntrada(db, {
+                data: dataMov, produtoId, loteId: loteId || null, quantidade: qtd,
+                notaNumero: origemId || null, origem: origem || 'ajuste_manual', origemId: movId,
+              });
+            } else if (tipo === 'saida') {
+              // Saída manual de controlado é baixa de estoque, não venda — a
+              // venda entra pela NFC-e. Para o SNGPC isso é perda; o motivo
+              // usa o domínio st_TipoMotivoPerda (3 = vencimento, o caso comum).
+              sngpc.registrarPerda(db, {
+                data: dataMov, produtoId, loteId: loteId || null, quantidade: qtd,
+                motivo: Number(req.body?.motivoPerdaSngpc) || 3,
+                origem: origem || 'ajuste_manual', origemId: movId,
+              });
+            }
+          }
+        } catch (e) {
+          // Falha na escrituração não pode derrubar a movimentação de estoque:
+          // o estoque é o fato, o SNGPC é a declaração dele.
+          console.error('[Farmácia/SNGPC] falha ao enfileirar movimentação:', e.message);
         }
 
         return movId;

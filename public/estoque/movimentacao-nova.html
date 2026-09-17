@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Nova Movimentação · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -37,12 +38,18 @@
           <option value="ajuste">Ajuste</option>
         </select>
       </div>
-      <div class="form-group"><label>Quantidade *</label><input type="number" id="movQtd" step="0.01" oninput="atualizarSeriaisNecessarios()"></div>
+      <div class="form-group"><label id="lblQtd">Quantidade *</label><input type="number" id="movQtd" step="0.01" oninput="aoMudarQuantidade()"></div>
       <div class="form-group"><label>Custo Unitário (opcional)</label><input type="number" id="movCusto" step="0.01"></div>
       <div class="form-group"><label>Data</label><input type="date" id="movData"></div>
       <div class="form-group" id="grpDeposito" style="display:none;">
         <label>Depósito</label>
-        <select id="movDeposito"></select>
+        <select id="movDeposito" onchange="carregarSaldo()"></select>
+      </div>
+    </div>
+
+    <div class="form-row" id="rowSaldo" style="display:none;">
+      <div class="form-group full-width">
+        <div id="boxSaldo" style="padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-input);"></div>
       </div>
     </div>
 
@@ -98,6 +105,76 @@ function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'
 
 let produtoSelecionado = null;
 let serialDisponiveis = [];  // seriais do produto atual (filtrados por status)
+let saldoAtual = null;       // saldo no depósito escolhido; null = não foi possível ler
+let tipoAnterior = 'entrada';
+
+const fmtQtd = n => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+
+// Saldo do produto no depósito selecionado. Sem depósito escolhido (tenant de
+// um depósito só), o total do tenant é o mesmo número.
+async function carregarSaldo(){
+  const id = Number(document.getElementById('movProdId').value);
+  if (!id) { saldoAtual = null; renderSaldo(); return; }
+  const dep = document.getElementById('movDeposito').value;
+  try {
+    const r = await fetch('/api/estoque/' + id + '/saldo' + (dep ? '?depositoId=' + dep : ''));
+    const d = await r.json();
+    saldoAtual = d.success ? Number(d.saldo) : null;
+  } catch { saldoAtual = null; }
+  renderSaldo();
+}
+
+/**
+ * Delta que será gravado, a partir do que está digitado. null quando não dá
+ * para saber (campo vazio, ou ajuste sem saldo atual conhecido).
+ * Em ajuste o campo é o saldo FINAL desejado — o delta é a diferença.
+ */
+function deltaLancamento(){
+  const tipo = document.getElementById('movTipo').value;
+  const v = document.getElementById('movQtd').value;
+  if (v === '') return null;
+  const n = parseFloat(v);
+  if (!isFinite(n)) return null;
+  if (tipo === 'entrada') return n;
+  if (tipo === 'saida') return -n;
+  if (saldoAtual === null) return null;
+  return n - saldoAtual;
+}
+
+function renderSaldo(){
+  const row = document.getElementById('rowSaldo');
+  const box = document.getElementById('boxSaldo');
+  if (!produtoSelecionado) { row.style.display = 'none'; return; }
+  row.style.display = '';
+
+  const tipo = document.getElementById('movTipo').value;
+  if (saldoAtual === null) {
+    box.innerHTML = '<span class="text-warn">Não foi possível ler o saldo atual deste produto.</span>'
+      + (tipo === 'ajuste' ? ' <span class="muted">Sem ele o ajuste não pode ser calculado — recarregue a página.</span>' : '');
+    return;
+  }
+
+  const un = produtoSelecionado.unidade || '';
+  const delta = deltaLancamento();
+  let html = `Saldo atual <strong>${fmtQtd(saldoAtual)}</strong> ${un}`;
+  if (delta !== null) {
+    const depois = saldoAtual + delta;
+    const cls = depois < 0 ? 'text-danger' : 'text-success';
+    html += ` &rarr; após o lançamento <strong class="${cls}">${fmtQtd(depois)}</strong> ${un}`;
+    if (tipo === 'ajuste') {
+      html += ` <span class="muted">(lança ${delta > 0 ? '+' : ''}${fmtQtd(delta)} ${un})</span>`;
+    }
+    if (depois < 0) html += ' <span class="text-danger">— saldo ficará negativo</span>';
+  } else {
+    html += ' <span class="muted">— informe a quantidade para ver o saldo posterior</span>';
+  }
+  box.innerHTML = html;
+}
+
+function aoMudarQuantidade(){
+  atualizarSeriaisNecessarios();
+  renderSaldo();
+}
 
 let acTimer;
 async function autocompleteProd(){
@@ -128,6 +205,7 @@ async function selecionarProd(id,txt){
     if (produtoSelecionado.rastreiaLote) flags.push('rastreia LOTE');
     if (produtoSelecionado.rastreiaSerial) flags.push('rastreia SERIAL');
     document.getElementById('movProdInfo').textContent = flags.length ? flags.join(', ') : 'sem rastreabilidade';
+    await carregarSaldo();
     await carregarLotes(id);
   }
   atualizarUI();
@@ -169,6 +247,15 @@ function atualizarUI(){
   const tipo = document.getElementById('movTipo').value;
   const p = produtoSelecionado;
 
+  // Entrando ou saindo do ajuste, o campo troca de significado (quantidade
+  // movimentada x saldo final desejado) — o número digitado antes não vale mais.
+  if ((tipo === 'ajuste') !== (tipoAnterior === 'ajuste')) {
+    document.getElementById('movQtd').value = '';
+    atualizarSeriaisNecessarios();
+  }
+  tipoAnterior = tipo;
+  document.getElementById('lblQtd').textContent = tipo === 'ajuste' ? 'Saldo final desejado *' : 'Quantidade *';
+
   const mostraLote = p && p.rastreiaLote && tipo !== 'ajuste';
   const mostraSerial = p && p.rastreiaSerial && tipo !== 'ajuste';
 
@@ -190,6 +277,7 @@ function atualizarUI(){
   }
 
   atualizarSeriaisNecessarios();
+  renderSaldo();
 }
 
 function atualizarSerialUI(){
@@ -206,9 +294,22 @@ function atualizarSeriaisNecessarios(){
 async function salvarMov(){
   const produtoId=Number(document.getElementById('movProdId').value);
   const tipo=document.getElementById('movTipo').value;
-  const quantidade=parseFloat(document.getElementById('movQtd').value);
+  const informado=parseFloat(document.getElementById('movQtd').value);
   if(!produtoId) return showAlert('Selecione um produto','error');
-  if(!quantidade) return showAlert('Informe a quantidade','error');
+  if(!isFinite(informado)) return showAlert(tipo==='ajuste' ? 'Informe o saldo final desejado' : 'Informe a quantidade','error');
+
+  // Em ajuste o usuário digita o saldo final; o que se grava é a diferença.
+  // Sem saldo atual conhecido essa conta não existe — não dá para lançar.
+  let quantidade;
+  if (tipo === 'ajuste') {
+    if (saldoAtual === null) return showAlert('Saldo atual indisponível — recarregue a página antes de ajustar','error');
+    if (informado < 0) return showAlert('O saldo final não pode ser negativo','error');
+    quantidade = informado - saldoAtual;
+    if (!quantidade) return showAlert('O saldo final informado é igual ao saldo atual — nada a lançar','error');
+  } else {
+    if (!(informado > 0)) return showAlert('Informe a quantidade','error');
+    quantidade = informado;
+  }
 
   const body={
     produtoId,
