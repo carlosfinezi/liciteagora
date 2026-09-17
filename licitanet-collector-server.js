@@ -130,6 +130,15 @@ async function processarPendentes(page, apiKey) {
         log(`  ✗ ${tag} — ${res.error} (report=${d.reportStatus} download=${d.downloadStatus} csrf=${d.hasCsrf})`);
         if (d.reportBody) log(`     reportBody: ${d.reportBody}`);
         if (d.reportStatus === 429 || d.downloadStatus === 429) { log('     ⏳ rate-limit (429) — aguardando 60s...'); await sleep(60000); }
+        // Relatar a falha ao servidor. Sem isto a licitação NUNCA sai da fila:
+        // era o que fazia 3.646 tentativas frustradas girarem sobre as mesmas
+        // 19 licitações, 30 min por ciclo (medido 08/09/2026). Rate-limit (429)
+        // não conta tentativa — é o portal pedindo calma, não defeito da ata.
+        if (d.reportStatus !== 429 && d.downloadStatus !== 429) {
+          const f = await apiReq('POST', '/api/electron/licitanet/ata', apiKey,
+            { cnpj: it.cnpj, ano: it.ano, sequencial: it.sequencial, erro: res.error });
+          if (f.status === 200 && f.body) log(`     estado registrado: ${f.body.estado}`);
+        }
       } else {
         log(`  ataUrl ${tag} → ${res.ataUrl.slice(0, 70)}...`);
         const g = await apiReq('POST', '/api/electron/licitanet/ata', apiKey, { cnpj: it.cnpj, ano: it.ano, sequencial: it.sequencial, ataUrl: res.ataUrl });

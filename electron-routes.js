@@ -268,7 +268,24 @@ function registrarRotasElectron(app, db, { apiKey }) {
       const senha = db.prepare("SELECT valor FROM config WHERE chave = 'govbr_senha'").get();
       if (!cpf || !senha) return res.json({ error: 'Credenciais não configuradas' });
       // apiKey NÃO é mais devolvida aqui — o cliente já precisa tê-la para passar na validação acima.
-      res.json({ cpf: cpf.valor, senha: senha.valor });
+      //
+      // As chaves do SOLVER vão junto (2026-09-16). Elas viviam só no
+      // liciteagora-config.json da máquina; quando o usuário apagou a pasta do
+      // app em 15/09, a config renasceu com `solver: {}` e o solver virou
+      // no-op em silêncio. Resultado: o desafio visual do gov.br aparecia e
+      // ninguém resolvia — o botão "Continuar" ficava desabilitado e o login
+      // não tinha como concluir. Servindo daqui, perder a config local deixa
+      // de desligar uma capacidade crítica.
+      const lerCfg = (k) => { try { const r = db.prepare('SELECT valor FROM config WHERE chave = ?').get(k); return r && r.valor ? r.valor : null; } catch (_) { return null; } };
+      res.json({
+        cpf: cpf.valor,
+        senha: senha.valor,
+        solver: {
+          nopechaKey: lerCfg('nopecha_key'),
+          twocaptchaKey: lerCfg('twocaptcha_key'),
+          deepseekKey: lerCfg('deepseek_api_key'),
+        },
+      });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -644,6 +661,9 @@ function registrarRotasElectron(app, db, { apiKey }) {
     try {
       const catalogPg = require('./catalog-pg');
       const licitanet = require('./licitanet-marca');
+      // Instalação nova não tem a tabela de estado ainda; a query abaixo a
+      // referencia, então garanta o schema antes de consultar.
+      await require('./licitanet-estado').migrar();
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 8, 1), 20);
       // Licitanet homologadas, com marca faltando, que aparecem em algum grupo.
       const rows = await catalogPg.query(`
@@ -657,6 +677,7 @@ function registrarRotasElectron(app, db, { apiKey }) {
                           AND ((rb."marcaFabricante" IS NULL OR rb."marcaFabricante"='') OR (rb."modeloVersao" IS NULL OR rb."modeloVersao"='')))
            AND EXISTS (SELECT 1 FROM itens i2 JOIN bi_grupo_item g ON g."itemId"=i2."id"
                         WHERE i2."licitacaoId"=l."id")
+           ${require('./licitanet-estado').SQL_NAO_PROCESSADA}
          ORDER BY l."dataPublicacaoPncp" DESC
          LIMIT $1`, [limit]);
       // deriva o processId de cada (chamada PNCP; nº limitado)
@@ -676,12 +697,143 @@ function registrarRotasElectron(app, db, { apiKey }) {
     if (!_lnAuth(req, res)) return;
     try {
       const licitanet = require('./licitanet-marca');
-      const { cnpj, ano, sequencial, ataUrl } = req.body || {};
-      if (!cnpj || !ano || !sequencial || !ataUrl) {
-        return res.status(400).json({ error: 'cnpj, ano, sequencial e ataUrl obrigatórios' });
+      const { cnpj, ano, sequencial, ataUrl, erro } = req.body || {};
+      if (!cnpj || !ano || !sequencial) {
+        return res.status(400).json({ error: 'cnpj, ano e sequencial obrigatórios' });
+      }
+      // Relato de FALHA (sem ataUrl). Precisa existir: 74% das tentativas do
+      // coletor falham (3.646 contra 1.249, quase todas timeout de 25s) e, sem
+      // registrar, a licitação volta à fila para sempre — que é metade do laço
+      // de 08/09. Com o registro, sai depois de MAX_TENTATIVAS.
+      if (!ataUrl) {
+        const estado = await require('./licitanet-estado')
+          .registrar(cnpj, ano, sequencial, { erro: erro || 'coleta falhou sem detalhe' });
+        return res.json({ ok: false, estado, registrado: true });
       }
       const r = await licitanet.processarAtaUrl({ cnpj, ano, sequencial, ataUrl });
-      res.json({ ok: true, status: r.status, itensAta: r.itensAta, mapeados: r.mapeados, gravados: r.gravados });
+      // Registrar SEMPRE: sem isto a licitação volta à fila no próximo ciclo,
+      // que é o laço que fez 1.249 coletas sobre 19 licitações (08/09/2026).
+      let estadoFinal = null;
+      try {
+        estadoFinal = await require('./licitanet-estado')
+          .registrar(cnpj, ano, sequencial, { gravados: r.gravados, itensAta: r.itensAta });
+      } catch (e) { console.error('[licitanet] falha ao registrar estado:', e.message); }
+      res.json({ ok: true, status: r.status, itensAta: r.itensAta, mapeados: r.mapeados,
+                 gravados: r.gravados, estado: estadoFinal });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+
+  // ─── Ponte de certidões: o Browser do cliente emite o que o servidor não ───
+  //
+  // A CND Federal é recusada quando pedida daqui (023/106 em toda combinação de
+  // perfil × IP medida). Quem emite é o Chrome da máquina do usuário, dirigido
+  // pelo LiciteAgora Browser >= 6.3.0. Estas duas rotas são a ponte:
+  // `pending` entrega o próximo pedido, `resultado` recebe o PDF.
+  //
+  // A fila vive no BANCO DO TENANT (`certidao-ponte.js`), não em memória como a
+  // ponte de captcha da BNC — a renovação diária roda em outro processo e um
+  // pedido em memória seria invisível para o Electron.
+
+  function _certAuth(req, res) {
+    const headerKey = req.headers['x-api-key'];
+    const expected = resolveApiKey(req);
+    if (!headerKey || !expected || headerKey !== expected) {
+      res.status(401).json({ error: 'X-Api-Key obrigatório' });
+      return null;
+    }
+    const tdb = req.tenantDb || db;
+    if (!tdb) { res.status(503).json({ error: 'banco do tenant indisponível' }); return null; }
+    return tdb;
+  }
+
+  app.get('/api/electron/certidao/pending', (req, res) => {
+    const tdb = _certAuth(req, res);
+    if (!tdb) return;
+    try {
+      const ponte = require('./certidao-ponte');
+      res.json(ponte.reservar(tdb) || {});
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/electron/certidao/resultado', async (req, res) => {
+    const tdb = _certAuth(req, res);
+    if (!tdb) return;
+    try {
+      const { id, estado, pdfBase64, erro } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'id obrigatório' });
+      const ponte = require('./certidao-ponte');
+      const r = await ponte.concluir(tdb, path.join(__dirname, 'public'), id, { estado, pdfBase64, erro });
+      res.status(r.ok ? 200 : 410).json(r);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/electron/certidao/stats', (req, res) => {
+    const tdb = _certAuth(req, res);
+    if (!tdb) return;
+    try {
+      const ponte = require('./certidao-ponte');
+      res.json({ fila: ponte.estatisticas(tdb) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+
+  // ─── Ponte de marca Comprasnet: o Browser coleta o que o servidor não pode ─
+  //
+  // A API `/itens/{n}/propostas` exige um token `P1_` cunhado por widget
+  // hCaptcha invisível; o servidor não cunha. O Browser cunha. Daí a ponte:
+  // `pending` entrega um lote de idCompra, `resultado` recebe as propostas.
+  //
+  // A fila vive no CATÁLOGO (PostgreSQL), não no banco do tenant — marca é dado
+  // compartilhado. Por isso estas rotas NÃO usam req.tenantDb.
+
+  function _marcaAuth(req, res) {
+    const headerKey = req.headers['x-api-key'];
+    const expected = resolveApiKey(req);
+    if (!headerKey || !expected || headerKey !== expected) {
+      res.status(401).json({ error: 'X-Api-Key obrigatório' });
+      return false;
+    }
+    return true;
+  }
+
+  app.get('/api/electron/marca/pending', async (req, res) => {
+    if (!_marcaAuth(req, res)) return;
+    try {
+      const ponte = require('./marca-comprasnet-ponte');
+      const n = Math.min(Number(req.query.n) || ponte.LOTE_PADRAO, 20);
+      res.json({ lote: await ponte.reservar(n) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/electron/marca/resultado', async (req, res) => {
+    if (!_marcaAuth(req, res)) return;
+    try {
+      const { id, ok, erro, itens } = req.body || {};
+      if (!id) return res.status(400).json({ error: 'id obrigatório' });
+      const ponte = require('./marca-comprasnet-ponte');
+      const r = await ponte.concluir(id, { ok, erro, itens });
+      res.status(r.ok ? 200 : 410).json(r);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/electron/marca/stats', async (req, res) => {
+    if (!_marcaAuth(req, res)) return;
+    try {
+      const ponte = require('./marca-comprasnet-ponte');
+      res.json({ fila: await ponte.estatisticas() });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
