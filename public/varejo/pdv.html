@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PDV · NFC-e · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
@@ -113,37 +114,22 @@
         <div class="total-row grande"><span>Total</span><strong id="tTotal">R$ 0,00</strong></div>
 
         <h3 style="margin-top:14px;">Forma de pagamento</h3>
-        <div class="pag-grid">
-          <div class="pag-opt" data-tpag="01" onclick="selPag('01')">💵 Dinheiro</div>
-          <div class="pag-opt" data-tpag="03" onclick="selPag('03')">💳 Cartão crédito</div>
-          <div class="pag-opt" data-tpag="04" onclick="selPag('04')">💳 Cartão débito</div>
-          <div class="pag-opt" data-tpag="17" onclick="selPag('17')">📱 PIX</div>
-        </div>
+        <!-- Os botões saem da política de prazo padrão do PDV (PDV · Config →
+             Financeiro › Políticas de prazo). Antes eram fixos no HTML. -->
+        <div class="pag-grid" id="pagGrid"></div>
         <!-- Por que uma forma está apagada: a política de prazo do consumidor
              identificado é que decide. Sem isto o operador só via o botão morto. -->
         <div id="pdvPolitica" style="margin-top:8px;display:none;"></div>
 
         <h3 style="margin-top:14px;">Consumidor (opcional)</h3>
         <div class="consumidor-row">
-          <div><label>CPF/CNPJ</label><input type="text" id="iCpf" placeholder="000.000.000-00" oninput="avaliarModeloDebounced()"></div>
+          <div><label>CPF/CNPJ</label><input type="text" id="iCpf" placeholder="000.000.000-00" oninput="atualizarConsumidorDebounced()"></div>
           <div><label>Nome</label><input type="text" id="iNome" placeholder="(opcional)"></div>
         </div>
-        <div style="font-size:0.78em;color:var(--text-2);margin-top:6px;">Obrigatório CPF se venda &gt; R$ 200 (NFC-e) ou sempre na NFe.</div>
+        <div style="font-size:0.78em;color:var(--text-2);margin-top:6px;">Obrigatório acima de R$ 200 — e em qualquer valor quando a natureza gera conta a receber.</div>
 
-        <h3 style="margin-top:14px;">Modelo fiscal</h3>
-        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:0.9em;">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-            <input type="radio" name="modeloFiscal" value="" checked onchange="onMudarModelo()"> Automático
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-            <input type="radio" name="modeloFiscal" value="65" onchange="onMudarModelo()"> NFC-e (65)
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-            <input type="radio" name="modeloFiscal" value="55" onchange="onMudarModelo()"> NFe (55)
-          </label>
-        </div>
-        <div id="modeloSelo" style="margin-top:8px;padding:8px 12px;background:var(--bg-1);border-left:3px solid var(--accent);border-radius:var(--r-sm);font-size:0.85em;">
-          → <span id="modeloTexto">NFC-e</span> <span id="modeloMotivos" style="color:var(--text-2);"></span>
+        <div id="naturezaSelo" style="margin-top:14px;padding:8px 12px;background:var(--bg-1);border-left:3px solid var(--accent);border-radius:var(--r-sm);font-size:0.85em;">
+          → NFC-e (modelo 65) <span id="naturezaTexto" style="color:var(--text-2);"></span>
         </div>
 
         <button class="btn-finalizar" id="btnFinalizar" onclick="finalizar()" disabled>Finalizar e emitir NFC-e</button>
@@ -331,22 +317,23 @@ function recalc(){
   const tot = Math.max(0, prodTot - desc);
   document.getElementById('tProdutos').textContent = 'R$ ' + fmt(prodTot);
   document.getElementById('tTotal').textContent = 'R$ ' + fmt(tot);
-  document.getElementById('btnFinalizar').disabled = !carrinho.length || tot <= 0;
-  avaliarModeloDebounced();
+  // Sem natureza configurada não há venda a fechar — renderNatureza() já desabilita
+  // o botão na carga, e aqui ele não pode voltar sozinho ao entrar item no carrinho.
+  document.getElementById('btnFinalizar').disabled = !carrinho.length || tot <= 0 || !PDV_NATUREZA;
+  atualizarConsumidorDebounced();
 }
 
 function selPag(t){
   tPagSel = t;
   document.querySelectorAll('.pag-opt').forEach(el => el.classList.toggle('selected', el.dataset.tpag === t));
-  avaliarModeloDebounced();
+  atualizarConsumidorDebounced();
 }
-// tmAval é declarado aqui, e não junto de avaliarModeloDebounced lá embaixo,
-// porque o selPag('01') da linha seguinte já dispara esse debounce: com o `let`
-// na declaração original o acesso caía em TDZ, a exceção abortava o resto deste
+// tmAval é declarado aqui, e não junto de atualizarConsumidorDebounced lá
+// embaixo, porque selPag() já dispara esse debounce antes: com o `let` na
+// declaração original o acesso caía em TDZ, a exceção abortava o resto deste
 // script e nada depois desta linha chegava a inicializar (inclusive a whitelist
 // de meios do consumidor).
 let tmAval;
-selPag('01');
 
 // ========== MEIOS ACEITOS PELO CLIENTE ==========
 // Consumidor identificado por CPF/CNPJ pode ter whitelist de meios no cadastro.
@@ -390,100 +377,89 @@ function aplicarMeiosPermitidos(){
   if (MEIOS_PERMITIDOS && !MEIOS_PERMITIDOS.includes(tPagSel) && primeiroLiberado) selPag(primeiroLiberado);
 }
 
-// ========== DEFAULTS DE CONFIG DO PDV ==========
-let PDV_CONFIG = { limiteNFCe: 10000, pdvModeloPadrao: '', pdvFormaPagamentoPadrao: '01', pdvExigirCpfSempre: 0, pdvExigirClienteCadastrado: 0 };
+// ========== CONFIG DO PDV: NATUREZA E POLÍTICA ==========
+// A natureza de operação decide CFOP, conta a receber e baixa de estoque; a
+// política de prazo padrão decide quais meios de pagamento o caixa oferece.
+// Ambas vêm de PDV · Config — o balcão não escolhe nenhuma das duas.
+let PDV_CONFIG = { pdvExigirCpfSempre: 0, pdvModoImpressao: 'nenhum' };
+let PDV_NATUREZA = null;
+let PDV_POLITICA = null;
+
+const MEIOS_PDV = {
+  '01': '💵 Dinheiro', '02': '📄 Cheque', '03': '💳 Cartão crédito', '04': '💳 Cartão débito',
+  '05': '🏷️ Crédito loja', '10': '🍽️ Vale alimentação', '11': '🍽️ Vale refeição',
+  '12': '🎁 Vale presente', '13': '⛽ Vale combustível', '14': '📄 Duplicata',
+  '15': '🧾 Boleto', '16': '🏦 Depósito', '17': '📱 PIX', '18': '🏦 Transferência',
+  '19': '📲 Carteira digital', '90': '🚫 Sem pagamento', '99': '❓ Outros'
+};
+// Sem política cadastrada o caixa segue oferecendo o quarteto de balcão.
+const MEIOS_PADRAO = ['01', '03', '04', '17'];
+
+function renderPagamentos(){
+  const meios = (PDV_POLITICA && PDV_POLITICA.meiosPermitidos && PDV_POLITICA.meiosPermitidos.length)
+    ? PDV_POLITICA.meiosPermitidos : MEIOS_PADRAO;
+  document.getElementById('pagGrid').innerHTML = meios.map(m =>
+    `<div class="pag-opt" data-tpag="${m}" onclick="selPag('${m}')">${MEIOS_PDV[m] || m}</div>`).join('');
+  selPag(meios.includes(tPagSel) ? tPagSel : meios[0]);
+  aplicarMeiosPermitidos();
+}
+
+function renderNatureza(){
+  const alvo = document.getElementById('naturezaTexto');
+  const btn = document.getElementById('btnFinalizar');
+  if (!PDV_NATUREZA) {
+    alvo.innerHTML = '<strong style="color:var(--warn);">· natureza de operação não configurada — ' +
+      '<a href="/varejo/pdv-config.html" style="color:var(--warn);">defina em PDV · Config</a></strong>';
+    document.getElementById('naturezaSelo').style.borderLeftColor = 'var(--warn)';
+    btn.disabled = true;
+    return;
+  }
+  const efeitos = [];
+  if (PDV_NATUREZA.cfopInterno) efeitos.push('CFOP ' + PDV_NATUREZA.cfopInterno);
+  if (Number(PDV_NATUREZA.geraFinanceiro)) efeitos.push('gera conta a receber');
+  if (Number(PDV_NATUREZA.movimentaEstoque)) efeitos.push('baixa estoque');
+  if (PDV_POLITICA) efeitos.push(PDV_POLITICA.nome);
+  alvo.textContent = `· ${PDV_NATUREZA.descricao}${efeitos.length ? ' · ' + efeitos.join(' · ') : ''}`;
+}
+
 async function carregarPdvConfig(){
   try {
     const r = await fetch('/api/pdv/config');
     const d = await r.json();
     if (d.success) {
       PDV_CONFIG = d.config;
-      // Aplica forma de pagamento padrão
-      selPag(PDV_CONFIG.pdvFormaPagamentoPadrao || '01');
-      // Aplica modelo padrão (marca o radio)
-      const sel = document.querySelector(`input[name="modeloFiscal"][value="${PDV_CONFIG.pdvModeloPadrao||''}"]`);
-      if (sel) sel.checked = true;
+      PDV_NATUREZA = d.natureza || null;
+      PDV_POLITICA = d.politica || null;
     }
   } catch (_) { /* usa defaults */ }
+  renderPagamentos();
+  renderNatureza();
 }
 carregarPdvConfig();
 
-// ========== MODELO FISCAL (NFC-e 65 vs NFe 55) ==========
-function modeloForcado(){
-  const sel = document.querySelector('input[name="modeloFiscal"]:checked');
-  return sel ? sel.value : '';
+// Só o consumidor muda o que está na tela depois da carga: a whitelist de meios
+// do CPF digitado. O debounce existe para não consultar a cada tecla.
+function atualizarConsumidorDebounced(){
+  clearTimeout(tmAval);
+  tmAval = setTimeout(() => atualizarMeiosPermitidos(val('iCpf').replace(/\D/g, '')), 250);
 }
 
-function avaliarModeloDebounced(){ clearTimeout(tmAval); tmAval = setTimeout(avaliarModelo, 250); }
-
-async function avaliarModelo(){
-  const forcado = modeloForcado();
-  const prodTot = carrinho.reduce((s, it) => s + it.quantidade * it.precoUnitario, 0);
-  const desc = parseFloat(val('iDesconto')) || 0;
-  const tot = +(prodTot - desc).toFixed(2);
-  const cpf = val('iCpf').replace(/\D/g,'');
-  atualizarMeiosPermitidos(cpf);
-
-  // Se forçado, não precisa avaliar
-  if (forcado === '65' || forcado === '55') {
-    atualizarSelo(forcado, [`forçado manualmente`]);
-    return;
-  }
-
-  try {
-    const r = await fetch('/api/pdv/avaliar-modelo', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        consumidorCpfCnpj: cpf || null,
-        valorTotal: tot,
-        valorDesconto: desc,
-        itens: carrinho.map(it => ({ valorTotal: it.quantidade * it.precoUnitario })),
-        pagamentos: [{ tPag: tPagSel, valor: tot }],
-      })
-    });
-    const d = await r.json();
-    if (d.success) atualizarSelo(d.modelo, d.motivos);
-  } catch (_) {}
-}
-
-function atualizarSelo(modelo, motivos){
-  const txt = document.getElementById('modeloTexto');
-  const mot = document.getElementById('modeloMotivos');
-  const btn = document.getElementById('btnFinalizar');
-  const selo = document.getElementById('modeloSelo');
-  if (modelo === '55') {
-    txt.textContent = 'NFe (modelo 55)';
-    btn.textContent = carrinho.length && (parseFloat(val('iDesconto'))||0) >= 0 ? 'Finalizar e emitir NFe' : 'Finalizar e emitir NFe';
-    selo.style.borderLeftColor = 'var(--warn)';
-  } else {
-    txt.textContent = 'NFC-e (modelo 65)';
-    btn.textContent = 'Finalizar e emitir NFC-e';
-    selo.style.borderLeftColor = 'var(--accent)';
-  }
-  mot.textContent = motivos && motivos.length ? `· ${motivos.join(' · ')}` : '';
-}
-
-function onMudarModelo(){ avaliarModelo(); }
-// Avaliação inicial
-setTimeout(avaliarModelo, 100);
 
 async function finalizar(){
   const prodTot = carrinho.reduce((s, it) => s + it.quantidade * it.precoUnitario, 0);
   const desc = parseFloat(val('iDesconto')) || 0;
   const tot = +(prodTot - desc).toFixed(2);
   const cpf = val('iCpf').replace(/\D/g,'');
-  const forcado = modeloForcado();
 
-  // Avalia modelo que será usado se automático
-  const modeloTexto = document.getElementById('modeloTexto').textContent;
-  const serNFe = forcado === '55' || (!forcado && modeloTexto.includes('NFe'));
-
-  if (serNFe && !cpf) return showAlert('NFe exige CPF/CNPJ do consumidor', 'error');
-  if (!serNFe && tot > 200 && !cpf) return showAlert('CPF/CNPJ obrigatório para NFC-e > R$ 200', 'error');
+  if (!PDV_NATUREZA) return showAlert('Natureza de operação não configurada — defina em PDV · Config', 'error');
+  if (tot > 200 && !cpf) return showAlert('CPF/CNPJ obrigatório para NFC-e > R$ 200', 'error');
   if (PDV_CONFIG.pdvExigirCpfSempre && !cpf) return showAlert('CPF/CNPJ obrigatório (config do PDV)', 'error');
+  // A conta a receber precisa de alguém a quem cobrar — o servidor recusa igual.
+  if (Number(PDV_NATUREZA.geraFinanceiro) && !cpf) {
+    return showAlert(`CPF/CNPJ obrigatório: a natureza "${PDV_NATUREZA.descricao}" gera conta a receber`, 'error');
+  }
 
   const body = {
-    modeloForcado: forcado || undefined,
     itens: carrinho.map(it => ({
       produtoId: it.produtoId, sku: it.sku, descricao: it.descricao,
       unidade: it.unidade, quantidade: it.quantidade,
@@ -499,7 +475,7 @@ async function finalizar(){
   const btn = document.getElementById('btnFinalizar');
   const txtOriginal = btn.textContent;
   btn.disabled = true;
-  btn.textContent = serNFe ? 'Emitindo NFe… (pode levar até 30s)' : 'Emitindo NFC-e…';
+  btn.textContent = 'Emitindo NFC-e…';
   try {
     const r = await fetch('/api/pdv/finalizar', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -507,20 +483,8 @@ async function finalizar(){
     });
     const d = await r.json();
     if (!d.success) throw new Error(d.error || `cStat ${d.cStat||'?'}: ${d.xMotivo||''}`);
-
-    if (d.modelo === '55') {
-      // NFe SEFAZ — checa cStat 100 no retorno do SVRS
-      const sefaz = d.sefaz || {};
-      const cStat = sefaz.cStat || sefaz.protocolo?.cStat;
-      if (cStat && String(cStat) !== '100') {
-        throw new Error(`NFe rejeitada: cStat ${cStat} · ${sefaz.xMotivo || ''}`);
-      }
-      mostrarSucesso({ ...d, tipo: 'NFe', chaveAcesso: sefaz.chaveAcesso || d.chaveAcesso });
-    } else {
-      // NFC-e
-      if (d.cStat !== '100' && d.cStat !== '150') throw new Error(`Rejeitada: cStat ${d.cStat} · ${d.xMotivo}`);
-      mostrarSucesso(d);
-    }
+    if (d.cStat !== '100' && d.cStat !== '150') throw new Error(`Rejeitada: cStat ${d.cStat} · ${d.xMotivo}`);
+    mostrarSucesso(d);
   } catch (e) {
     showAlert('Erro: ' + e.message, 'error');
     btn.textContent = txtOriginal;

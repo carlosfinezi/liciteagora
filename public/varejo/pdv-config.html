@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PDV · Configurações · Licite Agora</title>
+<script src="/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 </head>
@@ -13,7 +14,7 @@
   <div class="page-header">
     <div>
       <h1>PDV · Configurações</h1>
-      <small>Comportamento do caixa — modelo fiscal automático, limites e preferências</small>
+      <small>Comportamento do caixa — natureza de operação, condição de pagamento e comprovante</small>
     </div>
     <div class="actions">
       <a href="/fiscal/configuracao.html" class="btn btn-ghost btn-sm">🧮 NFC-e · Config</a>
@@ -25,28 +26,19 @@
   <div id="alertGlobal"></div>
 
   <div class="panel">
-    <h3>Decisão automática de modelo fiscal</h3>
-    <small class="muted">Quando "Automático" está ativo no PDV, o sistema escolhe NFC-e ou NFe com base nestas regras.</small>
+    <h3>Natureza e condição de pagamento</h3>
+    <small class="muted">O PDV emite sempre NFC-e (modelo 65). O que a venda movimenta além do cupom sai daqui.</small>
 
     <div class="form-row" style="margin-top:14px;">
       <div class="form-group">
-        <label>Limite para NFC-e (R$)</label>
-        <input type="number" id="cfgLimite" step="0.01" min="0">
-        <small class="muted">Vendas acima deste valor disparam NFe automaticamente.</small>
+        <label>Natureza de operação *</label>
+        <select id="cfgNatureza" onchange="mostrarEfeitos()"></select>
+        <small id="hintNatureza" class="muted">Decide o CFOP da NFC-e, a conta a receber e a baixa de estoque.</small>
       </div>
       <div class="form-group">
-        <label>Modelo padrão no PDV</label>
-        <select id="cfgModelo">
-          <option value="">Automático (recomendado)</option>
-          <option value="65">NFC-e (65) — fixo</option>
-          <option value="55">NFe (55) — fixo</option>
-        </select>
-        <small class="muted">Qual radio vem pré-selecionado ao abrir o PDV.</small>
-      </div>
-      <div class="form-group">
-        <label>Forma de pagamento padrão</label>
-        <select id="cfgFormaPag"></select>
-        <small class="muted">Qual botão já vem selecionado ao abrir o PDV.</small>
+        <label>Política de prazo padrão</label>
+        <select id="cfgPolitica" onchange="mostrarPolitica()"></select>
+        <small id="hintPolitica" class="muted">Define os meios de pagamento oferecidos no caixa e o vencimento das parcelas.</small>
       </div>
     </div>
 
@@ -80,35 +72,9 @@
 
     <div class="form-row">
       <div class="form-group full-width">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-          <input type="checkbox" id="cfgExigirCadastro" style="width:auto;transform:scale(1.15);">
-          <span>Exigir cliente já cadastrado para emitir NFe</span>
-        </label>
-        <small class="muted" style="margin-left:30px;">Se ON, bloqueia a emissão de NFe para CPFs que não existem em /pessoas (evita cadastros incompletos). Se OFF (default), o PDV auto-cria pessoa com dados mínimos.</small>
+        <small class="muted">Natureza que gera conta a receber exige CPF/CNPJ em qualquer valor — a conta precisa de uma pessoa a quem cobrar.</small>
       </div>
     </div>
-  </div>
-
-  <div class="panel" style="margin-top:16px;">
-    <h3>Simulador</h3>
-    <small class="muted">Teste o que o PDV decidiria para um cenário hipotético sem emitir nada.</small>
-
-    <div class="form-row" style="margin-top:10px;">
-      <div class="form-group">
-        <label>CPF/CNPJ do consumidor</label>
-        <input type="text" id="simCpf" placeholder="opcional">
-      </div>
-      <div class="form-group">
-        <label>Valor total (R$)</label>
-        <input type="number" id="simValor" step="0.01" min="0" value="100">
-      </div>
-      <div class="form-group" style="flex:0 0 auto;">
-        <label>&nbsp;</label>
-        <button class="btn btn-primary" onclick="simular()">Simular</button>
-      </div>
-    </div>
-
-    <div id="simResult" style="display:none;margin-top:10px;padding:10px 14px;border-radius:var(--r-sm);background:var(--bg-1);border-left:3px solid var(--accent);"></div>
   </div>
 
   <div style="margin-top:16px;display:flex;gap:10px;">
@@ -127,18 +93,67 @@ function showAlert(m, t='success'){
   e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
   setTimeout(()=>e.style.display='none', 5000);
 }
-function fmtBRL(v){ return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+const MEIOS_NOME = {
+  '01':'Dinheiro','02':'Cheque','03':'Cartão de crédito','04':'Cartão de débito',
+  '05':'Crédito loja','10':'Vale alimentação','11':'Vale refeição','12':'Vale presente',
+  '13':'Vale combustível','14':'Duplicata mercantil','15':'Boleto','16':'Depósito',
+  '17':'PIX','18':'Transferência','19':'Carteira digital','90':'Sem pagamento','99':'Outros'
+};
 
-const MEIOS_PAGAMENTO = [
-  ['01','Dinheiro'],['02','Cheque'],['03','Cartão de crédito'],['04','Cartão de débito'],
-  ['05','Crédito loja'],['10','Vale alimentação'],['11','Vale refeição'],['12','Vale presente'],
-  ['13','Vale combustível'],['14','Duplicata mercantil'],['15','Boleto bancário'],['16','Depósito bancário'],
-  ['17','PIX'],['18','Transferência bancária'],['19','Carteira digital'],['90','Sem pagamento'],['99','Outros']
-];
+let NATUREZAS = [];
+let POLITICAS = [];
 
-function popularFormasPag(atual){
-  document.getElementById('cfgFormaPag').innerHTML = MEIOS_PAGAMENTO.map(([v,l]) =>
-    `<option value="${v}" ${v===atual?'selected':''}>${v} · ${l}</option>`).join('');
+// A natureza do balcão é venda ao consumidor: só faz sentido oferecer as saídas
+// que emitem documento fiscal. Devolução, serviço e documento interno ficam de fora.
+const CATEGORIAS_PDV = ['venda', 'bonificacao'];
+
+async function popularNaturezas(atual){
+  const r = await fetch('/api/tipos-operacao');
+  const d = await r.json();
+  NATUREZAS = (d.tipos || []).filter(t =>
+    Number(t.emiteNFe) && CATEGORIAS_PDV.includes(t.categoriaOperacao));
+  document.getElementById('cfgNatureza').innerHTML =
+    '<option value="">Selecione…</option>' + NATUREZAS.map(t =>
+      `<option value="${t.id}" ${String(t.id)===String(atual)?'selected':''}>${t.descricao}</option>`).join('');
+  mostrarEfeitos();
+}
+
+// Fonte das condições de pagamento: as políticas marcadas para o PDV em
+// Financeiro › Políticas de prazo. Antes esta tela tinha um array fixo de tPag.
+async function popularPoliticas(atual){
+  const r = await fetch('/api/politicas-prazo/aplicaveis?onde=pdv');
+  const d = await r.json();
+  POLITICAS = d.politicas || [];
+  document.getElementById('cfgPolitica').innerHTML =
+    '<option value="">Nenhuma (à vista, todos os meios)</option>' + POLITICAS.map(p =>
+      `<option value="${p.id}" ${String(p.id)===String(atual)?'selected':''}>${p.nome}</option>`).join('');
+  mostrarPolitica();
+}
+
+function mostrarEfeitos(){
+  const t = NATUREZAS.find(n => String(n.id) === document.getElementById('cfgNatureza').value);
+  const hint = document.getElementById('hintNatureza');
+  if (!t) { hint.textContent = 'Decide o CFOP da NFC-e, a conta a receber e a baixa de estoque.'; return; }
+  const efeitos = [];
+  if (t.cfopInterno) efeitos.push('CFOP ' + t.cfopInterno);
+  efeitos.push(Number(t.geraFinanceiro) ? 'gera conta a receber (exige CPF)' : 'sem conta a receber');
+  efeitos.push(Number(t.movimentaEstoque) ? 'baixa estoque' : 'não mexe no estoque');
+  hint.textContent = efeitos.join(' · ');
+}
+
+function mostrarPolitica(){
+  const p = POLITICAS.find(x => String(x.id) === document.getElementById('cfgPolitica').value);
+  const hint = document.getElementById('hintPolitica');
+  if (!p) {
+    hint.textContent = 'Sem política: o caixa oferece todos os meios e a conta a receber vence no dia da venda.';
+    return;
+  }
+  const meios = p.meiosPermitidos ? JSON.parse(p.meiosPermitidos) : null;
+  const partes = [p.tipo === 'prazo' ? `parcelas em ${p.prazoDias} dias` : 'à vista'];
+  partes.push(meios && meios.length
+    ? 'meios: ' + meios.map(m => MEIOS_NOME[m] || m).join(', ')
+    : 'todos os meios');
+  hint.textContent = partes.join(' · ');
 }
 
 async function carregar(){
@@ -147,22 +162,22 @@ async function carregar(){
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     const c = d.config;
-    document.getElementById('cfgLimite').value = c.limiteNFCe;
-    document.getElementById('cfgModelo').value = c.pdvModeloPadrao || '';
-    popularFormasPag(c.pdvFormaPagamentoPadrao || '01');
+    await Promise.all([
+      popularNaturezas(c.pdvTipoOperacaoId),
+      popularPoliticas(c.pdvPoliticaPrazoId),
+    ]);
     document.getElementById('cfgExigirCpf').checked = !!c.pdvExigirCpfSempre;
-    document.getElementById('cfgExigirCadastro').checked = !!c.pdvExigirClienteCadastrado;
     document.getElementById('cfgModoImp').value = c.pdvModoImpressao || 'nenhum';
   } catch(e) { showAlert('Erro ao carregar: '+e.message, 'error'); }
 }
 
 async function salvar(){
+  const natureza = document.getElementById('cfgNatureza').value;
+  if (!natureza) return showAlert('Escolha a natureza de operação — sem ela o PDV não emite.', 'error');
   const body = {
-    limiteNFCe: parseFloat(document.getElementById('cfgLimite').value) || 10000,
-    pdvModeloPadrao: document.getElementById('cfgModelo').value,
-    pdvFormaPagamentoPadrao: document.getElementById('cfgFormaPag').value,
+    pdvTipoOperacaoId: Number(natureza),
+    pdvPoliticaPrazoId: Number(document.getElementById('cfgPolitica').value) || null,
     pdvExigirCpfSempre: document.getElementById('cfgExigirCpf').checked ? 1 : 0,
-    pdvExigirClienteCadastrado: document.getElementById('cfgExigirCadastro').checked ? 1 : 0,
     pdvModoImpressao: document.getElementById('cfgModoImp').value,
   };
   try {
@@ -174,38 +189,6 @@ async function salvar(){
     if (!d.success) throw new Error(d.error);
     showAlert('Configurações salvas', 'success');
   } catch(e) { showAlert('Erro: '+e.message, 'error'); }
-}
-
-async function simular(){
-  const cpf = document.getElementById('simCpf').value.replace(/\D/g, '');
-  const valor = parseFloat(document.getElementById('simValor').value) || 0;
-  try {
-    const r = await fetch('/api/pdv/avaliar-modelo', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        consumidorCpfCnpj: cpf || null,
-        valorTotal: valor,
-        itens: [{ valorTotal: valor }],
-        pagamentos: [{ tPag: '01', valor }]
-      })
-    });
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error);
-    const box = document.getElementById('simResult');
-    const modeloLabel = d.modelo === '55' ? 'NFe (modelo 55)' : 'NFC-e (modelo 65)';
-    const corBorder = d.modelo === '55' ? 'var(--warn)' : 'var(--success)';
-    box.style.borderLeftColor = corBorder;
-    box.style.display = 'block';
-    box.innerHTML = `
-      <div><strong>→ ${modeloLabel}</strong></div>
-      <div style="color:var(--text-2);font-size:0.88em;margin-top:4px;">
-        ${d.motivos && d.motivos.length ? '🏷️ ' + d.motivos.join(' · ') : '✓ Critérios padrão (venda varejo)'}
-      </div>
-      <div style="color:var(--text-3);font-size:0.8em;margin-top:6px;">
-        Limite NFC-e: ${fmtBRL(d.limiteNFCe)} · Valor simulado: ${fmtBRL(d.valorTotal)} · UF emitente: ${d.ufEmitente||'—'} · UF destino: ${d.ufDestinatario||'(não cadastrado)'}
-      </div>
-    `;
-  } catch(e) { showAlert('Erro na simulação: '+e.message, 'error'); }
 }
 
 carregar();
