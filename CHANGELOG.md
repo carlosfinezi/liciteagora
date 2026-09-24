@@ -4,6 +4,92 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-24
+
+Três defeitos das recorrências de NFS-e, achados ao preparar a gravação do
+vídeo de faturamento recorrente no tenant `sandbox`.
+
+### O cliente recebia o e-mail da nota em dobro
+
+`emitirNfseInterno` manda o DANFSE ao tomador sempre que a nota é autorizada,
+e a recorrência mandava o dela em seguida. Com "Enviar por e-mail" marcado
+saíam dois e-mails; desmarcado, saía um mesmo assim. A emissão ganhou a opção
+`enviarEmailTomador`, ligada por padrão, e a recorrência a desliga: quem decide
+é a caixa dela, e o e-mail é um só, com a nota e o boleto. A emissão avulsa e a
+da OS não mudam.
+
+### A conta nascia vencida quando executada depois do dia
+
+O vencimento era sempre o dia escolhido dentro do mês da competência.
+Executada no dia 24, uma recorrência com vencimento dia 10 gerava conta e
+boleto vencidos no próprio dia. Agora, se o dia já passou na data da execução,
+o vencimento vai para o mesmo dia do mês seguinte (`vencimentoDaCompetencia`).
+Vale para o botão, para o ▶ de cada linha e para o agendamento do dia 1. De
+passagem: dia 31 num mês de 30 gerava uma data inexistente; agora cai no último
+dia do mês.
+
+### "Executar todas" roda em segundo plano, com andamento na tela
+
+Era um POST só, que esperava todas terminarem. Com centenas de recorrências
+estouraria o timeout do proxy, e a tela não dizia nada enquanto isso. Agora o
+POST responde na hora e a tela mostra "x de N" consultando
+`GET /api/recorrencias/execucao`. No fim diz quantas foram emitidas, quantas
+falharam e quantas já estavam emitidas, e recarrega a lista. Quem abre a tela
+com uma execução em andamento vê o andamento dela.
+
+- **Uma execução por tenant.** O botão roda no `server.js` e o agendamento no
+  `scheduler.js`, que são processos diferentes. Por isso a trava fica no banco
+  do tenant (`config.recorrencias_lote`), e não em memória. Segundo clique
+  recebe 409 com o andamento da que está rodando; o agendamento não inicia
+  outra por cima.
+- **A trava vence em 15 minutos sem avanço**, para um restart no meio não
+  travar o tenant. Quem perde a trava por vencimento para, e grava o andamento
+  só se a trava ainda for sua. Sem essa conferência, a execução antiga
+  sobrescrevia o estado da nova, e a nova se achava a perdedora e parava.
+- **Emissão em andamento não é refeita.** Um log "processando" de menos de 15
+  minutos é de outra execução viva; antes, o ▶ da linha durante o lote apagava
+  esse log e emitia a mesma nota de novo.
+- **O erro da última execução aparece na lista.** Era gravado e não aparecia.
+
+A suíte é a etapa 131 do verify (`test-recorrencia-lote.js`). Ela roda a
+emissão real com SEFIN, assinatura e e-mail trocados, e conta os e-mails que
+sairiam. Reintroduzido cada defeito, ela reprova.
+
+A suíte nova passa com 21 casos, e as suítes de recorrência e contrato que já
+existiam (etapas 28, 102, 104, 107 e 108) continuam verdes.
+
+### Pendências declaradas no fechamento
+
+**O restart não foi feito, e este código ainda não roda.** A tela
+(`public/`) já está no ar; o backend entra no restart dos dois serviços. Até
+lá, "Executar todas" emite normalmente pelo servidor antigo, mas a tela nova
+mostra "Sem resposta do servidor" no lugar do resultado. O restart ficou
+parado porque outra sessão está editando, sem commit, o sync do PNCP
+(`pncp-sync-scheduler.js` e `verificacao-lacunas.js`, +535 −131 linhas,
+alterados às 09:45 de hoje), e os dois serviços carregam esses arquivos:
+reiniciar poria no ar o trabalho dela pela metade.
+
+O verify não fechou verde: **16 problemas em 3.690 s**, com a máquina em load
+average entre 7 e 11. A etapa desta mudança passou (21 ok). Nenhuma das 16
+falhas é daqui, e todas estão em arquivos que não entram neste commit:
+
+- etapa 5 (`test-tema-global`): `public/comunicacao/campanha.html` sem o
+  `theme-boot` antes do CSS. Arquivo fora do Git, da frente de campanhas (18/09).
+- etapa 19 (`test-catalogo-online`): o mapa de RBAC tem 178 prefixos e a suíte
+  espera 176. `perfis-api-map.js` ganhou `/api/roteiros` e `/api/visitas` em
+  18/09, sem commit.
+- etapa 21 (`test-catalogo-online-ux`): o menu Configurações tem 7 opções e a
+  suíte espera 6. `menu-config.js` e `sidebar.js` estão alterados por outras
+  frentes.
+- etapas 14 e 15 (orçamento responsivo): passaram na primeira rodada do dia e
+  falharam na segunda, sem arquivo delas alterado. Medição de layout sob carga,
+  com outras sessões usando Chrome na máquina.
+- etapa do RBAC inalterado (2 falhas): o mesmo mapa com 178 prefixos.
+- etapa 93 (`test-provisionamento-tenant-novo`, 6 falhas em cascata): a suíte
+  grava no banco real do `sandbox5` e gera o CPF do cliente variando um único
+  dígito; rodadas anteriores já ocuparam o número, a criação dá 409 e
+  confirmação, reserva, entrega e faturamento caem atrás dela.
+
 ## 2026-09-17 (tarde)
 
 **O contrato passa a faturar por nota avulsa.** Até aqui o bloco "Faturamento"

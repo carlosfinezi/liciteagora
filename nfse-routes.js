@@ -443,6 +443,9 @@ function limparCacheMunicipio(db, codMunicipio) {
  */
 async function emitirNfseInterno(db, params) {
   const { tomador, servico, competencia, incluirIM, opSimpNac, regEspTrib, pTotTribSN, gerarBoleto, dataVencimentoBoleto, osId, contratoId, contaFinanceiraId } = params;
+  // Falso quando quem chama manda o próprio e-mail (a recorrência, que obedece
+  // à caixa dela). A emissão avulsa e a da OS seguem mandando daqui.
+  const enviarEmailTomador = params.enviarEmailTomador !== false;
 
   // Validacoes
   if (!tomador || !tomador.cpfCnpj || !tomador.razaoSocial) {
@@ -708,12 +711,14 @@ async function emitirNfseInterno(db, params) {
       // Envia DANFSE + boleto por email ao tomador (mesmo fluxo da recorrência).
       // A emissão avulsa NÃO fazia isso — só a recorrência enviava (gap corrigido 2026-07-01).
       // Não-fatal: falha de email não invalida a emissão.
-      try {
-        const rEmail = await enviarEmailDaNfse(db, nfseId, { client, boleto: boletoCriado });
-        if (rEmail && !rEmail.success) console.warn(`[NFSe->Email] NFSe #${nfseId} não enviada:`, rEmail.error);
-        else console.log(`[NFSe->Email] NFSe #${nfseId} enviada ao tomador (pdf=${rEmail?.temPdf}, boleto=${rEmail?.temBoleto})`);
-      } catch (emailErr) {
-        console.error('[NFSe->Email] Erro (não-fatal):', emailErr.message);
+      if (enviarEmailTomador) {
+        try {
+          const rEmail = await enviarEmailDaNfse(db, nfseId, { client, boleto: boletoCriado });
+          if (rEmail && !rEmail.success) console.warn(`[NFSe->Email] NFSe #${nfseId} não enviada:`, rEmail.error);
+          else console.log(`[NFSe->Email] NFSe #${nfseId} enviada ao tomador (pdf=${rEmail?.temPdf}, boleto=${rEmail?.temBoleto})`);
+        } catch (emailErr) {
+          console.error('[NFSe->Email] Erro (não-fatal):', emailErr.message);
+        }
       }
     }
 

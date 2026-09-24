@@ -9,6 +9,8 @@
     <link rel="stylesheet" href="/css/app-modern.css">
     <style>
         .valor-display { font-size: 1.1em; font-weight: 700; color: var(--accent); }
+        .erro-rec { color: var(--danger); font-size: 0.85em; margin-top: 4px; max-width: 280px; }
+        .emissao-andamento { color: var(--muted); font-size: 0.85em; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -21,11 +23,12 @@
           </div>
           <div class="actions">
             <button class="btn btn-primary btn-sm" onclick="abrirNova()">+ Nova recorrência</button>
-            <button class="btn btn-secondary btn-sm" onclick="executarTodas()">⚡ Executar todas (mês atual)</button>
+            <button class="btn btn-secondary btn-sm" id="btnExecutarTodas" onclick="executarTodas()">⚡ Executar todas (mês atual)</button>
           </div>
         </div>
 
         <div id="alertBox"></div>
+        <div id="progressoLote" style="display:none;"></div>
 
         <div class="tabs">
             <button class="tab active" data-tab="lista">Recorrências</button>
@@ -166,7 +169,7 @@ async function carregarRecorrencias() {
                 <td class="valor-display">${formatMoney(r.valorServico)}</td>
                 <td><span class="badge ${r.gerarBoleto ? 'sim' : 'nao'}">${r.gerarBoleto ? 'Sim' : 'Nao'}</span></td>
                 <td><span class="badge ${r.enviarEmail ? 'sim' : 'nao'}">${r.enviarEmail ? 'Sim' : 'Nao'}</span></td>
-                <td>${r.ultimaEmissao || '-'}</td>
+                <td>${r.ultimaEmissao || '-'}${situacaoUltimaExecucao(r)}</td>
                 <td><span class="badge ${r.ativo ? 'ativo' : 'inativo'}">${r.ativo ? 'Ativo' : 'Inativo'}</span></td>
                 <td style="text-align:right;white-space:nowrap;">
                     <button class="btn btn-ghost btn-sm" style="color:var(--success);" onclick="executarUma(${r.id})" title="Executar agora">▶</button>
@@ -196,18 +199,113 @@ async function executarUma(id) {
     }
 }
 
+// A última execução desta recorrência, quando não deu certo. O erro era gravado
+// e não aparecia em lugar nenhum da tela.
+function situacaoUltimaExecucao(r) {
+    const comp = r.ultimaCompetencia ? mesAno(r.ultimaCompetencia) : '';
+    if (r.ultimoStatus === 'erro') {
+        return `<div class="erro-rec">Falhou em ${comp}: ${esc(r.ultimoErro || 'sem detalhe')}</div>`;
+    }
+    if (r.ultimoStatus === 'processando') {
+        return `<div class="emissao-andamento">Emitindo ${comp}</div>`;
+    }
+    return '';
+}
+
+// ==================== EXECUTAR TODAS (EM SEGUNDO PLANO) ====================
+// O POST só inicia a execução e responde na hora. O andamento vem de
+// /api/recorrencias/execucao, consultado até terminar.
+const INTERVALO_ANDAMENTO_MS = 1000;
+let acompanhando = false;
+
+function mesAno(comp) { const [a, m] = String(comp || '').split('-'); return m ? `${m}/${a}` : comp; }
+
+// fetch com prazo: sem ele uma resposta que não chega deixaria a tela
+// "executando" para sempre.
+async function buscarJson(url, opts = {}) {
+    const ctrl = new AbortController();
+    const prazo = setTimeout(() => ctrl.abort(), 15000);
+    try {
+        const resp = await fetch(url, { ...opts, signal: ctrl.signal });
+        return { status: resp.status, data: await resp.json() };
+    } finally { clearTimeout(prazo); }
+}
+
+function mostrarLote(texto, tipo) {
+    const box = document.getElementById('progressoLote');
+    box.className = 'alert ' + tipo;
+    box.textContent = texto;
+    box.style.display = 'block';
+}
+
+function resultadoLote(e) {
+    const comp = mesAno(e.competencia);
+    if (e.status === 'rodando') {
+        return { tipo: 'warn', texto: `A execução de ${comp} parou em ${e.processadas} de ${e.total} sem terminar. Execute de novo para continuar: as já emitidas não se repetem.` };
+    }
+    if (e.status === 'erro') {
+        return { tipo: 'error', texto: `A execução de ${comp} foi interrompida em ${e.processadas} de ${e.total}: ${e.erro || 'erro desconhecido'}.` };
+    }
+    const partes = [`${e.sucesso} ${e.sucesso === 1 ? 'emitida' : 'emitidas'}`];
+    if (e.jaEmitidas) partes.push(`${e.jaEmitidas} já ${e.jaEmitidas === 1 ? 'estava emitida' : 'estavam emitidas'}`);
+    partes.push(`${e.falha} com falha`);
+    const lista = partes.length > 2 ? partes.slice(0, -1).join(', ') + ' e ' + partes.at(-1) : partes.join(' e ');
+    return { tipo: e.falha ? 'error' : 'success', texto: `Execução de ${comp} concluída: ${lista}.` };
+}
+
+async function acompanharLote(estado) {
+    if (acompanhando) return;
+    acompanhando = true;
+    const botao = document.getElementById('btnExecutarTodas');
+    botao.disabled = true;
+    let e = estado, emAndamento = true, falhasSeguidas = 0;
+    try {
+        while (emAndamento) {
+            if (e) mostrarLote(`Emitindo as recorrências de ${mesAno(e.competencia)}: ${e.processadas} de ${e.total}`, 'info');
+            await new Promise(r => setTimeout(r, INTERVALO_ANDAMENTO_MS));
+            try {
+                const { data } = await buscarJson('/api/recorrencias/execucao');
+                if (!data.success) throw new Error(data.error);
+                e = data.execucao; emAndamento = data.emAndamento; falhasSeguidas = 0;
+            } catch (err) {
+                // A execução segue no servidor: uma consulta perdida não a interrompe.
+                if (++falhasSeguidas >= 5) {
+                    mostrarLote('Sem resposta do servidor sobre o andamento. A execução continua; recarregue a página para acompanhar.', 'warn');
+                    return;
+                }
+            }
+        }
+        const r = resultadoLote(e);
+        mostrarLote(r.texto, r.tipo);
+        carregarRecorrencias();
+    } finally {
+        acompanhando = false;
+        botao.disabled = false;
+    }
+}
+
 async function executarTodas() {
     if (!confirm('Executar TODAS as recorrencias ativas para o mes atual?')) return;
     try {
-        showAlert('Executando todas...', 'info');
-        const resp = await fetch('/api/recorrencias/executar', { method: 'POST' });
-        const data = await resp.json();
-        if (!data.success) throw new Error(data.error);
-        showAlert('Execucao concluida!', 'success');
-        carregarRecorrencias();
+        const { status, data } = await buscarJson('/api/recorrencias/executar', { method: 'POST' });
+        if (status === 409) {
+            // Já há uma rodando (outro clique ou o agendamento): acompanha essa.
+            showAlert(data.error, 'info');
+        } else if (!data.success) {
+            throw new Error(data.error);
+        }
+        acompanharLote(data.execucao);
     } catch (err) {
         showAlert('Erro: ' + err.message, 'error');
     }
+}
+
+// Quem abre a tela com uma execução em andamento vê o andamento dela.
+async function retomarLoteEmAndamento() {
+    try {
+        const { data } = await buscarJson('/api/recorrencias/execucao');
+        if (data.success && data.emAndamento) acompanharLote(data.execucao);
+    } catch { /* sem andamento para mostrar */ }
 }
 
 
@@ -224,6 +322,7 @@ function formatDoc(d) {
 
 // ==================== INIT ====================
 carregarRecorrencias();
+retomarLoteEmAndamento();
 // ==================== CRIAR / EDITAR / EXCLUIR ====================
 // A tela so executava. O backend ja tinha POST/PUT/DELETE, e o contrato
 // mandava "Criar nova" para ca — sem botao nenhum aqui, o caminho morria.

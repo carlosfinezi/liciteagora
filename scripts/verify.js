@@ -408,6 +408,12 @@ const suites = [
   // faturamento que não é dele.
   ['107. contrato-nfse-avulsa (25s)', 'test-contrato-nfse-avulsa.js'],
   ['108. contrato-nfse-ui (22s)', 'test-contrato-nfse-ui.js'],
+  // Recorrências. Guarda três defeitos que chegavam ao cliente: o e-mail em
+  // dobro (a emissão mandava o dela além do da recorrência), a conta nascendo
+  // vencida quando executada depois do dia, e o "Executar todas" num POST só,
+  // que estourava o proxy com centenas. Roda a emissão real com SEFIN, assinatura
+  // e e-mail trocados, e conta quantas mensagens sairiam.
+  ['132. recorrencias em lote (test-recorrencia-lote)', 'test-recorrencia-lote.js'],
 ];
 for (const [rotulo, arq] of suites) {
   passo(rotulo);

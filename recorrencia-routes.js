@@ -2,7 +2,8 @@
  * recorrencia-routes.js — CRUD recorrencias NFSe + SMTP config + execucao manual
  */
 
-const { executarRecorrencias, executarUmaRecorrencia } = require('./recorrencia-scheduler');
+const { executarUmaRecorrencia, iniciarLote, processarLote, lerEstadoLote, loteEmAndamento } = require('./recorrencia-scheduler');
+const { tenantStorage } = require('./tenant-middleware');
 const { loadSmtpConfig, enviarEmailTeste, enviarEmailNfse, enviarEmailSimples } = require('./email-client');
 const { carregarCertificado, dataBrasilia } = require('./nfse-routes');
 const { NfseClient } = require('./nfse-client');
@@ -77,7 +78,9 @@ function registrarRotasRecorrencia(app, db) {
       const rows = db.prepare(`
         SELECT r.*, p.razaoSocial as pessoaNome, p.cpfCnpj as pessoaCpfCnpj, p.email as pessoaEmail,
           (SELECT competencia FROM nfse_recorrencias_log WHERE recorrenciaId = r.id AND status = 'sucesso' ORDER BY competencia DESC LIMIT 1) as ultimaEmissao,
-          (SELECT status FROM nfse_recorrencias_log WHERE recorrenciaId = r.id ORDER BY id DESC LIMIT 1) as ultimoStatus
+          (SELECT status FROM nfse_recorrencias_log WHERE recorrenciaId = r.id ORDER BY id DESC LIMIT 1) as ultimoStatus,
+          (SELECT erro FROM nfse_recorrencias_log WHERE recorrenciaId = r.id ORDER BY id DESC LIMIT 1) as ultimoErro,
+          (SELECT competencia FROM nfse_recorrencias_log WHERE recorrenciaId = r.id ORDER BY id DESC LIMIT 1) as ultimaCompetencia
         FROM nfse_recorrencias r
         JOIN pessoas p ON p.id = r.pessoaId
         ORDER BY r.ativo DESC, p.razaoSocial
@@ -125,11 +128,42 @@ function registrarRotasRecorrencia(app, db) {
     }
   });
 
-  // POST /api/recorrencias/executar — executar todas do mes atual
-  app.post('/api/recorrencias/executar', async (req, res) => {
+  // POST /api/recorrencias/executar — inicia a execução de todas do mês.
+  //
+  // Responde na hora e segue em segundo plano: esperar o lote dentro do POST
+  // estourava o timeout do proxy com centenas de recorrências. A tela
+  // acompanha por GET /api/recorrencias/execucao. Com outra execução em
+  // andamento no tenant (outro clique, ou o agendador do dia 1), responde 409
+  // com o andamento dela em vez de iniciar uma segunda.
+  app.post('/api/recorrencias/executar', (req, res) => {
     try {
-      await executarRecorrencias(db);
-      res.json({ success: true, message: 'Execucao concluida' });
+      // O lote roda depois da resposta: leva o banco e o contexto do tenant
+      // desta requisição, em vez de contar com o proxy achar o tenant depois.
+      const ctx = tenantStorage.getStore();
+      const dbLote = (ctx && ctx.db) || db;
+      const r = iniciarLote(dbLote, 'botao');
+      if (r.ocupado) {
+        const e = r.estado;
+        const quem = e.origem === 'agendador' ? 'pelo agendamento do dia 1' : 'por outro clique';
+        return res.status(409).json({ success: false, execucao: e, emAndamento: true,
+          error: `Já existe uma execução em andamento, iniciada ${quem}: ${e.processadas} de ${e.total}.` });
+      }
+      setImmediate(() => {
+        const rodar = () => processarLote(dbLote, r.estado)
+          .catch((err) => console.error('[Recorrencia] lote do botao falhou:', err.message));
+        if (ctx) tenantStorage.run(ctx, rodar); else rodar();
+      });
+      res.status(202).json({ success: true, execucao: r.estado, emAndamento: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // GET /api/recorrencias/execucao — andamento da última execução em lote
+  app.get('/api/recorrencias/execucao', (req, res) => {
+    try {
+      const execucao = lerEstadoLote(db);
+      res.json({ success: true, execucao, emAndamento: loteEmAndamento(execucao) });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
