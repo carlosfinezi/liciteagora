@@ -4,6 +4,29 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-25, nomes dos quadrantes da engenharia de cardápio
+
+A tela de Indicadores do restaurante deixou de usar o jargão da matriz de
+engenharia de cardápio. Os quatro quadros e a coluna Classe da Curva ABC
+passam a dizer "Vendem bem e dão lucro", "Vendem bem, mas dão pouco lucro",
+"Dão lucro, mas vendem pouco" e "Vendem pouco e dão pouco lucro", no lugar de
+estrela, cavalo, enigma e peso morto. Os ícones (estrela, cavalo,
+interrogação, caveira) deram lugar a uma marca redonda na cor do quadro, que
+também aparece na coluna Classe.
+
+- Os identificadores da API (`estrela`, `cavalo`, `enigma`, `peso-morto`) não
+  mudaram. A tradução para o nome visível mora só na tela
+  (`NOMES_QUADRANTE`).
+- As frases de orientação de cada quadro ficaram como estavam, porque nenhuma
+  citava os nomes antigos.
+- A coluna Classe e a Receita da Curva ABC não quebram linha. Com os nomes
+  longos, o valor em reais partia em "R$" numa linha e o número na outra.
+- `test-restaurante-engenharia.js` (C1) confere os quatro títulos, a ausência
+  dos nomes e emojis antigos na tela e a cor de cada marca.
+
+Só `public/`: está no ar desde a edição, sem restart.
+
+
 ## 2026-09-25, engenharia de cardápio por categoria
 
 A matriz de engenharia de cardápio (estrela, cavalo, enigma, peso morto)

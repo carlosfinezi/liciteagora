@@ -20,6 +20,13 @@
   .quad.enigma { border-color:var(--info, #0284c7); }
   .quad.peso-morto { border-color:var(--danger); }
   .quad li { margin:3px 0; }
+  /* Marca neutra na cor de cada quadrante, no título e na coluna Classe */
+  .marca-quadrante { display:inline-block; width:10px; height:10px; border-radius:50%;
+    margin-right:7px; vertical-align:middle; flex-shrink:0; }
+  .marca-quadrante.estrela { background:var(--success); }
+  .marca-quadrante.cavalo { background:var(--warn); }
+  .marca-quadrante.enigma { background:var(--info, #0284c7); }
+  .marca-quadrante.peso-morto { background:var(--danger); }
 </style>
 </head>
 <body>
@@ -144,6 +151,14 @@ function periodo() {
 const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 // Como ler cada quadrante — sem isto a matriz é só um rótulo bonito.
+// Nome que o usuário lê para cada quadrante. As chaves são os identificadores
+// da API (estrela, cavalo, enigma, peso-morto), que seguem iguais.
+const NOMES_QUADRANTE = {
+  estrela: 'Vendem bem e dão lucro',
+  cavalo: 'Vendem bem, mas dão pouco lucro',
+  enigma: 'Dão lucro, mas vendem pouco',
+  'peso-morto': 'Vendem pouco e dão pouco lucro',
+};
 const EXPLICA = {
   estrela: 'Vende bem e dá margem. Destaque no cardápio, não mexa no preço.',
   cavalo: 'Vende bem e dá pouca margem. Atrai cliente — ajuste a ficha ou o preço, não corte.',
@@ -204,11 +219,10 @@ async function carregarCardapio() {
 
     const grupos = { estrela: [], cavalo: [], enigma: [], 'peso-morto': [] };
     for (const i of d.itens) grupos[i.classificacao].push(i);
-    const titulos = { estrela: '⭐ Estrelas', cavalo: '🐴 Cavalos', enigma: '❓ Enigmas', 'peso-morto': '💀 Pesos mortos' };
 
     document.getElementById('matriz').innerHTML = ['estrela', 'cavalo', 'enigma', 'peso-morto'].map(k => `
       <div class="quad ${k}">
-        <h3>${titulos[k]} (${grupos[k].length})</h3>
+        <h3><span class="marca-quadrante ${k}"></span>${NOMES_QUADRANTE[k]} (${grupos[k].length})</h3>
         <small>${EXPLICA[k]}</small>
         <ul style="margin:8px 0 0;padding-left:18px;">
           ${grupos[k].map(i => `<li>${esc(i.descricao)}
@@ -220,10 +234,10 @@ async function carregarCardapio() {
 
     document.getElementById('tbCardapio').innerHTML = d.itens.map(i => `<tr>
       <td>${esc(i.descricao)}${i.semFicha ? ' <span style="color:var(--warn);">(sem ficha)</span>' : ''}</td>
-      <td><span class="badge">${esc(i.classificacao)}</span></td>
+      <td style="white-space:nowrap;"><span class="marca-quadrante ${esc(i.classificacao)}"></span>${esc(NOMES_QUADRANTE[i.classificacao] || i.classificacao)}</td>
       <td><strong>${i.curvaABC}</strong></td>
       <td style="text-align:right;">${fmt(i.quantidade, 0)}</td>
-      <td style="text-align:right;">R$ ${fmt(i.receita)}</td>
+      <td style="text-align:right;white-space:nowrap;">R$ ${fmt(i.receita)}</td>
       <td style="text-align:right;">${fmt(i.popularidadePct, 1)}%</td>
       <td style="text-align:right;">R$ ${fmt(i.margemUnitaria)}</td>
       <td style="text-align:right;" class="muted">${fmt(i.acumuladoPct, 1)}%</td>

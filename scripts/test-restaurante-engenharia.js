@@ -128,7 +128,7 @@ t('B2. item vendido fora de cardápio fica em "Sem categoria"', () => {
 // ---------- tela ----------
 const CHROME = ['/opt/google/chrome/chrome', '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome'].find(p => fs.existsSync(p));
 let browser, srv, base;
-t('C1. a tela mostra os quadrantes por categoria e a participação na categoria', async () => {
+t('C1. a tela mostra os quadrantes com nomes de dono de restaurante, marca na cor do quadro e a participação na categoria', async () => {
   const w = express();
   require('../restaurante/restaurante-indicadores').registrarRotasIndicadores(w, db, (q, r, n) => n());
   w.use('/api', (q, r) => r.json({ success: true, itens: [], items: [], porDiaSemana: [], porHora: [], porCanal: {} }));
@@ -143,14 +143,36 @@ t('C1. a tela mostra os quadrantes por categoria e a participação na categoria
   await page.goto(base + '/__e', { waitUntil: 'domcontentloaded' });
   await new Promise(r => setTimeout(r, 2500));
   const frame = await (await page.$('#tela')).contentFrame();
-  const r = await frame.evaluate(() => ({
-    titulos: [...document.querySelectorAll('#matriz .quad h3')].map(h => h.textContent.trim()),
-    estrelas: [...document.querySelectorAll('#matriz .quad.estrela li')].map(li => li.textContent.replace(/\s+/g, ' ').trim()),
-    altura: document.getElementById('matriz').getBoundingClientRect().height,
-  }));
+  const r = await frame.evaluate(() => {
+    const cor = (v) => { const e = document.createElement('span'); e.style.color = `var(${v})`; document.body.appendChild(e);
+      const c = getComputedStyle(e).color; e.remove(); return c; };
+    const fundo = (sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e).backgroundColor : null; };
+    return {
+      titulos: [...document.querySelectorAll('#matriz .quad h3')].map(h => h.textContent.trim()),
+      estrelas: [...document.querySelectorAll('#matriz .quad.estrela li')].map(li => li.textContent.replace(/\s+/g, ' ').trim()),
+      altura: document.getElementById('matriz').getBoundingClientRect().height,
+      // tudo que o usuário lê da engenharia: os quadros e a coluna Classe da curva ABC
+      texto: document.getElementById('matriz').textContent + ' ' + document.getElementById('tbCardapio').textContent,
+      classes: [...document.querySelectorAll('#tbCardapio tr')].map(tr => tr.children[1].textContent.trim()),
+      marcas: {
+        estrela: [fundo('#matriz .quad.estrela .marca-quadrante'), cor('--success')],
+        cavalo: [fundo('#matriz .quad.cavalo .marca-quadrante'), cor('--warn')],
+        'peso-morto': [fundo('#matriz .quad.peso-morto .marca-quadrante'), cor('--danger')],
+      },
+    };
+  });
   assert(r.altura > 0, 'matriz sem altura');
-  assert(r.titulos.some(x => /Estrelas \(3\)/.test(x)) && r.titulos.some(x => /Cavalos \(0\)/.test(x)), 'títulos: ' + JSON.stringify(r.titulos));
-  assert(r.estrelas.some(x => /Prato 1 — 54,[56]% de Pratos/.test(x)), 'estrelas: ' + JSON.stringify(r.estrelas));
+  const esperados = ['Vendem bem e dão lucro (3)', 'Vendem bem, mas dão pouco lucro (0)',
+    'Dão lucro, mas vendem pouco (1)', 'Vendem pouco e dão pouco lucro (2)'];
+  assert(JSON.stringify(r.titulos) === JSON.stringify(esperados), 'títulos: ' + JSON.stringify(r.titulos));
+  assert(!/Estrela|Cavalo|Enigma|Peso.?morto|⭐|🐴|❓|💀/i.test(r.texto), 'nome ou ícone antigo na tela: '
+    + (r.texto.match(/Estrela|Cavalo|Enigma|Peso.?morto|⭐|🐴|❓|💀/i) || [])[0]);
+  assert(r.classes.includes('Vendem bem e dão lucro') && r.classes.includes('Vendem pouco e dão pouco lucro'),
+    'coluna Classe: ' + JSON.stringify([...new Set(r.classes)]));
+  for (const [k, [fundo, esperado]] of Object.entries(r.marcas)) {
+    assert(fundo && fundo === esperado, `marca de ${k}: ${fundo}, esperada ${esperado}`);
+  }
+  assert(r.estrelas.some(x => /Prato 1 — 54,[56]% de Pratos/.test(x)), 'itens do primeiro quadro: ' + JSON.stringify(r.estrelas));
   assert(!erros.length, 'erros de JS: ' + erros.join(' | '));
 });
 
