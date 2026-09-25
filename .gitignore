@@ -122,3 +122,9 @@ bearer-loop/secrets.env
 # capturas de rede (contêm tokens/senhas)
 recordings/
 .claude/settings.local.json
+
+# Segredo: par VAPID do Web Push.
+# A chave em uso vive no `config` de cada tenant (ver push-web.js); este arquivo
+# é resíduo da primeira versão, que guardava em disco. Chave privada não entra
+# em histórico de jeito nenhum — nem a que já não é mais usada.
+data/vapid.json

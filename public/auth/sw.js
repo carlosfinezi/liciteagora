@@ -112,3 +112,75 @@ self.addEventListener('fetch', (e) => {
     })
   );
 });
+
+/* ==========================================================================
+   Pop-up de mensagem nova (Web Push) — 2026-09-17
+   ==========================================================================
+
+   A allowlist acima continua valendo: nada disto cacheia nada, e o `fetch`
+   daqui é sempre de rede.
+
+   O push chega VAZIO, de propósito — o conteúdo da conversa não passa pelo
+   servidor de push da Google nem da Mozilla (ver `push-web.js`). Quem monta o
+   texto é este arquivo, buscando `/api/push/pendentes` com a sessão da própria
+   pessoa. Sem sessão válida, não há o que mostrar além do aviso genérico, e é
+   assim que tem de ser: o service worker não tem privilégio nenhum que o
+   usuário já não tenha.
+*/
+
+const PUSH_TAG = 'liciteagora-mensagem';
+
+self.addEventListener('push', (e) => {
+  e.waitUntil((async () => {
+    let itens = [];
+    try {
+      const r = await fetch('/api/push/pendentes', { credentials: 'include', cache: 'no-store' });
+      if (r.ok) itens = (await r.json()).itens || [];
+    } catch (_) { /* sem rede ou sem sessão: cai no aviso genérico abaixo */ }
+
+    // Com o ERP ABERTO na frente da pessoa, a notificação do sistema é ruído em
+    // cima de uma tela que já vai mostrar o aviso. Manda-se o recado para a aba
+    // e não se notifica — a menos que ela esteja aberta mas escondida.
+    const abas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const visivel = abas.find((c) => c.visibilityState === 'visible');
+    if (visivel) {
+      for (const c of abas) c.postMessage({ tipo: 'mensagem-nova', itens });
+      return;
+    }
+
+    const primeiro = itens[0];
+    const titulo = primeiro ? primeiro.quem : 'Mensagem nova';
+    const corpo = primeiro
+      ? (primeiro.trecho || 'Mandou uma mensagem')
+        + (itens.length > 1 ? ` · e mais ${itens.length - 1}` : '')
+      : 'Chegou mensagem no WhatsApp';
+
+    await self.registration.showNotification(titulo, {
+      body: corpo,
+      icon: '/icone-192.png',
+      badge: '/icone-192.png',
+      // `tag` igual faz a notificação SUBSTITUIR a anterior. Sem isso, meia hora
+      // de ausência devolve uma pilha de avisos para fechar um a um.
+      tag: PUSH_TAG,
+      renotify: true,
+      data: { conversaId: primeiro ? primeiro.conversaId : null },
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const destino = '/app.html#/comunicacao/conversas.html';
+  e.waitUntil((async () => {
+    // Reaproveita uma aba do ERP se já houver uma: abrir a segunda faria a
+    // pessoa perder o que estava fazendo na primeira.
+    const abas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const doErp = abas.find((c) => c.url.includes('/app.html'));
+    if (doErp) {
+      await doErp.focus();
+      doErp.postMessage({ tipo: 'abrir-conversas', conversaId: e.notification.data?.conversaId || null });
+      return;
+    }
+    await self.clients.openWindow(destino);
+  })());
+});

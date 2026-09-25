@@ -56,5 +56,10 @@
 <script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script>initShell();</script>
+<!-- O pop-up de mensagem nova mora AQUI, e não nas telas: o shell é a única
+     coisa que continua montada enquanto a pessoa navega de pedido para estoque
+     e de estoque para financeiro. Numa tela, o aviso morreria na primeira
+     troca — que é exatamente quando ele precisaria aparecer. -->
+<script src="/js/aviso-mensagem.js" defer></script>
 </body>
 </html>

@@ -229,12 +229,40 @@ t('C6. so grava resposta 200, basic e sem Set-Cookie', () => {
   assert(/Set-Cookie/.test(limpo), 'o SW não verifica Set-Cookie antes de gravar');
 });
 
-t('C7. o SW nao tenta offline de dados nesta fase', () => {
+t('C7. o SW continua sem offline de dados', () => {
+  // `push` e `postMessage` saíram desta lista em 2026-09-17, quando o pop-up de
+  // mensagem nova entrou (relatório 43). O que a regra protegia — dado do ERP
+  // parando no disco do aparelho — segue protegido pelos testes C8 e C9, que
+  // são mais específicos que a proibição que substituíram.
   const limpo = semComentarios(SW);
-  for (const proibido of ['indexedDB', 'IDBDatabase', 'BackgroundSync', 'sync', 'postMessage', 'push']) {
+  for (const proibido of ['indexedDB', 'IDBDatabase', 'BackgroundSync']) {
     assert(!new RegExp('\\b' + proibido + '\\b').test(limpo),
-      `o SW usa ${proibido} — fila offline e push ficaram para outra fase`);
+      `o SW usa ${proibido} — fila offline continua fora de escopo`);
   }
+});
+
+t('C8. o push NAO le conteudo do proprio evento', () => {
+  // O sinal vai vazio de propósito: o conteúdo da conversa não pode passar pelo
+  // servidor de push da Google nem da Mozilla. Se alguém começar a ler
+  // `event.data`, o texto do cliente volta a trafegar por terceiros — e o teste
+  // reprova antes de isso ir ao ar.
+  const limpo = semComentarios(SW);
+  const bloco = limpo.slice(limpo.indexOf("addEventListener('push'"));
+  assert(bloco.length > 0, 'o handler de push sumiu');
+  assert(!/e\.data|event\.data/.test(bloco),
+    'o service worker lê o payload do push — o conteúdo não deveria estar lá');
+});
+
+t('C9. o conteudo do pop-up vem da API, sem cache e com a sessao', () => {
+  const limpo = semComentarios(SW);
+  const bloco = limpo.slice(limpo.indexOf("addEventListener('push'"));
+  assert(/\/api\/push\/pendentes/.test(bloco), 'o push não busca o conteúdo na API');
+  assert(/credentials:\s*'include'/.test(bloco),
+    'a busca vai sem a sessão — o SW não pode ter acesso que o usuário não tem');
+  assert(/cache:\s*'no-store'/.test(bloco),
+    'a busca pode ser cacheada, e aí o aviso mostraria a mensagem de antes');
+  assert(!/caches\.(open|put|match)/.test(bloco),
+    'o caminho do push mexe em cache — dado de conversa não vai para o disco');
 });
 
 // ============================================================================

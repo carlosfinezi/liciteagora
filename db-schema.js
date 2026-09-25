@@ -2585,6 +2585,23 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_habilitacao_cat ON habilitacao_documentos(categoria, ativo);
   CREATE INDEX IF NOT EXISTS idx_habilitacao_validade ON habilitacao_documentos(dataValidade);
+
+  /* Inscrições de notificação do navegador (Web Push).
+     Uma linha por APARELHO, não por pessoa: quem usa o ERP no computador e no
+     celular tem duas, e desligar num não pode calar o outro.
+     O endpoint é único porque é ele que o navegador entrega, e reinscrever o
+     mesmo aparelho devolve o mesmo endpoint — sem UNIQUE, cada visita à tela de
+     configuração criaria uma linha nova e a pessoa receberia o aviso repetido. */
+  CREATE TABLE IF NOT EXISTS push_inscricoes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuarioId INTEGER NOT NULL,
+    endpoint TEXT NOT NULL UNIQUE,
+    aparelho TEXT,
+    criadoEm TEXT DEFAULT CURRENT_TIMESTAMP,
+    ultimoEnvio TEXT,
+    falhas INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_push_usuario ON push_inscricoes(usuarioId);
 `);
 // Multi-loja (Fase 3): a qual estabelecimento a certidão pertence (NULL = matriz).
 // A regra de herança (federal → matriz para filial da mesma PJ; estadual/municipal
