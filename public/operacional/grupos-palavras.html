@@ -201,6 +201,16 @@
     let gruposExclusao = [];
     let corSelecionada = '#2196F3';
 
+    // `ultimo_scan_em` vem do CURRENT_TIMESTAMP do SQLite, que grava em UTC no
+    // formato "YYYY-MM-DD HH:MM:SS". Entregue cru ao `new Date`, o navegador lê
+    // essa string como hora LOCAL, e o scan das 14h aparecia como 17h — três
+    // horas no futuro, ainda por acontecer. Mesma conversão do `dataHora` em
+    // /configuracoes/ia.html. Valor já em ISO (com T e Z) passa intacto.
+    const dataScan = (v) => {
+      if (!v) return null;
+      return new Date(/^\d{4}-\d{2}-\d{2} /.test(v) ? v.replace(' ', 'T') + 'Z' : v);
+    };
+
     // Inicializar
     document.addEventListener('DOMContentLoaded', () => {
       carregarGrupos();
@@ -592,7 +602,7 @@
             el.innerHTML = `🤖 Auto-análise IA: <em>rodando ${feitos}/${total}</em>`;
           } else if (cfg.ativo) {
             const limite = cfg.limite_diario || 100;
-            const ult = cfg.ultimo_scan_em ? new Date(cfg.ultimo_scan_em).toLocaleDateString('pt-BR') : 'nunca';
+            const ult = cfg.ultimo_scan_em ? dataScan(cfg.ultimo_scan_em).toLocaleDateString('pt-BR') : 'nunca';
             el.className = 'label ativo';
             el.innerHTML = `🤖 Auto-análise IA: <em>ativa</em> · até ${limite}/dia · último: ${ult}`;
           } else {
@@ -646,7 +656,7 @@
 
           if (c.ultimo_scan_em) {
             document.getElementById('agendamentoStatusBox').hidden = false;
-            document.getElementById('statusQuando').textContent = new Date(c.ultimo_scan_em).toLocaleString('pt-BR');
+            document.getElementById('statusQuando').textContent = dataScan(c.ultimo_scan_em).toLocaleString('pt-BR');
             document.getElementById('statusTotal').textContent = c.ultimo_scan_total ?? '—';
             document.getElementById('statusAnalisadas').textContent = c.ultimo_scan_analisadas ?? '—';
             document.getElementById('statusErros').textContent = c.ultimo_scan_erros ?? '—';
