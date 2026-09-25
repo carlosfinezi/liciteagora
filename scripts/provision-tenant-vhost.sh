@@ -5,6 +5,10 @@
 # Licite Agora. Invocado pelo control-plane em background após o
 # POST /api/admin/tenants ter criado o registro no control.db.
 #
+# O que roda em produção NÃO é este arquivo: é a cópia de posse do root em
+# /usr/local/sbin/liciteagora-provision-vhost, a única que o sudo libera.
+# Mudou algo aqui? Reinstale com scripts/instalar-provision-vhost.sh.
+#
 # Uso: ./provision-tenant-vhost.sh <slug>
 #   ex: ./provision-tenant-vhost.sh empresaX
 #
@@ -12,6 +16,7 @@
 #   0  READY         — vhost + SSL OK
 #   10 WAITING_DNS   — <slug>.liciteagora.app não resolve p/ SERVER_IP
 #   20 ALREADY_OK    — vhost já existe e SSL emitido (idempotente)
+#   2  INVALID_SLUG  — argumento fora da regra do isValidSlug
 #   1  FAILED        — qualquer outro erro
 
 set -euo pipefail
@@ -20,6 +25,22 @@ set -euo pipefail
 export PATH="/usr/local/hestia/bin:$PATH"
 
 SLUG="${1:?uso: $0 <slug>}"
+
+# Guarda do slug: a mesma regra do isValidSlug (tenant-manager.js). Este
+# script roda como root e a regra do sudo aceita qualquer argumento, então a
+# validação da rota HTTP não basta — quem chama o sudo direto pula a rota.
+# LC_ALL=C para que [a-z] seja só ASCII, como na regex do JS.
+LC_ALL=C
+if ! [[ "$SLUG" =~ ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ ]]; then
+  echo "[provision-vhost] INVALID_SLUG: '$SLUG' fora de ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]\$" >&2
+  exit 2
+fi
+case "$SLUG" in
+  www|admin|api|static|cdn)
+    echo "[provision-vhost] INVALID_SLUG: '$SLUG' é reservado" >&2
+    exit 2 ;;
+esac
+
 DOMAIN="${SLUG}.liciteagora.app"
 
 USER="${HESTIA_USER:-carlosfinezi}"

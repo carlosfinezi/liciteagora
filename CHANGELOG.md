@@ -71,6 +71,67 @@ provisionamento, que grava no `sandbox5` real e colide no CPF (6).
 - `test-os-equipamento.js` e `test-os-notificacoes.js` falham igual com e sem
   esta mudança (14 e 6 falhas) e não estão no verify.
 
+## 2026-09-24, sudo do provisionamento de vhost e backup que recusa argumento estranho
+
+### O sudo sem senha dava root a quem editasse o script do projeto
+
+`/etc/sudoers.d/liciteagora-provision` liberava ao carlosfinezi, sem senha, o
+`scripts/provision-tenant-vhost.sh` desta árvore, e o arquivo é do próprio
+carlosfinezi. Qualquer processo desse usuário podia reescrevê-lo e rodar o que
+quisesse como root. Antes de mexer, o script foi conferido: igual ao HEAD byte
+a byte, sem mudança de conteúdo desde o 862a791 (27/08). O sudo registra uma
+única execução dele, em 27/08, para o `crsolucoes`.
+
+O conserto segue o desenho do trajeta. O sudo passa a liberar só a cópia de
+posse do root em `/usr/local/sbin/liciteagora-provision-vhost`, e o
+`control-plane-routes.js` chama a cópia. O `scripts/instalar-provision-vhost.sh`
+instala a cópia, mostra o diff contra a que está em uso, passa a regra pelo
+`visudo` antes de gravar e recusa terminar se sobrar regra apontando para a
+árvore. **Mudou o script do projeto, é preciso reinstalar**, senão produção
+segue com a versão antiga.
+
+O script ganhou a guarda do slug, com a mesma regra do `isValidSlug`, porque
+roda como root e a regra do sudo aceita qualquer argumento. Slug fora da regra
+sai com o código 2 antes de qualquer comando do Hestia. Os 27 casos do teste
+(caminho, `$(id)`, quebra de linha, reservados, limites de tamanho) batem com o
+`isValidSlug`, e a mesma bateria reprova 21 deles na versão sem guarda.
+
+Provado depois da instalação e do restart do `consulta-licitacoes.service`,
+como carlosfinezi: a cópia com `crsolucoes` sai com 20 (ALREADY_OK), o caminho
+antigo é recusado pelo sudo e `../x`, `a;id`, `admin` e `Ab` saem com 2. **O
+caminho HTTP não foi exercitado.** O `reprovision` exige sessão de super-admin
+e ficou de fora por decisão do usuário: a primeira criação de tenant real é a
+prova do caminho inteiro, e deve terminar READY com `PROVISION_VHOST_OK` no
+`tenant_audit`.
+
+### O backup ignorava argumento desconhecido e apagou o conjunto de 16/09
+
+`scripts/backup-tenants.sh --help` não mostrava ajuda: fazia um backup
+completo, e a retenção de 10 conjuntos apagou o `backups/db/2026-09-16-1213`
+para caber o que ninguém tinha pedido. Aconteceu neste fechamento, e o ponto
+de restauração de 16/09 não tem volta. Agora `--help` e `-h` só mostram a
+ajuda, e argumento desconhecido é recusado com erro antes de qualquer backup.
+O CLAUDE.md, que dizia que o script não apaga backup antigo, passa a descrever
+a retenção.
+
+### O verify rodou numa cópia limpa, e ficou vermelho por duas causas alheias
+
+A árvore tem ~120 arquivos sujos de outras frentes, e na primeira tentativa
+duas etapas reprovaram por causa deles (a 19 conta os prefixos do mapa de
+RBAC, a 21 as opções de um menu, e os dois mudaram de propósito). Para medir
+só este trabalho, o verify rodou num `git worktree` do fa0b754 com apenas
+estas mudanças por cima, bancos restaurados do backup de 24/09 17:37 e o
+`BASE` fixo de 28 suítes apontado para a cópia. Resultado: 7 problemas em
+3.452s, nas 132 etapas, por duas causas que não tocam nenhum arquivo daqui:
+
+- a etapa 30 lista `test-ssl-reissue-dcv.js`, que existe na árvore mas nunca
+  foi commitado;
+- a etapa 93 (`test-provisionamento-tenant-novo`, que testa pedidos e faturas
+  no `sandbox5`, e não o vhost) sorteia o CNPJ só pelo último dígito, e 9 dos
+  10 já estão gravados no `sandbox5` por rodadas de 11/09 a 23/09.
+
+As etapas 19 e 21 passaram na cópia, com 22 e 23 ok.
+
 ## 2026-09-24
 
 Três defeitos das recorrências de NFS-e, achados ao preparar a gravação do

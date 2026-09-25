@@ -16,13 +16,16 @@
 
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const path = require('path');
 const { spawn } = require('child_process');
 const { tenantStorage } = require('./tenant-middleware');
 const { initSchema } = require('./db-schema');
 const { applyRouteMigrations } = require('./tenant-provision');
 
-const PROVISION_SCRIPT = path.join(__dirname, 'scripts', 'provision-tenant-vhost.sh');
+// Cópia de posse do root do scripts/provision-tenant-vhost.sh, instalada por
+// scripts/instalar-provision-vhost.sh. O sudo só libera ela: apontar para o
+// script do projeto, que o carlosfinezi edita, dava root a quem o editasse.
+// Mudou o script do projeto? Reinstale, senão segue rodando a versão antiga.
+const PROVISION_SCRIPT = '/usr/local/sbin/liciteagora-provision-vhost';
 
 // Dispara o provision de vhost/SSL em background. Não bloqueia a
 // resposta HTTP do create. Atualiza provision_status no control.db
@@ -33,7 +36,7 @@ function spawnProvisionVhost(slug, manager, attempt = 1) {
   const MAX_ATTEMPTS = 5;
   manager.setProvisionStatus({ slug, status: 'PROVISIONING', message: `tentativa ${attempt}` });
 
-  // Roda via sudo (NOPASSWD via /etc/sudoers.d/liciteagora-provision)
+  // Roda a cópia via sudo (NOPASSWD via /etc/sudoers.d/liciteagora-provision)
   // — o worker roda como `carlosfinezi` mas comandos v-* do Hestia
   // precisam ler /usr/local/hestia/conf/hestia.conf (root-only).
   const child = spawn('sudo', ['-n', PROVISION_SCRIPT, slug], {

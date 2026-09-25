@@ -47,6 +47,30 @@ do catálogo (ex.: `catalog_sync_state`), vá no Postgres: o SQLite devolve
 valores parados de agosto, inclusive um `syncRetroativo.status = rodando` que é
 falso — no Postgres esse mesmo sync consta `concluido` desde 2026-05-29.
 
+### Provisionamento de vhost: mudar o script exige REINSTALAR
+
+A criação de tenant chama, via `sudo -n`, a **cópia de posse do root** em
+`/usr/local/sbin/liciteagora-provision-vhost`, e não o
+`scripts/provision-tenant-vhost.sh` do projeto. A regra do sudo
+(`/etc/sudoers.d/liciteagora-provision`) só libera a cópia.
+
+**Editar o script do projeto não muda nada em produção** até alguém rodar,
+como root:
+
+```
+sudo bash /home/carlosfinezi/web/liciteagora.com.br/private/scripts/instalar-provision-vhost.sh
+```
+
+O instalador mostra o diff contra a cópia em uso, copia, passa a regra pelo
+`visudo` antes de gravar e recusa terminar se sobrar regra apontando para o
+arquivo do projeto. Leia o diff antes de confiar: é conteúdo que vai rodar
+como root.
+
+Até 2026-09-24 a regra apontava para o arquivo do projeto, que é do
+carlosfinezi. Qualquer processo desse usuário podia reescrevê-lo e rodar o
+que quisesse como root, sem senha. **Nunca volte a apontar sudo para arquivo
+desta árvore.** Mesmo desenho do `trajeta-publicar`.
+
 ## Verify
 
 ```
@@ -216,8 +240,18 @@ as marcas do coletor Licitanet e a coluna `marcaExtraida` dos itens (573.866
 linhas, sobre ~23M itens já processados).
 
 `scripts/backup-tenants.sh --catalogo-full` faz o `pg_dump` inteiro dos 54 GB:
-chamada manual, sob demanda, **nunca** dentro do fechamento. O script não apaga
-backup antigo — só relata o espaço ocupado e o disco livre.
+chamada manual, sob demanda, **nunca** dentro do fechamento.
+
+**Cada rodada apaga o conjunto mais antigo além dos 10 mais recentes** em
+`backups/db/` (retenção desde o 9294db8, de 17/09/2026: sem ela a pasta ia a
+24 GB em 15 dias e derrubava o backup do Hestia). Ou seja, rodar o backup à
+toa custa um ponto de restauração antigo. Ao final ele relata o espaço
+ocupado e o disco livre.
+
+Argumento desconhecido é recusado com erro antes de qualquer backup, e
+`--help` só mostra a ajuda. Até 24/09/2026 o script ignorava argumento
+estranho: um `--help` virou backup completo e empurrou para fora o conjunto
+de 16/09.
 
 Restaurar backup nunca é rotina: só a pedido explícito.
 

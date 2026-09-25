@@ -8,6 +8,11 @@
 # Uso:
 #   scripts/backup-tenants.sh                  # rotina: tenants + control + catálogo seletivo
 #   scripts/backup-tenants.sh --catalogo-full  # + pg_dump inteiro do catálogo (54 GB, horas)
+#   scripts/backup-tenants.sh --help           # só mostra esta ajuda
+#
+# Argumento desconhecido é recusado com erro ANTES de qualquer backup. Em
+# 24/09/2026 um --help ignorado virou backup completo, e a retenção apagou o
+# conjunto de 16/09 para caber o que ninguém pediu.
 #
 # O --catalogo-full NUNCA entra na rotina — é chamada manual, sob demanda.
 #
@@ -23,7 +28,26 @@ DEST="$RAIZ/backups/db/$(date +%Y-%m-%d-%H%M)"
 DONO="carlosfinezi:carlosfinezi"
 RETENCAO=10
 CATALOGO_FULL=0
-[ "${1:-}" = "--catalogo-full" ] && CATALOGO_FULL=1
+
+uso() {
+  cat <<EOF
+Uso:
+  scripts/backup-tenants.sh                  rotina: tenants + control + catálogo seletivo
+  scripts/backup-tenants.sh --catalogo-full  + pg_dump inteiro do catálogo (54 GB, horas)
+  scripts/backup-tenants.sh --help           esta ajuda
+
+Cada rodada cria um conjunto em backups/db/ e mantém só os $RETENCAO mais
+recentes: o mais antigo além disso é APAGADO.
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --catalogo-full) CATALOGO_FULL=1 ;;
+    -h|--help) uso; exit 0 ;;
+    *) echo "argumento desconhecido: $arg — nenhum backup foi feito" >&2; uso >&2; exit 2 ;;
+  esac
+done
 
 mkdir -p "$DEST"
 echo "destino: $DEST"
