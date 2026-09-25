@@ -1297,6 +1297,20 @@ async function salvarEdicao(){
     contatoAdmin: colherContato('contatoAdmin'),
     contatoFinanceiro: colherContato('contatoFinanceiro'),
     contatoTecnico: colherContato('contatoTecnico'),
+    // O VÍNCULO com contrato/cliente vai sempre, inclusive em certificado já
+    // emitido. Ele não existia neste corpo, e o efeito era o pior possível:
+    // trocar o contrato na tela, salvar, ver "Certificado atualizado" e o
+    // vínculo continuar como estava — o PUT gravava os outros campos e o
+    // contrato nem chegava ao servidor. Aconteceu com o secom.df.gov.br
+    // em 24/09/2026.
+    //
+    // O backend aceita os três depois da emissão de propósito (SO_GESTAO em
+    // ssl-certificados-routes.js): são gestão nossa, não dado que a CA valida.
+    // Vincular um certificado ao contrato que o pagou é retroativo por
+    // natureza, e não muda nada do que foi emitido.
+    contratoId: Number(document.getElementById('fContratoId').value) || null,
+    clienteId: Number(document.getElementById('fClienteId').value) || null,
+    contratoItemId: Number(document.getElementById('fContratoItemId').value) || null,
   };
   const custo = document.getElementById('fCustoUsd').value;
   if (custo !== '') corpo.custoUsd = Number(custo);

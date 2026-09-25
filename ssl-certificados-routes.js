@@ -300,14 +300,33 @@ function gerarRefId(db, id) {
  * `validadeDias` é a vida do arquivo (endDate - beginDate). Sem ela — chamada
  * sem contexto de certificado — vale o teto puro, que é o comportamento antigo.
  */
-function antecedenciaReissue(db, validadeDias = null) {
+function antecedenciaReissue(db, validadeDias = null, dcvMethod = null) {
   const n = Number(getConfig(db, 'nicsrs_reissue_antecedencia_dias', REISSUE_ANTECEDENCIA_PADRAO));
   const teto = Number.isFinite(n) && n > 0 ? n : REISSUE_ANTECEDENCIA_PADRAO;
-  if (!Number.isFinite(validadeDias) || validadeDias <= 0) return teto;
+
+  // DCV por e-mail não se resolve sozinho: a CA manda a mensagem ao aprovador
+  // do domínio e a reemissão fica parada até alguém clicar. Os outros métodos
+  // (CNAME, HTTP) revalidam sem ninguém.
+  //
+  // Por isso a janela dobra aqui. Não é conforto: o arquivo vale ~200 dias
+  // hoje e a validade máxima cai para 47 — a mesma reemissão que hoje acontece
+  // uma vez por ano passa a acontecer oito, e cada uma espera uma pessoa. Com
+  // 12 dias de janela, um e-mail que chega numa sexta-feira de recesso leva o
+  // certificado do cliente a expirar.
+  //
+  // O limite de 40% da validade existe para a janela não engolir o ciclo:
+  // reemitir cedo demais desperdiça arquivo válido e multiplica as reemissões.
+  const dependeDeClique = String(dcvMethod || '').toUpperCase() === 'EMAIL';
+
+  if (!Number.isFinite(validadeDias) || validadeDias <= 0) {
+    return dependeDeClique ? teto * 2 : teto;
+  }
   // Piso de 3 dias: com o scheduler rodando de 12 em 12h, menos que isso deixa
   // poucas tentativas antes de o arquivo expirar.
   const proporcional = Math.max(3, Math.round(validadeDias * REISSUE_FRACAO_VALIDADE));
-  return Math.min(teto, proporcional);
+  const base = Math.min(teto, proporcional);
+  if (!dependeDeClique) return base;
+  return Math.min(base * 2, Math.round(validadeDias * 0.4));
 }
 
 /**
@@ -349,7 +368,7 @@ function aplicarCollect(db, cert, resposta) {
     ? Math.round((Date.parse(endDate) - Date.parse(beginDate)) / 86400000)
     : null;
   const proximoReissueEm = (status === 'emitido' && endDate && cobertoAte && endDate < cobertoAte)
-    ? addDias(endDate, -antecedenciaReissue(db, validadeDias))
+    ? addDias(endDate, -antecedenciaReissue(db, validadeDias, cert.dcvMethod))
     : null;
 
   db.prepare(`
@@ -2667,9 +2686,14 @@ function registrarRotasSslCertificados(app, db) {
                  + `Editável: validação (DCV), contatos, custo, observações e vínculo com contrato.` });
         }
       }
-      const campos = ['contratoId', 'clienteId', 'produtoId', 'productCode', 'productName', 'vendor',
-                      'commonName', 'anos', 'csr', 'servidor', 'dcvMethod', 'dcvEmail', 'uniqueValue',
-                      'custoUsd', 'observacoes'];
+      // `contratoItemId` entrou aqui em 24/09/2026: ele já constava em
+      // SO_GESTAO, ou seja, a validação o ACEITAVA depois da emissão — e esta
+      // lista o descartava na hora de gravar. Campo aceito e jogado fora é o
+      // pior dos dois mundos: a resposta vem `success`, a tela diz que salvou,
+      // e o dado não muda. As duas listas precisam concordar.
+      const campos = ['contratoId', 'clienteId', 'contratoItemId', 'produtoId', 'productCode',
+                      'productName', 'vendor', 'commonName', 'anos', 'csr', 'servidor',
+                      'dcvMethod', 'dcvEmail', 'uniqueValue', 'custoUsd', 'observacoes'];
       const sets = [];
       const valores = [];
       // Contatos chegam como objeto e vão para a coluna como JSON.

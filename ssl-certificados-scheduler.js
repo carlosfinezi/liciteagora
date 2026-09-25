@@ -168,6 +168,62 @@ async function alertarRenovacoes(db) {
 }
 
 /**
+ * Avisa ANTES da reemissão que depende de clique de terceiro.
+ *
+ * Reissue com DCV por CNAME ou HTTP se resolve sozinho e ninguém precisa saber.
+ * Com DCV por e-mail, a CA manda a mensagem ao aprovador do domínio — que é do
+ * CLIENTE — e a reemissão fica parada até alguém clicar. Se não clicarem, o
+ * certificado expira, e o primeiro a saber é quem abrir o site.
+ *
+ * O aviso sai quando falta pouco para a janela de reemissão abrir, e não
+ * depois: a ideia é dar tempo de avisar a pessoa certa do lado do cliente.
+ *
+ * NÃO substitui o aviso que `reemitirVencendo` já manda — aquele sai no
+ * instante em que a reemissão é disparada ("aprove o link que a CA mandou"),
+ * quando o relógio já está correndo. Este é o de véspera, e serve para o outro
+ * não ser o primeiro.
+ * Alerta uma vez por ciclo — a marca é o `reissuesFeitos`, então a próxima
+ * reemissão volta a avisar.
+ *
+ * Em 17/09/2026 esta conta tinha 10 certificados assim, todos de órgãos
+ * públicos. Hoje isso é uma espera por ano; com a validade caindo para 47
+ * dias, passa a ser oito.
+ */
+async function alertarReissueManual(db, diasAntes = 7) {
+  const alvos = db.prepare(`
+    SELECT s.*, c.numero AS contratoNumero
+    FROM ssl_certificados s
+    LEFT JOIN contratos c ON c.id = s.contratoId
+    WHERE s.status = 'emitido' AND s.dcvMethod = 'EMAIL'
+      AND s.proximoReissueEm IS NOT NULL
+      AND date(s.proximoReissueEm) <= date('now', '+' || ? || ' days')
+      AND NOT EXISTS (
+        SELECT 1 FROM ssl_certificados_eventos e
+        WHERE e.certificadoId = s.id AND e.tipo = 'alerta-dcv-manual-' || s.reissuesFeitos
+      )
+  `).all(diasAntes);
+
+  let enviados = 0;
+  for (const cert of alvos) {
+    const destino = cert.dcvEmail || 'o aprovador do domínio';
+    await enviarAlerta(db, {
+      subject: `SSL ${cert.commonName}: reemissão vai exigir clique do cliente`,
+      body: `A reemissão de ${cert.commonName} entra na fila em ${cert.proximoReissueEm}`
+        + ` (arquivo vence em ${cert.endDate}).`
+        + ` A validação é por E-MAIL: a CA vai escrever para ${destino}, e o certificado`
+        + ` só é reemitido depois que essa mensagem for aprovada.`
+        + ` Sem o clique, o arquivo expira${cert.contratoNumero ? ` — contrato ${cert.contratoNumero}` : ''}.`
+        + ` Para eliminar essa espera nas próximas vezes, troque a validação para DNS CNAME.`,
+      logTag: 'SSL',
+    }).catch(() => {});
+    registrarEvento(db, cert.id, `alerta-dcv-manual-${cert.reissuesFeitos}`,
+      `Aviso: reemissão em ${cert.proximoReissueEm} depende de aprovação por e-mail`, null, 'scheduler');
+    enviados++;
+  }
+  return enviados;
+}
+
+/**
  * 0. Compras feitas no painel encontram o pedido que as originou.
  *
  * Vem ANTES da sincronização de propósito: a assinatura recém-paga precisa
@@ -205,7 +261,8 @@ async function varrerTenant(db, slug = '?') {
   const reemitidos = await reemitirVencendo(db, token, slug);
   const expirados = marcarExpirados(db);
   const alertas = await alertarRenovacoes(db);
-  return { reconciliados, emitidos, reemitidos, expirados, alertas };
+  const alertasDcv = await alertarReissueManual(db);
+  return { reconciliados, emitidos, reemitidos, expirados, alertas, alertasDcv };
 }
 
 module.exports = {
@@ -215,5 +272,6 @@ module.exports = {
   reemitirVencendo,
   marcarExpirados,
   alertarRenovacoes,
+  alertarReissueManual,
   MARCOS_ALERTA,
 };
