@@ -737,20 +737,33 @@ function registrarRotasSniper(app, db) {
           status: 'pendente', fonte: 'blitz', batchIndex: i, batchTotal: 1,
         });
         const out = [mk(topo, 0)];
-        // Rajada de snipe (preencherAteMax): escalona de `topo` até o piso pra preencher
+        // Rajada de snipe (preencherAteMax): escalona a partir de `topo` pra preencher
         // maxSteps lances. O cronômetro já reserva a janela pra N lances, então o ÚLTIMO
-        // (mais agressivo, perto do piso) cai no milésimo alvo (~.970). Teto de segurança
-        // de 12 degraus (evita storm com ignoreMax/∞). O contínuo dá 1 lance (flag off).
+        // (mais agressivo) cai no milésimo alvo (~.970). Teto de segurança de 12 degraus
+        // (evita storm com ignoreMax/∞). O contínuo dá 1 lance (flag off).
+        //
+        // Cada degrau usa a MESMA regra do primeiro: o maior entre o degrau mínimo legal
+        // e a agressividade aplicada sobre a folga que ainda resta até o piso. Até
+        // 2026-09-22 os degraus eram interpolação linear de `topo` até o piso —
+        // `(topo - piso) / N` —, então quem mandava no tamanho do passo era o PISO e não
+        // a agressividade, que só decidia o primeiro lance. Com piso R$ 1,00 e topo
+        // R$ 42,37 isso deu degraus de R$ 8,27 (42,37 → 34,10 → 25,82 → 17,55) e o
+        // último lance cravado no piso. Agora o piso é só o limite inferior: a escada
+        // decai proporcionalmente e para quando encosta nele.
         const TETO_DEGRAUS = 12;
         const alvoN = Math.min(Math.max(maxSteps || 1, 1), TETO_DEGRAUS);
         if (preencherAteMax && topo > valorMinimo && alvoN > 1) {
-          const faltam = alvoN - 1;
-          const passo = (topo - valorMinimo) / (faltam + 1);
-          for (let i = 1; i <= faltam; i++) {
-            let v = (i === faltam) ? valorMinimo : Math.round((topo - passo * i) * 100) / 100;
+          const pctDegrau = Math.max(0, Math.min(100, pctMerg != null ? pctMerg : 20)) / 100;
+          for (let i = 1; i < alvoN; i++) {
             const anterior = out[out.length - 1].valor;
-            if (v >= anterior) continue;                                        // tem que descer
-            if (calcularProximoDegrau(anterior, varMin, tipoVar) < v) continue;  // degrau < varMin: inválido
+            if (anterior <= valorMinimo) break;
+            const degrauLegal = calcularProximoDegrau(anterior, varMin, tipoVar);
+            const passoMin = anterior - degrauLegal;                  // menor passo que o portal aceita
+            const passo = Math.max(passoMin, (anterior - valorMinimo) * pctDegrau);
+            let v = Math.round((anterior - passo) * 100) / 100;
+            if (v < valorMinimo) v = valorMinimo;
+            if (v >= anterior) break;                                 // não desce mais: para
+            if (degrauLegal < v) break;                               // degrau < varMin: inválido
             out.push(mk(v, out.length));
           }
         }
@@ -1579,10 +1592,34 @@ function registrarRotasSniper(app, db) {
   // Alerta de SSO morto (Electron preso no login gov.br/hCaptcha, parou de capturar
   // Bearer). Dedup por episódio via flag no sniper — reseta quando o heartbeat volta
   // com ssoMorto=0 (login manual feito).
+  //
+  // Duas guardas acima da flag, de 2026-09-22: naquele dia duas instâncias do mesmo
+  // tenant (a 5.9.1 capturando, a 7.4.0 presa no gov.br) alternaram heartbeat a cada
+  // 15s. A saudável zerava a flag, a presa rearmava, e saiu um alerta a cada 30s.
+  //   1. Cala enquanto QUALQUER instância estiver capturando bearer — com uma viva,
+  //      não há nada que o login manual conserte, e o alerta é falso.
+  //   2. Cooldown entre mensagens, para que flapping de outra origem qualquer não
+  //      volte a custar centenas de envios.
+  const SSO_MORTO_JANELA_SAUDAVEL_MS = 3 * 60 * 1000;   // ~12 heartbeats de folga
+  const SSO_MORTO_COOLDOWN_MS = 30 * 60 * 1000;
   async function alertarSSOMorto(hb) {
     try {
       if (sniper._ssoMortoAlertado) return;
+
+      // recebidoEm é ISO-8601 com T e Z (new Date().toISOString()). O corte tem de
+      // sair do JS no mesmo formato: datetime('now') do SQLite grava com espaço no
+      // lugar do T, e ' ' < 'T' faria a comparação lexicográfica casar tudo.
+      const corte = new Date(Date.now() - SSO_MORTO_JANELA_SAUDAVEL_MS).toISOString();
+      const outraViva = db.prepare(
+        `SELECT 1 FROM electron_heartbeat WHERE ssoMorto = 0 AND recebidoEm > ? LIMIT 1`
+      ).get(corte);
+      if (outraViva) return;
+
+      const agora = Date.now();
+      if (sniper._ssoMortoAlertadoEm && (agora - sniper._ssoMortoAlertadoEm) < SSO_MORTO_COOLDOWN_MS) return;
+
       sniper._ssoMortoAlertado = true;
+      sniper._ssoMortoAlertadoEm = agora;
 
       const idadeMin = hb.tokenAgeSec != null ? Math.round(hb.tokenAgeSec / 60) : null;
       const mensagem =
@@ -3691,6 +3728,30 @@ function registrarRotasSniper(app, db) {
             }
           }
 
+          // Config RELIDA do banco no disparo. A lista de itens elegíveis é montada no
+          // AGENDAMENTO (a query lá em cima), então até 2026-09-22 o piso e a
+          // agressividade eram uma foto do momento em que a rajada foi criada: ajuste
+          // feito depois na tela era ignorado, sem aviso nenhum. Foi o que aconteceu no
+          // item 1 da 92661806000202026 — a agressividade passou de 5% para 2% oitenta
+          // segundos após o agendamento e o disparo usou os 5% antigos.
+          // `maxLances` fica de FORA de propósito: o milésimo do disparo é calculado
+          // para N lances, então mudar N aqui estouraria a janela que o auto-cálculo
+          // reservou, e o último lance cairia depois do fechamento.
+          try {
+            const cfgAoVivo = db.prepare(
+              `SELECT valorMinimo, agressividadePct, variacaoMinima, tipoVariacao
+               FROM sniper_itens WHERE compraId = ? AND itemNumero = ?`
+            ).get(item.compraId, item.itemNumero);
+            if (cfgAoVivo) {
+              if (cfgAoVivo.valorMinimo != null) item.valorMinimo = cfgAoVivo.valorMinimo;
+              if (cfgAoVivo.agressividadePct != null) item.agressividadePct = cfgAoVivo.agressividadePct;
+              if (cfgAoVivo.variacaoMinima != null) item.variacaoMinima = cfgAoVivo.variacaoMinima;
+              if (cfgAoVivo.tipoVariacao) item.tipoVariacao = cfgAoVivo.tipoVariacao;
+            }
+          } catch (e) {
+            logAuto(`⚠️ BLITZ-GLOBAL releitura de config falhou (${item.compraId} item ${item.itemNumero}): ${e.message} — usando a do agendamento`);
+          }
+
           const itemParaCalculo = {
             ...liveItem,
             variacaoMinima: liveItem.variacaoMinima != null ? liveItem.variacaoMinima : item.variacaoMinima,
@@ -3737,9 +3798,29 @@ function registrarRotasSniper(app, db) {
 
         if (itensBatches.length === 0) return;
 
+        // Lê o estado que o PRÓPRIO Comprasnet devolve na resposta do lance e diz se já
+        // somos o melhor colocado. Não custa chamada extra: a resposta do POST já traz
+        // melhorValorGeral e melhorValorFornecedor do item.
+        const _jaSomosOMelhor = (resposta) => {
+          try {
+            const d = typeof resposta === 'string' ? JSON.parse(resposta) : resposta;
+            const it = Array.isArray(d) ? d[0] : d;
+            if (!it) return false;
+            const geral = (it.melhorValorGeral || {}).valorInformado;
+            const nosso = (it.melhorValorFornecedor || {}).valorInformado;
+            if (geral == null || nosso == null) return false;
+            return nosso <= geral + 0.0001;   // nosso == melhor geral → estamos na frente
+          } catch (_) { return false; }
+        };
+
         // Round-robin paralelo: cada rodada envia 1 lance de cada item via Promise.all
         let maxRodadas = Math.max(...itensBatches.map(ib => ib.batchLances.length)); // let: o recálculo pós-422 pode estender o batch
         const itemFalhou = new Set(); // itens que falharam (422/401) — skip nas próximas rodadas
+        // Itens que já estão na frente: o resto do batch é lance contra nós mesmos.
+        // Até 2026-09-22 as rodadas seguiam sem reler o estado, e no item 1 da
+        // 92661806000202026 o primeiro lance (R$ 42,37) já nos deixou como melhor —
+        // os três seguintes desceram sozinhos até R$ 17,55 sem concorrente na frente.
+        const itemGanhando = new Set();
         const itemOk = {};
         const itemFalha = {};
         for (const ib of itensBatches) { itemOk[ib.compraId + '-' + ib.itemNumero] = 0; itemFalha[ib.compraId + '-' + ib.itemNumero] = 0; }
@@ -3751,6 +3832,7 @@ function registrarRotasSniper(app, db) {
           for (const ib of itensBatches) {
             const key = ib.compraId + '-' + ib.itemNumero;
             if (itemFalhou.has(key)) continue;
+            if (itemGanhando.has(key)) continue;
             if (rodada >= ib.batchLances.length) continue;
             lancesRodada.push({ ib, lance: ib.batchLances[rodada], key });
           }
@@ -3772,6 +3854,10 @@ function registrarRotasSniper(app, db) {
               ib.estado ? ib.estado.nossoValor : null, ib.estado ? ib.estado.melhorValor : null, ib.estado ? ib.estado.variacaoMinima : null); } catch (e) {}
             if (resultado.sucesso) {
               itemOk[key]++;
+              if (_jaSomosOMelhor(resultado.resposta)) {
+                itemGanhando.add(key);
+                logAuto(`🛑 BLITZ-GLOBAL parou em R$ ${lance.valor.toFixed(2)}: ja somos o melhor — ${ib.compraId} item ${ib.itemNumero} (${ib.batchLances.length - rodada - 1} degrau(s) do batch descartado(s))`);
+              }
             } else {
               itemFalha[key]++;
               if (resultado.status === 401 || resultado.status === 403) itemFalhou.add(key);
@@ -3790,6 +3876,7 @@ function registrarRotasSniper(app, db) {
           for (const [key, ib] of paraRecalcularG) {
             paraRecalcularG.delete(key);
             if (itemFalhou.has(key)) continue;
+            if (itemGanhando.has(key)) continue;   // estender o batch aqui seria descer sozinho
             try {
               const ok = await _recalcularBatchApos422(ib, {
                 rodada, modo, enviados: itemOk[key] + itemFalha[key], tag: 'BLITZ-GLOBAL',
@@ -3817,8 +3904,16 @@ function registrarRotasSniper(app, db) {
       }, Math.max(0, delayMs));
 
       // Registrar timer único no blitzAgendadas (para cancelamento)
+      // A chave TEM de incluir o alvoMs: é assim que _mkBlitzKey registra a blitz
+      // algumas dezenas de linhas acima. Com a chave curta daqui o lookup nunca
+      // casava, o campo `timer` ficava null para sempre e o clearTimeout do
+      // /cancelar-blitz não rodava — o registro sumia da memória e do banco, o
+      // histórico gravava "cancelada", e o setTimeout disparava assim mesmo.
+      // Em 2026-09-22 isso pôs três rajadas no ar ao mesmo tempo no item 1 da
+      // 92661806000202026 (duas delas supostamente canceladas), e a escada de 5
+      // lances que havia sido trocada por 1 desceu de R$ 57,68 a R$ 17,55.
       for (const item of agendadosList) {
-        const blitzKey = `${item.compraId}-${item.itemNumero}`;
+        const blitzKey = _mkBlitzKey(item.compraId, item.itemNumero, alvoMs);
         if (blitzAgendadas[blitzKey]) blitzAgendadas[blitzKey].timer = timer;
       }
 
