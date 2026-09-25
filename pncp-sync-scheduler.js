@@ -30,7 +30,7 @@
 const axios = require('axios');
 const { createPersistence, salvarLicitacaoPg, salvarItensPg } = require('./licitacoes-persistence');
 const { sendTelegram } = require('./telegram-client');
-const { criarVerificador } = require('./verificacao-lacunas');
+const { criarVerificador, eSinalDeExcesso } = require('./verificacao-lacunas');
 
 // NFSE-M06 onda 6.45 (2026-04-20): PNCP_API_BASE/PNCP_API_ITENS
 // migrados para require('./config') -- unica fonte de verdade.
@@ -168,6 +168,50 @@ async function warmupPgConfig() {
   }
 }
 
+/**
+ * Janela do sync incremental, a partir do cursor gravado.
+ *
+ * O endpoint é `contratacoes/publicacao`, que busca por data de PUBLICAÇÃO:
+ * varrer o futuro não traz nada. A janela portanto TERMINA hoje — antes ela
+ * terminava em `hoje + 7`, e como esse mesmo valor era gravado de volta no
+ * cursor, a rodada seguinte partia dele. A janela passou a viver dois dias à
+ * frente do calendário e o sync registrava `0 licitações` a cada 5 minutos;
+ * foi assim que o cursor chegou a 2026-09-29 em 22/09/2026.
+ *
+ * As duas guardas existem porque o cursor contaminado JÁ ESTÁ gravado no banco:
+ * sem elas, corrigir só a gravação não bastaria — a próxima leitura continuaria
+ * trazendo uma data futura. E um sync parado por semanas não pode virar uma
+ * varredura gigante de uma vez, que é justamente o volume que faz o PNCP
+ * estrangular o IP; ele recupera em rodadas.
+ */
+const MAX_RECUO_DIAS = 5;
+
+function calcularJanelaIncremental(lastSyncDate, agora = new Date(), maxRecuoDias = MAX_RECUO_DIAS) {
+  const dia = (d) => d.toISOString().split('T')[0];
+  const fim = new Date(agora);
+
+  const recuoMax = new Date(agora);
+  recuoMax.setDate(agora.getDate() - maxRecuoDias);
+
+  const inicio = new Date(lastSyncDate);
+  let aviso = null;
+
+  if (isNaN(inicio.getTime())) {
+    aviso = `[SYNC INCREMENTAL] cursor ilegível (${lastSyncDate}); usando ${dia(recuoMax)}`;
+    inicio.setTime(recuoMax.getTime());
+  } else {
+    inicio.setDate(inicio.getDate() - 1);
+    if (inicio > fim) {
+      aviso = `[SYNC INCREMENTAL] cursor lastSyncDate=${lastSyncDate} está no futuro; recuando para ${dia(recuoMax)}`;
+      inicio.setTime(recuoMax.getTime());
+    } else if (inicio < recuoMax) {
+      inicio.setTime(recuoMax.getTime());
+    }
+  }
+
+  return { inicio: dia(inicio), fim: dia(fim), aviso };
+}
+
 function gerarDiasEntre(dataInicial, dataFinal) {
   const dias = [];
   const inicio = new Date(dataInicial);
@@ -204,13 +248,46 @@ const MAX_FALHAS_PAGINAS_SEGUIDAS = 3;
 //                  de atualização passa backoff porque o /atualizacao em volume
 //                  dispara rate-limit (429/timeout) no IP do servidor.
 //   pacingMs     — espera entre páginas com sucesso (default 50)
+// Sinalizador de "a API recusou durante esta busca", lido por quem orquestra o
+// dia/modalidade. É uma variável de módulo porque `buscarLicitacoesDoDia` tem
+// vários chamadores e mudar a assinatura de todos alargaria o diff sem
+// necessidade; ela é sempre zerada por quem inicia a varredura.
+let _excessoNaBusca = false;
+
+// Silêncio do incremental depois de a API recusar. Ele roda de 5 em 5 minutos;
+// sem isto, cada rodada reabre a pressão antes de a anterior ter aliviado, e o
+// bloqueio nunca expira. Mesmo valor da verificação de lacunas, pelo mesmo
+// motivo.
+const INCREMENTAL_COOLDOWN_MS = 20 * 60 * 1000;
+let _incrementalSilencioAte = 0;
+
+/** Quantas licitações do dia/modalidade já estão no catálogo. */
+async function _contarNoCatalogo(dia, modalidade) {
+  try {
+    if (process.env.CATALOG_BACKEND_PG === '1') {
+      const r = await require('./catalog-pg').queryOne(
+        `SELECT COUNT(*)::int AS total FROM licitacoes
+          WHERE date("dataPublicacaoPncp") = $1 AND "modalidadeId" = $2`,
+        [dia, modalidade]);
+      return Number(r?.total || 0);
+    }
+    return _db.prepare(
+      `SELECT COUNT(*) AS total FROM licitacoes
+        WHERE date(dataPublicacaoPncp) = ? AND modalidadeId = ?`).get(dia, modalidade)?.total || 0;
+  } catch (_) {
+    // Sem a contagem, o comportamento antigo (começar da página 1) é o seguro.
+    return 0;
+  }
+}
+
 async function buscarLicitacoesDoDia(dia, modalidade, endpoint = 'publicacao', opts = {}) {
   const timeoutMs = opts.timeoutMs || PAGINA_TIMEOUT_MS;
+  const paginaInicial = Math.max(1, Number(opts.paginaInicial) || 1);
   const maxRetries = opts.maxRetries || MAX_RETRIES_PAGINA;
   const backoffMs = opts.backoffMs || 0;
   const pacingMs = opts.pacingMs || 50;
   const resultados = [];
-  let paginaAtual = 1;
+  let paginaAtual = paginaInicial;
   let temMaisPaginas = true;
   let paginasFalhasSeguidas = 0;
   const diaAPI = dia.replace(/-/g, '');
@@ -251,14 +328,32 @@ async function buscarLicitacoesDoDia(dia, modalidade, endpoint = 'publicacao', o
           sucesso = true;
           break;
         }
+        // 429/503/timeout: a API está pedindo para parar, e insistir é o
+        // contrário do que ela pediu. Antes daqui saíam CINCO tentativas
+        // imediatas por página (o comentário antigo dizia "sem backoff = retry
+        // imediato"), e com 200 páginas por dia × 5 modalidades isso vira
+        // milhares de chamadas recusadas a cada 5 minutos. Em 23/09/2026 o log
+        // acumulou 477 respostas 429 e 478 timeouts, e a varredura que
+        // RECOMPÕE o catálogo não conseguia uma única página: a cota já tinha
+        // sido gasta aqui. Agora o dia inteiro é abandonado no primeiro sinal, e
+        // quem chamou fica sabendo.
+        if (eSinalDeExcesso(err)) {
+          _excessoNaBusca = true;
+          ultimoErro = err;
+          break;
+        }
         ultimoErro = err;
-        // 429/timeout: com backoff, espera antes de tentar de novo (dá tempo do
-        // rate-limit do IP aliviar). Sem backoff = retry imediato (incremental).
         if (backoffMs > 0 && tentativa < maxRetries) {
           await new Promise(r => setTimeout(r, backoffMs * tentativa));
         }
       }
     }
+
+    // A API recusou: abandona o DIA, e não só a página. Seguir para a página
+    // seguinte era o que transformava um 429 em três (uma por página até o
+    // abort-dia), multiplicado por 5 modalidades e por uma rodada a cada 5
+    // minutos.
+    if (_excessoNaBusca) break;
 
     if (sucesso) {
       paginasFalhasSeguidas = 0;
@@ -577,6 +672,13 @@ async function sincronizarIncremental() {
     return false;
   }
 
+  if (Date.now() < _incrementalSilencioAte) {
+    const faltam = Math.ceil((_incrementalSilencioAte - Date.now()) / 60000);
+    console.log(`[SYNC INCREMENTAL] Em silêncio por mais ${faltam} min — a API do PNCP sinalizou excesso`);
+    agendarProximaSync();
+    return false;
+  }
+
   const lastSyncDate = getConfigValue('lastSyncDate');
   if (!lastSyncDate) {
     console.log('[SYNC INCREMENTAL] Nenhuma sincronização anterior, executando sync completa...');
@@ -589,30 +691,54 @@ async function sincronizarIncremental() {
   syncStatus.licitacoesCount = 0;
   syncStatus.itensCount = 0;
 
-  const hoje = new Date();
-  const dataInicial = new Date(lastSyncDate);
-  dataInicial.setDate(dataInicial.getDate() - 1);
-  const dataFinal = new Date(hoje);
-  dataFinal.setDate(hoje.getDate() + 7);
+  const { inicio: iniISO, fim: fimISO, aviso } = calcularJanelaIncremental(lastSyncDate, new Date());
+  if (aviso) console.warn(aviso);
+  const dataFinal = new Date(fimISO + 'T12:00:00');
 
-  const dias = gerarDiasEntre(dataInicial.toISOString().split('T')[0], dataFinal.toISOString().split('T')[0]);
+  const dias = gerarDiasEntre(iniISO, fimISO);
   // 9=Inexigibilidade só nos fluxos daqui-pra-frente (incremental/sweep);
   // fora de MODALIDADES_PADRAO de propósito pra não entrar no retroativo.
   const modalidades = [6, 1, 7, 8, 9];
 
   syncStatus.total = dias.length * modalidades.length;
 
-  console.log(`[SYNC INCREMENTAL] Iniciando desde ${lastSyncDate}: ${dias.length} dias`);
+  // A janela EFETIVA, e não o cursor bruto: com o cursor adiantado a linha
+  // antiga dizia "Iniciando desde 2026-09-29" enquanto varria de 17 a 22/09, e
+  // quem lesse o log concluiria que o defeito continuava de pé.
+  console.log(`[SYNC INCREMENTAL] Janela ${iniISO}..${fimISO}: ${dias.length} dias (cursor gravado: ${lastSyncDate})`);
 
   const usePg = process.env.CATALOG_BACKEND_PG === '1';
   const catalogPg = usePg ? require('./catalog-pg') : null;
 
   try {
+    _excessoNaBusca = false;
+    let pararPorExcesso = false;
+
     for (const modalidade of modalidades) {
+      if (pararPorExcesso) break;
       for (const dia of dias) {
+        if (pararPorExcesso) break;
         syncStatus.currentDay = `${dia} - Modalidade ${modalidade} (incremental)`;
 
-        const licitacoes = await buscarLicitacoesDoDia(dia, modalidade);
+        // Salta as páginas que já estão cobertas. Começar sempre da página 1
+        // fazia o incremental rebaixar o dia inteiro a cada 5 minutos: com
+        // 4.780 licitações já gravadas em 22/09/2026, eram ~95 páginas relidas
+        // para encontrar as que faltavam no fim. Isso consumia a cota da API que
+        // a varredura de 45 dias precisa — e ela é a única que alcança dias
+        // fora desta janela de dois dias, como o 21/09 que ficou em 5% de
+        // cobertura. Mesma premissa da correção de lacunas: dentro de um dia
+        // fechado a ordem da API é estável, com uma página de recuo por
+        // segurança.
+        const jaTemos = await _contarNoCatalogo(dia, modalidade);
+        const paginaInicial = Math.max(1, Math.floor(jaTemos / 50) - 1);
+
+        const licitacoes = await buscarLicitacoesDoDia(dia, modalidade, 'publicacao', { paginaInicial });
+
+        if (_excessoNaBusca) {
+          _incrementalSilencioAte = Date.now() + INCREMENTAL_COOLDOWN_MS;
+          console.warn(`[SYNC INCREMENTAL] API do PNCP recusando chamadas; silêncio por ${INCREMENTAL_COOLDOWN_MS / 60000} min`);
+          pararPorExcesso = true;
+        }
 
         if (usePg) {
           for (const licitacao of licitacoes) {
@@ -714,8 +840,8 @@ function agendarProximaSync() {
 async function sincronizarAtualizacoes(diasAtras = 1) {
   _ensureInit();
   if (syncStatus.running) {
-    console.log('[SWEEP ATUALIZAÇÃO] Sync em andamento, reagendando sweep...');
-    agendarProximoSweepAtualizacoes();
+    console.log('[SWEEP ATUALIZAÇÃO] Sync em andamento; nova tentativa em 10 min');
+    agendarProximoSweepAtualizacoes({ emMinutos: 10 });
     return false;
   }
 
@@ -813,12 +939,30 @@ async function sincronizarAtualizacoes(diasAtras = 1) {
  * (scheduler.js, a cada 30min), que é leve. Este sweep é só a rede de segurança
  * pra licitações FORA do interesse de qualquer tenant.
  */
-function agendarProximoSweepAtualizacoes() {
+/**
+ * Quando o próximo sweep deve rodar.
+ *
+ * `emMinutos` é o reagendamento por COLISÃO com o sync, e não o horário diário.
+ * Antes isto só sabia marcar as 4h: chamado às 4h em ponto com um sync em
+ * andamento, caía no `agora >= prox` e mandava o sweep para o DIA SEGUINTE. O
+ * amortecedor do catálogo passava 24h desligado por ter perdido a janela por
+ * segundos, e foi o que aconteceu em 22/09/2026.
+ */
+function proximoSweepEm(agora, emMinutos, horaDiaria = ATUALIZACAO_SWEEP_HORA) {
+  const prox = new Date(agora);
+  if (emMinutos) {
+    prox.setTime(agora.getTime() + emMinutos * 60 * 1000);
+    return prox;
+  }
+  prox.setHours(horaDiaria, 0, 0, 0);
+  if (agora >= prox) prox.setDate(prox.getDate() + 1);
+  return prox;
+}
+
+function agendarProximoSweepAtualizacoes({ emMinutos } = {}) {
   if (atualizacaoSweepTimer) clearTimeout(atualizacaoSweepTimer);
   const agora = new Date();
-  const prox = new Date();
-  prox.setHours(ATUALIZACAO_SWEEP_HORA, 0, 0, 0);
-  if (agora >= prox) prox.setDate(prox.getDate() + 1);
+  const prox = proximoSweepEm(agora, emMinutos);
   atualizacaoSweepTimer = setTimeout(() => {
     sincronizarAtualizacoes(1).catch(err =>
       console.error('[SWEEP ATUALIZAÇÃO] Erro no agendado:', err.message));
@@ -913,14 +1057,23 @@ async function verificarAlertasDisputa() {
 
 // ============== Verificação diária de lacunas (03:00) ==============
 
-function agendarVerificacaoDiaria() {
+// De quanto em quanto tempo REPETIR a varredura de 45 dias quando ela não
+// fechou o serviço. Maior que o cooldown de 20 min da verificação, senão a
+// repetição cai no silêncio e se gasta à toa.
+const RETENTAR_DIARIA_MIN = 25;
+
+function agendarVerificacaoDiaria({ emMinutos } = {}) {
   _ensureInit();
   const agora = new Date();
   const proximaVerificacao = new Date();
-  proximaVerificacao.setHours(3, 0, 0, 0);
 
-  if (agora >= proximaVerificacao) {
-    proximaVerificacao.setDate(proximaVerificacao.getDate() + 1);
+  if (emMinutos) {
+    proximaVerificacao.setTime(agora.getTime() + emMinutos * 60 * 1000);
+  } else {
+    proximaVerificacao.setHours(3, 0, 0, 0);
+    if (agora >= proximaVerificacao) {
+      proximaVerificacao.setDate(proximaVerificacao.getDate() + 1);
+    }
   }
 
   const msAteProxima = proximaVerificacao - agora;
@@ -928,10 +1081,19 @@ function agendarVerificacaoDiaria() {
 
   verificacaoDiariaTimer = setTimeout(async () => {
     console.log('[VERIFICAÇÃO DIÁRIA] Iniciando...');
+    let r = null;
     if (_verificacaoCompletaDiaria) {
-      await _verificacaoCompletaDiaria();
+      r = await _verificacaoCompletaDiaria();
     }
-    agendarVerificacaoDiaria();
+    // Esta é a única varredura que olha 45 dias, e portanto a única que
+    // RECOMPÕE o catálogo depois de uma parada. Ficar 24h fora do ar por ter
+    // tomado um 429 é o que fazia a recomposição não sair do lugar.
+    if (r && r.incompleta) {
+      console.log(`[VERIFICAÇÃO DIÁRIA] Passada incompleta (${r.corrigidas} corrigidas); repetindo em ${RETENTAR_DIARIA_MIN} min`);
+      agendarVerificacaoDiaria({ emMinutos: RETENTAR_DIARIA_MIN });
+    } else {
+      agendarVerificacaoDiaria();
+    }
   }, msAteProxima);
 }
 
@@ -977,7 +1139,18 @@ function startMasterOnlyTimers() {
   disputaAlertInterval = setInterval(verificarAlertasDisputa, 5 * 60 * 1000);
   disputaAlertBootTimer = setTimeout(verificarAlertasDisputa, 30000);
 
-  agendarVerificacaoDiaria();
+  // Uma passada da varredura de 45 dias logo após o boot, e não só às 3h.
+  //
+  // Ela é a única que enxerga além dos últimos dias, e portanto a única que
+  // RECOMPÕE o catálogo depois de uma parada. Presa ao horário fixo, uma parada
+  // que começasse às 4h ficaria 23 horas sem corrigir nada — e em 23/09/2026,
+  // com o catálogo faltando milhares de licitações de 21 e 22/09, foi
+  // exatamente essa espera que segurou a recomposição.
+  //
+  // Custa pouco quando não há o que fazer: são consultas de contagem com
+  // `tamanhoPagina=10`, e a primeira recusa da API interrompe a passada. Os 4
+  // minutos de atraso deixam o boot terminar antes.
+  agendarVerificacaoDiaria({ emMinutos: 4 });
 
   // Sweep nacional por dataAtualizacaoGlobal: agenda só pra próxima madrugada
   // (sem disparo no boot — evita hammerar o PNCP logo após subir e competir
@@ -1021,5 +1194,12 @@ module.exports = {
   // Helper puro (só axios), exportado para a rota POST /api/licitacoes/.../sync-itens
   // que precisa ressincronizar itens de uma licitação sob demanda.
   buscarItensLicitacao,
+  // Puro: recebe o cursor e o relógio, devolve a janela. Exportado para a suíte
+  // conseguir exercitar o cursor no futuro sem subir o sync inteiro.
+  calcularJanelaIncremental,
+  proximoSweepEm,
+  // Exportada para a suíte exercitar a parada no 429 e o salto de paginação
+  // sem subir o sync inteiro.
+  buscarLicitacoesDoDia,
   SYNC_INTERVAL_MINUTES,
 };
