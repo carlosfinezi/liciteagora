@@ -7,595 +7,200 @@
 <link rel="stylesheet" href="/css/sidebar.css">
 <link rel="stylesheet" href="/css/app-modern.css">
 <style>
-.central { display:grid; grid-template-columns: 300px 1fr 290px; gap:14px; height:calc(100vh - 150px); min-height:460px; }
-@media (max-width:1200px){ .central { grid-template-columns: 260px 1fr; } .ficha { display:none; } }
-@media (max-width:820px){ .central { grid-template-columns: 1fr; } .lista { display:none; } .central.mostrando-lista .lista { display:flex; } .central.mostrando-lista .thread { display:none; } }
+/* A tela é uma caixa só: lista, conversa e ficha dividem a MESMA moldura, em vez
+   de três painéis com borda dentro de uma página que já tem borda. */
+.central { display:grid; grid-template-columns: 320px 1fr 300px;
+  height:calc(100vh - 170px); min-height:460px;
+  background:var(--bg-1); border:var(--borda); border-radius:var(--raio-md); overflow:hidden; }
+@media (max-width:1200px){ .central { grid-template-columns: 280px 1fr; } .ficha { display:none; } }
+@media (max-width:820px){ .central { grid-template-columns: 1fr; } .ficha { display:none; }
+  .central.abriu .lista { display:none; } .central.abriu .thread { display:flex; }
+  .thread { display:none; } }
 
-.painel { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); display:flex; flex-direction:column; overflow:hidden; }
-.lista .topo { padding:10px; border-bottom:1px solid var(--border); display:flex; gap:6px; flex-direction:column; }
-.lista .filtros { display:flex; gap:4px; flex-wrap:wrap; }
-.lista .filtros button { flex:1 1 45%; padding:5px 4px; font-size:0.75em; border:1px solid var(--border); background:transparent; color:var(--text-2); border-radius:6px; cursor:pointer; }
-.lista .filtros button.sel { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
-.lista .rolagem { overflow-y:auto; flex:1; }
-.conv { padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; }
-.conv:hover { background:var(--bg-3, rgba(255,255,255,.03)); }
-.conv.sel { background:var(--accent-soft); border-left:3px solid var(--accent); }
-.conv .l1 { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
-.conv .nome { font-weight:600; font-size:0.9em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.conv .hora { font-size:0.72em; color:var(--text-3); white-space:nowrap; }
-.conv .previa { font-size:0.8em; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
-.conv .badges { display:flex; gap:4px; margin-top:5px; flex-wrap:wrap; }
-.pil { font-size:0.68em; padding:1px 7px; border-radius:999px; border:1px solid var(--border); color:var(--text-2); }
-.pil.aberta { border-color:var(--warn); color:var(--warn); }
+/* `min-height:0` e `overflow:hidden` NÃO são enfeite: sem eles, a coluna cresce
+   com o conteúdo em vez de rolar, e as 300 conversas da lista esticam a página
+   para 20.595px de altura — arrastando a conversa e a ficha junto, porque as
+   colunas do grid têm a mesma altura. Medido em produção em 17/09. */
+.coluna { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+.coluna + .coluna { border-left:var(--borda); }
+.rolagem { overflow-y:auto; flex:1; }
+
+/* ---- números do topo ----
+   Cada um é o filtro correspondente. O PRIMEIRO é maior que os outros de
+   propósito: quatro números do mesmo tamanho não dizem por onde começar, e o
+   que importa nesta tela é quanta gente escreveu e nunca foi respondida. */
+.numeros { display:flex; align-items:baseline; gap:var(--space-5);
+  margin:0 0 var(--space-3); flex-wrap:wrap; }
+.numeros button { background:none; border:0; padding:0 0 2px; cursor:pointer; text-align:left;
+  border-bottom:2px solid transparent; color:inherit; }
+.numeros button:hover { border-bottom-color:var(--border-strong); }
+.numeros button.sel { border-bottom-color:var(--accent); }
+.numeros .v { display:block; font-size:var(--text-lg); font-weight:var(--peso-dado);
+  line-height:var(--lh-densa); color:var(--text-1); }
+.numeros .r { font-size:var(--text-xs); color:var(--text-3); }
+.numeros button.principal .v { font-size:var(--text-2xl); color:var(--text-0); }
+.numeros button.principal .r { font-size:var(--text-sm); color:var(--text-2); }
+.numeros button.sel .r { color:var(--accent); }
+
+/* ---- topo da lista ----
+   Eram QUATRO linhas de controle antes da primeira conversa: três de chips e
+   uma de interruptores. Agora são duas, e os avisos dividem a linha da busca —
+   som e pop-up são preferência que se ajusta uma vez, não filtro de uso diário,
+   e não devem ter o mesmo peso de quem se usa o tempo todo. */
+.topo { padding:var(--space-3); border-bottom:var(--borda); display:flex;
+  gap:var(--space-2); flex-direction:column; }
+.busca-linha { display:flex; gap:var(--space-2); align-items:center; }
+.busca-linha input { flex:1; min-width:0; }
+
+/* Uma linha só. Filtro que sobra rola para o lado, em vez de empurrar a lista
+   para baixo: a altura da coluna é o que mostra conversa.
+   O degradê da direita só aparece quando há o que rolar (classe posta no JS):
+   filtro escondido sem nenhum sinal é filtro que ninguém encontra. */
+.chips { display:flex; gap:var(--space-1); overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
+.chips::-webkit-scrollbar { display:none; }
+.chips.tem-mais { mask-image:linear-gradient(to right, #000 88%, transparent);
+  -webkit-mask-image:linear-gradient(to right, #000 88%, transparent); }
+.chips button { padding:3px 10px; font-size:var(--text-xs); border:var(--borda); background:transparent;
+  color:var(--text-2); border-radius:var(--raio-pill); cursor:pointer; white-space:nowrap; flex:0 0 auto; }
+.chips button.sel { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
+
+/* ---- a linha da conversa ----
+   O avatar de iniciais dá ritmo à coluna, que antes era um bloco de texto só. As
+   marcas ficaram só para o EXCEPCIONAL: "aberta" e "sem cadastro" apareciam em
+   toda linha e viraram textura. */
+.conv { padding:var(--space-3); border-bottom:var(--borda); cursor:pointer; display:flex; gap:var(--space-3); }
+.conv:hover { background:var(--superficie-hover); }
+.conv.sel { background:var(--accent-soft); box-shadow:inset 3px 0 0 var(--accent); }
+.ini { flex:0 0 38px; height:38px; border-radius:50%; background:var(--bg-3); color:var(--text-1);
+  display:flex; align-items:center; justify-content:center; font-size:var(--text-sm);
+  font-weight:var(--peso-forte); position:relative; }
+.ini .n { position:absolute; top:-3px; right:-3px; min-width:17px; height:17px; padding:0 4px;
+  border-radius:999px; background:var(--danger); color:#fff; font-size:var(--text-xs);
+  display:flex; align-items:center; justify-content:center; font-weight:var(--peso-forte); }
+.conv .corpo { flex:1; min-width:0; }
+.conv .l1 { display:flex; justify-content:space-between; gap:var(--space-2); align-items:baseline; }
+.conv .nome { font-weight:var(--peso-forte); font-size:var(--text-base);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.conv .hora { font-size:var(--text-xs); color:var(--text-3); white-space:nowrap; }
+.conv .previa { font-size:var(--text-sm); color:var(--text-2); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.conv .marcas { display:flex; gap:var(--space-1); margin-top:var(--space-1); flex-wrap:wrap; }
+.pil { font-size:var(--text-xs); padding:1px 8px; border-radius:var(--raio-pill);
+  border:var(--borda); color:var(--text-2); }
 .pil.pendente { border-color:var(--accent); color:var(--accent); }
 .pil.resolvida { border-color:var(--success); color:var(--success); }
-.pil.nova { background:var(--danger); color:#fff; border-color:var(--danger); }
-.pil.ia { border-color:var(--purple, #8b5cf6); color:var(--purple, #8b5cf6); }
+.pil.sem-ia { border-color:var(--warn); color:var(--warn); }
+.pil.dono { border-color:var(--accent); color:var(--accent); }
 
-.thread { display:flex; flex-direction:column; }
-.thread .cab { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-.thread .cab h3 { margin:0; font-size:1em; }
-.msgs { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:8px; background:var(--bg-1); }
-.msg { max-width:72%; padding:8px 12px; border-radius:12px; font-size:0.88em; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
-.msg.deles { background:var(--bg-2); border:1px solid var(--border); align-self:flex-start; border-bottom-left-radius:3px; }
-.msg.minha { background:var(--accent-soft); border:1px solid var(--accent); align-self:flex-end; border-bottom-right-radius:3px; }
-.msg .meta { font-size:0.72em; color:var(--text-3); margin-top:4px; display:flex; gap:8px; align-items:center; }
-.msg .corrigir { background:none; border:0; color:var(--accent); cursor:pointer; font-size:0.95em; padding:0; text-decoration:underline; }
-.msg .aprovar { background:none; border:0; color:var(--success); cursor:pointer; font-size:0.95em; padding:0; text-decoration:underline; }
+/* ---- cabeçalho da conversa ----
+   Tinha dois `select` crus, "assumir" e "IA: ligada", quatro controles do mesmo
+   tamanho ao lado do nome: parecia formulário, não cabeçalho. O nome voltou a
+   ser a coisa maior da faixa, e os controles ficaram discretos à direita. */
+.cab { padding:var(--space-3) var(--space-4); border-bottom:var(--borda);
+  display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; }
+.cab .quem { min-width:0; }
+.cab .quem strong { display:block; font-size:var(--text-md); line-height:var(--lh-densa); }
+.cab .quem span { font-size:var(--text-sm); color:var(--text-2); }
+.cab select { width:auto; font-size:var(--text-sm); padding:4px 8px;
+  background:transparent; border-color:var(--border); color:var(--text-2); }
+.cab select:hover { border-color:var(--border-strong); color:var(--text-1); }
+.cab .btn { font-size:var(--text-sm); }
+/* O estado da IA é informação, e só vira ação no clique. Em botão sólido ele
+   competia com o nome de quem está do outro lado da conversa. */
+.cab .ia-estado { display:inline-flex; align-items:center; gap:6px; }
+.cab .ia-estado::before { content:''; width:7px; height:7px; border-radius:50%;
+  background:var(--success); }
+.cab .ia-estado.off::before { background:var(--text-3); }
+.msgs { flex:1; overflow-y:auto; padding:var(--space-4); display:flex; flex-direction:column;
+  gap:var(--space-2); background:var(--bg-0); }
+/* O teto em PIXELS é o que importa aqui: só com `72%`, uma tela de 1600px
+   produzia balão de 640px de largura, e linha longa demais obriga o olho a
+   voltar ao começo. 34em é cerca de 70 caracteres, que é onde a leitura para de
+   piorar. */
+.msg { max-width:min(72%, 34em); padding:var(--space-2) var(--space-3);
+  border-radius:var(--raio-md);
+  font-size:var(--text-base); line-height:var(--lh-base); white-space:pre-wrap; word-break:break-word; }
+.msg.deles { background:var(--bg-1); border:var(--borda); align-self:flex-start; border-bottom-left-radius:3px; }
+.msg.minha { background:var(--accent-soft); border:var(--borda-acento); align-self:flex-end; border-bottom-right-radius:3px; }
+
+/* A linha de baixo juntava hora, origem e duas ações no mesmo tom e tamanho.
+   A hora fica à esquerda, apagada; as ações vão para a direita, que é onde a
+   mão procura. */
+.msg .meta { font-size:var(--text-xs); color:var(--text-3); margin-top:var(--space-1);
+  display:flex; gap:var(--space-2); align-items:center; }
+.msg .meta .quando { margin-right:auto; }
+/* "IA" como marca, e não como mais um pedaço de texto solto na linha. */
+.msg .meta .porIA { border:var(--borda); border-color:var(--purple, #a78bfa);
+  color:var(--purple, #a78bfa); border-radius:var(--raio-pill); padding:0 6px; }
+.msg .corrigir { background:none; border:0; color:var(--accent); cursor:pointer;
+  font-size:var(--text-xs); padding:0; text-decoration:underline; }
+.msg .aprovar { background:none; border:0; color:var(--success); cursor:pointer;
+  font-size:var(--text-xs); padding:0; text-decoration:underline; }
 .msg .aprovar[disabled] { opacity:0.5; cursor:default; }
 .msg .veredito.ok { color:var(--success); }
 .msg .veredito.erro { color:var(--danger); }
-.responder { border-top:1px solid var(--border); padding:10px; display:flex; gap:8px; align-items:flex-end; }
+.responder { border-top:var(--borda); padding:var(--space-3); display:flex;
+  gap:var(--space-2); align-items:flex-end; }
 .responder textarea { flex:1; resize:vertical; min-height:44px; max-height:160px; }
 
-.ficha { padding:0; }
-.ficha .bloco { padding:12px 14px; border-bottom:1px solid var(--border); }
-.ficha h4 { margin:0 0 8px; font-size:0.82em; text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); }
-.ficha .linha { display:flex; justify-content:space-between; font-size:0.84em; padding:3px 0; gap:8px; }
-.ficha .rolagem { overflow-y:auto; }
-.vazio-centro { display:flex; align-items:center; justify-content:center; height:100%; color:var(--text-3); font-size:0.9em; padding:20px; text-align:center; }
-.tab-pane { display:none; } .tab-pane.active { display:block; }
-.kpis { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
-.kpis .c { background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md); padding:8px 14px; font-size:0.82em; color:var(--text-2); }
-.kpis .c .v { display:block; font-size:1.35em; font-weight:600; color:var(--text-1); }
-.kpis .c.alerta { border-color:var(--danger); }
+.ficha .bloco { padding:var(--space-3) var(--space-4); border-bottom:var(--borda); }
+.ficha h4 { margin:0 0 var(--space-2); font-size:var(--text-xs); text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-3); }
+.ficha .linha { display:flex; justify-content:space-between; font-size:var(--text-sm);
+  padding:3px 0; gap:var(--space-2); }
 
-.sub-abas { display:flex; gap:6px; margin:10px 0 14px; flex-wrap:wrap; }
-.sub-abas .sub { padding:6px 14px; font-size:0.85em; border:1px solid var(--border); background:transparent;
-  color:var(--text-2); border-radius:999px; cursor:pointer; }
-.sub-abas .sub.sel { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
-.sub-pane { display:none; } .sub-pane.active { display:block; }
+/* Um estado vazio por região, e nenhum deles narra o que está na tela. */
+.vazio-centro { display:flex; align-items:center; justify-content:center; height:100%;
+  color:var(--text-3); font-size:var(--text-base); padding:var(--space-5); text-align:center; }
 
-/* ações da linha: uma principal + menu, para a tabela não virar fileira de botões */
-.acoes { display:flex; gap:6px; justify-content:flex-end; align-items:center; }
-.menu { position:relative; }
-.menu > summary { list-style:none; cursor:pointer; padding:5px 9px; border:1px solid var(--border);
-  border-radius:6px; font-size:0.85em; color:var(--text-2); user-select:none; line-height:1; }
-.menu > summary::-webkit-details-marker { display:none; }
-.menu[open] > summary { background:var(--bg-2); border-color:var(--accent); color:var(--accent); }
-.menu .itens { position:absolute; right:0; top:calc(100% + 4px); z-index:20; min-width:180px;
-  background:var(--bg-2); border:1px solid var(--border); border-radius:var(--r-md);
-  box-shadow:0 8px 24px -10px rgba(0,0,0,.5); padding:4px; display:flex; flex-direction:column; }
-.menu .itens button { text-align:left; background:none; border:0; color:var(--text-1);
-  padding:7px 10px; font-size:0.85em; cursor:pointer; border-radius:5px; white-space:nowrap; }
-.menu .itens button:hover { background:var(--accent-soft); color:var(--accent); }
-.menu .itens button.perigo { color:var(--danger); }
-.menu .itens hr { border:0; border-top:1px solid var(--border); margin:4px 0; }
-
+/* Som e pop-up: dois botões de ícone ao lado da busca. Eram duas barras da
+   largura inteira, com o mesmo peso dos filtros. */
+.avisos { display:flex; gap:var(--space-1); flex:0 0 auto; }
+.avisos button { width:30px; height:30px; padding:0; font-size:15px; line-height:1;
+  border:var(--borda); background:transparent; color:var(--text-3);
+  border-radius:var(--raio-md); cursor:pointer; }
+.avisos button.on { border-color:var(--success); color:var(--success); }
+.avisos button:hover { border-color:var(--border-strong); }
 </style>
 </head>
 <body>
 <div class="layout"><main class="main-content">
   <div class="page-header">
-    <div><h1>Conversas</h1><small>Atendimento, contato do ERP e a base que a IA usa — num lugar só</small></div>
+    <div><h1>Conversas</h1></div>
+    <div class="actions"><a class="btn btn-ghost btn-sm" href="/comunicacao/ia.html">IA e campanhas</a></div>
   </div>
   <div id="alertGlobal"></div>
 
-  <div class="tabs">
-    <div class="tab active" onclick="trocarTab('inbox')">Atendimento</div>
-    <div class="tab" onclick="trocarTab('ia')">Base da IA</div>
-    <div class="tab" onclick="trocarTab('campanhas')">Campanhas</div>
-    <div class="tab" onclick="trocarTab('canal')">Canal</div>
-    <div class="tab" onclick="trocarTab('relatorio')">Relatório</div>
-  </div>
+  <div class="numeros" id="numeros"></div>
 
-  <!-- ============== ATENDIMENTO ============== -->
-  <div class="tab-pane active" id="tab-inbox">
-    <div class="kpis" id="kpis"></div>
-    <div class="central" id="central">
-
-      <div class="painel lista">
-        <div class="topo">
-          <input type="text" id="busca" placeholder="Buscar nome, telefone ou texto…" oninput="renderLista()">
-          <div class="filtros" id="filtros"></div>
-          <select id="selCampanha" style="display:none;padding:5px;font-size:0.8em;" onchange="escolherCampanha(this.value)"></select>
+  <div class="central" id="central">
+    <div class="coluna lista">
+      <div class="topo">
+        <div class="busca-linha">
+          <input type="text" id="busca" placeholder="Buscar nome ou telefone…" oninput="renderLista()">
+          <div class="avisos" id="avisos"></div>
         </div>
-        <div class="rolagem" id="listaConv"><div class="vazio-centro">Carregando…</div></div>
+        <div class="chips" id="filtros"></div>
+        <select id="selCampanha" style="display:none;padding:5px;" onchange="escolherCampanha(this.value)"></select>
       </div>
-
-      <div class="painel thread">
-        <div class="cab" id="threadCab"><h3>Selecione uma conversa</h3></div>
-        <div class="msgs" id="msgs"><div class="vazio-centro">Nenhuma conversa aberta</div></div>
-        <div class="responder" id="responder" style="display:none;">
-          <textarea id="txtResposta" placeholder="Escreva a resposta… (Ctrl+Enter envia)"
-            onkeydown="if(event.ctrlKey&&event.key==='Enter')responder()"></textarea>
-          <button class="btn btn-primary" onclick="responder()">Enviar</button>
-        </div>
-      </div>
-
-      <div class="painel ficha"><div class="rolagem" id="fichaCorpo">
-        <div class="vazio-centro">A ficha do cliente aparece aqui</div>
-      </div></div>
-
-    </div>
-  </div>
-
-  <!-- ============== CAMPANHAS ============== -->
-  <div class="tab-pane" id="tab-campanhas">
-    <div class="sub-abas">
-      <button class="sub sel" onclick="subAba('camp', this)">Campanhas</button>
-      <button class="sub" onclick="subAba('modelos', this)">Modelos de mensagem</button>
-      <button class="sub" onclick="subAba('listas', this)">Listas</button>
+      <div class="rolagem" id="listaConv"><div class="vazio-centro">Carregando…</div></div>
     </div>
 
-    <div class="sub-pane active" id="sub-camp">
-      <div class="toolbar">
-        <button class="btn btn-primary" onclick="abrirNovaCampanha()">+ Nova campanha</button>
-        <span class="spacer"></span>
-        <span id="campResumo" style="font-size:0.85em;color:var(--text-2);"></span>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr><th>Campanha</th><th>Origem</th><th>Status</th><th>Destinatários</th><th>Criada</th><th></th></tr></thead>
-          <tbody id="tbCamp"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
-        </table>
+    <div class="coluna thread">
+      <div class="cab" id="threadCab" style="display:none;"></div>
+      <div class="msgs" id="msgs"><div class="vazio-centro">Escolha uma conversa na lista</div></div>
+      <div class="responder" id="responder" style="display:none;">
+        <textarea id="txtResposta" placeholder="Escreva a resposta… (Ctrl+Enter envia)"
+          onkeydown="if(event.ctrlKey&&event.key==='Enter')responder()"></textarea>
+        <button class="btn btn-ghost" id="btnAgendar" onclick="enviarConviteAgenda()"
+          style="display:none;">Agendar reunião</button>
+        <button class="btn btn-primary" onclick="responder()">Enviar</button>
       </div>
     </div>
 
-    <div class="sub-pane" id="sub-modelos">
-      <div class="toolbar">
-        <button class="btn btn-primary" onclick="abrirModelo()">+ Novo modelo</button>
-        <span class="spacer"></span>
-        <span id="modResumo" style="font-size:0.85em;color:var(--text-2);"></span>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr><th>Nome</th><th>Canal</th><th>Mensagem</th><th></th></tr></thead>
-          <tbody id="tbModelos"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-      <small class="muted">O modelo é reaproveitado em quantas campanhas você quiser. Editar aqui não
-        altera campanha já enviada — o texto vai gravado no envio.</small>
-    </div>
-
-    <div class="sub-pane" id="sub-listas">
-      <div class="toolbar">
-        <button class="btn btn-primary" onclick="abrirLista()">+ Nova lista</button>
-        <span class="spacer"></span>
-        <span id="listResumo" style="font-size:0.85em;color:var(--text-2);"></span>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr><th>Lista</th><th>Descrição</th><th>Pessoas</th><th></th></tr></thead>
-          <tbody id="tbListas"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============== CANAL ============== -->
-  <div class="tab-pane" id="tab-canal">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;">
-      <div>
-        <h3 style="font-size:1em;margin:0 0 10px;">Conexão</h3>
-        <div id="canalStatus" class="alert info" style="display:block;">Verificando…</div>
-        <div id="canalQr" style="text-align:center;"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-          <button class="btn btn-primary btn-sm" onclick="conectarCanal()">Conectar / ver QR</button>
-          <button class="btn btn-ghost btn-sm" onclick="carregarCanal()">Atualizar</button>
-        </div>
-
-        <h3 style="font-size:1em;margin:22px 0 10px;">Ritmo de envio</h3>
-        <div id="ritmoBox"><small class="muted">Carregando…</small></div>
-        <small class="muted">Protege o número: limite por hora, intervalo entre mensagens e teto diário que sobe
-          conforme o número amadurece. Resposta a quem escreveu nunca é segurada.</small>
-      </div>
-
-      <div>
-        <h3 style="font-size:1em;margin:0 0 10px;">Atendente de IA</h3>
-        <div class="form-row"><div class="form-group full-width">
-          <label><input type="checkbox" id="iaLigada" style="width:auto;"> IA responde automaticamente</label>
-          <small class="muted">Vale para conversas novas. Em cada conversa dá para desligar individualmente.</small>
-        </div></div>
-        <div class="form-row"><div class="form-group full-width">
-          <label>Responde para quem</label>
-          <select id="iaEscopo">
-            <option value="todos">Todos que escreverem</option>
-            <option value="campanha">Só quem recebeu uma campanha</option>
-          </select>
-          <small class="muted">Com a segunda opção, quem chega por fora da campanha (indicação, site, cliente
-            antigo) não recebe resposta automática — fica esperando o atendente.</small>
-        </div></div>
-        <div class="form-row"><div class="form-group full-width">
-          <label>Instruções (tom e limites)</label>
-          <textarea id="iaPrompt" rows="5" placeholder="Como o atendente deve falar e o que nunca deve fazer"></textarea>
-        </div></div>
-        <button class="btn btn-primary btn-sm" onclick="salvarIA()">Salvar</button>
-
-        <h3 style="font-size:1em;margin:22px 0 10px;">Testar antes de ligar</h3>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="simTexto" placeholder="Escreva como um cliente escreveria" style="flex:1;">
-          <button class="btn btn-secondary btn-sm" onclick="simular()">Testar</button>
-        </div>
-        <div id="simResposta" style="margin-top:10px;"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============== BASE DA IA ============== -->
-  <div class="tab-pane" id="tab-ia">
-    <div class="alert info" style="display:block;">
-      A IA responde <strong>só com o que está aqui</strong>. Cada item tem origem e data — e quando ela erra,
-      o atendente corrige na própria conversa e a correção vira item desta base.
-    </div>
-    <div class="toolbar">
-      <button class="btn btn-primary" onclick="novoItem()">+ Novo item</button>
-      <span class="spacer"></span>
-      <span id="contBase" style="font-size:0.85em;color:var(--text-2);"></span>
-    </div>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr><th>Título</th><th>Conteúdo</th><th>Origem</th><th>Ativo</th><th></th></tr></thead>
-        <tbody id="tbBase"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
-      </table>
-    </div>
-    <h3 style="margin-top:22px;font-size:1em;">Respostas avaliadas</h3>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr><th>Veredito</th><th>Perguntaram</th><th>Respondeu</th><th>Resposta correta</th><th>Quando</th></tr></thead>
-        <tbody id="tbCorr"><tr><td colspan="5" class="empty">Nenhuma avaliação ainda</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ============== RELATÓRIO ============== -->
-  <!-- Existe para responder "por que hoje não saiu nada?". O volume sozinho não
-       responde: silêncio da IA quase nunca é falha, é uma das portas do
-       autoResponder fechando. Daí o funil vir antes do gráfico. -->
-  <div class="tab-pane" id="tab-relatorio">
-    <div class="toolbar">
-      <label style="font-size:0.85em;color:var(--text-2);">Período
-        <select id="relDias" onchange="carregarRelatorio()" style="margin-left:6px;">
-          <option value="7">7 dias</option>
-          <option value="14" selected>14 dias</option>
-          <option value="30">30 dias</option>
-        </select>
-      </label>
-      <span class="spacer"></span>
-      <button class="btn btn-secondary btn-sm" onclick="carregarRelatorio()">Atualizar</button>
-    </div>
-
-    <div id="relDiagnostico"></div>
-
-    <h3 style="font-size:1em;margin:18px 0 8px;">Quem escreveu hoje, e o que aconteceu</h3>
-    <div class="kpis" id="relFunil"></div>
-    <small style="color:var(--text-3);display:block;margin-top:-4px;">
-      A resposta automática passa por estas portas, nesta ordem. Quem para numa delas não chega na seguinte.
-    </small>
-
-    <h3 style="font-size:1em;margin:22px 0 8px;">Volume por dia</h3>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr>
-          <th>Dia</th><th style="text-align:right;">Recebidas</th>
-          <th style="text-align:right;">Enviadas (pessoa)</th><th style="text-align:right;">Enviadas (IA)</th>
-          <th style="text-align:right;">Disparos de campanha</th><th style="text-align:right;">Falhas de envio</th>
-          <th style="text-align:right;">Conversas novas</th>
-        </tr></thead>
-        <tbody id="tbRelSerie"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
-      </table>
-    </div>
-
-    <h3 style="font-size:1em;margin:22px 0 8px;">Falhas de envio no período</h3>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr><th>Motivo</th><th style="text-align:right;">Ocorrências</th><th>Último</th><th>Números</th></tr></thead>
-        <tbody id="tbRelErros"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
-      </table>
-    </div>
-
-    <h3 style="font-size:1em;margin:22px 0 8px;">Atendimento</h3>
-    <div class="kpis" id="relConversas"></div>
+    <div class="coluna ficha"><div class="rolagem" id="fichaCorpo"></div></div>
   </div>
 </main></div>
-
-<!-- modal de envios: quem recebeu, quem falhou e por quê -->
-<div class="modal-bg" id="modalEnvios">
-  <div class="modal" style="max-width:860px;">
-    <div class="modal-header">
-      <div><h3 style="margin:0;">Envios da campanha</h3>
-        <small class="muted" id="envSub"></small></div>
-      <button class="btn btn-ghost btn-sm" onclick="fechar('modalEnvios')" style="font-size:1.2em;padding:4px 10px;">×</button>
-    </div>
-    <div id="envFiltros" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
-    <div style="max-height:52vh;overflow:auto;">
-      <table class="tabela">
-        <thead><tr><th>Telefone</th><th>Nome</th><th>Situação</th><th>Quando</th><th>Motivo</th></tr></thead>
-        <tbody id="tbEnvios"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
-      </table>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="baixarEnviosCsv()">Baixar CSV</button>
-      <button class="btn btn-ghost" onclick="fechar('modalEnvios')">Fechar</button>
-    </div>
-  </div>
-</div>
-
-<!-- modal de disparo: agora ou agendado, para os dois módulos -->
-<div class="modal-bg" id="modalDisparo">
-  <div class="modal" style="max-width:520px;">
-    <div class="modal-header">
-      <div><h3 style="margin:0;">Enviar campanha</h3>
-        <small class="muted" id="dispSub"></small></div>
-      <button class="btn btn-ghost btn-sm" onclick="fechar('modalDisparo')" style="font-size:1.2em;padding:4px 10px;">×</button>
-    </div>
-    <div id="dispResumo"></div>
-    <div class="form-row"><div class="form-group full-width">
-      <label><input type="radio" name="dispQuando" value="agora" checked onchange="mudouQuando()" style="width:auto;">
-        <strong>Começar agora</strong></label>
-      <small class="muted">As mensagens saem no ritmo do canal — não vão todas de uma vez.</small>
-    </div></div>
-    <div class="form-row"><div class="form-group full-width">
-      <label><input type="radio" name="dispQuando" value="agendar" onchange="mudouQuando()" style="width:auto;">
-        <strong>Agendar início</strong></label>
-      <input type="datetime-local" id="dispData" disabled style="max-width:230px;margin-top:6px;">
-      <small class="muted">O sistema confere a cada 2 minutos e começa quando a hora chegar.</small>
-    </div></div>
-    <div id="dispAviso"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fechar('modalDisparo')">Cancelar</button>
-      <button class="btn btn-ghost" id="btnDesagendar" style="display:none;" onclick="desagendarDisparo()">Cancelar agendamento</button>
-      <button class="btn btn-primary" onclick="confirmarDisparo()">Confirmar</button>
-    </div>
-  </div>
-</div>
-
-<!-- modal editar campanha legado -->
-<div class="modal-bg" id="modalWa">
-  <div class="modal" style="max-width:720px;">
-    <div class="modal-header">
-      <div><h3 style="margin:0;">Editar campanha</h3>
-        <small class="muted" id="waSub"></small></div>
-      <button class="btn btn-ghost btn-sm" onclick="fechar('modalWa')" style="font-size:1.2em;padding:4px 10px;">×</button>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Nome *</label><input type="text" id="waNome" maxlength="80"></div>
-      <div class="form-group"><label>Limite por dia</label><input type="number" id="waDiario" min="1" max="500" step="1"></div>
-    </div>
-    <div class="form-row"><div class="form-group full-width">
-      <label>Descrição</label><textarea id="waDesc" rows="2"></textarea>
-    </div></div>
-    <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:14px;margin:6px 0 14px;">
-      <h4 style="margin:0 0 4px;font-size:0.95em;">1 · A primeira mensagem que você manda</h4>
-      <small class="muted">Usado só para <strong>escrever a abordagem</strong> — a mensagem que sai desta campanha.
-        Não é usado depois, quando a pessoa responder.</small>
-
-      <div class="form-row" style="margin-top:12px;"><div class="form-group full-width">
-        <label>O que oferecer e como abordar</label>
-        <textarea id="waBriefing" rows="4" placeholder="Ex.: Oferecemos sistema de gestão para pequeno comércio. Abordar falando da dor de estoque parado. Não usar jargão de consultoria."></textarea>
-        <small class="muted">Descreva a oferta, o ângulo da conversa e o que evitar. A IA escreve cada mensagem
-          a partir disto, personalizando para cada contato.</small>
-      </div></div>
-      <div class="form-row"><div class="form-group full-width">
-        <label>Exemplo de mensagem pronta</label>
-        <textarea id="waTemplate" rows="4" placeholder="{saudacao}, {primeiro_nome}. Aqui é o Carlos, da 1bit…"></textarea>
-        <small class="muted">Modelo que a IA imita na estrutura e no tom.</small>
-      </div></div>
-      <button class="btn btn-secondary btn-sm" onclick="testarAbordagem()">Ver uma mensagem de exemplo</button>
-      <div id="waPreviaM1" style="margin-top:10px;"></div>
-
-      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px;">
-        <label style="display:block;margin-bottom:4px;">Imagens</label>
-        <small class="muted">A cada envio o sistema sorteia uma destas imagens e manda a mensagem como
-          legenda dela. Sem imagem, vai só o texto. Variar a imagem ajuda a mensagem a não parecer disparo.</small>
-        <div id="waImagens" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;"></div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="file" id="waArquivo" accept="image/jpeg,image/png,image/webp" style="max-width:250px;">
-          <button class="btn btn-secondary btn-sm" onclick="enviarImagemCampanha()">Adicionar imagem</button>
-        </div>
-      </div>
-    </div>
-
-    <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:14px;margin:0 0 14px;">
-      <h4 style="margin:0 0 4px;font-size:0.95em;">2 · Quando a pessoa responder</h4>
-      <small class="muted" id="waExplicaResposta"></small>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <input type="text" id="waPergunta" placeholder="Escreva o que um cliente perguntaria" style="flex:1;min-width:200px;">
-        <button class="btn btn-secondary btn-sm" onclick="compararResposta()">Comparar respostas</button>
-      </div>
-      <div id="waComparacao" style="margin-top:10px;"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>Intervalo mínimo (s)</label><input type="number" id="waMin" min="0" step="10"></div>
-      <div class="form-group"><label>Intervalo máximo (s)</label><input type="number" id="waMax" min="0" step="10"></div>
-      <div class="form-group"><label>Início</label><input type="text" id="waIni" placeholder="09:00" maxlength="5"></div>
-      <div class="form-group"><label>Fim</label><input type="text" id="waFim" placeholder="18:00" maxlength="5"></div>
-    </div>
-    <details style="margin:6px 0 12px;">
-      <summary style="cursor:pointer;font-size:0.85em;color:var(--text-2);">Configuração avançada (JSON)</summary>
-      <textarea id="waJson" rows="10" style="font-family:ui-monospace,monospace;font-size:0.8em;margin-top:8px;"></textarea>
-      <small class="muted">Persona, regras, dores por ramo, exemplos e o resto do config.
-        Editar aqui substitui os campos acima ao salvar.</small>
-    </details>
-    <div id="waAviso"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fechar('modalWa')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarWa()">Salvar</button>
-    </div>
-  </div>
-</div>
-
-<!-- modal modelo de mensagem -->
-<div class="modal-bg" id="modalModelo">
-  <div class="modal" style="max-width:600px;">
-    <div class="modal-header">
-      <div><h3 style="margin:0;" id="modeloTitulo">Modelo de mensagem</h3>
-        <small class="muted">Reaproveitável em quantas campanhas quiser.</small></div>
-      <button class="btn btn-ghost btn-sm" onclick="fechar('modalModelo')" style="font-size:1.2em;padding:4px 10px;">×</button>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Nome *</label>
-        <input type="text" id="mdNome" maxlength="80" placeholder="ex.: Aviso de boleto vencendo"></div>
-      <div class="form-group"><label>Canal *</label>
-        <select id="mdCanal" onchange="mudouCanalModelo()">
-          <option value="whatsapp">WhatsApp</option><option value="email">E-mail</option>
-        </select></div>
-    </div>
-    <div class="form-row" id="mdLinhaAssunto" style="display:none;">
-      <div class="form-group full-width"><label>Assunto (e-mail)</label>
-        <input type="text" id="mdAssunto" maxlength="150"></div>
-    </div>
-    <div class="form-row"><div class="form-group full-width">
-      <label>Mensagem *</label>
-      <textarea id="mdCorpo" rows="6" placeholder="Olá {{primeiroNome}}, seu boleto vence em..."></textarea>
-      <small class="muted">Variáveis: {{razaoSocial}} · {{nomeFantasia}} · {{primeiroNome}} · {{cpfCnpj}} · {{email}} · {{telefone}}<br>
-        Variável escrita errada é barrada ao salvar — melhor aqui que na frente de mil pessoas.</small>
-    </div></div>
-    <div class="form-row" id="mdLinhaImagem"><div class="form-group full-width">
-      <label>Imagem (opcional)</label>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <span id="mdImagemAtual" style="font-size:0.85em;color:var(--text-2);"></span>
-        <input type="file" id="mdArquivo" accept="image/*" style="max-width:230px;">
-        <button class="btn btn-secondary btn-sm" onclick="enviarImagemModelo()">Enviar</button>
-        <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="removerImagemModelo()">Remover</button>
-      </div>
-      <small class="muted">No WhatsApp a mensagem vai como legenda da imagem. Salve o modelo antes de enviar a imagem.</small>
-    </div></div>
-    <div id="mdAviso"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fechar('modalModelo')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarModelo()">Salvar modelo</button>
-    </div>
-  </div>
-</div>
-
-<!-- modal lista -->
-<div class="modal-bg" id="modalLista">
-  <div class="modal" style="max-width:700px;">
-    <div class="modal-header">
-      <div><h3 style="margin:0;" id="listaTitulo">Lista de contatos</h3>
-        <small class="muted">Quem pediu para sair aparece bloqueado.</small></div>
-      <button class="btn btn-ghost btn-sm" onclick="fechar('modalLista')" style="font-size:1.2em;padding:4px 10px;">×</button>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Nome *</label><input type="text" id="ltNome" maxlength="80"></div>
-      <div class="form-group" style="flex:3;"><label>Descrição</label><input type="text" id="ltDesc" maxlength="150"></div>
-    </div>
-    <div class="toolbar" style="margin-bottom:8px;">
-      <input type="text" id="ltBusca" placeholder="Buscar cliente…" oninput="renderPublicoLista()" style="flex:1;">
-      <button class="btn btn-ghost btn-sm" onclick="marcarLista(true)">Marcar visíveis</button>
-      <button class="btn btn-ghost btn-sm" onclick="marcarLista(false)">Limpar</button>
-      <span id="ltContagem" style="font-size:0.85em;color:var(--text-2);"></span>
-    </div>
-    <div class="tbl-wrap" style="max-height:260px;overflow-y:auto;">
-      <table>
-        <thead><tr><th style="width:30px;"></th><th>Cliente</th><th>Telefone</th><th>Marketing</th></tr></thead>
-        <tbody id="tbPublicoLista"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
-      </table>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fechar('modalLista')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarLista()">Salvar lista</button>
-    </div>
-  </div>
-</div>
-
-<!-- modal nova campanha -->
-<div class="modal-bg" id="modalCampanha">
-  <div class="modal" style="max-width:720px;">
-    <div class="modal-header">
-      <div><h3 style="margin:0;">Nova campanha</h3>
-        <small class="muted">Mensagem, público e envio. Sai no ritmo do canal, respeitando quem pediu para não receber.</small></div>
-      <button class="btn btn-ghost btn-sm" onclick="fechar('modalCampanha')" style="font-size:1.2em;padding:4px 10px;">×</button>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group" style="flex:2;"><label>Nome da campanha *</label>
-        <input type="text" id="npNome" maxlength="80" placeholder="ex.: Aviso de boleto de agosto"></div>
-      <div class="form-group"><label>Tipo *</label>
-        <select id="npTipo">
-          <option value="operacional">Operacional — aviso de pedido, boleto, entrega</option>
-          <option value="marketing">Marketing — só para quem aceitou receber</option>
-        </select></div>
-    </div>
-
-    <h4 style="margin:14px 0 6px;font-size:0.9em;">1 · Mensagem</h4>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Modelo</label>
-        <select id="npTemplate" onchange="mudouTemplate()"><option value="">— escrever uma nova —</option></select>
-      </div>
-    </div>
-    <div class="form-row" id="npNovoTemplate">
-      <div class="form-group full-width">
-        <label>Texto da mensagem *</label>
-        <textarea id="npCorpo" rows="4" placeholder="Olá {{razaoSocial}}, ..."></textarea>
-        <small class="muted">Variáveis: {{razaoSocial}} · {{nomeFantasia}} · {{primeiroNome}} · {{cpfCnpj}} · {{email}} · {{telefone}}</small>
-      </div>
-    </div>
-
-    <h4 style="margin:14px 0 6px;font-size:0.9em;">2 · Quem recebe</h4>
-    <div class="form-row">
-      <div class="form-group full-width">
-        <label>Lista</label>
-        <select id="npLista" onchange="mudouLista()"><option value="">— montar uma nova —</option></select>
-      </div>
-    </div>
-    <div id="npNovaLista">
-      <div class="toolbar" style="margin-bottom:6px;">
-        <input type="text" id="npBuscaPessoa" placeholder="Buscar cliente…" oninput="filtrarPublico()" style="flex:1;min-width:150px;">
-        <select id="fUf" onchange="filtrarPublico()" style="width:auto;"><option value="">UF</option></select>
-        <input type="text" id="fCidade" placeholder="Cidade" oninput="filtrarPublico()" style="max-width:130px;">
-        <select id="fMkt" onchange="filtrarPublico()" style="width:auto;">
-          <option value="">Marketing: tanto faz</option>
-          <option value="1">Só quem aceita</option>
-          <option value="0">Só quem não aceita</option>
-        </select>
-        <select id="fCompra" onchange="filtrarPublico()" style="width:auto;">
-          <option value="">Compras: tanto faz</option>
-          <option value="1">Já compraram</option>
-          <option value="0">Nunca compraram</option>
-        </select>
-        <input type="text" id="fTag" placeholder="Categoria/tag" oninput="filtrarPublico()" style="max-width:130px;">
-      </div>
-      <div class="toolbar" style="margin-bottom:8px;">
-        <button class="btn btn-ghost btn-sm" onclick="marcarPublico(true)">Marcar os filtrados</button>
-        <button class="btn btn-ghost btn-sm" onclick="marcarPublico(false)">Limpar seleção</button>
-        <span class="spacer"></span>
-        <span id="npContagem" style="font-size:0.85em;color:var(--text-2);"></span>
-      </div>
-      <div class="tbl-wrap" style="max-height:230px;overflow-y:auto;">
-        <table>
-          <thead><tr><th style="width:30px;"></th><th>Cliente</th><th>Telefone</th><th>Marketing</th></tr></thead>
-          <tbody id="tbPublico"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
-        </table>
-      </div>
-      <details style="margin-top:10px;">
-        <summary style="cursor:pointer;font-size:0.85em;color:var(--text-2);">Adicionar números à mão</summary>
-        <textarea id="npManuais" rows="4" style="margin-top:8px;"
-          placeholder="Um por linha:&#10;5594991234567&#10;94 99123-4567; Zé da Loja&#10;Maria, 11988887777"></textarea>
-        <small class="muted">Nome é opcional, separado por vírgula ou ponto e vírgula. Quem está em opt-out
-          continua sendo descartado no envio, mesmo digitado aqui.</small>
-      </details>
-    </div>
-
-    <div id="npAviso"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fechar('modalCampanha')">Cancelar</button>
-      <button class="btn btn-primary" onclick="criarCampanha()">Criar campanha</button>
-    </div>
-  </div>
-</div>
 
 <!-- modal corrigir -->
 <div class="modal-bg" id="modalCorrigir">
@@ -620,38 +225,16 @@
     </div>
   </div>
 </div>
-
-<!-- modal item da base -->
-<div class="modal-bg" id="modalItem">
-  <div class="modal" style="max-width:560px;">
-    <div class="modal-header">
-      <div><h3 style="margin:0;" id="itemTitulo">Item da base</h3></div>
-      <button class="btn btn-ghost btn-sm" onclick="fechar('modalItem')" style="font-size:1.2em;padding:4px 10px;">×</button>
-    </div>
-    <div class="form-row"><div class="form-group full-width">
-      <label>Título *</label><input type="text" id="iTitulo" maxlength="120" placeholder="ex.: Formas de pagamento">
-    </div></div>
-    <div class="form-row"><div class="form-group full-width">
-      <label>Conteúdo *</label><textarea id="iConteudo" rows="6" placeholder="Escreva como você responderia a um cliente"></textarea>
-    </div></div>
-    <div class="form-row"><div class="form-group full-width">
-      <label>Origem</label><input type="text" id="iOrigem" maxlength="120" placeholder="quem informou, ou de onde saiu">
-    </div></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="fechar('modalItem')">Cancelar</button>
-      <button class="btn btn-primary" onclick="salvarItem()">Salvar</button>
-    </div>
-  </div>
-</div>
-
-<script src="/js/menu-config.js"></script>
 <script src="/js/sidebar.js"></script>
 <script>initSidebar('conversas');</script>
 <script>
 let CONVERSAS = [], ATUAL = null, FILTRO = '', EDITANDO = null;
 // FILTRO='campanha' recorta quem respondeu; CAMPANHA diz de qual ('todas' ou id).
 let CAMPANHA = 'todas', CAMPANHAS_WA = null;
-const RECORTES = ['naoLidas', 'aguardando'];
+const RECORTES = ['naoLidas', 'aguardando', 'minhas', 'semDono', 'semResposta'];
+// Quem pode assumir conversa, e quem sou eu. Carregados uma vez: a equipe não
+// muda no meio do expediente, e a lista alimenta um select por conversa aberta.
+let ATENDENTES = [], EU_ID = null;
 let PUBLICO = [], SEL_PUB = new Set(), MODELOS = [], LISTAS = [];
 
 function showAlert(m,t='success'){ const e=document.getElementById('alertGlobal'); e.className='alert '+t; e.textContent=m; e.style.display='block'; setTimeout(()=>e.style.display='none',5000); }
@@ -675,993 +258,6 @@ function quando(v){
                   : d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
 }
 
-function trocarTab(t){
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-  document.querySelectorAll('.tab-pane').forEach(x=>x.classList.remove('active'));
-  event.currentTarget.classList.add('active');
-  document.getElementById('tab-'+t).classList.add('active');
-  if (t==='ia') carregarBase();
-  if (t==='campanhas') carregarCampanhas();
-  if (t==='canal') carregarCanal();
-  if (t==='relatorio') carregarRelatorio();
-}
-
-// ---------- relatório ----------
-//
-// O diagnóstico vem antes dos números de propósito: quem abre esta aba está
-// perguntando "por que não saiu nada?", e ler isso numa tabela exige saber de
-// antemão qual coluna olhar. As regras abaixo são as portas do autoResponder
-// (whatsapp-webhook.js), na mesma ordem em que ele as aplica.
-function diagnosticar(d){
-  const { config: c, funil: f, serie, erros } = d;
-  const avisos = [];
-  const hoje = serie[serie.length - 1] || {};
-
-  if (!c.canalLigado) {
-    avisos.push(['erro', 'O canal de WhatsApp está desligado.',
-      'Nada entra nem sai enquanto estiver assim. Ligue na aba <strong>Canal</strong>.']);
-  } else if (!c.iaLigada) {
-    avisos.push(['erro', 'A resposta automática está desligada.',
-      'As mensagens chegam e ficam esperando atendimento humano. Ligue na aba <strong>Canal</strong>.']);
-  } else if (!c.temChaveIA) {
-    avisos.push(['erro', 'O tenant não tem chave de IA configurada.',
-      'Sem chave a IA não é chamada e ninguém recebe resposta automática.']);
-  }
-
-  // O caso que mais confunde: tudo ligado, mensagens chegando, e mesmo assim
-  // silêncio — porque o escopo limita a IA a quem a campanha abordou.
-  if (c.iaLigada && c.escopo === 'campanha' && f.escreveram > 0 && f.foraDeCampanha === f.escreveram) {
-    avisos.push(['erro',
-      `Nenhuma das ${f.escreveram} pessoas que escreveram hoje veio de campanha.`,
-      'A IA está no escopo <strong>"só quem a campanha abordou"</strong>, então ela não respondeu a ninguém hoje — '
-      + 'por regra, não por falha. Para atender também quem chega por fora, mude o escopo na aba <strong>Canal</strong>; '
-      + 'para manter a regra, o atendimento de hoje é humano.']);
-  } else if (c.iaLigada && c.escopo === 'campanha' && f.foraDeCampanha > 0) {
-    avisos.push(['aviso',
-      `${f.foraDeCampanha} de ${f.escreveram} que escreveram hoje não vieram de campanha.`,
-      'Essas ficam sem resposta automática pelo escopo configurado.']);
-  }
-
-  if (c.escopo === 'campanha' && !c.campanhasAtivas) {
-    avisos.push(['aviso', 'Nenhuma campanha ativa.',
-      'Com o escopo em "só campanha" e nenhuma campanha enviando, a IA tende a ficar sem ninguém para atender.']);
-  }
-  if (hoje.recebidas > 0 && hoje.enviadasHumano === 0 && hoje.enviadasIA === 0) {
-    avisos.push(['aviso', `Chegaram ${hoje.recebidas} mensagens hoje e nenhuma resposta saiu — nem da IA, nem de pessoa.`,
-      'Vale conferir a fila de não lidas no Atendimento.']);
-  }
-  if (erros.length) {
-    const t = erros.reduce((s, e) => s + e.n, 0);
-    avisos.push(['aviso', `${t} falha(s) de envio no período.`, 'Detalhe na tabela de falhas abaixo.']);
-  }
-  if (!avisos.length) {
-    avisos.push(['ok', 'Nada travado.', 'Canal ligado, IA respondendo e nenhuma falha de envio no período.']);
-  }
-  return avisos;
-}
-
-async function carregarRelatorio(){
-  const dias = document.getElementById('relDias').value || 14;
-  const box = document.getElementById('relDiagnostico');
-  box.innerHTML = '<div class="alert info" style="display:block;">Apurando…</div>';
-  let d;
-  try {
-    d = await fetch('/api/conversas/painel/relatorio?dias=' + dias).then(r => r.json());
-    if (!d.success) throw new Error(d.error);
-  } catch (e) {
-    box.innerHTML = `<div class="alert error" style="display:block;">Erro ao apurar: ${esc(e.message)}</div>`;
-    return;
-  }
-
-  const CORES = { erro: 'error', aviso: 'warn', ok: 'success' };
-  box.innerHTML = diagnosticar(d).map(([tipo, titulo, texto]) =>
-    `<div class="alert ${CORES[tipo] || 'info'}" style="display:block;margin-bottom:8px;">
-       <strong>${esc(titulo)}</strong><br><span style="font-size:0.92em;">${texto}</span></div>`).join('');
-
-  const f = d.funil;
-  const card = (rot, val, alerta) =>
-    `<div class="c${alerta ? ' alerta' : ''}"><span class="v">${val}</span>${rot}</div>`;
-  document.getElementById('relFunil').innerHTML = [
-    card('escreveram hoje', f.escreveram || 0, false),
-    card('fora de campanha', f.foraDeCampanha || 0, d.config.escopo === 'campanha' && f.foraDeCampanha > 0),
-    card('pessoa já respondeu (4h)', f.humanoAssumiu || 0, false),
-    card('IA desligada na conversa', f.iaDesligada || 0, false),
-    card('respondidas pela IA', f.respondidasPelaIA || 0, (f.escreveram > 0 && !f.respondidasPelaIA)),
-  ].join('');
-
-  const num = (v) => Number(v || 0).toLocaleString('pt-BR');
-  document.getElementById('tbRelSerie').innerHTML = d.serie.length
-    ? d.serie.slice().reverse().map(s => `<tr>
-        <td>${esc(s.dia)}</td>
-        <td style="text-align:right;">${num(s.recebidas)}</td>
-        <td style="text-align:right;">${num(s.enviadasHumano)}</td>
-        <td style="text-align:right;${s.recebidas > 0 && !s.enviadasIA ? 'color:var(--warn);' : ''}">${num(s.enviadasIA)}</td>
-        <td style="text-align:right;">${num(s.disparosCampanha)}</td>
-        <td style="text-align:right;${s.filaErro ? 'color:var(--danger);' : ''}">${num(s.filaErro)}</td>
-        <td style="text-align:right;">${num(s.conversasNovas)}</td>
-      </tr>`).join('')
-    : '<tr><td colspan="7" class="empty">Sem movimento no período</td></tr>';
-
-  document.getElementById('tbRelErros').innerHTML = d.erros.length
-    ? d.erros.map(e => `<tr>
-        <td>${esc(e.motivo)}</td>
-        <td style="text-align:right;">${num(e.n)}</td>
-        <td>${esc((e.ultimoEm || '').slice(0, 16))}</td>
-        <td style="font-size:0.85em;color:var(--text-2);">${esc(e.telefones || '—')}</td>
-      </tr>`).join('')
-    : '<tr><td colspan="4" class="empty">Nenhuma falha de envio no período</td></tr>';
-
-  const c = d.conversas || {}, tr = d.tempoResposta || {};
-  const tempo = tr.minutos == null ? '—'
-    : (tr.minutos >= 60 ? Math.round(tr.minutos / 60) + 'h' : tr.minutos + 'min');
-  document.getElementById('relConversas').innerHTML = [
-    card('abertas', num(c.abertas), false),
-    card('nunca respondidas', num(c.semResposta), (c.semResposta || 0) > 0),
-    card('com não lidas', num(c.comNaoLidas), (c.comNaoLidas || 0) > 0),
-    card('IA desligada', num(c.iaDesligada), false),
-    card(`1ª resposta (média de ${num(tr.base)})`, tempo, false),
-  ].join('');
-}
-
-// ---------- campanhas (as duas fontes) ----------
-async function carregarCampanhas(){
-  const d = await fetch('/api/conversas/campanhas').then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  const tb = document.getElementById('tbCamp');
-  document.getElementById('campResumo').textContent = `${d.campanhas.length} campanha(s)`;
-  if (!d.campanhas.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma campanha ainda — comece por "+ Nova campanha"</td></tr>'; return; }
-  tb.innerHTML = d.campanhas.map(c => {
-    // Cada contador abre a lista já filtrada — ver "1 falha" sem poder clicar
-    // nela obriga a caçar o número por fora.
-    const dest = c.destinatarios
-      ? Object.entries(c.destinatarios).map(([k,v]) =>
-          `<a href="#" onclick="verEnvios(event, ${c.id}, '${c.origem}', ${argJs(c.nome)}, '${k}')">${v} ${k}</a>`).join(' · ')
-      : (c.totalDestinatarios != null ? `${c.totalDestinatarios} na lista` : '—');
-    const pend = c.destinatarios?.pendente || 0;
-    // comm em rascunho pode ser executada; wa com pendentes pode ser cancelada.
-    // Uma ação principal (a mais provável no estado atual) e o resto num menu:
-    // quatro botões por linha viravam parede.
-    const st = String(c.status || '');
-    const org = c.origem;
-    const agenda = argJs(c.agendadaPara);
-    let principal = '', itens = [];
-
-    // "Enviar" abre o modal de disparo, onde se escolhe entre começar agora e
-    // agendar. Antes eram duas ações separadas e o agendamento vivia escondido
-    // no menu ⋯, atrás de um prompt de texto.
-    const quantos = c.totalDestinatarios != null ? c.totalDestinatarios : pend;
-    const disparo = `abrirDisparo(${c.id}, '${org}', ${agenda}, ${quantos || 0}, ${argJs(c.nome)})`;
-
-    if (org === 'comm') {
-      if (['rascunho','agendada','pausada'].includes(st)) {
-        principal = { rotulo: st === 'pausada' ? 'Retomar' : 'Enviar', fn: disparo };
-        itens = [
-          { rotulo: 'Editar', fn: `abrirNovaCampanha(${c.id})` },
-          { rotulo: 'Duplicar', fn: `duplicarCampanha(${c.id})` },
-        ];
-      } else if (st === 'enviando') {
-        principal = { rotulo: 'Pausar', fn: `pausarCampanha(${c.id}, 'comm')` };
-        itens = [{ rotulo: 'Cancelar envio', fn: `cancelarCommCampanha(${c.id})`, perigo: true }];
-      } else {
-        principal = { rotulo: 'Duplicar', fn: `duplicarCampanha(${c.id})` };
-      }
-    } else if (st === 'enviando') {
-      principal = { rotulo: 'Pausar', fn: `pausarCampanha(${c.id}, 'wa')` };
-      itens = [{ rotulo: 'Editar', fn: `abrirWa(${c.id})` }];
-    } else {
-      principal = { rotulo: st === 'pausada' ? 'Retomar' : 'Enviar', fn: disparo };
-      itens = [{ rotulo: 'Editar', fn: `abrirWa(${c.id})` }];
-    }
-    if (org !== 'comm' && pend) {
-      itens.push({ rotulo: `Cancelar ${pend} pendente(s)`, fn: `cancelarCampanha(${c.id}, ${pend})`, perigo: true });
-    }
-    // Vale para qualquer estado: é onde se vê quem falhou e por quê.
-    itens.push({ rotulo: 'Ver envios', fn: `abrirEnvios(${c.id}, '${org}', ${argJs(c.nome)})` });
-
-    const acao = `<div class="acoes">
-      ${principal ? `<button class="btn btn-primary btn-sm" onclick="${principal.fn}">${principal.rotulo}</button>` : ''}
-      ${itens.length ? `<details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
-        ${itens.map(i => `<button class="${i.perigo?'perigo':''}" onclick="fecharMenus(); ${i.fn}">${i.rotulo}</button>`).join('')}
-      </div></details>` : ''}
-    </div>`;
-    return `<tr>
-      <td><strong>${esc(c.nome||'(sem nome)')}</strong>${c.descricao?`<br><small class="muted">${esc(String(c.descricao).slice(0,90))}</small>`:''}</td>
-      <td><span class="badge ${c.origem==='wa'?'inativo':'ativo'}">${c.origem==='wa'?'legado':'campanha'}</span></td>
-      <td>${esc(c.status||'—')}</td>
-      <td>${dest}</td>
-      <td>${esc(String(c.criadoEm||'').slice(0,10))}</td>
-      <td style="text-align:right;">${acao}</td>
-    </tr>`;
-  }).join('');
-}
-
-// ---------- sub-abas de Campanhas ----------
-function subAba(qual, botao){
-  document.querySelectorAll('.sub-abas .sub').forEach(b=>b.classList.remove('sel'));
-  document.querySelectorAll('.sub-pane').forEach(p=>p.classList.remove('active'));
-  botao.classList.add('sel');
-  document.getElementById('sub-'+qual).classList.add('active');
-  if (qual==='modelos') carregarModelos();
-  if (qual==='listas') carregarListas();
-}
-
-// ---------- modelos de mensagem ----------
-let EDIT_MODELO = null;
-
-async function carregarModelos(){
-  const d = await fetch('/api/comm/templates').then(r=>r.json()).catch(()=>null);
-  const tb = document.getElementById('tbModelos');
-  if (!d?.success) { tb.innerHTML = '<tr><td colspan="4" class="empty">Não foi possível carregar</td></tr>'; return; }
-  MODELOS = d.templates || [];
-  document.getElementById('modResumo').textContent = `${MODELOS.length} modelo(s)`;
-  tb.innerHTML = MODELOS.length ? MODELOS.map(t=>`<tr>
-    <td><strong>${esc(t.nome)}</strong>${t.assunto?`<br><small class="muted">${esc(t.assunto)}</small>`:''}</td>
-    <td><span class="badge ${t.canal==='whatsapp'?'ativo':'inativo'}">${esc(t.canal)}</span>${t.imagemPath?'<br><small class="muted">com imagem</small>':''}</td>
-    <td style="max-width:420px;"><small>${esc(String(t.corpo).slice(0,140))}${t.corpo.length>140?'…':''}</small></td>
-    <td><div class="acoes">
-      <button class="btn btn-primary btn-sm" onclick="abrirModelo(${t.id})">Editar</button>
-      <details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
-        <button class="perigo" onclick="fecharMenus(); removerModelo(${t.id})">Remover modelo</button>
-      </div></details>
-    </div></td></tr>`).join('')
-    : '<tr><td colspan="4" class="empty">Nenhum modelo — crie um para reaproveitar nas campanhas</td></tr>';
-}
-
-function mudouCanalModelo(){
-  document.getElementById('mdLinhaAssunto').style.display =
-    document.getElementById('mdCanal').value === 'email' ? '' : 'none';
-}
-
-function abrirModelo(id){
-  EDIT_MODELO = id || null;
-  const t = id ? (MODELOS||[]).find(x=>x.id===id) : null;
-  document.getElementById('modeloTitulo').textContent = t ? 'Editar modelo' : 'Novo modelo';
-  document.getElementById('mdNome').value = t?.nome || '';
-  document.getElementById('mdCanal').value = t?.canal || 'whatsapp';
-  document.getElementById('mdAssunto').value = t?.assunto || '';
-  document.getElementById('mdCorpo').value = t?.corpo || '';
-  document.getElementById('mdAviso').innerHTML = '';
-  document.getElementById('mdArquivo').value = '';
-  document.getElementById('mdImagemAtual').textContent = t?.imagemPath ? '✓ imagem anexada' : 'sem imagem';
-  document.getElementById('mdLinhaImagem').style.display = id ? '' : 'none';
-  mudouCanalModelo();
-  document.getElementById('modalModelo').classList.add('open');
-}
-
-async function salvarModelo(){
-  const body = {
-    nome: document.getElementById('mdNome').value.trim(),
-    canal: document.getElementById('mdCanal').value,
-    assunto: document.getElementById('mdAssunto').value.trim() || null,
-    corpo: document.getElementById('mdCorpo').value.trim(),
-  };
-  if (!body.nome || !body.corpo) return showAlert('Nome e mensagem são obrigatórios','error');
-  const url = EDIT_MODELO ? '/api/comm/templates/'+EDIT_MODELO : '/api/comm/templates';
-  const d = await fetch(url, { method: EDIT_MODELO ? 'PUT' : 'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json());
-  if (!d.success) {
-    document.getElementById('mdAviso').innerHTML = `<div class="alert error" style="display:block;">${esc(d.error)}</div>`;
-    return;
-  }
-  // A validação devolve avisos que não impedem salvar — mostrar é o que evita
-  // descobrir depois que o e-mail foi sem assunto.
-  if (d.avisos?.length) showAlert(d.avisos.map(a=>a.mensagem).join(' · '), 'warn');
-  else showAlert('Modelo salvo');
-  fechar('modalModelo');
-  carregarModelos();
-}
-
-async function removerModelo(id){
-  if (!confirm('Remover este modelo?\n\nCampanhas já enviadas não são afetadas.')) return;
-  const d = await fetch('/api/comm/templates/'+id, { method:'DELETE' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  carregarModelos();
-}
-
-async function enviarImagemModelo(){
-  if (!EDIT_MODELO) return showAlert('Salve o modelo antes de anexar a imagem','error');
-  const f = document.getElementById('mdArquivo').files[0];
-  if (!f) return showAlert('Escolha a imagem','error');
-  const fd = new FormData(); fd.append('imagem', f);
-  const d = await fetch(`/api/comm/templates/${EDIT_MODELO}/imagem`, { method:'POST', body: fd }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  document.getElementById('mdImagemAtual').textContent = '✓ imagem anexada';
-  showAlert('Imagem anexada ao modelo');
-  carregarModelos();
-}
-
-async function removerImagemModelo(){
-  if (!EDIT_MODELO) return;
-  const d = await fetch(`/api/comm/templates/${EDIT_MODELO}/imagem`, { method:'DELETE' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  document.getElementById('mdImagemAtual').textContent = 'sem imagem';
-  carregarModelos();
-}
-
-// ---------- listas ----------
-let EDIT_LISTA = null, SEL_LISTA = new Set();
-
-async function carregarListas(){
-  const d = await fetch('/api/comm/listas').then(r=>r.json()).catch(()=>null);
-  const tb = document.getElementById('tbListas');
-  if (!d?.success) { tb.innerHTML = '<tr><td colspan="4" class="empty">Não foi possível carregar</td></tr>'; return; }
-  LISTAS = d.listas || [];
-  document.getElementById('listResumo').textContent = `${LISTAS.length} lista(s)`;
-  tb.innerHTML = LISTAS.length ? LISTAS.map(l=>`<tr>
-    <td><strong>${esc(l.nome)}</strong></td>
-    <td><small class="muted">${esc(l.descricao||'—')}</small></td>
-    <td>${l.totalMembros ?? l.membros ?? '—'}</td>
-    <td><div class="acoes">
-      <button class="btn btn-primary btn-sm" onclick="abrirLista(${l.id})">Editar</button>
-      <details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
-        <button class="perigo" onclick="fecharMenus(); removerLista(${l.id})">Remover lista</button>
-      </div></details>
-    </div></td></tr>`).join('')
-    : '<tr><td colspan="4" class="empty">Nenhuma lista</td></tr>';
-}
-
-async function abrirLista(id){
-  EDIT_LISTA = id || null;
-  SEL_LISTA.clear();
-  const l = id ? (LISTAS||[]).find(x=>x.id===id) : null;
-  document.getElementById('listaTitulo').textContent = l ? 'Editar lista' : 'Nova lista';
-  document.getElementById('ltNome').value = l?.nome || '';
-  document.getElementById('ltDesc').value = l?.descricao || '';
-  document.getElementById('ltBusca').value = '';
-
-  const p = await fetch('/api/conversas/publico').then(r=>r.json()).catch(()=>null);
-  PUBLICO = p?.pessoas || [];
-  if (id) {
-    const det = await fetch('/api/comm/listas/'+id).then(r=>r.json()).catch(()=>null);
-    (det?.membros || det?.lista?.membros || []).forEach(m => SEL_LISTA.add(m.pessoaId ?? m.id));
-  }
-  renderPublicoLista();
-  document.getElementById('modalLista').classList.add('open');
-}
-
-function renderPublicoLista(){
-  const q = document.getElementById('ltBusca').value.toLowerCase().trim();
-  const lista = PUBLICO.filter(p => !q || [p.razaoSocial,p.nomeFantasia,p.telefone,p.cidade]
-    .some(v => String(v||'').toLowerCase().includes(q)));
-  document.getElementById('ltContagem').textContent = `${SEL_LISTA.size} na lista`;
-  const tb = document.getElementById('tbPublicoLista');
-  tb.innerHTML = lista.length ? lista.slice(0,300).map(p=>`<tr>
-    <td><input type="checkbox" ${SEL_LISTA.has(p.id)?'checked':''} ${p.optOut?'disabled':''}
-         onchange="alternarLista(${p.id}, this.checked)" style="width:auto;"></td>
-    <td>${esc(p.razaoSocial||p.nomeFantasia||'—')}</td>
-    <td>${esc(p.telefone)}</td>
-    <td>${p.optOut ? '<span class="badge inativo">pediu para sair</span>'
-                   : (p.aceitaMarketing ? '<span class="badge ativo">aceita</span>' : '<span class="badge inativo">não aceita</span>')}</td>
-  </tr>`).join('') : '<tr><td colspan="4" class="empty">Nenhum cliente com telefone</td></tr>';
-}
-
-function alternarLista(id, on){ if (on) SEL_LISTA.add(id); else SEL_LISTA.delete(id); renderPublicoLista(); }
-function marcarLista(on){
-  const q = document.getElementById('ltBusca').value.toLowerCase().trim();
-  PUBLICO.filter(p => !p.optOut && (!q || [p.razaoSocial,p.telefone].some(v=>String(v||'').toLowerCase().includes(q))))
-    .forEach(p => on ? SEL_LISTA.add(p.id) : SEL_LISTA.delete(p.id));
-  if (!on) SEL_LISTA.clear();
-  renderPublicoLista();
-}
-
-async function salvarLista(){
-  const nome = document.getElementById('ltNome').value.trim();
-  if (!nome) return showAlert('Dê um nome à lista','error');
-  const body = { nome, descricao: document.getElementById('ltDesc').value.trim() || null };
-  let id = EDIT_LISTA;
-  if (id) {
-    const u = await fetch('/api/comm/listas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body) }).then(r=>r.json());
-    if (!u.success) return showAlert(u.error,'error');
-  } else {
-    const c = await fetch('/api/comm/listas', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body) }).then(r=>r.json());
-    if (!c.success) return showAlert(c.error,'error');
-    id = c.lista.id;
-  }
-  if (SEL_LISTA.size) {
-    const m = await fetch(`/api/comm/listas/${id}/membros`, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ pessoaIds: [...SEL_LISTA] }) }).then(r=>r.json());
-    if (!m.success) return showAlert(m.error,'error');
-  }
-  fechar('modalLista');
-  showAlert('Lista salva com ' + SEL_LISTA.size + ' pessoa(s)');
-  carregarListas();
-}
-
-async function removerLista(id){
-  if (!confirm('Remover esta lista?\n\nCampanhas já criadas com ela não são afetadas.')) return;
-  const d = await fetch('/api/comm/listas/'+id, { method:'DELETE' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  carregarListas();
-}
-
-// ---------- editar campanha legado (wa_campanhas) ----------
-// O config dela é um objeto grande que o gerador de mensagem consome. A tela
-// expõe o que se ajusta no dia a dia e deixa o resto no JSON — melhor que
-// esconder metade das opções de quem precisa delas.
-let WA_ATUAL = null;
-
-async function abrirWa(id){
-  const d = await fetch('/api/conversas/campanhas/wa/'+id).then(r=>r.json()).catch(()=>null);
-  if (!d?.success) return showAlert(d?.error || 'Não foi possível abrir','error');
-  WA_ATUAL = d.campanha;
-  const c = d.campanha.config || {};
-  const dest = Object.entries(d.destinatarios||{}).map(([k,v])=>`${v} ${k}`).join(' · ') || 'sem destinatários';
-  document.getElementById('waSub').textContent = `Campanha legado · ${dest}`;
-  document.getElementById('waNome').value = d.campanha.nome || c.nome || '';
-  document.getElementById('waDesc').value = c.descricao || '';
-  document.getElementById('waBriefing').value = c.briefing || '';
-  document.getElementById('waTemplate').value = c.template_referencia || '';
-  document.getElementById('waDiario').value = c.daily_limit ?? '';
-  document.getElementById('waMin').value = c.throttle_min_sec ?? '';
-  document.getElementById('waMax').value = c.throttle_max_sec ?? '';
-  document.getElementById('waIni').value = c.horario_permitido?.inicio || '';
-  document.getElementById('waFim').value = c.horario_permitido?.fim || '';
-  document.getElementById('waJson').value = JSON.stringify(c, null, 2);
-  // Diz qual base o robô usa hoje para esta campanha — o desenho atual troca a
-  // fonte conforme a pessoa tenha vindo ou não de campanha.
-  const dedicada = c.atendimento_prompt || c.atendimento_kb;
-  document.getElementById('waExplicaResposta').innerHTML = dedicada
-    ? 'Esta campanha tem <strong>atendimento próprio</strong> configurado (<code>atendimento_prompt</code> / '
-      + '<code>atendimento_kb</code> no JSON avançado): quem responder é atendido por ele, e não pela Base da IA. '
-      + 'Remova esses campos para usar a base de todo mundo.'
-    : 'Quem responder é atendido pela <strong>Base da IA</strong>, igual a qualquer outro cliente — mais o contexto '
-      + 'de que veio desta campanha. O texto da seção 1 não é usado aqui: ele serve só para escrever a abordagem.';
-  document.getElementById('waAviso').innerHTML = '';
-  carregarImagensCampanha();
-  document.getElementById('modalWa').classList.add('open');
-}
-
-// Prova prática 1: o que o briefing produz. Gera uma mensagem de abordagem
-// para um contato de exemplo, usando a MESMA função do envio real.
-async function testarAbordagem(){
-  const el = document.getElementById('waPreviaM1');
-  el.innerHTML = '<small class="muted">Gerando com a IA…</small>';
-  const d = await fetch(`/api/wa-campanhas/${WA_ATUAL.id}/sim-m1`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ contact: { nome:'Rosete', primeiro_nome:'Rosete', ramo:'vestuario', cidade:'Marabá' } })
-  }).then(r=>r.json()).catch(()=>null);
-  el.innerHTML = d?.success
-    ? `<div class="msg minha" style="max-width:100%;">${esc(d.reply)}</div>
-       <small class="muted">Exemplo para um contato fictício (Rosete, loja de vestuário em Marabá).
-         É isto que o texto acima produz.</small>`
-    : `<div class="alert warn" style="display:block;">${esc(d?.error||'Não foi possível gerar')}</div>`;
-}
-
-// Prova prática 2: a mesma pergunta respondida pelos dois caminhos, lado a
-// lado. É o que mostra se o briefing ainda é útil depois da abordagem.
-async function compararResposta(){
-  const texto = document.getElementById('waPergunta').value.trim();
-  if (!texto) return showAlert('Escreva a pergunta do cliente','error');
-  const el = document.getElementById('waComparacao');
-  el.innerHTML = '<small class="muted">Perguntando à IA dos dois jeitos…</small>';
-
-  const pedir = (body) => fetch('/api/whatsapp/sim-atendimento', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
-  }).then(r=>r.json()).catch(()=>null);
-
-  const [comCamp, semCamp] = await Promise.all([
-    pedir({ history: [{ role:'user', content: texto }], campanha_id: WA_ATUAL.id }),
-    pedir({ history: [{ role:'user', content: texto }] }),
-  ]);
-  const bloco = (titulo, fonte, r) => `
-    <div style="flex:1;min-width:230px;border:1px solid var(--border);border-radius:var(--r-md);padding:10px;">
-      <div style="font-size:0.82em;font-weight:600;">${titulo}</div>
-      <div style="font-size:0.75em;color:var(--text-2);margin-bottom:6px;">lê: ${fonte}</div>
-      ${r?.success ? `<div style="font-size:0.86em;white-space:pre-wrap;">${esc(r.reply || '(vazio)')}</div>
-                       <small class="muted" style="display:block;margin-top:6px;">contexto: ${esc(r.contexto||'—')}</small>`
-                   : `<small style="color:var(--danger);">${esc(r?.error||'falhou')}</small>`}
-    </div>`;
-  el.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;">
-      ${bloco('Quem veio desta campanha', 'o texto da campanha (acima)', comCamp)}
-      ${bloco('Qualquer outra pessoa', 'Instruções + Base da IA', semCamp)}
-    </div>
-    <small class="muted">As duas leem a mesma Base da IA. A da campanha tem, a mais, o contexto de onde
-      a pessoa veio — então a diferença deve ser de tom, não de informação.</small>`;
-}
-
-// Imagens da campanha: pool sorteado a cada envio, com a mensagem de legenda.
-async function carregarImagensCampanha(){
-  const el = document.getElementById('waImagens');
-  const d = await fetch(`/api/wa-campanhas/${WA_ATUAL.id}/images`).then(r=>r.json()).catch(()=>null);
-  const imgs = d?.images || [];
-  el.innerHTML = imgs.length ? imgs.map(f => `
-    <div style="position:relative;">
-      <img src="/api/wa-campanhas/${WA_ATUAL.id}/images/${encodeURIComponent(f)}" alt="${esc(f)}"
-      style="width:88px;height:88px;object-fit:cover;border:1px solid var(--border);border-radius:6px;background:#fff;">
-      <button title="Remover" onclick="removerImagemCampanha('${esc(f)}')"
-        style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;border:0;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:12px;line-height:1;">×</button>
-    </div>`).join('')
-    : '<small class="muted">Nenhuma imagem — as mensagens saem só com texto.</small>';
-}
-
-async function enviarImagemCampanha(){
-  const f = document.getElementById('waArquivo').files[0];
-  if (!f) return showAlert('Escolha uma imagem','error');
-  if (f.size > 20*1024*1024) return showAlert('Imagem maior que 20 MB','error');
-  const base64 = await new Promise((ok, err) => {
-    const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = err; r.readAsDataURL(f);
-  });
-  const d = await fetch(`/api/wa-campanhas/${WA_ATUAL.id}/images`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ filename: f.name, base64 })
-  }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  document.getElementById('waArquivo').value = '';
-  showAlert('Imagem adicionada ao pool');
-  carregarImagensCampanha();
-}
-
-async function removerImagemCampanha(nome){
-  if (!confirm(`Remover a imagem "${nome}" desta campanha?`)) return;
-  const d = await fetch(`/api/wa-campanhas/${WA_ATUAL.id}/images/${encodeURIComponent(nome)}`, { method:'DELETE' })
-    .then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  carregarImagensCampanha();
-}
-
-async function salvarWa(){
-  const nome = document.getElementById('waNome').value.trim();
-  if (!nome) return showAlert('Informe o nome','error');
-  const av = document.getElementById('waAviso');
-
-  // O JSON avançado é a fonte quando foi mexido; senão parte do config atual.
-  let config;
-  try { config = JSON.parse(document.getElementById('waJson').value || '{}'); }
-  catch { av.innerHTML = '<div class="alert error" style="display:block;">A configuração avançada não é um JSON válido</div>'; return; }
-
-  const num = (id) => { const v = document.getElementById(id).value; return v === '' ? undefined : Number(v); };
-  const txt = (id) => document.getElementById(id).value.trim();
-  const aplicar = (chave, valor) => { if (valor !== undefined && valor !== '') config[chave] = valor; };
-  aplicar('descricao', txt('waDesc'));
-  aplicar('briefing', txt('waBriefing'));
-  aplicar('template_referencia', txt('waTemplate'));
-  aplicar('daily_limit', num('waDiario'));
-  aplicar('throttle_min_sec', num('waMin'));
-  aplicar('throttle_max_sec', num('waMax'));
-  const ini = txt('waIni'), fim = txt('waFim');
-  if (ini || fim) config.horario_permitido = { ...(config.horario_permitido||{}),
-    ...(ini?{inicio:ini}:{}) , ...(fim?{fim}:{}) };
-
-  const d = await fetch('/api/conversas/campanhas/wa/'+WA_ATUAL.id, { method:'PUT',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nome, config }) }).then(r=>r.json());
-  if (!d.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(d.error)}</div>`; return; }
-  fechar('modalWa');
-  showAlert('Campanha atualizada');
-  carregarCampanhas();
-}
-
-// ---------- nova campanha ----------
-// Usa as APIs /api/comm/* que já existiam (template + lista + campanha), em
-// vez de criar um terceiro módulo de campanha. A tela é que faltava.
-
-let EDIT_CAMPANHA = null;
-
-async function abrirNovaCampanha(id){
-  EDIT_CAMPANHA = id || null;
-  ['npNome','npCorpo'].forEach(x=>document.getElementById(x).value='');
-  document.getElementById('npAviso').innerHTML = '';
-  SEL_PUB.clear();
-
-  const [t, l, p] = await Promise.all([
-    fetch('/api/comm/templates').then(r=>r.json()).catch(()=>null),
-    fetch('/api/comm/listas').then(r=>r.json()).catch(()=>null),
-    fetch('/api/conversas/publico').then(r=>r.json()).catch(()=>null),
-  ]);
-  document.getElementById('npTemplate').innerHTML = '<option value="">— escrever uma nova —</option>'
-    + (t?.templates||[]).filter(x=>x.canal==='whatsapp').map(x=>`<option value="${x.id}">${esc(x.nome)}</option>`).join('');
-  document.getElementById('npLista').innerHTML = '<option value="">— montar uma nova —</option>'
-    + (l?.listas||[]).map(x=>`<option value="${x.id}">${esc(x.nome)}</option>`).join('');
-  PUBLICO = p?.pessoas || [];
-  preencherUfs(p?.ufs);
-  ['npManuais','fCidade','fTag'].forEach(x => { const el = document.getElementById(x); if (el) el.value = ''; });
-  ['fUf','fMkt','fCompra'].forEach(x => { const el = document.getElementById(x); if (el) el.value = ''; });
-
-  // Em edição: preenche com o que a campanha tem hoje. Enviada não chega aqui
-  // — a lista só oferece Editar para rascunho e agendada.
-  if (EDIT_CAMPANHA) {
-    const c = await fetch('/api/comm/campanhas/'+EDIT_CAMPANHA).then(r=>r.json()).catch(()=>null);
-    if (!c?.success) { showAlert(c?.error || 'Não foi possível abrir a campanha','error'); return; }
-    const camp = c.campanha || c;
-    document.getElementById('npNome').value = camp.nome || '';
-    document.getElementById('npTipo').value = camp.tipo || 'operacional';
-    document.getElementById('npTemplate').value = camp.templateId || '';
-    document.getElementById('npLista').value = camp.listaId || '';
-  }
-  document.querySelector('#modalCampanha .modal-header h3').textContent =
-    EDIT_CAMPANHA ? 'Editar campanha' : 'Nova campanha';
-  document.querySelector('#modalCampanha .modal-actions .btn-primary').textContent =
-    EDIT_CAMPANHA ? 'Salvar alterações' : 'Criar campanha';
-
-  renderPublico();
-  mudouTemplate(); mudouLista();
-  document.getElementById('modalCampanha').classList.add('open');
-}
-
-function mudouTemplate(){
-  document.getElementById('npNovoTemplate').style.display =
-    document.getElementById('npTemplate').value ? 'none' : '';
-}
-function mudouLista(){
-  document.getElementById('npNovaLista').style.display =
-    document.getElementById('npLista').value ? 'none' : '';
-}
-
-// Os filtros rodam no servidor: a base pode ter milhares de pessoas, e trazer
-// tudo para filtrar no navegador só funciona enquanto o cadastro é pequeno.
-let _debFiltro;
-function filtrarPublico(){
-  clearTimeout(_debFiltro);
-  _debFiltro = setTimeout(async () => {
-    const v = id => document.getElementById(id)?.value || '';
-    const qs = new URLSearchParams({
-      q: v('npBuscaPessoa'), uf: v('fUf'), cidade: v('fCidade'),
-      marketing: v('fMkt'), compraram: v('fCompra'), tag: v('fTag'),
-    });
-    const d = await fetch('/api/conversas/publico?' + qs).then(r=>r.json()).catch(()=>null);
-    if (d?.success) { PUBLICO = d.pessoas; preencherUfs(d.ufs); }
-    renderPublico();
-  }, 250);
-}
-
-function preencherUfs(ufs){
-  const el = document.getElementById('fUf');
-  if (!el || el.dataset.pronto || !ufs?.length) return;
-  el.innerHTML = '<option value="">UF</option>' + ufs.map(u=>`<option>${esc(u)}</option>`).join('');
-  el.dataset.pronto = '1';
-}
-
-function renderPublico(){
-  const lista = PUBLICO;   // já vem filtrado do servidor
-  document.getElementById('npContagem').textContent =
-    `${lista.length} no filtro · ${SEL_PUB.size} selecionado(s)`;
-  const tb = document.getElementById('tbPublico');
-  if (!lista.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">Nenhum cliente com telefone</td></tr>'; return; }
-  tb.innerHTML = lista.slice(0,300).map(p => `<tr>
-    <td><input type="checkbox" ${SEL_PUB.has(p.id)?'checked':''} ${p.optOut?'disabled':''}
-         onchange="alternarPub(${p.id}, this.checked)" style="width:auto;"></td>
-    <td>${esc(p.razaoSocial||p.nomeFantasia||'—')}${p.cidade?`<br><small class="muted">${esc(p.cidade)}/${esc(p.uf||'')}</small>`:''}</td>
-    <td>${esc(p.telefone)}</td>
-    <td>${p.optOut ? '<span class="badge inativo">pediu para sair</span>'
-                   : (p.aceitaMarketing ? '<span class="badge ativo">aceita</span>' : '<span class="badge inativo">não aceita</span>')}</td>
-  </tr>`).join('');
-}
-
-function alternarPub(id, on){ if (on) SEL_PUB.add(id); else SEL_PUB.delete(id); renderPublico(); }
-function marcarPublico(on){
-  if (!on) { SEL_PUB.clear(); return renderPublico(); }
-  PUBLICO.filter(p => !p.optOut).forEach(p => SEL_PUB.add(p.id));
-  renderPublico();
-}
-
-async function criarCampanha(){
-  const nome = document.getElementById('npNome').value.trim();
-  const tipo = document.getElementById('npTipo').value;
-  if (!nome) return showAlert('Dê um nome à campanha','error');
-  const av = document.getElementById('npAviso');
-  av.innerHTML = '<small class="muted">Criando…</small>';
-
-  // 1) modelo: usa o escolhido ou cria a partir do texto
-  let templateId = Number(document.getElementById('npTemplate').value) || null;
-  if (!templateId) {
-    const corpo = document.getElementById('npCorpo').value.trim();
-    if (!corpo) { av.innerHTML = '<div class="alert error" style="display:block;">Escreva a mensagem</div>'; return; }
-    const t = await fetch('/api/comm/templates', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ nome: nome.slice(0,60), canal:'whatsapp', corpo }) }).then(r=>r.json());
-    if (!t.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(t.error)}</div>`; return; }
-    templateId = t.template.id;
-  }
-
-  // 2) lista: usa a escolhida ou monta com quem foi marcado
-  let listaId = Number(document.getElementById('npLista').value) || null;
-  if (!listaId) {
-    const temManual = (document.getElementById('npManuais')?.value || '').trim();
-    if (!SEL_PUB.size && !temManual) { av.innerHTML = '<div class="alert error" style="display:block;">Escolha clientes ou informe números à mão</div>'; return; }
-    const l = await fetch('/api/comm/listas', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ nome: nome.slice(0,60), descricao: 'Criada pela tela de Conversas' }) }).then(r=>r.json());
-    if (!l.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(l.error)}</div>`; return; }
-    listaId = l.lista.id;
-    const manuais = document.getElementById('npManuais')?.value || '';
-    const m = await fetch(`/api/comm/listas/${listaId}/membros`, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ pessoaIds: [...SEL_PUB], manuais }) }).then(r=>r.json());
-    if (!m.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(m.error)}</div>`; return; }
-    if (m.recusados?.length) showAlert(`${m.recusados.length} linha(s) sem telefone válido: ${m.recusados.slice(0,3).join(' · ')}`, 'warn');
-  }
-
-  // 3) a campanha em si — nasce (ou continua) em rascunho, sem disparar nada
-  const url = EDIT_CAMPANHA ? '/api/comm/campanhas/'+EDIT_CAMPANHA : '/api/comm/campanhas';
-  const c = await fetch(url, { method: EDIT_CAMPANHA ? 'PUT' : 'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ nome, templateId, listaId, tipo }) }).then(r=>r.json());
-  if (!c.success) { av.innerHTML = `<div class="alert error" style="display:block;">${esc(c.error)}</div>`; return; }
-
-  fechar('modalCampanha');
-  showAlert(EDIT_CAMPANHA
-    ? `Campanha "${nome}" atualizada — ${c.campanha.totalDestinatarios} destinatário(s)`
-    : `Campanha "${nome}" criada em rascunho com ${c.campanha.totalDestinatarios} destinatário(s) — revise e execute na lista`);
-  carregarCampanhas();
-}
-
-async function duplicarCampanha(id){
-  const d = await fetch(`/api/comm/campanhas/${id}/duplicar`, { method:'POST',
-    headers:{'Content-Type':'application/json'}, body: '{}' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert(`Cópia criada em rascunho: "${d.campanha.nome}" — edite antes de executar`);
-  carregarCampanhas();
-}
-
-// ---------- envios: quem recebeu, quem falhou e por quê ----------
-let ENVIOS = null;   // { id, origem, nome, filtro, linhas }
-
-// O adapter guarda o erro cru da Evolution. Traduz o que é recorrente para
-// algo acionável — "http 400" não diz a ninguém o que fazer.
-function motivoLegivel(erro){
-  const e = String(erro || '');
-  if (!e) return '';
-  if (/http 400/.test(e)) return 'número não tem WhatsApp';
-  if (/http 40[13]/.test(e)) return 'instância recusou (verifique a conexão do canal)';
-  if (/http 5\d\d/.test(e)) return 'erro no servidor da Evolution';
-  if (/M1 reprovada/.test(e)) return e.replace('M1 reprovada:', 'texto reprovado:');
-  return e;
-}
-
-function verEnvios(ev, id, origem, nome, filtro){
-  ev.preventDefault();
-  abrirEnvios(id, origem, nome, filtro);
-}
-
-async function abrirEnvios(id, origem, nome, filtro){
-  ENVIOS = { id, origem, nome, filtro: filtro || '', linhas: [] };
-  document.getElementById('envSub').textContent = nome || '';
-  document.getElementById('tbEnvios').innerHTML = '<tr><td colspan="5" class="empty">Carregando…</td></tr>';
-  document.getElementById('envFiltros').innerHTML = '';
-  document.getElementById('modalEnvios').classList.add('open');
-  await carregarEnvios();
-}
-
-async function carregarEnvios(){
-  const { id, origem } = ENVIOS;
-  if (origem === 'wa') {
-    // 500 é o teto da rota; numa lista de 15 mil, o filtro por situação é o
-    // que torna a tela útil — ninguém audita 15 mil linhas de uma vez.
-    const q = ENVIOS.filtro ? `?status=${ENVIOS.filtro}&limit=500` : '?limit=500';
-    const d = await fetch(`/api/wa-campanhas/${id}/dest${q}`).then(r=>r.json());
-    if (!d.success) return showAlert(d.error,'error');
-    ENVIOS.linhas = (d.dest || []).map(x => ({
-      telefone: x.telefone, nome: x.nome, status: x.status, quando: x.enviado_em, erro: x.erro }));
-  } else {
-    const d = await fetch(`/api/comm/campanhas/${id}`).then(r=>r.json());
-    if (!d.success) return showAlert(d.error,'error');
-    ENVIOS.linhas = (d.envios || [])
-      .filter(x => !ENVIOS.filtro || x.status === ENVIOS.filtro)
-      .map(x => ({ telefone: x.destino, nome: x.razaoSocial, status: x.status, quando: x.dataEnvio, erro: x.erro }));
-  }
-  pintarEnvios();
-}
-
-function pintarEnvios(){
-  const chips = ['', 'falha', 'pendente', 'enviado']
-    .map(s => `<button class="btn btn-sm ${ENVIOS.filtro === s ? 'btn-primary' : 'btn-ghost'}"
-      onclick="filtrarEnvios('${s}')">${s ? esc(s) : 'todos'}</button>`).join('');
-  document.getElementById('envFiltros').innerHTML = chips
-    + `<span class="muted" style="align-self:center;margin-left:8px;">${ENVIOS.linhas.length} linha(s)</span>`;
-
-  const tb = document.getElementById('tbEnvios');
-  if (!ENVIOS.linhas.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">Nada aqui</td></tr>'; return; }
-  tb.innerHTML = ENVIOS.linhas.map(l => `<tr>
-    <td style="white-space:nowrap;">${esc(l.telefone)}</td>
-    <td>${esc(l.nome || '')}</td>
-    <td>${esc(l.status || '')}</td>
-    <td style="white-space:nowrap;">${l.quando ? new Date(l.quando).toLocaleString('pt-BR') : '—'}</td>
-    <td>${esc(motivoLegivel(l.erro))}</td>
-  </tr>`).join('');
-}
-
-function filtrarEnvios(s){ ENVIOS.filtro = s; carregarEnvios(); }
-
-function baixarEnviosCsv(){
-  if (!ENVIOS?.linhas.length) return showAlert('Nada para baixar','error');
-  const linhas = [['telefone','nome','situacao','quando','motivo'],
-    ...ENVIOS.linhas.map(l => [l.telefone, l.nome || '', l.status || '', l.quando || '', motivoLegivel(l.erro)])];
-  const csv = linhas.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';')).join('\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' }));
-  a.download = `envios-${ENVIOS.origem}-${ENVIOS.id}${ENVIOS.filtro ? '-' + ENVIOS.filtro : ''}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-// ---------- disparo: começar agora ou agendar ----------
-// Um modal só para as duas coisas, nos dois subsistemas. As rotas diferem
-// (o legado dispara por /run, o comm por /executar), a decisão do usuário não.
-let DISPARO = null;
-
-function abrirDisparo(id, origem, agendadaPara, quantos, nome){
-  DISPARO = { id, origem, quantos };
-  document.getElementById('dispSub').textContent = nome || '';
-  document.getElementById('dispResumo').innerHTML = quantos
-    ? `<div class="alert info" style="display:block;">Vai para <strong>${quantos}</strong> destinatário(s).
-       Quem pediu para sair é descartado no envio.</div>`
-    : `<div class="alert warn" style="display:block;">Esta campanha ainda não tem destinatários —
-       adicione a lista antes de enviar.</div>`;
-
-  const agendada = !!agendadaPara;
-  document.querySelector('input[name="dispQuando"][value="agora"]').checked = !agendada;
-  document.querySelector('input[name="dispQuando"][value="agendar"]').checked = agendada;
-  // datetime-local trabalha em hora local; o valor guardado é ISO em UTC.
-  document.getElementById('dispData').value = agendada ? paraLocalInput(new Date(agendadaPara)) : '';
-  document.getElementById('btnDesagendar').style.display = agendada ? '' : 'none';
-  document.getElementById('dispAviso').innerHTML = '';
-  mudouQuando();
-  document.getElementById('modalDisparo').classList.add('open');
-}
-
-function paraLocalInput(d){
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-}
-
-function mudouQuando(){
-  const agendar = document.querySelector('input[name="dispQuando"]:checked')?.value === 'agendar';
-  const campo = document.getElementById('dispData');
-  campo.disabled = !agendar;
-  if (agendar && !campo.value) campo.value = paraLocalInput(new Date(Date.now() + 3600000));
-}
-
-async function confirmarDisparo(forcar){
-  if (!DISPARO) return;
-  const { id, origem, quantos } = DISPARO;
-  const av = document.getElementById('dispAviso');
-  const agendar = document.querySelector('input[name="dispQuando"]:checked')?.value === 'agendar';
-  const erro = (m) => { av.innerHTML = `<div class="alert error" style="display:block;">${esc(m)}</div>`; };
-
-  if (agendar) {
-    const v = document.getElementById('dispData').value;
-    if (!v) return erro('Escolha a data e a hora de início');
-    const quando = new Date(v);                       // ISO com fuso: não depende do TZ do servidor
-    if (isNaN(quando)) return erro('Data inválida');
-    if (quando.getTime() < Date.now()) return erro('Essa hora já passou');
-    const url = origem === 'wa' ? `/api/wa-campanhas/${id}/agendar` : `/api/comm/campanhas/${id}/agendar`;
-    const d = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ quando: quando.toISOString() }) }).then(r=>r.json());
-    if (!d.success) return erro(d.error);
-    fechar('modalDisparo');
-    showAlert('Agendada para ' + new Date(d.agendadaPara).toLocaleString('pt-BR'));
-    return carregarCampanhas();
-  }
-
-  if (!forcar && !confirm(`Começar o envio agora para ${quantos} destinatário(s)?\n\nAs mensagens saem no ritmo do canal (limite por hora e intervalo entre envios).`)) return;
-  const url = origem === 'wa' ? `/api/wa-campanhas/${id}/run` : `/api/comm/campanhas/${id}/executar`;
-  const d = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(forcar ? { ignorarJanela: true } : {}) }).then(r=>r.json());
-  if (!d.success) {
-    erro(d.error);
-    // Fora da janela de horário é recusa recuperável — o próprio comm aceita
-    // ignorarJanela, então oferecemos o forçar em vez de só barrar.
-    if (d.janela) {
-      av.innerHTML += `<div style="margin-top:8px;"><button class="btn btn-ghost btn-sm"
-        onclick="confirmarDisparo(true)">Enviar mesmo assim</button></div>`;
-    }
-    return;
-  }
-  fechar('modalDisparo');
-  showAlert(origem === 'wa'
-    ? 'Envio iniciado — acompanhe pelo status da campanha'
-    : `Campanha executada: ${d.enviados ?? 0} enviado(s)`
-      + (d.descartados ? ` · ${d.descartados} descartado(s) por opt-out ou consentimento` : ''));
-  carregarCampanhas();
-}
-
-async function desagendarDisparo(){
-  if (!DISPARO) return;
-  const { id, origem } = DISPARO;
-  const url = origem === 'wa' ? `/api/wa-campanhas/${id}/desagendar` : `/api/comm/campanhas/${id}/agendar`;
-  const d = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' })
-    .then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  fechar('modalDisparo');
-  showAlert('Agendamento cancelado — a campanha voltou para rascunho');
-  carregarCampanhas();
-}
-
-// Menu de ações: fecha ao escolher um item e ao clicar fora — <details> aberto
-// sozinho na tela é o defeito clássico desse padrão.
-function fecharMenus(){ document.querySelectorAll('details.menu[open]').forEach(d => d.removeAttribute('open')); }
-document.addEventListener('click', e => {
-  if (!e.target.closest('details.menu')) fecharMenus();
-});
-
-async function cancelarCommCampanha(id){
-  if (!confirm('Cancelar esta campanha?\n\nQuem ainda não recebeu não receberá. Diferente de pausar, não dá para retomar.')) return;
-  const d = await fetch(`/api/comm/campanhas/${id}/cancelar`, { method:'POST' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert('Campanha cancelada');
-  carregarCampanhas();
-}
-
-async function pausarCampanha(id, origem){
-  if (!confirm('Pausar o envio?\n\nQuem ainda não recebeu continua na fila — retomar segue de onde parou.')) return;
-  const url = origem === 'wa' ? `/api/wa-campanhas/${id}/pausar` : `/api/comm/campanhas/${id}/pausar`;
-  const d = await fetch(url, { method:'POST' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert(d.emExecucao ? 'Envio interrompido' : 'Campanha marcada como pausada');
-  carregarCampanhas();
-}
-
-async function cancelarCampanha(id, pend){
-  if (!confirm(`Cancelar ${pend} destinatário(s) pendente(s) desta campanha?\n\nEles deixam de ser enviados. O histórico do que já saiu é preservado.`)) return;
-  const d = await fetch(`/api/conversas/campanhas/wa/${id}/cancelar`, { method:'POST' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert(`${d.cancelados} destinatário(s) cancelado(s)`);
-  carregarCampanhas();
-}
-
-// ---------- canal ----------
-async function carregarCanal(){
-  const [st, rit, ia] = await Promise.all([
-    fetch('/api/whatsapp/status').then(r=>r.json()).catch(()=>null),
-    fetch('/api/whatsapp/ritmo').then(r=>r.json()).catch(()=>null),
-    fetch('/api/whatsapp/ai-config').then(r=>r.json()).catch(()=>null),
-  ]);
-  const box = document.getElementById('canalStatus');
-  if (st?.success !== false && st) {
-    const on = st.connected || st.state === 'open';
-    box.className = 'alert ' + (on ? 'success' : 'warn');
-    box.innerHTML = on
-      ? `Conectado${st.instance?` · instância <strong>${esc(st.instance)}</strong>`:''}`
-      : `Não conectado${st.instance?` · instância <strong>${esc(st.instance)}</strong>`:''} — leia o QR com o celular da empresa`;
-  } else { box.className='alert warn'; box.textContent = 'Não foi possível consultar o canal'; }
-
-  if (rit?.success) {
-    document.getElementById('ritmoBox').innerHTML = `
-      <div class="kpis">
-        <div class="c"><span class="v">${rit.hora}</span>na última hora (teto ${rit.limiteHora})</div>
-        <div class="c"><span class="v">${rit.dia}</span>hoje</div>
-        ${rit.segurados ? `<div class="c alerta"><span class="v">${rit.segurados}</span>seguradas na fila</div>` : ''}
-        ${rit.diasDeUso != null ? `<div class="c"><span class="v">${rit.diasDeUso}</span>dia(s) de uso do número</div>` : ''}
-      </div>
-      ${rit.podeEnviarAgora ? '' : `<div class="alert warn" style="display:block;">${esc(rit.motivo||'')}</div>`}`;
-  }
-  if (ia?.success !== false && ia) {
-    document.getElementById('iaLigada').checked = !!(ia.enabled || ia.ativo);
-    document.getElementById('iaPrompt').value = ia.prompt || ia.system || '';
-    document.getElementById('iaEscopo').value = ia.escopo === 'campanha' ? 'campanha' : 'todos';
-  }
-}
-
-async function conectarCanal(){
-  const d = await fetch('/api/whatsapp/connect', { method:'POST' }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  if (d.connected) { showAlert('Já conectado'); return carregarCanal(); }
-  document.getElementById('canalQr').innerHTML = d.qr
-    ? `<img src="${d.qr.startsWith('data:')?d.qr:'data:image/png;base64,'+d.qr}" alt="QR Code"
-         style="max-width:260px;background:#fff;padding:8px;border-radius:8px;">
-       <p class="muted" style="font-size:0.82em;">Abra o WhatsApp da empresa → Aparelhos conectados → Conectar aparelho</p>`
-    : '<small class="muted">Sem QR no momento — tente atualizar.</small>';
-}
-
-async function salvarIA(){
-  const body = { enabled: document.getElementById('iaLigada').checked,
-                 prompt: document.getElementById('iaPrompt').value,
-                 escopo: document.getElementById('iaEscopo').value };
-  const d = await fetch('/api/whatsapp/ai-config', { method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error || 'Falha ao salvar','error');
-  showAlert('Configuração da IA salva');
-}
-
-async function simular(){
-  const texto = document.getElementById('simTexto').value.trim();
-  if (!texto) return;
-  const el = document.getElementById('simResposta');
-  el.innerHTML = '<small class="muted">Consultando a IA com a base atual…</small>';
-  const d = await fetch('/api/whatsapp/sim-atendimento', { method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ texto, mensagem: texto }) })
-    .then(r=>r.json()).catch(()=>null);
-  if (!d || d.success === false) { el.innerHTML = `<div class="alert error" style="display:block;">${esc(d?.error||'Falha na simulação')}</div>`; return; }
-  el.innerHTML = `<div class="msg deles" style="max-width:100%;">${esc(d.resposta || d.reply || d.texto || '(sem resposta)')}</div>`;
-}
-
 // ---------- lista ----------
 async function carregar(){
   // A campanha vai sempre no querystring, mesmo com o filtro desligado: é ela
@@ -1677,30 +273,61 @@ async function carregar(){
   CONVERSAS = d.conversas;
 
   const c = d.contagem;
+  avisarSeChegou(c.naoLidas);
+  // "Todas", "não lidas" e "sem dono" saíram daqui: viraram os números do topo,
+  // e ter o mesmo filtro em dois lugares da mesma tela só divide a atenção.
   const chips = [
-    ['', 'Todas', c.total],
-    ['naoLidas', 'Não lidas', c.naoLidas],
     ['aguardando', 'Aguardando você', c.aguardando],
     ['campanha', 'Responderam', c.respondeuCampanha],
   ];
+  // Dono só vira filtro quando o SERVIDOR sabe recortar por dono. Esta tela é
+  // estática e entra no ar ao salvar; o backend só no restart. No meio, um
+  // "Minhas" que o servidor antigo ignora devolveria a fila inteira com o
+  // rótulo errado — pior que não ter o filtro.
+  if (c.semDono !== undefined) chips.push(['minhas', 'Minhas', c.minhas]);
   // O estado só vira filtro quando alguém de fato usa: enquanto tudo estiver
   // 'aberta', "Abertas" é sinônimo de "Todas" e os outros dois são sempre zero.
   if (c.pendente || c.resolvida) chips.push(
     ['aberta','Abertas',c.aberta], ['pendente','Pendentes',c.pendente],
     ['resolvida','Resolvidas',c.resolvida]);
-  document.getElementById('filtros').innerHTML = chips
+  const elChips = document.getElementById('filtros');
+  elChips.innerHTML = chips
     .map(([v,rot,n]) => `<button class="${FILTRO===v?'sel':''}" onclick="filtrar('${v}')">${rot}${n?' '+n:''}</button>`).join('');
+  // O degradê só entra quando há filtro fora da vista. Sem a medida, ele
+  // apagaria a borda do último chip mesmo quando não há nada escondido.
+  elChips.classList.toggle('tem-mais', elChips.scrollWidth > elChips.clientWidth + 2);
   renderSeletorCampanha();
 
-  if (p.success) {
-    const r = p.resumo;
-    document.getElementById('kpis').innerHTML = `
-      <div class="c"><span class="v">${r.abertas}</span>abertas</div>
-      ${r.semResposta ? `<div class="c alerta"><span class="v">${r.semResposta}</span>sem nenhuma resposta</div>` : ''}
-      <div class="c"><span class="v">${r.resolvidasHoje}</span>resolvidas hoje</div>
-      <div class="c"><span class="v">${r.itensBase}</span>itens na base da IA</div>`;
-  }
+  renderNumeros(c, p.success ? p.resumo : null);
   renderLista();
+}
+
+/**
+ * Os números do topo, que agora FILTRAM.
+ *
+ * Antes eram quatro caixas de mesmo peso, e uma delas — "753 sem nenhuma
+ * resposta" — tinha borda vermelha: gritava e não levava a lugar nenhum. Cada
+ * número passou a ser o filtro correspondente, e o selecionado se marca sozinho.
+ *
+ * "Sem nenhuma resposta" só aparece quando o servidor sabe recortar por ele.
+ * Mostrar um número que o clique não filtra seria o mesmo problema com outra
+ * aparência.
+ */
+function renderNumeros(c, r){
+  const itens = [];
+  if (c.semResposta !== undefined) itens.push(['semResposta', 'sem nenhuma resposta', c.semResposta]);
+  itens.push(['naoLidas', 'não lidas', c.naoLidas]);
+  // "Sem dono" some quando é igual ao total, que é o caso enquanto ninguém
+  // assumiu nada: dois números iguais lado a lado fazem duvidar dos dois, e o
+  // segundo não acrescenta informação nenhuma.
+  if (c.semDono !== undefined && c.semDono !== c.total) itens.push(['semDono', 'sem dono', c.semDono]);
+  itens.push(['', 'no total', c.total]);
+  if (r && r.resolvidasHoje) itens.push(['resolvida', 'resolvidas hoje', r.resolvidasHoje]);
+  // O primeiro é o principal e vem maior. Os outros continuam clicáveis, em
+  // corpo menor: é hierarquia, não decoração.
+  document.getElementById('numeros').innerHTML = itens.map(([v, rot, n], i) =>
+    `<button class="${i === 0 ? 'principal ' : ''}${FILTRO===v?'sel':''}" onclick="filtrar('${v}')"><span class="v">${n}</span><span class="r">${rot}</span></button>`
+  ).join('');
 }
 
 function filtrar(v){ FILTRO = v; carregar(); }
@@ -1729,20 +356,53 @@ function renderLista(){
     .some(v => String(v||'').toLowerCase().includes(q)));
   const el = document.getElementById('listaConv');
   if (!lista.length) { el.innerHTML = '<div class="vazio-centro">Nenhuma conversa</div>'; return; }
-  el.innerHTML = lista.map(c => `
+  el.innerHTML = lista.map(c => {
+    const nome = c.pessoaNome || c.nome || c.telefone || '';
+    return `
     <div class="conv ${ATUAL===c.id?'sel':''}" onclick="abrir(${c.id})">
-      <div class="l1">
-        <span class="nome">${esc(c.pessoaNome || c.nome || c.telefone)}</span>
-        <span class="hora">${quando(c.ultimaEm)}</span>
+      <div class="ini">${esc(iniciais(nome))}${c.naoLidas ? `<span class="n">${c.naoLidas}</span>` : ''}</div>
+      <div class="corpo">
+        <div class="l1">
+          <span class="nome">${esc(nome)}</span>
+          <span class="hora">${quando(c.ultimaEm)}</span>
+        </div>
+        <div class="previa">${esc(c.ultimaMensagem || 'sem mensagem')}</div>
+        ${marcas(c)}
       </div>
-      <div class="previa">${esc(c.ultimaMensagem || '—')}</div>
-      <div class="badges">
-        <span class="pil ${c.estado}">${c.estado}</span>
-        ${c.naoLidas ? `<span class="pil nova">${c.naoLidas}</span>` : ''}
-        ${c.iaAtiva ? '<span class="pil ia">IA</span>' : ''}
-        ${!c.pessoaId ? '<span class="pil">sem cadastro</span>' : ''}
-      </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+}
+
+/**
+ * As iniciais do avatar.
+ *
+ * O avatar existe para dar ritmo à coluna, que era um bloco de texto corrido
+ * onde toda linha parecia igual. Número sem nome vira "#", que é melhor que
+ * duas iniciais tiradas de um telefone.
+ */
+function iniciais(nome){
+  const p = String(nome).trim().split(/\s+/).filter(x => /[A-Za-zÀ-ÿ]/.test(x[0] || ''));
+  if (!p.length) return '#';
+  return ((p[0][0] || '') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase();
+}
+
+/**
+ * As marcas da linha — só o EXCEPCIONAL.
+ *
+ * Antes toda linha trazia "aberta" e "sem cadastro". Como é o estado de quase
+ * todas as 953, a marca não informava nada e virava textura; o olho aprendia a
+ * pular a faixa inteira, inclusive quando ali havia algo diferente.
+ *
+ * O que sobrou segue uma regra só: aparece o que NÃO é o caso comum. Estado
+ * diferente de aberta, IA desligada nesta conversa (ligada é o padrão), e o
+ * dono, quando alguém assumiu.
+ */
+function marcas(c){
+  const m = [];
+  if (c.estado && c.estado !== 'aberta') m.push(`<span class="pil ${c.estado}">${c.estado}</span>`);
+  if (c.iaAtiva === 0) m.push('<span class="pil sem-ia">IA desligada</span>');
+  if (c.donoNome) m.push(`<span class="pil dono">${esc(c.donoNome)}</span>`);
+  return m.length ? `<div class="marcas">${m.join('')}</div>` : '';
 }
 
 // ---------- conversa ----------
@@ -1753,15 +413,26 @@ async function abrir(id){
   if (!d.success) return showAlert(d.error,'error');
   const c = d.conversa;
 
-  document.getElementById('threadCab').innerHTML = `
-    <h3>${esc(c.pessoaNome || c.nome || c.telefone)}</h3>
-    <span style="font-size:0.8em;color:var(--text-2);">${esc(c.telefone)}</span>
-    <span class="spacer" style="flex:1;"></span>
-    <select onchange="mudarEstado(${c.id}, this.value)" style="width:auto;padding:5px;font-size:0.82em;">
+  const cab = document.getElementById('threadCab');
+  cab.style.display = 'flex';
+  cab.innerHTML = `
+    <div class="ini">${esc(iniciais(c.pessoaNome || c.nome || c.telefone || ''))}</div>
+    <div class="quem">
+      <strong>${esc(c.pessoaNome || c.nome || c.telefone)}</strong>
+      <span>${esc(c.telefone)}</span>
+    </div>
+    <span style="flex:1;"></span>
+    <select onchange="mudarEstado(${c.id}, this.value)">
       ${['aberta','pendente','resolvida'].map(e=>`<option value="${e}" ${c.estado===e?'selected':''}>${e}</option>`).join('')}
     </select>
-    <button class="btn btn-ghost btn-sm" onclick="alternarIA(${c.id}, ${c.iaAtiva?0:1})">
-      IA: ${c.iaAtiva ? 'ligada' : 'desligada'}</button>
+    ${ATENDENTES.length ? `
+    <select id="selDono" onchange="mudarDono(${c.id}, this.value)">
+      <option value="">sem dono</option>
+      ${ATENDENTES.map(a=>`<option value="${a.id}" ${c.donoId===a.id?'selected':''}>${esc(a.nome)}</option>`).join('')}
+    </select>
+    ${EU_ID && c.donoId !== EU_ID ? `<button class="btn btn-ghost btn-sm" onclick="mudarDono(${c.id}, ${EU_ID})">assumir</button>` : ''}` : ''}
+    <button class="btn btn-ghost btn-sm ia-estado${c.iaAtiva ? '' : ' off'}" onclick="alternarIA(${c.id}, ${c.iaAtiva?0:1})">
+      IA ${c.iaAtiva ? 'ligada' : 'desligada'}</button>
 `;
 
   const m = document.getElementById('msgs');
@@ -1769,8 +440,8 @@ async function abrir(id){
     <div class="msg ${x.from_me ? 'minha' : 'deles'}">
       ${esc(x.texto || '(sem texto)')}
       <div class="meta">
-        <span>${x.timestamp ? new Date(x.timestamp*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</span>
-        ${x.from_bot ? '<span>· IA</span>' : ''}
+        <span class="quando">${x.timestamp ? new Date(x.timestamp*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</span>
+        ${x.from_bot ? '<span class="porIA">IA</span>' : ''}
         ${x.from_me ? avaliacao(c.id, x) : ''}
       </div>
     </div>`).join('') : '<div class="vazio-centro">Sem mensagens nesta conversa</div>';
@@ -1803,10 +474,83 @@ function renderFicha(c, f){
         <span>vence ${esc(String(t.dataVencimento||'').slice(0,10))}</span><strong>${brl(t.valor)}</strong></div>`).join('')
         : '<small class="muted">Nada em aberto</small>'}
     </div>
+    <div class="bloco" id="blocoQualificacao">
+      <h4>Qualificação</h4><small class="muted">carregando…</small>
+    </div>
     <div class="bloco" id="blocoOportunidade">
       <h4>Oportunidade</h4><small class="muted">carregando…</small>
     </div>`;
   carregarOportunidade(c.id);
+  carregarQualificacao(c.id);
+}
+
+/* ---------- qualificação pelo roteiro ----------
+ *
+ * A IA preenche o que consegue sustentar com trecho da conversa; o atendente
+ * confirma ou corrige. A correção vence, e a próxima passada da IA só pergunta
+ * o que ficou em branco.
+ *
+ * Cada resposta mostra o TRECHO que a sustenta. Sem isso, a nota seria um
+ * número sem origem, e ninguém confia num número desses para decidir venda.
+ */
+let QUALIF = null;
+
+async function carregarQualificacao(conversaId){
+  const el = document.getElementById('blocoQualificacao');
+  if (!el) return;
+  const d = await fetch(`/api/conversas/${conversaId}/qualificacao`).then(r=>r.json()).catch(()=>null);
+  // Servidor sem o roteiro: o bloco some, em vez de mostrar um formulário morto.
+  if (!d?.success || !d.perguntas?.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  QUALIF = d;
+  const resp = d.visita?.respostas || {};
+  const trechos = {};
+  el.innerHTML = `<h4>Qualificação</h4>
+    <div class="linha"><span>${d.visita ? 'pontos' : 'ainda não apurada'}</span>
+      <strong>${d.visita ? `${d.pontos} de ${d.maximo}` : '—'}</strong></div>
+    ${d.perguntas.map(p => `
+      <div style="margin:10px 0;">
+        <div style="font-size:0.8em;color:var(--text-2);line-height:1.3;">${esc(p.texto)}</div>
+        <select onchange="corrigirQualificacao(${conversaId}, '${esc(p.chave)}', this.value)"
+          style="width:100%;margin-top:4px;font-size:0.85em;">
+          <option value="">— sem resposta —</option>
+          ${p.opcoes.map(o => `<option value="${esc(o.id)}" ${resp[p.chave] === o.id ? 'selected' : ''}
+            >${esc(o.rotulo)}</option>`).join('')}
+        </select>
+      </div>`).join('')}
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;"
+      onclick="pedirQualificacao(${conversaId})">Ler a conversa com a IA</button>
+    <div id="qualifAviso" style="margin-top:8px;"></div>`;
+}
+
+async function pedirQualificacao(conversaId){
+  const aviso = document.getElementById('qualifAviso');
+  aviso.innerHTML = '<small class="muted">Lendo a conversa…</small>';
+  const d = await fetch(`/api/conversas/${conversaId}/qualificar`, { method:'POST' })
+    .then(r=>r.json()).catch(()=>null);
+  if (!d?.success) { aviso.innerHTML = `<small style="color:var(--danger);">${esc(d?.error || 'Falhou')}</small>`; return; }
+  await carregarQualificacao(conversaId);
+  const el = document.getElementById('qualifAviso');
+  const aceitas = Object.entries(d.aceitas || {});
+  // As recusas aparecem: é o que mostra quando o modelo tentou preencher o que
+  // ninguém disse, e é o que faz a nota ser confiável.
+  el.innerHTML = (aceitas.length
+    ? aceitas.map(([, v]) => `<div style="font-size:0.78em;color:var(--text-2);margin-bottom:6px;">
+        <strong>${esc(v.rotulo)}</strong><br>“${esc(v.trecho)}”</div>`).join('')
+    : '<small class="muted">A IA não achou resposta sustentada na conversa.</small>')
+    + ((d.recusadas || []).length
+      ? `<small class="muted">${d.recusadas.length} resposta(s) recusada(s) por não estarem na conversa.</small>`
+      : '');
+}
+
+async function corrigirQualificacao(conversaId, chave, valor){
+  const d = await fetch(`/api/conversas/${conversaId}/qualificacao`, { method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ respostas: { [chave]: valor || null } }) })
+    .then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível gravar', 'error');
+  const linha = document.querySelector('#blocoQualificacao .linha strong');
+  if (linha) linha.textContent = `${d.pontos} de ${d.maximo}`;
 }
 
 // ---------- oportunidade no CRM ----------
@@ -1868,6 +612,40 @@ async function desvincularOportunidade(conversaId){
   carregarOportunidade(conversaId);
 }
 
+/**
+ * Manda o link de agendamento pela própria conversa.
+ *
+ * A mensagem sai como resposta normal, e não por fora: o link precisa ficar no
+ * histórico, senão ninguém sabe depois que ele foi enviado nem quando.
+ *
+ * O botão só aparece com o agendamento ligado. Conversa sem dono é recusada
+ * pelo servidor, e o motivo é mostrado como está: a reunião entra na agenda de
+ * quem atende, e ninguém assumiu esta.
+ */
+async function enviarConviteAgenda(){
+  if (!ATUAL) return;
+  const d = await fetch(`/api/conversas/${ATUAL}/convite-agenda`, { method:'POST' })
+    .then(r=>r.json()).catch(()=>null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível gerar o link', 'error');
+  const link = location.origin + d.url;
+  const texto = `Podemos marcar uma conversa? Escolha o melhor horário por aqui: ${link}`;
+  const r = await fetch(`/api/conversas/${ATUAL}/responder`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ texto })
+  }).then(x=>x.json()).catch(()=>null);
+  if (!r?.success) return showAlert(r?.error || 'O link foi gerado, mas a mensagem não saiu', 'error');
+  showAlert('Link de agendamento enviado');
+  await abrir(ATUAL); await carregar();
+}
+
+/** O botão só existe se a empresa ligou o agendamento. */
+async function conferirAgendaLigada(){
+  const d = await fetch('/api/agenda/config').then(r=>r.json()).catch(()=>null);
+  if (d?.success && d.config?.ativo && d.config?.faixas) {
+    document.getElementById('btnAgendar').style.display = '';
+  }
+}
+conferirAgendaLigada();
+
 async function responder(){
   const t = document.getElementById('txtResposta').value.trim();
   if (!t || !ATUAL) return;
@@ -1885,6 +663,105 @@ async function mudarEstado(id, estado){
   if (!d.success) return showAlert(d.error,'error');
   showAlert('Conversa marcada como ' + estado);
   await carregar();
+}
+
+/* ---------- aviso de mensagem nova ----------
+ *
+ * A inbox já buscava a lista de 30 em 30 segundos e não dizia nada quando algo
+ * chegava: quem não estivesse olhando a tela no instante certo só descobria
+ * rolando. O aviso pega carona nesse mesmo ciclo — nenhuma requisição a mais.
+ *
+ * O SOM nasce ligado e o POP-UP nasce desligado, e a diferença é de consentimento:
+ * som é local, some com um clique e não sai da máquina; notificação precisa de
+ * permissão do navegador, que só se pede quando a pessoa clica, nunca sozinho.
+ *
+ * O beep é sintetizado em vez de vir de arquivo: um .mp3 no repositório seria
+ * um binário a versionar e a servir, para meio segundo de onda senoidal.
+ */
+const AVISO = {
+  som: localStorage.getItem('convAvisoSom') !== '0',
+  popup: localStorage.getItem('convAvisoPopup') === '1',
+};
+// null = ainda não sei quantas eram. A primeira carga NUNCA avisa: abrir a tela
+// com 153 não lidas dispararia um alarme sobre mensagem que já estava lá.
+let NAO_LIDAS_ANTES = null;
+
+function renderAvisos(){
+  const el = document.getElementById('avisos');
+  if (!el) return;
+  // Ícone com `data-dica`, e não `title`: o balão nativo do navegador aparece
+  // branco, atrasado e por cima do nosso — proibido nesta base desde a Fase
+  // 3.2.1. O estado continua legível sem passar o mouse, pela cor da borda.
+  el.innerHTML = `
+    <button class="${AVISO.som?'on':''}" onclick="alternarAviso('som')"
+      data-dica="${AVISO.som?'Som ligado':'Som desligado'}" aria-label="${AVISO.som?'Som ligado':'Som desligado'}">${AVISO.som?'🔔':'🔕'}</button>
+    <button class="${AVISO.popup?'on':''}" onclick="alternarAviso('popup')"
+      data-dica="${AVISO.popup?'Pop-up ligado':'Pop-up desligado'}" aria-label="${AVISO.popup?'Pop-up ligado':'Pop-up desligado'}">💬</button>`;
+}
+
+async function alternarAviso(qual){
+  if (qual === 'popup' && !AVISO.popup) {
+    // A permissão é pedida AQUI, no clique, e não no carregamento da tela: pedido
+    // automático é o que faz o navegador (e a pessoa) negar por reflexo.
+    if (!('Notification' in window)) return showAlert('Este navegador não faz notificação','warn');
+    if (Notification.permission !== 'granted') {
+      const p = await Notification.requestPermission();
+      if (p !== 'granted') return showAlert('O navegador não autorizou a notificação','warn');
+    }
+  }
+  AVISO[qual] = !AVISO[qual];
+  localStorage.setItem(qual === 'som' ? 'convAvisoSom' : 'convAvisoPopup', AVISO[qual] ? '1' : '0');
+  renderAvisos();
+}
+
+function beep(){
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(), vol = ctx.createGain();
+    osc.frequency.value = 880; vol.gain.value = 0.05;
+    osc.connect(vol); vol.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.12);
+    setTimeout(() => ctx.close(), 400);
+  } catch (e) { /* aba sem gesto do usuário ainda: o pop-up continua valendo */ }
+}
+
+/**
+ * Chamado a cada volta do ciclo, com o total de não lidas que o servidor
+ * devolveu. Compara com a volta anterior e avisa só quando SUBIU.
+ */
+function avisarSeChegou(total){
+  const antes = NAO_LIDAS_ANTES;
+  NAO_LIDAS_ANTES = total;
+  if (antes === null || total <= antes) return;
+  const novas = total - antes;
+  if (AVISO.som) beep();
+  if (AVISO.popup && 'Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification(novas === 1 ? 'Mensagem nova' : `${novas} mensagens novas`,
+        { body: 'Atendimento · Conversas', tag: 'conversas-novas' });
+    } catch (e) { /* alguns navegadores só deixam via service worker */ }
+  }
+}
+/**
+ * Dono da conversa.
+ *
+ * Dono organiza fila, não restringe acesso: todo atendente continua vendo e
+ * respondendo tudo. O que muda é saber de quem é o quê, que com quase mil
+ * conversas abertas era pergunta sem resposta.
+ */
+async function carregarAtendentes(){
+  const d = await fetch('/api/conversas/atendentes').then(r=>r.json()).catch(()=>null);
+  if (!d || !d.success) return;
+  ATENDENTES = d.atendentes || [];
+  EU_ID = d.eu || null;
+}
+
+async function mudarDono(id, valor){
+  const d = await fetch('/api/conversas/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ donoId: valor ? Number(valor) : null }) }).then(r=>r.json());
+  if (!d.success) return showAlert(d.error,'error');
+  showAlert(d.conversa.donoId ? 'Conversa atribuída' : 'Conversa liberada');
+  await abrir(id); await carregar();
 }
 
 async function alternarIA(id, valor){
@@ -1955,89 +832,12 @@ async function salvarCorrecao(){
   showAlert('Correção salva na base — vale a partir da próxima conversa');
 }
 
-// ---------- base da IA ----------
-async function carregarBase(){
-  const d = await fetch('/api/ia/base').then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  document.getElementById('contBase').textContent = `${d.itens.filter(i=>i.ativo).length} item(ns) ativo(s)`;
-  document.getElementById('tbBase').innerHTML = d.itens.length ? d.itens.map(i=>`<tr>
-    <td><strong>${esc(i.titulo)}</strong></td>
-    <td style="max-width:420px;">${esc(String(i.conteudo).slice(0,160))}${i.conteudo.length>160?'…':''}</td>
-    <td>${esc(i.origem||'—')}</td>
-    <td><span class="badge ${i.ativo?'ativo':'inativo'}">${i.ativo?'sim':'não'}</span></td>
-    <td><div class="acoes">
-      <button class="btn btn-primary btn-sm" onclick='editarItem(${JSON.stringify(i.id)})'>Editar</button>
-      <details class="menu"><summary title="Mais ações">⋯</summary><div class="itens">
-        <button onclick="fecharMenus(); alternarItemBase(${i.id}, ${i.ativo?0:1})">${i.ativo?'Desativar':'Ativar'}</button>
-        <hr>
-        <button class="perigo" onclick="fecharMenus(); removerItem(${i.id})">Remover item</button>
-      </div></details>
-    </div></td></tr>`).join('')
-    : '<tr><td colspan="5" class="empty">A base está vazia — a IA não tem o que responder</td></tr>';
 
-  document.getElementById('tbCorr').innerHTML = d.correcoes.length ? d.correcoes.map(c=>{
-    const certo = c.veredito === 'certo';
-    return `<tr>
-    <td><span class="badge ${certo?'ativo':'inativo'}">${certo?'certo':'corrigida'}</span></td>
-    <td>${esc(String(c.perguntou||'').slice(0,80))}</td>
-    <td style="color:var(--${certo?'success':'danger'});">${esc(String(c.respondeu||'').slice(0,80))}</td>
-    <td style="color:var(--success);">${certo ? '—' : esc(String(c.correta).slice(0,80))}</td>
-    <td>${esc(String(c.dataCriacao||'').slice(0,16))}</td></tr>`; }).join('')
-    : '<tr><td colspan="5" class="empty">Nenhuma avaliação ainda</td></tr>';
-  window.__base = d.itens;
-}
-
-function novoItem(){
-  EDITANDO = null;
-  document.getElementById('itemTitulo').textContent = 'Novo item da base';
-  ['iTitulo','iConteudo','iOrigem'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('modalItem').classList.add('open');
-}
-
-function editarItem(id){
-  const i = (window.__base||[]).find(x=>x.id===id); if (!i) return;
-  EDITANDO = id;
-  document.getElementById('itemTitulo').textContent = 'Editar item';
-  document.getElementById('iTitulo').value = i.titulo;
-  document.getElementById('iConteudo').value = i.conteudo;
-  document.getElementById('iOrigem').value = i.origem || '';
-  document.getElementById('modalItem').classList.add('open');
-}
-
-async function salvarItem(){
-  const body = {
-    titulo: document.getElementById('iTitulo').value.trim(),
-    conteudo: document.getElementById('iConteudo').value.trim(),
-    origem: document.getElementById('iOrigem').value.trim(),
-  };
-  if (!body.titulo || !body.conteudo) return showAlert('Título e conteúdo são obrigatórios','error');
-  const d = EDITANDO
-    ? await fetch('/api/ia/base/'+EDITANDO, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json())
-    : await fetch('/api/ia/base', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  fechar('modalItem'); showAlert('Base atualizada'); carregarBase();
-}
-
-// Desativar em vez de remover: item que a IA não deve mais usar, mas cujo
-// texto vale guardar.
-async function alternarItemBase(id, ativo){
-  const d = await fetch('/api/ia/base/'+id, { method:'PUT', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ativo: !!ativo }) }).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  showAlert(ativo ? 'Item ativado' : 'Item desativado — a IA deixa de usá-lo');
-  carregarBase();
-}
-
-async function removerItem(id){
-  if (!confirm('Remover este item da base? A IA deixa de usá-lo.')) return;
-  const d = await fetch('/api/ia/base/'+id, {method:'DELETE'}).then(r=>r.json());
-  if (!d.success) return showAlert(d.error,'error');
-  carregarBase();
-}
-
-document.addEventListener('keydown', e => { if (e.key==='Escape') ['modalCorrigir','modalItem'].forEach(fechar); });
+document.addEventListener('keydown', e => { if (e.key==='Escape') fechar('modalCorrigir'); });
+renderAvisos();
+carregarAtendentes();
 carregar();
-setInterval(() => { if (document.getElementById('tab-inbox').classList.contains('active')) carregar(); }, 30000);
+setInterval(carregar, 30000);
 </script>
 </body>
 </html>

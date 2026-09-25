@@ -64,13 +64,47 @@ const RAMO_REGRAS = [
   ['atacado', /atacad|distribuidora|representa/],
 ];
 
-// Normaliza (acentos + caixa) e mapeia o ramo por regex para uma chave de dores_por_ramo.
+/**
+ * Os segmentos embutidos, como PALAVRAS e nao como regex.
+ *
+ * E o mesmo conteudo do RAMO_REGRAS, na forma que a tela sabe editar. Palavra
+ * casa por "contem" sobre o texto normalizado, que e exatamente o que as regex
+ * originais faziam: elas eram alternativas de substring, sem ancora nem
+ * quantificador. Deixar o usuario escrever regex traria erro de sintaxe e
+ * expressao cara na frente de 15 mil contatos.
+ */
+const SEGMENTOS_PADRAO = [
+  { chave: 'bebidas', palavras: ['bebida'] },
+  { chave: 'vestuario', palavras: ['vestuario', 'roupa', 'confec', 'moda', 'boutique'] },
+  { chave: 'material de construcao', palavras: ['material de constru', 'constru', 'ferragem', 'deposito'] },
+  { chave: 'alimentacao', palavras: ['restaurante', 'lanchonete', 'pizzaria', 'alimenta', 'acai', 'padaria', 'bar e'] },
+  { chave: 'beleza', palavras: ['salao', 'beleza', 'estetica', 'barbearia', 'cabeleireiro', 'manicure'] },
+  { chave: 'cosmeticos', palavras: ['cosmetico', 'perfumaria', 'higiene pessoal'] },
+  { chave: 'mercado', palavras: ['mercad', 'mercearia', 'supermerc', 'minimerc', 'conveniencia'] },
+  { chave: 'atacado', palavras: ['atacad', 'distribuidora', 'representa'] },
+];
+
+/** Os segmentos que valem para uma campanha: os dela, ou os embutidos. */
+function segmentosDe(config) {
+  const s = config && config.segmentos;
+  if (!Array.isArray(s) || !s.length) return SEGMENTOS_PADRAO;
+  return s.filter(x => x && x.chave && Array.isArray(x.palavras) && x.palavras.length);
+}
+
+// Normaliza (acentos + caixa) e mapeia o ramo para uma chave de dores_por_ramo.
 // Fallback: 'generico' (ou a 1a chave nao-vazia se nao houver generico).
-function chaveDoRamo(ramo, dores = {}) {
+//
+// `segmentos` entra por parametro para a campanha poder ter os proprios. Sem
+// ele, valem os embutidos — e e por isso que campanha antiga continua casando
+// igual, sem migration nenhuma.
+function chaveDoRamo(ramo, dores = {}, segmentos = null) {
   const t = normalizar(ramo || '');
   if (t) {
-    for (const [chave, re] of RAMO_REGRAS) {
-      if (re.test(t) && Array.isArray(dores[chave]) && dores[chave].length) return chave;
+    // A ORDEM decide: a primeira que casa vence, e e assim que "distribuidora
+    // de bebidas" cai em bebidas, e nao em atacado.
+    for (const seg of (segmentos && segmentos.length ? segmentos : SEGMENTOS_PADRAO)) {
+      const casa = (seg.palavras || []).some(p => t.includes(normalizar(p)));
+      if (casa && Array.isArray(dores[seg.chave]) && dores[seg.chave].length) return seg.chave;
     }
   }
   if (Array.isArray(dores.generico) && dores.generico.length) return 'generico';
@@ -91,7 +125,7 @@ function buildM1MessagesRamo(config, row) {
   const ramoTxt = String(row.ramo || row.segmento || row.setor || '').trim();
   const cidade = String(row.cidade || row.municipio || '').trim();
   const dores = config.dores_por_ramo || {};
-  const ramoKey = chaveDoRamo(ramoTxt, dores);
+  const ramoKey = chaveDoRamo(ramoTxt, dores, segmentosDe(config));
   const dor = sortear(dores[ramoKey]);
   const pergunta = sortear(config.variantes_pergunta_final || []);
 
@@ -255,4 +289,9 @@ async function gerarM1({ config, row, callLLM, tentativas }) {
   return { ok: false, text: ultimoTexto, erros: ultimosErros, tentativas: max, ramoKey: ultimoContact.ramoKey, dor: ultimoContact.dor, pergunta: ultimoContact.pergunta };
 }
 
-module.exports = { titleCase, primeiroNome, saudacao, agoraLocal, localDate, ensureOptOutTrailer, chaveDoRamo, buildM1Messages, validarM1, gerarM1 };
+// As chaves que `chaveDoRamo` sabe devolver. A tela precisa delas para não
+// deixar ninguém cadastrar dor num segmento que o gerador nunca escolhe: dor em
+// chave desconhecida é dor morta, e nada no sistema dizia isso.
+const RAMOS = RAMO_REGRAS.map(([chave]) => chave);
+
+module.exports = { titleCase, primeiroNome, saudacao, agoraLocal, localDate, ensureOptOutTrailer, chaveDoRamo, buildM1Messages, validarM1, gerarM1, RAMOS, SEGMENTOS_PADRAO, segmentosDe };

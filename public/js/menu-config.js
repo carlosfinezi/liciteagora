@@ -543,6 +543,7 @@ const menuConfig = {
             feature: 'comunicacao',
             itens: [
                 { page: 'conversas', icone: '💬', texto: 'Conversas', link: '/comunicacao/conversas.html', feature: 'whatsapp' },
+                { page: 'comunicacao-ia', icone: '🤖', texto: 'IA e Campanhas', link: '/comunicacao/ia.html', feature: 'whatsapp' },
                 { page: 'email-log', icone: '📧', texto: 'Log de E-mails', link: '/comunicacao/email-log.html' },
                 { page: 'auditoria', icone: '🔎', texto: 'Auditoria', link: '/comunicacao/auditoria.html' }
             ]

@@ -521,6 +521,85 @@ await t('a prévia aponta problema de template antes do disparo', async () => {
     JSON.stringify(r.body.problemasTemplate));
 });
 
+// ==================== lead digitado à mão na lista ====================
+//
+// A rota aceitava `manuais` desde sempre e nenhuma tela mandava o campo, então
+// o caminho inteiro nunca tinha sido exercido. Ele entrou na tela em 18/09 e
+// merece teste pelo que pode dar errado: telefone inválido aceito calado,
+// contato manual furando o opt-out, e a mesma linha entrando duas vezes.
+
+await t('lead digitado a mao entra na lista, com e sem nome', async () => {
+  limpar();
+  const l = novaLista();
+  const r = await call('post', '/api/comm/listas/:id/membros',
+    { manuais: '94 99123-4567\n5594988887777, Zé da Loja\nMaria Souza; (94) 97777-6666' }, { id: l });
+  assert(r.body.success, 'falhou: ' + (r.body.error || ''));
+  assert(r.body.manuais === 3, `entraram ${r.body.manuais} de 3`);
+  const linhas = db.prepare('SELECT destinoManual, nomeManual FROM comm_lista_membros WHERE listaId = ? ORDER BY id').all(l);
+  assert(linhas.every((x) => x.destinoManual && !x.destinoManual.includes(' ')),
+    'telefone entrou sem normalizar: ' + JSON.stringify(linhas.map((x) => x.destinoManual)));
+  assert(linhas[1].nomeManual === 'Zé da Loja', 'nome depois do telefone: ' + linhas[1].nomeManual);
+  assert(linhas[2].nomeManual === 'Maria Souza', 'nome antes do telefone: ' + linhas[2].nomeManual);
+});
+
+await t('telefone invalido e RECUSADO e volta nomeado', async () => {
+  limpar();
+  const l = novaLista();
+  const r = await call('post', '/api/comm/listas/:id/membros',
+    { manuais: '5594988887777\nnão é telefone\n123' }, { id: l });
+  assert(r.body.manuais === 1, `entraram ${r.body.manuais} — só um era válido`);
+  assert(r.body.recusados.length === 2, 'recusados: ' + JSON.stringify(r.body.recusados));
+  assert(r.body.recusados.includes('não é telefone'),
+    'a linha recusada precisa voltar como foi digitada, para a pessoa achar o erro');
+});
+
+await t('so linha invalida nao cria membro nenhum e explica', async () => {
+  limpar();
+  const l = novaLista();
+  const r = await call('post', '/api/comm/listas/:id/membros', { manuais: 'abc\n123' }, { id: l });
+  assert(r.status === 400, `deveria recusar (veio ${r.status})`);
+  assert(/Recusados/.test(r.body.error || ''), 'o erro não diz quais foram: ' + r.body.error);
+  assert(db.prepare('SELECT COUNT(*) n FROM comm_lista_membros WHERE listaId = ?').get(l).n === 0,
+    'gravou membro a partir de linha inválida');
+});
+
+await t('a mesma linha duas vezes nao duplica o contato', async () => {
+  limpar();
+  const l = novaLista();
+  await call('post', '/api/comm/listas/:id/membros', { manuais: '5594988887777' }, { id: l });
+  const r = await call('post', '/api/comm/listas/:id/membros', { manuais: '94 98888-7777' }, { id: l });
+  assert(r.body.manuais === 0, `entrou de novo (${r.body.manuais}) — o mesmo número em dois formatos`);
+  assert(db.prepare('SELECT COUNT(*) n FROM comm_lista_membros WHERE listaId = ?').get(l).n === 1,
+    'a lista ficou com o mesmo telefone duas vezes');
+});
+
+await t('lead a mao NAO fura o opt-out no disparo', async () => {
+  // É a garantia que torna a adição manual aceitável. Sem ela, digitar o número
+  // seria o caminho para alcançar justamente quem pediu para parar.
+  limpar();
+  const l = novaLista();
+  await call('post', '/api/comm/listas/:id/membros',
+    { manuais: '5594988887777, Quem pediu para sair\n5594977776666, Pode receber' }, { id: l });
+  db.prepare("INSERT INTO comm_optout (canal, destino) VALUES ('whatsapp', '5594988887777')").run();
+
+  const r = dest.prepararDestinatarios(db, { listaId: l, canal: 'whatsapp', tipo: 'marketing' });
+  assert(r.enviar.length === 1, `iriam ${r.enviar.length} mensagens`);
+  assert(r.enviar[0].destino === '5594977776666', 'foi para o destino errado: ' + r.enviar[0].destino);
+  assert(r.descartados.some((d) => /opt-out/.test(d.motivo)),
+    'o opt-out não apareceu entre os descartes: ' + JSON.stringify(r.descartados));
+});
+
+await t('a tela manda o campo que a rota espera', async () => {
+  // A rota aceitava `manuais` havia meses e nenhuma tela enviava o campo. Se o
+  // nome mudar de um lado só, o formulário volta a não fazer nada — sem erro.
+  const tela = fs.readFileSync(
+    require('path').join(__dirname, '..', 'public/comunicacao/ia.html'), 'utf8');
+  assert(/id="ltManuais"/.test(tela), 'a tela não tem o campo de adição manual');
+  assert(/JSON\.stringify\(\{ pessoaIds: \[\.\.\.SEL_LISTA\], manuais \}\)/.test(tela),
+    'a tela não envia `manuais` junto dos selecionados do cadastro');
+  assert(/recusados/.test(tela), 'a tela não mostra os telefones recusados');
+});
+
 console.log(`\n${ok} OK, ${fail} falha(s)`);
 process.exit(fail ? 1 : 0);
 })();

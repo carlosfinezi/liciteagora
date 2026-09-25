@@ -769,12 +769,20 @@ function buscarAcesso() {
 function refreshAcessoCache() {
     buscarAcesso().then(mudou => { if (mudou) montarMenu(paginaAtualMenu); });
 }
+/**
+ * Páginas que nasceram do desmembramento de outra e herdam a permissão dela.
+ * Precisa ser a MESMA relação de `perfis-acesso.js` (HERDA_DE): se o menu
+ * esconder o que o servidor libera, a tela existe e ninguém acha o caminho.
+ */
+const HERDA_DE_MENU = { 'comunicacao-ia': 'conversas' };
+
 function isPaginaPermitida(page) {
     const c = getAcessoCache();
     // Sem cache ainda (primeiro acesso do browser) não esconde nada: o gate do
     // servidor é quem decide de fato, aqui é só para não oferecer porta fechada.
     if (!c || c.irrestrito) return true;
-    return (c.paginas || []).includes(page);
+    const p = c.paginas || [];
+    return p.includes(page) || p.includes(HERDA_DE_MENU[page]);
 }
 
 // Carrega a biblioteca Lucide Icons (SVG premium) do CDN. Se falhar,

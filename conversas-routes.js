@@ -259,13 +259,32 @@ function registrarRotasConversas(app, db) {
       const respondentes = telefonesQueResponderam(db,
         /^\d+$/.test(campanha) ? Number(campanha) : null);
 
-      let sql = `SELECT c.*, p.razaoSocial AS pessoaNome FROM conv_conversas c
-        LEFT JOIN pessoas p ON p.id = c.pessoaId`;
+      // Quem está pedindo. Vale para o recorte 'minhas' e para nada mais: dono é
+      // organização de fila, não permissão — todo atendente continua vendo tudo.
+      const usuarioId = Number(req.user?.id) || null;
+
+      let sql = `SELECT c.*, p.razaoSocial AS pessoaNome,
+          COALESCE(NULLIF(u.nome, ''), u.username) AS donoNome
+        FROM conv_conversas c
+        LEFT JOIN pessoas p ON p.id = c.pessoaId
+        LEFT JOIN users u ON u.id = c.donoId`;
       const onde = [];
       const args = [];
       if (ESTADOS.includes(estado)) { onde.push('c.estado = ?'); args.push(estado); }
       if (recorte === 'naoLidas') onde.push('c.naoLidas > 0');
       if (recorte === 'aguardando' && temMensagens) onde.push(AGUARDANDO_SQL);
+      // Sem usuário identificado, 'minhas' devolve NADA. Cair para "todas" seria
+      // pior que o erro: o atendente veria a fila inteira acreditando que é a
+      // dele, e responderia conversa que outro já assumiu.
+      if (recorte === 'minhas') {
+        if (usuarioId) { onde.push('c.donoId = ?'); args.push(usuarioId); } else onde.push('0');
+      }
+      if (recorte === 'semDono') onde.push('c.donoId IS NULL');
+      // Nunca respondida por ninguém — nem humano, nem IA. É o número que a tela
+      // destaca no topo, e antes ele não era clicável: dizia 753 e não levava a
+      // lugar nenhum. `aguardando` é outro recorte e não serve aqui: lá entra
+      // quem escreveu por último, inclusive em conversa já atendida antes.
+      if (recorte === 'semResposta') onde.push('c.primeiraRespostaEm IS NULL');
       if (campanha) {
         const tels = respondentes || [];
         if (!tels.length) onde.push('0');
@@ -285,6 +304,11 @@ function registrarRotasConversas(app, db) {
       contagem.naoLidas = db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE naoLidas > 0').get().n;
       contagem.aguardando = temMensagens
         ? db.prepare(`SELECT COUNT(*) n FROM conv_conversas c WHERE ${AGUARDANDO_SQL}`).get().n : 0;
+      contagem.minhas = usuarioId
+        ? db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE donoId = ?').get(usuarioId).n : 0;
+      contagem.semDono = db.prepare('SELECT COUNT(*) n FROM conv_conversas WHERE donoId IS NULL').get().n;
+      contagem.semResposta = db.prepare(
+        'SELECT COUNT(*) n FROM conv_conversas WHERE primeiraRespostaEm IS NULL').get().n;
       contagem.respondeuCampanha = respondentes && respondentes.length
         ? db.prepare(`SELECT COUNT(*) n FROM conv_conversas
             WHERE telefone IN (${respondentes.map(() => '?').join(',')})`).get(...respondentes).n
@@ -308,11 +332,19 @@ function registrarRotasConversas(app, db) {
     try {
       const linhas = [];
       try {
-        for (const c of db.prepare('SELECT * FROM comm_campanhas ORDER BY id DESC LIMIT 100').all()) {
+        // A lista e o modelo vêm junto: sem eles, a tela mostra a campanha sem
+        // dizer para quem ela vai nem o que ela manda, e quem abre adivinha.
+        for (const c of db.prepare(`SELECT c.*, l.nome AS listaNome, t.nome AS templateNome
+              FROM comm_campanhas c
+              LEFT JOIN comm_listas l ON l.id = c.listaId
+              LEFT JOIN comm_templates t ON t.id = c.templateId
+              ORDER BY c.id DESC LIMIT 100`).all()) {
           linhas.push({ origem: 'comm', id: c.id, nome: c.nome, status: c.status,
                         canal: c.canal || null, criadoEm: c.dataCriacao || null, destinatarios: null,
                         totalDestinatarios: c.totalDestinatarios, tipo: c.tipo || null,
-                        agendadaPara: c.agendadaPara || null });
+                        agendadaPara: c.agendadaPara || null,
+                        listaId: c.listaId || null, listaNome: c.listaNome || null,
+                        templateId: c.templateId || null, templateNome: c.templateNome || null });
         }
       } catch { /* tenant sem o módulo antigo */ }
       try {
@@ -427,6 +459,180 @@ function registrarRotasConversas(app, db) {
   });
 
   /**
+   * A dor de cada segmento, e quantos contatos caem nele.
+   *
+   * O gerador da primeira mensagem não usa `{{variavel}}`: ele sorteia uma dor
+   * do ramo do contato e a entrega pronta ao modelo. Isso vive em
+   * `config.dores_por_ramo`, e até aqui só existia dentro do JSON avançado —
+   * uma campanha podia estar usando nove segmentos e 35 frases sem que a tela
+   * mostrasse nenhuma delas.
+   *
+   * A contagem é o que dá sentido ao resto: ramo com muitos contatos e nenhuma
+   * dor cadastrada não dá erro em lugar nenhum, só faz essa gente receber a
+   * frase genérica. Aqui isso fica visível antes do disparo.
+   */
+  app.get('/api/conversas/campanhas/wa/:id/ramos', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM wa_campanhas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Campanha não encontrada' });
+      const cfg = jsonOu(c.config, {});
+      const dores = cfg.dores_por_ramo && typeof cfg.dores_por_ramo === 'object' ? cfg.dores_por_ramo : {};
+      const { chaveDoRamo, segmentosDe } = require('./wa-m1-utils');
+      // Os segmentos da campanha, quando ela tem os próprios; senão, os
+      // embutidos. É o que permite separar cabeleireiro de estética sem mexer
+      // em código.
+      const segmentos = segmentosDe(cfg);
+      const chaves = [...segmentos.map(x => x.chave), 'generico'];
+
+      // Classifica com TODAS as chaves preenchidas, para saber a que segmento o
+      // contato pertence mesmo quando esse segmento está sem dor. Usar as dores
+      // reais aqui empurraria esse contato para o genérico e esconderia a falta.
+      const cheias = Object.fromEntries(chaves.map(k => [k, ['.']]));
+      const contagem = {};
+      let semRamo = 0;
+      for (const d of db.prepare('SELECT extras FROM wa_campanha_dest WHERE campanha_id = ?').all(c.id)) {
+        const e = jsonOu(d.extras, {});
+        const ramo = String(e.ramo || e.segmento || e.setor || '').trim();
+        if (!ramo) semRamo++;
+        const k = chaveDoRamo(ramo, cheias, segmentos);
+        contagem[k] = (contagem[k] || 0) + 1;
+      }
+
+      const palavrasDe = Object.fromEntries(segmentos.map(x => [x.chave, x.palavras || []]));
+      const lista = chaves.map(k => ({
+        chave: k,
+        palavras: palavrasDe[k] || [],
+        dores: Array.isArray(dores[k]) ? dores[k] : [],
+        contatos: contagem[k] || 0,
+      }));
+      // Chave gravada que o gerador não reconhece: as frases estão lá e nunca
+      // serão sorteadas.
+      const orfaos = Object.keys(dores)
+        .filter(k => !chaves.includes(k))
+        .map(k => ({ chave: k, dores: Array.isArray(dores[k]) ? dores[k].length : 0 }));
+
+      res.json({ success: true, ramos: lista, orfaos, semRamo,
+        proprios: Array.isArray(cfg.segmentos) && cfg.segmentos.length > 0,
+        perguntas: Array.isArray(cfg.variantes_pergunta_final) ? cfg.variantes_pergunta_final : [],
+        total: lista.reduce((s, r) => s + r.contatos, 0),
+        semDor: lista.filter(r => !r.dores.length).reduce((s, r) => s + r.contatos, 0) });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Simula a classificação com os segmentos que estão na tela, sem gravar.
+   *
+   * Mexer em palavra-chave na frente de 15 mil contatos é o tipo de edição que
+   * se faz às cegas: a pessoa acrescenta "loja" em vestuário e move metade da
+   * base sem perceber. Aqui ela vê a contagem ANTES de salvar.
+   */
+  app.post('/api/conversas/campanhas/wa/:id/segmentos/previa', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM wa_campanhas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Campanha não encontrada' });
+      const segmentos = Array.isArray(req.body?.segmentos) ? req.body.segmentos : [];
+      const limpos = segmentos
+        .map(x => ({ chave: String(x.chave || '').trim(),
+                     palavras: (Array.isArray(x.palavras) ? x.palavras : [])
+                       .map(p => String(p).trim()).filter(Boolean) }))
+        .filter(x => x.chave && x.palavras.length);
+      if (!limpos.length) return res.status(400).json({ success: false, error: 'Nenhum segmento válido' });
+      const repetida = limpos.map(x => x.chave).find((k, i, a) => a.indexOf(k) !== i);
+      if (repetida) return res.status(400).json({ success: false, error: `Segmento repetido: ${repetida}` });
+
+      const { chaveDoRamo } = require('./wa-m1-utils');
+      const chaves = [...limpos.map(x => x.chave), 'generico'];
+      const cheias = Object.fromEntries(chaves.map(k => [k, ['.']]));
+      const contagem = {};
+      for (const d of db.prepare('SELECT extras FROM wa_campanha_dest WHERE campanha_id = ?').all(c.id)) {
+        const e = jsonOu(d.extras, {});
+        const k = chaveDoRamo(String(e.ramo || e.segmento || e.setor || '').trim(), cheias, limpos);
+        contagem[k] = (contagem[k] || 0) + 1;
+      }
+      res.json({ success: true, contagem: chaves.map(k => ({ chave: k, contatos: contagem[k] || 0 })) });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Os exemplos que a IA imita, e os modelos de mensagem disponíveis.
+   *
+   * ── O campo que não fazia nada ─────────────────────────────────────────────
+   *
+   * `config.template_referencia`, rotulado na tela como "modelo que a IA imita",
+   * era lido e gravado pela tela e **consumido por ninguém**: nenhuma linha do
+   * gerador o usava. Quem molda a mensagem são `exemplos_bons` e
+   * `exemplos_ruins`, que só existiam no JSON avançado.
+   *
+   * Ele volta aqui como `legado`, para a tela oferecer o aproveitamento em vez
+   * de descartar calado o que alguém escreveu.
+   */
+  app.get('/api/conversas/campanhas/wa/:id/exemplos', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM wa_campanhas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Campanha não encontrada' });
+      const cfg = jsonOu(c.config, {});
+      const lista = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
+      let modelos = [];
+      try {
+        modelos = db.prepare(`SELECT id, nome, canal, corpo FROM comm_templates
+          WHERE ativo = 1 ORDER BY canal, nome`).all();
+      } catch { /* tenant sem o módulo de campanhas novo */ }
+      res.json({ success: true,
+        bons: lista(cfg.exemplos_bons), ruins: lista(cfg.exemplos_ruins),
+        legado: cfg.template_referencia || null, modelos });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * O texto com as variáveis já resolvidas, para virar exemplo.
+   *
+   * ── Por que resolver, e não copiar ────────────────────────────────────────
+   *
+   * Modelo de mensagem e exemplo são coisas opostas. O modelo sai LITERAL para
+   * o cliente, com `{{primeiroNome}}` trocado no envio. O exemplo é IMITADO: o
+   * gerador não substitui nada nele. Copiar "Olá {{primeiroNome}}" para os
+   * exemplos ensina a IA a escrever a chave, e ela sai crua na mensagem real.
+   *
+   * Aqui o texto é renderizado com um contato de exemplo — pela MESMA função
+   * dos disparos, para não existirem duas regras de substituição — e os
+   * marcadores do gerador (`{ramo}`, `{dor}`) também são resolvidos.
+   */
+  app.post('/api/conversas/campanhas/wa/:id/exemplos/previa', (req, res) => {
+    try {
+      const c = db.prepare('SELECT * FROM wa_campanhas WHERE id = ?').get(req.params.id);
+      if (!c) return res.status(404).json({ success: false, error: 'Campanha não encontrada' });
+      const cfg = jsonOu(c.config, {});
+
+      let texto = String(req.body?.texto || '');
+      if (!texto && req.body?.templateId) {
+        const t = db.prepare('SELECT corpo FROM comm_templates WHERE id = ?').get(req.body.templateId);
+        if (!t) return res.status(404).json({ success: false, error: 'Modelo não encontrado' });
+        texto = t.corpo || '';
+      }
+      if (!texto.trim()) return res.status(400).json({ success: false, error: 'Nada para converter' });
+
+      const CONTATO = { razaoSocial: 'Rosete Comercio de Roupas Ltda', nomeFantasia: 'Loja da Rosete',
+                        cpfCnpj: '12.345.678/0001-90', email: 'rosete@exemplo.com.br',
+                        telefone: '(94) 98888-7777' };
+      texto = require('./comm-destinos').renderizar(texto, CONTATO);
+
+      // Marcadores do gerador da primeira mensagem, que são de chave simples. A
+      // dor sai do próprio roteiro da campanha, para o exemplo ficar coerente
+      // com o que a IA vai receber de verdade.
+      const dores = cfg.dores_por_ramo || {};
+      const primeiraDor = Object.values(dores).flat().find(x => typeof x === 'string')
+        || 'ter dinheiro parado em peca que nao vende';
+      const simples = { saudacao: 'Boa tarde', primeiro_nome: 'Rosete', nome: 'Rosete',
+                        ramo: 'loja de roupa', cidade: 'Maraba', dor: primeiraDor,
+                        pergunta: (cfg.variantes_pergunta_final || [])[0] || 'Isso acontece ai tambem?' };
+      texto = texto.replace(/\{(\w+)\}/g, (m, k) => (simples[k] != null ? simples[k] : m));
+
+      const sobrando = [...new Set([...texto.matchAll(/\{\{?(\w+)\}?\}/g)].map(m => m[0]))];
+      res.json({ success: true, texto, sobrando });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
    * Cancelar campanha: marca os destinatários pendentes como cancelados.
    * É a ação da "fase 0" — parar disparo frio que ficou parado no meio.
    */
@@ -437,6 +643,26 @@ function registrarRotasConversas(app, db) {
       db.prepare("UPDATE wa_campanhas SET status = 'cancelada' WHERE id = ?").run(req.params.id);
       res.json({ success: true, cancelados: r.changes });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Quem pode assumir uma conversa.
+   *
+   * Rota própria, e não `/api/usuarios`, por dois motivos. Aquela exige role
+   * admin para listar geral, e só abre para os demais com `?vendedor=1` — mas
+   * atendente de WhatsApp não é necessariamente vendedor, então a lista sairia
+   * incompleta justamente para quem atende. E ela devolve o cadastro inteiro,
+   * que esta tela não tem por que ver.
+   *
+   * Aqui saem só id e nome de quem está ativo. Nada de e-mail, hash, papel ou
+   * comissão.
+   */
+  app.get('/api/conversas/atendentes', (req, res) => {
+    try {
+      const linhas = db.prepare(`SELECT id, COALESCE(NULLIF(nome, ''), username) AS nome
+        FROM users WHERE ativo = 1 ORDER BY nome COLLATE NOCASE`).all();
+      res.json({ success: true, atendentes: linhas, eu: Number(req.user?.id) || null });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
   });
 
   /** Oportunidades sem conversa ligada, para o vendedor escolher qual vincular. */
@@ -457,8 +683,12 @@ function registrarRotasConversas(app, db) {
   // ---------- uma conversa, com o que o ERP sabe do contato ----------
   app.get('/api/conversas/:id', (req, res) => {
     try {
-      const c = db.prepare(`SELECT c.*, p.razaoSocial AS pessoaNome, p.cpfCnpj, p.email, p.cidade, p.uf
-        FROM conv_conversas c LEFT JOIN pessoas p ON p.id = c.pessoaId WHERE c.id = ?`).get(req.params.id);
+      const c = db.prepare(`SELECT c.*, p.razaoSocial AS pessoaNome, p.cpfCnpj, p.email, p.cidade, p.uf,
+          COALESCE(NULLIF(u.nome, ''), u.username) AS donoNome
+        FROM conv_conversas c
+        LEFT JOIN pessoas p ON p.id = c.pessoaId
+        LEFT JOIN users u ON u.id = c.donoId
+        WHERE c.id = ?`).get(req.params.id);
       if (!c) return res.status(404).json({ success: false, error: 'Conversa não encontrada' });
 
       let mensagens = [];
@@ -533,8 +763,17 @@ function registrarRotasConversas(app, db) {
         evento(c.id, 'estado', b.estado, req);
       }
       if (b.donoId !== undefined) {
-        db.prepare('UPDATE conv_conversas SET donoId = ? WHERE id = ?').run(b.donoId || null, c.id);
-        evento(c.id, 'dono', String(b.donoId || 'ninguém'), req);
+        // Atribuir a quem não existe, ou a quem foi desativado, produz uma fila
+        // que ninguém vê: a conversa sai de "sem dono" e não entra no "minhas"
+        // de pessoa alguma. Some calada, que é o pior jeito de sumir.
+        let dono = null;
+        if (b.donoId) {
+          const u = db.prepare('SELECT id FROM users WHERE id = ? AND ativo = 1').get(Number(b.donoId));
+          if (!u) return res.status(400).json({ success: false, error: 'Atendente inexistente ou inativo' });
+          dono = u.id;
+        }
+        db.prepare('UPDATE conv_conversas SET donoId = ? WHERE id = ?').run(dono, c.id);
+        evento(c.id, 'dono', String(dono || 'ninguém'), req);
       }
       if (Array.isArray(b.etiquetas)) {
         const limpas = [...new Set(b.etiquetas.map(x => String(x).trim()).filter(Boolean))].slice(0, 10);
@@ -642,6 +881,92 @@ function registrarRotasConversas(app, db) {
       const id = db.prepare('INSERT INTO ia_base (titulo, conteudo, origem) VALUES (?,?,?)')
         .run(t.slice(0, 120), c.slice(0, 4000), String(req.body?.origem || '').slice(0, 120) || null).lastInsertRowid;
       res.json({ success: true, id });
+    } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+  });
+
+  /**
+   * Base da IA a partir de um PDF.
+   *
+   * ── Por que fatia, em vez de gravar um item gigante ────────────────────────
+   *
+   * `ia_base.conteudo` guarda 4.000 caracteres, e um PDF de catálogo passa
+   * disso na primeira página. Gravar truncado seria o pior resultado possível:
+   * a IA responderia com meia informação e ninguém saberia que faltou metade.
+   * Aqui o texto vira vários itens, cada um com a sua parte, e a contagem volta
+   * para a tela.
+   *
+   * O corte procura uma quebra de parágrafo perto do limite: partir no meio de
+   * uma frase produz item que não responde nada sozinho.
+   *
+   * ── O PDF digitalizado ─────────────────────────────────────────────────────
+   *
+   * `pdftotext` devolve vazio para PDF que é imagem de página. Isso é recusado
+   * com o motivo dito, porque o erro silencioso aqui seria um item em branco na
+   * base — e base em branco é IA que inventa.
+   */
+  const multer = require('multer');
+  const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+  const PEDACO = 3500;
+  const MAX_PEDACOS = 20;
+
+  /** Quebra o texto em pedaços, preferindo cortar em parágrafo. */
+  function fatiar(texto) {
+    const limpo = texto.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').replace(/[ \t]+/g, ' ').trim();
+    const partes = [];
+    let resto = limpo;
+    while (resto.length > PEDACO) {
+      const janela = resto.slice(0, PEDACO);
+      let corte = janela.lastIndexOf('\n\n');
+      if (corte < PEDACO * 0.5) corte = janela.lastIndexOf('. ');
+      if (corte < PEDACO * 0.5) corte = PEDACO;
+      partes.push(resto.slice(0, corte).trim());
+      resto = resto.slice(corte).trim();
+    }
+    if (resto) partes.push(resto);
+    return partes.filter(Boolean);
+  }
+
+  app.post('/api/ia/base/pdf', uploadPdf.single('arquivo'), (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ success: false, error: 'Nenhum arquivo recebido' });
+      const nome = String(req.file.originalname || 'documento.pdf').replace(/\.pdf$/i, '').slice(0, 90);
+      if (!/^%PDF-/.test(req.file.buffer.slice(0, 5).toString('latin1'))) {
+        return res.status(400).json({ success: false, error: 'O arquivo não é um PDF' });
+      }
+
+      const r = require('child_process').spawnSync('pdftotext',
+        ['-enc', 'UTF-8', '-nopgbrk', '-', '-'], { input: req.file.buffer, maxBuffer: 64 * 1024 * 1024 });
+      if (r.error || r.status !== 0) {
+        return res.status(500).json({ success: false,
+          error: 'Falha ao ler o PDF: ' + ((r.error && r.error.message) || String(r.stderr || '').trim() || 'pdftotext') });
+      }
+
+      const partes = fatiar(String(r.stdout || ''));
+      if (!partes.length) {
+        return res.status(400).json({ success: false,
+          error: 'O PDF não tem texto — provavelmente é digitalizado (imagem). Envie o arquivo original ou digite o conteúdo.' });
+      }
+
+      const entram = partes.slice(0, MAX_PEDACOS);
+      const ins = db.prepare('INSERT INTO ia_base (titulo, conteudo, origem) VALUES (?,?,?)');
+      const gravar = db.transaction((lista) => {
+        for (let i = 0; i < lista.length; i++) {
+          const titulo = lista.length > 1 ? `${nome} (${i + 1}/${lista.length})` : nome;
+          ins.run(titulo.slice(0, 120), lista[i].slice(0, 4000), ('PDF: ' + nome).slice(0, 120));
+        }
+      });
+      gravar(entram);
+
+      res.json({
+        success: true, itens: entram.length,
+        ignorados: partes.length - entram.length,
+        // Dito, e não engolido: quem envia um manual de 200 páginas precisa
+        // saber que só o começo entrou.
+        aviso: partes.length > MAX_PEDACOS
+          ? `O PDF rendeu ${partes.length} trechos e entraram os ${MAX_PEDACOS} primeiros. `
+            + 'Envie o documento em partes, ou recorte o que a IA precisa saber.'
+          : null,
+      });
     } catch (e) { res.status(400).json({ success: false, error: e.message }); }
   });
 

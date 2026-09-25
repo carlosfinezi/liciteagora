@@ -301,6 +301,112 @@ falhas é daqui, e todas estão em arquivos que não entram neste commit:
   dígito; rodadas anteriores já ocuparam o número, a criação dá 409 e
   confirmação, reserva, entrega e faturamento caem atrás dela.
 
+## 2026-09-17 (noite)
+
+O ponto de partida foi uma comparação: o painel de bot do Loctos, de um lado, e
+a nossa tela de Conversas, do outro. Onze diferenças foram anotadas; o que segue
+é o que saiu delas, mais a fase visual que estava parada desde 11/09.
+
+### A escala tipográfica passa a valer para o ERP inteiro
+
+A Fase 3.1 declarou 53 tokens de tipografia, espaçamento e superfície em 11/09 e
+**não os aplicou** — de propósito, porque não havia como ver o resultado em 213
+telas. O teste `A6` guardava essa decisão.
+
+O que destravou foi medir em Chrome de verdade. E a medição mostrou o que ler o
+CSS não mostra, porque `em` multiplica em cascata:
+
+| Componente | Antes | Depois |
+|---|---|---|
+| botão pequeno | **9,86px** | 13px |
+| marcador de estado | **8,87px** | 11px |
+| cabeçalho de tabela | 10,08px | 11px |
+| célula, botão, campo, aba | 12,3 a 12,6px | 14px |
+
+O 9,86px não existe em lugar nenhum do código: nasce de `.btn` em `0.88em`
+multiplicado por `.btn-sm` em `0.8em` dentro dele. A Fase 3.1 estimou 11,2px
+para esse caso, no papel, e errou — estimativa não enxerga cascata. O corpo do
+sistema estava declarado em 14px e quase nada usava 14px.
+
+O `A6` foi trocado na mesma mudança: em vez de **proibir** aplicar a escala, ele
+passou a **exigir** que a medição exista e esteja no verify.
+
+### Conversas: quatro funcionalidades que o painel comparado tinha e nós não
+
+- **Dono da conversa.** A coluna `donoId` existia desde sempre e nenhuma tela
+  usava. Agora há filtros "Minhas" e "Sem dono", seletor e botão "assumir".
+  Dono organiza fila e **não** vira permissão: todos continuam vendo tudo. Sem
+  usuário identificado, "Minhas" devolve vazio — nunca a fila inteira.
+- **Aviso de mensagem nova** na inbox, pegando carona no polling que já existia.
+  Som nasce ligado, pop-up nasce desligado, e a primeira carga nunca avisa.
+- **Horário de atendimento.** Fora da faixa, a IA não responde e manda uma vez a
+  cada 8 horas a mensagem configurada. O fuso é `America/Sao_Paulo` escrito, não
+  o do processo: o banco grava em UTC e a unit pode mudar. Na dúvida, atende —
+  configuração ausente ou ilegível não cala o atendimento.
+- **Base da IA por PDF.** O texto é fatiado em vários itens porque a coluna
+  guarda 4.000 caracteres; acima de 20 trechos, a resposta **diz** quantos
+  ficaram de fora. PDF digitalizado é recusado com o motivo.
+
+### A tela de Conversas virou duas, e a inbox foi redesenhada
+
+`conversas.html` saiu de 2.272 linhas para 664 e ficou só com o atendimento;
+Base da IA, Campanhas, Canal e Relatório foram para `comunicacao/ia.html`. O
+estilo inline da inbox caiu de **172 atributos para 14**.
+
+Na inbox: marca só no excepcional (as pílulas "aberta" e "sem cadastro"
+apareciam em toda linha e viraram textura), avatar de iniciais com o contador de
+não lidas dentro dele, números do topo que filtram ao clique — inclusive o "sem
+nenhuma resposta", que antes gritava em vermelho sem levar a lugar nenhum —, um
+estado vazio por região e a ficha vazia em branco.
+
+**Partir uma tela em duas tem uma armadilha de permissão**: a metade nova entra
+no menu com `page` própria e toda permissão já gravada em banco deixa de
+alcançá-la. Em vez de uma migration nos perfis de cada tenant, a herança está
+declarada no código (`HERDA_DE`), no servidor e no menu: quem pode ver Conversas
+alcança a configuração dela, e quem nunca teve continua bloqueado.
+
+### Pop-up de mensagem nova, inclusive com o ERP fechado
+
+Web Push escrito à mão — `web-push` não está instalado e `npm install` é vedado
+aqui. O VAPID é um JWT ES256 que o `crypto` do Node assina.
+
+**O push vai vazio.** Ele carrega um sinal; o service worker acorda e busca nome
+e trecho com a sessão da própria pessoa. O motivo não é técnico: o push passa
+pelo servidor da Google ou da Mozilla, e o conteúdo é a conversa de um cliente
+com a empresa.
+
+São dois interruptores com papéis diferentes: a **chave da empresa** decide se o
+sistema avisa alguém, e a **inscrição do aparelho** decide quem recebe onde.
+Nasce desligado.
+
+A primeira versão guardava a chave em `data/vapid.json` e **durou uma tarde**: o
+arquivo nasceu `root:root`, o servidor roda como `carlosfinezi` e não conseguia
+ler a própria chave — sem erro em log nenhum. A causa não era a permissão, era o
+lugar. A chave passou para o `config` de cada tenant.
+
+### Sete suítes novas no verify (109 a 115)
+
+`fase35-escala` (Chrome, 8), `conversas-dono` (14), `conversas-aviso` (13),
+`atendimento-horario` (25), `ia-base-pdf` (7, com PDF e `pdftotext` de verdade),
+`conversas-ux` (Chrome, 24) e `push-mensagem` (22).
+
+Quatro foram **sabotadas de propósito** para confirmar que reprovam: sem a
+guarda do "minhas", sem a validação de atendente inativo, sem a guarda da
+primeira carga do aviso, e com a assinatura do JWT em DER. Todas acusaram.
+
+O `C7` do `test-pwa` também foi trocado: proibia `push` dizendo "ficou para
+outra fase", e virou dois testes mais específicos — o service worker não pode
+ler o payload, e a busca do conteúdo vai com sessão, sem cache.
+
+### Também entrou, de outras frentes da mesma árvore
+
+- **ID de modelo de IA por tenant** (`ia-modelos.js`): os cinco IDs estavam
+  cravados no código e o hardcode quebrou quatro vezes em quatro meses. Agora
+  mora em `config`, com o padrão no código para quem nunca abriu a tela.
+- **Aviso antes da reemissão de SSL com DCV por e-mail**: esse caminho depende
+  de um clique do aprovador do domínio, que é do cliente. Sem aviso, o
+  certificado expira e o primeiro a saber é quem abre o site.
+
 ## 2026-09-17 (tarde)
 
 **O contrato passa a faturar por nota avulsa.** Até aqui o bloco "Faturamento"

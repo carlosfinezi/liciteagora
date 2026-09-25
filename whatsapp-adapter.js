@@ -27,6 +27,101 @@ const FALLBACK_SEM_RESPOSTA = 'Recebi sua mensagem! Já te retorno por aqui.';
 // a base é seca. A trava completa + escalonamento pro humano é a Parte 2 (ver TODO abaixo).
 const GUARDRAIL_INTERINO = 'Responda apenas com o que estiver nesta base. Se não tiver a informação (preço, produto, arquivo, prazo ou qualquer dado específico), NÃO invente: diga de forma breve que vai confirmar e retornar. Prefira ser vago a criar um fato.';
 
+/**
+ * Tom e limites, como escolha e não como texto solto.
+ *
+ * Antes, isso morava dentro do campo livre de instruções, junto da identidade
+ * do assistente, da descrição do produto e dos contatos. Escrever "seja
+ * conciso" à mão funciona, mas ninguém tem como saber o que já foi dito, e o
+ * campo do `1bit` chegou a 2.995 caracteres com as duas coisas misturadas.
+ *
+ * A frase que vai ao modelo é a daqui, fixa. O que o tenant guarda é o id da
+ * escolha, então trocar a redação de uma frase vale para todos de uma vez,
+ * sem migration nem reescrita de texto de ninguém.
+ *
+ * Tenant sem escolha nenhuma gravada não recebe frase nenhuma: o prompt fica
+ * exatamente como era antes desta seção existir.
+ */
+const ESTILO = {
+  tom: {
+    rotulo: 'Tom', chave: 'whatsapp_ai_tom', escolha: 'uma',
+    opcoes: [
+      { id: 'proximo', rotulo: 'Profissional e próximo',
+        frase: 'Fale em tom profissional e próximo, sem formalidade exagerada.' },
+      { id: 'formal', rotulo: 'Formal',
+        frase: 'Fale em tom formal, tratando a pessoa por senhor ou senhora.' },
+      { id: 'direto', rotulo: 'Direto ao ponto',
+        frase: 'Vá direto ao ponto, sem rodeio nem saudação longa.' },
+      { id: 'caloroso', rotulo: 'Caloroso',
+        frase: 'Fale de forma acolhedora e simpática, com interesse por quem escreveu.' },
+    ],
+  },
+  tamanho: {
+    rotulo: 'Tamanho da resposta', chave: 'whatsapp_ai_tamanho', escolha: 'uma',
+    opcoes: [
+      { id: 'curta', rotulo: 'Curta',
+        frase: 'Responda em um a três parágrafos curtos. Evite respostas longas.' },
+      { id: 'media', rotulo: 'Média',
+        frase: 'Responda com o detalhe necessário, em até cinco parágrafos.' },
+      { id: 'livre', rotulo: 'Sem limite',
+        frase: 'Responda com o tamanho que o assunto exigir.' },
+    ],
+  },
+  emoji: {
+    rotulo: 'Emoji', chave: 'whatsapp_ai_emoji', escolha: 'uma',
+    opcoes: [
+      { id: 'nenhum', rotulo: 'Nenhum', frase: 'Não use emoji.' },
+      { id: 'ate1', rotulo: 'No máximo um',
+        frase: 'Use no máximo um emoji por mensagem, e apenas quando couber.' },
+      { id: 'livre', rotulo: 'À vontade', frase: 'Pode usar emoji à vontade.' },
+    ],
+  },
+  limites: {
+    rotulo: 'O que ela nunca faz', chave: 'whatsapp_ai_limites', escolha: 'varias',
+    opcoes: [
+      { id: 'dado_sensivel', rotulo: 'Pedir senha ou dado bancário',
+        frase: 'Nunca peça senha, dado bancário ou documento sensível.' },
+      { id: 'fora_do_escopo', rotulo: 'Responder fora do assunto da empresa',
+        frase: 'Se a pergunta fugir do assunto da empresa, diga que vai encaminhar a um atendente, em vez de responder por conta própria.' },
+      { id: 'outro_idioma', rotulo: 'Responder em outro idioma',
+        frase: 'Responda sempre em português do Brasil.' },
+      { id: 'prometer', rotulo: 'Prometer desconto ou prazo',
+        frase: 'Não prometa desconto, prazo de entrega nem condição comercial que não esteja nesta base.' },
+      { id: 'insistir', rotulo: 'Insistir em oferta',
+        frase: 'Não insista em oferta: sem interesse da pessoa, encerre com cordialidade.' },
+    ],
+  },
+};
+
+/** As escolhas gravadas, já limpas do que não existe mais no catálogo. */
+function lerEstilo(getValor) {
+  const escolhas = {};
+  for (const [grupo, def] of Object.entries(ESTILO)) {
+    const bruto = getValor(def.chave) || '';
+    const validos = new Set(def.opcoes.map(o => o.id));
+    if (def.escolha === 'varias') {
+      let lista = [];
+      try { lista = JSON.parse(bruto); } catch { lista = bruto ? bruto.split(',') : []; }
+      escolhas[grupo] = (Array.isArray(lista) ? lista : []).map(String).filter(id => validos.has(id));
+    } else {
+      escolhas[grupo] = validos.has(bruto) ? bruto : null;
+    }
+  }
+  return escolhas;
+}
+
+/** As frases das escolhas, na ordem do catálogo. Sem escolha, string vazia. */
+function frasesDeEstilo(escolhas) {
+  const frases = [];
+  for (const [grupo, def] of Object.entries(ESTILO)) {
+    const sel = escolhas[grupo];
+    for (const o of def.opcoes) {
+      if (def.escolha === 'varias' ? (sel || []).includes(o.id) : sel === o.id) frases.push(o.frase);
+    }
+  }
+  return frases.join('\n');
+}
+
 // Do briefing da campanha (material de abordagem do M1), remove as frases sobre a PRÓPRIA M1
 // — elas orientam a ESCRITA da abordagem, não são fato de atendimento.
 function briefingLimpo(briefing) {
@@ -71,7 +166,47 @@ function buildAtendimentoBaseCampanha(campCfg) {
  * ou `atendimento_kb` no config quer mesmo um atendimento próprio (outra
  * oferta, outra marca) e segue com ele.
  */
-function buildSystemAtendimento(db, campanhaId) {
+/**
+ * O que a IA ainda precisa descobrir, pelo roteiro de qualificação.
+ *
+ * Só as perguntas SEM resposta entram: repetir o que já foi apurado gasta token
+ * e convida o modelo a perguntar de novo o que o contato já respondeu.
+ *
+ * As regras de condução vêm junto e por escrito. Um roteiro de cinco perguntas
+ * convivendo com "responda em três parágrafos" e "não insista" é instrução que
+ * se contradiz, e sem precedência declarada o modelo resolve isso do jeito
+ * dele: ou vira interrogatório, ou ignora o roteiro.
+ *
+ * Sem roteiro cadastrado, ou sem conversa identificada, devolve string vazia e
+ * o prompt fica exatamente como era.
+ */
+function blocoRoteiro(db, conversaId) {
+  if (!conversaId) return '';
+  try {
+    const roteiro = db.prepare(`SELECT * FROM roteiros WHERE ativo = 1 AND canal = 'whatsapp'
+      ORDER BY padrao DESC, id LIMIT 1`).get();
+    if (!roteiro) return '';
+    const cfg = JSON.parse(roteiro.config || '{}');
+    const perguntas = Array.isArray(cfg.perguntas) ? cfg.perguntas : [];
+    if (!perguntas.length) return '';
+
+    let jaTem = {};
+    try {
+      const v = db.prepare('SELECT respostas FROM roteiro_visitas WHERE conversaId = ? ORDER BY id DESC LIMIT 1')
+        .get(conversaId);
+      if (v) jaTem = JSON.parse(v.respostas || '{}') || {};
+    } catch (_) { /* tenant sem a tabela */ }
+
+    const faltam = perguntas.filter(p => !jaTem[p.chave]);
+    if (!faltam.length) return '';
+    const regras = Array.isArray(cfg.conducao) ? cfg.conducao : [];
+    return '\n\nO QUE VOCÊ AINDA PRECISA DESCOBRIR\n'
+      + faltam.map(p => `- ${p.texto}`).join('\n')
+      + (regras.length ? '\n\nCOMO PERGUNTAR\n' + regras.map(r => `- ${r}`).join('\n') : '');
+  } catch (_) { return ''; }
+}
+
+function buildSystemAtendimento(db, campanhaId, opts) {
   let campanha = null;
   if (campanhaId) {
     try {
@@ -83,7 +218,12 @@ function buildSystemAtendimento(db, campanhaId) {
     }
   }
   const { getConfigValue } = require('./config-helpers').createConfigHelpers(db);
-  const base = getConfigValue('whatsapp_ai_prompt') || DEFAULT_ATEND;
+  let base = getConfigValue('whatsapp_ai_prompt') || DEFAULT_ATEND;
+
+  // Tom e limites entram logo depois das instruções e antes do conhecimento:
+  // são regra de como falar, e o que vem depois é o que se pode dizer.
+  const estilo = frasesDeEstilo(lerEstilo((c) => getConfigValue(c)));
+  if (estilo) base += '\n\nCOMO RESPONDER\n' + estilo;
 
   // Conhecimento vem só de ia_base: itens com título, origem e data, editáveis
   // na tela de Conversas e alimentados pelo "corrigir" do atendente.
@@ -111,9 +251,12 @@ function buildSystemAtendimento(db, campanhaId) {
   }
 
   const corpo = pedacos ? base + KB_SEP + pedacos : base;
+  // O roteiro vem depois do conhecimento: primeiro o que ela pode dizer, depois
+  // o que ela ainda precisa perguntar.
+  const roteiro = blocoRoteiro(db, opts && opts.conversaId);
   // O guard-rail anti-invenção vinha só no caminho de campanha. Ele vale para
   // qualquer atendimento: inventar preço com cliente antigo é igualmente ruim.
-  return corpo + '\n\n' + GUARDRAIL_INTERINO;
+  return corpo + roteiro + '\n\n' + GUARDRAIL_INTERINO;
 }
 
 function evoCreds(cfg) {
@@ -580,20 +723,86 @@ function registrarRotasWhatsApp(app, db) {
       // — o conhecimento vem de ia_base (tela Conversas → Base da IA).
       const kb = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_kb'").get();
       const escopo = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_ai_escopo'").get();
+      const hor = require('./atendimento-horario').lerHorario(
+        (chave) => db.prepare('SELECT valor FROM config WHERE chave = ?').get(chave)?.valor || '');
+      const popup = db.prepare("SELECT valor FROM config WHERE chave = 'whatsapp_popup_ativo'").get();
+      // O catálogo viaja junto das escolhas: a tela desenha os botões a partir
+      // dele, e assim opção nova aparece sem ninguém editar o HTML.
+      const escolhas = lerEstilo((c) =>
+        db.prepare('SELECT valor FROM config WHERE chave = ?').get(c)?.valor || '');
       res.json({ success: true, enabled: enabled?.valor === '1', prompt: prompt?.valor || '',
                  escopo: escopo?.valor === 'campanha' ? 'campanha' : 'todos',
+                 horario: hor,
+                 popupAtivo: popup?.valor === '1',
+                 estilo: { catalogo: ESTILO, escolhas },
                  kbLegado: kb?.valor || '', kbLegadoEmUso: false });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
   app.post('/api/whatsapp/ai-config', gate, (req, res) => {
     try {
-      const { enabled, prompt, kb, escopo } = req.body || {};
+      const { enabled, prompt, kb, escopo, horario, popupAtivo, estilo } = req.body || {};
       const up = db.prepare("INSERT OR REPLACE INTO config (chave, valor, dataAtualizacao) VALUES (?, ?, CURRENT_TIMESTAMP)");
       up.run('whatsapp_ai_enabled', enabled ? '1' : '0');
+
+      // Tom e limites. Recusa id que não existe no catálogo em vez de gravar:
+      // escolha inventada não vira frase nenhuma, e o prompt sairia mais fraco
+      // do que a tela mostra, sem ninguém notar.
+      if (estilo && typeof estilo === 'object') {
+        for (const [grupo, def] of Object.entries(ESTILO)) {
+          if (!(grupo in estilo)) continue;
+          const valido = new Set(def.opcoes.map(o => o.id));
+          if (def.escolha === 'varias') {
+            const lista = Array.isArray(estilo[grupo]) ? estilo[grupo].map(String) : [];
+            const fora = lista.filter(id => !valido.has(id));
+            if (fora.length) return res.status(400).json({ success: false,
+              error: `Opção desconhecida em ${def.rotulo}: ${fora.join(', ')}` });
+            up.run(def.chave, JSON.stringify(lista));
+          } else {
+            const id = estilo[grupo] == null ? '' : String(estilo[grupo]);
+            if (id && !valido.has(id)) return res.status(400).json({ success: false,
+              error: `Opção desconhecida em ${def.rotulo}: ${id}` });
+            up.run(def.chave, id);
+          }
+        }
+      }
       if (typeof prompt === 'string') up.run('whatsapp_ai_prompt', prompt.slice(0, 8000));
       // Só grava o escopo se ele veio: a tela antiga (whatsapp.html) salva sem
       // esse campo, e um default aqui apagaria a escolha feita na tela nova.
       if (escopo === 'campanha' || escopo === 'todos') up.run('whatsapp_ai_escopo', escopo);
+
+      // Pop-up de mensagem nova. Chave da EMPRESA: decide se o sistema avisa
+      // alguém. Quem recebe em qual aparelho é outra coisa, e mora em
+      // `push_inscricoes` — desligar aqui cala todo mundo de uma vez, sem
+      // precisar mexer em inscrição nenhuma.
+      if (popupAtivo !== undefined) up.run('whatsapp_popup_ativo', popupAtivo ? '1' : '0');
+
+      // Horário de atendimento. Só grava quando veio, pela mesma razão do
+      // escopo: a tela antiga salva sem este campo e apagaria a agenda inteira.
+      //
+      // A faixa é VALIDADA aqui, e não só na tela: uma hora inválida gravada
+      // faria a porta do webhook devolver "fora do expediente" para sempre, e o
+      // atendimento cairia calado, sem erro em log nenhum.
+      if (horario && typeof horario === 'object') {
+        const { DIAS, minutos } = require('./atendimento-horario');
+        const faixas = {};
+        for (const d of DIAS) {
+          const f = horario.faixas && horario.faixas[d];
+          if (!Array.isArray(f)) { faixas[d] = null; continue; }   // dia fechado
+          const de = minutos(f[0]), ate = minutos(f[1]);
+          if (de === null || ate === null) {
+            return res.status(400).json({ success: false,
+              error: `Horário inválido em ${d}: use HH:MM (veio "${f[0]}" e "${f[1]}")` });
+          }
+          if (de === ate) {
+            return res.status(400).json({ success: false,
+              error: `Em ${d}, início e fim são iguais — para fechar o dia, desmarque-o` });
+          }
+          faixas[d] = [f[0], f[1]];
+        }
+        up.run('whatsapp_horario_ativo', horario.ativo ? '1' : '0');
+        up.run('whatsapp_horario_faixas', JSON.stringify(faixas));
+        up.run('whatsapp_horario_msg', String(horario.mensagem || '').slice(0, 600));
+      }
       // `kb` deixou de ser aceito: gravar num campo que ninguém lê é pior que
       // recusar — quem enviasse acharia que a IA aprendeu algo.
       if (typeof kb === 'string') {
@@ -622,7 +831,7 @@ function registrarRotasWhatsApp(app, db) {
       const prompt = buildSystemAtendimento(db, campId);
       let reply = '', provider;
       try {
-        const out = await chamarChatLLM([{ role: 'system', content: prompt }, ...history], keys);
+        const out = await chamarChatLLM([{ role: 'system', content: prompt }, ...history], keys, require('./ia-modelos').resolverModelos(db));
         reply = ((out && out.content) || '').trim(); provider = out && out.provider;
       } catch (_) { /* garantia 1: nunca silêncio → cai no fallback abaixo */ }
       if (!reply) reply = FALLBACK_SEM_RESPOSTA;
@@ -633,4 +842,4 @@ function registrarRotasWhatsApp(app, db) {
   console.log('[WhatsApp] Rotas registradas (modo: ' + (loadProviderConfig(db)?.provider || 'fila') + ')');
 }
 
-module.exports = { enviarWhatsApp, enviarWhatsAppMidia, migrarQueue, loadProviderConfig, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA, checarRitmo };
+module.exports = { enviarWhatsApp, enviarWhatsAppMidia, migrarQueue, loadProviderConfig, registrarRotasWhatsApp, buildSystemAtendimento, FALLBACK_SEM_RESPOSTA, checarRitmo, ESTILO, lerEstilo, frasesDeEstilo, blocoRoteiro };

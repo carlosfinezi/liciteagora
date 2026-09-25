@@ -2606,6 +2606,11 @@ db.exec(`
 // Multi-loja (Fase 3): a qual estabelecimento a certidão pertence (NULL = matriz).
 // A regra de herança (federal → matriz para filial da mesma PJ; estadual/municipal
 // → CNPJ próprio) vive em habilitacao-cnpj.js.
+// Ramo do membro de lista (2026-09-18): sem ele, lista nao tem segmento, e a dor
+// por segmento so funcionava para destinatario de campanha legado, que traz o
+// ramo no `extras`. A coluna e preenchida na importacao e pelo backfill em
+// scripts/backfill-ramo-listas.js, que casa por telefone com wa_campanha_dest.
+alterSafe(db, 'ALTER TABLE comm_lista_membros ADD COLUMN ramo TEXT');
 alterSafe(db, 'ALTER TABLE habilitacao_documentos ADD COLUMN estabelecimentoId INTEGER');
 // Rastro da renovação automática (2026-09-02): até aqui a falha do robô só existia
 // no habilitacao-renovar.log — a Municipal de Marabá falhou 6 dias seguidos sem que

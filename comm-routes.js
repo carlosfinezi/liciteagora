@@ -256,7 +256,11 @@ function registrarRotasComm(app, db) {
 
   app.get('/api/comm/templates', (req, res) => {
     try {
-      const lista = db.prepare('SELECT * FROM comm_templates WHERE ativo = 1 ORDER BY canal, nome').all();
+      // Quantas campanhas usam cada modelo. Sem isso, a tela lista modelos sem
+      // dizer quais estão em uso, e remover um vira aposta.
+      const lista = db.prepare(`SELECT t.*,
+          (SELECT COUNT(*) FROM comm_campanhas c WHERE c.templateId = t.id) AS emUso
+        FROM comm_templates t WHERE t.ativo = 1 ORDER BY t.canal, t.nome`).all();
       res.json({ success: true, templates: lista, canais: CANAIS });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
@@ -359,18 +363,60 @@ function registrarRotasComm(app, db) {
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
+  /**
+   * Membros de uma lista.
+   *
+   * O JOIN com `pessoas` era interno, e isso escondia lista inteira: membro
+   * importado do legado entra com `destinoManual` e sem `pessoaId`, então as
+   * três listas do 1bit (27.775 contatos) devolviam zero. Agora o vínculo com
+   * o cadastro é opcional, e quem não tem aparece com o nome e o telefone que
+   * foram gravados na importação.
+   *
+   * Pagina porque uma dessas listas tem 15.595 linhas: mandar tudo de uma vez
+   * trava a tela no navegador do cliente.
+   */
   app.get('/api/comm/listas/:id', (req, res) => {
     try {
       const lista = db.prepare('SELECT * FROM comm_listas WHERE id = ?').get(req.params.id);
       if (!lista) return res.status(404).json({ success: false, error: 'Lista não encontrada' });
+      const q = String(req.query.q || '').trim().toLowerCase();
+      const porPagina = Math.min(Number(req.query.porPagina) || 100, 500);
+      const pagina = Math.max(Number(req.query.pagina) || 1, 1);
+
+      const filtro = q
+        ? `AND (LOWER(COALESCE(p.razaoSocial, m.nomeManual, '')) LIKE @q
+             OR COALESCE(p.telefone, m.destinoManual, '') LIKE @q)`
+        : '';
+      const args = { listaId: lista.id, q: `%${q}%` };
+      const total = db.prepare(`SELECT COUNT(*) n FROM comm_lista_membros m
+        LEFT JOIN pessoas p ON p.id = m.pessoaId
+        WHERE m.listaId = @listaId ${filtro}`).get(args).n;
+
       const membros = db.prepare(`
-        SELECT m.id, m.pessoaId, p.razaoSocial, p.cpfCnpj, p.email, p.telefone
+        SELECT m.id, m.pessoaId, m.ramo,
+               COALESCE(p.razaoSocial, m.nomeManual) AS nome,
+               COALESCE(p.telefone, m.destinoManual) AS telefone,
+               p.cpfCnpj, p.email,
+               CASE WHEN m.pessoaId IS NULL THEN 'manual' ELSE 'cadastro' END AS vinculo
         FROM comm_lista_membros m
-        JOIN pessoas p ON p.id = m.pessoaId
-        WHERE m.listaId = ?
-        ORDER BY p.razaoSocial
-      `).all(lista.id);
-      res.json({ success: true, lista, membros });
+        LEFT JOIN pessoas p ON p.id = m.pessoaId
+        WHERE m.listaId = @listaId ${filtro}
+        ORDER BY nome IS NULL, nome
+        LIMIT @limite OFFSET @offset
+      `).all({ ...args, limite: porPagina, offset: (pagina - 1) * porPagina });
+
+      // O segmento sai do mesmo classificador da campanha, com os segmentos
+      // embutidos: sem isso, lista e campanha falariam línguas diferentes sobre
+      // o mesmo contato.
+      const { chaveDoRamo, SEGMENTOS_PADRAO } = require('./wa-m1-utils');
+      const cheias = Object.fromEntries([...SEGMENTOS_PADRAO.map(x => x.chave), 'generico'].map(k => [k, ['.']]));
+      const comSegmento = membros.map(m => ({ ...m,
+        segmento: m.ramo ? chaveDoRamo(m.ramo, cheias) : null }));
+
+      const comRamo = db.prepare(`SELECT COUNT(*) n FROM comm_lista_membros
+        WHERE listaId = ? AND TRIM(COALESCE(ramo,'')) <> ''`).get(lista.id).n;
+
+      res.json({ success: true, lista, membros: comSegmento, total, pagina, porPagina, comRamo });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
   });
 
@@ -419,8 +465,10 @@ function registrarRotasComm(app, db) {
           const partes = l.split(/[;,]/).map(x => x.trim()).filter(Boolean);
           const comNumero = partes.find(x => (x.replace(/\D/g, '').length >= 10));
           const destino = dest.normalizarDestino('whatsapp', comNumero || l);
-          const nome = partes.find(x => x !== comNumero) || null;
-          return { linha: l, destino, nome };
+          const resto = partes.filter(x => x !== comNumero);
+          // Terceiro campo, opcional: o ramo. É ele que dá segmento ao contato
+          // manual, e sem ele a lista fica de fora da dor por segmento.
+          return { linha: l, destino, nome: resto[0] || null, ramo: resto[1] || null };
         });
       const invalidos = manuais.filter(m => !m.destino).map(m => m.linha);
       const validos = manuais.filter(m => m.destino);
@@ -431,11 +479,11 @@ function registrarRotasComm(app, db) {
                                   : 'Selecione clientes ou informe telefones' });
       }
       const stmt = db.prepare('INSERT OR IGNORE INTO comm_lista_membros (listaId, pessoaId) VALUES (?, ?)');
-      const stmtManual = db.prepare('INSERT OR IGNORE INTO comm_lista_membros (listaId, destinoManual, nomeManual) VALUES (?, ?, ?)');
+      const stmtManual = db.prepare('INSERT OR IGNORE INTO comm_lista_membros (listaId, destinoManual, nomeManual, ramo) VALUES (?, ?, ?, ?)');
       let adic = 0, adicManual = 0;
       const trx = db.transaction(() => {
         for (const pid of (pessoaIds || [])) { const r = stmt.run(req.params.id, pid); if (r.changes) adic++; }
-        for (const m of validos) { const r = stmtManual.run(req.params.id, m.destino, m.nome); if (r.changes) adicManual++; }
+        for (const m of validos) { const r = stmtManual.run(req.params.id, m.destino, m.nome, m.ramo); if (r.changes) adicManual++; }
       });
       trx();
       logAction(db, req, 'add-membros', 'comm-lista', req.params.id, { quantidade: adic + adicManual });

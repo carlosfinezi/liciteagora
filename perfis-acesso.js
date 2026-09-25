@@ -113,6 +113,25 @@ function acessoDoUsuario(db, user) {
 const DIRS_ABERTOS = new Set(['auth', 'portal', 'landing', 'loja']);
 
 /**
+ * Páginas que nasceram do desmembramento de outra, e herdam a permissão dela.
+ *
+ * Quando uma tela grande é partida em duas, a metade nova entra no menu com
+ * `page` própria — e aí toda permissão já gravada em banco deixa de alcançá-la.
+ * O perfil que via a tela inteira ontem levaria 403 na metade nova hoje, sem
+ * ninguém ter tirado acesso de ninguém.
+ *
+ * A alternativa seria uma migration mexendo na lista de páginas de cada perfil
+ * de cada tenant. Isto aqui é mais honesto: a relação está no código, à vista,
+ * e diz o que de fato aconteceu — `comunicacao-ia` era a aba de configuração
+ * DENTRO de `conversas` até 2026-09-17.
+ *
+ * Só vale para desmembramento. Página realmente nova exige permissão nova.
+ */
+const HERDA_DE = new Map([
+  ['comunicacao-ia', 'conversas'],
+]);
+
+/**
  * Páginas de detalhe (contrato.html, pedido.html, produto.html...) não estão no
  * menu e por isso não existem como permissão. Elas são abertas a partir da
  * listagem do próprio módulo, então herdam o acesso dele: quem pode ver alguma
@@ -127,7 +146,7 @@ function podeVerPath(acesso, pathname) {
   const permitidas = new Set(acesso.paginas);
 
   const page = POR_LINK.get(pathname);
-  if (page) return permitidas.has(page);
+  if (page) return permitidas.has(page) || permitidas.has(HERDA_DE.get(page));
 
   const partes = pathname.split('/');
   const dir = partes.length > 2 ? partes[1] : '';

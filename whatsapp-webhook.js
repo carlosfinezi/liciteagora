@@ -111,13 +111,46 @@ async function autoResponder(tdb, instance, jid, incomingText) {
   // humano — sem resposta automática nenhuma.
   if (getConfigValue('whatsapp_ai_escopo') === 'campanha' && !campanhaId) return;
 
+  // ---------- horário de atendimento ----------
+  //
+  // Esta porta vem DEPOIS do escopo, e a ordem é a regra inteira: quem o escopo
+  // já excluía continua sem receber nada. Se o aviso de "estamos fechados"
+  // viesse antes, ele alcançaria justamente quem a empresa decidiu não abordar
+  // por resposta automática — o escopo deixaria de valer de madrugada.
+  const fora = require('./atendimento-horario').foraDoExpediente(getConfigValue);
+  if (fora) {
+    // Sem mensagem configurada, a IA apenas cala: mandar um texto genérico que
+    // ninguém escreveu é pior que o silêncio.
+    if (!fora.mensagem) return;
+    // Uma vez a cada 8 horas por conversa. Sem isto, cada mensagem da madrugada
+    // devolveria o mesmo aviso, e quem escreve três vezes recebe três avisos
+    // iguais — que é como um atendimento automático perde a credibilidade.
+    const jaAvisou = tdb.prepare(`SELECT 1 FROM whatsapp_messages
+      WHERE remote_jid = ? AND from_bot = 1 AND texto = ? AND timestamp >= ? LIMIT 1`)
+      .get(jid, fora.mensagem, now - 8 * 3600);
+    if (jaAvisou) return;
+    const env = await enviarWhatsApp(tdb, { telefone: jid.split('@')[0], texto: fora.mensagem, ignorarRitmo: true });
+    try {
+      tdb.prepare(`INSERT INTO whatsapp_messages (wa_message_id, instance, remote_jid, from_me, from_bot, texto, timestamp)
+        VALUES (?, ?, ?, 1, 1, ?, ?)
+        ON CONFLICT(wa_message_id) WHERE wa_message_id IS NOT NULL DO UPDATE SET from_bot = 1`)
+        .run((env && env.providerMessageId) || null, instance, jid, fora.mensagem, Math.floor(Date.now() / 1000));
+    } catch (_) {}
+    return;
+  }
+
   const hist = tdb.prepare("SELECT from_me, texto FROM whatsapp_messages WHERE remote_jid = ? AND texto IS NOT NULL AND texto <> '' ORDER BY id DESC LIMIT ?").all(jid, HIST_TURNS).reverse();
-  const prompt = require('./whatsapp-adapter').buildSystemAtendimento(tdb, campanhaId);
+  // A conversa entra para o prompt saber o que o roteiro de qualificação já
+  // apurou — sem ela, a IA reperguntaria o que o contato acabou de responder.
+  let conversaId = null;
+  try { conversaId = tdb.prepare('SELECT id FROM conv_conversas WHERE jid = ?').get(jid)?.id || null; }
+  catch (_) { /* tenant sem a inbox */ }
+  const prompt = require('./whatsapp-adapter').buildSystemAtendimento(tdb, campanhaId, { conversaId });
   const messages = [{ role: 'system', content: prompt }, ...hist.map(m => ({ role: m.from_me ? 'assistant' : 'user', content: m.texto }))];
 
   // Garantia 1 (nunca silêncio): se o LLM vier vazio ou falhar, cai no fallback genérico.
   let reply = '';
-  try { const out = await chamarChatLLM(messages, keys); reply = ((out && out.content) || '').trim(); }
+  try { const out = await chamarChatLLM(messages, keys, require('./ia-modelos').resolverModelos(tdb)); reply = ((out && out.content) || '').trim(); }
   catch (e) { console.error('[autoResponder] LLM falhou:', e.message); }
   if (!reply) reply = require('./whatsapp-adapter').FALLBACK_SEM_RESPOSTA;
 
@@ -233,6 +266,17 @@ function registrarRotaWebhook(app, { tenantManager }) {
       if (info.changes > 0 && !key.fromMe && jid.endsWith('@s.whatsapp.net') && texto) {
         handleIncoming(tdb, evt.instance, jid, texto)
           .catch(e => console.error('[whatsapp-webhook] handleIncoming:', e.message));
+
+        // Pop-up de mensagem nova. Mesmas condições da auto-resposta, e pela
+        // mesma razão: mensagem repetida pelo webhook (changes = 0) acordaria a
+        // equipe duas vezes pela mesma coisa, e eco do que NÓS mandamos
+        // (`key.fromMe`) não é motivo para acordar ninguém.
+        //
+        // Sem `await`: o webhook precisa devolver 200 rápido para a Evolution,
+        // e um servidor de push lento não pode segurar o recebimento — que é a
+        // única parte deste caminho que não se recupera depois.
+        require('./push-routes').avisarInscritos(tdb)
+          .catch(e => console.error('[whatsapp-webhook] push:', e.message));
       }
     } catch (e) {
       console.error('[whatsapp-webhook]', e.message);
