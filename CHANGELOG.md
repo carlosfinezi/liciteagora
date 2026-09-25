@@ -4,6 +4,40 @@ Um bloco por "fechamento" (ver CLAUDE.md). Mais recente no topo, data
 AAAA-MM-DD. Registra o que mudou em produção — que aqui é esta própria
 working tree.
 
+## 2026-09-25, engenharia de cardápio por categoria
+
+A matriz de engenharia de cardápio (estrela, cavalo, enigma, peso morto)
+comparava cada item com a média do cardápio inteiro. A bebida vende em
+unidades muitas vezes maiores que o prato e puxava a popularidade média para
+cima: no retrato de alimentação, 13 dos 30 itens caíam em "enigma" e os dois
+executivos em "peso morto". Agora a classificação é feita dentro de cada
+categoria do cardápio: a popularidade é a participação do item na quantidade
+da própria categoria, e as duas médias (popularidade e margem) também são da
+categoria. A regra de classificação não mudou, e a dos 70% não foi aplicada.
+
+- A categoria vem de `rest_cardapio_itens.categoria`. Produto em mais de um
+  cardápio fica com a do primeiro pela ordem; item vendido fora de cardápio
+  cai em "Sem categoria".
+- A tela mostra, em cada quadrante, a participação do item na categoria
+  ("54,5% de Pratos") em vez da participação nas vendas totais.
+- A curva ABC continua sobre o cardápio inteiro.
+- A API troca `medias` por `mediasPorCategoria`. Nenhuma outra tela lia o
+  campo.
+- No retrato de alimentação, a distribuição passou de 2 estrelas, 5 cavalos,
+  13 enigmas e 10 pesos mortos para 6, 6, 9 e 9.
+
+Limite conhecido: um item sozinho na categoria é sempre "estrela", porque ele
+é a própria média.
+
+A suíte é a etapa 135 do verify (`test-restaurante-engenharia.js`, 8 casos),
+montada para as duas regras discordarem: com a média do cardápio inteiro,
+4 casos reprovam.
+
+O verify fechou com 15 problemas em 3.749 s, todos de outras frentes e fora
+deste commit: os 14 da rodada anterior e a etapa 127
+(`test-interesse-historico-tela`), cuja tela foi alterada por outra sessão às
+12:43, durante a rodada.
+
 ## 2026-09-25, restaurante no horário de Marabá e CMV% colorido
 
 Achados ao tirar os prints do anúncio de restaurante no tenant `sandbox`.

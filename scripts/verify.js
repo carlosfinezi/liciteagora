@@ -420,6 +420,10 @@ const suites = [
   // soma denunciar o dia errado. Confere também a cor do CMV% nas duas tabelas,
   // que o `td { color: !important }` do app-modern.css apagava.
   ['134. restaurante no fuso de Maraba (test-restaurante-fuso)', 'test-restaurante-fuso.js'],
+  // Engenharia de cardápio por categoria. Com a média do cardápio inteiro a
+  // bebida puxava a popularidade e todo prato virava "enigma". O cenário é
+  // montado para as duas regras discordarem: pela média geral a suíte reprova.
+  ['135. engenharia de cardapio por categoria (test-restaurante-engenharia)', 'test-restaurante-engenharia.js'],
 ];
 for (const [rotulo, arq] of suites) {
   passo(rotulo);

@@ -32,6 +32,11 @@ function arred(v, casas = 2) {
  * Os cortes são as MÉDIAS do próprio cardápio, não números absolutos: o que é
  * margem alta numa hamburgueria é margem baixa num restaurante fino, e um
  * corte fixo classificaria errado os dois.
+ *
+ * As médias são calculadas DENTRO de cada categoria do cardápio (a rota agrupa
+ * antes de chamar): prato se compara com prato, bebida com bebida. Com a média
+ * do cardápio inteiro, a bebida, que sai em unidades muitas vezes maiores,
+ * puxava a popularidade média para cima e jogava quase todo prato em "enigma".
  */
 function classificar(popularidade, margem, mediaPopularidade, mediaMargem) {
   const pop = popularidade >= mediaPopularidade;
@@ -142,9 +147,17 @@ function registrarRotasIndicadores(app, db, gateFlag) {
       if (!vendas.length) {
         return res.json({
           success: true, periodo: { de, ate }, itens: [],
-          medias: null, resumo: { estrela: 0, cavalo: 0, enigma: 0, 'peso-morto': 0 },
+          mediasPorCategoria: {}, resumo: { estrela: 0, cavalo: 0, enigma: 0, 'peso-morto': 0 },
         });
       }
+
+      // Categoria do item no cardápio. Um produto pode estar em mais de um
+      // cardápio (salão, delivery): vale a do primeiro pela ordem.
+      const categoriaDe = db.prepare(`
+        SELECT ci.categoria FROM rest_cardapio_itens ci JOIN rest_cardapios cp ON cp.id = ci.cardapioId
+         WHERE ci.produtoId = ? AND TRIM(COALESCE(ci.categoria, '')) <> ''
+         ORDER BY cp.ordem, cp.id, ci.ordem LIMIT 1
+      `);
 
       const totalQtd = vendas.reduce((s, v) => s + Number(v.quantidade), 0);
       const totalReceita = vendas.reduce((s, v) => s + Number(v.receita), 0);
@@ -155,9 +168,11 @@ function registrarRotasIndicadores(app, db, gateFlag) {
         const receita = Number(v.receita);
         const precoMedio = qtd > 0 ? receita / qtd : 0;
         const margemUnit = precoMedio - custoUnit;
+        const cat = categoriaDe.get(v.produtoId);
         return {
           produtoId: v.produtoId,
           descricao: v.descricao,
+          categoria: cat ? cat.categoria.trim() : 'Sem categoria',
           quantidade: qtd,
           receita: arred(receita),
           precoMedio: arred(precoMedio),
@@ -172,11 +187,24 @@ function registrarRotasIndicadores(app, db, gateFlag) {
         };
       });
 
-      const mediaPop = 100 / linhas.length;      // participação de um item "médio"
-      const mediaMargem = linhas.reduce((s, l) => s + l.margemUnitaria, 0) / linhas.length;
-
+      // Classificação dentro de cada categoria: popularidade é a participação
+      // do item na quantidade da PRÓPRIA categoria, e as duas médias também são
+      // da categoria.
+      const porCategoria = new Map();
       for (const l of linhas) {
-        l.classificacao = classificar(l.popularidadePct, l.margemUnitaria, mediaPop, mediaMargem);
+        if (!porCategoria.has(l.categoria)) porCategoria.set(l.categoria, []);
+        porCategoria.get(l.categoria).push(l);
+      }
+      const mediasPorCategoria = {};
+      for (const [cat, itensCat] of porCategoria) {
+        const qtdCat = itensCat.reduce((s, l) => s + l.quantidade, 0);
+        const mediaPop = 100 / itensCat.length;      // participação de um item "médio" da categoria
+        const mediaMargem = itensCat.reduce((s, l) => s + l.margemUnitaria, 0) / itensCat.length;
+        for (const l of itensCat) {
+          l.popularidadeCategoriaPct = arred(qtdCat > 0 ? (l.quantidade / qtdCat) * 100 : 0);
+          l.classificacao = classificar(l.popularidadeCategoriaPct, l.margemUnitaria, mediaPop, mediaMargem);
+        }
+        mediasPorCategoria[cat] = { itens: itensCat.length, popularidadePct: arred(mediaPop), margemUnitaria: arred(mediaMargem) };
       }
 
       // Curva ABC por receita acumulada: A até 80%, B até 95%, C o resto.
@@ -197,7 +225,7 @@ function registrarRotasIndicadores(app, db, gateFlag) {
         periodo: { de, ate },
         totalQuantidade: totalQtd,
         totalReceita: arred(totalReceita),
-        medias: { popularidadePct: arred(mediaPop), margemUnitaria: arred(mediaMargem) },
+        mediasPorCategoria,
         resumo,
         // Aviso honesto: item sem ficha entra com custo zero e aparece como
         // margem máxima, o que distorce a matriz inteira.

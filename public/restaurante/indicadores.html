@@ -212,7 +212,8 @@ async function carregarCardapio() {
         <small>${EXPLICA[k]}</small>
         <ul style="margin:8px 0 0;padding-left:18px;">
           ${grupos[k].map(i => `<li>${esc(i.descricao)}
-            <span class="muted">— ${fmt(i.popularidadePct, 1)}% das vendas, margem R$ ${fmt(i.margemUnitaria)}</span></li>`)
+            <span class="muted">— ${i.categoria ? fmt(i.popularidadeCategoriaPct, 1) + '% de ' + esc(i.categoria)
+              : fmt(i.popularidadePct, 1) + '% das vendas'}, margem R$ ${fmt(i.margemUnitaria)}</span></li>`)
             .join('') || '<li class="muted">nenhum</li>'}
         </ul>
       </div>`).join('');
