@@ -7,17 +7,86 @@
  * natureza e da política do balcão, as parcelas da conta a receber e a baixa de
  * estoque. Essas funções são exportadas por nfce-routes justamente para isto.
  *
- * Roda contra o tenant `labfiscal`, cria a massa que precisa e limpa no fim.
+ * ── Por que o banco é DESCARTÁVEL (2026-09-23) ──────────────────────────────
+ *
+ * Até aqui esta suíte rodava contra `data/tenants/labfiscal/pncp.db`, que é
+ * produção. Ela fazia ALTER TABLE em quatro tabelas, criava política de prazo,
+ * trocava a configuração do balcão, gravava conta a receber e baixa de estoque,
+ * e só então limpava e restaurava. Três problemas nisso, e o terceiro é o pior:
+ *
+ *   1. Morrendo no meio, nada é restaurado: a política criada fica, o
+ *      `nfce_config` fica trocado e as CRs e movimentações ficam órfãs. A
+ *      limpeza é a última coisa do arquivo, sem `try/finally`.
+ *   2. Os ids sintéticos 999901/999902 são fixos, e o `DELETE` final apaga por
+ *      eles. Numa base que um dia chegue lá, apagaria dado real.
+ *   3. Dois asserts dependiam do CONTEÚDO do labfiscal. `crs.length === 2`
+ *      só vale se a política encontrada por
+ *      `WHERE ativo=1 AND aplicaPdv=1 AND tipo='prazo'` for de duas parcelas.
+ *      Se alguém cadastrasse uma 30/60/90 por lá, a suíte passaria a reprovar
+ *      sem ninguém ter tocado no código — e o verify (etapa 74) roda isto.
+ *
+ * Agora o banco nasce vazio em `os.tmpdir()`, recebe o schema pelos MESMOS
+ * helpers que o ERP usa no provisionamento, e a massa é semeada aqui. Os
+ * asserts são os mesmos, e dois deles ficaram MAIS fortes: a política passou a
+ * ser 30/60 por construção, então `crs.length === 2` mede a regra e não o
+ * cadastro de um tenant.
+ *
+ * NENHUM caminho aponta para `data/`. A prova está no bloco "Isolamento".
  *
  * Uso: node scripts/test-pdv-natureza.js
  */
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const BASE = '/home/carlosfinezi/web/liciteagora.com.br/private';
 const Database = require(BASE + '/node_modules/better-sqlite3');
 const {
   naturezaDoPdv, politicaDoPdv, parcelasDaPolitica, aplicarEfeitosDaNatureza,
 } = require(BASE + '/nfce-routes');
 
-const db = new Database(BASE + '/data/tenants/labfiscal/pncp.db');
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdv-natureza-'));
+const DB_PATH = path.join(tmpDir, 'descartavel.db');
+const db = new Database(DB_PATH);
+
+/* O diretório temporário some aconteça o que acontecer — inclusive se um
+   assert estourar no meio. É o `finally` que a versão anterior não tinha. */
+function encerrar(codigo) {
+  try { db.close(); } catch (_) { /* já fechado */ }
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+  process.exit(codigo);
+}
+process.on('uncaughtException', (e) => {
+  console.error('\nABORTOU: ' + e.message);
+  encerrar(1);
+});
+
+/* ── Schema e massa, pelos helpers REAIS ─────────────────────────────────────
+ *
+ * `schemaDeTenant` extrai o schema do tenant em modo somente leitura (é o que
+ * as outras suítes usam); `initSchema` aplica as migrations que alcançam tenant
+ * existente; o `migrar` do tipos-operacao-routes semeia as naturezas, e o
+ * registro das rotas de NFC-e cria `nfce_config` com a linha id=1. Nenhum
+ * desses passos ESCREVE em tenant real: todos recebem o `db` descartável. */
+db.pragma('foreign_keys = OFF');
+db.exec(require(BASE + '/scripts/schema-de-tenant').schemaDeTenant());
+require(BASE + '/db-schema').initSchema(db);
+try { require(BASE + '/tipos-operacao-routes').migrar(db); } catch (_) {}
+try {
+  const appFalso = { get() {}, post() {}, put() {}, delete() {}, use() {} };
+  require(BASE + '/nfce-routes').registrarRotasNFCe(appFalso, db);
+} catch (_) {}
+db.pragma('foreign_keys = ON');
+
+/* A massa mínima que os casos exigem: um produto com saldo (a baixa precisa de
+   produto e de depósito resolvível), uma pessoa (a CR tem `pessoaId` NOT NULL)
+   e a política 30/60 — que antes vinha do cadastro do labfiscal e agora é
+   parte do caso. */
+db.prepare(`INSERT INTO produtos (sku, descricao, unidade, ativo, precoVenda)
+  VALUES ('LAB-FERT-01', 'FERTILIZANTE DE PROVA', 'UN', 1, 50)`).run();
+db.prepare(`INSERT INTO movimentacoes_estoque (produtoId, tipo, quantidade, data)
+  VALUES (1, 'entrada', 100, date('now'))`).run();
+db.prepare(`INSERT INTO pessoas (cpfCnpj, razaoSocial, tipo, ativo)
+  VALUES ('52998224725', 'CLIENTE DE PROVA', 'cliente', 1)`).run();
 
 let ok = 0, fail = 0;
 function assert(cond, msg, extra) {
@@ -45,16 +114,19 @@ const cfgOriginal = db.prepare('SELECT pdvTipoOperacaoId, pdvPoliticaPrazoId FRO
 const natureza = db.prepare(`SELECT * FROM tipos_operacao
   WHERE ativo = 1 AND emiteNFe = 1 AND geraFinanceiro = 1 AND movimentaEstoque = 1
   ORDER BY id LIMIT 1`).get();
-if (!natureza) { console.error('Sem tipo de operação utilizável no labfiscal'); process.exit(1); }
-
-let politica = db.prepare(`SELECT * FROM politicas_prazo WHERE ativo = 1 AND aplicaPdv = 1 AND tipo = 'prazo'`).get();
-let politicaCriada = false;
-if (!politica) {
-  const r = db.prepare(`INSERT INTO politicas_prazo (nome, tipo, prazoDias, aplicaPdv, aplicaVendas, ativo)
-    VALUES ('TESTE PDV 30/60', 'prazo', '30/60', 1, 1, 1)`).run();
-  politica = db.prepare('SELECT * FROM politicas_prazo WHERE id = ?').get(r.lastInsertRowid);
-  politicaCriada = true;
+if (!natureza) {
+  console.error('O banco descartável nasceu sem natureza de operação utilizável — '
+    + 'o seed do tipos-operacao-routes não rodou, e sem ele nenhum caso mede o que promete');
+  encerrar(1);
 }
+
+/* A política é criada SEMPRE, e é 30/60 de propósito: o assert de duas
+   parcelas mais abaixo depende dela. Antes, ela vinha do cadastro do tenant
+   quando houvesse uma, e o número de parcelas do teste passava a depender do
+   que estivesse cadastrado lá. */
+const rPol = db.prepare(`INSERT INTO politicas_prazo (nome, tipo, prazoDias, aplicaPdv, aplicaVendas, ativo)
+  VALUES ('TESTE PDV 30/60', 'prazo', '30/60', 1, 1, 1)`).run();
+const politica = db.prepare('SELECT * FROM politicas_prazo WHERE id = ?').get(rPol.lastInsertRowid);
 
 const produto = db.prepare("SELECT id FROM produtos WHERE sku = 'LAB-FERT-01'").get()
   || db.prepare('SELECT id FROM produtos ORDER BY id LIMIT 1').get();
@@ -134,14 +206,25 @@ assert(db.prepare('SELECT COUNT(*) c FROM contas_a_receber WHERE nfceId = ?').ge
 assert(db.prepare("SELECT COUNT(*) c FROM movimentacoes_estoque WHERE origem='nfce' AND origemId=?").get(NFCE_ID2).c === 0,
   'movimentaEstoque=0: nenhuma baixa de estoque');
 
-// ─── Limpeza ──────────────────────────────────────────────────────────────────
-db.prepare('DELETE FROM contas_a_receber WHERE nfceId IN (?, ?)').run(NFCE_ID, NFCE_ID2);
-db.prepare("DELETE FROM movimentacoes_estoque WHERE origem = 'nfce' AND origemId IN (?, ?)").run(NFCE_ID, NFCE_ID2);
-if (politicaCriada) db.prepare('DELETE FROM politicas_prazo WHERE id = ?').run(politica.id);
-db.prepare('UPDATE nfce_config SET pdvTipoOperacaoId = ?, pdvPoliticaPrazoId = ? WHERE id = 1')
-  .run(cfgOriginal.pdvTipoOperacaoId || null, cfgOriginal.pdvPoliticaPrazoId || null);
-db.close();
+/* ── Isolamento ──────────────────────────────────────────────────────────────
+ *
+ * Não basta este arquivo não citar `data/`: quem grava de verdade é o
+ * `aplicarEfeitosDaNatureza`, e ele recebe o `db` por parâmetro. A pergunta que
+ * importa é para ONDE esta conexão aponta, e o SQLite responde isso sozinho.
+ * Vale também para um ATTACH que algum helper tenha feito pelo caminho. */
+secao('Isolamento: nada foi escrito em banco real');
+const anexados = db.prepare('PRAGMA database_list').all();
+assert(anexados.every((b) => !String(b.file || '').includes('/data/tenants/')),
+  'nenhum banco de tenant anexado a esta conexão',
+  anexados.map((b) => `${b.name}=${b.file || '(memória)'}`).join(' · '));
+assert(anexados.some((b) => b.name === 'main' && String(b.file) === DB_PATH),
+  `o banco principal é o descartável (${DB_PATH})`);
+assert(String(DB_PATH).startsWith(os.tmpdir()),
+  'e ele vive em os.tmpdir(), fora da árvore do projeto');
 
+// ─── Limpeza ──────────────────────────────────────────────────────────────────
+// Não há o que restaurar: o banco inteiro é descartado. O `encerrar` apaga o
+// diretório temporário, e também roda se um assert estourar antes daqui.
 console.log(`\n${'─'.repeat(56)}`);
 console.log(fail === 0 ? `TODOS OS ${ok} ASSERTS PASSARAM` : `${ok} OK · ${fail} FALHARAM`);
-process.exit(fail === 0 ? 0 : 1);
+encerrar(fail === 0 ? 0 : 1);
