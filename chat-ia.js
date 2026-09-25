@@ -13,16 +13,17 @@
 const axios = require('axios');
 // Fase 3g (2026-05-23): carregarContexto lê catalog via PG quando flag ativa
 const catalogPg = require('./catalog-pg');
+const { PADRAO: MODELO_PADRAO } = require('./ia-modelos');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
 // ===== Provider callers (chat-completion format) =====
 
-async function chatCerebras(apiKey, messages) {
+async function chatCerebras(apiKey, messages, modelo) {
   const resp = await axios.post('https://api.cerebras.ai/v1/chat/completions', {
     // llama-3.3-70b também saiu do catálogo da Cerebras (404). Hoje a conta só
     // lista gemma-4-31b e gpt-oss-120b. Corrigido junto, mas note: a conta está
     // sem saldo (402), então este provider não responde enquanto não recarregar.
-    model: 'gpt-oss-120b',
+    model: modelo || MODELO_PADRAO.cerebras,
     messages,
     temperature: 0.4,
     max_tokens: 1200,
@@ -33,7 +34,7 @@ async function chatCerebras(apiKey, messages) {
   return resp.data?.choices?.[0]?.message?.content || null;
 }
 
-async function chatGemini(apiKey, messages) {
+async function chatGemini(apiKey, messages, modelo) {
   // Gemini API espera role "user" e "model" — converte "assistant" → "model"
   const systemMsg = messages.find(m => m.role === 'system');
   const conversa = messages.filter(m => m.role !== 'system').map(m => ({
@@ -48,7 +49,7 @@ async function chatGemini(apiKey, messages) {
   };
   if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg.content }] };
   const resp = await axios.post(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelo || MODELO_PADRAO.gemini}:generateContent?key=${apiKey}`,
     body, { timeout: 30000 }
   );
   const cand = resp.data?.candidates?.[0];
@@ -57,9 +58,9 @@ async function chatGemini(apiKey, messages) {
   return cand?.content?.parts?.[0]?.text || null;
 }
 
-async function chatDeepSeek(apiKey, messages) {
+async function chatDeepSeek(apiKey, messages, modelo) {
   const resp = await axios.post('https://api.deepseek.com/v1/chat/completions', {
-    model: 'deepseek-chat',
+    model: modelo || MODELO_PADRAO.deepseek,
     messages,
     temperature: 0.4,
     max_tokens: 1200,
@@ -70,12 +71,12 @@ async function chatDeepSeek(apiKey, messages) {
   return resp.data?.choices?.[0]?.message?.content || null;
 }
 
-async function chatGroq(apiKey, messages) {
+async function chatGroq(apiKey, messages, modelo) {
   const resp = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
     // llama-3.3-70b-versatile foi aposentado pela Groq — respondia 404 e derrubava
     // a chain inteira (2026-08-21). O que a conta lista hoje: gpt-oss-20b/120b,
     // qwen3.6-27b e groq/compound.
-    model: 'openai/gpt-oss-120b',
+    model: modelo || MODELO_PADRAO.groq,
     messages,
     temperature: 0.4,
     max_tokens: 1200,
@@ -93,17 +94,20 @@ async function chatGroq(apiKey, messages) {
 }
 
 // ===== Fallback chain =====
-async function chamarChatLLM(messages, keys) {
+async function chamarChatLLM(messages, keys, modelos) {
+  // `modelos` vem de ia-modelos.resolverModelos(db) — o que o tenant escolheu
+  // na tela. Omitido, cada chatX cai no padrão do código.
+  modelos = modelos || {};
   // Ordem por custo e disponibilidade real, medidos em 2026-08-21 contra as
   // chaves em uso: groq responde e é a mais barata por lead da campanha; gemini
   // é o único outro de pé, e cobra ~4x a saída da groq, então fica de reserva.
   // Cerebras e DeepSeek entram por último porque estão sem saldo (402) — ficam
   // na lista para voltarem sozinhos quando recarregarem, e falham rápido.
   const tentativas = [
-    keys.groq      && { name: 'groq',      fn: () => chatGroq(keys.groq, messages) },
-    keys.gemini    && { name: 'gemini',    fn: () => chatGemini(keys.gemini, messages) },
-    keys.cerebras  && { name: 'cerebras',  fn: () => chatCerebras(keys.cerebras, messages) },
-    keys.deepseek  && { name: 'deepseek',  fn: () => chatDeepSeek(keys.deepseek, messages) },
+    keys.groq      && { name: 'groq',      fn: () => chatGroq(keys.groq, messages, modelos.groq) },
+    keys.gemini    && { name: 'gemini',    fn: () => chatGemini(keys.gemini, messages, modelos.gemini) },
+    keys.cerebras  && { name: 'cerebras',  fn: () => chatCerebras(keys.cerebras, messages, modelos.cerebras) },
+    keys.deepseek  && { name: 'deepseek',  fn: () => chatDeepSeek(keys.deepseek, messages, modelos.deepseek) },
   ].filter(Boolean);
 
   let ultimoErro = null;

@@ -28,7 +28,7 @@
               </div>
               <div class="actions">
                 <a class="btn btn-ghost btn-sm" href="/operacional/analises-ia.html" style="text-decoration:none;">🤖 Ver análises</a>
-                <button type="submit" form="formIA" class="btn btn-primary btn-sm" id="btnSalvarTopo">💾 Salvar chaves</button>
+                <button type="submit" form="formIA" class="btn btn-primary btn-sm" id="btnSalvarTopo">💾 Salvar</button>
               </div>
             </div>
 
@@ -159,13 +159,18 @@
                     <!-- Cerebras -->
                     <div class="card ia-provider">
                         <div class="head">
-                            <strong>Cerebras (Qwen 3 235B)</strong>
+                            <strong>Cerebras</strong>
                             <span class="badge sucesso">Gratuito</span>
                             <span id="statusCerebras" class="status"></span>
                         </div>
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="cerebrasKey">Chave da API Cerebras</label>
                             <input type="password" id="cerebrasKey" placeholder="csk-..." autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="cerebrasModelo">Modelo</label>
+                            <select id="cerebrasModelo" data-provider="cerebras"><option value="">Carregando...</option></select>
+                            <span class="hint" id="hintCerebrasModelo"></span>
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-cerebras" style="display:none;" onclick="removerChaveIA('cerebras')">Remover</button>
@@ -176,13 +181,18 @@
                     <!-- Groq -->
                     <div class="card ia-provider">
                         <div class="head">
-                            <strong>Groq (Llama 3.3 70B)</strong>
+                            <strong>Groq</strong>
                             <span class="badge manual">Barato</span>
                             <span id="statusGroq" class="status"></span>
                         </div>
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="groqKey">Chave da API Groq</label>
                             <input type="password" id="groqKey" placeholder="gsk_..." autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="groqModelo">Modelo</label>
+                            <select id="groqModelo" data-provider="groq"><option value="">Carregando...</option></select>
+                            <span class="hint" id="hintGroqModelo"></span>
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-groq" style="display:none;" onclick="removerChaveIA('groq')">Remover</button>
@@ -199,7 +209,12 @@
                         </div>
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="geminiKey">Chave da API Gemini</label>
-                            <input type="password" id="geminiKey" placeholder="AIza..." autocomplete="off">
+                            <input type="password" id="geminiKey" placeholder="AIza... ou AQ...." autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="geminiModelo">Modelo</label>
+                            <select id="geminiModelo" data-provider="gemini"><option value="">Carregando...</option></select>
+                            <span class="hint" id="hintGeminiModelo"></span>
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-gemini" style="display:none;" onclick="removerChaveIA('gemini')">Remover</button>
@@ -210,13 +225,18 @@
                     <!-- DeepSeek -->
                     <div class="card ia-provider">
                         <div class="head">
-                            <strong>DeepSeek V3</strong>
+                            <strong>DeepSeek</strong>
                             <span class="badge manual">Barato</span>
                             <span id="statusDeepseek" class="status"></span>
                         </div>
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="deepseekKey">Chave da API DeepSeek</label>
                             <input type="password" id="deepseekKey" placeholder="sk-..." autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="deepseekModelo">Modelo</label>
+                            <select id="deepseekModelo" data-provider="deepseek"><option value="">Carregando...</option></select>
+                            <span class="hint" id="hintDeepseekModelo"></span>
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-deepseek" style="display:none;" onclick="removerChaveIA('deepseek')">Remover</button>
@@ -234,6 +254,11 @@
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="anthropicKey">Chave da API Anthropic</label>
                             <input type="password" id="anthropicKey" placeholder="sk-ant-..." autocomplete="off">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="anthropicModelo">Modelo</label>
+                            <select id="anthropicModelo" data-provider="anthropic"><option value="">Carregando...</option></select>
+                            <span class="hint" id="hintAnthropicModelo"></span>
                         </div>
                         <div class="acoes">
                             <button type="button" class="btn btn-danger btn-sm" id="remover-anthropic" style="display:none;" onclick="removerChaveIA('anthropic')">Remover</button>
@@ -273,17 +298,65 @@
 
     <script>
         const PROVIDERS = {
-            cerebras:  { input: 'cerebrasKey',  status: 'statusCerebras',  nome: 'Cerebras' },
-            gemini:    { input: 'geminiKey',    status: 'statusGemini',    nome: 'Gemini' },
-            deepseek:  { input: 'deepseekKey',  status: 'statusDeepseek',  nome: 'DeepSeek' },
-            groq:      { input: 'groqKey',      status: 'statusGroq',      nome: 'Groq' },
-            anthropic: { input: 'anthropicKey', status: 'statusAnthropic', nome: 'Claude' },
+            cerebras:  { input: 'cerebrasKey',  status: 'statusCerebras',  nome: 'Cerebras', modelo: 'cerebrasModelo',  hint: 'hintCerebrasModelo' },
+            gemini:    { input: 'geminiKey',    status: 'statusGemini',    nome: 'Gemini',   modelo: 'geminiModelo',    hint: 'hintGeminiModelo' },
+            deepseek:  { input: 'deepseekKey',  status: 'statusDeepseek',  nome: 'DeepSeek', modelo: 'deepseekModelo',  hint: 'hintDeepseekModelo' },
+            groq:      { input: 'groqKey',      status: 'statusGroq',      nome: 'Groq',     modelo: 'groqModelo',      hint: 'hintGroqModelo' },
+            anthropic: { input: 'anthropicKey', status: 'statusAnthropic', nome: 'Claude',   modelo: 'anthropicModelo', hint: 'hintAnthropicModelo' },
         };
 
         document.addEventListener('DOMContentLoaded', () => {
             verificarChaveIA();
             carregarSaude();
+            carregarModelos();
         });
+
+        // O que o servidor disse sobre cada provider na última carga. O submit
+        // compara com isto para subir só o que o usuário mexeu.
+        let MODELOS_ESTADO = {};
+
+        async function carregarModelos() {
+            try {
+                const r = await fetch('/api/config/ia-modelos');
+                const j = await r.json();
+                if (!j.success) throw new Error(j.error || 'falha');
+                MODELOS_ESTADO = j.providers || {};
+                for (const [provider, cfg] of Object.entries(PROVIDERS)) {
+                    const sel = document.getElementById(cfg.modelo);
+                    const hint = document.getElementById(cfg.hint);
+                    const d = MODELOS_ESTADO[provider];
+                    if (!sel || !d) continue;
+                    const lista = (d.modelos || []).slice();
+                    // O escolhido pode ter saído do catálogo da conta. Some da
+                    // lista do provider, mas continua sendo o que a produção
+                    // chama, então precisa aparecer aqui.
+                    if (d.atual && !lista.includes(d.atual)) lista.unshift(d.atual);
+                    sel.innerHTML = '';
+                    const padrao = document.createElement('option');
+                    padrao.value = '';
+                    padrao.textContent = `Padrão do sistema (${d.padrao})`;
+                    sel.appendChild(padrao);
+                    for (const m of lista) {
+                        const op = document.createElement('option');
+                        op.value = m;
+                        op.textContent = m;
+                        sel.appendChild(op);
+                    }
+                    sel.value = d.atual || '';
+                    sel.disabled = !d.temChave;
+                    if (hint) {
+                        if (!d.temChave) hint.textContent = 'Cadastre a chave para ver os modelos desta conta.';
+                        else if (d.erro) hint.textContent = `O provider não devolveu a lista: ${d.erro}`;
+                        else hint.textContent = '';
+                    }
+                }
+            } catch (e) {
+                for (const cfg of Object.values(PROVIDERS)) {
+                    const hint = document.getElementById(cfg.hint);
+                    if (hint) hint.textContent = 'Erro ao carregar os modelos.';
+                }
+            }
+        }
 
         const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c =>
             ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -481,17 +554,39 @@
                 })());
             }
 
+            // Modelo: sobe só o que mudou desde a última carga.
+            for (const [provider, cfg] of Object.entries(PROVIDERS)) {
+                const sel = document.getElementById(cfg.modelo);
+                if (!sel || sel.disabled) continue;
+                const antes = (MODELOS_ESTADO[provider] && MODELOS_ESTADO[provider].atual) || '';
+                if (sel.value === antes) continue;
+                tarefas.push((async () => {
+                    try {
+                        const r = await fetch('/api/config/ia-modelo', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ provider, modelo: sel.value })
+                        });
+                        const j = await r.json();
+                        if (!j.success) erros.push(`${cfg.nome}: ${j.error || 'erro'}`);
+                    } catch (err) {
+                        erros.push(`${cfg.nome}: ${err.message}`);
+                    }
+                })());
+            }
+
             if (!tarefas.length) {
-                mostrarAlerta('Nenhuma chave preenchida — nada a salvar.', 'warn');
+                mostrarAlerta('Nada mudou.', 'warn');
             } else {
                 await Promise.all(tarefas);
-                if (erros.length === 0) mostrarAlerta('Chaves salvas com sucesso!', 'success');
+                if (erros.length === 0) mostrarAlerta('Salvo com sucesso!', 'success');
                 else mostrarAlerta('Salvo com avisos — ' + erros.join('; '), 'error');
                 verificarChaveIA();
+                carregarModelos();
             }
 
             btn.disabled = false;
-            btn.textContent = '💾 Salvar chaves';
+            btn.textContent = '💾 Salvar';
         });
 
         function mostrarAlerta(mensagem, tipo) {

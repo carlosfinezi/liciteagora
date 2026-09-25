@@ -102,7 +102,7 @@ async function runCampaign(tdb, slug, id) {
     const keys = require('./config-helpers').createConfigHelpers(tdb).getIAKeys();
     const { chamarChatLLM } = require('./chat-ia');
     const callLLM = async (m) => {
-      try { const r = await chamarChatLLM(m, keys); return { ok: true, text: r.content }; }
+      try { const r = await chamarChatLLM(m, keys, require('./ia-modelos').resolverModelos(tdb)); return { ok: true, text: r.content }; }
       catch (e) { return { ok: false, err: e.message }; }
     };
 
@@ -318,7 +318,7 @@ function registrarRotasWaCampanhas(app, db) {
       const keys = require('./config-helpers').createConfigHelpers(db).getIAKeys();
       if (!keys) return res.json({ success: false, error: 'tenant sem chave de IA configurada' });
       const { chamarChatLLM } = require('./chat-ia');
-      const callLLM = async (m) => { try { const r = await chamarChatLLM(m, keys); return { ok: true, text: r.content }; } catch (e) { return { ok: false, err: e.message }; } };
+      const callLLM = async (m) => { try { const r = await chamarChatLLM(m, keys, require('./ia-modelos').resolverModelos(db)); return { ok: true, text: r.content }; } catch (e) { return { ok: false, err: e.message }; } };
       const results = [];
       for (const d of dests) {
         const row = Object.assign({ nome: d.nome }, JSON.parse(d.extras || '{}'));
@@ -396,7 +396,7 @@ function registrarRotasWaCampanhas(app, db) {
       const keys = require('./config-helpers').createConfigHelpers(db).getIAKeys();
       if (!keys) return res.json({ success: false, error: 'tenant sem chave de IA configurada' });
       const { chamarChatLLM } = require('./chat-ia');
-      const callLLM = async (m) => { try { const r = await chamarChatLLM(m, keys); return { ok: true, text: r.content }; } catch (e) { return { ok: false, err: e.message }; } };
+      const callLLM = async (m) => { try { const r = await chamarChatLLM(m, keys, require('./ia-modelos').resolverModelos(db)); return { ok: true, text: r.content }; } catch (e) { return { ok: false, err: e.message }; } };
       const gen = await gerarM1({ config, row: contact, callLLM });
       if (!gen.ok) return res.json({ success: false, error: 'M1 reprovada em ' + gen.tentativas + ' tentativa(s): ' + (gen.erros || []).join('; ') });
       res.json({ success: true, reply: ensureOptOutTrailer(gen.text) });

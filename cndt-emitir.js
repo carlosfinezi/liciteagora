@@ -144,7 +144,7 @@ async function ocrGemini(base64, mime, apiKey) {
     contents: [{ parts: [{ text: OCR_PROMPT }, { inline_data: { mime_type: mime || 'image/png', data: base64 } }] }],
     generationConfig: { temperature: 0 },
   };
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
   const txt = (j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts && j.candidates[0].content.parts[0] && j.candidates[0].content.parts[0].text) || '';

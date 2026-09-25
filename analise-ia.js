@@ -14,6 +14,7 @@ const http = require('http');
 const { matchProdutos } = require('./produto-match');
 // Fase 3b (2026-05-23): adapter Postgres pro catalog
 const catalogPg = require('./catalog-pg');
+const { PADRAO: MODELO_PADRAO, resolverModelos } = require('./ia-modelos');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 
 // Dependências opcionais para extração de texto
@@ -272,34 +273,37 @@ async function analisarLicitacao(db, cnpj, ano, sequencial, keys, opts = {}) {
   // de cada free tier.
   let analise = null;
   let provider = null;
+  // Qual ID cada provider usa neste tenant. Lido aqui, uma vez, porque é o
+  // ponto em que o db do tenant ainda está à mão.
+  const modelos = resolverModelos(db);
 
   if (keys.cerebras) {
     const prompt = montarPrompt(licitacao, textoCompleto, LIMITE_DOCS_POR_PROVIDER.cerebras, opts.produtosQueVendo);
-    analise = await chamarCerebras(keys.cerebras, prompt);
+    analise = await chamarCerebras(keys.cerebras, prompt, modelos.cerebras);
     if (analise) provider = 'cerebras';
   }
 
   if (!analise && keys.gemini) {
     const prompt = montarPrompt(licitacao, textoCompleto, LIMITE_DOCS_POR_PROVIDER.gemini, opts.produtosQueVendo);
-    analise = await chamarGemini(keys.gemini, prompt);
+    analise = await chamarGemini(keys.gemini, prompt, modelos.gemini);
     if (analise) provider = 'gemini';
   }
 
   if (!analise && keys.deepseek) {
     const prompt = montarPrompt(licitacao, textoCompleto, LIMITE_DOCS_POR_PROVIDER.deepseek, opts.produtosQueVendo);
-    analise = await chamarDeepSeek(keys.deepseek, prompt);
+    analise = await chamarDeepSeek(keys.deepseek, prompt, modelos.deepseek);
     if (analise) provider = 'deepseek';
   }
 
   if (!analise && keys.groq) {
     const prompt = montarPrompt(licitacao, textoCompleto, LIMITE_DOCS_POR_PROVIDER.groq, opts.produtosQueVendo);
-    analise = await chamarGroq(keys.groq, prompt);
+    analise = await chamarGroq(keys.groq, prompt, modelos.groq);
     if (analise) provider = 'groq';
   }
 
   if (!analise && keys.anthropic) {
     const prompt = montarPrompt(licitacao, textoCompleto, LIMITE_DOCS_POR_PROVIDER.anthropic, opts.produtosQueVendo);
-    analise = await chamarClaude(keys.anthropic, prompt);
+    analise = await chamarClaude(keys.anthropic, prompt, modelos.anthropic);
     if (analise) provider = 'claude';
   }
 
@@ -552,6 +556,9 @@ const PROMPT_PING = 'Responda apenas com o JSON {"ok":true}';
 async function testarProviders(keys, db) {
   const fns = { cerebras: chamarCerebras, gemini: chamarGemini, deepseek: chamarDeepSeek,
                 groq: chamarGroq, anthropic: chamarClaude };
+  // O ping precisa bater no mesmo ID que a análise usaria. Testar o padrão
+  // enquanto a produção chama outro modelo daria um verde que não vale nada.
+  const modelos = resolverModelos(db);
   const resultados = {};
   await Promise.all(Object.entries(fns).map(async ([provider, fn]) => {
     if (!keys || !keys[provider]) {
@@ -564,7 +571,7 @@ async function testarProviders(keys, db) {
       return;
     }
     const t0 = Date.now();
-    const r = await fn(keys[provider], PROMPT_PING);
+    const r = await fn(keys[provider], PROMPT_PING, modelos[provider]);
     const latenciaMs = Date.now() - t0;
     if (r) {
       _registrarProvider(provider, 'ok', null, null, { latenciaMs, origem: 'teste' });
@@ -700,7 +707,7 @@ ${produtosQueVendo ? `PRODUTOS DA EMPRESA:\n${produtosQueVendo}\n\n` : ''}${cont
  * Free tier ~1M tokens/dia. Velocidade ~900-2000 tok/s — mais rápido do mercado.
  * Qwen 3 235B é MoE multilíngue (PT-BR forte) e qualidade comparável a GPT-4o.
  */
-async function chamarCerebras(apiKey, prompt, tentativa) {
+async function chamarCerebras(apiKey, prompt, modelo, tentativa) {
   if (_emCooldown('cerebras')) return null;
   tentativa = tentativa || 1;
   await aguardarGapProvider('cerebras');
@@ -719,7 +726,7 @@ async function chamarCerebras(apiKey, prompt, tentativa) {
         // payment_required em QUALQUER modelo — este provider só volta a
         // funcionar quando o billing for regularizado; o ID abaixo já está
         // certo pra quando isso acontecer.
-        model: 'gpt-oss-120b',
+        model: modelo || MODELO_PADRAO.cerebras,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 8000,
         temperature: 0.2,
@@ -762,7 +769,7 @@ async function chamarCerebras(apiKey, prompt, tentativa) {
  * free tier viável. Custo ~$0.27/M input + $1.10/M output (~$0.005/análise).
  * Context window 64k (apertado pra editais grandes — texto cortado a 40k chars).
  */
-async function chamarDeepSeek(apiKey, prompt, tentativa, opts) {
+async function chamarDeepSeek(apiKey, prompt, modelo, tentativa, opts) {
   tentativa = tentativa || 1;
   opts = opts || {};
   await aguardarGapProvider('deepseek');
@@ -774,7 +781,7 @@ async function chamarDeepSeek(apiKey, prompt, tentativa, opts) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: modelo || MODELO_PADRAO.deepseek,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: opts.max_tokens || 6000,
         temperature: opts.temperature ?? 0.2,
@@ -800,7 +807,7 @@ async function chamarDeepSeek(apiKey, prompt, tentativa, opts) {
       const wait = tentativa * 10000;
       console.log(`[IA] DeepSeek rate limit, retry ${tentativa}/2 em ${wait/1000}s...`);
       await new Promise(r => setTimeout(r, wait));
-      return chamarDeepSeek(apiKey, prompt, tentativa + 1, opts);
+      return chamarDeepSeek(apiKey, prompt, modelo, tentativa + 1, opts);
     }
     _registrarProvider('deepseek', 'erro', e.message, e.status);
     console.error('[IA] Erro ao chamar DeepSeek:', (e.message || '').substring(0, 200));
@@ -811,7 +818,7 @@ async function chamarDeepSeek(apiKey, prompt, tentativa, opts) {
 /**
  * Chama Groq (Llama 3.3 70B Versatile) via API OpenAI-compatível, com retry em 429.
  */
-async function chamarGroq(apiKey, prompt, tentativa) {
+async function chamarGroq(apiKey, prompt, modelo, tentativa) {
   if (_emCooldown('groq')) return null;
   tentativa = tentativa || 1;
   await aguardarGapProvider('groq');
@@ -823,10 +830,11 @@ async function chamarGroq(apiKey, prompt, tentativa) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        // 2026-09-01: llama-3.3-70b-versatile saiu do catálogo da conta (404).
-        // openai/gpt-oss-120b é o substituto disponível e devolve JSON limpo em
-        // `content` (o rascunho vai em `message.reasoning`, campo à parte).
-        model: 'openai/gpt-oss-120b',
+        // O ID vem do tenant (ia-modelos.js); o padrão é openai/gpt-oss-120b,
+        // que devolve JSON limpo em `content` — o rascunho vai em
+        // `message.reasoning`, campo à parte. Antes dele, llama-3.3-70b-versatile
+        // saiu do catálogo da conta em 01/09/2026 e passou a dar 404.
+        model: modelo || MODELO_PADRAO.groq,
         messages: [{ role: 'user', content: prompt }],
         // 8000 (era 3000): medido em 2026-09-01, um edital de 10 itens gasta
         // ~2500 tokens só na resposta — 3000 truncava o JSON (finish_reason
@@ -865,14 +873,14 @@ async function chamarGroq(apiKey, prompt, tentativa) {
 /**
  * Chama Google Gemini (2.0 Flash — gratuito) com retry em 429
  */
-async function chamarGemini(apiKey, prompt, tentativa) {
+async function chamarGemini(apiKey, prompt, modelo, tentativa) {
   if (_emCooldown('gemini')) return null;
   tentativa = tentativa || 1;
   await aguardarGapProvider('gemini');
   try {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: modelo || MODELO_PADRAO.gemini });
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -918,14 +926,14 @@ async function chamarGemini(apiKey, prompt, tentativa) {
 /**
  * Chama Anthropic Claude (Haiku)
  */
-async function chamarClaude(apiKey, prompt) {
+async function chamarClaude(apiKey, prompt, modelo) {
   await aguardarGapProvider('anthropic');
   try {
     const Anthropic = require('@anthropic-ai/sdk');
     const client = new Anthropic({ apiKey });
 
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: modelo || MODELO_PADRAO.anthropic,
       max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }],
     });

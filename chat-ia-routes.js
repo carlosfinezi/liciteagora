@@ -65,7 +65,7 @@ function registrarRotasChatIa(app, db, { getIAKeys }) {
       ];
 
       // 5) Chama LLM (chain de fallback)
-      const { provider, content } = await chatIa.chamarChatLLM(messages, keys);
+      const { provider, content } = await chatIa.chamarChatLLM(messages, keys, require('./ia-modelos').resolverModelos(db));
 
       // 6) Salva resposta
       tdb.prepare(`INSERT INTO chat_ia_mensagens (sessaoId, papel, conteudo, provider)

@@ -27,6 +27,7 @@
 const { analisarLicitacao, processarFilaAnalise, statusProviders, testarProviders } = require('./analise-ia');
 // Fase 3g (2026-05-23): SELECTs simples de licitacoes vão pra PG
 const catalogPg = require('./catalog-pg');
+const iaModelos = require('./ia-modelos');
 const USE_PG = process.env.CATALOG_BACKEND_PG === '1';
 const {
   executarScanGrupo,
@@ -319,7 +320,10 @@ function registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getI
         if (!validar('csk-')) return res.status(400).json({ success: false, error: 'Chave Cerebras inválida. Deve começar com csk-...' });
         setConfigValue('cerebras_api_key', key);
       } else if (provider === 'gemini') {
-        if (!validar('AIza')) return res.status(400).json({ success: false, error: 'Chave Gemini inválida. Deve começar com AIza...' });
+        // Dois formatos convivem: o 'AIza...' das chaves antigas do AI Studio e
+        // o 'AQ....' das que o Google passou a emitir depois. Aceitar só o
+        // primeiro deixava o tenant sem como salvar a chave que ele recebeu.
+        if (!validar('AIza') && !validar('AQ.')) return res.status(400).json({ success: false, error: 'Chave Gemini inválida. Deve começar com AIza... ou AQ....' });
         setConfigValue('gemini_api_key', key);
       } else if (provider === 'deepseek') {
         if (!validar('sk-')) return res.status(400).json({ success: false, error: 'Chave DeepSeek inválida. Deve começar com sk-...' });
@@ -349,6 +353,63 @@ function registrarRotasAnaliseIa(app, db, { getConfigValue, setConfigValue, getI
       if (!chavePor[provider]) return res.status(400).json({ success: false, error: 'Provider inválido' });
       setConfigValue(chavePor[provider], '');
       res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Catálogo de modelos por provider (2026-09-17).
+  //
+  // Existe porque o ID do modelo era cravado no código e quebrou quatro vezes
+  // em quatro meses. A lista vem do próprio provider, com a chave do tenant:
+  // é ele quem sabe o que aquela conta alcança, e contas de idades diferentes
+  // veem catálogos diferentes. Listar não consome cota de geração.
+  //
+  // Um provider sem chave devolve lista vazia e `temChave: false` — a tela
+  // mostra o campo desabilitado em vez de sumir com ele.
+  app.get('/api/config/ia-modelos', async (req, res) => {
+    try {
+      const keys = getIAKeys() || {};
+      const saida = {};
+      await Promise.all(iaModelos.PROVIDERS.map(async (provider) => {
+        const salvo = getConfigValue(iaModelos.chaveConfig(provider));
+        const base = {
+          atual: salvo || null,
+          padrao: iaModelos.PADRAO[provider],
+          emUso: iaModelos.resolverModelo(db, provider),
+          temChave: !!keys[provider],
+          modelos: [],
+          erro: null,
+        };
+        if (!keys[provider]) { saida[provider] = base; return; }
+        try {
+          base.modelos = await iaModelos.listarModelos(provider, keys[provider]);
+        } catch (e) {
+          // Falha ao listar não é falha da tela: o usuário ainda precisa ver o
+          // que está em uso, e o erro literal é o que explica a lista vazia.
+          base.erro = (e.message || String(e)).substring(0, 200);
+        }
+        saida[provider] = base;
+      }));
+      res.json({ success: true, providers: saida });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Escolher o modelo de um provider. Valor vazio volta ao padrão do código.
+  app.post('/api/config/ia-modelo', (req, res) => {
+    try {
+      const { provider } = req.body || {};
+      const modelo = (req.body && req.body.modelo ? String(req.body.modelo) : '').trim();
+      if (!iaModelos.PADRAO[provider]) {
+        return res.status(400).json({ success: false, error: 'Provider inválido. Use cerebras, gemini, deepseek, groq ou anthropic.' });
+      }
+      if (modelo && !iaModelos.modeloValido(modelo)) {
+        return res.status(400).json({ success: false, error: 'Nome de modelo inválido. Só letras, números, ponto, hífen, barra e sublinhado.' });
+      }
+      setConfigValue(iaModelos.chaveConfig(provider), modelo);
+      res.json({ success: true, emUso: iaModelos.resolverModelo(db, provider) });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
     }
