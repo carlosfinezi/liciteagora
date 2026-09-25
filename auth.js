@@ -314,6 +314,11 @@ function requireAuth(apiKey, db) {
     // aberto aqui.
     if (req.path.startsWith('/api/orcamento-publico/')) return next();
 
+    // Bypass: agendamento de reunião pelo lead. Mesmo desenho dos dois de cima
+    // — token de 64 hex na URL, conferido por regex antes do banco, servindo a
+    // UM convite. Quem recebe o link no WhatsApp não tem conta aqui.
+    if (req.path.startsWith('/api/agendar/')) return next();
+
     // Identificação da empresa deste endereço. Pública porque a tela de LOGIN
     // precisa dela antes de autenticar — é ali que confirmar a empresa importa
     // mais. Devolve só slug e nome, ambos derivados do Host que o visitante já

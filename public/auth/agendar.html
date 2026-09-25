@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Agendar reunião</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* ============================================================================
+   Agendamento — TELA PÚBLICA
+   ============================================================================
+   Quem abre é o CONTATO, pelo link que recebeu no WhatsApp. Ele não tem conta
+   aqui e não deve precisar de uma.
+
+   Tokens espelhados, como na tela de orçamento público: esta página é servida
+   de `public/auth/`, antes da barreira de autenticação, e `/css/app-modern.css`
+   responde 302 para quem não tem sessão. Tema claro, porque quase todo mundo
+   abre isto no celular, no meio da conversa.
+
+   O desenho tem um alvo só: a sugestão. O próximo horário livre vem grande e
+   com o botão do lado; a lista dos outros fica abaixo, para quem quiser. Pedir
+   ao contato que cace um horário num calendário de semanas é o que faz ele
+   fechar a página.
+   ========================================================================== */
+:root {
+  --bg-0: #f1f5f9; --bg-1: #ffffff; --bg-2: #f8fafc;
+  --border: #e2e8f0; --text-0: #0f172a; --text-1: #334155; --text-2: #64748b;
+  --azul: #2563eb; --verde: #16a34a; --vermelho: #dc2626;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-0); color: var(--text-1);
+  padding: 20px; min-height: 100dvh; -webkit-text-size-adjust: 100%;
+}
+.folha { max-width: 520px; margin: 0 auto; background: var(--bg-1);
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.topo { padding: 20px 22px; border-bottom: 1px solid var(--border); }
+.topo h1 { font-size: 1.15em; color: var(--text-0); }
+.topo p { font-size: 0.9em; color: var(--text-2); margin-top: 4px; }
+.corpo { padding: 22px; }
+.sugestao { border: 2px solid var(--azul); border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+.sugestao .rot { font-size: 0.8em; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+.sugestao .quando { font-size: 1.35em; font-weight: 600; color: var(--text-0); margin: 4px 0 12px; }
+button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border); }
+.principal { width: 100%; padding: 13px; background: var(--azul); color: #fff; border: 0; font-weight: 600; }
+.principal:disabled { opacity: .6; cursor: default; }
+.outros { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.outros button { padding: 11px 8px; background: var(--bg-2); color: var(--text-1); }
+.outros button:hover { border-color: var(--azul); color: var(--azul); }
+h2 { font-size: 0.9em; color: var(--text-2); font-weight: 600; margin: 0 0 10px; }
+label { display: block; font-size: 0.85em; color: var(--text-2); margin: 14px 0 4px; }
+input { width: 100%; padding: 11px; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+.aviso { padding: 12px 14px; border-radius: 8px; font-size: 0.9em; margin-bottom: 16px; }
+.aviso.erro { background: #fef2f2; color: #991b1b; }
+.aviso.ok { background: #f0fdf4; color: #166534; }
+.feito { text-align: center; padding: 10px 0; }
+.feito .marca { font-size: 2.4em; }
+.feito .quando { font-size: 1.25em; font-weight: 600; color: var(--text-0); margin: 8px 0 4px; }
+.calendario { display: inline-block; margin-top: 16px; padding: 11px 18px; background: var(--verde);
+  color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.95em; }
+.cancelar { background: none; border: 0; color: var(--vermelho); font-size: 0.85em;
+  margin-top: 18px; text-decoration: underline; }
+.rodape { padding: 14px 22px; border-top: 1px solid var(--border); font-size: 0.8em; color: var(--text-2); }
+</style>
+</head>
+<body>
+<div class="folha">
+  <div class="topo">
+    <h1 id="titulo">Agendar reunião</h1>
+    <p id="sub">Carregando…</p>
+  </div>
+  <div class="corpo" id="corpo"></div>
+  <div class="rodape" id="rodape"></div>
+</div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let DADOS = null;
+
+function erro(msg) {
+  document.getElementById('corpo').innerHTML = `<div class="aviso erro">${esc(msg)}</div>`;
+  document.getElementById('sub').textContent = '';
+}
+
+async function carregar() {
+  if (!/^[a-f0-9]{64}$/.test(TOKEN)) return erro('Link inválido. Peça um novo ao atendimento.');
+  let d = null;
+  try { d = await fetch('/api/agendar/' + TOKEN).then(r => r.json()); }
+  catch { return erro('Não foi possível carregar. Tente de novo em instantes.'); }
+  if (!d?.success) return erro(d?.error || 'Convite não encontrado.');
+  DADOS = d;
+  document.getElementById('sub').textContent = d.empresa ? 'com ' + d.empresa : '';
+  document.getElementById('rodape').textContent =
+    'Horário de Brasília.' + (d.duracaoMin ? ` A conversa leva cerca de ${d.duracaoMin} minutos.` : '');
+  if (d.estado === 'marcada') return renderMarcada();
+  renderEscolha();
+}
+
+function renderEscolha(aviso) {
+  const c = document.getElementById('corpo');
+  if (!DADOS.horarios?.length) {
+    c.innerHTML = '<div class="aviso erro">Não há horário livre no momento. '
+      + 'Responda no WhatsApp que a gente combina por lá.</div>';
+    return;
+  }
+  const [primeiro, ...outros] = DADOS.horarios;
+  const txt = DADOS.porExtenso;
+  c.innerHTML = (aviso ? `<div class="aviso erro">${esc(aviso)}</div>` : '')
+    + `<div class="sugestao">
+         <div class="rot">Próximo horário livre</div>
+         <div class="quando">${esc(txt[0])}</div>
+         <button class="principal" onclick="confirmar('${primeiro}')">Confirmar este horário</button>
+       </div>`
+    + (outros.length ? `<h2>Prefere outro?</h2>
+         <div class="outros">${outros.map((h, i) =>
+           `<button onclick="confirmar('${h}')">${esc(txt[i + 1])}</button>`).join('')}</div>` : '')
+    + `<label for="nome">Seu nome</label>
+       <input id="nome" maxlength="120" value="${esc(DADOS.nome || '')}" placeholder="Como podemos te chamar">
+       <label for="email">E-mail (opcional, para receber o convite)</label>
+       <input id="email" type="email" maxlength="150" placeholder="voce@empresa.com.br">`;
+}
+
+async function confirmar(dataHora) {
+  const btns = document.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+  const body = { dataHora,
+    nome: document.getElementById('nome')?.value?.trim() || '',
+    email: document.getElementById('email')?.value?.trim() || '' };
+  let d = null;
+  try {
+    d = await fetch('/api/agendar/' + TOKEN, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+  } catch { d = null; }
+  btns.forEach(b => b.disabled = false);
+  if (!d) return renderEscolha('Não foi possível confirmar. Tente de novo.');
+  if (!d.success) {
+    // O servidor devolve a lista já refeita quando o horário caiu: mostrar a
+    // lista velha faria a pessoa clicar de novo no que não existe mais.
+    if (d.horarios) { DADOS.horarios = d.horarios; DADOS.porExtenso = d.porExtenso; }
+    return renderEscolha(d.error || 'Não foi possível confirmar.');
+  }
+  DADOS = { ...DADOS, estado: 'marcada', dataHora: d.dataHora, porExtenso: d.porExtenso };
+  renderMarcada();
+}
+
+function renderMarcada() {
+  document.getElementById('titulo').textContent = 'Reunião confirmada';
+  document.getElementById('corpo').innerHTML = `
+    <div class="feito">
+      <div class="marca">✓</div>
+      <div class="quando">${esc(DADOS.porExtenso)}</div>
+      <div style="font-size:0.9em;color:var(--text-2);">Você recebe a confirmação no WhatsApp.</div>
+      <a class="calendario" href="/api/agendar/${TOKEN}/ics">Salvar no meu calendário</a>
+      <br><button class="cancelar" onclick="cancelar()">Preciso cancelar</button>
+    </div>`;
+}
+
+async function cancelar() {
+  if (!confirm('Cancelar esta reunião?')) return;
+  const d = await fetch('/api/agendar/' + TOKEN + '/cancelar', { method: 'POST' })
+    .then(r => r.json()).catch(() => null);
+  if (!d?.success) return alert(d?.error || 'Não foi possível cancelar.');
+  document.getElementById('titulo').textContent = 'Reunião cancelada';
+  document.getElementById('corpo').innerHTML =
+    '<div class="aviso ok">Tudo certo, a reunião foi cancelada. '
+    + 'Se quiser remarcar, é só pedir um novo link no WhatsApp.</div>';
+}
+
+carregar();
+</script>
+</body>
+</html>

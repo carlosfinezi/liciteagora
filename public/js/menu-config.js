@@ -92,6 +92,7 @@ const menuConfig = {
             itens: [
                 { page: 'pessoas', icone: '👥', texto: 'Clientes & Fornecedores', link: '/comercial/pessoas.html' },
 { page: 'crm-funil', icone: '🎯', texto: 'CRM · Funil', link: '/comercial/crm-funil.html' },
+                { page: 'visita', icone: '📋', texto: 'Visita · Roteiro', link: '/comercial/visita.html' },
                 { page: 'pedidos', icone: '🧾', texto: 'Pedidos', link: '/comercial/pedidos.html' },
                 // Venda de balcão (Fase 2.1). NÃO substitui 'pedidos', que segue
                 // sendo a gestão administrativa completa: esta é a mesma entidade

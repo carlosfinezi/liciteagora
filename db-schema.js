@@ -2602,15 +2602,121 @@ db.exec(`
     falhas INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_push_usuario ON push_inscricoes(usuarioId);
+
+  /* Agendamento de reunião pelo próprio lead (2026-09-18).
+
+     Uma linha por CONVITE, e a mesma linha vira a reunião quando o horário é
+     escolhido: 'convidado' → 'marcada' → 'cancelada'. Separar convite de
+     compromisso criaria duas tabelas que precisam concordar, e o estado já diz
+     tudo que se precisa saber.
+
+     O token é o que autentica o lead, que não tem conta aqui — mesmo desenho do
+     orçamento público ("pedidos.tokenPublico"): 64 hex, confere formato antes de
+     ir ao banco, e identifica UM convite, sem listagem por trás.
+
+     O índice único parcial é a guarda contra dois leads confirmarem o mesmo
+     horário. Sem ele, dois cliques simultâneos marcam duas reuniões às 14h com
+     a mesma pessoa e ninguém descobre até a hora. Ele é PARCIAL porque cancelar
+     e remarcar no mesmo horário é legítimo, e um UNIQUE cru proibiria isso.
+
+     A reunião também vira "crm_atividades" do tipo 'reuniao' ("atividadeId"), que
+     é o que a agenda e o funil já sabem desenhar. Aqui não se duplica o
+     compromisso: guarda-se o que é do agendamento. */
+  CREATE TABLE IF NOT EXISTS agenda_reunioes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL UNIQUE,
+    conversaId INTEGER,
+    pessoaId INTEGER,
+    responsavelId INTEGER NOT NULL,
+    nomeContato TEXT,
+    telefone TEXT,
+    email TEXT,
+    estado TEXT NOT NULL DEFAULT 'convidado',
+    dataHora TEXT,
+    atividadeId INTEGER,
+    criadoEm TEXT DEFAULT CURRENT_TIMESTAMP,
+    expiraEm TEXT,
+    marcadoEm TEXT,
+    canceladoEm TEXT
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_agenda_slot
+    ON agenda_reunioes(responsavelId, dataHora) WHERE estado = 'marcada';
+  CREATE INDEX IF NOT EXISTS idx_agenda_conversa ON agenda_reunioes(conversaId);
+
+  /* Roteiros de venda com pontuacao (2026-09-18).
+
+     O roteiro inteiro vive em "config" (JSON): perguntas, respostas possiveis,
+     peso de cada uma, objecoes e os valores das variaveis. E documento, nao
+     tabela: as perguntas mudam junto, e normalizar isso em tres tabelas so
+     criaria tres lugares para manter em acordo.
+
+     O PREENCHIMENTO, esse sim tem colunas de verdade, porque e o que se
+     consulta: quantas visitas na semana, quantos videos assistidos, quais
+     objecoes mais aparecem, quantos contadores coletados. Enterrar isso em JSON
+     tornaria o painel de metas uma varredura.
+
+     "pontos" e gravado junto das respostas de proposito. O peso pode mudar
+     amanha, e a visita de ontem tem de continuar valendo o que valia quando foi
+     feita. */
+  CREATE TABLE IF NOT EXISTS roteiros (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    canal TEXT NOT NULL DEFAULT 'visita',
+    corte INTEGER NOT NULL DEFAULT 2,
+    padrao INTEGER NOT NULL DEFAULT 0,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    config TEXT NOT NULL,
+    criadoEm TEXT DEFAULT CURRENT_TIMESTAMP,
+    dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS roteiro_visitas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    roteiroId INTEGER NOT NULL,
+    vendedorId INTEGER,
+    pessoaId INTEGER,
+    empresa TEXT,
+    segmento TEXT,
+    decisor TEXT,
+    whatsapp TEXT,
+    contador TEXT,
+    caixas INTEGER,
+    funcionarios INTEGER,
+    maisDeUmPonto INTEGER NOT NULL DEFAULT 0,
+    conversaId INTEGER,
+    respostas TEXT,
+    pontos INTEGER NOT NULL DEFAULT 0,
+    videoAssistido INTEGER NOT NULL DEFAULT 0,
+    reacaoVideo TEXT,
+    objecao TEXT,
+    status TEXT NOT NULL DEFAULT 'em_visita',
+    motivo TEXT,
+    agendaReuniaoId INTEGER,
+    oportunidadeId INTEGER,
+    resumoEnviadoEm TEXT,
+    criadoEm TEXT DEFAULT CURRENT_TIMESTAMP,
+    dataAtualizacao TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_visita_vendedor ON roteiro_visitas(vendedorId, criadoEm);
+  CREATE INDEX IF NOT EXISTS idx_visita_status ON roteiro_visitas(status, criadoEm);
 `);
 // Multi-loja (Fase 3): a qual estabelecimento a certidão pertence (NULL = matriz).
 // A regra de herança (federal → matriz para filial da mesma PJ; estadual/municipal
 // → CNPJ próprio) vive em habilitacao-cnpj.js.
+// Qualificacao por conversa (2026-09-18): a tabela nasceu neste mesmo dia, e os
+// tenants tocados antes deste ALTER ja tinham a versao sem a coluna.
+//
+// O indice fica AQUI, e nao junto do CREATE TABLE, e a razao custou um boot: em
+// tenant que ja tinha a tabela sem a coluna, o CREATE INDEX lanca "no such
+// column" dentro do db.exec e ABORTA todo o resto do schema -- para todos os
+// tenants. Indice sobre coluna acrescentada por ALTER vem depois do ALTER.
+alterSafe(db, 'ALTER TABLE roteiro_visitas ADD COLUMN conversaId INTEGER');
 // Ramo do membro de lista (2026-09-18): sem ele, lista nao tem segmento, e a dor
 // por segmento so funcionava para destinatario de campanha legado, que traz o
 // ramo no `extras`. A coluna e preenchida na importacao e pelo backfill em
 // scripts/backfill-ramo-listas.js, que casa por telefone com wa_campanha_dest.
 alterSafe(db, 'ALTER TABLE comm_lista_membros ADD COLUMN ramo TEXT');
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_visita_conversa ON roteiro_visitas(conversaId)'); }
+catch (_) { /* tenant ainda sem a tabela: nasce com ela no proximo boot */ }
 alterSafe(db, 'ALTER TABLE habilitacao_documentos ADD COLUMN estabelecimentoId INTEGER');
 // Rastro da renovação automática (2026-09-02): até aqui a falha do robô só existia
 // no habilitacao-renovar.log — a Municipal de Marabá falhou 6 dias seguidos sem que

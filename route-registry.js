@@ -354,6 +354,8 @@ function registerProtectedRoutes(app, deps) {
   require('./loja-routes').registrarRotasLojaAdmin(app, db);      // Vitrine: painel do lojista (a parte pública é pré-auth)
   require('./conversas-routes').registrarRotasConversas(app, db); // Central de conversas: inbox + base da IA
   require('./push-routes').registrarRotasPush(app, db);           // Pop-up de mensagem nova (Web Push)
+  require('./agenda-routes').registrarRotasAgenda(app, db);       // Agendamento de reuniao pelo proprio lead
+  require('./roteiros-routes').registrarRotasRoteiros(app, db);   // Roteiros de venda: visita, pontuacao e resumo
   R('TEF', () => registrarRotasTEF(app, db));
   // ==================== BI / IA / JORNAL / BACKUP / CERTIFICADO / PROXY / FORNECEDOR ====================
   R('Bi', () => registrarRotasBi(app, db));

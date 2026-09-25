@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Visita · LiciteAgora</title>
+<script src="/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/css/app-modern.css">
+<style>
+/* ============================================================================
+   Registro de visita — TELA DE CAMPO
+   ============================================================================
+   Quem usa está de pé, numa loja, com o cliente olhando. Isso decide o desenho:
+
+   - uma etapa por vez, e não um formulário longo com tudo à mostra;
+   - resposta é TOQUE, nunca digitação. As cinco perguntas viram cinco toques;
+   - o alvo do dedo tem 44px de altura, que é o mínimo utilizável em pé;
+   - o que o vendedor fala aparece do jeito que ele deve falar, com as variáveis
+     já trocadas pelo servidor.
+
+   O que ele precisa digitar é só o que não dá para prever: nome da empresa, do
+   decisor, do contador e a reação ao vídeo.
+   ========================================================================== */
+.etapas { display:flex; gap:6px; margin:0 0 16px; }
+.etapas .e { flex:1; height:4px; border-radius:2px; background:var(--border); }
+.etapas .e.feita { background:var(--accent); }
+.fala { background:var(--bg-2); border-left:3px solid var(--accent); padding:12px 14px;
+  border-radius:0 8px 8px 0; margin-bottom:14px; line-height:1.5; }
+.fala .rot { font-size:0.75em; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--text-2); margin-bottom:6px; }
+.dica { font-size:0.85em; color:var(--text-2); margin:-6px 0 14px; }
+.pergunta { margin-bottom:22px; }
+.pergunta > h3 { font-size:1.05em; margin:0 0 4px; line-height:1.35; }
+.opcoes { display:grid; gap:8px; margin-top:10px; }
+.opcoes button { min-height:44px; padding:10px 14px; text-align:left; font:inherit;
+  border:1px solid var(--border); border-radius:8px; background:var(--bg-1);
+  color:var(--text-1); cursor:pointer; }
+.opcoes button.sel { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+.barra { position:sticky; bottom:0; background:var(--bg-0); padding:12px 0;
+  border-top:1px solid var(--border); display:flex; gap:8px; align-items:center; }
+.placar { font-size:0.9em; color:var(--text-2); margin-right:auto; }
+.placar strong { font-size:1.3em; color:var(--text-0); }
+.veredito { padding:12px 14px; border-radius:8px; margin-bottom:14px; font-size:0.95em; }
+.veredito.sim { background:var(--success-soft,#f0fdf4); color:var(--success,#166534); }
+.veredito.nao { background:var(--warn-soft,#fef3c7); color:var(--warn,#92400e); }
+.objecoes summary { cursor:pointer; padding:10px 0; font-weight:600; }
+.objecao { border:1px solid var(--border); border-radius:8px; margin-bottom:8px; }
+.objecao summary { padding:11px 14px; font-weight:500; }
+.objecao .resp { padding:0 14px 14px; white-space:pre-wrap; line-height:1.5; font-size:0.92em; }
+.objecao .regra { margin-top:8px; font-size:0.85em; color:var(--warn,#92400e); }
+#resumo { white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:0.85em;
+  background:var(--bg-2); padding:14px; border-radius:8px; }
+@media (max-width:520px) { .opcoes { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="layout"><main class="main-content">
+  <div class="page-header">
+    <div><h1 id="titulo">Visita</h1><small id="sub"></small></div>
+  </div>
+  <div id="alertGlobal"></div>
+  <div class="etapas" id="etapas"></div>
+  <div id="palco"><small class="muted">Carregando…</small></div>
+  <div class="barra" id="barra" style="display:none;">
+    <span class="placar" id="placar"></span>
+    <button class="btn btn-ghost btn-sm" id="btnVoltar" onclick="irEtapa(ETAPA-1)">Voltar</button>
+    <button class="btn btn-primary" id="btnSeguir" onclick="irEtapa(ETAPA+1)">Continuar</button>
+  </div>
+</main></div>
+
+<script src="/js/menu-config.js"></script>
+<script src="/js/sidebar.js"></script>
+<script>initSidebar('comercial-visita');</script>
+<script>
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+function showAlert(m, t = 'success') {
+  const e = document.getElementById('alertGlobal');
+  e.className = 'alert ' + t; e.textContent = m; e.style.display = 'block';
+  setTimeout(() => e.style.display = 'none', 5000);
+}
+
+let ROTEIRO = null, VISITA = null, ETAPA = 0, RESPOSTAS = {};
+const ETAPAS = ['porte', 'abertura', 'perguntas', 'video', 'agendamento', 'fechamento'];
+
+async function iniciar() {
+  const d = await fetch('/api/roteiros/padrao').then(r => r.json()).catch(() => null);
+  if (!d?.success) {
+    document.getElementById('palco').innerHTML =
+      `<div class="alert warn" style="display:block;">${esc(d?.error || 'Nenhum roteiro de visita cadastrado')}</div>`;
+    return;
+  }
+  ROTEIRO = d.roteiro;
+  document.getElementById('sub').textContent = ROTEIRO.nome;
+  // A visita NÃO nasce aqui. Abrir a tela para dar uma olhada criaria registro
+  // vazio no banco e inflaria a meta da semana — foi o que aconteceu na
+  // primeira versão. Ela nasce no primeiro dado preenchido, em `salvar`.
+  document.getElementById('barra').style.display = '';
+  irEtapa(0);
+}
+
+function irEtapa(n) {
+  ETAPA = Math.max(0, Math.min(n, ETAPAS.length - 1));
+  document.getElementById('etapas').innerHTML = ETAPAS
+    .map((_, i) => `<div class="e ${i <= ETAPA ? 'feita' : ''}"></div>`).join('');
+  document.getElementById('btnVoltar').style.visibility = ETAPA ? '' : 'hidden';
+  document.getElementById('btnSeguir').textContent = ETAPA === ETAPAS.length - 1 ? 'Concluir' : 'Continuar';
+  ({ porte: telaPorte, abertura: telaAbertura, perguntas: telaPerguntas, video: telaVideo,
+     agendamento: telaAgendamento, fechamento: telaFechamento })[ETAPAS[ETAPA]]();
+  window.scrollTo(0, 0);
+}
+
+/**
+ * Salva e devolve o que o servidor recalculou.
+ *
+ * Cria a visita na primeira chamada: é o que evita registro vazio de quem só
+ * abriu a tela.
+ */
+async function salvar(campos) {
+  if (!VISITA) {
+    const nova = await fetch('/api/visitas', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ roteiroId: ROTEIRO.id }) }).then(r => r.json()).catch(() => null);
+    if (!nova?.success) { showAlert(nova?.error || 'Não foi possível abrir a visita', 'error'); return null; }
+    VISITA = nova.id;
+  }
+  const d = await fetch('/api/visitas/' + VISITA, { method:'PUT',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(campos) })
+    .then(r => r.json()).catch(() => null);
+  if (!d?.success) { showAlert(d?.error || 'Não foi possível salvar', 'error'); return null; }
+  return d;
+}
+
+const campo = (id, rot, ph = '', tipo = 'text') => `
+  <label for="${id}" style="display:block;margin:12px 0 4px;font-size:0.85em;color:var(--text-2);">${rot}</label>
+  <input id="${id}" type="${tipo}" placeholder="${esc(ph)}" style="width:100%;">`;
+
+// ---------- 1. porte ----------
+function telaPorte() {
+  document.getElementById('titulo').textContent = 'Vale a visita?';
+  const p = ROTEIRO.porte;
+  document.getElementById('palco').innerHTML =
+    (p?.texto ? `<div class="dica">${esc(p.texto)}</div>` : '')
+    + campo('fEmpresa', 'Empresa', 'Nome da loja')
+    + campo('fSegmento', 'Segmento', 'mercado, vestuário, material de construção…')
+    + `<div style="display:flex;gap:10px;">
+         <div style="flex:1;">${campo('fCaixas', 'Caixas', '', 'number')}</div>
+         <div style="flex:1;">${campo('fFunc', 'Funcionários', '', 'number')}</div>
+       </div>
+       <label style="display:block;margin-top:12px;">
+         <input type="checkbox" id="fPontos" style="width:auto;"> Tem mais de um ponto</label>
+       <div id="vereditoPorte"></div>`;
+  for (const id of ['fCaixas', 'fFunc']) document.getElementById(id).oninput = avaliarPorte;
+  document.getElementById('fPontos').onchange = avaliarPorte;
+  document.getElementById('placar').textContent = '';
+}
+
+async function avaliarPorte() {
+  const d = await salvar({
+    empresa: document.getElementById('fEmpresa').value.trim(),
+    segmento: document.getElementById('fSegmento').value.trim(),
+    caixas: document.getElementById('fCaixas').value,
+    funcionarios: document.getElementById('fFunc').value,
+    maisDeUmPonto: document.getElementById('fPontos').checked,
+  });
+  if (!d) return;
+  document.getElementById('vereditoPorte').innerHTML = d.temPorte
+    ? '<div class="veredito sim" style="margin-top:14px;">Porte suficiente. Pode seguir.</div>'
+    : '<div class="veredito nao" style="margin-top:14px;">Abaixo do corte. Deixe o material, '
+      + 'marque como descartado no fim e siga para a próxima.</div>';
+}
+
+// ---------- 2. abertura ----------
+function telaAbertura() {
+  document.getElementById('titulo').textContent = 'Abertura';
+  document.getElementById('palco').innerHTML =
+    `<div class="fala"><div class="rot">Fale assim</div>${esc(ROTEIRO.abertura)}</div>
+     <div class="dica">Chegue fora do horário de pico. Pergunte pelo dono ou gerente.</div>`;
+}
+
+// ---------- 3. as perguntas ----------
+function telaPerguntas() {
+  document.getElementById('titulo').textContent = 'Qualificação';
+  document.getElementById('palco').innerHTML = ROTEIRO.perguntas.map(p => `
+    <div class="pergunta">
+      <h3>${esc(p.texto)}</h3>
+      ${p.nota ? `<div class="dica" style="margin:4px 0 0;">${esc(p.nota)}</div>` : ''}
+      <div class="opcoes">
+        ${p.opcoes.map(o => `<button data-p="${esc(p.chave)}" data-o="${esc(o.id)}"
+           class="${RESPOSTAS[p.chave] === o.id ? 'sel' : ''}"
+           onclick="responder(this)">${esc(o.rotulo)}</button>`).join('')}
+      </div>
+    </div>`).join('');
+  placar();
+}
+
+async function responder(botao) {
+  const chave = botao.dataset.p;
+  // Tocar de novo na mesma resposta desmarca: em pé, o toque errado é comum, e
+  // sem isso a única saída seria recarregar a visita.
+  RESPOSTAS[chave] = RESPOSTAS[chave] === botao.dataset.o ? undefined : botao.dataset.o;
+  botao.parentElement.querySelectorAll('button').forEach(b =>
+    b.classList.toggle('sel', RESPOSTAS[chave] === b.dataset.o));
+  const d = await salvar({ respostas: RESPOSTAS });
+  if (d) placar(d);
+}
+
+function placar(d) {
+  const el = document.getElementById('placar');
+  if (!d) { el.innerHTML = '<strong>—</strong> de qualificação'; return; }
+  el.innerHTML = `<strong>${d.pontos}</strong> de ${d.maximo}`
+    + (d.faltam.length ? ` · faltam ${d.faltam.length}` : '')
+    + (d.qualificado ? ' · mostre o vídeo' : '');
+}
+
+// ---------- 4. o vídeo ----------
+function telaVideo() {
+  document.getElementById('titulo').textContent = 'O vídeo';
+  const v = ROTEIRO.video || {};
+  document.getElementById('palco').innerHTML =
+    `<div class="fala"><div class="rot">Fale assim</div>${esc(v.chamada || '')}</div>
+     ${v.instrucao ? `<div class="dica">${esc(v.instrucao)}</div>` : ''}
+     <label style="display:block;margin-top:14px;">
+       <input type="checkbox" id="fVideo" style="width:auto;" onchange="salvarVideo()">
+       Assistiu ao vídeo completo</label>
+     ${campo('fReacao', 'Em que parte ele reagiu', 'ex.: quando mostrou o estoque')}`;
+  document.getElementById('fReacao').onchange = salvarVideo;
+}
+
+function salvarVideo() {
+  salvar({ videoAssistido: document.getElementById('fVideo').checked,
+           reacaoVideo: document.getElementById('fReacao').value.trim() });
+}
+
+// ---------- 5. agendamento ----------
+function telaAgendamento() {
+  document.getElementById('titulo').textContent = 'Agendar';
+  const a = ROTEIRO.agendamento || {};
+  document.getElementById('palco').innerHTML =
+    `<div class="fala"><div class="rot">Fale assim</div>${esc(a.texto || '')}</div>
+     ${a.instrucao ? `<div class="dica">${esc(a.instrucao)}</div>` : ''}
+     ${campo('fDecisor', 'Nome do decisor', 'quem decide na loja')}
+     ${campo('fWhats', 'WhatsApp do decisor', '(94) 90000-0000', 'tel')}
+     ${campo('fContador', 'Contador da empresa', 'qual escritório cuida')}
+     <div class="dica" style="margin-top:8px;">O contador entra no mapa de parcerias. Sempre pergunte.</div>
+     ${objecoesHtml()}`;
+  for (const id of ['fDecisor', 'fWhats', 'fContador']) {
+    document.getElementById(id).onchange = () => salvar({
+      decisor: document.getElementById('fDecisor').value.trim(),
+      whatsapp: document.getElementById('fWhats').value.trim(),
+      contador: document.getElementById('fContador').value.trim(),
+    });
+  }
+}
+
+/** As objeções ficam a um toque, porque é na hora que elas aparecem. */
+function objecoesHtml() {
+  if (!ROTEIRO.objecoes?.length) return '';
+  return `<details class="objecoes" style="margin-top:18px;">
+    <summary>Se ele levantar objeção</summary>
+    ${ROTEIRO.objecoes.map(o => `<details class="objecao">
+      <summary>${esc(o.rotulo)}</summary>
+      <div class="resp">${esc(o.resposta)}
+        ${o.regra ? `<div class="regra">${esc(o.regra)}</div>` : ''}
+        <button class="btn btn-ghost btn-sm" style="margin-top:10px;"
+          onclick="marcarObjecao('${esc(o.chave)}')">Foi esta que apareceu</button>
+      </div></details>`).join('')}
+  </details>`;
+}
+
+async function marcarObjecao(chave) {
+  if (await salvar({ objecao: chave })) showAlert('Objeção registrada');
+}
+
+// ---------- 6. fechamento ----------
+function telaFechamento() {
+  document.getElementById('titulo').textContent = 'Fechar a visita';
+  document.getElementById('palco').innerHTML = `
+    <label style="display:block;margin-bottom:4px;font-size:0.85em;color:var(--text-2);">Como terminou</label>
+    <div class="opcoes" id="fStatus">
+      ${[['agendado','Agendou a call'],['pensando','Ficou de pensar'],['descartado','Descartado']]
+        .map(([v, r]) => `<button data-s="${v}" onclick="marcarStatus(this)">${r}</button>`).join('')}
+    </div>
+    ${campo('fMotivo', 'Observação', 'motivo do descarte, ou quando retornar')}
+    <h3 style="font-size:1em;margin:22px 0 8px;">Resumo para quem fecha</h3>
+    <div id="resumo">Carregando…</div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+      ${campo('fDestino', 'WhatsApp de quem recebe', '(94) 90000-0000', 'tel')}
+    </div>
+    <button class="btn btn-primary" style="margin-top:10px;" onclick="enviarResumo()">Enviar resumo</button>`;
+  document.getElementById('fMotivo').onchange = () =>
+    salvar({ motivo: document.getElementById('fMotivo').value.trim() });
+  verResumo();
+}
+
+async function marcarStatus(botao) {
+  document.querySelectorAll('#fStatus button').forEach(b => b.classList.toggle('sel', b === botao));
+  if (await salvar({ status: botao.dataset.s })) verResumo();
+}
+
+async function verResumo() {
+  if (!VISITA) {
+    document.getElementById('resumo').textContent =
+      'Preencha a visita para o resumo aparecer.';
+    return;
+  }
+  const d = await fetch(`/api/visitas/${VISITA}/resumo`, { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: '{}' }).then(r => r.json()).catch(() => null);
+  document.getElementById('resumo').textContent = d?.success ? d.texto : 'Não foi possível montar o resumo';
+}
+
+async function enviarResumo() {
+  if (!VISITA) return showAlert('Preencha a visita antes de enviar', 'error');
+  const destino = document.getElementById('fDestino').value.trim();
+  if (!destino) return showAlert('Informe o WhatsApp de quem recebe', 'error');
+  const d = await fetch(`/api/visitas/${VISITA}/resumo`, { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enviar: true, destino }) })
+    .then(r => r.json()).catch(() => null);
+  if (!d?.success) return showAlert(d?.error || 'Não foi possível enviar', 'error');
+  showAlert('Resumo enviado');
+}
+
+iniciar();
+</script>
+</body>
+</html>

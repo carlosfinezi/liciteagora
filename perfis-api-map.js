@@ -1,8 +1,9 @@
 /**
  * perfis-api-map.js — de qual página cada prefixo de API depende.
  *
- * ARQUIVO GERADO por `node scripts/gerar-mapa-api.js`. Não editar à mão: o que
- * precisa de ajuste manual é o bloco COMPLEMENTO daquele script.
+ * Nasceu gerado por `node scripts/gerar-mapa-api.js`, mas NÃO rode mais esse
+ * script: ele desfaz os ajustes feitos à mão aqui e amplia acessos que foram
+ * estreitados de propósito. Rota nova entra editando este arquivo.
  *
  * O gate de páginas (perfis-acesso.js) fecha a navegação; sem isto a API
  * continuaria aberta a quem soubesse o endereço do endpoint. A regra: um perfil
@@ -39,7 +40,7 @@ const MAPA = {
   '/api/adiantamentos':          ['aprovacoes', 'contas-a-pagar', 'contas-a-receber', 'contratos', 'crm-funil', 'equipamentos', 'fin-adiantamentos', 'ordens-servico', 'os-relatorios', 'pedidos-compra'],
   '/api/admin':                  ['aprovacoes', 'cadastro-cores', 'cadastro-generos', 'cadastro-marcas', 'cadastro-materiais', 'cadastro-modelos', 'cadastro-os-tipos', 'cadastro-servicos', 'comercial-vendas-perdidas', 'compras-necessidades', 'compras-sugestao', 'contratos', 'crm-funil', 'devolucoes', 'estoque-reservas', 'loja', 'notas-fiscais', 'ordens-montagem', 'pedidos', 'pedidos-compra', 'portal-credenciais', 'receitas-opticas', 'ssl-certificados'],
   '/api/adquirentes':            ['adquirentes-cartao', 'aprovacoes', 'comercial-vendas-perdidas', 'contratos', 'crm-funil', 'devolucoes', 'equipamentos', 'estoque-reservas', 'ordens-servico', 'os-relatorios', 'pedidos', 'pedidos-compra', 'ssl-certificados'],
-  '/api/agenda':                 ['agenda'],
+  '/api/agenda':                 ['agenda', 'conversas', 'comunicacao-ia', 'visita'],
   '/api/alcadas':                ['aprovacoes', 'config-alcadas'],
   '/api/alertas':                ['notificacoes'],
   '/api/analise':                ['analises-ia', 'config-ia', 'grupos-palavras'],
@@ -86,6 +87,8 @@ const MAPA = {
   '/api/cr-categorias':          ['contas-a-receber', 'contratos', 'crm-funil', 'equipamentos', 'ordens-servico', 'os-relatorios', 'pedidos-compra'],
   '/api/credenciais':            ['consulta', 'propostas-api'],
   '/api/crm':                    ['agenda', 'crm-funil'],
+  '/api/roteiros':               ['visita', 'crm-funil'],
+  '/api/visitas':                ['visita', 'crm-funil'],
   '/api/cte':                    ['cte'],
   '/api/dashboard':              ['aprovacoes', 'cadastro-cores', 'cadastro-generos', 'cadastro-marcas', 'cadastro-materiais', 'cadastro-modelos', 'cadastro-os-tipos', 'cadastro-servicos', 'comercial-vendas-perdidas', 'compras-necessidades', 'compras-sugestao', 'contratos', 'crm-funil', 'devolucoes', 'estoque-reservas', 'loja', 'notas-fiscais', 'ordens-montagem', 'pedidos', 'pedidos-compra', 'portal-credenciais', 'receitas-opticas', 'ssl-certificados'],
   '/api/depositos':              ['aprovacoes', 'comercial-vendas-perdidas', 'contratos', 'crm-funil', 'devolucoes', 'equipamentos', 'estoque', 'estoque-analises', 'estoque-depositos', 'estoque-inventario', 'estoque-movimentacoes', 'estoque-requisicoes', 'estoque-reservas', 'estoque-transferencias', 'ordens-servico', 'os-relatorios', 'pedidos', 'pedidos-compra', 'ssl-certificados'],
