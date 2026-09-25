@@ -79,7 +79,9 @@ function registrarRotasBoletoProvedores(app, db) {
         }
       }
 
-      const validacao = modulo.validarConfig(campos);
+      // O ambiente nao entra no configJson (a coluna `ambiente` ja o guarda), mas a
+      // validacao precisa dele para recusar chave de um ambiente gravada no outro.
+      const validacao = modulo.validarConfig({ ...campos, ambiente: b.ambiente || 'homologacao' });
       if (!validacao.ok) return res.status(400).json({ success: false, error: validacao.erro || 'Config inválida' });
 
       const certificadoBase64 = b.certificadoBase64 || existente?.certificadoBase64 || null;

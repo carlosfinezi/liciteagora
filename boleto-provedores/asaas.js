@@ -118,7 +118,12 @@ module.exports = {
       return { ok: false, erro: 'accessToken inválido (deve começar com $aact_)' };
     }
     if (cfg.ambiente === 'producao' && !cfg.accessToken.startsWith('$aact_prod_')) {
-      return { ok: false, erro: 'ambiente=producao exige accessToken com prefixo $aact_prod_' };
+      return { ok: false, erro: 'Ambiente Produção exige chave que comece com $aact_prod_.' };
+    }
+    // O inverso só é recusado quando o prefixo declara produção. O Asaas emitiu por anos
+    // chaves de sandbox sem marcador de ambiente, e a regra estrita recusaria quem as tem.
+    if (cfg.ambiente && cfg.ambiente !== 'producao' && cfg.accessToken.startsWith('$aact_prod_')) {
+      return { ok: false, erro: 'Chave de produção ($aact_prod_) gravada com ambiente Homologação. O sandbox do Asaas recusa essa chave. Troque o ambiente para Produção.' };
     }
     return { ok: true };
   },

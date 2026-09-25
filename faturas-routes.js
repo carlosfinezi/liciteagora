@@ -14,7 +14,7 @@ const { escopoSql, guardEscopo } = require('./estabelecimentos-routes');
 const { cancelarFaturaLocal } = require('./fatura-cancelamento');
 const { sincronizarPagamentoPedido } = require('./contas-receber-routes');
 const { getEstabelecimentoAtivo } = require('./estabelecimentos-routes');
-const { prazoDaPessoa, dividirValor } = require('./prazo-pagamento');
+const { prazoDaPessoa, dividirValor, parsePrazo } = require('./prazo-pagamento');
 
 const MEIOS_AVISTA_CAIXA = new Set(['01']);      // Dinheiro
 const MEIOS_AVISTA_BANCO = new Set([]);          // PIX (17) agora gera cobrança QR/link (baixa via webhook), não auto-baixa
@@ -152,6 +152,30 @@ function carregarFaturaCompleta(db, faturaId) {
   return { ...f, itens, parcelas, nfeAtivaEmOutraFatura };
 }
 
+/**
+ * Prazo da condição de pagamento gravada NO PEDIDO, já em dias.
+ *
+ * A condição escolhida no pedido é a do documento e vem antes da do cadastro do
+ * cliente, que é o que `os-routes.js` já fazia no faturamento de OS. Sem isto, um
+ * pedido com condição "Boleto 30 dias" cujo cliente não tem condição na ficha
+ * caía no prazo nenhum, e a fatura nascia vencendo na emissão.
+ *
+ * Nunca lança: condição apagada, desativada ou com texto inválido devolve null e
+ * o faturamento segue pelo cadastro do cliente, como antes.
+ */
+function prazoDaPoliticaDoPedido(db, politicaPrazoId) {
+  if (!politicaPrazoId) return null;
+  try {
+    const pol = db.prepare('SELECT tipo, prazoDias FROM politicas_prazo WHERE id = ? AND ativo = 1')
+      .get(Number(politicaPrazoId));
+    if (!pol) return null;
+    if (pol.tipo === 'vista') return [0];
+    return parsePrazo(pol.prazoDias) || null;
+  } catch {
+    return null;   // tenant cujo banco ainda nao tem a tabela
+  }
+}
+
 function registrarRotasFaturas(app, db) {
   // RBAC de estabelecimento: fecha abrir/PDF/cancelar/restaurar por id de uma vez.
   app.use('/api/faturas/:id', guardEscopo(db, 'faturas'));
@@ -229,10 +253,16 @@ function registrarRotasFaturas(app, db) {
       const gerarContasReceber = tipoOp ? !!tipoOp.geraFinanceiro : true;
 
       const dataEmissao = dataBrasilia();
-      // Prazo do cadastro do cliente ("30/60/90") manda no vencimento e no número
-      // de parcelas quando ninguém informou data. Sem prazo, segue o +30 de antes.
-      const prazoCliente = prazoDaPessoa(db, pedido.clienteId);
-      const vencInformado = b.dataVencimento || pedido.dataFaturamentoPrevista || null;
+      // A condição de pagamento manda no vencimento e no número de parcelas quando
+      // ninguém informou data: primeiro a do pedido, depois a do cadastro do
+      // cliente. Sem nenhuma das duas, segue o +30 de antes.
+      const prazoCliente = prazoDaPoliticaDoPedido(db, pedido.politicaPrazoId)
+        || prazoDaPessoa(db, pedido.clienteId);
+      // `dataFaturamentoPrevista` NAO entra aqui. Ela responde quando a nota
+      // seria emitida, e nao quando o cliente paga. Enquanto entrava, todo
+      // pedido com data prevista preenchida nascia vencendo nela, por cima da
+      // condicao de pagamento, e a NF-e saia com indPag=0 e sem <dup>.
+      const vencInformado = b.dataVencimento || null;
       const dataVencimento = vencInformado
         || addDias(dataEmissao, prazoCliente ? prazoCliente[0] : 30);
 
